@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Per-agent static-analysis lens routing for /flow-pr-review's six-agent fan-out.
+ * Per-agent static-analysis lens routing for /flow-pr-review's seven-agent fan-out.
  *
  * Why: skills/pipeline/flow-pr-review/SKILL.md used to inline six adjacent `jq`
  * invocations — one per agent — that sliced `.flow-tmp/static-analysis.json`
@@ -29,7 +29,8 @@ export type AgentName =
   | "pattern-consistency"
   | "performance"
   | "supply-chain"
-  | "test-coverage";
+  | "test-coverage"
+  | "product";
 
 export const SYNTHETIC_SUPPLY_CHAIN: "synthetic-supply-chain" =
   "synthetic-supply-chain";
@@ -37,10 +38,13 @@ export const SYNTHETIC_SUPPLY_CHAIN: "synthetic-supply-chain" =
 export const SYNTHETIC_TEST_COVERAGE: "synthetic-test-coverage" =
   "synthetic-test-coverage";
 
+export const SYNTHETIC_PRODUCT: "synthetic-product" = "synthetic-product";
+
 export type LensKey =
   | LensName
   | typeof SYNTHETIC_SUPPLY_CHAIN
-  | typeof SYNTHETIC_TEST_COVERAGE;
+  | typeof SYNTHETIC_TEST_COVERAGE
+  | typeof SYNTHETIC_PRODUCT;
 
 export const AGENT_LENS_MAP: Record<AgentName, readonly LensKey[]> = {
   "bug-detection": ["types"],
@@ -49,6 +53,7 @@ export const AGENT_LENS_MAP: Record<AgentName, readonly LensKey[]> = {
   performance: ["lint"],
   "supply-chain": [SYNTHETIC_SUPPLY_CHAIN],
   "test-coverage": [SYNTHETIC_TEST_COVERAGE],
+  product: [SYNTHETIC_PRODUCT],
 };
 
 const AGENT_NAMES: readonly AgentName[] = Object.keys(
@@ -67,11 +72,18 @@ export type SyntheticTestCoverageMeta = {
   duration_ms: 0;
 };
 
+export type SyntheticProductMeta = {
+  ran: false;
+  skipped_reason: "no product pre-digest lens";
+  duration_ms: 0;
+};
+
 export type RouteOutput =
   | { findings: Finding[]; meta: LensMeta }
   | { findings: Finding[]; meta: Record<LensName, LensMeta> }
   | { findings: Finding[]; meta: SyntheticSupplyChainMeta }
-  | { findings: Finding[]; meta: SyntheticTestCoverageMeta };
+  | { findings: Finding[]; meta: SyntheticTestCoverageMeta }
+  | { findings: Finding[]; meta: SyntheticProductMeta };
 
 export function route(envelope: AnalysisResult, agent: AgentName): RouteOutput {
   const lenses = AGENT_LENS_MAP[agent];
@@ -93,6 +105,17 @@ export function route(envelope: AnalysisResult, agent: AgentName): RouteOutput {
       meta: {
         ran: false,
         skipped_reason: "no coverage pre-digest lens",
+        duration_ms: 0,
+      },
+    };
+  }
+
+  if (lenses.length === 1 && lenses[0] === SYNTHETIC_PRODUCT) {
+    return {
+      findings: [],
+      meta: {
+        ran: false,
+        skipped_reason: "no product pre-digest lens",
         duration_ms: 0,
       },
     };

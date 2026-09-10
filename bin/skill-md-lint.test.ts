@@ -1625,6 +1625,14 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     },
     { file: "flow-review-security.md", wantTools: "Read, Grep, Glob, Write" },
     {
+      file: "flow-review-product.md",
+      wantTools: "Read, Grep, Glob, Write",
+    },
+    {
+      file: "flow-product-critic.md",
+      wantTools: "Read, Write",
+    },
+    {
       file: "flow-review-pattern-consistency.md",
       wantTools: "Read, Grep, Glob, Write",
     },
@@ -2243,7 +2251,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        499,
+        514,
         "NEVER commit to or push the base branch",
       ],
       [
@@ -2685,6 +2693,7 @@ describe("flow-pr-agent-lens routing map ↔ flow-pr-review/SKILL.md agent table
     Performance: "performance",
     "Supply-Chain": "supply-chain",
     "Test Coverage": "test-coverage",
+    Product: "product",
   };
 
   function extractSkillAgentKebabs(): string[] {
@@ -2695,7 +2704,7 @@ describe("flow-pr-agent-lens routing map ↔ flow-pr-review/SKILL.md agent table
       .map((name) => AGENT_NAME_TO_KEBAB[name]);
   }
 
-  it("flow-pr-review/SKILL.md agent table and AGENT_LENS_MAP list the same six agents", () => {
+  it("flow-pr-review/SKILL.md agent table and AGENT_LENS_MAP list the same seven agents", () => {
     const skill = new Set(extractSkillAgentKebabs());
     const map = new Set(Object.keys(AGENT_LENS_MAP));
     const onlyInSkill = [...skill].filter((x) => !map.has(x));
@@ -2714,26 +2723,26 @@ describe("flow-pr-agent-lens routing map ↔ flow-pr-review/SKILL.md agent table
     ).toBe(0);
   });
 
-  it("flow-pr-review/SKILL.md agent table parses exactly six agent rows", () => {
+  it("flow-pr-review/SKILL.md agent table parses exactly seven agent rows", () => {
     expect(
       extractSkillAgentKebabs().length,
-      "flow-pr-review/SKILL.md agent table must have exactly six rows with bold agent names. " +
+      "flow-pr-review/SKILL.md agent table must have exactly seven rows with bold agent names. " +
         "If you added or removed an agent, update AGENT_LENS_MAP in bin/flow-pr-agent-lens.ts too.",
-    ).toBe(6);
+    ).toBe(7);
   });
 });
 
 describe("cross-model (Gemini) lens doc symmetry", () => {
   /**
    * The Gemini cross-model lens is a flow-delegate Bash fan-out (NOT a Task,
-   * NOT a seventh agent-table row — it has no static-analysis lens, so it is
-   * deliberately absent from AGENT_LENS_MAP and the six-row table above). It
+   * NOT an eighth agent-table row — it has no static-analysis lens, so it is
+   * deliberately absent from AGENT_LENS_MAP and the seven-row table above). It
    * is documented as a separate Step 3 sub-step + Step 3.5 consolidator
    * input. This lint guards against the two halves drifting: the Step 3
    * spawn/note and the Step 3.5 consolidator input list must both name
    * `agent-output-gemini.json`, and the consolidator-instructions §2 input
    * list must too. A separately-anchored guard — it does NOT touch the
-   * six-row `.toBe(6)` lint or the nine-exemption-count lints.
+   * seven-row `.toBe(7)` lint or the nine-exemption-count lints.
    */
   const GEMINI_ARTIFACT = "agent-output-gemini.json";
 
@@ -2790,6 +2799,105 @@ describe("cross-model (Gemini) lens doc symmetry", () => {
         `'${GEMINI_ARTIFACT}' as the optional seventh input so the consolidator ` +
         "subagent's instructions stay in sync with flow-pr-review/SKILL.md.",
     ).toBe(true);
+  });
+});
+
+describe("product lens doc symmetry", () => {
+  /**
+   * The product lens is the seventh, brief-gated agent-table row (unlike
+   * Gemini, which is deliberately absent from the table). Its artifact is
+   * still optional/tolerated-absent downstream — gated on a product brief
+   * resolving rather than on `review.lensGates`. This lint guards against
+   * the two halves drifting: the Step 3 spawn/note and the Step 3.5
+   * consolidator input list must both name `agent-output-product.json`, and
+   * the consolidator-instructions §2 input list must too. Cloned from the
+   * Gemini symmetry block above — a separately-anchored guard that does NOT
+   * touch the seven-row `.toBe(7)` lint or the nine-exemption-count lints.
+   */
+  const PRODUCT_ARTIFACT = "agent-output-product.json";
+
+  const consolidatorInstructionsPathForProduct = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "flow-consolidator-instructions",
+    "SKILL.md",
+  );
+  const consolidatorContentForProduct = fs.readFileSync(
+    consolidatorInstructionsPathForProduct,
+    "utf8",
+  );
+
+  const step35MarkerForProduct = "## 3.5. Independent Consolidator-Validator";
+  const step35IdxForProduct = prReviewContent.indexOf(step35MarkerForProduct);
+
+  it("flow-pr-review/SKILL.md Step 3 (before 3.5) names agent-output-product.json", () => {
+    const step3 = prReviewContent.slice(0, step35IdxForProduct);
+    expect(
+      step3.includes(PRODUCT_ARTIFACT),
+      "flow-pr-review/SKILL.md Step 3 must document the brief-gated product lens " +
+        `naming '${PRODUCT_ARTIFACT}'. If you removed the agent table row, the lens drifted ` +
+        "out of the spawn half of the contract.",
+    ).toBe(true);
+  });
+
+  it("flow-pr-review/SKILL.md Step 3.5 (consolidator input) names agent-output-product.json", () => {
+    const step35 = prReviewContent.slice(step35IdxForProduct);
+    expect(
+      step35.includes(PRODUCT_ARTIFACT),
+      "flow-pr-review/SKILL.md Step 3.5 consolidator input list must name " +
+        `'${PRODUCT_ARTIFACT}' as the optional eighth (tolerated-absent) input. ` +
+        "Drift here means the lens is spawned at Step 3 but never consumed.",
+    ).toBe(true);
+  });
+
+  it("flow-consolidator-instructions/SKILL.md §2 input list names agent-output-product.json", () => {
+    expect(
+      consolidatorContentForProduct.includes(PRODUCT_ARTIFACT),
+      "flow-consolidator-instructions/SKILL.md §2 Inputs must name " +
+        `'${PRODUCT_ARTIFACT}' as the optional eighth input so the consolidator ` +
+        "subagent's instructions stay in sync with flow-pr-review/SKILL.md.",
+    ).toBe(true);
+  });
+});
+
+describe("blind product critic doc symmetry (plan-time, distinct from the PR-review product lens)", () => {
+  /**
+   * The plan-time blind critic (step 3 of /flow-pipeline) is a SEPARATE
+   * feature from the PR-review product lens guarded above — it writes
+   * `.flow-tmp/product-critique.md` and reconciles into plan.md's
+   * `### Product critique (blind)` subsection, never `agent-output-product.json`.
+   * This lint guards that both the gate/read side and the write side of
+   * step3-threading.md, plus flow-pipeline/SKILL.md's pointer, keep naming
+   * the same artifact and subsection heading.
+   */
+  const skillsDirForCritic = path.resolve(HERE, "..", "skills", "pipeline");
+  const readForCritic = (rel: string) =>
+    fs.readFileSync(path.resolve(skillsDirForCritic, rel), "utf8");
+  const t3 = readForCritic("flow-pipeline/references/step3-threading.md");
+  const flowPipelineSkill = readForCritic("flow-pipeline/SKILL.md");
+
+  it("step3-threading.md names product-critique.md on both the gate and the write side", () => {
+    expect(
+      t3.includes("product-critique.md"),
+      "step3-threading.md must name 'product-critique.md' as the blind " +
+        "critic's artifact on both the staleness-gate read side and the " +
+        "reconciliation write side.",
+    ).toBe(true);
+  });
+
+  it("step3-threading.md and flow-pipeline/SKILL.md both name the '### Product critique (blind)' plan subsection", () => {
+    for (const [label, content] of [
+      ["step3-threading.md", t3],
+      ["flow-pipeline/SKILL.md", flowPipelineSkill],
+    ] as const) {
+      expect(
+        content.includes("Product critique (blind)"),
+        `${label} must name the '### Product critique (blind)' plan ` +
+          "subsection so the blind-critic contract stays in sync across docs.",
+      ).toBe(true);
+    }
   });
 });
 
@@ -4423,7 +4531,7 @@ describe("pr-review result-artifact contract lint", () => {
   );
 });
 
-describe("Task-tool ToolSearch-load preamble at all seven top-level spawn sites", () => {
+describe("Task-tool ToolSearch-load preamble at all eight top-level spawn sites", () => {
   const SITES: ReadonlyArray<{ file: string; exemption_name: string }> = [
     {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
@@ -4452,6 +4560,10 @@ describe("Task-tool ToolSearch-load preamble at all seven top-level spawn sites"
     {
       file: "skills/pipeline/flow-pipeline/SKILL.md",
       exemption_name: "flow-pipeline-merge-resolver",
+    },
+    {
+      file: "skills/pipeline/flow-pipeline/SKILL.md",
+      exemption_name: "product-planning-critic",
     },
   ];
 
@@ -4491,6 +4603,7 @@ describe("Task-tool ToolSearch-load preamble at all seven top-level spawn sites"
     "pr-review-consolidator-validator",
     "flow-pipeline-merge-resolver",
     "flow-pipeline-verify-loop",
+    "product-planning-critic",
   ]);
   const PREAMBLE_REF_PATH = path.resolve(
     HERE,
@@ -4890,12 +5003,19 @@ describe("pr-review include-by-reference structure", () => {
     // phase it now emits as a side effect (`flow-fetch-pr-review` — plan.md
     // Task 4) — 2 net lines, genuine load-bearing content for this PR's own
     // contract, not regrowth.
+    //
+    // Bumped 1865 -> 1885 (merge of origin/main into f3-product-critic): two
+    // independently-reviewed PRs each grew this file under the same pin --
+    // #830's per-lens model/tier resolution (main, 1863 lines) and this
+    // branch's seventh `product` lens (1846 lines). Neither is regrowth, and
+    // the merged file is their union at 1880 lines. 1885 leaves 5 lines of
+    // genuine headroom, not round-number headroom for future growth.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1865 lines. Material regrowth past this ceiling would ` +
+        `budget of 1885 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1865);
+    ).toBeLessThan(1885);
   });
 
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
@@ -5051,17 +5171,27 @@ describe("pr-review include-by-reference structure", () => {
     // above survive the merge. `main`'s higher ceiling is kept — the
     // merged file lands at 3019 lines after `main`'s verify-loop diet, so
     // 3115 clears it and no third number is invented.
+    //
     // Request-vetting note: PR #812's Task 8 (`## Request vetting`
     // rendering + non-feature push-back routing + the FOUR-hashed-inputs
     // doc update) added genuine step-3 prose, landing the file at 3127
-    // lines — the ceiling moves to 3140 (13 lines of genuine headroom),
-    // the same discipline as above.
+    // lines — the ceiling moved to 3140, the same discipline as above.
+    //
+    // Merge note (f3 product critic): this branch independently raised
+    // 3115 -> 3140 for the "Blind product critic (brief-gated, once per
+    // step-3 pass)" sub-step plus the exemption #1/#2 wording widening.
+    // Both ledgers above survive the merge, and both raises were budgeted
+    // at 3140 for their OWN content — but the merged file carries both
+    // bodies, landing at 3143. The ceiling moves to 3155 (12 lines of
+    // genuine headroom) to cover the union; this is the arithmetic of two
+    // independently-budgeted features meeting, not new bloat, and neither
+    // side's content was trimmed to fake a fit.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3140 lines. Material regrowth past this ceiling would ` +
+        `budget of 3155 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3140);
+    ).toBeLessThan(3155);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -9153,7 +9283,7 @@ describe("pause-output contract wiring lint", () => {
     expect(findBrokenInlineSpans("odd ` count\nno backticks here")).toEqual([]);
   });
 
-  it("the six lens checklist files exist and the monolith stays deleted", () => {
+  it("the seven lens checklist files exist and the monolith stays deleted", () => {
     const checklistsDir = path.join(
       REPO_ROOT,
       "skills",
@@ -9169,6 +9299,7 @@ describe("pause-output contract wiring lint", () => {
       "performance.md",
       "supply-chain.md",
       "test-coverage.md",
+      "product.md",
     ];
     const present = fs
       .readdirSync(checklistsDir)
@@ -9982,8 +10113,8 @@ describe("Step 0 request echo contract — both supervisor SKILL.md files", () =
 });
 
 describe("Lens negative-findings entry shape", () => {
-  // Explicit six-path list, NEVER a readdir or a `flow-review-*.md` glob:
-  // the glob matches a SEVENTH file, flow-review-intent-guess.md, which
+  // Explicit seven-path list, NEVER a readdir or a `flow-review-*.md` glob:
+  // the glob matches an EIGHTH file, flow-review-intent-guess.md, which
   // emits a different artifact (the blind intent guess) and must not be
   // pinned to this shape.
   const LENS_AGENT_FILES = [
@@ -9993,6 +10124,7 @@ describe("Lens negative-findings entry shape", () => {
     "flow-review-performance.md",
     "flow-review-supply-chain.md",
     "flow-review-test-coverage.md",
+    "flow-review-product.md",
   ];
 
   const CANONICAL_SHAPE_SENTENCE =

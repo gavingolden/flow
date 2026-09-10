@@ -338,22 +338,63 @@ export function composeCountsLine(fixApplierRaw: string): string {
 }
 
 /**
- * `LENSES:` body (dev) / `lenses:` one-liner (pm) from
- * `review-telemetry.json` — dev gets one line per lens plus a leading
- * `scope:` line; pm gets a single summary line. `none` when raw is
- * empty/absent, `(unreadable)` when present but not parseable JSON —
- * same explicit-none discipline as `renderReviewCounts`.
+ * `TIER: <tier> — <reasons>` leading line for the LENSES section, sourced
+ * from `pr-review-result.json`'s optional `tier` / `tier_reasons` fields
+ * (`bin/lib/pr-review-result-schema.ts`) — the risk-tier decision that
+ * governed which lenses ran, surfaced beside the lens detail rather than
+ * requiring a reader to open a separate artifact. An absent/unreadable
+ * `prReviewRaw`, or one whose `tier` is absent, renders the literal
+ * `TIER: standard (default)` — never silence, matching this module's
+ * explicit-`none` discipline. A present tier with empty/absent reasons
+ * renders with no trailing dash clause.
  */
-export function renderLenses(raw: string | undefined): {
+function renderTierLine(prReviewRaw: string | undefined): string {
+  const DEFAULT_TIER_LINE = "TIER: standard (default)";
+  if (!prReviewRaw || !prReviewRaw.trim()) return DEFAULT_TIER_LINE;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(prReviewRaw);
+  } catch {
+    return DEFAULT_TIER_LINE;
+  }
+  if (typeof parsed !== "object" || parsed === null) return DEFAULT_TIER_LINE;
+  const o = parsed as Record<string, unknown>;
+  if (typeof o.tier !== "string" || !o.tier) return DEFAULT_TIER_LINE;
+  const reasons =
+    Array.isArray(o.tier_reasons) &&
+    o.tier_reasons.every((r) => typeof r === "string")
+      ? (o.tier_reasons as string[])
+      : [];
+  return reasons.length > 0
+    ? `TIER: ${o.tier} — ${reasons.join("; ")}`
+    : `TIER: ${o.tier}`;
+}
+
+/**
+ * `LENSES:` body (dev) / `lenses:` one-liner (pm) from
+ * `review-telemetry.json` — dev gets a leading `TIER:` line (see
+ * `renderTierLine`), a `scope:` line, then one line per lens; pm gets a
+ * single summary line. `none` when raw is empty/absent, `(unreadable)`
+ * when present but not parseable JSON — same explicit-none discipline as
+ * `renderReviewCounts`. `prReviewRaw` is optional and independent of
+ * `raw`'s own presence/shape — the TIER line renders its own default even
+ * when the lens telemetry itself is absent or unreadable.
+ */
+export function renderLenses(
+  raw: string | undefined,
+  prReviewRaw?: string,
+): {
   dev: string[];
   pm: string;
 } {
-  if (!raw || !raw.trim()) return { dev: NONE, pm: "lenses: none" };
+  const tierLine = renderTierLine(prReviewRaw);
+  if (!raw || !raw.trim())
+    return { dev: [tierLine, ...NONE], pm: "lenses: none" };
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { dev: ["(unreadable)"], pm: "lenses: (unreadable)" };
+    return { dev: [tierLine, "(unreadable)"], pm: "lenses: (unreadable)" };
   }
   const scope = parsed.scope as
     | { kind?: string; delta_files?: number }
@@ -367,7 +408,9 @@ export function renderLenses(raw: string | undefined): {
         {
           ran?: boolean;
           skip_reason?: string;
+          model?: string | null;
           tokens?: { total?: number } | null;
+          tokens_source?: string;
           findings_emitted?: number;
           findings_survived?: number;
           findings_acted?: number;
@@ -380,18 +423,22 @@ export function renderLenses(raw: string | undefined): {
     !lenses ||
     typeof lenses !== "object"
   ) {
-    return { dev: ["(unreadable)"], pm: "lenses: (unreadable)" };
+    return { dev: [tierLine, "(unreadable)"], pm: "lenses: (unreadable)" };
   }
 
   const kind = typeof scope.kind === "string" ? scope.kind : "unknown";
   const n = typeof scope.delta_files === "number" ? scope.delta_files : 0;
   const widenedSuffix =
     widened && widened.value ? `, widened: ${widened.reason ?? "unknown"}` : "";
-  const devLines = [`scope: ${kind} (${n} files${widenedSuffix})`];
+  const devLines = [tierLine, `scope: ${kind} (${n} files${widenedSuffix})`];
 
   let ranCount = 0;
   let totalCount = 0;
-  let tokenTotal = 0;
+  // Partitioned by tokens_source: a task-notification total and a
+  // subagent-transcript total are two INCOMPATIBLE accountings (one is a
+  // real usage figure, the other a transcript-derived estimate) and must
+  // never be added together into one number.
+  const tokenTotalsBySource: Record<string, number> = {};
   let anyTokens = false;
   for (const [lens, l] of Object.entries(lenses)) {
     if (lens === "gemini" && l.skip_reason === "no artifact") {
@@ -401,6 +448,13 @@ export function renderLenses(raw: string | undefined): {
       devLines.push(`${lens}: not run`);
       continue;
     }
+    if (lens === "product" && l.skip_reason === "no artifact") {
+      // product is silent, not "not run": there is no config switch the
+      // user set (unlike gemini's review.gemini opt-in) — its gate is
+      // brief presence, a repo precondition, so a brief-less repo's
+      // snapshot renders no line for it at all.
+      continue;
+    }
     totalCount++;
     if (l.ran) {
       ranCount++;
@@ -408,19 +462,32 @@ export function renderLenses(raw: string | undefined): {
         l.tokens && typeof l.tokens.total === "number"
           ? String(l.tokens.total)
           : "n/a";
+      const modelStr = l.model ?? "-";
       if (l.tokens && typeof l.tokens.total === "number") {
-        tokenTotal += l.tokens.total;
+        const source =
+          typeof l.tokens_source === "string" ? l.tokens_source : "unknown";
+        tokenTotalsBySource[source] =
+          (tokenTotalsBySource[source] ?? 0) + l.tokens.total;
         anyTokens = true;
       }
       devLines.push(
-        `${lens}: ran · ${tokStr} tok · ${l.findings_emitted ?? 0}→${l.findings_survived ?? 0}→${l.findings_acted ?? 0}`,
+        `${lens}: ran · model ${modelStr} · ${tokStr} tok · ${l.findings_emitted ?? 0}→${l.findings_survived ?? 0}→${l.findings_acted ?? 0}`,
       );
     } else {
       devLines.push(`${lens}: gated (${l.skip_reason ?? "unknown"})`);
     }
   }
 
-  const pmLine = `lenses: ${ranCount}/${totalCount} ran, scope ${kind}, ~${anyTokens ? tokenTotal : "n/a"} tokens`;
+  const sources = Object.keys(tokenTotalsBySource);
+  const tokensPart = !anyTokens
+    ? "~n/a tokens"
+    : sources.length === 1
+      ? `~${tokenTotalsBySource[sources[0]]} tokens`
+      : sources
+          .map((s) => `~${tokenTotalsBySource[s]} tokens (${s})`)
+          .join(", ");
+
+  const pmLine = `lenses: ${ranCount}/${totalCount} ran, scope ${kind}, ${tokensPart}`;
   return { dev: devLines, pm: pmLine };
 }
 
@@ -663,7 +730,8 @@ function renderCommentDev(inputs: RenderCommentInputs): string {
     lines.push(`  ${ln}`);
   }
   lines.push("LENSES:");
-  for (const ln of renderLenses(inputs.reviewTelemetryRaw).dev) {
+  for (const ln of renderLenses(inputs.reviewTelemetryRaw, inputs.prReviewRaw)
+    .dev) {
     lines.push(`  ${ln}`);
   }
   // INTENT only appears in the comment variant when the artifact is present

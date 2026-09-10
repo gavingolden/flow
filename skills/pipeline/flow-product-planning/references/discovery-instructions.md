@@ -997,8 +997,9 @@ edits `.flow/epics/<slug>/manifest.json` — the write-back lands in THIS PR (sa
 obligation), never a later amend. A standalone producer adds itself to
 `sharedArtifacts` and an edge against the previous producer only; a discovered-invalid
 edge is removed the same way. `flow-epic-dag --touched-files` in the fix-applier's
-epic step fails a PR that touches a declared shared artifact without touching the
-manifest.
+epic step fails a PR that touches a declared shared artifact unless the PR's own
+feature is among its declared producers (a non-epic PR passes only when the
+manifest is in the same diff).
 
 **Source-traceability rule:** every claim here MUST be
 traceable to `design.md` and `manifest.json` — read both on detection (step 1.7); never
@@ -1789,7 +1790,12 @@ redirect did not touch and destroys embedded markers. Follow this contract:
    `## Cut list`, or `## Request vetting`. (If it does, edit the affected body and leave the stale marker — after
    the re-review the supervisor recomputes the hash over the final revised plan via
    `flow-plan-review --print-hash` and re-embeds it; the tolerant hash-read self-heals a
-   lost marker, but needlessly rewriting it forces a wasteful re-review.)
+   lost marker, but needlessly rewriting it forces a wasteful re-review.) The
+   `### Product critique (blind)` subsection under `## Open Questions` (written by
+   `/flow-pipeline` step 3's supervisor after the blind product critic runs) is
+   likewise MUST-NOT-REGENERATE: keep it verbatim and keep it the last subsection
+   of `## Open Questions`; item 6's "extend, don't replace" rule appends new
+   entries ABOVE it.
 4. **Do NOT re-run Step 1.5 research** when web-grounded research findings already exist in
    the plan (or in `.flow-tmp/research-findings.md`). The redirect is a scope/decision
    change, not a new research question — re-running the fan-out double-spends agy quota for

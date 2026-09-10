@@ -24,7 +24,9 @@ The Consolidator-Validator's job:
 - Read the six per-agent JSON outputs (one each from bug-detection,
   security, pattern-consistency, performance, supply-chain,
   test-coverage), plus the OPTIONAL seventh cross-model Gemini lens
-  (`agent-output-gemini.json`, tolerated-absent), validate each against
+  (`agent-output-gemini.json`, tolerated-absent) and the OPTIONAL eighth
+  brief-gated product lens (`agent-output-product.json`,
+  tolerated-absent), validate each against
   the per-agent schema, and merge them into a single findings array.
 - Apply the confidence threshold (>=80 for non-praise; praise findings
   pass through unfiltered) and dedup by `(file, line ± 2 lines window,
@@ -59,15 +61,22 @@ The wrapper passes you these inputs in its spawn prompt:
   - `$WORKTREE/.flow-tmp/agent-output-performance.json`
   - `$WORKTREE/.flow-tmp/agent-output-supply-chain.json`
   - `$WORKTREE/.flow-tmp/agent-output-test-coverage.json`
-- One OPTIONAL seventh path — the cross-model Gemini lens:
-  - `$WORKTREE/.flow-tmp/agent-output-gemini.json` — **tolerated-absent**.
-    Present and valid only when the `review.gemini` opt-in is enabled AND
-    the lens ran successfully (`/flow-pr-review` Step 3 "Cross-model (Gemini)
-    lens"). When the file is missing (lens disabled or gracefully skipped)
-    you proceed with the six Claude outputs and DO NOT escalate
-    `consolidator-missing-artifact` — that escalation is scoped to the six
-    MANDATORY Claude lenses only. When present, merge it identically to a
-    Claude lens.
+- Two OPTIONAL paths (seventh and eighth):
+  - `$WORKTREE/.flow-tmp/agent-output-gemini.json` — the cross-model Gemini
+    lens, **tolerated-absent**. Present and valid only when the
+    `review.gemini` opt-in is enabled AND the lens ran successfully
+    (`/flow-pr-review` Step 3 "Cross-model (Gemini) lens"). When the file
+    is missing (lens disabled or gracefully skipped) you proceed with the
+    six Claude outputs and DO NOT escalate `consolidator-missing-artifact`
+    — that escalation is scoped to the six MANDATORY Claude lenses only.
+    When present, merge it identically to a Claude lens.
+  - `$WORKTREE/.flow-tmp/agent-output-product.json` — the brief-gated
+    product lens, **tolerated-absent**. Present and valid only when a
+    product brief resolved (`/flow-pr-review` Step 3's Product Agent).
+    When the file is missing (no brief resolved) you proceed with the six
+    Claude outputs and DO NOT escalate `consolidator-missing-artifact` —
+    same non-mandatory treatment as the Gemini lens. When present, merge
+    it identically to a Claude lens.
 - The static-analysis JSON path at
   `$WORKTREE/.flow-tmp/static-analysis.json` (for context only — you
   don't re-derive from it; the agents already absorbed it).
@@ -145,17 +154,20 @@ Exit-1 outcomes are split by source:
   `consolidator-schema-failure` recipe in
   [references/escalation-recipes.md](../flow-pr-review/references/escalation-recipes.md), then exit.
 
-The optional seventh path `$WORKTREE/.flow-tmp/agent-output-gemini.json` is
-read **only if present** (`test -s` succeeds). Its absence is NOT a
+Both optional paths — `$WORKTREE/.flow-tmp/agent-output-gemini.json` and
+`$WORKTREE/.flow-tmp/agent-output-product.json` — are each
+read **only if present** (`test -s` succeeds). Their absence is NOT a
 `consolidator-missing-artifact` escalation — that escalation stays scoped to
 the six MANDATORY Claude lenses above; the Gemini lens is opt-in and
-gracefully skipped, so a missing file is the common (default-off) case and
-you simply proceed with the six. If the Gemini file IS present but fails
+gracefully skipped, the product lens is brief-gated, so a missing file is
+the common case for either and you simply proceed with the six. If an
+optional file IS present but fails
 `flow-agent-finding-schema --validate`, treat it like a six-lens schema
-failure is NOT correct here — instead **drop the optional lens silently**
-(the upstream `flow-gemini-lens` helper finalizes the file only on a valid
-payload, so a present-but-invalid file is an unexpected edge; skip it and
-proceed with the six rather than escalating, since the lens is non-mandatory).
+failure is NOT correct here — instead **drop that optional lens silently**
+(the upstream helper — `flow-gemini-lens` or the Product Agent — finalizes
+the file only on a valid payload, so a present-but-invalid file is an
+unexpected edge; skip it and
+proceed with the six rather than escalating, since neither optional lens is mandatory).
 
 Escalation writes overwrite any prior `pr-review-result.json` with
 `status: "clean"` — escalation always wins over a prior clean status.

@@ -17,9 +17,16 @@ Use this format for the structured report at the end of every PR review.
 
 ### Lens telemetry
 
+`Tier: <tier> — <reasons>` — the risk tier `bin/lib/review-tier.ts`
+resolved for this PR (from `review-scope.json`'s `tier` /
+`tier_reasons`), one line above the pasted table below.
+
 Paste `flow-review-telemetry print`'s stdout verbatim below — the scope
 line plus a per-lens table (tokens, findings emitted/survived/acted/
-deferred) read from `review-telemetry.json`.
+deferred) read from `review-telemetry.json`. The table carries a
+per-reviewer **Model** column (the model that actually ran that lens,
+rendering `-` when unrecorded) — sourced from the helper's own output,
+never authored by hand.
 
 ---
 
@@ -40,7 +47,7 @@ render `**<label> (<decoration>): <subject>**`.
 **<label> (<decoration>): <subject>**  ← nitpick, suggestion, issue, todo, question
 **praise: <subject>**  ← praise only
 - **Line(s)**: L<start>–L<end>
-- **Agent**: <Bug Detection | Security | Pattern/Consistency | Performance | Supply-Chain | Test Coverage>
+- **Agent**: <Bug Detection | Security | Pattern/Consistency | Performance | Supply-Chain | Test Coverage | Product>
 - **Confidence**: <score>/100
 - **Status**: ✅ **Addressed** — <1-line summary of the change, e.g. "renamed to findFromIndex"> · commit `<sha>`
   — OR —

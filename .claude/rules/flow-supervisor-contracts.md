@@ -78,11 +78,12 @@ done`'s heal): that one commit, never forced. Both contracts:
     [references/exemption-contracts.md](../../references/exemption-contracts.md);
     only the byte-exact opener and a one-line summary remain below.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
-    Multi-Agent Review.** Step 8's up to six review agents, content-gated by
-    `flow-review-scope`, plus one intent-guess agent, one fan-out message,
-    re-fanned at most once on a consolidator widen, each with its own artifact.
+    Multi-Agent Review.** Step 8's up to seven review agents (the seventh,
+    `product`, brief-gated) plus one intent-guess agent, in one fan-out
+    message re-fanned at most once on a widen.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-product-planning`
-    Independent Discovery Subagent.** Step 3's one discovery agent.
+    Independent Discovery Subagent.** Step 3's one discovery agent + one
+    blind `flow-product-critic`.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-new-feature`
     Independent Scout Subagent.** Step 5's one scout agent, wider-scope
     path only.

@@ -3,8 +3,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  collectModelConfigWarnings,
   readDefaultModel,
   readPhaseModel,
+  readReviewLensModel,
+  REVIEW_LENS_NAMES,
   type ReadConfigFile,
 } from "./models-config";
 
@@ -76,6 +79,126 @@ describe("readPhaseModel", () => {
     expect(readPhaseModel("mergeResolver", cfg)).toBe("opus");
     expect(readPhaseModel("scout", cfg)).toBe("fable");
     expect(readPhaseModel("coder", cfg)).toBe("sonnet");
+  });
+});
+
+describe("readReviewLensModel", () => {
+  it("returns a valid nested alias", () => {
+    expect(
+      readReviewLensModel(
+        "bug-detection",
+        reader({ models: { reviewLenses: { "bug-detection": "opus" } } }),
+      ),
+    ).toBe("opus");
+  });
+
+  it("returns undefined for a missing lens key", () => {
+    expect(
+      readReviewLensModel(
+        "security",
+        reader({ models: { reviewLenses: { "bug-detection": "opus" } } }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for a non-alias value", () => {
+    expect(
+      readReviewLensModel(
+        "bug-detection",
+        reader({ models: { reviewLenses: { "bug-detection": "gpt4" } } }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when reviewLenses is absent", () => {
+    expect(
+      readReviewLensModel(
+        "bug-detection",
+        reader({ models: { review: "opus" } }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("never throws on a malformed config", () => {
+    expect(
+      readReviewLensModel("bug-detection", reader(undefined)),
+    ).toBeUndefined();
+    expect(
+      readReviewLensModel(
+        "bug-detection",
+        reader({ models: { reviewLenses: "not-an-object" } }),
+      ),
+    ).toBeUndefined();
+    expect(
+      readReviewLensModel("bug-detection", reader({ models: null })),
+    ).toBeUndefined();
+  });
+});
+
+describe("collectModelConfigWarnings — reviewLenses", () => {
+  it("a well-formed reviewLenses object produces no warning (regression guard)", () => {
+    const warnings = collectModelConfigWarnings(
+      reader({
+        models: {
+          planning: "sonnet",
+          reviewLenses: { "bug-detection": "opus", security: "sonnet" },
+        },
+      }),
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  it("a non-alias value under a valid lens warns once, naming the full dotted key", () => {
+    const warnings = collectModelConfigWarnings(
+      reader({ models: { reviewLenses: { "bug-detection": "gpt4" } } }),
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("models.reviewLenses.bug-detection");
+    expect(warnings[0]).toContain("gpt4");
+  });
+
+  it("an unknown lens name warns once", () => {
+    const warnings = collectModelConfigWarnings(
+      reader({ models: { reviewLenses: { "made-up-lens": "opus" } } }),
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("models.reviewLenses.made-up-lens");
+    expect(warnings[0]).toMatch(/unknown review lens/);
+  });
+
+  it("a non-object reviewLenses value warns naming the expected shape", () => {
+    const warnings = collectModelConfigWarnings(
+      reader({ models: { reviewLenses: "opus" } }),
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("models.reviewLenses");
+    expect(warnings[0]).toMatch(/object/);
+  });
+
+  it("existing flat per-phase warnings still fire unchanged alongside reviewLenses", () => {
+    const warnings = collectModelConfigWarnings(
+      reader({
+        models: {
+          planning: "gpt4",
+          reviewLenses: { "bug-detection": "opus" },
+        },
+      }),
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("models.planning");
+    expect(warnings[0]).toContain("gpt4");
+  });
+
+  it("REVIEW_LENS_NAMES has exactly the six lenses plus intent-guess", () => {
+    expect(REVIEW_LENS_NAMES).toEqual([
+      "bug-detection",
+      "security",
+      "pattern-consistency",
+      "performance",
+      "supply-chain",
+      "test-coverage",
+      "intent-guess",
+    ]);
   });
 });
 

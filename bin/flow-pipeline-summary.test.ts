@@ -1226,7 +1226,7 @@ describe("run — end-to-end", () => {
     });
     expect(out).toContain("LENSES:");
     expect(out).toContain("scope: delta (1 files)");
-    expect(out).toContain("bug-detection: ran · 555 tok · 1→1→0");
+    expect(out).toContain("bug-detection: ran · model - · 555 tok · 1→1→0");
   });
 
   it("should render `lenses: none` / `LENSES:` + `none` when the sidecar is absent", () => {
@@ -1245,7 +1245,58 @@ describe("run — end-to-end", () => {
         read: DEV_LENS_READ,
       });
     });
-    expect(out).toContain("LENSES:\n  none");
+    expect(out).toContain("LENSES:\n  TIER: standard (default)\n  none");
+  });
+});
+
+describe("render — LENSES TIER line (sourced from pr-review-result.json)", () => {
+  it("renders `TIER: <tier> — <reasons>` when the result artifact carries tier + reasons", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      prReviewRaw: JSON.stringify({
+        status: "clean",
+        completed_steps: [],
+        missed_steps: [],
+        escalation_tag: null,
+        summary: "s",
+        tier: "light",
+        tier_reasons: ["every signal low", "conventional-commit prefix"],
+      }),
+    });
+    expect(out).toContain(
+      "LENSES:\n  TIER: light — every signal low; conventional-commit prefix",
+    );
+  });
+
+  it("renders `TIER: standard (default)` when the result artifact carries no tier", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      prReviewRaw: JSON.stringify({
+        status: "clean",
+        completed_steps: [],
+        missed_steps: [],
+        escalation_tag: null,
+        summary: "s",
+      }),
+    });
+    expect(out).toContain("LENSES:\n  TIER: standard (default)");
+  });
+
+  it("renders the tier with no dangling dash when tier_reasons is empty", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      prReviewRaw: JSON.stringify({
+        status: "clean",
+        completed_steps: [],
+        missed_steps: [],
+        escalation_tag: null,
+        summary: "s",
+        tier: "deep",
+        tier_reasons: [],
+      }),
+    });
+    expect(out).toContain("LENSES:\n  TIER: deep\n");
+    expect(out).not.toContain("TIER: deep —");
   });
 });
 
@@ -1735,7 +1786,7 @@ describe("renderComment — slim PR-comment block (dev)", () => {
       }),
     }).dev;
     expect(block).toContain("LENSES:");
-    expect(block).toContain("bug-detection: ran · 5 tok · 0→0→0");
+    expect(block).toContain("bug-detection: ran · model - · 5 tok · 0→0→0");
   });
 });
 
