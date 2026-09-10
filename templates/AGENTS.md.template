@@ -682,7 +682,7 @@ core: a routing table pointing at deeper docs, not the deeper docs
 themselves. Surface-specific detail (conventions that only matter when
 touching one directory) belongs in a path-scoped rule file under
 `.claude/rules/*.md`, given a `paths: [...]` frontmatter glob so it loads
-only when an agent touches a matching path — never duplicated in this
+only when an agent Reads/Edits a matching file (a Bash-only touch does not load them) — never duplicated in this
 always-loaded file. Target ≤200 lines for this core file. Measure the
 actual eager set (this file's chars plus its resolved `@import`s plus any
 `.claude/rules/*.md` lacking a `paths:` key) before tuning a budget on it;

@@ -348,7 +348,7 @@ lacks a `paths:` key post-diet, so the lazy set below is excluded from
 The catalogue previously inline in `AGENTS.md` `## Don'ts` (the seven
 Task-tool exemption openers, the tmux-pane/CI/telemetry `bin/`
 conventions) moved to two path-scoped rule files, now lazy-loaded only
-when an agent's session touches a matching path:
+when an agent's session Reads/Edits a matching file (a Bash-only touch — `sed`, `grep`, heredoc — does not load it; measured 2026-09-10 via the `InstructionsLoaded` hook):
 
 | Rule file                                    | `paths:` glob                                                                          | Chars  | Lines |
 | -------------------------------------------- | -------------------------------------------------------------------------------------- | ------ | ----- |

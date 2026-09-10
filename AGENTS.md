@@ -12,7 +12,7 @@
 
 This file is the entry point for any agent working on flow. Read it once
 per session — surface-specific rules under `.claude/rules/` load only
-when you touch a matching path, so they are not duplicated here.
+when you Read/Edit a matching file (Bash touches don't load them).
 
 ## Where to look
 

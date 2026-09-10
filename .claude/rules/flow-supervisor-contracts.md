@@ -9,7 +9,7 @@ paths:
   ]
 ---
 
-# Supervisor contracts (loaded when you touch skills/, agents/, references/, templates/)
+# Supervisor contracts (loaded when you Read/Edit a file under skills/, agents/, references/, templates/, or bin/skill-md-lint.test.ts)
 
 ## Don'ts
 
