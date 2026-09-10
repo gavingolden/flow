@@ -5139,12 +5139,19 @@ describe("pr-review include-by-reference structure", () => {
     // phase it now emits as a side effect (`flow-fetch-pr-review` — plan.md
     // Task 4) — 2 net lines, genuine load-bearing content for this PR's own
     // contract, not regrowth.
+    //
+    // Bumped 1865 -> 1885 (merge of origin/main into f3-product-critic): two
+    // independently-reviewed PRs each grew this file under the same pin --
+    // #830's per-lens model/tier resolution (main, 1863 lines) and this
+    // branch's seventh `product` lens (1846 lines). Neither is regrowth, and
+    // the merged file is their union at 1880 lines. 1885 leaves 5 lines of
+    // genuine headroom, not round-number headroom for future growth.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1865 lines. Material regrowth past this ceiling would ` +
+        `budget of 1885 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1865);
+    ).toBeLessThan(1885);
   });
 
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {

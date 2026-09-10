@@ -781,6 +781,9 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       },
       now: () => new Date(),
       homeDir: dir,
+      // The tier suite predates the product lens; a brief never resolves
+      // here so these cases stay pinned to the six content lenses.
+      productBrief: () => ({ found: false }) as const,
     };
   }
 
