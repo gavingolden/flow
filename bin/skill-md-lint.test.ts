@@ -1641,13 +1641,17 @@ describe("auto-issue-create fire-site enumeration lint", () => {
   });
 });
 
-describe("low-effort fan-out subagent_type wiring lint", () => {
-  // Pins the two always-cheap fan-out spawn sites to their low-effort agent
-  // definitions (agents/flow-verify.md, agents/flow-fix-applier.md) with a
+describe("cheap-model fan-out subagent_type wiring lint", () => {
+  // Pins the two always-cheap fan-out spawn sites to their cheap-model agent
+  // definitions (agents/flow-fix-applier.md, agents/flow-ui-driver.md) with a
   // general-purpose fallback, and confirms each site still passes its
   // per-spawn model: override so the per-phase model flags keep working. A
   // future edit that reverts either site to a bare `subagent_type:
-  // general-purpose` (dropping the effort: low pinning) goes red here.
+  // general-purpose` (dropping the sonnet-default model routing) goes red
+  // here. Neither definition pins `effort:` — the Task tool has no
+  // per-spawn effort argument, so a frontmatter effort pin would be
+  // unoverridable even though the row's `model` is only a configurable
+  // default; effort always follows the session's `state.effort`.
 
   // Shared negation vocabulary + clause-splitting helper for the two
   // "never mandates an X" prose-detector lints below (force-push,
@@ -1682,7 +1686,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     expect(
       prReviewContent.includes("subagent_type: $FIX_APPLIER_SUBAGENT"),
       "pr-review SKILL.md Fix-Applier spawn must use `subagent_type: $FIX_APPLIER_SUBAGENT` " +
-        "so the resolved low-effort agent (or the general-purpose fallback) is passed.",
+        "so the resolved cheap-model agent (or the general-purpose fallback) is passed.",
     ).toBe(true);
     expect(
       prReviewContent.includes(
@@ -1690,7 +1694,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ),
       "pr-review SKILL.md must resolve FIX_APPLIER_SUBAGENT to " +
         "`flow-module-core:flow-fix-applier` — the agents/flow-fix-applier.md " +
-        "definition that pins effort: low.",
+        "definition that falls back to a literal sonnet default.",
     ).toBe(true);
     expect(
       /FIX_APPLIER_SUBAGENT=general-purpose/.test(prReviewContent),
@@ -1721,32 +1725,36 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     ).toBe(true);
   });
 
-  it("the low-effort agent definition does not pin a model (per-spawn override must win)", () => {
+  it("the cheap-model fan-out agent definition does not pin a model or an effort (per-spawn overrides must win)", () => {
     for (const name of ["flow-fix-applier.md"] as const) {
       const agentPath = path.resolve(HERE, "..", "agents", "core", name);
       expect(
         fs.existsSync(agentPath),
-        `agents/${name} must exist — it is the low-effort definition the spawn site resolves.`,
+        `agents/${name} must exist — it is the cheap-model definition the spawn site resolves.`,
       ).toBe(true);
       const body = fs.readFileSync(agentPath, "utf8");
       const frontmatter = body.split("---")[1] ?? "";
-      expect(
-        /^effort:\s*low\s*$/m.test(frontmatter),
-        `agents/${name} frontmatter must declare 'effort: low'.`,
-      ).toBe(true);
       expect(
         /^model:/m.test(frontmatter),
         `agents/${name} frontmatter must NOT pin a 'model:' — the per-spawn model: ` +
           "override must win so the per-phase model flags keep working.",
       ).toBe(false);
+      expect(
+        /^effort:/m.test(frontmatter),
+        `agents/${name} frontmatter must NOT pin an 'effort:' — the Task tool has ` +
+          "no per-spawn effort argument, so a frontmatter effort pin would be " +
+          "unoverridable even though this row's model is only a configurable " +
+          "default; effort must follow the session's state.effort instead.",
+      ).toBe(false);
     }
   });
 
   // Frontmatter policy for the full thirteen-definition set
-  // (p4-review-agents + p4-pipeline-agents): mechanical roles pin
-  // `effort: low` (checked above and re-checked here), and
-  // every judgment role omits both so session effort and the spawn
-  // site's per-spawn/config-threaded model always win. flow-discovery
+  // (p4-review-agents + p4-pipeline-agents): mechanical roles pin a cheap
+  // sonnet-default model and the subagent_type wiring (checked above and
+  // re-checked here), and NO row — mechanical or judgment — pins `effort:`,
+  // so session effort and the spawn site's per-spawn/config-threaded model
+  // always win. flow-discovery
   // is the one row with `inheritsAllTools: true` — plan Decision
   // analysis 2 deliberately leaves it with no `tools:` allowlist
   // (discovery's research + design-artifact passes span Bash/WebFetch/
@@ -1755,7 +1763,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   const AGENT_FRONTMATTER_POLICY: Array<{
     file: string;
     wantModel?: string;
-    wantEffort?: string;
     wantTools?: string;
     inheritsAllTools?: boolean;
     wantMemory?: "local";
@@ -1765,7 +1772,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   }> = [
     {
       file: "flow-fix-applier.md",
-      wantEffort: "low",
       wantMaxTurns: 120,
       wantCacheTtl: "1h",
       wantSkills: "flow-fix-applier-instructions",
@@ -1835,7 +1841,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     { file: "flow-backlog-verifier.md", wantTools: "Bash, Read, Grep, Glob" },
     {
       file: "flow-ui-driver.md",
-      wantEffort: "low",
       wantMaxTurns: 120,
       wantCacheTtl: "1h",
       wantSkills: "flow-ui-driver-instructions",
@@ -1860,7 +1865,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     for (const {
       file,
       wantModel,
-      wantEffort,
       wantTools,
       inheritsAllTools,
       wantMemory,
@@ -1911,18 +1915,17 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
             "model: override / config threading must win.",
         ).toBe(false);
       }
-      if (wantEffort) {
-        expect(
-          new RegExp(`^effort:\\s*${wantEffort}\\s*$`, "m").test(frontmatter),
-          `agents/${file} frontmatter must pin 'effort: ${wantEffort}'.`,
-        ).toBe(true);
-      } else {
-        expect(
-          /^effort:/m.test(frontmatter),
-          `agents/${file} frontmatter must NOT pin 'effort:' — judgment ` +
-            "roles scale with session effort.",
-        ).toBe(false);
-      }
+      // No agents/*.md row ever pins effort: the Task tool has no per-spawn
+      // effort argument, so a frontmatter pin would be unoverridable even
+      // though every row's model is only a configurable default — every
+      // role, mechanical or judgment, scales with the session's effort.
+      expect(
+        /^effort:/m.test(frontmatter),
+        `agents/${file} frontmatter must NOT pin 'effort:' — the Task tool ` +
+          "has no per-spawn effort argument, so a pinned effort would be " +
+          "unoverridable while this row's model is only a configurable " +
+          "default; effort must follow the session's state.effort.",
+      ).toBe(false);
       if (wantMemory) {
         expect(
           new RegExp(`^memory:\\s*${wantMemory}\\s*$`, "m").test(frontmatter),

@@ -18,7 +18,6 @@ import {
   PHASE_MODEL_FLAGS,
   MODEL_PRICE_RANK,
   INHERITANCE_CAP_ALIAS,
-  type EffortLevel,
   type ModelAlias,
   type PipelineState,
 } from "./state";
@@ -54,18 +53,17 @@ export type SpawnSite = {
    */
   fineGrainAbove?: string;
   fallback: Fallback;
-  /**
-   * Of the spawn sites, only `flow-fix-applier` and `flow-ui-driver` pin
-   * effort (frontmatter). An in-process `SKILL.md` (e.g. flow-checkpoint)
-   * may also pin effort — outside this spawn-site table entirely.
-   */
-  effortPin?: EffortLevel;
 };
 
 /**
  * Every rendered site. Order is the render order. `session` is
  * prose-only in `model-routing.md` (not a precedence-table row); the drift
  * lint treats it as table-exempt.
+ *
+ * No row pins `effort`. The Task tool has no per-spawn effort argument, so a
+ * frontmatter (or table) effort pin would be unoverridable even though the
+ * same row's `model` is only a configurable default. Effort therefore
+ * always follows the session's `state.effort` (see `resolveEffort`).
  */
 export const SPAWN_SITES: readonly SpawnSite[] = [
   {
@@ -121,7 +119,6 @@ export const SPAWN_SITES: readonly SpawnSite[] = [
     stateField: "modelFixApplier",
     configKey: "fixApplier",
     fallback: "builtin-sonnet",
-    effortPin: "low",
   },
   // ui-driver falls back to a LITERAL sonnet like fix-applier: a manifest-driven
   // browser drive is template execution that must not silently inherit Opus/Fable.
@@ -131,7 +128,6 @@ export const SPAWN_SITES: readonly SpawnSite[] = [
     phase: "ui-driver",
     configKey: "uiDriver",
     fallback: "builtin-sonnet",
-    effortPin: "low",
   },
   {
     phase: "consolidator",
@@ -220,11 +216,7 @@ function fallbackRow(
   }
 }
 
-function resolveEffort(
-  site: SpawnSite,
-  state: PipelineState | null | undefined,
-): string {
-  if (site.effortPin) return `${site.effortPin} (pinned)`;
+function resolveEffort(state: PipelineState | null | undefined): string {
   return state?.effort ?? "inherited";
 }
 
@@ -244,7 +236,7 @@ export function resolveRouting(input: {
     return {
       phase: site.phase,
       ...resolved,
-      effort: resolveEffort(site, state),
+      effort: resolveEffort(state),
     };
   });
 }

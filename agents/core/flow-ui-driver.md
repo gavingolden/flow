@@ -1,8 +1,7 @@
 ---
 name: flow-ui-driver
-description: Browser-drive sub-agent for /flow-verify's UI-smoke pass. Launches the app, drives chrome-devtools per route and viewport, writes the captures JSON + result artifact. Low reasoning effort - the manifest already says what to do.
+description: Browser-drive sub-agent for /flow-verify's UI-smoke pass. Launches the app, drives chrome-devtools per route and viewport, writes the captures JSON + result artifact. The manifest already says what to do, so this agent does not deliberate.
 tools: Bash, Read, Write, ToolSearch, mcp__chrome-devtools__*
-effort: low
 maxTurns: 120
 experimental:
   cacheTtl: 1h
@@ -28,10 +27,13 @@ Two invariants:
 - **You are one-shot.** Do not ask the user clarifying questions. Return a short
   both-sides summary; the artifact on disk is the durable record.
 
-This definition pins `effort: low` because driving a manifest-declared route
-list is template execution that does not earn high-effort thinking tokens. The
-per-spawn `model:` argument the caller passes still wins over this definition's
-model, so per-phase model flags keep working unchanged.
+This definition does not pin `effort`: the Task tool has no per-spawn effort
+argument, so a frontmatter pin would be unoverridable even though this row's
+`model` is only a configurable default (`config.models.uiDriver`, falling
+back to a literal sonnet). Effort instead follows the session's `state.effort`
+like every other routed site. The per-spawn `model:` argument the caller
+passes still wins over this definition's model, so per-phase model flags keep
+working unchanged.
 
 `maxTurns: 120` bounds the per-route drive loop. If you reach it, write the
 artifact FIRST as soon as you sense you're near the budget — a missing or

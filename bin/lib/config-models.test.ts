@@ -69,9 +69,12 @@ describe("runConfigModelsCli", () => {
     ]) {
       expect(table).toContain(phase);
     }
-    // built-in + pinned fallbacks are visible
+    // built-in model fallback is visible; effort is never pinned — every
+    // row inherits the (absent, so global-view) session effort.
     expect(table).toContain("built-in (sonnet)");
-    expect(table).toContain("pinned");
+    expect(table).toMatch(
+      /fix-applier\s+sonnet\s+built-in \(sonnet\)\s+inherited/,
+    );
     // the fixture config value resolves
     expect(table).toMatch(/review\s+opus\s+config \(models\.review\)/);
   });
@@ -140,7 +143,7 @@ describe("runConfigModelsCli", () => {
     expect(fixApplier).toMatchObject({
       model: "sonnet",
       source: "built-in (sonnet)",
-      effort: "low (pinned)",
+      effort: "inherited",
     });
   });
 

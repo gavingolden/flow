@@ -34,7 +34,7 @@ describe("resolveRouting — fallback branches (empty config + state)", () => {
     expect(row(rows, "fix-applier")).toMatchObject({
       model: "sonnet",
       source: "built-in (sonnet)",
-      effort: "low (pinned)",
+      effort: "inherited",
     });
   });
 
@@ -53,10 +53,23 @@ describe("resolveRouting — fallback branches (empty config + state)", () => {
     }
   });
 
-  it("fix-applier and ui-driver pin effort; every other row inherits", () => {
+  it("no row pins effort; every row inherits when state is absent", () => {
     for (const r of rows) {
-      const pinned = r.phase === "fix-applier" || r.phase === "ui-driver";
-      expect(r.effort).toBe(pinned ? "low (pinned)" : "inherited");
+      expect(r.effort).toBe("inherited");
+    }
+  });
+});
+
+describe("no-pinned-effort invariant", () => {
+  it("no SPAWN_SITES row declares an effortPin — the Task tool has no per-spawn effort argument", () => {
+    for (const site of SPAWN_SITES) {
+      expect(
+        Object.prototype.hasOwnProperty.call(site, "effortPin"),
+        `SPAWN_SITES row '${site.phase}' declares 'effortPin' — a pinned ` +
+          "effort would be unoverridable even though the row's model is " +
+          "only a configurable default; effort must follow the session's " +
+          "state.effort like every other row.",
+      ).toBe(false);
     }
   });
 });
@@ -81,10 +94,11 @@ describe("resolveRouting — state per-phase overrides", () => {
     });
   });
 
-  it("a session effort is rendered on every non-pinned row and overridden by the pins", () => {
+  it("a session effort is rendered on every row, including the two cheap-model fan-outs", () => {
     const rows = resolveRouting({ state: st({ effort: "high" }), config: {} });
     expect(row(rows, "review").effort).toBe("high");
-    expect(row(rows, "fix-applier").effort).toBe("low (pinned)");
+    expect(row(rows, "fix-applier").effort).toBe("high");
+    expect(row(rows, "ui-driver").effort).toBe("high");
   });
 });
 
@@ -102,7 +116,7 @@ describe("resolveRouting — config values", () => {
     expect(row(defaults, "ui-driver")).toMatchObject({
       model: "sonnet",
       source: "built-in (sonnet)",
-      effort: "low (pinned)",
+      effort: "inherited",
     });
 
     const configured = resolveRouting({

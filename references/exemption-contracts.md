@@ -261,9 +261,12 @@ line (no bare-name legacy-install tier). Artifact:
 **Model.** This spawn site resolves `config.models.uiDriver // "sonnet"`
 — config-only, no CLI flag, and deliberately **not** inherited from the
 session model or any `state.json` field (`bin/lib/model-routing-table.ts`'s
-`ui-driver` row: `fallback: "builtin-sonnet"`, `effortPin: "low"`). A
-manifest-driven browser drive is template execution that must not
-silently inherit Opus/Fable.
+`ui-driver` row: `fallback: "builtin-sonnet"`). A manifest-driven browser
+drive is template execution that must not silently inherit Opus/Fable.
+Effort is a separate axis: this row does NOT pin `effort` — the Task tool
+has no per-spawn effort argument, so a frontmatter effort pin would be
+unoverridable even though `model` here is only a configurable default;
+effort follows the session's `state.effort` like every other routed site.
 
 **The `UI_SMOKE_DRIVER: inline` marker.** Two callers of the shared
 `ui-smoke-pass.md` procedure exist: `/flow-verify`'s own Step 6/Optional
