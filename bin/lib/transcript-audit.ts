@@ -614,6 +614,7 @@ export async function estimateFrontmatterCost(
     const raw = await fs.promises.readFile(file, "utf8");
     const frontmatter = extractFrontmatter(raw);
     if (frontmatter === null) continue;
+    if (/^disable-model-invocation:\s*true\s*$/m.test(frontmatter)) continue;
     const tokens = estimateTokens(frontmatter.length);
     const name = path.basename(path.dirname(file));
     perSkill[name] = (perSkill[name] ?? 0) + tokens;

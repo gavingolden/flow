@@ -275,7 +275,22 @@ export function parseArgs(
 
 // --- UI-file signal --------------------------------------------------------
 
-const UI_EXTENSIONS = [".svelte", ".css", ".scss", ".tsx", ".jsx", ".vue"];
+// `.svelte.ts`/`.svelte.js` are Svelte 5 runes modules: `.endsWith(".svelte")`
+// is false for e.g. "cart.svelte.ts", so a shared-reactive-state module would
+// otherwise be invisible to UI validation unless it happened to sit under a
+// routes/ or components/ path. They carry no route of their own, so they are
+// NOT added to COMPONENT_EXTENSIONS below — treated like a bare `.css` token:
+// counted as a UI file, but not by itself a meaningful render surface.
+export const UI_EXTENSIONS = [
+  ".svelte",
+  ".css",
+  ".scss",
+  ".tsx",
+  ".jsx",
+  ".vue",
+  ".svelte.ts",
+  ".svelte.js",
+];
 
 // Component/page extensions — a render-bearing surface, as opposed to a bare
 // stylesheet token (.css/.scss) that renders nothing on its own.

@@ -13,6 +13,7 @@ import {
   TERMINAL_PHASE_EMITTERS,
 } from "./lib/phase-advance";
 import { SURVEY_VERDICTS, VETTING_VERDICTS } from "./flow-step3-route";
+import { UI_EXTENSIONS } from "./flow-ui-validate";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -324,6 +325,27 @@ const AGENTS_TEMPLATE_PATH = path.resolve(
   "templates",
   "AGENTS.md.template",
 );
+const AGENTS_TEMPLATE_UI_RULES_PATH = path.resolve(
+  HERE,
+  "..",
+  "templates",
+  "rules",
+  "ui-validation.md",
+);
+const AGENTS_TEMPLATE_REF_VERIFICATION_PATH = path.resolve(
+  HERE,
+  "..",
+  "templates",
+  "references",
+  "verification.md",
+);
+const AGENTS_TEMPLATE_REF_AGENT_CONDUCT_PATH = path.resolve(
+  HERE,
+  "..",
+  "templates",
+  "references",
+  "agent-conduct.md",
+);
 const UI_VALIDATION_EVIDENCE_PATH = path.resolve(
   HERE,
   "..",
@@ -448,6 +470,18 @@ const tailwindShadcnContent = fs.readFileSync(
   "utf8",
 );
 const agentsTemplateContent = fs.readFileSync(AGENTS_TEMPLATE_PATH, "utf8");
+const agentsTemplateUiRulesContent = fs.readFileSync(
+  AGENTS_TEMPLATE_UI_RULES_PATH,
+  "utf8",
+);
+const agentsTemplateRefVerificationContent = fs.readFileSync(
+  AGENTS_TEMPLATE_REF_VERIFICATION_PATH,
+  "utf8",
+);
+const agentsTemplateRefAgentConductContent = fs.readFileSync(
+  AGENTS_TEMPLATE_REF_AGENT_CONDUCT_PATH,
+  "utf8",
+);
 const uiValidationEvidenceContent = fs.readFileSync(
   UI_VALIDATION_EVIDENCE_PATH,
   "utf8",
@@ -1391,6 +1425,198 @@ describe("always-loaded context budget (helper-measured)", () => {
         "frontmatter key — without it, the file loads unconditionally and " +
         "defeats the always-loaded-budget diet.",
     ).toBe(true);
+  });
+
+  /**
+   * TEMPLATE_CORE_BUDGET covers the CONSUMER-facing template core
+   * (templates/AGENTS.md.template) after the p2-context-diet-template-skills
+   * split moved UI validation into templates/rules/ and the trigger-less
+   * sections into templates/references/. Measured via
+   * `bun bin/flow-context-budget.ts --json`'s `templatePayload.core`; set to
+   * the smallest multiple of 500 at or above the measured chars. On a future
+   * trim, lower this constant rather than letting silent headroom regrow; on
+   * a future addition that cannot fit, offload it to templates/rules/ (a
+   * `paths:`-scoped rule) or templates/references/ (a routing-table pointer)
+   * rather than raising this budget.
+   */
+  const TEMPLATE_CORE_BUDGET = 8_000;
+  const SKILL_FRONTMATTER_BUDGET = 3_000;
+  // Token-scale counterpart to HEADROOM_CAP (which is char-scale, for the
+  // two char-based budgets above): SKILL_FRONTMATTER_BUDGET is measured in
+  // tokens, so it needs its own cap rather than reusing HEADROOM_CAP's
+  // char-scale number.
+  const FRONTMATTER_HEADROOM_CAP = 200;
+
+  it("the consumer template core stays within TEMPLATE_CORE_BUDGET", async () => {
+    const { resolveTemplatePayload } = await import("./flow-context-budget");
+    const repoRoot = path.resolve(HERE, "..");
+    const { core } = await resolveTemplatePayload(repoRoot);
+    const coreChars = core.totals.chars;
+    expect(
+      coreChars,
+      `templates/AGENTS.md.template is ${coreChars} chars; budget is ` +
+        `${TEMPLATE_CORE_BUDGET}. Offload the addition to templates/rules/ ` +
+        "(a `paths:`-scoped rule) or templates/references/ (linked from the " +
+        "core's `## Where to look` table) rather than raising this budget.",
+    ).toBeLessThanOrEqual(TEMPLATE_CORE_BUDGET);
+  });
+
+  it("the consumer template core stays within HEADROOM_CAP of TEMPLATE_CORE_BUDGET", async () => {
+    const { resolveTemplatePayload } = await import("./flow-context-budget");
+    const repoRoot = path.resolve(HERE, "..");
+    const { core } = await resolveTemplatePayload(repoRoot);
+    const coreChars = core.totals.chars;
+    expect(
+      TEMPLATE_CORE_BUDGET - coreChars,
+      `The budget has ${TEMPLATE_CORE_BUDGET - coreChars} chars of headroom ` +
+        `over the measured template core, above the ${HEADROOM_CAP}-char cap ` +
+        "— on a trim, lower TEMPLATE_CORE_BUDGET to match rather than " +
+        "leaving silent headroom.",
+    ).toBeLessThanOrEqual(HEADROOM_CAP);
+  });
+
+  it("the consumer template core keeps the always-loaded safety rules", () => {
+    // The new budget lints above (TEMPLATE_CORE_BUDGET, CORE_LINE_LIMIT)
+    // instruct the next author to offload content OUT of the core when it
+    // grows — with nothing asserting what must never be offloaded. Without
+    // this guard, a future trim could push a safety subsection behind a
+    // paths:-scoped rule or a routing row, and every check above would
+    // still pass: a session that works through bash/grep alone loads no
+    // paths:-scoped rule and no routing-row target, so moving an approval
+    // or safety rule out of the core silently deletes it for that session.
+    for (const heading of [
+      "## Safety (Sandbox Disabled)",
+      "### Reversibility Principle",
+      "### Requires Approval",
+      "### Forbidden (No Exceptions)",
+      "### Pre-Push Hook",
+      "### Command Execution",
+      "### Committing",
+      "## Hardening",
+      "## Security",
+    ]) {
+      expect(
+        agentsTemplateContent.includes(heading),
+        `templates/AGENTS.md.template must keep '${heading}' in the ` +
+          "always-loaded core: a session that works through bash/grep " +
+          "alone loads no paths:-scoped rule and no routing-row target, " +
+          "so moving an approval or safety rule out of the core deletes " +
+          "it for that session. Offload something else to fit the budget.",
+      ).toBe(true);
+    }
+  });
+
+  it("the consumer template core stays at or under CORE_LINE_LIMIT lines", async () => {
+    const { resolveTemplatePayload } = await import("./flow-context-budget");
+    const repoRoot = path.resolve(HERE, "..");
+    const { core } = await resolveTemplatePayload(repoRoot);
+    const coreLines = core.totals.lines;
+    expect(
+      coreLines,
+      `templates/AGENTS.md.template is ${coreLines} lines; the consumer ` +
+        `template core must stay <= ${CORE_LINE_LIMIT} lines. Offload ` +
+        "surface-specific detail to templates/rules/ or templates/references/ " +
+        "instead of growing the core.",
+    ).toBeLessThanOrEqual(CORE_LINE_LIMIT);
+  });
+
+  it("every templates/rules/*.md file carries a paths: frontmatter key (lazy-loaded)", async () => {
+    const { hasPathsFrontmatter } = await import("./flow-context-budget");
+    const rulesDir = path.resolve(HERE, "..", "templates", "rules");
+    const entries = fs.existsSync(rulesDir)
+      ? fs.readdirSync(rulesDir).filter((f) => f.endsWith(".md"))
+      : [];
+    expect(
+      entries.length,
+      "templates/rules/ must contain at least one *.md rule file.",
+    ).toBeGreaterThan(0);
+    for (const entry of entries) {
+      const content = fs.readFileSync(path.join(rulesDir, entry), "utf8");
+      expect(
+        hasPathsFrontmatter(content),
+        `templates/rules/${entry} must carry a \`paths:\` frontmatter key — ` +
+          "without it, the file is eager-loaded once copied under an " +
+          "adopting repo's .claude/rules/, defeating the point of the split.",
+      ).toBe(true);
+    }
+  });
+
+  it("every ## Where to look routing row in templates/AGENTS.md.template resolves relative to templates/ and names the right target", () => {
+    const templatesRoot = path.resolve(HERE, "..", "templates");
+    const tableMatch = agentsTemplateContent.match(
+      /## Where to look\n\n\| You want \| Read \|\n\|---\|---\|\n([\s\S]*?)\n\n/,
+    );
+    expect(
+      tableMatch,
+      "templates/AGENTS.md.template must carry a `## Where to look` table " +
+        "immediately after the opening paragraph.",
+    ).not.toBeNull();
+    const rows = (tableMatch?.[1] ?? "")
+      .split("\n")
+      .filter((line) => line.startsWith("|"));
+    expect(
+      rows.length,
+      "the `## Where to look` table must carry at least one routing row.",
+    ).toBeGreaterThan(0);
+    for (const row of rows) {
+      const cells = row
+        .slice(1, -1)
+        .split("|")
+        .map((c) => c.trim());
+      const [wantCell, readCell] = cells;
+      const target = readCell.replace(/`/g, "");
+      const targetPath = path.resolve(templatesRoot, target);
+      expect(
+        fs.existsSync(targetPath),
+        `## Where to look row target '${target}' must resolve relative to ` +
+          "templates/ (the core keeps its .md.template suffix, so " +
+          "flow-md-validate cannot catch a broken row here).",
+      ).toBe(true);
+      const targetContent = fs.readFileSync(targetPath, "utf8");
+      const phrases = wantCell.split(/[,/]/).map((p) => p.trim());
+      const everyPhraseIsAHeading = phrases.every((phrase) => {
+        const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`^#{2,3}\\s+.*${escaped}`, "im").test(targetContent);
+      });
+      expect(
+        everyPhraseIsAHeading,
+        `${target} must contain a heading matching EVERY one of the row's ` +
+          `'You want' phrases (${JSON.stringify(phrases)}) — a row that ` +
+          "still names a topic after the section it points to was deleted " +
+          "would silently keep passing under a partial (some()) match.",
+      ).toBe(true);
+    }
+  });
+
+  it("the installed-skill frontmatter total stays within SKILL_FRONTMATTER_BUDGET", async () => {
+    const { estimateFrontmatterCost } = await import("./lib/transcript-audit");
+    const repoRoot = path.resolve(HERE, "..");
+    const { total } = await estimateFrontmatterCost(
+      path.join(repoRoot, "skills"),
+    );
+    expect(
+      total,
+      `Installed-skill frontmatter totals ~${total} tokens; budget is ` +
+        `${SKILL_FRONTMATTER_BUDGET}. Trim the offending skill's ` +
+        "`description:` field (see issue #844) rather than raising this " +
+        "budget.",
+    ).toBeLessThanOrEqual(SKILL_FRONTMATTER_BUDGET);
+  });
+
+  it("the installed-skill frontmatter total stays within FRONTMATTER_HEADROOM_CAP of SKILL_FRONTMATTER_BUDGET", async () => {
+    const { estimateFrontmatterCost } = await import("./lib/transcript-audit");
+    const repoRoot = path.resolve(HERE, "..");
+    const { total } = await estimateFrontmatterCost(
+      path.join(repoRoot, "skills"),
+    );
+    expect(
+      SKILL_FRONTMATTER_BUDGET - total,
+      `The budget has ${SKILL_FRONTMATTER_BUDGET - total} tokens of ` +
+        "headroom over the measured frontmatter total, above the " +
+        `${FRONTMATTER_HEADROOM_CAP}-token cap — on a trim (e.g. issue ` +
+        "#844's description rewrite), lower SKILL_FRONTMATTER_BUDGET to " +
+        "match rather than leaving silent headroom.",
+    ).toBeLessThanOrEqual(FRONTMATTER_HEADROOM_CAP);
   });
 });
 
@@ -3696,7 +3922,7 @@ describe("AGENTS.md Output style anchors", () => {
     // rather than deferring them.** is the stable lint hook for the rule
     // documented at AGENTS.md `## Output style`. The full fix-now-vs-defer
     // bar it summarises lives at the two enforcement sites
-    // (templates/AGENTS.md.template `## Anti-Overengineering` and
+    // (templates/references/agent-conduct.md `## Anti-Overengineering` and
     // skills/pipeline/flow-fix-applier-instructions/SKILL.md);
     // this rule is the flow-repo-side decision-discipline pointer. Renaming
     // the rule's anchor phrase requires updating this assertion in the same
@@ -3720,7 +3946,7 @@ describe("AGENTS.md Output style anchors", () => {
     // a hobby project.** is the stable lint hook for the rule documented at
     // AGENTS.md `## Output style`. It governs the include-vs-defer decision
     // (cohesion over size) and the production-quality bar; the full treatment
-    // lives at templates/AGENTS.md.template (`## Scope: bundle cohesive work,
+    // lives at templates/references/agent-conduct.md (`## Scope: bundle cohesive work,
     // defer only separate features`), and the skill-side enforcement sites
     // (skills/pipeline/flow-product-planning/references/discovery-instructions.md's
     // "Bar for inclusion" + skills/pipeline/flow-new-feature/SKILL.md Step 2's
@@ -6601,7 +6827,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "Six sites defer to this marker " +
         "(flow-new-feature/SKILL.md Step 4b, product-planning discovery-instructions.md " +
         "Step 7, flow-pr-review/SKILL.md Step 8c + Step 11, pr-review " +
-        "references/agent-prompts.md, AGENTS.md, templates/AGENTS.md.template); " +
+        "references/agent-prompts.md, AGENTS.md, templates/references/verification.md); " +
         "the byte-exact `SUBJECTIVE: ` string is the cross-file contract — " +
         "renaming it must update all sites and this lint in the same commit " +
         "(AGENTS.md anchored-phrase rule).",
@@ -6643,8 +6869,8 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "marker — the lean bullet names the rule and defers to the rubric.",
     ).toBe(true);
     expect(
-      agentsTemplateContent.includes("SUBJECTIVE: "),
-      "templates/AGENTS.md.template must reference the literal `SUBJECTIVE: ` " +
+      agentsTemplateRefVerificationContent.includes("SUBJECTIVE: "),
+      "templates/references/verification.md must reference the literal `SUBJECTIVE: ` " +
         "marker — the full bar carries the per-facet rule, the marker contract, " +
         "and the never-tick / flag-if-absent consequence, deferring to the " +
         "rubric by name.",
@@ -6968,25 +7194,57 @@ describe("browser-driven UI-validation structural anchors", () => {
     ).toBe(true);
   });
 
-  it("AGENTS.md.template documents the ui-validation.json onboarding", () => {
+  it("templates/rules/ui-validation.md documents the ui-validation.json onboarding", () => {
     expect(
-      agentsTemplateContent.includes("three-ingredient new-repo onboarding"),
-      "templates/AGENTS.md.template must document the 'three-ingredient " +
+      agentsTemplateUiRulesContent.includes(
+        "three-ingredient new-repo onboarding",
+      ),
+      "templates/rules/ui-validation.md must document the 'three-ingredient " +
         "new-repo onboarding' for UI validation.",
     ).toBe(true);
     expect(
-      agentsTemplateContent.includes("ui-validation.json"),
-      "templates/AGENTS.md.template must reference 'ui-validation.json'.",
+      agentsTemplateUiRulesContent.includes("ui-validation.json"),
+      "templates/rules/ui-validation.md must reference 'ui-validation.json'.",
     ).toBe(true);
   });
 
-  it("AGENTS.md.template documents the ignoreRequestPatterns noise field", () => {
+  it("templates/rules/ui-validation.md's paths: frontmatter has a glob for every flow-ui-validate UI_EXTENSIONS entry", () => {
+    // Parity guard: flow-ui-validate.ts's UI_EXTENSIONS is the source of
+    // truth for what counts as a UI file; this rule's `paths:` frontmatter
+    // must mirror it, or the consumer rule silently stops loading on a
+    // surface flow-ui-validate already treats as UI.
+    const frontmatterMatch = agentsTemplateUiRulesContent.match(
+      /^---\npaths:\s*\n\s*\[([\s\S]*?)\]\n---/,
+    );
+    expect(
+      frontmatterMatch !== null,
+      "templates/rules/ui-validation.md must have a parseable `paths:` " +
+        "frontmatter array.",
+    ).toBe(true);
+    const pathsBlock = frontmatterMatch ? frontmatterMatch[1] : "";
+    const globs = Array.from(pathsBlock.matchAll(/"([^"]+)"/g)).map(
+      (m) => m[1],
+    );
+    for (const ext of UI_EXTENSIONS) {
+      const expectedGlob = `**/*${ext}`;
+      expect(
+        globs.includes(expectedGlob),
+        `templates/rules/ui-validation.md's 'paths:' frontmatter is missing ` +
+          `'${expectedGlob}' for UI_EXTENSIONS entry '${ext}' (bin/flow-ui-validate.ts). ` +
+          `Add the missing glob to templates/rules/ui-validation.md's 'paths:' ` +
+          `frontmatter so the consumer rule loads on every surface ` +
+          `flow-ui-validate already treats as UI.`,
+      ).toBe(true);
+    }
+  });
+
+  it("templates/rules/ui-validation.md documents the ignoreRequestPatterns noise field", () => {
     // The optional ignore*Patterns substring lists suppress benign browser
     // noise (canonically the favicon 404) before a route's ok is computed;
     // the manifest field reference must name them.
     expect(
-      agentsTemplateContent.includes("ignoreRequestPatterns"),
-      "templates/AGENTS.md.template must reference 'ignoreRequestPatterns' in " +
+      agentsTemplateUiRulesContent.includes("ignoreRequestPatterns"),
+      "templates/rules/ui-validation.md must reference 'ignoreRequestPatterns' in " +
         "the ui-validation manifest field reference.",
     ).toBe(true);
   });
@@ -7013,8 +7271,8 @@ describe("browser-driven UI-validation structural anchors", () => {
         "').",
     ).toBe(true);
     expect(
-      agentsTemplateContent.includes(guardrailAnchor),
-      "templates/AGENTS.md.template must state the secret-value guardrail " +
+      agentsTemplateUiRulesContent.includes(guardrailAnchor),
+      "templates/rules/ui-validation.md must state the secret-value guardrail " +
         "(anchor: '" +
         guardrailAnchor +
         "').",
@@ -7032,8 +7290,8 @@ describe("browser-driven UI-validation structural anchors", () => {
     // cross-isolation-boundary mirror.
     const anchor = "persists the launch adaptation back into";
     expect(
-      agentsTemplateContent.includes(anchor),
-      "templates/AGENTS.md.template must document the self-improving-manifest " +
+      agentsTemplateUiRulesContent.includes(anchor),
+      "templates/rules/ui-validation.md must document the self-improving-manifest " +
         "persist-back instruction (anchor: '" +
         anchor +
         "').",
@@ -9076,12 +9334,10 @@ describe("pause-output contract wiring lint", () => {
     expect(c).toContain("## Explain problems impact-first in plain language");
   });
 
-  it("templates/AGENTS.md.template carries the impact-first-language bullet", () => {
-    const c = fs.readFileSync(
-      path.join(REPO_ROOT, "templates", "AGENTS.md.template"),
-      "utf8",
+  it("templates/references/agent-conduct.md carries the impact-first-language bullet", () => {
+    expect(agentsTemplateRefAgentConductContent).toContain(
+      "**Explain problems impact-first in plain language.**",
     );
-    expect(c).toContain("**Explain problems impact-first in plain language.**");
   });
 
   it("pause-output-contract.md carries the Step contract section", () => {
@@ -9150,16 +9406,12 @@ describe("pause-output contract wiring lint", () => {
     expect(c).toContain("## Emit instructions as scannable numbered steps");
   });
 
-  it("AGENTS.md and templates/AGENTS.md.template carry the numbered-steps bullet", () => {
+  it("AGENTS.md and templates/references/agent-conduct.md carry the numbered-steps bullet", () => {
     const agentsC = fs.readFileSync(path.join(REPO_ROOT, "AGENTS.md"), "utf8");
-    const templateC = fs.readFileSync(
-      path.join(REPO_ROOT, "templates", "AGENTS.md.template"),
-      "utf8",
-    );
     expect(agentsC).toContain(
       "**Emit instructions as scannable numbered steps.**",
     );
-    expect(templateC).toContain(
+    expect(agentsTemplateRefAgentConductContent).toContain(
       "**Emit instructions as scannable numbered steps.**",
     );
   });

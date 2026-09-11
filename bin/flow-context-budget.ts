@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Maintainer-only helper: measures the always-loaded ("eager") instruction
- * set every Claude Code session pays for on turn 1 (CLAUDE.md + its
- * resolved `@import` chain, depth<=4, plus any rule file under
+ * Measures the always-loaded ("eager") instruction set every Claude Code
+ * session pays for on turn 1 (CLAUDE.md + its resolved `@import` chain,
+ * depth<=4, plus any rule file under
  * .claude/rules (any nesting) lacking a `paths:` frontmatter key — those
  * load unconditionally too), versus the "lazy" set (`paths:`-scoped rule
  * files, loaded only when a matching file is touched), plus the
@@ -123,6 +123,57 @@ async function findRuleFiles(repoRoot: string): Promise<string[]> {
   return out;
 }
 
+export interface TemplatePayloadEstimate {
+  core: StaticCostEstimate;
+  lazyRules: StaticCostEstimate;
+  references: StaticCostEstimate;
+}
+
+async function listMdFiles(dir: string): Promise<string[]> {
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((e) => e.isFile() && e.name.endsWith(".md"))
+    .map((e) => path.join(dir, e.name));
+}
+
+/**
+ * Measures the consumer-facing template payload: the always-loaded
+ * `templates/AGENTS.md.template` core, the `paths:`-scoped rule files
+ * under `templates/rules/`, and the reference files under
+ * `templates/references/`. A repo that hasn't adopted the rules/references
+ * split yet (or lacks the directories) contributes an empty set for that
+ * bucket, not an error.
+ */
+export async function resolveTemplatePayload(
+  repoRoot: string,
+): Promise<TemplatePayloadEstimate> {
+  const templatesDir = path.join(repoRoot, "templates");
+  const corePath = path.join(templatesDir, "AGENTS.md.template");
+  const coreContent = await readIfExists(corePath);
+  const core = await estimateStaticCost(coreContent !== null ? [corePath] : []);
+
+  const ruleFiles = await listMdFiles(path.join(templatesDir, "rules"));
+  const lazyRulePaths: string[] = [];
+  for (const ruleFile of ruleFiles) {
+    const content = await readIfExists(ruleFile);
+    if (content === null) continue;
+    if (hasPathsFrontmatter(content)) lazyRulePaths.push(ruleFile);
+  }
+  const lazyRules = await estimateStaticCost(lazyRulePaths);
+
+  const referencePaths = await listMdFiles(
+    path.join(templatesDir, "references"),
+  );
+  const references = await estimateStaticCost(referencePaths);
+
+  return { core, lazyRules, references };
+}
+
 export async function resolveAlwaysLoaded(repoRoot: string): Promise<{
   alwaysLoaded: StaticCostEstimate;
   lazy: StaticCostEstimate;
@@ -170,7 +221,9 @@ async function main(): Promise<void> {
     }
   }
 
-  const result = await resolveAlwaysLoaded(repoRoot);
+  const alwaysLoadedResult = await resolveAlwaysLoaded(repoRoot);
+  const templatePayload = await resolveTemplatePayload(repoRoot);
+  const result = { ...alwaysLoadedResult, templatePayload };
 
   if (json) {
     console.log(JSON.stringify(result, null, 2));
@@ -188,6 +241,9 @@ async function main(): Promise<void> {
   );
   console.log(
     `Skill frontmatter total: ~${result.skillFrontmatter.total} tokens.`,
+  );
+  console.log(
+    `Consumer template: core ${result.templatePayload.core.totals.chars} chars / ${result.templatePayload.core.totals.lines} lines; lazy rules ${result.templatePayload.lazyRules.totals.chars} chars; references ${result.templatePayload.references.totals.chars} chars`,
   );
   process.exit(0);
 }

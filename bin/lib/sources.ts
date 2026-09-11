@@ -57,7 +57,6 @@ const MAINTAINER_ONLY = new Set([
   "flow-plugin-probe",
   "flow-plugin-contract-lint",
   "flow-eval",
-  "flow-context-budget",
 ]);
 
 /**

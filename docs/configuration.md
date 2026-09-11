@@ -325,7 +325,7 @@ flow-product-brief
 which prints one JSON line — `{"found":true,"scope":"repo"|"user",
 "path":"<abs>","text":"<contents>"}` or `{"found":false}` — and always exits 0. `scope` tells you which of the two files answered. The full field
 vocabulary and the conventions for writing one are in
-`templates/AGENTS.md.template` ("Product brief") and
+`templates/references/delegation.md` ("Product brief") and
 `references/consumer-repo-contract.md` ("Product brief").
 
 `flow install` seeds `~/.flow/product.md` from
