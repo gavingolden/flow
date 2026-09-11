@@ -95,6 +95,8 @@ describe("isUiFile signal", () => {
     "app/page.tsx",
     "components/Foo.jsx",
     "src/App.vue",
+    "src/lib/state/cart.svelte.ts",
+    "src/lib/state/cart.svelte.js",
   ])("treats '%s' as a UI file", (p) => {
     expect(isUiFile(p)).toBe(true);
   });
@@ -268,6 +270,20 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
   it("bare .css change with no derivable route → quiet not-meaningful skip", () => {
     const c = drive(["--changed-files", "changed.txt"], {
       "changed.txt": "src/app.css\n",
+    });
+    const e = envelope(c);
+    expect(e.ran).toBe(false);
+    expect(e.loud).toBe(false);
+    expect(e.action).toBeUndefined();
+    expect(e.skipped_reason).toBe("no-ui-manifest");
+  });
+
+  it("bare .svelte.ts runes module with no derivable route → same quiet not-meaningful skip as bare .css", () => {
+    // A runes module alone is counted as a UI file (isUiFile) but is not a
+    // render-bearing component/page (isComponentOrPage) — it must yield the
+    // same not-meaningful skip verdict as a bare `.css`-only change.
+    const c = drive(["--changed-files", "changed.txt"], {
+      "changed.txt": "src/lib/state/cart.svelte.ts\n",
     });
     const e = envelope(c);
     expect(e.ran).toBe(false);

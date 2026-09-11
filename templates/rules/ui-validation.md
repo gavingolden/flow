@@ -5,6 +5,10 @@ paths:
     "**/*.tsx",
     "**/*.jsx",
     "**/*.vue",
+    "**/*.svelte.ts",
+    "**/*.svelte.js",
+    "**/*.css",
+    "**/*.scss",
     "**/routes/**",
     "**/components/**",
     ".flow/ui-validation.json",
@@ -20,7 +24,10 @@ visual-appearance pass at review time — via the `chrome-devtools` MCP plus
 a `.flow/ui-validation.json` manifest. The manifest is no longer paperwork
 you must author first: when the diff touches a **meaningful UI surface**
 (`.svelte`/`.tsx`/`.jsx`/`.vue`, or a `routes/`/`components/` path — a bare
-`.css` token change with no derivable route does not qualify) and the MCP
+`.css` token change with no derivable route does not qualify, and neither
+does a bare `.svelte.ts`/`.svelte.js` runes module on its own: it is
+counted as a UI file so the rule still loads, but carries no route of its
+own) and the MCP
 is present but no manifest exists, `flow-ui-validate` returns a mechanical
 **bootstrap** verdict: it deterministically infers `launch` (from
 `package.json` scripts), a per-run free port + `baseUrl`, `routes` (from the

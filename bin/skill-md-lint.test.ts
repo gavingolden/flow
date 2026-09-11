@@ -13,6 +13,7 @@ import {
   TERMINAL_PHASE_EMITTERS,
 } from "./lib/phase-advance";
 import { SURVEY_VERDICTS, VETTING_VERDICTS } from "./flow-step3-route";
+import { UI_EXTENSIONS } from "./flow-ui-validate";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -7205,6 +7206,36 @@ describe("browser-driven UI-validation structural anchors", () => {
       agentsTemplateUiRulesContent.includes("ui-validation.json"),
       "templates/rules/ui-validation.md must reference 'ui-validation.json'.",
     ).toBe(true);
+  });
+
+  it("templates/rules/ui-validation.md's paths: frontmatter has a glob for every flow-ui-validate UI_EXTENSIONS entry", () => {
+    // Parity guard: flow-ui-validate.ts's UI_EXTENSIONS is the source of
+    // truth for what counts as a UI file; this rule's `paths:` frontmatter
+    // must mirror it, or the consumer rule silently stops loading on a
+    // surface flow-ui-validate already treats as UI.
+    const frontmatterMatch = agentsTemplateUiRulesContent.match(
+      /^---\npaths:\s*\n\s*\[([\s\S]*?)\]\n---/,
+    );
+    expect(
+      frontmatterMatch !== null,
+      "templates/rules/ui-validation.md must have a parseable `paths:` " +
+        "frontmatter array.",
+    ).toBe(true);
+    const pathsBlock = frontmatterMatch ? frontmatterMatch[1] : "";
+    const globs = Array.from(pathsBlock.matchAll(/"([^"]+)"/g)).map(
+      (m) => m[1],
+    );
+    for (const ext of UI_EXTENSIONS) {
+      const expectedGlob = `**/*${ext}`;
+      expect(
+        globs.includes(expectedGlob),
+        `templates/rules/ui-validation.md's 'paths:' frontmatter is missing ` +
+          `'${expectedGlob}' for UI_EXTENSIONS entry '${ext}' (bin/flow-ui-validate.ts). ` +
+          `Add the missing glob to templates/rules/ui-validation.md's 'paths:' ` +
+          `frontmatter so the consumer rule loads on every surface ` +
+          `flow-ui-validate already treats as UI.`,
+      ).toBe(true);
+    }
   });
 
   it("templates/rules/ui-validation.md documents the ignoreRequestPatterns noise field", () => {
