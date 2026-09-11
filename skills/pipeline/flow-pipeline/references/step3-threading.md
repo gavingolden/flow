@@ -220,10 +220,14 @@ flow-research-note ensure --plan-file "$WORKTREE/.flow-tmp/plan.md" \
   --forced "$(jq -r '.forceResearch // false' ~/.flow/state/<slug>.json)"
 ```
 
-This is idempotent and self-no-ops when research ran, when the path was
-dormant, and when the subagent already wrote a note. When its stdout is
-non-empty, include that line **verbatim** in the plan-summary block so
-the user always sees the research skip note.
+This is idempotent and self-no-ops when research fully ran
+(`{ran:true,reason:"ran"}`), when the path was dormant, and when the
+subagent already wrote a note. It still surfaces a note for
+`{ran:true,reason:"ran-degraded"}` — a run that started but had a sub-run
+denied a tool and returned nothing for — since that needs the same
+visibility as a hard skip. When its stdout is non-empty, include that line
+**verbatim** in the plan-summary block so the user always sees the research
+skip note.
 
 ## Follow-up-reference consistency backstop (advisory, deterministic)
 

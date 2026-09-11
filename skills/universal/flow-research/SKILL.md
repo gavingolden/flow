@@ -75,12 +75,25 @@ The F2 discovery pre-check's synthesis is cached host-wide at `~/.flow/research-
   `flow-delegate` calls concurrently (bounded pool, default K=4), enforces a
   generous per-run total-call budget (default B=40, counted as dispatch
   attempts), and aggregates one JSON
-  `{ entries:[{task,model,ran,artifactPath?,skipReason?,durationMs?}], anyRan,
-allSkipped, calls:{attempted,ran,skipped,budget} }` to stdout AND `--out`. A
-  manifest entry is `{ task, model, prompt|promptFile, timeout?, addDirs?,
-out? }`. It backgrounds + persists to `--out` like `flow-ci-wait`, so a deep
-  run can outlive the harness foreground budget and a resumed turn reads the
-  result file.
+  `{ entries:[{task,model,ran,artifactPath?,skipReason?,durationMs?,deniedActions?}],
+anyRan, allSkipped, calls:{attempted,ran,skipped,budget} }` to stdout AND
+  `--out`. A manifest entry is `{ task, model, prompt|promptFile, timeout?,
+addDirs?, out?, skipPermissions?, outputFormat? }`. `skipPermissions` and
+  `outputFormat: "json"` are OPT-IN per entry, not defaults for this skill's
+  own Steps 2/3 gather/refute manifests below (they run without either,
+  subject to agy's normal interactive tool-permission prompting) — it is
+  `flow-research-run`'s deterministic discovery-backstop entries, a
+  DIFFERENT caller from this generic multi-angle skill, that set both:
+  `skipPermissions: true` (they pass no `addDirs`, so auto-approval grants no
+  `--add-dir` workspace directory, AND `flow-delegate` additionally pins the
+  child's `cwd` to an empty scratch directory in that case, so the
+  auto-approving run has nothing reachable via its inherited working
+  directory either — only agy's own tools, e.g. native web search, are
+  reached without a permission prompt) and `outputFormat: "json"` (so a
+  refused tool is nameable via the envelope's `deniedActions`). It
+  backgrounds + persists to `--out` like `flow-ci-wait`, so a deep run can
+  outlive the harness foreground budget and a resumed turn reads the result
+  file.
 - **Exact agy model variants** (live `agy models`, do not paraphrase): gather
   runs on `Gemini 3.1 Pro (High)`; refutation runs on a DIFFERENT variant from
   {`Claude Opus 4.6 (Thinking)`, `GPT-OSS 120B (Medium)`}.
@@ -177,7 +190,9 @@ flow-delegate-fanout \
 
 Read the aggregate. If `allSkipped` is true, take the agy-absent fallback
 (below). Otherwise read each ran entry's `artifactPath` to collect the
-extracted claims-with-quotes-and-grades.
+extracted claims-with-quotes-and-grades. Every `ran:false` entry in a
+non-`allSkipped` aggregate must be named in the report's own limitations
+section with its reason in plain language — never silently dropped.
 
 ## 3. Adversarial verify (agy fan-out, model-DIVERSE)
 
