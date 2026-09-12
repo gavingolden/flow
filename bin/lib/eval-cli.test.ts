@@ -60,6 +60,7 @@ function makeScenario(): ResolvedScenario {
     maxBudgetUsd: 1,
     timeoutSec: 60,
     allowedTools: [],
+    mcpServers: [],
     dir: "/fixture-root/scenario",
   };
 }
