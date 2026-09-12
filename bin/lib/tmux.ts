@@ -42,6 +42,8 @@ const FLOW_SLUG_OPTION = "@flow-slug";
  * canonical status surface; this is a convenience mirror, not a replacement.
  * Hyphenated to match `@flow-slug`. No flow-side reader — see
  * `docs/configuration.md`'s "tmux status-bar bindings" note.
+ * `publishStateBadges` below is the single publish site for every phase
+ * transition this option ever receives.
  */
 export const FLOW_PHASE_OPTION = "@flow-phase";
 /**
