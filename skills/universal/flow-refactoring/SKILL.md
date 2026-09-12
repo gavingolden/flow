@@ -110,16 +110,18 @@ code has been removed.
 --json` against the post-edit worktree, and writes the structured
    artifact at `<worktree>/.flow-tmp/coder-result.json`.
 
-3. After `/flow-coder` returns, do a cheap completeness check on the artifact:
+3. After `/flow-coder` returns, do a cheap completeness check on the artifact.
+   A `status: partial` artifact is reachable here — not an automatic
+   failure — when `verify_status == "pass"` (every attempted edit applied):
 
    ```bash
-   jq -e '.status == "complete" and .verify_status == "pass"' "$WORKTREE/.flow-tmp/coder-result.json" >/dev/null \
+   jq -e '(.status == "complete" or .status == "partial") and .verify_status == "pass"' "$WORKTREE/.flow-tmp/coder-result.json" >/dev/null \
      || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
    ```
 
-   On missing or empty artifact, surface the failure to the caller —
-   the supervisor escalates `NEEDS HUMAN: coder-failed` rather than
-   retrying past the 1-retry cap.
+   On missing/invalid artifact, or one with `verify_status != "pass"`,
+   surface the failure to the caller — the supervisor escalates
+   `NEEDS HUMAN: coder-failed` rather than retrying past the 1-retry cap.
 
 4. Read the artifact body once and parse into a typed object. Reuse the
    parsed object across Step 4 (verification, when it needs the

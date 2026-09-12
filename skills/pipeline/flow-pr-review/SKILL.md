@@ -196,9 +196,17 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
 4. When the subagent returns, treat its 3–5 sentence summary as the chat output. Do
    **not** read the artifact body at the spawn boundary — Step 9's first read is
    the wrapper's single read, and reading earlier would duplicate it. The only
-   post-spawn job here is a cheap completeness check
-   (`flow-fix-applier-schema --validate "$ARTIFACT_PATH" >/dev/null 2>&1 && jq -e '.status == "complete"' "$ARTIFACT_PATH" >/dev/null`); on
-   missing, invalid, or `status: partial` artifact, surface the failure per the Constraints below.
+   post-spawn job here is a cheap completeness check. Probe
+   `command -v flow-fix-applier-schema` first: when present, use
+   `flow-fix-applier-schema --validate "$ARTIFACT_PATH" >/dev/null 2>&1 && jq -e '.status == "complete"' "$ARTIFACT_PATH" >/dev/null`;
+   when the helper is absent (PATH), fall back to the bare shape check
+   `jq -e '.status == "complete"' "$ARTIFACT_PATH" >/dev/null` so a missing
+   helper never masquerades as a missing artifact. Either way, on a `status:
+   partial` artifact (or an `Agent stalled` failure), route to the
+   partial-result continuation / Stall branch per Step 8's post-return block
+   BEFORE the missing-artifact escalation — the escalation fires only when
+   the artifact is genuinely missing or invalid, never on a well-formed
+   `partial`.
 
    **Waiting for the agent.** The spawn is asynchronous; wake on its
    completion notification, falling back to a bounded Monitor `until`
@@ -952,11 +960,14 @@ canonical `$ARTIFACT_PATH` resolved during the spawn procedure (the
 single source of truth for the artifact's location). **Partial-result continuation:** a Task result marked partial with an agent id, or the artifact missing, invalid, `status: partial`, or an `Agent stalled` failure, gets one `SendMessage` continuation per `../flow-pipeline/references/partial-result-continuation.md` (its Stall branch for the `Agent stalled` case) before falling through to the escalation below.
 
 ```bash
-flow-fix-applier-schema --validate "$ARTIFACT_PATH" >/dev/null 2>&1 && jq -e '.status == "complete"' "$ARTIFACT_PATH" >/dev/null || {
-  # Write the escalation result artifact per the
-  # `fix-applier-missing-artifact` recipe in
-  # references/escalation-recipes.md — every exit path must leave
-  # pr-review-result.json on disk so the supervisor can branch on .status.
+command -v flow-fix-applier-schema > /dev/null \
+  && VALIDATE_CMD="flow-fix-applier-schema --validate" || VALIDATE_CMD="jq -e '.status'"
+eval "$VALIDATE_CMD \"\$ARTIFACT_PATH\"" >/dev/null 2>&1 \
+  && jq -e '.status == "partial" or .status == "complete"' "$ARTIFACT_PATH" >/dev/null 2>&1 || {
+  # `status: partial` (routed to the partial-result continuation / Stall
+  # branch, line 960 above) never reaches here — only a missing/invalid
+  # artifact does. Write the escalation result artifact per the
+  # `fix-applier-missing-artifact` recipe in references/escalation-recipes.md.
   RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
   cat > "$RESULT_PATH.tmp" <<'EOF'
 {
@@ -964,7 +975,7 @@ flow-fix-applier-schema --validate "$ARTIFACT_PATH" >/dev/null 2>&1 && jq -e '.s
   "completed_steps": ["1", "2", "3", "4", "5", "8"],
   "missed_steps": ["8c", "9", "10", "11", "12", "13"],
   "escalation_tag": "fix-applier-missing-artifact",
-  "summary": "Fix-Applier subagent returned but the artifact at .flow-tmp/fix-applier-result.json is missing or empty. Wrapper bailed at Step 8's existence check; supervisor must restart."
+  "summary": "Fix-Applier subagent returned but the artifact at .flow-tmp/fix-applier-result.json is missing or invalid. Wrapper bailed at Step 8's existence check; supervisor must restart."
 }
 EOF
   flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
@@ -974,10 +985,10 @@ EOF
 }
 ```
 
-On missing or empty artifact, surface the failure to the supervisor — **do
-not** retry the Task call. Re-invocation is the supervisor's decision; a
-second call inside this run would violate the one-Task-call invariant.
-On this bail-out path the wrapper writes
+On a genuinely missing or invalid artifact, surface the failure to the
+supervisor — **do not** retry the Task call. Re-invocation is the
+supervisor's decision; a second call inside this run would violate the
+one-Task-call invariant. On this bail-out path the wrapper writes
 `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
 and `escalation_tag: "fix-applier-missing-artifact"` per the
 # Result artifact contract above, before exiting non-zero.
@@ -1514,8 +1525,8 @@ ordinary Accuracy Sync fix in the description body. When N > 0 findings
 were never attempted, add a bullet: N findings not attempted (turn budget) — registered as untracked #a–#b (Step 13's
 seed already registers the empty-`tracker_entry_url` deferrals, so no
 new command is needed here) plus an unchecked
-`- [ ] SUBJECTIVE: confirm N unattempted entries are acceptable` Test
-Step so the PR is gated.
+`- [ ] SUBJECTIVE: confirm N unattempted entries (listed under
+## Deviations from plan above) are acceptable` Test Step so the PR is gated.
 
 ### 11e. Resolution
 
@@ -1898,10 +1909,10 @@ a real review rather than a metadata-triage skip. The marker file's read site li
   separate, already-exempted Task call covering review mode; that
   exemption is unchanged.)
 - NEVER read `.flow-tmp/fix-applier-result.json` body at the spawn boundary
-  (Step 8). The cheap existence check (`test -s`) is the only allowed
-  artifact access between spawn and Step 9. Step 9's first read is the
-  wrapper's single read of the body; reading earlier would duplicate that
-  read in the same context.
+  (Step 8). The cheap completeness check in Step 8 (schema-validate + `jq
+  -e '.status'`) is the only allowed artifact access between spawn and
+  Step 9. Step 9's first read is the wrapper's single read of the body;
+  reading earlier would duplicate that read in the same context.
 - NEVER read the artifact's body more than once. Parse it into a typed
   object at Step 9 and reuse the object across Steps 10, 11, 12. Re-reads
   defeat the context-cost win the subagent was designed to deliver.

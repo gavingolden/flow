@@ -33,9 +33,9 @@ artifact handling — unchanged behavior on older installs.
 
    ```
    You stopped at your turn budget and now have a fresh one. Do not
-   restart. Inspect each remaining file before editing and skip any
-   change already present on disk. finish the remaining entries in
-   order, refresh the checkpoint after each, run verify, then write the
+   restart. Inspect each remaining file before editing, skip any change
+   already present on disk, then finish the remaining entries in order,
+   refresh the checkpoint after each, run verify, then write the
    artifact at $ARTIFACT_PATH with `status: "complete"`, using only the
    terminal values your own artifact schema defines (e.g. `succeeded` /
    `failed` / `skipped` for the merge-resolver's `push_status` — never an
@@ -62,8 +62,21 @@ artifact handling — unchanged behavior on older installs.
 
 A Task result whose failure reads `Agent stalled: no progress for 600s
 (stream watchdog did not recover)` gets exactly ONE `SendMessage` resume
-attempt (same message as above). If refused, or the artifact is still
-not `status: "complete"` afterward, consume the partial artifact and
+attempt, opening with a line that names the stall rather than a turn
+budget (the message above does not apply verbatim — a stalled agent did
+not exhaust its turns):
+
+```
+You stalled with no progress for 600s and have been given a fresh turn
+budget to resume. Do not restart. Inspect each remaining file before
+editing, skip any change already present on disk, then finish the
+remaining entries in order, refresh the checkpoint after each, run
+verify, then write the artifact at $ARTIFACT_PATH with
+`status: "complete"`, using only the terminal values your own artifact
+schema defines, then return your both-sides summary.
+```
+
+If refused, or the artifact is still not `status: "complete"` afterward, consume the partial artifact and
 route never-started entries through loss accounting (`flow-untracked
 add`) — never finish the work inline. Then run `flow-pre-commit --json`
 once: a red tree with never-started entries escalates

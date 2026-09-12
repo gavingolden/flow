@@ -47,6 +47,7 @@ export type CoderAntiPattern = {
 };
 
 export type CoderResult = {
+  status: "partial" | "complete";
   edits: CoderEdit[];
   verify_status: string;
   rejected_alternatives: CoderRejectedAlternative[];
@@ -191,6 +192,31 @@ export function validateCoderResult(parsed: unknown): ValidationResult {
       `anti_patterns_found[${i}]`,
     );
     if (e) return e;
+  }
+
+  if (o.status !== "partial" && o.status !== "complete") {
+    return err(`'status' must be "partial" or "complete"`, "status");
+  }
+
+  if (o.status === "complete") {
+    for (let i = 0; i < edits.length; i++) {
+      const e = edits[i] as Record<string, unknown>;
+      if (
+        typeof e.tool_error === "string" &&
+        e.tool_error.startsWith("turn-budget — ")
+      ) {
+        return err(
+          `status 'complete' contradicts a turn-budget entry`,
+          `edits[${i}]`,
+        );
+      }
+    }
+    if (typeof o.verify_status === "string" && o.verify_status !== "pass") {
+      return err(
+        `status 'complete' contradicts a failing verify_status`,
+        "verify_status",
+      );
+    }
   }
 
   return { ok: true, value: parsed as CoderResult };

@@ -11279,3 +11279,36 @@ describe("Manifest write-back + shared-artifact write-back anchors", () => {
     ).toBe(true);
   });
 });
+
+describe("turn-budget sentinel + SUBJECTIVE-gating rule wiring (PR #859)", () => {
+  const TURN_BUDGET_SENTINEL = "turn-budget — ";
+
+  it.each([
+    ["flow-fix-applier-instructions/SKILL.md", () => fixApplierContent],
+    ["flow-coder-instructions/SKILL.md", () => coderInstructionsContent],
+    ["flow-new-feature/SKILL.md", () => newFeatureContent],
+    ["flow-pr-review/SKILL.md", () => prReviewContent],
+  ])("%s carries the literal turn-budget sentinel", (name, getContent) => {
+    expect(
+      getContent().includes(TURN_BUDGET_SENTINEL),
+      `${name} must carry the literal turn-budget sentinel ` +
+        `"${TURN_BUDGET_SENTINEL}" (em dash + trailing space) so a consumer's ` +
+        `startsWith("turn-budget — ") check has something to match verbatim.`,
+    ).toBe(true);
+  });
+
+  it.each([
+    ["flow-new-feature/SKILL.md", () => newFeatureContent],
+    ["flow-pr-review/SKILL.md", () => prReviewContent],
+  ])(
+    "%s gates unattempted entries with a SUBJECTIVE Test Step",
+    (name, getContent) => {
+      expect(
+        getContent().includes("SUBJECTIVE: confirm N unattempted entries"),
+        `${name} must gate a partial/turn-budget artifact behind an unchecked ` +
+          "`- [ ] SUBJECTIVE: confirm N unattempted entries...` Test Step so the PR " +
+          "is never auto-merged with silently-dropped work.",
+      ).toBe(true);
+    },
+  );
+});

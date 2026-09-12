@@ -219,6 +219,29 @@ describe("status field", () => {
     const result = validateFixApplierResult(fixture);
     expect(result.ok).toBe(false);
   });
+
+  it("rejects status: 'complete' with a failing commits[].verify_status", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    (fixture.commits as Array<Record<string, unknown>>)[0].verify_status =
+      "FAIL src/foo.test.ts > should bar\nExpected: 1\nReceived: 0";
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("verify_status");
+      expect(result.path).toBe("commits[0]");
+    }
+  });
+
+  it("rejects a bad-literal status value", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.status = "done";
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("status");
+      expect(result.path).toBe("status");
+    }
+  });
 });
 
 describe("validateFixApplierResult — wrong-type rejections", () => {

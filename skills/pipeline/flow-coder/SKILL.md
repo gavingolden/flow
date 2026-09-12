@@ -389,10 +389,10 @@ the heading anchor.
   is the caller's decision; a second call inside this run would violate
   the one-Task-call invariant.
 - NEVER read `.flow-tmp/coder-result.json` body in the wrapper. The
-  cheap existence check (`test -s`) is the only allowed artifact access
-  between spawn and return. The caller's first read of the body is the
-  single read; reading earlier would duplicate that read in the same
-  context.
+  cheap `jq -e` completeness check above (step 254) is the only allowed
+  artifact access between spawn and return. The caller's first read of the
+  body is the single read; reading earlier would duplicate that read in
+  the same context.
 - NEVER let the subagent own the `mkdir -p .flow-tmp/`. Single
   side-effect attribution site: the wrapper alone creates the directory.
   The subagent only writes the file.

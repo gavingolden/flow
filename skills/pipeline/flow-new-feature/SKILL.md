@@ -630,21 +630,28 @@ runs `flow-pre-commit --json` against the post-edit worktree, and
 writes the structured artifact at
 `<worktree>/.flow-tmp/coder-result.json`.
 
-4. After `/flow-coder` returns, do a cheap completeness check on the artifact:
+4. After `/flow-coder` returns, do a cheap completeness check on the artifact.
+   A `status: partial` artifact is reachable here — not an automatic
+   failure — when its only defect is turn-budget entries (every attempted
+   edit applied and `verify_status == "pass"` after the continuation):
 
    ```bash
-   jq -e '.status == "complete" and .verify_status == "pass"' "$WORKTREE/.flow-tmp/coder-result.json" >/dev/null \
+   jq -e '(.status == "complete" or .status == "partial") and .verify_status == "pass"' "$WORKTREE/.flow-tmp/coder-result.json" >/dev/null \
      || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
    jq -r '.edits[] | select((.tool_error // "") | startswith("turn-budget — ")) | "\(.file): \(.intent)"' "$WORKTREE/.flow-tmp/coder-result.json" | while IFS= read -r t; do flow-untracked add --title "$t" --source coder; done
    ```
 
-On missing, invalid, or `status: partial` artifact, surface the failure
-to the caller — the supervisor escalates `NEEDS HUMAN: coder-failed`
-rather than retrying past the 1-retry cap. When any entry was
-registered above, the PR body's `## Deviations from plan` names the
-count and untracked ids AND `## Test Steps` gains an unchecked
-`- [ ] SUBJECTIVE: confirm N unattempted entries are acceptable` item so
-the PR is gated.
+On a missing/invalid artifact, or one with `verify_status != "pass"`,
+surface the failure to the caller — the supervisor escalates
+`NEEDS HUMAN: coder-failed` rather than retrying past the 1-retry cap. A
+`status: partial` artifact that clears the check above (all attempted
+edits applied, `verify_status == "pass"`) proceeds instead of escalating:
+register the entries via the loop above, and the PR body's
+`## Deviations from plan` names the count and untracked ids AND
+`## Test Steps` gains an unchecked
+`- [ ] SUBJECTIVE: confirm N unattempted entries (listed under
+
+## Deviations from plan) are acceptable` item so the PR is gated.
 
 5. Read the artifact body once and parse into a typed object. Reuse
    the parsed object across Step 6 (test implementation, when it needs
