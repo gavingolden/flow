@@ -1857,7 +1857,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
   }> = [
     {
       file: "flow-fix-applier.md",
-      wantMaxTurns: 120,
+      wantMaxTurns: 200,
       wantCacheTtl: "1h",
       wantSkills: "flow-fix-applier-instructions",
     },
@@ -1920,7 +1920,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     {
       file: "flow-edit-applier.md",
       wantTools: "Bash, Read, Edit, Write, Grep, Glob, NotebookEdit",
-      wantMaxTurns: 80,
+      wantMaxTurns: 240,
       wantSkills: "flow-coder-instructions",
     },
     { file: "flow-backlog-verifier.md", wantTools: "Bash, Read, Grep, Glob" },
@@ -2511,7 +2511,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        514,
+        530,
         "NEVER commit to or push the base branch",
       ],
       [
@@ -3451,6 +3451,7 @@ describe("cross-model plan review worktree + convergence pins", () => {
 
 describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ flow-fix-applier-instructions/SKILL.md)", () => {
   const REQUIRED_KEYS = [
+    "status",
     "commits",
     "deferred",
     "rejected_alternatives",
@@ -3602,6 +3603,7 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ fl
 
 describe("Edit-Applier artifact JSON schema drift (flow-coder/SKILL.md ↔ flow-coder-instructions/SKILL.md)", () => {
   const CODER_REQUIRED_KEYS = [
+    "status",
     "edits",
     "verify_status",
     "rejected_alternatives",
@@ -5296,12 +5298,14 @@ describe("pr-review include-by-reference structure", () => {
     // The merged file is the union of all three at 1916 lines. 1930 leaves
     // 14 lines of genuine headroom, not round-number headroom for future
     // growth.
+    // Bumped 1930 -> 1940 (checkpointed applier artifact + turn-budget
+    // loss accounting + non-blocking wait).
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1930 lines. Material regrowth past this ceiling would ` +
+        `budget of 1940 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1930);
+    ).toBeLessThan(1940);
   });
 
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
@@ -5566,12 +5570,14 @@ describe("pr-review include-by-reference structure", () => {
     // (plugin-qualified → general-purpose, dropping the legacy-bare
     // elif branch), shrinking the file below this ceiling — the number
     // above is left as historical record, not re-tightened.
+    // Bumped 795 -> 810 (checkpointed applier artifact + turn-budget
+    // loss accounting + non-blocking wait).
     expect(
       lineCount,
       `flow-new-feature/SKILL.md line count must stay under the post-diet ` +
-        `budget of 795 lines. Material regrowth past this ceiling would ` +
+        `budget of 810 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(795);
+    ).toBeLessThan(810);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
@@ -10814,6 +10820,63 @@ describe("partial-result-continuation.md pointer-site lint", () => {
         content.includes("partial-result-continuation.md"),
         `${p} must reference skills/pipeline/flow-pipeline/references/partial-result-continuation.md.`,
       ).toBe(true);
+    },
+  );
+
+  const COMPLETENESS_CHECK_SITES = [
+    "skills/pipeline/flow-coder/SKILL.md",
+    "skills/pipeline/flow-new-feature/SKILL.md",
+    "skills/pipeline/flow-verify/SKILL.md",
+    "skills/universal/flow-refactoring/SKILL.md",
+    "skills/pipeline/flow-pr-review/SKILL.md",
+  ];
+
+  it.each(COMPLETENESS_CHECK_SITES)(
+    "%s uses the status == 'complete' completeness check, not a bare existence check",
+    (file) => {
+      const p = path.resolve(HERE, "..", file);
+      const content = fs.readFileSync(p, "utf8");
+      expect(content.includes('status == "complete"')).toBe(true);
+    },
+  );
+
+  it("partial-result-continuation.md's continuation contract is finish-first", () => {
+    const p = path.resolve(
+      HERE,
+      "..",
+      "skills/pipeline/flow-pipeline/references/partial-result-continuation.md",
+    );
+    const content = fs.readFileSync(p, "utf8");
+    expect(content.includes("fresh")).toBe(true);
+    expect(content.includes("finish the remaining")).toBe(true);
+    expect(content.includes("Agent stalled")).toBe(true);
+  });
+
+  const VERIFY_ROUND_CAP_FILES = [
+    "skills/pipeline/flow-coder-instructions/SKILL.md",
+    "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
+  ];
+
+  it.each(VERIFY_ROUND_CAP_FILES)(
+    "%s names the verify-fix round cap",
+    (file) => {
+      const p = path.resolve(HERE, "..", file);
+      const content = fs.readFileSync(p, "utf8");
+      expect(content.includes("verify-fix round")).toBe(true);
+    },
+  );
+
+  const NON_BLOCKING_WAIT_SITES = [
+    "skills/pipeline/flow-coder/SKILL.md",
+    "skills/pipeline/flow-pr-review/SKILL.md",
+  ];
+
+  it.each(NON_BLOCKING_WAIT_SITES)(
+    "%s forbids a foreground sleep loop while waiting on the subagent",
+    (file) => {
+      const p = path.resolve(HERE, "..", file);
+      const content = fs.readFileSync(p, "utf8");
+      expect(content.includes("never a foreground")).toBe(true);
     },
   );
 });

@@ -630,16 +630,21 @@ runs `flow-pre-commit --json` against the post-edit worktree, and
 writes the structured artifact at
 `<worktree>/.flow-tmp/coder-result.json`.
 
-4. After `/flow-coder` returns, do a cheap existence check on the artifact:
+4. After `/flow-coder` returns, do a cheap completeness check on the artifact:
 
    ```bash
-   test -s "$WORKTREE/.flow-tmp/coder-result.json" \
+   jq -e '.status == "complete" and .verify_status == "pass"' "$WORKTREE/.flow-tmp/coder-result.json" >/dev/null \
      || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
+   jq -r '.edits[] | select((.tool_error // "") | startswith("turn-budget — ")) | "\(.file): \(.intent)"' "$WORKTREE/.flow-tmp/coder-result.json" | while IFS= read -r t; do flow-untracked add --title "$t" --source coder; done
    ```
 
-On missing or empty artifact, surface the failure to the caller —
-the supervisor escalates `NEEDS HUMAN: coder-failed` rather than
-retrying past the 1-retry cap.
+On missing, invalid, or `status: partial` artifact, surface the failure
+to the caller — the supervisor escalates `NEEDS HUMAN: coder-failed`
+rather than retrying past the 1-retry cap. When any entry was
+registered above, the PR body's `## Deviations from plan` names the
+count and untracked ids AND `## Test Steps` gains an unchecked
+`- [ ] SUBJECTIVE: confirm N unattempted entries are acceptable` item so
+the PR is gated.
 
 5. Read the artifact body once and parse into a typed object. Reuse
    the parsed object across Step 6 (test implementation, when it needs

@@ -110,10 +110,10 @@ code has been removed.
 --json` against the post-edit worktree, and writes the structured
    artifact at `<worktree>/.flow-tmp/coder-result.json`.
 
-3. After `/flow-coder` returns, do a cheap existence check on the artifact:
+3. After `/flow-coder` returns, do a cheap completeness check on the artifact:
 
    ```bash
-   test -s "$WORKTREE/.flow-tmp/coder-result.json" \
+   jq -e '.status == "complete" and .verify_status == "pass"' "$WORKTREE/.flow-tmp/coder-result.json" >/dev/null \
      || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
    ```
 

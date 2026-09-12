@@ -196,8 +196,15 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
 4. When the subagent returns, treat its 3–5 sentence summary as the chat output. Do
    **not** read the artifact body at the spawn boundary — Step 9's first read is
    the wrapper's single read, and reading earlier would duplicate it. The only
-   post-spawn job here is a cheap existence check (`test -s "$ARTIFACT_PATH"`); on
-   missing or empty artifact, surface the failure per the Constraints below.
+   post-spawn job here is a cheap completeness check
+   (`flow-fix-applier-schema --validate "$ARTIFACT_PATH" >/dev/null 2>&1 && jq -e '.status == "complete"' "$ARTIFACT_PATH" >/dev/null`); on
+   missing, invalid, or `status: partial` artifact, surface the failure per the Constraints below.
+
+   **Waiting for the agent.** The spawn is asynchronous; wake on its
+   completion notification, falling back to a bounded Monitor `until`
+   loop on the completeness check above — never a foreground `sleep`
+   loop (see `../flow-pipeline/references/polling-protocol.md` "What this
+   wait means for the harness-native wake").
 
 5. Continue to Step 8c (the wrapper's post-spawn verification-item run),
    then Step 9 onwards.
@@ -940,12 +947,12 @@ Subagent above. The subagent owns the per-finding fix loop (Steps 6, 7, 7.5),
 the pre-commit run, the commit + push, and the `/flow-verify` re-run — all inside
 its own context.
 
-After the subagent returns, do a cheap existence check against the
+After the subagent returns, do a cheap completeness check against the
 canonical `$ARTIFACT_PATH` resolved during the spawn procedure (the
-single source of truth for the artifact's location). **Partial-result continuation:** a Task result marked partial with an agent id and a missing artifact gets one `SendMessage` continuation per `../flow-pipeline/references/partial-result-continuation.md` before falling through to the escalation below.
+single source of truth for the artifact's location). **Partial-result continuation:** a Task result marked partial with an agent id, or the artifact missing, invalid, `status: partial`, or an `Agent stalled` failure, gets one `SendMessage` continuation per `../flow-pipeline/references/partial-result-continuation.md` (its Stall branch for the `Agent stalled` case) before falling through to the escalation below.
 
 ```bash
-test -s "$ARTIFACT_PATH" || {
+flow-fix-applier-schema --validate "$ARTIFACT_PATH" >/dev/null 2>&1 && jq -e '.status == "complete"' "$ARTIFACT_PATH" >/dev/null || {
   # Write the escalation result artifact per the
   # `fix-applier-missing-artifact` recipe in
   # references/escalation-recipes.md — every exit path must leave
@@ -1503,7 +1510,12 @@ the PR body's `## Deviations from plan` section (one bullet, placed
 immediately before `## Test Steps`, inserted if the heading is absent)
 — **not** a `suggestion` finding in the Structured Report below. A gap
 that doesn't rise to that bar (a typo, a missing example) stays an
-ordinary Accuracy Sync fix in the description body.
+ordinary Accuracy Sync fix in the description body. When N > 0 findings
+were never attempted, add a bullet: N findings not attempted (turn budget) — registered as untracked #a–#b (Step 13's
+seed already registers the empty-`tracker_entry_url` deferrals, so no
+new command is needed here) plus an unchecked
+`- [ ] SUBJECTIVE: confirm N unattempted entries are acceptable` Test
+Step so the PR is gated.
 
 ### 11e. Resolution
 
@@ -1691,7 +1703,7 @@ surfaced in Step 4 must appear in one of the two buckets — say "No findings de
 explicitly rather than leaving the reader guessing. Same rule for the negative-findings
 sections: write `None` under an empty `rejected_alternatives` / `anti_patterns_found`
 heading rather than omitting it — silence on negatives is the failure mode the slot
-exists to prevent. Within the deferred bucket, a `deferred[]` entry whose `reason` begins `below bar — ` renders under its own `Below bar (not filed)` sub-list, separate from filed deferrals (a `tracker_entry_url`) and from tracker failures (an empty `tracker_entry_url` whose `reason` does not begin `below bar — `).
+exists to prevent. Within the deferred bucket, a `deferred[]` entry whose `reason` begins `below bar — ` renders under its own `Below bar (not filed)` sub-list, separate from filed deferrals (a `tracker_entry_url`) and from tracker failures (an empty `tracker_entry_url` whose `reason` does not begin `below bar — `). A sibling `Turn budget (not attempted)` sub-list, keyed on the `turn-budget — ` reason prefix, holds findings the subagent never reached.
 
 The Fix-Applier Subagent already committed and pushed any code changes during its run
 (per the `Auto-push exemption: pr-review` clause); the wrapper does not re-commit here.

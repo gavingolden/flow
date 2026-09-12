@@ -45,6 +45,19 @@ expected_outcome}` entries. Each entry names a file (repo-relative
 
 Follow the steps below in order.
 
+## 0. Write the skeleton artifact first
+
+Before applying any edit, write the artifact at `ARTIFACT_PATH` as a
+`status: "partial"` skeleton: every key from the schema in step 4 present,
+`edits`/`rejected_alternatives`/`anti_patterns_found` as empty arrays, and
+placeholder `verify_status`/`summary` strings. This guarantees an
+interruption at any point still leaves a consumable artifact. After every
+edit-set entry is processed (applied, rejected-alternatives / anti-patterns
+recorded), refresh that entry's disposition in the artifact with a short,
+targeted `Edit` — never a full rewrite of the file. `status` moves to
+`"complete"` only once every entry has been attempted and `verify_status`
+is `"pass"`; otherwise it stays `"partial"`.
+
 ## 1. Load context
 
 Before drafting any edit, load the inputs:
@@ -175,6 +188,12 @@ recoverable.
 
 ## 3. Run pre-commit verification
 
+**Verify-fix round cap.** At most 5 verify-fix rounds per run: if
+`flow-pre-commit --json` fails, you may revisit and re-run it up to 5
+times total. After the fifth failing round, record the failure excerpt
+in `verify_status`, refresh the artifact (`status: "partial"`), and
+return — never a sixth round.
+
 After every edit-set entry has been processed, run the pre-commit helper
 inside your isolated context:
 
@@ -219,13 +238,14 @@ The artifact MUST conform to this JSON schema:
 
 ```json
 {
+  "status": "partial" | "complete",
   "edits": [
     {
       "file": "<repo-relative path from the edit-set entry>",
       "intent": "<verbatim from the edit-set entry — what the edit was meant to achieve>",
       "expected_outcome": "<verbatim from the edit-set entry — observable post-edit state>",
       "applied": true,
-      "tool_error": "<verbatim Edit/Write tool error excerpt when applied=false; empty string '' otherwise>"
+      "tool_error": "<verbatim Edit/Write tool error excerpt when applied=false; empty string '' otherwise; an entry never attempted due to the turn budget uses the literal prefix 'turn-budget — not started'>"
     }
   ],
   "verify_status": "pass" | "<head-100/tail-50 line excerpt of the first failed check>",

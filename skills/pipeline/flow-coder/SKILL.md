@@ -117,8 +117,8 @@ the implement phase itself.
 
 The trade-off is intentional: the caller cannot refer back to the
 edit-application transcript in later steps. The contract that absorbs the
-trade-off is `coder-result.json` itself — its typed fields (`edits`,
-`verify_status`, `rejected_alternatives`, `anti_patterns_found`,
+trade-off is `coder-result.json` itself — its typed fields (`status`,
+`edits`, `verify_status`, `rejected_alternatives`, `anti_patterns_found`,
 `summary`) are what `/flow-new-feature` step 5, `/flow-verify` step 3, and
 `/flow-refactoring` step 3 consume.
 
@@ -239,14 +239,26 @@ config.models.implement > inherited` (see
    needs `verify_status` or per-edit dispositions, and reading it twice in
    the same context erodes the context-cost win.
 
+   **Waiting for the agent.** The spawn is asynchronous; wake on its
+   completion notification, falling back to a bounded Monitor `until`
+   loop on the completeness check below — never a foreground `sleep`
+   loop (see `../flow-pipeline/references/polling-protocol.md` "What this
+   wait means for the harness-native wake").
+
    **Partial-result continuation.** If the Task result is marked partial
-   with an agent id and the artifact below is missing, send exactly one
-   `SendMessage` continuation per
-   `../flow-pipeline/references/partial-result-continuation.md` before treating it as a
-   miss. The wrapper's only post-spawn job otherwise is a cheap existence
-   check (`test -s "$ARTIFACT_PATH"`); on missing
-   or empty artifact, surface the failure to the caller — the wrapper
-   itself never retries.
+   with an agent id, or the artifact is missing, invalid, `status:
+partial`, or an `Agent stalled` failure, send exactly one `SendMessage`
+   continuation per
+   `../flow-pipeline/references/partial-result-continuation.md` (its Stall
+   branch for the `Agent stalled` case) before treating it as a miss. The
+   wrapper's only post-spawn job otherwise is the completeness check:
+
+   ```bash
+   jq -e '.status == "complete" and .verify_status == "pass"' "$ARTIFACT_PATH" >/dev/null
+   ```
+
+   on missing, invalid, or `status: partial` artifact, surface the
+   failure to the caller — the wrapper itself never retries.
 
 ## Spawn prompt template
 
@@ -334,8 +346,9 @@ back; the artifact on disk is the record.
 
 The artifact's JSON schema is documented verbatim in
 `flow-coder-instructions/SKILL.md` step 4. Both files declare the same
-five top-level keys (`edits`, `verify_status`, `rejected_alternatives`,
-`anti_patterns_found`, `summary`); a structural lint at
+six top-level keys (`status`, `edits`, `verify_status`,
+`rejected_alternatives`, `anti_patterns_found`, `summary`); a structural
+lint at
 `bin/skill-md-lint.test.ts` enforces the schema-drift symmetry, and a
 runtime validator at `bin/lib/coder-schema.ts` lets callers assert shape
 before consuming the artifact.
@@ -351,7 +364,7 @@ the heading anchor.
   invocation; the wrapper did not retry on missing artifact (the caller
   decides whether to re-invoke).
 - `.flow-tmp/coder-result.json` exists at the resolved absolute path with
-  all five top-level keys (`edits`, `verify_status`,
+  all six top-level keys (`status`, `edits`, `verify_status`,
   `rejected_alternatives`, `anti_patterns_found`, `summary`).
 - The wrapper's transcript contains no per-edit `Edit`/`Write` prose, no
   `flow-pre-commit` output, and no file-read prose — those stayed inside

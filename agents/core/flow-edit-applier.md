@@ -2,7 +2,7 @@
 name: flow-edit-applier
 description: Independent Edit-Applier Subagent, spawned by /flow-coder (applies the EDIT_SET in isolation, runs flow-pre-commit --json, writes the result artifact at .flow-tmp/coder-result.json).
 tools: Bash, Read, Edit, Write, Grep, Glob, NotebookEdit
-maxTurns: 80
+maxTurns: 240
 skills:
   - flow-coder-instructions
 ---
@@ -39,8 +39,12 @@ mismatches, ambiguous acceptance commands), so its effort scales with the
 session's, and the spawn site's per-spawn `model:` threading (the
 `CODER_MODEL` config resolution) always wins over any frontmatter value.
 
-`maxTurns: 80` bounds the apply-and-verify loop. If you reach it, the
-harness returns your output as **partial** — write the artifact FIRST as
-soon as you sense you're near the budget. A continuation message
-(`SendMessage`, per `skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) asks you
-to finish from where you stopped, never to restart from scratch.
+`maxTurns: 240` (sized from the measured uncapped distribution — median
+134, p90 309 — with a 5-round verify-fix bound doing the runaway work)
+bounds the apply-and-verify loop. Write the `status: partial` skeleton
+artifact FIRST and refresh it after every entry, so an interruption
+always leaves a consumable artifact. If you reach the budget the harness
+returns your output as partial; a continuation (`SendMessage`, per
+skills/pipeline/flow-pipeline/references/partial-result-continuation.md)
+gives you a fresh budget — finish the remaining entries, then mark the
+artifact complete; never restart from scratch.

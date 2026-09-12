@@ -49,6 +49,7 @@ function withTmpFile(contents: string, fn: (filePath: string) => void): void {
  */
 
 const VALID_FULL: unknown = {
+  status: "complete",
   commits: [
     {
       sha: "a1b2c3d",
@@ -88,6 +89,7 @@ const VALID_FULL: unknown = {
 };
 
 const VALID_EMPTY_NEGATIVES: unknown = {
+  status: "complete",
   commits: [
     {
       sha: "deadbef",
@@ -125,6 +127,7 @@ describe("validateFixApplierResult — happy paths", () => {
 
   it("accepts a verify_status containing a failure excerpt rather than 'pass'", () => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.status = "partial";
     (fixture.commits as Array<Record<string, unknown>>)[0].verify_status =
       "FAIL src/foo.test.ts > should bar\nExpected: 1\nReceived: 0";
     const result = validateFixApplierResult(fixture);
@@ -168,6 +171,7 @@ describe("validateFixApplierResult — required-key omissions", () => {
     "rejected_alternatives",
     "anti_patterns_found",
     "summary",
+    "status",
   ])("rejects an artifact missing the '%s' top-level key", (key) => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
     delete fixture[key];
@@ -176,6 +180,44 @@ describe("validateFixApplierResult — required-key omissions", () => {
     if (!result.ok) {
       expect(result.reason).toContain(key);
     }
+  });
+});
+
+describe("status field", () => {
+  it("rejects an artifact with status absent", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    delete fixture.status;
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.path).toBe("status");
+    }
+  });
+
+  it("accepts status: 'partial'", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.status = "partial";
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects status: 'complete' with a turn-budget deferred entry", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    (fixture.deferred as Array<Record<string, unknown>>).push({
+      finding_id: "f-99",
+      tracker_entry_url: "",
+      reason: "turn-budget — not attempted",
+    });
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects status: 'complete' with a commits[].tool_error turn-budget entry", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    (fixture.commits as Array<Record<string, unknown>>)[0].tool_error =
+      "turn-budget — not started";
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(false);
   });
 });
 
