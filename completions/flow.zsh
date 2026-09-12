@@ -147,7 +147,11 @@ _flow() {
                     # offer its --slug/--json flags; otherwise complete the
                     # subcommand list. ($line[1] is `config`; $line[2] is the
                     # subcommand.)
-                    if [[ "$line[2]" == models ]]; then
+                    if [[ "$line[2]" == all ]]; then
+                        _arguments \
+                            '--slug[overlay a pipeline'\''s per-run overrides]:pipeline:_flow_slugs' \
+                            '--json[emit machine-readable JSON rows]'
+                    elif [[ "$line[2]" == models ]]; then
                         _arguments \
                             '--slug[overlay a pipeline'\''s per-run overrides]:pipeline:_flow_slugs' \
                             '--json[emit machine-readable JSON rows]'
@@ -158,6 +162,7 @@ _flow() {
                     else
                         local -a sub
                         sub=(
+                            'all:show every resolved config setting in one view'
                             'models:show resolved model + effort per phase/agent'
                             'launch:show resolved launch defaults + source'
                             'launcher:get/set the recorded launcher backend'

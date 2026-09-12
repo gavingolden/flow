@@ -68,6 +68,9 @@ Usage:
                                         hard-fails if that slug's window already exists)
   flow feature resume <name> [<name> ...]  resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
   flow epic <create|run|status|bind|launch|ls|done> design and run an epic
+  flow config all [--slug <name>] [--json]
+                                        show every resolved config.json setting across three
+                                        timing-labelled sections (models, launch, settings)
   flow config models [--slug <name>] [--json]
                                         show the resolved model + effort + source for every
                                         pipeline phase and fan-out sub-agent (--slug overlays a
@@ -244,18 +247,29 @@ Options (done):
   config: `flow config — inspect flow configuration
 
 Usage:
+  flow config all [--slug <name>] [--json]
   flow config models [--slug <name>] [--json]
   flow config launcher [get | set <plain|tmux>]
   flow config launch [--slug <name>] [--json]
 
 Subcommands:
+  all                    print all three sections below in one view — models,
+                        launch, and every other config.json setting a live
+                        reader covers but no dedicated subcommand shows
+
   models                print the effective Claude model + reasoning effort for
                         every pipeline phase and fan-out sub-agent (session,
                         planning, scout, coder, review, fix-applier,
                         consolidator, merge-resolver),
                         with a SOURCE column showing where each value resolved
                         from (per-run flag/state, global config, built-in
-                        fallback, pinned, or inherited-session)
+                        fallback, pinned, or inherited-session).
+                        A line above the table shows the resolved session
+                        effort and its source (this run's frozen state,
+                        config.json's launch.effort, or the built-in); every
+                        sub-agent row's EFFORT cell reads "= session" — effort
+                        is fixed once at launch, unlike MODEL which resolves
+                        at each spawn
 
   launcher              get/set the recorded launcher backend (plain or tmux).
                         flow install asks once on interactive installs and
@@ -273,7 +287,7 @@ Options (models, launch):
                         per-run overrides on top of the global-defaults view;
                         a name with no state file exits non-zero (no table)
   --json                emit the rows as a machine-readable JSON array
-                        ({phase, model, source, effort} for models;
+                        ({phase, model, source, effort, effortSource} for models;
                         {setting, value, source} for launch) with no color or footer
 
 Read-only: reports routing, not spend — see 'flow ls --cost' for realized cost.`,

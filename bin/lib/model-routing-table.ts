@@ -173,6 +173,7 @@ export type ResolvedRow = {
   model: ModelAlias | "";
   source: string;
   effort: string;
+  effortSource: string;
 };
 
 const FLAG_BY_FIELD = new Map<string, string>([
@@ -216,27 +217,42 @@ function fallbackRow(
   }
 }
 
-function resolveEffort(state: PipelineState | null | undefined): string {
-  return state?.effort ?? "inherited";
-}
-
 /**
  * Pure resolver: walk each site's precedence chain against the injected
  * `state` (a feature `state.json`, or null/undefined for the global view) and
  * `config` (the validated `config.models` table). No I/O — the CLI shim does
  * the tolerant reads and passes the results in.
+ *
+ * `effort` is likewise injected rather than derived here (keeping this
+ * module I/O-free): when the caller supplies `input.effort`, the `session`
+ * row carries it verbatim and every other row follows the session
+ * (`= session` / `follows session`) — the Task tool exposes no per-spawn
+ * effort argument, so no row can pin its own. When `input.effort` is
+ * omitted, behaviour is unchanged from before this field existed:
+ * `state?.effort ?? "inherited"` on every row.
  */
 export function resolveRouting(input: {
   state: PipelineState | null | undefined;
   config: ConfigModels;
+  effort?: { value: string; source: string };
 }): ResolvedRow[] {
-  const { state, config } = input;
+  const { state, config, effort } = input;
   return SPAWN_SITES.map((site) => {
     const resolved = resolveModel(site, state, config);
+    if (effort) {
+      const isSession = site.phase === "session";
+      return {
+        phase: site.phase,
+        ...resolved,
+        effort: isSession ? effort.value : "= session",
+        effortSource: isSession ? effort.source : "follows session",
+      };
+    }
     return {
       phase: site.phase,
       ...resolved,
-      effort: resolveEffort(state),
+      effort: state?.effort ?? "inherited",
+      effortSource: state?.effort ?? "inherited",
     };
   });
 }

@@ -70,13 +70,95 @@ describe("runConfigModelsCli", () => {
       expect(table).toContain(phase);
     }
     // built-in model fallback is visible; effort is never pinned — every
-    // row inherits the (absent, so global-view) session effort.
+    // sub-agent row follows the (resolved) session effort.
     expect(table).toContain("built-in (sonnet)");
     expect(table).toMatch(
-      /fix-applier\s+sonnet\s+built-in \(sonnet\)\s+inherited/,
+      /fix-applier\s+sonnet\s+built-in \(sonnet\)\s+= session/,
     );
     // the fixture config value resolves
     expect(table).toMatch(/review\s+opus\s+config \(models\.review\)/);
+  });
+
+  it("prints the resolved session effort with its source on a line above the table", () => {
+    const code = runConfigModelsCli([], {
+      read: reader({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(0);
+    const table = out.join("\n");
+    expect(table).toMatch(/^effort: high — config \(launch\.effort\)/m);
+    for (const line of out) {
+      if (/^effort:/.test(line)) continue;
+      expect(line).not.toMatch(/PHASE\s+MODEL\s+SOURCE\s+EFFORT/);
+      break;
+    }
+  });
+
+  it("every sub-agent EFFORT cell reads `= session` regardless of the resolved value", () => {
+    const code = runConfigModelsCli([], {
+      read: reader({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(0);
+    const table = out.join("\n");
+    expect(table).toMatch(/session\s+.*\s+high$/m);
+    for (const phase of [
+      "planning",
+      "scout",
+      "coder",
+      "review",
+      "fix-applier",
+      "ui-driver",
+      "consolidator",
+      "merge-resolver",
+    ]) {
+      const line = out.find((l) => l.trimStart().startsWith(phase + " "));
+      expect(line, `no row for ${phase}`).toBeDefined();
+      expect(line).toMatch(/=\s*session\s*$/);
+    }
+  });
+
+  it("--slug renders the frozen run effort with source `this run (fixed at launch)`, ignoring a differing launch.effort in config", () => {
+    const code = runConfigModelsCli(["--slug", "feat"], {
+      // A live launch.effort of "low" must never leak in once a state
+      // resolved this pipeline's effort to "high" — config is out of the
+      // chain the moment --slug resolves a state (config-launch.ts's rule).
+      read: reader({ launch: { effort: "low" } }),
+      loadState: () => st({ effort: "high" }),
+    });
+    expect(code).toBe(0);
+    const table = out.join("\n");
+    expect(table).toMatch(/^effort: high — this run \(fixed at launch\)/m);
+  });
+
+  it("with no state and no launch.effort configured, the session effort renders `(none)` / built-in", () => {
+    const code = runConfigModelsCli([], { read: reader(undefined) });
+    expect(code).toBe(0);
+    const table = out.join("\n");
+    expect(table).toMatch(
+      /^effort: \(none\) — built-in \(no --effort passed\)/m,
+    );
+  });
+
+  it("the table still has exactly four columns", () => {
+    const code = runConfigModelsCli([], { read: reader(undefined) });
+    expect(code).toBe(0);
+    const headerLine = out.find((l) =>
+      /PHASE\s+MODEL\s+SOURCE\s+EFFORT/.test(l),
+    );
+    expect(headerLine).toBeDefined();
+    const cols = headerLine!.trim().split(/\s{2,}/);
+    expect(cols).toEqual(["PHASE", "MODEL", "SOURCE", "EFFORT"]);
+  });
+
+  it("the footer names the launch-time timing and the no-per-spawn-effort-argument reason", () => {
+    const code = runConfigModelsCli([], { read: reader(undefined) });
+    expect(code).toBe(0);
+    const table = out.join("\n");
+    expect(table).toContain(
+      "effort is fixed when the pipeline launches; MODEL resolves at each spawn",
+    );
+    expect(table).toContain(
+      "the Task tool has no per-spawn effort argument, so every sub-agent follows the session",
+    );
   });
 
   // Story 1b — review-lens rows: default inherited, an explicit
@@ -120,10 +202,10 @@ describe("runConfigModelsCli", () => {
   });
 
   // Story 4 — machine-readable output.
-  it("--json emits a parseable array of {phase,model,source,effort}", () => {
+  it("--json emits a parseable array of {phase,model,source,effort,effortSource}", () => {
     const code = runConfigModelsCli(["--json"], { read: reader(undefined) });
     expect(code).toBe(0);
-    // exactly one stdout line, no footer/color
+    // exactly one stdout line, no footer/color/session-effort line
     expect(out.length).toBe(1);
     const parsed = JSON.parse(out[0]);
     expect(Array.isArray(parsed)).toBe(true);
@@ -136,6 +218,7 @@ describe("runConfigModelsCli", () => {
       expect(r).toHaveProperty("model");
       expect(r).toHaveProperty("source");
       expect(r).toHaveProperty("effort");
+      expect(r).toHaveProperty("effortSource");
     }
     const fixApplier = parsed.find(
       (r: { phase: string }) => r.phase === "fix-applier",
@@ -143,7 +226,15 @@ describe("runConfigModelsCli", () => {
     expect(fixApplier).toMatchObject({
       model: "sonnet",
       source: "built-in (sonnet)",
-      effort: "inherited",
+      effort: "= session",
+      effortSource: "follows session",
+    });
+    const session = parsed.find(
+      (r: { phase: string }) => r.phase === "session",
+    );
+    expect(session).toMatchObject({
+      effort: "(none)",
+      effortSource: "built-in (no --effort passed)",
     });
   });
 

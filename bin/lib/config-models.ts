@@ -24,6 +24,7 @@ import {
   type ConfigModels,
   type ResolvedRow,
 } from "./model-routing-table";
+import { readLaunchDefaults } from "./launch-config";
 import { readState, type ModelAlias, type PipelineState } from "./state";
 import { friendlyName } from "./cost-pricing";
 import { dim } from "./color";
@@ -89,6 +90,35 @@ export function runConfigModelsCli(
     options.read ?? defaultReadConfigFile,
   );
 
+  const { rows, effort } = buildModelRows(read, state);
+
+  if (json) {
+    console.log(JSON.stringify(rows));
+    return 0;
+  }
+
+  console.log(`effort: ${effort.value} — ${effort.source}`);
+  console.log("");
+  printTable(rows);
+  return 0;
+}
+
+export type ModelRows = {
+  rows: ResolvedRow[];
+  effort: { value: string; source: string };
+};
+
+/**
+ * Pure(ish) row-builder over an already-resolved `read` + `state`: resolves
+ * the session effort (state > `launch.effort` > built-in), reads every
+ * `CONFIG_KEYS` grain plus the nested `reviewLenses` object, and feeds both
+ * into `resolveRouting`. Extracted so `flow config all` can compose this
+ * section without re-parsing `~/.flow/config.json`.
+ */
+export function buildModelRows(
+  read: ReadConfigFile,
+  state: PipelineState | null,
+): ModelRows {
   const config: ConfigModels = {};
   for (const key of CONFIG_KEYS) {
     config[key] = readPhaseModel(key, read);
@@ -103,15 +133,42 @@ export function runConfigModelsCli(
   }
   config.reviewLenses = reviewLenses;
 
-  const rows = resolveRouting({ state, config });
+  const effort = resolveSessionEffort(state, read);
+  const rows = resolveRouting({ state, config, effort });
+  return { rows, effort };
+}
 
-  if (json) {
-    console.log(JSON.stringify(rows));
-    return 0;
+/**
+ * Resolves the session's effort on the same precedence ladder
+ * `config-launch.ts` uses for every other `launch.<key>`: this run's frozen
+ * state > `launch.effort` > built-in. Reuses the SAME three source-string
+ * literals so the two audit views never describe identical resolutions in
+ * different words. Once an explicit `--slug` resolved a state file, config
+ * is no longer in the chain (same rule `config-launch.ts` documents) — an
+ * absent `state.effort` there means "resolved to the built-in", never "go
+ * re-read the live config".
+ */
+function resolveSessionEffort(
+  state: PipelineState | null,
+  read: ReadConfigFile,
+): { value: string; source: string } {
+  if (state) {
+    if (state.effort !== undefined) {
+      return {
+        value: String(state.effort),
+        source: "this run (fixed at launch)",
+      };
+    }
+    return { value: "(none)", source: "built-in (no --effort passed)" };
   }
-
-  printTable(rows);
-  return 0;
+  const launchDefaults = readLaunchDefaults(read);
+  if (launchDefaults.effort !== undefined) {
+    return {
+      value: String(launchDefaults.effort),
+      source: "config (launch.effort)",
+    };
+  }
+  return { value: "(none)", source: "built-in (no --effort passed)" };
 }
 
 function printTable(rows: ResolvedRow[]): void {
@@ -138,4 +195,14 @@ function printTable(rows: ResolvedRow[]): void {
   for (const r of rows) console.log(line(cols.map((c) => c.get(r))));
   console.log("");
   console.log(dim("routing only — see `flow ls --cost` for realized spend"));
+  console.log(
+    dim(
+      "effort is fixed when the pipeline launches; MODEL resolves at each spawn",
+    ),
+  );
+  console.log(
+    dim(
+      "the Task tool has no per-spawn effort argument, so every sub-agent follows the session",
+    ),
+  );
 }

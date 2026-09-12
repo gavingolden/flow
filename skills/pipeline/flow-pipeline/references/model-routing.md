@@ -96,10 +96,17 @@ whose `model` defaults to a literal `sonnet` rather than inheriting — pins
 per-spawn effort argument, so a frontmatter effort pin would be
 unoverridable, even though the same row's `model` is only a configurable
 default the caller can already override. Effort therefore always follows
-the session's effort (`state.effort`, or `inherited` when no session state
-applies) — the model-default axis and the effort axis are independent.
-`bin/lib/model-routing-table.test.ts` pins this invariant directly: no
-`SPAWN_SITES` row declares an `effortPin`.
+the session's effort, resolved on the precedence chain this run's frozen
+state > `launch.effort` config > built-in — the model-default axis and the
+effort axis are independent. `bin/lib/model-routing-table.test.ts` pins
+this invariant directly: no `SPAWN_SITES` row declares an `effortPin`.
+
+`flow config models` renders this directly: a line above the table shows
+the resolved session effort and its source, and every sub-agent row's
+EFFORT cell reads `= session` rather than repeating the value — the model
+column can differ spawn-to-spawn (a config edit changes the NEXT spawn),
+but effort is frozen for the whole run at launch, so every row's effort is
+by definition identical to the session's.
 
 ## In-process skills pin effort, not model
 

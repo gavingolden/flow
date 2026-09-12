@@ -98,7 +98,7 @@ export function insertNote(planText: string, noteBlock: string): string {
   return [...head, "", noteBlock, "", ...tail].join("\n");
 }
 
-function readConfigDiscovery(configPath: string): boolean {
+export function readConfigDiscovery(configPath: string): boolean {
   try {
     const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
     return cfg?.research?.discovery === true;

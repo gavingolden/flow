@@ -213,7 +213,7 @@ _flow() {
                     *) csub="${words[k]}"; break ;;
                 esac
             done
-            if [ "$csub" = "models" ] || [ "$csub" = "launch" ]; then
+            if [ "$csub" = "all" ] || [ "$csub" = "models" ] || [ "$csub" = "launch" ]; then
                 case "$prev" in
                     --slug)
                         # shellcheck disable=SC2207
@@ -225,7 +225,7 @@ _flow() {
                 COMPREPLY=( $(compgen -W "--slug --json --help" -- "$cur") )
             else
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "models launcher launch" -- "$cur") )
+                COMPREPLY=( $(compgen -W "all models launcher launch" -- "$cur") )
             fi
             ;;
         ls)

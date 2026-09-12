@@ -32,7 +32,7 @@ export type ConfigLaunchOptions = {
   loadState?: (slug: string) => PipelineState | null;
 };
 
-type Row = { setting: string; value: string; source: string };
+export type Row = { setting: string; value: string; source: string };
 
 const BUILT_IN: Record<keyof LaunchDefaults, { value: string; note: string }> =
   {
@@ -110,6 +110,29 @@ export function runConfigLaunchCli(
     console.error(dim(`flow config launch: ${w}`));
   }
 
+  const rows = buildLaunchRows(read, state);
+
+  if (json) {
+    console.log(JSON.stringify(rows));
+    return 0;
+  }
+
+  printTable(rows);
+  return 0;
+}
+
+/**
+ * Pure row-builder over an already-resolved `read` + `state`: this run's
+ * frozen state > `launch.<key>` config > built-in, for each
+ * `LAUNCH_CONFIG_KEYS` entry, plus the read-only `model` cross-reference row.
+ * Extracted from `runConfigLaunchCli` so `flow config all` can compose this
+ * section without re-parsing `~/.flow/config.json` or re-running the
+ * stderr warning pass (which stays owned by the CLI shim).
+ */
+export function buildLaunchRows(
+  read: ReadConfigFile,
+  state: PipelineState | null,
+): Row[] {
   // Once an explicit `--slug` resolved a state file, that state IS the
   // completed resolution for this pipeline — config is no longer in the
   // precedence chain. `feature.ts` persists the three booleans only in
@@ -166,13 +189,7 @@ export function runConfigLaunchCli(
   }
   rows.push({ setting: "model", value: modelValue, source: modelSource });
 
-  if (json) {
-    console.log(JSON.stringify(rows));
-    return 0;
-  }
-
-  printTable(rows);
-  return 0;
+  return rows;
 }
 
 function printTable(rows: Row[]): void {
