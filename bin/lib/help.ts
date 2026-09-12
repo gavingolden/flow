@@ -70,7 +70,8 @@ Usage:
   flow epic <create|run|status|bind|launch|ls|done> design and run an epic
   flow config all [--slug <name>] [--json]
                                         show every resolved config.json setting across three
-                                        timing-labelled sections (models, launch, settings)
+                                        timing-labelled sections (models, launch, settings);
+                                        bare 'flow config' with no subcommand is a synonym for this
   flow config models [--slug <name>] [--json]
                                         show the resolved model + effort + source for every
                                         pipeline phase and fan-out sub-agent (--slug overlays a
@@ -247,15 +248,18 @@ Options (done):
   config: `flow config — inspect flow configuration
 
 Usage:
+  flow config                            (same as 'flow config all')
   flow config all [--slug <name>] [--json]
   flow config models [--slug <name>] [--json]
   flow config launcher [get | set <plain|tmux>]
   flow config launch [--slug <name>] [--json]
 
 Subcommands:
-  all                    print all three sections below in one view — models,
+  all                   print all three sections below in one view — models,
                         launch, and every other config.json setting a live
-                        reader covers but no dedicated subcommand shows
+                        reader covers but no dedicated subcommand shows.
+                        Bare 'flow config' (no subcommand) is a synonym for
+                        this
 
   models                print the effective Claude model + reasoning effort for
                         every pipeline phase and fan-out sub-agent (session,
@@ -282,13 +286,16 @@ Subcommands:
                         ~/.flow/config.json's launch.<key>, or from the
                         built-in default
 
-Options (models, launch):
+Options (all, models, launch):
   --slug <name>         overlay a specific pipeline's ~/.flow/state/<name>.json
                         per-run overrides on top of the global-defaults view;
                         a name with no state file exits non-zero (no table)
-  --json                emit the rows as a machine-readable JSON array
-                        ({phase, model, source, effort, effortSource} for models;
-                        {setting, value, source} for launch) with no color or footer
+  --json                emit the rows as machine-readable JSON, with no color
+                        or footer:
+                        {phase, model, source, effort, effortSource} for models;
+                        {setting, value, source} for launch;
+                        {groups: [{group, timing, rows}]} for all — an
+                        object, not a bare array, one group per section above
 
 Read-only: reports routing, not spend — see 'flow ls --cost' for realized cost.`,
 

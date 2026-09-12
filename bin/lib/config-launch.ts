@@ -34,6 +34,16 @@ export type ConfigLaunchOptions = {
 
 export type Row = { setting: string; value: string; source: string };
 
+/**
+ * The two dim footer lines this table prints. Exported so `config-all.ts`'s
+ * aggregate view prints the identical text under its own launch section
+ * rather than letting the two views drift.
+ */
+export const LAUNCH_FOOTERS: readonly string[] = [
+  "a config edit changes the NEXT launch only, never a pipeline already running",
+  "model is shown for reference — set it with models.default (there is no launch.model)",
+];
+
 const BUILT_IN: Record<keyof LaunchDefaults, { value: string; note: string }> =
   {
     effort: { value: "(none)", note: "no --effort passed" },
@@ -211,14 +221,5 @@ function printTable(rows: Row[]): void {
   console.log(line(cols.map((c) => c.header)));
   for (const r of rows) console.log(line(cols.map((c) => c.get(r))));
   console.log("");
-  console.log(
-    dim(
-      "a config edit changes the NEXT launch only, never a pipeline already running",
-    ),
-  );
-  console.log(
-    dim(
-      "model is shown for reference — set it with models.default (there is no launch.model)",
-    ),
-  );
+  for (const footer of LAUNCH_FOOTERS) console.log(dim(footer));
 }

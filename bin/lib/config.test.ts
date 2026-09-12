@@ -37,7 +37,7 @@ describe("runConfigCli", () => {
     expect(err).toEqual([]);
     expect(out.length).toBeGreaterThan(0);
     expect(out.join("\n")).toContain(
-      "resolved at each sub-agent spawn — a config edit changes the next spawn",
+      "MODEL resolves at each sub-agent spawn, so a config edit changes the next spawn",
     );
   });
 

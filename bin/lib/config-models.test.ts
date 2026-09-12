@@ -175,7 +175,12 @@ describe("runConfigModelsCli", () => {
     expect(table).toMatch(
       /review-lens:bug-detection\s+haiku\s+config \(models\.reviewLenses\.bug-detection\)/,
     );
-    // an unconfigured lens with no session state falls through to "inherited"
+    // An unconfigured lens with no session state falls through to the session
+    // model. MODEL deliberately reads `inherited`, NOT the EFFORT column's
+    // `= session`: a model is resolved per spawn and can be overridden per
+    // row, while effort is fixed at launch and no row can vary it. Keeping
+    // the two words distinct is what preserves that spawn-time/launch-time
+    // distinction in the table itself.
     expect(table).toMatch(/review-lens:security\s+inherited\s+inherited/);
   });
 

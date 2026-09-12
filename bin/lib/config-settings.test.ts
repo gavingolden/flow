@@ -54,6 +54,16 @@ describe("buildSettingsRows", () => {
     });
   });
 
+  it("research.refuteModel: a collision with the gather model renders the diversity-guard substitution, not the configured value", () => {
+    const rows = buildSettingsRows(
+      reader({ research: { model: "X", refuteModel: "X" } }),
+    );
+    const row = rows.find((r) => r.setting === "research.refuteModel");
+    expect(row?.value).not.toBe("X");
+    expect(row?.source).toContain("diversity guard");
+    expect(row?.source).toContain("X collides with gather");
+  });
+
   it("an absent config renders a full built-ins-only table with exit-0-safe defaults", () => {
     const rows = buildSettingsRows(reader(undefined));
     expect(rows.length).toBeGreaterThan(0);
@@ -136,13 +146,13 @@ describe("buildSettingsRows", () => {
       expect(
         sourceOf(
           { bots: { copilot: "copilot-pull-request-reviewer" } },
-          "bots.copilotLogin",
+          "bots.copilot.login",
         ),
       ).toBe("config (bots.copilot)");
       expect(
         sourceOf(
           { bots: { copilot: { login: "copilot-pull-request-reviewer" } } },
-          "bots.copilotLogin",
+          "bots.copilot.login",
         ),
       ).toBe("config (bots.copilot.login)");
       expect(
@@ -154,7 +164,7 @@ describe("buildSettingsRows", () => {
     });
 
     it("reads as built-in when the key is absent", () => {
-      expect(sourceOf(undefined, "bots.copilotLogin")).toMatch(/^built-in /);
+      expect(sourceOf(undefined, "bots.copilot.login")).toMatch(/^built-in /);
       expect(sourceOf(undefined, "bots.copilotSkipWait")).toMatch(/^built-in /);
       expect(sourceOf(undefined, "epic.maxParallel")).toMatch(/^built-in /);
     });
@@ -173,5 +183,59 @@ describe("buildSettingsRows", () => {
         sourceOf({ epic: { maxParallel: 2.5 } }, "epic.maxParallel"),
       ).toMatch(/^built-in /);
     });
+
+    // Widened from three hand-written descriptors to a table over EVERY
+    // strict-boolean gate row, so a new descriptor can't opt out of this
+    // guard by omission — the exact regression the PR body names as its
+    // top risk (a new row silently reverting to value-vs-default
+    // attribution).
+    const PRESENCE_CASES: [raw: unknown, key: string, expected: string][] = [
+      [
+        { update: { checkFor: "notify" } },
+        "update.checkFor",
+        "config (update.checkFor)",
+      ],
+      [
+        { update: { autoUpgrade: false } },
+        "update.autoUpgrade",
+        "config (update.autoUpgrade)",
+      ],
+      [{ product: { judge: true } }, "product.judge", "config (product.judge)"],
+      [
+        { review: { lensGates: true } },
+        "review.lensGates",
+        "config (review.lensGates)",
+      ],
+      [
+        { review: { deltaScope: true } },
+        "review.deltaScope",
+        "config (review.deltaScope)",
+      ],
+      [
+        { review: { product: true } },
+        "review.product",
+        "config (review.product)",
+      ],
+      [
+        { research: { deepResearchFallback: true } },
+        "research.deepResearchFallback",
+        "config (research.deepResearchFallback)",
+      ],
+      [
+        { research: { discovery: false } },
+        "research.discovery",
+        "config (research.discovery)",
+      ],
+      [
+        { review: { gemini: false } },
+        "review.gemini",
+        "config (review.gemini)",
+      ],
+    ];
+    for (const [raw, key, expected] of PRESENCE_CASES) {
+      it(`${key}: reads as config even when the configured value equals the built-in default`, () => {
+        expect(sourceOf(raw, key)).toBe(expected);
+      });
+    }
   });
 });

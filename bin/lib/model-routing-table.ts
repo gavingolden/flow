@@ -63,7 +63,9 @@ export type SpawnSite = {
  * No row pins `effort`. The Task tool has no per-spawn effort argument, so a
  * frontmatter (or table) effort pin would be unoverridable even though the
  * same row's `model` is only a configurable default. Effort therefore
- * always follows the session's `state.effort` (see `resolveEffort`).
+ * always follows the session's effort, resolved by the caller on
+ * `state.effort > launch.effort config > built-in` and injected as
+ * `resolveRouting`'s `effort` argument.
  */
 export const SPAWN_SITES: readonly SpawnSite[] = [
   {
@@ -252,7 +254,10 @@ export function resolveRouting(input: {
       phase: site.phase,
       ...resolved,
       effort: state?.effort ?? "inherited",
-      effortSource: state?.effort ?? "inherited",
+      effortSource:
+        state?.effort !== undefined
+          ? "this run (fixed at launch)"
+          : "inherited",
     };
   });
 }

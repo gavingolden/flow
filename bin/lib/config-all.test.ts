@@ -46,13 +46,31 @@ describe("runConfigAllCli", () => {
     expect(code).toBe(0);
     const table = out.join("\n");
     expect(table).toContain(
-      "resolved at each sub-agent spawn — a config edit changes the next spawn",
+      "MODEL resolves at each sub-agent spawn, so a config edit changes the next spawn",
     );
     expect(table).toContain(
       "fixed when a pipeline launches — a config edit changes only the next launch",
     );
     expect(table).toContain(
-      "read each time a helper runs — a config edit takes effect on the next invocation",
+      "most are read each time a helper runs, so a config edit takes effect on the next invocation",
+    );
+    expect(table).toContain(
+      "`modules` and `source` are the exception: they take effect only after `flow install --upgrade`",
+    );
+  });
+
+  it("prints the models and launch footers so `= session` and the missing launch.model key are explained", () => {
+    const code = runConfigAllCli([], { read: () => undefined });
+    expect(code).toBe(0);
+    const table = out.join("\n");
+    expect(table).toContain(
+      "effort is fixed when the pipeline launches; MODEL resolves at each spawn",
+    );
+    expect(table).toContain(
+      "the Task tool has no per-spawn effort argument, so every sub-agent follows the session",
+    );
+    expect(table).toContain(
+      "model is shown for reference — set it with models.default (there is no launch.model)",
     );
   });
 

@@ -29,6 +29,17 @@ import { readState, type ModelAlias, type PipelineState } from "./state";
 import { friendlyName } from "./cost-pricing";
 import { dim } from "./color";
 
+/**
+ * The two dim footer lines that explain the models table's `= session`
+ * vocabulary and why EFFORT can't be pinned per row. Exported so
+ * `config-all.ts`'s aggregate view prints the identical text under its own
+ * models section rather than letting the two views drift.
+ */
+export const MODEL_FOOTERS: readonly string[] = [
+  "effort is fixed when the pipeline launches; MODEL resolves at each spawn",
+  "the Task tool has no per-spawn effort argument, so every sub-agent follows the session",
+];
+
 export type ConfigModelsOptions = {
   /** Injectable config reader (test seam); defaults to the real flowConfigPath() read. */
   read?: ReadConfigFile;
@@ -177,6 +188,12 @@ function printTable(rows: ResolvedRow[]): void {
     { header: "PHASE", get: (r) => r.phase },
     {
       header: "MODEL",
+      // Deliberately NOT the EFFORT column's `= session`. The two columns
+      // describe different relationships: a model is resolved per spawn and
+      // may be overridden per row, so an unset one INHERITS; effort is fixed
+      // once at launch and no row can vary it, so every sub-agent row ECHOES
+      // the session value. Collapsing both to one word would re-lose the
+      // spawn-time/launch-time distinction this view exists to make legible.
       get: (r) => (r.model ? friendlyName(r.model) : "inherited"),
     },
     { header: "SOURCE", get: (r) => r.source },
@@ -195,14 +212,5 @@ function printTable(rows: ResolvedRow[]): void {
   for (const r of rows) console.log(line(cols.map((c) => c.get(r))));
   console.log("");
   console.log(dim("routing only — see `flow ls --cost` for realized spend"));
-  console.log(
-    dim(
-      "effort is fixed when the pipeline launches; MODEL resolves at each spawn",
-    ),
-  );
-  console.log(
-    dim(
-      "the Task tool has no per-spawn effort argument, so every sub-agent follows the session",
-    ),
-  );
+  for (const footer of MODEL_FOOTERS) console.log(dim(footer));
 }

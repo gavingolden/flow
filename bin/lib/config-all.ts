@@ -14,20 +14,24 @@ import {
   type ReadConfigFile,
 } from "./models-config";
 import { friendlyName } from "./cost-pricing";
-import { buildModelRows, type ModelRows } from "./config-models";
+import { buildModelRows, MODEL_FOOTERS, type ModelRows } from "./config-models";
 import { collectLaunchConfigWarnings } from "./launch-config";
-import { buildLaunchRows, type Row as LaunchRow } from "./config-launch";
+import {
+  buildLaunchRows,
+  LAUNCH_FOOTERS,
+  type Row as LaunchRow,
+} from "./config-launch";
 import { buildSettingsRows, type SettingRow } from "./config-settings";
 import { readState, type PipelineState } from "./state";
 import { dim } from "./color";
 import type { ConfigModelsOptions } from "./config-models";
 
 const MODELS_TIMING =
-  "resolved at each sub-agent spawn — a config edit changes the next spawn";
+  "MODEL resolves at each sub-agent spawn, so a config edit changes the next spawn — EFFORT is fixed when the pipeline launches (see the effort line above)";
 const LAUNCH_TIMING =
   "fixed when a pipeline launches — a config edit changes only the next launch";
 const SETTINGS_TIMING =
-  "read each time a helper runs — a config edit takes effect on the next invocation";
+  "most are read each time a helper runs, so a config edit takes effect on the next invocation — `modules` and `source` are the exception: they take effect only after `flow install --upgrade`";
 
 type Group = {
   group: string;
@@ -106,14 +110,18 @@ export function runConfigAllCli(
       { header: "PHASE", get: (r: (typeof models.rows)[number]) => r.phase },
       {
         header: "MODEL",
+        // Same "follows the session" concept as EFFORT's `= session` — one
+        // word for one concept, matching `config-models.ts`'s own render.
         get: (r: (typeof models.rows)[number]) =>
-          r.model ? friendlyName(r.model) : "inherited",
+          r.model ? friendlyName(r.model) : "= session",
       },
       { header: "SOURCE", get: (r: (typeof models.rows)[number]) => r.source },
       { header: "EFFORT", get: (r: (typeof models.rows)[number]) => r.effort },
     ],
     models.rows,
   );
+  console.log("");
+  for (const footer of MODEL_FOOTERS) console.log(dim(footer));
   console.log("");
 
   console.log(`launch — ${LAUNCH_TIMING}`);
@@ -127,20 +135,45 @@ export function runConfigAllCli(
     launchRows,
   );
   console.log("");
+  for (const footer of LAUNCH_FOOTERS) console.log(dim(footer));
+  console.log("");
 
   console.log(`settings — ${SETTINGS_TIMING}`);
   console.log("");
-  printRows(
-    [
-      { header: "SETTING", get: (r: SettingRow) => r.setting },
-      { header: "MEANING", get: (r: SettingRow) => r.meaning },
-      { header: "VALUE", get: (r: SettingRow) => r.value },
-      { header: "SOURCE", get: (r: SettingRow) => r.source },
-    ],
-    settingsRows,
-  );
+  printSettingsRows(settingsRows);
 
   return 0;
+}
+
+/**
+ * Settings rows print differently from the other two sections: MEANING
+ * prose runs up to ~230 characters (`research.refuteModel`'s diversity-guard
+ * caveat is the longest), and padding every row to that width wrapped the
+ * whole section into an unreadable block with VALUE/SOURCE — the two
+ * columns a reader actually came for — pushed far to the right. Each row
+ * instead prints SETTING / VALUE / SOURCE on one aligned line, with MEANING
+ * as its own indented dim line underneath.
+ */
+function printSettingsRows(rows: SettingRow[]): void {
+  const cols: { header: string; get: (r: SettingRow) => string }[] = [
+    { header: "SETTING", get: (r) => r.setting },
+    { header: "VALUE", get: (r) => r.value },
+    { header: "SOURCE", get: (r) => r.source },
+  ];
+  const widths = cols.map((c) =>
+    Math.max(c.header.length, ...rows.map((r) => c.get(r).length)),
+  );
+  const line = (cells: string[]) =>
+    cells
+      .map((cell, i) => cell.padEnd(widths[i]))
+      .join("  ")
+      .trimEnd();
+
+  console.log(line(cols.map((c) => c.header)));
+  for (const r of rows) {
+    console.log(line(cols.map((c) => c.get(r))));
+    console.log(dim(`    ${r.meaning}`));
+  }
 }
 
 function printRows<T>(

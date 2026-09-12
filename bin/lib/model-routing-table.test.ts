@@ -132,6 +132,26 @@ describe("resolveRouting — state per-phase overrides", () => {
     expect(row(rows, "ui-driver").effort).toBe("high");
   });
 
+  it("with no injected effort, `effortSource` names a source phrase, never the bare effort value", () => {
+    // Regression case: the fallback branch used to set
+    // `effortSource: state?.effort ?? "inherited"`, so a `state.effort` of
+    // "high" leaked the VALUE into a SOURCE-position field.
+    const withState = resolveRouting({
+      state: st({ effort: "high" }),
+      config: {},
+    });
+    for (const r of withState) {
+      expect(r.effort).toBe("high");
+      expect(r.effortSource).toBe("this run (fixed at launch)");
+    }
+
+    const withoutState = resolveRouting({ state: null, config: {} });
+    for (const r of withoutState) {
+      expect(r.effort).toBe("inherited");
+      expect(r.effortSource).toBe("inherited");
+    }
+  });
+
   it("with an injected effort, review/fix-applier/ui-driver follow the session rather than rendering the value directly", () => {
     const rows = resolveRouting({
       state: st({ effort: "high" }),
