@@ -23,8 +23,15 @@
  *   `--dangerously-skip-permissions` for non-interactive tool-using runs.
  *   It is opt-in, not default: four callers pass `--add-dir <worktree>`, so
  *   an auto-approving run CAN reach the worktree — the grant stays opt-in
- *   and is not used by any caller, but the default path stays the
- *   empirically-verified `--sandbox`-only invocation.
+ *   and is used by the research fan-out entries only (flow-research-run's
+ *   gather/refute manifest entries), which pass no `--add-dir`, so the
+ *   default path stays the empirically-verified `--sandbox`-only invocation
+ *   for every other caller. Passing no `--add-dir` is NOT by itself "no
+ *   directory is granted": the child process still inherits whatever `cwd`
+ *   it is spawned with. `agyRunCwd` closes that gap — when
+ *   `--skip-permissions` is set and no `--add-dir` was passed, the run is
+ *   spawned with `cwd` pinned to a freshly-created empty scratch directory,
+ *   so the auto-approving child has nothing reachable on disk beyond it.
  * - agy's stdout is redirected to a real FILE (never a pipe — a non-TTY
  *   pipe can silently drop agy's output) and the file is the artifact.
  *   stdin is closed; agy needs no TTY on stdin.
@@ -86,10 +93,12 @@ import {
   closeSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   openSync,
   readFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { redactSecrets } from "./lib/redact-secrets";
 import { parseStructured } from "./lib/structured-response";
 import { recordEvent } from "./lib/telemetry";
@@ -364,7 +373,11 @@ export type Deps = {
   agyOnPath: () => boolean;
   // Runs `agy <argv>` with stdout redirected to outPath (a real file, not a
   // pipe) and stdin closed; returns the exit code and captured stderr.
-  runAgy: (argv: string[], outPath: string) => AgyResult;
+  // `cwd`, when set, pins the child's working directory — see
+  // `agyRunCwd`: an auto-approving run with no `--add-dir` grant is pinned
+  // to an empty scratch dir so the "no directory is granted" header claim
+  // matches what the child can actually reach.
+  runAgy: (argv: string[], outPath: string, cwd?: string) => AgyResult;
   readFile: (path: string) => string;
   fileExists: (path: string) => boolean;
   mkdirp: (dir: string) => void;
@@ -703,7 +716,11 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // the contract (callers branch on the `ran` field, not the exit code).
   let result: AgyResult;
   try {
-    result = deps.runAgy(buildAgyArgv(parsed, prompt), outPath);
+    result = deps.runAgy(
+      buildAgyArgv(parsed, prompt),
+      outPath,
+      agyRunCwd(parsed),
+    );
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const tail = stderrTail(message);
@@ -802,7 +819,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     if (!attempt.ok) {
       parseRetries = 1;
       try {
-        deps.runAgy(buildAgyArgv(parsed, prompt), outPath);
+        deps.runAgy(buildAgyArgv(parsed, prompt), outPath, agyRunCwd(parsed));
       } catch {
         // fall through — attempt below re-reads the stale (or absent)
         // artifact and stays a failed parse, never a throw.
@@ -857,7 +874,27 @@ function defaultAgyOnPath(): boolean {
   );
 }
 
-function defaultRunAgy(argv: string[], outPath: string): AgyResult {
+// When `skipPermissions` is on and the caller passed no `--add-dir`, the
+// auto-approving child otherwise inherits this process's cwd (typically the
+// user's worktree) as its working directory — file-access surface the
+// module header's "no directory is granted" claim doesn't account for.
+// Pinning cwd to a freshly-created, empty scratch directory in that case
+// makes the grant's blast radius match the claim. Verified 2026-09-10 that
+// agy runs fine from an empty cwd under `--sandbox
+// --dangerously-skip-permissions` (a live `-p "Reply with exactly the word:
+// OK"` round-trip from an empty tmp dir returned "OK").
+export function agyRunCwd(
+  args: Pick<Args, "skipPermissions" | "addDirs">,
+): string | undefined {
+  if (!args.skipPermissions || args.addDirs.length > 0) return undefined;
+  return mkdtempSync(join(tmpdir(), "flow-delegate-cwd-"));
+}
+
+function defaultRunAgy(
+  argv: string[],
+  outPath: string,
+  cwd?: string,
+): AgyResult {
   // Redirect stdout to a real FILE descriptor (never "pipe" — agy can
   // silently drop output to a non-TTY pipe). stdin closed: agy needs no TTY.
   const fd = openSync(outPath, "w");
@@ -866,6 +903,7 @@ function defaultRunAgy(argv: string[], outPath: string): AgyResult {
       stdin: "ignore",
       stdout: fd,
       stderr: "pipe",
+      ...(cwd ? { cwd } : {}),
     });
     const stderr = r.stderr ? new TextDecoder().decode(r.stderr) : "";
     return { exitCode: r.exitCode ?? 1, stderr };

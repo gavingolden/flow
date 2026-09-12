@@ -100,6 +100,29 @@ vi.mock("./models-config", async () => {
   };
 });
 
+// Mock ./launch-config for the IDENTICAL reason as ./models-config above: the
+// host's real ~/.flow/config.json can carry a populated `launch` block, which
+// must never leak into the ~3900 lines of exact-argv/exact-state assertions
+// below. Tests that DO pass readConfig still exercise the real logic through
+// the explicit argument.
+vi.mock("./launch-config", async () => {
+  const actual =
+    await vi.importActual<typeof import("./launch-config")>("./launch-config");
+  type ReadConfigFile = typeof actual.readLaunchDefaults extends (
+    read?: infer R,
+  ) => unknown
+    ? R
+    : never;
+  const noConfig: ReadConfigFile = () => undefined;
+  return {
+    ...actual,
+    readLaunchDefaults: (read: ReadConfigFile = noConfig) =>
+      actual.readLaunchDefaults(read),
+    collectLaunchConfigWarnings: (read: ReadConfigFile = noConfig) =>
+      actual.collectLaunchConfigWarnings(read),
+  };
+});
+
 // feature.ts pairs panePid with liveness.pidStartEpoch to persist
 // pid/procStartedAt on a successful launch, and calls livenessOf for the
 // collision-message branch. Stub pidStartEpoch to a deterministic fake epoch
@@ -918,14 +941,14 @@ describe("runNew (fresh)", () => {
     expect(raw).not.toHaveProperty("autoMerge");
   });
 
-  it("persists autoMerge: false when noAutoMerge: true is passed", () => {
+  it("persists autoMerge: false when autoMerge: false is passed", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
     const code = runNew("CSV export", {
       stateDir,
       cwd: repoDir,
       command: ["true"],
-      noAutoMerge: true,
+      autoMerge: false,
     });
     expect(code).toBe(0);
     const raw = JSON.parse(
@@ -2258,6 +2281,349 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(logs.join("\n")).not.toMatch(
       /^flow feature — start or resume a pipeline/m,
     );
+  });
+});
+
+describe("runFeatureCli — launch.<key> config defaults (flag > config > built-in)", () => {
+  it("flag > config > built-in: --effort wins over launch.effort", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "--effort", "low", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.effort).toBe("low");
+  });
+
+  it("flag > config > built-in: --auto-merge wins over launch.autoMerge: false", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "--auto-merge", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { autoMerge: false } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("autoMerge");
+  });
+
+  it("flag > config > built-in: --no-wait-for-copilot wins over launch.waitForCopilot: true", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(
+      ["create", "--no-wait-for-copilot", "do", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        command: ["true"],
+        readConfig: () => ({ launch: { waitForCopilot: true } }),
+      },
+    );
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("waitForCopilot");
+  });
+
+  it("flag > config > built-in: --no-research wins over launch.forceResearch: true", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "--no-research", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { forceResearch: true } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("forceResearch");
+  });
+
+  it("flag > config > built-in: --no-interview wins over launch.interviewMode: 'force'", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "--no-interview", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { interviewMode: "force" } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.interviewMode).toBe("skip");
+  });
+
+  it("a config-supplied launch.effort reaches the claude argv AND state.effort", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).toContain("--effort");
+    expect(command[command.indexOf("--effort") + 1]).toBe("high");
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.effort).toBe("high");
+  });
+
+  it("--effort low with launch.effort: 'high' yields state.effort === 'low'", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "--effort", "low", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.effort).toBe("low");
+  });
+
+  it("launch.autoMerge: false with no flag persists autoMerge: false (?? not ||: an explicit false must survive)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { autoMerge: false } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.autoMerge).toBe(false);
+  });
+
+  it("launch.waitForCopilot: true with no flag persists waitForCopilot: true", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { waitForCopilot: true } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.waitForCopilot).toBe(true);
+  });
+
+  it("launch.forceResearch: true with no flag persists forceResearch: true", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { forceResearch: true } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.forceResearch).toBe(true);
+  });
+
+  it("launch.interviewMode: 'force' with no flag persists interviewMode: 'force'", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { interviewMode: "force" } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.interviewMode).toBe("force");
+  });
+
+  it("warns and falls back to the built-in when launch.effort is present-but-invalid", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { effort: "extreme" } }),
+    });
+    expect(code).toBe(0);
+    expect(errors.join("\n")).toMatch(/launch\.effort.*not valid/);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("effort");
+  });
+
+  it("--auto-merge and --no-auto-merge are mutually exclusive: exit 1, no state written", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runFeatureCli(
+      ["create", "--auto-merge", "--no-auto-merge", "do", "thing"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "--auto-merge and --no-auto-merge are mutually exclusive",
+      ),
+    );
+    errSpy.mockRestore();
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(false);
+  });
+
+  it("--wait-for-copilot and --no-wait-for-copilot are mutually exclusive: exit 1, no state written", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runFeatureCli(
+      ["create", "--wait-for-copilot", "--no-wait-for-copilot", "do", "thing"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "--wait-for-copilot and --no-wait-for-copilot are mutually exclusive",
+      ),
+    );
+    errSpy.mockRestore();
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(false);
+  });
+
+  it("--research and --no-research are mutually exclusive: exit 1, no state written", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runFeatureCli(
+      ["create", "--research", "--no-research", "do", "thing"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "--research and --no-research are mutually exclusive",
+      ),
+    );
+    errSpy.mockRestore();
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(false);
+  });
+
+  it("--interview and --no-interview still exit 1 with no state written, regardless of launch.interviewMode", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runFeatureCli(
+      ["create", "--interview", "--no-interview", "do", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        command: ["true"],
+        readConfig: () => ({ launch: { interviewMode: "skip" } }),
+      },
+    );
+    expect(code).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "--interview and --no-interview are mutually exclusive",
+      ),
+    );
+    errSpy.mockRestore();
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(false);
+  });
+
+  it("an invalid --effort still exits 1 with no state written even when launch.effort is valid", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runFeatureCli(["create", "--effort", "bogus", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("invalid --effort value 'bogus'"),
+    );
+    errSpy.mockRestore();
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(false);
+  });
+
+  it("prints the provenance line only when config supplied a value that took effect", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { effort: "high", autoMerge: false } }),
+    });
+    expect(code).toBe(0);
+    expect(errors.join("\n")).toMatch(
+      /flow: launch defaults from ~\/\.flow\/config\.json — .*effort=high.*autoMerge=false/,
+    );
+  });
+
+  it("omits the provenance line when every flag was typed explicitly", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(
+      [
+        "create",
+        "--effort",
+        "low",
+        "--auto-merge",
+        "--wait-for-copilot",
+        "--research",
+        "--interview",
+        "do",
+        "thing",
+      ],
+      {
+        stateDir,
+        cwd: repoDir,
+        command: ["true"],
+        readConfig: () => ({
+          launch: {
+            effort: "high",
+            autoMerge: false,
+            waitForCopilot: false,
+            forceResearch: false,
+            interviewMode: "skip",
+          },
+        }),
+      },
+    );
+    expect(code).toBe(0);
+    expect(errors.join("\n")).not.toMatch(/flow: launch defaults from/);
   });
 });
 

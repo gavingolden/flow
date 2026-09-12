@@ -93,6 +93,26 @@ vi.mock("./models-config", async () => {
   };
 });
 
+// Mock ./launch-config for the IDENTICAL host-config-isolation reason as
+// ./models-config above.
+vi.mock("./launch-config", async () => {
+  const actual =
+    await vi.importActual<typeof import("./launch-config")>("./launch-config");
+  type ReadConfigFile = typeof actual.readLaunchDefaults extends (
+    read?: infer R,
+  ) => unknown
+    ? R
+    : never;
+  const noConfig: ReadConfigFile = () => undefined;
+  return {
+    ...actual,
+    readLaunchDefaults: (read: ReadConfigFile = noConfig) =>
+      actual.readLaunchDefaults(read),
+    collectLaunchConfigWarnings: (read: ReadConfigFile = noConfig) =>
+      actual.collectLaunchConfigWarnings(read),
+  };
+});
+
 import {
   runEpicCli as runEpicCliReal,
   parseRunArgs,
@@ -1136,6 +1156,49 @@ describe("runEpicCli create — --effort / --model flags", () => {
     expect(command).not.toContain("--model");
   });
 
+  // --- config launch.effort at epic-create launch --------------------------
+
+  it("threads config launch.effort into the created session argv when no --effort", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--effort") + 1]).toBe("high");
+  });
+
+  it("an explicit --effort low beats launch.effort: 'high'", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(["create", "--effort", "low", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--effort") + 1]).toBe("low");
+  });
+
+  it("persists the config-resolved effort onto epic state (resume parity with models.default)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "design-thing.json"), "utf8"),
+    );
+    expect(raw.effort).toBe("high");
+  });
+
   it("--resume re-applies the saved effort + model into the respawn argv", () => {
     writeState(
       {
@@ -1802,6 +1865,21 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(command[command.indexOf("--effort") + 1]).toBe("xhigh");
+  });
+
+  it("run (default, no --effort): threads launch.effort into its supervisor argv", () => {
+    gitInit();
+    writeManifest("run-launch-effort-epic", [{ id: "a" }]);
+    freshWindowOk();
+    const code = runEpicCli(["run", "run-launch-effort-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      stateDir,
+      readConfig: () => ({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--effort") + 1]).toBe("high");
   });
 
   describe("parseRunArgs", () => {

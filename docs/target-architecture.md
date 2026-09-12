@@ -33,6 +33,30 @@ re-derived — with four review-redirect deltas applied (2026-07-05):
 
 ---
 
+## Current state
+
+The redesign from a Node orchestrator to a plain-shell-default pipeline
+supervisor (tmux is now an opt-in launcher) is complete: `src/`, the
+per-repo `flow install`, and the orchestrator-only skills (`flow-add`,
+`flow-approve`, `flow-revise`, `flow-watch`, `flow-status`) are deleted,
+and the wrapper has no passthrough fallback.
+
+### What flow is _not_
+
+- The supervisor does not re-implement Claude Code skills in its own
+  process. It hosts a skill library at `skills/` distributed via
+  `flow install`; `bin/flow` only routes verbs to helper scripts and the
+  launcher (plain shell by default, tmux when opted into).
+- It is not a full SDLC tool. It hosts no web UI, Slack posts, Jira
+  tickets, or permission management.
+- It is not a long-running daemon. Each `flow` invocation does one thing
+  and exits. Per-pipeline state persists in `~/.flow/state/<slug>.json`
+  plus the worktree plus the PR; under the tmux launcher, the window's
+  scrollback is a convenience for re-attaching, not the persistence
+  store.
+
+---
+
 ## Ideal flow
 
 The target is a **professional, modular product**: a user installs only what
@@ -188,7 +212,7 @@ and the phase that closes it. The four axes the prior PRD marked
   `p5-context-diet`.)
 - **Sub-agent isolation — "largely aligned":** the supervisor keeps most
   diff-bearing work out of its own context by routing edits to `/flow-coder` and the
-  seven Task-tool exemptions. Two residuals remain: (a) small in-process
+  eight Task-tool exemptions. Two residuals remain: (a) small in-process
   supervisor edits **below the `/flow-coder` routing threshold** still land their
   diffs and tool_results in the supervisor's context, and (b) that threshold is
   prose-judged (≤1 file, ≤30 LOC, every file named), not mechanically enforced.
@@ -504,13 +528,13 @@ half of D-A is unaffected by the reversal.
   set-completeness grounds — the highest-frequency code-editing fan-out
   should not be the lone unauditable role. The `/flow-epic-run` judgment
   agent **no longer exists**: `/flow-epic-run` is a zero-fan-out playbook
-  (see `AGENTS.md` `## Don'ts`), so there is no judgment-agent spawn site
+  (see `.claude/rules/flow-supervisor-contracts.md` `## Don'ts`), so there is no judgment-agent spawn site
   left to promote).
 - **Exit:** every promoted role is a named definition; every promoted spawn
   site keeps the `[ -f
 ~/.flow/claude-home/.claude/skills/flow-module-core/agents/<name>.md ] ||
 general-purpose` fallback guard (post-D-A-reversal path; emitting a named
-  notice on fallback); artifact contracts unchanged; the seven-exemption set
+  notice on fallback); artifact contracts unchanged; the eight-exemption set
   renamed in place, never widened.
 
 ### Phase 5 — context economy (measure, then tighten)

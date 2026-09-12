@@ -65,6 +65,7 @@ function buildScenario(
     maxBudgetUsd: 1,
     timeoutSec: 60,
     allowedTools: ["Bash"],
+    mcpServers: [],
     dir: scenarioRoot,
     fixture: {
       repo: "fixture",
@@ -304,6 +305,81 @@ describe("materializeFixture", () => {
     expect(fs.existsSync(turnTrackingPath(fixture.slug, stateDir))).toBe(false);
     expect(fs.existsSync(registryPath(fixture.slug, stateDir))).toBe(false);
     expect(() => fixture.teardown()).not.toThrow();
+  });
+});
+
+describe("materializeFixture mcpServers", () => {
+  let claudeJsonDir: string;
+  let claudeJsonPath: string;
+
+  beforeEach(() => {
+    claudeJsonDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-eval-claude-json-"),
+    );
+    claudeJsonPath = path.join(claudeJsonDir, ".claude.json");
+    fs.writeFileSync(
+      claudeJsonPath,
+      JSON.stringify({
+        mcpServers: {
+          "chrome-devtools": { command: "npx", args: ["chrome-devtools-mcp"] },
+          "other-server": { command: "npx", args: ["other-mcp"] },
+        },
+      }),
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(claudeJsonDir, { recursive: true, force: true });
+  });
+
+  it("writes a filtered mcp-config.json containing only the declared server and sets mcpConfigPath", () => {
+    const fixture = materializeFixture(
+      buildScenario({ mcpServers: ["chrome-devtools"] }),
+      "my-suite",
+      1,
+      { stateDir, claudeJsonPath },
+    );
+    try {
+      expect(fixture.mcpConfigPath).toBe(
+        path.join(fixture.root, "mcp-config.json"),
+      );
+      const written = JSON.parse(
+        fs.readFileSync(fixture.mcpConfigPath as string, "utf8"),
+      );
+      expect(Object.keys(written.mcpServers)).toEqual(["chrome-devtools"]);
+      expect(written.mcpServers["chrome-devtools"]).toEqual({
+        command: "npx",
+        args: ["chrome-devtools-mcp"],
+      });
+    } finally {
+      fixture.teardown();
+    }
+  });
+
+  it("throws naming the missing server when the host config lacks a declared server", () => {
+    expect(() =>
+      materializeFixture(
+        buildScenario({ mcpServers: ["not-registered"] }),
+        "my-suite",
+        1,
+        { stateDir, claudeJsonPath },
+      ),
+    ).toThrow(/not-registered/);
+  });
+
+  it("leaves mcpConfigPath undefined and writes no mcp-config.json when mcpServers is empty", () => {
+    const fixture = materializeFixture(buildScenario(), "my-suite", 1, {
+      stateDir,
+      claudeJsonPath,
+    });
+    try {
+      expect(fixture.mcpConfigPath).toBeUndefined();
+      expect(fs.existsSync(path.join(fixture.root, "mcp-config.json"))).toBe(
+        false,
+      );
+    } finally {
+      fixture.teardown();
+    }
   });
 });
 

@@ -123,7 +123,7 @@ prose, procedure, and prompt template live in
 [flow-consolidator-instructions](../flow-consolidator-instructions/SKILL.md).
 
 The fan-out is the **seventh** named Task-tool exemption; the bidirectional
-contract lives in `AGENTS.md` `## Don'ts` and
+contract lives in `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` and
 `skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" exemption #7.
 Context isolation is primary: the per-agent JSON reads, the
 second-opinion validation prose, and the dedup reasoning all stay
@@ -189,7 +189,7 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
    prompt:        <the prompt template below, with variables filled in>
    ```
 
-   **Subagent type.** The `flow-fix-applier` definition (`agents/flow-fix-applier.md`) pins `effort: low` so this mechanical apply-commit-push loop stops burning high-effort tokens. Plugin-hosted agents are addressable ONLY by the plugin-qualified name `<pluginRootName>:<agentBasename>` — a bare `flow-fix-applier` subagent_type fails Task-tool resolution outright (measured: "Agent type 'flow-scout' not found"). Resolve in two tiers: `FIX_APPLIER_SUBAGENT=general-purpose; if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-fix-applier.md ]; then FIX_APPLIER_SUBAGENT=flow-module-core:flow-fix-applier; else echo "NOTICE — agent-fallback: flow-fix-applier → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; fi` so an un-upgraded consumer (definition not symlinked) falls back to `general-purpose` — loudly — and the spawn never fails on an unknown agent type. The per-spawn `model:` below overrides the definition's model, so the model precedence is unchanged either way.
+   **Subagent type.** The `flow-fix-applier` definition (`agents/flow-fix-applier.md`) falls back to a literal `sonnet` default (via `config.models.fixApplier`) so this mechanical apply-commit-push loop doesn't silently spend an expensive session model; it does NOT pin `effort` — the Task tool has no per-spawn effort argument, so a frontmatter effort pin would be unoverridable even though `model` here is only a configurable default, so effort instead follows the session's `state.effort`. Plugin-hosted agents are addressable ONLY by the plugin-qualified name `<pluginRootName>:<agentBasename>` — a bare `flow-fix-applier` subagent_type fails Task-tool resolution outright (measured: "Agent type 'flow-scout' not found"). Resolve in two tiers: `FIX_APPLIER_SUBAGENT=general-purpose; if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-fix-applier.md ]; then FIX_APPLIER_SUBAGENT=flow-module-core:flow-fix-applier; else echo "NOTICE — agent-fallback: flow-fix-applier → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; fi` so an un-upgraded consumer (definition not symlinked) falls back to `general-purpose` — loudly — and the spawn never fails on an unknown agent type. The per-spawn `model:` below overrides the definition's model, so the model precedence is unchanged either way.
 
    **Per-phase model (fixApplier) resolution.** Field `state.modelFixApplier`; precedence `--model-fix-applier > config.models.fixApplier > "sonnet"` — fixApplier does **NOT** inherit the session model (a mechanical apply-commit-push loop over already-diagnosed findings rarely earns an expensive model — the same asymmetry as verify; see `../flow-pipeline/references/model-routing.md`). Resolve via `jq` (`SLUG="$FLOW_SLUG"; FIX_APPLIER_MODEL=$(jq -r '.modelFixApplier // empty' ~/.flow/state/"$SLUG".json); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL=$(jq -r '.models.fixApplier // empty' ~/.flow/config.json 2>/dev/null); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL="sonnet"`) and pass FIX_APPLIER_MODEL as the Task call's per-spawn `model:` (never empty — the `sonnet` fallback always resolves).
 
@@ -463,7 +463,7 @@ perspectives catch more than any single reviewer could.
 
 Spawned via the Task tool — up to seven review agents in parallel, then merge.
 The bidirectional contract for this exemption (named, scoped,
-rationale'd) lives in `AGENTS.md` under the `## Don'ts` section. The
+rationale'd) lives in `.claude/rules/flow-supervisor-contracts.md` under the `## Don'ts` section. The
 fan-out exists for context isolation: each agent's per-file reads,
 checklist enumeration, and per-finding rationale stay inside its own
 subagent rather than landing in the supervisor's transcript.
@@ -653,7 +653,7 @@ agent below, unless skipped on delta re-entry), same fan-out message.
 
 This sub-step is a **`flow-delegate` (agy) Bash fan-out, NOT a Task**. It runs
 ALONGSIDE the six-agent Task fan-out above and adds **no new Task-tool
-exemption** — the seven-exemption count stays seven. It adds ONE additional
+exemption** — the eight-exemption count stays eight. It adds ONE additional
 reviewer on a genuinely different model family (Gemini, on the user's idle
 Google AI Ultra quota) so the review catches issues the six same-family
 Claude lenses share a blind spot on, at no Claude-credit cost, producing
@@ -931,7 +931,7 @@ subagent self-marks the current PR's row and sweeps drifted prior-PR rows in
 every epic manifest against the PR's diff with `flow-epic-dag --touched-files`
 (plus `flow-epic-dag --validate` for any manifest the diff touches) — bundling
 either edit into the same fix commit as Steps 6/7. Full contract:
-`../flow-fix-applier-instructions/SKILL.md` step 5; `AGENTS.md`'s `Auto-push exemption: pr-review` clause covers the commit + push.
+`../flow-fix-applier-instructions/SKILL.md` step 5; `.claude/rules/flow-supervisor-contracts.md`'s `Auto-push exemption: pr-review` clause covers the commit + push.
 
 ## 8. Spawn Fix-Applier Subagent and Run Verification Items
 
@@ -1119,19 +1119,51 @@ become a runnable bucket** rather than not-runnable — no hand-authored
 `.flow/ui-validation.json` needed: on a meaningful UI diff with no manifest,
 `flow-ui-validate` returns a mechanical `action: "bootstrap"` verdict this pass
 self-completes + commits (names/config only, never a secret value — see the manifest-less bootstrap flow in [references/ui-validation-evidence.md](references/ui-validation-evidence.md)). A
-`SUBJECTIVE: `-prefixed item is excluded from browser validation: irreducibly-aesthetic judgment beyond the enumerated bucket, never validated into a tick. Each route is captured **per viewport** (loop over the
-envelope's `meta.viewports` — declared set or built-in default), applying the per-viewport
-**`## UI traits to verify`** rubric to each while `flow-ui-validate` gates the mechanical
-geometry assertions automatically. The a11y `take_snapshot` is the primary evidence (injected
-via 8c.i's unchanged `flow-inject-evidence`), the screenshot supplementary and referenced by
-path. The full runnable-bucket procedure, the per-viewport capture loop, the captures
-contract, the **Screenshot save-path cascade**, the **`## UI traits to verify`** rubric, the
-env-injected launch / clean teardown (the launched server(s) AND the per-pipeline isolated
-browser page/context this pass opened, on completion and on every error / early-exit) /
-self-improving-manifest persist-back behavior, and the **wrapper-side merge-back** of every
-surviving screenshot path into `fix-applier-result.json`'s `ui_screenshots[]` — written between
-the Fix-Applier subagent's return and Step 9's single artifact read, so the `/flow-pipeline`
-supervisor can surface each path in the session — live in [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
+`SUBJECTIVE: `-prefixed item is excluded from browser validation: irreducibly-aesthetic judgment beyond the enumerated bucket, never validated into a tick.
+
+The MCP-present path spawns the **UI-driver Subagent** — the same eighth
+Task-tool exemption `/flow-verify`'s Optional UI-smoke pass uses, a second
+caller (mirrors `/flow-coder`'s own multi-caller shape, so the exemption
+count stays **eight**) — rather than driving the browser wrapper-side.
+
+**Load the Task tool before spawning** — i.e. before the Task call below. See
+[references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md)
+for the full rationale and alias-tolerance contract. On missing or empty Task
+schema, escalate `NEEDS HUMAN: task-tool-unavailable: ui-driver`, leave the
+item unticked, and do not fall back to in-line execution.
+
+Follow the same agent-resolution / exactly-one-Task-call / post-return-degrade
+recipe [flow-verify/SKILL.md](../flow-verify/SKILL.md) already documents under
+its "Optional UI-smoke pass": resolve the envelope, spawn `flow-ui-driver`
+(preloading `../flow-ui-driver-instructions/SKILL.md`), and on a
+missing/invalid `.flow-tmp/ui-driver-result.json` after the Task call returns,
+treat it as `{ran: false, ok: false, skipped_reason: "driver-no-artifact"}`
+and leave the item unticked with that reason — never escalate, never re-spawn
+within the same 8c pass. The spawn prompt additionally names
+`MODE: visual-appearance` plus the enumerated item list, so the driver's
+per-route/per-viewport captures and `fix_context[]` map back to the specific
+checklist items 8c.i injects evidence against, rather than the full manifest
+route set `/flow-verify` drives. Each route is still captured **per viewport**
+(the envelope's `meta.viewports` — declared set or built-in default), applying
+the per-viewport **`## UI traits to verify`** rubric to each while
+`flow-ui-validate` gates the mechanical geometry assertions automatically. The
+a11y `take_snapshot` is the primary evidence (injected via 8c.i's unchanged
+`flow-inject-evidence`), the screenshot supplementary and referenced by path.
+
+The ui-ux subjective judgment for each item **stays in the wrapper**: it reads
+the returned artifact's `ui_screenshots[]` paths and `fix_context[]` a11y /
+console excerpts to decide the tick, and never drives the browser itself. The
+full runnable-bucket procedure, the per-viewport capture loop, the captures
+contract, the **Screenshot save-path cascade**, the **`## UI traits to
+verify`** rubric, the env-injected launch / clean teardown (the launched
+server(s) AND the per-pipeline isolated browser page/context the driver
+opened, on completion and on every error / early-exit) / self-improving-
+manifest persist-back behavior — all performed inside the spawned agent, not
+this wrapper — and the **wrapper-side merge-back** of every surviving
+screenshot path from `ui-driver-result.json`'s `ui_screenshots[]` into the PR
+body, so the `/flow-pipeline` supervisor can surface each path in the
+session — live in [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
+
 When the `chrome-devtools` MCP is **absent or contended** — the guarded
 `ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns nothing
 (absent), or an attempted MCP call fails because its single Chrome profile is
@@ -1143,17 +1175,19 @@ local-and-reversible dependency the agent stands up, not an external service. Th
 **Durable-test precedence** and stays **Automatable via the browser-validation
 capability**. Only if neither the MCP nor a repo headless browser is available does
 the browser item legitimately stay not-runnable and unticked exactly as today —
-no regression. Adds **no new Task-tool exemption**: Step 8c (MCP or the ordinary
-headless-browser Bash invocation alike) runs inside the already-exempt Fix-Applier
-surface.
+no regression. This fallback path adds **no new Task-tool exemption**: it runs
+inline inside the already-exempt Fix-Applier surface, never spawning the
+UI-driver.
 
 When the worktree-local `.flow-tmp/design/spec.json` exists, this bucket also
 runs the **design-fidelity per-assertion walk** — mechanical Visual Spec items
 ticked per the `flow-design-spec diff` envelope, judged items compared
 side-by-side against the ephemeral reference snapshot — documented in
 [references/ui-validation-evidence.md](references/ui-validation-evidence.md)
-("Design-fidelity per-assertion walk"). It too runs inside the already-exempt
-Fix-Applier surface: no new Task-tool exemption.
+("Design-fidelity per-assertion walk"). Its MCP-heavy capture moves with the
+rest of the drive body into the same spawned UI-driver call above (no
+additional Task call, no additional exemption); only the side-by-side
+judgment stays in the wrapper, reading the artifact.
 
 ### 8c.i. Inject evidence under each runnable item
 
@@ -1363,7 +1397,7 @@ should capture rationale inline (per `AGENTS.md` Committing rules).
 
 **Fix-shaped completeness.** On a fix-shaped PR (the pipeline exists to fix an observed defect, or the branch's dominant commit type is `fix:`) missing the `**Failing:**` / `**Root cause:**` pair in `## Why` or the `**Fix mechanism:**` lead bullet in `## Key decisions`, or a PR missing a `## System changes` section where an internal change is worth a reviewer's attention, flag each gap as a `suggestion`-severity description finding naming the specific missing line(s) — the full contract (the fix-shaped gate and the exact wording) is authored at `skills/pipeline/flow-new-feature/references/pr-description-authoring.md` and deliberately replicated verbatim across the sibling prose sites (a docs-sync lint in `bin/skill-md-lint.test.ts` guards drift); do not restate the rule body here, route the finding through the existing Step 11e draft/edit path.
 
-**Proactive verification.** Before drafting or editing any factual claim into the PR body — a cited commit SHA, a line number, a referenced file path, a version string, an exemption count, an `--help` flag, a cross-referenced PR number, a cross-referenced issue number — verify the value live against its source (`Read` the file, `git rev-parse <ref>`, `gh pr view <n> --json title,state,mergedAt` for a PR, `gh issue view <n> --json title,state` for a plain issue, `grep -cE '<anchored>'`, `<verb> --help`). The PR and issue lookups are distinct surfaces: `gh pr view` against an issue number fails or surfaces the wrong record. This is the proactive counterpart to Step 11d's Accuracy Sync — 11d catches drift *after* the description has been written; this catches it at the moment of emission. The canonical rule body, the full trigger-category list, anti-patterns, and per-category verification recipes live in `AGENTS.md` under the 'Verify factual claims before emitting them.' rule (the bolded rule prefix is the stable anchor; section structure can differ between flow's own `AGENTS.md` and a consumer repo initialised from `templates/AGENTS.md.template`). Line numbers themselves are a trigger category, so anchor by rule name rather than by line.
+**Proactive verification.** Before drafting or editing any factual claim into the PR body — a cited commit SHA, a line number, a referenced file path, a version string, an exemption count, an `--help` flag, a cross-referenced PR number, a cross-referenced issue number — verify the value live against its source (`Read` the file, `git rev-parse <ref>`, `gh pr view <n> --json title,state,mergedAt` for a PR, `gh issue view <n> --json title,state` for a plain issue, `grep -cE '<anchored>'`, `<verb> --help`). The PR and issue lookups are distinct surfaces: `gh pr view` against an issue number fails or surfaces the wrong record. This is the proactive counterpart to Step 11d's Accuracy Sync — 11d catches drift *after* the description has been written; this catches it at the moment of emission. The canonical rule body, the full trigger-category list, anti-patterns, and per-category verification recipes live in `AGENTS.md` (flow's own repo) or `references/agent-conduct.md` (a repo seeded from `templates/`) under the 'Verify factual claims before emitting them.' rule (the bolded rule prefix is the stable anchor). Line numbers themselves are a trigger category, so anchor by rule name rather than by line.
 
 ### 11a. Structure Check
 
@@ -1538,7 +1572,7 @@ on the fail subtype:
 
   For each automatable item: write the test, run it (`npm test` / `RUN_INTEGRATION=1
   npm test` as appropriate), commit and push (covered by the `Auto-push exemption:
-  pr-review` clause in AGENTS.md), then prune the converted bullet by writing the
+  pr-review` clause in `.claude/rules/flow-supervisor-contracts.md`), then prune the converted bullet by writing the
   updated body to `.flow-tmp/body.md` — Step 13's `flow-review-finalize` call pushes it.
   Leave only items that genuinely require human judgment (the rubric's "Genuinely
   manual" list). The user redirects via reply after the fact (e.g. "this one should

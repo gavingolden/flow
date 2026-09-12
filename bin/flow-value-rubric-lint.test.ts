@@ -281,6 +281,14 @@ describe("flow-value-rubric: no file-by-default / pre-ticked wording survives", 
     { path: "references/git-workflow.md", label: "references/git-workflow.md" },
     { path: "AGENTS.md", label: "AGENTS.md" },
     {
+      path: ".claude/rules/flow-supervisor-contracts.md",
+      label: ".claude/rules/flow-supervisor-contracts.md",
+    },
+    {
+      path: ".claude/rules/flow-bin-conventions.md",
+      label: ".claude/rules/flow-bin-conventions.md",
+    },
+    {
       path: "bin/flow-candidate-issues.ts",
       label: "bin/flow-candidate-issues.ts",
     },
@@ -319,6 +327,8 @@ describe("flow-value-rubric: no file-by-default / pre-ticked wording survives", 
     ...mdFilesUnder("references"),
     ...mdFilesUnder("templates"),
     "AGENTS.md",
+    ".claude/rules/flow-supervisor-contracts.md",
+    ".claude/rules/flow-bin-conventions.md",
     "bin/flow-candidate-issues.ts",
   ];
 

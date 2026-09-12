@@ -96,7 +96,7 @@ _flow() {
                         ;;
                 esac
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "--no-auto-merge --wait-for-copilot --research --copilot-review --effort --model --model-planning --model-implement --model-review --model-fix-applier --model-consolidator --model-merge-resolver" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--auto-merge --no-auto-merge --wait-for-copilot --no-wait-for-copilot --research --no-research --interview --no-interview --copilot-review --effort --model --model-planning --model-implement --model-review --model-fix-applier --model-consolidator --model-merge-resolver" -- "$cur") )
             elif [ "$fsub" = "resume" ]; then
                 # Every trailing non-flag token is a slug (`flow feature resume
                 # x y z`); complete slugs cur-based (like `done`) so the SECOND+
@@ -213,7 +213,7 @@ _flow() {
                     *) csub="${words[k]}"; break ;;
                 esac
             done
-            if [ "$csub" = "models" ]; then
+            if [ "$csub" = "models" ] || [ "$csub" = "launch" ]; then
                 case "$prev" in
                     --slug)
                         # shellcheck disable=SC2207
@@ -225,7 +225,7 @@ _flow() {
                 COMPREPLY=( $(compgen -W "--slug --json --help" -- "$cur") )
             else
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "models" -- "$cur") )
+                COMPREPLY=( $(compgen -W "models launcher launch" -- "$cur") )
             fi
             ;;
         ls)

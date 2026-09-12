@@ -188,6 +188,49 @@ describe("HELP_TEXT", () => {
     expect(HELP_TEXT.ls).toContain("--all-repos");
     expect(HELP_TEXT.ls).toMatch(/scoped to the current repo/i);
   });
+
+  it("HELP_TOP and HELP_TEXT.feature both document --auto-merge, --no-wait-for-copilot, and --no-research", () => {
+    for (const flag of ["--no-wait-for-copilot", "--no-research"]) {
+      expect(HELP_TOP).toContain(flag);
+      expect(HELP_TEXT.feature).toContain(flag);
+    }
+    // "--auto-merge" alone is a substring of the pre-existing
+    // "--no-auto-merge"; anchor to the usage-bracket form so this can
+    // actually fail if the standalone flag is dropped.
+    expect(HELP_TOP).toMatch(/\[--auto-merge\|/);
+    expect(HELP_TEXT.feature).toMatch(/\[--auto-merge\|/);
+  });
+
+  it("HELP_TEXT.config names 'launch' in both its Usage list and its Subcommands prose", () => {
+    // Anchored to `[--slug` — a bare "flow config launch" substring is also
+    // satisfied by the pre-existing "flow config launcher [get | set ...]"
+    // line and would pass even if `flow config launch` were never added.
+    expect(HELP_TEXT.config).toMatch(/flow config launch \[--slug/);
+    expect(HELP_TEXT.config).toMatch(/Subcommands:[\s\S]*\n\s*launch\s/);
+  });
+
+  it("HELP_TEXT.config's --json row-shape line names the launch row's actual keys (setting, value, source)", () => {
+    expect(HELP_TEXT.config).toContain("{setting, value, source} for launch");
+  });
+
+  it("no help string mentions the removed 'interview.enabled' config key", () => {
+    const haystack = [HELP_TOP, ...Object.values(HELP_TEXT)].join("\n");
+    expect(haystack).not.toContain("interview.enabled");
+  });
+
+  it("Options (create) documents each config-backed flag's launch.<key> counterpart", () => {
+    const pairs: Array<[string, string]> = [
+      ["--effort", "launch.effort"],
+      ["--auto-merge", "launch.autoMerge"],
+      ["--wait-for-copilot", "launch.waitForCopilot"],
+      ["--research", "launch.forceResearch"],
+      ["--interview", "launch.interviewMode"],
+    ];
+    for (const [flag, key] of pairs) {
+      expect(HELP_TEXT.feature).toContain(flag);
+      expect(HELP_TEXT.feature).toContain(key);
+    }
+  });
 });
 
 describe("HELP_TOP", () => {

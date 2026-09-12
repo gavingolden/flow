@@ -6,7 +6,7 @@ the pipeline's GOAL — never told the user's proposed method — before
 forced research and before `/flow-product-planning` discovery ever runs.
 The survey is a `flow-delegate-fanout` **Bash fan-out**, not a Task-tool
 spawn: no new exemption, same shape as the cross-model plan review and
-the intent guess (see `AGENTS.md` `## Don'ts`, the shared phrase
+the intent guess (see `.claude/rules/flow-supervisor-contracts.md` `## Don'ts`, the shared phrase
 "Bash fan-out, not a tenth exemption"). This file is the full body;
 `SKILL.md` Step 3 carries only a pointer-sized opener.
 

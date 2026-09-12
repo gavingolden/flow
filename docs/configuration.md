@@ -93,7 +93,8 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
     "consolidator": "sonnet",
     "mergeResolver": "sonnet",
     "scout": "sonnet",
-    "coder": "sonnet"
+    "coder": "sonnet",
+    "uiDriver": "sonnet"
   }
 }
 ```
@@ -109,13 +110,15 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
 | `mergeResolver` | merge-conflict resolver                    | `--model-merge-resolver` |
 | `scout`         | implementation scout (finer grain)         | _(config only, no flag)_ |
 | `coder`         | implementation edit-applier (finer grain)  | _(config only, no flag)_ |
+| `uiDriver`      | /flow-verify UI-smoke browser driver       | _(none — config-only)_   |
 
 **Precedence** (highest wins):
 
 - **Session model** — `--model` > `config.models.default` > Claude's default. Read once at launch and passed to `claude --model`.
 - **Per-phase model** — `--model-<phase>` > `config.models.<phase>` > inherited session model.
 - **Per-review-lens model** — `config.models.reviewLenses.<lens>` > `--model-review` > `config.models.review` > session model capped at opus. The seven keys are the six review lenses (`bug-detection`, `security`, `pattern-consistency`, `performance`, `supply-chain`, `test-coverage`) plus `intent-guess`. Config-only, no CLI flag — the same fine-grain shape `scout`/`coder` use. Every key is absent by default, so a lens's model is unchanged until you set one.
-- **Three deliberate asymmetries** — (1) **fix-applier** defaults to `sonnet`, **not** the session model (mechanical apply-commit-push work that must not silently inherit Opus/Fable): `--model-fix-applier` > `config.models.fixApplier` > `sonnet`. (2) **scout / coder** are config-only fine-grain that layer _above_ `--model-implement`: `config.models.scout|coder` > `--model-implement` > `config.models.implement` > inherited. (3) **review lenses / consolidator** inherit the session model **capped at opus**: a session model at or below opus in list price is inherited unchanged, but an alias priced above it (today only `fable`) falls back to `opus`, so an accidentally-expensive session can never reach seven review spawns at once. It is a rank-ordering rule (`MODEL_PRICE_RANK`), not a named-model special case, so a future expensive alias is covered the day it gets a rank.
+- **Four deliberate asymmetries** — (1) **fix-applier** defaults to `sonnet`, **not** the session model (mechanical apply-commit-push work that must not silently inherit Opus/Fable): `--model-fix-applier` > `config.models.fixApplier` > `sonnet`. (2) **scout / coder** are config-only fine-grain that layer _above_ `--model-implement`: `config.models.scout|coder` > `--model-implement` > `config.models.implement` > inherited. (3) **review lenses / consolidator** inherit the session model **capped at opus**: a session model at or below opus in list price is inherited unchanged, but an alias priced above it (today only `fable`) falls back to `opus`, so an accidentally-expensive session can never reach seven review spawns at once. It is a rank-ordering rule (`MODEL_PRICE_RANK`), not a named-model special case, so a future expensive alias is covered the day it gets a rank. (4) **uiDriver** falls back to a literal `sonnet` AND is the only routed site with no per-run CLI flag at all: `config.models.uiDriver` > `sonnet`, with no per-phase flag and no `state.json` field.
+- **No spawn site pins effort.** The Task tool exposes no per-spawn effort argument, so a pinned effort would be unoverridable even though the same row's `model` is only a configurable default — effort always follows the session's effort (`state.effort`, or `inherited` outside a session). This holds even for `fixApplier` and `uiDriver`, whose `model` defaults to a literal `sonnet`: the model default and the effort resolution are independent axes.
 - **The blind judge** (`flow-deliberate`, a Bash fan-out over `flow-claude-headless`, so it is reachable from a sub-agent that may not spawn a nested Task) resolves `--model` > `config.models.default` > `opus`, with `--effort high`, `--max-budget-usd 2`, and `--max-turns 15` by default. There is deliberately **no** `models.deliberate` key: a judgment call should run whatever model the user already trusts by default, and a dedicated key earns its place only once someone wants to diverge.
 - **The gatekeeper is pinned** to `haiku` — its whole job is cheap cost-routing. There is no `--model-gatekeeper` flag; a `config.models.gatekeeper` key is reachable but strongly discouraged (overriding it defeats the cost-routing).
 - **The explanation judge is pinned** to `sonnet` / `--effort low` / `--max-budget-usd 0.25` (`flow-explain-judge`) — no config key, no flag.
@@ -191,7 +194,11 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 | `update.checkFor`       | staleness-notice behaviour; set `"off"` to silence (or export `FLOW_UPDATE_CHECK=off`)                                                                                                                                                                                                                                                                                                       |
 | `update.autoUpgrade`    | reserved future opt-in for automatic upgrades (default off, parsed but not yet executing)                                                                                                                                                                                                                                                                                                    |
 | `research.discovery`    | opt-in for web-grounded discovery research on every pipeline (`flow feature create --research` forces it per run)                                                                                                                                                                                                                                                                            |
-| `interview.enabled`     | opt-in for the adaptive intent interview (default `true`), read by the supervisor via `jq` against `~/.flow/config.json` (never a `bin/lib` import — subagents run in the consumer worktree, where flow's own `bin/lib` isn't present); overridable per run with `flow feature create --interview` (force) or `--no-interview` (skip)                                                        |
+| `launch.effort`         | string, default the Claude Code default effort (today's behaviour when absent) — default for `flow feature create --effort`, and for `flow epic create` / `flow epic run`                                                                                                                                                                                                                    |
+| `launch.autoMerge`      | boolean, default unset (today's rubric-driven behaviour when absent) — default for `flow feature create --auto-merge`/`--no-auto-merge`                                                                                                                                                                                                                                                      |
+| `launch.waitForCopilot` | boolean, default unset (today's auto-detect-skip behaviour when absent) — default for `flow feature create --wait-for-copilot`/`--no-wait-for-copilot`                                                                                                                                                                                                                                       |
+| `launch.forceResearch`  | boolean, default `false` (today's relevance-gated behaviour when absent) — default for `flow feature create --research`/`--no-research`; a DIFFERENT grain than `research.discovery` above — this one bypasses the relevance gate outright rather than opting into it                                                                                                                        |
+| `launch.interviewMode`  | `"force"` \| `"skip"` \| unset, default unset (today's judgment-gate behaviour when absent) — default for `flow feature create --interview`/`--no-interview`                                                                                                                                                                                                                                 |
 | `launcher`              | set with `flow config launcher set tmux` — makes the tmux launcher your default instead of the plain shell                                                                                                                                                                                                                                                                                   |
 | `output.lens`           | `"pm"` (default) or `"dev"` — see [Output lens](#output-lens) below                                                                                                                                                                                                                                                                                                                          |
 | `review.gemini`         | opt-in for the cross-model Gemini review lens (default `false`); strict `true` enables                                                                                                                                                                                                                                                                                                       |
@@ -199,6 +206,14 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 | `review.deltaScope`     | scopes a fix-loop re-entry's review to `last-reviewed..HEAD` when the prior run was clean and the marker is an ancestor of HEAD (default `true`); strict `false` disables — every entry reviews the full PR diff                                                                                                                                                                             |
 | `review.product`        | boolean, default `true` — set `false` to skip both the plan-time product critic and the product review lens while keeping the brief committed                                                                                                                                                                                                                                                |
 | `product.judge`         | enables the advisory code-blind-reader explanation judge (`flow-explain-judge`) at the PR-body site (default `true`); strict `false` disables — every call skips with `judge-disabled`                                                                                                                                                                                                       |
+
+The five `launch.*` keys above are resolved once, at `flow feature create`
+(and `flow epic create` / `flow epic run` for `launch.effort`) launch time,
+onto the pipeline's `~/.flow/state/<slug>.json` — editing
+`~/.flow/config.json` changes the default for the NEXT pipeline you
+launch, never a pipeline already running. Run `flow config launch` to see
+the value and source of each of these for your next launch; add `--slug
+<name>` to see what a running pipeline started with.
 
 Each `/flow-pr-review` run appends one JSON line to
 `~/.flow/telemetry/review-lenses.jsonl` (per-lens tokens/findings,
@@ -326,7 +341,7 @@ flow-product-brief
 which prints one JSON line — `{"found":true,"scope":"repo"|"user",
 "path":"<abs>","text":"<contents>"}` or `{"found":false}` — and always exits 0. `scope` tells you which of the two files answered. The full field
 vocabulary and the conventions for writing one are in
-`templates/AGENTS.md.template` ("Product brief") and
+`templates/references/delegation.md` ("Product brief") and
 `references/consumer-repo-contract.md` ("Product brief").
 
 `flow install` seeds `~/.flow/product.md` from

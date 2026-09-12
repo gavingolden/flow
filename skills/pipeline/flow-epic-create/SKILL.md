@@ -35,7 +35,7 @@ The Step 4.5 **cross-model design review** is a
 `/flow-pipeline`'s Step-3 plan review. It spawns no Task and fires no
 `AskUserQuestion` form, so `/flow-epic-create`'s
 **two named surfaces** (the clarification form + the `MODE: epic` designer
-fan-out) are unchanged; documented bidirectionally in `AGENTS.md` `## Don'ts`.
+fan-out) are unchanged; documented bidirectionally in `.claude/rules/flow-supervisor-contracts.md` `## Don'ts`.
 
 ## EPIC_DIR and the prompt come from the seed (R1 — never import `bin/lib`)
 

@@ -1,0 +1,6 @@
+{
+  "launch": "bun serve.ts",
+  "baseUrl": "http://127.0.0.1:{{PORT}}",
+  "env": { "PORT": "{{PORT}}" },
+  "routes": [{ "path": "/", "expectSelectors": ["#nav"] }]
+}

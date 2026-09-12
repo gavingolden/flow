@@ -321,7 +321,7 @@ scout report back; the artifact on disk is the record.
     Minimal scope / anti-over-engineering targets unrequested feature creep, not
     trivial robustness fixes — for the fix-now-vs-defer bar (when a small,
     low-risk, in-scope fix must land in-PR rather than be deferred), see
-    `templates/AGENTS.md.template` (`## Anti-Overengineering`) and `/flow-pr-review`'s
+    `templates/references/agent-conduct.md` (`## Anti-Overengineering`) and `/flow-pr-review`'s
     `flow-fix-applier-instructions/SKILL.md`.
   - **Consider alternatives.** Propose at least one alternative approach if one exists.
     Briefly explain the trade-off. When the user's feature description is framed as a

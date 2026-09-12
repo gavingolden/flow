@@ -47,16 +47,18 @@ Usage:
                                         the three are mutually exclusive; absent any of them, an interactive
                                         terminal is asked once per optional module and a non-interactive run
                                         defaults to core only)
-  flow feature create [--tmux|--no-tmux] [--no-auto-merge] [--wait-for-copilot] [--research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
+  flow feature create [--tmux|--no-tmux] [--auto-merge|--no-auto-merge] [--wait-for-copilot|--no-wait-for-copilot] [--research|--no-research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
                                         start a new pipeline (plain launcher by default; --tmux opts into a tmux window)
-                                        (--no-auto-merge stops at gated regardless of rubric;
-                                        --wait-for-copilot forces the full 10-min Copilot wait
-                                        even when auto-detect would skip;
-                                        --research forces web-grounded discovery research on,
-                                        bypassing the relevance gate and the research.discovery config opt-in;
+                                        (--no-auto-merge stops at gated regardless of rubric; --auto-merge puts the
+                                        rubric back in charge (cancels launch.autoMerge: false);
+                                        --wait-for-copilot forces the full 10-min Copilot wait; --no-wait-for-copilot
+                                        puts the auto-detect skip back in charge;
+                                        --research forces web-grounded discovery research on, bypassing the relevance
+                                        gate and the research.discovery config opt-in; --no-research only turns that
+                                        force off — research.discovery still applies;
                                         --interview forces the intent interview on, --no-interview skips it
-                                        (mutually exclusive; absent falls back to interview-playbook.md's
-                                        judgment gate and config.json's interview.enabled);
+                                        (mutually exclusive; absent falls back to flow's own per-run judgment gate
+                                        and config.json's launch.interviewMode);
                                         --copilot-review controls Copilot review opt-in, default auto;
                                         --effort sets the Claude Code reasoning-effort level for the claude session;
                                         --model sets the whole-session Claude model alias;
@@ -73,6 +75,10 @@ Usage:
   flow config launcher [get | set <plain|tmux>]
                                         get/set the recorded launcher backend (flow install
                                         asks once on interactive installs)
+  flow config launch [--slug <name>] [--json]
+                                        show the resolved launch-time behaviour defaults
+                                        (effort/autoMerge/waitForCopilot/forceResearch/interviewMode)
+                                        and where each resolved from
   flow ls [--cost [--detail]] [--all-repos] [--all|-a]
                                         list this repo's pipelines (--all-repos/--all/-a for
                                         every repo; cost adds $ column)
@@ -99,7 +105,7 @@ export const HELP_TEXT: Record<string, string> = {
   feature: `flow feature — start or resume a pipeline
 
 Usage:
-  flow feature create [--tmux|--no-tmux] [--no-auto-merge] [--wait-for-copilot] [--research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
+  flow feature create [--tmux|--no-tmux] [--auto-merge|--no-auto-merge] [--wait-for-copilot|--no-wait-for-copilot] [--research|--no-research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
   flow feature resume <name> [<name> ...] [--yes] [--tmux|--no-tmux]
 
 Subcommands:
@@ -116,19 +122,32 @@ Options (create):
                         flag > recorded state (resume) > config launcher > plain.
                         Without a TTY the plain launcher refuses; non-interactive/scripted
                         launches require --tmux
-  --no-auto-merge       stop at gated regardless of the auto-merge rubric
-  --wait-for-copilot    force the full 10-min Copilot wait even when auto-detect would skip
-  --research            force web-grounded discovery research on, bypassing the relevance gate
-                        and the research.discovery config opt-in
+  --auto-merge / --no-auto-merge
+                        --no-auto-merge stops at gated regardless of rubric; --auto-merge
+                        puts the rubric back in charge, cancelling a launch.autoMerge: false
+                        config default (mutually exclusive); also settable via
+                        ~/.flow/config.json launch.autoMerge
+  --wait-for-copilot / --no-wait-for-copilot
+                        --wait-for-copilot forces the full 10-min Copilot wait;
+                        --no-wait-for-copilot puts the auto-detect skip back in charge
+                        (mutually exclusive); also settable via ~/.flow/config.json
+                        launch.waitForCopilot
+  --research / --no-research
+                        --research forces web-grounded discovery research on, bypassing the
+                        relevance gate and the research.discovery config opt-in;
+                        --no-research only turns that force off — research.discovery still
+                        applies (mutually exclusive); also settable via ~/.flow/config.json
+                        launch.forceResearch
   --interview / --no-interview
                         force the intent interview on, or skip it (mutually exclusive).
-                        Absent falls back to interview-playbook.md's judgment gate and
-                        ~/.flow/config.json's interview.enabled (default true)
+                        Absent falls back to flow's own per-run judgment gate and
+                        ~/.flow/config.json's launch.interviewMode
   --copilot-review <auto|always|never>
                         opt-in for Copilot review (default auto): 'always' always requests,
                         'never' never requests, 'auto' lets the hybrid classifier decide
   --effort <low|medium|high|xhigh|max>
-                        Claude Code reasoning-effort level for the pipeline's claude session
+                        Claude Code reasoning-effort level for the pipeline's claude session;
+                        also settable via ~/.flow/config.json launch.effort
   --model <opus|haiku|sonnet|fable>
                         whole-session Claude model alias (omit for the default; also settable via
                         ~/.flow/config.json models.default)
@@ -227,6 +246,7 @@ Options (done):
 Usage:
   flow config models [--slug <name>] [--json]
   flow config launcher [get | set <plain|tmux>]
+  flow config launch [--slug <name>] [--json]
 
 Subcommands:
   models                print the effective Claude model + reasoning effort for
@@ -241,12 +261,20 @@ Subcommands:
                         flow install asks once on interactive installs and
                         records the answer here; set changes it later
 
-Options (models):
+  launch                print each launch-time behaviour default (effort,
+                        auto-merge, Copilot wait, forced research, interview
+                        mode), with a SOURCE column showing whether it
+                        resolved from a per-run flag/recorded state, from
+                        ~/.flow/config.json's launch.<key>, or from the
+                        built-in default
+
+Options (models, launch):
   --slug <name>         overlay a specific pipeline's ~/.flow/state/<name>.json
                         per-run overrides on top of the global-defaults view;
                         a name with no state file exits non-zero (no table)
   --json                emit the rows as a machine-readable JSON array
-                        ({phase, model, source, effort}) with no color or footer
+                        ({phase, model, source, effort} for models;
+                        {setting, value, source} for launch) with no color or footer
 
 Read-only: reports routing, not spend — see 'flow ls --cost' for realized cost.`,
 

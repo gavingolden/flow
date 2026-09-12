@@ -59,3 +59,13 @@ docs/eval/baseline/
 docs/eval/f2/
 docs/eval/f6/before/
 docs/eval/f6/after/
+
+# Consumer-template payload — verbatim transplants from
+# templates/AGENTS.md.template, which prettier never formatted (the .template
+# extension is outside its scope). Moving the prose to plain .md brought it into
+# scope, and prettier rewrites `UPPER_SNAKE` -> `UPPER*SNAKE`, `VITE_*_URL` ->
+# `VITE*_*URL`, and `{{PORT_<NAME>}}` -> `{{PORT*<NAME>}}` by parsing the
+# underscores as emphasis, silently corrupting shipped env-var names and the
+# byte-exact phrases nine skill-md-lint pins match on.
+templates/rules/
+templates/references/

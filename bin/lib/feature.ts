@@ -51,8 +51,15 @@ import {
 import {
   readDefaultModel,
   collectModelConfigWarnings,
+  defaultReadConfigFile,
+  cachedConfigRead,
   type ReadConfigFile,
 } from "./models-config";
+import {
+  readLaunchDefaults,
+  collectLaunchConfigWarnings,
+  LAUNCH_CONFIG_KEYS,
+} from "./launch-config";
 import { sleepSync } from "./sleep";
 import { sanitizeSeedLine } from "./seed-delivery";
 import { appendLaunchRecord } from "./launch-log";
@@ -183,17 +190,31 @@ export type FeatureOptions = {
    * config. Production uses the module default (reads via flowConfigPath()).
    */
   readConfig?: ReadConfigFile;
-  /** Persist `autoMerge: false` so the supervisor stops at gated. */
-  noAutoMerge?: boolean;
   /**
-   * Persist `waitForCopilot: true` so flow-ci-wait waits the full
-   * 10-min Copilot timeout (suppresses the auto-detect skips).
+   * Tri-state: `false` persists `autoMerge: false` so the supervisor stops
+   * at gated (set via `--no-auto-merge`); `true` forces `autoMerge` on (set
+   * via `--auto-merge`, overriding a `launch.autoMerge: false` config
+   * default); absent lets `launch.autoMerge` config or the built-in default
+   * (auto-detect ON) supply it.
+   */
+  autoMerge?: boolean;
+  /**
+   * Tri-state: `true` persists `waitForCopilot: true` so flow-ci-wait waits
+   * the full 10-min Copilot timeout (set via `--wait-for-copilot`); `false`
+   * forces it off (set via `--no-wait-for-copilot`, overriding a
+   * `launch.waitForCopilot: true` config default); absent lets
+   * `launch.waitForCopilot` config or the built-in default (auto-detect
+   * skips) supply it.
    */
   waitForCopilot?: boolean;
   /**
-   * Persist `forceResearch: true` so discovery Step 1.5 forces the
-   * web-grounded research pre-check on, bypassing the relevance gate and the
-   * research.discovery config opt-in.
+   * Tri-state: `true` persists `forceResearch: true` so discovery Step 1.5
+   * forces the web-grounded research pre-check on, bypassing the relevance
+   * gate and the research.discovery config opt-in (set via `--research`);
+   * `false` forces it off (set via `--no-research`, overriding a
+   * `launch.forceResearch: true` config default); absent lets
+   * `launch.forceResearch` config or the built-in default (not forced)
+   * supply it.
    */
   forceResearch?: boolean;
   /**
@@ -201,7 +222,7 @@ export type FeatureOptions = {
    * via `flow feature create --interview` / `--no-interview`. Mutually
    * exclusive; absent when neither flag was passed, in which case the
    * trigger falls back to the `interview-playbook.md` judgment gate and
-   * `config.json`'s `interview.enabled`.
+   * `config.json`'s `launch.interviewMode`.
    */
   interviewMode?: "force" | "skip";
   /**
@@ -426,9 +447,54 @@ function runCreateCli(
     printVerbHelp("feature");
     return 0;
   }
-  const noAutoMerge = args.includes("--no-auto-merge");
-  const waitForCopilot = args.includes("--wait-for-copilot");
-  const forceResearch = args.includes("--research");
+  // --auto-merge / --no-auto-merge: tri-state per-run override, mutually
+  // exclusive, mirroring --interview / --no-interview below. `flag > config
+  // > built-in` — the config fallback is resolved later, in runFresh.
+  const wantAutoMerge = args.includes("--auto-merge");
+  const wantNoAutoMerge = args.includes("--no-auto-merge");
+  if (wantAutoMerge && wantNoAutoMerge) {
+    console.error(
+      "flow feature create: --auto-merge and --no-auto-merge are mutually exclusive.",
+    );
+    return 1;
+  }
+  const autoMerge: boolean | undefined = wantAutoMerge
+    ? true
+    : wantNoAutoMerge
+      ? false
+      : options.autoMerge;
+
+  // --wait-for-copilot / --no-wait-for-copilot: tri-state per-run override,
+  // mutually exclusive.
+  const wantWaitForCopilot = args.includes("--wait-for-copilot");
+  const wantNoWaitForCopilot = args.includes("--no-wait-for-copilot");
+  if (wantWaitForCopilot && wantNoWaitForCopilot) {
+    console.error(
+      "flow feature create: --wait-for-copilot and --no-wait-for-copilot are mutually exclusive.",
+    );
+    return 1;
+  }
+  const waitForCopilot: boolean | undefined = wantWaitForCopilot
+    ? true
+    : wantNoWaitForCopilot
+      ? false
+      : options.waitForCopilot;
+
+  // --research / --no-research: tri-state per-run override, mutually
+  // exclusive.
+  const wantResearch = args.includes("--research");
+  const wantNoResearch = args.includes("--no-research");
+  if (wantResearch && wantNoResearch) {
+    console.error(
+      "flow feature create: --research and --no-research are mutually exclusive.",
+    );
+    return 1;
+  }
+  const forceResearch: boolean | undefined = wantResearch
+    ? true
+    : wantNoResearch
+      ? false
+      : options.forceResearch;
 
   // --interview / --no-interview: per-run intent-interview override,
   // mutually exclusive, mirroring --tmux / --no-tmux below.
@@ -678,9 +744,12 @@ function runCreateCli(
         return false;
       }
       return (
+        a !== "--auto-merge" &&
         a !== "--no-auto-merge" &&
         a !== "--wait-for-copilot" &&
+        a !== "--no-wait-for-copilot" &&
         a !== "--research" &&
+        a !== "--no-research" &&
         a !== "--tmux" &&
         a !== "--no-tmux" &&
         a !== "--interview" &&
@@ -691,7 +760,7 @@ function runCreateCli(
   return runNew(description, {
     ...options,
     launcher,
-    noAutoMerge,
+    autoMerge,
     waitForCopilot,
     forceResearch,
     interviewMode,
@@ -711,7 +780,7 @@ function runFresh(
   if (!description || description.trim() === "") {
     console.error("flow feature create: description is required.");
     console.error(
-      "usage: flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--interview | --no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning|--model-implement|--model-review|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>] [--slug <slug>] [--epic <epic-slug>/<feature-id>] <description>",
+      "usage: flow feature create [--auto-merge | --no-auto-merge] [--wait-for-copilot | --no-wait-for-copilot] [--research | --no-research] [--interview | --no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning|--model-implement|--model-review|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>] [--slug <slug>] [--epic <epic-slug>/<feature-id>] <description>",
     );
     return 1;
   }
@@ -821,27 +890,73 @@ function runFresh(
   // carries a REQUEST_FILE pointer, never the verbatim text.
   writeRequestFile(slug, description, options.stateDir);
 
+  // Read + parse `~/.flow/config.json` at most once for this launch and
+  // share it across every reader below (models.default, launch.<key>
+  // warnings/defaults, and the launcher-backend config fallback) —
+  // otherwise each of `defaultReadConfigFile`'s callers re-reads/re-parses
+  // the same file independently.
+  const readConfig: ReadConfigFile = cachedConfigRead(
+    options.readConfig ?? defaultReadConfigFile,
+  );
+
   // Whole-session model, resolved at launch: the --model flag wins over the
   // config `models.default`; absent both, no --model reaches claude (its
   // default applies). Best-effort-warn on any present-but-invalid models.*
   // config value, then fall back — mirrors ensureLaunchSettings' non-fatal
   // warn pattern.
-  for (const w of collectModelConfigWarnings(options.readConfig)) {
+  for (const w of collectModelConfigWarnings(readConfig)) {
     console.error(dim(`flow feature create: ${w}`));
   }
-  const sessionModel = options.model ?? readDefaultModel(options.readConfig);
+  const sessionModel = options.model ?? readDefaultModel(readConfig);
+
+  // Launch-time behaviour defaults, resolved ONCE here (never at a
+  // consumer's point-of-use): explicit CLI flag > `launch.<key>` config >
+  // built-in default. Resolving once and persisting onto state means a
+  // config edit made after this pipeline launches can never change its
+  // already-running behaviour (excluded-alternatives: use-time reads).
+  for (const w of collectLaunchConfigWarnings(readConfig)) {
+    console.error(dim(`flow feature create: ${w}`));
+  }
+  const launchDefaults = readLaunchDefaults(readConfig);
+  const resolvedEffort = options.effort ?? launchDefaults.effort;
+  const resolvedAutoMerge = options.autoMerge ?? launchDefaults.autoMerge;
+  const resolvedWaitForCopilot =
+    options.waitForCopilot ?? launchDefaults.waitForCopilot;
+  const resolvedForceResearch =
+    options.forceResearch ?? launchDefaults.forceResearch;
+  const resolvedInterviewMode =
+    options.interviewMode ?? launchDefaults.interviewMode;
+
+  // Provenance: print ONLY the keys where config actually supplied the
+  // resolved value (i.e. the flag was absent) — a launch where every flag
+  // was typed explicitly grows no output. Folded over LAUNCH_CONFIG_KEYS
+  // (rather than hand-restating the five keys) so a sixth key added there
+  // is read/validated/warned/rendered AND reaches provenance, with no
+  // silent-drop step left to forget.
+  const provenance = LAUNCH_CONFIG_KEYS.filter(
+    (e) =>
+      (options as Record<string, unknown>)[e.key] === undefined &&
+      launchDefaults[e.key] !== undefined,
+  ).map((e) => `${e.key}=${launchDefaults[e.key]}`);
+  if (provenance.length > 0) {
+    console.error(
+      dim(
+        `flow: launch defaults from ~/.flow/config.json — ${provenance.join(", ")}`,
+      ),
+    );
+  }
 
   const makeBaseState = (launcher: LauncherId): PipelineState => ({
     slug,
     phase: "starting",
     repo,
     worktree: existing?.worktree,
-    autoMerge: options.noAutoMerge ? false : undefined,
-    waitForCopilot: options.waitForCopilot ? true : undefined,
-    forceResearch: options.forceResearch ? true : undefined,
-    interviewMode: options.interviewMode,
+    autoMerge: resolvedAutoMerge === false ? false : undefined,
+    waitForCopilot: resolvedWaitForCopilot === true ? true : undefined,
+    forceResearch: resolvedForceResearch === true ? true : undefined,
+    interviewMode: resolvedInterviewMode,
     copilotReview: options.copilotReview,
-    effort: options.effort,
+    effort: resolvedEffort,
     model: sessionModel,
     modelPlanning: options.modelPlanning,
     modelImplement: options.modelImplement,
@@ -861,7 +976,7 @@ function runFresh(
   // either backend touched anything.
   const backend = resolveLauncherBackend({
     flag: options.launcher,
-    read: options.readConfig,
+    read: readConfig,
     tmuxOnPath: options.tmuxOnPath,
   });
   if (backend.notice) console.error(dim(backend.notice));
@@ -877,7 +992,7 @@ function runFresh(
       options.command ??
       buildPlainCommand(
         worktree,
-        options.effort,
+        resolvedEffort,
         settingsPath,
         sessionModel,
         () => roots,
@@ -899,7 +1014,7 @@ function runFresh(
     buildLaunchCommand(
       slug,
       worktree,
-      options.effort,
+      resolvedEffort,
       settingsPath,
       sessionModel,
       options.pluginRootsScan,
@@ -1693,7 +1808,10 @@ export function ensureLaunchSettings(
 // seed carries only a REQUEST_FILE pointer to it.
 export function flowPipelineSeed(
   slug: string,
-  description: string,
+  // Unused in the body (kept in the signature so every call site's argument
+  // order — slug, description, stateDir — stays stable): the verbatim
+  // description no longer rides the seed itself, see the incident note below.
+  _description: string,
   stateDir?: string,
 ): string {
   // The pipeline-slug marker must be the RESOLVED slug (an explicit --slug, or a
