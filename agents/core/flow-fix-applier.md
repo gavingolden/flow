@@ -2,7 +2,7 @@
 name: flow-fix-applier
 description: Mechanical fix-applier for /flow-pr-review step 8. Applies each review finding, runs pre-commit, commits, and pushes to the PR's own branch. The findings are already diagnosed; applying them never needs deliberation.
 tools: Bash, Edit, Write, Read, ToolSearch, mcp__chrome-devtools__*
-maxTurns: 120
+maxTurns: 200
 experimental:
   cacheTtl: 1h
 skills:
@@ -36,8 +36,12 @@ like every other routed site. The per-spawn `model:` argument the caller
 passes still wins over this definition's model, so per-phase model flags keep
 working unchanged.
 
-`maxTurns: 120` bounds the per-finding apply loop. If you reach it, the
-harness returns your output as **partial** — write the artifact FIRST as
-soon as you sense you're near the budget. A continuation message
-(`SendMessage`, per `skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) asks you
-to finish from where you stopped, never to restart from scratch.
+`maxTurns: 200` (sized from the measured uncapped distribution — median
+54, max 211 — for the per-finding apply loop) bounds this agent. Write
+the `status: partial` skeleton artifact FIRST and refresh it after every
+finding, so an interruption always leaves a consumable artifact. If you
+reach the budget the harness returns your output as partial; a
+continuation (`SendMessage`, per
+skills/pipeline/flow-pipeline/references/partial-result-continuation.md)
+gives you a fresh budget — finish the remaining entries, then mark the
+artifact complete; never restart from scratch.

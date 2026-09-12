@@ -195,10 +195,10 @@ relevant source file directly. Fix the issue in the source file.
    the structured artifact at
    `<worktree>/.flow-tmp/coder-result.json`.
 
-3. After `/flow-coder` returns, do a cheap existence check:
+3. After `/flow-coder` returns, do a cheap completeness check:
 
    ```bash
-   test -s "$WORKTREE/.flow-tmp/coder-result.json" \
+   jq -e '.status == "complete" and .verify_status == "pass"' "$WORKTREE/.flow-tmp/coder-result.json" >/dev/null \
      || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
    ```
 

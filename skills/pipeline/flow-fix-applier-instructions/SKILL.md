@@ -35,6 +35,18 @@ The wrapper passes you these inputs in its spawn prompt:
 
 Follow the steps below in order.
 
+## 0. Write the skeleton artifact first
+
+Before applying any finding's fix, write the artifact straight to
+`$ARTIFACT_PATH` as a `status: "partial"` skeleton: every key from the
+schema in step 9 present, `commits`/`deferred`/`rejected_alternatives`/
+`anti_patterns_found` as empty arrays, and a non-empty placeholder
+`summary` string (so the skeleton itself validates). After every finding
+is processed, refresh that finding's disposition in the artifact with a
+short, targeted `Edit` — never a full rewrite. A finding never attempted
+because the turn budget ran out is recorded in `deferred[]` with
+`reason: "turn-budget — not attempted"` and `tracker_entry_url: ""`.
+
 ## 1. Load context
 
 Before drafting any fix, load the inputs:
@@ -485,8 +497,12 @@ flow-pre-commit --pr "$PR_NUMBER"
 
 The helper auto-detects changed areas, runs `npm run format` first, then
 each check separately with structured pass/fail output. A non-zero exit
-means a check failed — investigate, fix, and re-run. Repeat until all
-checks pass.
+means a check failed — investigate, fix, and re-run.
+
+**Verify-fix round cap.** At most 5 verify-fix rounds per run. After the
+fifth failing round, record the failure excerpt in the affected
+`commits[].verify_status`, refresh the artifact as `status: "partial"`,
+and return — never a sixth round.
 
 If a check fails for a reason unrelated to your fix (pre-existing brokenness
 on the branch), record it in `anti_patterns_found` with the verbatim failure
@@ -582,12 +598,17 @@ rebuild intent from scratch.
 Write the artifact at the absolute path the wrapper passed you (typically
 `<worktree>/.flow-tmp/fix-applier-result.json`). The wrapper has already
 created the parent directory; you only need to write the file. Overwrite
-any prior artifact; do not append.
+any prior artifact; do not append. `status` is `"complete"` only once
+every finding has been attempted and every `commits[].verify_status` is
+`"pass"`; otherwise it stays `"partial"`. The atomic `.tmp` → validate →
+`mv` recipe applies to the final `status: "complete"` write only — the
+step-0 skeleton and the per-finding refreshes are plain `Edit` calls.
 
 The artifact MUST conform to this JSON schema:
 
 ```json
 {
+  "status": "partial" | "complete",
   "commits": [
     {
       "sha": "<7-char hex>",

@@ -66,6 +66,43 @@ the literal shape `agents/core/flow-verify.md` / `flow-fix-applier.md` /
 `flow-edit-applier.md` / `flow-merge-resolver.md`'s new turn-budget
 paragraphs describe.
 
+## max-turns-accounting
+
+A turn is one assistant API round-trip (a tool-calling assistant
+message); the JSONL transcript's line count over-reads the true turn
+count by roughly 1.6× because a single turn's thinking/text/tool_use
+blocks each land as separate lines (PR #789: 142 lines / 82 ids at a
+cap of 80; 201 lines / 126 ids at a cap of 120). A `SendMessage`
+continuation starts a FRESH budget — capped runs cluster at 160 (2×80),
+and PR #856's fix-applier reached 179 turns (120 + a 59-turn
+continuation). There is no per-spawn `maxTurns` input on the Task tool
+today (its input surface is `subagent_type`/`model`/`description`/
+`prompt`/`isolation`; verified against Claude Code 2.1.269).
+
+Measured table from 239 local transcripts, 2026-08-13 to 2026-09-12:
+
+| population             | n   | median | p90 | p95 | max | artifact rate |
+| ---------------------- | --- | ------ | --- | --- | --- | ------------- |
+| edit-applier, uncapped | 58  | 134    | 309 | 411 | 567 | 78%           |
+| fix-applier, uncapped  | 66  | 54     | 135 | 165 | 211 | 70%           |
+
+Capped runs after 2026-09-04: edit-applier 42/68 hit the cap, 16/68 of
+those exhausted the continuation too, 14/68 finished with no artifact,
+54/68 produced an artifact (79%). Fix-applier: 13/46 hit the cap, 0/46
+exhausted the continuation, 10/46 finished with no artifact, 36/46
+produced an artifact (78%). Turns vs. entry count correlate weakly
+(r=0.53, roughly 5.5 turns per entry on top of a ≈58-turn base), at a
+measured cost of ≈$0.064/turn (sonnet).
+
+Re-measure with `bun ~/.flow/audits/subagent-turns-2026-09-12.ts`
+(host-local script; not committed to the repo).
+
+**Decision this drives:** `flow-edit-applier`'s `maxTurns` moves 80 →
+240 and `flow-fix-applier`'s moves 120 → 200. `flow-merge-resolver`'s
+`maxTurns: 80` and `flow-ui-driver`'s `maxTurns: 120` are unchanged —
+their observed maxima (47 and 37 respectively) sit well inside the
+existing caps.
+
 ## cache-ttl-1h
 
 **Verdict: confirmed.**

@@ -61,6 +61,7 @@ describe("aggregateCounts", () => {
       summary: "ok",
     };
     const fixApplier: FixApplierResult = {
+      status: "complete",
       commits: [
         {
           sha: "abc",
