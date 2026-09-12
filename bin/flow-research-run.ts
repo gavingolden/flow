@@ -180,7 +180,7 @@ export function resolveModels(config: unknown): {
   return { gatherModel, refuteModel };
 }
 
-function resolveMaxCalls(config: unknown): number {
+export function resolveMaxCalls(config: unknown): number {
   const research = readResearchObject(config);
   const v = research.maxCalls;
   return typeof v === "number" && Number.isInteger(v) && v > 0
@@ -188,7 +188,7 @@ function resolveMaxCalls(config: unknown): number {
     : DEFAULT_MAX_CALLS;
 }
 
-function resolveTimeout(config: unknown): string {
+export function resolveTimeout(config: unknown): string {
   const research = readResearchObject(config);
   const v = research.timeout;
   return typeof v === "string" && v.trim() ? v : DEFAULT_TIMEOUT;

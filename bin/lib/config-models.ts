@@ -24,9 +24,21 @@ import {
   type ConfigModels,
   type ResolvedRow,
 } from "./model-routing-table";
+import { readLaunchDefaults } from "./launch-config";
 import { readState, type ModelAlias, type PipelineState } from "./state";
 import { friendlyName } from "./cost-pricing";
 import { dim } from "./color";
+
+/**
+ * The two dim footer lines that explain the models table's `= session`
+ * vocabulary and why EFFORT can't be pinned per row. Exported so
+ * `config-all.ts`'s aggregate view prints the identical text under its own
+ * models section rather than letting the two views drift.
+ */
+export const MODEL_FOOTERS: readonly string[] = [
+  "effort is fixed when the pipeline launches; MODEL resolves at each spawn",
+  "the Task tool has no per-spawn effort argument, so every sub-agent follows the session",
+];
 
 export type ConfigModelsOptions = {
   /** Injectable config reader (test seam); defaults to the real flowConfigPath() read. */
@@ -89,6 +101,35 @@ export function runConfigModelsCli(
     options.read ?? defaultReadConfigFile,
   );
 
+  const { rows, effort } = buildModelRows(read, state);
+
+  if (json) {
+    console.log(JSON.stringify(rows));
+    return 0;
+  }
+
+  console.log(`effort: ${effort.value} — ${effort.source}`);
+  console.log("");
+  printTable(rows);
+  return 0;
+}
+
+export type ModelRows = {
+  rows: ResolvedRow[];
+  effort: { value: string; source: string };
+};
+
+/**
+ * Pure(ish) row-builder over an already-resolved `read` + `state`: resolves
+ * the session effort (state > `launch.effort` > built-in), reads every
+ * `CONFIG_KEYS` grain plus the nested `reviewLenses` object, and feeds both
+ * into `resolveRouting`. Extracted so `flow config all` can compose this
+ * section without re-parsing `~/.flow/config.json`.
+ */
+export function buildModelRows(
+  read: ReadConfigFile,
+  state: PipelineState | null,
+): ModelRows {
   const config: ConfigModels = {};
   for (const key of CONFIG_KEYS) {
     config[key] = readPhaseModel(key, read);
@@ -103,15 +144,42 @@ export function runConfigModelsCli(
   }
   config.reviewLenses = reviewLenses;
 
-  const rows = resolveRouting({ state, config });
+  const effort = resolveSessionEffort(state, read);
+  const rows = resolveRouting({ state, config, effort });
+  return { rows, effort };
+}
 
-  if (json) {
-    console.log(JSON.stringify(rows));
-    return 0;
+/**
+ * Resolves the session's effort on the same precedence ladder
+ * `config-launch.ts` uses for every other `launch.<key>`: this run's frozen
+ * state > `launch.effort` > built-in. Reuses the SAME three source-string
+ * literals so the two audit views never describe identical resolutions in
+ * different words. Once an explicit `--slug` resolved a state file, config
+ * is no longer in the chain (same rule `config-launch.ts` documents) — an
+ * absent `state.effort` there means "resolved to the built-in", never "go
+ * re-read the live config".
+ */
+function resolveSessionEffort(
+  state: PipelineState | null,
+  read: ReadConfigFile,
+): { value: string; source: string } {
+  if (state) {
+    if (state.effort !== undefined) {
+      return {
+        value: String(state.effort),
+        source: "this run (fixed at launch)",
+      };
+    }
+    return { value: "(none)", source: "built-in (no --effort passed)" };
   }
-
-  printTable(rows);
-  return 0;
+  const launchDefaults = readLaunchDefaults(read);
+  if (launchDefaults.effort !== undefined) {
+    return {
+      value: String(launchDefaults.effort),
+      source: "config (launch.effort)",
+    };
+  }
+  return { value: "(none)", source: "built-in (no --effort passed)" };
 }
 
 function printTable(rows: ResolvedRow[]): void {
@@ -120,6 +188,12 @@ function printTable(rows: ResolvedRow[]): void {
     { header: "PHASE", get: (r) => r.phase },
     {
       header: "MODEL",
+      // Deliberately NOT the EFFORT column's `= session`. The two columns
+      // describe different relationships: a model is resolved per spawn and
+      // may be overridden per row, so an unset one INHERITS; effort is fixed
+      // once at launch and no row can vary it, so every sub-agent row ECHOES
+      // the session value. Collapsing both to one word would re-lose the
+      // spawn-time/launch-time distinction this view exists to make legible.
       get: (r) => (r.model ? friendlyName(r.model) : "inherited"),
     },
     { header: "SOURCE", get: (r) => r.source },
@@ -138,4 +212,5 @@ function printTable(rows: ResolvedRow[]): void {
   for (const r of rows) console.log(line(cols.map((c) => c.get(r))));
   console.log("");
   console.log(dim("routing only — see `flow ls --cost` for realized spend"));
+  for (const footer of MODEL_FOOTERS) console.log(dim(footer));
 }

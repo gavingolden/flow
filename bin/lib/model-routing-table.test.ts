@@ -38,6 +38,20 @@ describe("resolveRouting — fallback branches (empty config + state)", () => {
     });
   });
 
+  it("fix-applier follows the session when an effort is injected", () => {
+    const injected = resolveRouting({
+      state: null,
+      config: {},
+      effort: { value: "high", source: "config (launch.effort)" },
+    });
+    expect(row(injected, "fix-applier")).toMatchObject({
+      model: "sonnet",
+      source: "built-in (sonnet)",
+      effort: "= session",
+      effortSource: "follows session",
+    });
+  });
+
   it("inherited sites resolve to an empty model with an `inherited` source", () => {
     for (const phase of [
       "session",
@@ -53,9 +67,26 @@ describe("resolveRouting — fallback branches (empty config + state)", () => {
     }
   });
 
-  it("no row pins effort; every row inherits when state is absent", () => {
+  it("no row pins effort; every row inherits when state is absent and no effort is injected", () => {
     for (const r of rows) {
       expect(r.effort).toBe("inherited");
+    }
+  });
+
+  it("every non-session row follows the session's injected effort; the session row carries it verbatim", () => {
+    const injected = resolveRouting({
+      state: null,
+      config: {},
+      effort: { value: "high", source: "config (launch.effort)" },
+    });
+    expect(row(injected, "session")).toMatchObject({
+      effort: "high",
+      effortSource: "config (launch.effort)",
+    });
+    for (const r of injected) {
+      if (r.phase === "session") continue;
+      expect(r.effort).toBe("= session");
+      expect(r.effortSource).toBe("follows session");
     }
   });
 });
@@ -94,11 +125,43 @@ describe("resolveRouting — state per-phase overrides", () => {
     });
   });
 
-  it("a session effort is rendered on every row, including the two cheap-model fan-outs", () => {
+  it("with no injected effort, state.effort is rendered on every row, including the two cheap-model fan-outs", () => {
     const rows = resolveRouting({ state: st({ effort: "high" }), config: {} });
     expect(row(rows, "review").effort).toBe("high");
     expect(row(rows, "fix-applier").effort).toBe("high");
     expect(row(rows, "ui-driver").effort).toBe("high");
+  });
+
+  it("with no injected effort, `effortSource` names a source phrase, never the bare effort value", () => {
+    // Regression case: the fallback branch used to set
+    // `effortSource: state?.effort ?? "inherited"`, so a `state.effort` of
+    // "high" leaked the VALUE into a SOURCE-position field.
+    const withState = resolveRouting({
+      state: st({ effort: "high" }),
+      config: {},
+    });
+    for (const r of withState) {
+      expect(r.effort).toBe("high");
+      expect(r.effortSource).toBe("this run (fixed at launch)");
+    }
+
+    const withoutState = resolveRouting({ state: null, config: {} });
+    for (const r of withoutState) {
+      expect(r.effort).toBe("inherited");
+      expect(r.effortSource).toBe("inherited");
+    }
+  });
+
+  it("with an injected effort, review/fix-applier/ui-driver follow the session rather than rendering the value directly", () => {
+    const rows = resolveRouting({
+      state: st({ effort: "high" }),
+      config: {},
+      effort: { value: "high", source: "this run (fixed at launch)" },
+    });
+    expect(row(rows, "review").effort).toBe("= session");
+    expect(row(rows, "fix-applier").effort).toBe("= session");
+    expect(row(rows, "ui-driver").effort).toBe("= session");
+    expect(row(rows, "session").effort).toBe("high");
   });
 });
 

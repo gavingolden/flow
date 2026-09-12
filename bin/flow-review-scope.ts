@@ -344,7 +344,7 @@ function readPlanHighStakes(
   return /^\s*-?\s*\*\*Stakes:\*\*\s*high\b/im.test(raw);
 }
 
-function readTolerantBool(
+export function readTolerantBool(
   readFile: (p: string) => string | null,
   configPath: string,
   key: "lensGates" | "deltaScope" | "product",
