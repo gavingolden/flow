@@ -12,6 +12,7 @@ import { resolveFlowSource } from "./paths";
 import { resolveMaxCalls, resolveTimeout } from "../flow-research-run";
 import { readTolerantBool } from "../flow-review-scope";
 import { readConfigDiscovery } from "../flow-research-note";
+import { readJudgeEnabled } from "./explain-judge";
 
 // The view's own resolution for an EMPTY config, mirroring config-settings.ts's
 // descriptors for these keys exactly (kept in sync by hand — the parity this
@@ -23,6 +24,7 @@ const viewDefaults = {
   "review.deltaScope": true,
   "review.product": true,
   "research.discovery": false,
+  "product.judge": true,
 };
 
 describe("config-default-parity: the view's defaults match their real consumer's", () => {
@@ -51,6 +53,13 @@ describe("config-default-parity: the view's defaults match their real consumer's
         viewDefaults[`review.${key}` as keyof typeof viewDefaults],
       );
     }
+  });
+
+  it("product.judge: view default matches readJudgeEnabled's default", () => {
+    const consumerDefault = readJudgeEnabled(() => null); // absent config file
+    expect(consumerDefault, "readJudgeEnabled(absent config) default").toBe(
+      viewDefaults["product.judge"],
+    );
   });
 
   it("research.discovery: view default matches readConfigDiscovery's default", () => {

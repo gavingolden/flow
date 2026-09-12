@@ -36,6 +36,7 @@ export const TELEMETRY_EVENTS = [
   "phase.transition",
   "verify.attempt",
   "run.terminal",
+  "explain.judge",
 ] as const;
 
 export type TelemetryEventName = (typeof TELEMETRY_EVENTS)[number];

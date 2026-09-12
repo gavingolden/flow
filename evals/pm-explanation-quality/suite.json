@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "pm-explanation-quality",
+  "candidate": "explanation-judge",
+  "description": "Scores PM-readability of pause blocks and PR bodies via the advisory flow-explain-judge check.",
+  "scenarios": ["s1-known-bad-pr-body", "s2-pr-body-open"],
+  "defaults": {
+    "model": "sonnet",
+    "effort": "medium",
+    "maxBudgetUsd": 3,
+    "runs": 3
+  }
+}

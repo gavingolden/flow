@@ -276,6 +276,17 @@ const DESCRIPTORS: Descriptor[] = [
     resolve: (read) => strictFalseOptOut(read, "review.product"),
   },
   {
+    key: "product.judge",
+    meaning:
+      "whether the code-blind-reader explanation judge critiques the PR body",
+    resolve: (read) => {
+      const v = getPath(safeRead(read), ["product", "judge"]);
+      return v === false
+        ? { value: "false", source: "config (product.judge)" }
+        : { value: "true", source: "built-in (opt-out, defaults on)" };
+    },
+  },
+  {
     key: "modules",
     meaning: "which optional flow modules this install has selected",
     resolve: (read) => {
