@@ -99,6 +99,7 @@ export type Args = {
   timeoutSec: number;
   out?: string;
   task: string;
+  tools?: string;
 };
 
 const DEFAULT_MAX_BUDGET_USD = 5;
@@ -184,6 +185,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--task":
         out.task = value;
         break;
+      case "--tools":
+        out.tools = value;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -213,6 +217,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     timeoutSec: out.timeoutSec ?? DEFAULT_TIMEOUT_SEC,
     out: out.out,
     task: out.task ?? DEFAULT_TASK,
+    tools: out.tools,
   };
 }
 
@@ -262,6 +267,7 @@ export function buildChildArgv(a: Args, prompt: string): string[] {
     "project",
     "--no-session-persistence",
     ...(a.bare ? ["--bare"] : []),
+    ...(a.tools !== undefined ? ["--tools", a.tools] : []),
   ];
 }
 

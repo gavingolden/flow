@@ -29,13 +29,14 @@ function makeEvent(overrides: Partial<TelemetryEvent> = {}): TelemetryEvent {
 }
 
 describe("TELEMETRY_EVENTS", () => {
-  it("is exactly the five named events, in order — plan.redirect is deliberately absent", () => {
+  it("is exactly the six named events, in order — plan.redirect is deliberately absent", () => {
     expect(TELEMETRY_EVENTS).toEqual([
       "delegate.call",
       "deliberate.call",
       "phase.transition",
       "verify.attempt",
       "run.terminal",
+      "explain.judge",
     ]);
   });
 

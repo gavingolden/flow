@@ -16,6 +16,11 @@ running five committed suites, split by what each measures:
   helper that writes the phase; the helper _writing_ correctly is proved
   separately, by `bin/lib/phase-advance.test.ts` and each helper's own
   unit spec.
+- One **explanation-quality suite** (`pm-explanation-quality`, epic
+  `make-flow-reason-from-explain` f2) — whether the PR-body site's `## Why`
+  and `## User-facing changes` sections read as consequence-first, PM-facing
+  writing rather than mechanism-first, code-centric writing, via the
+  advisory `flow-explain-judge` check.
 
 Alongside the suites, `docs/eval/review-cost-baseline.md` records the
 measured **review-phase cost before-state** — the supervisor's own turn

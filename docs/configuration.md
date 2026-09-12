@@ -121,6 +121,7 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
 - **No spawn site pins effort.** The Task tool exposes no per-spawn effort argument, so a pinned effort would be unoverridable even though the same row's `model` is only a configurable default — effort always follows the session's effort (`state.effort`, or `inherited` outside a session). This holds even for `fixApplier` and `uiDriver`, whose `model` defaults to a literal `sonnet`: the model default and the effort resolution are independent axes.
 - **The blind judge** (`flow-deliberate`, a Bash fan-out over `flow-claude-headless`, so it is reachable from a sub-agent that may not spawn a nested Task) resolves `--model` > `config.models.default` > `opus`, with `--effort high`, `--max-budget-usd 2`, and `--max-turns 15` by default. There is deliberately **no** `models.deliberate` key: a judgment call should run whatever model the user already trusts by default, and a dedicated key earns its place only once someone wants to diverge.
 - **The gatekeeper is pinned** to `haiku` — its whole job is cheap cost-routing. There is no `--model-gatekeeper` flag; a `config.models.gatekeeper` key is reachable but strongly discouraged (overriding it defeats the cost-routing).
+- **The explanation judge is pinned** to `sonnet` / `--effort low` / `--max-budget-usd 0.25` (`flow-explain-judge`) — no config key, no flag.
 
 Aliases are `opus`, `haiku`, `sonnet`, `fable`; flow forwards the alias verbatim to `claude --model`. An invalid alias in a flag exits non-zero writing no state; an invalid value in `config.models.*` emits a best-effort warning at create time and falls back.
 
@@ -204,6 +205,7 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 | `review.lensGates`      | content-gates `/flow-pr-review`'s six content lenses against the changed-file set, static-analysis signals, and a diff-content check for new bare-specifier imports/requires via `flow-review-scope` (default `true`); strict `false` disables — every content lens always runs; the seventh `product` lens is gated on a product brief resolving (see Product brief below), not by this key |
 | `review.deltaScope`     | scopes a fix-loop re-entry's review to `last-reviewed..HEAD` when the prior run was clean and the marker is an ancestor of HEAD (default `true`); strict `false` disables — every entry reviews the full PR diff                                                                                                                                                                             |
 | `review.product`        | boolean, default `true` — set `false` to skip both the plan-time product critic and the product review lens while keeping the brief committed                                                                                                                                                                                                                                                |
+| `product.judge`         | enables the advisory code-blind-reader explanation judge (`flow-explain-judge`) at the PR-body site (default `true`); strict `false` disables — every call skips with `judge-disabled`                                                                                                                                                                                                       |
 
 The five `launch.*` keys above are resolved once, at `flow feature create`
 (and `flow epic create` / `flow epic run` for `launch.effort`) launch time,
@@ -219,7 +221,7 @@ jq-readable, no rotation in v1) — see `flow-review-telemetry`.
 
 Separately, a handful of helpers append one JSON line per event to
 `~/.flow/telemetry/events.jsonl` (`bin/lib/telemetry.ts`'s `recordEvent`),
-covering five event names: `delegate.call` (one per `flow-delegate`
+covering six event names: `delegate.call` (one per `flow-delegate`
 invocation), `deliberate.call` (one per `flow-deliberate` blind
 second-opinion consult — carries the call's `total_cost_usd`, the
 anchor-derived `confidence`, and whether the judge's declared confidence was
@@ -231,8 +233,10 @@ write, OR per `bin/lib/phase-advance.ts` phase advance — `phase-advance.ts`
 is the SOLE emitter for six phases in the implement→merge half of the
 pipeline, so reading only `flow-state-update` call sites undercounts this
 event), `verify.attempt` (one per `flow-pre-commit` run, scopes/verdict/
-failing-check-names only, never output text), and `run.terminal` (one per
-`flow-gate-summary` render that reaches a terminal status). Every event
+failing-check-names only, never output text), `run.terminal` (one per
+`flow-gate-summary` render that reaches a terminal status), and
+`explain.judge` (one per `flow-explain-judge` invocation; verdict/
+skipReason/model/effort/cost only — NEVER the judged text). Every event
 carries the same `slug` / `pr` / `repo` / `session_id` correlation
 quadruple (`resolveCorrelation` in `bin/lib/telemetry.ts`) so a reader can
 reconstruct one pipeline run by filtering on any one of the four. The log
@@ -259,6 +263,18 @@ jq -c 'select(.slug == "csv-export")' ~/.flow/telemetry/events.jsonl
 # this counts).
 jq -c 'select(.event == "phase.transition" and .attrs.from == "plan-pending-review" and .attrs.to == "planning")' \
   ~/.flow/telemetry/events.jsonl | wc -l
+```
+
+**Unwired pause sites.** `flow-explain-judge` is wired into exactly one
+site today (the PR-body `## Why`/`## User-facing changes` pair at Step 5's
+PR-open block). Five other candidate sites stay deliberately unwired
+pending a recorded ablation delta: the step-3 plan-summary TLDR block, and
+the AWAITING APPROVAL / GATED / MERGED / NEEDS HUMAN TLDR-and-WHY strings,
+plus the `triaged-no-change` answer written via `flow-state-update
+--answer-stdin`. Wiring any of them is gated on recording that delta first:
+
+```sh
+bun bin/flow-eval.ts run --suite pm-explanation-quality --ablation with-without --out .flow-tmp/eval
 ```
 
 The plain shell stays the default launcher unless you opt in: per run with `flow feature create --tmux "<desc>"`, or globally with `flow config launcher set tmux`.

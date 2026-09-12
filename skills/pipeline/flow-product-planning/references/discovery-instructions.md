@@ -1474,7 +1474,9 @@ new CLI commands or subcommands, new flags or changed defaults, renamed/removed
 commands, changed prompts or output formats, new env vars, and changed file
 locations users interact with. Convert the Scope Boundary's "In scope" items into
 bullets here too, phrased as capabilities or behaviors rather than files or modules,
-each one verifiable.
+each one verifiable. When step 1.9 resolved a brief, frame each
+bullet in its ranked priorities and `Use` vocabulary; on `{"found":false}`
+change nothing.
 
 Format: freeform bullets. For renames or removals, use a `Before → After` bullet so
 the delta reads at a glance. Example:
@@ -1511,7 +1513,8 @@ why it matters — strip solution language. This should read as motivation, not 
 feature spec. On a fix-shaped PR — the pipeline exists to fix an observed defect, or
 the branch's dominant commit type is `fix:` — lead with `**Failing:**` naming the
 observed failure and `**Root cause:**` naming why it happened, before the
-1–3-sentence motivation.>
+1–3-sentence motivation. When step 1.9 resolved a brief, frame the pain in its
+ranked priorities and `Use` vocabulary; on `{"found":false}` change nothing.>
 
 ## Key decisions
 

@@ -1,0 +1,47 @@
+{
+  "id": "s1-known-bad-pr-body",
+  "title": "The judge rejects a mechanism-first PR body and accepts a consequence-first one",
+  "provenance": "Epic make-flow-reason-from-explain f2: calibration scenario proving flow-explain-judge distinguishes code-centric writing from PM-readable writing before it gates anything.",
+  "prompt": "prompt.md",
+  "runs": 1,
+  "model": "haiku",
+  "graders": [
+    {
+      "id": "judge-rejects-known-bad",
+      "kind": "command",
+      "argv": [
+        "flow-explain-judge",
+        "--text-file",
+        "$FIXTURE/known-bad.md",
+        "--site",
+        "eval-known-bad",
+        "--expect",
+        "rewrite",
+        "--max-budget-usd",
+        "0.25"
+      ]
+    },
+    {
+      "id": "judge-accepts-known-good",
+      "kind": "command",
+      "argv": [
+        "flow-explain-judge",
+        "--text-file",
+        "$FIXTURE/known-good.md",
+        "--site",
+        "eval-known-good",
+        "--expect",
+        "pass",
+        "--max-budget-usd",
+        "0.25"
+      ]
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    }
+  ]
+}

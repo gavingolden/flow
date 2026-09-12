@@ -860,7 +860,8 @@ in [references/exemption-contracts.md](../../../references/exemption-contracts.m
 
 After the wrapper returns, **read `<worktree>/.flow-tmp/plan.md`** once
 and print the plan-summary block to chat per `references/pause-output-contract.md`
-— six labeled slots, no open prose, ≤12 lines, ≤2 bullets per slot
+— six labeled slots, no open prose, ≤12 lines, ≤2 bullets per slot. Author
+the TLDR per [TLDR and WHY authoring (product brief)](#tldr-and-why-authoring-product-brief).
 (template: `### ⏸ Plan ready for review` / `**TLDR:** <one-sentence
 user-visible outcome, suffixed `(N zero-stakes questions resolved
 without asking)` when N checked `**Stakes:** none` entries exist>` /
@@ -1137,6 +1138,7 @@ only and the helper exact-matches against them. The blind survey's
   WHY="plan ready for review (intent=feature)"
   [ "$SPEC_RC" != "0" ] && WHY="$WHY; design spec INVALID: $DESIGN_SPEC_REASON"
   LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)
+  # Author the TLDR per [TLDR and WHY authoring (product brief)](#tldr-and-why-authoring-product-brief).
   TLDR="<one sentence, ≤25 words, the plan's outcome for the reader>"
   flow-gate-summary --status awaiting-approval --echo-prose \
     --why "$WHY" \
@@ -1248,6 +1250,7 @@ only and the helper exact-matches against them. The blind survey's
     [ -n "$SURVEY_VERDICT" ] && WHY="$WHY; Method: $USER_METHOD -> $CHOSEN_METHOD (survey: $SURVEY_VERDICT)"
     [ "$SPEC_RC" != "0" ] && WHY="$WHY; design spec INVALID: $DESIGN_SPEC_REASON"
     LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)
+    # Author the TLDR per [TLDR and WHY authoring (product brief)](#tldr-and-why-authoring-product-brief).
     TLDR="<one sentence, ≤25 words, the plan's outcome for the reader>"
     flow-gate-summary --status awaiting-approval --echo-prose \
       --why "$WHY" \
@@ -1499,12 +1502,36 @@ Write the PR body to the worktree's scratch dir, then call
 `flow-open-pr` once and capture both the URL (from stdout) and the
 PR number (from the state.json the helper just wrote):
 
+**PR-body explanation judge (advisory).** Before the first `flow-open-pr`
+call for this pipeline (guarded by `.pr // empty` below so a resumed,
+already-opened PR is never re-judged), run `flow-explain-judge` over the
+composed body's `## Why` and `## User-facing changes` sections — the two a
+code-blind reader most needs. On `"verdict":"rewrite"`, rewrite ONLY those
+two sections once using `.reasons[]`: preserve every factual deliverable,
+number, path, and caveat VERBATIM, translate only implementation mechanism
+into its user-visible consequence, and — when a product brief resolved —
+target its `Use`/`Avoid` vocabulary, never inventing a new claim; then
+re-judge once and proceed to `flow-open-pr` regardless of the second
+verdict. `product.judge: false`, and every other `{ran:false,
+skipReason: ...}` shape (including `judge-disabled`), means the check
+skipped — proceed silently, no chat note; the helper's own `explain.judge`
+telemetry event is the durable record. The judge is advisory only: it
+never changes `flow-gate-decide`'s verdict and never blocks a terminal
+state.
+
 ```bash
 mkdir -p "$WORKTREE/.flow-tmp"
 # Compose the PR body (typically copied from .flow-tmp/pr-description-draft.md
 # that /flow-new-feature wrote, then templated with the final commit list). Both
 # the source draft and the rendered body live under .flow-tmp/ so the
 # worktree root stays clean for the post-merge git worktree remove.
+if [ -z "$(jq -r '.pr // empty' ~/.flow/state/"$FLOW_SLUG".json 2>/dev/null)" ]; then
+  JUDGE=$(flow-explain-judge --text-file "$WORKTREE/.flow-tmp/pr-body.md" \
+    --sections "## Why,## User-facing changes" --site pr-body)
+  echo "$JUDGE"
+  # On JUDGE's .verdict == "rewrite": rewrite ## Why / ## User-facing
+  # changes once per .reasons[], re-judge once, then proceed regardless.
+fi
 PR_URL=$(flow-open-pr \
   --body-file "$WORKTREE/.flow-tmp/pr-body.md" \
   --title "<conventional-commit summary>")
@@ -1878,7 +1905,7 @@ inflate what it reports as elapsed, immune to fabricating `ci-hang`.
 ⇒ branch" resume logic and `flow-pipeline-summary --ci-wait-result` keep
 working unchanged.
 
-Branch on `.decision`. Resolve the render lens once for the whole table: `LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)`. At every terminal `flow-gate-summary` render below (status: merged, gated, needs-human, or cancelled), first author `TLDR="<one sentence, ≤25 words, the user-visible outcome>"` and pass `--tldr "$TLDR"`; a `flow-notify` call in the same row passes `--reason "$TLDR"` (needs-human also passes `--tag <reason-tag>`); a `flow-pipeline-summary` call in the same row adds `--lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)` and, right after, captures `COUNTS_LINE=$(flow-pipeline-summary --status <status> --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)`, threaded into `flow-gate-summary --counts-line "$COUNTS_LINE" --untracked-file <(flow-untracked render --format gate --unfiled-only)`.
+Branch on `.decision`. Resolve the render lens once for the whole table: `LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)`. At every terminal `flow-gate-summary` render below (status: merged, gated, needs-human, or cancelled), first author `TLDR="<one sentence, ≤25 words, the user-visible outcome>"` (per [TLDR and WHY authoring (product brief)](#tldr-and-why-authoring-product-brief)) and pass `--tldr "$TLDR"`; a `flow-notify` call in the same row passes `--reason "$TLDR"` (needs-human also passes `--tag <reason-tag>`); a `flow-pipeline-summary` call in the same row adds `--lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)` and, right after, captures `COUNTS_LINE=$(flow-pipeline-summary --status <status> --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)`, threaded into `flow-gate-summary --counts-line "$COUNTS_LINE" --untracked-file <(flow-untracked render --format gate --unfiled-only)`.
 
 | `.decision` | Action |
 |---|---|
@@ -2141,7 +2168,7 @@ the user passed `flow feature create --no-auto-merge`, or
 every `OPEN` PR to `gated` regardless of section content. `MERGED`
 and `CLOSED` states still take their normal branches.
 
-Branch on `.decision`. Resolve the render lens once for the whole table: `LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)`. At every terminal `flow-gate-summary` render below (status: merged, gated, needs-human, or cancelled), first author `TLDR="<one sentence, ≤25 words, the user-visible outcome>"` and pass `--tldr "$TLDR"`; a `flow-notify` call in the same row passes `--reason "$TLDR"` (needs-human also passes `--tag <reason-tag>`); a `flow-pipeline-summary` call in the same row adds `--lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)` and, right after, captures `COUNTS_LINE=$(flow-pipeline-summary --status <status> --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)`, threaded into `flow-gate-summary --counts-line "$COUNTS_LINE" --untracked-file <(flow-untracked render --format gate --unfiled-only)`.
+Branch on `.decision`. Resolve the render lens once for the whole table: `LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)`. At every terminal `flow-gate-summary` render below (status: merged, gated, needs-human, or cancelled), first author `TLDR="<one sentence, ≤25 words, the user-visible outcome>"` (per [TLDR and WHY authoring (product brief)](#tldr-and-why-authoring-product-brief)) and pass `--tldr "$TLDR"`; a `flow-notify` call in the same row passes `--reason "$TLDR"` (needs-human also passes `--tag <reason-tag>`); a `flow-pipeline-summary` call in the same row adds `--lens "$LENS" --scout-file "$WORKTREE/.flow-tmp/scout.md" --untracked-file <(flow-untracked render --format markdown --unfiled-only)` and, right after, captures `COUNTS_LINE=$(flow-pipeline-summary --status <status> --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)`, threaded into `flow-gate-summary --counts-line "$COUNTS_LINE" --untracked-file <(flow-untracked render --format gate --unfiled-only)`.
 
 | `.decision` | Action |
 |---|---|
@@ -2577,7 +2604,7 @@ flow-pipeline-summary --status merged --state-file ~/.flow/state/"$SLUG".json --
 COUNTS_LINE=$(flow-pipeline-summary --status merged --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)
 flow-epic-membership --slug "$SLUG" --terminal-state merged  # epic-membership block (prints nothing for non-epic features)
 flow-browser-teardown --reap --record  # registry-driven reap; records the outcome in state.json; always exits 0 — never blocks, never silently no-ops
-TLDR="<one sentence, <=25 words, the user-visible outcome>"  # authored here, not derived
+TLDR="<one sentence, <=25 words, the user-visible outcome>"  # authored here, not derived; per [TLDR and WHY authoring (product brief)](#tldr-and-why-authoring-product-brief)
 flow-gate-summary --status merged --pr-url "$PR_URL" --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens "$LENS" --untracked-file <(flow-untracked render --format gate --unfiled-only) --counts-line "$COUNTS_LINE"  # renders TLDR/STATUS/PR/NEEDS ATTENTION/MANUAL ACTION/UNTRACKED/count line/NEXT ACTION/CLEANUP + sentinel MERGED, then records phase: merged itself (after the block reaches stdout)
 flow-notify --status merged --url "$PR_URL" --reason "$TLDR"
 [ "$(flow-checkpoint --probe --site terminal | jq -r '.verdict')" = write ] && echo "Pipeline reached MERGED at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null  # best-effort, non-clobbering arm (stdout muted so the JSON verdict does not land beside the gate block; stderr deliberately left connected — echo the `checkpointed: ` line verbatim per the Checkpoint arm signal (echo-verbatim) subsection); the merged-externally rows above and the step-9 resume MERGED branch below now carry their own equivalent arm — nothing lost, the body is worktree-independent
@@ -2720,6 +2747,23 @@ Scope: the four post-review PR-bearing gates + AWAITING APPROVAL, and resume
 re-entry into a gate state. NOT pre-review NEEDS HUMAN escalations
 (triage-ambiguous, worktree-create-failed, plan-missing) — no PR/plan exists
 there to echo.
+
+### TLDR and WHY authoring (product brief)
+
+Resolve the product brief ONCE per session, by bare PATH name — never a
+`bin/lib` import, the same discipline discovery uses, since a sub-agent runs
+in the consumer/target worktree where flow's own `bin/lib` does not exist:
+
+```bash
+{ test -f "$WORKTREE/.flow/product.md" || test -f ~/.flow/product.md; } && (cd "$WORKTREE" && flow-product-brief) || echo '{"found":false}'
+```
+
+Every `TLDR="..."` string and every `--why` string this skill authors is
+REQUIRED to cite the resolved brief's top-ranked priorities, in its `Use`
+vocabulary, as the lead clause — the user-visible consequence for what the
+brief's PM ranks highest, never an internal mechanism. On `{"found":false}`,
+change nothing: author the TLDR/WHY exactly as each site above already
+documents, with no brief clause at all.
 
 ### Checkpoint arm signal (echo-verbatim)
 
@@ -2985,7 +3029,7 @@ flow-pipeline-summary --status needs-human --state-file ~/.flow/state/"$SLUG".js
 COUNTS_LINE=$(flow-pipeline-summary --status needs-human --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)
 flow-epic-membership --slug "$SLUG" --terminal-state needs-human  # epic-membership block (no-op for non-epic features)
 flow-browser-teardown --reap --record  # registry-driven; records outcome; always exits 0
-TLDR="<one sentence, <=25 words, the user-visible outcome for <reason>>"  # authored here, not derived
+TLDR="<one sentence, <=25 words, the user-visible outcome for <reason>>"  # authored here, not derived; per [TLDR and WHY authoring (product brief)](#tldr-and-why-authoring-product-brief)
 flow-gate-summary --status needs-human --reason "<reason>" \
   --why "<one-line context>" --cleanup \
   --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" \

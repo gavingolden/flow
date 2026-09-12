@@ -14,6 +14,7 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { git } from "./git";
+import { pluginBinPath } from "./plugin-root";
 import {
   buildReport,
   compareReports,
@@ -131,7 +132,9 @@ export async function runPool<T, R>(
 
 const DRY_RUN_SKIPPED_KINDS = new Set(["structured", "command", "metric"]);
 
-function buildGraderContext(
+// Exported for bin/lib/eval-cli.test.ts's focused grader-context PATH-prefix
+// unit test — not otherwise a public surface of this module.
+export function buildGraderContext(
   fixture: MaterializedFixture,
   scenario: ResolvedScenario,
   outcome: {
@@ -142,17 +145,43 @@ function buildGraderContext(
   },
   deps: Deps,
 ): GraderContext {
+  // gradeCommand spawns command graders with cwd = the materialized repoDir,
+  // so a relative $FIXTURE/$ASSISTANT_TEXT silently resolves to a
+  // nonexistent file there; file-kind graders were unaffected because the
+  // harness reads those itself from the repo root, which is why no prior
+  // suite caught it. Resolve once here so every grader kind benefits.
   return {
     repoDir: fixture.repoDir,
-    fixtureRoot: scenario.dir,
+    fixtureRoot: path.resolve(scenario.dir),
     stateSlug: fixture.slug,
     stateDir: fixture.stateDir,
-    streamPath: outcome.streamPath,
-    assistantTextPath: outcome.assistantTextPath,
+    streamPath: path.resolve(outcome.streamPath),
+    assistantTextPath: path.resolve(outcome.assistantTextPath),
     result: outcome.result,
     transcript: outcome.transcript,
     runCommand: (argv, cwd) => {
-      const r = spawnSync(argv[0], argv.slice(1), { cwd, encoding: "utf8" });
+      // Deliberately NOT arm-conditional: the fixture's own plugin bin/ is
+      // prepended in BOTH ablation arms so a command grader always
+      // resolves the branch-built helper (e.g. flow-explain-judge) under
+      // test, never the maintainer's installed one — eval-runner.ts's
+      // arm-conditional PATH stripping ablates the SUBJECT (what the
+      // spawned Claude session can discover), not this measurement
+      // infrastructure.
+      const pathPrefix = pluginBinPath(fixture.pluginRoots);
+      const env = {
+        ...process.env,
+        // `fixture.shimDir` matches eval-runner.ts's arm-conditional PATH
+        // build: the `gh` shim is scenario infrastructure (mocking a real
+        // external tool), so a command grader must resolve it too.
+        PATH: [fixture.shimDir, pathPrefix, process.env.PATH]
+          .filter((seg): seg is string => Boolean(seg))
+          .join(":"),
+      };
+      const r = spawnSync(argv[0], argv.slice(1), {
+        cwd,
+        encoding: "utf8",
+        env,
+      });
       return {
         exitCode: r.status ?? -1,
         stdout: (r.stdout ?? "") + (r.stderr ?? ""),
@@ -211,35 +240,48 @@ const PLUGIN_ROOT_MARKER = "flow-module-core";
  * `--add-dir`, a settings-sourced skills dir) would silently produce a
  * near-zero delta that reads as "the scaffold adds nothing".
  */
-function ablationLeakGate(ctx: GraderContext): GradeResult {
+export function ablationLeakGate(ctx: GraderContext): GradeResult {
   // `ctx.readFile` (not `Deps.readFile`) — the context's reader is
   // contractually null-tolerant, so an unreadable transcript fails this
   // gate rather than throwing out of the grading path.
   const stream = ctx.readFile(ctx.streamPath);
+  // An empty (or whitespace-only) transcript means the child never
+  // produced a single event — most often the bare-arm spawn itself never
+  // launched. Left undistinguished from "read fine, zero plugins loaded",
+  // that reads as a clean ablation and vacuously PASSES this gate even
+  // though the arm never actually ran, which is exactly the failure mode
+  // this gate exists to catch.
+  const isEmpty = stream !== null && stream.trim().length === 0;
   const plugins =
-    stream === null ? [] : initInfo(parseStream(stream).events).plugins;
+    stream === null || isEmpty
+      ? []
+      : initInfo(parseStream(stream).events).plugins;
   const leakedPlugin = plugins.find((name) =>
     name.startsWith(PLUGIN_ROOT_MARKER),
   );
-  const leaked = stream !== null && leakedPlugin !== undefined;
+  const leaked = stream !== null && !isEmpty && leakedPlugin !== undefined;
   return {
     id: "ablation-leak-free",
     kind: "file",
     gate: true,
-    pass: stream !== null && !leaked,
+    pass: stream !== null && !isEmpty && !leaked,
     expected: `no loaded plugin named "${PLUGIN_ROOT_MARKER}*"`,
     actual:
       stream === null
         ? "transcript unreadable"
-        : leaked
-          ? `loaded: ${leakedPlugin}`
-          : "none loaded",
+        : isEmpty
+          ? "transcript empty"
+          : leaked
+            ? `loaded: ${leakedPlugin}`
+            : "none loaded",
     detail:
       stream === null
         ? "could not read the run transcript, so the ablation could not be verified"
-        : leaked
-          ? "the no-plugin arm still loaded a flow plugin root — the ablation leaked, so any delta from this run is meaningless"
-          : undefined,
+        : isEmpty
+          ? "the no-plugin arm produced no transcript at all, so the ablation could not be verified"
+          : leaked
+            ? "the no-plugin arm still loaded a flow plugin root — the ablation leaked, so any delta from this run is meaningless"
+            : undefined,
   };
 }
 

@@ -5458,6 +5458,40 @@ describe("pr-review include-by-reference structure", () => {
     // merged file lands at 3019 lines after `main`'s verify-loop diet, so
     // 3115 clears it and no third number is invented.
     //
+    // Raised 3115 → 3167 by the PR-body explanation-judge PR (epic
+    // make-flow-reason-from-explain f2): Task 6 inserted the "PR-body
+    // explanation judge (advisory)" paragraph + guarded flow-explain-judge
+    // bash block ahead of the flow-open-pr call, and Task 7 added the new
+    // "### TLDR and WHY authoring (product brief)" subsection plus six
+    // one-line pointer sentences at the existing TLDR-authoring sites —
+    // both genuine feature-mechanical content, not incidental bloat. Lands
+    // the file at 3151 lines, so the ceiling moves to 3167 (16 lines of
+    // genuine headroom), the same discipline as every raise above.
+    //
+    // Request-vetting note: PR #812's Task 8 (`## Request vetting`
+    // rendering + non-feature push-back routing + the FOUR-hashed-inputs
+    // doc update) added genuine step-3 prose, landing `main` at 3127
+    // lines — a ceiling of 3140 (13 lines of genuine headroom) on that
+    // side, the same discipline as above.
+    //
+    // Merge note (f3 product critic, PR #822): `main` independently raised
+    // 3115 -> 3140 -> 3155 for the "Blind product critic (brief-gated,
+    // once per step-3 pass)" sub-step plus the exemption #1/#2 wording
+    // widening. That ledger survives verbatim above; only its ceiling is
+    // superseded below.
+    //
+    // Merge note (this merge): `main` advanced by six commits while this
+    // branch sat gated, two of which touched this SKILL.md — the f3
+    // product critic (#822, +19/-3) and the review-phase cost cut
+    // (#829, +8/-2) — landing `main` at 3149 lines as this test counts
+    // them, against this branch's 3171. Both sides budgeted a ceiling for
+    // their OWN content (3167 here, 3155 on `main`), so neither clears the
+    // union: the merged file measures 3193 lines. The ceiling moves to
+    // 3210 (17 lines of genuine headroom) to cover the union — the
+    // arithmetic of two independently-budgeted features meeting, not new
+    // bloat, and neither side's content was trimmed to fake a fit.
+    //
+    // (`main`-side ledger, preserved verbatim:)
     // Three independent raises have now landed together:
     //   - PR #812's Task 8 (`## Request vetting` rendering + non-feature
     //     push-back routing + the FOUR-hashed-inputs doc update).
@@ -5476,12 +5510,30 @@ describe("pr-review include-by-reference structure", () => {
     // genuine headroom) to cover the union. That is the arithmetic of
     // independently-budgeted features meeting, not new bloat, and no
     // side's content was trimmed to fake a fit.
+    //
+    // Merge note (main -> branch, 2026-09-11): the two ledgers above were
+    // budgeted independently and neither number covers the union. This
+    // branch (the PR-body explanation judge, f2) sat gated while `main`
+    // advanced five commits, two of which touched this SKILL.md: the
+    // eighth Task-tool exemption (the `/flow-verify` Independent UI-Driver
+    // Subagent, #820, +46/-30) and the always-loaded AGENTS.md routing-core
+    // shrink (#837, +9/-9, net zero here).
+    // Measured the way this test counts (`content.split("\n").length`):
+    // `main` lands at 3165, this branch at 3193, their merge-base at 3149 —
+    // so the merged file measures exactly 3149 + (3193-3149) + (3165-3149)
+    // = 3209 lines, the clean additive union with nothing dropped or
+    // duplicated. Both sides' prose ledgers survive verbatim above; only
+    // their ceilings (3210 here, 3180 on `main`) are superseded. The
+    // ceiling moves to 3226 (17 lines of genuine headroom over the
+    // measured 3209), the same discipline as every raise above: the
+    // arithmetic of two independently-budgeted features meeting, not new
+    // bloat, and no side's content was trimmed to fake a fit.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3180 lines. Material regrowth past this ceiling would ` +
+        `budget of 3226 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3180);
+    ).toBeLessThan(3226);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
