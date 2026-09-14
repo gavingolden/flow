@@ -1441,6 +1441,10 @@ describe("always-loaded context budget (helper-measured)", () => {
       "docs/skill-description-convention.md",
     );
     expect(
+      fs.existsSync(docPath),
+      "a deleted document leaves a dangling pointer",
+    ).toBe(true);
+    expect(
       fs.statSync(docPath).size,
       "a deleted or gutted document leaves a dangling pointer",
     ).toBeGreaterThan(500);
@@ -1467,21 +1471,22 @@ describe("always-loaded context budget (helper-measured)", () => {
   const FRONTMATTER_HEADROOM_CAP = 200;
 
   it("the consumer template carries no repo-relative docs/ pointer, and every flow blob/main URL it cites exists on disk", () => {
-    const templatePath = path.resolve(
-      HERE,
-      "..",
-      "templates/AGENTS.md.template",
-    );
-    const templateContent = fs.readFileSync(templatePath, "utf8");
+    const urlRe =
+      /https:\/\/github\.com\/gavingolden\/flow\/blob\/main\/([^\s`)>"]+)/g;
+    // Strip the blob/main URLs before checking for a bare docs/ pointer —
+    // otherwise the docs/ segment inside a legitimate cited URL would trip
+    // the guard. What remains is checked broadly (backtick, bare prose, or
+    // markdown link), not just the backtick-prefixed case, so a future edit
+    // can't reintroduce a repo-relative docs/ pointer in prose form and
+    // still pass.
+    const withoutFlowUrls = agentsTemplateContent.replace(urlRe, "");
     expect(
-      templateContent.includes("`docs/"),
+      /(^|[\s`(\[])docs\//m.test(withoutFlowUrls),
       "flow install ships skills/, agents/, bin/ only — a consumer cannot " +
         "follow a repo-relative docs/ path; cite the file by its " +
         "https://github.com/gavingolden/flow/blob/main/ URL instead",
     ).toBe(false);
-    const urlRe =
-      /https:\/\/github\.com\/gavingolden\/flow\/blob\/main\/([^\s`)>"]+)/g;
-    const matches = Array.from(templateContent.matchAll(urlRe));
+    const matches = Array.from(agentsTemplateContent.matchAll(urlRe));
     expect(
       matches.length,
       "expected at least one https://github.com/gavingolden/flow/blob/main/ " +
@@ -7299,6 +7304,14 @@ describe("browser-driven UI-validation structural anchors", () => {
       "src/store.svelte.js",
       ".flow/ui-validation.json",
       ".flow/design/foundation.md",
+      // Generic, non-UI fixtures so a future non-UI rule file's paths:
+      // glob has something to match against — this list is deliberately
+      // UI-heavy today because every existing templates/rules/*.md rule is
+      // UI-scoped; extend it (never remove) when a new rule targets a
+      // different surface.
+      "src/index.ts",
+      "README.md",
+      "package.json",
     ];
     for (const file of ruleFiles) {
       const content = fs.readFileSync(path.join(rulesDir, file), "utf8");
@@ -7319,7 +7332,10 @@ describe("browser-driven UI-validation structural anchors", () => {
           fixtures.some((p) => isMatch(p)),
           `'${glob}' in templates/rules/${file} matches none of the ` +
             "representative fixture paths — typo'd glob? A rule whose " +
-            "paths: never matches silently never loads.",
+            "paths: never matches silently never loads. If this rule " +
+            "targets a surface not yet represented above, extend the " +
+            "`fixtures` array in this test with a representative path " +
+            "rather than assuming the glob is wrong.",
         ).toBe(true);
       }
     }
