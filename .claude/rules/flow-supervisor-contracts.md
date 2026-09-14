@@ -172,4 +172,4 @@ Static agent-type definitions live at **`agents/<moduleId>/*.md`** (today
 only `core/`), symlinked as ONE dir per module (`flow-module-<id>/agents`;
 Claude Code follows symlinked dirs, not files). Frontmatter pins are
 enumerated by `AGENT_FRONTMATTER_POLICY` in `bin/skill-md-lint.test.ts`;
-per-spawn `model:` wins. In-process skills pin `effort:`, never `model:`.
+per-spawn `model:` wins. In-process skills pin `effort:`, never `model:`. Any skill `description:` edit must satisfy the retention rule in `docs/skill-description-convention.md` — the description IS the routing layer.
