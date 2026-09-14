@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import picomatch from "picomatch";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1427,6 +1428,28 @@ describe("always-loaded context budget (helper-measured)", () => {
     ).toBe(true);
   });
 
+  it(".claude/rules/flow-supervisor-contracts.md points at docs/skill-description-convention.md, and the document exists", () => {
+    expect(
+      supervisorRulesContent.includes("docs/skill-description-convention.md"),
+      "the lazy skills/** rule is the zero-cost home for the pointer — " +
+        "#852 refused a `## Where to look` row on the ALWAYS_LOADED_BUDGET " +
+        "measurement",
+    ).toBe(true);
+    const docPath = path.resolve(
+      HERE,
+      "..",
+      "docs/skill-description-convention.md",
+    );
+    expect(
+      fs.existsSync(docPath),
+      "a deleted document leaves a dangling pointer",
+    ).toBe(true);
+    expect(
+      fs.statSync(docPath).size,
+      "a deleted or gutted document leaves a dangling pointer",
+    ).toBeGreaterThan(500);
+  });
+
   /**
    * TEMPLATE_CORE_BUDGET covers the CONSUMER-facing template core
    * (templates/AGENTS.md.template) after the p2-context-diet-template-skills
@@ -1446,6 +1469,38 @@ describe("always-loaded context budget (helper-measured)", () => {
   // tokens, so it needs its own cap rather than reusing HEADROOM_CAP's
   // char-scale number.
   const FRONTMATTER_HEADROOM_CAP = 200;
+
+  it("the consumer template carries no repo-relative docs/ pointer, and every flow blob/main URL it cites exists on disk", () => {
+    const urlRe =
+      /https:\/\/github\.com\/gavingolden\/flow\/blob\/main\/([^\s`)>"]+)/g;
+    // Strip the blob/main URLs before checking for a bare docs/ pointer —
+    // otherwise the docs/ segment inside a legitimate cited URL would trip
+    // the guard. What remains is checked broadly (backtick, bare prose, or
+    // markdown link), not just the backtick-prefixed case, so a future edit
+    // can't reintroduce a repo-relative docs/ pointer in prose form and
+    // still pass.
+    const withoutFlowUrls = agentsTemplateContent.replace(urlRe, "");
+    expect(
+      /(^|[\s`(\[])docs\//m.test(withoutFlowUrls),
+      "flow install ships skills/, agents/, bin/ only — a consumer cannot " +
+        "follow a repo-relative docs/ path; cite the file by its " +
+        "https://github.com/gavingolden/flow/blob/main/ URL instead",
+    ).toBe(false);
+    const matches = Array.from(agentsTemplateContent.matchAll(urlRe));
+    expect(
+      matches.length,
+      "expected at least one https://github.com/gavingolden/flow/blob/main/ " +
+        "URL citing a doc in templates/AGENTS.md.template",
+    ).toBeGreaterThan(0);
+    for (const m of matches) {
+      const target = path.resolve(HERE, "..", m[1]);
+      expect(
+        fs.existsSync(target),
+        `templates/AGENTS.md.template cites ${m[0]}, but ${m[1]} does not ` +
+          "exist on disk.",
+      ).toBe(true);
+    }
+  });
 
   it("the consumer template core stays within TEMPLATE_CORE_BUDGET", async () => {
     const { resolveTemplatePayload } = await import("./flow-context-budget");
@@ -1598,8 +1653,8 @@ describe("always-loaded context budget (helper-measured)", () => {
       total,
       `Installed-skill frontmatter totals ~${total} tokens; budget is ` +
         `${SKILL_FRONTMATTER_BUDGET}. Trim the offending skill's ` +
-        "`description:` field (see issue #844) rather than raising this " +
-        "budget.",
+        "`description:` field per docs/skill-description-convention.md " +
+        "rather than raising this budget.",
     ).toBeLessThanOrEqual(SKILL_FRONTMATTER_BUDGET);
   });
 
@@ -1613,8 +1668,8 @@ describe("always-loaded context budget (helper-measured)", () => {
       SKILL_FRONTMATTER_BUDGET - total,
       `The budget has ${SKILL_FRONTMATTER_BUDGET - total} tokens of ` +
         "headroom over the measured frontmatter total, above the " +
-        `${FRONTMATTER_HEADROOM_CAP}-token cap — on a trim (e.g. issue ` +
-        "#844's description rewrite), lower SKILL_FRONTMATTER_BUDGET to " +
+        `${FRONTMATTER_HEADROOM_CAP}-token cap — on a trim (per ` +
+        "docs/skill-description-convention.md), lower SKILL_FRONTMATTER_BUDGET to " +
         "match rather than leaving silent headroom.",
     ).toBeLessThanOrEqual(FRONTMATTER_HEADROOM_CAP);
   });
@@ -7293,6 +7348,54 @@ describe("browser-driven UI-validation structural anchors", () => {
           `frontmatter so the consumer rule loads on every surface ` +
           `flow-ui-validate already treats as UI.`,
       ).toBe(true);
+    }
+  });
+
+  it("every templates/rules/*.md paths: glob matches at least one representative path (picomatch)", () => {
+    const rulesDir = path.resolve(HERE, "..", "templates/rules");
+    const ruleFiles = fs.readdirSync(rulesDir).filter((f) => f.endsWith(".md"));
+    const fixtures = [
+      ...UI_EXTENSIONS.map((ext) => `src/App${ext}`),
+      "src/routes/+page.svelte",
+      "src/lib/components/Button.svelte",
+      "src/store.svelte.ts",
+      "src/store.svelte.js",
+      ".flow/ui-validation.json",
+      ".flow/design/foundation.md",
+      // Generic, non-UI fixtures so a future non-UI rule file's paths:
+      // glob has something to match against — this list is deliberately
+      // UI-heavy today because every existing templates/rules/*.md rule is
+      // UI-scoped; extend it (never remove) when a new rule targets a
+      // different surface.
+      "src/index.ts",
+      "README.md",
+      "package.json",
+    ];
+    for (const file of ruleFiles) {
+      const content = fs.readFileSync(path.join(rulesDir, file), "utf8");
+      const frontmatterMatch = content.match(
+        /^---\npaths:\s*\n\s*\[([\s\S]*?)\]\n---/,
+      );
+      expect(
+        frontmatterMatch !== null,
+        `templates/rules/${file} must have a parseable \`paths:\` frontmatter array.`,
+      ).toBe(true);
+      const pathsBlock = frontmatterMatch ? frontmatterMatch[1] : "";
+      const globs = Array.from(pathsBlock.matchAll(/"([^"]+)"/g)).map(
+        (m) => m[1],
+      );
+      for (const glob of globs) {
+        const isMatch = picomatch(glob);
+        expect(
+          fixtures.some((p) => isMatch(p)),
+          `'${glob}' in templates/rules/${file} matches none of the ` +
+            "representative fixture paths — typo'd glob? A rule whose " +
+            "paths: never matches silently never loads. If this rule " +
+            "targets a surface not yet represented above, extend the " +
+            "`fixtures` array in this test with a representative path " +
+            "rather than assuming the glob is wrong.",
+        ).toBe(true);
+      }
     }
   });
 

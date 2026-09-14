@@ -16,7 +16,7 @@ your specific stack, scripts, and conventions.
 | Agent behavior, anti-overengineering, scope, tooling, code quality/comments/testing | `references/agent-conduct.md` |
 
 Migrating an existing AGENTS.md onto this three-file split? See
-`docs/migrating-an-existing-agents-md.md` for the move-by-move steps.
+[the migration guide](https://github.com/gavingolden/flow/blob/main/docs/migrating-an-existing-agents-md.md) for the move-by-move steps.
 
 ## Safety (Sandbox Disabled)
 
