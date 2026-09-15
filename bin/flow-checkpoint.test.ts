@@ -408,7 +408,7 @@ describe("run() — ready-path terminal-phase warning (Task 7)", () => {
     expect(r.warning).toBeUndefined();
   });
 
-  it("(f) needs-human at an epic-design window: warns with 'paused on a human step' wording, not 'nothing left to resume' (Task 4)", () => {
+  it("(f) needs-human at an epic-design window: warns with 'paused on a human step' wording, not 'nothing left to resume', and names the recovery route (Product)", () => {
     seedState("epic-needs-human", { phase: "needs-human" });
     writeCheckpoint("epic-needs-human");
     const r = runCapture(["epic-needs-human"], undefined, () => "epic-design");
@@ -416,6 +416,12 @@ describe("run() — ready-path terminal-phase warning (Task 7)", () => {
     expect(r.warning).toBeDefined();
     expect(r.warning).toContain("paused on a human step");
     expect(r.warning).not.toContain("nothing left to resume");
+    // The moment this warning fires is exactly when the user is deciding
+    // whether to /clear — leaving them to work out the recovery route
+    // themselves is the re-checking cost priority 1 exists to remove.
+    expect(r.warning).toContain(
+      "close it first, then run flow feature resume epic-needs-human to continue",
+    );
   });
 
   it("(g) feature needs-human with an unreadable pane kind on tmux still warns — mirrors the hook's kindCertain guard (Task 4)", () => {

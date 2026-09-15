@@ -588,7 +588,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   let warning: string | undefined;
   if (parsed.site !== "terminal" && !willAutoResume) {
     warning = AWAITING_HUMAN_PHASE_SET.has(state.phase)
-      ? `phase '${state.phase}' is paused on a human step — your notes are still carried over into the fresh session after /clear, but this window will not auto-resume the pipeline. In a tmux window the notes arrive alongside a short orientation turn that summarises them and then waits for your questions, so the pane does not sit blank.`
+      ? `phase '${state.phase}' is paused on a human step — your notes are still carried over into the fresh session after /clear, but this window will not auto-resume the pipeline; close it first, then run flow feature resume ${slug} to continue. In a tmux window the notes arrive alongside a short orientation turn that summarises them and then waits for your questions, so the pane does not sit blank.`
       : `phase '${state.phase}' is terminal — your notes are still carried over into the fresh session after /clear, but the pipeline itself will not auto-resume (there is nothing left to resume). In a tmux window the notes arrive alongside a short orientation turn that summarises them and then waits for your questions, so the pane does not sit blank.`;
     process.stderr.write(`flow-checkpoint: warning: ${warning}\n`);
   }
