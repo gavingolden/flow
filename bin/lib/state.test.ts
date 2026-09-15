@@ -1566,8 +1566,13 @@ describe("phase constants", () => {
     expect(autoResumesAfterClear("implementing")).toBe(true);
     expect(autoResumesAfterClear("merged")).toBe(false);
     expect(autoResumesAfterClear("cancelled")).toBe(false);
-    expect(autoResumesAfterClear("needs-human")).toBe(false);
+    expect(autoResumesAfterClear("needs-human")).toBe(true);
     expect(autoResumesAfterClear("epic-approved")).toBe(false);
+  });
+
+  it("autoResumesAfterClear('needs-human', ...) carves out feature only", () => {
+    expect(autoResumesAfterClear("needs-human", "feature")).toBe(true);
+    expect(autoResumesAfterClear("needs-human", "epic-design")).toBe(false);
   });
 
   it("autoResumesAfterClear('epic-run', ...) resumes regardless of phase", () => {

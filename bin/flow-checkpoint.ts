@@ -52,6 +52,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   autoResumesAfterClear,
+  AWAITING_HUMAN_PHASE_SET,
   nowIso,
   readState,
   writeState,
@@ -518,10 +519,23 @@ export function run(argv: string[], deps: Deps = {}): number {
   // right beside the MERGED / NEEDS HUMAN gate block, reading as a problem
   // when it is the designed path. Every other site keeps the warning, which is
   // where it is actually news.
-  const kind = resolveKind() ?? "feature";
+  const paneKind = resolveKind();
+  const kind = paneKind ?? "feature";
+  // Mirrors bin/flow-session-start-hook.ts's `kindCertain` guard: a
+  // needs-human window whose `@flow-kind` pane option is unreadable on a
+  // non-plain (tmux) launcher must not be treated as auto-resuming just
+  // because `kind` fell back to the "feature" guess — the hook itself
+  // declines to drive that guess, so this warning must fire too, or the two
+  // surfaces would disagree about whether this window will pick back up.
+  const kindCertain = paneKind !== null || state.launcher === "plain";
+  const willAutoResume =
+    autoResumesAfterClear(state.phase, kind) &&
+    (state.phase !== "needs-human" || kindCertain);
   let warning: string | undefined;
-  if (parsed.site !== "terminal" && !autoResumesAfterClear(state.phase, kind)) {
-    warning = `phase '${state.phase}' is terminal — your notes are still carried over into the fresh session after /clear, but the pipeline itself will not auto-resume (there is nothing left to resume). In a tmux window the notes arrive alongside a short orientation turn that summarises them and then waits for your questions, so the pane does not sit blank.`;
+  if (parsed.site !== "terminal" && !willAutoResume) {
+    warning = AWAITING_HUMAN_PHASE_SET.has(state.phase)
+      ? `phase '${state.phase}' is paused on a human step — your notes are still carried over into the fresh session after /clear, but this window will not auto-resume the pipeline. In a tmux window the notes arrive alongside a short orientation turn that summarises them and then waits for your questions, so the pane does not sit blank.`
+      : `phase '${state.phase}' is terminal — your notes are still carried over into the fresh session after /clear, but the pipeline itself will not auto-resume (there is nothing left to resume). In a tmux window the notes arrive alongside a short orientation turn that summarises them and then waits for your questions, so the pane does not sit blank.`;
     process.stderr.write(`flow-checkpoint: warning: ${warning}\n`);
   }
 

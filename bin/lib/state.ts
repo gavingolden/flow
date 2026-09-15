@@ -702,9 +702,14 @@ export function isPipelineKind(value: string): value is PipelineKind {
  * resumes regardless of phase (its shared `state.json` describes the
  * *design* lifecycle, not run progress — see `bin/lib/epic.ts`'s "no
  * per-machine phase machine" comment on the run path); every other kind
- * resumes unless `phase` is terminal, with the `gated` carve-out
- * (feedback-resume stays live even though `gated` is terminal). Mirrored
- * by `bin/lib/ls.ts`'s `kind === "epic-run"` annotation carve-out, which
+ * resumes unless `phase` is terminal, with two carve-outs: `gated`
+ * (feedback-resume stays live even though `gated` is terminal, for any
+ * kind) and `needs-human` for `kind === "feature"` only — the
+ * `awaiting-human` resume verdict (`bin/flow-resume-decide.ts`) needs the
+ * window's kind to be positively `feature` before it auto-resumes, so an
+ * epic-designer window whose kind cannot be read never gets driven as a
+ * feature pipeline (see the hook's `kindCertain` guard). Mirrored by
+ * `bin/lib/ls.ts`'s `kind === "epic-run"` annotation carve-out, which
  * documents this reciprocal link on its own side.
  */
 export function autoResumesAfterClear(
@@ -714,7 +719,11 @@ export function autoResumesAfterClear(
   if (kind === "epic-run") {
     return true;
   }
-  return !TERMINAL_PHASE_SET.has(phase) || phase === "gated";
+  return (
+    !TERMINAL_PHASE_SET.has(phase) ||
+    phase === "gated" ||
+    (phase === "needs-human" && kind === "feature")
+  );
 }
 
 /**

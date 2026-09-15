@@ -5785,6 +5785,41 @@ describe("flow-pipeline SKILL.md ↔ TERMINAL_EXIT_TRANSITIONS cross-doc lint", 
         "the gated-exit prose stays traceable to bin/lib/state.ts.",
     ).toBe(true);
   });
+
+  // needs-human's allowlist entry (Task 6) is checked against an ISOLATED
+  // slice too — the `awaiting-human` Resume-mode row ONLY, never the "Gated
+  // is an explicit carve-out" paragraph. That paragraph already backticks
+  // `plan-pending-review` / `implementing` / `verifying` / `ci-wait` /
+  // `reviewing` (four of the eight needs-human exits) as ordinary in-flight
+  // phase names, so matching against it would pass vacuously — the same
+  // vacuity hole the carveOutParagraph exclusion above exists to close.
+  const awaitingHumanRow = content
+    .split("\n")
+    .find((line) => line.includes("| `awaiting-human` |"));
+
+  it("the awaiting-human Resume-mode row was found (sanity check for the anchor above)", () => {
+    expect(
+      awaitingHumanRow,
+      "awaiting-human Resume-mode row not found",
+    ).not.toBe(undefined);
+  });
+
+  it.each(
+    (TERMINAL_EXIT_TRANSITIONS["needs-human"] ?? []).map((phase) => [phase]),
+  )(
+    "TERMINAL_EXIT_TRANSITIONS['needs-human'] phase '%s' is named (backticked) in SKILL.md's awaiting-human row",
+    (phase) => {
+      expect(
+        (awaitingHumanRow ?? "").includes(`\`${phase}\``),
+        `TERMINAL_EXIT_TRANSITIONS['needs-human'] includes '${phase}' ` +
+          "(bin/lib/state.ts), but flow-pipeline/SKILL.md's `awaiting-human` " +
+          "Resume-mode row never mentions `" +
+          phase +
+          "` — fix SKILL.md's awaiting-human row to name every allowlisted " +
+          "target.",
+      ).toBe(true);
+    },
+  );
 });
 
 describe("pr-review Step 11e inversion contract", () => {
@@ -6056,6 +6091,35 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       "the gated-feedback Resume-mode row must state that the re-gate routes " +
         "every merge through flow-merge-guard — so a future edit adding a " +
         "bypass path breaks the lint, not production.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline SKILL.md Resume mode has an awaiting-human row stating the never-continues-early / consume-on-reply guarantees (fix #872)", () => {
+    expect(
+      content.includes("| `awaiting-human` |"),
+      "flow-pipeline SKILL.md Resume-mode branch table must have an " +
+        "`awaiting-human` row — the resume routing for a needs-human pipeline " +
+        "with a live worktree (flow-resume-decide's awaiting-human ResumeAt " +
+        "value).",
+    ).toBe(true);
+    expect(
+      content.includes(
+        "This row never continues the pipeline before the user confirms the human step is done.",
+      ),
+      "the awaiting-human Resume-mode row must carry the never-continues " +
+        "sentence verbatim.",
+    ).toBe(true);
+    expect(
+      content.includes("consume only on the confirming reply"),
+      "the awaiting-human Resume-mode row must state the checkpoint is " +
+        "consumed only on the confirming reply, not at the pause — so a " +
+        "second /clear before `done` re-resumes into the same pause.",
+    ).toBe(true);
+    expect(
+      content.includes(".context.continueAt"),
+      "the awaiting-human Resume-mode row must reference " +
+        "`.context.continueAt` — the mechanical continue target " +
+        "flow-resume-decide computes from phaseLog.",
     ).toBe(true);
   });
 

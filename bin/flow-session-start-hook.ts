@@ -16,6 +16,15 @@
  * progress, and `flow epic run` refuses to start before the design PR
  * merges, so a run window always sits at the terminal `epic-approved`.
  *
+ * `needs-human` is NOT a finished pipeline — it is a pause waiting on a
+ * human step, same as `gated` — so a feature window at `needs-human` also
+ * auto-resumes (`autoResumesAfterClear`'s carve-out), landing on the
+ * supervisor's `awaiting-human` resume verdict. That carve-out requires the
+ * window's kind to be POSITIVELY read from `@flow-kind`, not phase-guessed:
+ * an epic-designer window whose pane option is unreadable must never be
+ * driven as a feature pipeline, so it still falls to the non-resuming
+ * branch below (`kindCertain`) and gets the truthful paused wording instead.
+ *
  * Delivery mechanism, per launcher backend. TMUX: an earlier version emitted
  * the resume seed as SessionStart `additionalContext`, but that is injected
  * PASSIVELY — it never triggers an autonomous assistant turn, so with no user
@@ -62,6 +71,7 @@ import * as fs from "node:fs";
 import { spawn } from "node:child_process";
 import {
   autoResumesAfterClear,
+  AWAITING_HUMAN_PHASE_SET,
   isEpicPhase,
   isPipelineKind,
   readState,
@@ -94,9 +104,12 @@ export type ResumeKind = PipelineKind;
 /**
  * Which seed the detached delivery child types into the pane: the supervisor
  * `resume` seed (a live pipeline continues) or the `terminal` orientation seed
- * (the pipeline is over; the session just answers questions about it). The two
- * are mutually exclusive by construction — `run()` reaches the terminal branch
- * only when `autoResumesAfterClear` said no.
+ * (the session just answers questions and does not drive anything — the
+ * pipeline may be genuinely finished, OR it may be an awaiting-human phase
+ * whose kind could not be positively read, so it is not driven on a guess).
+ * The two are mutually exclusive by construction — `run()` reaches the
+ * terminal branch only when `autoResumesAfterClear` said no, or when the
+ * phase is `needs-human` and the window's kind is not positively known.
  */
 export type SeedMode = "resume" | "terminal";
 
@@ -166,6 +179,8 @@ export function terminalContinueSeed(
   // flow-resume-decide (which re-declares a same-named phase set and would
   // drag the resume decision tree into a hook that blocks session start).
   const worktreeGone = WORKTREE_REMOVED_PHASE_SET.has(phase);
+  const awaitingHuman = AWAITING_HUMAN_PHASE_SET.has(phase);
+  const recovery = recoveryCommandFor(slug, kind);
   const pr = state.pr;
   const prSentence = pr === undefined ? "" : `The pull request is #${pr}.`;
   const inspectExamples =
@@ -181,6 +196,15 @@ export function terminalContinueSeed(
   // easily, so framing these two paths would add ceremony without narrowing
   // the trust boundary. Revisit only if state.json ever starts round-tripping
   // through a channel an attacker could control without full local access.
+  //
+  // The recovery sentence differs at an awaiting-human phase (`needs-human` /
+  // `gated`): `flow feature resume` refuses while THIS window's own session
+  // is still running (bin/lib/feature.ts), so the seed must tell the user to
+  // close the window first rather than name a command that refuses on the
+  // spot.
+  const recoverySentence = awaitingHuman
+    ? `If the user asks to pick the pipeline back up, close this window first - \`${recovery}\` refuses while this window's session is still running.`
+    : `If the user asks to pick the pipeline back up, the manual recovery command is \`${recovery}\`.`;
   const environment = worktreeGone
     ? [
         `The pipeline's worktree has been removed. This window's working directory is ${state.repo}, the live canonical checkout, and it already carries the finished work.`,
@@ -191,15 +215,21 @@ export function terminalContinueSeed(
           ? `The pipeline recorded no worktree, so work from ${state.repo}, the canonical checkout.`
           : `The pipeline's worktree is still at ${state.worktree}; ${state.repo} is the canonical checkout.`,
         prSentence,
-        `If the user asks to pick the pipeline back up, the manual recovery command is \`${recoveryCommandFor(slug, kind)}\`.`,
+        recoverySentence,
       ];
+  const statusParagraph = awaitingHuman
+    ? `The flow pipeline for this window is paused at phase '${phase}': a human step is still pending, described in the carried-over checkpoint notes. You are NOT driving a supervisor from this turn.`
+    : `The flow pipeline for this window finished at phase '${phase}'. You are NOT driving a supervisor: nothing is running, nothing is waiting on you, and there is no gate to render.`;
+  const nowParagraph = awaitingHuman
+    ? "Now: give a 2-3 line summary of the pending human step from the carried-over checkpoint notes in your context, then stop and wait - you are not driving anything from this turn. If no checkpoint notes are present in your context, say the pipeline is paused on a human step and offer to go look."
+    : "Now: give a 2-3 line summary of the carried-over checkpoint notes in your context, offer to answer questions about what shipped, then stop and wait. If no checkpoint notes are present in your context, say the pipeline finished and offer to go look.";
   return [
     `[pipeline-slug: ${slug}]`,
-    `The flow pipeline for this window finished at phase '${phase}'. You are NOT driving a supervisor: nothing is running, nothing is waiting on you, and there is no gate to render.`,
+    statusParagraph,
     environment.filter((s) => s.length > 0).join(" "),
     `You MAY inspect the repo to answer the user's follow-up questions - ${inspectExamples} - and you should, rather than guessing.`,
     "You MUST NOT drive a pipeline, re-render a gate block, or resume anything.",
-    "Now: give a 2-3 line summary of the carried-over checkpoint notes in your context, offer to answer questions about what shipped, then stop and wait. If no checkpoint notes are present in your context, say the pipeline finished and offer to go look.",
+    nowParagraph,
   ].join("\n\n");
 }
 
@@ -222,6 +252,9 @@ export function terminalAdvisory(
   kind: ResumeKind,
 ): string {
   const recovery = recoveryCommandFor(slug, kind);
+  if (AWAITING_HUMAN_PHASE_SET.has(phase)) {
+    return `flow: phase '${phase}' for '${slug}' is paused waiting on a human step — checkpoint.md was not re-injected and the checkpoint marker is still armed; close this window first, then recover manually with \`${recovery}\`.`;
+  }
   return `flow: phase '${phase}' is terminal for '${slug}' — checkpoint.md was not re-injected and the checkpoint marker is still armed. Recover manually with \`${recovery}\`.`;
 }
 
@@ -260,7 +293,9 @@ export function terminalCarryOver(
   body: string,
 ): string {
   const recovery = recoveryCommandFor(slug, kind);
-  const note = `flow: phase '${phase}' is terminal for '${slug}' — the pipeline has finished. Your checkpoint notes are carried over below; recover the pipeline manually with \`${recovery}\` if you need it.`;
+  const note = AWAITING_HUMAN_PHASE_SET.has(phase)
+    ? `flow: phase '${phase}' for '${slug}' is paused waiting on a human step. Your checkpoint notes are carried over below; close this window first, then recover manually with \`${recovery}\` if you need it.`
+    : `flow: phase '${phase}' is terminal for '${slug}' — the pipeline has finished. Your checkpoint notes are carried over below; recover the pipeline manually with \`${recovery}\` if you need it.`;
   // Framed as data, not instructions. This lands as `additionalContext` before
   // the session's first turn, where unframed prose reads as ambient truth —
   // and the body was authored by a supervisor that spent a whole pipeline
@@ -379,8 +414,18 @@ export async function run(deps: Deps): Promise<number> {
   // without ever touching the live tmux pane, and the default hook wiring
   // still resolves for real.
   const resolveKind = deps.resolveKind ?? resolveKindAmbient;
+  const paneKind = resolveKind();
   const kind: ResumeKind =
-    resolveKind() ?? (isEpicPhase(state.phase) ? "epic-design" : "feature");
+    paneKind ?? (isEpicPhase(state.phase) ? "epic-design" : "feature");
+  // Whether `kind` is POSITIVELY known rather than phase-guessed: either the
+  // `@flow-kind` pane option read something, or there is no pane to read
+  // (a plain launcher has no tmux pane at all, so "feature" is not a guess —
+  // it's the only kind a plain session can ever be). Needed only for the
+  // needs-human carve-out below: `autoResumesAfterClear` widens for
+  // needs-human on `kind === "feature"`, and an epic-designer window whose
+  // pane-option read failed must never be driven as a feature pipeline on a
+  // guessed identity (bin/lib/session-identity.ts's unsafe-guess rationale).
+  const kindCertain = paneKind !== null || state.launcher === "plain";
 
   // A pipeline that will not auto-resume for this kind has nothing to
   // resume — never deliver a stray seed. This is behavior-identical to the
@@ -388,8 +433,14 @@ export async function run(deps: Deps): Promise<number> {
   // `gated` carve-out lives inside `autoResumesAfterClear`); the `kind` arm
   // is the only thing that lets an `epic-run` window through at the
   // terminal `epic-approved` (its shared state.json describes the *design*
-  // lifecycle, not run progress).
-  if (!autoResumesAfterClear(state.phase, kind)) {
+  // lifecycle, not run progress). The `needs-human` + `!kindCertain` arm
+  // additionally declines the resume path when the window's kind could not
+  // be positively read, even though `autoResumesAfterClear` already says
+  // yes for the guessed "feature" fallback — the guess is unsafe to drive.
+  if (
+    !autoResumesAfterClear(state.phase, kind) ||
+    (state.phase === "needs-human" && !kindCertain)
+  ) {
     // The user checkpointed (marker armed) and then cleared at a phase this
     // hook will not resume from. additionalContext is PASSIVE — it triggers
     // no autonomous turn (exactly why it is wrong for a resume seed and right

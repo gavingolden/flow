@@ -109,7 +109,14 @@ added to the helper at `bin/flow-gate-summary.ts`.
 
 The supervisor does **not** re-enter the failed step on its own
 after escalation — `flow feature resume <name>` (PR 9) is the way
-back in.
+back in. So is replying `done` in the pipeline window itself (after a
+`/clear` if you like, or with none at all): a `needs-human` pipeline
+with a live worktree resolves the `awaiting-human` resume verdict (see
+`## (b)` below, and the `awaiting-human` row in
+`skills/pipeline/flow-pipeline/SKILL.md`'s Resume mode table), not a
+terminal re-render, and continues once you confirm the human step is
+done. `flow feature resume` refuses while that same window's session
+is still running — close the window first, then run it.
 
 ## (b) Resume-from-disk decision tree (pinned for PR 9)
 
@@ -144,13 +151,20 @@ every gate-emission site uses) and end.
 
 Two phase classes are decided **before** the row walk, not by it.
 `flow-resume-decide` sources its terminal-phase set from the canonical
-`TERMINAL_PHASES` in `bin/lib/state.ts` (so `needs-human` resolves
-`terminal` like `merged`/`gated`/`cancelled`, rather than drifting
-through the tree), and short-circuits the two no-in-flight-work pending
-phases — `triaged-no-change` and `triage-pending-clarification` — to
-`terminal` as well. Those two carry no worktree/plan/PR, so without the
-short-circuit they would reach row 2 (`worktree not yet created`) and
-spin up a worktree + plan + build, contradicting the recorded triage.
+`TERMINAL_PHASES` in `bin/lib/state.ts`, so `merged`/`gated`/`cancelled`
+always resolve `terminal` rather than drifting through the tree.
+`needs-human` is decided before the row walk too, but resolves
+differently depending on the worktree: with a live worktree and no PR
+or an open PR it resolves the `awaiting-human` verdict (mirrors the
+`gated` branch — see the `awaiting-human` row in SKILL.md's Resume mode
+table), pausing on the pending human step and continuing once the user
+confirms it is done; only when the worktree is gone does it resolve
+`terminal` like the others. The tree also short-circuits the two
+no-in-flight-work pending phases — `triaged-no-change` and
+`triage-pending-clarification` — to `terminal` as well. Those two carry
+no worktree/plan/PR, so without the short-circuit they would reach row
+2 (`worktree not yet created`) and spin up a worktree + plan + build,
+contradicting the recorded triage.
 
 ### Edge cases
 
