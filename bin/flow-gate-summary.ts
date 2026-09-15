@@ -64,11 +64,23 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { renderEchoRecap } from "./lib/echo-recap";
-import { readState, type PipelinePhase, type ReapRecord } from "./lib/state";
+import {
+  nowIso,
+  pausedPhase,
+  readState,
+  type PipelinePhase,
+  type ReapRecord,
+} from "./lib/state";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { finalizePhase } from "./lib/phase-advance";
 import { recordEvent } from "./lib/telemetry";
+import {
+  armCheckpoint,
+  checkpointBodyPath,
+  probeFreshness,
+} from "./flow-checkpoint";
 import { isValidSlug } from "./lib/slug";
 import { resolveLens, type OutputLens } from "./lib/output-lens";
 import {
@@ -179,6 +191,16 @@ const TERMINAL_PHASE_BY_STATUS: Record<Status, PipelinePhase | null> = {
 export const DEFAULT_NEXT_ACTION =
   "Attach (flow attach <slug>); see scrollback above for context";
 
+// The recovery step every reason whose remediation is "wait/fix upstream,
+// then continue" resolves to. `flow feature resume <slug>` alone refuses
+// while the paused pipeline window is still open (bin/lib/feature.ts's
+// worktree-guard on a live session) — the dead end both cross-model
+// reviewers and the blind critic flagged at plan review. Naming a single
+// exported constant, rather than inlining the sentence per-reason, means
+// every reason using it drifts together rather than silently diverging.
+export const CONTINUE_OR_RESUME_STEP =
+  "reply done in the pipeline window (after a /clear if you like), or close the window first, then run flow feature resume <slug>";
+
 // Per-reason NEXT ACTION mapping. Keys are the canonical NEEDS HUMAN
 // reason tags documented in references/failure-recovery.md's cap table
 // (plus the inline ones across SKILL.md). New escalation tags added to
@@ -192,15 +214,16 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "triage-ambiguous": `The request's intent is ambiguous.
   1. Attach (flow attach <slug>).
   2. Restate the request with a clearer intent (feature / bug / refactor / docs / infra / chore).`,
-  "worktree-create-failed": `Worktree creation failed.
+  "worktree-create-failed": `Worktree creation failed; no worktree was ever recorded, so this pipeline cannot be resumed.
   1. Inspect the flow-new-worktree stderr in scrollback for disk space or branch-name collisions.
-  2. Once resolved, run flow feature resume <slug>`,
+  2. Once resolved, run flow done <slug> to clean up the failed launch.
+  3. Re-launch with flow feature create "<description>"`,
   "plan-missing": `The plan file is missing.
   1. Attach (flow attach <slug>).
   2. Re-run /flow-pipeline with a more specific description, or invoke /flow-product-planning manually in the worktree.`,
   "pr-missing": `PR creation failed upstream.
   1. Check gh auth status, branch protection, and network reachability.
-  2. Then run flow feature resume <slug>`,
+  2. ${CONTINUE_OR_RESUME_STEP}`,
   "scout-missing": `The scout artifact is missing.
   1. Attach (flow attach <slug>).
   2. Re-invoke /flow-new-feature directly so the scout subagent runs again.`,
@@ -217,10 +240,10 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "ci-hang": `CI appears stalled.
   1. Attach (flow attach <slug>).
   2. Inspect GitHub Actions for the stalled check.
-  3. Once resolved, run flow feature resume <slug>`,
+  3. ${CONTINUE_OR_RESUME_STEP}`,
   "pr-blocked": `Branch protection blocks the merge (failing required check, missing required review, CODEOWNERS, or linear-history), and waiting cannot clear it.
   1. Satisfy the protection rule on GitHub.
-  2. Then run flow feature resume <slug>`,
+  2. ${CONTINUE_OR_RESUME_STEP}`,
   "ci-fix-exhausted": `CI-fix retries are exhausted.
   1. Attach (flow attach <slug>).
   2. Inspect the last CI failure log.
@@ -240,7 +263,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "gh-error": `A GitHub CLI call failed.
   1. Attach (flow attach <slug>).
   2. Check gh auth status and network reachability.
-  3. Then run flow feature resume <slug>`,
+  3. ${CONTINUE_OR_RESUME_STEP}`,
   "pr-closed-without-merge":
     "Decide: reopen the PR (gh pr reopen <pr>) or run flow done <slug> to clean up",
   "pr-closed-mid-flight":
@@ -248,7 +271,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "test-steps-section-missing": `The PR body has no Test Steps section.
   1. Attach (flow attach <slug>).
   2. Edit the PR body to add a ## Test Steps section.
-  3. Then run flow feature resume <slug>`,
+  3. ${CONTINUE_OR_RESUME_STEP}`,
   "gate-override-without-confirmation":
     "The PR is gated (unchecked Test Steps remain) and flow-merge-guard refused the merge. Validate the unchecked steps and merge through GitHub yourself, or reply with a fresh, explicit instruction to merge this gated PR anyway so the supervisor can confirm and record the override",
   "merge-failed": `The merge-conflict resolver failed.
@@ -268,7 +291,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "verify-loop-missing-artifact": `The verify-retry-loop subagent artifact is missing.
   1. Inspect <worktree>/.flow-tmp/ for partial verify-loop state.
   2. Run (cd <worktree> && flow-pre-commit --json) and fix any failures manually.
-  3. Then run (flow feature resume <slug>).`,
+  3. ${CONTINUE_OR_RESUME_STEP}`,
   "branch-mismatch":
     "Inspect git reflog and git worktree list before any further git commands; do NOT auto-recover",
   "terminal-regression": `A terminal-phase state file was about to be regressed to a non-terminal phase (likely an ambient-pane slug race from 'flow feature create' inside a flow window).
@@ -279,7 +302,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   2. Resolve manually.`,
   "task-tool-unavailable": `The Task tool is unavailable.
   1. Restart claude (or upgrade the CLI) so the Task tool is surfaced top-level.
-  2. Then run flow feature resume <slug>`,
+  2. Once resolved, close the pipeline window first, then run flow feature resume <slug>`,
   "state-missing-on-resume":
     "Run flow feature create <description> afresh; ~/.flow/state/<slug>.json is missing so resume cannot proceed",
   "worktree-missing-on-resume":
@@ -299,7 +322,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   3. Re-invoke the caller skill.`,
   "smoketest-needs-creds": `The UI-smoke pass needs a test-user credential it could not infer.
   1. Provide the test-user credential env var(s) named in .flow/ui-validation.json's credentialEnvVars (in your local .env or shell env).
-  2. Then run flow feature resume <slug>`,
+  2. ${CONTINUE_OR_RESUME_STEP}`,
   "state-file-missing-on-start": `The launch likely died before writing state.
   1. Check ~/.flow/state/<slug>.json
   2. If it is missing, never work inline on the base branch — re-run flow feature create "<description>"`,
@@ -316,7 +339,10 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
 // value) stays untouched.
 export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
   "triage-ambiguous": ["flow attach <slug>"],
-  "worktree-create-failed": ["flow feature resume <slug>"],
+  "worktree-create-failed": [
+    "flow done <slug>",
+    'flow feature create "<description>"',
+  ],
   "plan-missing": ["flow attach <slug>"],
   "pr-missing": ["gh auth status", "flow feature resume <slug>"],
   "scout-missing": ["flow attach <slug>"],
@@ -1023,6 +1049,53 @@ export function run(
       });
     } catch {
       // swallowed — telemetry must never affect this CLI's exit code.
+    }
+
+    // Task 7: every NEEDS HUMAN render that actually recorded a NEW pause
+    // (never a re-render at an already-needs-human pipeline, and never a
+    // gated/merged/cancelled render) arms the terminal checkpoint itself,
+    // so a /clear survives the escalation regardless of which of the ~13
+    // render sites triggered it — the sole hand-written arm line this
+    // replaces lived in SKILL.md's canonical failure-paths block, which
+    // only covered one of those sites. Wrapped in try/catch and gated on
+    // `result.advanced` so a failure here (or a re-render) can never
+    // change the exit code, stdout, or the phase write above.
+    try {
+      if (
+        parsed.status === "needs-human" &&
+        result.advanced &&
+        resolvedSlug !== null
+      ) {
+        const armState = readState(resolvedSlug, opts?.stateDir);
+        if (armState) {
+          const freshness = probeFreshness(
+            armState,
+            "terminal",
+            opts?.stateDir,
+          );
+          if (freshness.verdict === "write") {
+            const reasonForBody = parsed.reason ?? "unspecified";
+            const why =
+              oneLine(parsed.why) ||
+              (parsed.reason ? oneLine(parsed.reason) : "unspecified");
+            const body =
+              [
+                `Pipeline escalated to NEEDS HUMAN (${reasonForBody}) at ${nowIso()}.`,
+                `Why: ${why}`,
+                `Next action: ${nextActionForReason(parsed.reason)}`,
+                `Paused at phase: ${pausedPhase(armState.phaseLog) ?? "unknown"}`,
+              ].join("\n") + "\n";
+            const bodyPath = checkpointBodyPath(resolvedSlug, opts?.stateDir);
+            fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
+            fs.writeFileSync(bodyPath, body);
+          }
+          const arm = armCheckpoint(resolvedSlug, "terminal", opts?.stateDir);
+          process.stderr.write(arm.banner + "\n");
+        }
+      }
+    } catch {
+      // swallowed — arming the checkpoint must never affect this CLI's
+      // exit code or stdout (same discipline as the telemetry block above).
     }
   }
   return 0;

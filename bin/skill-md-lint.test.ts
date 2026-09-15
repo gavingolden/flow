@@ -6273,10 +6273,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       "step-9 resume MERGED branch",
       "run step 11's MERGED branch — which re-runs `flow-pipeline-summary",
     ],
-    [
-      "NEEDS HUMAN escalation block",
-      "Pipeline escalated to NEEDS HUMAN (<reason>) at",
-    ],
+    ["NEEDS HUMAN escalation block", "then arms the terminal checkpoint"],
   ])(
     "flow-pipeline SKILL.md arms the %s terminal coverage-gap site",
     (_label, anchor) => {

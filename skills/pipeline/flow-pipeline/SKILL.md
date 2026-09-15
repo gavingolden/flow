@@ -2798,7 +2798,7 @@ dir (`armBannerPath`), for a reader that missed the original — a fresh session
 resuming from a checkpoint. Treat its absence as unknown, never as "never
 armed": `--consume` unlinks this file alongside the marker (never a recursive
 directory delete — the checkpoint dir itself is never removed), so a consumed
-checkpoint's banner is gone by design.
+checkpoint's banner is gone by design. The NEEDS HUMAN render in `# Failure paths` below prints this same line itself, at every render that records a new pause.
 
 # Resume mode
 
@@ -3043,9 +3043,8 @@ flow-gate-summary --status needs-human --reason "<reason>" \
   --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" \
   --tldr "$TLDR" --lens "$LENS" \
   --untracked-file <(flow-untracked render --format gate --unfiled-only) \
-  --counts-line "$COUNTS_LINE"  # records phase: needs-human itself, after the block reaches stdout
+  --counts-line "$COUNTS_LINE"  # records phase: needs-human itself, then arms the terminal checkpoint — echo its `checkpointed: ` stderr line verbatim per the Checkpoint arm signal (echo-verbatim) subsection
 flow-notify --status needs-human --reason "$TLDR" --tag "<reason>"
-[ "$(flow-checkpoint --probe --site terminal | jq -r '.verdict')" = write ] && echo "Pipeline escalated to NEEDS HUMAN (<reason>) at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null  # terminal arm, stdout muted; stderr deliberately left connected — echo the `checkpointed: ` line verbatim per the Checkpoint arm signal (echo-verbatim) subsection; MUST follow the flow-gate-summary call above — it appends a phaseLog entry as a side effect, so arming first is stale on arrival and `flow feature resume` would report no checkpoint here
 ```
 
 On a POST-review escalation (a PR exists), after the helper runs, echo the

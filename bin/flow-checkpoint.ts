@@ -166,6 +166,94 @@ export function renderArmBanner(
   return `checkpointed: false — ${input.reason} — /clear will lose unsaved in-chat state`;
 }
 
+/** `armCheckpoint`'s return shape — see its doc comment below. */
+export type ArmResult =
+  | { armed: true; banner: string; marker: string }
+  | { armed: false; reason: string; banner: string };
+
+/**
+ * The ready-path arm, extracted so a second call site (`flow-gate-summary`'s
+ * NEEDS HUMAN render, Task 7) can arm a checkpoint without duplicating the
+ * marker write / freshness-record relabel / banner-file write this file's
+ * own `run()` already performed inline. Re-reads state itself (the caller
+ * only threads `slug`/`site`/`stateDir`) so a caller that has not already
+ * validated `state.json` still gets a clean `armed: false` verdict rather
+ * than a thrown error.
+ *
+ * Deliberately does NOT include the `probeCheckpointBody` /
+ * checkpoint-missing gate or the terminal-phase warning: those stay the
+ * exclusive concern of THIS file's own `run()` (the warning must print
+ * BEFORE the banner, pinned by `flow-checkpoint.test.ts`) — a caller like
+ * `flow-gate-summary` that has its own body (the four-line NEEDS HUMAN
+ * summary, not a `/flow-checkpoint`-authored note) calls this directly
+ * once it has written that body itself.
+ */
+export function armCheckpoint(
+  slug: string,
+  site: CheckpointSite,
+  stateDir: string = FLOW_STATE_DIR,
+): ArmResult {
+  const state = readState(slug, stateDir);
+  if (!state) {
+    const reason = "state-missing";
+    return {
+      armed: false,
+      reason,
+      banner: renderArmBanner({ armed: false, reason }),
+    };
+  }
+
+  const marker = checkpointMarkerPath(slug, stateDir);
+  try {
+    fs.mkdirSync(path.dirname(marker), { recursive: true });
+    fs.writeFileSync(marker, `${slug}\n${nowIso()}\n`);
+  } catch (err) {
+    const reason = `marker-write-failed: ${String(err)
+      .replace(/\n/g, " ")
+      .slice(0, 200)}`;
+    return {
+      armed: false,
+      reason,
+      banner: renderArmBanner({ armed: false, reason }),
+    };
+  }
+
+  // Only relabel the freshness record when THIS site's own probe verdict
+  // was "write" — see the identical comment on the pre-extraction call
+  // site this replaces; the provenance-preservation rationale is
+  // unchanged by the extraction.
+  const verdict = probeFreshness(state, site, stateDir).verdict;
+  if (verdict === "write" || !state.checkpoint) {
+    try {
+      writeState(
+        {
+          ...state,
+          checkpoint: { site, phase: state.phase, armedAt: nowIso() },
+        },
+        stateDir,
+      );
+    } catch {
+      // best-effort: the marker (the load-bearing resume signal) is already
+      // written; a failed record write only degrades a future --probe to
+      // the mtime fallback, it doesn't block this ready verdict.
+    }
+  }
+
+  const banner = renderArmBanner({ armed: true, site });
+  try {
+    fs.mkdirSync(path.dirname(armBannerPath(slug, stateDir)), {
+      recursive: true,
+    });
+    fs.writeFileSync(armBannerPath(slug, stateDir), banner + "\n");
+  } catch {
+    // best-effort: the durable copy is a convenience for a later reader
+    // that missed the stderr line; a failed write must never change the
+    // exit code, the JSON, or the stderr banner.
+  }
+
+  return { armed: true, banner, marker };
+}
+
 /**
  * True iff the slug's `checkpoint.md` is present and non-empty. Mirrors
  * `probePlan` in flow-resume-decide.ts — empty and missing collapse to the
@@ -459,53 +547,19 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 0;
   }
 
-  const marker = checkpointMarkerPath(slug, stateDir);
-  try {
-    fs.mkdirSync(path.dirname(marker), { recursive: true });
-    fs.writeFileSync(marker, `${slug}\n${nowIso()}\n`);
-  } catch (err) {
-    const reason = `marker-write-failed: ${String(err)
-      .replace(/\n/g, " ")
-      .slice(0, 200)}`;
-    process.stderr.write(renderArmBanner({ armed: false, reason }) + "\n");
+  const armResult = armCheckpoint(slug, parsed.site, stateDir);
+  if (!armResult.armed) {
+    process.stderr.write(armResult.banner + "\n");
     emit({
       status: "needs",
       slug,
       phase: state.phase,
       worktree: state.worktree,
-      reason,
+      reason: armResult.reason,
     });
     return 0;
   }
-
-  // Only relabel the freshness record when THIS site's own probe verdict was
-  // "write" — i.e. this site was the one that (would have) produced the
-  // current body. On "preserve" (e.g. a fresh manual note outranking a
-  // no-phase-change auto site), the arm must leave the existing record
-  // alone: relabelling it to `parsed.site` would destroy the provenance
-  // (`site: "manual"`) the preserve decision itself rested on, silently
-  // demoting a note that should keep outranking auto sites with no phase
-  // change since it was left.
-  const verdict = probeFreshness(state, parsed.site, stateDir).verdict;
-  if (verdict === "write" || !state.checkpoint) {
-    try {
-      writeState(
-        {
-          ...state,
-          checkpoint: {
-            site: parsed.site,
-            phase: state.phase,
-            armedAt: nowIso(),
-          },
-        },
-        stateDir,
-      );
-    } catch {
-      // best-effort: the marker (the load-bearing resume signal) is already
-      // written; a failed record write only degrades a future --probe to the
-      // mtime fallback, it doesn't block this ready verdict.
-    }
-  }
+  const marker = armResult.marker;
 
   // Non-blocking terminal-phase warning: the marker is already written above
   // (never gated on this — the `gated`-feedback resume path depends on
@@ -539,18 +593,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     process.stderr.write(`flow-checkpoint: warning: ${warning}\n`);
   }
 
-  const banner = renderArmBanner({ armed: true, site: parsed.site });
-  try {
-    fs.mkdirSync(path.dirname(armBannerPath(slug, stateDir)), {
-      recursive: true,
-    });
-    fs.writeFileSync(armBannerPath(slug, stateDir), banner + "\n");
-  } catch {
-    // best-effort: the durable copy is a convenience for a later reader that
-    // missed the stderr line; a failed write must never change the exit
-    // code, the JSON, or the stderr banner below.
-  }
-  process.stderr.write(banner + "\n");
+  process.stderr.write(armResult.banner + "\n");
 
   emit({
     status: "ready",
