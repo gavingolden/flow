@@ -407,6 +407,61 @@ describe("run() — ready-path terminal-phase warning (Task 7)", () => {
     expect(fs.existsSync(markerFile("run-window"))).toBe(true);
     expect(r.warning).toBeUndefined();
   });
+
+  it("(f) needs-human at an epic-design window: warns with 'paused on a human step' wording, not 'nothing left to resume', and names the recovery route (Product)", () => {
+    seedState("epic-needs-human", { phase: "needs-human" });
+    writeCheckpoint("epic-needs-human");
+    const r = runCapture(["epic-needs-human"], undefined, () => "epic-design");
+    expect(r.status).toBe("ready");
+    expect(r.warning).toBeDefined();
+    expect(r.warning).toContain("paused on a human step");
+    expect(r.warning).not.toContain("nothing left to resume");
+    // The moment this warning fires is exactly when the user is deciding
+    // whether to /clear — leaving them to work out the recovery route
+    // themselves is the re-checking cost priority 1 exists to remove.
+    expect(r.warning).toContain(
+      "close it first, then run flow feature resume epic-needs-human to continue",
+    );
+  });
+
+  it("(g) feature needs-human with an unreadable pane kind on tmux still warns — mirrors the hook's kindCertain guard (Task 4)", () => {
+    // No `launcher` override (defaults to a tmux-launched state, matching the
+    // rest of this suite), resolveKind returns null (unreadable @flow-kind),
+    // so kindCertain is false even though `kind` falls back to "feature".
+    seedState("uncertain-kind-needs-human", { phase: "needs-human" });
+    writeCheckpoint("uncertain-kind-needs-human");
+    const r = runCapture(["uncertain-kind-needs-human"], undefined, () => null);
+    expect(r.status).toBe("ready");
+    expect(r.warning).toBeDefined();
+    expect(r.warning).toContain("paused on a human step");
+  });
+
+  it("(h) feature needs-human with a positively-read 'feature' pane kind: warning ABSENT — the window WILL auto-resume (Task 4)", () => {
+    seedState("certain-kind-needs-human", { phase: "needs-human" });
+    writeCheckpoint("certain-kind-needs-human");
+    const r = runCapture(
+      ["certain-kind-needs-human"],
+      undefined,
+      () => "feature",
+    );
+    expect(r.status).toBe("ready");
+    expect(r.warning).toBeUndefined();
+  });
+
+  it("(i) needs-human on a plain launcher with an unreadable pane kind: warning ABSENT — kindCertain via launcher (Task 4)", () => {
+    // A plain launcher has no tmux pane at all, so `state.launcher ===
+    // \"plain\"` alone must make kindCertain true even when resolveKind()
+    // returns null (there is no @flow-kind option to read) — mirrors
+    // bin/flow-session-start-hook.test.ts's plain-launcher needs-human
+    // case, which asserts the OPPOSITE surface (a resume seed IS
+    // delivered). If this disjunct were ever dropped, this warning would
+    // fire for a window that will in fact auto-resume.
+    seedState("plain-needs-human", { phase: "needs-human", launcher: "plain" });
+    writeCheckpoint("plain-needs-human");
+    const r = runCapture(["plain-needs-human"], undefined, () => null);
+    expect(r.status).toBe("ready");
+    expect(r.warning).toBeUndefined();
+  });
 });
 
 describe("run() — --consume", () => {

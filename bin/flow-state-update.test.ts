@@ -1214,8 +1214,8 @@ describe("terminal-regression guard", () => {
     expect(readState("csv-export", dir)?.phase).toBe("merged");
   });
 
-  it.each(["needs-human", "cancelled", "epic-approved"])(
-    "returns 4 for %s→verifying — no allowlist entry outside gated",
+  it.each(["cancelled", "epic-approved"])(
+    "returns 4 for %s→verifying — no allowlist entry outside gated/needs-human",
     (fromPhase) => {
       seed("csv-export", { phase: fromPhase });
       const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1223,6 +1223,37 @@ describe("terminal-regression guard", () => {
       errSpy.mockRestore();
       expect(code).toBe(4);
       expect(readState("csv-export", dir)?.phase).toBe(fromPhase);
+    },
+  );
+
+  it.each([
+    "planning",
+    "plan-pending-review",
+    "implementing",
+    "installing-skills",
+    "verifying",
+    "ci-wait",
+    "reviewing",
+    "gating",
+  ])(
+    "allows the allowlisted needs-human→%s continue exit and writes the phase",
+    (toPhase) => {
+      seed("csv-export", { phase: "needs-human" });
+      const code = runUpdate(["csv-export", "--phase", toPhase], dir);
+      expect(code).toBe(0);
+      expect(readState("csv-export", dir)?.phase).toBe(toPhase);
+    },
+  );
+
+  it.each(["triaging", "starting", "worktree-create", "merging"])(
+    "returns 4 for needs-human→%s (not in the allowlist) and leaves state unchanged",
+    (toPhase) => {
+      seed("csv-export", { phase: "needs-human" });
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const code = runUpdate(["csv-export", "--phase", toPhase], dir);
+      errSpy.mockRestore();
+      expect(code).toBe(4);
+      expect(readState("csv-export", dir)?.phase).toBe("needs-human");
     },
   );
 

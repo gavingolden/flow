@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_NEXT_ACTION,
   NEXT_ACTION_BY_REASON,
@@ -13,6 +13,7 @@ import {
   type CleanupInput,
 } from "./flow-gate-summary";
 import { readState, writeState, type PipelineState } from "./lib/state";
+import { checkpointBodyPath, checkpointMarkerPath } from "./flow-checkpoint";
 import {
   TLDR_MAX_WORDS,
   buildManualAction,
@@ -438,6 +439,32 @@ describe("render — needs-human (per-reason mapping)", () => {
       .filter((l) => l !== "")
       .at(-2)!; // last step, before the sentinel
     expect(lastLine).not.toContain("(spawn site:");
+  });
+
+  it("Task 5: every reason naming flow feature resume also tells the user to close the window first, and none uses the bare 'Then run flow feature resume' step", () => {
+    for (const [reason, recipe] of Object.entries(NEXT_ACTION_BY_REASON)) {
+      expect(recipe, reason).not.toContain("Then run flow feature resume");
+      if (recipe.includes("flow feature resume")) {
+        expect(
+          recipe.includes("close the window first") ||
+            recipe.includes("close the pipeline window first"),
+          `reason '${reason}' names flow feature resume without a close-first caveat: ${recipe}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("Task 5: worktree-create-failed names no worktree to resume — it points at fixing the cause, flow done, and a fresh flow feature create instead", () => {
+    const recipe = NEXT_ACTION_BY_REASON["worktree-create-failed"];
+    expect(recipe).not.toContain("flow feature resume");
+    expect(recipe).toContain("flow done <slug>");
+    expect(recipe).toContain('flow feature create "<description>"');
+    const out = render({
+      status: "needs-human",
+      reason: "worktree-create-failed",
+    });
+    expect(out).toContain(`NEXT ACTION: ${recipe.split("\n")[0]}`);
+    expect(finalLine(out)).toBe("NEEDS HUMAN: worktree-create-failed");
   });
 });
 
@@ -1964,6 +1991,196 @@ describe("run (end-to-end CLI)", () => {
       } finally {
         fs.rmSync(root, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe("Task 7: a needs-human render arms the terminal checkpoint by construction", () => {
+    function captureBoth(fn: () => number): {
+      rc: number;
+      out: string;
+      err: string;
+    } {
+      const originalOut = process.stdout.write.bind(process.stdout);
+      const originalErr = process.stderr.write.bind(process.stderr);
+      let out = "";
+      let err = "";
+      process.stdout.write = ((chunk: unknown) => {
+        out += String(chunk);
+        return true;
+      }) as typeof process.stdout.write;
+      process.stderr.write = ((chunk: unknown) => {
+        err += String(chunk);
+        return true;
+      }) as typeof process.stderr.write;
+      try {
+        const rc = fn();
+        return { rc, out, err };
+      } finally {
+        process.stdout.write = originalOut;
+        process.stderr.write = originalErr;
+      }
+    }
+
+    it("a render advancing from implementing arms the marker, writes a four-line body naming the reason and the paused phase, records freshness at site terminal, prints the checkpointed banner, and leaves the sentinel unchanged", () => {
+      const slug = "arm-implementing-slug";
+      seedState(slug, {
+        phase: "implementing",
+        phaseLog: [{ phase: "implementing", at: "2026-01-01T00:00:00.000Z" }],
+      });
+      const { rc, out, err } = captureBoth(() =>
+        run(
+          [
+            "--status",
+            "needs-human",
+            "--slug",
+            slug,
+            "--reason",
+            "ci-hang",
+            "--why",
+            "CI appears stalled",
+          ],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      expect(out.trim().split("\n").pop()).toBe("NEEDS HUMAN: ci-hang");
+      expect(fs.existsSync(checkpointMarkerPath(slug, tmpRoot))).toBe(true);
+      const body = fs.readFileSync(checkpointBodyPath(slug, tmpRoot), "utf8");
+      expect(body).toContain("ci-hang");
+      expect(body).toContain("Paused at phase: implementing");
+      const state = readState(slug, tmpRoot);
+      expect(state?.checkpoint?.site).toBe("terminal");
+      expect(err).toContain(
+        "checkpointed: true — site=terminal — safe to /clear",
+      );
+    });
+
+    it("--reason carrying embedded newlines is one-lined into the checkpoint body, matching --why's sanitization", () => {
+      const slug = "arm-reason-newline-slug";
+      seedState(slug, {
+        phase: "implementing",
+        phaseLog: [{ phase: "implementing", at: "2026-01-01T00:00:00.000Z" }],
+      });
+      const { rc } = captureBoth(() =>
+        run(
+          [
+            "--status",
+            "needs-human",
+            "--slug",
+            slug,
+            "--reason",
+            "ci-hang\ninjected-line",
+          ],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      const body = fs.readFileSync(checkpointBodyPath(slug, tmpRoot), "utf8");
+      expect(body).toContain("ci-hang injected-line");
+      expect(body).not.toContain("ci-hang\ninjected-line");
+      expect(body.split("\n")).toHaveLength(5); // 4 lines + trailing newline
+    });
+
+    it("a throw writing the checkpoint body (arm never reached) still emits a false checkpointed banner to stderr", () => {
+      const slug = "arm-throw-slug";
+      seedState(slug, {
+        phase: "implementing",
+        phaseLog: [{ phase: "implementing", at: "2026-01-01T00:00:00.000Z" }],
+      });
+      // Pre-create the checkpoint directory and strip write permission so
+      // `fs.writeFileSync(bodyPath, ...)` throws EACCES for this non-root
+      // test process — the concrete failure mode the fix handles, without
+      // needing to mock the `fs` module itself (writeFileSync can't be
+      // redefined on this ESM binding).
+      const bodyPath = checkpointBodyPath(slug, tmpRoot);
+      const bodyDir = path.dirname(bodyPath);
+      fs.mkdirSync(bodyDir, { recursive: true });
+      fs.chmodSync(bodyDir, 0o555);
+      try {
+        const { rc, err } = captureBoth(() =>
+          run(
+            ["--status", "needs-human", "--slug", slug, "--reason", "ci-hang"],
+            { stateDir: tmpRoot },
+          ),
+        );
+        expect(rc).toBe(0);
+        expect(err).toContain("checkpointed: false — arm-failed:");
+      } finally {
+        fs.chmodSync(bodyDir, 0o755);
+      }
+    });
+
+    it("a fresh unrecorded body newer than every phaseLog entry is left untouched, and the marker still arms", () => {
+      const slug = "arm-fresh-unrecorded-slug";
+      seedState(slug, {
+        phase: "implementing",
+        phaseLog: [{ phase: "implementing", at: "2020-01-01T00:00:00.000Z" }],
+      });
+      const bodyPath = checkpointBodyPath(slug, tmpRoot);
+      fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
+      const manualNote = "a hand-authored checkpoint note\n";
+      fs.writeFileSync(bodyPath, manualNote);
+      // Pin the body's mtime into the future so it is deterministically
+      // "newer than every phaseLog entry" — including the needs-human
+      // entry this very render's finalizePhase call is about to append,
+      // which would otherwise race the body's real write time.
+      const future = new Date("2030-01-01T00:00:00.000Z");
+      fs.utimesSync(bodyPath, future, future);
+      const { rc } = captureBoth(() =>
+        run(
+          ["--status", "needs-human", "--slug", slug, "--reason", "ci-hang"],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      expect(fs.readFileSync(bodyPath, "utf8")).toBe(manualNote);
+      expect(fs.existsSync(checkpointMarkerPath(slug, tmpRoot))).toBe(true);
+    });
+
+    it("a re-render at an already-needs-human pipeline arms nothing (finalizePhase reports no advance)", () => {
+      const slug = "arm-rerender-slug";
+      seedState(slug, {
+        phase: "needs-human",
+        phaseLog: [{ phase: "needs-human", at: "2026-01-01T00:00:00.000Z" }],
+      });
+      const { rc } = captureBoth(() =>
+        run(
+          ["--status", "needs-human", "--slug", slug, "--reason", "ci-hang"],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      expect(fs.existsSync(checkpointMarkerPath(slug, tmpRoot))).toBe(false);
+    });
+
+    it("--status gated arms nothing", () => {
+      const slug = "arm-gated-slug";
+      seedState(slug, { phase: "gating" });
+      const { rc } = captureBoth(() =>
+        run(["--status", "gated", "--slug", slug], { stateDir: tmpRoot }),
+      );
+      expect(rc).toBe(0);
+      expect(fs.existsSync(checkpointMarkerPath(slug, tmpRoot))).toBe(false);
+    });
+
+    it("--status merged arms nothing", () => {
+      const slug = "arm-merged-slug";
+      seedState(slug, { phase: "gating" });
+      const { rc } = captureBoth(() =>
+        run(["--status", "merged", "--slug", slug], { stateDir: tmpRoot }),
+      );
+      expect(rc).toBe(0);
+      expect(fs.existsSync(checkpointMarkerPath(slug, tmpRoot))).toBe(false);
+    });
+
+    it("no resolvable slug arms nothing and still exits 0", () => {
+      const { rc } = captureBoth(() =>
+        run(["--status", "needs-human", "--reason", "ci-hang"], {
+          stateDir: tmpRoot,
+          env: {},
+        }),
+      );
+      expect(rc).toBe(0);
     });
   });
 

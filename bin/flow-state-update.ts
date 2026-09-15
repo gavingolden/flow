@@ -43,9 +43,9 @@
  *   instead of papering over it.
  * - `updatedAt` is rewritten to the current ISO-8601 UTC timestamp on
  *   every call.
- * - `gated` has a named exit allowlist (TERMINAL_EXIT_TRANSITIONS in
- *   `lib/state.ts`); every other terminal→non-terminal write still needs
- *   --force.
+ * - `gated` and `needs-human` each have a named exit allowlist
+ *   (TERMINAL_EXIT_TRANSITIONS in `lib/state.ts`); every other
+ *   terminal→non-terminal write still needs --force.
  */
 
 import * as fs from "node:fs";
@@ -346,12 +346,15 @@ export function runUpdate(
   // terminal→non-terminal write is almost always an ambient-pane race that
   // resolved the slug to the wrong pipeline. Exit 4 (distinct from exit 3
   // used by branch-mismatch) so the supervisor can escalate differently.
-  // `gated` carries a named exit allowlist (TERMINAL_EXIT_TRANSITIONS) for
-  // its three legitimate exits (re-verify, re-gate, override-merge);
-  // --force remains the escape hatch for every other terminal phase. Once
-  // an allowlisted exit is accepted, `existing.phase` is no longer terminal,
-  // so this guard no longer applies to the rest of that state file's
-  // lifecycle — see the TERMINAL_EXIT_TRANSITIONS docblock in
+  // Two phases carry a named exit allowlist (TERMINAL_EXIT_TRANSITIONS):
+  // `gated`, for its three legitimate exits (re-verify, re-gate,
+  // override-merge), and `needs-human`, for the eight step phases a
+  // confirming "done" reply re-enters once `flow-resume-decide` resolves
+  // the paused pipeline's `awaiting-human` verdict. --force remains the
+  // escape hatch for every other terminal phase and every other exit from
+  // these two. Once an allowlisted exit is accepted, `existing.phase` is no
+  // longer terminal, so this guard no longer applies to the rest of that
+  // state file's lifecycle — see the TERMINAL_EXIT_TRANSITIONS docblock in
   // bin/lib/state.ts for the race this implies.
   if (
     parsed.phase !== undefined &&

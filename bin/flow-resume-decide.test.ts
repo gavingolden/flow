@@ -10,6 +10,7 @@ import {
   parseArgs,
   probeSkillAdditions,
   run,
+  CONTINUE_PHASE_BY_STEP,
   NO_INFLIGHT_WORK_PHASES,
   TERMINAL_PHASE_SET,
   type DecisionResult,
@@ -25,6 +26,7 @@ import {
   writeState,
   type PipelineState,
   PENDING_PHASES,
+  TERMINAL_EXIT_TRANSITIONS,
   TERMINAL_PHASES,
 } from "./lib/state";
 
@@ -263,12 +265,17 @@ describe("decide() — pre-tree edge cases", () => {
     expect(r.reason).toBe("awaiting-triage-clarification");
   });
 
-  it("returns terminal when state.phase is 'needs-human' (canonical-set parity)", () => {
+  it("returns terminal when state.phase is 'needs-human' and the worktree is gone (canonical-set parity)", () => {
     // The prior local TERMINAL_PHASES literal omitted needs-human, so a crashed
     // escalation fell through the row tree. Sourcing from canonical lib/state
-    // makes it resolve terminal like the other terminal phases.
+    // makes it resolve terminal like the other terminal phases — here, with
+    // no live worktree, so there is nothing to continue (the awaiting-human
+    // verdict below requires a live worktree).
     const r = decide(
-      makeInputs({ state: baseState({ phase: "needs-human" }) }),
+      makeInputs({
+        state: baseState({ phase: "needs-human", worktree: undefined }),
+        worktree: { kind: "absent-from-state" },
+      }),
     );
     expect(r.resumeAt).toBe("terminal");
     expect(r.reason).toContain("needs-human");
@@ -298,6 +305,212 @@ describe("decide() — pre-tree edge cases", () => {
     expect(r.resumeAt).toBe("escalate");
     expect(r.reason).toBe("pr-closed-without-merge");
     expect(r.context.prState).toBe("CLOSED");
+  });
+});
+
+describe("decide() — needs-human awaiting-human mode (Story 2)", () => {
+  it("resolves needs-human + live worktree + no PR → awaiting-human", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "needs-human" }),
+        worktree: PRESENT_WORKTREE,
+        pr: { kind: "none" },
+      }),
+    );
+    expect(r.resumeAt).toBe("awaiting-human");
+    expect(r.reason).toBe("needs-human-awaiting-human-step");
+    expect(r.context.pr).toBeUndefined();
+    expect(r.context.prState).toBeUndefined();
+  });
+
+  it("resolves needs-human + live worktree + an OPEN PR → awaiting-human with PR context populated", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "needs-human" }),
+        worktree: PRESENT_WORKTREE,
+      }),
+    );
+    expect(r.resumeAt).toBe("awaiting-human");
+    expect(r.reason).toBe("needs-human-awaiting-human-step");
+    expect(r.context.pr).toBe(100);
+    expect(r.context.prState).toBe("OPEN");
+  });
+
+  it("resolves needs-human + live worktree with no checkpoint (marker and body both absent) → awaiting-human", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "needs-human" }),
+        worktree: PRESENT_WORKTREE,
+        checkpointExists: false,
+        checkpointMarkerExists: false,
+      }),
+    );
+    expect(r.resumeAt).toBe("awaiting-human");
+    expect(r.context.checkpointExists).toBe(false);
+    expect(r.context.checkpointMarkerExists).toBe(false);
+  });
+
+  it("returns terminal (phase: needs-human) when the worktree is missing-on-disk", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "needs-human" }),
+        worktree: { kind: "missing-on-disk", path: "/tmp/gone" },
+      }),
+    );
+    expect(r.resumeAt).toBe("terminal");
+    expect(r.reason).toBe("phase: needs-human");
+  });
+
+  it("returns terminal (phase: needs-human) when the worktree is absent-from-state", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "needs-human", worktree: undefined }),
+        worktree: { kind: "absent-from-state" },
+      }),
+    );
+    expect(r.resumeAt).toBe("terminal");
+    expect(r.reason).toBe("phase: needs-human");
+  });
+
+  it("resolves needs-human + PR MERGED + worktree present → step-9 (same as gated)", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "needs-human" }),
+        worktree: PRESENT_WORKTREE,
+        pr: {
+          kind: "found",
+          state: "MERGED",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
+      }),
+    );
+    expect(r.resumeAt).toBe("step-9");
+    expect(r.reason).toBe("pr-merged-worktree-still-exists");
+  });
+
+  it("resolves needs-human + PR CLOSED → escalate (same as gated)", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "needs-human" }),
+        worktree: PRESENT_WORKTREE,
+        pr: {
+          kind: "found",
+          state: "CLOSED",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
+      }),
+    );
+    expect(r.resumeAt).toBe("escalate");
+    expect(r.reason).toBe("pr-closed-without-merge");
+  });
+
+  it("computes continueAt/continuePhase for a paused ci-wait phaseLog entry, matching decide()'s own answer at ci-wait (step-8 → reviewing)", () => {
+    const inputs = makeInputs({
+      state: baseState({
+        phase: "needs-human",
+        phaseLog: [
+          { phase: "ci-wait", at: "2026-01-01T00:00:00Z" },
+          { phase: "needs-human", at: "2026-01-01T01:00:00Z" },
+        ],
+      }),
+      worktree: PRESENT_WORKTREE,
+      ciState: { kind: "all-terminal" },
+      headCommit: { subject: "fix: something", body: "" },
+    });
+    const r = decide(inputs);
+    expect(r.resumeAt).toBe("awaiting-human");
+    expect(r.context.continueAt).toBe("step-8");
+    expect(r.context.continuePhase).toBe("reviewing");
+
+    // Parity: equals decide()'s own answer when run directly at phase ci-wait
+    // against the same probed inputs.
+    const direct = decide({
+      ...inputs,
+      state: { ...inputs.state, phase: "ci-wait" },
+    });
+    expect(r.context.continueAt).toBe(direct.resumeAt);
+  });
+
+  it("computes continueAt from the phase before a skipped gated entry in phaseLog", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({
+          phase: "needs-human",
+          phaseLog: [
+            { phase: "implementing", at: "t1" },
+            { phase: "gated", at: "t2" },
+            { phase: "needs-human", at: "t3" },
+          ],
+        }),
+        worktree: PRESENT_WORKTREE,
+      }),
+    );
+    expect(r.resumeAt).toBe("awaiting-human");
+    expect(r.context.continueAt).toBe("step-6");
+    expect(r.context.continuePhase).toBe("verifying");
+  });
+
+  it("leaves continueAt/continuePhase absent when phaseLog is empty", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "needs-human", phaseLog: [] }),
+        worktree: PRESENT_WORKTREE,
+      }),
+    );
+    expect(r.resumeAt).toBe("awaiting-human");
+    expect(r.context.continueAt).toBeUndefined();
+    expect(r.context.continuePhase).toBeUndefined();
+  });
+
+  it("leaves continueAt/continuePhase absent when phaseLog is entirely terminal", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({
+          phase: "needs-human",
+          phaseLog: [
+            { phase: "gated", at: "t1" },
+            { phase: "needs-human", at: "t2" },
+          ],
+        }),
+        worktree: PRESENT_WORKTREE,
+      }),
+    );
+    expect(r.resumeAt).toBe("awaiting-human");
+    expect(r.context.continueAt).toBeUndefined();
+    expect(r.context.continuePhase).toBeUndefined();
+  });
+
+  it("leaves continueAt/continuePhase absent when the paused phase's own tree answer is outside step-3..step-9 (a paused triaged-no-change)", () => {
+    // NOTE: a paused `triaging` cannot produce this case (triaging is a
+    // STEP_PHASE, not one of the no-in-flight-work pending phases, so its
+    // own decide() answer lands inside step-3..step-9's neighborhood, not
+    // outside it) — triaged-no-change is the phase whose own tree answer
+    // (terminal) actually falls outside CONTINUE_PHASE_BY_STEP's keys.
+    const r = decide(
+      makeInputs({
+        state: baseState({
+          phase: "needs-human",
+          phaseLog: [
+            { phase: "triaged-no-change", at: "t1" },
+            { phase: "needs-human", at: "t2" },
+          ],
+        }),
+        worktree: PRESENT_WORKTREE,
+      }),
+    );
+    expect(r.resumeAt).toBe("awaiting-human");
+    expect(r.context.continueAt).toBeUndefined();
+    expect(r.context.continuePhase).toBeUndefined();
+  });
+
+  it("every CONTINUE_PHASE_BY_STEP value is in TERMINAL_EXIT_TRANSITIONS['needs-human'] and vice versa (parity)", () => {
+    const continuePhases = Object.values(CONTINUE_PHASE_BY_STEP);
+    const allowlisted = TERMINAL_EXIT_TRANSITIONS[
+      "needs-human"
+    ] as readonly string[];
+    expect([...continuePhases].sort()).toEqual([...allowlisted].sort());
   });
 });
 
@@ -1055,6 +1268,54 @@ describe("run() integration", () => {
     expect(result.context.planExists).toBe(true);
   });
 
+  it("exits 0 with awaiting-human JSON end-to-end via gatherInputs (Test-Coverage: pins the needs-human short-circuit exclusion, not just decide()'s own answer)", () => {
+    // Unlike every `decide()`-only awaiting-human test above (which hand-builds
+    // Inputs and never touches `gatherInputs`), this drives the real CLI
+    // `run()` -> `gatherInputs()` path. `gatherInputs`'s short-circuit guard
+    // explicitly excludes `needs-human` from the terminal fast path — delete
+    // that exclusion and every `decide()`-only test still passes, but the
+    // shipped CLI would hard-code `worktree: absent-from-state` for every
+    // needs-human pipeline and regress the exact #872 dead end this PR fixes,
+    // silently, with a green decide()-only suite.
+    initWorktree();
+    fs.mkdirSync(path.join(worktreeRoot, ".flow-tmp"));
+    fs.writeFileSync(
+      path.join(worktreeRoot, ".flow-tmp", "plan.md"),
+      "# PRD\n\nbecause.\n",
+    );
+    seedState("needs-human-e2e", {
+      phase: "needs-human",
+      phaseLog: [{ phase: "implementing", at: "2026-01-01T00:00:00.000Z" }],
+    });
+    const git: GitRunner = (argv) => {
+      if (argv[0] === "rev-parse")
+        return { stdout: "true\n", stderr: "", exitCode: 0 };
+      if (argv[0] === "branch")
+        return { stdout: "feature\n", stderr: "", exitCode: 0 };
+      if (argv[0] === "symbolic-ref")
+        return { stdout: "", stderr: "", exitCode: 1 };
+      if (argv[0] === "diff") return { stdout: "", stderr: "", exitCode: 0 };
+      if (argv[0] === "log")
+        return { stdout: "feat: initial\n", stderr: "", exitCode: 0 };
+      return { stdout: "", stderr: "", exitCode: 1 };
+    };
+    const gh: GhRunner = vi.fn(() => ({
+      stdout: "",
+      stderr: "no pull requests found",
+      exitCode: 1,
+    }));
+    const { writes, restore } = captureStdout();
+    const exit = run(["needs-human-e2e"], { stateDir, gh, git });
+    restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(writes.join("")) as DecisionResult;
+    expect(result.resumeAt).toBe("awaiting-human");
+    // Pins that gh/git I/O actually ran (the short-circuit was NOT taken) —
+    // the assertion that catches the regression, not just the verdict.
+    expect(gh).toHaveBeenCalled();
+    expect(result.context.continueAt).toBe("step-5");
+  });
+
   it("exits 0 with terminal JSON when state.phase is 'merged'", () => {
     seedState("gamma", { phase: "merged" });
     const { writes, restore } = captureStdout();
@@ -1196,7 +1457,11 @@ describe("decide() — checkpoint re-injection + auto-checkpoint resume", () => 
 
   it("populates checkpointExists/checkpointMarkerExists/checkpointPath at every TERMINAL_PHASE_SET phase (Story 3), with resumeAt staying terminal", () => {
     for (const phase of TERMINAL_PHASE_SET) {
-      if (phase === "gated") continue; // gated has its own dedicated branch, tested above
+      // gated and needs-human have their own dedicated branches, tested
+      // above / below — with a live worktree + OPEN-or-absent PR (makeInputs'
+      // defaults) they resolve to gated-feedback / awaiting-human, not
+      // terminal.
+      if (phase === "gated" || phase === "needs-human") continue;
       const r = decide(
         makeInputs({
           state: baseState({ phase }),
@@ -1212,6 +1477,23 @@ describe("decide() — checkpoint re-injection + auto-checkpoint resume", () => 
         "/tmp/.flow/state/checkpoints/test/checkpoint.md",
       );
     }
+  });
+
+  it("populates checkpointExists/checkpointMarkerExists/checkpointPath on the awaiting-human branch too (Story 3)", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "needs-human" }),
+        checkpointExists: true,
+        checkpointMarkerExists: true,
+        checkpointPath: "/tmp/.flow/state/checkpoints/test/checkpoint.md",
+      }),
+    );
+    expect(r.resumeAt).toBe("awaiting-human");
+    expect(r.context.checkpointExists).toBe(true);
+    expect(r.context.checkpointMarkerExists).toBe(true);
+    expect(r.context.checkpointPath).toBe(
+      "/tmp/.flow/state/checkpoints/test/checkpoint.md",
+    );
   });
 
   it("populates checkpoint context at the no-in-flight-work phases too", () => {

@@ -78,6 +78,23 @@ export type AdvancePhaseOpts = {
    * alter `advanced`/`reason`/the exit code. Tests inject a stub.
    */
   publishBadges?: (state: PipelineState) => void;
+  /**
+   * Explicit opt-in required to let `advancePhase` exit `needs-human`
+   * (the `gated` terminal-exit allowlist entries need no opt-in — only
+   * the gate-override merge and the gated-feedback loop write those, and
+   * both are already narrowly scoped call sites). Without this flag, a
+   * `PHASE_EMITTERS` helper re-run during a `needs-human` pause (e.g. a
+   * stray `flow-ci-check`, or a late-finishing backgrounded waiter) can
+   * no longer silently write the pipeline out of its pause with no
+   * confirming reply. No shipped call site sets this today: the
+   * confirming-reply continuation writes `flow-state-update --phase
+   * <continuePhase>` itself (SKILL.md's `awaiting-human` row) BEFORE
+   * re-entering the resumed step, so by the time a `PHASE_EMITTERS`
+   * helper runs, `state.phase` already equals its target and this branch
+   * is never reached on that path — the opt-in costs the continuation
+   * nothing.
+   */
+  allowHumanPauseExit?: boolean;
 };
 
 /**
@@ -221,16 +238,23 @@ export function advancePhase(
     return { advanced: false, reason: "no-state", to: target };
   }
 
-  // `gated` is the one terminal phase with sanctioned exits
-  // (`TERMINAL_EXIT_TRANSITIONS`): the gate-override merge writes `merging`
-  // out of it via flow-merge-guard, and the gated-feedback loop re-enters
-  // `verifying`/`gating`. Without this carve-out the override merge left
-  // `merging` out of phaseLog entirely (gated -> merged), observed on the
-  // f6 live fixture run.
-  if (
-    TERMINAL_PHASE_SET.has(state.phase) &&
-    !isAllowedTerminalExit(state.phase, target)
-  ) {
+  // `gated` and `needs-human` are the two terminal phases with sanctioned
+  // exits (`TERMINAL_EXIT_TRANSITIONS`): the gate-override merge writes
+  // `merging` out of `gated` via flow-merge-guard, and the gated-feedback
+  // loop re-enters `verifying`/`gating`. Without this carve-out the
+  // override merge left `merging` out of phaseLog entirely (gated ->
+  // merged), observed on the f6 live fixture run. `needs-human`'s entry
+  // additionally requires `opts.allowHumanPauseExit === true` — see the
+  // option's docblock above for why. Without that gate, the step helpers
+  // this function drives (`flow-open-pr`, `flow-ci-check`,
+  // `flow-fetch-pr-review`, `flow-gate-decide`) could write a paused
+  // pipeline out of `needs-human` with no confirming reply, since each
+  // one calls `advancePhase` unconditionally on every run, not only on a
+  // genuine continuation.
+  const allowedExit =
+    isAllowedTerminalExit(state.phase, target) &&
+    (state.phase !== "needs-human" || opts.allowHumanPauseExit === true);
+  if (TERMINAL_PHASE_SET.has(state.phase) && !allowedExit) {
     return {
       advanced: false,
       reason: "terminal",

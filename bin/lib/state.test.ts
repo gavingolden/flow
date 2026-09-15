@@ -22,6 +22,7 @@ import {
   PIPELINE_KINDS,
   PIPELINE_PHASES,
   PIPELINE_PHASE_SET,
+  pausedPhase,
   readState,
   requestFilePath,
   shortPhase,
@@ -1565,8 +1566,13 @@ describe("phase constants", () => {
     expect(autoResumesAfterClear("implementing")).toBe(true);
     expect(autoResumesAfterClear("merged")).toBe(false);
     expect(autoResumesAfterClear("cancelled")).toBe(false);
-    expect(autoResumesAfterClear("needs-human")).toBe(false);
+    expect(autoResumesAfterClear("needs-human")).toBe(true);
     expect(autoResumesAfterClear("epic-approved")).toBe(false);
+  });
+
+  it("autoResumesAfterClear('needs-human', ...) carves out feature only", () => {
+    expect(autoResumesAfterClear("needs-human", "feature")).toBe(true);
+    expect(autoResumesAfterClear("needs-human", "epic-design")).toBe(false);
   });
 
   it("autoResumesAfterClear('epic-run', ...) resumes regardless of phase", () => {
@@ -1590,23 +1596,78 @@ describe("phase constants", () => {
     expect(isAllowedTerminalExit("__proto__", "verifying")).toBe(false);
   });
 
-  it("TERMINAL_EXIT_TRANSITIONS is exactly {gated: [verifying, gating, merging]} (drift-guard)", () => {
+  it("TERMINAL_EXIT_TRANSITIONS is exactly {gated: [verifying, gating, merging], needs-human: [the eight continue phases]} (drift-guard)", () => {
     // Exact equality, not containment — this is what catches a silent
-    // widening of the allowlist to a phase other than `gated`, or a
-    // silent addition/removal of one of the three documented targets.
-    expect(Object.keys(TERMINAL_EXIT_TRANSITIONS)).toEqual(["gated"]);
+    // widening of the allowlist to a phase other than `gated` / `needs-human`,
+    // or a silent addition/removal of one of the documented targets.
+    expect(Object.keys(TERMINAL_EXIT_TRANSITIONS)).toEqual([
+      "gated",
+      "needs-human",
+    ]);
     expect(TERMINAL_EXIT_TRANSITIONS.gated).toEqual([
       "verifying",
       "gating",
       "merging",
     ]);
+    expect(TERMINAL_EXIT_TRANSITIONS["needs-human"]).toEqual([
+      "planning",
+      "plan-pending-review",
+      "implementing",
+      "installing-skills",
+      "verifying",
+      "ci-wait",
+      "reviewing",
+      "gating",
+    ]);
   });
 
-  it("every TERMINAL_EXIT_TRANSITIONS.gated target is a real, non-terminal phase", () => {
-    for (const target of TERMINAL_EXIT_TRANSITIONS.gated) {
-      expect(PIPELINE_PHASES as readonly string[]).toContain(target);
-      expect(TERMINAL_PHASES as readonly string[]).not.toContain(target);
+  it("every TERMINAL_EXIT_TRANSITIONS target is a real, non-terminal phase", () => {
+    for (const key of Object.keys(TERMINAL_EXIT_TRANSITIONS)) {
+      for (const target of TERMINAL_EXIT_TRANSITIONS[
+        key
+      ] as readonly string[]) {
+        expect(PIPELINE_PHASES as readonly string[]).toContain(target);
+        expect(TERMINAL_PHASES as readonly string[]).not.toContain(target);
+      }
     }
+  });
+});
+
+describe("pausedPhase", () => {
+  it("scans backward from the latest needs-human entry: ci-wait then needs-human -> ci-wait", () => {
+    expect(pausedPhase([{ phase: "ci-wait" }, { phase: "needs-human" }])).toBe(
+      "ci-wait",
+    );
+  });
+
+  it("skips a terminal entry (gated) between the paused phase and needs-human", () => {
+    expect(
+      pausedPhase([
+        { phase: "implementing" },
+        { phase: "gated" },
+        { phase: "needs-human" },
+      ]),
+    ).toBe("implementing");
+  });
+
+  it("returns undefined for an empty log", () => {
+    expect(pausedPhase([])).toBeUndefined();
+  });
+
+  it("returns undefined for an undefined log", () => {
+    expect(pausedPhase(undefined)).toBeUndefined();
+  });
+
+  it("returns undefined when every entry back to the start is terminal", () => {
+    expect(
+      pausedPhase([{ phase: "gated" }, { phase: "needs-human" }]),
+    ).toBeUndefined();
+  });
+
+  it("scans from the end when no needs-human entry exists", () => {
+    expect(pausedPhase([{ phase: "implementing" }, { phase: "ci-wait" }])).toBe(
+      "ci-wait",
+    );
   });
 });
 
