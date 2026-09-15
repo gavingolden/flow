@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_NEXT_ACTION,
   NEXT_ACTION_BY_REASON,
@@ -2053,6 +2053,61 @@ describe("run (end-to-end CLI)", () => {
       expect(err).toContain(
         "checkpointed: true — site=terminal — safe to /clear",
       );
+    });
+
+    it("--reason carrying embedded newlines is one-lined into the checkpoint body, matching --why's sanitization", () => {
+      const slug = "arm-reason-newline-slug";
+      seedState(slug, {
+        phase: "implementing",
+        phaseLog: [{ phase: "implementing", at: "2026-01-01T00:00:00.000Z" }],
+      });
+      const { rc } = captureBoth(() =>
+        run(
+          [
+            "--status",
+            "needs-human",
+            "--slug",
+            slug,
+            "--reason",
+            "ci-hang\ninjected-line",
+          ],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      const body = fs.readFileSync(checkpointBodyPath(slug, tmpRoot), "utf8");
+      expect(body).toContain("ci-hang injected-line");
+      expect(body).not.toContain("ci-hang\ninjected-line");
+      expect(body.split("\n")).toHaveLength(5); // 4 lines + trailing newline
+    });
+
+    it("a throw writing the checkpoint body (arm never reached) still emits a false checkpointed banner to stderr", () => {
+      const slug = "arm-throw-slug";
+      seedState(slug, {
+        phase: "implementing",
+        phaseLog: [{ phase: "implementing", at: "2026-01-01T00:00:00.000Z" }],
+      });
+      // Pre-create the checkpoint directory and strip write permission so
+      // `fs.writeFileSync(bodyPath, ...)` throws EACCES for this non-root
+      // test process — the concrete failure mode the fix handles, without
+      // needing to mock the `fs` module itself (writeFileSync can't be
+      // redefined on this ESM binding).
+      const bodyPath = checkpointBodyPath(slug, tmpRoot);
+      const bodyDir = path.dirname(bodyPath);
+      fs.mkdirSync(bodyDir, { recursive: true });
+      fs.chmodSync(bodyDir, 0o555);
+      try {
+        const { rc, err } = captureBoth(() =>
+          run(
+            ["--status", "needs-human", "--slug", slug, "--reason", "ci-hang"],
+            { stateDir: tmpRoot },
+          ),
+        );
+        expect(rc).toBe(0);
+        expect(err).toContain("checkpointed: false — arm-failed:");
+      } finally {
+        fs.chmodSync(bodyDir, 0o755);
+      }
     });
 
     it("a fresh unrecorded body newer than every phaseLog entry is left untouched, and the marker still arms", () => {

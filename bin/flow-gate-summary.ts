@@ -80,6 +80,7 @@ import {
   armCheckpoint,
   checkpointBodyPath,
   probeFreshness,
+  renderArmBanner,
 } from "./flow-checkpoint";
 import { isValidSlug } from "./lib/slug";
 import { resolveLens, type OutputLens } from "./lib/output-lens";
@@ -1074,7 +1075,7 @@ export function run(
             opts?.stateDir,
           );
           if (freshness.verdict === "write") {
-            const reasonForBody = parsed.reason ?? "unspecified";
+            const reasonForBody = oneLine(parsed.reason) || "unspecified";
             const why =
               oneLine(parsed.why) ||
               (parsed.reason ? oneLine(parsed.reason) : "unspecified");
@@ -1093,9 +1094,24 @@ export function run(
           process.stderr.write(arm.banner + "\n");
         }
       }
-    } catch {
-      // swallowed — arming the checkpoint must never affect this CLI's
-      // exit code or stdout (same discipline as the telemetry block above).
+    } catch (err) {
+      // The exit code and stdout stay swallowed — arming the checkpoint
+      // must never affect this CLI's exit code or stdout (same discipline
+      // as the telemetry block above). But a throw here (EACCES, ENOSPC, a
+      // read-only $HOME) means armCheckpoint never ran and no banner ever
+      // reached stderr — the one failure mode the false banner exists to
+      // announce per the "Never mute an arm call's stderr" rule. Emit the
+      // false banner ourselves, best-effort.
+      try {
+        process.stderr.write(
+          renderArmBanner({
+            armed: false,
+            reason: `arm-failed: ${String(err).replace(/\n/g, " ").slice(0, 200)}`,
+          }) + "\n",
+        );
+      } catch {
+        // best-effort
+      }
     }
   }
   return 0;
