@@ -107,11 +107,27 @@ describe("advancePhase", () => {
     expect(readState("s4", stateDir)?.phase).toBe("needs-human");
   });
 
-  it("permits the allowlisted needs-human -> implementing continue exit", () => {
+  it("refuses the needs-human -> implementing continue exit with no explicit opt-in (security: a stray PHASE_EMITTERS re-run must never clear a human pause on its own)", () => {
     seedState("s4d", "needs-human");
     const result = advancePhase("implementing", {
       slug: "s4d",
       dir: stateDir,
+    });
+    expect(result).toEqual({
+      advanced: false,
+      reason: "terminal",
+      from: "needs-human",
+      to: "implementing",
+    });
+    expect(readState("s4d", stateDir)?.phase).toBe("needs-human");
+  });
+
+  it("permits the allowlisted needs-human -> implementing continue exit when allowHumanPauseExit is explicitly set", () => {
+    seedState("s4d2", "needs-human");
+    const result = advancePhase("implementing", {
+      slug: "s4d2",
+      dir: stateDir,
+      allowHumanPauseExit: true,
     });
     expect(result).toEqual({
       advanced: true,
@@ -119,7 +135,7 @@ describe("advancePhase", () => {
       from: "needs-human",
       to: "implementing",
     });
-    expect(readState("s4d", stateDir)?.phase).toBe("implementing");
+    expect(readState("s4d2", stateDir)?.phase).toBe("implementing");
   });
 
   it("permits the allowlisted gated -> merging exit (gate-override merge path)", () => {

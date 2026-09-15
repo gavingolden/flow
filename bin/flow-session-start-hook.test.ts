@@ -341,6 +341,33 @@ describe("flow-session-start-hook — needs-human auto-resume routing (Task 3)",
     expect(dispatchedTerminal).toEqual(["demo"]);
   });
 
+  it("needs-human x unreadable pane kind on tmux, with a checkpoint body: notes are carried over but NOT retired — consume only on the confirming reply", async () => {
+    const { deps, dispatched, dispatchedTerminal, emitted, retiredSlugs } =
+      makeDeps({
+        slug: "demo",
+        state: fakeState("needs-human"),
+        markerExists: true,
+        checkpointBody: "the human step notes",
+        resolveKind: () => null,
+      });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(dispatchedTerminal).toEqual(["demo"]);
+    expect(emitted).toEqual([
+      terminalCarryOver(
+        "demo",
+        "needs-human",
+        "feature",
+        "the human step notes",
+      ),
+    ]);
+    // The bug this pins: retiring here archives the very notes the
+    // confirming `done` reply is supposed to read, so a second /clear
+    // before `done` would find the marker gone and re-render with no
+    // usable checkpoint at all.
+    expect(retiredSlugs).toEqual([]);
+  });
+
   it("needs-human x plain launcher: resume seed emitted as passive context (kindCertain via launcher, not pane read)", async () => {
     const { deps, dispatched, emitted } = makeDeps({
       slug: "demo",

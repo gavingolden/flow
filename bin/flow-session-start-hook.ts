@@ -455,7 +455,14 @@ export async function run(deps: Deps): Promise<number> {
       const body = deps.readCheckpointBody(slug);
       if (body) {
         deps.emitContext(terminalCarryOver(slug, state.phase, kind, body));
-        deps.retireCheckpoint(slug);
+        // An awaiting-human pause is not over: these notes are the
+        // confirming reply's input, so a kind-uncertain /clear must never
+        // retire them — consume only on the confirming reply (SKILL.md's
+        // awaiting-human row), so a second /clear before `done` re-resumes
+        // into the same pause instead of finding the marker gone.
+        if (!AWAITING_HUMAN_PHASE_SET.has(state.phase)) {
+          deps.retireCheckpoint(slug);
+        }
       } else {
         deps.emitContext(terminalAdvisory(slug, state.phase, kind));
       }
