@@ -277,18 +277,16 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
     "The PR is gated (unchecked Test Steps remain) and flow-merge-guard refused the merge. Validate the unchecked steps and merge through GitHub yourself, or reply with a fresh, explicit instruction to merge this gated PR anyway so the supervisor can confirm and record the override",
   "merge-failed": `The merge-conflict resolver failed.
   1. Inspect <worktree>/.flow-tmp/merge-resolver-result.json (if present).
-  2. Resolve conflicts manually.
-  3. Then run (cd <repo> && gh pr merge --squash <pr>).`,
+  2. Resolve conflicts manually, then run (cd <repo> && gh pr merge --squash <pr>) yourself, OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
   "merge-resolver-missing-artifact": `The merge-conflict resolver artifact is missing.
   1. Inspect <worktree>/.flow-tmp/ for partial resolver state.
-  2. Resolve conflicts manually.
-  3. Then run (cd <repo> && gh pr merge --squash <pr>).`,
+  2. Resolve conflicts manually, then run (cd <repo> && gh pr merge --squash <pr>) yourself, OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
   "merge-resolver-spawn-denied": `The permission system refused the merge-resolver subagent spawn.
   1. Recover manually: run cd <worktree> && git fetch origin <base> && git merge origin/<base>
   2. STOP and resolve every conflict marker in your editor before committing.
   3. Once resolved, run git add <resolved-files>, git commit, git push
   4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
-  5. Then run (cd <repo> && gh pr merge --squash <pr>).`,
+  5. Then run (cd <repo> && gh pr merge --squash <pr>) yourself, OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
   "verify-loop-missing-artifact": `The verify-retry-loop subagent artifact is missing.
   1. Inspect <worktree>/.flow-tmp/ for partial verify-loop state.
   2. Run (cd <worktree> && flow-pre-commit --json) and fix any failures manually.
