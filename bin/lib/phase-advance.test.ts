@@ -107,6 +107,21 @@ describe("advancePhase", () => {
     expect(readState("s4", stateDir)?.phase).toBe("needs-human");
   });
 
+  it("permits the allowlisted needs-human -> implementing continue exit", () => {
+    seedState("s4d", "needs-human");
+    const result = advancePhase("implementing", {
+      slug: "s4d",
+      dir: stateDir,
+    });
+    expect(result).toEqual({
+      advanced: true,
+      reason: "advanced",
+      from: "needs-human",
+      to: "implementing",
+    });
+    expect(readState("s4d", stateDir)?.phase).toBe("implementing");
+  });
+
   it("permits the allowlisted gated -> merging exit (gate-override merge path)", () => {
     seedState("s4b", "gated", { pr: 7 });
     const result = advancePhase("merging", {

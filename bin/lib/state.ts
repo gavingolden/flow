@@ -578,26 +578,53 @@ export const AWAITING_HUMAN_PHASE_SET: ReadonlySet<string> = new Set(
 
 /**
  * Named allowlist of the only terminal -> non-terminal writes
- * flow-state-update accepts without --force. It exists for two legitimate
- * paths out of `gated`: the gated-feedback loop's re-verify (step 6) /
- * re-gate (step 9), and the gate-override merge (step 10). It still blocks
- * everything else, in particular `<any terminal> -> triaging` — the
- * ambient-pane slug race from PR #369 / commit 00a67fa. The table has only
- * one entry because the guard fires only on the FIRST write out of a
- * terminal phase: once an allowlisted write lands the phase is no longer
- * terminal, so downstream phases (implementing, ci-wait, reviewing) are
- * reachable without their own entry. Consequence: that same mechanic means
- * an allowlisted write raced onto the WRONG pipeline's state file (e.g. a
+ * flow-state-update accepts without --force. Two entries:
+ *
+ * - `gated`: the gated-feedback loop's re-verify (step 6) / re-gate
+ *   (step 9), and the gate-override merge (step 10).
+ * - `needs-human`: the eight step phases (`planning` through `gating`) a
+ *   confirming "done" reply can re-enter once `bin/flow-resume-decide.ts`
+ *   resolves the paused pipeline's `awaiting-human` verdict — see
+ *   `pausedPhase` and `CONTINUE_PHASE_BY_STEP` there.
+ *
+ * Both entries deliberately exclude `merging`: the resume tree never
+ * returns a step-10 target, so a continuation always re-runs the step-9
+ * gate before any merge rather than jumping straight to one. `needs-human`
+ * also excludes `starting`, `triaging`, and `worktree-create` — the
+ * pre-worktree ambient-pane slug race from PR #369 / commit 00a67fa, which
+ * every terminal phase must stay blocked against, not just `gated`.
+ *
+ * It still blocks everything else, in particular `<any terminal> ->
+ * triaging`. The guard fires only on the FIRST write out of a terminal
+ * phase: once an allowlisted write lands the phase is no longer terminal,
+ * so downstream phases (implementing, ci-wait, reviewing) are reachable
+ * without their own entry. Consequence: that same mechanic means an
+ * allowlisted write raced onto the WRONG pipeline's state file (e.g. a
  * leaked FLOW_SLUG mid-flight) permanently disarms this guard for that
  * file — every subsequent write lands unguarded, not just the allowlisted
  * one. `checkWorktreeBranch` still runs on every write but is a no-op in
  * that race: it reads the victim's own worktree marker, which is
  * internally consistent regardless of which pipeline is writing.
+ *
+ * `advancePhase` (`bin/lib/phase-advance.ts`) honors this same table for
+ * its own terminal carve-out, so the step helpers it drives
+ * (`flow-open-pr`, `flow-ci-check`, `flow-fetch-pr-review`,
+ * `flow-gate-decide`) can move a paused `needs-human` pipeline too.
  */
 export const TERMINAL_EXIT_TRANSITIONS: Readonly<
   Record<string, readonly PipelinePhase[]>
 > = {
   gated: ["verifying", "gating", "merging"],
+  "needs-human": [
+    "planning",
+    "plan-pending-review",
+    "implementing",
+    "installing-skills",
+    "verifying",
+    "ci-wait",
+    "reviewing",
+    "gating",
+  ],
 };
 
 export function isAllowedTerminalExit(from: string, to: string): boolean {
@@ -1045,6 +1072,39 @@ export function appendPhaseLog(
       ...(outcome !== undefined ? { outcome } : {}),
     },
   ];
+}
+
+/**
+ * The last non-terminal `phaseLog` phase before the most recent
+ * `needs-human` entry — the phase a needs-human pause continues at once the
+ * user confirms the paused human step is done. Scans backward from just
+ * before the latest `needs-human` entry (or from the end of the log when no
+ * `needs-human` entry exists) for the first entry whose phase is not in
+ * `TERMINAL_PHASE_SET`. Returns `undefined` when the log is empty/absent or
+ * every entry back to the start is terminal (e.g. a bare `[needs-human]`
+ * log, or a `[..., gated, needs-human]` log with nothing non-terminal
+ * before `gated`). Pure — `bin/flow-resume-decide.ts` re-runs `decide()`
+ * against the phase this returns to compute `continueAt`.
+ */
+export function pausedPhase(
+  phaseLog: ReadonlyArray<{ phase: string }> | undefined,
+): string | undefined {
+  if (!phaseLog || phaseLog.length === 0) return undefined;
+  let lastNeedsHumanIndex = -1;
+  for (let i = phaseLog.length - 1; i >= 0; i--) {
+    if (phaseLog[i].phase === "needs-human") {
+      lastNeedsHumanIndex = i;
+      break;
+    }
+  }
+  const startIndex =
+    lastNeedsHumanIndex === -1 ? phaseLog.length - 1 : lastNeedsHumanIndex - 1;
+  for (let i = startIndex; i >= 0; i--) {
+    if (!TERMINAL_PHASE_SET.has(phaseLog[i].phase)) {
+      return phaseLog[i].phase;
+    }
+  }
+  return undefined;
 }
 
 export function deleteState(slug: string, dir = FLOW_STATE_DIR): boolean {

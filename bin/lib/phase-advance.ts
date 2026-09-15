@@ -221,12 +221,17 @@ export function advancePhase(
     return { advanced: false, reason: "no-state", to: target };
   }
 
-  // `gated` is the one terminal phase with sanctioned exits
-  // (`TERMINAL_EXIT_TRANSITIONS`): the gate-override merge writes `merging`
-  // out of it via flow-merge-guard, and the gated-feedback loop re-enters
-  // `verifying`/`gating`. Without this carve-out the override merge left
-  // `merging` out of phaseLog entirely (gated -> merged), observed on the
-  // f6 live fixture run.
+  // `gated` and `needs-human` are the two terminal phases with sanctioned
+  // exits (`TERMINAL_EXIT_TRANSITIONS`): the gate-override merge writes
+  // `merging` out of `gated` via flow-merge-guard, and the gated-feedback
+  // loop re-enters `verifying`/`gating`. Without this carve-out the
+  // override merge left `merging` out of phaseLog entirely (gated ->
+  // merged), observed on the f6 live fixture run. `needs-human`'s entry is
+  // deliberate for a different reason: it lets the step helpers this
+  // function drives (`flow-open-pr`, `flow-ci-check`, `flow-fetch-pr-review`,
+  // `flow-gate-decide`) move a paused pipeline to its continue phases once a
+  // confirming "done" reply resolves `flow-resume-decide`'s `awaiting-human`
+  // verdict — a continuation reaches those helpers same as any other run.
   if (
     TERMINAL_PHASE_SET.has(state.phase) &&
     !isAllowedTerminalExit(state.phase, target)
