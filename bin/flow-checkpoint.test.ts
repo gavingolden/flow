@@ -447,6 +447,21 @@ describe("run() — ready-path terminal-phase warning (Task 7)", () => {
     expect(r.status).toBe("ready");
     expect(r.warning).toBeUndefined();
   });
+
+  it("(i) needs-human on a plain launcher with an unreadable pane kind: warning ABSENT — kindCertain via launcher (Task 4)", () => {
+    // A plain launcher has no tmux pane at all, so `state.launcher ===
+    // \"plain\"` alone must make kindCertain true even when resolveKind()
+    // returns null (there is no @flow-kind option to read) — mirrors
+    // bin/flow-session-start-hook.test.ts's plain-launcher needs-human
+    // case, which asserts the OPPOSITE surface (a resume seed IS
+    // delivered). If this disjunct were ever dropped, this warning would
+    // fire for a window that will in fact auto-resume.
+    seedState("plain-needs-human", { phase: "needs-human", launcher: "plain" });
+    writeCheckpoint("plain-needs-human");
+    const r = runCapture(["plain-needs-human"], undefined, () => null);
+    expect(r.status).toBe("ready");
+    expect(r.warning).toBeUndefined();
+  });
 });
 
 describe("run() — --consume", () => {

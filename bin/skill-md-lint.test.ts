@@ -6169,6 +6169,25 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
+  it("the needs-human carve-out in redirect-handling.md / failure-recovery.md is pinned (fix #872: half of why the pause dead-ended)", () => {
+    expect(
+      redirectHandlingContent.includes("**Except at `needs-human`**"),
+      "redirect-handling.md's `merged / gated / needs-human / cancelled` " +
+        "row must carry the needs-human carve-out verbatim — without it a " +
+        "`done` reply after the escalation is classified as a brand-new " +
+        "request instead of the confirming reply.",
+    ).toBe(true);
+    expect(
+      failureRecoveryContent.includes(
+        "So is replying `done` in the pipeline window",
+      ),
+      "failure-recovery.md must carry the 'so is replying done in the " +
+        "pipeline window' sentence verbatim — a future prose edit or " +
+        "line-budget trim must not silently drop the other half of the " +
+        "needs-human confirming-reply contract.",
+    ).toBe(true);
+  });
+
   it("flow-pipeline SKILL.md step 4 has the auto-checkpoint sub-step body arming flow-checkpoint at checkpoint-pending-clear", () => {
     expect(
       content.includes("### Auto-checkpoint sub-step"),

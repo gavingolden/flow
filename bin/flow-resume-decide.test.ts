@@ -1268,6 +1268,54 @@ describe("run() integration", () => {
     expect(result.context.planExists).toBe(true);
   });
 
+  it("exits 0 with awaiting-human JSON end-to-end via gatherInputs (Test-Coverage: pins the needs-human short-circuit exclusion, not just decide()'s own answer)", () => {
+    // Unlike every `decide()`-only awaiting-human test above (which hand-builds
+    // Inputs and never touches `gatherInputs`), this drives the real CLI
+    // `run()` -> `gatherInputs()` path. `gatherInputs`'s short-circuit guard
+    // explicitly excludes `needs-human` from the terminal fast path — delete
+    // that exclusion and every `decide()`-only test still passes, but the
+    // shipped CLI would hard-code `worktree: absent-from-state` for every
+    // needs-human pipeline and regress the exact #872 dead end this PR fixes,
+    // silently, with a green decide()-only suite.
+    initWorktree();
+    fs.mkdirSync(path.join(worktreeRoot, ".flow-tmp"));
+    fs.writeFileSync(
+      path.join(worktreeRoot, ".flow-tmp", "plan.md"),
+      "# PRD\n\nbecause.\n",
+    );
+    seedState("needs-human-e2e", {
+      phase: "needs-human",
+      phaseLog: [{ phase: "implementing", at: "2026-01-01T00:00:00.000Z" }],
+    });
+    const git: GitRunner = (argv) => {
+      if (argv[0] === "rev-parse")
+        return { stdout: "true\n", stderr: "", exitCode: 0 };
+      if (argv[0] === "branch")
+        return { stdout: "feature\n", stderr: "", exitCode: 0 };
+      if (argv[0] === "symbolic-ref")
+        return { stdout: "", stderr: "", exitCode: 1 };
+      if (argv[0] === "diff") return { stdout: "", stderr: "", exitCode: 0 };
+      if (argv[0] === "log")
+        return { stdout: "feat: initial\n", stderr: "", exitCode: 0 };
+      return { stdout: "", stderr: "", exitCode: 1 };
+    };
+    const gh: GhRunner = vi.fn(() => ({
+      stdout: "",
+      stderr: "no pull requests found",
+      exitCode: 1,
+    }));
+    const { writes, restore } = captureStdout();
+    const exit = run(["needs-human-e2e"], { stateDir, gh, git });
+    restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(writes.join("")) as DecisionResult;
+    expect(result.resumeAt).toBe("awaiting-human");
+    // Pins that gh/git I/O actually ran (the short-circuit was NOT taken) —
+    // the assertion that catches the regression, not just the verdict.
+    expect(gh).toHaveBeenCalled();
+    expect(result.context.continueAt).toBe("step-5");
+  });
+
   it("exits 0 with terminal JSON when state.phase is 'merged'", () => {
     seedState("gamma", { phase: "merged" });
     const { writes, restore } = captureStdout();
