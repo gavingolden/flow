@@ -2798,7 +2798,7 @@ dir (`armBannerPath`), for a reader that missed the original — a fresh session
 resuming from a checkpoint. Treat its absence as unknown, never as "never
 armed": `--consume` unlinks this file alongside the marker (never a recursive
 directory delete — the checkpoint dir itself is never removed), so a consumed
-checkpoint's banner is gone by design. The NEEDS HUMAN render in `# Failure paths` below prints this same line itself, at every render that records a new pause.
+checkpoint's banner is gone by design. Every `needs-human` render via `flow-gate-summary` that records a new pause prints this same line itself, regardless of which call site triggered it; echo it there like any other arm.
 
 # Resume mode
 
@@ -3071,7 +3071,7 @@ and execute its block rather than acting from memory.
 | Trigger | Reason tag | Action |
 |---|---|---|
 | `flow-state-update` exits 3 | `branch-mismatch` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
-| `flow-state-update` exits 4 (a terminal→non-terminal write that is NOT an allowlisted `gated` exit) | `terminal-regression` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
+| `flow-state-update` exits 4 (a terminal→non-terminal write that is NOT an allowlisted `gated` / `needs-human` exit (`TERMINAL_EXIT_TRANSITIONS`)) | `terminal-regression` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
 | `ToolSearch query="select:Task"` surfaces neither a `Task` nor an `Agent` schema at a spawn site | `task-tool-unavailable: <exemption-name>` | no retry — read `references/failure-recovery.md` § No-retry escalation variants and execute its block |
 
 The full per-step cap table, the resume-from-disk decision tree, and the

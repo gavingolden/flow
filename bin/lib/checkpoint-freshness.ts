@@ -3,9 +3,9 @@
  * split out of `bin/flow-checkpoint.ts` to keep that CLI file inside the
  * AGENTS.md ~200-line/file target. `bin/flow-checkpoint.ts` re-exports
  * everything here — it stays the single public import surface (tests and
- * the two external consumers, `flow-resume-decide.ts` and
- * `flow-session-start-hook.ts`, import from `./flow-checkpoint`, never from
- * this file directly).
+ * the three external consumers, `flow-resume-decide.ts`,
+ * `flow-session-start-hook.ts`, and `flow-gate-summary.ts`, import from
+ * `./flow-checkpoint`, never from this file directly).
  */
 
 import * as fs from "node:fs";
