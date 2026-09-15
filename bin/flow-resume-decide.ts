@@ -89,11 +89,6 @@ export {
   type GitRunner,
 };
 
-// Re-exported so callers needing the paused-phase computation (e.g. a future
-// supervisor-facing helper) can import it from the resume-decide surface
-// they already depend on, without also importing ./lib/state directly.
-export { pausedPhase };
-
 // --- Types -----------------------------------------------------------------
 
 export type ResumeAt =

@@ -299,6 +299,9 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "cross-branch-operation-attempted": `The supervisor refused to cross worktrees.
   1. Inspect git worktree list and the failed command's stderr.
   2. Resolve manually.`,
+  // Not CONTINUE_OR_RESUME_STEP: restarting claude ends this window's
+  // session, so there is no window left to reply `done` in — the only
+  // recovery route is closing the window and running `flow feature resume`.
   "task-tool-unavailable": `The Task tool is unavailable.
   1. Restart claude (or upgrade the CLI) so the Task tool is surfaced top-level.
   2. Once resolved, close the pipeline window first, then run flow feature resume <slug>`,
