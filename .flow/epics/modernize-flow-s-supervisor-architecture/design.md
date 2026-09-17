@@ -179,12 +179,12 @@ decision is one feature boundary.
   the typed result envelope, mechanical loop caps, and null-guard pattern
   survive as f6's durable wins; the visibility loss is bounded to the one
   phase the evidence says should be isolated; `flow-stage-b` is deleted.
-  Issue #800 (extend the substrate to manual skills) is paused pending f8.
+  Issue #800 (extend the substrate to manual skills) was closed as obsolete after the revert.
   → **f7-workflow-observability-floor**, **f8-write-path-inline**
 
   _Superseded in part (2026-09-08)._ The maintainer reverted PR #789 and
   PR #801 outright rather than shrinking the substrate in place: f8 was
-  gated on f7 plus external issue #796 and was weeks out, while every
+  gated on f7 plus external issue #810 (eval-gate decisional metrics; #796 closed as obsolete after the revert) and was weeks out, while every
   pipeline in the interval kept paying the +272% (phase-write-fidelity,
   $5.61 → $20.86) and +92% (verify-loop-isolation, $3.44 → $6.62) suite
   cost recorded in `docs/eval/f6/README.md` — per scenario, +2% to +561%
@@ -288,12 +288,12 @@ vertical slice. Ids, titles, and edges match `manifest.json` exactly.
   stage, a per-run index (label → agentId → outcome tag → transcript
   path) rendered into the NEEDS HUMAN block, and a Haiku triage diagnosis
   fired only on a needs-human outcome. Emits its own review-stage
-  completion event — issue #799's `workflow.result` has no surviving
-  emitter after this revert, so the event is an f7 deliverable rather
-  than a consumed dependency; sibling to #795.
+  completion event — consume issue #811's `pipeline.review` event when it
+  has merged, otherwise emit the event here and note the overlap (#799
+  was closed, superseded by #811); sibling to #795.
 - **Depends on:** nothing in the epic (the f6 substrate is reverted, so f7
-  builds on the prose supervisor). External: none — #799 is cancelled or
-  re-scoped with PR #806.
+  builds on the prose supervisor). External: #811 is a sibling, not a
+  dependency.
 - **Produces:** the grammar enum + its lint, the run-index helper, and the
   triage hook — the failure-visibility surface f8's review stage needs on
   day one, and the measurement surface its comparison needs on both arms.
@@ -312,7 +312,7 @@ vertical slice. Ids, titles, and edges match `manifest.json` exactly.
   D6's evidence supports. No mechanical helper may run inside a model
   agent; anything that is one shell command stays a supervisor Bash call.
 - **Depends on:** **f7** — _edge artifact: the error grammar + index the
-  eval comparison and the NEEDS HUMAN render rely on._ External: issue #796
+  eval comparison and the NEEDS HUMAN render rely on._ External: issue #810 (eval-gate decisional metrics; #796 closed as obsolete after the revert)
   (workflow-entered scenarios measurable under `claude -p`); fall back to
   the `docs/eval/f6/live-run.md` protocol if it has not landed, and say so.
 - **Produces:** either a `flow-review-stage` script plus a
