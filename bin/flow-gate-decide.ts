@@ -74,7 +74,7 @@ const HEADING_RE = /^## Test Steps[ \t]*$/m;
  * stripped. Shared by `parseTestStepsSection` and `findTrappedTestSteps`
  * so the two agree on exactly what text they're scanning.
  */
-function extractStrippedSection(body: string): string | null {
+export function extractStrippedSection(body: string): string | null {
   if (!HEADING_RE.test(body)) return null;
 
   // Extract from the heading line to the next `## ` heading at column 0
