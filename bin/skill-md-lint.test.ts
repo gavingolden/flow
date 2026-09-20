@@ -7070,6 +7070,36 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
+  it("manual-test-rubric.md contains the DECISION and Browser label contracts", () => {
+    for (const label of ["DECISION: ", "Browser: "]) {
+      expect(
+        manualTestRubricContent.includes(label),
+        `manual-test-rubric.md must contain the literal \`${label}\` label — ` +
+          "bin/lib/test-steps-parse.ts classifies checklist items by this " +
+          "byte-exact prefix and bin/flow-inject-evidence.ts refuses to tick " +
+          "`DECISION: `; renaming it must update the rubric, the parser, and " +
+          "this lint in the same commit.",
+      ).toBe(true);
+    }
+    for (const heading of [
+      "#### Decision checks",
+      "##### Behaviour checks: the Browser: shape",
+      "##### Split rule: a taste item holds only taste",
+      "##### Every SUBJECTIVE item carries a screenshot",
+    ]) {
+      expect(
+        manualTestRubricContent.includes(`\n${heading}\n`),
+        `manual-test-rubric.md must keep the '${heading}' heading — the ` +
+          "authoring sites point at it by name.",
+      ).toBe(true);
+    }
+    expect(
+      manualTestRubricContent.includes("for each `- [ ]` item below"),
+      "the authoring-rubric marker must not contain a literal unchecked box — " +
+        "a plain text search over PR bodies counts it as an open item.",
+    ).toBe(false);
+  });
+
   it("redirect-handling.md requires a gate override to be fresh, unambiguous, and in-context", () => {
     expect(
       redirectHandlingContent.includes("## Gate override"),
