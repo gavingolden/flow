@@ -30,7 +30,7 @@ Every run works in its own git worktree (your checkout is never touched), pauses
 
 ## Quickstart
 
-1. **Check the prerequisites.** You need **git**, **node / npm**, **bun**, and an authenticated **gh** (GitHub CLI) — flow opens the PR, polls CI, and merges through it. **tmux is optional**: only needed if you opt into the tmux launcher; the default plain launcher runs in your own terminal. Your target project must be a git repo with a GitHub remote.
+1. **Check the prerequisites.** You need **git**, **node / npm**, **bun**, and an authenticated **gh** (GitHub CLI; 2.99.0+ for PR-page screenshots) — flow opens the PR, polls CI, and merges through it. **tmux is optional**: only needed if you opt into the tmux launcher; the default plain launcher runs in your own terminal. Your target project must be a git repo with a GitHub remote.
 
 2. **Install:**
 

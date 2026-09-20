@@ -80,7 +80,7 @@ bullet.
 When you keep this section, paste the authoring-rubric marker between the
 heading and the first `- [ ]` item so the rubric travels with the body:
 
-<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+<!-- flow:authoring-rubric — for each checkbox item below, the three-question
 automation test from manual-test-rubric.md is: (a) named fixture/setup,
 (b) deterministic assertion(s), (c) exit condition. If all three are answerable
 without subjective human judgment, it must be a runnable item. Source of truth:

@@ -370,3 +370,72 @@ describe("ui-driver-schema CLI", () => {
     expect(status).toBe(2);
   });
 });
+
+describe("item_results", () => {
+  const base = JSON.parse(fs.readFileSync(OK_FIXTURE, "utf8"));
+  const entry = {
+    item: "Browser: on /, click Save — expect the toast.",
+    kind: "behavior",
+    verdict: "pass",
+    screenshots: [],
+  };
+  const errorsOf = (item_results: unknown): string[] => {
+    const r = validateUiDriverResult({ ...base, item_results });
+    return r.ok ? [] : r.errors;
+  };
+
+  it("item_results: the fixture's behavior pass and capture entries validate", () => {
+    expect(base.item_results).toHaveLength(2);
+    expect(validateUiDriverResult(base).ok).toBe(true);
+  });
+
+  it("item_results: stays optional", () => {
+    const { item_results: _dropped, ...rest } = base;
+    expect(validateUiDriverResult(rest).ok).toBe(true);
+  });
+
+  it("item_results: rejects an unknown verdict and an unknown kind", () => {
+    expect(errorsOf([{ ...entry, verdict: "maybe" }])[0]).toContain(
+      "'item_results[0].verdict' must be one of",
+    );
+    expect(errorsOf([{ ...entry, kind: "vibes" }])[0]).toContain(
+      "'item_results[0].kind' must be one of",
+    );
+  });
+
+  it("item_results: rejects a verdict that does not fit the kind", () => {
+    expect(errorsOf([{ ...entry, kind: "capture" }])[0]).toContain(
+      "is not valid for kind 'capture'",
+    );
+    expect(errorsOf([{ ...entry, verdict: "captured" }])[0]).toContain(
+      "is not valid for kind 'behavior'",
+    );
+  });
+
+  it("item_results: rejects over-cap entries, screenshots and strings", () => {
+    expect(errorsOf(Array.from({ length: 31 }, () => entry))).toContain(
+      "'item_results' exceeds the 30-entry cap",
+    );
+    expect(
+      errorsOf([
+        { ...entry, screenshots: Array.from({ length: 7 }, () => "a.png") },
+      ]),
+    ).toContain("'item_results[0].screenshots' exceeds the 6-item cap");
+    expect(errorsOf([{ ...entry, reason: "x".repeat(301) }])).toContain(
+      "'item_results[0].reason' exceeds the 300-char cap",
+    );
+    expect(errorsOf([{ ...entry, screenshots: ["x".repeat(301)] }])).toContain(
+      "'item_results[0].screenshots[0]' exceeds the 300-char cap",
+    );
+  });
+
+  it("item_results: rejects a non-array and a missing screenshots field", () => {
+    expect(errorsOf({})).toContain(
+      "'item_results' must be an array when present",
+    );
+    const { screenshots: _s, ...noShots } = entry;
+    expect(errorsOf([noShots])).toContain(
+      "'item_results[0].screenshots' must be an array of strings",
+    );
+  });
+});

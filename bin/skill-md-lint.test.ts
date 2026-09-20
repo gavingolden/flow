@@ -7070,6 +7070,159 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
+  it("manual-test-rubric.md contains the DECISION and Browser label contracts", () => {
+    for (const label of ["DECISION: ", "Browser: "]) {
+      expect(
+        manualTestRubricContent.includes(label),
+        `manual-test-rubric.md must contain the literal \`${label}\` label — ` +
+          "bin/lib/test-steps-parse.ts classifies checklist items by this " +
+          "byte-exact prefix and bin/flow-inject-evidence.ts refuses to tick " +
+          "`DECISION: `; renaming it must update the rubric, the parser, and " +
+          "this lint in the same commit.",
+      ).toBe(true);
+    }
+    for (const heading of [
+      "#### Decision checks",
+      "##### Behaviour checks: the Browser: shape",
+      "##### Split rule: a taste item holds only taste",
+      "##### Every SUBJECTIVE item carries a screenshot",
+    ]) {
+      expect(
+        manualTestRubricContent.includes(`\n${heading}\n`),
+        `manual-test-rubric.md must keep the '${heading}' heading — the ` +
+          "authoring sites point at it by name.",
+      ).toBe(true);
+    }
+    expect(
+      manualTestRubricContent.includes("for each `- [ ]` item below"),
+      "the authoring-rubric marker must not contain a literal unchecked box — " +
+        "a plain text search over PR bodies counts it as an open item.",
+    ).toBe(false);
+  });
+
+  it("every authoring site carries the two labels, the Browser: shape and the lint", () => {
+    const sites: [string, string][] = [
+      ["flow-new-feature/SKILL.md", newFeatureContent],
+      ["pr-description-authoring.md", prDescriptionAuthoringContent],
+      ["discovery-instructions.md", discoveryInstructionsContent],
+    ];
+    for (const [name, content] of sites) {
+      for (const literal of ["SUBJECTIVE: ", "DECISION: ", "Browser: "]) {
+        expect(
+          content.includes(literal),
+          `${name} must name the literal \`${literal}\` label — the authoring ` +
+            "sites mirror manual-test-rubric.md's two human-only labels and the " +
+            "browser-behaviour shape.",
+        ).toBe(true);
+      }
+    }
+    for (const [name, content] of sites.slice(1)) {
+      expect(
+        content.includes(
+          "flow-test-steps-lint --body-file .flow-tmp/pr-description-draft.md --phase authoring",
+        ),
+        `${name} must run the authoring lint on the saved draft.`,
+      ).toBe(true);
+      expect(
+        content.includes("command -v flow-test-steps-lint"),
+        `${name} must degrade to a named skip when the helper is absent.`,
+      ).toBe(true);
+    }
+    for (const [name, content] of [
+      ...sites,
+      ["PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent] as [
+        string,
+        string,
+      ],
+    ]) {
+      expect(
+        content.includes("for each `- [ ]` item below"),
+        `${name}: the authoring-rubric marker must not contain a literal unchecked box.`,
+      ).toBe(false);
+    }
+  });
+
+  it("the `SUBJECTIVE: confirm` literal and the per-item checkbox marker never reappear repo-wide", () => {
+    const roots = ["skills", ".github"];
+    const files: string[] = [];
+    for (const root of roots) {
+      const rootPath = path.resolve(HERE, "..", root);
+      if (!fs.existsSync(rootPath)) continue;
+      const walk = (dir: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(full);
+          else if (entry.name.endsWith(".md")) files.push(full);
+        }
+      };
+      walk(rootPath);
+    }
+    for (const file of files) {
+      const text = fs.readFileSync(file, "utf8");
+      expect(
+        text.includes("SUBJECTIVE: confirm"),
+        `${file}: 'SUBJECTIVE: confirm' migrated to 'DECISION: ' — this literal must not reappear.`,
+      ).toBe(false);
+      expect(
+        text.includes("for each `- [ ]` item below"),
+        `${file}: must not contain a literal unchecked-box marker.`,
+      ).toBe(false);
+    }
+  });
+
+  it("review routes the three browser item kinds and never relabels an undriven check", () => {
+    for (const heading of [
+      "## Three item kinds, one spawn",
+      "## Capture-only evidence for SUBJECTIVE items",
+    ]) {
+      expect(uiValidationEvidenceContent.includes(`\n${heading}\n`)).toBe(true);
+    }
+    expect(uiValidationEvidenceContent).toContain("browser-unavailable");
+    expect(uiValidationEvidenceContent).toContain("--no-tick --image");
+    for (const literal of ["DECISION: ", "Browser: ", "MODE: items"]) {
+      expect(
+        prReviewContent.includes(literal),
+        `flow-pr-review/SKILL.md must name \`${literal}\` in Step 8c / 8c.iii.`,
+      ).toBe(true);
+    }
+    expect(agentPromptsContent).toContain("MODE: items");
+    expect(agentPromptsContent).toContain("DECISION: ");
+  });
+
+  it("the lint is wired into review and the supervisor surfaces per-item screenshots", () => {
+    expect(manualTestRubricContent.includes("\n## Mechanical lint\n")).toBe(
+      true,
+    );
+    for (const code of [
+      "generic-suite",
+      "presence-only",
+      "subjective-mixed",
+      "subjective-no-image",
+      "ticked-no-evidence",
+      "post-merge-step",
+      "human-only-ticked",
+    ]) {
+      expect(
+        manualTestRubricContent.includes(`\`${code}\``),
+        `manual-test-rubric.md '## Mechanical lint' must map the '${code}' ` +
+          "lint code (bin/lib/test-steps-parse.ts LintCode) to a review action.",
+      ).toBe(true);
+    }
+    expect(prReviewContent).toContain(
+      "flow-test-steps-lint --body-file .flow-tmp/body.md --phase review",
+    );
+    expect(prReviewContent).toContain("## Mechanical lint");
+    expect(
+      content.split(".item_results[]?").length - 1,
+      "both 'Surface UI screenshots' recipes must read item_results[] first.",
+    ).toBeGreaterThanOrEqual(2);
+    expect(content).toContain(".ui_screenshots[]?");
+    expect(
+      content.includes('startswith("screenshots_")'),
+      "the gated branch must print a line when a screenshots_* skip fired.",
+    ).toBe(true);
+  });
+
   it("redirect-handling.md requires a gate override to be fresh, unambiguous, and in-context", () => {
     expect(
       redirectHandlingContent.includes("## Gate override"),
@@ -9181,7 +9334,7 @@ describe("prompt-intent-sanity-check structural anchors", () => {
     ]) {
       expect(c).toContain(v);
     }
-    expect(c).toContain("- [ ] SUBJECTIVE: confirm scope drift is intentional");
+    expect(c).toContain("- [ ] DECISION: confirm scope drift is intentional");
     expect(c).toContain("NEEDS HUMAN: intent-drift");
   });
 
@@ -11484,12 +11637,12 @@ describe("turn-budget sentinel + SUBJECTIVE-gating rule wiring (PR #859)", () =>
     ["flow-new-feature/SKILL.md", () => newFeatureContent],
     ["flow-pr-review/SKILL.md", () => prReviewContent],
   ])(
-    "%s gates unattempted entries with a SUBJECTIVE Test Step",
+    "%s gates unattempted entries with a DECISION Test Step",
     (name, getContent) => {
       expect(
-        getContent().includes("SUBJECTIVE: confirm N unattempted entries"),
+        getContent().includes("DECISION: confirm N unattempted entries"),
         `${name} must gate a partial/turn-budget artifact behind an unchecked ` +
-          "`- [ ] SUBJECTIVE: confirm N unattempted entries...` Test Step so the PR " +
+          "`- [ ] DECISION: confirm N unattempted entries...` Test Step so the PR " +
           "is never auto-merged with silently-dropped work.",
       ).toBe(true);
     },

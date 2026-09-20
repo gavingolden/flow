@@ -102,7 +102,7 @@ so the audit trail names both the prose and the command the agent ran.
 - [x] `<item as written>` — pass (<count> passed, <count> skipped)
 - [x] `<author prose>` — pass (prose-promoted: `<one-line shell command>`)
 - [x] `<visual-appearance item>` — pass (a11y-snapshot evidence; screenshot `.flow-tmp/ui-evidence/<n>.png`)
-- [ ] `<item as written>` — not run: <rubric category: subjective UX | visual-appearance | production-only | cross-browser | performance under realistic load | cost-prohibitive infra>
+- [ ] `<item as written>` — not run: <rubric category: subjective UX | visual-appearance | production-only | cross-browser | performance under realistic load | cost-prohibitive infra | browser unavailable>
 
 For a ticked **visual-appearance** item run via the browser-validation
 capability (Step 8c.iii), the a11y `take_snapshot` text is the **primary**

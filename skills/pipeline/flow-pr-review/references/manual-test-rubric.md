@@ -116,6 +116,35 @@ explicit `wait_for`**, never a raw screenshot pixel comparison.
   (see the enumerated visual-appearance category below) runs at Step 8c
   (`/flow-pr-review`).
 
+##### Behaviour checks: the Browser: shape
+
+A browser **behaviour** check — click, hover, type, submit, then observe — is
+written in one fixed shape so the agent can drive it the same way every time:
+
+```markdown
+- [ ] Browser: on <route>, <action chain> — expect <observable result>.
+```
+
+- The literal `Browser: ` prefix (capital B, colon, single space) sits
+  immediately after the `- [ ] `, the same greppable-label convention as
+  `SUBJECTIVE: `.
+- **One action chain and one expected result per box.** "Click Save, then
+  reopen the dialog — expect the saved name" is one chain; a second expectation
+  is a second item.
+- `<route>` is a path the manifest can reach; `<action chain>` names the visible
+  control by its label or role, never a CSS selector the reader cannot see;
+  `<observable result>` is something present in the a11y snapshot **and visible
+  in the viewport**.
+- Every precondition is spelled out in the item (see **Precondition
+  concreteness** below) — the agent reaches the state from the item text alone.
+
+`/flow-pr-review` Step 8c drives each `Browser: ` item through the one UI-Driver
+spawn and ticks it only on a `pass`, with the snapshot as evidence.
+**When the drive fails, cannot be driven within its bounds, or no browser is
+available, the box stays open with the reason and the PR holds** — the reason
+is `browser-unavailable`, never "subjective UX". A functional check nobody ran
+is not a taste call.
+
 #### Enumerated visual-appearance assertions
 
 A **visual-appearance** assertion is a concrete, checkable observation about
@@ -187,6 +216,29 @@ feature is broken, only that its finish has not been signed off.
 borderline step as functional keeps the safe default — the PR stays gated
 until a human verifies it — whereas mislabelling a functional step as
 subjective risks shipping a broken feature.
+
+#### Decision checks
+
+A **decision** step asks the user to accept a named trade-off, not to judge how
+something looks: "accept that the cache is dropped on upgrade", "confirm scope
+drift is intentional", "confirm 3 unattempted entries are acceptable". There is
+nothing to photograph and nothing to run — the step exists so the choice is
+made by the person who owns it.
+
+- Each carries a literal `DECISION: ` prefix (uppercase, colon, single space)
+  immediately after the `- [ ] `.
+- The item names the trade-off and its consequence in one sentence, so ticking
+  it is an informed yes.
+- **Never ticked by an agent.** `flow-inject-evidence` refuses to tick a
+  `DECISION: ` or `SUBJECTIVE: ` line whatever exit code it is handed.
+- The gate is unchanged: an unticked `DECISION: ` item is a plain unchecked
+  item and holds the PR.
+
+`SUBJECTIVE: ` and `DECISION: ` are the only two human-only labels. `SUBJECTIVE: `
+always means "look at this rendered UI and judge it" (and so always carries a
+screenshot — see **Every SUBJECTIVE item carries a screenshot** below);
+`DECISION: ` always means "accept this trade-off". A human-only step that is
+neither is almost always a functional check wearing the wrong label.
 
 #### A non-trivial UI appearance change must author a subjective approval step
 
@@ -281,6 +333,58 @@ checklist would instead carry one enumerated item per Visual Spec assertion
 (each tagged with its assertion id) plus **exactly one** overall
 `SUBJECTIVE: ` sign-off, per the Scope paragraph above.
 
+##### Split rule: a taste item holds only taste
+
+A `SUBJECTIVE: ` item contains **only** clauses two observers could reasonably
+disagree on. **Any clause a second observer would record identically leaves the
+taste item and becomes its own runnable item** — a measured value, a
+present/absent element, a "still closes on Esc". Left inside the taste item it
+is checked by eye or not at all, when an agent could have proven it.
+
+Worked example (modelled on `gavingolden/pokemon#418`). Before — one item, three
+kinds of claim:
+
+```markdown
+- [ ] SUBJECTIVE: at 375×667, open the fullscreen view — it shows ONLY the card
+      image on black (no plate, no outline), the image fills more of the screen
+      than the desktop version, no horizontal scroll, and Esc still closes it.
+```
+
+After — the taste stays, the rest is proven:
+
+```markdown
+- [ ] Browser: on /card/<id> at 375×667, tap the card image — expect the
+      fullscreen view with no plate and no outline element.
+- [ ] Browser: on /card/<id> at 375×667 with the fullscreen view open, press
+      Esc — expect the fullscreen view closed.
+- [ ] At 375×667 the fullscreen view's `document.documentElement.scrollWidth`
+      equals `clientWidth` (no horizontal scroll).
+- [ ] SUBJECTIVE: at 375×667, the fullscreen card on black reads as a clean,
+      immersive view.
+```
+
+`flow-test-steps-lint` reports a likely mixed item as `subjective-mixed` at
+`suggestion` severity. The heuristic is phrase-based, so the split is a
+reviewer's call and is never applied automatically.
+
+##### Every SUBJECTIVE item carries a screenshot
+
+A taste sign-off with nothing to look at bills the user a manual boot-and-navigate.
+At `/flow-pr-review` Step 8c the UI-Driver photographs the state each
+`SUBJECTIVE: ` item names — at the sizes the item names, else phone (390) and
+desktop (1280) — and the evidence block under the item carries one image
+reference plus one local `file://` link per screenshot. The box stays unticked.
+
+- The item text must say how to reach the state (route, theme, viewport, any
+  local reversible setup), exactly as **Precondition concreteness** requires.
+- When the exact state cannot be reached, the nearest reachable state is
+  captured and marked `partial: <precondition not met>`.
+- When no image can exist (real-device behaviour, motion feel, no browser
+  available), the item carries a `no screenshot: <reason>` line instead. A
+  `SUBJECTIVE: ` item with neither an image nor that line is a review finding
+  (`subjective-no-image`).
+- A credential-bearing screen is never captured.
+
 ### Decision shortcut
 
 If you find yourself writing "verify the file appears at...", "check the process is
@@ -361,7 +465,7 @@ Test Steps drafted by `/flow-new-feature` Step 4b, `/flow-product-planning` step
 heading and the first `- [ ]` item:
 
 ```html
-<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+<!-- flow:authoring-rubric — for each checkbox item below, the three-question
 automation test from manual-test-rubric.md is: (a) named fixture/setup,
 (b) deterministic assertion(s), (c) exit condition. If all three are answerable
 without subjective human judgment, it must be a runnable item. Source of truth:
@@ -373,7 +477,9 @@ PR body so any later editor (an agent re-running pr-review, a human pasting in s
 a hand-edited squash-merge follow-up) sees the same authoring standard without having
 to follow a link. The auto-merge gate (`bin/flow-gate-decide.ts`) strips HTML comments
 before counting unchecked `- [ ]` items, so the marker is invisible to the gate count
-and never affects auto-merge vs. gated routing.
+and never affects auto-merge vs. gated routing. The marker says "checkbox item" rather
+than spelling out a literal unchecked box, so a plain text search for open boxes
+over PR bodies does not count the comment as one.
 
 **This file wins on drift.** The marker text is a one-time inline copy of the (a)–(c) automatability test;
 the canonical contract is the "Automate first" section above. If the marker ever
@@ -541,12 +647,46 @@ If any of these appear, the test plan probably needs tightening:
   name anchoring, wildcards, and set-prefix resolution) — split it into one check per facet
   per "Coverage breadth" above
 - A change-detector or tautological check: an assertion that can only fail by reverting this exact diff, not by a regression in behavior. The canonical example is a presence-grep (`grep -q 'NewComponent' App.svelte`) on a UI wiring change — it passes whether or not the component actually renders or is reachable. Encouraged strong shapes: a Testing Library render test, a Playwright/vitest spec, or a chrome-devtools MCP snapshot check.
+- A post-merge or post-deploy step ("after merge, confirm the cron picked up the schedule"). It can never be ticked before the merge it gates, so it holds the PR with nothing to verify. Post-merge chores never go in Test Steps — register them on the local follow-ups list (`flow-followups`) instead.
 
 ### UI wiring behavioral assertion
 
 A Test Step that verifies a UI wiring change — mounting a new component, wiring a new route, registering a new handler — solely by asserting import presence (`grep -q 'NewComponent' App.svelte`) is under-tested. The grep passes whether or not the component actually renders, mounts, or is reachable by a user. The check must reach behavior: a Testing Library `render` test asserting a visible element, a Playwright spec navigating to the route, or a chrome-devtools MCP snapshot confirming the component mounts without error.
 
 Proportionality carve-out: trivial copy or padding tweaks are exempt — the include-vs-exempt test from **A non-trivial UI appearance change must author a subjective approval step** above applies here too. See **Guard-strength check** in the Automate first section for the formal (d) axis this rule instantiates.
+
+## Mechanical lint
+
+`flow-test-steps-lint --body-file <path> --phase authoring|review` parses the
+checklist with the merge decision's own section rules and reports rule breaks
+as JSON `findings[]`. It is **advisory**: a finding feeds the existing
+fix-then-show behaviour (authoring fixes the draft; `/flow-pr-review` Step 11b
+folds it into Testability and its 11c/11d body update) and **never pauses a
+run**. When the command is not on PATH, record the named skip
+`test-steps-lint: helper not installed` and carry on.
+
+| Code                  | Phase  | Severity     | Review action                                                                                                                                 |
+| --------------------- | ------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `generic-suite`       | both   | finding      | Testability `Fail (shallow)` — replace with the specific test file/case, or remove (CI already runs the suite)                                |
+| `presence-only`       | both   | finding      | Testability `Fail (shallow)` — replace with a behavioural assertion (see **Guard-strength check**)                                            |
+| `subjective-mixed`    | both   | `suggestion` | Reviewer's call: split per the **Split rule** when the clause really is measurable. **Never split automatically** — the match is phrase-based |
+| `post-merge-step`     | both   | finding      | Remove from Test Steps and register it on the local follow-ups list (`flow-followups`)                                                        |
+| `human-only-ticked`   | both   | finding      | Untick it, unless the user ticked it themselves in this session — agents never tick `SUBJECTIVE: ` / `DECISION: `                             |
+| `subjective-no-image` | review | finding      | Step 8c should have captured it: re-check the capture, or add the `no screenshot: <reason>` line. An item with that line is not flagged       |
+| `ticked-no-evidence`  | review | finding      | A ticked prose or `Browser: ` item with no evidence block — re-run it for proof, or untick it                                                 |
+
+At review, run it **after** the Step 8c checklist run (so evidence blocks and
+captures are already in the body) against `.flow-tmp/body.md`:
+
+```bash
+if command -v flow-test-steps-lint >/dev/null; then
+  flow-test-steps-lint --body-file "$WORKTREE/.flow-tmp/body.md" --phase review 2>/dev/null > "$WORKTREE/.flow-tmp/test-steps-lint.json"
+else
+  echo "test-steps-lint: helper not installed"
+fi
+```
+
+Capture stdout only — never `2>&1` — so the JSON stays parseable.
 
 ## Proportionality
 

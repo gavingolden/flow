@@ -8,7 +8,12 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["bin/**/*.ts", "skills/**/*.ts", "docs/eval/**/*.ts"],
+  "include": [
+    "bin/**/*.ts",
+    "skills/**/*.ts",
+    "docs/eval/**/*.ts",
+    "scripts/**/*.ts"
+  ],
   "exclude": [
     "skills/universal/flow-skill-creator/scripts/**",
     "bin/fixtures/model-bench/**"

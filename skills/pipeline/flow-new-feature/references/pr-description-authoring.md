@@ -197,13 +197,36 @@ Always emit the heading. Decide the body based on the change:
   `skills/pipeline/flow-pr-review/references/manual-test-rubric.md` ("Precondition concreteness")
   for the rule and a before/after example.
 
+  Human-only items use exactly two labels, a browser behaviour check has one shape, and post-merge
+  chores never appear: `SUBJECTIVE: ` is a taste call about rendered UI (review attaches a
+  screenshot under it), `DECISION: ` asks the user to accept a named trade-off, a behaviour check
+  is written `- [ ] Browser: on <route>, <action> — expect <result>` (one action chain, one
+  expected result per box), any clause a second observer would record identically leaves a taste
+  item and becomes its own runnable item, and a step that can only be done after merge or deploy
+  goes to `flow-followups` instead. See
+  `skills/pipeline/flow-pr-review/references/manual-test-rubric.md` ("Decision checks",
+  "Behaviour checks: the Browser: shape", "Split rule: a taste item holds only taste", "Shallow
+  smells") — do not inline the rule bodies.
+
+  After saving the draft, lint it and fix each finding before moving on (a `suggestion` is a
+  judgment call, not a must-fix). Tolerant: when the command is not on PATH, record the named
+  skip `test-steps-lint: helper not installed` and continue — never a hard failure:
+
+  ```bash
+  if command -v flow-test-steps-lint >/dev/null; then
+    flow-test-steps-lint --body-file .flow-tmp/pr-description-draft.md --phase authoring 2>/dev/null | jq -r '.findings[] | "\(.severity) \(.code) L\(.line): \(.hint)"'
+  else
+    echo "test-steps-lint: helper not installed"
+  fi
+  ```
+
 Open the `## Test Steps` section with this HTML comment, copied verbatim, between
 the heading and the first `- [ ]` item. The auto-merge gate strips HTML comments
 before counting so the marker is invisible to the count, and any later editor (an
 agent re-running pr-review, a human pasting in steps) sees the same standard:
 
 ```html
-<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+<!-- flow:authoring-rubric — for each checkbox item below, the three-question
 automation test from manual-test-rubric.md is: (a) named fixture/setup,
 (b) deterministic assertion(s), (c) exit condition. If all three are answerable
 without subjective human judgment, it must be a runnable item. Source of truth:
@@ -224,7 +247,7 @@ Example (auto-merge — empty section):
 
 Example (gated — non-empty section, marker preserved):
 
-<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+<!-- flow:authoring-rubric — for each checkbox item below, the three-question
 automation test from manual-test-rubric.md is: (a) named fixture/setup,
 (b) deterministic assertion(s), (c) exit condition. If all three are answerable
 without subjective human judgment, it must be a runnable item. Source of truth:
