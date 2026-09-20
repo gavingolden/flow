@@ -20,7 +20,8 @@ export type Ledger = Record<string, string>;
 export type AttachItem = { target: string; arg: string; sha: string };
 export type ScreenshotSkip =
   | "screenshots_gh_too_old"
-  | "screenshots_body_too_large";
+  | "screenshots_body_too_large"
+  | "screenshots_too_many";
 
 export function ghSupportsAttach(versionOutput: string): boolean {
   const m = versionOutput.match(/gh version (\d+)\.(\d+)\.(\d+)/);
@@ -63,6 +64,17 @@ function isLocalTarget(target: string): boolean {
   return !/^[a-z][a-z0-9+.-]*:/i.test(target) && !target.startsWith("#");
 }
 
+const IMAGE_FILE_RE = /\.(png|jpe?g|gif|webp)$/i;
+
+/** Resolve a local image target, rejecting anything that escapes the worktree or isn't an image file. */
+function resolveLocalImage(worktree: string, target: string): string | null {
+  const abs = path.resolve(worktree, decodeURI(target));
+  const rel = path.relative(worktree, abs);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  if (!IMAGE_FILE_RE.test(abs)) return null;
+  return abs;
+}
+
 export function hasLocalImageRefs(body: string): boolean {
   return [...body.matchAll(IMAGE_RE)].some((m) => isLocalTarget(m[2]));
 }
@@ -100,7 +112,8 @@ export function planScreenshots(input: {
   const shaByTarget = new Map<string, string>();
   for (const m of input.body.matchAll(IMAGE_RE)) {
     if (!isLocalTarget(m[2]) || shaByTarget.has(m[2])) continue;
-    const abs = path.resolve(input.worktree, decodeURI(m[2]));
+    const abs = resolveLocalImage(input.worktree, m[2]);
+    if (abs === null) continue;
     const sha = input.hashFile(abs);
     if (sha !== null) shaByTarget.set(m[2], sha);
   }
@@ -115,12 +128,24 @@ export function planScreenshots(input: {
   for (const m of body.matchAll(IMAGE_RE)) {
     const sha = shaByTarget.get(m[2]);
     if (sha === undefined || attach.some((a) => a.target === m[2])) continue;
-    const abs = path.resolve(input.worktree, decodeURI(m[2]));
+    const abs = resolveLocalImage(input.worktree, m[2]);
+    if (abs === null) continue;
     const alt = m[1].replace(/#/g, " ");
     attach.push({ target: m[2], arg: alt ? `${abs}#${alt}` : abs, sha });
   }
 
   if (attach.length === 0) return { body, bodyWithoutImages, attach };
+  if (attach.length > ATTACH_MAX_FILES) {
+    return {
+      body,
+      bodyWithoutImages,
+      attach: [],
+      skip: {
+        step: "screenshots_too_many",
+        reason: `${attach.length} screenshots (> ${ATTACH_MAX_FILES}); image references left out, screenshots are local-only`,
+      },
+    };
+  }
   if (!input.attachSupported) {
     return {
       body,
@@ -144,7 +169,7 @@ export function planScreenshots(input: {
       },
     };
   }
-  return { body, bodyWithoutImages, attach: attach.slice(0, ATTACH_MAX_FILES) };
+  return { body, bodyWithoutImages, attach };
 }
 
 /**
@@ -226,7 +251,7 @@ export function pushBodyWithScreenshots(
   const noImagesFile = `${args.bodyFile}.noimg.md`;
   const pushWithoutImages = (): ExecResult => {
     io.writeFile(noImagesFile, plan.bodyWithoutImages);
-    return io.exec([
+    const result = io.exec([
       "gh",
       "pr",
       "edit",
@@ -234,6 +259,12 @@ export function pushBodyWithScreenshots(
       "--body-file",
       noImagesFile,
     ]);
+    try {
+      fs.rmSync(noImagesFile, { force: true });
+    } catch {
+      // best-effort cleanup — a leftover sibling file is harmless
+    }
+    return result;
   };
 
   let edit: ExecResult;
@@ -254,7 +285,7 @@ export function pushBodyWithScreenshots(
       // retry makes the PR body deterministic again.
       skips.push({
         step: "screenshots_upload_failed",
-        reason: `${edit.stderr || "gh pr edit --attach failed"}; screenshots are local-only`,
+        reason: `screenshots are local-only — re-run review to retry (${edit.stderr || "gh pr edit --attach failed"})`,
       });
       edit = pushWithoutImages();
     } else if (edit.exitCode === 0 && plan.attach.length > 0) {
@@ -280,6 +311,14 @@ export function pushBodyWithScreenshots(
         }
         io.writeFile(ledgerFile, JSON.stringify(ledger, null, 2) + "\n");
         io.writeFile(args.bodyFile, applyHostedUrls(plan.body, urls));
+      } else {
+        skips.push({
+          step: "screenshots_url_unresolved",
+          reason:
+            view.exitCode === 0
+              ? "could not match hosted URLs in the PR body; screenshots will re-upload next pass"
+              : `gh pr view failed (${view.stderr.trim() || view.exitCode}); screenshots will re-upload next pass`,
+        });
       }
     }
   }

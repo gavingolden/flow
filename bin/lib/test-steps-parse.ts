@@ -62,9 +62,11 @@ function classify(text: string): StepKind {
  */
 function bodyLineLocator(body: string): (raw: string) => number {
   const bodyLines = body.split("\n");
+  const strippedLines = bodyLines.map((l) => l.replace(/<!--[\s\S]*?-->/g, ""));
   let cursor = bodyLines.findIndex((l) => /^## Test Steps[ \t]*$/.test(l)) + 1;
   return (raw) => {
-    const idx = bodyLines.indexOf(raw, cursor);
+    let idx = strippedLines.indexOf(raw, cursor);
+    if (idx < 0) idx = bodyLines.indexOf(raw, cursor);
     if (idx < 0) return 0;
     cursor = idx + 1;
     return idx + 1;

@@ -1481,7 +1481,7 @@ appearance change whose Test Steps contain **no `SUBJECTIVE: ` step** is also a 
 finding (the page can auto-merge with no human aesthetic sign-off) — detection is reviewer
 judgment guided by the rubric's include-vs-exempt test. This folds into the Testability
 criterion above; no new fail subtype. Defer to `references/manual-test-rubric.md`
-("Subjective checks"). After the 8c checklist run, also run `flow-test-steps-lint --phase review` on `.flow-tmp/body.md` (tolerant named skip when the helper is absent) and map each finding onto the subtypes above per the rubric's `## Mechanical lint` table — advisory input to 11c/11d, never a pause; `subjective-mixed` is a suggestion and is never split automatically.
+("Subjective checks"). After the 8c checklist run, also run `flow-test-steps-lint --body-file .flow-tmp/body.md --phase review` (tolerant named skip when the helper is absent) and map each finding onto the subtypes above per the rubric's `## Mechanical lint` table — advisory input to 11c/11d, never a pause; `subjective-mixed` is a suggestion and is never split automatically.
 
 A UI wiring change (mounting a new component, wiring a new route, registering a new handler) whose Test Steps are verified solely by import-presence greps (`grep -q 'NewComponent' App.svelte`) — with no component or browser behavioral assertion (Testing Library render test, Playwright spec, chrome-devtools MCP check) — is under-tested; flag as Testability: Fail (shallow). Trivial copy or padding tweaks are exempt. See `references/manual-test-rubric.md` ("UI wiring behavioral assertion") for the rule.
 

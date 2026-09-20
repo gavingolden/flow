@@ -7142,6 +7142,34 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     }
   });
 
+  it("the `SUBJECTIVE: confirm` literal and the per-item checkbox marker never reappear repo-wide", () => {
+    const roots = ["skills", ".github"];
+    const files: string[] = [];
+    for (const root of roots) {
+      const rootPath = path.resolve(HERE, "..", root);
+      if (!fs.existsSync(rootPath)) continue;
+      const walk = (dir: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(full);
+          else if (entry.name.endsWith(".md")) files.push(full);
+        }
+      };
+      walk(rootPath);
+    }
+    for (const file of files) {
+      const text = fs.readFileSync(file, "utf8");
+      expect(
+        text.includes("SUBJECTIVE: confirm"),
+        `${file}: 'SUBJECTIVE: confirm' migrated to 'DECISION: ' — this literal must not reappear.`,
+      ).toBe(false);
+      expect(
+        text.includes("for each `- [ ]` item below"),
+        `${file}: must not contain a literal unchecked-box marker.`,
+      ).toBe(false);
+    }
+  });
+
   it("review routes the three browser item kinds and never relabels an undriven check", () => {
     for (const heading of [
       "## Three item kinds, one spawn",
@@ -7180,7 +7208,9 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
           "lint code (bin/lib/test-steps-parse.ts LintCode) to a review action.",
       ).toBe(true);
     }
-    expect(prReviewContent).toContain("flow-test-steps-lint --phase review");
+    expect(prReviewContent).toContain(
+      "flow-test-steps-lint --body-file .flow-tmp/body.md --phase review",
+    );
     expect(prReviewContent).toContain("## Mechanical lint");
     expect(
       content.split(".item_results[]?").length - 1,

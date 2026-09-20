@@ -10,6 +10,7 @@ import {
   type ReviewFinalize,
   type ReviewFinalizeOptions,
 } from "./lib/review-finalize";
+import { hostedUrls, type AttachItem } from "./lib/review-screenshots";
 
 let worktree!: string;
 
@@ -429,6 +430,11 @@ describe("screenshot attach", () => {
     fs.writeFileSync(path.join(worktree, ".flow-tmp", "body.md"), body);
   }
 
+  /** Snapshot of the last `--body-file` target's content at exec time — the
+   * production code deletes the `.noimg.md` sibling right after `gh pr edit`
+   * returns, so tests must capture its content while it still exists. */
+  let lastPushedBodyFileContent: string | null = null;
+
   /** Wraps makeExec: answers `gh --version` / `gh pr view`, optionally fails an --attach edit. */
   function attachExec(
     calls: string[][],
@@ -439,6 +445,12 @@ describe("screenshot attach", () => {
       if (argv[0] === "gh" && argv[1] === "--version") {
         calls.push(argv);
         return { stdout: `gh version ${o.version} (2026-09-15)\n`, ...OK };
+      }
+      if (argv[0] === "gh" && argv[2] === "edit") {
+        const bodyFileArg = argv[argv.indexOf("--body-file") + 1];
+        if (bodyFileArg) {
+          lastPushedBodyFileContent = fs.readFileSync(bodyFileArg, "utf8");
+        }
       }
       if (argv[0] === "gh" && argv[2] === "view") {
         calls.push(argv);
@@ -543,13 +555,14 @@ describe("screenshot attach", () => {
     expect(result.skips.map((s) => s.step)).toContain("screenshots_gh_too_old");
     const [edit] = edits(calls);
     expect(edit).not.toContain("--attach");
-    const pushed = fs.readFileSync(
-      edit[edit.indexOf("--body-file") + 1],
-      "utf8",
-    );
+    const pushed = lastPushedBodyFileContent ?? "";
     expect(pushed).not.toContain(REF);
     expect(pushed).toContain(LOCAL_LINK);
     expect(fs.readFileSync(bodyPath(), "utf8")).toContain(REF);
+    expect(
+      fs.existsSync(edit[edit.indexOf("--body-file") + 1]),
+      "the .noimg.md sibling must be cleaned up after the push",
+    ).toBe(false);
   });
 
   it("attach: a body over 60000 chars records screenshots_body_too_large, strips image refs, keeps local links", async () => {
@@ -564,10 +577,7 @@ describe("screenshot attach", () => {
     );
     const [edit] = edits(calls);
     expect(edit).not.toContain("--attach");
-    const pushed = fs.readFileSync(
-      edit[edit.indexOf("--body-file") + 1],
-      "utf8",
-    );
+    const pushed = lastPushedBodyFileContent ?? "";
     expect(pushed).not.toContain(REF);
     expect(pushed).toContain(LOCAL_LINK);
     expect(result.body_updated).toBe(true);
@@ -619,6 +629,43 @@ describe("screenshot attach", () => {
     const calls: string[][] = [];
     await runReviewFinalize(baseOpts(calls));
     expect(calls.some((c) => c[1] === "--version")).toBe(false);
+  });
+});
+
+describe("hostedUrls", () => {
+  const attach: AttachItem[] = [
+    { target: "a.png", arg: "/w/a.png#a", sha: "sha-a" },
+    { target: "b.png", arg: "/w/b.png#b", sha: "sha-b" },
+  ];
+  const pushed = "![a](a.png)\n\n![b](b.png)\n";
+
+  it("pairs two local refs to their positional hosted URL", () => {
+    const remote =
+      "![a](https://github.com/user-attachments/assets/aaa)\n\n" +
+      "![b](https://github.com/user-attachments/assets/bbb)\n";
+    const urls = hostedUrls(pushed, remote, attach);
+    expect(urls.get("a.png")).toBe(
+      "https://github.com/user-attachments/assets/aaa",
+    );
+    expect(urls.get("b.png")).toBe(
+      "https://github.com/user-attachments/assets/bbb",
+    );
+  });
+
+  it("returns no pairs when the image count doesn't match", () => {
+    const remote = "![a](https://github.com/user-attachments/assets/aaa)\n";
+    const urls = hostedUrls(pushed, remote, attach);
+    expect(urls.size).toBe(0);
+  });
+
+  it("skips a ref whose remote counterpart is still a relative path", () => {
+    const remote =
+      "![a](a.png)\n\n![b](https://github.com/user-attachments/assets/bbb)\n";
+    const urls = hostedUrls(pushed, remote, attach);
+    expect(urls.has("a.png")).toBe(false);
+    expect(urls.get("b.png")).toBe(
+      "https://github.com/user-attachments/assets/bbb",
+    );
   });
 });
 
