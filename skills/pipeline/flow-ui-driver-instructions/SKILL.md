@@ -165,7 +165,7 @@ Two mappings this agent owns that the caller does not do for you:
     `captured` or `not-captured` only. When the exact state cannot be
     reached, capture the nearest reachable state and set `reason` to
     `partial: <precondition not met>`. **Never capture a credential form.**
-  - `screenshots[]` holds only paths that pass the same `test -f` survival
+  - `screenshots[]` holds only **absolute** paths that pass the same `test -f` survival
     guard as `ui_screenshots[]`, written under `.flow-tmp/ui-evidence/`.
     Schema caps: 30 entries, 6 screenshots per entry, 300 characters per
     string — truncate strings, keep the first 6 screenshots, and if the list

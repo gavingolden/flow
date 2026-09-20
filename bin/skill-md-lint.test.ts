@@ -7161,6 +7161,38 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     expect(agentPromptsContent).toContain("DECISION: ");
   });
 
+  it("the lint is wired into review and the supervisor surfaces per-item screenshots", () => {
+    expect(manualTestRubricContent.includes("\n## Mechanical lint\n")).toBe(
+      true,
+    );
+    for (const code of [
+      "generic-suite",
+      "presence-only",
+      "subjective-mixed",
+      "subjective-no-image",
+      "ticked-no-evidence",
+      "post-merge-step",
+      "human-only-ticked",
+    ]) {
+      expect(
+        manualTestRubricContent.includes(`\`${code}\``),
+        `manual-test-rubric.md '## Mechanical lint' must map the '${code}' ` +
+          "lint code (bin/lib/test-steps-parse.ts LintCode) to a review action.",
+      ).toBe(true);
+    }
+    expect(prReviewContent).toContain("flow-test-steps-lint --phase review");
+    expect(prReviewContent).toContain("## Mechanical lint");
+    expect(
+      content.split(".item_results[]?").length - 1,
+      "both 'Surface UI screenshots' recipes must read item_results[] first.",
+    ).toBeGreaterThanOrEqual(2);
+    expect(content).toContain(".ui_screenshots[]?");
+    expect(
+      content.includes('startswith("screenshots_")'),
+      "the gated branch must print a line when a screenshots_* skip fired.",
+    ).toBe(true);
+  });
+
   it("redirect-handling.md requires a gate override to be fresh, unambiguous, and in-context", () => {
     expect(
       redirectHandlingContent.includes("## Gate override"),

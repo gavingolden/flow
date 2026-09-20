@@ -594,6 +594,27 @@ describe("screenshot attach", () => {
     ).toBe(false);
   });
 
+  it("attach: the envelope is persisted so the GATED summary can name a screenshots skip", async () => {
+    seed();
+    const calls: string[][] = [];
+    const result = await runReviewFinalize({
+      ...baseOpts(calls),
+      exec: attachExec(calls, { version: "2.93.0" }),
+    });
+    const onDisk = JSON.parse(
+      fs.readFileSync(
+        path.join(worktree, ".flow-tmp", "review-finalize.json"),
+        "utf8",
+      ),
+    );
+    expect(onDisk).toEqual(result);
+    expect(
+      onDisk.skips.find((s: { step: string }) =>
+        s.step.startsWith("screenshots_"),
+      ).reason,
+    ).toContain("brew upgrade gh");
+  });
+
   it("attach: a body with no local image reference never probes gh --version", async () => {
     const calls: string[][] = [];
     await runReviewFinalize(baseOpts(calls));

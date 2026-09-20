@@ -453,7 +453,7 @@ export async function runReviewFinalize(
     }
   }
 
-  return {
+  const envelope: ReviewFinalize = {
     body_updated,
     screenshots_uploaded,
     result_artifact: resultPath,
@@ -466,4 +466,12 @@ export async function runReviewFinalize(
     lens_tokens_forwarded,
     skips,
   };
+  // Persisted so the supervisor's GATED path can name a screenshots_* skip;
+  // stdout alone is lost once /flow-pr-review returns.
+  try {
+    writeFile(path.join(dir, "review-finalize.json"), JSON.stringify(envelope));
+  } catch {
+    // The envelope on stdout is still the record.
+  }
+  return envelope;
 }

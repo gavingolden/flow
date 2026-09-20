@@ -203,7 +203,8 @@ the user has something to judge. For each `capture` entry in `item_results[]`:
     --image '.flow-tmp/ui-evidence/<name>-1280.png#<item> (desktop)'
   ```
 
-  Pass each path **worktree-relative** — the block's image reference is what
+  Run it from the worktree root (the helper writes each image reference
+  **worktree-relative** whatever form the path is passed in) — that reference is what
   `flow-review-finalize` hands to `gh pr edit --attach` for upload, and its
   `file://` link is what the GATED summary prints. `--no-tick` is belt and
   braces: the helper refuses to tick a `SUBJECTIVE: ` / `DECISION: ` line

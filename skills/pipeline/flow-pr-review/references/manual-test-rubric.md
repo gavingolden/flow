@@ -655,6 +655,39 @@ A Test Step that verifies a UI wiring change — mounting a new component, wirin
 
 Proportionality carve-out: trivial copy or padding tweaks are exempt — the include-vs-exempt test from **A non-trivial UI appearance change must author a subjective approval step** above applies here too. See **Guard-strength check** in the Automate first section for the formal (d) axis this rule instantiates.
 
+## Mechanical lint
+
+`flow-test-steps-lint --body-file <path> --phase authoring|review` parses the
+checklist with the merge decision's own section rules and reports rule breaks
+as JSON `findings[]`. It is **advisory**: a finding feeds the existing
+fix-then-show behaviour (authoring fixes the draft; `/flow-pr-review` Step 11b
+folds it into Testability and its 11c/11d body update) and **never pauses a
+run**. When the command is not on PATH, record the named skip
+`test-steps-lint: helper not installed` and carry on.
+
+| Code                  | Phase  | Severity     | Review action                                                                                                                                 |
+| --------------------- | ------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `generic-suite`       | both   | finding      | Testability `Fail (shallow)` — replace with the specific test file/case, or remove (CI already runs the suite)                                |
+| `presence-only`       | both   | finding      | Testability `Fail (shallow)` — replace with a behavioural assertion (see **Guard-strength check**)                                            |
+| `subjective-mixed`    | both   | `suggestion` | Reviewer's call: split per the **Split rule** when the clause really is measurable. **Never split automatically** — the match is phrase-based |
+| `post-merge-step`     | both   | finding      | Remove from Test Steps and register it on the local follow-ups list (`flow-followups`)                                                        |
+| `human-only-ticked`   | both   | finding      | Untick it, unless the user ticked it themselves in this session — agents never tick `SUBJECTIVE: ` / `DECISION: `                             |
+| `subjective-no-image` | review | finding      | Step 8c should have captured it: re-check the capture, or add the `no screenshot: <reason>` line. An item with that line is not flagged       |
+| `ticked-no-evidence`  | review | finding      | A ticked prose or `Browser: ` item with no evidence block — re-run it for proof, or untick it                                                 |
+
+At review, run it **after** the Step 8c checklist run (so evidence blocks and
+captures are already in the body) against `.flow-tmp/body.md`:
+
+```bash
+if command -v flow-test-steps-lint >/dev/null; then
+  flow-test-steps-lint --body-file "$WORKTREE/.flow-tmp/body.md" --phase review 2>/dev/null > "$WORKTREE/.flow-tmp/test-steps-lint.json"
+else
+  echo "test-steps-lint: helper not installed"
+fi
+```
+
+Capture stdout only — never `2>&1` — so the JSON stays parseable.
+
 ## Proportionality
 
 The rubric exists because AI-generated code needs a verification hook that's hard to

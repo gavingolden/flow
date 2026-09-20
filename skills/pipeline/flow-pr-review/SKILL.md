@@ -1481,7 +1481,7 @@ appearance change whose Test Steps contain **no `SUBJECTIVE: ` step** is also a 
 finding (the page can auto-merge with no human aesthetic sign-off) — detection is reviewer
 judgment guided by the rubric's include-vs-exempt test. This folds into the Testability
 criterion above; no new fail subtype. Defer to `references/manual-test-rubric.md`
-("Subjective checks").
+("Subjective checks"). After the 8c checklist run, also run `flow-test-steps-lint --phase review` on `.flow-tmp/body.md` (tolerant named skip when the helper is absent) and map each finding onto the subtypes above per the rubric's `## Mechanical lint` table — advisory input to 11c/11d, never a pause; `subjective-mixed` is a suggestion and is never split automatically.
 
 A UI wiring change (mounting a new component, wiring a new route, registering a new handler) whose Test Steps are verified solely by import-presence greps (`grep -q 'NewComponent' App.svelte`) — with no component or browser behavioral assertion (Testing Library render test, Playwright spec, chrome-devtools MCP check) — is under-tested; flag as Testability: Fail (shallow). Trivial copy or padding tweaks are exempt. See `references/manual-test-rubric.md` ("UI wiring behavioral assertion") for the rule.
 
@@ -1726,7 +1726,7 @@ section ends with one summary line:
 Automation-precedence audit: ran N/M items (X prose-promoted, Y left manual: <reasons>)
 ```
 
-Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X, Y) and the per-unticked-item rubric categories; the `flow-review-finalize` call above forwards them to `flow-classify-step --ran $N --total $M --prose-promoted $X --reason ...` internally and folds its stdout into the result artifact's `summary` field — read that field back (see above) and append it to the report under "Test Steps (from PR description)". Allowed `--reason` slugs (kebab-case form of the five categories in references/manual-test-rubric.md): `subjective-UX`, `production-only`, `cross-browser`, `performance-under-realistic-load`, `cost-prohibitive-infra`. The bullet list below remains the contract documentation; `bin/flow-classify-step.test.ts` pins the format on the helper side so the two cannot drift silently.
+Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X, Y) and the per-unticked-item rubric categories; the `flow-review-finalize` call above forwards them to `flow-classify-step --ran $N --total $M --prose-promoted $X --reason ...` internally and folds its stdout into the result artifact's `summary` field — read that field back (see above) and append it to the report under "Test Steps (from PR description)". Allowed `--reason` slugs (kebab-case form of the categories in references/manual-test-rubric.md): `subjective-UX`, `production-only`, `cross-browser`, `performance-under-realistic-load`, `cost-prohibitive-infra`, `browser-unavailable`. The bullet list below remains the contract documentation; `bin/flow-classify-step.test.ts` pins the format on the helper side so the two cannot drift silently.
 
 - `M` is the total `- [ ]` item count in the section.
 - `N` is the number ticked by 8c (author-runnable + prose-promoted via 8c.ii).
