@@ -19,6 +19,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { validatePrReviewResult } from "./pr-review-result-schema";
+import {
+  ghSupportsAttach,
+  hasLocalImageRefs,
+  pushBodyWithScreenshots,
+  sha256File,
+} from "./review-screenshots";
+
+export { ghSupportsAttach };
 
 export type ExecResult = { stdout: string; stderr: string; exitCode: number };
 export type ExecFn = (argv: string[], opts?: { cwd?: string }) => ExecResult;
@@ -27,6 +35,7 @@ export type ReviewFinalizeSkip = { step: string; reason: string };
 
 export type ReviewFinalize = {
   body_updated: boolean;
+  screenshots_uploaded: number;
   result_artifact: string;
   result_valid: boolean;
   telemetry_recorded: boolean;
@@ -105,6 +114,8 @@ export type ReviewFinalizeOptions = {
   exec?: ExecFn;
   readFile?: (p: string) => string | null;
   writeFile?: (p: string, content: string) => void;
+  /** sha256 of a file's bytes, or null when unreadable. */
+  hashFile?: (p: string) => string | null;
 };
 
 function defaultExec(argv: string[], opts?: { cwd?: string }): ExecResult {
@@ -143,6 +154,7 @@ export async function runReviewFinalize(
   const exec = opts.exec ?? defaultExec;
   const readFile = opts.readFile ?? defaultReadFile;
   const writeFile = opts.writeFile ?? defaultWriteFile;
+  const hashFile = opts.hashFile ?? sha256File;
   const dir = path.join(opts.worktree, ".flow-tmp");
   const prStr = String(opts.pr);
   const skips: ReviewFinalizeSkip[] = [];
@@ -152,7 +164,17 @@ export async function runReviewFinalize(
   // call in between. `--fix-pr-body` always exits 0 (see flow-md-validate.ts),
   // so a non-zero exitCode here means the process itself failed to run.
   let body_updated = false;
+  let screenshots_uploaded = 0;
   {
+    // The version probe runs BEFORE body_repair so nothing sits between
+    // flow-md-validate and gh pr edit, and only when there is a local image
+    // reference to upload.
+    let attachSupported = false;
+    if (hasLocalImageRefs(readFile(opts.bodyFile) ?? "")) {
+      runStep(skips, "screenshots_probe", () => {
+        attachSupported = ghSupportsAttach(exec(["gh", "--version"]).stdout);
+      });
+    }
     let bodyStale = false;
     runStep(skips, "body_repair", () => {
       // A stale `.flow-tmp/body.md` from a prior run must never clobber
@@ -169,14 +191,18 @@ export async function runReviewFinalize(
     });
     if (!bodyStale) {
       runStep(skips, "body_edit", () => {
-        const edit = exec([
-          "gh",
-          "pr",
-          "edit",
-          prStr,
-          "--body-file",
-          opts.bodyFile,
-        ]);
+        const pushed = pushBodyWithScreenshots(
+          { exec, readFile, writeFile, hashFile },
+          {
+            prStr,
+            bodyFile: opts.bodyFile,
+            worktree: opts.worktree,
+            attachSupported,
+          },
+        );
+        skips.push(...pushed.skips);
+        screenshots_uploaded = pushed.uploaded;
+        const edit = pushed.edit;
         if (edit.exitCode !== 0) {
           throw new Error(edit.stderr || "gh pr edit --body-file failed");
         }
@@ -429,6 +455,7 @@ export async function runReviewFinalize(
 
   return {
     body_updated,
+    screenshots_uploaded,
     result_artifact: resultPath,
     result_valid,
     telemetry_recorded,
