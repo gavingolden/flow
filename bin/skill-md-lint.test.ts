@@ -7100,6 +7100,48 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(false);
   });
 
+  it("every authoring site carries the two labels, the Browser: shape and the lint", () => {
+    const sites: [string, string][] = [
+      ["flow-new-feature/SKILL.md", newFeatureContent],
+      ["pr-description-authoring.md", prDescriptionAuthoringContent],
+      ["discovery-instructions.md", discoveryInstructionsContent],
+    ];
+    for (const [name, content] of sites) {
+      for (const literal of ["SUBJECTIVE: ", "DECISION: ", "Browser: "]) {
+        expect(
+          content.includes(literal),
+          `${name} must name the literal \`${literal}\` label — the authoring ` +
+            "sites mirror manual-test-rubric.md's two human-only labels and the " +
+            "browser-behaviour shape.",
+        ).toBe(true);
+      }
+    }
+    for (const [name, content] of sites.slice(1)) {
+      expect(
+        content.includes(
+          "flow-test-steps-lint --body-file .flow-tmp/pr-description-draft.md --phase authoring",
+        ),
+        `${name} must run the authoring lint on the saved draft.`,
+      ).toBe(true);
+      expect(
+        content.includes("command -v flow-test-steps-lint"),
+        `${name} must degrade to a named skip when the helper is absent.`,
+      ).toBe(true);
+    }
+    for (const [name, content] of [
+      ...sites,
+      ["PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent] as [
+        string,
+        string,
+      ],
+    ]) {
+      expect(
+        content.includes("for each `- [ ]` item below"),
+        `${name}: the authoring-rubric marker must not contain a literal unchecked box.`,
+      ).toBe(false);
+    }
+  });
+
   it("redirect-handling.md requires a gate override to be fresh, unambiguous, and in-context", () => {
     expect(
       redirectHandlingContent.includes("## Gate override"),
@@ -11514,12 +11556,12 @@ describe("turn-budget sentinel + SUBJECTIVE-gating rule wiring (PR #859)", () =>
     ["flow-new-feature/SKILL.md", () => newFeatureContent],
     ["flow-pr-review/SKILL.md", () => prReviewContent],
   ])(
-    "%s gates unattempted entries with a SUBJECTIVE Test Step",
+    "%s gates unattempted entries with a DECISION Test Step",
     (name, getContent) => {
       expect(
-        getContent().includes("SUBJECTIVE: confirm N unattempted entries"),
+        getContent().includes("DECISION: confirm N unattempted entries"),
         `${name} must gate a partial/turn-budget artifact behind an unchecked ` +
-          "`- [ ] SUBJECTIVE: confirm N unattempted entries...` Test Step so the PR " +
+          "`- [ ] DECISION: confirm N unattempted entries...` Test Step so the PR " +
           "is never auto-merged with silently-dropped work.",
       ).toBe(true);
     },

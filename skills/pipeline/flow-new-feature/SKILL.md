@@ -481,14 +481,14 @@ The **Test Steps** automation test: can I name (a) a fixture/setup, (b) one or m
 deterministic assertions, and (c) an exit condition — all without subjective human
 judgment? If yes, write the item as the runnable shell command, not manual prose. A
 non-trivial UI change authors one `SUBJECTIVE: `-prefixed step per facet (or one overall
-sign-off for a Visual-Spec-referencing PR) that the agent can never tick. Apply the
+sign-off for a Visual-Spec-referencing PR) that the agent can never tick. Human-only items use exactly two labels — `SUBJECTIVE: ` (taste; review attaches a screenshot) and `DECISION: ` (accept a named trade-off); a browser behaviour check is written `Browser: on <route>, <action> — expect <result>`; post-merge chores go to `flow-followups`, never Test Steps (rubric headings **Decision checks**, **Behaviour checks: the Browser: shape**, **Split rule: a taste item holds only taste**, **Shallow smells**). Apply the
 rubric's **Coverage breadth** (one check per distinct facet), **"Decompose a manual step by layer"** (route a backend contract to an integration test, keep only the genuine
 browser remainder manual), and **Precondition concreteness** (spell out the exact how)
-rules to every candidate item. Open the section with this HTML comment, copied verbatim,
+rules to every candidate item, then run the authoring lint (`references/pr-description-authoring.md` `## Test Steps`). Open the section with this HTML comment, copied verbatim,
 between the heading and the first `- [ ]` item:
 
 ```html
-<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+<!-- flow:authoring-rubric — for each checkbox item below, the three-question
 automation test from manual-test-rubric.md is: (a) named fixture/setup,
 (b) deterministic assertion(s), (c) exit condition. If all three are answerable
 without subjective human judgment, it must be a runnable item. Source of truth:
@@ -649,7 +649,7 @@ edits applied, `verify_status == "pass"`) proceeds instead of escalating:
 register the entries via the loop above, and the PR body's
 `## Deviations from plan` names the count and untracked ids AND
 `## Test Steps` gains an unchecked
-`- [ ] SUBJECTIVE: confirm N unattempted entries (listed under
+`- [ ] DECISION: confirm N unattempted entries (listed under
 
 ## Deviations from plan) are acceptable` item so the PR is gated.
 

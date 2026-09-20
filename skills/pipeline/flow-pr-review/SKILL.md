@@ -1525,7 +1525,7 @@ ordinary Accuracy Sync fix in the description body. When N > 0 findings
 were never attempted, add a bullet: N findings not attempted (turn budget) — registered as untracked #a–#b (Step 13's
 seed already registers the empty-`tracker_entry_url` deferrals, so no
 new command is needed here) plus an unchecked
-`- [ ] SUBJECTIVE: confirm N unattempted entries (listed under
+`- [ ] DECISION: confirm N unattempted entries (listed under
 ## Deviations from plan above) are acceptable` Test Step so the PR is gated.
 
 ### 11e. Resolution
