@@ -63,6 +63,28 @@ When the committed manifest carries a `{{PORT}}` sentinel — or one or more `{{
 
 **Shared-profile lock (parallel pipelines).** chrome-devtools-mcp backs every browser with a single default on-disk Chrome profile (`~/.cache/chrome-devtools-mcp/chrome-profile`), so two pipelines that both reach this pass under one un-isolated MCP registration contend for it — the second to launch errors with `The browser is already running for ~/.cache/chrome-devtools-mcp/chrome-profile. Use --isolated to run multiple browser instances`. On detecting the lock, drive `flow-ui-validate --browser-busy` — a loud-but-clean `ran:false` / `skipped_reason: browser-profile-busy` skip that degrades exactly like an absent MCP, never a hard failure. The cross-process fix is operator-side: register the chrome-devtools MCP with `--isolated` in `~/.claude.json` so each server process gets its own auto-cleaned throwaway profile. The per-call `isolatedContext` above is same-server defense-in-depth only — it isolates pages within one MCP server but does NOT resolve the cross-process on-disk-profile lock.
 
+## Item-driven drive
+
+**Gate: this section applies only when the spawn prompt carries `MODE: items`** (alias: `MODE: visual-appearance`) — the `/flow-pr-review` Step 8c.iii caller. The gate-time smoke pass above never uses it. The caller passes a checklist item list with each item tagged by kind; the driver works each item in list order inside the same launch, the same per-pipeline `isolatedContext`, and the same teardown as the smoke pass — still exactly one UI-Driver spawn per review pass. Results land in the artifact's optional `item_results[]` (`bin/lib/ui-driver-schema.ts`), one entry per item.
+
+| Kind         | Source item                                              | What the driver does                                                                  | Verdicts                         |
+| ------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------- |
+| `appearance` | an enumerated visual-appearance assertion                | navigate, `wait_for`, `take_snapshot`, assert the observation against the snapshot    | `pass` / `fail` / `not-drivable` |
+| `behavior`   | a `Browser: on <route>, <action> — expect <result>` item | perform the action chain, `wait_for` the expected result, `take_snapshot` as proof    | `pass` / `fail` / `not-drivable` |
+| `capture`    | a `SUBJECTIVE: ` item                                    | reach the state from the item's own text, `take_screenshot` per size; **never judge** | `captured` / `not-captured`      |
+
+**Per-item bounds.** At most **8 browser actions and one wait of 15s** per item. On overrun the verdict is `not-drivable` with the reason in `reason`, and the driver moves to the next item — one stubborn item never starves the rest.
+
+**A behaviour `pass` means visible, not merely present.** The expected element must be in the a11y snapshot **and** inside the viewport (`getBoundingClientRect()` intersects the viewport, non-zero size). An element that exists off-screen or behind a closed disclosure is a `fail`.
+
+**Capture sizes.** The sizes the item names (`at 375×667`, `at desktop width`); otherwise phone **390** and desktop **1280** wide. Screenshots go under `.flow-tmp/ui-evidence/` through the same save-path cascade as the smoke pass, and only a path that survives `test -f` is reported.
+
+**Reaching a state.** The item text is the only recipe (the rubric's "Precondition concreteness" requires it to spell out every precondition). Run any **local, reversible** setup it names. When the exact state cannot be reached, capture the nearest reachable state, verdict `captured`, `reason: "partial: <precondition not met>"` — a partial picture beats none and never ticks the box. When nothing useful can be captured, verdict `not-captured` with the reason; the caller writes it under the item as `no screenshot: <reason>`.
+
+**Never capture a credential form.** The smoke pass's never-photograph-the-login-form rule applies unchanged to `behavior` and `capture` items: skip the screenshot, keep the snapshot text free of field values, and record `not-captured` with reason `credential form`.
+
+**Degradation.** MCP absent, browser-profile busy, or launch/login failure takes the same loud `ran:false` skip as the smoke pass; the caller then leaves every `behavior` / `appearance` item open with the reason `browser-unavailable` and gives every `capture` item a `no screenshot:` line.
+
 ## Design-fidelity sub-pass (spec-gated)
 
 **Gate: this sub-pass exists only when the worktree-local `.flow-tmp/design/spec.json` exists.** No `spec.json` → the sub-pass does not exist — zero cost, zero prose, zero tool calls; the smoke pass above is byte-for-byte unchanged. (The spec is pipeline-ephemeral, frozen by discovery's design-artifact fidelity pre-pass and never committed.)

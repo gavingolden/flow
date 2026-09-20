@@ -38,13 +38,35 @@ export type UiDriverSkippedReason = (typeof SKIPPED_REASONS)[number];
 export type UiDriverFixContextEntry = {
   route: string;
   // Optional: which checklist item this entry maps to when the driver ran
-  // under `MODE: visual-appearance` (the /flow-pr-review 8c.iii caller) with
+  // under `MODE: items` (the /flow-pr-review 8c.iii caller) with
   // an enumerated item list — absent for the `/flow-verify` default drive,
   // which has no per-item checklist to map against.
   item?: string;
   consoleErrors: string[];
   failedRequests: string[];
   missingSelectors: string[];
+};
+
+export const ITEM_KINDS = ["appearance", "behavior", "capture"] as const;
+export const ITEM_VERDICTS = [
+  "pass",
+  "fail",
+  "not-drivable",
+  "captured",
+  "not-captured",
+] as const;
+
+// One entry per checklist item the driver worked under `MODE: items` (the
+// /flow-pr-review 8c.iii caller). `capture` items are photographed, never
+// judged, so they take only `captured` / `not-captured`; the other two kinds
+// take only `pass` / `fail` / `not-drivable`.
+export type UiDriverItemResult = {
+  item: string;
+  kind: (typeof ITEM_KINDS)[number];
+  verdict: (typeof ITEM_VERDICTS)[number];
+  reason?: string;
+  snapshot_path?: string;
+  screenshots: string[];
 };
 
 export type UiDriverResult = {
@@ -54,6 +76,7 @@ export type UiDriverResult = {
   captures_path: string;
   ui_screenshots: string[];
   fix_context: UiDriverFixContextEntry[];
+  item_results?: UiDriverItemResult[];
   rejected_alternatives: string[];
   summary: string;
 };
@@ -132,6 +155,66 @@ function validateFixContextEntry(entry: unknown, path: string): string[] {
   return errors;
 }
 
+const ITEM_RESULTS_MAX_ENTRIES = 30;
+const ITEM_RESULTS_MAX_SCREENSHOTS = 6;
+const ITEM_RESULTS_STRING_MAX_CHARS = 300;
+
+function validateItemResult(entry: unknown, path: string): string[] {
+  if (typeof entry !== "object" || entry === null) {
+    return [`'${path}' must be an object`];
+  }
+  const errors: string[] = [];
+  const o = entry as Record<string, unknown>;
+  const capped = (field: string, v: string): void => {
+    if (v.length > ITEM_RESULTS_STRING_MAX_CHARS) {
+      errors.push(
+        `'${path}.${field}' exceeds the ${ITEM_RESULTS_STRING_MAX_CHARS}-char cap`,
+      );
+    }
+  };
+  if (!isString(o.item) || o.item.length === 0) {
+    errors.push(`'${path}.item' must be a non-empty string`);
+  } else capped("item", o.item);
+  const kindOk =
+    isString(o.kind) && (ITEM_KINDS as readonly string[]).includes(o.kind);
+  if (!kindOk) {
+    errors.push(`'${path}.kind' must be one of ${ITEM_KINDS.join(", ")}`);
+  }
+  const verdictOk =
+    isString(o.verdict) &&
+    (ITEM_VERDICTS as readonly string[]).includes(o.verdict);
+  if (!verdictOk) {
+    errors.push(`'${path}.verdict' must be one of ${ITEM_VERDICTS.join(", ")}`);
+  }
+  if (kindOk && verdictOk) {
+    const captureVerdict =
+      o.verdict === "captured" || o.verdict === "not-captured";
+    if ((o.kind === "capture") !== captureVerdict) {
+      errors.push(
+        `'${path}.verdict' '${String(o.verdict)}' is not valid for kind '${String(o.kind)}'`,
+      );
+    }
+  }
+  for (const field of ["reason", "snapshot_path"] as const) {
+    const v = o[field];
+    if (v === undefined) continue;
+    if (!isString(v)) {
+      errors.push(`'${path}.${field}' must be a string when present`);
+    } else capped(field, v);
+  }
+  if (!isStringArray(o.screenshots)) {
+    errors.push(`'${path}.screenshots' must be an array of strings`);
+  } else {
+    if (o.screenshots.length > ITEM_RESULTS_MAX_SCREENSHOTS) {
+      errors.push(
+        `'${path}.screenshots' exceeds the ${ITEM_RESULTS_MAX_SCREENSHOTS}-item cap`,
+      );
+    }
+    o.screenshots.forEach((s, i) => capped(`screenshots[${i}]`, s));
+  }
+  return errors;
+}
+
 export function validateUiDriverResult(raw: unknown): ValidationResult {
   const errors: string[] = [];
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
@@ -180,6 +263,21 @@ export function validateUiDriverResult(raw: unknown): ValidationResult {
     o.fix_context.forEach((entry, i) => {
       errors.push(...validateFixContextEntry(entry, `fix_context[${i}]`));
     });
+  }
+
+  if (o.item_results !== undefined) {
+    if (!Array.isArray(o.item_results)) {
+      errors.push("'item_results' must be an array when present");
+    } else {
+      if (o.item_results.length > ITEM_RESULTS_MAX_ENTRIES) {
+        errors.push(
+          `'item_results' exceeds the ${ITEM_RESULTS_MAX_ENTRIES}-entry cap`,
+        );
+      }
+      o.item_results.forEach((entry, i) => {
+        errors.push(...validateItemResult(entry, `item_results[${i}]`));
+      });
+    }
   }
 
   if (errors.length > 0) return { ok: false, errors };

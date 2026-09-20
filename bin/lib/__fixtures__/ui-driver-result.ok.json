@@ -11,6 +11,24 @@
       "missingSelectors": []
     }
   ],
+  "item_results": [
+    {
+      "item": "Browser: on /pricing, click Upgrade — expect the plan dialog.",
+      "kind": "behavior",
+      "verdict": "pass",
+      "snapshot_path": ".flow-tmp/ui-evidence/pricing-upgrade.snapshot.txt",
+      "screenshots": []
+    },
+    {
+      "item": "SUBJECTIVE: the pricing page looks balanced on a phone.",
+      "kind": "capture",
+      "verdict": "captured",
+      "screenshots": [
+        ".flow-tmp/ui-evidence/pricing-390.png",
+        ".flow-tmp/ui-evidence/pricing-1280.png"
+      ]
+    }
+  ],
   "rejected_alternatives": [
     "Considered widening the noise filter to drop all 404s; rejected because a missing asset is a real signal for this manifest."
   ],

@@ -47,12 +47,17 @@ The wrapper passes you these inputs in its spawn prompt:
 - `CAPTURES_PATH` — the absolute path to write the per-route/per-viewport
   captures JSON (`.flow-tmp/ui-captures.json` under the worktree).
 - `MODE` — optional. Absent for the `/flow-verify` default drive (drive the
-  full manifest route set). Set to the literal `visual-appearance` by the
-  `/flow-pr-review` 8c.iii caller, always paired with an enumerated checklist
-  item list in the same spawn prompt: drive only the routes needed to cover
+  full manifest route set). Set to the literal `items` by the
+  `/flow-pr-review` 8c.iii caller (the older literal `visual-appearance` is
+  still accepted as an alias and means the same thing), always paired with a
+  checklist item list in the same spawn prompt where each item is tagged
+  `appearance`, `behavior` or `capture`: drive only the routes needed to cover
   those items, apply `ui-smoke-pass.md`'s per-viewport `## UI traits to
-verify` rubric, and set each `fix_context[]` entry's optional `item` field
-  to the checklist item it maps evidence back to (see step 4 below).
+verify` rubric, follow its `## Item-driven drive` section for the per-kind
+  procedure and bounds, set each `fix_context[]` entry's optional `item` field
+  to the checklist item it maps evidence back to, and write one
+  `item_results[]` entry per item (see step 4 below). An untagged item under
+  the alias is `appearance`.
 - `SKILL_DIR` — the absolute skill base directory. Resolve
   `../flow-pipeline/references/ui-smoke-pass.md` relative to this path, not
   the worktree you `cd`'d into.
@@ -130,7 +135,7 @@ Two mappings this agent owns that the caller does not do for you:
   `expectSelectors` element) that survived the noise filter, add one
   `{route, consoleErrors, failedRequests, missingSelectors}` entry (plus
   `item` — the checklist item this route's evidence maps back to — when
-  `MODE: visual-appearance` supplied an enumerated item list; omit `item`
+  `MODE: items` supplied an enumerated item list; omit `item`
   entirely for the default `/flow-verify` drive, which has no per-item
   checklist).
   `bin/lib/ui-driver-schema.ts` rejects an artifact that exceeds any of
@@ -143,6 +148,29 @@ Two mappings this agent owns that the caller does not do for you:
   "truncated" — only a string can); then, if you have more than 10 route
   entries, keep the 10 most actionable (routes with the most captures, or
   the earliest in `routes[]` on a tie) and drop the rest.
+
+- **`item_results[]` assembly (`MODE: items` only).** One entry per item in
+  the spawn prompt's list, in list order, per `ui-smoke-pass.md`
+  `## Item-driven drive`:
+  - `appearance` — assert the observation against the a11y snapshot; verdict
+    `pass` / `fail` / `not-drivable`; `snapshot_path` is the saved snapshot.
+  - `behavior` — perform the item's action chain, `wait_for` the expected
+    result, snapshot as proof. `pass` requires the expected element to be
+    **visible in the viewport**, not merely present in the page. At most
+    **8 browser actions and one wait of 15s** per item; on overrun the
+    verdict is `not-drivable` with the reason, and you move to the next item.
+  - `capture` — reach the state the item text describes (running any local,
+    reversible setup it names), screenshot at the sizes the item names, else
+    phone **390** and desktop **1280**. Never judge a capture item: verdict
+    `captured` or `not-captured` only. When the exact state cannot be
+    reached, capture the nearest reachable state and set `reason` to
+    `partial: <precondition not met>`. **Never capture a credential form.**
+  - `screenshots[]` holds only paths that pass the same `test -f` survival
+    guard as `ui_screenshots[]`, written under `.flow-tmp/ui-evidence/`.
+    Schema caps: 30 entries, 6 screenshots per entry, 300 characters per
+    string — truncate strings, keep the first 6 screenshots, and if the list
+    exceeds 30 items report the first 30 and name the rest in `summary`.
+  - Omit `item_results` entirely for the default `/flow-verify` drive.
 
 ## 5. Write the artifact (last act)
 
@@ -161,6 +189,15 @@ Write `ARTIFACT_PATH` as the LAST act, after teardown, conforming to
       "consoleErrors": [],
       "failedRequests": [],
       "missingSelectors": []
+    }
+  ],
+  "item_results": [
+    {
+      "item": "<checklist item text>",
+      "kind": "behavior",
+      "verdict": "pass",
+      "snapshot_path": "<absolute path>",
+      "screenshots": []
     }
   ],
   "rejected_alternatives": ["<what you tried and rolled back — 1 line each>"],
