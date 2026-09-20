@@ -15,7 +15,7 @@
  *                      [--reason <slug>]...
  *
  * Each --reason flag appends one rubric category (insertion order
- * preserved); allowed slugs match the five categories in
+ * preserved); allowed slugs match the categories in
  * skills/pipeline/flow-pr-review/references/manual-test-rubric.md.
  *
  * Exit codes:
@@ -38,6 +38,7 @@ export const SLUG_TO_HUMAN: Record<string, string> = {
   "cross-browser": "cross-browser",
   "performance-under-realistic-load": "performance under realistic load",
   "cost-prohibitive-infra": "cost-prohibitive infra",
+  "browser-unavailable": "browser unavailable",
 };
 
 const ALLOWED_SLUGS = Object.keys(SLUG_TO_HUMAN);

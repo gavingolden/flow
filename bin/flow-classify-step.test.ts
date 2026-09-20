@@ -72,6 +72,32 @@ describe(render, () => {
     );
   });
 
+  it("renders the browser-unavailable reason for an undriven browser item", () => {
+    expect(SLUG_TO_HUMAN["browser-unavailable"]).toBe("browser unavailable");
+    expect(
+      render({
+        ran: 1,
+        total: 2,
+        prosePromoted: 0,
+        reasons: ["browser-unavailable"],
+      }),
+    ).toBe(
+      "Automation-precedence audit: ran 1/2 items (0 prose-promoted, 1 left manual: browser unavailable)",
+    );
+    expect(
+      parseArgs([
+        "--ran",
+        "1",
+        "--total",
+        "2",
+        "--prose-promoted",
+        "0",
+        "--reason",
+        "browser-unavailable",
+      ]),
+    ).toMatchObject({ reasons: ["browser-unavailable"] });
+  });
+
   it("renders 'unspecified' when Y>0 but reasons is empty (non-fatal classification gap)", () => {
     expect(render({ ran: 3, total: 5, prosePromoted: 1, reasons: [] })).toBe(
       "Automation-precedence audit: ran 3/5 items (1 prose-promoted, 2 left manual: unspecified)",

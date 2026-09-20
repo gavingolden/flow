@@ -45,8 +45,10 @@ become a runnable bucket** rather than not-runnable — a hand-authored
 `.flow/ui-validation.json` manifest is no longer a precondition. Probe the MCP
 with a guarded `ToolSearch query="select:mcp__chrome-devtools__navigate_page"`
 once at the top of Step 8c; on missing schema, leave every browser item unticked
-with a `subjective UX` reason as before (MCP-absent runs are no regression —
-browser items stay not-runnable and unticked exactly as today). With the MCP
+with the `browser-unavailable` reason (never `subjective UX` — a functional or
+appearance check nobody ran is not a taste call; see `## Three item kinds, one
+spawn` below). MCP-absent runs are no regression — browser items stay unticked
+and the PR holds. With the MCP
 present, branch on the `flow-ui-validate` verdict: on `action: "bootstrap"` (no
 manifest yet, meaningful UI diff), the helper has inferred
 `launch`/`baseUrl`/`routes`/`loginUrl` + credential env-var NAMES plus a
@@ -149,6 +151,74 @@ as harness-level tool calls inside the Fix-Applier subagent's own context (the
 capture genuinely happens outside the Fix-Applier subagent's session — see
 "Merge-back into `ui-driver-result.json`" below). See
 `references/manual-test-rubric.md` "Caveat: browser-validation flakiness".
+
+## Three item kinds, one spawn
+
+The browser bucket holds three kinds of checklist item. All three go to the
+**one** UI-Driver spawn of this 8c pass — never a spawn per kind, never a
+second spawn — as a tagged list under `MODE: items` (the spawn-prompt shape is
+in [agent-prompts.md](agent-prompts.md) "UI-Driver item list (Step 8c.iii)";
+the driver-side procedure and per-item bounds are in
+`../../flow-pipeline/references/ui-smoke-pass.md` `## Item-driven drive`).
+
+| Kind         | Which item                                                   | Ticked?                                  |
+| ------------ | ------------------------------------------------------------ | ---------------------------------------- |
+| `appearance` | an enumerated visual-appearance assertion (the bucket above) | only on `pass`, after the ui-ux judgment |
+| `behavior`   | a `Browser: on <route>, <action> — expect <result>` item     | only on `pass`                           |
+| `capture`    | a `SUBJECTIVE: ` item                                        | **never**                                |
+
+A `DECISION: ` item is none of the three — nothing to drive, nothing to
+photograph — and is never sent to the driver.
+
+Read the verdicts from `ui-driver-result.json`'s `item_results[]` (one entry
+per item, matched on `item`):
+
+- **`pass`** (`behavior` / `appearance`) — inject the snapshot at
+  `snapshot_path` as the evidence block and tick, via the 8c.i
+  `flow-inject-evidence --output-file <snapshot_path> --exit-code 0` call; pass
+  any `screenshots[]` as `--image` so they sit in the same block.
+- **`fail`** — inject the snapshot with `--exit-code 1`; the box stays open
+  and the failure goes in the Step 12 report.
+- **`not-drivable`** — the box stays open; record the driver's `reason`
+  verbatim under the item.
+- **No browser** (MCP absent or busy, launch/login failure, a missing or
+  invalid driver artifact, or an item absent from `item_results[]`) — the box
+  stays open with the reason **`browser-unavailable`**
+  (`flow-classify-step --reason browser-unavailable`).
+
+An open `behavior` or `appearance` box **holds the PR** — that is the intended
+outcome of a check nobody could run. It is never relabelled `subjective UX`,
+never prose-promoted around, and never ticked on the strength of the diff.
+
+## Capture-only evidence for SUBJECTIVE items
+
+A `SUBJECTIVE: ` item is never validated into a tick, but it is photographed so
+the user has something to judge. For each `capture` entry in `item_results[]`:
+
+- **`captured`** — inject the screenshots under the item **without ticking**:
+
+  ```bash
+  flow-inject-evidence --body-file .flow-tmp/body.md --item '<discriminating substring>' \
+    --no-tick --image '.flow-tmp/ui-evidence/<name>-390.png#<item> (phone)' \
+    --image '.flow-tmp/ui-evidence/<name>-1280.png#<item> (desktop)'
+  ```
+
+  Pass each path **worktree-relative** — the block's image reference is what
+  `flow-review-finalize` hands to `gh pr edit --attach` for upload, and its
+  `file://` link is what the GATED summary prints. `--no-tick` is belt and
+  braces: the helper refuses to tick a `SUBJECTIVE: ` / `DECISION: ` line
+  whatever it is passed.
+
+- **`captured` with `reason: "partial: …"`** — inject as above and add an
+  indented `partial: <precondition not met>` line under the item, so the user
+  knows the picture is the nearest reachable state, not the exact one.
+- **`not-captured`**, or no browser — add an indented
+  `no screenshot: <reason>` line under the item (`browser-unavailable` when
+  there was no browser). That line is what keeps `flow-test-steps-lint
+--phase review` from reporting `subjective-no-image`.
+
+The wrapper never runs the ui-ux judgment on a `capture` item and never ticks
+it; the capture exists only so the human sign-off has a picture attached.
 
 ## Design-fidelity per-assertion walk (spec-gated)
 

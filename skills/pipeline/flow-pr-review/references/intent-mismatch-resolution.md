@@ -114,10 +114,10 @@ record `cross_model.ran = false` and `cross_model.agreement = null`.
    or narrower than, or adjacent to but distinct from, the actual
    intent. Append one unchecked Test Steps item to the PR body
    (idempotent upsert — do not duplicate on re-run):
-   `- [ ] SUBJECTIVE: confirm scope drift is intentional - <guess vs request>`
-   — reusing the repo's existing never-automatable prefix (see
-   `references/manual-test-rubric.md`'s "The `SUBJECTIVE: ` marker
-   contract") rather than introducing a new one, so the item can't be
+   `- [ ] DECISION: confirm scope drift is intentional - <guess vs request>`
+   — the repo's never-agent-ticked trade-off label (see
+   `references/manual-test-rubric.md`'s "Decision checks"; it is a
+   decision, not a taste call, so it is not `SUBJECTIVE: `), so the item can't be
    pruned by Step 12's automatable-bullet path or flagged for automation
    by a later Test Coverage review pass.
    This holds the PR at `flow-gate-decide` (an unchecked Test Steps item

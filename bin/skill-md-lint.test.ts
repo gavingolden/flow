@@ -7142,6 +7142,25 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     }
   });
 
+  it("review routes the three browser item kinds and never relabels an undriven check", () => {
+    for (const heading of [
+      "## Three item kinds, one spawn",
+      "## Capture-only evidence for SUBJECTIVE items",
+    ]) {
+      expect(uiValidationEvidenceContent.includes(`\n${heading}\n`)).toBe(true);
+    }
+    expect(uiValidationEvidenceContent).toContain("browser-unavailable");
+    expect(uiValidationEvidenceContent).toContain("--no-tick --image");
+    for (const literal of ["DECISION: ", "Browser: ", "MODE: items"]) {
+      expect(
+        prReviewContent.includes(literal),
+        `flow-pr-review/SKILL.md must name \`${literal}\` in Step 8c / 8c.iii.`,
+      ).toBe(true);
+    }
+    expect(agentPromptsContent).toContain("MODE: items");
+    expect(agentPromptsContent).toContain("DECISION: ");
+  });
+
   it("redirect-handling.md requires a gate override to be fresh, unambiguous, and in-context", () => {
     expect(
       redirectHandlingContent.includes("## Gate override"),
@@ -9253,7 +9272,7 @@ describe("prompt-intent-sanity-check structural anchors", () => {
     ]) {
       expect(c).toContain(v);
     }
-    expect(c).toContain("- [ ] SUBJECTIVE: confirm scope drift is intentional");
+    expect(c).toContain("- [ ] DECISION: confirm scope drift is intentional");
     expect(c).toContain("NEEDS HUMAN: intent-drift");
   });
 

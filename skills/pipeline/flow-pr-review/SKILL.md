@@ -823,7 +823,7 @@ Read the intent-guess artifact(s) and resolve the actual-intent source
 (pipeline-launched: verbatim request + triage's ultimate goal;
 standalone: PR body `## Why`), applying a three-rung ladder — benign
 divergence (note, proceed), scope drift (idempotently upsert one
-unchecked `- [ ] SUBJECTIVE: confirm scope drift is intentional` Test Steps
+unchecked `- [ ] DECISION: confirm scope drift is intentional` Test Steps
 item, holding the PR at `flow-gate-decide`), fundamental (escalate
 `NEEDS HUMAN: intent-drift` per
 [references/escalation-recipes.md](references/escalation-recipes.md)) —
@@ -1023,9 +1023,9 @@ to a step that bundles a backend contract with a browser-only remainder:
 split it, routing the backend half to an 11e `Fail (automatable)`
 integration-test conversion and keeping only the genuinely-browser
 remainder in the browser bucket. An item whose text begins with the
-literal `SUBJECTIVE: ` prefix is always not-runnable — a human-only
-aesthetic sign-off: never tick it, prose-promote it (8c.ii), or
-browser-validate it (8c.iii).
+literal `SUBJECTIVE: ` or `DECISION: ` prefix is human-only: never tick it or
+prose-promote it (8c.ii); a `SUBJECTIVE: ` item is photographed, never judged
+(8c.iii `capture`). A `Browser: ` item is driven at 8c.iii (`behavior`).
 
 **Self-check before classifying anything as not-runnable.** Phrases like
 "out of scope for an automated agent run" or "needs the local stack / a
@@ -1137,7 +1137,7 @@ become a runnable bucket** rather than not-runnable — no hand-authored
 `.flow/ui-validation.json` needed: on a meaningful UI diff with no manifest,
 `flow-ui-validate` returns a mechanical `action: "bootstrap"` verdict this pass
 self-completes + commits (names/config only, never a secret value — see the manifest-less bootstrap flow in [references/ui-validation-evidence.md](references/ui-validation-evidence.md)). A
-`SUBJECTIVE: `-prefixed item is excluded from browser validation: irreducibly-aesthetic judgment beyond the enumerated bucket, never validated into a tick.
+`SUBJECTIVE: `-prefixed item is never validated into a tick, only photographed. The bucket holds **three kinds** — `appearance`, `behavior` (`Browser: ` items), `capture` (`SUBJECTIVE: ` items) — sent to the one spawn as a tagged `MODE: items` list; tick only on `pass`, leave `fail` / `not-drivable` / no-browser open with the reason (`browser-unavailable`, never `subjective UX`), and inject captures via `flow-inject-evidence --no-tick --image`: see "Three item kinds, one spawn" and "Capture-only evidence for SUBJECTIVE items" in [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
 
 The MCP-present path spawns the **UI-driver Subagent** — the same eighth
 Task-tool exemption `/flow-verify`'s Optional UI-smoke pass uses, a second
@@ -1158,7 +1158,7 @@ missing/invalid `.flow-tmp/ui-driver-result.json` after the Task call returns,
 treat it as `{ran: false, ok: false, skipped_reason: "driver-no-artifact"}`
 and leave the item unticked with that reason — never escalate, never re-spawn
 within the same 8c pass. The spawn prompt additionally names
-`MODE: visual-appearance` plus the enumerated item list, so the driver's
+`MODE: items` plus the tagged item list ([references/agent-prompts.md](references/agent-prompts.md) "UI-Driver item list"), so the driver's
 per-route/per-viewport captures and `fix_context[]` map back to the specific
 checklist items 8c.i injects evidence against, rather than the full manifest
 route set `/flow-verify` drives. Each route is still captured **per viewport**
