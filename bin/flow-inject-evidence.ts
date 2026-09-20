@@ -16,6 +16,14 @@
  * Usage:
  *   flow-inject-evidence --body-file <path> --item <regex> \
  *     --output-file <path> --exit-code <N> [--timestamp <iso>]
+ *     [--no-tick] [--image <path>#<alt>]...
+ *
+ * A line whose text starts `SUBJECTIVE: ` or `DECISION: ` is human-only and
+ * is never ticked, whatever exit code is passed. `--image` (repeatable)
+ * adds one worktree-relative image reference — the form `gh pr edit
+ * --attach` rewrites to an uploaded URL — plus one local `file://` link per
+ * screenshot. With at least one `--image`, `--output-file` and `--exit-code`
+ * are optional (a capture-only block).
  *
  * `--item` is interpreted as a JS regex via `new RegExp(args.item)`,
  * tested per body line. Pass a discriminating substring (` `npm run
@@ -25,31 +33,60 @@
  * spaces, dashes, slashes, equals signs are all literal.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import * as path from "node:path";
 import { normalizeDetailsBlocks } from "./lib/md-block-structure";
 
 export type InjectArgs = {
   bodyFile: string;
   item: string;
-  outputFile: string;
+  outputFile?: string;
   exitCode: number;
   timestamp?: string;
+  noTick?: boolean;
+  images?: EvidenceImage[];
 };
 
+export type EvidenceImage = { path: string; alt: string };
+
 export type InjectResult =
-  | { ok: true; body: string; replaced: boolean; ticked: boolean }
+  | {
+      ok: true;
+      body: string;
+      replaced: boolean;
+      ticked: boolean;
+      humanOnly: boolean;
+    }
   | { ok: false; error: string };
 
 const HEAD_LINES = 100;
 const TAIL_LINES = 50;
 const TRIM_THRESHOLD = HEAD_LINES + TAIL_LINES;
 const MARKER_OPEN = "<!-- flow:evidence -->";
+const HUMAN_ONLY_RE = /^\s*-\s+\[[ xX]\]\s+(?:SUBJECTIVE|DECISION): /;
+
+function parseImage(val: string): EvidenceImage | null {
+  const hash = val.indexOf("#");
+  const file = hash < 0 ? val : val.slice(0, hash);
+  if (!file) return null;
+  const alt = hash < 0 ? "" : val.slice(hash + 1);
+  return { path: file, alt: alt || path.basename(file) };
+}
 
 export function parseArgs(argv: string[]): InjectArgs | { error: string } {
   const out: Partial<InjectArgs> = {};
+  const images: EvidenceImage[] = [];
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const val = argv[i + 1];
-    if (flag === "--body-file") out.bodyFile = val;
+    if (flag === "--no-tick") {
+      out.noTick = true;
+      continue;
+    }
+    if (flag === "--image") {
+      const image = val === undefined ? null : parseImage(val);
+      if (!image) return { error: "--image requires <path>#<alt>" };
+      images.push(image);
+    } else if (flag === "--body-file") out.bodyFile = val;
     else if (flag === "--item") out.item = val;
     else if (flag === "--output-file") out.outputFile = val;
     else if (flag === "--exit-code") out.exitCode = Number.parseInt(val, 10);
@@ -59,7 +96,11 @@ export function parseArgs(argv: string[]): InjectArgs | { error: string } {
   }
   if (!out.bodyFile) return { error: "--body-file is required" };
   if (!out.item) return { error: "--item is required" };
-  if (!out.outputFile) return { error: "--output-file is required" };
+  if (images.length > 0) out.images = images;
+  if (!out.outputFile && images.length === 0) {
+    return { error: "--output-file is required" };
+  }
+  if (!out.outputFile && out.exitCode === undefined) out.exitCode = 0;
   if (typeof out.exitCode !== "number" || Number.isNaN(out.exitCode)) {
     return { error: "--exit-code must be an integer" };
   }
@@ -117,11 +158,37 @@ export function neutralizeHeadings(output: string): string {
   return output.replace(/^(#{1,6} )/gm, " $1");
 }
 
+function imageLines(images: EvidenceImage[]): string[] {
+  const out: string[] = [];
+  for (const image of images) {
+    const abs = path.resolve(image.path);
+    const rel = path.relative(process.cwd(), abs).split(path.sep).join("/");
+    const alt = image.alt.replace(/[\[\]\r\n]/g, " ");
+    out.push(`![${alt}](${encodeURI(rel)})`, "");
+    out.push(`[${alt} (local file)](file://${encodeURI(abs)})`, "");
+  }
+  return out;
+}
+
+/**
+ * `output === null` is a capture-only block: screenshots, no command ran.
+ * It renders `<details open>` so the pictures show without a click.
+ */
 export function buildEvidenceBlock(
-  output: string,
+  output: string | null,
   exitCode: number,
   timestamp: string,
+  images: EvidenceImage[] = [],
 ): string {
+  if (output === null) {
+    const block = [
+      `<details open>${MARKER_OPEN}<summary>Screenshots (auto-captured ${timestamp})</summary>`,
+      ...imageLines(images),
+      "</details>",
+      "",
+    ].join("\n");
+    return normalizeDetailsBlocks(block).body;
+  }
   const status = exitCode === 0 ? "pass" : `FAILED exit ${exitCode}`;
   const summary = `Output (auto-captured ${timestamp}; ${status})`;
   const trimmed = neutralizeHeadings(trimOutput(output));
@@ -139,6 +206,7 @@ export function buildEvidenceBlock(
     trimmed,
     fence,
     "",
+    ...imageLines(images),
     "</details>",
     "",
   ].join("\n");
@@ -213,7 +281,8 @@ function findExistingBlockEnd(
 /**
  * Find the first line matching `args.item` (interpreted as a JS regex,
  * tested against each line). On match: tick `- [ ]` → `- [x]` if the
- * exit code is 0; replace any existing evidence block attached to the
+ * exit code is 0 — unless `noTick` is set or the line is human-only
+ * (`SUBJECTIVE: ` / `DECISION: `), which no caller input can tick; replace any existing evidence block attached to the
  * matched bullet; insert a fresh evidence block after the bullet's
  * last continuation line. Multi-line bullets keep their continuation
  * intact — evidence never splits a list item.
@@ -221,7 +290,7 @@ function findExistingBlockEnd(
 export function rewriteBody(
   body: string,
   args: InjectArgs,
-  output: string,
+  output: string | null,
 ): InjectResult {
   const lines = body.split("\n");
   const itemRe = new RegExp(args.item);
@@ -230,8 +299,9 @@ export function rewriteBody(
     return { ok: false, error: `no line matched item regex: ${args.item}` };
   }
 
+  const humanOnly = HUMAN_ONLY_RE.test(lines[matchIdx]);
   let ticked = false;
-  if (args.exitCode === 0) {
+  if (args.exitCode === 0 && !args.noTick && !humanOnly) {
     const next = lines[matchIdx].replace(/^(\s*)- \[ \]/, "$1- [x]");
     if (next !== lines[matchIdx]) {
       lines[matchIdx] = next;
@@ -254,7 +324,7 @@ export function rewriteBody(
   }
 
   const ts = args.timestamp ?? new Date().toISOString();
-  const evidence = buildEvidenceBlock(output, args.exitCode, ts);
+  const evidence = buildEvidenceBlock(output, args.exitCode, ts, args.images);
   lines.splice(itemEnd + 1, 0, ...evidence.split("\n"));
 
   const { body: normalizedBody, insertions } = normalizeDetailsBlocks(
@@ -265,7 +335,7 @@ export function rewriteBody(
       `flow-inject-evidence: normalized ${insertions} <details> blank-line gap(s) in ${args.bodyFile}\n`,
     );
   }
-  return { ok: true, body: normalizedBody, replaced, ticked };
+  return { ok: true, body: normalizedBody, replaced, ticked, humanOnly };
 }
 
 async function main(): Promise<void> {
@@ -275,7 +345,10 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const body = readFileSync(parsed.bodyFile, "utf8");
-  const output = readFileSync(parsed.outputFile, "utf8");
+  const output =
+    parsed.outputFile === undefined
+      ? null
+      : readFileSync(parsed.outputFile, "utf8");
   const result = rewriteBody(body, parsed, output);
   if (!result.ok) {
     process.stderr.write(`flow-inject-evidence: ${result.error}\n`);
@@ -283,7 +356,7 @@ async function main(): Promise<void> {
   }
   writeFileSync(parsed.bodyFile, result.body);
   process.stdout.write(
-    `evidence ${result.replaced ? "replaced" : "inserted"}; box ${result.ticked ? "ticked" : "left"}\n`,
+    `evidence ${result.replaced ? "replaced" : "inserted"}; box ${result.ticked ? "ticked" : result.humanOnly ? "left (human-only)" : "left"}\n`,
   );
 }
 

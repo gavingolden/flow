@@ -502,3 +502,114 @@ describe("neutralizeHeadings — gate-parser containment", () => {
     expect(block).toContain("## Regressions (1)");
   });
 });
+
+describe("human-only items and screenshots", () => {
+  const base = { bodyFile: "b.md", exitCode: 0, timestamp: TS };
+
+  it.each(["SUBJECTIVE", "DECISION"])(
+    "human-only: a %s line stays unticked with exitCode 0",
+    (label) => {
+      const body = `## Test Steps\n\n- [ ] ${label}: the page looks right.\n`;
+      const r = rewriteBody(
+        body,
+        { ...base, item: "looks right", outputFile: "o.txt" },
+        "ok",
+      );
+      expect(r.ok && r.humanOnly).toBe(true);
+      expect(r.ok && r.ticked).toBe(false);
+      expect(r.ok && r.body).toContain(`- [ ] ${label}: the page looks right.`);
+      expect(r.ok && r.body).toContain("<!-- flow:evidence -->");
+    },
+  );
+
+  it("human-only: a label mid-sentence does not block the tick", () => {
+    const body = "- [ ] Run `x` — not a SUBJECTIVE: call.\n";
+    const r = rewriteBody(
+      body,
+      { ...base, item: "Run `x`", outputFile: "o.txt" },
+      "ok",
+    );
+    expect(r.ok && r.humanOnly).toBe(false);
+    expect(r.ok && r.ticked).toBe(true);
+  });
+
+  it("human-only: --no-tick leaves an ordinary passing item open", () => {
+    const r = rewriteBody(
+      "- [ ] The page loads.\n",
+      { ...base, item: "page loads", outputFile: "o.txt", noTick: true },
+      "ok",
+    );
+    expect(r.ok && r.ticked).toBe(false);
+    expect(r.ok && r.body).toContain("- [ ] The page loads.");
+  });
+
+  it("human-only: an image-only block renders one image ref and one local link per screenshot", () => {
+    const images = [
+      { path: ".flow-tmp/ui-evidence/pricing-390.png", alt: "pricing phone" },
+      {
+        path: ".flow-tmp/ui-evidence/pricing-1280.png",
+        alt: "pricing desktop",
+      },
+    ];
+    const r = rewriteBody(
+      "- [ ] SUBJECTIVE: pricing looks right.\n- [ ] next\n",
+      { ...base, item: "pricing looks", noTick: true, images },
+      null,
+    );
+    const body = r.ok ? r.body : "";
+    expect(body.match(/^!\[/gm)).toHaveLength(2);
+    expect(body.match(/\]\(file:\/\//g)).toHaveLength(2);
+    expect(body).toContain(
+      "![pricing phone](.flow-tmp/ui-evidence/pricing-390.png)",
+    );
+    expect(body).toContain(
+      `(file://${process.cwd()}/.flow-tmp/ui-evidence/pricing-390.png)`,
+    );
+    expect(body).toContain("<details open><!-- flow:evidence -->");
+    expect(body).not.toContain("```");
+    expect(body).toContain("- [ ] SUBJECTIVE: pricing looks right.");
+    expect(body).toMatch(/<\/details>\n\n- \[ \] next/);
+  });
+
+  it("human-only: re-running an image-only injection replaces the block", () => {
+    const args = {
+      ...base,
+      item: "looks",
+      images: [{ path: "a.png", alt: "a" }],
+    };
+    const first = rewriteBody("- [ ] SUBJECTIVE: looks ok.\n", args, null);
+    const second = rewriteBody(first.ok ? first.body : "", args, null);
+    expect(second.ok && second.replaced).toBe(true);
+    expect((second.ok ? second.body : "").match(/flow:evidence/g)).toHaveLength(
+      1,
+    );
+  });
+
+  it("human-only: parseArgs makes --output-file and --exit-code optional with --image", () => {
+    expect(
+      parseArgs([
+        "--body-file",
+        "b.md",
+        "--item",
+        "x",
+        "--no-tick",
+        "--image",
+        "shots/a.png#phone view",
+        "--image",
+        "shots/b.png",
+      ]),
+    ).toEqual({
+      bodyFile: "b.md",
+      item: "x",
+      exitCode: 0,
+      noTick: true,
+      images: [
+        { path: "shots/a.png", alt: "phone view" },
+        { path: "shots/b.png", alt: "b.png" },
+      ],
+    });
+    expect(
+      parseArgs(["--body-file", "b.md", "--item", "x", "--image", "#alt"]),
+    ).toEqual({ error: "--image requires <path>#<alt>" });
+  });
+});
