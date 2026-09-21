@@ -14,6 +14,7 @@
  */
 
 import { redactSecrets } from "./redact-secrets";
+import { SECRET_FILE_DENY_RULES } from "./secret-deny-rules";
 
 // Allowlist, not denylist: issue #618 was a leaked FLOW_SLUG/TMUX_PANE that
 // let a nested `claude` session trip flow-stop-guard against the PARENT
@@ -240,9 +241,13 @@ function callerAllowsBash(allowedTools: string): boolean {
 }
 
 export function buildChildArgv(a: Args, prompt: string): string[] {
+  // FIXED_DENY_LIST itself stays untouched (eval-runner.ts pins it
+  // verbatim) — the secret-file read guard is joined on here, at the argv
+  // composition site, never mutated into the shared constant.
+  const denyList = `${FIXED_DENY_LIST},${SECRET_FILE_DENY_RULES.join(",")}`;
   const disallowedTools = callerAllowsBash(a.allowedTools)
-    ? FIXED_DENY_LIST
-    : `${FIXED_DENY_LIST},Bash`;
+    ? denyList
+    : `${denyList},Bash`;
   return [
     "claude",
     "-p",

@@ -243,12 +243,22 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(out).toContain(
       `NEXT ACTION: ${NEXT_ACTION_BY_REASON["smoketest-needs-creds"]}`,
     );
-    expect(out).toContain("credentialEnvVars");
+    expect(out).toContain(".flow/ui-validation.json");
     expect(out).toContain("flow feature resume");
     expect(finalLine(out)).toBe("NEEDS HUMAN: smoketest-needs-creds");
     // The reason tag must stay colon-free so nextActionForReason (which splits
     // on the first ':') resolves the full mapping.
     expect("smoketest-needs-creds".includes(":")).toBe(false);
+    // The wording covers both "not found" and "access was refused" (a
+    // credential-denial skip, not just an inference miss) and points at the
+    // no-values presence check instead of suggesting a value ever be pasted.
+    // It also names only what flow controls (never claims to know whether an
+    // agent read the file via some other route) and gives the "already
+    // present but still refused" branch its own remedy.
+    expect(out).toContain("refused");
+    expect(out).toContain("flow-ui-login check");
+    expect(out).not.toContain("Nothing was read from your .env");
+    expect(out).toContain("permission rule");
   });
 
   it("maps merge-resolver-spawn-denied to a manual git-merge recovery recipe", () => {

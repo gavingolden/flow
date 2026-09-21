@@ -65,6 +65,10 @@ import { sanitizeSeedLine } from "./seed-delivery";
 import { appendLaunchRecord } from "./launch-log";
 import { dim } from "./color";
 import {
+  FLOW_UI_LOGIN_ALLOW_RULES,
+  SECRET_FILE_DENY_RULES,
+} from "./secret-deny-rules";
+import {
   seedIngestConfirmsDelivery,
   seedIngestIsCorrupt,
   unverifiedSeedWarning,
@@ -1771,6 +1775,10 @@ export function ensureLaunchSettings(
             { hooks: [{ type: "command", command: resolveSeedHookCommand() }] },
           ],
         },
+        permissions: {
+          deny: [...SECRET_FILE_DENY_RULES],
+          allow: [...FLOW_UI_LOGIN_ALLOW_RULES],
+        },
       },
       null,
       2,
@@ -1866,9 +1874,7 @@ function buildLaunchCommand(
     ensureLaunchSettings(settingsPath);
   } catch (err) {
     process.stderr.write(
-      dim(
-        `flow feature create: could not write launch settings: ${err instanceof Error ? err.message : String(err)}\n`,
-      ),
+      `warning: could not write flow launch settings (${err instanceof Error ? err.message : String(err)}) — this session launches without the .env read guard\n`,
     );
   }
   // launchArgv's pluginRootsScan parameter already defaults to
@@ -1901,9 +1907,7 @@ function buildPlainCommand(
     ensureLaunchSettings(settingsPath);
   } catch (err) {
     process.stderr.write(
-      dim(
-        `flow feature create: could not write launch settings: ${err instanceof Error ? err.message : String(err)}\n`,
-      ),
+      `warning: could not write flow launch settings (${err instanceof Error ? err.message : String(err)}) — this session launches without the .env read guard\n`,
     );
   }
   return claudeArgv(

@@ -31,6 +31,7 @@ const SKIPPED_REASONS = [
   "login-failed",
   "screenshots-unwritable",
   "driver-no-artifact",
+  "credentials-unavailable",
 ] as const;
 
 export type UiDriverSkippedReason = (typeof SKIPPED_REASONS)[number];

@@ -54,8 +54,8 @@ manifest yet, meaningful UI diff), the helper has inferred
 `launch`/`baseUrl`/`routes`/`loginUrl` + credential env-var NAMES plus a
 `needs[]` — allocate a free port, resolve the `{{PORT}}` placeholder,
 empirically verify the inference (launch starts, routes render, login succeeds
-with VALUES resolved from the local `.env`/shell env at run time via the Login
-step in step 1 below), and write the
+via `flow-ui-login` and the "Login step (auth-gated apps)" section below —
+the agent never resolves or reads a credential VALUE itself), and write the
 verified NAMES/config back into `.flow/ui-validation.json` — storing names and
 non-secret config only — never a secret value — committing it into the reviewable
 PR diff before driving the bucket. The same sentinel grammar is now honored on
@@ -86,35 +86,9 @@ sentinel by hand on that path. Then, per visual item:
    `FLOW_SLUG` / `~/.flow/state/<slug>.json` / the worktree basename) so
    concurrent pipelines sharing one chrome-devtools MCP server do not share
    cookies/storage. **Login step (auth-gated apps).** When the manifest
-   declares `loginUrl` and `credentialEnvVars` and both VALUES resolve from
-   the process env, drive the login form BEFORE the per-route drive:
-   `navigate_page` to `loginUrl` → `take_snapshot` to locate the fields (a
-   transient working snapshot — never saved or injected as evidence): the
-   email field (hint: `input[type=email]` / `#email` / `input[name=email]`),
-   the password field (hint: `input[type=password]` / `#password`), and the
-   submit control (hint: `button[type=submit]` / the form's submit
-   control); if a cookie-consent/overlay covers the form, dismiss it first,
-   and handle a multi-step flow (email → Next → password) if present →
-   `fill` the located fields with the resolved user/pass VALUES → click the
-   submit control (or press Enter) →
-   `wait_for` the post-login redirect and confirm `loginOk`. The selector
-   heuristic is a starting hint, not a rigid script — use the snapshot to
-   locate the real fields. Read the VALUES from `process.env` at runtime;
-   **never persist or inject as review evidence a screenshot or saved
-   a11y snapshot of the credential-bearing login form — capture evidence
-   only on the post-auth gated route** (the form is simply never
-   captured — this is not because the password field is masked: the
-   email/username field renders in plaintext in both a screenshot and an
-   a11y snapshot, so masking is not the protection here, the unconditional
-   no-capture rule is). When
-   `credentialEnvVars` is declared but the VALUES are absent from the env,
-   take the existing `NEEDS HUMAN: smoketest-needs-creds` escalation
-   (autonomous path) rather than driving an unauthenticated pass.
-   **Committed artifacts reference credential NAMES only** — the manifest,
-   plan, commit messages, and PR bodies name the env vars, never a VALUE;
-   reading the manifest-named VALUES at runtime to drive this login is
-   sanctioned only for zero-risk seed/test accounts, and is not a license
-   to hand-type arbitrary or production passwords. Then, **per route, loop over `meta.viewports`** (the
+   declares `loginUrl` and `credentialEnvVars`, log in per the dedicated
+   "Login step (auth-gated apps)" section below — never resolve, read, or
+   fill a credential VALUE yourself — before the per-route drive. Then, **per route, loop over `meta.viewports`** (the
    `flow-ui-validate` ready envelope carries the declared set or the built-in
    default `xs 320 / mobile 390 / tablet 768 / desktop 1280 / wide 1440`):
    `resize_page` to each viewport `width` × its `height` when declared, else a
@@ -142,6 +116,75 @@ sentinel by hand on that path. Then, per visual item:
 4. An **irreducibly-aesthetic** item ("does this feel premium?") stays unticked
    with a `subjective UX` reason — only concrete, second-observer-reproducible
    visual-appearance assertions are runnable here.
+
+## Login step (auth-gated apps)
+
+When the manifest declares `loginUrl` and `credentialEnvVars`, log in
+through the helper — never resolve, read, or fill a credential VALUE
+yourself:
+
+1. `flow-ui-login check --manifest .flow/ui-validation.json` — on exit 3
+   (either name absent), take the existing `NEEDS HUMAN: smoketest-needs-creds`
+   escalation (autonomous path) rather than driving an unauthenticated pass.
+2. `navigate_page` to `loginUrl`.
+3. An optional transient working snapshot — never saved or injected as
+   evidence — to confirm the form exists, before any fill.
+4. Read the page's own origin via `evaluate_script () => location.origin`.
+5. `flow-ui-login serve --manifest .flow/ui-validation.json --origin <that origin>`.
+6. `evaluate_script` with the returned `fillScript` verbatim — it fetches
+   the values inside the page and fills + submits the form itself; the
+   agent's own tool call never carries a value.
+7. `wait_for` the post-login redirect.
+8. `evaluate_script () => location.pathname` **only**, and set `loginOk`
+   from whether the pathname no longer equals `loginUrl`'s path (still
+   recorded in the captures JSON, as before).
+
+A `fillScript` result of `reason: "fetch-blocked"` means the browser's own
+`fetch` threw before a response ever came back — almost always the app's
+dev-mode CSP `connect-src` refusing the loopback fetch — record
+`login-failed` naming that fix (allow `http://127.0.0.1:*` in
+`connect-src`); never fall back to `fill`/`type` with a value. A result of
+`reason: "endpoint-refused"` means the fetch reached the one-time endpoint
+but got a non-OK status back (the token was already spent, the origin
+didn't match, or the 90s window expired) — that is a credential refusal,
+not a CSP problem: follow the `<!-- flow-credential-denial-rule -->` below
+and record `credentials-unavailable`, not `login-failed`.
+
+**Never persist or inject as review evidence a screenshot or saved a11y
+snapshot of the credential-bearing login form — capture evidence only on
+the post-auth gated route** (the form is simply never captured — this is
+not because the password field is masked: the email/username field
+renders in plaintext in both a screenshot and an a11y snapshot, so masking
+is not the protection here, the unconditional no-capture rule is), and
+never snapshot or screenshot the page while still on `loginUrl` after the
+fill runs.
+
+Never pass a credential value to `fill`, `type`, or a hand-written
+`evaluate_script`; never echo, grep, cat, or `Read` a `.env`-family file
+or print a credential variable; never `curl` (or otherwise directly
+request) the helper's one-time endpoint — it exists only for the page's
+own `fetch` to call. **Committed artifacts reference credential NAMES
+only** — the manifest, plan, commit messages, and PR bodies name the env
+vars, never a VALUE.
+
+<!-- flow-credential-denial-rule -->
+
+**Credential denial means stop.** When a permission check, the auto-mode
+classifier, or a deny rule refuses any credential-related action —
+printing, grepping or reading a credential variable or a `.env`-family
+file, or running `flow-ui-login` — STOP the browser check. Never retry
+through another tool (Read, grep, cat, a script, or `fill`/`type` with the
+value). A `fillScript` result of `reason: "endpoint-refused"` (the
+one-time endpoint answered non-OK — the token was already spent, the
+origin didn't match, or the window expired) is the same kind of refusal:
+record `skipped_reason: "credentials-unavailable"` and let the caller
+surface `smoketest-needs-creds`, naming only the variable NAMES. A
+`fetch-blocked` result (the browser's own `fetch` threw — almost always
+the app's dev-mode CSP) is not a refusal: record `login-failed` naming
+the CSP fix instead (per above), never `credentials-unavailable`. In
+items mode (`MODE: items`), the affected signed-in items stay unchecked
+with reason `credentials-unavailable` (endpoint-refused / permission
+denial) or the driver's `login-failed` note (fetch-blocked).
 
 This adds **no new Task-tool exemption**: Step 8c.iii spawns the **UI-Driver
 Subagent** — the same eighth Task-tool exemption `/flow-verify`'s Optional
@@ -185,6 +228,11 @@ per item, matched on `item`):
   invalid driver artifact, or an item absent from `item_results[]`) — the box
   stays open with the reason **`browser-unavailable`**
   (`flow-classify-step --reason browser-unavailable`).
+- **Credential denial** (`flow-ui-login check`/`serve` refused or the
+  credentials never resolved, per the `<!-- flow-credential-denial-rule -->`
+  in the "Login step (auth-gated apps)" section) — the affected signed-in
+  items stay unchecked with the reason **`credentials-unavailable`**,
+  distinct from `browser-unavailable`.
 
 An open `behavior` or `appearance` box **holds the PR** — that is the intended
 outcome of a check nobody could run. It is never relabelled `subjective UX`,
@@ -291,9 +339,9 @@ work (tweaks the command, adds/changes an `env` var, fixes `baseUrl`, corrects a
 persists the launch adaptation back into `.flow/ui-validation.json`
 (env/launch/baseUrl/routes/loginUrl/credentialEnvVars) and commits it into the
 reviewable PR diff, so the next run starts deterministic. Runtime credential
-VALUES are resolved from the local `.env`/shell env and NEVER persisted: the
-committed manifest stores names and non-secret config only — never a secret
-value. Treat the manifest as a deterministic cache of non-secret facts the agent
+VALUES are resolved by `flow-ui-login` and NEVER persisted — the agent never
+reads them itself: the committed manifest stores names and non-secret config
+only — never a secret value. Treat the manifest as a deterministic cache of non-secret facts the agent
 maintains, not a frozen contract.
 
 ## Snapshot-primary, screenshot-by-reference

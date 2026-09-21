@@ -81,9 +81,11 @@ into one shared reference; do not re-copy it here). In short: bring the
 launch up via `flow-spawn --class default -- sh -c '<meta.launch>'` with
 `meta.env` injected inline (never a `.env.local`/`.env`/config file), open a
 per-pipeline isolated page keyed on `SLUG`, run the Login step when the
-manifest declares a login wall and the credential VALUES resolve from the
-local env, then drive each route × each declared viewport per
-`ui-smoke-pass.md`'s "Launch and drive" section.
+manifest declares a login wall — credential presence is checked with
+`flow-ui-login check` (names only) and login goes through `flow-ui-login
+serve`, never by the agent resolving a VALUE itself — then drive each
+route × each declared viewport per `ui-smoke-pass.md`'s "Launch and drive"
+section.
 
 **Never capture the login form, and never persist a credential VALUE.** The
 email/username field renders in plaintext in both a screenshot and an a11y
@@ -93,6 +95,22 @@ NAMES (never a VALUE) are ever written to the manifest, a commit message, or
 this agent's own artifact. Your `Write` grant makes omitting this rule more
 dangerous than it was when the pass ran inline, not less — honor it exactly
 as written in `ui-smoke-pass.md`.
+
+<!-- flow-credential-denial-rule -->
+
+**Credential denial means stop.** When a permission check, the auto-mode
+classifier, or a deny rule refuses any credential-related action —
+printing, grepping or reading a credential variable or a `.env`-family
+file, or running `flow-ui-login` — STOP the browser check. Never retry
+through another tool (Read, grep, cat, a script, or `fill`/`type` with the
+value). A `fillScript` result of `reason: "endpoint-refused"` (the
+one-time endpoint answered non-OK — the token was already spent, the
+origin didn't match, or the window expired) is the same kind of refusal:
+record `skipped_reason: "credentials-unavailable"` and let the caller
+surface `smoketest-needs-creds`, naming only the variable NAMES. A
+`fetch-blocked` result (the browser's own `fetch` threw — almost always
+the app's dev-mode CSP) is not a refusal: record `login-failed` naming
+the CSP fix instead, never `credentials-unavailable`.
 
 **Slug resolution is env-only.** Resolve `SLUG` from the value the wrapper
 passed you (itself derived from `FLOW_SLUG` / `~/.flow/state/<slug>.json` /
@@ -206,10 +224,12 @@ Write `ARTIFACT_PATH` as the LAST act, after teardown, conforming to
 ```
 
 On a degraded run (MCP absent, browser-profile busy, launch/login failure,
-or every screenshot save path denied), set `ran`/`ok` to reflect the
-degrade and set `skipped_reason` to the matching member of the schema's
-union (`mcp-not-available`, `browser-profile-busy`, `app-launch-failed`,
-`login-failed`, `screenshots-unwritable`) — never `driver-no-artifact`,
+a credential action refused or absent, or every screenshot save path
+denied), set `ran`/`ok` to reflect the degrade and set `skipped_reason` to
+the matching member of the schema's union (`mcp-not-available`,
+`browser-profile-busy`, `app-launch-failed`, `login-failed`,
+`screenshots-unwritable`, `credentials-unavailable` — a credential action
+was refused or the credentials are absent) — never `driver-no-artifact`,
 which is reserved for the CALLER to synthesize when this agent's artifact
 never lands on disk at all (a timeout, a crash before step 5). Validate
 before returning: `flow-ui-driver-schema --validate "$ARTIFACT_PATH"`

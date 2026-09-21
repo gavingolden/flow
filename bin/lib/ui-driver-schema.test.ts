@@ -86,6 +86,7 @@ describe("validateUiDriverResult", () => {
     "login-failed",
     "screenshots-unwritable",
     "driver-no-artifact",
+    "credentials-unavailable",
   ])("accepts skipped_reason member %s", (reason) => {
     const result = validateUiDriverResult({
       ...VALID_FULL,

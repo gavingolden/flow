@@ -134,25 +134,29 @@ The three-ingredient new-repo onboarding:
    the same for every other field it verified — and commits it into the
    reviewable PR diff, so the human never has to ask and the next run starts
    deterministic. Runtime
-   credential VALUES are resolved from the local `.env`/shell env and NEVER
-   persisted: the committed manifest stores names and non-secret config only —
-   never a secret value. Treat the manifest as a deterministic cache of
-   non-secret facts the agent maintains, not a frozen contract.
+   credential VALUES are resolved by `flow-ui-login`, never by the agent
+   itself: `flow-ui-login check` reports presence (names only), and
+   `flow-ui-login serve` performs the login — the manifest stores names and
+   non-secret config only — never a secret value. Treat the manifest as a
+   deterministic cache of non-secret facts the agent maintains, not a
+   frozen contract.
 3. **Seed + creds, once per repo.** Provide a loginable test user + fixture
    data and document it under a "Local Testing Credentials" section in this
    file, so the review/verify passes can log in deterministically.
 
 **Committed artifacts reference credential NAMES only.** The manifest, plan,
 commit messages, and PR bodies reference credential env-var NAMES only —
-never a plaintext VALUE. A browser-driving sub-agent MAY resolve and use the
-manifest-named VALUES at runtime to drive the login form (`navigate` the
-`loginUrl` → locate and fill the email/password fields via the generic
-selector heuristic → submit), but the resolved VALUE must never be echoed
-into chat, logs, PR bodies, screenshots, or any captured evidence — a
-filled-form screenshot leaks it exactly as a committed file would, so
-capture evidence only on post-auth routes, never the login form. This is
+never a plaintext VALUE. A browser-driving sub-agent logs in through
+`flow-ui-login`: `flow-ui-login check` for presence, then `flow-ui-login
+serve` plus its returned fill-and-submit script run via `evaluate_script` —
+the credential VALUE never enters a tool call or a tool result (no
+`fill`/`type` with a value), and confirming login uses only the resulting
+URL, never a screenshot or saved snapshot of the login form. This is
 scoped to zero-risk seed/test accounts named in the manifest; it is not a
-license to hand-type arbitrary or production passwords.
+license to hand-type arbitrary or production passwords. A refused
+credential action (a permission check, the auto-mode classifier, or a deny
+rule blocking it) means stop, never a workaround — record
+`credentials-unavailable` and let the caller surface the pause.
 
 **Operational notes.** The `chrome-devtools` MCP must be connected at
 session start: a mid-session registration is invisible to the running

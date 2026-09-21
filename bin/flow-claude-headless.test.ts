@@ -12,6 +12,9 @@ import {
   type Args,
   type Deps,
 } from "./lib/claude-headless";
+import { SECRET_FILE_DENY_RULES } from "./lib/secret-deny-rules";
+
+const SECRET_DENY = SECRET_FILE_DENY_RULES.join(",");
 
 describe("buildChildEnv", () => {
   it("copies only allowlisted keys plus ANTHROPIC_*/LC_* prefixes", () => {
@@ -322,7 +325,7 @@ describe("buildChildArgv", () => {
       "--allowedTools",
       "Read,Grep,Glob",
       "--disallowedTools",
-      `${FIXED_DENY_LIST},Bash`,
+      `${FIXED_DENY_LIST},${SECRET_DENY},Bash`,
       "--setting-sources",
       "project",
       "--no-session-persistence",
@@ -361,7 +364,7 @@ describe("buildChildArgv", () => {
     ]) as Args;
     const argv = buildChildArgv(a, "hi");
     const idx = argv.indexOf("--disallowedTools");
-    expect(argv[idx + 1]).toBe(`${FIXED_DENY_LIST},Bash`);
+    expect(argv[idx + 1]).toBe(`${FIXED_DENY_LIST},${SECRET_DENY},Bash`);
   });
 
   it("does not double-append Bash when the caller's allowedTools already names it", () => {
@@ -377,7 +380,21 @@ describe("buildChildArgv", () => {
     ]) as Args;
     const argv = buildChildArgv(a, "hi");
     const idx = argv.indexOf("--disallowedTools");
-    expect(argv[idx + 1]).toBe(FIXED_DENY_LIST);
+    expect(argv[idx + 1]).toBe(`${FIXED_DENY_LIST},${SECRET_DENY}`);
+  });
+
+  it("folds the secret-file read guard onto --disallowedTools", () => {
+    const a = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+    ]) as Args;
+    const argv = buildChildArgv(a, "hi");
+    const idx = argv.indexOf("--disallowedTools");
+    expect(argv[idx + 1]).toContain("Read(//**/.env)");
   });
 
   it("always includes --setting-sources project", () => {
@@ -442,7 +459,7 @@ describe("buildChildArgv", () => {
       "--allowedTools",
       "Read,Grep,Glob",
       "--disallowedTools",
-      `${FIXED_DENY_LIST},Bash`,
+      `${FIXED_DENY_LIST},${SECRET_DENY},Bash`,
       "--setting-sources",
       "project",
       "--no-session-persistence",

@@ -4042,6 +4042,61 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(fs.statSync(settingsPath).mtimeMs).toBe(firstMtime);
   });
 
+  function readPermissions(): { deny: string[]; allow: string[] } {
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+      permissions: { deny: string[]; allow: string[] };
+    };
+    return settings.permissions;
+  }
+
+  it("writes the secret-file deny rules, with no rule mentioning .env.example", () => {
+    ensureLaunchSettings(settingsPath);
+    const { deny } = readPermissions();
+    expect(deny).toContain("Read(//**/.env)");
+    expect(deny.some((rule) => rule.includes(".env.example"))).toBe(false);
+  });
+
+  it("covers common secret-bearing dotenv variants beyond the Next/Vite canonical names", () => {
+    ensureLaunchSettings(settingsPath);
+    const { deny } = readPermissions();
+    for (const variant of [
+      ".env.prod",
+      ".env.dev",
+      ".env.stage",
+      ".env.preview",
+      ".env.ci",
+      ".env.qa",
+      ".env.vault",
+      ".env.keys",
+    ]) {
+      expect(deny).toContain(`Read(//**/${variant})`);
+    }
+    for (const stillReadable of [
+      ".env.example",
+      ".env.sample",
+      ".env.template",
+    ]) {
+      expect(deny.some((rule) => rule.includes(stillReadable))).toBe(false);
+    }
+  });
+
+  it("pre-approves only flow-ui-login check/serve in permissions.allow, never a blanket flow-ui-login *", () => {
+    ensureLaunchSettings(settingsPath);
+    const { allow } = readPermissions();
+    expect(allow).toContain("Bash(flow-ui-login check *)");
+    expect(allow).toContain("Bash(flow-ui-login serve *)");
+    expect(allow).not.toContain("Bash(flow-ui-login *)");
+  });
+
+  it("a second call with permissions already present leaves the file unchanged", () => {
+    ensureLaunchSettings(settingsPath);
+    const firstContent = fs.readFileSync(settingsPath, "utf8");
+    const firstMtime = fs.statSync(settingsPath).mtimeMs;
+    ensureLaunchSettings(settingsPath);
+    expect(fs.readFileSync(settingsPath, "utf8")).toBe(firstContent);
+    expect(fs.statSync(settingsPath).mtimeMs).toBe(firstMtime);
+  });
+
   it("warns to stderr when the installed helper diverges from the module-relative script", () => {
     installHook("this differs from the checked-out script\n");
     const writeSpy = vi
