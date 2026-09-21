@@ -322,8 +322,8 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   1. Attach (flow attach <slug>).
   2. Inspect <worktree>/.flow-tmp/coder-result.json (if present).
   3. Re-invoke the caller skill.`,
-  "smoketest-needs-creds": `The UI-smoke pass needs a test-user credential it could not infer.
-  1. Provide the test-user credential env var(s) named in .flow/ui-validation.json's credentialEnvVars (in your local .env or shell env).
+  "smoketest-needs-creds": `The UI-smoke pass could not use the test-user credentials: they were not found, or a permission check refused access to them. Nothing was read from your .env.
+  1. Make sure the env vars named in .flow/ui-validation.json's credentialEnvVars are set in your shell env or the worktree .env (check with flow-ui-login check --manifest .flow/ui-validation.json — it prints names only).
   2. ${CONTINUE_OR_RESUME_STEP}`,
   "state-file-missing-on-start": `The launch likely died before writing state.
   1. Check ~/.flow/state/<slug>.json

@@ -249,6 +249,11 @@ describe("render — needs-human (per-reason mapping)", () => {
     // The reason tag must stay colon-free so nextActionForReason (which splits
     // on the first ':') resolves the full mapping.
     expect("smoketest-needs-creds".includes(":")).toBe(false);
+    // The wording covers both "not found" and "access was refused" (a
+    // credential-denial skip, not just an inference miss) and points at the
+    // no-values presence check instead of suggesting a value ever be pasted.
+    expect(out).toContain("refused");
+    expect(out).toContain("flow-ui-login check");
   });
 
   it("maps merge-resolver-spawn-denied to a manual git-merge recovery recipe", () => {

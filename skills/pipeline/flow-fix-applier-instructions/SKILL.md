@@ -571,6 +571,20 @@ commit's browser-driven UI-smoke pass must run in `/flow-verify`'s own context
 per `../flow-ui-driver-instructions/SKILL.md` rather than spawning the
 `flow-ui-driver` exemption.
 
+<!-- flow-credential-denial-rule -->
+
+**Credential denial means stop.** When a permission check, the auto-mode
+classifier, or a deny rule refuses any credential-related action —
+printing, grepping or reading a credential variable or a `.env`-family
+file, or running `flow-ui-login` — STOP the browser check. Never retry
+through another tool (Read, grep, cat, a script, or `fill`/`type` with the
+value). The same no-workaround rule covers a `login-failed` or
+`fetch-blocked` result. Record `skipped_reason: "credentials-unavailable"`
+and let the caller surface `smoketest-needs-creds`, naming only the
+variable NAMES. On this inline path, put `credentials-unavailable` in the
+fix-applier artifact summary and leave the affected signed-in items
+unchecked so the pr-review wrapper surfaces `smoketest-needs-creds`.
+
 `/flow-verify` runs the project's full check suite (typecheck, tests, format).
 Capture the verdict per commit:
 

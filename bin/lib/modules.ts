@@ -158,6 +158,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-inject-evidence",
       "flow-test-steps-lint",
       "flow-ui-validate",
+      "flow-ui-login",
       "flow-design-spec",
       "flow-md-validate",
       "flow-seed-ingested-hook",

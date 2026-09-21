@@ -73,6 +73,35 @@ more `{{PORT_<NAME>}}` named sentinels, resolved inline to the launch
 subprocess (env vars / CLI flags) — never written to a file. Fields +
 onboarding in `templates/rules/ui-validation.md`.
 
+## Secret-file read guard
+
+flow-launched sessions (`flow feature create`/`resume`, epic launches, and
+`flow-claude-headless`) refuse `Read` on `.env`, `.env.local`,
+`.env.*.local`, `.env.development`, `.env.production`, `.env.test`,
+`.env.staging`, `.dev.vars`, and `.envrc` — a named list
+(`bin/lib/secret-deny-rules.ts`), not an `.env*` glob, because a deny rule
+can't be carved back out and `.env.example`/`.env.sample`/`.env.template`
+must stay readable for credential-NAME inference.
+
+This is a `Read`-tool guard, not a filesystem sandbox: it does not stop a
+shell `grep -r`/`cat` run from the file's own directory, or a script that
+opens the file directly — Claude Code's deny rules cover the recognized
+file tools, not arbitrary Bash. A session started with plain `claude`
+(outside a flow launcher) carries none of this; the prose stop-rule
+(`<!-- flow-credential-denial-rule -->`) and the `flow-ui-login` helper
+are what protect it there.
+
+The rules ship **only** in flow's own launch-settings file — never into a
+consumer repo's `.claude/settings.json` or the user's global
+`~/.claude/settings.json`, which would silently block a teammate's
+ordinary, non-flow session. A pipeline that needs a new local setting
+registers a manual follow-up naming the variable, rather than editing
+`.env.local` itself. Logging into an app under test goes through
+`flow-ui-login` (`check` for presence, `serve` for a one-time local
+login), pre-approved in the same launch settings via
+`Bash(flow-ui-login *)` so the guard never blocks the one sanctioned path
+to a credential value.
+
 ## Design foundation
 
 `.flow/design/foundation.md` is a small human-legible contract —
