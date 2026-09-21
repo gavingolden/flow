@@ -155,3 +155,75 @@ describe("buildFillScript", () => {
     expect(script).toContain("http://127.0.0.1:9999/abc");
   });
 });
+
+describe("buildFillScript — field-lookup-before-fetch ordering & fetch outcomes", () => {
+  function makeDocument(overrides: Record<string, unknown> = {}) {
+    return {
+      querySelector: (sel: string) =>
+        Object.prototype.hasOwnProperty.call(overrides, sel)
+          ? overrides[sel]
+          : null,
+    };
+  }
+
+  function makeFn(
+    script: string,
+    document: unknown,
+    fetchImpl: (...args: unknown[]) => Promise<unknown>,
+  ): () => Promise<{
+    fetched: boolean;
+    userFilled: boolean;
+    passFilled: boolean;
+    submitted: boolean;
+    reason: string | null;
+  }> {
+    return new Function("document", "fetch", `return (${script})`)(
+      document,
+      fetchImpl,
+    ) as () => Promise<{
+      fetched: boolean;
+      userFilled: boolean;
+      passFilled: boolean;
+      submitted: boolean;
+      reason: string | null;
+    }>;
+  }
+
+  it("never calls fetch (spends no token) when the fields aren't on the page", async () => {
+    let fetchCalled = false;
+    const script = buildFillScript({ url: "http://127.0.0.1:1/tok" });
+    const fn = makeFn(script, makeDocument(), async () => {
+      fetchCalled = true;
+      return { ok: true, json: async () => ({}) };
+    });
+    const result = await fn();
+    expect(fetchCalled).toBe(false);
+    expect(result.reason).toBe("user-field-not-found");
+  });
+
+  it("returns fetch-blocked when fetch throws (network/CSP failure)", async () => {
+    const fakeInput = { value: "" };
+    const script = buildFillScript({ url: "http://127.0.0.1:1/tok" });
+    const doc = makeDocument({
+      'input[type="email"]': fakeInput,
+      'input[type="password"]': fakeInput,
+    });
+    const fn = makeFn(script, doc, async () => {
+      throw new Error("network fail");
+    });
+    const result = await fn();
+    expect(result.reason).toBe("fetch-blocked");
+  });
+
+  it("returns endpoint-refused (never fetch-blocked) on a non-OK response", async () => {
+    const fakeInput = { value: "" };
+    const script = buildFillScript({ url: "http://127.0.0.1:1/tok" });
+    const doc = makeDocument({
+      'input[type="email"]': fakeInput,
+      'input[type="password"]': fakeInput,
+    });
+    const fn = makeFn(script, doc, async () => ({ ok: false, status: 410 }));
+    const result = await fn();
+    expect(result.reason).toBe("endpoint-refused");
+  });
+});

@@ -78,16 +78,24 @@ onboarding in `templates/rules/ui-validation.md`.
 flow-launched sessions (`flow feature create`/`resume`, epic launches, and
 `flow-claude-headless`) refuse `Read` on `.env`, `.env.local`,
 `.env.*.local`, `.env.development`, `.env.production`, `.env.test`,
-`.env.staging`, `.dev.vars`, and `.envrc` — a named list
-(`bin/lib/secret-deny-rules.ts`), not an `.env*` glob, because a deny rule
-can't be carved back out and `.env.example`/`.env.sample`/`.env.template`
-must stay readable for credential-NAME inference.
+`.env.staging`, `.env.prod`, `.env.dev`, `.env.stage`, `.env.preview`,
+`.env.ci`, `.env.qa`, `.env.vault`, `.env.keys`, `.dev.vars`, and
+`.envrc` — a named list (`bin/lib/secret-deny-rules.ts`), not an `.env*`
+glob, because a deny rule can't be carved back out and
+`.env.example`/`.env.sample`/`.env.template` must stay readable for
+credential-NAME inference.
 
-This is a `Read`-tool guard, not a filesystem sandbox: it does not stop a
-shell `grep -r`/`cat` run from the file's own directory, or a script that
-opens the file directly — Claude Code's deny rules cover the recognized
-file tools, not arbitrary Bash. A session started with plain `claude`
-(outside a flow launcher) carries none of this; the prose stop-rule
+This is a `Read`-tool guard, not a filesystem sandbox, but it reaches
+further than only the `Read` tool: per
+[Claude Code's permissions docs](https://code.claude.com/docs/en/permissions),
+a deny rule on a path also matches a recognized Bash file command
+(`cat`, `head`, and similar) invoked on that same path — an **absolute**
+path, which the test below demonstrates directly (`cat $D/.env` is
+stopped). It does **not** reach a `grep -r`/`cat` run from the file's own
+directory with a bare relative filename, or a hand-written script that
+opens the file itself — those are arbitrary Bash the deny rule was never
+told to parse. A session started with plain `claude` (outside a flow
+launcher) carries none of this; the prose stop-rule
 (`<!-- flow-credential-denial-rule -->`) and the `flow-ui-login` helper
 are what protect it there.
 
@@ -99,8 +107,10 @@ registers a manual follow-up naming the variable, rather than editing
 `.env.local` itself. Logging into an app under test goes through
 `flow-ui-login` (`check` for presence, `serve` for a one-time local
 login), pre-approved in the same launch settings via
-`Bash(flow-ui-login *)` so the guard never blocks the one sanctioned path
-to a credential value.
+`Bash(flow-ui-login check *)` and `Bash(flow-ui-login serve *)` (never a
+blanket `Bash(flow-ui-login *)`, which would also pre-approve the hidden
+`__serve-child` subcommand) so the guard never blocks the two sanctioned
+paths to a credential value.
 
 ## Design foundation
 

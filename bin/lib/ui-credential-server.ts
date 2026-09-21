@@ -5,8 +5,9 @@
  * bare `curl`) — then shuts itself down.
  *
  * `node:http`, not `Bun.serve`: this module is imported directly by
- * `bin/lib/ui-credential-server.test.ts` under vitest, which runs on Node,
- * not the Bun runtime (`Bun` is undefined there) — see `vitest.setup.ts`.
+ * `bin/lib/ui-credential-server.test.ts` and `bin/flow-ui-login.test.ts`
+ * under vitest, which runs on Node, not the Bun runtime (`Bun` is
+ * undefined there).
  *
  * Internal import of `bin/flow-ui-login.ts` only, NOT PATH-registered.
  */
@@ -79,6 +80,7 @@ export function startCredentialServer(
     stopped = true;
     clearTimeout(ttlTimer);
     server.close(() => resolveClosed());
+    server.closeAllConnections?.();
   }
 
   const server = http.createServer((req, res) => {

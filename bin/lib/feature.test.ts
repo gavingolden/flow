@@ -4056,10 +4056,36 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(deny.some((rule) => rule.includes(".env.example"))).toBe(false);
   });
 
-  it("pre-approves flow-ui-login in permissions.allow", () => {
+  it("covers common secret-bearing dotenv variants beyond the Next/Vite canonical names", () => {
+    ensureLaunchSettings(settingsPath);
+    const { deny } = readPermissions();
+    for (const variant of [
+      ".env.prod",
+      ".env.dev",
+      ".env.stage",
+      ".env.preview",
+      ".env.ci",
+      ".env.qa",
+      ".env.vault",
+      ".env.keys",
+    ]) {
+      expect(deny).toContain(`Read(//**/${variant})`);
+    }
+    for (const stillReadable of [
+      ".env.example",
+      ".env.sample",
+      ".env.template",
+    ]) {
+      expect(deny.some((rule) => rule.includes(stillReadable))).toBe(false);
+    }
+  });
+
+  it("pre-approves only flow-ui-login check/serve in permissions.allow, never a blanket flow-ui-login *", () => {
     ensureLaunchSettings(settingsPath);
     const { allow } = readPermissions();
-    expect(allow).toContain("Bash(flow-ui-login *)");
+    expect(allow).toContain("Bash(flow-ui-login check *)");
+    expect(allow).toContain("Bash(flow-ui-login serve *)");
+    expect(allow).not.toContain("Bash(flow-ui-login *)");
   });
 
   it("a second call with permissions already present leaves the file unchanged", () => {

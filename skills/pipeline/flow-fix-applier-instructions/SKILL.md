@@ -578,10 +578,14 @@ classifier, or a deny rule refuses any credential-related action —
 printing, grepping or reading a credential variable or a `.env`-family
 file, or running `flow-ui-login` — STOP the browser check. Never retry
 through another tool (Read, grep, cat, a script, or `fill`/`type` with the
-value). The same no-workaround rule covers a `login-failed` or
-`fetch-blocked` result. Record `skipped_reason: "credentials-unavailable"`
-and let the caller surface `smoketest-needs-creds`, naming only the
-variable NAMES. On this inline path, put `credentials-unavailable` in the
+value). A `fillScript` result of `reason: "endpoint-refused"` (the
+one-time endpoint answered non-OK — the token was already spent, the
+origin didn't match, or the window expired) is the same kind of refusal:
+record `skipped_reason: "credentials-unavailable"` and let the caller
+surface `smoketest-needs-creds`, naming only the variable NAMES. A
+`fetch-blocked` result (the browser's own `fetch` threw — almost always
+the app's dev-mode CSP) is not a refusal: record `login-failed` naming
+the CSP fix instead, never `credentials-unavailable`. On this inline path, put `credentials-unavailable` in the
 fix-applier artifact summary and leave the affected signed-in items
 unchecked so the pr-review wrapper surfaces `smoketest-needs-creds`.
 

@@ -142,6 +142,21 @@ export function resolveCredentials(
 export function buildFillScript(opts: { url: string }): string {
   const url = JSON.stringify(opts.url);
   return `async () => {
+  const userField =
+    document.querySelector('input[type="email"]') ||
+    document.querySelector('input[autocomplete="username"]') ||
+    document.querySelector('input[name*="email" i]') ||
+    document.querySelector('input[name*="user" i]') ||
+    document.querySelector("#email");
+  const passField = document.querySelector('input[type="password"]');
+
+  if (!userField) {
+    return { fetched: false, userFilled: false, passFilled: false, submitted: false, reason: "user-field-not-found" };
+  }
+  if (!passField) {
+    return { fetched: false, userFilled: false, passFilled: false, submitted: false, reason: "pass-field-not-found" };
+  }
+
   let res;
   try {
     res = await fetch(${url}, { mode: "cors", credentials: "omit" });
@@ -149,7 +164,7 @@ export function buildFillScript(opts: { url: string }): string {
     return { fetched: false, userFilled: false, passFilled: false, submitted: false, reason: "fetch-blocked" };
   }
   if (!res.ok) {
-    return { fetched: false, userFilled: false, passFilled: false, submitted: false, reason: "fetch-blocked" };
+    return { fetched: false, userFilled: false, passFilled: false, submitted: false, reason: "endpoint-refused" };
   }
   const creds = await res.json();
 
@@ -160,21 +175,6 @@ export function buildFillScript(opts: { url: string }): string {
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
   };
-
-  const userField =
-    document.querySelector('input[type="email"]') ||
-    document.querySelector('input[autocomplete="username"]') ||
-    document.querySelector('input[name*="email" i]') ||
-    document.querySelector('input[name*="user" i]') ||
-    document.querySelector("#email");
-  const passField = document.querySelector('input[type="password"]');
-
-  if (!userField) {
-    return { fetched: true, userFilled: false, passFilled: false, submitted: false, reason: "user-field-not-found" };
-  }
-  if (!passField) {
-    return { fetched: true, userFilled: false, passFilled: false, submitted: false, reason: "pass-field-not-found" };
-  }
 
   setValue(userField, creds.user);
   setValue(passField, creds.pass);

@@ -139,10 +139,16 @@ yourself:
    from whether the pathname no longer equals `loginUrl`'s path (still
    recorded in the captures JSON, as before).
 
-A `fillScript` result of `reason: "fetch-blocked"` means the app's
-dev-mode CSP `connect-src` refused the loopback fetch — record
+A `fillScript` result of `reason: "fetch-blocked"` means the browser's own
+`fetch` threw before a response ever came back — almost always the app's
+dev-mode CSP `connect-src` refusing the loopback fetch — record
 `login-failed` naming that fix (allow `http://127.0.0.1:*` in
-`connect-src`); never fall back to `fill`/`type` with a value.
+`connect-src`); never fall back to `fill`/`type` with a value. A result of
+`reason: "endpoint-refused"` means the fetch reached the one-time endpoint
+but got a non-OK status back (the token was already spent, the origin
+didn't match, or the 90s window expired) — that is a credential refusal,
+not a CSP problem: follow the `<!-- flow-credential-denial-rule -->` below
+and record `credentials-unavailable`, not `login-failed`.
 
 **Never persist or inject as review evidence a screenshot or saved a11y
 snapshot of the credential-bearing login form — capture evidence only on
@@ -168,11 +174,17 @@ classifier, or a deny rule refuses any credential-related action —
 printing, grepping or reading a credential variable or a `.env`-family
 file, or running `flow-ui-login` — STOP the browser check. Never retry
 through another tool (Read, grep, cat, a script, or `fill`/`type` with the
-value). The same no-workaround rule covers a `login-failed` or
-`fetch-blocked` result. Record `skipped_reason: "credentials-unavailable"`
-and let the caller surface `smoketest-needs-creds`, naming only the
-variable NAMES. In items mode (`MODE: items`), the affected signed-in
-items stay unchecked with reason `credentials-unavailable`.
+value). A `fillScript` result of `reason: "endpoint-refused"` (the
+one-time endpoint answered non-OK — the token was already spent, the
+origin didn't match, or the window expired) is the same kind of refusal:
+record `skipped_reason: "credentials-unavailable"` and let the caller
+surface `smoketest-needs-creds`, naming only the variable NAMES. A
+`fetch-blocked` result (the browser's own `fetch` threw — almost always
+the app's dev-mode CSP) is not a refusal: record `login-failed` naming
+the CSP fix instead (per above), never `credentials-unavailable`. In
+items mode (`MODE: items`), the affected signed-in items stay unchecked
+with reason `credentials-unavailable` (endpoint-refused / permission
+denial) or the driver's `login-failed` note (fetch-blocked).
 
 This adds **no new Task-tool exemption**: Step 8c.iii spawns the **UI-Driver
 Subagent** — the same eighth Task-tool exemption `/flow-verify`'s Optional

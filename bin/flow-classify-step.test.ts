@@ -125,6 +125,8 @@ describe("SLUG_TO_HUMAN", () => {
     ["cross-browser", "cross-browser"],
     ["performance-under-realistic-load", "performance under realistic load"],
     ["cost-prohibitive-infra", "cost-prohibitive infra"],
+    ["browser-unavailable", "browser unavailable"],
+    ["credentials-unavailable", "credentials unavailable"],
   ])("maps %s → %s", (slug, human) => {
     expect(SLUG_TO_HUMAN[slug]).toBe(human);
   });

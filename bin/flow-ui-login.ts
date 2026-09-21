@@ -16,12 +16,18 @@
  *     The values travel only inside that one HTTP response the page itself
  *     fetches — never through this CLI's stdout, stderr, or argv. Exit 0 on
  *     success, 3 (with a presence JSON, no child spawned) when either
- *     credential is missing, 2 on a manifest/args problem.
+ *     credential is missing, 2 on a manifest/args problem (including a
+ *     manifest that fails full schema validation — `serve` never falls back
+ *     to the lenient bootstrap-draft read `check` uses), 4 (with a
+ *     structured `{ok:false, reason:"serve-timeout"}` on stdout) when the
+ *     spawned child never reports its port within 3s.
  *
  * `__serve-child` is a hidden third subcommand: the detached child process
  * `serve` spawns to actually bind and answer the endpoint. It re-resolves
  * the credential VALUES itself from the NAMES passed on its argv — the
- * VALUES never travel from parent to child.
+ * VALUES never travel from parent to child. The one-time bearer token is
+ * handed to the child over an env var (`FLOW_UI_LOGIN_TOKEN`), never argv —
+ * a local `ps aux` shows every user's argv but not another process's env.
  */
 
 import * as fs from "node:fs";
@@ -50,6 +56,33 @@ export type SpawnChildOpts = {
   portFilePath: string;
 };
 
+/**
+ * Pure argv builder for the detached `__serve-child` invocation. The
+ * bearer token is deliberately absent here — it travels via the
+ * `FLOW_UI_LOGIN_TOKEN` env var (see `defaultSpawnChild`), never argv,
+ * since a local `ps aux` shows every user's argv but not another
+ * process's env. Exported so tests can exercise the real child-argv
+ * shape without spawning an OS subprocess.
+ */
+export function buildServeChildArgs(opts: SpawnChildOpts): string[] {
+  return [
+    opts.scriptPath,
+    "__serve-child",
+    "--user-name",
+    opts.userName,
+    "--pass-name",
+    opts.passName,
+    "--origin",
+    opts.origin,
+    "--worktree",
+    opts.worktree,
+    "--ttl-ms",
+    String(opts.ttlMs),
+    "--port-file",
+    opts.portFilePath,
+  ];
+}
+
 export type SpawnChildFn = (opts: SpawnChildOpts) => void;
 
 export type MainDeps = {
@@ -68,12 +101,24 @@ function isCredentialNames(v: unknown): v is CredentialNames {
 }
 
 /**
- * Reads `credentialEnvVars` NAMES out of the manifest. Prefers the full
- * schema validator; a manifest that's off-shape for unrelated reasons (a
- * work-in-progress bootstrap draft) still yields NAMES via a minimal JSON
- * read when the field itself is well-formed.
+ * Reads `credentialEnvVars` NAMES out of the manifest.
+ *
+ * `strict: false` (the `check` default) prefers the full schema validator
+ * but falls back to a minimal JSON read when the manifest is off-shape for
+ * unrelated reasons (a work-in-progress bootstrap draft) as long as
+ * `credentialEnvVars` itself is well-formed — `check` is exactly the tool
+ * the bootstrap flow runs before the manifest is complete.
+ *
+ * `strict: true` (`serve`) requires full schema validation and never takes
+ * the lenient fallback: an agent that hands `serve` a hand-rolled manifest
+ * naming an arbitrary env var pair (bypassing the classifier that gates a
+ * legitimate `.flow/ui-validation.json`) gets rejected here instead of a
+ * live credential-serving endpoint.
  */
-function readCredentialNames(manifestPath: string): CredentialNames | null {
+function readCredentialNames(
+  manifestPath: string,
+  opts: { strict: boolean } = { strict: false },
+): CredentialNames | null {
   let raw: string;
   try {
     raw = fs.readFileSync(manifestPath, "utf8");
@@ -90,6 +135,7 @@ function readCredentialNames(manifestPath: string): CredentialNames | null {
   if (validated.ok && validated.value.credentialEnvVars) {
     return validated.value.credentialEnvVars;
   }
+  if (opts.strict) return null;
   if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
     const c = (parsed as Record<string, unknown>).credentialEnvVars;
     if (isCredentialNames(c)) return c;
@@ -118,7 +164,7 @@ function parseFlags(
   return { flags };
 }
 
-async function runCheck(argv: string[]): Promise<number> {
+async function runCheck(argv: string[], deps: MainDeps = {}): Promise<number> {
   const { flags, error } = parseFlags(argv, new Set(["manifest", "worktree"]));
   if (error || !flags.manifest) {
     process.stderr.write(
@@ -134,7 +180,8 @@ async function runCheck(argv: string[]): Promise<number> {
     );
     return 2;
   }
-  const resolved = resolveCredentials(names, { worktree });
+  const env = deps.env ?? process.env;
+  const resolved = resolveCredentials(names, { worktree, env });
   const ok = resolved.user.present && resolved.pass.present;
   process.stdout.write(
     JSON.stringify({ ok, user: resolved.user, pass: resolved.pass }) + "\n",
@@ -143,28 +190,11 @@ async function runCheck(argv: string[]): Promise<number> {
 }
 
 function defaultSpawnChild(opts: SpawnChildOpts): void {
-  const child = spawn(
-    process.execPath,
-    [
-      opts.scriptPath,
-      "__serve-child",
-      "--user-name",
-      opts.userName,
-      "--pass-name",
-      opts.passName,
-      "--token",
-      opts.token,
-      "--origin",
-      opts.origin,
-      "--worktree",
-      opts.worktree,
-      "--ttl-ms",
-      String(opts.ttlMs),
-      "--port-file",
-      opts.portFilePath,
-    ],
-    { detached: true, stdio: "ignore" },
-  );
+  const child = spawn(process.execPath, buildServeChildArgs(opts), {
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env, FLOW_UI_LOGIN_TOKEN: opts.token },
+  });
   child.on("error", () => {});
   child.unref();
 }
@@ -203,7 +233,7 @@ async function runServe(argv: string[], deps: MainDeps): Promise<number> {
     return 2;
   }
   const worktree = flags.worktree ?? process.cwd();
-  const names = readCredentialNames(flags.manifest);
+  const names = readCredentialNames(flags.manifest, { strict: true });
   if (!names) {
     process.stdout.write(
       JSON.stringify({ ok: false, reason: "no-credential-env-vars" }) + "\n",
@@ -251,6 +281,11 @@ async function runServe(argv: string[], deps: MainDeps): Promise<number> {
   let port: number;
   try {
     port = await waitForPortFile(portFilePath);
+  } catch {
+    process.stdout.write(
+      JSON.stringify({ ok: false, reason: "serve-timeout" }) + "\n",
+    );
+    return 4;
   } finally {
     try {
       fs.rmSync(portFilePath, { force: true });
@@ -273,24 +308,28 @@ async function runServe(argv: string[], deps: MainDeps): Promise<number> {
   return 0;
 }
 
-async function runServeChild(argv: string[]): Promise<number> {
+async function runServeChild(
+  argv: string[],
+  deps: { env?: NodeJS.ProcessEnv } = {},
+): Promise<number> {
   const { flags, error } = parseFlags(
     argv,
     new Set([
       "user-name",
       "pass-name",
-      "token",
       "origin",
       "worktree",
       "ttl-ms",
       "port-file",
     ]),
   );
+  const env = deps.env ?? process.env;
+  const token = env.FLOW_UI_LOGIN_TOKEN;
   if (
     error ||
     !flags["user-name"] ||
     !flags["pass-name"] ||
-    !flags.token ||
+    !token ||
     !flags.origin ||
     !flags["port-file"]
   ) {
@@ -303,17 +342,19 @@ async function runServeChild(argv: string[]): Promise<number> {
 
   const resolved = resolveCredentials(
     { user: flags["user-name"], pass: flags["pass-name"] },
-    { worktree },
+    { worktree, env },
   );
   if (!resolved.values) {
-    // Nothing to serve. The parent's port-file poll times out and the
-    // caller sees a fetch-blocked/login-failed result — never a value.
+    // Nothing to serve. The parent's port-file poll times out (surfaced
+    // to the parent's caller as exit 4 / {ok:false, reason:"serve-timeout"})
+    // and the caller sees a fetch-blocked/endpoint-refused result — never
+    // a value.
     return 3;
   }
 
   const handle = await startCredentialServer({
     values: resolved.values,
-    token: flags.token,
+    token,
     origin: flags.origin,
     ttlMs,
   });
@@ -329,11 +370,11 @@ export async function main(
   const [sub, ...rest] = argv;
   switch (sub) {
     case "check":
-      return runCheck(rest);
+      return runCheck(rest, deps);
     case "serve":
       return runServe(rest, deps);
     case "__serve-child":
-      return runServeChild(rest);
+      return runServeChild(rest, deps);
     default:
       process.stderr.write("usage: flow-ui-login <check|serve> ...\n");
       return 2;

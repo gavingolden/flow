@@ -20,14 +20,27 @@ export const SECRET_FILE_DENY_RULES: readonly string[] = [
   "Read(//**/.env.production)",
   "Read(//**/.env.test)",
   "Read(//**/.env.staging)",
+  "Read(//**/.env.prod)",
+  "Read(//**/.env.dev)",
+  "Read(//**/.env.stage)",
+  "Read(//**/.env.preview)",
+  "Read(//**/.env.ci)",
+  "Read(//**/.env.qa)",
+  "Read(//**/.env.vault)",
+  "Read(//**/.env.keys)",
   "Read(//**/.dev.vars)",
   "Read(//**/.envrc)",
 ];
 
 /**
- * Pre-approves `flow-ui-login` so the auto-mode classifier doesn't itself
- * refuse the one sanctioned path to a credential value — the whole
- * stop-on-denial design (`<!-- flow-credential-denial-rule -->`) depends on
- * this helper never being the thing that gets denied.
+ * Pre-approves `flow-ui-login check`/`serve` only — never a blanket
+ * `flow-ui-login *`, which would also pre-approve the hidden
+ * `__serve-child` subcommand (arbitrary `--user-name`/`--pass-name` on
+ * argv, no classifier check) and let an agent that improvises after a
+ * denial reach it directly. The auto-mode classifier still sees, and can
+ * still deny, every other `flow-ui-login` invocation.
  */
-export const FLOW_UI_LOGIN_ALLOW_RULE = "Bash(flow-ui-login *)";
+export const FLOW_UI_LOGIN_ALLOW_RULES: readonly string[] = [
+  "Bash(flow-ui-login check *)",
+  "Bash(flow-ui-login serve *)",
+];

@@ -65,7 +65,7 @@ import { sanitizeSeedLine } from "./seed-delivery";
 import { appendLaunchRecord } from "./launch-log";
 import { dim } from "./color";
 import {
-  FLOW_UI_LOGIN_ALLOW_RULE,
+  FLOW_UI_LOGIN_ALLOW_RULES,
   SECRET_FILE_DENY_RULES,
 } from "./secret-deny-rules";
 import {
@@ -1777,7 +1777,7 @@ export function ensureLaunchSettings(
         },
         permissions: {
           deny: [...SECRET_FILE_DENY_RULES],
-          allow: [FLOW_UI_LOGIN_ALLOW_RULE],
+          allow: [...FLOW_UI_LOGIN_ALLOW_RULES],
         },
       },
       null,
