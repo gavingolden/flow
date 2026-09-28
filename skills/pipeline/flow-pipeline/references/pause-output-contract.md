@@ -375,8 +375,9 @@ prose).
 (`--why`), else the per-reason `WHY_BY_REASON` default, else nothing.
 Under `pm` it renders only on NEEDS HUMAN; gated/merged/cancelled `pm`
 renders stay why-free. It never shows a raw reason tag; the sentinel
-carries that. `flow-notify` leads its message with the same headline
-(`Next: …`).
+carries that. A needs-human `flow-notify` message leads with the same
+headline (`Next: …`); a gated one leads with `GATED_NEXT_ACTION` in
+`bin/flow-notify.ts`.
 
 ## Worked examples
 

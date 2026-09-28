@@ -263,6 +263,22 @@ describe("gate-summary recipe lint — imperative headline", () => {
     const padded = `${headlineOf(NEXT_ACTION_BY_REASON[firstTag])} ${"x".repeat(HEADLINE_MAX_CHARS)}`;
     expect(padded.length).toBeGreaterThan(HEADLINE_MAX_CHARS);
   });
+
+  it("no multi-line recipe's headline carries a command", () => {
+    for (const [tag, recipe] of Object.entries(NEXT_ACTION_BY_REASON)) {
+      if (!recipe.includes("\n")) continue;
+      expect(
+        detectorTrips(headlineOf(recipe)),
+        `${tag}: headline "${headlineOf(recipe)}" carries a command; a notification shows only the headline, so keep commands in the numbered steps`,
+      ).toBe(false);
+    }
+  });
+
+  it("[negative] a headline naming a command trips the command detector", () => {
+    expect(
+      detectorTrips(headlineOf("Run flow feature resume <slug>.\n  1. Step.")),
+    ).toBe(true);
+  });
 });
 
 describe("gate-summary recipe lint — WHY defaults", () => {

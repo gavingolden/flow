@@ -273,8 +273,8 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   2. Edit the PR body to add a ## Test Steps section.
   3. ${CONTINUE_OR_RESUME_STEP}`,
   "gate-override-without-confirmation": `Validate the open Test Steps yourself, or confirm the merge override.
-  1. Validate the Test Steps and merge the PR on GitHub yourself.
-  2. Reply with a fresh, explicit instruction to merge this gated PR anyway, so the supervisor can confirm and record the override.`,
+  1. Either validate the Test Steps and merge the PR on GitHub yourself,
+  2. Or reply with a fresh, explicit instruction to merge this gated PR anyway, so the supervisor can confirm and record the override.`,
   "merge-failed": `Resolve the conflicts yourself, or let the pipeline retry the merge.
   1. Inspect <worktree>/.flow-tmp/merge-resolver-result.json (if present).
   2. Resolve conflicts manually, then run (cd <repo> && gh pr merge --squash <pr>) yourself, OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
@@ -325,7 +325,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   1. Run flow-ui-login check --manifest .flow/ui-validation.json — it prints names only. If a variable shows present: false, set it in your shell env or the worktree .env.
   2. If both show present: true, the refusal came from a permission rule: allow the flow-ui-login command for this session (flow's launch settings pre-approve flow-ui-login check/serve; a session started outside flow does not — confirm it is on PATH via flow install --upgrade).
   3. ${CONTINUE_OR_RESUME_STEP}`,
-  "state-file-missing-on-start": `Relaunch the pipeline; never work directly on the base branch.
+  "state-file-missing-on-start": `Check whether this pipeline's saved state exists; relaunch it only if it is missing.
   1. Check ~/.flow/state/<slug>.json
   2. If it is missing, never work inline on the base branch — re-run flow feature create "<description>"`,
 };
@@ -640,13 +640,13 @@ export function nextActionHeadline(reason: string | undefined): string {
 
 /**
  * The per-reason WHY default, or "" for an absent / unknown reason or a
- * multi-line one (a reason carrying a newline is never a real tag).
+ * multi-line one (a reason carrying a newline or CR is never a real tag).
  * `task-tool-unavailable:<site>` gains a ` (spawn site: <site>)` suffix
  * only when the suffix is non-empty; the sentinel still carries it
  * byte-exactly.
  */
 export function whyForReason(reason: string | undefined): string {
-  if (!reason || reason.includes("\n")) return "";
+  if (!reason || /[\r\n]/.test(reason)) return "";
   const colonIdx = reason.indexOf(":");
   const head = colonIdx >= 0 ? reason.slice(0, colonIdx).trim() : reason.trim();
   const suffix = colonIdx >= 0 ? reason.slice(colonIdx + 1).trim() : "";

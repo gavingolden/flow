@@ -527,6 +527,12 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(whyForReason("task-tool-unavailable")).not.toContain("spawn site");
   });
 
+  it("[negative] a colon-bearing reason with an embedded line break yields no WHY", () => {
+    expect(whyForReason("task-tool-unavailable: site\ninjected")).toBe("");
+    expect(whyForReason("task-tool-unavailable: site\rinjected")).toBe("");
+    expect(whyForReason("ci-hang:\nextra")).toBe("");
+  });
+
   it("[negative] an inherited object key as a reason resolves as unknown, not a prototype member", () => {
     for (const reason of ["constructor", "toString", "__proto__"]) {
       expect(whyForReason(reason), reason).toBe("");
