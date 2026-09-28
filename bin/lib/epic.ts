@@ -171,8 +171,9 @@ const WINDOW_CREATE_MAX_ATTEMPTS = 3;
 
 /**
  * Resolved absolute path to the product-planning skill, embedded (R1) in both
- * epic seeds so the spawned `/flow-epic-create` supervisor can pass a concrete
- * `SKILL_DIR` into its Task-spawned `MODE: epic` designer. The supervisor runs
+ * epic seeds as `SKILL_DIR`. The `/flow-epic-create` supervisor loads
+ * `/flow-product-planning` in-process and no longer consumes it (the seed
+ * shape is kept byte-stable). The supervisor runs
  * cwd'd in a consumer worktree without `bin/lib`, so it cannot resolve this
  * itself — the CLI (flow's own installed code) resolves it symlink-aware via
  * `resolveFlowSource()` and threads it through. The builders themselves live

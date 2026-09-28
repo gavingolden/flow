@@ -138,7 +138,8 @@ done`'s heal): that one commit, never forced. Both contracts:
     `AskUserQuestion`** — no new exemption, one-form rule unaffected;
     full contract in
     `skills/pipeline/flow-pipeline/references/interview-playbook.md`.
-  - **Auto-issue-create exemption: `/flow-pr-review` Step 6 deferral path,
+  - **Auto-issue-create exemption: `/flow-pr-review` Step 6 deferral path
+    (including the fix-applier's single consolidated issue when a PR merges mid-review — the same deferral path under a mandatory trigger),
     `/flow-pr-review` Step 5 retrospective generic-gap capture,
     `/flow-pipeline` Step 10 post-merge sweep, a user-instructed
     `flow-untracked file <n>` reply, and `/flow-file-issue`'s hand-filed
