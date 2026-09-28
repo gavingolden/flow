@@ -32,6 +32,7 @@
  *       "planExists"?: boolean,
  *       "headCommitSubject"?: string,
  *       "hasSkillAdditions"?: boolean,
+ *       "hasOverlay"?: boolean,
  *       "answer"?: string,
  *       "interview"?: string
  *     }
@@ -57,6 +58,7 @@ import {
   pausedPhase,
 } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
+import { overlayPluginRoots } from "./lib/skill-overlay";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { checkpointBodyPath, checkpointMarkerPath } from "./flow-checkpoint";
 import { isCheckpointUsable } from "./lib/checkpoint-freshness";
@@ -136,6 +138,8 @@ export type DecisionContext = {
   planExists?: boolean;
   headCommitSubject?: string;
   hasSkillAdditions?: boolean;
+  /** Present (true) only when the slug has a private skill copy to sync. */
+  hasOverlay?: boolean;
   answer?: string;
   /**
    * The persisted intent-interview digest (`state.interview`), surfaced so
@@ -217,6 +221,8 @@ export type Inputs = {
   checkpointPath: string;
   pr: PrInfo;
   hasSkillAdditions: boolean;
+  /** The slug has a private skill copy (`~/.flow/overlays/<slug>`); step 5.5 must sync it even on an edit-only branch. */
+  hasOverlay?: boolean;
   ciState: CiState;
   headCommit: HeadCommit | null;
 };
@@ -658,16 +664,20 @@ export function decide(inputs: Inputs): DecisionResult {
     return { resumeAt: "step-5", reason: "no PR for branch", context: ctx };
   }
 
-  // Row 5.5 — re-symlink. Done when phase post-symlink, OR no skill/agent
-  // additions on this branch (nothing to re-symlink).
+  // Row 5.5 — re-symlink + private-copy sync. Done when phase post-symlink, OR
+  // no skill/agent additions on this branch AND no private copy to sync (an
+  // edit-only branch on a flow-self copy still needs its sync).
   ctx.hasSkillAdditions = inputs.hasSkillAdditions;
+  if (inputs.hasOverlay) ctx.hasOverlay = true;
   if (
     !POST_SYMLINK_PHASES.has(inputs.state.phase) &&
-    inputs.hasSkillAdditions
+    (inputs.hasSkillAdditions || inputs.hasOverlay)
   ) {
     return {
       resumeAt: "step-5.5",
-      reason: "skills/agents added but re-symlink not yet run",
+      reason: inputs.hasSkillAdditions
+        ? "skills/agents added but re-symlink not yet run"
+        : "private skill copy exists but its sync has not run",
       context: ctx,
     };
   }
@@ -734,6 +744,8 @@ export type Deps = {
   git?: GitRunner;
   stateDir?: string;
   resolveSlug?: () => string | null;
+  /** Private-skill-copy probe seam (test only). */
+  hasOverlay?: (slug: string) => boolean;
 };
 
 /** Reads <worktree>/.flow-tmp/plan.md and returns true iff present + non-empty. */
@@ -879,6 +891,7 @@ export function gatherInputs(
   gh: GhRunner,
   git: GitRunner,
   stateDir = FLOW_STATE_DIR,
+  hasOverlay: (slug: string) => boolean = (s) => overlayPluginRoots(s) !== null,
 ): Inputs {
   // Terminal phases — and the no-in-flight-work pending phases — short-circuit
   // gh/git I/O: decide() returns terminal from the phase check alone, so
@@ -948,6 +961,7 @@ export function gatherInputs(
     checkpointPath,
     pr,
     hasSkillAdditions,
+    hasOverlay: hasOverlay(slug),
     ciState,
     headCommit,
   };
@@ -990,7 +1004,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 0;
   }
 
-  const inputs = gatherInputs(slug, state, gh, git, stateDir);
+  const inputs = gatherInputs(slug, state, gh, git, stateDir, deps.hasOverlay);
   const decision = decide(inputs);
   process.stdout.write(JSON.stringify(decision) + "\n");
   return 0;

@@ -639,6 +639,47 @@ describe("decide() — row 5.5 (re-symlink)", () => {
   });
 });
 
+describe("decide() — row 5.5 (private skill copy on an edit-only branch)", () => {
+  it.each(["implementing", "installing-skills"])(
+    "resumes at step-5.5 when phase is '%s', no skills were added, but a private copy exists",
+    (phase) => {
+      const r = decide(
+        makeInputs({
+          state: baseState({ phase }),
+          hasSkillAdditions: false,
+          hasOverlay: true,
+        }),
+      );
+      expect(r.resumeAt).toBe("step-5.5");
+      expect(r.reason).toMatch(/private skill copy/);
+      expect(r.context.hasOverlay).toBe(true);
+    },
+  );
+
+  it("does not re-enter step 5.5 once the phase is past the symlink step, copy or not", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "verifying" }),
+        hasSkillAdditions: false,
+        hasOverlay: true,
+      }),
+    );
+    expect(r.resumeAt).not.toBe("step-5.5");
+  });
+
+  it("no additions and no copy leaves the behavior unchanged (skips step 5.5)", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "implementing" }),
+        hasSkillAdditions: false,
+        hasOverlay: false,
+      }),
+    );
+    expect(r.resumeAt).toBe("step-6");
+    expect(r.context.hasOverlay).toBeUndefined();
+  });
+});
+
 describe("probeSkillAdditions", () => {
   it("passes --diff-filter=A so it agrees with step 5.5's own detection", () => {
     const calls: string[][] = [];
