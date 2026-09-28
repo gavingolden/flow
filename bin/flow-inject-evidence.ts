@@ -40,13 +40,18 @@
  * spaces, dashes, slashes, equals signs are all literal.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import * as path from "node:path";
 import {
   fencedLineMask,
   normalizeDetailsBlocks,
 } from "./lib/md-block-structure";
 import { redactForPublish } from "./lib/redact-secrets";
-import { clearVerifyCaution, upsertVerifyCaution } from "./lib/verify-caution";
+import {
+  clearVerifyCaution,
+  displayExcerptPath,
+  upsertVerifyCaution,
+} from "./lib/verify-caution";
 
 export type InjectArgs = {
   bodyFile: string;
@@ -230,7 +235,7 @@ export function buildEvidenceBlock(
   }
   const status = exitCode === 0 ? "pass" : `FAILED exit ${exitCode}`;
   const summary = `Output (auto-captured ${timestamp}; ${status})`;
-  const trimmed = neutralizeHeadings(trimOutput(redactForPublish(output)));
+  const trimmed = neutralizeHeadings(redactForPublish(trimOutput(output)));
   const fence = "`".repeat(pickFenceLength(trimmed));
   // The blank line before `</details>` here just closes off the fenced
   // code block for markdown re-entry (unrelated to the two GFM
@@ -397,7 +402,15 @@ function runCaution(parsed: CautionArgs): void {
     );
     process.exit(1);
   }
-  const r = upsertVerifyCaution(body, parsed.cautionFile);
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: path.dirname(path.resolve(parsed.bodyFile)),
+    encoding: "utf8",
+  });
+  const root = top.status === 0 ? top.stdout.trim() : undefined;
+  const r = upsertVerifyCaution(
+    body,
+    displayExcerptPath(parsed.cautionFile, root),
+  );
   if (!r.ok) {
     process.stderr.write(`flow-inject-evidence: ${r.error}\n`);
     process.exit(1);

@@ -89,6 +89,8 @@ describe("redactForPublish", () => {
     "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3",
     "123e4567-e89b-12d3-a456-426614174000",
     "compat=true",
+    "✓ parser > handles basic input (2ms)",
+    "ends with Basic\nnext line",
     "sk-learn",
     "task-runner-configuration-for-long-hyphenated-names",
   ])("leaves %s unchanged", (s) => {
@@ -126,6 +128,71 @@ describe("redactForPublish", () => {
     expect(out).toContain("[REDACTED]");
     expect(out.endsWith(" end")).toBe(true);
     expect(out).not.toMatch(/ghp_|sk-ant|AKIA|eyJ/);
+  });
+
+  it("masks Authorization Basic/Bearer and token-shaped Bearer values", () => {
+    expect(redactForPublish("Authorization: Basic dXNlcjpwYXNz")).toBe(
+      "Authorization: [REDACTED]",
+    );
+    expect(redactForPublish("got Bearer abcdefghijklmnop1234 here")).toBe(
+      "got [REDACTED] here",
+    );
+  });
+
+  it("masks the password in a connection URL", () => {
+    expect(
+      redactForPublish("DATABASE_URL=postgres://admin:s3cr3t@db:5432/app"),
+    ).toBe("DATABASE_URL=postgres://admin:[REDACTED]@db:5432/app");
+    expect(redactForPublish("clone https://user:tok@github.com/x done")).toBe(
+      "clone https://user:[REDACTED]@github.com/x done",
+    );
+  });
+
+  it.each([
+    ["github_pat", `pat github_pat_${"A1b2C3d4E5".repeat(3)} end`],
+    ["slack", "s xoxb-1234567890-abcdefABCDEF end"],
+    ["gitlab", `g glpat-${"aB3dE6gH9j".repeat(2)}xy end`],
+    ["google", `k AIza${"aB3dE6gH9j".repeat(3)}abcde end`],
+  ])("masks vendor token %s", (_n, s) => {
+    const out = redactForPublish(s);
+    expect(out).toContain("[REDACTED]");
+    expect(out.endsWith(" end")).toBe(true);
+    expect(out).not.toMatch(/github_pat|xox|glpat|AIza/);
+  });
+
+  it("masks PASSWORD, passwd, credentials and the JSON forms", () => {
+    expect(redactForPublish("DB_PASSWORD=hunter2")).toBe(
+      "DB_PASSWORD=[REDACTED]",
+    );
+    expect(redactForPublish("passwd=hunter2")).toBe("passwd=[REDACTED]");
+    expect(redactForPublish("credentials: hunter2")).toBe(
+      "credentials: [REDACTED]",
+    );
+    expect(redactForPublish('{"client_secret": "abc"}')).toBe(
+      '{"client_secret": [REDACTED]',
+    );
+    expect(redactForPublish('{"api_key":"abc"}')).toBe('{"api_key":[REDACTED]');
+  });
+
+  it("opaque-run fallback masks a bare mixed-case base64 blob", () => {
+    const out = redactForPublish(
+      "blob Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdo end",
+    );
+    expect(out).toBe("blob [REDACTED] end");
+  });
+
+  it("masks a slash-bearing base64 secret without a KEY= prefix", () => {
+    const out = redactForPublish(
+      "v wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY end",
+    );
+    expect(out).not.toContain("wJalr");
+  });
+
+  it("completes quickly on a 200k-char unbroken run", () => {
+    const start = Date.now();
+    redactForPublish("a".repeat(200_000));
+    redactForPublish("A1".repeat(100_000));
+    expect(Date.now() - start).toBeLessThan(2000);
   });
 
   it("masks a token embedded in a path", () => {

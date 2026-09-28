@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { clearVerifyCaution, upsertVerifyCaution } from "./verify-caution";
+import {
+  clearVerifyCaution,
+  displayExcerptPath,
+  upsertVerifyCaution,
+} from "./verify-caution";
 
 const BODY = "## Why\n\nbecause\n\n## Test Steps\n\n- [ ] a\n\n## Notes\n";
 const OPEN = "<!-- flow:verify-caution -->";
@@ -41,6 +45,50 @@ describe("upsertVerifyCaution", () => {
   it("ignores a fenced Test Steps heading", () => {
     const body = "```\n## Test Steps\n```\n";
     expect(upsertVerifyCaution(body, "/a.txt").ok).toBe(false);
+  });
+});
+
+describe("caution wording and path", () => {
+  it("names the next step and that the warning self-clears", () => {
+    const r = upsertVerifyCaution(BODY, ".flow-tmp/verify-caution.txt");
+    if (!r.ok) throw new Error("upsert");
+    expect(r.body).toContain(
+      "> Fix the failure, then resume the pipeline; this warning is removed automatically on the next clean verify.",
+    );
+    expect(r.body).toContain("`.flow-tmp/verify-caution.txt`");
+  });
+
+  it("renders a path under the toplevel relative, others unchanged", () => {
+    expect(displayExcerptPath("/wt/.flow-tmp/verify-caution.txt", "/wt")).toBe(
+      ".flow-tmp/verify-caution.txt",
+    );
+    expect(displayExcerptPath("/elsewhere/v.txt", "/wt")).toBe(
+      "/elsewhere/v.txt",
+    );
+    expect(displayExcerptPath("/wt/v.txt")).toBe("/wt/v.txt");
+  });
+});
+
+describe("caution marker robustness", () => {
+  const CLOSE = "<!-- /flow:verify-caution -->";
+
+  it("ignores markers echoed inside fenced output", () => {
+    const body = `## Test Steps\n\n- [ ] a\n\n\`\`\`\n${OPEN}\n\`\`\`\n\n- [ ] b\n\n\`\`\`\n${CLOSE}\n\`\`\`\n`;
+    expect(clearVerifyCaution(body)).toEqual({ body, cleared: false });
+    const r = upsertVerifyCaution(body, "/a.txt");
+    if (!r.ok) throw new Error("upsert");
+    expect(r.replaced).toBe(false);
+    expect(r.body).toContain("- [ ] a");
+    expect(r.body).toContain("- [ ] b");
+  });
+
+  it("an open marker without a close does not stack a second block", () => {
+    const body = `## Test Steps\n\n${OPEN}\n> [!CAUTION]\n> old\n\n- [ ] a\n`;
+    const r = upsertVerifyCaution(body, "/a.txt");
+    if (!r.ok) throw new Error("upsert");
+    expect(r.body.split(OPEN).length - 1).toBe(1);
+    expect(r.body).not.toContain("> old");
+    expect(r.body).toContain("- [ ] a");
   });
 });
 

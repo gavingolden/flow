@@ -1756,8 +1756,15 @@ Step 3 hybrid threshold still decides narrow-inline vs.
 `/flow-coder`-delegated fixes (the sixth named Task-tool exemption); the
 work now happens directly in the supervisor's own context — there is no
 longer a diff-bytes isolation boundary to preserve at this step. On a clean
-pass after re-entry, run `flow-inject-evidence --body-file <fresh body.md>
---clear-caution`; push the body only if it printed `caution cleared`.
+pass after re-entry, clear the block; push the body only if it printed
+`caution cleared`:
+
+```bash
+gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
+flow-inject-evidence --body-file "$WORKTREE/.flow-tmp/body.md" --clear-caution | grep -qx 'caution cleared' \
+  && flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/body.md" \
+  && gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
+```
 
 **End condition:** `/flow-verify` reports a clean pass. Continue to step 7.
 
