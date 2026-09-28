@@ -212,56 +212,55 @@ export const CONTINUE_OR_RESUME_STEP =
 // action (one copy-pasteable command or one decision) stays a plain
 // single-line string; it is never padded into a one-item numbered list.
 export const NEXT_ACTION_BY_REASON: Record<string, string> = {
-  "triage-ambiguous": `The request's intent is ambiguous.
+  "triage-ambiguous": `Restate the request so its kind of change is clear.
   1. Attach (flow attach <slug>).
   2. Restate the request with a clearer intent (feature / bug / refactor / docs / infra / chore).`,
-  "worktree-create-failed": `Worktree creation failed; no worktree was ever recorded, so this pipeline cannot be resumed.
+  "worktree-create-failed": `Clear the blocker, clean up this launch, and relaunch.
   1. Inspect the flow-new-worktree stderr in scrollback for disk space or branch-name collisions.
   2. Once resolved, run flow done <slug> to clean up the failed launch.
   3. Re-launch with flow feature create "<description>"`,
-  "plan-missing": `The plan file is missing.
+  "plan-missing": `Relaunch planning with a more specific description.
   1. Attach (flow attach <slug>).
   2. Re-run /flow-pipeline with a more specific description, or invoke /flow-product-planning manually in the worktree.`,
-  "pr-missing": `PR creation failed upstream.
+  "pr-missing": `Fix GitHub access so the pull request can open, then reply done in the pipeline window.
   1. Check gh auth status, branch protection, and network reachability.
   2. ${CONTINUE_OR_RESUME_STEP}`,
-  "scout-missing": `The scout artifact is missing.
+  "scout-missing": `Reply in the pipeline window to re-run implementation.
   1. Attach (flow attach <slug>).
   2. Re-invoke /flow-new-feature directly so the scout subagent runs again.`,
-  "approval-ambiguous": `The approval reply is ambiguous.
-  1. Attach (flow attach <slug>).
-  2. Reply with one of approve / redirect <new direction> / cancel.`,
-  "implement-failed": `Implementation failed.
+  "approval-ambiguous":
+    "Attach (flow attach <slug>) and reply approve, redirect <new direction>, or cancel.",
+  "implement-failed": `Check what implementation produced, then redirect it with a fix hint.
   1. Attach (flow attach <slug>).
   2. Inspect <worktree>/.flow-tmp/ for skill output.
   3. Redirect /flow-new-feature with a fix hint.`,
-  "verify-exhausted": `Verify retries are exhausted.
+  "verify-exhausted": `Read the failure log, then reply in the pipeline window with a fix hint.
   1. Attach (flow attach <slug>).
   2. Redirect /flow-verify with the failure hint from <worktree>/.flow-tmp/verify-failure-N.log`,
-  "ci-hang": `CI appears stalled.
+  "ci-hang": `Check the stalled CI run, then reply done in the pipeline window.
   1. Attach (flow attach <slug>).
   2. Inspect GitHub Actions for the stalled check.
   3. ${CONTINUE_OR_RESUME_STEP}`,
-  "pr-blocked": `Branch protection blocks the merge (failing required check, missing required review, CODEOWNERS, or linear-history), and waiting cannot clear it.
+  "pr-blocked": `Satisfy the branch-protection rule, then reply done in the pipeline window.
   1. Satisfy the protection rule on GitHub.
   2. ${CONTINUE_OR_RESUME_STEP}`,
-  "ci-fix-exhausted": `CI-fix retries are exhausted.
+  "ci-fix-exhausted": `Read the last CI failure, then send a targeted fix hint.
   1. Attach (flow attach <slug>).
   2. Inspect the last CI failure log.
   3. Redirect /flow-new-feature mode=fix with a targeted fix hint.`,
-  "review-fix-exhausted": `Review-fix retries are exhausted.
+  "review-fix-exhausted": `Review the unresolved findings, then send a fix.
   1. Attach (flow attach <slug>).
   2. Inspect the unresolved /flow-pr-review findings on the PR.
   3. Redirect /flow-new-feature mode=fix`,
-  "review-failed": `The review run failed.
+  "review-failed": `Check the review output, then re-run the review.
   1. Attach (flow attach <slug>).
   2. Inspect <worktree>/.flow-tmp/pr-review-result.json (if present).
   3. Re-invoke /flow-pr-review <PR>`,
-  "review-partial": `The review run stopped partway through.
+  "review-partial": `Reply in the pipeline window to resume the review where it stopped.
   1. Attach (flow attach <slug>).
   2. Inspect <worktree>/.flow-tmp/pr-review-result.json's .missed_steps
   3. Re-invoke /flow-pr-review <PR> --resume-from <step>`,
-  "gh-error": `A GitHub CLI call failed.
+  "gh-error": `Fix GitHub access for the failed command, then reply done in the pipeline window.
   1. Attach (flow attach <slug>).
   2. Check gh auth status and network reachability.
   3. ${CONTINUE_OR_RESUME_STEP}`,
@@ -269,64 +268,64 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
     "Decide: reopen the PR (gh pr reopen <pr>) or run flow done <slug> to clean up",
   "pr-closed-mid-flight":
     "Decide: reopen the PR (gh pr reopen <pr>) or run flow done <slug> to clean up",
-  "test-steps-section-missing": `The PR body has no Test Steps section.
+  "test-steps-section-missing": `Add a Test Steps section to the PR description, then reply done in the pipeline window.
   1. Attach (flow attach <slug>).
   2. Edit the PR body to add a ## Test Steps section.
   3. ${CONTINUE_OR_RESUME_STEP}`,
-  "gate-override-without-confirmation":
-    "The PR is gated (unchecked Test Steps remain) and flow-merge-guard refused the merge. Validate the unchecked steps and merge through GitHub yourself, or reply with a fresh, explicit instruction to merge this gated PR anyway so the supervisor can confirm and record the override",
-  "merge-failed": `The merge-conflict resolver failed.
+  "gate-override-without-confirmation": `Validate the open Test Steps yourself, or confirm the merge override.
+  1. Validate the Test Steps and merge the PR on GitHub yourself.
+  2. Reply with a fresh, explicit instruction to merge this gated PR anyway, so the supervisor can confirm and record the override.`,
+  "merge-failed": `Resolve the conflicts yourself, or let the pipeline retry the merge.
   1. Inspect <worktree>/.flow-tmp/merge-resolver-result.json (if present).
   2. Resolve conflicts manually, then run (cd <repo> && gh pr merge --squash <pr>) yourself, OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
-  "merge-resolver-missing-artifact": `The merge-conflict resolver artifact is missing.
+  "merge-resolver-missing-artifact": `Resolve the conflicts yourself, or let the pipeline retry the merge.
   1. Inspect <worktree>/.flow-tmp/ for partial resolver state.
   2. Resolve conflicts manually, then run (cd <repo> && gh pr merge --squash <pr>) yourself, OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
-  "merge-resolver-spawn-denied": `The permission system refused the merge-resolver subagent spawn.
-  1. Recover manually: run cd <worktree> && git fetch origin <base> && git merge origin/<base>
+  "merge-resolver-spawn-denied": `Merge the base branch in by hand, then merge the PR.
+  1. Run cd <worktree> && git fetch origin <base> && git merge origin/<base>
   2. STOP and resolve every conflict marker in your editor before committing.
   3. Once resolved, run git add <resolved-files>, git commit, git push
   4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
   5. Then run (cd <repo> && gh pr merge --squash <pr>) yourself, OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
-  "verify-loop-missing-artifact": `The verify-retry-loop subagent artifact is missing.
+  "verify-loop-missing-artifact": `Run the checks yourself, fix what fails, then reply done in the pipeline window.
   1. Inspect <worktree>/.flow-tmp/ for partial verify-loop state.
   2. Run (cd <worktree> && flow-pre-commit --json) and fix any failures manually.
   3. ${CONTINUE_OR_RESUME_STEP}`,
   "branch-mismatch":
     "Inspect git reflog and git worktree list before any further git commands; do NOT auto-recover",
-  "terminal-regression": `A terminal-phase state file was about to be regressed to a non-terminal phase (likely an ambient-pane slug race from 'flow feature create' inside a flow window).
+  "terminal-regression": `Check the other pipeline's saved state before changing anything.
   1. Inspect ~/.flow/state/<slug>.json
   2. If the victim is genuinely terminal, restore it with flow-state-update --phase <merged|gated|...> --force --slug <victim-slug>; do NOT auto-recover.`,
-  "cross-branch-operation-attempted": `The supervisor refused to cross worktrees.
+  "cross-branch-operation-attempted": `Check which working copy the failed command targeted, then fix it by hand.
   1. Inspect git worktree list and the failed command's stderr.
   2. Resolve manually.`,
   // Not CONTINUE_OR_RESUME_STEP: restarting claude ends this window's
   // session, so there is no window left to reply `done` in — the only
   // recovery route is closing the window and running `flow feature resume`.
-  "task-tool-unavailable": `The Task tool is unavailable.
+  "task-tool-unavailable": `Restart Claude so it can start helper agents, then resume.
   1. Restart claude (or upgrade the CLI) so the Task tool is surfaced top-level.
   2. Once resolved, close the pipeline window first, then run flow feature resume <slug>`,
-  "state-missing-on-resume":
-    "Run flow feature create <description> afresh; ~/.flow/state/<slug>.json is missing so resume cannot proceed",
+  "state-missing-on-resume": "Run flow feature create <description> afresh.",
   "worktree-missing-on-resume":
     "Decide: recreate the worktree manually (git worktree add) or run flow done <slug> to clean up",
   "flow-setup-upgrade-failed":
     "Run flow install --upgrade manually from the canonical install root and inspect its output",
-  "fix-applier-missing-artifact": `Fix-applier's result artifact is missing.
+  "fix-applier-missing-artifact": `Check whether the review fixes landed, then re-run the review.
   1. Inspect git log on the feature branch and the PR body's Local Follow-ups section.
   2. Then re-invoke /flow-pr-review`,
-  "pr-review-missing-artifact": `The PR-review result artifact is missing.
+  "pr-review-missing-artifact": `Check the partial review output, then re-run the review.
   1. Attach (flow attach <slug>).
   2. Inspect <worktree>/.flow-tmp/ for partial state.
   3. Re-invoke /flow-pr-review <PR>`,
-  "coder-failed": `The edit-applier subagent failed.
+  "coder-failed": `Check the code-edit output, then re-run the step.
   1. Attach (flow attach <slug>).
   2. Inspect <worktree>/.flow-tmp/coder-result.json (if present).
   3. Re-invoke the caller skill.`,
-  "smoketest-needs-creds": `The UI-smoke pass could not use the test-user credentials: they were not found, or a permission check refused access to them. flow's login helper only checks whether these variables exist and never shows their values to the agent.
+  "smoketest-needs-creds": `Make the test-user credentials available, then reply done in the pipeline window.
   1. Run flow-ui-login check --manifest .flow/ui-validation.json — it prints names only. If a variable shows present: false, set it in your shell env or the worktree .env.
   2. If both show present: true, the refusal came from a permission rule: allow the flow-ui-login command for this session (flow's launch settings pre-approve flow-ui-login check/serve; a session started outside flow does not — confirm it is on PATH via flow install --upgrade).
   3. ${CONTINUE_OR_RESUME_STEP}`,
-  "state-file-missing-on-start": `The launch likely died before writing state.
+  "state-file-missing-on-start": `Relaunch the pipeline; never work directly on the base branch.
   1. Check ~/.flow/state/<slug>.json
   2. If it is missing, never work inline on the base branch — re-run flow feature create "<description>"`,
 };
@@ -383,7 +382,6 @@ export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
   "verify-loop-missing-artifact": ["flow feature resume <slug>"],
   "branch-mismatch": ["git reflog", "git worktree list"],
   "terminal-regression": [
-    "flow feature create",
     "flow-state-update --phase <merged|gated|...> --force --slug <victim-slug>",
   ],
   "cross-branch-operation-attempted": ["git worktree list"],
@@ -402,10 +400,104 @@ export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
 // command-word detector (a COMMAND_WORDS token appears somewhere in
 // the prose) but carry no copy-pasteable command — every entry names
 // the benign token that tripped the detector so the escape hatch stays
-// auditable rather than a silent bypass.
-export const RECIPE_COMMANDS_NONE: readonly string[] = [
-  "gate-override-without-confirmation", // "flow-merge-guard" is narrated ("...and flow-merge-guard refused the merge"), not invoked with args
+// auditable rather than a silent bypass. Currently empty: no recipe's
+// prose trips the detector without also declaring a command.
+export const RECIPE_COMMANDS_NONE: readonly string[] = [];
+
+// Verbs a recipe's first line (its imperative headline) may open with.
+// `bin/gate-summary-recipe-lint.test.ts` pins every headline's first word
+// against this list; extend it deliberately when a new headline needs a
+// new verb, rather than loosening the spec.
+export const HEADLINE_VERBS: readonly string[] = [
+  "Add",
+  "Attach",
+  "Check",
+  "Clear",
+  "Confirm",
+  "Decide",
+  "Fix",
+  "Inspect",
+  "Make",
+  "Merge",
+  "Read",
+  "Re-run",
+  "Relaunch",
+  "Reply",
+  "Resolve",
+  "Restart",
+  "Restate",
+  "Resume",
+  "Review",
+  "Run",
+  "Satisfy",
+  "Validate",
 ];
+
+// Per-reason WHY default: the one-line diagnosis a NEEDS HUMAN render shows
+// when the call site passed no --why. Keyed exactly like
+// NEXT_ACTION_BY_REASON (parity is spec-pinned). Impact first, no internal
+// jargon — the recipe headline says what to do, this says what went wrong.
+export const WHY_BY_REASON: Record<string, string> = {
+  "triage-ambiguous":
+    "The request could be read as more than one kind of change, so planning did not start.",
+  "worktree-create-failed":
+    "flow could not create this pipeline's working copy, so there is nothing to resume.",
+  "plan-missing":
+    "Planning ended without writing a plan, so implementation cannot start.",
+  "pr-missing": "The pull request could not be opened on GitHub.",
+  "scout-missing":
+    "The codebase scan that precedes implementation produced no report.",
+  "approval-ambiguous":
+    "Your reply at plan review did not clearly approve, redirect, or cancel.",
+  "implement-failed": "Implementation stopped without a usable result.",
+  "verify-exhausted":
+    "The automated checks still fail after every automatic fix attempt.",
+  "ci-hang": "CI has not finished in the expected time and may be stuck.",
+  "pr-blocked":
+    "Branch protection blocks the merge (a failing required check, a missing required review, CODEOWNERS, or linear history), and waiting will not clear it.",
+  "ci-fix-exhausted": "CI still fails after every automatic fix attempt.",
+  "review-fix-exhausted":
+    "Review findings remain after every automatic fix round.",
+  "review-failed": "The code review stopped with an error.",
+  "review-partial": "The code review stopped partway through.",
+  "gh-error": "A GitHub command failed.",
+  "pr-closed-without-merge": "The PR was closed without being merged.",
+  "pr-closed-mid-flight":
+    "The PR was closed while the pipeline was still working on it.",
+  "test-steps-section-missing":
+    "The PR description has no Test Steps section, so flow cannot tell whether it is safe to merge on its own.",
+  "gate-override-without-confirmation":
+    "The PR still has unchecked Test Steps, and the merge guard will not merge it without your fresh confirmation.",
+  "merge-failed":
+    "The automatic merge-conflict resolver could not finish the merge.",
+  "merge-resolver-missing-artifact":
+    "The merge-conflict resolver ended without reporting a result.",
+  "merge-resolver-spawn-denied":
+    "A permission rule stopped flow from starting its merge-conflict resolver.",
+  "verify-loop-missing-artifact":
+    "The automatic check-and-fix loop ended without reporting a result.",
+  "branch-mismatch":
+    "The working copy is on a different branch than this pipeline expects.",
+  "terminal-regression":
+    "flow blocked a change that would have moved a finished pipeline back to unfinished, likely because 'flow feature create' ran inside another pipeline's window.",
+  "cross-branch-operation-attempted":
+    "flow refused a command that would have acted on another pipeline's working copy.",
+  "task-tool-unavailable": "This session could not start a helper agent.",
+  "state-missing-on-resume":
+    "This pipeline's saved state is missing, so it cannot be resumed.",
+  "worktree-missing-on-resume":
+    "This pipeline's working copy no longer exists.",
+  "flow-setup-upgrade-failed": "Upgrading flow's installed helpers failed.",
+  "fix-applier-missing-artifact":
+    "The review-fix step ended without reporting a result.",
+  "pr-review-missing-artifact":
+    "The code review ended without writing its result.",
+  "coder-failed": "The helper agent that applies code edits failed.",
+  "smoketest-needs-creds":
+    "The UI check could not use the test-user credentials: they were not found, or a permission check refused access.",
+  "state-file-missing-on-start":
+    "The launch likely stopped before it saved the pipeline's state.",
+};
 
 type Args = {
   status: Status;
@@ -519,38 +611,49 @@ export function parseArgs(argv: string[]): Args | { error: string } {
 }
 
 /**
- * Resolves the NEXT ACTION line for a NEEDS HUMAN escalation.
+ * Resolves the NEXT ACTION recipe for a NEEDS HUMAN escalation.
  *
  * `task-tool-unavailable:<site>` is a parameterised reason: the cap
- * table lists six sub-sites, but the helper carries one entry. The
- * suffix after the colon is interpolated into the returned NEXT ACTION
- * string so the rendered block names the exact spawn site that lost
- * its Task tool — without this, all six exemption sites collapse to
- * the same generic remediation line, defeating the per-tag mapping
- * pattern. Other unmapped reasons fall back to DEFAULT_NEXT_ACTION.
+ * table lists six sub-sites but the helper carries one entry, so the
+ * head before the first ':' picks the mapping. The spawn-site suffix
+ * is NOT part of the recipe — it is diagnosis, so `whyForReason`
+ * appends it to the WHY default. Unmapped reasons fall back to
+ * DEFAULT_NEXT_ACTION.
  */
 function nextActionForReason(reason: string | undefined): string {
   if (!reason) return DEFAULT_NEXT_ACTION;
-  // Split on first ':' so 'task-tool-unavailable: <site>' picks up the
-  // base mapping; the suffix is interpolated as site context.
+  const colonIdx = reason.indexOf(":");
+  const head = colonIdx >= 0 ? reason.slice(0, colonIdx).trim() : reason.trim();
+  return Object.hasOwn(NEXT_ACTION_BY_REASON, head) ? NEXT_ACTION_BY_REASON[head] : DEFAULT_NEXT_ACTION;
+}
+
+/**
+ * The imperative headline of a reason's recipe — its first line, without
+ * numbered steps. `flow-notify` leads its message with this. `<slug>` /
+ * `<pr>` substitution is the caller's job.
+ */
+export function nextActionHeadline(reason: string | undefined): string {
+  return nextActionForReason(reason).split("\n")[0];
+}
+
+/**
+ * The per-reason WHY default, or "" for an absent / unknown reason or a
+ * multi-line one (a reason carrying a newline is never a real tag).
+ * `task-tool-unavailable:<site>` gains a ` (spawn site: <site>)` suffix
+ * only when the suffix is non-empty; the sentinel still carries it
+ * byte-exactly.
+ */
+export function whyForReason(reason: string | undefined): string {
+  if (!reason || reason.includes("\n")) return "";
   const colonIdx = reason.indexOf(":");
   const head = colonIdx >= 0 ? reason.slice(0, colonIdx).trim() : reason.trim();
   const suffix = colonIdx >= 0 ? reason.slice(colonIdx + 1).trim() : "";
-  const mapped = NEXT_ACTION_BY_REASON[head];
-  if (!mapped) return DEFAULT_NEXT_ACTION;
+  const why = Object.hasOwn(WHY_BY_REASON, head) ? WHY_BY_REASON[head] : "";
+  if (!why) return "";
   if (head === "task-tool-unavailable" && suffix.length > 0) {
-    // For a multi-line recipe the suffix belongs on the header (first)
-    // line, never on the last numbered step — it names the spawn site
-    // the escalation is about, not a qualifier on the final action.
-    const newlineIdx = mapped.indexOf("\n");
-    if (newlineIdx === -1) {
-      return `${mapped} (spawn site: ${suffix})`;
-    }
-    const header = mapped.slice(0, newlineIdx);
-    const rest = mapped.slice(newlineIdx);
-    return `${header} (spawn site: ${suffix})${rest}`;
+    return `${why} (spawn site: ${suffix})`;
   }
-  return mapped;
+  return why;
 }
 
 /**
@@ -572,8 +675,9 @@ function pushNextAction(lines: string[], text: string): void {
 
 // Collapse newlines + trim. The renderer accepts free-form `why`
 // strings (e.g. `gh pr view` stderr) and must keep them on a single
-// row. Length is not truncated — terminals wrap, and the WHY field is
-// the user's primary diagnostic surface.
+// row. Length is not truncated — terminals wrap. A supplied --why wins
+// over the per-reason default in both lenses; under pm it renders only
+// on NEEDS HUMAN (gated/merged/cancelled pm renders stay why-free).
 function oneLine(s: string | undefined): string {
   if (!s) return "";
   return s.replace(/[\r\n]+/g, " ").trim();
@@ -686,17 +790,11 @@ function renderNeedsHuman(inputs: GateSummaryInputs): string {
   const lines: string[] = ["STATUS: NEEDS HUMAN"];
   if (inputs.prUrl) lines.push(`PR: ${linkUrl(inputs.prUrl, mode)}`);
   const pm = effectiveLens(inputs) === "pm";
-  // The WHY field carries the inline context. When `--reason` is set
-  // but `--why` is omitted, surface the bare reason tag — the user
-  // still gets the escalation tag printed twice (once on the WHY
-  // line, once on the sentinel) which matches the historical inline
-  // `echo "NEEDS HUMAN: <reason>"` shape callers had to maintain by
-  // hand.
-  if (!pm) {
-    const why =
-      oneLine(inputs.why) || (inputs.reason ? oneLine(inputs.reason) : "");
-    if (why) lines.push(`WHY: ${why}`);
-  }
+  // WHY is the diagnosis row, in both views: the site's --why, else the
+  // per-reason default, else omitted. Never the raw reason tag — the
+  // NEEDS HUMAN sentinel below already carries it.
+  const why = oneLine(inputs.why) || whyForReason(inputs.reason);
+  if (why) lines.push(`WHY: ${why}`);
   if (pm) {
     lines.push(...buildUntracked(inputs.untrackedBlock));
     if (inputs.countsLine) lines.push(oneLine(inputs.countsLine));
@@ -882,7 +980,7 @@ function appendFollowups(
   }
 }
 
-function extractPrNumber(url: string): string | null {
+export function extractPrNumber(url: string): string | null {
   // GitHub PR URLs end with /pull/<n>; also match /pr/<n> for test
   // shorthand and other Git hosts. Tolerant of trailing slash and an
   // optional fragment / query string. Returns null when no numeric
@@ -1080,7 +1178,9 @@ export function run(
             const reasonForBody = oneLine(parsed.reason) || "unspecified";
             const why =
               oneLine(parsed.why) ||
-              (parsed.reason ? oneLine(parsed.reason) : "unspecified");
+              whyForReason(parsed.reason) ||
+              oneLine(parsed.reason) ||
+              "unspecified";
             const body =
               [
                 `Pipeline escalated to NEEDS HUMAN (${reasonForBody}) at ${nowIso()}.`,

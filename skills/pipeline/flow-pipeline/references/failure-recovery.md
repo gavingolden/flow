@@ -333,9 +333,9 @@ flow-notify --status needs-human --reason "$TLDR" --tag "task-tool-unavailable: 
    surfaced top-level.
 3. **User:** resume the pipeline (`flow feature resume <slug>`).
    - The helper parses the `:`-suffix and appends ` (spawn site:
-<exemption-name>)` to the `NEXT ACTION:` **header line** of
-     `NEXT_ACTION_BY_REASON["task-tool-unavailable"]` so the rendered
-     block names the exact spawn site; the sentinel line is byte-exact
+<exemption-name>)` to the `WHY:` default line (`WHY_BY_REASON["task-tool-unavailable"]`),
+     not to the `NEXT ACTION:` headline, so the rendered block names the
+     exact spawn site; the sentinel line still carries it byte-exactly as
      `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
    - `<exemption-name>` is one of
      `pr-review-multi-agent-review`, `pr-review-fix-applier`,

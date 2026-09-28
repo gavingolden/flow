@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  HEADLINE_VERBS,
   NEXT_ACTION_BY_REASON,
   RECIPE_COMMANDS,
   RECIPE_COMMANDS_NONE,
+  WHY_BY_REASON,
 } from "./flow-gate-summary";
 import {
   bashParses,
@@ -23,8 +25,8 @@ import {
  */
 
 // Rule 3's detector: any COMMAND_WORDS token appearing as its own word in
-// the prose. Deliberately high-recall — narrated mentions of a helper name
-// ("...flow-merge-guard refused the merge") trip it just as a real
+// the prose. Deliberately high-recall — a narrated mention of a command
+// word (e.g. "the flow helper refused it") trips it just as a real
 // invocation would; RECIPE_COMMANDS_NONE is the load-bearing escape hatch.
 function detectorTrips(prose: string): boolean {
   return COMMAND_WORDS.some((word) => {
@@ -215,5 +217,76 @@ describeShellcheck("gate-summary recipe lint — optional shellcheck", () => {
         expect(shellcheckOk(substitutePlaceholders(cmd))).toBe(true);
       }
     }
+  });
+});
+
+const HEADLINE_MAX_CHARS = 100;
+
+function headlineOf(recipe: string): string {
+  return recipe.split("\n")[0];
+}
+
+// /^[A-Z][\w-]*/ so 'Decide:' (colon) and 'Re-run' (hyphen) parse as one word.
+function firstWord(headline: string): string {
+  return headline.match(/^[A-Z][\w-]*/)?.[0] ?? "";
+}
+
+describe("gate-summary recipe lint — imperative headline", () => {
+  it("every recipe's first line opens with a HEADLINE_VERBS word", () => {
+    for (const [tag, recipe] of Object.entries(NEXT_ACTION_BY_REASON)) {
+      const word = firstWord(headlineOf(recipe));
+      expect(
+        HEADLINE_VERBS,
+        `${tag}: headline "${headlineOf(recipe)}" opens with "${word}", which is not in HEADLINE_VERBS [${HEADLINE_VERBS.join(", ")}]. Extend HEADLINE_VERBS deliberately if the new verb is right; do not reword the headline into a diagnosis.`,
+      ).toContain(word);
+    }
+  });
+
+  it("[negative] a diagnosis-style headline does not open with a HEADLINE_VERBS word", () => {
+    expect(HEADLINE_VERBS).not.toContain(
+      firstWord("The request's intent is ambiguous."),
+    );
+    expect(firstWord("")).toBe("");
+  });
+
+  it("every recipe's first line is <= 100 chars", () => {
+    for (const [tag, recipe] of Object.entries(NEXT_ACTION_BY_REASON)) {
+      expect(
+        headlineOf(recipe).length,
+        `${tag}: headline is ${headlineOf(recipe).length} chars`,
+      ).toBeLessThanOrEqual(HEADLINE_MAX_CHARS);
+    }
+  });
+
+  it("[negative] a headline over the cap would fail the length guard", () => {
+    const [firstTag] = Object.keys(NEXT_ACTION_BY_REASON);
+    const padded = `${headlineOf(NEXT_ACTION_BY_REASON[firstTag])} ${"x".repeat(HEADLINE_MAX_CHARS)}`;
+    expect(padded.length).toBeGreaterThan(HEADLINE_MAX_CHARS);
+  });
+});
+
+describe("gate-summary recipe lint — WHY defaults", () => {
+  it("WHY_BY_REASON declares exactly the NEXT_ACTION_BY_REASON keys", () => {
+    expect(new Set(Object.keys(WHY_BY_REASON))).toEqual(
+      new Set(Object.keys(NEXT_ACTION_BY_REASON)),
+    );
+  });
+
+  it("[negative] a missing WHY key would fail parity", () => {
+    const whyKeys = new Set(Object.keys(WHY_BY_REASON));
+    whyKeys.delete([...whyKeys][0]);
+    expect(whyKeys).not.toEqual(new Set(Object.keys(NEXT_ACTION_BY_REASON)));
+  });
+
+  it("every WHY default is non-empty and newline-free", () => {
+    for (const [tag, why] of Object.entries(WHY_BY_REASON)) {
+      expect(why.trim().length, `${tag}: empty WHY`).toBeGreaterThan(0);
+      expect(why.includes("\n"), `${tag}: WHY has a newline`).toBe(false);
+    }
+  });
+
+  it("[negative] a multi-line string would fail the newline-free guard", () => {
+    // A real multi-line recipe stands in for a malformed WHY default.
+    expect(NEXT_ACTION_BY_REASON["triage-ambiguous"].includes("\n")).toBe(true);
   });
 });

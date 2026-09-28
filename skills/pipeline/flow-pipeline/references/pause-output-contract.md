@@ -246,11 +246,15 @@ out the `NEXT ACTION:` row's numbered _steps_, which this section governs
 instead.
 
 For a `NEXT_ACTION_BY_REASON` recipe in `bin/flow-gate-summary.ts`
-specifically: a multi-line recipe's first line is always a plain,
-non-numbered header sentence — `pushNextAction` puts it on the `NEXT
-ACTION:` row and every following line verbatim, so a recipe whose first
-line is itself numbered would render with inconsistent indentation
-between the header and the steps below it.
+specifically: every recipe's first line is an imperative headline — it
+opens with a verb from `HEADLINE_VERBS`, is at most 100 characters, says
+what to do and never what went wrong, and is non-numbered.
+Multi-line headlines carry no command; a single-line recipe is its own
+step and keeps its command verbatim. The diagnosis belongs on `WHY:`,
+via the per-reason `WHY_BY_REASON` default. `pushNextAction` puts the
+headline on the `NEXT ACTION:` row and every following line verbatim, so
+a recipe whose first line is itself numbered would render with
+inconsistent indentation between the headline and the steps below it.
 
 **Discrete action.** A separate copy-pasteable command, or a separate
 decision the reader must make. A trailing qualifier on one command (e.g.
@@ -366,6 +370,13 @@ followed by a second markdown pause block over the same content. The
 markdown block form below is only for the informal sites the helpers do
 not cover (clarifying questions, feedback replies, post-render QA
 prose).
+
+`WHY:` is the diagnosis row. In both views it shows the site's diagnostic
+(`--why`), else the per-reason `WHY_BY_REASON` default, else nothing.
+Under `pm` it renders only on NEEDS HUMAN; gated/merged/cancelled `pm`
+renders stay why-free. It never shows a raw reason tag; the sentinel
+carries that. `flow-notify` leads its message with the same headline
+(`Next: …`).
 
 ## Worked examples
 
