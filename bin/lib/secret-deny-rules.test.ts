@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  FLOW_CREATE_ISSUE_ALLOW_RULES,
   FLOW_UI_LOGIN_ALLOW_RULES,
   SECRET_FILE_DENY_RULES,
 } from "./secret-deny-rules";
@@ -60,6 +61,14 @@ describe("FLOW_UI_LOGIN_ALLOW_RULES", () => {
     expect(FLOW_UI_LOGIN_ALLOW_RULES).toEqual([
       "Bash(flow-ui-login check *)",
       "Bash(flow-ui-login serve *)",
+    ]);
+  });
+});
+
+describe("FLOW_CREATE_ISSUE_ALLOW_RULES", () => {
+  it("pre-approves the standalone flow-create-issue call", () => {
+    expect(FLOW_CREATE_ISSUE_ALLOW_RULES).toEqual([
+      "Bash(flow-create-issue *)",
     ]);
   });
 });

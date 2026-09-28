@@ -44,3 +44,14 @@ export const FLOW_UI_LOGIN_ALLOW_RULES: readonly string[] = [
   "Bash(flow-ui-login check *)",
   "Bash(flow-ui-login serve *)",
 ];
+
+/**
+ * Blanket `flow-create-issue *`: the helper has no hidden subcommand, files
+ * only to the current repo (it also provisions its labels via `gh label
+ * create --force`), rejects off-rubric bodies (exit 3), and is idempotent on
+ * title. Only effective on a standalone call — a `$(…)`-wrapped call is
+ * approved against the whole subcommand and never matches.
+ */
+export const FLOW_CREATE_ISSUE_ALLOW_RULES: readonly string[] = [
+  "Bash(flow-create-issue *)",
+];

@@ -111,6 +111,10 @@ login), pre-approved in the same launch settings via
 blanket `Bash(flow-ui-login *)`, which would also pre-approve the hidden
 `__serve-child` subcommand) so the guard never blocks the two sanctioned
 paths to a credential value.
+Flow-launched sessions also pre-approve `Bash(flow-create-issue *)` so review
+deferrals are not refused by auto mode; it matches only a standalone
+`flow-create-issue` call and lives only in flow's `--settings` file, never in
+consumer or global settings.
 
 ## Design foundation
 
