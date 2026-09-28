@@ -183,13 +183,12 @@ export function pickFenceLength(output: string): number {
  * Sibling defense to `pickFenceLength`, aimed at a different consumer.
  * The fence stops a *markdown renderer* mis-reading captured output;
  * this stops a *line-oriented section parser* doing the same.
- * `flow-gate-decide` extracts the `## Test Steps` section by scanning to
- * the next `^## ` and does not track code fences — so a captured
- * `npm test` run that prints its own markdown report (`## Regressions
- * (1)`) silently truncates the section, hiding every checklist item
- * below it. The gate then counts zero unchecked items and returns
- * `auto-merge` on a PR whose manual steps were never run. Observed on
- * PR #755, where it hid the one genuinely-manual step.
+ * `flow-gate-decide` now skips fenced lines when bounding `## Test Steps`,
+ * but an UNCLOSED fence fails closed (its lines are read as live), so a
+ * captured `npm test` report heading (`## Regressions (1)`) could still
+ * truncate the section, hiding every checklist item below it and letting
+ * the gate return `auto-merge` on unrun manual steps (observed on PR #755).
+ * The indent is kept as defense-in-depth.
  *
  * One leading space suffices: the gate's anchored `^## ` test fails on
  * any indent, and inside the fenced block the space is invisible.

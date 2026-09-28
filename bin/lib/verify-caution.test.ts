@@ -54,6 +54,13 @@ describe("clearVerifyCaution", () => {
     });
   });
 
+  it("round-trips byte-identically when no blank line follows the heading", () => {
+    const tight = "## Test Steps\n- [ ] a\n";
+    const ins = upsertVerifyCaution(tight, "/a.txt");
+    if (!ins.ok) throw new Error("ins");
+    expect(clearVerifyCaution(ins.body).body).toBe(tight);
+  });
+
   it("reports cleared:false when there is no block", () => {
     expect(clearVerifyCaution(BODY)).toEqual({ body: BODY, cleared: false });
   });

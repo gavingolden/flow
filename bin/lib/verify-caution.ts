@@ -52,9 +52,9 @@ export function upsertVerifyCaution(
     CLOSE,
     "",
   ];
-  // One blank line after the heading, then the block.
+  // After the heading's blank line when present; the block carries its own
+  // trailing blank, so clear restores the body byte-for-byte either way.
   const at = bounds.start + 1;
-  const insert = lines[at] === "" ? block : ["", ...block];
-  lines.splice(lines[at] === "" ? at + 1 : at, 0, ...insert);
+  lines.splice(lines[at] === "" ? at + 1 : at, 0, ...block);
   return { ok: true, body: lines.join("\n"), replaced: cleared };
 }
