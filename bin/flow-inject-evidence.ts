@@ -17,6 +17,13 @@
  *   flow-inject-evidence --body-file <path> --item <regex> \
  *     --output-file <path> --exit-code <N> [--timestamp <iso>]
  *     [--no-tick] [--image <path>#<alt>]...
+ *   flow-inject-evidence --body-file <path> --caution-file <path>
+ *   flow-inject-evidence --body-file <path> --clear-caution
+ *
+ * Captured output is masked with `redactForPublish` before it is spliced
+ * in. `--caution-file` upserts a pointer-only verify-exhausted CAUTION
+ * block naming <path> (the file is never read); `--clear-caution`
+ * removes it. Neither caution mode takes --item.
  *
  * A line whose text starts `SUBJECTIVE: ` or `DECISION: ` is human-only and
  * is never ticked, whatever exit code is passed. `--image` (repeatable)
@@ -32,9 +39,14 @@
  * escaped (or scoped out of the pattern) by the caller. Backticks,
  * spaces, dashes, slashes, equals signs are all literal.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
-import { normalizeDetailsBlocks } from "./lib/md-block-structure";
+import {
+  fencedLineMask,
+  normalizeDetailsBlocks,
+} from "./lib/md-block-structure";
+import { redactForPublish } from "./lib/redact-secrets";
+import { clearVerifyCaution, upsertVerifyCaution } from "./lib/verify-caution";
 
 export type InjectArgs = {
   bodyFile: string;
@@ -45,6 +57,10 @@ export type InjectArgs = {
   noTick?: boolean;
   images?: EvidenceImage[];
 };
+
+export type CautionArgs =
+  | { mode: "caution-insert"; bodyFile: string; cautionFile: string }
+  | { mode: "caution-clear"; bodyFile: string };
 
 export type EvidenceImage = { path: string; alt: string };
 
@@ -72,8 +88,12 @@ function parseImage(val: string): EvidenceImage | null {
   return { path: file, alt: alt || path.basename(file) };
 }
 
-export function parseArgs(argv: string[]): InjectArgs | { error: string } {
+export function parseArgs(
+  argv: string[],
+): InjectArgs | CautionArgs | { error: string } {
   const out: Partial<InjectArgs> = {};
+  let cautionFile: string | undefined;
+  let clearCaution = false;
   const images: EvidenceImage[] = [];
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -82,7 +102,16 @@ export function parseArgs(argv: string[]): InjectArgs | { error: string } {
       out.noTick = true;
       continue;
     }
-    if (flag === "--image") {
+    if (flag === "--clear-caution") {
+      clearCaution = true;
+      continue;
+    }
+    if (flag === "--caution-file") {
+      if (val === undefined || val.startsWith("--")) {
+        return { error: "--caution-file requires a path" };
+      }
+      cautionFile = val;
+    } else if (flag === "--image") {
       const image = val === undefined ? null : parseImage(val);
       if (!image) return { error: "--image requires <path>#<alt>" };
       images.push(image);
@@ -95,6 +124,17 @@ export function parseArgs(argv: string[]): InjectArgs | { error: string } {
     i++;
   }
   if (!out.bodyFile) return { error: "--body-file is required" };
+  if (cautionFile !== undefined || clearCaution) {
+    if (cautionFile !== undefined && clearCaution) {
+      return { error: "--caution-file and --clear-caution conflict" };
+    }
+    if (out.item !== undefined) {
+      return { error: "a caution mode cannot be combined with --item" };
+    }
+    return cautionFile !== undefined
+      ? { mode: "caution-insert", bodyFile: out.bodyFile, cautionFile }
+      : { mode: "caution-clear", bodyFile: out.bodyFile };
+  }
   if (!out.item) return { error: "--item is required" };
   if (images.length > 0) out.images = images;
   if (!out.outputFile && images.length === 0) {
@@ -191,7 +231,7 @@ export function buildEvidenceBlock(
   }
   const status = exitCode === 0 ? "pass" : `FAILED exit ${exitCode}`;
   const summary = `Output (auto-captured ${timestamp}; ${status})`;
-  const trimmed = neutralizeHeadings(trimOutput(output));
+  const trimmed = neutralizeHeadings(trimOutput(redactForPublish(output)));
   const fence = "`".repeat(pickFenceLength(trimmed));
   // The blank line before `</details>` here just closes off the fenced
   // code block for markdown re-entry (unrelated to the two GFM
@@ -268,11 +308,12 @@ function findExistingBlockEnd(
   matchIdx: number,
 ): number | null {
   const itemEnd = findListItemEnd(lines, matchIdx);
+  const fenced = fencedLineMask(lines);
   let i = itemEnd + 1;
   while (i < lines.length && lines[i].trim() === "") i++;
   if (i >= lines.length || !lines[i].includes(MARKER_OPEN)) return null;
   while (i < lines.length) {
-    if (lines[i].includes("</details>")) return i;
+    if (!fenced[i] && lines[i].includes("</details>")) return i;
     i++;
   }
   return null;
@@ -294,7 +335,10 @@ export function rewriteBody(
 ): InjectResult {
   const lines = body.split("\n");
   const itemRe = new RegExp(args.item);
-  const matchIdx = lines.findIndex((line) => itemRe.test(line));
+  const fenced = fencedLineMask(lines);
+  const matchIdx = lines.findIndex(
+    (line, i) => !fenced[i] && itemRe.test(line),
+  );
   if (matchIdx < 0) {
     return { ok: false, error: `no line matched item regex: ${args.item}` };
   }
@@ -338,11 +382,42 @@ export function rewriteBody(
   return { ok: true, body: normalizedBody, replaced, ticked, humanOnly };
 }
 
+function runCaution(parsed: CautionArgs): void {
+  const body = readFileSync(parsed.bodyFile, "utf8");
+  if (parsed.mode === "caution-clear") {
+    const r = clearVerifyCaution(body);
+    if (r.cleared) writeFileSync(parsed.bodyFile, r.body);
+    process.stdout.write(
+      r.cleared ? "caution cleared\n" : "no caution to clear\n",
+    );
+    return;
+  }
+  if (!existsSync(parsed.cautionFile)) {
+    process.stderr.write(
+      `flow-inject-evidence: caution file not found: ${parsed.cautionFile}\n`,
+    );
+    process.exit(1);
+  }
+  const r = upsertVerifyCaution(body, parsed.cautionFile);
+  if (!r.ok) {
+    process.stderr.write(`flow-inject-evidence: ${r.error}\n`);
+    process.exit(1);
+  }
+  writeFileSync(parsed.bodyFile, r.body);
+  process.stdout.write(
+    r.replaced ? "caution replaced\n" : "caution inserted\n",
+  );
+}
+
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   if ("error" in parsed) {
     process.stderr.write(`flow-inject-evidence: ${parsed.error}\n`);
     process.exit(2);
+  }
+  if ("mode" in parsed) {
+    runCaution(parsed);
+    return;
   }
   const body = readFileSync(parsed.bodyFile, "utf8");
   const output =
