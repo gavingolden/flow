@@ -215,8 +215,7 @@ describe("parseTestStepsSection — fenced content", () => {
   });
 
   it("does not end the section at a fenced '## Other' line", () => {
-    const body =
-      "## Test Steps\n\n```\n## Other\n```\n\n- [ ] still inside\n";
+    const body = "## Test Steps\n\n```\n## Other\n```\n\n- [ ] still inside\n";
     expect(unchecked(body)).toEqual(["still inside"]);
   });
 
