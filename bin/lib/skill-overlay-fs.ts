@@ -1,7 +1,7 @@
 /**
  * Real-file tree helpers for the per-pipeline private skill copy. Every copy
- * is a REAL file (never a symlink): a running Claude Code session serves the
- * pre-re-point text of a re-pointed link, but re-reads a rewritten file.
+ * is a REAL file (never a symlink), so the copy never dangles when the worktree
+ * it was synced from is removed.
  */
 
 import * as fs from "node:fs";

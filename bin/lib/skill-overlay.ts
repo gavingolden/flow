@@ -1,9 +1,10 @@
 /**
  * A pipeline's PRIVATE real-file copy of flow's plugin roots, under
  * `<overlaysDir>/<slug>/.claude/skills/flow-module-<id>/`. Launching a
- * flow-self (or `--skills-from`) supervisor on this copy lets step 5.5
- * rewrite skills in place — the one change a running Claude Code session
- * picks up — without touching the shared install other pipelines read live.
+ * flow-self (or `--skills-from`) supervisor on this copy lets step 5.5 sync
+ * the branch's skills for a resumed or reloaded session without touching the
+ * shared install other pipelines read live. A running session keeps the text
+ * it started with (see skill-overlay.live.test.ts).
  */
 
 import * as fs from "node:fs";

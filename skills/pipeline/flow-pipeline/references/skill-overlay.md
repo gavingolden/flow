@@ -13,8 +13,7 @@ its supervisor on a **private, real-file copy** of flow's plugin roots at
 install other pipelines read live. The copy is automatic for flow-self
 launches (content from the canonical checkout); `--skills-from` names any
 other source. It is unrelated to the `--slug` state overlays. Copies are
-real files, never links: a running Claude Code session serves the pre-re-point
-text of a re-pointed link, but re-reads a file rewritten in place. Only
+real files, never links, so nothing dangles once the worktree is removed. Only
 `~/.flow/overlays/<slug>` is granted via `--add-dir`, never `~/.flow`.
 
 Step 5.5 rewrites the copy in place from `$WORKTREE` after implement
