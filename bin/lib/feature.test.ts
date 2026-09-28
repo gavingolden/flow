@@ -187,6 +187,7 @@ import {
   PHASE_MODEL_FLAGS,
   type PipelineState,
 } from "./state";
+import { materializeSkillOverlay } from "./skill-overlay";
 
 let stateDir!: string;
 let repoDir!: string;
@@ -4331,5 +4332,241 @@ describe("seedIngest — corrupt guard, seedCorrupted wiring, unverified warning
     });
     expect(runNew("resume-quiet", { resume: true, stateDir })).toBe(0);
     expect(errors.join("\n")).not.toContain("seed integrity NOT verified");
+  });
+});
+
+describe("private skill copy (flow-self and --skills-from launches)", () => {
+  let overlaysDir!: string;
+  let scratch!: string;
+  let settingsPath!: string;
+  let sharedRoot!: string;
+
+  function put(root: string, rel: string, body: string): void {
+    const p = path.join(root, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, body);
+  }
+
+  /** A flow-like checkout: bin/flow + skills/ (what inspectFlowRoot accepts). */
+  function flowLike(root: string, skillBody = "skill v1\n"): void {
+    put(root, "bin/flow", "#!/usr/bin/env bun\n");
+    put(root, "bin/lib/modules.ts", "export {};\n");
+    put(root, "skills/pipeline/probe/SKILL.md", skillBody);
+  }
+
+  function baseOptions(extra: Partial<FeatureOptions> = {}): FeatureOptions {
+    return {
+      stateDir,
+      cwd: repoDir,
+      launchSettingsPath: settingsPath,
+      readConfig: () => ({}),
+      overlaysDir,
+      pluginRootsScan: () => [sharedRoot],
+      ...extra,
+    };
+  }
+
+  beforeEach(() => {
+    scratch = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-overlay-"));
+    overlaysDir = path.join(scratch, "overlays");
+    settingsPath = path.join(scratch, "launch-settings.json");
+    sharedRoot = path.join(scratch, "shared", "flow-module-core");
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+  });
+
+  afterEach(() => {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  });
+
+  const copyRoot = (slug: string) =>
+    path.join(overlaysDir, slug, ".claude", "skills", "flow-module-core");
+
+  it("a flow-self repo launches on the private copy: overlay --plugin-dir root plus a per-slug --add-dir", () => {
+    flowLike(repoDir);
+    freshWindowOk();
+    const code = runNew(
+      "CSV export",
+      baseOptions({ flowCanonicalRoot: fs.realpathSync(repoDir) }),
+    );
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    const slugDir = path.join(overlaysDir, "csv-export");
+    expect(command).toContain("--plugin-dir");
+    expect(command[command.indexOf("--plugin-dir") + 1]).toBe(
+      copyRoot("csv-export"),
+    );
+    expect(command).not.toContain(sharedRoot);
+    const addDirs = command.flatMap((t: string, i: number) =>
+      t === "--add-dir" ? [command[i + 1]] : [],
+    );
+    expect(addDirs).toContain(slugDir);
+    // Per-slug only: never ~/.flow nor the whole overlays dir.
+    expect(addDirs).not.toContain(overlaysDir);
+    expect(
+      fs.readFileSync(
+        path.join(copyRoot("csv-export"), "skills", "probe", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("skill v1\n");
+  });
+
+  it("a consumer repo without the flag keeps the shared roots and builds no copy", () => {
+    freshWindowOk();
+    const code = runNew(
+      "CSV export",
+      baseOptions({ flowCanonicalRoot: path.join(scratch, "some-flow") }),
+    );
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
+      "FLOW_SLUG=csv-export",
+      "claude",
+      "--add-dir",
+      deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
+      "--plugin-dir",
+      sharedRoot,
+      "--settings",
+      settingsPath,
+    ]);
+    expect(fs.existsSync(overlaysDir)).toBe(false);
+  });
+
+  it("a consumer repo with --skills-from launches on a copy of that checkout", () => {
+    const branch = path.join(scratch, "branch-checkout");
+    flowLike(branch, "branch skill\n");
+    freshWindowOk();
+    const code = runFeatureCli(
+      ["create", "--skills-from", branch, "CSV", "export"],
+      baseOptions({ flowCanonicalRoot: path.join(scratch, "some-flow") }),
+    );
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--plugin-dir") + 1]).toBe(
+      copyRoot("csv-export"),
+    );
+    expect(command).toContain(path.join(overlaysDir, "csv-export"));
+    expect(
+      fs.readFileSync(
+        path.join(copyRoot("csv-export"), "skills", "probe", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("branch skill\n");
+    // The flag and its value are stripped from the description.
+    expect(readState("csv-export", stateDir)).not.toBeNull();
+    expect(
+      fs.readFileSync(requestFilePath("csv-export", stateDir), "utf8"),
+    ).toBe("CSV export");
+  });
+
+  it("an invalid --skills-from exits 1 before any state or copy is written", () => {
+    const bogus = path.join(scratch, "not-flow");
+    fs.mkdirSync(bogus);
+    const code = runFeatureCli(
+      ["create", "--skills-from", bogus, "CSV export"],
+      baseOptions(),
+    );
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/invalid --skills-from/);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(fs.existsSync(overlaysDir)).toBe(false);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("a --skills-from with no value exits 1", () => {
+    const code = runFeatureCli(["create", "--skills-from"], baseOptions());
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/--skills-from requires/);
+  });
+
+  it("the plain backend also launches on the copy", async () => {
+    flowLike(repoDir);
+    const calls: Array<{ argv: string[]; env: NodeJS.ProcessEnv }> = [];
+    const spawn = (
+      argv: string[],
+      o: { cwd: string; env: NodeJS.ProcessEnv },
+    ) => {
+      calls.push({ argv, env: o.env });
+      const slug = o.env.FLOW_SLUG!;
+      const raw = JSON.parse(
+        fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"),
+      );
+      writeState(
+        {
+          ...raw,
+          seedIngest: {
+            at: new Date().toISOString(),
+            outcome: "not-applicable",
+            reason: "no-seed-recorded",
+          },
+        },
+        stateDir,
+      );
+      return { pid: 777, exited: Promise.resolve(0) };
+    };
+    const code = await runFeatureCliReal(
+      ["create", "plain", "copy"],
+      baseOptions({
+        flowCanonicalRoot: fs.realpathSync(repoDir),
+        plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+      }),
+    );
+    expect(code).toBe(0);
+    const { argv } = calls[0]!;
+    expect(argv[argv.indexOf("--plugin-dir") + 1]).toBe(copyRoot("plain-copy"));
+    expect(argv).toContain(path.join(overlaysDir, "plain-copy"));
+  });
+
+  it("resume reuses an existing copy, and launches as today when there is none", () => {
+    seedState("has-copy");
+    seedState("no-copy");
+    const src = path.join(scratch, "src");
+    flowLike(src);
+    materializeSkillOverlay({
+      slug: "has-copy",
+      contentSource: src,
+      installRoot: src,
+      moduleIds: ["core"],
+      overlaysDir,
+    });
+    tmuxMock.windowExists.mockReturnValue(true);
+    const opts = baseOptions({ resume: true });
+    expect(runNew("has-copy", opts)).toBe(0);
+    expect(runNew("no-copy", opts)).toBe(0);
+    const [withCopy, without] = tmuxMock.respawnWindowVerified.mock.calls.map(
+      (c) => c[2] as string[],
+    );
+    expect(withCopy![withCopy!.indexOf("--plugin-dir") + 1]).toBe(
+      copyRoot("has-copy"),
+    );
+    expect(withCopy).toContain(path.join(overlaysDir, "has-copy"));
+    expect(without![without!.indexOf("--plugin-dir") + 1]).toBe(sharedRoot);
+    expect(without).not.toContain(path.join(overlaysDir, "no-copy"));
+  });
+
+  it("every create launch prunes dead pipelines' copies from the injected overlays dir only", () => {
+    const src = path.join(scratch, "src");
+    flowLike(src);
+    for (const slug of ["dead-one", "fresh-one"]) {
+      materializeSkillOverlay({
+        slug,
+        contentSource: src,
+        installRoot: src,
+        moduleIds: ["core"],
+        overlaysDir,
+      });
+    }
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    fs.utimesSync(path.join(overlaysDir, "dead-one"), old, old);
+    freshWindowOk();
+    const code = runNew(
+      "CSV export",
+      baseOptions({ flowCanonicalRoot: path.join(scratch, "some-flow") }),
+    );
+    expect(code).toBe(0);
+    expect(fs.readdirSync(overlaysDir)).toEqual(["fresh-one"]);
   });
 });

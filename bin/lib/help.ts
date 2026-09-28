@@ -47,7 +47,7 @@ Usage:
                                         the three are mutually exclusive; absent any of them, an interactive
                                         terminal is asked once per optional module and a non-interactive run
                                         defaults to core only)
-  flow feature create [--tmux|--no-tmux] [--auto-merge|--no-auto-merge] [--wait-for-copilot|--no-wait-for-copilot] [--research|--no-research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
+  flow feature create [--tmux|--no-tmux] [--auto-merge|--no-auto-merge] [--wait-for-copilot|--no-wait-for-copilot] [--research|--no-research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] [--skills-from <checkout>] <description>
                                         start a new pipeline (plain launcher by default; --tmux opts into a tmux window)
                                         (--no-auto-merge stops at gated regardless of rubric; --auto-merge puts the
                                         rubric back in charge (cancels launch.autoMerge: false);
@@ -62,6 +62,7 @@ Usage:
                                         --copilot-review controls Copilot review opt-in, default auto;
                                         --effort sets the Claude Code reasoning-effort level for the claude session;
                                         --model sets the whole-session Claude model alias;
+                                        --skills-from runs the supervisor on a private copy of that checkout's skills;
                                         --model-<phase> overrides just one phase — planning/implement/review/verify/
                                         fix-applier/consolidator/merge-resolver; see 'flow help feature';
                                         --slug uses an explicit slug instead of deriving one from the description;
@@ -109,7 +110,7 @@ export const HELP_TEXT: Record<string, string> = {
   feature: `flow feature — start or resume a pipeline
 
 Usage:
-  flow feature create [--tmux|--no-tmux] [--auto-merge|--no-auto-merge] [--wait-for-copilot|--no-wait-for-copilot] [--research|--no-research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
+  flow feature create [--tmux|--no-tmux] [--auto-merge|--no-auto-merge] [--wait-for-copilot|--no-wait-for-copilot] [--research|--no-research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] [--skills-from <checkout>] <description>
   flow feature resume <name> [<name> ...] [--yes] [--tmux|--no-tmux]
 
 Subcommands:
@@ -142,6 +143,11 @@ Options (create):
                         --no-research only turns that force off — research.discovery still
                         applies (mutually exclusive); also settable via ~/.flow/config.json
                         launch.forceResearch
+  --skills-from <checkout>
+                        launch a pipeline whose supervisor runs that checkout's skills and agents
+                        (a private per-pipeline copy under ~/.flow/overlays/<slug>; a flow-self
+                        launch gets one automatically from the canonical checkout). Distinct
+                        from the --slug state overlays
   --interview / --no-interview
                         force the intent interview on, or skip it (mutually exclusive).
                         Absent falls back to flow's own per-run judgment gate and

@@ -309,6 +309,22 @@ describe("completion scripts stay in sync with VERBS", () => {
     }
   });
 
+  it("both scripts advertise feature create --skills-from with directory completion", () => {
+    const bash = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.bash"),
+      "utf8",
+    );
+    const zsh = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.zsh"),
+      "utf8",
+    );
+    expect(bash).toContain("--model-merge-resolver --skills-from");
+    expect(bash).toMatch(
+      /--skills-from\)\s+# shellcheck disable=SC2207\s+COMPREPLY=\( \$\(compgen -d/,
+    );
+    expect(zsh).toMatch(/'--skills-from\[[^\]]*\]:checkout:_files -\/'/);
+  });
+
   it("both scripts advertise the new feature-create flags and the config launch/launcher subcommands", () => {
     for (const shell of ["bash", "zsh"] as const) {
       const script = fs.readFileSync(

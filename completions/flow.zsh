@@ -81,6 +81,7 @@ _flow() {
                             '--model-fix-applier[model for the fix-applier phase]:alias:(opus haiku sonnet fable)' \
                             '--model-consolidator[model for the consolidator phase]:alias:(opus haiku sonnet fable)' \
                             '--model-merge-resolver[model for the merge-resolver phase]:alias:(opus haiku sonnet fable)' \
+                            '--skills-from[run the pipeline on a private copy of the given flow checkout]:checkout:_files -/' \
                             '*::description:'
                     elif [[ "$line[2]" == resume ]]; then
                         _arguments \

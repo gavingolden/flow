@@ -81,6 +81,13 @@ import {
   installedHelperPath,
 } from "./paths";
 import { installBaseBranchGuard } from "./base-branch-guard";
+import {
+  createOverlay,
+  parseSkillsFrom,
+  resumeOverlay,
+  type OverlayLaunch,
+} from "./feature-overlay";
+import { pruneStaleOverlays } from "./skill-overlay";
 import { resolveLauncherBackend, type LauncherId } from "./launcher-config";
 import { plainLaunch, plainResume, type PlainLaunchDeps } from "./launcher";
 import type { LivenessDeps } from "./liveness";
@@ -309,6 +316,17 @@ export type FeatureOptions = {
    * `~/.flow/claude-home`.
    */
   pluginRootsScan?: () => string[];
+  /**
+   * `--skills-from <checkout>`: run this pipeline's supervisor on a private
+   * real-file copy of that checkout's skills and agents (already validated by
+   * `runCreateCli`). Absent ⇒ a flow-self launch copies the canonical checkout
+   * automatically; any other repo launches on the shared install.
+   */
+  skillsFrom?: string;
+  /** Private-copy root (test seam). Defaults to `flowOverlaysDir()`. */
+  overlaysDir?: string;
+  /** Canonical flow checkout for the flow-self predicate (test seam). */
+  flowCanonicalRoot?: string;
 };
 
 export function runNew(
@@ -671,6 +689,16 @@ function runCreateCli(
   }
   const epicValueToken = epicIdx >= 0 ? args[epicIdx + 1] : undefined;
 
+  // --skills-from <checkout> is a VALUE flag: validate before any side-effect
+  // (invalid ⇒ exit 1, no state write) and strip flag+value from the description.
+  const skills = parseSkillsFrom(args, options.cwd ?? process.cwd());
+  if (skills.error) {
+    console.error(`flow feature create: ${skills.error}`);
+    return 1;
+  }
+  const skillsIdx = args.indexOf("--skills-from");
+  const skillsValueToken = skillsIdx >= 0 ? args[skillsIdx + 1] : undefined;
+
   // --model-<phase> value flags (planning / implement / review / verify /
   // fix-applier / consolidator / merge-resolver), each mirroring --model:
   // enum-validate here before any side-effect (invalid ⇒ exit 1, no state
@@ -741,6 +769,11 @@ function runCreateCli(
           epicValueToken !== undefined && !epicValueToken.startsWith("--");
         return false;
       }
+      if (a === "--skills-from") {
+        skipNext =
+          skillsValueToken !== undefined && !skillsValueToken.startsWith("--");
+        return false;
+      }
       if (phaseModelValueTokens.has(a)) {
         // A --model-<phase> flag: strip it and its value token.
         const vt = phaseModelValueTokens.get(a);
@@ -773,6 +806,7 @@ function runCreateCli(
     model,
     slug,
     epic,
+    skillsFrom: skills.skillsFrom ?? options.skillsFrom,
     ...phaseModels,
   });
 }
@@ -784,7 +818,7 @@ function runFresh(
   if (!description || description.trim() === "") {
     console.error("flow feature create: description is required.");
     console.error(
-      "usage: flow feature create [--auto-merge | --no-auto-merge] [--wait-for-copilot | --no-wait-for-copilot] [--research | --no-research] [--interview | --no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning|--model-implement|--model-review|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>] [--slug <slug>] [--epic <epic-slug>/<feature-id>] <description>",
+      "usage: flow feature create [--auto-merge | --no-auto-merge] [--wait-for-copilot | --no-wait-for-copilot] [--research | --no-research] [--interview | --no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning|--model-implement|--model-review|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>] [--slug <slug>] [--epic <epic-slug>/<feature-id>] [--skills-from <checkout>] <description>",
     );
     return 1;
   }
@@ -883,6 +917,31 @@ function runFresh(
         `flow feature create: could not install base-branch guard: ${err instanceof Error ? err.message : String(err)}`,
       ),
     );
+  }
+
+  // Lazy prune of dead pipelines' private skill copies (cheap no-op when the
+  // overlays dir is absent), with the SAME stateDir this launch reads.
+  pruneStaleOverlays({
+    overlaysDir: options.overlaysDir,
+    stateDir: options.stateDir,
+  });
+  // A flow-self repo or an explicit --skills-from runs its supervisor on a
+  // private copy; every other launch keeps the shared roots byte-for-byte.
+  let overlay: OverlayLaunch | null;
+  try {
+    overlay = createOverlay({
+      slug,
+      repo,
+      skillsFrom: options.skillsFrom,
+      overlaysDir: options.overlaysDir,
+      flowCanonicalRoot: options.flowCanonicalRoot,
+      sharedRoots: (options.pluginRootsScan ?? scanPluginRoots)(),
+    });
+  } catch (err) {
+    console.error(
+      `flow feature create: could not build the private skill copy: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return 1;
   }
 
   const worktree = deriveWorktreePath(repo, slug);
@@ -991,7 +1050,8 @@ function runFresh(
     // extract `roots` once for the same reason (argv and PATH must never
     // disagree about which roots are live); the plain path previously
     // scanned twice, independently, whenever no seam was injected.
-    const roots = (options.pluginRootsScan ?? scanPluginRoots)();
+    const roots =
+      overlay?.roots ?? (options.pluginRootsScan ?? scanPluginRoots)();
     const plainCommand =
       options.command ??
       buildPlainCommand(
@@ -1000,6 +1060,7 @@ function runFresh(
         settingsPath,
         sessionModel,
         () => roots,
+        overlay?.addDir,
       );
     writeState(makeBaseState("plain"), options.stateDir);
     // plainLaunch owns the TTY guard, the flow:<slug> contract line, the
@@ -1021,7 +1082,8 @@ function runFresh(
       resolvedEffort,
       settingsPath,
       sessionModel,
-      options.pluginRootsScan,
+      overlay ? () => overlay.roots : options.pluginRootsScan,
+      overlay?.addDir,
     );
 
   // Persist-then-verify-then-delete-on-failure: write state(phase=starting)
@@ -1290,12 +1352,15 @@ function runResume(
     tmuxOnPath: options.tmuxOnPath,
   });
   if (backend.notice) console.error(dim(backend.notice));
+  // Reuse the slug's private skill copy when one exists; otherwise launch as today.
+  const overlay = resumeOverlay(slug, options.overlaysDir);
   if (backend.id === "plain") {
     const plainWorktree =
       state.worktree ?? deriveWorktreePath(state.repo, slug);
     const plainSettings = launchSettingsPathFor(options);
     // Scanned once, same rationale as the create-path fix above.
-    const roots = (options.pluginRootsScan ?? scanPluginRoots)();
+    const roots =
+      overlay?.roots ?? (options.pluginRootsScan ?? scanPluginRoots)();
     const plainCommand =
       options.command ??
       buildPlainCommand(
@@ -1304,6 +1369,7 @@ function runResume(
         plainSettings,
         state.model,
         () => roots,
+        overlay?.addDir,
       );
     // plainResume owns the alive-refusal (a plain terminal cannot be
     // reclaimed, --force included), the TTY guard, and the contract line.
@@ -1361,7 +1427,8 @@ function runResume(
       state.effort,
       settingsPath,
       state.model,
-      options.pluginRootsScan,
+      overlay ? () => overlay.roots : options.pluginRootsScan,
+      overlay?.addDir,
     );
   // Verify the relaunched process stays up AND consumes the resume seed, same as
   // the fresh path — a bare respawn/create exit code only proves tmux forked the
@@ -1621,6 +1688,7 @@ function launchArgv(
   settingsPath: string,
   model?: ModelAlias,
   pluginRootsScan: () => string[] = scanPluginRoots,
+  overlayDir?: string,
 ): string[] {
   // Extracted once so the --plugin-dir entries below (via claudeArgv) and
   // the PATH= env-prefix entry cannot disagree about which roots are live.
@@ -1653,7 +1721,7 @@ function launchArgv(
     "FLOW_PIPELINE=1",
     `FLOW_SLUG=${slug}`,
     ...(nextPath !== undefined ? [`PATH=${nextPath}`] : []),
-    ...claudeArgv(worktree, effort, settingsPath, model, roots),
+    ...claudeArgv(worktree, effort, settingsPath, model, roots, overlayDir),
   ];
 }
 
@@ -1681,13 +1749,17 @@ function claudeArgv(
   settingsPath: string,
   model?: ModelAlias,
   roots: readonly string[] = scanPluginRoots(),
+  overlayDir?: string,
 ): string[] {
+  // `overlayDir` is one pipeline's private skill copy (`~/.flow/overlays/<slug>`),
+  // never `~/.flow` or the whole overlays dir: sub-skills Read siblings from it.
   const base = [
     "claude",
     "--add-dir",
     worktree,
     "--add-dir",
     FLOW_CLAUDE_HOME,
+    ...(overlayDir ? ["--add-dir", overlayDir] : []),
     ...pluginDirArgs(roots),
   ];
   const withModel = model ? [...base, "--model", model] : base;
@@ -1869,6 +1941,7 @@ function buildLaunchCommand(
   settingsPath: string,
   model?: ModelAlias,
   pluginRootsScan?: () => string[],
+  overlayDir?: string,
 ): string[] {
   try {
     ensureLaunchSettings(settingsPath);
@@ -1887,6 +1960,7 @@ function buildLaunchCommand(
     settingsPath,
     model,
     pluginRootsScan,
+    overlayDir,
   );
 }
 
@@ -1902,6 +1976,7 @@ function buildPlainCommand(
   settingsPath: string,
   model?: ModelAlias,
   pluginRootsScan?: () => string[],
+  overlayDir?: string,
 ): string[] {
   try {
     ensureLaunchSettings(settingsPath);
@@ -1916,6 +1991,7 @@ function buildPlainCommand(
     settingsPath,
     model,
     (pluginRootsScan ?? scanPluginRoots)(),
+    overlayDir,
   );
 }
 

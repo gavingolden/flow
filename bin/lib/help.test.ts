@@ -262,6 +262,12 @@ describe("HELP_TOP", () => {
     expect(HELP_TOP).toContain("--effort");
   });
 
+  it("documents --skills-from in the `flow feature create` synopsis and option list", () => {
+    expect(HELP_TOP).toContain("--skills-from <checkout>");
+    expect(HELP_TEXT.feature).toContain("[--skills-from <checkout>]");
+    expect(HELP_TEXT.feature).toContain("--skills-from <checkout>\n");
+  });
+
   it("documents --model in the `flow feature create` synopsis", () => {
     expect(HELP_TOP).toContain("--model");
     expect(HELP_TOP).toContain("opus|haiku|sonnet|fable");
