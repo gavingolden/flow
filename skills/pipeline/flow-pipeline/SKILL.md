@@ -232,7 +232,8 @@ Stay in-process for skills; shell out for scripts; never delegate.
 
 > **You only auto-create GitHub issues from the named sites.**
 > `flow-create-issue` may fire only from (a) `/flow-pr-review`'s Step 6
-> deferral path, (b) `/flow-pr-review`'s Step 5 retrospective generic-gap
+> deferral path (including the fix-applier's single consolidated issue when a PR
+> merges mid-review — the same deferral path under a mandatory trigger), (b) `/flow-pr-review`'s Step 5 retrospective generic-gap
 > capture, (c) `/flow-pipeline`'s Step 10 post-merge sweep (one issue per
 > `- [x]` item in plan.md's `# Candidate follow-up issues` section), (d) a
 > user-instructed `flow-untracked file <n>` reply, and (e) the
