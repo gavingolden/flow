@@ -10375,6 +10375,12 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
       anchor: "verify-caution.txt",
     },
     {
+      file: "skills/pipeline/flow-pipeline/SKILL.md",
+      siteName: "pipeline-verify-clear-caution",
+      kind: "adjacent-lines",
+      anchor: "--clear-caution | grep",
+    },
+    {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
       siteName: "pr-review-evidence-injection",
       kind: "adjacent-lines",
@@ -10446,10 +10452,11 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
     },
   );
 
-  it("covers exactly the four known gh pr edit --body-file recipe sites, by name", () => {
+  it("covers exactly the five known gh pr edit --body-file recipe sites, by name", () => {
     expect(BODY_EDIT_SITES.map((s) => s.siteName)).toEqual([
       "pipeline-ui-smoke-note",
       "pipeline-verify-exhausted-caution",
+      "pipeline-verify-clear-caution",
       "pr-review-evidence-injection",
       "new-feature-overflow-note",
     ]);
