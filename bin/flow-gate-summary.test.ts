@@ -530,7 +530,9 @@ describe("render — needs-human (per-reason mapping)", () => {
   it("[negative] an inherited object key as a reason resolves as unknown, not a prototype member", () => {
     for (const reason of ["constructor", "toString", "__proto__"]) {
       expect(whyForReason(reason), reason).toBe("");
-      expect(nextActionHeadline(reason), reason).toBe(DEFAULT_NEXT_ACTION.split("\n")[0]);
+      expect(nextActionHeadline(reason), reason).toBe(
+        DEFAULT_NEXT_ACTION.split("\n")[0],
+      );
     }
   });
 

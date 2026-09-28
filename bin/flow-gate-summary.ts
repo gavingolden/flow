@@ -624,7 +624,9 @@ function nextActionForReason(reason: string | undefined): string {
   if (!reason) return DEFAULT_NEXT_ACTION;
   const colonIdx = reason.indexOf(":");
   const head = colonIdx >= 0 ? reason.slice(0, colonIdx).trim() : reason.trim();
-  return Object.hasOwn(NEXT_ACTION_BY_REASON, head) ? NEXT_ACTION_BY_REASON[head] : DEFAULT_NEXT_ACTION;
+  return Object.hasOwn(NEXT_ACTION_BY_REASON, head)
+    ? NEXT_ACTION_BY_REASON[head]
+    : DEFAULT_NEXT_ACTION;
 }
 
 /**
