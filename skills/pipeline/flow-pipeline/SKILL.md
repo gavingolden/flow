@@ -1782,7 +1782,7 @@ idempotent backstop — by then `advancePhase` returns
 `already-at-or-past`, so the backstop adds no duplicate `phaseLog[]` row.
 
 When the pipeline has a private skill copy, re-run step 5.5's
-`flow-skill-overlay sync` here (idempotent) so fix-loop skill edits reach re-review.
+`flow-skill-overlay sync` here (idempotent) so fix-loop skill edits reach a resume or reload.
 
 **Copilot-module precheck (before any of this).** Probe
 `flow-module-status --check copilot >/dev/null 2>&1` — non-zero means the

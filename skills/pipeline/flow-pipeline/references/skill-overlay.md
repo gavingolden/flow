@@ -26,58 +26,71 @@ through steps 10-11); the next `flow feature create` launch prunes copies
 whose pipeline is finished and not alive, never one modified in the last 30
 minutes.
 
-## What a running session does NOT pick up
+## What a running session picks up
 
-Verified behavior of a session already running when the sync lands:
+Verified on Claude Code 2.1.284 and pinned by
+`bin/lib/skill-overlay.live.test.ts` (`RUN_CLAUDE_LIVE=1`): a session
+snapshots plugin-root skill text when it starts. A sync rewrites the copy on
+disk, but the ALREADY-RUNNING supervisor keeps serving the text it started
+with — including for a skill it has not loaded yet, and even ten seconds after
+the rewrite. The synced copy reaches:
 
-- **Edited skills first loaded after the sync run the branch's text.** Verify
-  and review load their sub-skills after step 5.5, so an edit to an existing
-  skill reaches them.
-- **Brand-new skills, agent definitions, and skills already loaded do not
-  change mid-session** — `flow-pipeline`, `flow-product-planning` and
-  `flow-new-feature` are already loaded by the time step 5.5 runs. To
-  exercise those, launch a fresh pipeline with
-  `flow feature create --skills-from "$WORKTREE" "<desc>"`.
-- Agent-presence probes inside skills still check the shared install path
-  (known limit): under `--skills-from`, a branch-new agent falls back to
-  `general-purpose`, and a branch-deleted agent passes the probe but fails
-  Task resolution against the copy.
+- **A session started after the sync** — a `flow feature resume` relaunch, or
+  a fresh `flow feature create --skills-from "$WORKTREE" "<desc>"`. That fresh
+  launch is how to exercise edited skills, brand-new skills, and agent
+  definitions end to end.
+- **The running session, once the user types `/reload-plugins` in its pane.**
+  flow cannot inject it: it runs only when the user types it.
+
+Until one of those happens, this pipeline's own verify and review run the
+skill text the session started with (`main`'s, for a flow-self launch). The
+already-loaded supervisor playbook (`flow-pipeline`, `flow-product-planning`,
+`flow-new-feature`) is already in context and never changes mid-session on
+any path.
+
+Agent-presence probes inside skills still check the shared install path
+(known limit): under `--skills-from`, a branch-new agent falls back to
+`general-purpose`, and a branch-deleted agent passes the probe but fails Task
+resolution against the copy.
 
 **Ordering constraint.** Nothing may verify or review between implement and
-the sync: step 5.5 must run before `/flow-verify` loads any edited skill.
+the sync: step 5.5 must run before `/flow-verify` so a resume or reload right
+after it already sees the branch's text.
 
 ## Fix loops
 
 Step 5.5 runs once, so skill edits made later (step-6 fixes, the step-7
 `step-5-fix` loop, fix-applier commits) would miss the copy. Step 7 re-runs
-the same idempotent sync near its head whenever a copy exists, so the
-re-verify and re-review after a fix see the fixed text.
+the same idempotent sync near its head whenever a copy exists, keeping the copy
+current for a resume or a `/reload-plugins`.
 
 ## Recovery: a self-broken review
 
-If the branch's own edit broke verify or review, point the copy back at the
-canonical checkout and continue:
+If a resumed or reloaded session loaded a branch skill edit that broke verify
+or review, point the copy back at the canonical checkout and have the user
+reload:
 
 ```bash
 flow-skill-overlay sync --slug "$FLOW_SLUG" --from "<canonical flow checkout>"
 ```
 
-When you use it, upsert a `> [!CAUTION]` note in the PR body's `## Test Steps`
-section: `> [!CAUTION] Review ran on main's skills (private copy reset to the
-canonical checkout).` The review no longer exercised the branch's own text
-and the reader must know.
+then the user types `/reload-plugins` (or resumes). When you use it, upsert a
+`> [!CAUTION]` note in the PR body's `## Test Steps` section: `> [!CAUTION]
+Review ran on main's skills (private copy reset to the canonical checkout).`
+The review no longer exercised the branch's own text and the reader must know.
 
-## PR-body NOTE for what could not be exercised
+## PR-body NOTE for what was not exercised
 
-When the sync's `notExercised` is non-empty, or the diff edits a skill the
-supervisor had already loaded (at least `flow-pipeline`,
-`flow-product-planning`, `flow-new-feature`), upsert ONE idempotent
-`> [!NOTE]` block (edit in place, never stack) listing those paths and
-pointing at `--skills-from`:
+A running session serves its start-time text, so unless the user reloaded,
+this pipeline's own review did not exercise what the sync wrote. When the
+sync's `written` is non-empty (`notExercised` names the subset that can never
+reach a running session: agent definitions and skill directories new to the
+copy), upsert ONE idempotent `> [!NOTE]` block (edit in place, never stack)
+listing those paths and pointing at `--skills-from`:
 
 ```bash
 gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
-jq -r '.notExercised[]' "$WORKTREE/.flow-tmp/skill-overlay-sync.json"
+jq -r '.written[], .notExercised[]' "$WORKTREE/.flow-tmp/skill-overlay-sync.json"
 # upsert "> [!NOTE] Not exercised by this pipeline's own review: <paths>.
 # Run flow feature create --skills-from <worktree> to exercise them." under
 # ## Test Steps, then
