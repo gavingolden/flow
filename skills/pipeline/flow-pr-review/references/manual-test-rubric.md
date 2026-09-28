@@ -385,6 +385,13 @@ reference plus one local `file://` link per screenshot. The box stays unticked.
   (`subjective-no-image`).
 - A credential-bearing screen is never captured.
 
+### End-to-end steps that exercise a flow-self branch's skills
+
+An end-to-end Test Step that exercises a flow-self branch's own skills or
+agents must launch with `flow feature create --skills-from "$WORKTREE"` — a
+plain launch runs the canonical checkout's skills, so the step would pass or
+fail on `main`'s text instead of the branch's.
+
 ### Decision shortcut
 
 If you find yourself writing "verify the file appears at...", "check the process is

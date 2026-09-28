@@ -502,8 +502,9 @@ export function canonicalizeRecordedSource(
  * <worktree>` picks up brand-new files but pins modified-existing content to
  * canonical. Practical impact is minimal — step 5.5 only fires on skill/agent
  * ADDITIONS, and skills load once per session — so no code change is needed
- * here; if mid-pipeline dogfooding of modifications is ever required, gate the
- * canonical preference on content-equality instead of bare existence.
+ * here. In-session dogfooding of modifications is served by the per-pipeline
+ * private copy (`bin/lib/skill-overlay.ts`), not by changing this predicate: a
+ * running session does not re-read re-pointed links.
  */
 export function effectiveLinkSource(
   source: string,
