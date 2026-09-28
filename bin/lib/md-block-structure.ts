@@ -75,6 +75,10 @@ class FenceTracker {
   private openChar: "`" | "~" | null = null;
   private openLen = 0;
 
+  get isOpen(): boolean {
+    return this.openChar !== null;
+  }
+
   /** Feed one line's text and return whether it is fenced content
    * (i.e. inside an open fence, INCLUDING the fence line that opened
    * or closed it — fence delimiters are never eligible for
@@ -203,4 +207,25 @@ export function findUnterminatedHtmlBlockLines(body: string): Set<number> {
     for (let i = openStart; i < lines.length; i++) trapped.add(i);
   }
   return trapped;
+}
+
+/**
+ * Per-line fenced mask: true for every line inside a CLOSED fence,
+ * delimiters included. Lines from an unclosed opener to EOF are false
+ * (fail-closed: an unterminated fence must not hide later content from
+ * readers that skip fenced lines).
+ */
+export function fencedLineMask(lines: string[]): boolean[] {
+  const fence = new FenceTracker();
+  const mask: boolean[] = [];
+  let openerAt = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const wasOpen = fence.isOpen;
+    mask.push(fence.feed(lines[i]));
+    if (!wasOpen && fence.isOpen) openerAt = i;
+  }
+  if (fence.isOpen) {
+    for (let i = openerAt; i < mask.length; i++) mask[i] = false;
+  }
+  return mask;
 }

@@ -774,7 +774,7 @@ The `agents/flow-consolidator.md` definition carries a `tools:` allowlist
 role, so the CONSOLIDATOR_MODEL threading above always wins.
 
 Then make exactly one Task-tool call with `subagent_type: $CONSOLIDATOR_SUBAGENT`
-(plus the resolved `model:` above when non-empty). The composed prompt must include, load-bearing for the general-purpose fallback branch above (no definition file to preload from): "If the line `flow-instructions-sentinel: flow-consolidator-instructions` is NOT in your context, read the instructions at: $SKILL_DIR/../flow-consolidator-instructions/SKILL.md". The prompt cites
+(plus the resolved `model:` above when non-empty). The composed prompt must include, load-bearing for the general-purpose fallback branch above (no definition file to preload from): "If the line `flow-instructions-sentinel: flow-consolidator-instructions` is NOT in your context, read the instructions at: $SKILL_DIR/../flow-consolidator-instructions/SKILL.md". The prompt may pass pointers and verification asks (a shared line range, a claim to grep) but must never assert that lenses agree or that findings should be deduped — the wrapper never reads the per-lens artifacts, so convergence is the consolidator's to derive. The prompt cites
 `../flow-consolidator-instructions/SKILL.md` as the absolute-path
 instructions and passes `$WORKTREE`, `$SKILL_DIR`, the six per-agent
 paths at `$WORKTREE/.flow-tmp/agent-output-<lens>.json` (lenses:
@@ -895,11 +895,10 @@ Otherwise, read the review comments from Step 2's fetch output. This is the self
      - **UX:** none - **Problem:** <finding class no checklist catches> [anchor: X of Y independently caught] - **Stability/efficiency:** none
      - **Value rank:** <1-5> [anchor: same] - **Complexity:** <Trivial|Small|Medium|Large> - **Risk:** Low - **If never done:** keeps slipping past review - **Verdict:** clears bar — <decisive line>
      EOF
-     ISSUE_JSON=$(flow-create-issue --label review-checklist --title "<pattern class>" \
-       --body-file "$WORKTREE/.flow-tmp/review-checklist-gap.md"); RC=$?
      ```
-     **Exit 3** = body rejected (`$ISSUE_JSON` is the rejection envelope, `.misses`/
-     `.expected`, not a URL) — repair and retry once, never drop the captured gap.
+     Then run `flow-create-issue --label review-checklist --title "<pattern class>" --body-file "<absolute worktree>/.flow-tmp/review-checklist-gap.md"` as its own Bash call — only a standalone call is pre-approved.
+     **Exit 3** = body rejected (printed JSON `.action` is `rejected`, `.misses`/
+     `.expected`, not a `.url`) — repair and retry once, never drop the captured gap.
 
    **The retrospective must never edit files under SKILL_DIR.** The only write paths
    are the target repo's `.flow/review-checklist.md` (repo-specific) or a filed issue

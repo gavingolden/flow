@@ -1,3 +1,7 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildEvidenceBlock,
@@ -611,5 +615,151 @@ describe("human-only items and screenshots", () => {
     expect(
       parseArgs(["--body-file", "b.md", "--item", "x", "--image", "#alt"]),
     ).toEqual({ error: "--image requires <path>#<alt>" });
+  });
+});
+
+describe("evidence redaction and fence-aware rewrite", () => {
+  const base = { bodyFile: "", outputFile: "", exitCode: 0, timestamp: TS };
+  const GHP = `ghp_${"a1B2c3D4e5".repeat(3)}abcdef`;
+
+  it("masks a token but keeps a repo path in published evidence", () => {
+    const block = buildEvidenceBlock(
+      `GITHUB_TOKEN=${GHP}\nat bin/lib/redact-secrets.ts:45`,
+      1,
+      TS,
+    );
+    expect(block).not.toContain(GHP);
+    expect(block).toContain("GITHUB_TOKEN=[REDACTED]");
+    expect(block).toContain("bin/lib/redact-secrets.ts:45");
+  });
+
+  it("fully replaces a previous block whose output has a fenced </details>", () => {
+    const body = ["## Test Steps", "", "- [ ] `npm run verify` — pass"].join(
+      "\n",
+    );
+    const first = rewriteBody(
+      body,
+      { ...base, item: "npm run verify", exitCode: 1 },
+      "before\n</details>\nafter tail",
+    );
+    if (!first.ok) throw new Error(first.error);
+    const second = rewriteBody(
+      first.body,
+      { ...base, item: "npm run verify" },
+      "fresh",
+    );
+    if (!second.ok) throw new Error(second.error);
+    expect(second.replaced).toBe(true);
+    expect(second.body).not.toContain("after tail");
+    expect(second.body.split("flow:evidence").length - 1).toBe(1);
+  });
+
+  it("ticks the real item when an earlier fenced block echoes its text", () => {
+    const body = [
+      "## Test Steps",
+      "",
+      "```",
+      "- [ ] `npm run verify` — pass",
+      "```",
+      "- [ ] `npm run verify` — pass",
+    ].join("\n");
+    const r = rewriteBody(body, { ...base, item: "npm run verify" }, "ok");
+    if (!r.ok) throw new Error(r.error);
+    expect(r.body).toContain("```\n- [ ] `npm run verify` — pass\n```");
+    expect(r.body).toContain("- [x] `npm run verify` — pass");
+  });
+});
+
+describe("parseArgs — caution modes", () => {
+  it("parses --caution-file and --clear-caution", () => {
+    expect(
+      parseArgs(["--body-file", "b.md", "--caution-file", "c.txt"]),
+    ).toEqual({
+      mode: "caution-insert",
+      bodyFile: "b.md",
+      cautionFile: "c.txt",
+    });
+    expect(parseArgs(["--body-file", "b.md", "--clear-caution"])).toEqual({
+      mode: "caution-clear",
+      bodyFile: "b.md",
+    });
+  });
+
+  it("rejects conflicting flags", () => {
+    expect(
+      parseArgs([
+        "--body-file",
+        "b.md",
+        "--caution-file",
+        "c.txt",
+        "--clear-caution",
+      ]),
+    ).toHaveProperty("error");
+    expect(
+      parseArgs(["--body-file", "b.md", "--clear-caution", "--item", "x"]),
+    ).toHaveProperty("error");
+    expect(
+      parseArgs(["--body-file", "b.md", "--item", "x", "--caution-file", "c"]),
+    ).toHaveProperty("error");
+  });
+});
+
+describe("caution modes — subprocess", () => {
+  const script = path.resolve(__dirname, "flow-inject-evidence.ts");
+  const run = (args: string[]) =>
+    spawnSync("bun", [script, ...args], { encoding: "utf8" });
+
+  it("inserts, replaces, and clears the caution block", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "inject-caution-"));
+    try {
+      const bodyFile = path.join(dir, "body.md");
+      const cautionFile = path.join(dir, "verify-caution.txt");
+      const original = "## Test Steps\n\n- [ ] a\n";
+      writeFileSync(bodyFile, original);
+      writeFileSync(cautionFile, "Bearer abc123 secret output\n");
+
+      const ins = run(["--body-file", bodyFile, "--caution-file", cautionFile]);
+      expect(ins.status).toBe(0);
+      expect(ins.stdout.trim()).toBe("caution inserted");
+      const inserted = readFileSync(bodyFile, "utf8");
+      expect(inserted).toContain("[!CAUTION]");
+      expect(inserted).not.toContain("abc123");
+
+      const rep = run(["--body-file", bodyFile, "--caution-file", cautionFile]);
+      expect(rep.stdout.trim()).toBe("caution replaced");
+      expect(
+        readFileSync(bodyFile, "utf8").split("<!-- flow:verify-caution -->")
+          .length,
+      ).toBe(2);
+
+      const clr = run(["--body-file", bodyFile, "--clear-caution"]);
+      expect(clr.status).toBe(0);
+      expect(clr.stdout.trim()).toBe("caution cleared");
+      expect(readFileSync(bodyFile, "utf8")).toBe(original);
+      expect(
+        run(["--body-file", bodyFile, "--clear-caution"]).stdout.trim(),
+      ).toBe("no caution to clear");
+
+      const missing = run([
+        "--body-file",
+        bodyFile,
+        "--caution-file",
+        path.join(dir, "nope.txt"),
+      ]);
+      expect(missing.status).toBe(1);
+      writeFileSync(bodyFile, "## Why\n");
+      const noHeading = run([
+        "--body-file",
+        bodyFile,
+        "--caution-file",
+        cautionFile,
+      ]);
+      expect(noHeading.status).toBe(1);
+      expect(
+        run(["--body-file", bodyFile, "--clear-caution", "--item", "x"]).status,
+      ).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

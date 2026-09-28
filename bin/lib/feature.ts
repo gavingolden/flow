@@ -65,6 +65,7 @@ import { sanitizeSeedLine } from "./seed-delivery";
 import { appendLaunchRecord } from "./launch-log";
 import { dim } from "./color";
 import {
+  FLOW_CREATE_ISSUE_ALLOW_RULES,
   FLOW_UI_LOGIN_ALLOW_RULES,
   SECRET_FILE_DENY_RULES,
 } from "./secret-deny-rules";
@@ -1849,7 +1850,10 @@ export function ensureLaunchSettings(
         },
         permissions: {
           deny: [...SECRET_FILE_DENY_RULES],
-          allow: [...FLOW_UI_LOGIN_ALLOW_RULES],
+          allow: [
+            ...FLOW_UI_LOGIN_ALLOW_RULES,
+            ...FLOW_CREATE_ISSUE_ALLOW_RULES,
+          ],
         },
       },
       null,

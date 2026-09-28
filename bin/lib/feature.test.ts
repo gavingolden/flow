@@ -4089,6 +4089,14 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(allow).not.toContain("Bash(flow-ui-login *)");
   });
 
+  it("also pre-approves the standalone flow-create-issue call alongside the flow-ui-login rules", () => {
+    ensureLaunchSettings(settingsPath);
+    const { allow } = readPermissions();
+    expect(allow).toContain("Bash(flow-create-issue *)");
+    expect(allow).toContain("Bash(flow-ui-login check *)");
+    expect(allow).toContain("Bash(flow-ui-login serve *)");
+  });
+
   it("a second call with permissions already present leaves the file unchanged", () => {
     ensureLaunchSettings(settingsPath);
     const firstContent = fs.readFileSync(settingsPath, "utf8");

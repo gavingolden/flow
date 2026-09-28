@@ -6,7 +6,11 @@
  * reads differently. Rules: skills/pipeline/flow-pr-review/references/
  * manual-test-rubric.md `## Mechanical lint`.
  */
-import { extractStrippedSection } from "../flow-gate-decide";
+import {
+  extractStrippedSection,
+  testStepsSectionBounds,
+} from "../flow-gate-decide";
+import { fencedLineMask } from "./md-block-structure";
 
 export type StepKind =
   | "command"
@@ -63,10 +67,17 @@ function classify(text: string): StepKind {
 function bodyLineLocator(body: string): (raw: string) => number {
   const bodyLines = body.split("\n");
   const strippedLines = bodyLines.map((l) => l.replace(/<!--[\s\S]*?-->/g, ""));
-  let cursor = bodyLines.findIndex((l) => /^## Test Steps[ \t]*$/.test(l)) + 1;
+  const fenced = fencedLineMask(bodyLines);
+  let cursor = (testStepsSectionBounds(bodyLines)?.start ?? -1) + 1;
+  const find = (lines: string[], raw: string): number => {
+    for (let i = cursor; i < lines.length; i++) {
+      if (!fenced[i] && lines[i] === raw) return i;
+    }
+    return -1;
+  };
   return (raw) => {
-    let idx = strippedLines.indexOf(raw, cursor);
-    if (idx < 0) idx = bodyLines.indexOf(raw, cursor);
+    let idx = find(strippedLines, raw);
+    if (idx < 0) idx = find(bodyLines, raw);
     if (idx < 0) return 0;
     cursor = idx + 1;
     return idx + 1;
@@ -92,16 +103,7 @@ export function parseTestSteps(body: string): {
     heads.push({ line: locate(raw), checked: m[1] !== " ", text: m[2] });
   }
 
-  let sectionEnd = bodyLines.length;
-  const headingIdx = bodyLines.findIndex((l) =>
-    /^## Test Steps[ \t]*$/.test(l),
-  );
-  for (let i = headingIdx + 1; i < bodyLines.length; i++) {
-    if (/^## /.test(bodyLines[i])) {
-      sectionEnd = i;
-      break;
-    }
-  }
+  const sectionEnd = testStepsSectionBounds(bodyLines)?.end ?? bodyLines.length;
 
   const steps = heads.map((head, i): ParsedStep => {
     const from = head.line;

@@ -232,7 +232,8 @@ Stay in-process for skills; shell out for scripts; never delegate.
 
 > **You only auto-create GitHub issues from the named sites.**
 > `flow-create-issue` may fire only from (a) `/flow-pr-review`'s Step 6
-> deferral path, (b) `/flow-pr-review`'s Step 5 retrospective generic-gap
+> deferral path (including the fix-applier's single consolidated issue when a PR
+> merges mid-review — the same deferral path under a mandatory trigger), (b) `/flow-pr-review`'s Step 5 retrospective generic-gap
 > capture, (c) `/flow-pipeline`'s Step 10 post-merge sweep (one issue per
 > `- [x]` item in plan.md's `# Candidate follow-up issues` section), (d) a
 > user-instructed `flow-untracked file <n>` reply, and (e) the
@@ -1707,8 +1708,8 @@ of its own turn output AND as the `flow-ui-driver` subagent's
 pass runs in `/flow-verify`'s own context and the artifact still lands the
 same way. When `/flow-verify`'s report shows the UI-smoke
 pass was skipped on a UI-touching diff, upsert a user-visible sibling line
-under the PR body's `> [!CAUTION]` verify block (idempotent, edit-in-place,
-do not stack) using the reason `/flow-verify` reported:
+under `## Test Steps` outside the `<!-- /flow:verify-caution -->` marker
+(idempotent, edit-in-place), using `/flow-verify`'s reported reason:
 
 ```bash
 gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
@@ -1740,19 +1741,16 @@ outer attempt.
 
 **Exhaustion.** After 3 failed outer attempts, escalate `NEEDS HUMAN:
 verify-exhausted`. `$FINAL_FAILURE_EXCERPT` is the third attempt's
-`flow-pre-commit --json` failure excerpt as `/flow-verify` reported it in
-its own turn output (there is no separate artifact to read it from — copy
-it directly from the visible report). Surface that excerpt on the PR
-body's `## Test Steps` section as a `> [!CAUTION]` block (idempotent —
-edit-in-place, do not stack), then follow the standard `# Failure paths`
-escalation:
+`flow-pre-commit --json` failure excerpt, copied from `/flow-verify`'s
+visible report. It stays in the local file and the terminal escalation;
+the PR gets a fixed pointer `> [!CAUTION]` block under `## Test Steps`,
+never the output (a re-run replaces it). Then follow `# Failure paths`:
 
 ```bash
 mkdir -p "$WORKTREE/.flow-tmp"
 printf '%s\n' "$FINAL_FAILURE_EXCERPT" > "$WORKTREE/.flow-tmp/verify-caution.txt"
 gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
-# upsert the > [!CAUTION] block (built from verify-caution.txt) under
-# ## Test Steps, then
+flow-inject-evidence --body-file "$WORKTREE/.flow-tmp/body.md" --caution-file "$WORKTREE/.flow-tmp/verify-caution.txt"
 flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/body.md" && gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
@@ -1762,7 +1760,16 @@ worktree fresh, so a re-invocation is idempotent). `/flow-verify`'s own
 Step 3 hybrid threshold still decides narrow-inline vs.
 `/flow-coder`-delegated fixes (the sixth named Task-tool exemption); the
 work now happens directly in the supervisor's own context — there is no
-longer a diff-bytes isolation boundary to preserve at this step.
+longer a diff-bytes isolation boundary to preserve at this step. On a clean
+pass after re-entry, clear the block; push the body only if it printed
+`caution cleared`:
+
+```bash
+gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
+flow-inject-evidence --body-file "$WORKTREE/.flow-tmp/body.md" --clear-caution | grep -qx 'caution cleared' \
+  && flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/body.md" \
+  && gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
+```
 
 **End condition:** `/flow-verify` reports a clean pass. Continue to step 7.
 
