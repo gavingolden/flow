@@ -74,7 +74,7 @@ const CONNECTION_URL_PASSWORD =
 // Bounded prefix + no newline crossing keeps the worst case linear on long
 // word-character runs.
 const SECRET_KEY_ASSIGNMENT =
-  /([A-Za-z0-9_-]{0,64}(?:key|token|secret|password|passwd|credentials?)["']?[ \t]*[:=][ \t]*)\S+/gi;
+  /([A-Za-z0-9_-]{0,64}(?:key|token|secret|password|passwd|credentials?)["']?[ \t]*[:=][ \t]*["']?)[^\s"',}\]]+/gi;
 const VENDOR_TOKENS: RegExp[] = [
   /(?<![A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{30,}/g,
   /(?<![A-Za-z0-9])github_pat_[A-Za-z0-9_]{20,}/g,

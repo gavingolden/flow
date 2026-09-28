@@ -160,7 +160,7 @@ describe("redactForPublish", () => {
     expect(out).not.toMatch(/github_pat|xox|glpat|AIza/);
   });
 
-  it("masks PASSWORD, passwd, credentials and the JSON forms", () => {
+  it("masks PASSWORD, passwd, credentials and the JSON forms, keeping JSON well-formed", () => {
     expect(redactForPublish("DB_PASSWORD=hunter2")).toBe(
       "DB_PASSWORD=[REDACTED]",
     );
@@ -169,9 +169,14 @@ describe("redactForPublish", () => {
       "credentials: [REDACTED]",
     );
     expect(redactForPublish('{"client_secret": "abc"}')).toBe(
-      '{"client_secret": [REDACTED]',
+      '{"client_secret": "[REDACTED]"}',
     );
-    expect(redactForPublish('{"api_key":"abc"}')).toBe('{"api_key":[REDACTED]');
+    expect(redactForPublish('{"api_key":"abc"}')).toBe(
+      '{"api_key":"[REDACTED]"}',
+    );
+    expect(redactForPublish("api_key=abc, next=1")).toBe(
+      "api_key=[REDACTED], next=1",
+    );
   });
 
   it("opaque-run fallback masks a bare mixed-case base64 blob", () => {
