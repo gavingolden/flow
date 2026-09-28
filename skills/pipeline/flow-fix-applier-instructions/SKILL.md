@@ -560,7 +560,7 @@ artifact's `commits[].sha` in step 9.
 
 ## 8. Re-run `/flow-verify` (load-bearing differentiator)
 
-After every commit lands, invoke `/flow-verify` in-process via the Skill tool:
+After all fix commits land (step 7), invoke `/flow-verify` once in-process via the Skill tool (record `verify_status` per commit from that single verdict):
 
 ```
 /flow-verify
@@ -592,7 +592,7 @@ fix-applier artifact summary and leave the affected signed-in items
 unchecked so the pr-review wrapper surfaces `smoketest-needs-creds`.
 
 `/flow-verify` runs the project's full check suite (typecheck, tests, format).
-Capture the verdict per commit:
+Apply the verdict to every commit produced this run:
 
 - **Pass** → reconcile whatever verify left behind into this one commit
   path, then set `commits[].verify_status = "pass"` for every commit

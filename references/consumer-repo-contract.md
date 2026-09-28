@@ -114,7 +114,10 @@ paths to a credential value.
 Flow-launched sessions also pre-approve `Bash(flow-create-issue *)` so review
 deferrals are not refused by auto mode; it matches only a standalone
 `flow-create-issue` call and lives only in flow's `--settings` file, never in
-consumer or global settings.
+consumer or global settings. Accepted risk: the helper's body check is
+structure-only (it does not bound issue content), so a flow-launched session
+can publish arbitrary text to the current repo's issue tracker without an
+auto-mode review.
 
 ## Design foundation
 

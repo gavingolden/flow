@@ -11699,8 +11699,8 @@ describe("subagent contract fixes (#587, #853, #590, #494, #834)", () => {
           row.skill as string,
           "SKILL.md",
         );
-        if (!fs.existsSync(p)) return;
-        if (fs.readFileSync(p, "utf8").includes("via the Skill tool")) {
+        expect(fs.existsSync(p)).toBe(true);
+        if (/via the `?Skill`? tool/.test(fs.readFileSync(p, "utf8"))) {
           expect(
             (row.tools as string).split(",").map((t) => t.trim()),
           ).toContain("Skill");
@@ -11716,13 +11716,21 @@ describe("subagent contract fixes (#587, #853, #590, #494, #834)", () => {
     );
     expect(step8).toContain("/flow-verify");
     expect(step8).toContain("UI_SMOKE_DRIVER: inline");
+    expect(step8).toContain(
+      "git restore --staged --worktree . && git clean -fd",
+    );
     expect(read("skills", "pipeline", "flow-verify", "SKILL.md")).toContain(
       "Under `UI_SMOKE_DRIVER: inline`",
     );
   });
 
   it("fix-applier deferral never wraps flow-create-issue in $(…)", () => {
-    expect(fixApplier.includes("$(flow-create-issue")).toBe(false);
+    for (const f of [
+      fixApplier,
+      read("skills", "pipeline", "flow-pr-review", "SKILL.md"),
+    ]) {
+      expect(/\$\(\s*flow-create-issue/.test(f)).toBe(false);
+    }
   });
 
   it("pr-review and the consolidator forbid / distrust cross-lens agreement claims", () => {
@@ -11753,7 +11761,7 @@ describe("subagent contract fixes (#587, #853, #590, #494, #834)", () => {
               : [],
         );
     const bad = walk(path.resolve(HERE, "..", "skills")).filter((f) =>
-      /(not|NOT)\*{0,2}\s+have the `Skill` tool|sub-agent does not have/.test(
+      /(not|NOT)\*{0,2}\s+have the `Skill` tool|sub-agent does not have|has no `?Skill`? tool|lacks? the `?Skill`? tool/.test(
         fs.readFileSync(f, "utf8"),
       ),
     );

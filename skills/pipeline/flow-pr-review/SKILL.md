@@ -895,9 +895,8 @@ Otherwise, read the review comments from Step 2's fetch output. This is the self
      - **UX:** none - **Problem:** <finding class no checklist catches> [anchor: X of Y independently caught] - **Stability/efficiency:** none
      - **Value rank:** <1-5> [anchor: same] - **Complexity:** <Trivial|Small|Medium|Large> - **Risk:** Low - **If never done:** keeps slipping past review - **Verdict:** clears bar — <decisive line>
      EOF
-     flow-create-issue --label review-checklist --title "<pattern class>" \
-       --body-file "$WORKTREE/.flow-tmp/review-checklist-gap.md"
      ```
+     Then run `flow-create-issue --label review-checklist --title "<pattern class>" --body-file "<absolute worktree>/.flow-tmp/review-checklist-gap.md"` as its own Bash call — only a standalone call is pre-approved.
      **Exit 3** = body rejected (printed JSON `.action` is `rejected`, `.misses`/
      `.expected`, not a `.url`) — repair and retry once, never drop the captured gap.
 

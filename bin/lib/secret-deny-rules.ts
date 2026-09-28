@@ -48,9 +48,18 @@ export const FLOW_UI_LOGIN_ALLOW_RULES: readonly string[] = [
 /**
  * Blanket `flow-create-issue *`: the helper has no hidden subcommand, files
  * only to the current repo (it also provisions its labels via `gh label
- * create --force`), rejects off-rubric bodies (exit 3), and is idempotent on
- * title. Only effective on a standalone call — a `$(…)`-wrapped call is
- * approved against the whole subcommand and never matches.
+ * create --force`), and is idempotent on title. Only effective on a
+ * standalone call — a `$(…)`-wrapped call is approved against the whole
+ * subcommand and never matches.
+ *
+ * Accepted risk: the rubric check on the body (exit 3) is structure-only —
+ * it requires the value-block labels and constrains no other content — and
+ * `--title` / `--body-file` are free. So a flow-launched session (including a
+ * fix-applier reading untrusted PR text) can publish arbitrary text to the
+ * current repo's issue tracker without an auto-mode classifier review. The
+ * payload is limited to data already in the agent's context (the credential
+ * deny rules still block reading `.env`-family files); we accept that narrow
+ * prompt-injection path in exchange for review deferrals not being refused.
  */
 export const FLOW_CREATE_ISSUE_ALLOW_RULES: readonly string[] = [
   "Bash(flow-create-issue *)",
