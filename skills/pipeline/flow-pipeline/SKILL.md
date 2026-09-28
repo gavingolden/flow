@@ -1613,11 +1613,7 @@ if flow-skill-overlay status --slug "$FLOW_SLUG" | jq -e .exists >/dev/null; the
   flow-skill-overlay sync --slug "$FLOW_SLUG" --from "$WORKTREE" | tee "$WORKTREE/.flow-tmp/skill-overlay-sync.json" | jq -r '"synced: \(.written + .removed | join(" "))"'
 fi
 
-# Resolve the default branch dynamically — same approach as
-# flow-new-worktree.ts and flow-pre-commit.ts. Hardcoding origin/main
-# silently breaks on any repo whose default is `master` (or anything
-# else): `git diff origin/main...HEAD` would fail, `|| true` would
-# swallow the error, and the re-symlink would be silently skipped.
+# Resolve the default branch dynamically — never hardcode origin/main (a `master` repo would silently skip the re-symlink).
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null \
                   | sed 's|^refs/remotes/origin/||')
 DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
@@ -1629,10 +1625,7 @@ if [ -n "$ADDED" ]; then
   echo "Detected new skill/agent files; re-symlinking:"
   echo "$ADDED" | sed 's/^/  /'
   flow install --upgrade --source "$WORKTREE"
-  # Register a post-merge follow-up so the user's home install also gets
-  # re-symlinked against the canonical (post-merge) main, not just this
-  # supervisor's in-flight worktree. `--auto` plus the `flow install --upgrade`
-  # allowlist entry means step 11 runs it automatically on the MERGED path.
+  # Post-merge follow-up: re-link the home install against canonical main (--auto + allowlist ⇒ step 11 runs it on MERGED).
   flow-followups add \
     --command "flow install --upgrade" \
     --reason "new skills/agents added on this branch — re-symlink home install post-merge" \
@@ -1787,9 +1780,7 @@ flow-state-update --phase ci-wait
 `flow-ci-check` still emits `ci-wait` at this step's tail as an
 idempotent backstop — by then `advancePhase` returns
 `already-at-or-past`, so the backstop adds no duplicate `phaseLog[]` row.
-
-When the pipeline has a private skill copy, re-run step 5.5's
-`flow-skill-overlay sync` here (idempotent) so fix-loop skill edits reach a resume or reload.
+When the pipeline has a private skill copy, re-run step 5.5's `flow-skill-overlay sync` here (idempotent) so fix-loop skill edits reach a resume or reload.
 
 **Copilot-module precheck (before any of this).** Probe
 `flow-module-status --check copilot >/dev/null 2>&1` — non-zero means the
