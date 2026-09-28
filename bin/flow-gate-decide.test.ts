@@ -178,6 +178,55 @@ describe(parseTestStepsSection, () => {
   });
 });
 
+describe("parseTestStepsSection — fenced content", () => {
+  const unchecked = (body: string): string[] => {
+    const r = parseTestStepsSection(body);
+    return r.kind === "has-unchecked" ? r.uncheckedItems : [];
+  };
+
+  it("counts an unchecked item after an evidence block with a fenced unclosed '<!--'", () => {
+    const body = [
+      "## Test Steps",
+      "",
+      "- [x] Run `npm test`",
+      "<!-- flow:evidence -->",
+      "<details><summary>evidence</summary>",
+      "",
+      "```",
+      "output <!-- never closed",
+      "```",
+      "",
+      "</details>",
+      "",
+      "- [ ] SUBJECTIVE: looks right",
+      "",
+    ].join("\n");
+    expect(unchecked(body)).toEqual(["SUBJECTIVE: looks right"]);
+  });
+
+  it("does not count a fenced '- [ ] fake' item", () => {
+    const body = "## Test Steps\n\n```\n- [ ] fake\n```\n\n- [x] real\n";
+    expect(parseTestStepsSection(body)).toEqual({ kind: "no-unchecked" });
+  });
+
+  it("still counts items after an unclosed fence opener", () => {
+    const body = "## Test Steps\n\n```\n- [ ] after opener\n";
+    expect(unchecked(body)).toEqual(["after opener"]);
+  });
+
+  it("does not end the section at a fenced '## Other' line", () => {
+    const body =
+      "## Test Steps\n\n```\n## Other\n```\n\n- [ ] still inside\n";
+    expect(unchecked(body)).toEqual(["still inside"]);
+  });
+
+  it("does not take a fenced '## Test Steps' earlier in the body as the heading", () => {
+    const body =
+      "## Why\n\n```\n## Test Steps\n- [ ] fake\n```\n\n## Test Steps\n\n- [ ] real\n";
+    expect(unchecked(body)).toEqual(["real"]);
+  });
+});
+
 describe(findTrappedTestSteps, () => {
   it("names the trapped items excluded from parseTestStepsSection", () => {
     const body =

@@ -172,3 +172,37 @@ describe("lintTestSteps", () => {
     expect(codes(body, "authoring")).toEqual([]);
   });
 });
+
+describe("parseTestSteps — fenced content", () => {
+  it("does not truncate the section at a fenced '## ' line", () => {
+    const body = [
+      "## Test Steps",
+      "",
+      "- [ ] first",
+      "```",
+      "## captured heading",
+      "```",
+      "- [ ] second",
+      "",
+      "## Notes",
+    ].join("\n");
+    const { steps } = parseTestSteps(body);
+    expect(steps.map((s) => s.text)).toEqual(["first", "second"]);
+    expect(steps[1].line).toBe(7);
+  });
+
+  it("maps a real item to its own line when a fenced line has the same text", () => {
+    const body = [
+      "## Test Steps",
+      "",
+      "```",
+      "- [ ] echoed",
+      "```",
+      "- [ ] echoed",
+      "",
+    ].join("\n");
+    const { steps } = parseTestSteps(body);
+    expect(steps).toHaveLength(1);
+    expect(steps[0].line).toBe(6);
+  });
+});
