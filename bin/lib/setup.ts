@@ -48,6 +48,7 @@ import {
 } from "./plugin-root";
 import { moduleIdFromPluginRootName, pluginRootName } from "./plugin-manifest";
 import { withFileLock } from "./lock";
+import { commandOnPath, pathContains } from "./path-probe";
 import { applyShellRcCompletions } from "./setup-rc";
 import { seedUserProductBrief } from "./product-brief-seed";
 import {
@@ -1520,32 +1521,4 @@ function printModuleBreakdown(
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([id, n]) => `${id} ${n}`);
   log(dim(`      by module: ${parts.join(", ")}`));
-}
-
-function commandOnPath(cmd: string): boolean {
-  const result = Bun.spawnSync(["sh", "-c", `command -v ${cmd}`], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return result.exitCode === 0;
-}
-
-function pathContains(dir: string): boolean {
-  const p = process.env.PATH ?? "";
-  const real = (() => {
-    try {
-      return fs.realpathSync(dir);
-    } catch {
-      return dir;
-    }
-  })();
-  for (const segment of p.split(":")) {
-    if (segment === dir || segment === real) return true;
-    try {
-      if (fs.realpathSync(segment) === real) return true;
-    } catch {
-      // ignore non-existent PATH segments
-    }
-  }
-  return false;
 }

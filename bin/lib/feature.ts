@@ -1106,7 +1106,7 @@ function runFresh(
     // file written above (before the launcher dispatch) is the recovery
     // artifact. reapableStartingOrphans (reap-orphans.ts) now skips any slug
     // with a `corrupt` seedIngest record, so — unlike before — `flow ls`'s lazy
-    // reap (REAP_GRACE_MS, ~60s) does NOT delete this state (or its sibling
+    // reap (STARTING_ORPHAN_GRACE_MS, ~60s) does NOT delete this state (or its sibling
     // request file) shortly after; both survive until the operator recovers
     // or explicitly `flow done`s the slug.
     if (!seedCorrupted) {

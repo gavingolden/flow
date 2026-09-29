@@ -47,7 +47,7 @@ import {
   type PipelineKind,
 } from "./state";
 import { livenessOf, type Liveness } from "./liveness";
-import { reapStartingOrphans } from "./reap-orphans";
+import { reapStartingOrphans, STARTING_ORPHAN_GRACE_MS } from "./reap-orphans";
 import { relativeTime } from "./time";
 import { findWindowBySlug, listWindows, type TmuxWindow } from "./tmux";
 import { resolveRepoRoot, makeSameRepository } from "./repo-root";
@@ -140,13 +140,6 @@ export async function runLsCli(args: string[]): Promise<number> {
   return await runLs({ cost, detail, allRepos, checkDrift: checkInstallDrift });
 }
 
-/**
- * Grace window for the lazy never-started orphan sweep: a phase=`starting`
- * state with no live window older than this is reaped (see `reap-orphans.ts`).
- * ~60s leaves a just-launched, still cold-starting supervisor untouched.
- */
-const REAP_GRACE_MS = 60_000;
-
 export async function runLs(opts: LsOptions): Promise<number> {
   const now = Date.now();
   const windows = listWindows();
@@ -155,7 +148,7 @@ export async function runLs(opts: LsOptions): Promise<number> {
   // Conservative — past-`starting` (no window) crashes keep their resume hint.
   const allStates = listStates();
   const reaped = new Set(
-    reapStartingOrphans(allStates, windows, now, REAP_GRACE_MS),
+    reapStartingOrphans(allStates, windows, now, STARTING_ORPHAN_GRACE_MS),
   );
   const survivors = allStates.filter((s) => !reaped.has(s.slug));
 
