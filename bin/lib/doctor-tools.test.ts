@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkAgy, checkClaude, checkGh, checkTmux } from "./doctor-tools";
+import { checkAgy } from "./doctor-agy";
+import { checkClaude, checkGh, checkTmux } from "./doctor-tools";
 import { makeDeps, scriptedRun, type RunCall } from "./doctor-test-deps";
 
 let root: string;

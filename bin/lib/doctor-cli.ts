@@ -6,6 +6,7 @@
  */
 
 import { argsContainHelp, printVerbHelp } from "./help";
+import { checkAgy, TOOLS_AGY_META } from "./doctor-agy";
 import { checkPipelineState, PIPELINE_RECORDS_META } from "./doctor-pipelines";
 import {
   checkLeakedProcesses,
@@ -13,11 +14,9 @@ import {
 } from "./doctor-processes";
 import { checkStaleWorktrees, STALE_WORKTREES_META } from "./doctor-resources";
 import {
-  checkAgy,
   checkClaude,
   checkGh,
   checkTmux,
-  TOOLS_AGY_META,
   TOOLS_CLAUDE_META,
   TOOLS_GH_META,
   TOOLS_TMUX_META,
