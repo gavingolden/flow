@@ -6,10 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_NEXT_ACTION,
   NEXT_ACTION_BY_REASON,
+  WHY_BY_REASON,
+  nextActionHeadline,
   parseArgs,
   render,
   renderCleanup,
   run,
+  whyForReason,
   type CleanupInput,
 } from "./flow-gate-summary";
 import { readState, writeState, type PipelineState } from "./lib/state";
@@ -223,6 +226,79 @@ describe("render — gated", () => {
   });
 });
 
+describe("render — needs-human WHY row (--why -> per-reason default -> omit)", () => {
+  const whyRows = (out: string) =>
+    out.split("\n").filter((l) => l.startsWith("WHY:"));
+
+  it("dev + no --why + verify-exhausted prints exactly one default WHY row, never the raw tag", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "verify-exhausted",
+      lens: "dev",
+    });
+    expect(whyRows(out)).toEqual([`WHY: ${WHY_BY_REASON["verify-exhausted"]}`]);
+    expect(out).not.toContain("WHY: verify-exhausted");
+    expect(finalLine(out)).toBe("NEEDS HUMAN: verify-exhausted");
+  });
+
+  it("pm + --why gh auth refused + gh-error shows the site's diagnostic, not the default", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "gh-error",
+      why: "gh auth refused",
+      lens: "pm",
+    });
+    expect(whyRows(out)).toEqual(["WHY: gh auth refused"]);
+    expect(out).not.toContain(WHY_BY_REASON["gh-error"]);
+  });
+
+  it("pm + no --why + verify-exhausted prints exactly one default WHY row", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "verify-exhausted",
+      lens: "pm",
+    });
+    expect(whyRows(out)).toEqual([`WHY: ${WHY_BY_REASON["verify-exhausted"]}`]);
+  });
+
+  it("[negative] an unknown tag renders no WHY row in either view and the sentinel stays last", () => {
+    for (const lens of ["dev", "pm"] as const) {
+      const out = render({
+        status: "needs-human",
+        reason: "made-up-tag",
+        lens,
+      });
+      expect(whyRows(out), lens).toEqual([]);
+      expect(finalLine(out)).toBe("NEEDS HUMAN: made-up-tag");
+    }
+  });
+
+  it("[negative] pm gated/merged/cancelled renders stay why-free", () => {
+    for (const status of ["gated", "merged", "cancelled"] as const) {
+      const out = render({
+        status,
+        lens: "pm",
+        prUrl: "https://example/pr/1",
+        validationItems: ["one"],
+      });
+      expect(whyRows(out), status).toEqual([]);
+    }
+  });
+
+  it("dev task-tool-unavailable: pr-review-fix-applier puts the site on WHY and not on NEXT ACTION", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "task-tool-unavailable: pr-review-fix-applier",
+      lens: "dev",
+    });
+    expect(whyRows(out)[0]).toContain("(spawn site: pr-review-fix-applier)");
+    const nextAction = out
+      .split("\n")
+      .find((l) => l.startsWith("NEXT ACTION:"))!;
+    expect(nextAction).not.toContain("(spawn site:");
+  });
+});
+
 describe("render — needs-human (per-reason mapping)", () => {
   // Iterate every documented reason in NEXT_ACTION_BY_REASON, asserting
   // the helper picks up the mapped NEXT ACTION text.
@@ -311,28 +387,23 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(finalLine(out)).toBe("NEEDS HUMAN: <reason>");
   });
 
-  it("substitutes the site name into task-tool-unavailable mapping", () => {
+  it("puts the task-tool-unavailable spawn site on the WHY row, never on NEXT ACTION", () => {
     const out = render({
       status: "needs-human",
       reason: "task-tool-unavailable: pr-review-fix-applier",
     });
-    // The NEXT ACTION must carry the spawn site as appended context so
-    // the rendered block names the exact remediation for each of the
-    // six exemption sites; without this, all six collapse to the same
-    // generic line. task-tool-unavailable is now a multi-line (header +
-    // numbered steps) recipe, so the suffix must land on the header
-    // line (the `NEXT ACTION:` row) — never on the final step line.
-    const mapped = NEXT_ACTION_BY_REASON["task-tool-unavailable"];
-    const header = mapped.split("\n")[0];
+    // The site is diagnosis, so it rides the WHY default; the NEXT ACTION
+    // recipe is the bare mapped headline + steps, and the sentinel still
+    // carries the full reason byte-exactly.
     expect(out).toContain(
-      `NEXT ACTION: ${header} (spawn site: pr-review-fix-applier)`,
+      `NEXT ACTION: ${NEXT_ACTION_BY_REASON["task-tool-unavailable"]}`,
     );
-    const lastLine = mapped.split("\n").at(-1)!;
-    expect(out).not.toContain(`${lastLine} (spawn site:`);
+    expect(out).toContain(
+      `WHY: ${WHY_BY_REASON["task-tool-unavailable"]} (spawn site: pr-review-fix-applier)`,
+    );
     expect(finalLine(out)).toBe(
       "NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier",
     );
-    expect(out).toContain("WHY: task-tool-unavailable: pr-review-fix-applier");
   });
 
   it("does not append site context when task-tool-unavailable suffix is empty", () => {
@@ -435,20 +506,40 @@ describe("render — needs-human (per-reason mapping)", () => {
     }
   });
 
-  it("places the task-tool-unavailable spawn-site suffix on the NEXT ACTION header, not the final step", () => {
+  it("keeps the task-tool-unavailable spawn-site suffix off every NEXT ACTION line and on the WHY row", () => {
     const out = render({
       status: "needs-human",
       reason: "task-tool-unavailable: pr-review-fix-applier",
     });
-    const nextActionLine = out
-      .split("\n")
-      .find((l) => l.startsWith("NEXT ACTION:"))!;
-    expect(nextActionLine).toContain("(spawn site: pr-review-fix-applier)");
-    const lastLine = out
-      .split("\n")
-      .filter((l) => l !== "")
-      .at(-2)!; // last step, before the sentinel
-    expect(lastLine).not.toContain("(spawn site:");
+    const lines = out.split("\n");
+    const nextActionLine = lines.find((l) => l.startsWith("NEXT ACTION:"))!;
+    expect(nextActionLine).not.toContain("(spawn site:");
+    const lastStep = lines.filter((l) => l !== "").at(-2)!; // before the sentinel
+    expect(lastStep).not.toContain("(spawn site:");
+    const whyLine = lines.find((l) => l.startsWith("WHY:"))!;
+    expect(whyLine).toContain("(spawn site: pr-review-fix-applier)");
+  });
+
+  it("[negative] the spawn-site suffix is absent from whyForReason when the suffix is empty", () => {
+    expect(whyForReason("task-tool-unavailable:")).toBe(
+      WHY_BY_REASON["task-tool-unavailable"],
+    );
+    expect(whyForReason("task-tool-unavailable")).not.toContain("spawn site");
+  });
+
+  it("[negative] a colon-bearing reason with an embedded line break yields no WHY", () => {
+    expect(whyForReason("task-tool-unavailable: site\ninjected")).toBe("");
+    expect(whyForReason("task-tool-unavailable: site\rinjected")).toBe("");
+    expect(whyForReason("ci-hang:\nextra")).toBe("");
+  });
+
+  it("[negative] an inherited object key as a reason resolves as unknown, not a prototype member", () => {
+    for (const reason of ["constructor", "toString", "__proto__"]) {
+      expect(whyForReason(reason), reason).toBe("");
+      expect(nextActionHeadline(reason), reason).toBe(
+        DEFAULT_NEXT_ACTION.split("\n")[0],
+      );
+    }
   });
 
   it("Task 5: every reason naming flow feature resume also tells the user to close the window first, and none uses the bare 'Then run flow feature resume' step", () => {
@@ -2063,6 +2154,31 @@ describe("run (end-to-end CLI)", () => {
       expect(err).toContain(
         "checkpointed: true — site=terminal — safe to /clear",
       );
+    });
+
+    it("the checkpoint body's Why: uses the per-reason default when --why is absent", () => {
+      const slug = "arm-why-default-slug";
+      seedState(slug, {
+        phase: "implementing",
+        phaseLog: [{ phase: "implementing", at: "2026-01-01T00:00:00.000Z" }],
+      });
+      const { rc } = captureBoth(() =>
+        run(
+          [
+            "--status",
+            "needs-human",
+            "--slug",
+            slug,
+            "--reason",
+            "verify-exhausted",
+          ],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      const body = fs.readFileSync(checkpointBodyPath(slug, tmpRoot), "utf8");
+      expect(body).toContain(`Why: ${WHY_BY_REASON["verify-exhausted"]}`);
+      expect(body).not.toContain("Why: verify-exhausted");
     });
 
     it("--reason carrying embedded newlines is one-lined into the checkpoint body, matching --why's sanitization", () => {

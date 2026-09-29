@@ -393,7 +393,7 @@ controls firing via the env var, not the skill prompt.
 ```bash
 flow-notify --status <merged|gated|needs-human> \
             [--reason "<one-line summary>"] \
-            [--url "<pr-url>"]
+            [--url "<pr-url>"] [--tag "<reason-tag>"]
 ```
 
 `--slug` is omitted because every slug-taking flow helper (`flow-notify`,

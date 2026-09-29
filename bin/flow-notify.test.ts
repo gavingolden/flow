@@ -8,7 +8,13 @@ import {
   parseArgs,
   run,
   type Deps,
+  GATED_NEXT_ACTION,
 } from "./flow-notify";
+import {
+  DEFAULT_NEXT_ACTION,
+  NEXT_ACTION_BY_REASON,
+  nextActionHeadline,
+} from "./flow-gate-summary";
 
 describe("parseArgs", () => {
   it("requires --status", () => {
@@ -80,22 +86,131 @@ describe("buildPayload", () => {
     });
   });
 
-  it("falls back to '(no reason)' when reason is missing", () => {
-    expect(buildPayload({ status: "needs-human" }).message).toBe("(no reason)");
+  it("falls back to '(no reason)' when reason is missing on a merged notification", () => {
+    expect(buildPayload({ status: "merged" }).message).toBe("(no reason)");
   });
 
-  it("collapses whitespace and trims a long reason at 180 chars", () => {
+  it("collapses whitespace and trims a long reason at 180 chars on a merged notification", () => {
     const long = `${"x".repeat(185)}\n\nmore`;
-    const payload = buildPayload({ status: "gated", reason: long });
+    const payload = buildPayload({ status: "merged", reason: long });
     expect(payload.message.endsWith("…")).toBe(true);
     expect(payload.message.length).toBe(181);
   });
 
-  it("preserves a short single-line reason verbatim", () => {
+  it("preserves a short single-line reason verbatim on a merged notification", () => {
     expect(
-      buildPayload({ status: "gated", reason: "validate the smoke test" })
+      buildPayload({ status: "merged", reason: "all checks green" }).message,
+    ).toBe("all checks green");
+  });
+
+  it("leads a needs-human message with the tag's headline, then the TLDR", () => {
+    const payload = buildPayload({
+      status: "needs-human",
+      tag: "verify-exhausted",
+      slug: "csv-export",
+      reason: "checks still failing",
+    });
+    expect(payload.message).toBe(
+      `Next: ${nextActionHeadline("verify-exhausted")} — checks still failing`,
+    );
+    expect(payload.message.startsWith("Next: Read the failure log")).toBe(true);
+  });
+
+  it("needs-human without a tag falls back to DEFAULT_NEXT_ACTION with the slug substituted", () => {
+    const payload = buildPayload({
+      status: "needs-human",
+      slug: "csv-export",
+      reason: "stopped",
+    });
+    expect(payload.message).toBe(
+      `Next: ${DEFAULT_NEXT_ACTION.replace("<slug>", "csv-export")} — stopped`,
+    );
+  });
+
+  it("needs-human with no tag and no TLDR carries just the action", () => {
+    expect(
+      buildPayload({ status: "needs-human", slug: "csv-export" }).message,
+    ).toBe(`Next: ${DEFAULT_NEXT_ACTION.replace("<slug>", "csv-export")}`);
+  });
+
+  it("leaves <slug> untouched when no slug is resolved", () => {
+    expect(
+      buildPayload({ status: "needs-human", tag: "state-missing-on-resume" })
         .message,
-    ).toBe("validate the smoke test");
+    ).toContain("<description>");
+    expect(buildPayload({ status: "needs-human" }).message).toContain("<slug>");
+  });
+
+  it("substitutes <pr> from --url for pr-closed-without-merge", () => {
+    const payload = buildPayload({
+      status: "needs-human",
+      tag: "pr-closed-without-merge",
+      slug: "csv-export",
+      url: "https://github.com/o/r/pull/42",
+    });
+    expect(payload.message).toContain("gh pr reopen 42");
+    expect(payload.message).toContain("flow done csv-export");
+    expect(payload.message).not.toContain("<pr>");
+  });
+
+  it("[negative] keeps <pr> when the url carries no PR number", () => {
+    const payload = buildPayload({
+      status: "needs-human",
+      tag: "pr-closed-without-merge",
+      url: "https://github.com/o/r",
+    });
+    expect(payload.message).toContain("<pr>");
+  });
+
+  it("truncates a long TLDR with an ellipsis while the action stays whole", () => {
+    const action = nextActionHeadline("verify-exhausted");
+    const payload = buildPayload({
+      status: "needs-human",
+      tag: "verify-exhausted",
+      reason: `${"y".repeat(300)}\nmore`,
+    });
+    expect(payload.message.startsWith(`Next: ${action} — `)).toBe(true);
+    expect(payload.message.endsWith("…")).toBe(true);
+    expect(payload.message.length).toBe(181);
+  });
+
+  it("every mapped tag's headline survives whole inside the 180-char cap", () => {
+    for (const tag of Object.keys(NEXT_ACTION_BY_REASON)) {
+      const action = nextActionHeadline(tag);
+      const { message } = buildPayload({
+        status: "needs-human",
+        tag,
+        slug: "a-sixty-char-slug-".padEnd(60, "x"),
+        reason: "z".repeat(300),
+      });
+      expect(
+        message.startsWith(
+          `Next: ${action.replaceAll("<slug>", "a-sixty-char-slug-".padEnd(60, "x"))}`,
+        ),
+        tag,
+      ).toBe(true);
+    }
+  });
+
+  it("gated leads with the Validate action, then the TLDR", () => {
+    const payload = buildPayload({
+      status: "gated",
+      reason: "validate the smoke test",
+    });
+    expect(payload.message.startsWith("Next: Validate")).toBe(true);
+    expect(payload.message).toBe(
+      `Next: ${GATED_NEXT_ACTION} — validate the smoke test`,
+    );
+  });
+
+  it("merged messages stay the bare TLDR with no Next: prefix", () => {
+    expect(
+      buildPayload({
+        status: "merged",
+        tag: "verify-exhausted",
+        reason: "done",
+      }).message,
+    ).toBe("done");
   });
 
   it("folds --tag into the subtitle after the slug", () => {
@@ -270,6 +385,28 @@ describe("dispatch", () => {
     expect(deps.calls[0]?.args[0]).toBe("-e");
     expect(deps.calls[0]?.args[1]).toContain("flow: needs-human");
     expect(deps.calls[0]?.args[1]).toContain("verify-exhausted");
+  });
+
+  it("carries the composed Next: message in both backends' argv", () => {
+    const input = {
+      status: "needs-human",
+      slug: "csv-export",
+      tag: "verify-exhausted",
+      reason: "checks still failing",
+    };
+    const expected = buildPayload(input).message;
+    expect(expected.startsWith("Next: ")).toBe(true);
+
+    const tn = makeDeps({ hasTerminalNotifier: () => true });
+    dispatch(input, tn);
+    const tnArgs = tn.calls[0]?.args ?? [];
+    expect(tnArgs[tnArgs.indexOf("-message") + 1]).toBe(expected);
+
+    const osa = makeDeps({ hasTerminalNotifier: () => false });
+    dispatch(input, osa);
+    expect(osa.calls[0]?.args[1]).toContain(
+      `display notification "${escapeForAppleScript(expected)}"`,
+    );
   });
 
   it("auto-resolves --slug from $FLOW_SLUG when omitted", () => {
