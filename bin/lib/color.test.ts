@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { colorEnabled, dim, green, red } from "./color";
+import { colorEnabled, dim, green, red, yellow } from "./color";
 
 let origIsTTY: boolean | undefined;
 let origForceColor: string | undefined;
@@ -46,6 +46,7 @@ describe("color helpers", () => {
     expect(dim("x")).toBe("x");
     expect(green("ok")).toBe("ok");
     expect(red("bad")).toBe("bad");
+    expect(yellow("warn")).toBe("warn");
   });
 
   it("returns the bare string when NO_COLOR is set, even on a TTY", () => {
@@ -72,6 +73,7 @@ describe("color helpers", () => {
     expect(dim("x")).toBe("\x1b[2mx\x1b[0m");
     expect(green("ok")).toBe("\x1b[32mok\x1b[0m");
     expect(red("bad")).toBe("\x1b[31mbad\x1b[0m");
+    expect(yellow("warn")).toBe("\x1b[33mwarn\x1b[0m");
   });
 
   it("FORCE_COLOR overrides NO_COLOR", () => {
