@@ -234,6 +234,21 @@ export function defaultIsLive(row: ProcRegistryRow): boolean {
  * reconciliation scoped to this one call, not a lock file — the append path
  * stays lock-free by design (see the module doc comment).
  *
+ * Removal branch: when no row survives and no tail bytes arrived, renaming
+ * an empty tmp over the registry would leave a 0-byte file per closed
+ * pipeline forever, so the registry is removed instead. It is moved aside
+ * atomically (name not ending `.jsonl`, so enumeration ignores it) rather
+ * than unlinked, because an append landing after the snapshot would
+ * otherwise vanish with the unlink: after the move, bytes past the snapshot
+ * length are re-appended at the registry path (recreating it 0600), then
+ * the moved-aside file is unlinked. The re-home compares the moved file's
+ * dev/ino and size with the snapshot's: if they differ or it is shorter (a
+ * concurrent compact removed the file and an append recreated it — ABA),
+ * the WHOLE moved-aside file is re-homed instead of just the tail. ENOENT on
+ * the move means a concurrent cleanup already removed it. Residual window:
+ * an appender that opened the old inode before the move and writes after
+ * the re-home read still loses that row (microseconds wide).
+ *
  * A read failure (as opposed to a legitimately absent/empty file) bails out
  * without rewriting: `ENOENT` is the only case treated as "nothing to
  * compact"; any other read error propagates to the outer catch below, which
@@ -245,7 +260,7 @@ export function compact(
   slug: string,
   baseDir = FLOW_STATE_DIR,
   deps: CompactDeps = {},
-): { kept: number; dropped: number } {
+): { kept: number; dropped: number; removed?: true } {
   const isLive = deps.isLive ?? defaultIsLive;
   const nowMs = deps.nowMs ?? (() => Date.now());
   let tmpTarget: string | undefined;
@@ -262,6 +277,13 @@ export function compact(
       throw e;
     }
     const snapshotByteLen = originalBuf.byteLength;
+    let snapStat: fs.Stats | undefined;
+    try {
+      snapStat = fs.statSync(target);
+    } catch {
+      // vanished right after the read — the removal branch re-homes the
+      // whole file, since anything at `target` later is a fresh file.
+    }
     const { rows } = parseRegistryLines(originalBuf.toString("utf8"));
     deps.afterSnapshot?.();
 
@@ -284,7 +306,6 @@ export function compact(
     }
 
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-    tmpTarget = `${target}.tmp.${process.pid}.${nowMs()}`;
     let content = survivors.map((r) => `${JSON.stringify(r)}\n`).join("");
 
     let currentSize = snapshotByteLen;
@@ -306,8 +327,45 @@ export function compact(
       }
     }
 
-    fs.writeFileSync(tmpTarget, content, { mode: 0o600 });
     const rename = deps.rename ?? fs.renameSync;
+    if (survivors.length === 0 && content === "") {
+      const gone = `${target}.gone.${process.pid}.${nowMs()}`;
+      try {
+        rename(target, gone);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+          return { kept: 0, dropped, removed: true };
+        }
+        throw e;
+      }
+      const movedStat = fs.statSync(gone);
+      const sameFile =
+        snapStat !== undefined &&
+        movedStat.ino === snapStat.ino &&
+        movedStat.dev === snapStat.dev &&
+        movedStat.size >= snapshotByteLen;
+      const from = sameFile ? snapshotByteLen : 0;
+      if (movedStat.size > from) {
+        const fd = fs.openSync(gone, "r");
+        try {
+          const len = movedStat.size - from;
+          const buf = Buffer.alloc(len);
+          fs.readSync(fd, buf, 0, len, from);
+          fs.appendFileSync(target, buf, { mode: 0o600 });
+        } finally {
+          fs.closeSync(fd);
+        }
+      }
+      try {
+        fs.unlinkSync(gone);
+      } catch {
+        // best-effort; a leftover .gone. file is inert (not *.jsonl).
+      }
+      return { kept: 0, dropped, removed: true };
+    }
+
+    tmpTarget = `${target}.tmp.${process.pid}.${nowMs()}`;
+    fs.writeFileSync(tmpTarget, content, { mode: 0o600 });
     rename(tmpTarget, target);
     tmpTarget = undefined;
     return { kept: survivors.length, dropped };

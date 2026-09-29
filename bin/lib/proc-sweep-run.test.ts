@@ -2,6 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// compact's default liveness forks `ps` via `Bun.spawnSync`, unavailable
+// under vitest's node runtime; report every pid as gone.
+vi.mock("./liveness", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./liveness")>();
+  return { ...actual, pidStartEpoch: vi.fn(() => null) };
+});
+
 import { appendRow, registryPath, type ProcRegistryRow } from "./proc-registry";
 import type { ReapDeps } from "./reap";
 import { runProcSweep, DEFAULT_SWEEP_DEADLINE_MS } from "./proc-sweep-run";
@@ -208,10 +215,9 @@ describe("runProcSweep", () => {
     expect(result.slugs[0].compacted).toBeDefined();
   });
 
-  it("--yes does NOT call compact for a slug whose registry had no rows to begin with (the other half of the `rows.length > 0` guard)", () => {
-    // No appendRow call at all for this slug — readRows resolves to an
-    // empty registry, so the guard's `rows.length > 0` half must be false
-    // even though `opts.yes` is true.
+  it("--yes does NOT call compact for a slug with no registry file (the other half of the compact guard)", () => {
+    // No file at all: neither `rows.length > 0` nor the existing-empty-file
+    // half holds, even though `opts.yes` is true.
     const deps = { ...fakeReapDeps(), ...deadDeps() };
     const result = runProcSweep(deps, {
       yes: true,
@@ -219,6 +225,58 @@ describe("runProcSweep", () => {
       baseDir,
     });
     expect(result.slugs[0].compacted).toBeUndefined();
+  });
+
+  describe("empty registries", () => {
+    const seed = (slug: string, content: string): string => {
+      const p = registryPath(slug, baseDir);
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, content);
+      return p;
+    };
+
+    it("--yes removes a 0-byte registry and reports compacted.removed", () => {
+      const p = seed("empty-yes", "");
+      const deps = { ...fakeReapDeps(), ...deadDeps() };
+      const result = runProcSweep(deps, {
+        yes: true,
+        slug: "empty-yes",
+        baseDir,
+      });
+      expect(result.slugs[0].compacted?.removed).toBe(true);
+      expect(fs.existsSync(p)).toBe(false);
+    });
+
+    it("--yes leaves a malformed-lines-only registry untouched", () => {
+      const p = seed("malformed-only", "not json\n{bad\n");
+      const deps = { ...fakeReapDeps(), ...deadDeps() };
+      const result = runProcSweep(deps, {
+        yes: true,
+        slug: "malformed-only",
+        baseDir,
+      });
+      expect(result.slugs[0].compacted).toBeUndefined();
+      expect(fs.readFileSync(p, "utf8")).toBe("not json\n{bad\n");
+    });
+
+    it("report-only keeps a 0-byte registry", () => {
+      const p = seed("empty-report", "");
+      const deps = { ...fakeReapDeps(), ...deadDeps() };
+      const result = runProcSweep(deps, {
+        yes: false,
+        slug: "empty-report",
+        baseDir,
+      });
+      expect(result.slugs[0].compacted).toBeUndefined();
+      expect(fs.existsSync(p)).toBe(true);
+    });
+
+    it("--yes removes a registry whose only (dead) row is dropped", () => {
+      appendRow(makeRow({ slug: "one-dead" }), baseDir);
+      const deps = { ...fakeReapDeps(), ...deadDeps() };
+      runProcSweep(deps, { yes: true, slug: "one-dead", baseDir });
+      expect(fs.existsSync(registryPath("one-dead", baseDir))).toBe(false);
+    });
   });
 
   it("the sweep-level deadline is threaded down as each slug's remaining registryDeadlineMs, and an exhausted budget marks later slugs skipped:'deadline-exceeded' rather than dropping them", () => {
