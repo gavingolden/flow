@@ -7,6 +7,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DoctorCheck, DoctorDeps } from "./doctor";
+import { capped } from "./doctor-util";
 import {
   checkInstallDrift,
   type DriftEntry,
@@ -25,16 +26,6 @@ import {
 import { findMissingRuntimeDeps } from "./setup-deps";
 import { discoverSelected } from "./sources";
 import { inspectFlowRoot } from "./worktree-source";
-
-const MAX_LISTED = 5;
-
-function capped(lines: string[]): string[] {
-  if (lines.length <= MAX_LISTED) return lines;
-  return [
-    ...lines.slice(0, MAX_LISTED),
-    `(+${lines.length - MAX_LISTED} more)`,
-  ];
-}
 
 /** `flow install --upgrade`, spelled through the canonical checkout when the
  * running flow source is a worktree (the wrapper would otherwise re-pin to it). */

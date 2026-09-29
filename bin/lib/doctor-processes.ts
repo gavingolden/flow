@@ -5,6 +5,7 @@
  */
 
 import type { DoctorCheck, DoctorDeps } from "./doctor";
+import { capped } from "./doctor-util";
 import { collectReapReport } from "./reap-cli";
 
 const SECTION = "leftovers" as const;
@@ -33,7 +34,7 @@ export function checkLeakedProcesses(
       status: "warn",
       summary: `${deadCount} process(es) left by dead pipelines`,
       details: [
-        `pipelines: ${dead.map((s) => s.slug).join(", ")}`,
+        `pipelines: ${capped(dead.map((s) => s.slug)).join(", ")}`,
         "flow reap --yes signals only rows whose identity it re-verifies",
       ],
       fix: "flow reap --yes",
@@ -45,7 +46,7 @@ export function checkLeakedProcesses(
       title: "Leaked processes",
       status: "warn",
       summary: `${timedOut.length} pipeline(s) not checked before the sweep deadline`,
-      details: [`pipelines: ${timedOut.map((s) => s.slug).join(", ")}`],
+      details: [`pipelines: ${capped(timedOut.map((s) => s.slug)).join(", ")}`],
       fix: "flow reap",
     });
   } else {

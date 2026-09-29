@@ -7,6 +7,7 @@
 
 import * as fs from "node:fs";
 import type { DoctorCheck, DoctorDeps } from "./doctor";
+import { capped } from "./doctor-util";
 import {
   reapableStartingOrphans,
   STARTING_ORPHAN_GRACE_MS,
@@ -90,10 +91,7 @@ export function checkPipelineState(
           status: "warn",
           summary: `${unclosed.length} merged or cancelled pipeline record(s) never closed`,
           details: [
-            unclosed
-              .slice(0, 5)
-              .map((s) => s.slug)
-              .join(", ") + (unclosed.length > 5 ? ", ..." : ""),
+            capped(unclosed.map((s) => s.slug)).join(", "),
             "flow done --merged removes those records; they stop appearing in flow ls",
           ],
           fix: "flow done --merged",

@@ -315,6 +315,23 @@ describe("checkLeakedProcesses", () => {
     expect(JSON.stringify(out)).not.toMatch(/SUPERSECRET|--token/);
   });
 
+  it("caps the slug list so a large registry stays one short line", () => {
+    const many = Array.from({ length: 12 }, (_, i) => slugRow(`slug-${i}`, 1));
+    const out = checkLeakedProcesses(makeDeps(root), () =>
+      report({
+        registry: {
+          mode: "sweep",
+          yes: false,
+          slugs: many,
+        } as unknown as ReapCliResult["registry"],
+      }),
+    );
+    const c = out.find((x) => x.id === "leftovers-processes")!;
+    expect(c.summary).toContain("12 process(es)");
+    expect(c.details[0]).toContain("(+7 more)");
+    expect(c.details[0]).not.toContain("slug-11");
+  });
+
   it("warns about strays as host-wide with the include-strays fix", () => {
     const out = checkLeakedProcesses(makeDeps(root), () =>
       report({
