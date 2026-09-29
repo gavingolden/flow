@@ -6,6 +6,7 @@
  */
 
 import { argsContainHelp, printVerbHelp } from "./help";
+import { checkAgy, checkClaude, checkGh, checkTmux } from "./doctor-tools";
 import { checkBinDirOnPath, checkFlowSlug } from "./doctor-env";
 import {
   checkInstalledModules,
@@ -45,6 +46,18 @@ export const DOCTOR_PROBES: DoctorProbe[] = [
   ),
   guarded({ id: "shell-path", section: "shell", title: "PATH" }, (deps) =>
     checkBinDirOnPath(deps),
+  ),
+  guarded({ id: "tools-gh", section: "tools", title: "gh" }, (deps) =>
+    checkGh(deps),
+  ),
+  guarded({ id: "tools-tmux", section: "tools", title: "tmux" }, (deps) =>
+    checkTmux(deps),
+  ),
+  guarded({ id: "tools-claude", section: "tools", title: "claude" }, (deps) =>
+    checkClaude(deps),
+  ),
+  guarded({ id: "tools-agy", section: "tools", title: "agy" }, (deps) =>
+    checkAgy(deps),
   ),
 ];
 
