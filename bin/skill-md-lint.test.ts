@@ -1699,6 +1699,7 @@ describe("auto-issue-create fire-site enumeration lint", () => {
   /** One regex per named site, matched against each enumeration passage. */
   const SITE_MARKERS: ReadonlyArray<readonly [string, RegExp]> = [
     ["pr-review Step 6 deferral", /Step 6 deferral/],
+    ["fix-applier merged-mid-review consolidated issue", /merges mid-review/],
     ["pr-review Step 5 retrospective", /Step 5 retrospective/],
     ["flow-pipeline Step 10 post-merge sweep", /Step 10 post-merge sweep/],
     ["flow-untracked file <n>", /flow-untracked file `?<n>`?/],
@@ -1913,6 +1914,8 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
   }> = [
     {
       file: "flow-fix-applier.md",
+      wantTools:
+        "Bash, Edit, Write, Read, ToolSearch, Skill, mcp__chrome-devtools__\\*",
       wantMaxTurns: 200,
       wantCacheTtl: "1h",
       wantSkills: "flow-fix-applier-instructions",
@@ -2567,7 +2570,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        530,
+        531,
         "NEVER commit to or push the base branch",
       ],
       [
@@ -8265,10 +8268,13 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
     ["flow-epic-dag --validate", "the bare-name DAG validator"],
     ["MODE: epic", "the designer fan-out mode flag"],
     ["AskUserQuestion", "the materiality-gated clarification form"],
-    ['ToolSearch query="select:Task"', "the Task-schema load preamble"],
     [
-      "task-tool-unavailable: epic-create-designer",
-      "the escalate-on-Task-miss NEEDS HUMAN tag",
+      "Invoke `/flow-product-planning` in-process",
+      "the in-process designer invocation (one discovery spawn inside the wrapper)",
+    ],
+    [
+      "task-tool-unavailable: product-planning-discovery",
+      "the wrapper-owned escalate-on-Task-miss NEEDS HUMAN tag",
     ],
     [
       "REQUEST_FILE",
@@ -8302,6 +8308,12 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
       "the one-call escalation that records the pause and arms its checkpoint",
     ],
   ];
+
+  it("flow-epic-create/SKILL.md never hardcodes a general-purpose designer spawn", () => {
+    expect(epicCreateContent.includes("subagent_type: general-purpose")).toBe(
+      false,
+    );
+  });
 
   it.each(REQUIRED_LITERALS)(
     "flow-epic-create/SKILL.md contains the load-bearing literal %j (%s)",
@@ -10442,6 +10454,12 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
       anchor: "verify-caution.txt",
     },
     {
+      file: "skills/pipeline/flow-pipeline/SKILL.md",
+      siteName: "pipeline-verify-clear-caution",
+      kind: "adjacent-lines",
+      anchor: "--clear-caution | grep",
+    },
+    {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
       siteName: "pr-review-evidence-injection",
       kind: "adjacent-lines",
@@ -10513,10 +10531,11 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
     },
   );
 
-  it("covers exactly the four known gh pr edit --body-file recipe sites, by name", () => {
+  it("covers exactly the five known gh pr edit --body-file recipe sites, by name", () => {
     expect(BODY_EDIT_SITES.map((s) => s.siteName)).toEqual([
       "pipeline-ui-smoke-note",
       "pipeline-verify-exhausted-caution",
+      "pipeline-verify-clear-caution",
       "pr-review-evidence-injection",
       "new-feature-overflow-note",
     ]);
@@ -11714,4 +11733,112 @@ describe("turn-budget sentinel + SUBJECTIVE-gating rule wiring (PR #859)", () =>
       ).toBe(true);
     },
   );
+});
+
+describe("subagent contract fixes (#587, #853, #590, #494, #834)", () => {
+  const read = (...parts: string[]) =>
+    fs.readFileSync(path.resolve(HERE, "..", ...parts), "utf8");
+  const fixApplier = read(
+    "skills",
+    "pipeline",
+    "flow-fix-applier-instructions",
+    "SKILL.md",
+  );
+
+  describe("agent tool allowlist covers instruction-mandated tools", () => {
+    const agentsDir = path.resolve(HERE, "..", "agents", "core");
+    const rows = fs
+      .readdirSync(agentsDir)
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => {
+        const fm =
+          fs.readFileSync(path.join(agentsDir, f), "utf8").split("---")[1] ??
+          "";
+        return {
+          f,
+          tools: /^tools:\s*(.+)$/m.exec(fm)?.[1],
+          skill: /^skills:\s*\n\s*-\s*(\S+)/m.exec(fm)?.[1],
+        };
+      })
+      .filter((r) => r.tools && r.skill);
+
+    it.each(rows.map((r) => [r.f, r] as const))(
+      "%s grants Skill when its preloaded instructions load a skill via the Skill tool",
+      (_f, row) => {
+        const p = path.resolve(
+          HERE,
+          "..",
+          "skills",
+          "pipeline",
+          row.skill as string,
+          "SKILL.md",
+        );
+        expect(fs.existsSync(p)).toBe(true);
+        if (/via the `?Skill`? tool/.test(fs.readFileSync(p, "utf8"))) {
+          expect(
+            (row.tools as string).split(",").map((t) => t.trim()),
+          ).toContain("Skill");
+        }
+      },
+    );
+  });
+
+  it("fix-applier step 8 re-runs /flow-verify under UI_SMOKE_DRIVER: inline, and verify honors it", () => {
+    const step8 = fixApplier.slice(
+      fixApplier.indexOf("## 8. "),
+      fixApplier.indexOf("## 9. "),
+    );
+    expect(step8).toContain("/flow-verify");
+    expect(step8).toContain("UI_SMOKE_DRIVER: inline");
+    expect(step8).toContain(
+      "git restore --staged --worktree . && git clean -fd",
+    );
+    expect(read("skills", "pipeline", "flow-verify", "SKILL.md")).toContain(
+      "Under `UI_SMOKE_DRIVER: inline`",
+    );
+  });
+
+  it("fix-applier deferral never wraps flow-create-issue in $(…)", () => {
+    for (const f of [
+      fixApplier,
+      read("skills", "pipeline", "flow-pr-review", "SKILL.md"),
+    ]) {
+      expect(/\$\(\s*flow-create-issue/.test(f)).toBe(false);
+    }
+  });
+
+  it("pr-review and the consolidator forbid / distrust cross-lens agreement claims", () => {
+    expect(read("skills", "pipeline", "flow-pr-review", "SKILL.md")).toContain(
+      "must never assert that lenses agree",
+    );
+    expect(
+      read("skills", "pipeline", "flow-consolidator-instructions", "SKILL.md"),
+    ).toContain("unverified pointer");
+  });
+
+  it("fix-applier step 5d computes the touched-file list once, before the manifest loop", () => {
+    const from = fixApplier.indexOf("BASE_REF=");
+    const block = /^([\s\S]*?)```/.exec(fixApplier.slice(from))?.[1] as string;
+    expect(block.match(/git diff/g)?.length).toBe(1);
+    expect(block.indexOf("git diff")).toBeLessThan(block.indexOf("for m in"));
+  });
+
+  it("no skill claims a spawned sub-agent lacks the Skill tool", () => {
+    const walk = (d: string): string[] =>
+      fs
+        .readdirSync(d, { withFileTypes: true })
+        .flatMap((e) =>
+          e.isDirectory()
+            ? walk(path.join(d, e.name))
+            : e.name.endsWith(".md")
+              ? [path.join(d, e.name)]
+              : [],
+        );
+    const bad = walk(path.resolve(HERE, "..", "skills")).filter((f) =>
+      /(not|NOT)\*{0,2}\s+have the `Skill` tool|sub-agent does not have|has no `?Skill`? tool|lacks? the `?Skill`? tool/.test(
+        fs.readFileSync(f, "utf8"),
+      ),
+    );
+    expect(bad).toEqual([]);
+  });
 });

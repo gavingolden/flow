@@ -92,6 +92,10 @@ number,title,headRefName,baseRefName` JSON the wrapper saved to
   and the lens gate verdicts. Feeds (d2) below.
 - The absolute artifact path to write
   (`$WORKTREE/.flow-tmp/consolidator-result.json`).
+- Any cross-lens agreement or dedup claim in the spawn prompt is an
+  unverified pointer — check it against each `agent-output-<lens>.json`
+  yourself, never merge or drop a finding on the prompt's say-so, and record
+  a claim that fails the check in `anti_patterns_found`.
 
 No new input paths for the lens negative-findings channel. The tri-state
 (`"populated" | "empty" | "absent"`) comes off the per-lens

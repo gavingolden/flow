@@ -39,7 +39,10 @@ import { spawnSync } from "node:child_process";
 import { readState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
-import { findUnterminatedHtmlBlockLines } from "./lib/md-block-structure";
+import {
+  fencedLineMask,
+  findUnterminatedHtmlBlockLines,
+} from "./lib/md-block-structure";
 import { advancePhase } from "./lib/phase-advance";
 
 export type Decision =
@@ -69,26 +72,51 @@ export type GateInputs = {
 const HEADING_RE = /^## Test Steps[ \t]*$/m;
 
 /**
- * Extract the `## Test Steps` section text (heading line to the next
- * `## ` heading at column 0, or end-of-input) with HTML comments
- * stripped. Shared by `parseTestStepsSection` and `findTrappedTestSteps`
- * so the two agree on exactly what text they're scanning.
+ * Bounds of the `## Test Steps` section as `{start, end}` line indices
+ * (`start` is the heading line, `end` is exclusive: the next `## ` heading
+ * or end-of-input). Fenced lines are skipped for BOTH the heading search
+ * and the section-end scan, so captured output echoing `## ...` never
+ * moves either bound. Shared with `parseTestSteps` so the lint and the
+ * gate read the same section.
  */
-export function extractStrippedSection(body: string): string | null {
-  if (!HEADING_RE.test(body)) return null;
-
-  // Extract from the heading line to the next `## ` heading at column 0
-  // (or end-of-input). awk-equivalent: flag-loop bounded by another H2.
-  const lines = body.split("\n");
-  const startIdx = lines.findIndex((l) => HEADING_RE.test(l));
-  let endIdx = lines.length;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    if (/^## /.test(lines[i])) {
-      endIdx = i;
+export function testStepsSectionBounds(
+  lines: string[],
+): { start: number; end: number } | null {
+  const fenced = fencedLineMask(lines);
+  const start = lines.findIndex((l, i) => !fenced[i] && HEADING_RE.test(l));
+  if (start < 0) return null;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (!fenced[i] && /^## /.test(lines[i])) {
+      end = i;
       break;
     }
   }
-  let section = lines.slice(startIdx + 1, endIdx).join("\n");
+  return { start, end };
+}
+
+const FENCED_PLACEHOLDER = "\u0000fenced";
+
+/**
+ * Extract the `## Test Steps` section text (heading line to the next
+ * `## ` heading at column 0, or end-of-input) with HTML comments
+ * stripped. Fenced lines are replaced 1:1 by a non-blank inert
+ * placeholder BEFORE the comment strip, so a `<!--` or `- [ ]` inside
+ * captured output can neither hide later items nor be counted. Shared by
+ * `parseTestStepsSection` and `findTrappedTestSteps` so the two agree on
+ * exactly what text they're scanning.
+ */
+export function extractStrippedSection(body: string): string | null {
+  const lines = body.split("\n");
+  const bounds = testStepsSectionBounds(lines);
+  if (bounds === null) return null;
+  const fenced = fencedLineMask(lines);
+  const startIdx = bounds.start;
+  const endIdx = bounds.end;
+  let section = lines
+    .slice(startIdx + 1, endIdx)
+    .map((l, i) => (fenced[startIdx + 1 + i] ? FENCED_PLACEHOLDER : l))
+    .join("\n");
 
   // Strip HTML comments (multi-line, non-greedy). Same as `perl -0pe 's/<!--.*?-->//gs'`.
   // The strip is essential: the PR template's instructional comment carries no

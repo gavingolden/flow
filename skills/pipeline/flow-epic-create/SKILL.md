@@ -24,8 +24,9 @@ copilot auto-reviews. You then STOP at the `epic-design-pending-review`
 checkpoint and wait for the user to **approve**, **redirect**, or **cancel**.
 
 This is a different supervisor session from `/flow-pipeline`. You fire your own
-named `AskUserQuestion` clarification form and your own single named Task-tool
-fan-out (the `MODE: epic` designer). Those are NOT among `/flow-pipeline`'s
+named `AskUserQuestion` clarification form, and the `MODE: epic` designer runs
+through the in-process `/flow-product-planning` wrapper, whose single Task
+spawn is the one discovery sub-agent. Those are NOT among `/flow-pipeline`'s
 one `AskUserQuestion` form / seven Task-tool exemptions — a different supervisor
 in a different window is a different session.
 
@@ -62,9 +63,9 @@ so `flow-epic-escalate` (see `## Escalating to NEEDS HUMAN`) cannot record it.
 
 Capture the literal `EPIC_DIR` and use it verbatim for every path below
 (`<EPIC_DIR>/design.md`, `<EPIC_DIR>/manifest.json`). Likewise capture the
-literal `SKILL_DIR` and pass it verbatim into the Step 3 designer Task prompt
-(you cannot re-derive it — the in-process Skill-tool base-directory mechanism
-`/flow-pipeline` uses is unavailable when you spawn the designer via Task). You
+literal `SKILL_DIR` from the seed (Step 3 loads `/flow-product-planning`
+in-process, so the Skill-tool base-directory mechanism supplies it there; the
+seed field may stay). You
 run cwd'd in a
 **consumer worktree** where flow's `bin/lib/*` does NOT exist, so you must
 **NEVER `import` `bin/lib`** (`epicDirRelative`, `EPIC_*_FILENAME`) — that
@@ -167,29 +168,20 @@ resolves the feature-set/DAG-shape fork; never use it for cosmetic detail.
 
 ## Step 3 — Run the F4 designer (the `/flow-epic-create` MODE: epic designer fan-out)
 
-Spawn `/flow-product-planning` with `MODE: epic` via the Task tool — this is the
-supervisor's **SINGLE NAMED Task-tool fan-out site**, registered in AGENTS.md
-as the `/flow-epic-create` → `/flow-product-planning MODE: epic` designer. It is NOT one
-of `/flow-pipeline`'s seven Task-tool exemptions.
-
-**Load the Task tool before spawning.** In Claude Code sessions where neither
-`Task` nor its alias `Agent` is surfaced top-level by the harness (both are
-aliases of the same one-shot subagent-spawn primitive), the spawn silently
-falls through to in-line execution unless the schema is loaded first. Before
-the Task call, run `ToolSearch query="select:Task"` and confirm the response
-contains either a `<function>{"name": "Task", ...}</function>` or a
-`<function>{"name": "Agent", ...}</function>` line. If it does not, **do not
-fall back to in-line execution** — escalate
-`NEEDS HUMAN: task-tool-unavailable: epic-create-designer` via
-`flow-epic-escalate --reason "task-tool-unavailable: epic-create-designer" --why "the Task tool could not be loaded"`
-and end the turn.
+Invoke `/flow-product-planning` in-process via the Skill tool with `MODE: epic`.
+The single Task spawn (the one discovery sub-agent) now happens inside that
+wrapper, which resolves it through its two-tier guard; the escalation tag
+`task-tool-unavailable: product-planning-discovery` is owned by the wrapper.
+If the wrapper escalates that tag, record the pause with
+`flow-epic-escalate --reason "task-tool-unavailable: product-planning-discovery" --why "the Task tool could not be loaded"`
+and end the turn. It is NOT one of `/flow-pipeline`'s seven Task-tool exemptions.
 
 **Per-phase model (planning) threading.** The epic **design** phase shares the
 feature **planning** knob — resolution field `state.modelPlanning` (set via
 `flow epic create --model-planning`), precedence `--model-planning >
 config.models.planning > inherited` (see
 `../flow-pipeline/references/model-routing.md`). Resolve it and, when non-empty,
-add a `MODEL_PLANNING: <alias>` line to the Task prompt below; `/flow-product-planning`
+add a `MODEL_PLANNING: <alias>` line to the invocation below; `/flow-product-planning`
 forwards it to the Discovery Subagent's Task spawn as its per-spawn `model:`
 (empty ⇒ omit ⇒ inherit). This is a `model:` override on the existing designer
 fan-out — **no** new fan-out site:
@@ -200,20 +192,15 @@ PLANNING_MODEL=$(jq -r '.modelPlanning // empty' ~/.flow/state/"$SLUG".json)
 [ -z "$PLANNING_MODEL" ] && PLANNING_MODEL=$(jq -r '.models.planning // empty' ~/.flow/config.json 2>/dev/null)
 ```
 
-Make exactly one Task call passing the clarified prompt + `WORKTREE` +
-`SKILL_DIR` + `MODE: epic` + the literal `EPIC_DIR` (and the
-`MODEL_PLANNING:` line when non-empty):
+Invoke it once, passing the clarified prompt + `WORKTREE` + the literal
+`EPIC_DIR` (and the `MODEL_PLANNING:` line when non-empty):
 
 ```
-subagent_type: general-purpose
-description:   Epic design for /flow-epic-create
-prompt: |
-  /flow-product-planning MODE: epic
-  <clarified epic prompt>
-  WORKTREE: <$WORKTREE>
-  SKILL_DIR: <the literal SKILL_DIR from the seed prompt>
-  EPIC_DIR: <the literal EPIC_DIR from the seed prompt>
-  MODEL_PLANNING: <$PLANNING_MODEL>   # omit this line entirely when empty
+/flow-product-planning MODE: epic
+<clarified epic prompt>
+WORKTREE: <$WORKTREE>
+EPIC_DIR: <the literal EPIC_DIR from the seed prompt>
+MODEL_PLANNING: <$PLANNING_MODEL>   # omit when empty
 ```
 
 The one-shot designer writes `<EPIC_DIR>/design.md` + `<EPIC_DIR>/manifest.json`
@@ -230,7 +217,7 @@ flow-epic-dag --validate "$WORKTREE/<EPIC_DIR>/manifest.json"
 ```
 
 Each exits `0` valid / `1` off-shape-or-bad-graph / `2` usage. On any non-zero
-exit, loop back to **Step 3**: re-spawn the designer with the validator's
+exit, loop back to **Step 3**: re-run Step 3 with the validator's
 stderr appended as guidance, then re-validate. Do not proceed to the PR until
 both validators exit 0.
 
@@ -267,7 +254,7 @@ so a crash mid-review resumes at `validate` (Step 4) and re-runs the
 idempotent validators + the idempotent `flow-plan-review` before Step 5. A
 crash between `--start` and a terminal `--check` re-attaches to the live
 worker via `--start`'s idempotent `(planFile, decisionHash)` check rather
-than re-spending agy quota. The Step-7 redirect path (re-spawn designer →
+than re-spending agy quota. The Step-7 redirect path (re-run Step 3 →
 re-validate → push a new commit) naturally re-traverses this step, so a
 redirect that changes the decomposition re-fires the review.
 
@@ -350,7 +337,7 @@ wording tweaks that do not change the decomposition) is a simple in-place
 `design.md` edit. But a reconciliation that would **structurally** change the
 decomposition (split/merge a feature, re-cut a seam, add/remove a node or edge)
 must NOT be hand-applied to `design.md` prose alone — it routes through the
-normal **Step-7 designer re-spawn** so `design.md` **and** `manifest.json`
+normal **Step-7 designer re-run** so `design.md` **and** `manifest.json`
 regenerate coherently. Step-4 re-validation fails on any design↔manifest
 mismatch and would otherwise trap the pipeline pre-PR, so never hand-edit prose
 into a design/manifest divergence.
@@ -438,7 +425,7 @@ question when ambiguous):
   `flow-state-update --phase epic-approved`, **STOP** with the design PR **LEFT OPEN**. Do **not**
   merge it — the human merges the design PR. Trigger no orchestrator launch.
 - **redirect** (an imperative directive, e.g. "split feature B into
-  read/write") → re-spawn the **Step 3** designer with the redirect appended:
+  read/write") → re-run **Step 3** with the redirect appended:
 
   ```
   <original epic prompt>
@@ -527,7 +514,7 @@ branch on `.epicResumeAt`:
 | `.epicResumeAt`  | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `worktree`       | Re-enter Step 1 (recreate the worktree).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `design`         | Re-enter Step 3 (re-run the designer; it overwrites the artifacts, so a re-spawn is idempotent).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `design`         | Re-enter Step 3 (re-run the designer; it overwrites the artifacts, so a re-run is idempotent).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `validate`       | Re-enter Step 4 (re-run the cheap, idempotent validators).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `open-pr`        | Re-enter Step 5 (open the PR — no PR record yet).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `read-back-pr`   | A crash mid-`epic-pr-open` where `flow-open-pr` already wrote `state.pr` / a branch PR exists: read the existing PR back and advance to the checkpoint render (Step 6). **Never re-open** an already-open PR (`flow-open-pr`'s up-front `gh pr view` probe enforces the same — no second `gh pr create`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |

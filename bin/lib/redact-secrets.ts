@@ -1,7 +1,8 @@
 /**
- * Hand-rolled, pure secret redaction for text that lands in three persisted
+ * Hand-rolled, pure secret redaction for text that lands in four persisted
  * surfaces: `.flow-tmp/` scratch, `flow-delegate-fanout`'s aggregate JSON,
- * and the supervisor's chat transcript. No runtime dependency — the
+ * the supervisor's chat transcript (all via `redactSecrets`), and PR-body
+ * evidence (via the path/identifier-aware `redactForPublish`). No runtime dependency — the
  * pattern set is small and the observed content (agy's stderr) is short,
  * so a general-purpose secret scanner would be an over-general
  * abstraction (see plan.md's `## Cut list`).
@@ -51,5 +52,72 @@ export function redactSecrets(text: string): string {
     return `${parts[1]}[REDACTED]`;
   });
   out = out.replace(OPAQUE_RUN, (m) => (isExcluded(m) ? m : "[REDACTED]"));
+  return out;
+}
+
+// ---- Publish-grade masking (PR-body evidence) -------------------------
+// `redactSecrets` masks every 32+ char run, which replaces long repo file
+// paths and hyphenated identifiers in a failure excerpt with `[REDACTED]`.
+// Published evidence needs those intact, so this variant masks by known
+// credential shapes first and only then applies a path/identifier-aware
+// opaque-run rule.
+
+// Publish-only Bearer/Basic: `Basic` is an ordinary word in test names, so
+// require an `Authorization:` context or a token-shaped value, and never
+// cross a newline.
+const PUBLISH_AUTH =
+  /(\bAuthorization[ \t]*[:=][ \t]*)(?:Bearer|Basic)[ \t]+\S+/gi;
+const PUBLISH_BEARER_VALUE =
+  /\b(?:Bearer|Basic)[ \t]+[A-Za-z0-9._~+/-]{16,}=*/gi;
+const CONNECTION_URL_PASSWORD =
+  /(\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:)[^\s@/]+@/gi;
+// Bounded prefix + no newline crossing keeps the worst case linear on long
+// word-character runs.
+const SECRET_KEY_ASSIGNMENT =
+  /([A-Za-z0-9_-]{0,64}(?:key|token|secret|password|passwd|credentials?)["']?[ \t]*[:=][ \t]*["']?)[^\s"',}\]]+/gi;
+const VENDOR_TOKENS: RegExp[] = [
+  /(?<![A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{30,}/g,
+  /(?<![A-Za-z0-9])github_pat_[A-Za-z0-9_]{20,}/g,
+  /(?<![A-Za-z0-9])sk-(?:ant-)?[A-Za-z0-9_-]{20,}/g,
+  /(?<![A-Za-z0-9])AKIA[0-9A-Z]{16}/g,
+  /(?<![A-Za-z0-9])xox[abprs]-[A-Za-z0-9-]{10,}/g,
+  /(?<![A-Za-z0-9])glpat-[A-Za-z0-9_-]{20,}/g,
+  /(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{35}/g,
+  /(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
+];
+// Same as OPAQUE_RUN plus `.` so a path such as `a/b/c.test.ts` is one run.
+const PUBLISH_OPAQUE_RUN = /[A-Za-z0-9_+/.-]{32,}={0,2}/g;
+const PATH_WORD = "(?:[a-z][a-z0-9]*|[A-Z][a-z0-9]*|[A-Z][A-Z0-9]*|[0-9]+)";
+const PATH_SEGMENT = new RegExp(`^(?:${PATH_WORD}(?:[._-]${PATH_WORD})*)?$`);
+const IDENT_WORD = "(?:[a-z][a-z0-9]*|[A-Z][A-Z0-9]*)";
+const IDENTIFIER = new RegExp(`^${IDENT_WORD}(?:[-_]${IDENT_WORD})+$`);
+
+function isPathShaped(run: string): boolean {
+  if (!run.includes("/") && !run.includes(".")) return false;
+  return run.split("/").every((seg) => PATH_SEGMENT.test(seg));
+}
+
+function isPublishExempt(match: string): boolean {
+  if (isExcluded(match)) return true;
+  const core = match.replace(/\.+$/, "");
+  return isPathShaped(core) || IDENTIFIER.test(core);
+}
+
+/**
+ * Publish-grade masking for text spliced into a PR body. Masks known
+ * credential shapes and key=value secrets, then 32+ char opaque runs —
+ * except SHAs, UUIDs, repo-path-shaped runs, and identifier-shaped runs.
+ * Pure, never throws.
+ */
+export function redactForPublish(text: string): string {
+  if (!text) return text;
+  let out = text.replace(CONNECTION_URL_PASSWORD, "$1[REDACTED]@");
+  out = out.replace(PUBLISH_AUTH, "$1[REDACTED]");
+  out = out.replace(PUBLISH_BEARER_VALUE, "[REDACTED]");
+  out = out.replace(SECRET_KEY_ASSIGNMENT, "$1[REDACTED]");
+  for (const re of VENDOR_TOKENS) out = out.replace(re, "[REDACTED]");
+  out = out.replace(PUBLISH_OPAQUE_RUN, (m) =>
+    isPublishExempt(m) ? m : "[REDACTED]",
+  );
   return out;
 }

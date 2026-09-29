@@ -163,6 +163,8 @@ threshold**:
   single file, or any failure where the fix requires reading multiple
   files for context) delegates to `/flow-coder` per outer attempt. Log a
   one-line reason ("wider scope: spawning /flow-coder").
+- **Under `UI_SMOKE_DRIVER: inline`:** always take the inline path, whatever
+  the scope. The fix-applier caller cannot spawn `/flow-coder`'s Edit-Applier.
 
 ### Inline fix (trivial path)
 
@@ -285,7 +287,7 @@ prose); subagent return contracts are out of scope for that contract.
 - The summary returned to the caller does not contain raw uncapped stderr from any
   failed check
 - For wider-scope fixes at Step 3: `/flow-coder` was invoked at most once per
-  outer attempt; `.flow-tmp/coder-result.json` exists with all five
+  outer attempt (never, under `UI_SMOKE_DRIVER: inline`); `.flow-tmp/coder-result.json` exists with all five
   top-level keys; the wrapper's transcript contains no per-edit
   `Edit`/`Write` prose for the wider-scope path.
 - For trivially scoped fixes at Step 3: no `/flow-coder` invocation; the

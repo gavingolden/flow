@@ -126,16 +126,16 @@ For each finding, classify it into one of:
 
   Surfaced by `/flow-pr-review` on PR #<n>.
   EOF
-
-  ISSUE_JSON=$(flow-create-issue \
-    --title "<short finding subject>" \
-    --body-file "$WORKTREE/.flow-tmp/deferred-body.md" \
-    --label flow-agent,deferred-review)
-  RC=$?
-  ISSUE_URL=$(printf '%s' "$ISSUE_JSON" | jq -r '.url // empty')
   ```
 
-  Set `tracker_entry_url` to `$ISSUE_URL`. The helper files against the
+  ```bash
+  flow-create-issue --title "<short finding subject>" --body-file "<absolute worktree>/.flow-tmp/deferred-body.md" --label flow-agent,deferred-review
+  ```
+
+  Run it as its own Bash call exactly in this form — flow's launch settings
+  pre-approve only a standalone `flow-create-issue` command.
+
+  Set `tracker_entry_url` to the printed JSON's `.url`. The helper files against the
   **current repo only** (no `--repo` flag); third-party regressions get a
   `flow-agent,deferred-review,third-party` label combo and a body that names
   the upstream project, leaving the user to mirror the issue upstream
@@ -143,16 +143,16 @@ For each finding, classify it into one of:
 
   **Exit 3 — body rejected (fix and retry, never degrade).** `flow-create-issue`
   returns exit 3 when the deferred-body.md heredoc's value-prop block fails the
-  flow-value-rubric contract; `$ISSUE_JSON` is then the rejection envelope
-  (`{"action":"rejected","reason":…,"misses":[…],"expected":[…],"shortFormExample":…}`),
+  flow-value-rubric contract; the printed JSON is then the rejection envelope
+  (`.action` is `"rejected"`: `{"action":"rejected","reason":…,"misses":[…],"expected":[…],"shortFormExample":…}`),
   not an issue URL. Repair the heredoc from `.misses`/`.expected` in that
   envelope and retry once. This is distinct from every other non-zero exit
   below — treating it as "no Issues surface" and setting `tracker_entry_url`
   to an empty string would launder a rejected body and silently lose the
   deferred finding.
 
-  **Fallback path.** If `flow-create-issue` exits non-zero AND `RC` is not
-  `3` (e.g. `gh` unavailable, no GH Issues surface for this repo), do NOT
+  **Fallback path.** If `flow-create-issue` exits non-zero with empty or
+  non-JSON output (not the `.action: "rejected"` envelope; e.g. `gh` unavailable, no GH Issues surface for this repo), do NOT
   append to an in-repo tracker file — most repos have none, and a flat file
   with no status lifecycle is not a durable tracker. Instead, leave
   `tracker_entry_url` as an empty string, put the full deferral context in
@@ -429,15 +429,16 @@ else
     FAIL=0
     EPIC_SLUG=$(jq -r '.epic.slug // empty' ~/.flow/state/"${FLOW_SLUG:-}".json 2>/dev/null)
     FEATURE_ID=$(jq -r '.epic.featureId // empty' ~/.flow/state/"${FLOW_SLUG:-}".json 2>/dev/null)
+    TOUCHED="$WORKTREE/.flow-tmp/epic-dag-touched.z"
+    git diff -z --name-only "origin/$BASE_REF...HEAD" > "$TOUCHED"
     for m in .flow/epics/*/manifest.json; do
       [ -f "$m" ] || continue
       FEAT_ARGS=()
       if [ -n "$FEATURE_ID" ] && [ "$m" = ".flow/epics/$EPIC_SLUG/manifest.json" ]; then
         FEAT_ARGS=(--feature "$FEATURE_ID")
       fi
-      git diff -z --name-only "origin/$BASE_REF...HEAD" \
-        | xargs -0 flow-epic-dag --touched-files "$m" "${FEAT_ARGS[@]}" || FAIL=1
-      if git diff --name-only "origin/$BASE_REF...HEAD" | grep -qxF "$m"; then
+      xargs -0 flow-epic-dag --touched-files "$m" "${FEAT_ARGS[@]}" < "$TOUCHED" || FAIL=1
+      if tr '\0' '\n' < "$TOUCHED" | grep -qxF "$m"; then
         flow-epic-dag --validate "$m" || FAIL=1
       fi
     done
@@ -534,7 +535,8 @@ Don't ask for confirmation; the exemption removes the ambiguity.
   tree, and this path's fixes are tracked via the filed issue below, not
   left half-applied on disk. Instead, route every unaddressed finding
   through the deferral path documented above (this file's step 2) as
-  EXACTLY ONE consolidated `flow-create-issue` call for the whole PR — not
+  EXACTLY ONE consolidated `flow-create-issue` call (same standalone call form)
+  for the whole PR — not
   one per finding, since this path bypasses the per-finding deferral bar
   above (the trigger is the merge, not any finding's complexity, so a
   per-finding fan-out would be unbounded). Title it exactly
@@ -558,7 +560,7 @@ artifact's `commits[].sha` in step 9.
 
 ## 8. Re-run `/flow-verify` (load-bearing differentiator)
 
-After every commit lands, invoke `/flow-verify` in-process via the Skill tool:
+After all fix commits land (step 7), invoke `/flow-verify` once in-process via the Skill tool (record `verify_status` per commit from that single verdict):
 
 ```
 /flow-verify
@@ -590,10 +592,16 @@ fix-applier artifact summary and leave the affected signed-in items
 unchecked so the pr-review wrapper surfaces `smoketest-needs-creds`.
 
 `/flow-verify` runs the project's full check suite (typecheck, tests, format).
-Capture the verdict per commit:
+Apply the verdict to every commit produced this run:
 
-- **Pass** → set `commits[].verify_status = "pass"` for every commit
-  produced this run.
+- **Pass** → reconcile whatever verify left behind into this one commit
+  path, then set `commits[].verify_status = "pass"` for every commit
+  produced this run:
+  - verify left uncommitted edits on a green run → commit them as one extra
+    fix commit;
+  - verify authored its own commit(s) (e.g. a Layer-3
+    `.flow/pre-commit.json` entry) → include them;
+  - either way, push and record every new SHA in `commits[]` first.
 - **Fail (within `/flow-verify`'s internal cap)** → make a follow-up fix
   commit on the same branch, push, and re-run `/flow-verify`. Repeat until
   clean or until `/flow-verify`'s internal cap exhausts.
@@ -601,7 +609,10 @@ Capture the verdict per commit:
   the affected `commits[].verify_status` to a head-100/tail-50 line
   excerpt of the verify failure (matching `flow-pre-commit --json`'s
   `headExcerpt`/`tailExcerpt` shape — the failure is too large to inline
-  verbatim). Surface the unresolved failure in the return summary so the
+  verbatim; there is no `"fail"` literal). Never commit verify's scratch
+  edits: every fix-applier edit is already committed, so run
+  `git restore --staged --worktree . && git clean -fd` (`.flow-tmp` is
+  excluded, so it survives). Surface the unresolved failure in the return summary so the
   wrapper can escalate `NEEDS HUMAN: review-fix-verify-failed` rather
   than letting CI catch it after you exit.
 
