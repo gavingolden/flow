@@ -5,7 +5,7 @@
  */
 
 import type { DoctorCheck, DoctorDeps } from "./doctor";
-import { looksUnauthenticated } from "../flow-delegate";
+import { looksUnauthenticated } from "./agy-output";
 import { readLauncherConfig } from "./launcher-config";
 import { readManifest } from "./manifest";
 import { isModuleActive } from "./module-status";
