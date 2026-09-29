@@ -33,6 +33,7 @@ _flow() {
                 'a:alias for attach'
                 'done:close a pipeline window'
                 'reap:report (and clean up) processes left by dead pipelines'
+                'doctor:check your flow install and print a fix for each problem'
                 'prompt:print a pipeline'\''s originating request'
                 'completion:print a shell completion script'
                 'version:print flow version'
@@ -193,6 +194,11 @@ _flow() {
                         '--yes[act on registered rows instead of only reporting]' \
                         '--include-strays[also act on shape-heuristic strays]' \
                         '--json[emit machine-readable output]'
+                    ;;
+                doctor)
+                    _arguments \
+                        '--json[emit machine-readable output]' \
+                        '--help[show help]'
                     ;;
                 prompt)
                     _flow_slugs
