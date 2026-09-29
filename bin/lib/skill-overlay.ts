@@ -15,7 +15,7 @@ import { MODULES, type ModuleId } from "./modules";
 import { readFlowVersion } from "./pkg-version";
 import { pluginRootName } from "./plugin-manifest";
 import { ensurePluginRoot, scanPluginRoots } from "./plugin-root";
-import { readState, statePath, TERMINAL_PHASE_SET } from "./state";
+import { FINISHED_PHASE_SET, readState, statePath } from "./state";
 import { inspectFlowRoot } from "./worktree-source";
 import {
   copyFileReal,
@@ -36,6 +36,36 @@ export function overlaySkillsDir(
   return path.join(overlaysDir, slug, ".claude", "skills");
 }
 
+/** Where a copy's content came from: `flow-self` copies re-sync from the
+ * pipeline's own worktree; `skills-from` copies stay pinned to `source`. */
+export type OverlayOrigin = {
+  kind: "flow-self" | "skills-from";
+  source: string;
+};
+
+const ORIGIN_FILE = ".origin.json";
+
+/** A copy with no origin file (built before origins were recorded) is flow-self. */
+export function readOverlayOrigin(
+  slug: string,
+  overlaysDir: string = flowOverlaysDir(),
+): OverlayOrigin | null {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(overlaysDir, slug, ORIGIN_FILE), "utf8"),
+    );
+    if (
+      (raw?.kind === "flow-self" || raw?.kind === "skills-from") &&
+      typeof raw.source === "string"
+    ) {
+      return { kind: raw.kind, source: raw.source };
+    }
+  } catch {
+    // absent or unreadable
+  }
+  return null;
+}
+
 function installVersion(installRoot: string): string {
   try {
     return readFlowVersion(installRoot);
@@ -50,6 +80,7 @@ export function materializeSkillOverlay(args: {
   installRoot: string;
   moduleIds: readonly ModuleId[];
   overlaysDir?: string;
+  kind?: OverlayOrigin["kind"];
 }): string[] {
   const { slug, contentSource, installRoot, moduleIds } = args;
   const overlaysDir = args.overlaysDir ?? flowOverlaysDir();
@@ -80,6 +111,11 @@ export function materializeSkillOverlay(args: {
     )) {
       copyFileReal(src, dest);
     }
+    const origin: OverlayOrigin = {
+      kind: args.kind ?? "flow-self",
+      source: contentSource,
+    };
+    fs.writeFileSync(path.join(stage, ORIGIN_FILE), JSON.stringify(origin));
     const final = path.join(overlaysDir, slug);
     fs.rmSync(final, { recursive: true, force: true });
     fs.renameSync(stage, final);
@@ -160,11 +196,12 @@ export function pruneStaleOverlays(args: {
   for (const d of dirents) {
     if (!d.isDirectory()) continue;
     const dir = path.join(overlaysDir, d.name);
+    // Only FINISHED pipelines: a gated / needs-human copy is still resumable.
     // A copy modified recently may belong to a launch that has not written state yet.
     if (now - fs.statSync(dir).mtimeMs < PRUNE_GRACE_MS) continue;
     if (fs.existsSync(statePath(d.name, stateDir))) {
       const state = readState(d.name, stateDir);
-      if (!state || !TERMINAL_PHASE_SET.has(state.phase)) continue;
+      if (!state || !FINISHED_PHASE_SET.has(state.phase)) continue;
       const alive = args.isAlive
         ? args.isAlive(d.name)
         : livenessOf(state) === "alive";

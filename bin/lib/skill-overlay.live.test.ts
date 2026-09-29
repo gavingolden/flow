@@ -155,20 +155,25 @@ describeOnPosix("skill-overlay live (RUN_CLAUDE_LIVE=1)", () => {
   );
 
   it.skipIf(!liveEnabled)(
-    "(b) a fresh session on a copy built from an edited source returns the edited text",
+    "(b) a fresh session on a copy updated by sync (the resume path) returns the synced text",
     async () => {
-      const { tmp, write, build } = fixture();
+      const { tmp, source, overlaysDir, write, build } = fixture();
+      const original = `MARKER-${randomBytes(4).toString("hex")}`;
       const edited = `MARKER-${randomBytes(4).toString("hex")}`;
       try {
-        write("MARKER-original");
+        write(original);
+        const root = build("live-b");
         write(edited);
-        const { child, done } = runClaude(
-          `Please ${LOAD_PROBE}`,
-          build("live-b"),
-          tmp,
-        );
+        syncSkillOverlay({
+          slug: "live-b",
+          contentSource: source,
+          overlaysDir,
+        });
+        const { child, done } = runClaude(`Please ${LOAD_PROBE}`, root, tmp);
         try {
-          expect(await done).toContain(edited);
+          const out = await done;
+          expect(out).toContain(edited);
+          expect(out).not.toContain(original);
         } finally {
           child.kill();
         }

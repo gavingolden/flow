@@ -10,9 +10,29 @@ import type { ModuleId } from "./modules";
 import { pluginRootName } from "./plugin-manifest";
 import { discoverAgents, discoverSkills, type InstallTargets } from "./sources";
 
+/** True for a directory holding flow's own `skills/` and `bin/lib/modules.ts`
+ * — the one definition of "a flow checkout" for `--skills-from` and `sync --from`. */
+export function isFlowCheckout(dir: string): boolean {
+  return (
+    fs.existsSync(path.join(dir, "skills")) &&
+    fs.existsSync(path.join(dir, "bin", "lib", "modules.ts"))
+  );
+}
+
+function within(real: string, boundary: string): boolean {
+  return real === boundary || real.startsWith(boundary + path.sep);
+}
+
 /** Absolute paths of every regular file below `dir`. `follow` dereferences
- * symlinks (source side); otherwise a symlink is listed as a file to replace. */
-export function walkFiles(dir: string, follow: boolean): string[] {
+ * symlinks (source side) but only when their target stays inside `boundary`
+ * (the realpath of the checkout being copied) and never re-enters a directory
+ * already being walked; otherwise a symlink is listed as a file to replace. */
+export function walkFiles(
+  dir: string,
+  follow: boolean,
+  boundary?: string,
+  ancestors: readonly string[] = [],
+): string[] {
   let dirents: fs.Dirent[];
   try {
     dirents = fs.readdirSync(dir, { withFileTypes: true });
@@ -26,15 +46,25 @@ export function walkFiles(dir: string, follow: boolean): string[] {
     let isFile = d.isFile();
     if (follow && d.isSymbolicLink()) {
       try {
+        const real = fs.realpathSync(p);
+        if (boundary !== undefined && !within(real, boundary)) continue;
         const st = fs.statSync(p);
         isDir = st.isDirectory();
         isFile = st.isFile();
+        if (isDir && ancestors.includes(real)) continue;
       } catch {
         continue;
       }
     }
-    if (isDir) out.push(...walkFiles(p, follow));
-    else if (isFile || d.isSymbolicLink()) out.push(p);
+    if (isDir) {
+      let real = p;
+      try {
+        real = fs.realpathSync(p);
+      } catch {
+        // walk with the lexical path
+      }
+      out.push(...walkFiles(p, follow, boundary, [...ancestors, real]));
+    } else if (isFile || d.isSymbolicLink()) out.push(p);
   }
   return out;
 }
@@ -54,13 +84,26 @@ export function plannedFiles(
     completionsDir: skillsRoot,
   };
   const planned = new Map<string, string>();
+  let boundary: string;
+  try {
+    boundary = fs.realpathSync(contentSource);
+  } catch {
+    return planned;
+  }
   for (const entry of [
     ...discoverSkills(contentSource, targets),
     ...discoverAgents(contentSource, targets),
   ]) {
     const rootName = path.relative(skillsRoot, entry.target).split(path.sep)[0];
     if (!allowedRoots.has(rootName)) continue;
-    for (const file of walkFiles(entry.source, true)) {
+    let sourceReal: string;
+    try {
+      sourceReal = fs.realpathSync(entry.source);
+    } catch {
+      continue;
+    }
+    if (!within(sourceReal, boundary)) continue;
+    for (const file of walkFiles(entry.source, true, boundary, [sourceReal])) {
       planned.set(
         path.join(entry.target, path.relative(entry.source, file)),
         file,

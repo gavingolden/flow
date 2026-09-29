@@ -1,8 +1,8 @@
 # The pipeline's private skill copy (step 5.5)
 
-Long-form detail for `/flow-pipeline` step 5.5. The step itself only runs
-`flow-skill-overlay sync`; everything about what that does and does not
-reach lives here.
+Long-form detail for `/flow-pipeline` step 5.5. The step itself runs
+`flow-skill-overlay sync` and upserts the PR-body NOTE; everything about what
+that does and does not reach lives here.
 
 ## What the copy is
 
@@ -12,18 +12,29 @@ its supervisor on a **private, real-file copy** of flow's plugin roots at
 `~/.flow/overlays/<slug>/.claude/skills/flow-module-<id>/`, not on the shared
 install other pipelines read live. The copy is automatic for flow-self
 launches (content from the canonical checkout); `--skills-from` names any
-other source. It is unrelated to the `--slug` state overlays. Copies are
-real files, never links, so nothing dangles once the worktree is removed. Only
+other source. Each copy records its origin at build time
+(`~/.flow/overlays/<slug>/.origin.json`: `kind` `flow-self` or `skills-from`,
+plus the source path). Copies are real files, never links, so nothing dangles once the worktree is removed. Only
 `~/.flow/overlays/<slug>` is granted via `--add-dir`, never `~/.flow`.
 
-Step 5.5 rewrites the copy in place from `$WORKTREE` after implement
-(`flow-skill-overlay sync --slug "$FLOW_SLUG" --from "$WORKTREE"`): it writes
+Step 5.5 rewrites a flow-self copy in place from `$WORKTREE` after implement
+(`flow-skill-overlay sync --slug "$FLOW_SLUG" --from "$WORKTREE"`). A
+`skills-from` copy is pinned to its recorded source and never overwritten with
+the pipeline's own worktree (`{"ran":false,"skipReason":"pinned-source"}`), and
+a `--from` that is not a flow checkout (needs `skills/` and `bin/lib/modules.ts`,
+the same test `--skills-from` applies) is also a named skip
+(`not-a-flow-checkout`) that touches nothing. On a sync it writes
 only files whose bytes differ, deletes files absent from the worktree, and
 prints `{"ran":true,"written":[…],"removed":[…],"notExercised":[…]}`. Nothing
 prunes the copy at pipeline end (the supervisor keeps loading skills from it
 through steps 10-11); the next `flow feature create` launch prunes copies
-whose pipeline is finished and not alive, never one modified in the last 30
-minutes.
+whose pipeline is finished (`merged`, `cancelled`, `epic-approved`) and not
+alive, never a `gated` or `needs-human` pipeline's copy (still resumable) and
+never one modified in the last 30 minutes. Isolation is narrower than it
+sounds: it stops a newly started or resumed flow-self pipeline picking up
+skills another flow-self pipeline added, but step 5.5's
+`flow install --upgrade --source "$WORKTREE"` still links branch-added
+skills/agents into the shared install that other repos' pipelines read.
 
 ## What a running session picks up
 
@@ -36,8 +47,9 @@ the rewrite. The synced copy reaches:
 
 - **A session started after the sync** — a `flow feature resume` relaunch, or
   a fresh `flow feature create --skills-from "$WORKTREE" "<desc>"`. That fresh
-  launch is how to exercise edited skills, brand-new skills, and agent
-  definitions end to end.
+  launch is how to exercise edited and new skills and edited agents end to
+  end. A brand-new agent still runs as `general-purpose` until it is
+  installed (next paragraph).
 - **The running session, once the user types `/reload-plugins` in its pane.**
   flow cannot inject it: it runs only when the user types it.
 
@@ -61,7 +73,18 @@ after it already sees the branch's text.
 Step 5.5 runs once, so skill edits made later (step-6 fixes, the step-7
 `step-5-fix` loop, fix-applier commits) would miss the copy. Step 7 re-runs
 the same idempotent sync near its head whenever a copy exists, keeping the copy
-current for a resume or a `/reload-plugins`.
+current for a resume or a `/reload-plugins`. Each sync reports only what
+changed since the previous one, so MERGE its `written` into the PR-body NOTE
+(union with the paths already listed) instead of replacing the list.
+
+## What a resumed session trusts
+
+A resumed or reloaded flow-self session reviews and gates with the PR's own
+edited `flow-pr-review` / `flow-pipeline` prose, not `main`'s. The decision
+code stays on `main`: helper links stay canonical (`flow-gate-decide`,
+`flow-merge-guard`, and the rest run `main`'s code, not the copy's), so a
+weakened review lens can shape what is fed to the gate but cannot loosen the
+merge guard or the gate's verdict rules.
 
 ## Recovery: a self-broken review
 
@@ -73,7 +96,7 @@ reload:
 flow-skill-overlay sync --slug "$FLOW_SLUG" --from "<canonical flow checkout>"
 ```
 
-then the user types `/reload-plugins` (or resumes). When you use it, upsert a
+(flow-self copies only; a `--skills-from` copy is pinned — relaunch instead), then the user types `/reload-plugins` (or resumes). When you use it, upsert a
 `> [!CAUTION]` note in the PR body's `## Test Steps` section: `> [!CAUTION]
 Review ran on main's skills (private copy reset to the canonical checkout).`
 The review no longer exercised the branch's own text and the reader must know.
@@ -85,7 +108,9 @@ this pipeline's own review did not exercise what the sync wrote. When the
 sync's `written` is non-empty (`notExercised` names the subset that can never
 reach a running session: agent definitions and skill directories new to the
 copy), upsert ONE idempotent `> [!NOTE]` block (edit in place, never stack)
-listing those paths and pointing at `--skills-from`:
+listing those paths and pointing at `--skills-from` (which exercises edited
+and new skills and edited agents; a brand-new agent still runs as
+`general-purpose`, so name it as never exercised):
 
 ```bash
 gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"

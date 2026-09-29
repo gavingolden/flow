@@ -4484,6 +4484,38 @@ describe("private skill copy (flow-self and --skills-from launches)", () => {
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
+  it("an explicit --skills-from whose copy cannot be built exits 1 with no state and no window", () => {
+    const branch = path.join(scratch, "branch-checkout");
+    flowLike(branch);
+    fs.writeFileSync(overlaysDir, ""); // a file where the dir must go -> mkdirSync throws
+    const code = runFeatureCli(
+      ["create", "--skills-from", branch, "CSV export"],
+      baseOptions({ flowCanonicalRoot: path.join(scratch, "some-flow") }),
+    );
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(
+      /could not build the private skill copy.*nothing was started/,
+    );
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("an automatic flow-self copy that cannot be built warns and launches on the shared skills", () => {
+    flowLike(repoDir);
+    fs.writeFileSync(overlaysDir, "");
+    freshWindowOk();
+    const code = runNew(
+      "CSV export",
+      baseOptions({ flowCanonicalRoot: fs.realpathSync(repoDir) }),
+    );
+    expect(code).toBe(0);
+    expect(errors.join("\n")).toMatch(
+      /WARNING: private skill copy unavailable.*shared skills/,
+    );
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--plugin-dir") + 1]).toBe(sharedRoot);
+  });
+
   it("a --skills-from with no value exits 1", () => {
     const code = runFeatureCli(["create", "--skills-from"], baseOptions());
     expect(code).toBe(1);

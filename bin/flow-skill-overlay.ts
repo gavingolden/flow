@@ -7,20 +7,29 @@
  *     One JSON line on stdout, exit 0:
  *       {"ran":true,"written":[…],"removed":[…],"notExercised":[…]}
  *       {"ran":false,"skipReason":"no-overlay"}   (the slug has no copy)
+       {"ran":false,"skipReason":"pinned-source"} (a --skills-from copy stays
+         the snapshot it was launched with; only a flow-self copy re-syncs)
+       {"ran":false,"skipReason":"not-a-flow-checkout"} (--from lacks skills/
+         + bin/lib/modules.ts; nothing is touched)
  *     `notExercised` = written paths a running session cannot pick up
  *     (agent definitions, skill directories new to the copy).
  *   flow-skill-overlay status --slug <slug>
  *     {"exists":<bool>,"roots":[…]}
  *
- * `--overlays-dir <dir>` (or FLOW_OVERLAYS_DIR) overrides the copies root, so
- * tests never touch `~/.flow/overlays`. Bad arguments exit 2; JSON goes to
+ * `--overlays-dir <dir>` overrides the copies root, so tests never touch
+ * `~/.flow/overlays`. Bad arguments exit 2; JSON goes to
  * stdout only.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isValidSlug } from "./lib/slug";
-import { overlayPluginRoots, syncSkillOverlay } from "./lib/skill-overlay";
+import {
+  overlayPluginRoots,
+  readOverlayOrigin,
+  syncSkillOverlay,
+} from "./lib/skill-overlay";
+import { isFlowCheckout } from "./lib/skill-overlay-fs";
 
 const USAGE =
   "usage: flow-skill-overlay sync --slug <slug> --from <checkout> [--overlays-dir <dir>]\n" +
@@ -52,14 +61,11 @@ function parseArgs(argv: string[]): Parsed {
   if (!slug || !isValidSlug(slug)) {
     return { error: "--slug <slug> is required (lowercase kebab-case)" };
   }
-  const overlaysDir =
-    values["--overlays-dir"] ?? (process.env.FLOW_OVERLAYS_DIR || undefined);
+  const overlaysDir = values["--overlays-dir"];
   if (verb === "status") return { verb, slug, overlaysDir };
   const from = values["--from"];
   if (!from) return { error: "--from <checkout> is required for sync" };
-  if (!fs.existsSync(path.join(from, "skills"))) {
-    return { error: `--from '${from}' has no skills/ directory` };
-  }
+  if (!fs.existsSync(from)) return { error: `--from '${from}' does not exist` };
   return { verb, slug, from: path.resolve(from), overlaysDir };
 }
 
@@ -86,6 +92,14 @@ export function runSkillOverlay(argv: string[]): {
     return json({ exists: roots !== null, roots: roots ?? [] });
   }
   if (roots === null) return json({ ran: false, skipReason: "no-overlay" });
+  if (
+    readOverlayOrigin(parsed.slug, parsed.overlaysDir)?.kind === "skills-from"
+  ) {
+    return json({ ran: false, skipReason: "pinned-source" });
+  }
+  if (!isFlowCheckout(parsed.from)) {
+    return json({ ran: false, skipReason: "not-a-flow-checkout" });
+  }
   const result = syncSkillOverlay({
     slug: parsed.slug,
     contentSource: parsed.from,

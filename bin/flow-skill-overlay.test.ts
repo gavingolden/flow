@@ -34,14 +34,16 @@ beforeEach(() => {
   overlaysDir = path.join(scratch, "overlays");
   put("skills/pipeline/probe/SKILL.md", "v1\n");
   put("agents/core/probe-agent.md", "agent\n");
+  put("bin/lib/modules.ts", "export {};\n");
 });
 
 afterEach(() => {
   fs.rmSync(scratch, { recursive: true, force: true });
 });
 
-function build(): void {
+function build(kind: "flow-self" | "skills-from" = "flow-self"): void {
   materializeSkillOverlay({
+    kind,
     slug: "demo",
     contentSource: source,
     installRoot: realFlowSource,
@@ -86,6 +88,46 @@ describe("flow-skill-overlay", () => {
       run("sync", "--slug", "demo", "--from", source).stdout,
     );
     expect(again.removed).toEqual(["flow-module-core/skills/fresh/SKILL.md"]);
+  });
+
+  it("sync never overwrites a --skills-from copy with the pipeline's own worktree", () => {
+    build("skills-from");
+    const worktree = path.join(scratch, "pipeline-worktree");
+    fs.mkdirSync(path.join(worktree, "skills", "pipeline", "other"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(worktree, "skills", "pipeline", "other", "SKILL.md"),
+      "x\n",
+    );
+    fs.mkdirSync(path.join(worktree, "bin", "lib"), { recursive: true });
+    fs.writeFileSync(path.join(worktree, "bin", "lib", "modules.ts"), "");
+    const res = run("sync", "--slug", "demo", "--from", worktree);
+    expect(res.code).toBe(0);
+    expect(JSON.parse(res.stdout)).toEqual({
+      ran: false,
+      skipReason: "pinned-source",
+    });
+    const status = JSON.parse(run("status", "--slug", "demo").stdout);
+    expect(
+      fs.existsSync(path.join(status.roots[0], "skills", "probe", "SKILL.md")),
+    ).toBe(true);
+  });
+
+  it("sync from a non-flow directory is a graceful skip that touches nothing", () => {
+    build();
+    const consumer = path.join(scratch, "consumer");
+    fs.mkdirSync(path.join(consumer, "skills"), { recursive: true });
+    const res = run("sync", "--slug", "demo", "--from", consumer);
+    expect(res.code).toBe(0);
+    expect(JSON.parse(res.stdout)).toEqual({
+      ran: false,
+      skipReason: "not-a-flow-checkout",
+    });
+    const status = JSON.parse(run("status", "--slug", "demo").stdout);
+    expect(
+      fs.existsSync(path.join(status.roots[0], "skills", "probe", "SKILL.md")),
+    ).toBe(true);
   });
 
   it("sync with no copy is a graceful skip (exit 0)", () => {

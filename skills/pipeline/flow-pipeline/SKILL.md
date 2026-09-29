@@ -1601,16 +1601,19 @@ A worktree that adds new files under `skills/` or `agents/` in step 5
 does not get those files symlinked automatically; the same supervisor
 session cannot use them downstream until `flow install --upgrade` runs.
 This step closes that gap. A flow-self (or `--skills-from`) pipeline also runs
-on a private real-file copy of the skills, re-synced here after implement; a
-skill added mid-session does NOT hot-reload — limits, recovery, and the PR-body
-notes: [references/skill-overlay.md](references/skill-overlay.md).
+on a private real-file copy of the skills; the sync below re-syncs a flow-self
+copy only (a `--skills-from` copy stays pinned). A skill added mid-session does
+NOT hot-reload. When the sync's `.written` is non-empty, upsert the
+not-exercised `> [!NOTE]` per [references/skill-overlay.md](references/skill-overlay.md).
 
 ```bash
 flow-state-update --phase installing-skills
 
 # Private-copy sync — EVERY change (edit/add/delete), not only additions.
 if flow-skill-overlay status --slug "$FLOW_SLUG" | jq -e .exists >/dev/null; then
-  flow-skill-overlay sync --slug "$FLOW_SLUG" --from "$WORKTREE" | tee "$WORKTREE/.flow-tmp/skill-overlay-sync.json" | jq -r '"synced: \(.written + .removed | join(" "))"'
+  flow-skill-overlay sync --slug "$FLOW_SLUG" --from "$WORKTREE" > "$WORKTREE/.flow-tmp/skill-overlay-sync.json" \
+    && jq -r 'if .ran then "synced: \(.written + .removed | join(" "))" else "sync skipped: \(.skipReason)" end' "$WORKTREE/.flow-tmp/skill-overlay-sync.json" \
+    || echo "skill-overlay sync FAILED (see stderr above); the private copy was NOT updated" >&2
 fi
 
 # Resolve the default branch dynamically — never hardcode origin/main (a `master` repo would silently skip the re-symlink).
@@ -1780,7 +1783,7 @@ flow-state-update --phase ci-wait
 `flow-ci-check` still emits `ci-wait` at this step's tail as an
 idempotent backstop — by then `advancePhase` returns
 `already-at-or-past`, so the backstop adds no duplicate `phaseLog[]` row.
-When the pipeline has a private skill copy, re-run step 5.5's `flow-skill-overlay sync` here (idempotent) so fix-loop skill edits reach a resume or reload.
+When the pipeline has a private skill copy, re-run step 5.5's `flow-skill-overlay sync` here (idempotent) so fix-loop skill edits reach a resume or reload, then MERGE its `.written` into the existing PR-body not-exercised NOTE (never replace it).
 
 **Copilot-module precheck (before any of this).** Probe
 `flow-module-status --check copilot >/dev/null 2>&1` — non-zero means the

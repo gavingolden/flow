@@ -14,6 +14,7 @@ import { writeState, type PipelineState } from "./state";
 import {
   isFlowSelfRepo,
   materializeSkillOverlay,
+  readOverlayOrigin,
   overlayPluginRoots,
   overlaySkillsDir,
   pruneStaleOverlays,
@@ -102,6 +103,51 @@ describe("materializeSkillOverlay", () => {
     expect(fs.readdirSync(overlaySkillsDir(SLUG, overlaysDir))).toEqual([
       "flow-module-core",
     ]);
+  });
+});
+
+describe("readOverlayOrigin", () => {
+  it("records the kind and source when the copy is built", () => {
+    expect(readOverlayOrigin(SLUG, overlaysDir)).toBeNull();
+    materializeSkillOverlay({
+      slug: SLUG,
+      contentSource: source,
+      installRoot: realFlowSource,
+      moduleIds: ["core"],
+      overlaysDir,
+      kind: "skills-from",
+    });
+    expect(readOverlayOrigin(SLUG, overlaysDir)).toEqual({
+      kind: "skills-from",
+      source,
+    });
+  });
+
+  it("defaults to flow-self", () => {
+    build();
+    expect(readOverlayOrigin(SLUG, overlaysDir)?.kind).toBe("flow-self");
+  });
+});
+
+describe("copying a checkout with symlinks", () => {
+  it("skips links that resolve outside the checkout and survives a self-referencing directory link", () => {
+    const secret = path.join(scratch, "secret.env");
+    fs.writeFileSync(secret, "TOKEN=1\n");
+    const outsideDir = path.join(scratch, "outside");
+    fs.mkdirSync(outsideDir);
+    fs.writeFileSync(path.join(outsideDir, "x.md"), "outside\n");
+    const skill = path.join(source, "skills/pipeline/probe-a");
+    fs.symlinkSync(secret, path.join(skill, "leak.md"));
+    fs.symlinkSync(outsideDir, path.join(skill, "outdir"));
+    fs.symlinkSync(".", path.join(skill, "loop"));
+    fs.symlinkSync("SKILL.md", path.join(skill, "inside-link.md"));
+    build();
+    expect(fs.existsSync(copyPath("skills", "probe-a", "leak.md"))).toBe(false);
+    expect(fs.existsSync(copyPath("skills", "probe-a", "outdir"))).toBe(false);
+    expect(fs.existsSync(copyPath("skills", "probe-a", "loop"))).toBe(false);
+    expect(
+      fs.readFileSync(copyPath("skills", "probe-a", "inside-link.md"), "utf8"),
+    ).toBe("probe a v1\n");
   });
 });
 
@@ -209,6 +255,23 @@ describe("pruneStaleOverlays", () => {
       );
     }
   }
+
+  it("keeps a gated or needs-human copy (resumable) even when not alive", () => {
+    seed("waiting-gate", "gated");
+    seed("waiting-human", "needs-human");
+    seed("done", "cancelled");
+    const pruned = pruneStaleOverlays({
+      overlaysDir,
+      stateDir,
+      isAlive: () => false,
+      now: OLD,
+    });
+    expect(pruned).toEqual(["done"]);
+    expect(fs.readdirSync(overlaysDir).sort()).toEqual([
+      "waiting-gate",
+      "waiting-human",
+    ]);
+  });
 
   it("keeps a live or in-flight slug, deletes absent-state and terminal-not-alive ones", () => {
     seed("live-one", "merged");

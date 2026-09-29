@@ -4,7 +4,6 @@
  * names the copy's roots and its per-slug `--add-dir`.
  */
 
-import * as fs from "node:fs";
 import * as path from "node:path";
 import { flowOverlaysDir, resolveFlowSource } from "./paths";
 import { moduleIdFromPluginRootName } from "./plugin-manifest";
@@ -13,6 +12,7 @@ import {
   materializeSkillOverlay,
   overlayPluginRoots,
 } from "./skill-overlay";
+import { isFlowCheckout } from "./skill-overlay-fs";
 import { inspectFlowRoot } from "./worktree-source";
 import type { ModuleId } from "./modules";
 
@@ -40,10 +40,7 @@ export function parseSkillsFrom(
     return { error: "--skills-from requires a flow checkout path." };
   }
   const resolved = path.resolve(cwd, value);
-  if (
-    !fs.existsSync(path.join(resolved, "skills")) ||
-    !fs.existsSync(path.join(resolved, "bin", "lib", "modules.ts"))
-  ) {
+  if (!isFlowCheckout(resolved)) {
     return {
       error: `invalid --skills-from '${value}': expected a flow checkout containing skills/ and bin/lib/modules.ts.`,
     };
@@ -73,6 +70,7 @@ export function createOverlay(args: {
     installRoot: canonical,
     moduleIds,
     overlaysDir,
+    kind: args.skillsFrom ? "skills-from" : "flow-self",
   });
   return { roots, addDir: path.join(overlaysDir, args.slug) };
 }

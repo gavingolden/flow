@@ -922,10 +922,18 @@ function runFresh(
 
   // Lazy prune of dead pipelines' private skill copies (cheap no-op when the
   // overlays dir is absent), with the SAME stateDir this launch reads.
-  pruneStaleOverlays({
-    overlaysDir: options.overlaysDir,
-    stateDir: options.stateDir,
-  });
+  try {
+    pruneStaleOverlays({
+      overlaysDir: options.overlaysDir,
+      stateDir: options.stateDir,
+    });
+  } catch (err) {
+    console.error(
+      dim(
+        `flow feature create: could not prune stale skill copies: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
+  }
   // A flow-self repo or an explicit --skills-from runs its supervisor on a
   // private copy; every other launch keeps the shared roots byte-for-byte.
   let overlay: OverlayLaunch | null;
@@ -939,10 +947,19 @@ function runFresh(
       sharedRoots: (options.pluginRootsScan ?? scanPluginRoots)(),
     });
   } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    if (options.skillsFrom) {
+      console.error(
+        `flow feature create: could not build the private skill copy: ${reason} — nothing was started; fix that and re-run.`,
+      );
+      return 1;
+    }
+    // The automatic flow-self copy holds main's skills anyway, so launching on
+    // the shared install hides nothing; only resume/reload isolation is lost.
     console.error(
-      `flow feature create: could not build the private skill copy: ${err instanceof Error ? err.message : String(err)}`,
+      `flow feature create: WARNING: private skill copy unavailable (${reason}) — launching on the shared skills; resuming will not pick up this branch's skill edits.`,
     );
-    return 1;
+    overlay = null;
   }
 
   const worktree = deriveWorktreePath(repo, slug);

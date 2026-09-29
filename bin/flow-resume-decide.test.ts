@@ -1413,6 +1413,57 @@ describe("run() integration", () => {
     expect(git).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [true, "step-5.5"],
+    [false, "step-6"],
+  ])(
+    "an edit-only branch with hasOverlay=%s resumes at %s through run() (the gatherInputs probe is wired)",
+    (hasOverlay, expected) => {
+      initWorktree();
+      fs.mkdirSync(path.join(worktreeRoot, ".flow-tmp"));
+      fs.writeFileSync(
+        path.join(worktreeRoot, ".flow-tmp", "plan.md"),
+        "# PRD\n\nbecause.\n",
+      );
+      seedState("overlay-e2e", { phase: "implementing" });
+      const git: GitRunner = (argv) => {
+        if (argv[0] === "rev-parse")
+          return { stdout: "true\n", stderr: "", exitCode: 0 };
+        if (argv[0] === "branch")
+          return { stdout: "feature\n", stderr: "", exitCode: 0 };
+        if (argv[0] === "symbolic-ref")
+          return { stdout: "", stderr: "", exitCode: 1 };
+        if (argv[0] === "diff") return { stdout: "", stderr: "", exitCode: 0 };
+        if (argv[0] === "log")
+          return { stdout: "feat: initial\n", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: "", exitCode: 1 };
+      };
+      const gh: GhRunner = (argv) =>
+        argv[0] === "pr" && argv[1] === "view"
+          ? {
+              stdout: JSON.stringify({
+                number: 9,
+                state: "OPEN",
+                url: "https://example.test/pull/9",
+              }),
+              stderr: "",
+              exitCode: 0,
+            }
+          : { stdout: "[]", stderr: "", exitCode: 0 };
+      const { writes, restore } = captureStdout();
+      const exit = run(["overlay-e2e"], {
+        stateDir,
+        gh,
+        git,
+        hasOverlay: () => hasOverlay,
+      });
+      restore();
+      expect(exit).toBe(0);
+      const result = JSON.parse(writes.join("")) as DecisionResult;
+      expect(result.resumeAt).toBe(expected);
+    },
+  );
+
   it("exits 2 with usage error on bad CLI args", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const exit = run(["--bogus"], { stateDir, gh: vi.fn(), git: vi.fn() });

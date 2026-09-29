@@ -144,10 +144,10 @@ Options (create):
                         applies (mutually exclusive); also settable via ~/.flow/config.json
                         launch.forceResearch
   --skills-from <checkout>
-                        launch a pipeline whose supervisor runs that checkout's skills and agents
-                        (a private per-pipeline copy under ~/.flow/overlays/<slug>; a flow-self
-                        launch gets one automatically from the canonical checkout). Distinct
-                        from the --slug state overlays
+                        run this pipeline on the skills from a flow checkout (e.g. a branch's
+                        worktree) instead of the installed ones — use it to test skill changes
+                        end to end. Pipelines started inside flow's own checkout get a private
+                        copy automatically
   --interview / --no-interview
                         force the intent interview on, or skip it (mutually exclusive).
                         Absent falls back to flow's own per-run judgment gate and
