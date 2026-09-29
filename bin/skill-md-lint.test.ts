@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
+import { CONTINUE_PHASE_BY_EPIC_STEP } from "./flow-epic-resume-decide";
 import { STEP_PHASES, TERMINAL_EXIT_TRANSITIONS } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 import { ALWAYS_ON_LENSES, evaluateGates } from "./lib/review-lens-gates";
@@ -5804,8 +5805,13 @@ describe("flow-pipeline SKILL.md ↔ TERMINAL_EXIT_TRANSITIONS cross-doc lint", 
     ).not.toBe(undefined);
   });
 
+  // The four epic-design continue phases in the allowlist belong to
+  // `/flow-epic-create`'s awaiting-human row (checked below), not this
+  // feature supervisor's — same epic scoping as the NEXT_STEP_BY_PHASE lint.
   it.each(
-    (TERMINAL_EXIT_TRANSITIONS["needs-human"] ?? []).map((phase) => [phase]),
+    (TERMINAL_EXIT_TRANSITIONS["needs-human"] ?? [])
+      .filter((phase) => !phase.startsWith("epic-"))
+      .map((phase) => [phase]),
   )(
     "TERMINAL_EXIT_TRANSITIONS['needs-human'] phase '%s' is named (backticked) in SKILL.md's awaiting-human row",
     (phase) => {
@@ -8284,6 +8290,17 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
     ],
     ["flow-epic-resume-decide", "the bare-name epic resume decider"],
     ["RESUMING AT", "the resume re-entry print"],
+    // NEEDS HUMAN pause-then-continue literals
+    ["awaiting-human", "the paused-escalation Resume-mode row"],
+    [
+      ".context.checkpointPath",
+      "the archived-note path the decision publishes",
+    ],
+    ["--site plan-review", "the design-review auto-checkpoint arm"],
+    [
+      "flow-epic-escalate --reason",
+      "the one-call escalation that records the pause and arms its checkpoint",
+    ],
   ];
 
   it.each(REQUIRED_LITERALS)(
@@ -8298,6 +8315,52 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
       ).toBe(true);
     },
   );
+
+  // The Resume-mode `awaiting-human` row ONLY (never the surrounding prose):
+  // it must name every phase a confirming `done` can write, mirroring the
+  // /flow-pipeline row lint (which scopes to the feature continue phases).
+  const epicAwaitingHumanRow = epicCreateContent
+    .split("\n")
+    .find((line) => line.startsWith("| `awaiting-human`"));
+
+  it("the epic awaiting-human Resume-mode row was found (sanity check for the anchor above)", () => {
+    expect(epicAwaitingHumanRow, "awaiting-human row not found").not.toBe(
+      undefined,
+    );
+  });
+
+  it.each(
+    [...new Set(Object.values(CONTINUE_PHASE_BY_EPIC_STEP))].map((p) => [p]),
+  )(
+    "CONTINUE_PHASE_BY_EPIC_STEP phase '%s' is named (backticked) in flow-epic-create/SKILL.md's awaiting-human row",
+    (phase) => {
+      expect(
+        (epicAwaitingHumanRow ?? "").includes(`\`${phase}\``),
+        `CONTINUE_PHASE_BY_EPIC_STEP (bin/flow-epic-resume-decide.ts) includes '${phase}', ` +
+          "but flow-epic-create/SKILL.md's `awaiting-human` Resume-mode row never " +
+          "mentions it — fix the row to name every epic continue phase.",
+      ).toBe(true);
+    },
+  );
+
+  it("every literal `NEEDS HUMAN: <tag>` names a known escalation tag (a new escalation must route through flow-epic-escalate and be added here)", () => {
+    // `request-file-missing` / `state-missing-on-resume` are the only plain
+    // lines (no state file to record against); `task-tool-unavailable` is the
+    // sentinel the helper prints for its own call site.
+    const plain = [...epicCreateContent.matchAll(/NEEDS HUMAN: ([a-z-]+)/g)]
+      .map((m) => m[1])
+      .filter((tag) => tag !== "reason");
+    for (const tag of new Set(plain)) {
+      expect(
+        [
+          "request-file-missing",
+          "state-missing-on-resume",
+          "task-tool-unavailable",
+        ],
+        `unexpected plain 'NEEDS HUMAN: ${tag}' in flow-epic-create/SKILL.md — escalations go through flow-epic-escalate`,
+      ).toContain(tag);
+    }
+  });
 
   it("names the approve / redirect / cancel checkpoint classifications", () => {
     for (const verb of ["approve", "redirect", "cancel"]) {
@@ -8397,6 +8460,10 @@ describe("/flow-epic-run playbook SKILL.md literal anchors", () => {
     [
       "runner-driven",
       "the confirm-the-epic-is-runner-driven-before-filing rule",
+    ],
+    [
+      "flow-checkpoint --consume | jq -r '.archived",
+      "the retire-then-read checkpoint step (the playbook never calls the resume decision)",
     ],
   ];
 

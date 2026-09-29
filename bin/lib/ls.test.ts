@@ -11,7 +11,6 @@ import {
   formatNameCell,
   formatRepoCell,
   printOrphanRecovery,
-  resolveRowKind,
   runLs,
   runLsCli,
   type LsOptions,
@@ -176,16 +175,35 @@ describe(buildRows, () => {
     },
   );
 
-  it("resolveRowKind falls back to epic-design for an absent kind at an epic phase", () => {
-    expect(
-      resolveRowKind(state({ phase: "epic-designing", kind: undefined })),
-    ).toBe("epic-design");
+  it("a kind-less row falls back to epic-design at an epic phase and feature at a non-epic phase", async () => {
+    const rows = await buildRows(
+      [
+        state({ slug: "d", phase: "epic-designing", kind: undefined }),
+        state({ slug: "f", phase: "implementing", kind: undefined }),
+      ],
+      [],
+      NOW,
+    );
+    expect(rows.map((r) => r.kind)).toEqual(["epic-design", "feature"]);
   });
 
-  it("resolveRowKind falls back to feature for an absent kind at a non-epic phase", () => {
-    expect(
-      resolveRowKind(state({ phase: "implementing", kind: undefined })),
-    ).toBe("feature");
+  it("a kind-less epic paused at needs-human reads as epic-design, not feature", async () => {
+    const rows = await buildRows(
+      [
+        state({
+          slug: "paused-epic",
+          phase: "needs-human",
+          kind: undefined,
+          phaseLog: [
+            { phase: "epic-designing", at: "2026-04-30T12:00:00Z" },
+            { phase: "needs-human", at: "2026-04-30T12:05:00Z" },
+          ],
+        }),
+      ],
+      [],
+      NOW,
+    );
+    expect(rows[0].kind).toBe("epic-design");
   });
 
   it("a non-feature row with no state.epic membership falls back to its own slug under EPIC", async () => {
@@ -1238,6 +1256,30 @@ describe("runLs — orphan recovery footnote", () => {
     const out = log.mock.calls.map((c) => String(c[0])).join("\n");
     expect(out).not.toContain("flow feature resume false-flag");
     expect(out).toContain("flow feature resume true-flag");
+  });
+
+  it("names the epic command for an orphaned epic-design row and epic-run row, never flow feature resume", () => {
+    const base: Row = {
+      name: "",
+      repo: "/repo",
+      kind: "epic-design",
+      epic: "",
+      phase: "epic-designing",
+      pr: "—",
+      lastActivity: "—",
+      annotation: "(crashed)",
+      needsResumeHint: true,
+      waitForCopilot: false,
+    };
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    printOrphanRecovery([
+      { ...base, name: "design-row", kind: "epic-design" },
+      { ...base, name: "run-row", kind: "epic-run" },
+    ]);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain("flow epic create --resume design-row");
+    expect(out).toContain("flow epic run run-row");
+    expect(out).not.toContain("flow feature resume");
   });
 
   it("prints no recovery footnote when every pipeline has a live window", async () => {

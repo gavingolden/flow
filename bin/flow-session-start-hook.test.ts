@@ -523,7 +523,40 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
     expect(emitted[0]).not.toContain("flow feature resume");
   });
 
-  it("(f3) needs-human (a SHARED terminal phase) + marker + resolveKind() === 'epic-design': isEpicPhase('needs-human') would wrongly say false — the fix must use the resolved kind, not re-derive from phase", async () => {
+  it("(f3) needs-human + marker + a positively-read 'epic-design' pane kind: the epic resume seed is dispatched (resume, not orientation), nothing carried over or retired", async () => {
+    const {
+      deps,
+      dispatched,
+      dispatchedKinds,
+      dispatchedTerminal,
+      emitted,
+      retiredSlugs,
+    } = makeDeps({
+      slug: "demo",
+      state: fakeState("needs-human"),
+      markerExists: true,
+      resolveKind: () => "epic-design",
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual(["demo"]);
+    expect(dispatchedKinds).toEqual(["epic-design"]);
+    expect(dispatchedTerminal).toEqual([]);
+    expect(emitted).toEqual([]);
+    expect(retiredSlugs).toEqual([]);
+  });
+
+  it("(f4) needs-human + marker + epic-run pane kind still resumes (epic-run resumes at every phase)", async () => {
+    const { deps, dispatchedKinds } = makeDeps({
+      slug: "demo",
+      state: fakeState("needs-human"),
+      markerExists: true,
+      resolveKind: () => "epic-run",
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatchedKinds).toEqual(["epic-run"]);
+  });
+
+  it("(f5) needs-human + marker + UNREADABLE pane kind on a kind-less state whose log paused at an epic phase: not driven, but the advisory and orientation turn name the epic command, never flow feature resume", async () => {
     const {
       deps,
       dispatched,
@@ -532,9 +565,15 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
       emitted,
     } = makeDeps({
       slug: "demo",
-      state: fakeState("needs-human"),
+      state: {
+        ...fakeState("needs-human"),
+        phaseLog: [
+          { phase: "epic-designing", at: "2026-06-30T00:00:00Z" },
+          { phase: "needs-human", at: "2026-06-30T00:05:00Z" },
+        ],
+      },
       markerExists: true,
-      resolveKind: () => "epic-design",
+      resolveKind: () => null,
     });
     expect(await run(deps)).toBe(0);
     expect(dispatched).toEqual([]);
@@ -544,6 +583,28 @@ describe("flow-session-start-hook — epic-kind seed selection (Task 4)", () => 
       terminalAdvisory("demo", "needs-human", "epic-design"),
     ]);
     expect(emitted[0]).toContain("flow epic create --resume demo");
+    expect(emitted[0]).not.toContain("flow feature resume");
+  });
+
+  it("(f6) needs-human + marker + unreadable pane kind, state.kind recorded as epic-design: the carried-over notes name the epic command", async () => {
+    const { deps, emitted, retiredSlugs } = makeDeps({
+      slug: "demo",
+      state: { ...fakeState("needs-human"), kind: "epic-design" },
+      markerExists: true,
+      checkpointBody: "the human step notes",
+      resolveKind: () => null,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(emitted).toEqual([
+      terminalCarryOver(
+        "demo",
+        "needs-human",
+        "epic-design",
+        "the human step notes",
+      ),
+    ]);
+    expect(emitted[0]).toContain("flow epic create --resume demo");
+    expect(retiredSlugs).toEqual([]);
   });
 
   it("(g) epic-approved + marker + resolveKind() === 'epic-run' dispatches with kind epic-run (D3 bypasses the terminal guard)", async () => {

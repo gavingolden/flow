@@ -165,6 +165,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-session-start-hook",
       "flow-epic-dag",
       "flow-epic-resume-decide",
+      "flow-epic-escalate",
       "flow-epic-judge-context",
       "flow-epic-membership",
       "flow-epic-sync",

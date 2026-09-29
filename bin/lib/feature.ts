@@ -46,8 +46,10 @@ import {
   MODEL_ALIASES,
   type ModelAlias,
   PHASE_MODEL_FLAGS,
+  resolveStateKind,
   type PipelineState,
 } from "./state";
+import { recoveryCommandFor } from "./recovery-command";
 import {
   readDefaultModel,
   collectModelConfigWarnings,
@@ -1265,6 +1267,19 @@ function runResume(
     return 1;
   }
 
+  // An epic window shares this resume verb's slug namespace but not its
+  // supervisor: relaunching it here would open the epic as a feature
+  // pipeline. Refuse before anything launches. An epic's own feature
+  // pipelines carry kind `feature` and are unaffected.
+  const kind = resolveStateKind(state);
+  if (kind !== "feature") {
+    console.error(
+      `flow feature resume: '${slug}' is an ${kind} window, not a feature pipeline.`,
+    );
+    console.error(`  run \`${recoveryCommandFor(slug, kind)}\` instead.`);
+    return 1;
+  }
+
   if (!state.repo || !fs.existsSync(state.repo)) {
     // The repo path recorded at `flow feature create` time has moved or been deleted.
     // tmux would surface this as an opaque "-c: no such directory" — give
@@ -1506,11 +1521,9 @@ function runResume(
   // @flow-kind gets (re)set. Failures are ignored and never change this
   // command's exit code, but @flow-kind IS load-bearing state — see
   // AGENTS.md "Two sanctioned reads" and session-identity.ts's
-  // resolveKindAmbient. Guarded against overwriting an epic-design/epic-run
-  // window's kind on resume: `preResume?.kind` (read above at readState) carries the
-  // pipeline's real kind, so a slug that is actually an epic-design window
-  // republishes "epic-design" here instead of being clobbered to "feature".
-  setPaneKind(slug, preResume?.kind ?? "feature");
+  // resolveKindAmbient. Always "feature": an epic-design / epic-run slug never
+  // reaches here (refused above).
+  setPaneKind(slug, "feature");
 
   // Best-effort epic tree-view badge (OQ-1), mirroring runFresh: publish
   // @flow-epic once the (re)launch is confirmed live. respawnWindowVerified

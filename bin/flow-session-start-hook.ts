@@ -10,20 +10,21 @@
  * instead of leaving a blank session. Which of the three resume seeds it
  * sends is picked by the window's **kind**: the `@flow-kind` tmux pane
  * option wins (published by every epic launch/reclaim site; absent for a
- * feature window), and `isEpicPhase(state.phase)` is the fallback when the
+ * feature window), and `kindFromPhase(state.phase)` is the fallback when the
  * option is unreadable. An `epic-run` window resumes REGARDLESS of phase —
  * its shared `state.json` describes the *design* lifecycle, not run
  * progress, and `flow epic run` refuses to start before the design PR
  * merges, so a run window always sits at the terminal `epic-approved`.
  *
  * `needs-human` is NOT a finished pipeline — it is a pause waiting on a
- * human step, same as `gated` — so a feature window at `needs-human` also
- * auto-resumes (`autoResumesAfterClear`'s carve-out), landing on the
- * supervisor's `awaiting-human` resume verdict. That carve-out requires the
- * window's kind to be POSITIVELY read from `@flow-kind`, not phase-guessed:
- * an epic-designer window whose pane option is unreadable must never be
- * driven as a feature pipeline, so it still falls to the non-resuming
- * branch below (`kindCertain`) and gets the truthful paused wording instead.
+ * human step, same as `gated` — so a feature or epic-design window at
+ * `needs-human` also auto-resumes (`autoResumesAfterClear`'s carve-out),
+ * landing on that supervisor's `awaiting-human` resume verdict. That carve-out
+ * requires the window's kind to be POSITIVELY read from `@flow-kind`, not
+ * phase-guessed: a window whose pane option is unreadable must never be
+ * driven as a guessed supervisor, so it still falls to the non-resuming
+ * branch below (`kindCertain`) and gets the truthful paused wording instead,
+ * naming the recovery command for its best-known kind (`resolveStateKind`).
  *
  * Delivery mechanism, per launcher backend. TMUX: an earlier version emitted
  * the resume seed as SessionStart `additionalContext`, but that is injected
@@ -72,8 +73,9 @@ import { spawn } from "node:child_process";
 import {
   autoResumesAfterClear,
   AWAITING_HUMAN_PHASE_SET,
-  isEpicPhase,
   isPipelineKind,
+  kindFromPhase,
+  resolveStateKind,
   readState,
   writeState,
   WORKTREE_REMOVED_PHASE_SET,
@@ -82,6 +84,7 @@ import {
 } from "./lib/state";
 import { resolveKindAmbient, resolveSlugFromEnv } from "./lib/session-identity";
 import { isValidSlug } from "./lib/slug";
+import { recoveryCommandFor } from "./lib/recovery-command";
 import { flowPipelineResumeSeed } from "./lib/feature";
 import {
   epicResumeSeed,
@@ -135,18 +138,6 @@ export function resumeSeedFor(slug: string, kind: ResumeKind): string {
 }
 
 /**
- * Shared recovery-command mapping — reused by `terminalAdvisory`,
- * `terminalCarryOver`, and `terminalContinueSeed`.
- */
-function recoveryCommandFor(slug: string, kind: ResumeKind): string {
-  return kind === "epic-design"
-    ? `flow epic create --resume ${slug}`
-    : kind === "epic-run"
-      ? `flow epic run ${slug}`
-      : `flow feature resume ${slug}`;
-}
-
-/**
  * The user-turn seed fired into a tmux pane after a `/clear` at a phase the
  * pipeline will NOT resume from. `terminalCarryOver` already delivers the notes
  * passively, but `additionalContext` triggers no autonomous turn — so without
@@ -173,9 +164,10 @@ export function terminalContinueSeed(
 ): string {
   // "Worktree removed" is classified from the phase, never probed from disk.
   // WORKTREE_REMOVED_PHASE_SET is exactly `merged` + `cancelled`, the two
-  // phases flow-remove-worktree runs behind — and it performs no writeState,
-  // so `state.worktree` still points at the deleted sibling dir (issue #632)
-  // and must not be named there. It comes from ./lib/state, never from
+  // phases flow-remove-worktree runs behind. It now clears the recorded
+  // worktree at those phases (issue #632), but an older record — or one whose
+  // clear was skipped — can still point at the deleted sibling dir, which
+  // must not be named there. It comes from ./lib/state, never from
   // flow-resume-decide (which re-declares a same-named phase set and would
   // drag the resume decision tree into a hook that blocks session start).
   const worktreeGone = WORKTREE_REMOVED_PHASE_SET.has(phase);
@@ -261,7 +253,7 @@ export function terminalAdvisory(
 /**
  * The passive context emitted when a `/clear` at a terminal phase DOES carry
  * a non-empty checkpoint body — the carry-over path Task 2 adds. Reuses
- * `terminalAdvisory`'s recovery-command mapping (via `recoveryCommandFor`)
+ * `terminalAdvisory`'s recovery-command mapping (via `recoveryCommandFor`, `./lib/recovery-command`)
  * rather than duplicating it, then appends the body verbatim under a
  * dedicated heading so it reads as distinct from the one-line note.
  */
@@ -356,7 +348,7 @@ export type Deps = {
    * Resolves the window's kind from the `@flow-kind` pane option. Optional,
    * defaulting to `resolveKindAmbient()` — matches `bin/flow-checkpoint.ts`'s
    * `resolveKind?` seam style. `null` (option absent/unreadable) falls back
-   * to `isEpicPhase(state.phase)` in `run()`, per D3.
+   * to `kindFromPhase(state.phase)` in `run()`, per D3.
    */
   resolveKind?: () => ResumeKind | null;
   /**
@@ -415,16 +407,15 @@ export async function run(deps: Deps): Promise<number> {
   // still resolves for real.
   const resolveKind = deps.resolveKind ?? resolveKindAmbient;
   const paneKind = resolveKind();
-  const kind: ResumeKind =
-    paneKind ?? (isEpicPhase(state.phase) ? "epic-design" : "feature");
+  const kind: ResumeKind = paneKind ?? kindFromPhase(state.phase);
   // Whether `kind` is POSITIVELY known rather than phase-guessed: either the
   // `@flow-kind` pane option read something, or there is no pane to read
   // (a plain launcher has no tmux pane at all, so "feature" is not a guess —
   // it's the only kind a plain session can ever be). Needed only for the
   // needs-human carve-out below: `autoResumesAfterClear` widens for
-  // needs-human on `kind === "feature"`, and an epic-designer window whose
-  // pane-option read failed must never be driven as a feature pipeline on a
-  // guessed identity (bin/lib/session-identity.ts's unsafe-guess rationale).
+  // needs-human on `kind === "feature"` or `"epic-design"`, and a window
+  // whose pane-option read failed must never be driven as a guessed
+  // supervisor (bin/lib/session-identity.ts's unsafe-guess rationale).
   const kindCertain = paneKind !== null || state.launcher === "plain";
 
   // A pipeline that will not auto-resume for this kind has nothing to
@@ -451,10 +442,16 @@ export async function run(deps: Deps): Promise<number> {
     // unchanged. The whole branch is wrapped so no checkpoint I/O failure
     // (unreadable body, unwritable archive) can ever block session start —
     // this hook is global and fires on EVERY /clear.
+    // Display-only kind for the advisory text and orientation turn: the pane
+    // option when readable, else the state's own kind (never a bare phase
+    // guess, which reads a kind-less paused epic as a feature).
+    const displayKind: ResumeKind = paneKind ?? resolveStateKind(state);
     try {
       const body = deps.readCheckpointBody(slug);
       if (body) {
-        deps.emitContext(terminalCarryOver(slug, state.phase, kind, body));
+        deps.emitContext(
+          terminalCarryOver(slug, state.phase, displayKind, body),
+        );
         // An awaiting-human pause is not over: these notes are the
         // confirming reply's input, so a kind-uncertain /clear must never
         // retire them — consume only on the confirming reply (SKILL.md's
@@ -464,7 +461,7 @@ export async function run(deps: Deps): Promise<number> {
           deps.retireCheckpoint(slug);
         }
       } else {
-        deps.emitContext(terminalAdvisory(slug, state.phase, kind));
+        deps.emitContext(terminalAdvisory(slug, state.phase, displayKind));
       }
     } catch {
       return 0;
@@ -482,7 +479,7 @@ export async function run(deps: Deps): Promise<number> {
     // see. No tmux subprocess and no new filesystem probe either way — an
     // env read, same cost class as the launcher check it joins.
     if (state.launcher !== "plain" && Boolean(deps.tmuxPaneEnv)) {
-      deps.dispatchResume(slug, kind, "terminal");
+      deps.dispatchResume(slug, displayKind, "terminal");
     }
     return 0;
   }

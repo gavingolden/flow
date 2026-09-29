@@ -239,24 +239,26 @@ and proceed.
 
 **Checkpoint re-injection (persisted conversational state).** A fresh
 process reconstructs the board from disk but drops any instruction held
-only in chat. Resolve the checkpoint body **read-only** —
-`CHECKPOINT_PATH=$(flow-checkpoint --path)`, which derives the
-slug-keyed, worktree-independent location and only prints it. Do **not**
-resolve it by running bare `flow-checkpoint <slug>`: that form re-arms the
-one-shot `checkpoint.pending` marker on every resume, which is exactly
-what the `--consume` below exists to retire. Then probe
-`$CHECKPOINT_PATH`.
-When it exists, read it and fold its addenda into the reconcile step —
-honor the persisted decision as if just given — **before** taking the one
-deliberate step. Then run:
+only in chat. This playbook never calls a resume-decision helper, so it
+retires and reads the notes in ONE step — the only path to the notes runs
+through the command that retires them:
 
 ```bash
-flow-checkpoint --consume
+ARCHIVED=$(flow-checkpoint --consume | jq -r '.archived // empty')
 ```
 
-which deletes the one-shot `checkpoint.pending` marker so a later
-unrelated `/clear` in this window does not re-fire the auto-resume hook.
-Skipping the consume leaves the marker armed.
+`--consume` archives the note (recoverable, never silently deleted) and
+deletes the one-shot `checkpoint.pending` marker so a later unrelated
+`/clear` in this window does not re-fire the auto-resume hook; it prints
+the archived path. When `$ARCHIVED` is non-empty, read it and fold its
+addenda into the reconcile step — honor the persisted decision as if just
+given — **before** taking the one deliberate step. Empty means no note was
+saved. Do **not** resolve the notes by running bare `flow-checkpoint
+<slug>`: that form re-arms the one-shot marker on every resume, the exact
+thing this step retires. This playbook arms nothing itself, but
+`/flow-checkpoint` in this window prints the same `checkpointed: …` banner —
+a `checkpointed: false` line means a `/clear` will lose unsaved in-chat
+state.
 
 # What this playbook does NOT do
 
@@ -268,8 +270,8 @@ launch`.
 - It does **not author feature code**, run a tick loop, poll, or spawn a
   judgment sub-agent.
 - It does **not replay a checkpoint twice** — the `checkpoint.pending`
-  marker is one-shot, consumed (`flow-checkpoint --consume`) on the same
-  re-entry that re-injects `checkpoint.md`.
+  marker is one-shot, retired by the same `flow-checkpoint --consume` that
+  hands over the archived note on the re-entry that reads it.
 
 # Resource cleanup
 

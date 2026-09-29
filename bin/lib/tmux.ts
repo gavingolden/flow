@@ -14,8 +14,8 @@
 
 import * as path from "node:path";
 import {
-  isEpicPhase,
   isPipelineKind,
+  resolveStateKind,
   shortPhase,
   type PipelineKind,
   type PipelineState,
@@ -864,7 +864,7 @@ export type SetWindowPhaseDeps = {
  *
  * `@flow-epic` resolves to `state.epic?.slug ?? (resolvedKind === "feature"
  * ? "" : state.slug)`, where `resolvedKind` falls back through the SAME
- * `isEpicPhase`-driven rule `resolveRowKind` (`./ls`) uses when `state.kind`
+ * `resolveStateKind` (`./state`) rule `flow ls` uses when `state.kind`
  * is absent — never a bare `state.kind === "feature"` check, which would
  * mis-publish a kind-less feature's OWN slug as its epic badge. Deliberately
  * NOT simplified to `?? ""`, which would blank an epic-design window's own
@@ -886,7 +886,10 @@ export type SetWindowPhaseDeps = {
  */
 export function publishStateBadges(
   state: Readonly<
-    Pick<PipelineState, "slug" | "phase" | "pr" | "kind" | "epic" | "launcher">
+    Pick<
+      PipelineState,
+      "slug" | "phase" | "phaseLog" | "pr" | "kind" | "epic" | "launcher"
+    >
   >,
   deps: SetWindowPhaseDeps & { env?: NodeJS.ProcessEnv } = {},
 ): { ok: boolean; stderr: string } {
@@ -925,8 +928,7 @@ export function publishStateBadges(
       state.pr !== undefined ? String(state.pr) : "",
     ),
   );
-  const resolvedKind =
-    state.kind ?? (isEpicPhase(state.phase) ? "epic-design" : "feature");
+  const resolvedKind = resolveStateKind(state);
   const epicBadge =
     state.epic?.slug ?? (resolvedKind === "feature" ? "" : state.slug);
   spawn(buildSetOptionArgs(window.id, FLOW_EPIC_OPTION, epicBadge));

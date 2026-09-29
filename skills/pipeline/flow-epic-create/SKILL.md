@@ -57,7 +57,8 @@ the fresh-create seed above only — the `--resume` seed
 (`flow epic create --resume <slug>`) carries no `REQUEST_FILE`; see
 `# Resume mode` below, which is what governs that invocation instead. Only
 when a fresh-create seed's `REQUEST_FILE` is absent, escalate
-`NEEDS HUMAN: request-file-missing`.
+`NEEDS HUMAN: request-file-missing` as a plain line — no state file exists yet,
+so `flow-epic-escalate` (see `## Escalating to NEEDS HUMAN`) cannot record it.
 
 Capture the literal `EPIC_DIR` and use it verbatim for every path below
 (`<EPIC_DIR>/design.md`, `<EPIC_DIR>/manifest.json`). Likewise capture the
@@ -69,7 +70,7 @@ run cwd'd in a
 **NEVER `import` `bin/lib`** (`epicDirRelative`, `EPIC_*_FILENAME`) — that
 import fails here. Consume the literal + the **bare-name PATH validators**
 (`flow-epic-manifest-schema`, `flow-epic-dag`) + the bare-name
-`flow-epic-resume-decide` + `jq` only.
+`flow-epic-resume-decide` + `flow-epic-escalate` + `jq` only.
 
 # HALT contract (read before doing anything)
 
@@ -83,6 +84,28 @@ PR OPEN for the human to merge. You must:
 
 `flowNewHints` in the manifest + the committed manifest itself are the only
 orchestrator seam — leave them for the deferred `flow epic run` phase.
+
+## Escalating to NEEDS HUMAN
+
+Every NEEDS HUMAN escalation below runs ONE command — never a hand-written
+phase write, checkpoint write, or `echo`:
+
+```bash
+flow-epic-escalate --reason <tag> --why "<one line>"
+```
+
+It records `phase: needs-human` (the phase history keeps the paused phase),
+writes a "Paused at phase" note, arms the terminal checkpoint, and prints the
+pause block ending in the byte-exact `NEEDS HUMAN: <reason>` sentinel. Echo its
+`checkpointed: …` stderr line verbatim as the last line of your turn — a
+`checkpointed: false` line means a `/clear` will lose unsaved in-chat state
+(`/flow-checkpoint` prints the same banner) — then **END the turn**:
+`needs-human` is a terminal phase, so `flow-stop-guard` permits it. The user
+replies `done` here once the human step is resolved, or `/clear`s (or crashes)
+and runs `flow epic create --resume <slug>`; both land on the Resume-mode
+`awaiting-human` row and continue the paused step. Only the two escalations
+with no state file to record against (`request-file-missing`,
+`state-missing-on-resume`) stay plain `NEEDS HUMAN: <reason>` lines.
 
 # The steps
 
@@ -157,7 +180,9 @@ the Task call, run `ToolSearch query="select:Task"` and confirm the response
 contains either a `<function>{"name": "Task", ...}</function>` or a
 `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not
 fall back to in-line execution** — escalate
-`NEEDS HUMAN: task-tool-unavailable: epic-create-designer` and exit.
+`NEEDS HUMAN: task-tool-unavailable: epic-create-designer` via
+`flow-epic-escalate --reason "task-tool-unavailable: epic-create-designer" --why "the Task tool could not be loaded"`
+and end the turn.
 
 **Per-phase model (planning) threading.** The epic **design** phase shares the
 feature **planning** knob — resolution field `state.modelPlanning` (set via
@@ -349,7 +374,18 @@ FIRST and skips `gh pr create` on an already-PR'd branch, writing `pr` to
 
 ## Step 6 — Checkpoint (render + END the turn)
 
-Run `flow-state-update --phase epic-design-pending-review`. Render the checkpoint — the open
+Run `flow-state-update --phase epic-design-pending-review`. Then arm a
+lightweight checkpoint so a bare `/clear` at this review resumes here (the same
+arm `/flow-pipeline` makes at its plan-review stop): run
+`flow-checkpoint --probe --site plan-review`, branch on `jq -r '.verdict'`, and
+only on `write` write a minimal one-line pointer (the design PR URL plus
+"awaiting approve / redirect / cancel") to the path `flow-checkpoint --path`
+prints — a still-fresh manual note (`verdict: preserve`) wins and is left
+untouched. Then `flow-checkpoint --site plan-review` to arm the marker and
+record the freshness receipt, and echo its `checkpointed: …` stderr line
+verbatim as the last line of the turn (`/flow-checkpoint` here prints the same
+banner; a `checkpointed: false` line means a `/clear` will lose unsaved
+state). Render the checkpoint — the open
 design PR URL plus the approve/redirect/cancel next-action prompt — mirroring
 `/flow-pipeline` step 3's awaiting-approval render:
 
@@ -416,9 +452,14 @@ question when ambiguous):
   on the already-PR'd branch (**no second `gh pr create`**; the PR + copilot
   review update in place). Re-enter the checkpoint (**Step 6**).
 
-- **cancel** (`cancel`, `abort`, `kill this`) → `gh pr close <pr>`, then
-  `flow-remove-worktree` (call it bare — auto-resolves the slug), run
-  `flow-state-update --phase cancelled`, and stop.
+- **cancel** (`cancel`, `abort`, `kill this`) → `gh pr close <pr>`, run
+  `flow-state-update --phase cancelled`, then `flow-remove-worktree` (call it
+  bare — auto-resolves the slug), and stop. Write `cancelled` BEFORE removing
+  the worktree: a crash between the two then leaves a finished pipeline, not a
+  live one whose recorded worktree is gone.
+- **done** (only while the phase is `needs-human` — this window just escalated
+  via `flow-epic-escalate`) → run the `# Resume mode` decision
+  (`RESULT=$(flow-epic-resume-decide)`) and follow its `awaiting-human` row.
 
 Every turn-ending Step 7 reply — the ambiguous clarifying question, the
 post-redirect re-checkpoint prose, the approve/cancel confirmation — is
@@ -446,7 +487,8 @@ Use the /flow-epic-create skill in --resume mode for: <slug>
 `flow epic create --resume <slug>` writes that prompt; nothing else does. On
 detecting it, **do not** start at Step 1. Call `flow-epic-resume-decide`
 (bare-name PATH, R1 — auto-resolves the slug from `$FLOW_SLUG`) to walk the
-epic resume-from-disk decision:
+epic resume-from-disk decision. It is the resume entry, not a read-only probe:
+it retires the one-shot checkpoint itself (see below):
 
 ```bash
 RESULT=$(flow-epic-resume-decide)
@@ -455,6 +497,7 @@ REASON=$(printf '%s' "$RESULT" | jq -r '.reason')
 WORKTREE=$(printf '%s' "$RESULT" | jq -r '.context.worktree // empty')
 PR=$(printf '%s' "$RESULT" | jq -r '.context.pr // empty')
 CHECKPOINT_EXISTS=$(printf '%s' "$RESULT" | jq -r '.context.checkpointExists // empty')
+CHECKPOINT_PATH=$(printf '%s' "$RESULT" | jq -r '.context.checkpointPath // empty')
 ```
 
 Print `RESUMING AT: <epicResumeAt> (<reason>)` on its own line before
@@ -464,34 +507,35 @@ re-entering, so the user reading scrollback can confirm.
 process reconstructs the epic _step_ from disk but drops any instruction
 held only in chat. Before re-entering the resolved step, check
 `$CHECKPOINT_EXISTS`: when `true` (a checkpoint body written by
-`/flow-checkpoint` at the slug-keyed, worktree-independent location),
-**resolve it with `CHECKPOINT_PATH=$(flow-checkpoint --path)` and read
-`$CHECKPOINT_PATH`** — and fold its addenda into the re-entered step — honor the persisted
-approval condition, redirect, or in-chat decision as if just given. Then
-run:
-
-```bash
-flow-checkpoint --consume
-```
-
-which deletes the one-shot `checkpoint.pending` marker so a later
-unrelated `/clear` does not re-fire the auto-resume hook. Skip this and an
-"approved with condition X" addendum silently vanishes on the clear.
+`/flow-checkpoint` or `flow-epic-escalate` at the slug-keyed,
+worktree-independent location), **read `$CHECKPOINT_PATH`** — the path the
+decision published in `.context.checkpointPath` — and fold its addenda into
+the re-entered step: honor the persisted approval condition, redirect, or
+in-chat decision as if just given. The decision has already retired the
+one-shot `checkpoint.pending` marker and archived the note (so a later
+unrelated `/clear` does not re-fire the auto-resume hook), which is why
+`$CHECKPOINT_PATH` is the ARCHIVED path on every verdict except
+`awaiting-human` — never resolve the notes with `flow-checkpoint --path`
+here, which names the live (now empty) location, and never run the bare
+`flow-checkpoint` form (it re-arms). At the `awaiting-human` pause
+retirement is deferred until the confirming reply, so `$CHECKPOINT_PATH` is
+the live note.
 
 Re-attach the worktree first (`flow-new-worktree` is idempotent), then
 branch on `.epicResumeAt`:
 
-| `.epicResumeAt` | Action                                                                                                                                                                                                                                                                                                    |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `worktree`      | Re-enter Step 1 (recreate the worktree).                                                                                                                                                                                                                                                                  |
-| `design`        | Re-enter Step 3 (re-run the designer; it overwrites the artifacts, so a re-spawn is idempotent).                                                                                                                                                                                                          |
-| `validate`      | Re-enter Step 4 (re-run the cheap, idempotent validators).                                                                                                                                                                                                                                                |
-| `open-pr`       | Re-enter Step 5 (open the PR — no PR record yet).                                                                                                                                                                                                                                                         |
-| `read-back-pr`  | A crash mid-`epic-pr-open` where `flow-open-pr` already wrote `state.pr` / a branch PR exists: read the existing PR back and advance to the checkpoint render (Step 6). **Never re-open** an already-open PR (`flow-open-pr`'s up-front `gh pr view` probe enforces the same — no second `gh pr create`). |
-| `checkpoint`    | Re-render the checkpoint (Step 6) **WITHOUT re-designing** and wait — **never replay an approval** the user gave to a now-dead session.                                                                                                                                                                   |
-| `terminal`      | Already `epic-approved` / `cancelled` / `needs-human`. Re-render the terminal note and end without re-running anything.                                                                                                                                                                                   |
-| `escalate`      | Escalate `NEEDS HUMAN: <reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact.                                                                                                                                                                          |
-| `abort`         | The state file is missing. Escalate `NEEDS HUMAN: state-missing-on-resume` and end.                                                                                                                                                                                                                       |
+| `.epicResumeAt`  | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `worktree`       | Re-enter Step 1 (recreate the worktree).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `design`         | Re-enter Step 3 (re-run the designer; it overwrites the artifacts, so a re-spawn is idempotent).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `validate`       | Re-enter Step 4 (re-run the cheap, idempotent validators).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `open-pr`        | Re-enter Step 5 (open the PR — no PR record yet).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `read-back-pr`   | A crash mid-`epic-pr-open` where `flow-open-pr` already wrote `state.pr` / a branch PR exists: read the existing PR back and advance to the checkpoint render (Step 6). **Never re-open** an already-open PR (`flow-open-pr`'s up-front `gh pr view` probe enforces the same — no second `gh pr create`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `checkpoint`     | Re-render the checkpoint (Step 6) **WITHOUT re-designing** and wait — **never replay an approval** the user gave to a now-dead session.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `terminal`       | Already `epic-approved` / `cancelled`, or a `needs-human` pause whose design PR merged or whose worktree was never recorded. Re-render the terminal note and end without re-running anything.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `awaiting-human` | A `needs-human` pause with a live worktree — from `flow-epic-escalate`, or a crash-resume of one. Read the notes at `$CHECKPOINT_PATH` (the LIVE note, not yet retired), render the pending human step from them plus the step it will continue at (`.context.continueAt`) per `../flow-pipeline/references/pause-output-contract.md` (`**TLDR:**` paused waiting on you; `**Manual action:**` the human step; `**Next action:**` reply `done` to continue, or redirect / cancel), and END the turn. **Never continue before the user confirms the human step is done.** On `done`: `flow-state-update --phase "$(printf '%s' "$RESULT" \| jq -r '.context.continuePhase')"` with no `--force` (allowlisted; the continue phases are exactly `epic-designing`, `epic-validating`, `epic-pr-open`, `epic-design-pending-review` — never a merge phase), then re-run `RESULT=$(flow-epic-resume-decide)` (it retires the note now and publishes the archived path in `.context.checkpointPath`) and follow the row it returns. A reply carrying an instruction (a redirect) writes the continue phase and re-runs the decision the same way BEFORE the redirect is applied at that step, so the note is retired on every reply; `cancel` runs `flow-checkpoint --consume` first, then the Step 7 cancel branch. When `.context.continueAt` is absent, ask which step to re-enter, naming the escalation reason. |
+| `escalate`       | Run `flow-epic-escalate --reason "$REASON" --why "<one line>"` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`) — it handles a state already at `needs-human` — and end the turn. Leave the worktree + PR intact.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `abort`          | The state file is missing. Print the plain line `NEEDS HUMAN: state-missing-on-resume` and end (`flow-epic-escalate` needs the state file, so it cannot record this one).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ## What resume mode does NOT do
 
@@ -503,8 +547,9 @@ branch on `.epicResumeAt`:
   the resume path.
 - It does not launch a feature `flow feature create` or compute a DAG frontier.
 - It does **not replay a checkpoint twice** — the `checkpoint.pending` marker
-  is one-shot, consumed (`flow-checkpoint --consume`) on the same re-entry
-  that re-injects `checkpoint.md`.
+  is one-shot, retired by `flow-epic-resume-decide` itself on the same re-entry
+  that re-injects the notes (at an `awaiting-human` pause: on the re-run after
+  the confirming `done`).
 
 # Resource cleanup
 
