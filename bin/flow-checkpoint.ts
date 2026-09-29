@@ -55,9 +55,11 @@ import {
   AWAITING_HUMAN_PHASE_SET,
   nowIso,
   readState,
+  resolveStateKind,
   writeState,
   type PipelineKind,
 } from "./lib/state";
+import { recoveryCommandFor } from "./lib/recovery-command";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveKindAmbient, resolveSlugAmbient } from "./lib/session-identity";
 import {
@@ -309,6 +311,56 @@ export function archiveCheckpointBody(
   }
 }
 
+/** `consumeCheckpoint`'s return shape. */
+export type ConsumeResult = {
+  marker: string;
+  /** A one-shot marker was present and its removal was attempted. */
+  markerRemoved: boolean;
+  /** The archived note path, or `null` when there was no body to archive. */
+  archived: string | null;
+};
+
+/**
+ * Retires a pipeline's one-shot checkpoint — the body of `--consume`, shared
+ * with `flow-epic-resume-decide` so the resume decision itself retires the
+ * note instead of relying on a prose step: archives `checkpoint.md`, clears
+ * the freshness record, and removes the banner file and the marker so a
+ * later unrelated /clear does not re-fire the auto-resume hook. NEVER
+ * throws and is idempotent. Reads state itself; a missing state file skips
+ * only the record clear (the body is slug-keyed, not state-keyed).
+ */
+export function consumeCheckpoint(
+  slug: string,
+  dir = FLOW_STATE_DIR,
+): ConsumeResult {
+  const marker = checkpointMarkerPath(slug, dir);
+  const archived = archiveCheckpointBody(slug, dir);
+  try {
+    const state = readState(slug, dir);
+    if (state?.checkpoint) {
+      writeState({ ...state, checkpoint: undefined }, dir);
+    }
+  } catch {
+    // best-effort: a failed record clear does not block the decision.
+  }
+  try {
+    fs.unlinkSync(armBannerPath(slug, dir));
+  } catch {
+    // best-effort: no banner to retire (never armed, or already
+    // consumed) is not an error — see checkpointDir contract above.
+  }
+  const markerRemoved = fs.existsSync(marker);
+  if (markerRemoved) {
+    try {
+      fs.unlinkSync(marker);
+    } catch {
+      // best-effort: a marker that can't be removed still no-ops the next
+      // clear once the worktree is gone; don't fail the decision.
+    }
+  }
+  return { marker, markerRemoved, archived };
+}
+
 export type Args =
   | {
       slug?: string;
@@ -481,33 +533,14 @@ export function run(argv: string[], deps: Deps = {}): number {
       emit({ status: "noop", slug, reason: "state-missing" });
       return 0;
     }
-    const marker = checkpointMarkerPath(slug, stateDir);
-    const archived = archiveCheckpointBody(slug, stateDir) ?? undefined;
-    if (state.checkpoint) {
-      try {
-        writeState({ ...state, checkpoint: undefined }, stateDir);
-      } catch {
-        // best-effort: a failed record clear does not block the decision.
-      }
-    }
-    try {
-      fs.unlinkSync(armBannerPath(slug, stateDir));
-    } catch {
-      // best-effort: no banner to retire (never armed, or already
-      // consumed) is not an error — see checkpointDir contract above.
-    }
-    if (fs.existsSync(marker)) {
-      try {
-        fs.unlinkSync(marker);
-      } catch {
-        // best-effort: a marker that can't be removed still no-ops the next
-        // clear once the worktree is gone; don't fail the decision.
-      }
+    const consumed = consumeCheckpoint(slug, stateDir);
+    const archived = consumed.archived ?? undefined;
+    if (consumed.markerRemoved) {
       emit({
         status: "consumed",
         slug,
         worktree: state.worktree,
-        marker,
+        marker: consumed.marker,
         archived,
       });
       return 0;
@@ -588,7 +621,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   let warning: string | undefined;
   if (parsed.site !== "terminal" && !willAutoResume) {
     warning = AWAITING_HUMAN_PHASE_SET.has(state.phase)
-      ? `phase '${state.phase}' is paused on a human step — your notes are still carried over into the fresh session after /clear, but this window will not auto-resume the pipeline; close it first, then run flow feature resume ${slug} to continue. In a tmux window the notes arrive alongside a short orientation turn that summarises them and then waits for your questions, so the pane does not sit blank.`
+      ? `phase '${state.phase}' is paused on a human step — your notes are still carried over into the fresh session after /clear, but this window will not auto-resume the pipeline; close it first, then run ${recoveryCommandFor(slug, paneKind ?? resolveStateKind(state))} to continue. In a tmux window the notes arrive alongside a short orientation turn that summarises them and then waits for your questions, so the pane does not sit blank.`
       : `phase '${state.phase}' is terminal — your notes are still carried over into the fresh session after /clear, but the pipeline itself will not auto-resume (there is nothing left to resume). In a tmux window the notes arrive alongside a short orientation turn that summarises them and then waits for your questions, so the pane does not sit blank.`;
     process.stderr.write(`flow-checkpoint: warning: ${warning}\n`);
   }

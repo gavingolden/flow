@@ -1235,6 +1235,10 @@ describe("terminal-regression guard", () => {
     "ci-wait",
     "reviewing",
     "gating",
+    "epic-designing",
+    "epic-validating",
+    "epic-pr-open",
+    "epic-design-pending-review",
   ])(
     "allows the allowlisted needs-human→%s continue exit and writes the phase",
     (toPhase) => {

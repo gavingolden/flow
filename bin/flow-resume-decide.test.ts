@@ -22,6 +22,7 @@ import {
 } from "./flow-resume-decide";
 import { checkpointBodyPath, run as checkpointRun } from "./flow-checkpoint";
 import {
+  EPIC_PHASES,
   readState,
   writeState,
   type PipelineState,
@@ -505,12 +506,15 @@ describe("decide() — needs-human awaiting-human mode (Story 2)", () => {
     expect(r.context.continuePhase).toBeUndefined();
   });
 
-  it("every CONTINUE_PHASE_BY_STEP value is in TERMINAL_EXIT_TRANSITIONS['needs-human'] and vice versa (parity)", () => {
+  it("every CONTINUE_PHASE_BY_STEP value is in TERMINAL_EXIT_TRANSITIONS['needs-human'], and the allowlist's remainder is exactly the epic continue phases (subset parity; the union check lives in flow-epic-resume-decide.test.ts)", () => {
     const continuePhases = Object.values(CONTINUE_PHASE_BY_STEP);
     const allowlisted = TERMINAL_EXIT_TRANSITIONS[
       "needs-human"
     ] as readonly string[];
-    expect([...continuePhases].sort()).toEqual([...allowlisted].sort());
+    for (const phase of continuePhases) expect(allowlisted).toContain(phase);
+    expect(
+      allowlisted.filter((phase) => !continuePhases.includes(phase)).sort(),
+    ).toEqual(EPIC_PHASES.filter((p) => allowlisted.includes(p)).sort());
   });
 });
 

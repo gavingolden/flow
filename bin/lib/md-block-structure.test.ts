@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  fencedLineMask,
   findDetailsBlockDefects,
   findUnterminatedHtmlBlockLines,
   normalizeDetailsBlocks,
@@ -197,5 +198,54 @@ describe("findUnterminatedHtmlBlockLines", () => {
     const body = "   <details>\n- [ ] trapped\n";
     const trapped = findUnterminatedHtmlBlockLines(body);
     expect(trapped).toEqual(new Set([0, 1]));
+  });
+});
+
+describe("fencedLineMask", () => {
+  it("marks a backtick fence including delimiters", () => {
+    expect(fencedLineMask(["a", "```", "b", "```", "c"])).toEqual([
+      false,
+      true,
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it("supports ~~~ fences", () => {
+    expect(fencedLineMask(["~~~", "x", "~~~", "y"])).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it("keeps a 4-backtick fence open across an inner ``` line", () => {
+    expect(fencedLineMask(["````", "```", "x", "````", "z"])).toEqual([
+      true,
+      true,
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it("handles an info string on the opener", () => {
+    expect(fencedLineMask(["```ts", "x", "```", "y"])).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it("returns false for an unclosed opener and everything after it", () => {
+    expect(fencedLineMask(["a", "```", "b", "c"])).toEqual([
+      false,
+      false,
+      false,
+      false,
+    ]);
   });
 });

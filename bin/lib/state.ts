@@ -556,9 +556,13 @@ export const AWAITING_HUMAN_PHASES = ["gated", "needs-human"] as const;
 export const FINISHED_PHASE_SET: ReadonlySet<string> = new Set(FINISHED_PHASES);
 
 /**
- * The subset of FINISHED_PHASES where `flow-remove-worktree` has already run
- * and `state.worktree` is stale (points at a deleted sibling dir — issue
- * #632). Hand-listed rather than derived (`FINISHED_PHASES` minus
+ * The subset of FINISHED_PHASES where `flow-remove-worktree` has already run.
+ * `state.worktree` is now cleared there (`flow-remove-worktree`'s
+ * `forgetRemovedWorktree` at these phases, and `finalizePhase`'s write of one
+ * of them over a vanished directory — issue #632), but a record written
+ * before that change, or one whose clear was skipped, can still name a
+ * deleted sibling dir — so readers keep classifying "worktree removed" from
+ * the PHASE, never from the field. Hand-listed rather than derived (`FINISHED_PHASES` minus
  * `"epic-approved"`): a derived split would silently reclassify a future
  * `FINISHED_PHASES` entry into "worktree gone" by default, which is the
  * unsafe direction — telling a still-live worktree that it is gone is a
@@ -582,10 +586,17 @@ export const AWAITING_HUMAN_PHASE_SET: ReadonlySet<string> = new Set(
  *
  * - `gated`: the gated-feedback loop's re-verify (step 6) / re-gate
  *   (step 9), and the gate-override merge (step 10).
- * - `needs-human`: the eight step phases (`planning` through `gating`) a
- *   confirming "done" reply can re-enter once `bin/flow-resume-decide.ts`
- *   resolves the paused pipeline's `awaiting-human` verdict — see
- *   `pausedPhase` and `CONTINUE_PHASE_BY_STEP` there.
+ * - `needs-human`: the eight feature step phases (`planning` through
+ *   `gating`) plus the four epic-design continue phases (`epic-designing`,
+ *   `epic-validating`, `epic-pr-open`, `epic-design-pending-review`) a
+ *   confirming "done" reply can re-enter once `bin/flow-resume-decide.ts` /
+ *   `bin/flow-epic-resume-decide.ts` resolves the paused pipeline's
+ *   `awaiting-human` verdict — see `pausedPhase`, `CONTINUE_PHASE_BY_STEP`
+ *   there and `CONTINUE_PHASE_BY_EPIC_STEP` in the epic decider. The two
+ *   maps' values together equal this list exactly (parity-tested). The
+ *   allowlist is keyed by the phase being left, not the pipeline kind
+ *   (kind is display-only). No merge phase is ever epic-reachable: F5
+ *   never merges.
  *
  * Both entries deliberately exclude `merging`: the resume tree never
  * returns a step-10 target, so a continuation always re-runs the step-9
@@ -624,6 +635,10 @@ export const TERMINAL_EXIT_TRANSITIONS: Readonly<
     "ci-wait",
     "reviewing",
     "gating",
+    "epic-designing",
+    "epic-validating",
+    "epic-pr-open",
+    "epic-design-pending-review",
   ],
 };
 
@@ -696,6 +711,34 @@ export function isPipelineKind(value: string): value is PipelineKind {
 }
 
 /**
+ * The phase-derived kind fallback — the one place `isEpicPhase(phase) ?
+ * "epic-design" : "feature"` lives. It can only ever resolve to
+ * "epic-design", never "epic-run" (see `isEpicPhase` above).
+ */
+export function kindFromPhase(phase: string): PipelineKind {
+  return isEpicPhase(phase) ? "epic-design" : "feature";
+}
+
+/**
+ * A state's window kind: the recorded `kind`, else the phase-derived
+ * fallback. At `needs-human` the shared terminal phase is feature-or-epic
+ * ambiguous, so the fallback reads the phase the pause interrupted
+ * (`pausedPhase`) — a kind-less paused epic must not read as a feature.
+ */
+export function resolveStateKind(
+  state: Pick<PipelineState, "kind" | "phase" | "phaseLog">,
+): PipelineKind {
+  return (
+    state.kind ??
+    kindFromPhase(
+      state.phase === "needs-human"
+        ? (pausedPhase(state.phaseLog) ?? state.phase)
+        : state.phase,
+    )
+  );
+}
+
+/**
  * Whether the `SessionStart:clear` hook auto-resumes a window at `phase`
  * for a supervisor of the given `kind`. Encodes
  * `bin/flow-session-start-hook.ts`'s terminal guard: an `epic-run` window
@@ -704,11 +747,12 @@ export function isPipelineKind(value: string): value is PipelineKind {
  * per-machine phase machine" comment on the run path); every other kind
  * resumes unless `phase` is terminal, with two carve-outs: `gated`
  * (feedback-resume stays live even though `gated` is terminal, for any
- * kind) and `needs-human` for `kind === "feature"` only — the
- * `awaiting-human` resume verdict (`bin/flow-resume-decide.ts`) needs the
- * window's kind to be positively `feature` before it auto-resumes, so an
- * epic-designer window whose kind cannot be read never gets driven as a
- * feature pipeline (see the hook's `kindCertain` guard). Mirrored by
+ * kind) and `needs-human` for `kind === "feature"` or `"epic-design"` — the
+ * `awaiting-human` resume verdicts (`bin/flow-resume-decide.ts`,
+ * `bin/flow-epic-resume-decide.ts`) need the window's kind to be positively
+ * read before it auto-resumes, so a window whose kind cannot be read never
+ * gets driven as the wrong supervisor (see the hook's `kindCertain` guard).
+ * `epic-run` already resumes at every phase above. Mirrored by
  * `bin/lib/ls.ts`'s `kind === "epic-run"` annotation carve-out, which
  * documents this reciprocal link on its own side.
  */
@@ -722,7 +766,7 @@ export function autoResumesAfterClear(
   return (
     !TERMINAL_PHASE_SET.has(phase) ||
     phase === "gated" ||
-    (phase === "needs-human" && kind === "feature")
+    (phase === "needs-human" && (kind === "feature" || kind === "epic-design"))
   );
 }
 

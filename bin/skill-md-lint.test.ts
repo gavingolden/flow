@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
+import { CONTINUE_PHASE_BY_EPIC_STEP } from "./flow-epic-resume-decide";
 import { STEP_PHASES, TERMINAL_EXIT_TRANSITIONS } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 import { ALWAYS_ON_LENSES, evaluateGates } from "./lib/review-lens-gates";
@@ -1698,6 +1699,7 @@ describe("auto-issue-create fire-site enumeration lint", () => {
   /** One regex per named site, matched against each enumeration passage. */
   const SITE_MARKERS: ReadonlyArray<readonly [string, RegExp]> = [
     ["pr-review Step 6 deferral", /Step 6 deferral/],
+    ["fix-applier merged-mid-review consolidated issue", /merges mid-review/],
     ["pr-review Step 5 retrospective", /Step 5 retrospective/],
     ["flow-pipeline Step 10 post-merge sweep", /Step 10 post-merge sweep/],
     ["flow-untracked file <n>", /flow-untracked file `?<n>`?/],
@@ -1912,6 +1914,8 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
   }> = [
     {
       file: "flow-fix-applier.md",
+      wantTools:
+        "Bash, Edit, Write, Read, ToolSearch, Skill, mcp__chrome-devtools__\\*",
       wantMaxTurns: 200,
       wantCacheTtl: "1h",
       wantSkills: "flow-fix-applier-instructions",
@@ -2566,7 +2570,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        530,
+        531,
         "NEVER commit to or push the base branch",
       ],
       [
@@ -5804,8 +5808,13 @@ describe("flow-pipeline SKILL.md ↔ TERMINAL_EXIT_TRANSITIONS cross-doc lint", 
     ).not.toBe(undefined);
   });
 
+  // The four epic-design continue phases in the allowlist belong to
+  // `/flow-epic-create`'s awaiting-human row (checked below), not this
+  // feature supervisor's — same epic scoping as the NEXT_STEP_BY_PHASE lint.
   it.each(
-    (TERMINAL_EXIT_TRANSITIONS["needs-human"] ?? []).map((phase) => [phase]),
+    (TERMINAL_EXIT_TRANSITIONS["needs-human"] ?? [])
+      .filter((phase) => !phase.startsWith("epic-"))
+      .map((phase) => [phase]),
   )(
     "TERMINAL_EXIT_TRANSITIONS['needs-human'] phase '%s' is named (backticked) in SKILL.md's awaiting-human row",
     (phase) => {
@@ -8259,10 +8268,13 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
     ["flow-epic-dag --validate", "the bare-name DAG validator"],
     ["MODE: epic", "the designer fan-out mode flag"],
     ["AskUserQuestion", "the materiality-gated clarification form"],
-    ['ToolSearch query="select:Task"', "the Task-schema load preamble"],
     [
-      "task-tool-unavailable: epic-create-designer",
-      "the escalate-on-Task-miss NEEDS HUMAN tag",
+      "Invoke `/flow-product-planning` in-process",
+      "the in-process designer invocation (one discovery spawn inside the wrapper)",
+    ],
+    [
+      "task-tool-unavailable: product-planning-discovery",
+      "the wrapper-owned escalate-on-Task-miss NEEDS HUMAN tag",
     ],
     [
       "REQUEST_FILE",
@@ -8284,7 +8296,24 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
     ],
     ["flow-epic-resume-decide", "the bare-name epic resume decider"],
     ["RESUMING AT", "the resume re-entry print"],
+    // NEEDS HUMAN pause-then-continue literals
+    ["awaiting-human", "the paused-escalation Resume-mode row"],
+    [
+      ".context.checkpointPath",
+      "the archived-note path the decision publishes",
+    ],
+    ["--site plan-review", "the design-review auto-checkpoint arm"],
+    [
+      "flow-epic-escalate --reason",
+      "the one-call escalation that records the pause and arms its checkpoint",
+    ],
   ];
+
+  it("flow-epic-create/SKILL.md never hardcodes a general-purpose designer spawn", () => {
+    expect(epicCreateContent.includes("subagent_type: general-purpose")).toBe(
+      false,
+    );
+  });
 
   it.each(REQUIRED_LITERALS)(
     "flow-epic-create/SKILL.md contains the load-bearing literal %j (%s)",
@@ -8298,6 +8327,59 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
       ).toBe(true);
     },
   );
+
+  // The Resume-mode `awaiting-human` row ONLY (never the surrounding prose):
+  // it must name every phase a confirming `done` can write, mirroring the
+  // /flow-pipeline row lint (which scopes to the feature continue phases).
+  const epicAwaitingHumanRow = epicCreateContent
+    .split("\n")
+    .find((line) => line.startsWith("| `awaiting-human`"));
+
+  it("the epic awaiting-human Resume-mode row was found (sanity check for the anchor above)", () => {
+    expect(epicAwaitingHumanRow, "awaiting-human row not found").not.toBe(
+      undefined,
+    );
+  });
+
+  it.each(
+    [...new Set(Object.values(CONTINUE_PHASE_BY_EPIC_STEP))].map((p) => [p]),
+  )(
+    "CONTINUE_PHASE_BY_EPIC_STEP phase '%s' is named (backticked) in flow-epic-create/SKILL.md's awaiting-human row",
+    (phase) => {
+      expect(
+        (epicAwaitingHumanRow ?? "").includes(`\`${phase}\``),
+        `CONTINUE_PHASE_BY_EPIC_STEP (bin/flow-epic-resume-decide.ts) includes '${phase}', ` +
+          "but flow-epic-create/SKILL.md's `awaiting-human` Resume-mode row never " +
+          "mentions it — fix the row to name every epic continue phase.",
+      ).toBe(true);
+    },
+  );
+
+  it("every literal `NEEDS HUMAN: <tag>` names a known escalation tag (a new escalation must route through flow-epic-escalate and be added here)", () => {
+    // `request-file-missing` / `state-missing-on-resume` are the only plain
+    // lines (nothing to resume from); every other escalation must route
+    // through flow-epic-escalate.
+    const plain = [
+      ...epicCreateContent.matchAll(/NEEDS HUMAN: ([a-z-]+)/g),
+    ].map((m) => m[1]);
+    for (const tag of new Set(plain)) {
+      expect(
+        ["request-file-missing", "state-missing-on-resume"],
+        `unexpected plain 'NEEDS HUMAN: ${tag}' in flow-epic-create/SKILL.md — escalations go through flow-epic-escalate`,
+      ).toContain(tag);
+    }
+  });
+
+  it("the cancel branch writes cancelled BEFORE flow-remove-worktree (so forgetRemovedWorktree clears the record)", () => {
+    const start = epicCreateContent.indexOf("- **cancel** (");
+    expect(start).toBeGreaterThan(-1);
+    const end = epicCreateContent.indexOf("\n- **", start + 1);
+    const bullet = epicCreateContent.slice(start, end);
+    const write = bullet.indexOf("flow-state-update --phase cancelled");
+    const remove = bullet.indexOf("flow-remove-worktree");
+    expect(write).toBeGreaterThan(-1);
+    expect(remove).toBeGreaterThan(write);
+  });
 
   it("names the approve / redirect / cancel checkpoint classifications", () => {
     for (const verb of ["approve", "redirect", "cancel"]) {
@@ -8397,6 +8479,10 @@ describe("/flow-epic-run playbook SKILL.md literal anchors", () => {
     [
       "runner-driven",
       "the confirm-the-epic-is-runner-driven-before-filing rule",
+    ],
+    [
+      "flow-checkpoint --consume | jq -r '.archived",
+      "the retire-then-read checkpoint step (the playbook never calls the resume decision)",
     ],
   ];
 
@@ -10375,6 +10461,12 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
       anchor: "verify-caution.txt",
     },
     {
+      file: "skills/pipeline/flow-pipeline/SKILL.md",
+      siteName: "pipeline-verify-clear-caution",
+      kind: "adjacent-lines",
+      anchor: "--clear-caution | grep",
+    },
+    {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
       siteName: "pr-review-evidence-injection",
       kind: "adjacent-lines",
@@ -10446,10 +10538,11 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
     },
   );
 
-  it("covers exactly the four known gh pr edit --body-file recipe sites, by name", () => {
+  it("covers exactly the five known gh pr edit --body-file recipe sites, by name", () => {
     expect(BODY_EDIT_SITES.map((s) => s.siteName)).toEqual([
       "pipeline-ui-smoke-note",
       "pipeline-verify-exhausted-caution",
+      "pipeline-verify-clear-caution",
       "pr-review-evidence-injection",
       "new-feature-overflow-note",
     ]);
@@ -11647,4 +11740,112 @@ describe("turn-budget sentinel + SUBJECTIVE-gating rule wiring (PR #859)", () =>
       ).toBe(true);
     },
   );
+});
+
+describe("subagent contract fixes (#587, #853, #590, #494, #834)", () => {
+  const read = (...parts: string[]) =>
+    fs.readFileSync(path.resolve(HERE, "..", ...parts), "utf8");
+  const fixApplier = read(
+    "skills",
+    "pipeline",
+    "flow-fix-applier-instructions",
+    "SKILL.md",
+  );
+
+  describe("agent tool allowlist covers instruction-mandated tools", () => {
+    const agentsDir = path.resolve(HERE, "..", "agents", "core");
+    const rows = fs
+      .readdirSync(agentsDir)
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => {
+        const fm =
+          fs.readFileSync(path.join(agentsDir, f), "utf8").split("---")[1] ??
+          "";
+        return {
+          f,
+          tools: /^tools:\s*(.+)$/m.exec(fm)?.[1],
+          skill: /^skills:\s*\n\s*-\s*(\S+)/m.exec(fm)?.[1],
+        };
+      })
+      .filter((r) => r.tools && r.skill);
+
+    it.each(rows.map((r) => [r.f, r] as const))(
+      "%s grants Skill when its preloaded instructions load a skill via the Skill tool",
+      (_f, row) => {
+        const p = path.resolve(
+          HERE,
+          "..",
+          "skills",
+          "pipeline",
+          row.skill as string,
+          "SKILL.md",
+        );
+        expect(fs.existsSync(p)).toBe(true);
+        if (/via the `?Skill`? tool/.test(fs.readFileSync(p, "utf8"))) {
+          expect(
+            (row.tools as string).split(",").map((t) => t.trim()),
+          ).toContain("Skill");
+        }
+      },
+    );
+  });
+
+  it("fix-applier step 8 re-runs /flow-verify under UI_SMOKE_DRIVER: inline, and verify honors it", () => {
+    const step8 = fixApplier.slice(
+      fixApplier.indexOf("## 8. "),
+      fixApplier.indexOf("## 9. "),
+    );
+    expect(step8).toContain("/flow-verify");
+    expect(step8).toContain("UI_SMOKE_DRIVER: inline");
+    expect(step8).toContain(
+      "git restore --staged --worktree . && git clean -fd",
+    );
+    expect(read("skills", "pipeline", "flow-verify", "SKILL.md")).toContain(
+      "Under `UI_SMOKE_DRIVER: inline`",
+    );
+  });
+
+  it("fix-applier deferral never wraps flow-create-issue in $(…)", () => {
+    for (const f of [
+      fixApplier,
+      read("skills", "pipeline", "flow-pr-review", "SKILL.md"),
+    ]) {
+      expect(/\$\(\s*flow-create-issue/.test(f)).toBe(false);
+    }
+  });
+
+  it("pr-review and the consolidator forbid / distrust cross-lens agreement claims", () => {
+    expect(read("skills", "pipeline", "flow-pr-review", "SKILL.md")).toContain(
+      "must never assert that lenses agree",
+    );
+    expect(
+      read("skills", "pipeline", "flow-consolidator-instructions", "SKILL.md"),
+    ).toContain("unverified pointer");
+  });
+
+  it("fix-applier step 5d computes the touched-file list once, before the manifest loop", () => {
+    const from = fixApplier.indexOf("BASE_REF=");
+    const block = /^([\s\S]*?)```/.exec(fixApplier.slice(from))?.[1] as string;
+    expect(block.match(/git diff/g)?.length).toBe(1);
+    expect(block.indexOf("git diff")).toBeLessThan(block.indexOf("for m in"));
+  });
+
+  it("no skill claims a spawned sub-agent lacks the Skill tool", () => {
+    const walk = (d: string): string[] =>
+      fs
+        .readdirSync(d, { withFileTypes: true })
+        .flatMap((e) =>
+          e.isDirectory()
+            ? walk(path.join(d, e.name))
+            : e.name.endsWith(".md")
+              ? [path.join(d, e.name)]
+              : [],
+        );
+    const bad = walk(path.resolve(HERE, "..", "skills")).filter((f) =>
+      /(not|NOT)\*{0,2}\s+have the `Skill` tool|sub-agent does not have|has no `?Skill`? tool|lacks? the `?Skill`? tool/.test(
+        fs.readFileSync(f, "utf8"),
+      ),
+    );
+    expect(bad).toEqual([]);
+  });
 });

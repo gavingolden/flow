@@ -232,7 +232,8 @@ Stay in-process for skills; shell out for scripts; never delegate.
 
 > **You only auto-create GitHub issues from the named sites.**
 > `flow-create-issue` may fire only from (a) `/flow-pr-review`'s Step 6
-> deferral path, (b) `/flow-pr-review`'s Step 5 retrospective generic-gap
+> deferral path (including the fix-applier's single consolidated issue when a PR
+> merges mid-review — the same deferral path under a mandatory trigger), (b) `/flow-pr-review`'s Step 5 retrospective generic-gap
 > capture, (c) `/flow-pipeline`'s Step 10 post-merge sweep (one issue per
 > `- [x]` item in plan.md's `# Candidate follow-up issues` section), (d) a
 > user-instructed `flow-untracked file <n>` reply, and (e) the
@@ -1703,8 +1704,8 @@ of its own turn output AND as the `flow-ui-driver` subagent's
 pass runs in `/flow-verify`'s own context and the artifact still lands the
 same way. When `/flow-verify`'s report shows the UI-smoke
 pass was skipped on a UI-touching diff, upsert a user-visible sibling line
-under the PR body's `> [!CAUTION]` verify block (idempotent, edit-in-place,
-do not stack) using the reason `/flow-verify` reported:
+under `## Test Steps` outside the `<!-- /flow:verify-caution -->` marker
+(idempotent, edit-in-place), using `/flow-verify`'s reported reason:
 
 ```bash
 gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
@@ -1736,19 +1737,16 @@ outer attempt.
 
 **Exhaustion.** After 3 failed outer attempts, escalate `NEEDS HUMAN:
 verify-exhausted`. `$FINAL_FAILURE_EXCERPT` is the third attempt's
-`flow-pre-commit --json` failure excerpt as `/flow-verify` reported it in
-its own turn output (there is no separate artifact to read it from — copy
-it directly from the visible report). Surface that excerpt on the PR
-body's `## Test Steps` section as a `> [!CAUTION]` block (idempotent —
-edit-in-place, do not stack), then follow the standard `# Failure paths`
-escalation:
+`flow-pre-commit --json` failure excerpt, copied from `/flow-verify`'s
+visible report. It stays in the local file and the terminal escalation;
+the PR gets a fixed pointer `> [!CAUTION]` block under `## Test Steps`,
+never the output (a re-run replaces it). Then follow `# Failure paths`:
 
 ```bash
 mkdir -p "$WORKTREE/.flow-tmp"
 printf '%s\n' "$FINAL_FAILURE_EXCERPT" > "$WORKTREE/.flow-tmp/verify-caution.txt"
 gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
-# upsert the > [!CAUTION] block (built from verify-caution.txt) under
-# ## Test Steps, then
+flow-inject-evidence --body-file "$WORKTREE/.flow-tmp/body.md" --caution-file "$WORKTREE/.flow-tmp/verify-caution.txt"
 flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/body.md" && gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
@@ -1758,7 +1756,16 @@ worktree fresh, so a re-invocation is idempotent). `/flow-verify`'s own
 Step 3 hybrid threshold still decides narrow-inline vs.
 `/flow-coder`-delegated fixes (the sixth named Task-tool exemption); the
 work now happens directly in the supervisor's own context — there is no
-longer a diff-bytes isolation boundary to preserve at this step.
+longer a diff-bytes isolation boundary to preserve at this step. On a clean
+pass after re-entry, clear the block; push the body only if it printed
+`caution cleared`:
+
+```bash
+gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
+flow-inject-evidence --body-file "$WORKTREE/.flow-tmp/body.md" --clear-caution | grep -qx 'caution cleared' \
+  && flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/body.md" \
+  && gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
+```
 
 **End condition:** `/flow-verify` reports a clean pass. Continue to step 7.
 
@@ -2877,7 +2884,7 @@ Branch on `.resumeAt`:
 | `step-8` | Re-enter step 8 (review). Re-invoke `/flow-pr-review <PR>`. |
 | `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — which re-runs `flow-pipeline-summary ... --echo-prose ...` and re-echoes the recap verbatim per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection — then render the MERGED block via `flow-gate-summary --status merged ...` (same `--tldr`/`--lens` augmentation as step 11's MERGED block; records `phase: merged` itself, only after its block reaches stdout) then, since arming first would be stale on arrival, best-effort checkpoint: `[ "$(flow-checkpoint --probe --site terminal \| jq -r '.verdict')" = write ] && echo "Pipeline reached MERGED at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null` (stdout muted, stderr deliberately left connected — echo the `checkpointed: ` line verbatim per the [Checkpoint arm signal (echo-verbatim)](#checkpoint-arm-signal-echo-verbatim) subsection) and run `flow-remove-worktree --delete-branch`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
 | `gated-feedback` | Re-enter feedback mode for a `gated` PR carrying a checkpoint marker. Print `RESUMING AT: gated-feedback (gated-with-checkpoint-marker)`, re-inject `$CHECKPOINT_PATH` (the generic checkpoint re-injection above), then position to take a bug callout → route it through the `/flow-coder` interactive redirect → re-verify (step 6) → re-gate (step 9). **This loop introduces no new merge path and never merges on its own authority:** its re-gate re-enters the normal step 9 gate, which routes every merge through the existing `flow-merge-guard` backstop (Decision A1) — a still-`gated` PR ends terminally at `gated`; the only merge routes are the user ticking all Test Steps boxes (gate re-reads `auto-merge`, `flow-merge-guard` confirms zero-unchecked) or the existing gate-override token. Then `flow-checkpoint --consume` to retire the body (archive to `checkpoint.consumed.md`, clear the freshness record) and drop the one-shot marker. The loop's phase writes are exactly `verifying` (step 6) and `gating` (step 9) — the `/flow-coder` step itself writes no phase — and both are allowlisted in `TERMINAL_EXIT_TRANSITIONS` (`bin/lib/state.ts`) so they no longer trip the exit-4 terminal-regression guard. |
-| `awaiting-human` | A `needs-human` pipeline with a live worktree and no PR, or an open PR (mirrors `gated`). Print `RESUMING AT: awaiting-human (needs-human-awaiting-human-step)`. When `$CHECKPOINT_EXISTS` is true, read `$CHECKPOINT_PATH` per the generic checkpoint re-injection above, but do NOT run `flow-checkpoint --consume` at this pause — consume only on the confirming reply, so a second `/clear` before `done` re-resumes into the same pause. Resolve the effective step BEFORE rendering: checkpoint notes that explicitly name a `step-N` target override `.context.continueAt`, so the step shown here is always the step a `done` reply uses. Render the pause per `references/pause-output-contract.md` (`**TLDR:**` paused waiting on you; `**Manual action:**` the human step from the notes; when no notes are usable, say plainly that the pending step's details were not recorded and ask what it was — never print `.reason` (an internal verdict tag, e.g. `needs-human-awaiting-human-step`, not a human-facing description); `**Next action:**` reply `done` to continue at the effective step, or redirect / cancel) and end the turn. **This row never continues the pipeline before the user confirms the human step is done.** On a later affirmative reply: run `flow-checkpoint --consume`, then `flow-state-update --phase "$(printf '%s' "$RESULT" \| jq -r '.context.continuePhase')"` with no `--force` (allowlisted in `TERMINAL_EXIT_TRANSITIONS`; it grants no merge authority — its continue phases are exactly `planning`, `plan-pending-review`, `implementing`, `installing-skills`, `verifying`, `ci-wait`, `reviewing`, `gating`, and `merging` is never one, so any merge always re-runs the step 9 gate — a merge-failed pause continues at that gate, never straight to a merge), then re-enter the resume row for the effective step shown at the pause. A reply carrying detail or an instruction is an imperative redirect applied at that step; `cancel` runs the Mid-flight redirects cancel path. When `.context.continueAt` is absent, ask one clarifying question naming the escalation reason. |
+| `awaiting-human` | A `needs-human` pipeline with a live worktree and no PR, or an open PR (mirrors `gated`). Print `RESUMING AT: awaiting-human (needs-human-awaiting-human-step)`. When `$CHECKPOINT_EXISTS` is true, read `$CHECKPOINT_PATH` per the generic checkpoint re-injection above, but do NOT run `flow-checkpoint --consume` at this pause — consume only on the confirming reply, so a second `/clear` before `done` re-resumes into the same pause. Resolve the effective step BEFORE rendering: checkpoint notes that explicitly name a `step-N` target override `.context.continueAt`, so the step shown here is always the step a `done` reply uses. Render the pause per `references/pause-output-contract.md` (`**TLDR:**` paused waiting on you; `**Manual action:**` the human step from the notes; when no notes are usable, say plainly that the pending step's details were not recorded and ask what it was — never print `.reason` (an internal verdict tag, e.g. `needs-human-awaiting-human-step`, not a human-facing description); `**Next action:**` reply `done` to continue at the effective step, or redirect / cancel) and end the turn. **This row never continues the pipeline before the user confirms the human step is done.** On a later affirmative reply: run `flow-checkpoint --consume`, then `flow-state-update --phase "$(printf '%s' "$RESULT" \| jq -r '.context.continuePhase')"` with no `--force` (allowlisted in `TERMINAL_EXIT_TRANSITIONS`; it grants no merge authority — its FEATURE continue phases are exactly `planning`, `plan-pending-review`, `implementing`, `installing-skills`, `verifying`, `ci-wait`, `reviewing`, `gating` (the four epic-design continue phases in the same allowlist belong to `/flow-epic-create`'s Resume mode), and `merging` is never one, so any merge always re-runs the step 9 gate — a merge-failed pause continues at that gate, never straight to a merge), then re-enter the resume row for the effective step shown at the pause. A reply carrying detail or an instruction is an imperative redirect applied at that step; `cancel` runs the Mid-flight redirects cancel path. When `.context.continueAt` is absent, ask one clarifying question naming the escalation reason. |
 | `terminal` | Already in a terminal state. Re-run the corresponding gate render (the same helpers every gate-emission site uses) and end without re-running anything else. On `merged`/`gated` the render re-runs `flow-pipeline-summary ... --echo-prose ...` above `flow-gate-summary --status <merged\|gated> ...`, so the echo recap re-surfaces on resume re-entry — extract the `<!-- flow-echo-recap:start -->`…`<!-- flow-echo-recap:end -->` block and echo it VERBATIM per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection (re-orientation is exactly the resume use case). `cancelled` has no PR, so `--echo-prose` is a no-op there. `needs-human` re-renders the escalation via `flow-gate-summary --status needs-human ...` (same `--tldr`/`--lens` augmentation as its originating render) ONLY when the worktree is gone; a `needs-human` pipeline with a live worktree resolves `awaiting-human` above instead, never this row. The two no-in-flight-work pending phases short-circuit here pre-tree (reasons `no-change-investigation-complete` for `triaged-no-change`, `awaiting-triage-clarification` for `triage-pending-clarification`): they carry no PR/worktree and have no gate-summary status, so print a one-line note that the pipeline already completed (a no-change investigation, or one awaiting a clarification a resume can't re-ask) and end — do NOT build a worktree. On the `triaged-no-change` path, when `$ANSWER` is non-empty, re-print the saved `$ANSWER` (as markdown) so the user re-reads the original answer instead of the generic terminal note; fall back to the generic note when `$ANSWER` is empty. The re-rendered UNTRACKED row still accepts `file #N` / `drop #N` (`flow-untracked file|drop <N>`) on the very next reply — the resume terminal row is not read-only. |
 | `escalate` | Escalate `NEEDS HUMAN: <.reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact. |
 | `abort` | The state file is missing. Escalate `NEEDS HUMAN: state-missing-on-resume` and end. |

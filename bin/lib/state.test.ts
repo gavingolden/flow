@@ -15,6 +15,7 @@ import {
   isMainStateFile,
   isPipelineKind,
   isPipelinePhase,
+  kindFromPhase,
   listStates,
   PENDING_PHASES,
   PHASE_MODEL_FIELDS,
@@ -25,6 +26,7 @@ import {
   pausedPhase,
   readState,
   requestFilePath,
+  resolveStateKind,
   shortPhase,
   STEP_PHASES,
   TERMINAL_EXIT_TRANSITIONS,
@@ -1560,6 +1562,85 @@ describe("phase constants", () => {
     expect(isEpicPhase("starting")).toBe(false);
   });
 
+  it("kindFromPhase maps epic phases to epic-design and everything else to feature", () => {
+    expect(kindFromPhase("epic-designing")).toBe("epic-design");
+    expect(kindFromPhase("epic-approved")).toBe("epic-design");
+    expect(kindFromPhase("implementing")).toBe("feature");
+    expect(kindFromPhase("needs-human")).toBe("feature");
+  });
+
+  it("resolveStateKind prefers the recorded kind", () => {
+    expect(
+      resolveStateKind({
+        kind: "epic-run",
+        phase: "implementing",
+        phaseLog: undefined,
+      }),
+    ).toBe("epic-run");
+  });
+
+  it("resolveStateKind falls back to epic-design for an absent kind at an epic phase", () => {
+    expect(resolveStateKind({ kind: undefined, phase: "epic-designing" })).toBe(
+      "epic-design",
+    );
+  });
+
+  it("resolveStateKind falls back to feature for an absent kind at a non-epic phase", () => {
+    expect(resolveStateKind({ kind: undefined, phase: "implementing" })).toBe(
+      "feature",
+    );
+  });
+
+  it("resolveStateKind reads a kind-less needs-human pause through the phase it interrupted", () => {
+    const log = (phases: string[]) =>
+      phases.map((phase) => ({ phase, at: "2026-04-30T12:00:00Z" }));
+    expect(
+      resolveStateKind({
+        kind: undefined,
+        phase: "needs-human",
+        phaseLog: log(["epic-designing", "needs-human"]),
+      }),
+    ).toBe("epic-design");
+    expect(
+      resolveStateKind({
+        kind: undefined,
+        phase: "needs-human",
+        phaseLog: log(["implementing", "needs-human"]),
+      }),
+    ).toBe("feature");
+    expect(
+      resolveStateKind({
+        kind: undefined,
+        phase: "needs-human",
+        phaseLog: log(["needs-human"]),
+      }),
+    ).toBe("feature");
+  });
+
+  it("the phase-derived kind fallback expression lives only in bin/lib/state.ts (source-scan pin)", () => {
+    const binDir = path.resolve(__dirname, "..");
+    const offenders: string[] = [];
+    const walk = (d: string): void => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const full = path.join(d, e.name);
+        if (e.isDirectory()) {
+          if (e.name !== "node_modules") walk(full);
+        } else if (
+          e.name.endsWith(".ts") &&
+          !e.name.endsWith(".test.ts") &&
+          !full.endsWith(path.join("lib", "state.ts")) &&
+          /isEpicPhase\([^)]*\)\s*\?\s*"epic-design"\s*:\s*"feature"/.test(
+            fs.readFileSync(full, "utf8"),
+          )
+        ) {
+          offenders.push(path.relative(binDir, full));
+        }
+      }
+    };
+    walk(binDir);
+    expect(offenders).toEqual([]);
+  });
+
   it("autoResumesAfterClear defaults to the feature terminal/gated rule", () => {
     expect(autoResumesAfterClear("gated")).toBe(true);
     expect(autoResumesAfterClear("epic-design-pending-review")).toBe(true);
@@ -1570,9 +1651,20 @@ describe("phase constants", () => {
     expect(autoResumesAfterClear("epic-approved")).toBe(false);
   });
 
-  it("autoResumesAfterClear('needs-human', ...) carves out feature only", () => {
+  it("autoResumesAfterClear('needs-human', ...) carves out feature and epic-design", () => {
     expect(autoResumesAfterClear("needs-human", "feature")).toBe(true);
-    expect(autoResumesAfterClear("needs-human", "epic-design")).toBe(false);
+    expect(autoResumesAfterClear("needs-human", "epic-design")).toBe(true);
+    expect(autoResumesAfterClear("needs-human", "epic-run")).toBe(true);
+  });
+
+  it("autoResumesAfterClear keeps every other terminal phase non-resuming for feature and epic-design", () => {
+    for (const kind of ["feature", "epic-design"] as const) {
+      for (const phase of ["merged", "cancelled", "epic-approved"]) {
+        expect(autoResumesAfterClear(phase, kind), `${kind}/${phase}`).toBe(
+          false,
+        );
+      }
+    }
   });
 
   it("autoResumesAfterClear('epic-run', ...) resumes regardless of phase", () => {
@@ -1596,7 +1688,7 @@ describe("phase constants", () => {
     expect(isAllowedTerminalExit("__proto__", "verifying")).toBe(false);
   });
 
-  it("TERMINAL_EXIT_TRANSITIONS is exactly {gated: [verifying, gating, merging], needs-human: [the eight continue phases]} (drift-guard)", () => {
+  it("TERMINAL_EXIT_TRANSITIONS is exactly {gated: [verifying, gating, merging], needs-human: [the eight feature + four epic continue phases]} (drift-guard)", () => {
     // Exact equality, not containment — this is what catches a silent
     // widening of the allowlist to a phase other than `gated` / `needs-human`,
     // or a silent addition/removal of one of the documented targets.
@@ -1618,7 +1710,25 @@ describe("phase constants", () => {
       "ci-wait",
       "reviewing",
       "gating",
+      "epic-designing",
+      "epic-validating",
+      "epic-pr-open",
+      "epic-design-pending-review",
     ]);
+  });
+
+  it("the needs-human allowlist never names merging or a pre-worktree phase", () => {
+    const targets = TERMINAL_EXIT_TRANSITIONS[
+      "needs-human"
+    ] as readonly string[];
+    for (const banned of [
+      "merging",
+      "starting",
+      "triaging",
+      "worktree-create",
+    ]) {
+      expect(targets).not.toContain(banned);
+    }
   });
 
   it("every TERMINAL_EXIT_TRANSITIONS target is a real, non-terminal phase", () => {

@@ -16,7 +16,7 @@
  *     what's outstanding. Carve-out: a row whose KIND is "epic-run" renders
  *     no "(done)" even at a FINISHED phase — its shared state.json's phase
  *     describes the *design* lifecycle, not run progress, so a live run
- *     window can sit at `epic-approved` (see `resolveRowKind` below).
+ *     window can sit at `epic-approved` (see `resolveStateKind` in `./state`).
  *   - otherwise, drift handling by liveness/window presence:
  *     - state file but no window → "(no window)" (likely a crashed session)
  *     - window but no state file → "(no state)" (manual creation)
@@ -42,11 +42,12 @@ import {
   TERMINAL_PHASE_SET,
   FINISHED_PHASE_SET,
   AWAITING_HUMAN_PHASE_SET,
-  isEpicPhase,
+  resolveStateKind,
   type PipelineState,
   type PipelineKind,
 } from "./state";
 import { livenessOf, type Liveness } from "./liveness";
+import { recoveryCommandFor } from "./recovery-command";
 import { reapStartingOrphans, STARTING_ORPHAN_GRACE_MS } from "./reap-orphans";
 import { relativeTime } from "./time";
 import { findWindowBySlug, listWindows, type TmuxWindow } from "./tmux";
@@ -85,7 +86,7 @@ export type Row = {
   /**
    * Which supervisor kind this row is: `feature` / `epic-design` /
    * `epic-run`, sourced from `state.kind` (falling back to
-   * `resolveRowKind`'s phase-derived default) — NEVER from the `@flow-kind`
+   * `resolveStateKind`'s phase-derived default) — NEVER from the `@flow-kind`
    * tmux pane option. Empty ONLY for the unmanaged "(no state)" rows built
    * from a window with no state file, which have no PipelineState to read.
    */
@@ -230,7 +231,8 @@ export async function runLs(opts: LsOptions): Promise<number> {
  * `needsResumeHint` is true (state file with no tmux window, typically a
  * crashed `flow feature create` whose window never stayed up, OR a window
  * that survived but the recorded process is dead/stale). Each gets its
- * one-command restart line. Kept BELOW the table (not inlined into the NAME
+ * one-command restart line (the kind's own command via
+ * `recoveryCommandFor` — never `flow feature resume` for an epic row). Kept BELOW the table (not inlined into the NAME
  * cell) because printTable derives column widths from cell lengths, so a
  * long `flow feature resume <slug>` string in the cell would widen the
  * whole table for every row. No-op when no orphan rows exist, so healthy
@@ -252,7 +254,9 @@ export function printOrphanRecovery(rows: Row[]): void {
     dim("pipelines needing resume (no window, or crashed) — resume with:"),
   );
   for (const row of orphans) {
-    console.log(dim(`  flow feature resume ${row.name}`));
+    console.log(
+      dim(`  ${recoveryCommandFor(row.name, row.kind || "feature")}`),
+    );
   }
 }
 
@@ -362,7 +366,7 @@ export async function buildRows(
     // (below), alongside annotation, so the two can never disagree — the
     // footer(s) merely call the same function rather than re-deriving
     // eligibility from the phase or the display string.
-    const rowKind = resolveRowKind(state);
+    const rowKind = resolveStateKind(state);
     let annotation: Row["annotation"];
     let verdict: Liveness | undefined;
     if (TERMINAL_PHASE_SET.has(state.phase)) {
@@ -473,18 +477,6 @@ export function formatRepoCell(repo: string): string {
  * epic-launched (never derived from tmux; state.json is the source). */
 export function formatEpicCell(epic: string): string {
   return epic || "—";
-}
-
-/**
- * Which supervisor kind a managed row is. Prefers the persisted
- * `state.kind` (Task 2); absent (a pre-existing state file, or a legacy one
- * from before this field existed) falls back to the phase-derived default —
- * `isEpicPhase` cannot itself distinguish epic-design from epic-run sharing
- * one state file (`bin/lib/state.ts`'s `isEpicPhase` doc comment), so the
- * fallback can only ever resolve to "epic-design", never "epic-run".
- */
-export function resolveRowKind(state: PipelineState): PipelineKind {
-  return state.kind ?? (isEpicPhase(state.phase) ? "epic-design" : "feature");
 }
 
 /** Renders the KIND column cell — mirrors `formatEpicCell`. */

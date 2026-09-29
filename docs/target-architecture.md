@@ -341,7 +341,7 @@ core-owned today).
 `flow-pr-static-analysis`, `flow-inject-evidence`, `flow-ui-validate`,
 `flow-md-validate`, `flow-release`, `flow-seed-ingested-hook`,
 `flow-session-start-hook`, `flow-epic-dag`, `flow-epic-resume-decide`,
-`flow-epic-judge-context`.
+`flow-epic-escalate`, `flow-epic-judge-context`.
 
 **PATH-bound validators** (all core)
 

@@ -1422,7 +1422,42 @@ describe(publishStateBadges, () => {
     expect(calls.some((c) => c.includes("@flow-kind"))).toBe(false);
   });
 
-  it("publishes state.slug as @flow-epic for a kind-less EPIC-phase state (isEpicPhase fallback)", () => {
+  it("publishes state.slug as @flow-epic for a kind-less epic paused at needs-human (paused-phase fallback)", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    publishStateBadges(
+      {
+        slug: "checkout-revamp",
+        phase: "needs-human",
+        phaseLog: [
+          { phase: "epic-designing", at: "2026-04-30T12:00:00Z" },
+          { phase: "needs-human", at: "2026-04-30T12:05:00Z" },
+        ],
+        launcher: "tmux",
+      },
+      {
+        spawnTmux,
+        listWindowsFn: () => [
+          {
+            id: "@9",
+            name: "checkout-revamp",
+            slug: "checkout-revamp",
+            activity: 0,
+          },
+        ],
+        env: {},
+      },
+    );
+    expect(calls).toContainEqual([
+      "set-option",
+      "-w",
+      "-t",
+      "@9",
+      "@flow-epic",
+      "checkout-revamp",
+    ]);
+  });
+
+  it("publishes state.slug as @flow-epic for a kind-less EPIC-phase state (phase-derived fallback)", () => {
     const { calls, spawnTmux } = fakeSpawn();
     publishStateBadges(
       {

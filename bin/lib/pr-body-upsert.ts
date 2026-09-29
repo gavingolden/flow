@@ -30,8 +30,8 @@ export function headingRegex(heading: string): RegExp {
  * Idempotent upsert of a `<heading>` section in a PR body. Replaces an
  * existing section in place (splicing up to the next `^## ` heading);
  * otherwise appends. Returns the body unchanged when the result is identical.
- * Same shape as the verify-exhausted `> [!CAUTION]` upsert pattern in
- * pr-review step 6.
+ * The verify-exhausted `> [!CAUTION]` upsert is separate: it is
+ * `flow-inject-evidence --caution-file`, called from flow-pipeline step 6.
  */
 export function upsertPrBodySection(
   body: string,

@@ -680,6 +680,48 @@ describe("finalizePhase", () => {
     },
   );
 
+  it.each(["cancelled", "merged"] as const)(
+    "%s write over a vanished recorded worktree drops the worktree field (cancel paths remove the dir BEFORE the write)",
+    (target) => {
+      const gone = path.join(os.tmpdir(), `flow-pa-gone-${target}-wt`);
+      fs.rmSync(gone, { recursive: true, force: true });
+      seedState(`f-gone-${target}`, "gating", { worktree: gone });
+      const result = finalizePhase(target, {
+        slug: `f-gone-${target}`,
+        dir: stateDir,
+      });
+      expect(result.advanced).toBe(true);
+      const state = readState(`f-gone-${target}`, stateDir);
+      expect(state?.phase).toBe(target);
+      expect(state?.worktree).toBeUndefined();
+      expect("worktree" in (state ?? {})).toBe(false);
+    },
+  );
+
+  it("keeps the recorded worktree when the directory still exists (merge paths write the phase first; flow-remove-worktree clears it on removal)", () => {
+    const live = fs.mkdtempSync(path.join(os.tmpdir(), "flow-pa-live-wt-"));
+    try {
+      seedState("f-live", "gating", { worktree: live });
+      expect(
+        finalizePhase("cancelled", { slug: "f-live", dir: stateDir }).advanced,
+      ).toBe(true);
+      expect(readState("f-live", stateDir)?.worktree).toBe(live);
+    } finally {
+      fs.rmSync(live, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["gated", "needs-human"] as const)(
+    "a %s write keeps a vanished recorded worktree (only finished phases forget it, so a live pipeline still escalates worktree-missing on resume)",
+    (target) => {
+      const gone = path.join(os.tmpdir(), `flow-pa-gone-${target}-wt`);
+      fs.rmSync(gone, { recursive: true, force: true });
+      seedState(`f-keep-${target}`, "gating", { worktree: gone });
+      finalizePhase(target, { slug: `f-keep-${target}`, dir: stateDir });
+      expect(readState(`f-keep-${target}`, stateDir)?.worktree).toBe(gone);
+    },
+  );
+
   it("no-ops (already-terminal) on a re-render of an already-terminal pipeline and appends no second phaseLog entry", () => {
     seedState("f-idem", "merged");
     const result = finalizePhase("merged", { slug: "f-idem", dir: stateDir });

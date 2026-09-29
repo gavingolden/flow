@@ -332,7 +332,7 @@ stops at the gated state regardless of the gate verdict).
 
 `flow-create-issue` may fire only from five named sites: (a)
 `/flow-pr-review`'s Step 6 deferral path (`--label
-flow-agent,deferred-review`), (b) `/flow-pr-review`'s Step 5
+flow-agent,deferred-review`; including the fix-applier's single consolidated issue when a PR merges mid-review — the same deferral path under a mandatory trigger), (b) `/flow-pr-review`'s Step 5
 retrospective generic-gap capture, (c) `/flow-pipeline`'s Step 10
 post-merge sweep (`--label flow-agent,out-of-scope-discovery`, once
 per `- [x]` candidate in plan.md), (d) a user-instructed
