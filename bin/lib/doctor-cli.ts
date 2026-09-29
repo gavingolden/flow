@@ -7,15 +7,34 @@
 
 import { argsContainHelp, printVerbHelp } from "./help";
 import {
+  checkInstalledModules,
+  checkInstallLinks,
+  checkRuntimePackages,
+} from "./doctor-install";
+import {
   defaultDoctorDeps,
   doctorExitCode,
+  guarded,
   renderDoctorText,
   runDoctor,
   type DoctorDeps,
   type DoctorProbe,
 } from "./doctor";
 
-export const DOCTOR_PROBES: DoctorProbe[] = [];
+export const DOCTOR_PROBES: DoctorProbe[] = [
+  guarded(
+    { id: "install-links", section: "install", title: "Installed links" },
+    (deps) => checkInstallLinks(deps),
+  ),
+  guarded(
+    { id: "install-modules", section: "install", title: "Installed modules" },
+    (deps) => checkInstalledModules(deps),
+  ),
+  guarded(
+    { id: "install-packages", section: "install", title: "Runtime packages" },
+    (deps) => checkRuntimePackages(deps),
+  ),
+];
 
 export async function runDoctorCli(
   args: string[],
