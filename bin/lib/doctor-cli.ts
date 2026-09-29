@@ -6,6 +6,11 @@
  */
 
 import { argsContainHelp, printVerbHelp } from "./help";
+import {
+  checkLeakedProcesses,
+  checkPipelineState,
+  checkStaleWorktrees,
+} from "./doctor-resources";
 import { checkAgy, checkClaude, checkGh, checkTmux } from "./doctor-tools";
 import { checkBinDirOnPath, checkFlowSlug } from "./doctor-env";
 import {
@@ -58,6 +63,30 @@ export const DOCTOR_PROBES: DoctorProbe[] = [
   ),
   guarded({ id: "tools-agy", section: "tools", title: "agy" }, (deps) =>
     checkAgy(deps),
+  ),
+  guarded(
+    {
+      id: "leftovers-worktrees",
+      section: "leftovers",
+      title: "Stale worktrees",
+    },
+    (deps) => checkStaleWorktrees(deps),
+  ),
+  guarded(
+    {
+      id: "leftovers-pipelines",
+      section: "leftovers",
+      title: "Pipeline records",
+    },
+    (deps) => checkPipelineState(deps),
+  ),
+  guarded(
+    {
+      id: "leftovers-processes",
+      section: "leftovers",
+      title: "Leaked processes",
+    },
+    (deps) => checkLeakedProcesses(deps),
   ),
 ];
 
