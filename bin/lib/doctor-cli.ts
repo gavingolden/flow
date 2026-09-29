@@ -6,6 +6,7 @@
  */
 
 import { argsContainHelp, printVerbHelp } from "./help";
+import { checkBinDirOnPath, checkFlowSlug } from "./doctor-env";
 import {
   checkInstalledModules,
   checkInstallLinks,
@@ -33,6 +34,17 @@ export const DOCTOR_PROBES: DoctorProbe[] = [
   guarded(
     { id: "install-packages", section: "install", title: "Runtime packages" },
     (deps) => checkRuntimePackages(deps),
+  ),
+  guarded(
+    {
+      id: "shell-flow-slug",
+      section: "shell",
+      title: "Shell pipeline identity",
+    },
+    (deps) => checkFlowSlug(deps),
+  ),
+  guarded({ id: "shell-path", section: "shell", title: "PATH" }, (deps) =>
+    checkBinDirOnPath(deps),
   ),
 ];
 
