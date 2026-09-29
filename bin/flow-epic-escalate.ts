@@ -38,6 +38,7 @@ import { checkpointBodyPath, probeFreshness } from "./lib/checkpoint-freshness";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { recoveryCommandFor } from "./lib/recovery-command";
 import { resolveSlugAmbient } from "./lib/session-identity";
+import { isValidSlug } from "./lib/slug";
 import {
   isEpicPhase,
   nowIso,
@@ -70,10 +71,25 @@ export function parseArgs(argv: string[]): Parsed | { error: string } {
     if (value === undefined) return { error: `${flag} needs a value` };
     if (flag === "--reason") out.reason = oneLine(value);
     else if (flag === "--why") out.why = oneLine(value);
-    else out.slug = value;
+    else {
+      if (!isValidSlug(value)) {
+        return { error: `--slug requires a valid slug value (got: ${value})` };
+      }
+      out.slug = value;
+    }
   }
   if (!out.reason) return { error: "--reason <tag> is required" };
   return out;
+}
+
+// `flow epic create --resume` refuses while this window's pane is alive, so it
+// is offered only as the after-close/crash path; a missing Task tool must be
+// fixed (restart claude / upgrade the CLI) before a same-session `done` can work.
+function nextActionFor(reason: string, resumeCmd: string): string {
+  if (reason.startsWith("task-tool-unavailable")) {
+    return `restart claude (or upgrade the CLI) so the Task tool loads, then run ${resumeCmd}`;
+  }
+  return `reply done here once resolved (a /clear first is fine); if this window closes or crashes, run ${resumeCmd}`;
 }
 
 export function run(argv: string[], deps: Deps = {}): number {
@@ -149,7 +165,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     [
       "STATUS: NEEDS HUMAN",
       `WHY: ${parsed.why || parsed.reason}`,
-      `NEXT ACTION: reply done here once resolved (a /clear first is fine), or run ${recoveryCommandFor(slug, "epic-design")}`,
+      `NEXT ACTION: ${nextActionFor(parsed.reason, recoveryCommandFor(slug, "epic-design"))}`,
       `NEEDS HUMAN: ${parsed.reason}`,
     ].join("\n") + "\n",
   );

@@ -8357,21 +8357,28 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
 
   it("every literal `NEEDS HUMAN: <tag>` names a known escalation tag (a new escalation must route through flow-epic-escalate and be added here)", () => {
     // `request-file-missing` / `state-missing-on-resume` are the only plain
-    // lines (no state file to record against); `task-tool-unavailable` is the
-    // sentinel the helper prints for its own call site.
-    const plain = [...epicCreateContent.matchAll(/NEEDS HUMAN: ([a-z-]+)/g)]
-      .map((m) => m[1])
-      .filter((tag) => tag !== "reason");
+    // lines (nothing to resume from); every other escalation must route
+    // through flow-epic-escalate.
+    const plain = [
+      ...epicCreateContent.matchAll(/NEEDS HUMAN: ([a-z-]+)/g),
+    ].map((m) => m[1]);
     for (const tag of new Set(plain)) {
       expect(
-        [
-          "request-file-missing",
-          "state-missing-on-resume",
-          "task-tool-unavailable",
-        ],
+        ["request-file-missing", "state-missing-on-resume"],
         `unexpected plain 'NEEDS HUMAN: ${tag}' in flow-epic-create/SKILL.md — escalations go through flow-epic-escalate`,
       ).toContain(tag);
     }
+  });
+
+  it("the cancel branch writes cancelled BEFORE flow-remove-worktree (so forgetRemovedWorktree clears the record)", () => {
+    const start = epicCreateContent.indexOf("- **cancel** (");
+    expect(start).toBeGreaterThan(-1);
+    const end = epicCreateContent.indexOf("\n- **", start + 1);
+    const bullet = epicCreateContent.slice(start, end);
+    const write = bullet.indexOf("flow-state-update --phase cancelled");
+    const remove = bullet.indexOf("flow-remove-worktree");
+    expect(write).toBeGreaterThan(-1);
+    expect(remove).toBeGreaterThan(write);
   });
 
   it("names the approve / redirect / cancel checkpoint classifications", () => {

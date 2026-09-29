@@ -73,6 +73,12 @@ describe("parseArgs", () => {
     });
   });
 
+  it("rejects a --slug that is not a valid slug", () => {
+    expect(parseArgs(["--reason", "x", "--slug", "../evil"])).toEqual({
+      error: "--slug requires a valid slug value (got: ../evil)",
+    });
+  });
+
   it("collapses a multi-line why to one line", () => {
     expect(parseArgs(["--reason", "r", "--why", "a\nb"])).toEqual({
       reason: "r",
@@ -110,7 +116,7 @@ describe("run()", () => {
     expect(lines[lines.length - 1]).toBe("NEEDS HUMAN: task-tool-unavailable");
     expect(lines).toContain("WHY: no Task tool");
     expect(lines[lines.length - 2]).toBe(
-      "NEXT ACTION: reply done here once resolved (a /clear first is fine), or run flow epic create --resume design-x",
+      "NEXT ACTION: restart claude (or upgrade the CLI) so the Task tool loads, then run flow epic create --resume design-x",
     );
     expect(armedLines(r.stderr)).toEqual([
       "checkpointed: true — site=terminal — safe to /clear",
@@ -143,6 +149,33 @@ describe("run()", () => {
       "NEEDS HUMAN: worktree-missing-on-resume",
     );
     expect(armedLines(r.stderr)).toHaveLength(1);
+  });
+
+  it("offers --resume only as the after-close path for a generic reason (it refuses while this window is alive)", () => {
+    seed("generic");
+    const r = runCapture(["--slug", "generic", "--reason", "pr-closed"]);
+    expect(r.exit).toBe(0);
+    const lines = r.stdout.trimEnd().split("\n");
+    expect(lines[lines.length - 2]).toBe(
+      "NEXT ACTION: reply done here once resolved (a /clear first is fine); if this window closes or crashes, run flow epic create --resume generic",
+    );
+  });
+
+  it("an arm failure still records the pause, prints the block, and exits 0 with checkpointed: false", () => {
+    seed("arm-fail");
+    const cpDir = path.join(stateDir, "checkpoints", "arm-fail");
+    fs.mkdirSync(path.dirname(cpDir), { recursive: true });
+    fs.writeFileSync(cpDir, "not a dir");
+    const r = runCapture(["--slug", "arm-fail", "--reason", "x"]);
+    expect(r.exit).toBe(0);
+    expect(readState("arm-fail", stateDir)?.phase).toBe("needs-human");
+    expect(r.stdout.trimEnd().split("\n").pop()).toBe("NEEDS HUMAN: x");
+    expect(
+      r.stderr
+        .join("")
+        .split("\n")
+        .filter((l) => l.startsWith("checkpointed: false")),
+    ).toHaveLength(1);
   });
 
   it("allows a starting epic-design state (recorded kind) and reports the paused phase as starting", () => {
