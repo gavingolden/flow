@@ -10,6 +10,7 @@ import {
   checkStaleWorktrees,
 } from "./doctor-resources";
 import { makeDeps, scriptedRun, type RunCall } from "./doctor-test-deps";
+import type { ReapOutcome } from "./reap";
 import type { ReapCliResult } from "./reap-cli";
 import type { PipelineState } from "./state";
 
@@ -267,16 +268,24 @@ describe("checkLeakedProcesses", () => {
 
   const slugRow = (
     slug: string,
-    dead: number,
+    counts: Partial<Record<ReapOutcome, number>>,
     skipped?: "deadline-exceeded",
   ) => ({
     slug,
-    reported: { dead, alive: 0, unknown: 0 },
+    reap: { counts },
+    reported: { dead: 0, alive: 0, unknown: 0 },
     classified: [
       { verdict: "dead", row: { argv: ["node", "--token=SUPERSECRET"] } },
     ],
     ...(skipped ? { skipped } : {}),
   });
+
+  const registry = (slugs: unknown[]) =>
+    ({
+      mode: "sweep",
+      yes: false,
+      slugs,
+    }) as unknown as ReapCliResult["registry"];
 
   it("runs report-only against deps.reapBaseDir with a bounded deadline", () => {
     let seen: unknown;
@@ -297,34 +306,97 @@ describe("checkLeakedProcesses", () => {
     expect(out.map((c) => c.status)).toEqual(["pass", "pass"]);
   });
 
-  it("warns on dead registry rows with slugs and counts, never argv", () => {
+  it("warns on would-reap rows with slugs and counts, never argv", () => {
     const out = checkLeakedProcesses(makeDeps(root), () =>
       report({
-        registry: {
-          mode: "sweep",
-          yes: false,
-          slugs: [slugRow("alpha", 2), slugRow("beta", 0)],
-        } as unknown as ReapCliResult["registry"],
+        registry: registry([
+          slugRow("alpha", { "would-reap": 2 }),
+          slugRow("beta", {}),
+        ]),
       }),
     );
     const c = out.find((x) => x.id === "leftovers-processes")!;
     expect(c).toMatchObject({ status: "warn", fix: "flow reap --yes" });
-    expect(c.summary).toContain("2 process(es)");
+    expect(c.summary).toContain("2 process(es) still running");
     expect(c.details.join(" ")).toContain("alpha");
     expect(c.details.join(" ")).not.toContain("beta");
     expect(JSON.stringify(out)).not.toMatch(/SUPERSECRET|--token/);
   });
 
-  it("caps the slug list so a large registry stays one short line", () => {
-    const many = Array.from({ length: 12 }, (_, i) => slugRow(`slug-${i}`, 1));
+  it("passes when only already-dead rows remain, noting the stale entries", () => {
     const out = checkLeakedProcesses(makeDeps(root), () =>
       report({
-        registry: {
-          mode: "sweep",
-          yes: false,
-          slugs: many,
-        } as unknown as ReapCliResult["registry"],
+        registry: registry([
+          slugRow("alpha", { "already-dead": 1000 }),
+          slugRow("beta", { "already-dead": 662 }),
+        ]),
       }),
+    );
+    const c = out.find((x) => x.id === "leftovers-processes")!;
+    expect(c.status).toBe("pass");
+    expect(c.summary).toBe("no processes left running by ended pipelines");
+    expect(c.details.join(" ")).toContain("1662 stale registry entries");
+    expect(c.details.join(" ")).toContain("flow reap --yes");
+    expect(JSON.stringify(out)).not.toMatch(/SUPERSECRET|--token/);
+  });
+
+  it("singularises a lone stale registry entry", () => {
+    const out = checkLeakedProcesses(makeDeps(root), () =>
+      report({ registry: registry([slugRow("a", { "already-dead": 1 })]) }),
+    );
+    const c = out.find((x) => x.id === "leftovers-processes")!;
+    expect(c.details.join(" ")).toContain("1 stale registry entry ");
+  });
+
+  it("never counts a reused pid (skipped-epoch-mismatch) as a leak", () => {
+    const out = checkLeakedProcesses(makeDeps(root), () =>
+      report({
+        registry: registry([slugRow("a", { "skipped-epoch-mismatch": 4 })]),
+      }),
+    );
+    const c = out.find((x) => x.id === "leftovers-processes")!;
+    expect(c.status).toBe("pass");
+    expect(c.details).toEqual([]);
+  });
+
+  it("warns to inspect (report-only fix) on dead-leader and failed rows", () => {
+    for (const outcome of [
+      "skipped-dead-leader",
+      "still-alive",
+      "failed",
+    ] as const) {
+      const out = checkLeakedProcesses(makeDeps(root), () =>
+        report({ registry: registry([slugRow("a", { [outcome]: 3 })]) }),
+      );
+      const c = out.find((x) => x.id === "leftovers-processes")!;
+      expect(c).toMatchObject({ status: "warn", fix: "flow reap" });
+      expect(c.summary).toContain("3 process(es)");
+      expect(c.summary).toContain("need a look");
+      expect(JSON.stringify(out)).not.toMatch(/SUPERSECRET|--token/);
+    }
+  });
+
+  it("reports running and needs-a-look counts together", () => {
+    const out = checkLeakedProcesses(makeDeps(root), () =>
+      report({
+        registry: registry([
+          slugRow("a", { "would-reap": 1 }),
+          slugRow("b", { failed: 2 }),
+        ]),
+      }),
+    );
+    const c = out.find((x) => x.id === "leftovers-processes")!;
+    expect(c.fix).toBe("flow reap --yes");
+    expect(c.summary).toContain("1 process(es) still running");
+    expect(c.summary).toContain("2 process(es) from ended pipelines need");
+  });
+
+  it("caps the slug list so a large registry stays one short line", () => {
+    const many = Array.from({ length: 12 }, (_, i) =>
+      slugRow(`slug-${i}`, { "would-reap": 1 }),
+    );
+    const out = checkLeakedProcesses(makeDeps(root), () =>
+      report({ registry: registry(many) }),
     );
     const c = out.find((x) => x.id === "leftovers-processes")!;
     expect(c.summary).toContain("12 process(es)");
@@ -370,7 +442,7 @@ describe("checkLeakedProcesses", () => {
         registry: {
           mode: "sweep",
           yes: false,
-          slugs: [slugRow("slow", 0, "deadline-exceeded")],
+          slugs: [slugRow("slow", {}, "deadline-exceeded")],
         } as unknown as ReapCliResult["registry"],
       }),
     );
