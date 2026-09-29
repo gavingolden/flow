@@ -320,6 +320,64 @@ describe("runNew --resume", () => {
     expect(errors[1]).toMatch(/run `flow feature create <description>`/);
   });
 
+  it.each([
+    ["epic-design", "flow epic create --resume"],
+    ["epic-run", "flow epic run"],
+  ] as const)(
+    "refuses a %s slug, names the epic command, and launches nothing",
+    (kind, command) => {
+      writeState(
+        {
+          slug: "epic-slug",
+          phase: "epic-designing",
+          kind,
+          repo: repoDir,
+          updatedAt: new Date().toISOString(),
+        },
+        stateDir,
+      );
+      const code = runNew("epic-slug", { resume: true, stateDir });
+      expect(code).toBe(1);
+      expect(errors.join("\n")).toContain(
+        `'epic-slug' is an ${kind} window, not a feature pipeline`,
+      );
+      expect(errors.join("\n")).toContain(`run \`${command} epic-slug\``);
+      expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+      expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses a kind-less epic (phase-derived fallback) too, but not a kind-less feature", () => {
+    writeState(
+      {
+        slug: "old-epic",
+        phase: "epic-pr-open",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    expect(runNew("old-epic", { resume: true, stateDir })).toBe(1);
+    expect(errors.join("\n")).toContain("flow epic create --resume old-epic");
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("does not refuse a feature pipeline that belongs to an epic (kind feature)", () => {
+    writeState(
+      {
+        slug: "epic-child",
+        phase: "verifying",
+        kind: "feature",
+        epic: { slug: "some-epic", featureId: "epic-child" },
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    runNew("epic-child", { resume: true, stateDir });
+    expect(errors.join("\n")).not.toMatch(/window, not a feature pipeline/);
+  });
+
   it("does not write state on a refusal path", () => {
     runNew("ghost", { resume: true, stateDir });
     expect(fs.existsSync(path.join(stateDir, "ghost.json"))).toBe(false);
@@ -1285,10 +1343,9 @@ describe("kind: 'feature' stamped + @flow-kind published (Task 2 / Task 4)", () 
     );
   });
 
-  it("republishes the persisted non-feature kind on resume instead of clobbering it to 'feature'", () => {
-    // Same shape as the case above, but seeded as an epic-design window —
-    // guards the resume path against overwriting an epic-member window's
-    // @flow-kind badge with the "feature" default.
+  it("never republishes @flow-kind for an epic-design window: the resume refuses before any launch or publish", () => {
+    // Formerly guarded the resume path against clobbering an epic window's
+    // @flow-kind badge with "feature"; the refusal now stops it earlier.
     writeState(
       {
         slug: "resumed-epic-design",
@@ -1306,11 +1363,9 @@ describe("kind: 'feature' stamped + @flow-kind published (Task 2 / Task 4)", () 
       stateDir,
       launchSettingsPath: path.join(stateDir, "launch-settings.json"),
     });
-    expect(code).toBe(0);
-    expect(tmuxMock.setPaneKind).toHaveBeenCalledWith(
-      "resumed-epic-design",
-      "epic-design",
-    );
+    expect(code).toBe(1);
+    expect(tmuxMock.setPaneKind).not.toHaveBeenCalled();
+    expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
   });
 
   it("stamps kind: 'feature' but issues NO @flow-kind publish on the plain launcher path", async () => {

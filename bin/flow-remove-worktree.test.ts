@@ -10,6 +10,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteBranchWithForceFallback,
+  forgetRemovedWorktree,
   isDeregisteredFailure,
   isNotFullyMergedFailure,
   isRemovalPhaseFailure,
@@ -24,6 +25,7 @@ import {
   resolveTargetInput,
 } from "./flow-remove-worktree";
 import { salvageAgentMemory } from "./lib/worktree-fs";
+import { readState, writeState } from "./lib/state";
 
 /** Computes the SAME `repoCacheKey` value as `./lib/paths.ts`'s
  * `repoCacheKey`, but derived independently (never by calling
@@ -327,6 +329,94 @@ describe(matchWorktree, () => {
       // canonical live entry.
       const match = matchWorktree("slug", worktrees, linkDir);
       expect(match?.path).toBe(canonicalReal);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// --- forgetRemovedWorktree --------------------------------------------------
+
+describe(forgetRemovedWorktree, () => {
+  let stateDir!: string;
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "forget-wt-state-"));
+  });
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  function seed(phase: string, worktree: string | undefined): void {
+    writeState(
+      {
+        slug: "csv-export",
+        phase,
+        repo: "/tmp/repo",
+        worktree,
+        updatedAt: "2026-04-30T12:00:00Z",
+      },
+      stateDir,
+    );
+  }
+
+  it.each(["merged", "cancelled"])(
+    "clears the recorded worktree at %s when it is the directory just removed",
+    (phase) => {
+      seed(phase, "/tmp/wt/csv-export");
+      expect(
+        forgetRemovedWorktree("csv-export", "/tmp/wt/csv-export", stateDir),
+      ).toBe(true);
+      const after = readState("csv-export", stateDir);
+      expect(after?.worktree).toBeUndefined();
+      expect(after?.phase).toBe(phase);
+    },
+  );
+
+  it.each(["implementing", "gated", "needs-human", "epic-designing"])(
+    "keeps the recorded worktree at the live/awaiting phase %s (a live pipeline never loses the field, so resume still escalates missing-worktree)",
+    (phase) => {
+      seed(phase, "/tmp/wt/csv-export");
+      expect(
+        forgetRemovedWorktree("csv-export", "/tmp/wt/csv-export", stateDir),
+      ).toBe(false);
+      expect(readState("csv-export", stateDir)?.worktree).toBe(
+        "/tmp/wt/csv-export",
+      );
+    },
+  );
+
+  it("keeps the record when the removed directory is a different worktree (never clears a sibling's field)", () => {
+    seed("merged", "/tmp/wt/csv-export");
+    expect(
+      forgetRemovedWorktree("csv-export", "/tmp/wt/csv-export-2", stateDir),
+    ).toBe(false);
+    expect(readState("csv-export", stateDir)?.worktree).toBe(
+      "/tmp/wt/csv-export",
+    );
+  });
+
+  it("returns false and writes nothing for a missing state file or an absent worktree field", () => {
+    expect(forgetRemovedWorktree("ghost", "/tmp/wt/x", stateDir)).toBe(false);
+    seed("merged", undefined);
+    expect(forgetRemovedWorktree("csv-export", "/tmp/wt/x", stateDir)).toBe(
+      false,
+    );
+  });
+
+  it("matches a DELETED directory recorded through a symlinked ancestor (macOS /var -> /private/var), where realpath of the deleted leaf alone cannot resolve", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "forget-wt-canon-"));
+    try {
+      const realParent = path.join(root, "real");
+      fs.mkdirSync(realParent);
+      const linkParent = path.join(root, "link");
+      fs.symlinkSync(realParent, linkParent);
+      // Recorded via the symlinked spelling; git reports the canonical one.
+      seed("cancelled", path.join(linkParent, "wt"));
+      const removedCanonical = path.join(fs.realpathSync(realParent), "wt");
+      expect(
+        forgetRemovedWorktree("csv-export", removedCanonical, stateDir),
+      ).toBe(true);
+      expect(readState("csv-export", stateDir)?.worktree).toBeUndefined();
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -1080,6 +1170,42 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
     const list = mustGit(["worktree", "list", "--porcelain"], fx.repoDir);
     expect(list).not.toContain(wtDir);
   });
+
+  it.each([
+    ["merged", true],
+    ["implementing", false],
+  ] as const)(
+    "end-to-end: removing the worktree of a pipeline at %s %s its recorded worktree in ~/.flow/state/<slug>.json",
+    async (phase, cleared) => {
+      const create = await runNewWorktree(["fin"], fx.repoDir);
+      expect(create.exitCode, `stderr: ${create.stderr}`).toBe(0);
+      const wtDir = path.join(path.dirname(fx.repoDir), "repo-fin");
+      const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-rm-home-"));
+      try {
+        const stateDir = path.join(fakeHome, ".flow", "state");
+        writeState(
+          {
+            slug: "fin",
+            phase,
+            repo: fx.repoDir,
+            worktree: wtDir,
+            updatedAt: "2026-04-30T12:00:00Z",
+          },
+          stateDir,
+        );
+        const env: NodeJS.ProcessEnv = { ...process.env, HOME: fakeHome };
+        delete env.FLOW_SLUG;
+        const remove = await runHelper(["fin"], fx.repoDir, env);
+        expect(remove.exitCode, `stderr: ${remove.stderr}`).toBe(0);
+        expect(fs.existsSync(wtDir)).toBe(false);
+        const after = readState("fin", stateDir);
+        expect(after?.phase).toBe(phase);
+        expect(after?.worktree).toBe(cleared ? undefined : wtDir);
+      } finally {
+        fs.rmSync(fakeHome, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("worktree memory link end-to-end: linked, ignored, and salvaged into cache on removal (PR #756 Test Step 5)", async () => {
     const create = await runNewWorktree(["probe-mem"], fx.repoDir);

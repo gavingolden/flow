@@ -9,6 +9,7 @@ import {
   checkpointConsumedPath,
   checkpointDir,
   checkpointMarkerPath,
+  consumeCheckpoint,
   parseArgs,
   probeCheckpointBody,
   renderArmBanner,
@@ -408,20 +409,30 @@ describe("run() — ready-path terminal-phase warning (Task 7)", () => {
     expect(r.warning).toBeUndefined();
   });
 
-  it("(f) needs-human at an epic-design window: warns with 'paused on a human step' wording, not 'nothing left to resume', and names the recovery route (Product)", () => {
+  it("(f) needs-human at a positively-read epic-design window: warning ABSENT — the window WILL auto-resume at its pause (the /clear hook dispatches the epic resume seed)", () => {
     seedState("epic-needs-human", { phase: "needs-human" });
     writeCheckpoint("epic-needs-human");
     const r = runCapture(["epic-needs-human"], undefined, () => "epic-design");
     expect(r.status).toBe("ready");
-    expect(r.warning).toBeDefined();
-    expect(r.warning).toContain("paused on a human step");
-    expect(r.warning).not.toContain("nothing left to resume");
-    // The moment this warning fires is exactly when the user is deciding
-    // whether to /clear — leaving them to work out the recovery route
-    // themselves is the re-checking cost priority 1 exists to remove.
+    expect(fs.existsSync(markerFile("epic-needs-human"))).toBe(true);
+    expect(r.warning).toBeUndefined();
+  });
+
+  it("(f2) a kind-less epic paused at needs-human with an unreadable pane kind: the warning names the epic command (and the human-step wording, including the close-first route), not flow feature resume", () => {
+    seedState("epic-kind-uncertain", {
+      phase: "needs-human",
+      phaseLog: [
+        { phase: "epic-designing", at: "2026-06-30T11:00:00Z" },
+        { phase: "needs-human", at: "2026-06-30T11:30:00Z" },
+      ],
+    });
+    writeCheckpoint("epic-kind-uncertain");
+    const r = runCapture(["epic-kind-uncertain"], undefined, () => null);
+    expect(r.status).toBe("ready");
     expect(r.warning).toContain(
-      "close it first, then run flow feature resume epic-needs-human to continue",
+      "flow epic create --resume epic-kind-uncertain",
     );
+    expect(r.warning).not.toContain("flow feature resume");
   });
 
   it("(g) feature needs-human with an unreadable pane kind on tmux still warns — mirrors the hook's kindCertain guard (Task 4)", () => {
@@ -565,6 +576,44 @@ describe("run() — --consume archives the body", () => {
     expect(
       fs.readFileSync(checkpointConsumedPath("theta-noop", stateDir), "utf8"),
     ).toBe("orphaned body\n");
+  });
+});
+
+describe("consumeCheckpoint (shared retire function)", () => {
+  it("archives the body, clears the record, removes the banner file and the marker, and reports the marker and archive path", () => {
+    seedState("retire-all");
+    writeCheckpoint("retire-all", "notes\n");
+    runCapture(["retire-all", "--site", "manual"]); // arm: marker + record + banner
+    expect(fs.existsSync(markerFile("retire-all"))).toBe(true);
+    expect(fs.existsSync(armBannerPath("retire-all", stateDir))).toBe(true);
+    const r = consumeCheckpoint("retire-all", stateDir);
+    expect(r).toEqual({
+      marker: checkpointMarkerPath("retire-all", stateDir),
+      markerRemoved: true,
+      archived: checkpointConsumedPath("retire-all", stateDir),
+    });
+    expect(fs.existsSync(markerFile("retire-all"))).toBe(false);
+    expect(fs.existsSync(armBannerPath("retire-all", stateDir))).toBe(false);
+    expect(readState("retire-all", stateDir)?.checkpoint).toBeUndefined();
+  });
+
+  it("is idempotent: a second call reports nothing to retire and does not throw", () => {
+    seedState("retire-twice");
+    writeCheckpoint("retire-twice", "notes\n");
+    runCapture(["retire-twice", "--site", "manual"]);
+    consumeCheckpoint("retire-twice", stateDir);
+    const again = consumeCheckpoint("retire-twice", stateDir);
+    expect(again.markerRemoved).toBe(false);
+    expect(again.archived).toBeNull();
+  });
+
+  it("still archives the body and removes the marker when the state file is missing (only the record clear is skipped)", () => {
+    writeCheckpoint("no-state", "orphan notes\n");
+    fs.writeFileSync(markerFile("no-state"), "no-state\n");
+    const r = consumeCheckpoint("no-state", stateDir);
+    expect(r.markerRemoved).toBe(true);
+    expect(r.archived).toBe(checkpointConsumedPath("no-state", stateDir));
+    expect(fs.existsSync(markerFile("no-state"))).toBe(false);
   });
 });
 

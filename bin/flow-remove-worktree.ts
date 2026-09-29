@@ -19,7 +19,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import { resolveSlugAmbient } from "./lib/session-identity";
-import { readState } from "./lib/state";
+import { readState, writeState, WORKTREE_REMOVED_PHASE_SET } from "./lib/state";
+import { FLOW_STATE_DIR } from "./lib/paths";
 import {
   detectDefaultBranch,
   salvageAgentMemory,
@@ -472,7 +473,16 @@ function canonicalizePath(p: string): string {
   try {
     return fs.realpathSync(p);
   } catch {
-    return path.resolve(p);
+    // A deleted leaf (the worktree just removed) cannot itself resolve, but
+    // its parent usually still can — resolve that and re-append the leaf so a
+    // symlinked ancestor (macOS `/var` -> `/private/var`) canonicalizes the
+    // same as the live path did.
+    const abs = path.resolve(p);
+    try {
+      return path.join(fs.realpathSync(path.dirname(abs)), path.basename(abs));
+    } catch {
+      return abs;
+    }
   }
 }
 
@@ -487,6 +497,38 @@ function canonicalizePath(p: string): string {
  */
 export function stateSlugForInput(input: string): string | undefined {
   return input.includes("/") ? undefined : input;
+}
+
+/**
+ * Drops the recorded `worktree` from `<slug>`'s state once its directory was
+ * removed, so a finished pipeline's record stops naming a deleted dir (issue
+ * #632). Guarded twice so a live pipeline never loses the field: the phase
+ * must already be finished-and-removed (`merged` / `cancelled`), and the
+ * recorded path must be the very directory just removed. The cancel paths
+ * remove the worktree BEFORE writing `cancelled` — clearing unconditionally
+ * would let a crash in that gap resume as "no worktree yet" and rebuild a
+ * cancelled pipeline; the terminal-write primitive covers that ordering.
+ * Returns whether it wrote. Never throws.
+ */
+export function forgetRemovedWorktree(
+  slug: string,
+  removedDir: string,
+  dir: string = FLOW_STATE_DIR,
+): boolean {
+  try {
+    const state = readState(slug, dir);
+    if (
+      !state?.worktree ||
+      !WORKTREE_REMOVED_PHASE_SET.has(state.phase) ||
+      canonicalizePath(state.worktree) !== canonicalizePath(removedDir)
+    ) {
+      return false;
+    }
+    writeState({ ...state, worktree: undefined }, dir);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -690,6 +732,8 @@ function main(): void {
     warn: log.warn,
   });
   log.success("Worktree removed.");
+  const removedSlug = stateSlugForInput(input);
+  if (removedSlug) forgetRemovedWorktree(removedSlug, info.worktreeDir);
 
   // Auto-delete probe: when --delete-branch wasn't passed AND the per-task branch
   // is provably fully merged into origin/<base>, fall through to the same deletion

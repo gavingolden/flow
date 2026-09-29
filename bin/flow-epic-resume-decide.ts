@@ -20,20 +20,27 @@
  * exactly like flow-resume-decide), so its ./lib import is fine — R1 forbids
  * `bin/lib` imports only inside the spawned consumer-worktree window.
  *
+ * NOT read-only: the CLI entry retires the one-shot checkpoint (archives the
+ * note, removes the resume marker) on every verdict except `awaiting-human`
+ * (the pause defers retirement until the confirming `done`) and `abort`, and
+ * publishes `context.checkpointPath` — the archived note to read. Running it
+ * by hand to inspect an epic therefore consumes its saved notes.
+ *
  * Usage:
  *   flow-epic-resume-decide [<slug>]   (slug auto-resolves from $FLOW_SLUG)
  *
  * Output: a single JSON object on stdout.
  *   {
  *     "epicResumeAt": "design"|"validate"|"open-pr"|"read-back-pr"
- *                   | "checkpoint"|"worktree"
+ *                   | "checkpoint"|"worktree"|"awaiting-human"
  *                   | "terminal"|"escalate"|"abort",
  *     "reason": "<one-line summary>",
  *     "context": {
  *       "slug": string, "phase": string,
  *       "worktree"?: string, "pr"?: number,
  *       "prState"?: "OPEN"|"MERGED"|"CLOSED",
- *       "checkpointExists"?: boolean
+ *       "checkpointExists"?: boolean,
+ *       "continueAt"?: <a step verdict>, "continuePhase"?: string
  *     }
  *   }
  *
@@ -45,7 +52,12 @@
  *   2 — bad CLI args
  */
 
-import { readState, type PipelineState, TERMINAL_PHASES } from "./lib/state";
+import {
+  pausedPhase,
+  readState,
+  type PipelineState,
+  TERMINAL_PHASES,
+} from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import {
@@ -59,7 +71,12 @@ import {
   type GhRunner,
   type GitRunner,
 } from "./lib/resume-probes";
-import { probeCheckpointBody } from "./flow-checkpoint";
+import {
+  consumeCheckpoint,
+  probeCheckpointBody,
+  type ConsumeResult,
+} from "./flow-checkpoint";
+import { checkpointBodyPath } from "./lib/checkpoint-freshness";
 
 // --- Types -----------------------------------------------------------------
 
@@ -70,9 +87,26 @@ export type EpicResumeAt =
   | "read-back-pr"
   | "checkpoint"
   | "worktree"
+  | "awaiting-human"
   | "terminal"
   | "escalate"
   | "abort";
+
+/**
+ * Maps each `decide()` step verdict to the epic phase a needs-human
+ * continuation writes on the way out of its pause — the epic analogue of
+ * `CONTINUE_PHASE_BY_STEP` in `bin/flow-resume-decide.ts`. Every value must
+ * be in `TERMINAL_EXIT_TRANSITIONS["needs-human"]` (`bin/lib/state.ts`); the
+ * union of both continue maps equals that allowlist exactly (parity-tested).
+ * There is no merge target: F5 never merges.
+ */
+export const CONTINUE_PHASE_BY_EPIC_STEP: Readonly<Record<string, string>> = {
+  design: "epic-designing",
+  validate: "epic-validating",
+  "open-pr": "epic-pr-open",
+  "read-back-pr": "epic-pr-open",
+  checkpoint: "epic-design-pending-review",
+};
 
 export type DecisionContext = {
   slug: string;
@@ -88,6 +122,32 @@ export type DecisionContext = {
    * or broken checkout does not zero it. Never omitted.
    */
   checkpointExists?: boolean;
+  /**
+   * The mechanical continue step for a `needs-human` pause — `decide()`'s own
+   * verdict for the last non-terminal `phaseLog` phase before the pause
+   * (`pausedPhase`, `./lib/state`). Set only on the `awaiting-human` verdict,
+   * and only when that inner verdict is a key of `CONTINUE_PHASE_BY_EPIC_STEP`.
+   */
+  continueAt?: EpicResumeAt;
+  /**
+   * `CONTINUE_PHASE_BY_EPIC_STEP[continueAt]` — the phase a confirming "done"
+   * reply writes via `flow-state-update --phase` (allowlisted, no `--force`)
+   * before re-entering `continueAt`. Always set together with `continueAt`.
+   */
+  continuePhase?: string;
+  /**
+   * Set by the CLI entry (`run`) only, never by the pure `decide()`. The
+   * absolute path of the one-shot notes to read: the ARCHIVED note when this
+   * run retired it (every verdict except `awaiting-human` and `abort`), else
+   * the live note (at the pause, where retirement is deferred until the
+   * confirming `done`). Absent when no note existed.
+   */
+  checkpointPath?: string;
+  /**
+   * Set by the CLI entry only: whether this run retired the one-shot
+   * checkpoint (archived a note and/or removed the resume marker).
+   */
+  checkpointConsumed?: boolean;
 };
 
 export type DecisionResult = {
@@ -108,8 +168,8 @@ export type Inputs = {
 //
 // Sourced from the canonical lib/state taxonomy so this reader can't drift from
 // the supervisor's phase set — mirroring flow-resume-decide.ts's TERMINAL_PHASE_SET
-// anti-drift guard. `needs-human` is included (it lives in TERMINAL_PHASES), so a
-// crashed epic escalation resolves `terminal` rather than falling through the walk.
+// anti-drift guard. `needs-human` is in TERMINAL_PHASES but `decide()` handles it
+// BEFORE the terminal check (awaiting-human / escalate / terminal).
 export const TERMINAL_PHASE_SET = new Set<string>(TERMINAL_PHASES);
 
 // --- Pure decision function -----------------------------------------------
@@ -131,6 +191,61 @@ export function decide(inputs: Inputs): DecisionResult {
   if (inputs.pr.kind === "found") {
     ctx.pr = inputs.pr.number;
     ctx.prState = inputs.pr.state;
+  }
+
+  // needs-human awaiting-human mode: mirrors flow-resume-decide's needs-human
+  // branch. A paused escalation with a live worktree resolves to
+  // `awaiting-human` carrying a continue step computed by re-running decide()
+  // with the phase swapped for the last non-terminal `phaseLog` entry before
+  // the pause. MUST precede the terminal short-circuit (needs-human is a
+  // terminal phase). A closed design PR or a vanished worktree escalates
+  // (surfaced, never dead-ended); a merged PR or no recorded worktree is
+  // terminal — there is nothing live to continue.
+  if (inputs.state.phase === "needs-human") {
+    if (inputs.pr.kind === "found" && inputs.pr.state === "CLOSED") {
+      return {
+        epicResumeAt: "escalate",
+        reason: "pr-closed-without-merge",
+        context: ctx,
+      };
+    }
+    if (inputs.pr.kind === "found" && inputs.pr.state === "MERGED") {
+      return {
+        epicResumeAt: "terminal",
+        reason: "pr-merged-while-paused",
+        context: ctx,
+      };
+    }
+    if (inputs.worktree.kind === "missing-on-disk") {
+      return {
+        epicResumeAt: "escalate",
+        reason: "worktree-missing-on-resume",
+        context: ctx,
+      };
+    }
+    if (inputs.worktree.kind === "absent-from-state") {
+      return {
+        epicResumeAt: "terminal",
+        reason: `phase: ${inputs.state.phase}`,
+        context: ctx,
+      };
+    }
+    const paused = pausedPhase(inputs.state.phaseLog);
+    if (paused !== undefined) {
+      const inner = decide({
+        ...inputs,
+        state: { ...inputs.state, phase: paused },
+      });
+      if (Object.hasOwn(CONTINUE_PHASE_BY_EPIC_STEP, inner.epicResumeAt)) {
+        ctx.continueAt = inner.epicResumeAt;
+        ctx.continuePhase = CONTINUE_PHASE_BY_EPIC_STEP[inner.epicResumeAt];
+      }
+    }
+    return {
+      epicResumeAt: "awaiting-human",
+      reason: "needs-human-awaiting-human-step",
+      context: ctx,
+    };
   }
 
   // Terminal phases — the epic already ended (approve/cancel/escalation). Wins
@@ -245,6 +360,7 @@ export type Deps = {
   git?: GitRunner;
   stateDir?: string;
   resolveSlug?: () => string | null;
+  consume?: (slug: string, dir: string) => ConsumeResult;
 };
 
 export function parseArgs(
@@ -277,12 +393,14 @@ export function gatherInputs(
 ): Inputs {
   // Terminal phases short-circuit the gh/git I/O: decide() returns terminal
   // from the phase check alone, so probing a completed epic's remote state is
-  // wasted work (and unsafe under a stub gh/git in tests). The checkpoint
+  // wasted work (and unsafe under a stub gh/git in tests). `needs-human` is
+  // the exception — its awaiting-human branch reads the worktree and PR, so
+  // it must be probed like a live phase. The checkpoint
   // probe is exempt from that short-circuit — it is a slug-keyed `statSync`,
   // not a subprocess, and zeroing it here would drop the design notes at
   // `epic-approved`, contradicting `/flow-epic-create`'s Resume-mode block.
   // Same rationale as the feature-side un-gating in `flow-resume-decide.ts`.
-  if (TERMINAL_PHASE_SET.has(state.phase)) {
+  if (state.phase !== "needs-human" && TERMINAL_PHASE_SET.has(state.phase)) {
     return {
       slug,
       state,
@@ -342,6 +460,26 @@ export function run(argv: string[], deps: Deps = {}): number {
 
   const inputs = gatherInputs(slug, state, gh, git, stateDir);
   const decision = decide(inputs);
+
+  // Retire the one-shot checkpoint here, in the CLI entry (never the pure
+  // decide()): this helper is the resume entry, so the note is applied
+  // exactly once without depending on a supervisor prose step. The pause
+  // itself defers retirement — a second /clear before `done` must re-resume
+  // into the same pause with its notes intact.
+  if (decision.epicResumeAt === "awaiting-human") {
+    decision.context.checkpointConsumed = false;
+    if (inputs.checkpointExists) {
+      decision.context.checkpointPath = checkpointBodyPath(slug, stateDir);
+    }
+  } else {
+    const consume = deps.consume ?? consumeCheckpoint;
+    const retired = consume(slug, stateDir);
+    decision.context.checkpointConsumed =
+      retired.markerRemoved || retired.archived !== null;
+    if (retired.archived !== null) {
+      decision.context.checkpointPath = retired.archived;
+    }
+  }
   process.stdout.write(JSON.stringify(decision) + "\n");
   return 0;
 }

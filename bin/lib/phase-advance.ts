@@ -26,6 +26,7 @@
  * refusing out of `FINISHED_PHASE_SET`.
  */
 
+import * as fs from "node:fs";
 import {
   readState,
   writeState,
@@ -33,6 +34,7 @@ import {
   STEP_PHASES,
   TERMINAL_PHASE_SET,
   FINISHED_PHASE_SET,
+  WORKTREE_REMOVED_PHASE_SET,
   isAllowedTerminalExit,
   nowIso,
   type PipelinePhase,
@@ -400,6 +402,15 @@ export function advancePhase(
  * `FINISHED_PHASE_SET` (`merged`, `cancelled`, `epic-approved`) so
  * `merged -> gated` does not. No-ops when `state.phase === target`
  * (idempotent re-render), appending no second `phaseLog[]` entry.
+ *
+ * A write to a `WORKTREE_REMOVED_PHASE_SET` phase (`merged` / `cancelled`)
+ * whose recorded worktree no longer exists on disk drops the `worktree`
+ * field: every feature cancel path removes the worktree BEFORE writing
+ * `cancelled`, so this is where that record stops naming a deleted dir
+ * (issue #632). A still-present directory keeps its record — the merge
+ * paths write the phase first and `flow-remove-worktree` clears it on removal.
+ * A live pipeline never reaches here with a vanished directory, so the
+ * missing-worktree escalation on resume is unchanged.
  */
 export function finalizePhase(
   target: PipelinePhase,
@@ -476,8 +487,13 @@ export function finalizePhase(
     };
   }
 
+  const { worktree: recordedWorktree, ...rest } = state;
+  const dropWorktree =
+    WORKTREE_REMOVED_PHASE_SET.has(target) &&
+    recordedWorktree !== undefined &&
+    !fs.existsSync(recordedWorktree);
   const written = {
-    ...state,
+    ...(dropWorktree ? rest : state),
     phase: target,
     phaseLog: appendPhaseLog(state, target),
     updatedAt: nowIso(),
