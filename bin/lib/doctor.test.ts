@@ -3,12 +3,14 @@ import {
   defaultDoctorDeps,
   doctorExitCode,
   guarded,
-  renderDoctorText,
+  resolveInstallRoot,
   runDoctor,
   type DoctorCheck,
   type DoctorDeps,
   type DoctorProbe,
 } from "./doctor";
+import { renderDoctorText } from "./doctor-render";
+import type { inspectFlowRoot } from "./worktree-source";
 
 const deps = {} as DoctorDeps;
 
@@ -78,7 +80,8 @@ describe("runDoctor aggregation", () => {
       status: "warn",
       summary: "could not run: kaput",
     });
-    expect(report.checks[0].fix).toBeTruthy();
+    expect(report.checks[0].fix).toBeUndefined();
+    expect(report.checks[0].details.join(" ")).toContain("re-run flow doctor");
     expect(report.checks[1].id).toBe("after");
     expect(report.ok).toBe(true);
   });
@@ -97,6 +100,44 @@ describe("runDoctor aggregation", () => {
       status: "warn",
       summary: "could not run: spawn failed",
     });
+  });
+});
+
+describe("resolveInstallRoot", () => {
+  const worktree = {
+    isWorktree: true,
+    canonicalRoot: "/canon/flow",
+  } as ReturnType<typeof inspectFlowRoot>;
+  const plain = {
+    isWorktree: false,
+    canonicalRoot: null,
+  } as ReturnType<typeof inspectFlowRoot>;
+
+  it("uses the flow source itself when it is not a worktree", () => {
+    expect(
+      resolveInstallRoot("/src/flow", "/home", {
+        inspect: () => plain,
+        configured: () => null,
+      }),
+    ).toBe("/src/flow");
+  });
+
+  it("uses the canonical checkout for a worktree source with no pinned source", () => {
+    expect(
+      resolveInstallRoot("/wt/flow", "/home", {
+        inspect: () => worktree,
+        configured: () => null,
+      }),
+    ).toBe("/canon/flow");
+  });
+
+  it("keeps the worktree source when config.source pins one", () => {
+    expect(
+      resolveInstallRoot("/wt/flow", "/home", {
+        inspect: () => worktree,
+        configured: () => "/wt/flow",
+      }),
+    ).toBe("/wt/flow");
   });
 });
 

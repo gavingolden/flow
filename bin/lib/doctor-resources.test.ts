@@ -4,11 +4,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultDoctorDeps } from "./doctor";
-import {
-  checkLeakedProcesses,
-  checkPipelineState,
-  checkStaleWorktrees,
-} from "./doctor-resources";
+import { checkPipelineState } from "./doctor-pipelines";
+import { checkLeakedProcesses } from "./doctor-processes";
+import { checkStaleWorktrees } from "./doctor-resources";
 import { makeDeps, scriptedRun, type RunCall } from "./doctor-test-deps";
 import type { ReapOutcome } from "./reap";
 import type { ReapCliResult } from "./reap-cli";
@@ -297,6 +295,7 @@ describe("checkLeakedProcesses", () => {
     expect(seen).toEqual({
       yes: false,
       baseDir: deps.reapBaseDir,
+      stateDir: deps.stateDir,
       deadlineMs: 5000,
     });
   });
@@ -417,7 +416,7 @@ describe("checkLeakedProcesses", () => {
     );
     const c = out.find((x) => x.id === "leftovers-strays")!;
     expect(c.status).toBe("warn");
-    expect(c.fix).toBe("flow reap --yes --include-strays (host-wide)");
+    expect(c.fix).toBe("flow reap --yes --include-strays");
     expect(JSON.stringify(out)).not.toContain("SECRET");
   });
 
@@ -450,5 +449,17 @@ describe("checkLeakedProcesses", () => {
       status: "warn",
       fix: "flow reap",
     });
+  });
+
+  it("warns when only some rows of a slug were never reached before the deadline", () => {
+    const out = checkLeakedProcesses(makeDeps(root), () =>
+      report({
+        registry: registry([slugRow("partial", { "deadline-exceeded": 2 })]),
+      }),
+    );
+    const c = out.find((x) => x.id === "leftovers-processes")!;
+    expect(c.status).toBe("warn");
+    expect(c.summary).toContain("not checked before the sweep deadline");
+    expect(c.details.join(" ")).toContain("partial");
   });
 });

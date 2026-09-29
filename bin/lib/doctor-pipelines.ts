@@ -21,6 +21,13 @@ import {
 import { listWindows, type TmuxWindow } from "./tmux";
 
 const SECTION = "leftovers" as const;
+/** Throw-path meta only: a normal run emits `leftovers-unresumable`,
+ * `leftovers-unclosed` and `leftovers-never-started`, never this id. */
+export const PIPELINE_RECORDS_META = {
+  id: "leftovers-pipelines",
+  section: SECTION,
+  title: "Pipeline records",
+} as const;
 
 function tolerantWindows(): TmuxWindow[] {
   try {

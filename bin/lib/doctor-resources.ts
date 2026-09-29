@@ -1,15 +1,15 @@
 /**
  * `flow doctor` leftover checks: stale worktrees. The pipeline-record checks
- * live in `doctor-pipelines.ts`, the process checks in `doctor-processes.ts`;
- * all three are re-exported here. Read-only: nothing
- * here removes a worktree, deletes a record, or signals a process — each
- * warning prints the command that does.
+ * live in `doctor-pipelines.ts`, the process checks in `doctor-processes.ts`.
+ * Read-only: nothing here removes a worktree, deletes a record, or signals a
+ * process — each warning prints the command that does.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseWorktreeListOutput } from "../flow-remove-worktree";
 import type { DoctorCheck, DoctorDeps } from "./doctor";
+import { shq } from "./doctor-util";
 import {
   listStates,
   WORKTREE_REMOVED_PHASE_SET,
@@ -17,15 +17,13 @@ import {
 } from "./state";
 import { BRANCH_MARKER_FILENAME } from "./worktree-marker";
 
-export { checkLeakedProcesses } from "./doctor-processes";
-export { checkPipelineState } from "./doctor-pipelines";
-
 const SECTION = "leftovers" as const;
+export const STALE_WORKTREES_META = {
+  id: "leftovers-worktrees",
+  section: SECTION,
+  title: "Stale worktrees",
+} as const;
 const GIT_TIMEOUT_MS = 5000;
-
-function shq(p: string): string {
-  return /^[\w@%+=:,./-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`;
-}
 
 function real(p: string): string {
   try {
@@ -53,6 +51,13 @@ export function checkStaleWorktrees(
   const here = cwdRepo(deps);
   if (here !== null && !repos.has(here)) repos.set(here, "");
 
+  const ownersByPath = new Map<string, PipelineState[]>();
+  for (const s of states) {
+    if (s.worktree === undefined) continue;
+    const key = real(s.worktree);
+    ownersByPath.set(key, [...(ownersByPath.get(key) ?? []), s]);
+  }
+
   const checks: DoctorCheck[] = [];
   const seenPrimaries = new Set<string>();
   for (const [repo, slug] of repos) {
@@ -62,6 +67,7 @@ export function checkStaleWorktrees(
         })
       : null;
     if (list === null || list.status !== 0 || list.timedOut) {
+      const gone = list === null;
       checks.push({
         id: `leftovers-worktrees:unreadable-${checks.length}`,
         section: SECTION,
@@ -69,11 +75,15 @@ export function checkStaleWorktrees(
         status: "warn",
         summary: `could not inspect repo at ${repo}`,
         details: [
-          list === null
+          gone
             ? "the recorded repo path no longer exists"
-            : "git worktree list failed or timed out",
+            : "git worktree list failed or timed out, so no worktree was judged stale",
         ],
-        fix: slug === "" ? "flow doctor" : `flow done ${slug}`,
+        fix: gone
+          ? slug === ""
+            ? undefined
+            : `flow done ${slug}`
+          : `git -C ${shq(repo)} worktree list`,
       });
       continue;
     }
@@ -84,9 +94,7 @@ export function checkStaleWorktrees(
     for (const e of entries.slice(1)) {
       if (e.bare) continue;
       if (!fs.existsSync(path.join(e.path, BRANCH_MARKER_FILENAME))) continue;
-      const owners = states.filter(
-        (s) => s.worktree !== undefined && real(s.worktree) === real(e.path),
-      );
+      const owners = ownersByPath.get(real(e.path)) ?? [];
       const stale =
         owners.length === 0 ||
         owners.every((s) => WORKTREE_REMOVED_PHASE_SET.has(s.phase));
@@ -107,9 +115,7 @@ export function checkStaleWorktrees(
   }
   if (checks.length === 0) {
     checks.push({
-      id: "leftovers-worktrees",
-      section: SECTION,
-      title: "Stale worktrees",
+      ...STALE_WORKTREES_META,
       status: "pass",
       summary: `no stale worktrees in ${seenPrimaries.size} repo(s)`,
       details: [],

@@ -15,7 +15,7 @@ const browserTeardownMock = vi.hoisted(() => ({
     homeDir: "/home/test",
     tmpDir: "/tmp",
     nowMs: () => 0,
-    selfPgid: null,
+    selfPgid: 4242,
     groupMembers: () => null,
   })),
   runOrphanSweep: vi.fn((_deps: unknown, _opts: { yes: boolean }) => ({
@@ -27,9 +27,22 @@ const browserTeardownMock = vi.hoisted(() => ({
 }));
 vi.mock("../flow-browser-teardown", () => browserTeardownMock);
 
+// Poison the frozen-at-import defaults: a probe that dropped a `deps` path and
+// fell back to one of these would write into a directory the test can observe.
+const POISON = vi.hoisted(
+  () => `${process.env.TMPDIR ?? "/tmp"}/flow-doctor-poison-${process.pid}`,
+);
+vi.mock("./paths", async (orig) => ({
+  ...(await orig<typeof import("./paths")>()),
+  FLOW_STATE_DIR: `${POISON}/state`,
+  FLOW_MANIFEST: `${POISON}/installed.json`,
+}));
+
 import { runDoctorCli } from "./doctor-cli";
 import type { DoctorDeps, DoctorReport } from "./doctor";
 import { makeDeps, scriptedRun } from "./doctor-test-deps";
+import { appendRow } from "./proc-registry";
+import { writeState, type PipelineState } from "./state";
 
 let root: string;
 let out: string[];
@@ -40,6 +53,11 @@ beforeEach(() => {
   root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "doctor-cli-")));
   out = [];
   err = [];
+  // vitest runs under Node, where the `Bun` global the liveness probe shells
+  // through does not exist; every pid reads as absent.
+  vi.stubGlobal("Bun", {
+    spawnSync: () => ({ exitCode: 1, stdout: Buffer.from("") }),
+  });
   vi.spyOn(console, "log").mockImplementation(
     (...a) => void out.push(a.join(" ")),
   );
@@ -50,6 +68,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -70,6 +89,31 @@ function healthyDeps(): DoctorDeps {
     '{"dependencies":{}}',
   );
   fs.mkdirSync(deps.reapBaseDir!, { recursive: true });
+  appendRow(
+    {
+      pgid: 999_999,
+      pid: 999_999,
+      startEpoch: 1,
+      slug: "old-run",
+      class: "default",
+      argv: ["node"],
+      recordedAt: 0,
+      sessionPid: 999_998,
+      sessionStartEpoch: 1,
+    },
+    deps.reapBaseDir!,
+  );
+  writeState(
+    {
+      slug: "old-run",
+      phase: "epic-approved",
+      repo: root,
+      pid: 999_997,
+      procStartedAt: 1,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    } as PipelineState,
+    deps.stateDir,
+  );
   fs.mkdirSync(deps.targets.binDir, { recursive: true });
   const symlinks = [
     ["flow", "flow"],
@@ -196,6 +240,9 @@ describe("runDoctorCli full probe run in a sandbox", () => {
         "leftovers-processes",
       ]),
     );
+    const procs = r.checks.find((c) => c.id === "leftovers-processes")!;
+    expect(procs.status).toBe("pass");
+    expect(procs.details.join(" ")).toContain("1 stale registry entry");
     expect(r.checks.find((c) => c.id === "tools-tmux")?.status).toBe("skip");
     expect(r.checks.find((c) => c.id === "tools-agy")?.status).toBe("skip");
   });
@@ -210,17 +257,24 @@ describe("runDoctorCli full probe run in a sandbox", () => {
     const c = jsonReport().checks.find((x) => x.id === "install-modules")!;
     expect(c.status).toBe("fail");
     expect(c.summary).toContain("flow-state-update");
-    expect(c.fix).toContain("then re-run flow doctor");
+    expect(c.fix).toBe("flow install --upgrade");
   });
 
   it("never writes, signals or reaps: every sandbox byte and mtime is unchanged", async () => {
     const deps = healthyDeps();
-    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const killSpy = vi
+      .spyOn(process, "kill")
+      .mockImplementation((_pid, sig) => {
+        if (sig === 0)
+          throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+        return true;
+      });
     const before = snapshot(root);
     await runDoctorCli([], { deps });
     await runDoctorCli(["--json"], { deps });
     expect(snapshot(root)).toEqual(before);
-    expect(killSpy).not.toHaveBeenCalled();
+    expect(fs.existsSync(POISON)).toBe(false);
+    expect(killSpy.mock.calls.filter(([, sig]) => sig !== 0)).toEqual([]);
     const teardownDeps = browserTeardownMock.buildDefaultDeps.mock.results.map(
       (r) => r.value as { kill: ReturnType<typeof vi.fn> },
     );

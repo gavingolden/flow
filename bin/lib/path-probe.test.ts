@@ -12,7 +12,7 @@ describe("commandOnPath", () => {
       return { status: 0 };
     });
     expect(ok).toBe(true);
-    expect(seen).toEqual([["sh", "-c", "command -v tmux"]]);
+    expect(seen).toEqual([["sh", "-c", 'command -v -- "$1"', "sh", "tmux"]]);
   });
 
   it("is false on a non-zero or null status", () => {

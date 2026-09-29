@@ -374,7 +374,7 @@ to, and leftovers from ended pipelines. It never changes anything and
 never signals a process — every problem prints the command that fixes it,
 and you run that yourself.
 
-Checks, grouped in the report: Install (links, registered artifacts never
+Checks, grouped in the report: Install (links, helpers an upgrade never
 installed, runtime packages), Shell (a stale FLOW_SLUG, PATH), Tools (gh,
 tmux, claude, agy), Leftovers (stale worktrees, pipeline records that can
 no longer resume, leaked processes). A live pipeline is never reported as

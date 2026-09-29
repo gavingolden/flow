@@ -11,12 +11,20 @@ import { readState, WORKTREE_REMOVED_PHASE_SET } from "./state";
 
 const UNSET_FIX = "unset FLOW_SLUG FLOW_PIPELINE";
 
+export const SHELL_FLOW_SLUG_META = {
+  id: "shell-flow-slug",
+  section: "shell",
+  title: "Shell pipeline identity",
+} as const;
+
+export const SHELL_PATH_META = {
+  id: "shell-path",
+  section: "shell",
+  title: "PATH",
+} as const;
+
 export function checkFlowSlug(deps: DoctorDeps): DoctorCheck[] {
-  const base = {
-    id: "shell-flow-slug",
-    section: "shell" as const,
-    title: "Shell pipeline identity",
-  };
+  const base = SHELL_FLOW_SLUG_META;
   const raw = deps.env.FLOW_SLUG;
   if (raw === undefined || raw === "") {
     return [
@@ -62,11 +70,7 @@ export function checkFlowSlug(deps: DoctorDeps): DoctorCheck[] {
 }
 
 export function checkBinDirOnPath(deps: DoctorDeps): DoctorCheck[] {
-  const base = {
-    id: "shell-path",
-    section: "shell" as const,
-    title: "PATH",
-  };
+  const base = SHELL_PATH_META;
   const binDir = deps.targets.binDir;
   if (pathContains(binDir, deps.env.PATH ?? "")) {
     return [
@@ -84,9 +88,10 @@ export function checkBinDirOnPath(deps: DoctorDeps): DoctorCheck[] {
       status: "fail",
       summary: `${binDir} is not on PATH, so flow and its helpers are not found`,
       details: [
+        "add that line to your shell rc so new shells keep it",
         `when flow itself is not found, run: bun <flow checkout>/bin/flow doctor (your checkout is at ${deps.installRoot})`,
       ],
-      fix: 'export PATH="$HOME/.local/bin:$PATH" (add it to your shell rc)',
+      fix: 'export PATH="$HOME/.local/bin:$PATH"',
     },
   ];
 }

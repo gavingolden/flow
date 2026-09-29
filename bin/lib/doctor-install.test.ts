@@ -123,7 +123,7 @@ describe("checkInstalledModules", () => {
     });
     expect(out[0].status).toBe("fail");
     expect(out[0].summary).toContain("flow-pre-commit");
-    expect(out[0].fix).toBe("flow install --upgrade (then re-run flow doctor)");
+    expect(out[0].fix).toBe("flow install --upgrade");
   });
 
   it("does not fail when the link exists or the install record lists it", async () => {

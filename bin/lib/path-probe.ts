@@ -15,7 +15,7 @@ export function commandOnPath(
   cmd: string,
   run: ProbeRun = defaultRun,
 ): boolean {
-  return run(["sh", "-c", `command -v ${cmd}`]).status === 0;
+  return run(["sh", "-c", 'command -v -- "$1"', "sh", cmd]).status === 0;
 }
 
 export function pathContains(

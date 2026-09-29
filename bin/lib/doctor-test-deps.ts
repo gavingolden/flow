@@ -56,6 +56,7 @@ export function makeDeps(
     flowSource: flow,
     installRoot: flow,
     nowMs: () => 1_700_000_000_000,
+    platform: "darwin",
     reapBaseDir: path.join(root, "home", ".flow", "proc-registry"),
     ...over,
   };

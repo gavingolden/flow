@@ -18,8 +18,6 @@ import {
 import { DEFAULT_TARGETS, type InstallTargets } from "./sources";
 import { inspectFlowRoot } from "./worktree-source";
 
-export { renderDoctorText } from "./doctor-render";
-
 export type DoctorStatus = "pass" | "warn" | "fail" | "skip";
 export type DoctorSection = "install" | "shell" | "tools" | "leftovers";
 
@@ -65,6 +63,7 @@ export type DoctorDeps = {
   installRoot: string;
   nowMs: () => number;
   reapBaseDir?: string;
+  platform?: NodeJS.Platform;
 };
 
 export type DoctorProbe = (
@@ -97,12 +96,19 @@ function defaultRun(
 
 /** Mirrors the installer's worktree-repoint rule: a worktree flow source
  * installs against its canonical checkout unless `config.source` pins one. */
-function resolveInstallRoot(flowSource: string, homeDir: string): string {
-  const info = inspectFlowRoot(flowSource);
+export function resolveInstallRoot(
+  flowSource: string,
+  homeDir: string,
+  io: {
+    inspect?: typeof inspectFlowRoot;
+    configured?: (homeDir: string) => string | null;
+  } = {},
+): string {
+  const info = (io.inspect ?? inspectFlowRoot)(flowSource);
   if (
     info.isWorktree &&
     info.canonicalRoot &&
-    configuredFlowSource(homeDir) === null
+    (io.configured ?? configuredFlowSource)(homeDir) === null
   ) {
     return info.canonicalRoot;
   }
@@ -124,6 +130,7 @@ export function defaultDoctorDeps(): DoctorDeps {
     flowSource,
     installRoot: resolveInstallRoot(flowSource, homeDir),
     nowMs: () => Date.now(),
+    platform: process.platform,
   };
 }
 
@@ -139,8 +146,9 @@ function couldNotRun(
     ...meta,
     status: "warn",
     summary: `could not run: ${reasonOf(err)}`,
-    details: [],
-    fix: "re-run flow doctor; if it keeps failing, run the failing tool by hand",
+    details: [
+      "this check did not finish; re-run flow doctor, and if it keeps failing run the failing tool by hand",
+    ],
   };
 }
 

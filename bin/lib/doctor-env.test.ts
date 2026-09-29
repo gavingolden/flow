@@ -96,9 +96,7 @@ describe("checkBinDirOnPath", () => {
       makeDeps(root, { env: { PATH: "/usr/bin:/bin" } }),
     );
     expect(c.status).toBe("fail");
-    expect(c.fix).toBe(
-      'export PATH="$HOME/.local/bin:$PATH" (add it to your shell rc)',
-    );
+    expect(c.fix).toBe('export PATH="$HOME/.local/bin:$PATH"');
     expect(c.details.join(" ")).toContain(
       "bun <flow checkout>/bin/flow doctor",
     );

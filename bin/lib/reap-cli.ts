@@ -19,6 +19,7 @@
 
 import { argsContainHelp, printVerbHelp } from "./help";
 import { isValidSlug } from "./slug";
+import { readState } from "./state";
 import { pidStartEpoch } from "./liveness";
 import type { ReapDeps } from "./reap";
 import { runProcSweep, type ProcSweepResult } from "./proc-sweep-run";
@@ -171,14 +172,16 @@ function renderTextReport(result: ReapCliResult): string {
 /**
  * Builds the composed registry + stray report. Signals only when `yes` is
  * set (strays additionally need `includeStrays`), so `{ yes: false }` is a
- * pure read. `baseDir` and `deadlineMs` are seams for a caller (the doctor)
- * that needs a hermetic registry directory and a bounded sweep.
+ * pure read. `baseDir`, `stateDir` and `deadlineMs` are seams for a caller
+ * (the doctor) that needs a hermetic registry and state directory and a
+ * bounded sweep.
  */
 export function collectReapReport(opts: {
   slug?: string;
   yes?: boolean;
   includeStrays?: boolean;
   baseDir?: string;
+  stateDir?: string;
   deadlineMs?: number;
 }): ReapCliResult {
   const yes = opts.yes ?? false;
@@ -186,12 +189,18 @@ export function collectReapReport(opts: {
   const browserDeps = buildDefaultDeps({ includeReapExtras: true });
   const reapDeps = toReapCliDeps(browserDeps);
 
-  const registry = runProcSweep(reapDeps, {
-    yes,
-    slug: opts.slug,
-    baseDir: opts.baseDir,
-    deadlineMs: opts.deadlineMs,
-  });
+  const stateDir = opts.stateDir;
+  const registry = runProcSweep(
+    stateDir === undefined
+      ? reapDeps
+      : { ...reapDeps, readState: (slug: string) => readState(slug, stateDir) },
+    {
+      yes,
+      slug: opts.slug,
+      baseDir: opts.baseDir,
+      deadlineMs: opts.deadlineMs,
+    },
+  );
 
   // SAFETY (load-bearing): a bare --yes must never widen into signalling a
   // stray — runOrphanSweep's signalling path does a bare SIGTERM with no

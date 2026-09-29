@@ -10,10 +10,19 @@ import type { ReapOutcome } from "./reap";
 import { collectReapReport } from "./reap-cli";
 
 const SECTION = "leftovers" as const;
+export const LEAKED_PROCESSES_META = {
+  id: "leftovers-processes",
+  section: SECTION,
+  title: "Leaked processes",
+} as const;
 const REAP_DEADLINE_MS = 5000;
 // Outcomes of the report-only sweep. `already-dead` rows are stale registry
 // entries, and `skipped-epoch-mismatch` is a reused pid owned by an unrelated
-// process: neither is a leak.
+// process: neither is a leak. `skipped-unsafe-pgid` and
+// `skipped-foreign-member` are refusals `flow reap --yes` would repeat, so
+// flagging them would print a fix that does nothing; they are deliberately
+// left out. `deadline-exceeded` rows were never checked, so they are counted
+// as unchecked, never as clean.
 const RUNNING: readonly ReapOutcome[] = ["would-reap"];
 const NEEDS_LOOK: readonly ReapOutcome[] = [
   "skipped-dead-leader",
@@ -29,6 +38,7 @@ export function checkLeakedProcesses(
   const report = collect({
     yes: false,
     baseDir: deps.reapBaseDir,
+    stateDir: deps.stateDir,
     deadlineMs: REAP_DEADLINE_MS,
   });
   const slugs = report.registry.slugs;
@@ -40,7 +50,10 @@ export function checkLeakedProcesses(
   const needLook = total(NEEDS_LOOK);
   const stale = total(STALE);
   const flagged = slugs.filter((s) => sum(s, RUNNING) + sum(s, NEEDS_LOOK) > 0);
-  const timedOut = slugs.filter((s) => s.skipped === "deadline-exceeded");
+  const timedOut = slugs.filter(
+    (s) =>
+      s.skipped === "deadline-exceeded" || sum(s, ["deadline-exceeded"]) > 0,
+  );
   const staleLine =
     stale > 0
       ? [
@@ -60,9 +73,7 @@ export function checkLeakedProcesses(
         : []),
     ];
     checks.push({
-      id: "leftovers-processes",
-      section: SECTION,
-      title: "Leaked processes",
+      ...LEAKED_PROCESSES_META,
       status: "warn",
       summary: parts.join("; "),
       details: [
@@ -74,9 +85,7 @@ export function checkLeakedProcesses(
     });
   } else if (timedOut.length > 0) {
     checks.push({
-      id: "leftovers-processes",
-      section: SECTION,
-      title: "Leaked processes",
+      ...LEAKED_PROCESSES_META,
       status: "warn",
       summary: `${timedOut.length} pipeline(s) not checked before the sweep deadline`,
       details: [`pipelines: ${capped(timedOut.map((s) => s.slug)).join(", ")}`],
@@ -84,9 +93,7 @@ export function checkLeakedProcesses(
     });
   } else {
     checks.push({
-      id: "leftovers-processes",
-      section: SECTION,
-      title: "Leaked processes",
+      ...LEAKED_PROCESSES_META,
       status: "pass",
       summary: "no processes left running by ended pipelines",
       details: staleLine,
@@ -112,7 +119,7 @@ export function checkLeakedProcesses(
       details: [
         "matched by shape, not identity; the sweep signals them host-wide",
       ],
-      fix: "flow reap --yes --include-strays (host-wide)",
+      fix: "flow reap --yes --include-strays",
     });
   } else {
     checks.push({

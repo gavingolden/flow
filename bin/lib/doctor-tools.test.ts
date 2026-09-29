@@ -25,6 +25,10 @@ describe("checkGh", () => {
   it("fails with brew install gh when gh is not on PATH", () => {
     const [c] = checkGh(makeDeps(root, { run: scriptedRun(() => missing) }));
     expect(c).toMatchObject({ status: "fail", fix: "brew install gh" });
+    const [linux] = checkGh(
+      makeDeps(root, { run: scriptedRun(() => missing), platform: "linux" }),
+    );
+    expect(linux.fix).toBe("apt install gh");
   });
 
   it("fails with gh auth login when signed out, and never prints gh output", () => {
@@ -77,7 +81,11 @@ describe("checkTmux", () => {
     writeConfig({ launcher: "tmux" });
     const [c] = checkTmux(makeDeps(root, { run: scriptedRun(() => missing) }));
     expect(c.status).toBe("fail");
-    expect(c.fix).toContain("brew install tmux");
+    expect(c.fix).toBe("brew install tmux");
+    const [linux] = checkTmux(
+      makeDeps(root, { run: scriptedRun(() => missing), platform: "linux" }),
+    );
+    expect(linux.fix).toBe("apt install tmux");
   });
 
   it("passes with the version when tmux is present", () => {
@@ -106,7 +114,7 @@ describe("checkClaude", () => {
     );
     expect(c.status).toBe("fail");
     expect(c.summary).toContain("not on PATH");
-    expect(c.fix).toContain("Install it");
+    expect(c.fix).toBe("npm install -g @anthropic-ai/claude-code");
   });
 
   it("fails when claude exits non-zero", () => {
@@ -116,7 +124,35 @@ describe("checkClaude", () => {
       }),
     );
     expect(c.status).toBe("fail");
-    expect(c.summary).toContain("broken install");
+    expect(c.summary).toBe("claude --version failed");
+    expect(c.details).toContain("broken install");
+    expect(c.fix).toBe("claude --version");
+  });
+
+  it("keeps a runnable fix and only the first error line when stderr is a stack trace", () => {
+    const [c] = checkClaude(
+      makeDeps(root, {
+        run: scriptedRun(() => ({
+          status: 1,
+          stderr:
+            "Error: Cannot find module 'x'\n    at load (a.js:1)\n    at run (b.js:2)",
+        })),
+      }),
+    );
+    expect(c.status).toBe("fail");
+    expect(c.fix).toBe("claude --version");
+    expect(c.summary).not.toContain("at load");
+    expect(c.details).toContain("Error: Cannot find module 'x'");
+    expect(JSON.stringify(c)).not.toContain("at run");
+  });
+
+  it("warns, not fails, when the probe times out", () => {
+    const [c] = checkClaude(
+      makeDeps(root, {
+        run: scriptedRun(() => ({ status: null, timedOut: true })),
+      }),
+    );
+    expect(c).toMatchObject({ status: "warn", fix: "claude --version" });
   });
 });
 

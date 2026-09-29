@@ -7,7 +7,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DoctorCheck, DoctorDeps } from "./doctor";
-import { capped } from "./doctor-util";
+import { capped, shq } from "./doctor-util";
 import {
   checkInstallDrift,
   type DriftEntry,
@@ -27,6 +27,24 @@ import { findMissingRuntimeDeps } from "./setup-deps";
 import { discoverSelected } from "./sources";
 import { inspectFlowRoot } from "./worktree-source";
 
+export const INSTALL_LINKS_META = {
+  id: "install-links",
+  section: "install",
+  title: "Installed links",
+} as const;
+
+export const INSTALL_MODULES_META = {
+  id: "install-modules",
+  section: "install",
+  title: "Installed modules",
+} as const;
+
+export const INSTALL_PACKAGES_META = {
+  id: "install-packages",
+  section: "install",
+  title: "Runtime packages",
+} as const;
+
 /** `flow install --upgrade`, spelled through the canonical checkout when the
  * running flow source is a worktree (the wrapper would otherwise re-pin to it). */
 function upgradeCommand(
@@ -35,7 +53,7 @@ function upgradeCommand(
 ): string {
   const info = inspect(deps.flowSource);
   return info.isWorktree && info.canonicalRoot
-    ? `bun ${path.join(info.canonicalRoot, "bin", "flow")} install --upgrade`
+    ? `bun ${shq(path.join(info.canonicalRoot, "bin", "flow"))} install --upgrade`
     : "flow install --upgrade";
 }
 
@@ -51,11 +69,7 @@ export function checkInstallLinks(
   ) => InstallDriftResult = checkInstallDrift,
   inspect: typeof inspectFlowRoot = inspectFlowRoot,
 ): DoctorCheck[] {
-  const base = {
-    id: "install-links",
-    section: "install" as const,
-    title: "Installed links",
-  };
+  const base = INSTALL_LINKS_META;
   const result = checkDrift({
     flowSource: deps.flowSource,
     installRoot: deps.installRoot,
@@ -105,11 +119,7 @@ export async function checkInstalledModules(
     inspect?: typeof inspectFlowRoot;
   } = {},
 ): Promise<DoctorCheck[]> {
-  const base = {
-    id: "install-modules",
-    section: "install" as const,
-    title: "Installed modules",
-  };
+  const base = INSTALL_MODULES_META;
   const manifest = (
     io.readManifest ?? (() => readManifest(deps.manifestPath))
   )();
@@ -147,11 +157,16 @@ export async function checkInstalledModules(
       {
         ...base,
         status: "fail",
-        summary: `${names.length} registered artifact(s) never installed: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` (+${names.length - 3} more)` : ""}`,
-        details: capped(
-          neverInstalled.map((e) => `${e.displayName} expected at ${e.target}`),
-        ),
-        fix: `${upgradeCommand(deps, io.inspect ?? inspectFlowRoot)} (then re-run flow doctor)`,
+        summary: `${names.length} flow helper(s) or skill(s) an upgrade never installed: ${capped(names, 3).join(", ")}`,
+        details: [
+          ...capped(
+            neverInstalled.map(
+              (e) => `${e.displayName} expected at ${e.target}`,
+            ),
+          ),
+          "re-run flow doctor after the upgrade to confirm",
+        ],
+        fix: upgradeCommand(deps, io.inspect ?? inspectFlowRoot),
       },
     ];
   }
@@ -178,11 +193,7 @@ export function checkRuntimePackages(
   deps: DoctorDeps,
   findMissing: typeof findMissingRuntimeDeps = findMissingRuntimeDeps,
 ): DoctorCheck[] {
-  const base = {
-    id: "install-packages",
-    section: "install" as const,
-    title: "Runtime packages",
-  };
+  const base = INSTALL_PACKAGES_META;
   const { missing } = findMissing(deps.installRoot);
   if (missing.length === 0) {
     return [
@@ -200,7 +211,7 @@ export function checkRuntimePackages(
       status: "fail",
       summary: `missing: ${missing.join(", ")}`,
       details: [`node_modules at ${deps.installRoot} is missing or stale`],
-      fix: `cd ${deps.installRoot} && npm install`,
+      fix: `cd ${shq(deps.installRoot)} && npm install`,
     },
   ];
 }

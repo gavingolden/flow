@@ -6,88 +6,59 @@
  */
 
 import { argsContainHelp, printVerbHelp } from "./help";
+import { checkPipelineState, PIPELINE_RECORDS_META } from "./doctor-pipelines";
 import {
   checkLeakedProcesses,
-  checkPipelineState,
-  checkStaleWorktrees,
-} from "./doctor-resources";
-import { checkAgy, checkClaude, checkGh, checkTmux } from "./doctor-tools";
-import { checkBinDirOnPath, checkFlowSlug } from "./doctor-env";
+  LEAKED_PROCESSES_META,
+} from "./doctor-processes";
+import { checkStaleWorktrees, STALE_WORKTREES_META } from "./doctor-resources";
+import {
+  checkAgy,
+  checkClaude,
+  checkGh,
+  checkTmux,
+  TOOLS_AGY_META,
+  TOOLS_CLAUDE_META,
+  TOOLS_GH_META,
+  TOOLS_TMUX_META,
+} from "./doctor-tools";
+import {
+  checkBinDirOnPath,
+  checkFlowSlug,
+  SHELL_FLOW_SLUG_META,
+  SHELL_PATH_META,
+} from "./doctor-env";
 import {
   checkInstalledModules,
   checkInstallLinks,
   checkRuntimePackages,
+  INSTALL_LINKS_META,
+  INSTALL_MODULES_META,
+  INSTALL_PACKAGES_META,
 } from "./doctor-install";
 import {
   defaultDoctorDeps,
   doctorExitCode,
   guarded,
-  renderDoctorText,
   runDoctor,
   type DoctorDeps,
   type DoctorProbe,
 } from "./doctor";
+import { renderDoctorText } from "./doctor-render";
 
 export const DOCTOR_PROBES: DoctorProbe[] = [
-  guarded(
-    { id: "install-links", section: "install", title: "Installed links" },
-    (deps) => checkInstallLinks(deps),
-  ),
-  guarded(
-    { id: "install-modules", section: "install", title: "Installed modules" },
-    (deps) => checkInstalledModules(deps),
-  ),
-  guarded(
-    { id: "install-packages", section: "install", title: "Runtime packages" },
-    (deps) => checkRuntimePackages(deps),
-  ),
-  guarded(
-    {
-      id: "shell-flow-slug",
-      section: "shell",
-      title: "Shell pipeline identity",
-    },
-    (deps) => checkFlowSlug(deps),
-  ),
-  guarded({ id: "shell-path", section: "shell", title: "PATH" }, (deps) =>
-    checkBinDirOnPath(deps),
-  ),
-  guarded({ id: "tools-gh", section: "tools", title: "gh" }, (deps) =>
-    checkGh(deps),
-  ),
-  guarded({ id: "tools-tmux", section: "tools", title: "tmux" }, (deps) =>
-    checkTmux(deps),
-  ),
-  guarded({ id: "tools-claude", section: "tools", title: "claude" }, (deps) =>
-    checkClaude(deps),
-  ),
-  guarded({ id: "tools-agy", section: "tools", title: "agy" }, (deps) =>
-    checkAgy(deps),
-  ),
-  guarded(
-    {
-      id: "leftovers-worktrees",
-      section: "leftovers",
-      title: "Stale worktrees",
-    },
-    (deps) => checkStaleWorktrees(deps),
-  ),
-  guarded(
-    {
-      id: "leftovers-pipelines",
-      section: "leftovers",
-      title: "Pipeline records",
-    },
-    (deps) => checkPipelineState(deps),
-  ),
-  guarded(
-    {
-      id: "leftovers-processes",
-      section: "leftovers",
-      title: "Leaked processes",
-    },
-    (deps) => checkLeakedProcesses(deps),
-  ),
+  guarded(INSTALL_LINKS_META, (deps) => checkInstallLinks(deps)),
+  guarded(INSTALL_MODULES_META, (deps) => checkInstalledModules(deps)),
+  guarded(INSTALL_PACKAGES_META, (deps) => checkRuntimePackages(deps)),
+  guarded(SHELL_FLOW_SLUG_META, (deps) => checkFlowSlug(deps)),
+  guarded(SHELL_PATH_META, (deps) => checkBinDirOnPath(deps)),
+  guarded(TOOLS_GH_META, (deps) => checkGh(deps)),
+  guarded(TOOLS_TMUX_META, (deps) => checkTmux(deps)),
+  guarded(TOOLS_CLAUDE_META, (deps) => checkClaude(deps)),
+  guarded(TOOLS_AGY_META, (deps) => checkAgy(deps)),
+  guarded(STALE_WORKTREES_META, (deps) => checkStaleWorktrees(deps)),
+  guarded(PIPELINE_RECORDS_META, (deps) => checkPipelineState(deps)),
+  guarded(LEAKED_PROCESSES_META, (deps) => checkLeakedProcesses(deps)),
 ];
 
 export async function runDoctorCli(

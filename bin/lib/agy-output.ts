@@ -10,14 +10,14 @@ export function looksUnauthenticated(text: string): boolean {
 }
 
 // A `--print-timeout` kill is distinguishable from a genuine model error.
-// Three verified agy 1.1.25 timeout signatures, none of which overlap the
-// auth patterns below (checked BEFORE looksUnauthenticated so a future
-// widening of the auth regex can never shadow a timeout):
+// Three verified agy 1.1.25 timeout signatures, none of which overlap
+// `looksUnauthenticated`'s patterns (flow-delegate checks timeouts first so a
+// future widening of the auth regex can never shadow a timeout):
 // - text mode: agy's stderr reads "Error: timeout waiting for response".
 // - json mode: stderr is EMPTY (the process still exits 1); the same
 //   "timeout waiting for response" string instead lands in the json
-//   envelope's `error` field, fed through this same regex by the
-//   classifyAgyOutcome caller below.
+//   envelope's `error` field, which flow-delegate's `classifyAgyOutcome`
+//   feeds through this same regex.
 // - log-file-only: "Print mode: timed out after N polls (printed=M)" is
 //   written to agy's own log under ~/.gemini/antigravity-cli/log/, never to
 //   stdout/stderr — this alternation can never match live input today, but
