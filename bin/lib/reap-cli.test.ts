@@ -353,12 +353,16 @@ describe("runReapCli text report", () => {
       reported: { dead: 0, alive: 0, unknown: 0 },
       classified: verdicts.map(([verdict, reason]) => ({ verdict, reason })),
     });
-    const mockSlugs = (slugs: unknown[], yes = false) =>
+    const mockSlugs = (
+      slugs: unknown[],
+      yes = false,
+      totals: Record<string, number> = {},
+    ) =>
       procSweepRunMock.runProcSweep.mockReturnValue({
         mode: "sweep" as const,
         yes,
         slugs,
-        totals: {},
+        totals,
         unknownRows: 0,
         aliveRows: 0,
       } as never);
@@ -448,6 +452,72 @@ describe("runReapCli text report", () => {
       mockSlugs([rowSlug("stuck", [["dead"]])], true);
       const first = captureReport(["--yes"]).split("\n")[0];
       expect(first).toContain("1 dead not reaped");
+      expect(first).not.toContain("no leaked processes recorded");
+    });
+
+    it("--yes reads clean when every dead row was reaped", () => {
+      mockSlugs([rowSlug("a", [["dead"], ["dead"]])], true, { reaped: 2 });
+      const first = captureReport(["--yes"]).split("\n")[0];
+      expect(first).toContain("reaped 2");
+      expect(first).not.toContain("dead not reaped");
+    });
+
+    it("--yes routes a leaked-group row to need investigation, not dead not reaped", () => {
+      mockSlugs(
+        [
+          {
+            ...rowSlug("a", [["dead"]]),
+            reap: { ran: true, counts: { "skipped-dead-leader": 1 } },
+          },
+        ],
+        true,
+      );
+      const first = captureReport(["--yes"]).split("\n")[0];
+      expect(first).toContain("1 needs investigation");
+      expect(first).not.toContain("dead not reaped");
+    });
+
+    it("--yes counts an already-dead row as resolved, not a leak", () => {
+      mockSlugs([rowSlug("a", [["dead"]])], true, { "already-dead": 1 });
+      const first = captureReport(["--yes"]).split("\n")[0];
+      expect(first).not.toContain("dead not reaped");
+      expect(first).toMatch(/^Summary: no leaked processes recorded/);
+    });
+
+    it("--yes surfaces an empty registry that could not be removed", () => {
+      mockSlugs(
+        [
+          emptySlug("stuck", { compacted: { kept: 0, dropped: 0 } }),
+          emptySlug("gone", {
+            compacted: { kept: 0, dropped: 0, removed: true },
+          }),
+        ],
+        true,
+      );
+      const out = captureReport(["--yes"]);
+      expect(out.split("\n")[0]).toContain("1 empty registry not removed");
+      expect(out).toContain("1 empty registry could not be removed");
+      expect(out).toContain("removed 1 empty registry");
+    });
+
+    it("the legend's dead clause follows --yes", () => {
+      mockSlugs([rowSlug("a", [["dead"]])], true, { reaped: 1 });
+      const out = captureReport(["--yes"]);
+      expect(out).toContain("dead = acted on");
+      expect(out).not.toContain("held (report-only) until --yes");
+    });
+
+    it("stray browsers and mcp servers keep the Summary from reading clean", () => {
+      browserTeardownMock.runOrphanSweep.mockReturnValueOnce({
+        ran: true,
+        found: [{}],
+        foundServers: [{}, {}],
+        signalled: [],
+      } as never);
+      mockSlugs([rowSlug("a", [["alive"]])]);
+      const first = captureReport([]).split("\n")[0];
+      expect(first).toContain("1 stray browser,");
+      expect(first).toContain("2 stray mcp servers");
       expect(first).not.toContain("no leaked processes recorded");
     });
 

@@ -216,6 +216,17 @@ export function defaultIsLive(row: ProcRegistryRow): boolean {
   return currentEpoch !== null && currentEpoch === row.startEpoch;
 }
 
+function readFrom(p: string, offset: number, len: number): Buffer {
+  const fd = fs.openSync(p, "r");
+  try {
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, offset);
+    return buf;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /**
  * Rewrites the registry to only its surviving rows. Writes to a
  * process/timestamp-unique temp file and `renameSync`s it over the
@@ -316,15 +327,11 @@ export function compact(
       // reconcile; fall through with the snapshot's own length.
     }
     if (currentSize > snapshotByteLen) {
-      const fd = fs.openSync(target, "r");
-      try {
-        const tailLen = currentSize - snapshotByteLen;
-        const tailBuf = Buffer.alloc(tailLen);
-        fs.readSync(fd, tailBuf, 0, tailLen, snapshotByteLen);
-        content += tailBuf.toString("utf8");
-      } finally {
-        fs.closeSync(fd);
-      }
+      content += readFrom(
+        target,
+        snapshotByteLen,
+        currentSize - snapshotByteLen,
+      ).toString("utf8");
     }
 
     const rename = deps.rename ?? fs.renameSync;
@@ -346,15 +353,9 @@ export function compact(
         movedStat.size >= snapshotByteLen;
       const from = sameFile ? snapshotByteLen : 0;
       if (movedStat.size > from) {
-        const fd = fs.openSync(gone, "r");
-        try {
-          const len = movedStat.size - from;
-          const buf = Buffer.alloc(len);
-          fs.readSync(fd, buf, 0, len, from);
-          fs.appendFileSync(target, buf, { mode: 0o600 });
-        } finally {
-          fs.closeSync(fd);
-        }
+        fs.appendFileSync(target, readFrom(gone, from, movedStat.size - from), {
+          mode: 0o600,
+        });
       }
       try {
         fs.unlinkSync(gone);

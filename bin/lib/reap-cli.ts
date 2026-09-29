@@ -150,6 +150,7 @@ function summarizeRegistry(result: ReapCliResult) {
     removed,
     investigate: result.yes ? investigate : 0,
     reaped: result.registry.totals?.reaped ?? 0,
+    alreadyDead: result.registry.totals?.["already-dead"] ?? 0,
     browsers: result.heuristic.found?.length ?? 0,
     servers: result.heuristic.foundServers?.length ?? 0,
   };
@@ -162,23 +163,39 @@ function summaryLine(
   const parts: string[] = [];
   if (result.yes) {
     if (m.reaped > 0) parts.push(`reaped ${m.reaped}`);
-    // A dead row --yes neither reaped nor routed to an investigate outcome
-    // must still surface, or the verdict would falsely read clean.
-    const unaccounted = m.dead - m.reaped - m.investigate;
+    // A dead row --yes neither resolved (reaped / already-dead) nor routed to
+    // an investigate outcome must still surface, or the verdict would
+    // falsely read clean.
+    const unaccounted = m.dead - m.reaped - m.alreadyDead - m.investigate;
     if (unaccounted > 0) parts.push(`${unaccounted} dead not reaped`);
+    const notRemoved = m.hidden - m.removed;
+    if (notRemoved > 0) {
+      parts.push(
+        `${plural(notRemoved, "empty registry", "empty registries")} not removed`,
+      );
+    }
   } else if (m.dead > 0) {
     parts.push(`${m.dead} dead (reapable with --yes)`);
   }
   if (m.unknown > 0) parts.push(`${m.unknown} unknown (held)`);
   if (m.deadlineSkipped > 0) {
-    parts.push(`${m.deadlineSkipped} pipelines skipped (deadline)`);
+    parts.push(
+      `${plural(m.deadlineSkipped, "pipeline", "pipelines")} skipped (deadline)`,
+    );
   }
   if (m.unreadable > 0) {
-    parts.push(`${m.unreadable} pipelines with unreadable lines`);
+    parts.push(
+      `${plural(m.unreadable, "pipeline", "pipelines")} with unreadable lines`,
+    );
   }
-  if (m.browsers > 0) parts.push(`${m.browsers} stray browsers`);
-  if (m.servers > 0) parts.push(`${m.servers} stray mcp servers`);
-  if (m.investigate > 0) parts.push(`${m.investigate} need investigation`);
+  if (m.browsers > 0)
+    parts.push(plural(m.browsers, "stray browser", "stray browsers"));
+  if (m.servers > 0)
+    parts.push(plural(m.servers, "stray mcp server", "stray mcp servers"));
+  if (m.investigate > 0)
+    parts.push(
+      `${m.investigate} ${m.investigate === 1 ? "needs" : "need"} investigation`,
+    );
   if (parts.length === 0) {
     return `Summary: no leaked processes recorded — ${m.alive} alive across ${m.withRows} pipelines with recorded processes`;
   }
@@ -239,6 +256,11 @@ function renderTextReport(result: ReapCliResult): string {
         `  removed ${plural(m.removed, "empty registry", "empty registries")}`,
       );
     }
+    if (m.hidden - m.removed > 0) {
+      lines.push(
+        `  ${plural(m.hidden - m.removed, "empty registry", "empty registries")} could not be removed — run 'flow reap --json' to see which`,
+      );
+    }
   } else if (m.hidden > 0) {
     lines.push(
       `  ${plural(m.hidden, "empty registry", "empty registries")} hidden — flow reap --yes removes them; --json lists every pipeline` +
@@ -249,7 +271,7 @@ function renderTextReport(result: ReapCliResult): string {
   }
   if (printedCounts) {
     lines.push(
-      "  dead = held (report-only) until --yes; alive = never signalled; unknown = held — absence of evidence is never evidence of death",
+      `  dead = ${result.yes ? "acted on (verified before any signal)" : "held (report-only) until --yes"}; alive = never signalled; unknown = held — absence of evidence is never evidence of death`,
     );
   }
 

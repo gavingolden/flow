@@ -247,6 +247,20 @@ describe("runProcSweep", () => {
       expect(fs.existsSync(p)).toBe(false);
     });
 
+    it("--yes keeps a leaked-group registry whose dead leader is protected", () => {
+      appendRow(makeRow({ slug: "leaked-group" }), baseDir);
+      const p = registryPath("leaked-group", baseDir);
+      const result = runProcSweep(
+        { ...fakeReapDeps({ alive: (t) => t < 0 }), ...deadDeps() },
+        { yes: true, slug: "leaked-group", baseDir },
+      );
+      expect(result.slugs[0].reap.rows?.[0]?.outcome).toBe(
+        "skipped-dead-leader",
+      );
+      expect(fs.existsSync(p)).toBe(true);
+      expect(result.slugs[0].compacted?.removed).toBeUndefined();
+    });
+
     it("--yes leaves a malformed-lines-only registry untouched", () => {
       const p = seed("malformed-only", "not json\n{bad\n");
       const deps = { ...fakeReapDeps(), ...deadDeps() };
