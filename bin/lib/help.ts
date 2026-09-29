@@ -419,6 +419,11 @@ re-verification and no session check, materially weaker discipline than
 the registry path. This is a SEPARATE gate from --yes: a bare --yes never
 signals a stray on its own; both --yes and --include-strays are required.
 
+The report opens with a Summary: line (no leaked processes recorded, or
+what needs attention). Pipelines with no recorded processes are hidden
+behind one count line, and --yes removes their empty registries; --json
+lists every pipeline.
+
 Options:
   --slug <s>            scope the REGISTRY half of the sweep to one
                         pipeline slug (default: every registered slug on

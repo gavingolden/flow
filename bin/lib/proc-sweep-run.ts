@@ -7,7 +7,13 @@
  * `verifyRow` refusal ladder, never a permissive arm inside it.
  */
 
-import { compact, defaultIsLive, readRows } from "./proc-registry";
+import * as fs from "node:fs";
+import {
+  compact,
+  defaultIsLive,
+  readRows,
+  registryPath,
+} from "./proc-registry";
 import {
   runRegistryReap,
   type ReapDeps,
@@ -30,7 +36,7 @@ export type SweepSlugResult = {
   reap: RegistryReapResult;
   reported: { dead: number; alive: number; unknown: number };
   classified: ClassifiedRow[];
-  compacted?: { kept: number; dropped: number };
+  compacted?: { kept: number; dropped: number; removed?: true };
   skipped?: "deadline-exceeded";
 };
 
@@ -65,7 +71,8 @@ function zeroReapCounts(): Record<ReapOutcome, number> {
  * `unknown` rows never reach the kill engine at all. Report-only by
  * default: `dryRun` is the negation of `opts.yes`, and `compact` (the only
  * mutation this module performs directly) runs only on the `--yes` path,
- * for a slug whose registry actually had rows.
+ * for a slug whose registry had rows or is an existing zero-row,
+ * zero-malformed file (which compact removes).
  *
  * A sweep-level `deadlineMs` (default `DEFAULT_SWEEP_DEADLINE_MS`) is
  * threaded down as each slug's remaining `registryDeadlineMs` — a slug
@@ -118,7 +125,9 @@ export function runProcSweep(
     });
 
     // report-only must not mutate: compact only on --yes, and only for a
-    // slug whose registry actually had rows to begin with.
+    // slug whose registry had rows, or exists with no rows and no
+    // unreadable lines (compact removes it). A missing file is never
+    // compacted; a malformed-only file is never touched.
     //
     // SAFETY: `compact`'s default `isLive` (`defaultIsLive`) keys ONLY on
     // the row's leader pid — a dead leader reads as not-live, so compact
@@ -145,7 +154,9 @@ export function runProcSweep(
     // cannot change mid-call) and defeats none of `compact`'s own semantics.
     const isLiveCache = new Map<number, boolean>();
     const compacted =
-      opts.yes && rows.length > 0
+      opts.yes &&
+      (rows.length > 0 ||
+        (malformed === 0 && fs.existsSync(registryPath(slug, opts.baseDir))))
         ? compact(slug, opts.baseDir, {
             isLive: (row) => {
               if (skippedDeadLeaderPids.has(row.pid)) return true;

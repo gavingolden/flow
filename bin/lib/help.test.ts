@@ -192,6 +192,11 @@ describe("HELP_TEXT", () => {
     expect(HELP_TEXT.epic).toContain("--all-repos");
   });
 
+  it("HELP_TEXT.reap documents the Summary line and hidden empty registries", () => {
+    expect(HELP_TEXT.reap).toContain("Summary:");
+    expect(HELP_TEXT.reap).toMatch(/empty registries/i);
+  });
+
   it("HELP_TEXT.ls documents --all-repos and the repo-scoped default", () => {
     expect(HELP_TEXT.ls).toContain("--all-repos");
     expect(HELP_TEXT.ls).toMatch(/scoped to the current repo/i);
