@@ -4,7 +4,7 @@ Your first pipeline, from install to merged PR. Every console transcript in this
 
 ## Install
 
-Follow the Quickstart in the [README](../README.md#quickstart): clone, `npm install`, `bun bin/flow install`, then confirm `flow ls` prints an empty pipeline list (or a repo-scoped one, if you're standing in a repo with pipelines already running). Module selection, upgrades, and every config knob are covered in [configuration.md](configuration.md).
+Follow the Quickstart in the [README](../README.md#quickstart): clone, `npm install`, `bun bin/flow install`, then run `flow doctor` to confirm the install is sound — it prints the exact command that fixes each problem it finds, and `bun <flow checkout>/bin/flow doctor` works when `flow` itself is not on your `PATH`. `flow ls` should also print an empty pipeline list (or a repo-scoped one, if you're standing in a repo with pipelines already running). Module selection, upgrades, and every config knob are covered in [configuration.md](configuration.md).
 
 ## Your first pipeline
 

@@ -18,6 +18,13 @@ import { deleteState, type PipelineState } from "./state";
 import { findWindowBySlug, type TmuxWindow } from "./tmux";
 
 /**
+ * Grace window for the never-started orphan sweep: a phase=`starting` state
+ * with no live window older than this is reapable. ~60s leaves a
+ * just-launched, still cold-starting supervisor untouched.
+ */
+export const STARTING_ORPHAN_GRACE_MS = 60_000;
+
+/**
  * Pure: the slugs of never-started orphans safe to reap. A slug is reapable
  * iff phase === "starting" AND it carries no `corrupt` seedIngest record
  * (that state's request file — see state.ts's `writeRequestFile` — is exactly

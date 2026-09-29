@@ -19,6 +19,7 @@
 
 import { argsContainHelp, printVerbHelp } from "./help";
 import { isValidSlug } from "./slug";
+import { readState } from "./state";
 import { pidStartEpoch } from "./liveness";
 import type { ReapDeps } from "./reap";
 import { runProcSweep, type ProcSweepResult } from "./proc-sweep-run";
@@ -87,7 +88,7 @@ function toReapCliDeps(deps: BrowserTeardownDeps): ReapDeps {
   };
 }
 
-type ReapCliResult = {
+export type ReapCliResult = {
   mode: "reap";
   yes: boolean;
   includeStrays: boolean;
@@ -169,6 +170,59 @@ function renderTextReport(result: ReapCliResult): string {
 }
 
 /**
+ * Builds the composed registry + stray report. Signals only when `yes` is
+ * set (strays additionally need `includeStrays`), so `{ yes: false }` is a
+ * pure read. `baseDir`, `stateDir` and `deadlineMs` are seams for a caller
+ * (the doctor) that needs a hermetic registry and state directory and a
+ * bounded sweep.
+ */
+export function collectReapReport(opts: {
+  slug?: string;
+  yes?: boolean;
+  includeStrays?: boolean;
+  baseDir?: string;
+  stateDir?: string;
+  deadlineMs?: number;
+}): ReapCliResult {
+  const yes = opts.yes ?? false;
+  const includeStrays = opts.includeStrays ?? false;
+  const browserDeps = buildDefaultDeps({ includeReapExtras: true });
+  const reapDeps = toReapCliDeps(browserDeps);
+
+  const stateDir = opts.stateDir;
+  const registry = runProcSweep(
+    stateDir === undefined
+      ? reapDeps
+      : { ...reapDeps, readState: (slug: string) => readState(slug, stateDir) },
+    {
+      yes,
+      slug: opts.slug,
+      baseDir: opts.baseDir,
+      deadlineMs: opts.deadlineMs,
+    },
+  );
+
+  // SAFETY (load-bearing): a bare --yes must never widen into signalling a
+  // stray — runOrphanSweep's signalling path does a bare SIGTERM with no
+  // startEpoch re-verification and no session check, materially weaker
+  // discipline than verifyRow's registry-row ladder.
+  const heuristic = runOrphanSweep(browserDeps, {
+    yes: yes && includeStrays,
+    homeDir: browserDeps.homeDir,
+    tmpDir: browserDeps.tmpDir,
+  });
+
+  return {
+    mode: "reap",
+    yes,
+    includeStrays,
+    slug: opts.slug,
+    registry,
+    heuristic,
+  };
+}
+
+/**
  * `flow reap [--slug <s>] [--yes] [--include-strays] [--json]` — see the
  * module doc comment above for the composed-sweep + safety contract.
  */
@@ -184,32 +238,11 @@ export function runReapCli(args: string[]): number {
     return 1;
   }
 
-  const browserDeps = buildDefaultDeps({ includeReapExtras: true });
-  const reapDeps = toReapCliDeps(browserDeps);
-
-  const registry = runProcSweep(reapDeps, {
+  const result = collectReapReport({
     yes: parsed.yes,
     slug: parsed.slug,
-  });
-
-  // SAFETY (load-bearing): a bare --yes must never widen into signalling a
-  // stray — runOrphanSweep's signalling path does a bare SIGTERM with no
-  // startEpoch re-verification and no session check, materially weaker
-  // discipline than verifyRow's registry-row ladder.
-  const heuristic = runOrphanSweep(browserDeps, {
-    yes: parsed.yes && parsed.includeStrays,
-    homeDir: browserDeps.homeDir,
-    tmpDir: browserDeps.tmpDir,
-  });
-
-  const result: ReapCliResult = {
-    mode: "reap",
-    yes: parsed.yes,
     includeStrays: parsed.includeStrays,
-    slug: parsed.slug,
-    registry,
-    heuristic,
-  };
+  });
 
   if (parsed.json) {
     console.log(JSON.stringify(redactArgvForJson(result)));

@@ -673,7 +673,7 @@ PR → review checkpoint), and writes initial epic state under
     // SKIPS the no-orphan delete — the request file written above (before the
     // launcher dispatch) is the recovery artifact. reapableStartingOrphans
     // (reap-orphans.ts) now skips any slug with a `corrupt` seedIngest, so
-    // `flow ls`'s lazy reap (REAP_GRACE_MS, ~60s) does NOT delete this state
+    // `flow ls`'s lazy reap (STARTING_ORPHAN_GRACE_MS, ~60s) does NOT delete this state
     // (or its sibling request file) shortly after.
     if (!seedCorrupted) {
       deleteState(slug, options.stateDir);

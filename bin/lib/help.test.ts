@@ -78,6 +78,7 @@ describe("HELP_TEXT", () => {
     "attach",
     "done",
     "reap",
+    "doctor",
     "prompt",
     "install",
     "completion",
@@ -91,6 +92,13 @@ describe("HELP_TEXT", () => {
 
   it.each(REQUIRED_VERBS)("entry for '%s' starts with 'flow %s'", (verb) => {
     expect(HELP_TEXT[verb].startsWith(`flow ${verb}`)).toBe(true);
+  });
+
+  it("HELP_TEXT.doctor documents --json, the exit codes, and the bun fallback", () => {
+    expect(HELP_TEXT.doctor).toContain("--json");
+    expect(HELP_TEXT.doctor).toMatch(/Exit codes:[\s\S]*0[\s\S]*1[\s\S]*2/);
+    expect(HELP_TEXT.doctor).toContain("bin/flow doctor");
+    expect(HELP_TEXT.doctor).toContain("Read-only");
   });
 
   // Flag-presence guard. The verb-presence assertions above don't catch a

@@ -41,7 +41,7 @@ Every run works in its own git worktree (your checkout is never touched), pauses
    bun bin/flow install
    ```
 
-3. **Verify it worked:** run `flow ls` — it should print an empty pipeline list (or a repo-scoped one, if you're standing in a repo with pipelines already running), not "command not found". The most common failure is `~/.local/bin` not being on your `PATH`; add it and open a fresh shell.
+3. **Verify it worked:** run `flow doctor` — it checks your install, shell, and tools and prints the exact command that fixes each problem it finds (`flow ls` should also print an empty pipeline list, not "command not found"). The most common failure is `~/.local/bin` not being on your `PATH`; add it and open a fresh shell. If `flow` itself is not found, run `bun ~/code/flow/bin/flow doctor` from your checkout instead.
 
 4. **Ship something:** `cd` into any GitHub-backed project and run
 
@@ -56,6 +56,7 @@ Every run works in its own git worktree (your checkout is never touched), pauses
 ```sh
 flow                             # (on a TTY) interactive Claude session with flow skills loaded
 flow feature create "add CSV export"        # start a pipeline (runs in your terminal by default)
+flow doctor                      # check your setup; prints the fix for each problem (--json for scripts)
 flow ls                          # list this repo's pipelines (--all-repos for every repo; --cost for spend)
 flow feature resume add-csv-export  # re-launch a crashed or closed pipeline from saved state
 flow done add-csv-export         # close a finished pipeline

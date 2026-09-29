@@ -92,6 +92,7 @@ Usage:
   flow done --orphans                   close every state file whose tmux window is gone
   flow done --merged --orphans          compose: close terminal-state OR orphaned pipelines
   flow reap [--slug <s>] [--yes]        report (and with --yes, clean up) processes left by dead pipelines
+  flow doctor [--json]                  check your flow setup and print a fix for each problem
   flow prompt [<slug>]                  print a pipeline's originating request
   flow completion <bash|zsh>            print a shell completion script to stdout
 
@@ -362,6 +363,34 @@ SIGTERMs that session's own chrome-devtools-mcp browser server (via
 the leaked Chrome subprocess. A failed/missing teardown never blocks the
 close. NOTE: 'flow done --orphans' sweeps stale pipeline STATE FILES here;
 for processes, see 'flow reap'.`,
+
+  doctor: `flow doctor — check your flow setup and print a fix for each problem
+
+Usage:
+  flow doctor [--json]
+
+Read-only: inspects the install, your shell, the tools flow shells out
+to, and leftovers from ended pipelines. It never changes anything and
+never signals a process — every problem prints the command that fixes it,
+and you run that yourself.
+
+Checks, grouped in the report: Install (links, helpers an upgrade never
+installed, runtime packages), Shell (a stale FLOW_SLUG, PATH), Tools (gh,
+tmux, claude, agy), Leftovers (stale worktrees, pipeline records that can
+no longer resume, leaked processes). A live pipeline is never reported as
+dead for lacking a tmux window.
+
+Options:
+  --json                emit {version, ok, counts, checks[]} instead of text
+
+Exit codes:
+  0                     nothing failed (warnings do not fail the run)
+  1                     at least one check failed
+  2                     usage error (unknown flag)
+
+If 'flow' itself is not found (its bin directory is missing from PATH),
+run the same check straight from your checkout:
+  bun <flow checkout>/bin/flow doctor`,
 
   reap: `flow reap — report (and clean up) processes left by dead pipelines
 

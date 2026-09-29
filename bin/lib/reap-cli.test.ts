@@ -40,7 +40,7 @@ const livenessMock = vi.hoisted(() => ({
 }));
 vi.mock("./liveness", () => livenessMock);
 
-import { runReapCli } from "./reap-cli";
+import { collectReapReport, runReapCli } from "./reap-cli";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -337,5 +337,42 @@ describe("runReapCli text report", () => {
     const out = captureReport([]);
     expect(out).toContain("late-slug: skipped (sweep deadline exceeded)");
     expect(out).toContain("flow reap --slug late-slug");
+  });
+});
+
+describe("collectReapReport report-only mode", () => {
+  it("yes:false never signals: both sweeps run with yes:false and no kill is issued", () => {
+    const result = collectReapReport({ yes: false, includeStrays: true });
+    expect(procSweepRunMock.runProcSweep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ yes: false }),
+    );
+    expect(browserTeardownMock.runOrphanSweep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ yes: false }),
+    );
+    const deps = browserTeardownMock.buildDefaultDeps.mock.results[0]?.value;
+    expect(deps.kill).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      mode: "reap",
+      yes: false,
+      includeStrays: true,
+    });
+    expect(result.registry.slugs).toEqual([]);
+    expect(result.heuristic.found).toEqual([]);
+  });
+
+  it("threads baseDir and deadlineMs to the registry sweep", () => {
+    collectReapReport({ baseDir: "/x/reg", deadlineMs: 5000 });
+    expect(procSweepRunMock.runProcSweep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ baseDir: "/x/reg", deadlineMs: 5000 }),
+    );
+  });
+
+  it("defaults to report-only with no options", () => {
+    const result = collectReapReport({});
+    expect(result.yes).toBe(false);
+    expect(result.includeStrays).toBe(false);
   });
 });

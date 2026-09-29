@@ -15,6 +15,7 @@ export const VERBS = [
   "a",
   "done",
   "reap",
+  "doctor",
   "prompt",
   "completion",
   "version",
