@@ -1586,7 +1586,7 @@ On non-zero exit without a PR: retry once with the failure context
 appended. If the retry also fails, escalate `NEEDS HUMAN:
 implement-failed`.
 
-## Step 5.5 — Re-symlink if worktree adds skills/agents
+## Step 5.5 — Sync skills into the pipeline's copy
 
 **Phase:** `installing-skills`
 
@@ -1600,20 +1600,23 @@ inside each artifact's owning module's plugin root
 A worktree that adds new files under `skills/` or `agents/` in step 5
 does not get those files symlinked automatically; the same supervisor
 session cannot use them downstream until `flow install --upgrade` runs.
-This step closes that gap. Note that a skill ADDED into the already-existing
-claude-home skills dir hot-reloads into the running session (Claude Code's
-live change detection), and the non-interactive `flow install --upgrade`
-below now preserves the existing installed breadth via the install manifest
-(gh#435) rather than collapsing to core — the invocation itself is unchanged.
+This step closes that gap. A flow-self (or `--skills-from`) pipeline also runs
+on a private real-file copy of the skills; the sync below re-syncs a flow-self
+copy only (a `--skills-from` copy stays pinned). A skill added mid-session does
+NOT hot-reload. When the sync's `.written` is non-empty, upsert the
+not-exercised `> [!NOTE]` per [references/skill-overlay.md](references/skill-overlay.md).
 
 ```bash
 flow-state-update --phase installing-skills
 
-# Resolve the default branch dynamically — same approach as
-# flow-new-worktree.ts and flow-pre-commit.ts. Hardcoding origin/main
-# silently breaks on any repo whose default is `master` (or anything
-# else): `git diff origin/main...HEAD` would fail, `|| true` would
-# swallow the error, and the re-symlink would be silently skipped.
+# Private-copy sync — EVERY change (edit/add/delete), not only additions.
+if flow-skill-overlay status --slug "$FLOW_SLUG" | jq -e .exists >/dev/null; then
+  flow-skill-overlay sync --slug "$FLOW_SLUG" --from "$WORKTREE" > "$WORKTREE/.flow-tmp/skill-overlay-sync.json" \
+    && jq -r 'if .ran then "synced: \(.written + .removed | join(" "))" else "sync skipped: \(.skipReason)" end' "$WORKTREE/.flow-tmp/skill-overlay-sync.json" \
+    || echo "skill-overlay sync FAILED (see stderr above); the private copy was NOT updated" >&2
+fi
+
+# Resolve the default branch dynamically — never hardcode origin/main (a `master` repo would silently skip the re-symlink).
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null \
                   | sed 's|^refs/remotes/origin/||')
 DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
@@ -1625,10 +1628,7 @@ if [ -n "$ADDED" ]; then
   echo "Detected new skill/agent files; re-symlinking:"
   echo "$ADDED" | sed 's/^/  /'
   flow install --upgrade --source "$WORKTREE"
-  # Register a post-merge follow-up so the user's home install also gets
-  # re-symlinked against the canonical (post-merge) main, not just this
-  # supervisor's in-flight worktree. `--auto` plus the `flow install --upgrade`
-  # allowlist entry means step 11 runs it automatically on the MERGED path.
+  # Post-merge follow-up: re-link the home install against canonical main (--auto + allowlist ⇒ step 11 runs it on MERGED).
   flow-followups add \
     --command "flow install --upgrade" \
     --reason "new skills/agents added on this branch — re-symlink home install post-merge" \
@@ -1783,6 +1783,7 @@ flow-state-update --phase ci-wait
 `flow-ci-check` still emits `ci-wait` at this step's tail as an
 idempotent backstop — by then `advancePhase` returns
 `already-at-or-past`, so the backstop adds no duplicate `phaseLog[]` row.
+When the pipeline has a private skill copy, re-run step 5.5's `flow-skill-overlay sync` here (idempotent) so fix-loop skill edits reach a resume or reload, then MERGE its `.written` into the existing PR-body not-exercised NOTE (never replace it).
 
 **Copilot-module precheck (before any of this).** Probe
 `flow-module-status --check copilot >/dev/null 2>&1` — non-zero means the
@@ -2417,7 +2418,7 @@ Task call:
 
 ```bash
 ARTIFACT_PATH="$WORKTREE/.flow-tmp/merge-resolver-result.json"
-INSTRUCTIONS_PATH="$SKILL_DIR/../flow-merge-resolver-instructions/SKILL.md"; FLOW_ROOT=$(cd -P "$SKILL_DIR/../../.." && pwd -P); MARKER_CHECK_CMD="bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts"  # cd -P+pwd -P load-bearing: a logical cd lands in ~/.flow/claude-home
+INSTRUCTIONS_PATH="$SKILL_DIR/../flow-merge-resolver-instructions/SKILL.md"; FLOW_ROOT=$(cd -P "$SKILL_DIR/../../.." && pwd -P); [ -f "$FLOW_ROOT/bin/flow-conflict-marker-check.ts" ] || FLOW_ROOT=$(cd -P "$(dirname "$(realpath "$SKILL_DIR/../../bin/flow-conflict-marker-check")")/.." && pwd -P); MARKER_CHECK_CMD="bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts"  # cd -P+pwd -P load-bearing: a logical cd lands in ~/.flow/claude-home; a private skill copy has no bin/, so the fallback follows its plugin-root helper link to the checkout
 BASE_BRANCH=$(gh pr view "$PR" --json baseRefName -q .baseRefName)
 mkdir -p "$WORKTREE/.flow-tmp"
 rm -f "$ARTIFACT_PATH"   # clear any stale artifact from a prior re-entry (step 10 is re-enterable via the step-7 pr-conflicted row)
@@ -2878,7 +2879,7 @@ Branch on `.resumeAt`:
 | `step-3` | Re-enter step 3 (plan). If `state.phase` was `plan-pending-interview`, re-render the battery from `.flow-tmp/interview-questions.md` on disk (the file, not `.context.interview`) instead of blindly re-invoking discovery; `.context.interview`, when present, carries only the prior triage-side digest as background context for framing the re-render, never the battery itself. Otherwise re-invoke `/flow-product-planning`. `!inputs.planExists`-guarded (the `plan-pending-interview` row in `bin/flow-resume-decide.ts`, identified by name rather than line number since the file reflows), so this row is discovery's own question gate only — the method pause (`references/blind-survey.md`) fires AFTER `plan.md` exists and lands on `step-4` instead, a safe, lossy degrade. |
 | `step-4` | Re-enter step 4 (approval). Re-print the plan summary, then emit the same two markdown bullets as step 3's feature-intent end-condition (worktree absolute path + plan file absolute path, on their own lines as the last lines of the message, no trailing punctuation), and wait — never replay an approval the user gave to a now-dead session. |
 | `step-5` | Re-enter step 5 (implement). Re-invoke `/flow-new-feature`. |
-| `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow install --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
+| `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow-skill-overlay sync` (when a copy exists) and `flow install --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
 | `step-6` | Re-enter step 6 (verify). Re-invoke `/flow-verify` inline (phase stays `verifying`; `/flow-verify` observes the worktree fresh, so a re-invocation is idempotent). |
 | `step-7` | Re-enter step 7 (ci-wait). A `state.json` phase of `ci-wait` **or** `ci-wait-pending` (the yielded-while-waiting pending phase) both resolve here. **Read `$WORKTREE/.flow-tmp/ci-wait-result.json` first**: if it exists and parses, a prior `flow-ci-check` call already reached `decided` — read the persisted verdict and branch on `.decision` without re-running anything. Only when the file is absent or unparseable does the supervisor re-run `flow-ci-check` fresh (never re-launch the old poll loop — there is none; a `waiting` verdict re-arms the dumb `flow-ci-wait` waiter per step 7's wake ladder). |
 | `step-8` | Re-enter step 8 (review). Re-invoke `/flow-pr-review <PR>`. |

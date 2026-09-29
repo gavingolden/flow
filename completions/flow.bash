@@ -94,9 +94,14 @@ _flow() {
                         COMPREPLY=( $(compgen -W "auto always never" -- "$cur") )
                         return
                         ;;
+                    --skills-from)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -d -- "$cur") )
+                        return
+                        ;;
                 esac
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "--auto-merge --no-auto-merge --wait-for-copilot --no-wait-for-copilot --research --no-research --interview --no-interview --copilot-review --effort --model --model-planning --model-implement --model-review --model-fix-applier --model-consolidator --model-merge-resolver" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--auto-merge --no-auto-merge --wait-for-copilot --no-wait-for-copilot --research --no-research --interview --no-interview --copilot-review --effort --model --model-planning --model-implement --model-review --model-fix-applier --model-consolidator --model-merge-resolver --skills-from" -- "$cur") )
             elif [ "$fsub" = "resume" ]; then
                 # Every trailing non-flag token is a slug (`flow feature resume
                 # x y z`); complete slugs cur-based (like `done`) so the SECOND+

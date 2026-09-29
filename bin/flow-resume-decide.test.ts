@@ -643,6 +643,47 @@ describe("decide() — row 5.5 (re-symlink)", () => {
   });
 });
 
+describe("decide() — row 5.5 (private skill copy on an edit-only branch)", () => {
+  it.each(["implementing", "installing-skills"])(
+    "resumes at step-5.5 when phase is '%s', no skills were added, but a private copy exists",
+    (phase) => {
+      const r = decide(
+        makeInputs({
+          state: baseState({ phase }),
+          hasSkillAdditions: false,
+          hasOverlay: true,
+        }),
+      );
+      expect(r.resumeAt).toBe("step-5.5");
+      expect(r.reason).toMatch(/private skill copy/);
+      expect(r.context.hasOverlay).toBe(true);
+    },
+  );
+
+  it("does not re-enter step 5.5 once the phase is past the symlink step, copy or not", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "verifying" }),
+        hasSkillAdditions: false,
+        hasOverlay: true,
+      }),
+    );
+    expect(r.resumeAt).not.toBe("step-5.5");
+  });
+
+  it("no additions and no copy leaves the behavior unchanged (skips step 5.5)", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "implementing" }),
+        hasSkillAdditions: false,
+        hasOverlay: false,
+      }),
+    );
+    expect(r.resumeAt).toBe("step-6");
+    expect(r.context.hasOverlay).toBeUndefined();
+  });
+});
+
 describe("probeSkillAdditions", () => {
   it("passes --diff-filter=A so it agrees with step 5.5's own detection", () => {
     const calls: string[][] = [];
@@ -1375,6 +1416,57 @@ describe("run() integration", () => {
     expect(gh).not.toHaveBeenCalled();
     expect(git).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [true, "step-5.5"],
+    [false, "step-6"],
+  ])(
+    "an edit-only branch with hasOverlay=%s resumes at %s through run() (the gatherInputs probe is wired)",
+    (hasOverlay, expected) => {
+      initWorktree();
+      fs.mkdirSync(path.join(worktreeRoot, ".flow-tmp"));
+      fs.writeFileSync(
+        path.join(worktreeRoot, ".flow-tmp", "plan.md"),
+        "# PRD\n\nbecause.\n",
+      );
+      seedState("overlay-e2e", { phase: "implementing" });
+      const git: GitRunner = (argv) => {
+        if (argv[0] === "rev-parse")
+          return { stdout: "true\n", stderr: "", exitCode: 0 };
+        if (argv[0] === "branch")
+          return { stdout: "feature\n", stderr: "", exitCode: 0 };
+        if (argv[0] === "symbolic-ref")
+          return { stdout: "", stderr: "", exitCode: 1 };
+        if (argv[0] === "diff") return { stdout: "", stderr: "", exitCode: 0 };
+        if (argv[0] === "log")
+          return { stdout: "feat: initial\n", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: "", exitCode: 1 };
+      };
+      const gh: GhRunner = (argv) =>
+        argv[0] === "pr" && argv[1] === "view"
+          ? {
+              stdout: JSON.stringify({
+                number: 9,
+                state: "OPEN",
+                url: "https://example.test/pull/9",
+              }),
+              stderr: "",
+              exitCode: 0,
+            }
+          : { stdout: "[]", stderr: "", exitCode: 0 };
+      const { writes, restore } = captureStdout();
+      const exit = run(["overlay-e2e"], {
+        stateDir,
+        gh,
+        git,
+        hasOverlay: () => hasOverlay,
+      });
+      restore();
+      expect(exit).toBe(0);
+      const result = JSON.parse(writes.join("")) as DecisionResult;
+      expect(result.resumeAt).toBe(expected);
+    },
+  );
 
   it("exits 2 with usage error on bad CLI args", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});

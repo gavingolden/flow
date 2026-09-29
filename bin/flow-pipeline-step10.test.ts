@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -230,5 +232,39 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
       ),
       "step 10 must define MARKER_CHECK_CMD as `bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts`.",
     ).toBe(true);
+  });
+
+  it("resolves FLOW_ROOT to the checkout from a private skill copy that has no bin/", () => {
+    const start = STEP_10.indexOf('FLOW_ROOT=$(cd -P "$SKILL_DIR');
+    const end = STEP_10.indexOf("; MARKER_CHECK_CMD=", start);
+    expect(start).toBeGreaterThan(-1);
+    const assignments = STEP_10.slice(start, end);
+    const tmp = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "flow-step10-root-")),
+    );
+    try {
+      const checkout = path.join(tmp, "checkout");
+      fs.mkdirSync(path.join(checkout, "bin"), { recursive: true });
+      fs.writeFileSync(
+        path.join(checkout, "bin", "flow-conflict-marker-check"),
+        "",
+      );
+      const pluginRoot = path.join(tmp, "copy", "flow-module-core");
+      const skillDir = path.join(pluginRoot, "skills", "flow-pipeline");
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.mkdirSync(path.join(pluginRoot, "bin"));
+      fs.symlinkSync(
+        path.join(checkout, "bin", "flow-conflict-marker-check"),
+        path.join(pluginRoot, "bin", "flow-conflict-marker-check"),
+      );
+      const r = spawnSync(
+        "bash",
+        ["-c", `${assignments}; printf '%s' "$FLOW_ROOT"`],
+        { env: { ...process.env, SKILL_DIR: skillDir }, encoding: "utf8" },
+      );
+      expect(r.stdout).toBe(checkout);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

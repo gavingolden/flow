@@ -89,6 +89,17 @@ export function epicStatusLockDir(): string {
 }
 
 /**
+ * Per-pipeline private skill copies root (`~/.flow/overlays/<slug>/`),
+ * resolved at call time — same rationale as `flowConfigPath()` above: an
+ * eager const would resolve against the developer's real `~/.flow` under
+ * vitest, and pruning it against a test's tmp state dir would delete live
+ * pipelines' copies.
+ */
+export function flowOverlaysDir(): string {
+  return path.join(os.homedir(), ".flow", "overlays");
+}
+
+/**
  * Resolves `~/.local/bin/<name>` at call time, same rationale as
  * `flowConfigPath()` above: `HOME` is captured at import time, before
  * vitest's setup file swaps `$HOME` for a sandbox, so an eager
