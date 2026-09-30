@@ -1,4 +1,4 @@
-// Variant of ~/.flow/audits/transcript-review-segment.ts: instead of summing the
+// Variant of the earlier machine-local segment-cost script (successor: docs/eval/token-spend-audit.ts): instead of summing the
 // review segment, it records the CONTEXT SIZE at three phase boundaries per session.
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";

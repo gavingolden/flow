@@ -135,7 +135,7 @@ export function walkFile(
   stats: Stats,
   onTurn: (t: Turn) => void,
   spawns: Spawn[] = [],
-  metas?: Map<string, Meta>,
+  inWindow: (ts: string) => boolean = () => true,
 ) {
   const seen = new Set<string>();
   let cur = "supervisor-base";
@@ -151,16 +151,19 @@ export function walkFile(
     const m = j.message;
     const id = m?.id ?? j.uuid ?? l;
     if (!seen.has(id)) {
-      if (!m?.usage) stats.missingUsage++;
-      else if (m.model !== "<synthetic>") {
+      if (!m?.usage) {
+        if (inWindow(j.timestamp)) stats.missingUsage++;
+      } else if (m.model !== "<synthetic>") {
         seen.add(id);
         const model = m.model || "unknown";
-        if (!PRICES[model])
-          stats.unknownModels.set(
-            model,
-            (stats.unknownModels.get(model) || 0) + 1,
-          );
-        onTurn({ model, usage: m.usage, ts: j.timestamp, seg: cur });
+        if (inWindow(j.timestamp)) {
+          if (!PRICES[model])
+            stats.unknownModels.set(
+              model,
+              (stats.unknownModels.get(model) || 0) + 1,
+            );
+          onTurn({ model, usage: m.usage, ts: j.timestamp, seg: cur });
+        }
       }
     }
     if (!Array.isArray(m?.content)) continue;
@@ -168,10 +171,7 @@ export function walkFile(
       if (b?.type !== "tool_use") continue;
       if (b.name === "Skill" && b.input?.skill) cur = skillName(b.input.skill);
       if ((b.name === "Agent" || b.name === "Task") && b.input?.prompt) {
-        const type =
-          metas?.get(b.id)?.agentType ??
-          b.input.subagent_type ??
-          "general-purpose";
+        const type = b.input.subagent_type ?? "general-purpose";
         spawns.push({
           prefix: String(b.input.prompt).slice(0, 120),
           type: agentLabel(String(type)),
@@ -182,9 +182,11 @@ export function walkFile(
   }
 }
 
+export const windowSince = (since: number) => (ts: string) =>
+  !since || Date.parse(ts) >= since;
+
 export function attributeSession(
   lines: string[],
-  subagentMeta?: Map<string, Meta>,
   since = 0,
 ): {
   segments: Record<string, Usage>;
@@ -197,12 +199,9 @@ export function attributeSession(
   walkFile(
     lines,
     stats,
-    (t) => {
-      if (since && !(Date.parse(t.ts) >= since)) return;
-      addTurn((segments[t.seg] ||= zero()), t.usage, t.model);
-    },
+    (t) => addTurn((segments[t.seg] ||= zero()), t.usage, t.model),
     agentPrompts,
-    subagentMeta,
+    windowSince(since),
   );
   return { segments, agentPrompts, stats };
 }
@@ -365,7 +364,7 @@ function run(argv: string[]) {
   const since = sinceStr ? Date.parse(`${sinceStr}T00:00:00Z`) : 0;
   if (sinceStr && Number.isNaN(since))
     throw new Error(`bad --since: ${sinceStr}`);
-  const inWindow = (ts: string) => !since || Date.parse(ts) >= since;
+  const inWindow = windowSince(since);
 
   const stats = newStats();
   const byProject: Record<string, Usage> = {};
@@ -435,7 +434,6 @@ function run(argv: string[]) {
         lines,
         stats,
         (t) => {
-          if (!inWindow(t.ts)) return;
           note(t, [
             G(byProject, res.repo),
             G(byModel, modelLabel(t.model)),
@@ -445,6 +443,7 @@ function run(argv: string[]) {
           mainUsd += priceTurn(t.usage, t.model);
         },
         spawns,
+        inWindow,
       );
       const sadir = join(root, d, sid, "subagents");
       if (existsSync(sadir)) {
@@ -481,23 +480,28 @@ function run(argv: string[]) {
             meta && (meta as any).description,
           );
           let first = true;
-          walkFile(sl, stats, (t) => {
-            const isFirst = first;
-            first = false;
-            if (!inWindow(t.ts)) return;
-            note(t, [
-              G(byProject, res.repo),
-              G(byModel, modelLabel(t.model)),
-              G(byAgent, type),
-              G(byAgentModel, `${type} @ ${modelLabel(t.model)}`),
-              sess,
-            ]);
-            subUsd += priceTurn(t.usage, t.model);
-            if (isFirst) {
-              const c = classes(t.usage);
-              (firstTurn[type] ||= []).push(c.w5 + c.w1);
-            }
-          });
+          walkFile(
+            sl,
+            stats,
+            (t) => {
+              const isFirst = first;
+              first = false;
+              note(t, [
+                G(byProject, res.repo),
+                G(byModel, modelLabel(t.model)),
+                G(byAgent, type),
+                G(byAgentModel, `${type} @ ${modelLabel(t.model)}`),
+                sess,
+              ]);
+              subUsd += priceTurn(t.usage, t.model);
+              if (isFirst) {
+                const c = classes(t.usage);
+                (firstTurn[type] ||= []).push(c.w5 + c.w1);
+              }
+            },
+            [],
+            inWindow,
+          );
         }
       }
       if (counted) {
@@ -544,7 +548,9 @@ function run(argv: string[]) {
     console.log(
       "- Caveat: join rate is below 60%; per-pipeline and outcome tables describe only the joined sessions and may not represent the whole window.",
     );
-  console.log(`- Parse errors: ${stats.parseErrors}`);
+  console.log(
+    `- Parse errors (whole files, not window-filtered): ${stats.parseErrors}`,
+  );
   console.log(`- Assistant rows with no usage: ${stats.missingUsage}`);
   const unk = [...stats.unknownModels.entries()];
   console.log(
@@ -600,7 +606,9 @@ function run(argv: string[]) {
   console.log("## Per-pipeline\n");
   const pu = pipeRows.map((r) => r.usd);
   console.log(
-    `Pipelines with spend joined: ${pu.length}; median ${fmtUsd(pct(pu, 0.5))}, p75 ${fmtUsd(pct(pu, 0.75))}, max ${fmtUsd(Math.max(...pu))}\n`,
+    pu.length
+      ? `Pipelines with spend joined: ${pu.length}; median ${fmtUsd(pct(pu, 0.5))}, p75 ${fmtUsd(pct(pu, 0.75))}, max ${fmtUsd(Math.max(...pu))}\n`
+      : "Pipelines with spend joined: 0 (no per-pipeline statistics)\n",
   );
   table(
     ["pipeline", "$", "turns", "phase median min", "verify ok/fail", "outcome"],
@@ -847,15 +855,16 @@ function selfTest() {
     r.agentPrompts.map((a) => [a.type, a.toolUseId, a.prefix]),
     [["flow-edit-applier", "tu2", "Do the thing for the parent"]],
   );
-  const withMeta = attributeSession(
-    lines,
-    new Map([["tu2", { agentType: "flow-module-core:flow-discovery" }]]),
+  const windowed = attributeSession(
+    [
+      asst("w1", "claude-opus-5", split, [], "2026-09-01T00:00:00Z"),
+      asst("w2", "claude-mystery-9", split, [], "2026-09-01T00:00:00Z"),
+      asst("w3", "claude-opus-5", split, [], "2026-09-20T00:00:00Z"),
+    ],
+    Date.parse("2026-09-10T00:00:00Z"),
   );
-  eq(
-    "meta wins over subagent_type",
-    withMeta.agentPrompts[0].type,
-    "flow-discovery",
-  );
+  eq("since drops old turns", windowed.segments["supervisor-base"]?.turns, 1);
+  eq("since drops old unknown models", windowed.stats.unknownModels.size, 0);
 
   const spawns: Spawn[] = [
     {

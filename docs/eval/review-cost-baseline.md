@@ -15,7 +15,7 @@ Recorded **2026-09-08** from every Claude Code transcript under
 `~/.claude/projects/` for the `flow`, `pokemon` and `econ-data` repos
 (main + subagent JSONL, per-turn `usage` + `model`).
 
-Reproduce with:
+Re-measure with (not byte-comparable to the table below; see Limitation):
 
 ```sh
 bun docs/eval/token-spend-audit.ts --since 2026-08-31

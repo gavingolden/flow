@@ -7,16 +7,21 @@ quality and time, and which checks must run before any of them ships.
 
 Over the 30 days ending 2026-09-30, flow's three repos burned about $9,344 of
 list-price tokens across 309 sessions (the dollars are a proxy, not a bill;
-see the gaps section). The verdict count: **1 worth it / 3 not worth it / 7
+see the gaps section). The verdict count: **1 worth it / 4 not worth it / 7
 unmeasured** (counting rows in the ranked table). The reader gets a measured map of where the quota goes plus a
 ranked hypothesis list: a lever is `worth it` only when its named recall check
 has already been run and recorded, and otherwise it stays `unmeasured`, however
 plausible it sounds.
 
-Every figure below is copied from the committed baseline
-([token-spend-baseline-2026-09.md](eval/token-spend-baseline-2026-09.md)),
-which pastes the audit's output verbatim. Figures marked "derived" are plain
-division or addition over those tables. Nothing is estimated.
+Every spend, token, turn and timing figure below is copied from the committed
+baseline ([token-spend-baseline-2026-09.md](eval/token-spend-baseline-2026-09.md)),
+which pastes the audit's output verbatim; figures marked "derived" are plain
+division or addition over those tables. The recall-check results quoted in the
+ranked table come from three other committed records: the eval-suite arms in
+[scaffold-verdicts.md](eval/scaffold-verdicts.md), the Sonnet-vs-Opus study in
+[review-model-recall.md](eval/review-model-recall.md), and the 150k-window arms
+in [review-cost-baseline.md](eval/review-cost-baseline.md). Nothing is
+estimated.
 
 ## Vendor guidance
 
@@ -142,8 +147,8 @@ comparison.
 
 ## Ranked levers
 
-Ranked by how much spend each lever touches, since none has a measured saving
-yet. "30-day $" is the list-price spend the lever acts on, not the expected
+Grouped by verdict (unmeasured, worth it, not worth it), then by the spend each
+lever touches within each group, since none has a measured saving yet. "30-day $" is the list-price spend the lever acts on, not the expected
 saving. Raw tokens are in millions across all token classes, by model. The
 unmeasured levers each name the recall check that would have to run first.
 
@@ -160,6 +165,7 @@ unmeasured levers each name the recall check that would have to run first.
 | Keep triage in the main session instead of a cheap-model gatekeeper (already shipped) | worth it | $1.44, what the retired agent still shows in the window | haiku-4-5-20251001 4.4M | 171 | None measured: suite score 0.917 before and after; one scenario already failing with or without the agent. | None measured. | Gate-score and cost comparison on the eval suite: run? yes, cost fell 29% (27% with a Sonnet parent) | none |
 | Cap the session context at 150k (`--autocompact 150k`) | not worth it | not shipped | not measured | turns rose in all five scenarios (for example 6 to 9) | Fidelity held, 5 of 5 | More turns | Phase-write fidelity, two arms: run? yes; cost rose 32.5% to 64.1% | none |
 | Route bug-detection and pattern-consistency lenses to Sonnet | not worth it | $387.06 is the pool on those two lenses | opus-5 311.0M, opus-5-5 45.0M, fable-5-1 26.2M, sonnet-5 7.1M, fable-5 4.2M | 4,106 | Sonnet re-found 0.6% and 0.0% of the reference findings against Opus 4.8% and 6.0% | none | Sonnet vs Opus recall on 3 PRs, 2 runs each: run? yes | none |
+| Remove the checkpoint-pause step | not worth it | not measured | not measured | no change on any metric | Suite score fell from 0.983 to 0.975 | None measured; every cost and context metric read the same | Eval suite with and without the step: run? yes; nothing cut, score fell | none |
 | Isolate the verify loop in its own sub-agent | not worth it | $5.02, what the retired agent still shows | sonnet-5 9.0M | 173 | none | Removing it made the loop slightly faster, not slower | Eval A/B with and without: run? yes; cost +0.3% and +0.6% when removed | none |
 
 Reading the table: the top three rows are where the money is and all three are
@@ -178,7 +184,9 @@ Each closed below with its measured number.
    4 of 5), so it is safe but dearer. The likely reason is buying evicted
    context back at the fresh-input price; that mechanism is an inference, not
    measured. The vendor's own cookbook agrees a window only pays when a
-   conversation outgrows it.
+   conversation outgrows it. A third-party figure of 5-10x higher cost from
+   small windows appears in the cached research, but its magnitude is
+   unverified; flow's own +32% to +64% is the number to use.
 2. **Run the bug-detection and pattern-consistency lenses on Sonnet.** Recall
    against the 134 reference findings was 0.6% for Sonnet against 4.8% for Opus
    on bug-detection (p = 0.030) and 0.0% against 6.0% on pattern-consistency (p
@@ -191,10 +199,6 @@ Each closed below with its measured number.
 4. **Remove the checkpoint-pause step.** Removing it cut nothing measurable
    (every cost and context metric read the same) and lowered the suite score
    from 0.983 to 0.975, so it stayed.
-5. **Shrink the window because bounded windows save money.** A third-party
-   figure of 5-10x higher cost from small windows appears in the cached
-   research, but its magnitude is unverified; flow's own measurement above
-   (+32% to +64%) is the number to use.
 
 ## Revised verdicts
 
