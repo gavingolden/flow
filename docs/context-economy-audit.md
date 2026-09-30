@@ -91,6 +91,12 @@ persisted alongside the parent transcript, confirming the parent's
 `Agent`-result aggregate is the only available signal for sub-agent
 spend.
 
+> [!NOTE]
+> Correction, 2026-09-30: the claim that zero transcripts carry an `isSidechain` record
+> above no longer holds. Sub-agent transcripts are now persisted under
+> `<session>/subagents/` with `isSidechain: true`, so their turns can be
+> measured directly. See [token-spend-analysis.md](token-spend-analysis.md).
+
 ## Findings
 
 ### Per-phase token totals
