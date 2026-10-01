@@ -363,8 +363,13 @@ export function runLensPackStep(o: {
 }): LensPackStep {
   const off = (reason: string): LensPackStep => ({
     lens_prompts: {},
-    notice: `NOTICE — lens-pack: ${reason}; lenses spawn with the pointer prompt`,
+    notice: `NOTICE — lens-pack: ${reason}; using pointer prompts`,
   });
+  for (const lens of Object.keys(LENS_HEADINGS)) {
+    fs.rmSync(path.join(o.worktree, ".flow-tmp", `lens-prompt-${lens}.md`), {
+      force: true,
+    });
+  }
   if (!o.skillDir) return off("no --skill-dir passed");
   if (!isLensPackEnabled(o.readConfig)) return off("review.lensPack is off");
   const raw = o.read(path.join(o.worktree, ".flow-tmp", "review-scope.json"));

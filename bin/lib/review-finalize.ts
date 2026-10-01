@@ -279,6 +279,16 @@ export async function runReviewFinalize(
       });
       keepModels = false;
       collect = exec([...baseArgs, ...packArgs, "--append"]);
+      if (packArgs.length > 0 && rejected("--pack")) {
+        skips.push({
+          step: "pack",
+          reason:
+            "installed flow-review-telemetry does not accept --pack yet; " +
+            "retried without it",
+        });
+        packArgs = [];
+        collect = exec([...baseArgs, ...packArgs, "--append"]);
+      }
     }
     if (keepModels) lens_models_forwarded = lensModels.length;
     if (collect.exitCode !== 0) {

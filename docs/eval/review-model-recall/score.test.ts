@@ -166,6 +166,26 @@ describe("shipRule", () => {
     expect(shipRule(cells)?.recall_acted_ok).toBe(false);
   });
 
+  it("tolerates a recall drop within one pooled sd when runs vary", () => {
+    const cells = [
+      cell({ arm: "packed", run: 1, recallActed: 0.4, cost: 0.5 }),
+      cell({ arm: "packed", run: 2, recallActed: 0.6, cost: 0.5 }),
+      cell({ arm: "pointer", run: 1, recallActed: 0.5 }),
+      cell({ arm: "pointer", run: 2, recallActed: 0.7 }),
+    ];
+    expect(shipRule(cells)?.recall_acted_ok).toBe(true);
+  });
+
+  it("fails a recall drop larger than one pooled sd when runs vary", () => {
+    const cells = [
+      cell({ arm: "packed", run: 1, recallActed: 0.4, cost: 0.5 }),
+      cell({ arm: "packed", run: 2, recallActed: 0.6, cost: 0.5 }),
+      cell({ arm: "pointer", run: 1, recallActed: 0.7 }),
+      cell({ arm: "pointer", run: 2, recallActed: 0.9 }),
+    ];
+    expect(shipRule(cells)?.recall_acted_ok).toBe(false);
+  });
+
   it("is insufficient with one run per cell, but still reports cost and wall-clock", () => {
     const r = shipRule(pair({ cost: 0.9, duration: 200_000 }, {}, 1));
     expect(r?.pass).toBe("insufficient");

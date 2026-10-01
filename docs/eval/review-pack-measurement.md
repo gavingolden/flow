@@ -75,8 +75,13 @@ minutes, needs `gh` auth and a Claude login). It does not gate the merge.
 6. `bun score.ts aggregate "$D" | tee "$D/scores.json" | jq '{arms, ship_rule}'`
 
 Pass rule: `ship_rule.pass == true` (cost_ok, recall_acted_ok, findings_ok and
-wallclock_ok all true; `insufficient` is not a pass). On pass, turn the
-brief on with one config change in `~/.flow/config.json`:
+wallclock_ok all true; `insufficient` is not a pass). A pass is necessary
+but not sufficient: the decision run renders briefs at `--max-bytes 300000`,
+while production's fixed 80 KB cap (`BRIEF_MAX_BYTES`) makes most real PRs
+(this PR ~170 KB per lens, #880 ~117 KB) fall back to the pointer prompt. So
+before the key is useful, the production cap must be raised or the brief
+shrunk; that work is untracked. Only then, on pass, turn the brief on with
+one config change in `~/.flow/config.json`:
 
 ```json
 { "review": { "lensPack": true } }

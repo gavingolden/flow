@@ -10,6 +10,7 @@ import {
   isLensPackEnabled,
   renderAllBriefs,
   renderLensBrief,
+  runLensPackStep,
   type PackInputs,
 } from "./review-pack";
 
@@ -190,5 +191,25 @@ describe("isLensPackEnabled", () => {
         throw new Error("x");
       }),
     ).toBe(false);
+  });
+});
+
+describe("runLensPackStep stale-brief clearing", () => {
+  it("removes every lens-prompt-<lens>.md left by an earlier round when the pack is off", () => {
+    const stale = Object.keys(LENS_HEADINGS).map((l) =>
+      path.join(wt, ".flow-tmp", `lens-prompt-${l}.md`),
+    );
+    for (const f of stale) fs.writeFileSync(f, "stale");
+    const step = runLensPackStep({
+      pr: 1,
+      worktree: wt,
+      skillDir: path.join(FIX, "skill"),
+      readConfig: () => ({}),
+      promptInterpretationTension: false,
+      read: fsRead,
+      exec,
+    });
+    expect(step.lens_prompts).toEqual({});
+    for (const f of stale) expect(fs.existsSync(f)).toBe(false);
   });
 });

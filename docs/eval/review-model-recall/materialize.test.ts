@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { actedIndices, isFixApplierSubject, truncateDiff } from "./materialize";
+import {
+  capDiff,
+  DEFAULT_MAX_LINES,
+  DEFAULT_MAX_TOTAL,
+} from "../../../bin/flow-pr-diff";
+import { actedIndices, isFixApplierSubject } from "./materialize";
 
-describe("truncateDiff", () => {
-  it("keeps head 200 + marker + tail 100 for a file block over 300 lines", () => {
-    const body = Array.from({ length: 400 }, (_, i) => `+l${i}`).join("\n");
-    const out = truncateDiff(`diff --git a/x b/x\n${body}\n`);
-    expect(out).toContain("... [truncated");
-    expect(out).toContain("+l0");
-    expect(out).toContain("+l399");
-    expect(out).not.toContain("+l250\n");
-  });
-
-  it("leaves a short block untouched", () => {
-    const d = "diff --git a/x b/x\n+a\n";
-    expect(truncateDiff(d)).toBe(d);
+describe("production diff cap", () => {
+  it("the production capDiff that materialize uses caps per file and in total", () => {
+    const block = (n: string) =>
+      `diff --git a/${n} b/${n}\n${Array.from({ length: 400 }, (_, i) => `+l${i}`).join("\n")}\n`;
+    const diff = Array.from({ length: 30 }, (_, i) => block(`f${i}`)).join("");
+    const out = capDiff(diff, DEFAULT_MAX_LINES, DEFAULT_MAX_TOTAL, 12);
+    expect(out).toContain("full diff: gh pr diff 12");
+    expect(out).toMatch(/additional file\(s\) omitted/);
   });
 });
 

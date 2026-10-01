@@ -18,6 +18,11 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  capDiff,
+  DEFAULT_MAX_LINES,
+  DEFAULT_MAX_TOTAL,
+} from "../../../bin/flow-pr-diff";
 import { FIX_APPLIER_COMMIT_MARKER } from "../../../bin/lib/ci-decision";
 
 type Ref = { path: string; line: number | null; body: string };
@@ -42,24 +47,6 @@ function tryCmd(argv: string[], fallback: string): string {
   } catch {
     return fallback;
   }
-}
-
-/** Mirrors flow-review-scope's per-file cap: a block over 300 lines keeps
- * head 200 + a marker + tail 100, so the brief is sized like a real review's. */
-export function truncateDiff(diff: string): string {
-  return diff
-    .split(/^(?=diff --git )/m)
-    .map((block) => {
-      const lines = block.split("\n");
-      if (lines.length <= 300) return block;
-      const cut = lines.length - 300;
-      return [
-        ...lines.slice(0, 200),
-        `... [truncated ${cut} lines] ...`,
-        ...lines.slice(-100),
-      ].join("\n");
-    })
-    .join("");
 }
 
 export function actedIndices(refs: Ref[], touched: Set<string>): number[] {
@@ -105,7 +92,10 @@ export function materialize(pr: string, dataDir: string): void {
     cmd(["gh", "pr", "view", pr, "--json", "commits", "-q", COMMITS_JQ]),
   );
   const diff = cmd(["gh", "pr", "diff", pr]);
-  put("diff.txt", truncateDiff(diff));
+  put(
+    "diff.txt",
+    capDiff(diff, DEFAULT_MAX_LINES, DEFAULT_MAX_TOTAL, Number(pr)),
+  );
   put(
     "intent-comments.md",
     tryCmd(

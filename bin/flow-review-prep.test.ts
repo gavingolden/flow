@@ -138,7 +138,7 @@ describe("runReviewPrep", () => {
     expect(prep.critical_skips).toEqual([]);
     expect(prep.skips).toEqual([]);
     expect(prep.notices).toEqual([
-      "NOTICE — lens-pack: no --skill-dir passed; lenses spawn with the pointer prompt",
+      "NOTICE — lens-pack: no --skill-dir passed; using pointer prompts",
     ]);
     expect(prep.lens_prompts).toEqual({});
     expect(prep.tier).toBeUndefined();
@@ -182,7 +182,7 @@ describe("runReviewPrep", () => {
       });
       expect(prep.lens_prompts).toEqual({});
       expect(lensPackNotices(prep)).toEqual([
-        "NOTICE — lens-pack: review.lensPack is off; lenses spawn with the pointer prompt",
+        "NOTICE — lens-pack: review.lensPack is off; using pointer prompts",
       ]);
     });
 

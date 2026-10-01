@@ -371,12 +371,14 @@ describe("repeated message.id de-duplication", () => {
     assistant("claude-sonnet-4-6", usage, "msg_1"),
     assistant("claude-sonnet-4-6", usage, "msg_1"),
     assistant("claude-sonnet-4-6", usage, "msg_1"),
+    assistant("claude-sonnet-4-6", usage, "msg_2"),
+    assistant("claude-sonnet-4-6", usage, "msg_2"),
   ];
 
-  it("computeCost counts a 3x-repeated message once", async () => {
+  it("computeCost counts each distinct id once", async () => {
     writeJsonl("session.jsonl", [seedEvent(), ...repeated()]);
     const cost = await computeCost(state(), tmpRoot);
-    expect(cost.total).toBeCloseTo(3, 6);
+    expect(cost.total).toBeCloseTo(6, 6);
   });
 
   it("sumTranscriptUsage counts a 3x-repeated message once and agrees with computeCost", async () => {
@@ -384,8 +386,8 @@ describe("repeated message.id de-duplication", () => {
     const usageSum = await sumTranscriptUsage(
       path.join(projectDir, "session.jsonl"),
     );
-    expect(usageSum.input).toBe(1_000_000);
-    expect(usageSum.total).toBe(1_000_000);
+    expect(usageSum.input).toBe(2_000_000);
+    expect(usageSum.total).toBe(2_000_000);
   });
 });
 

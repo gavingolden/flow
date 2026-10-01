@@ -218,6 +218,24 @@ describe("runReviewFinalize", () => {
     expect(collects[1]).not.toContain("--pack");
   });
 
+  it("(c3) peels off both --lens-model and --pack when an old helper rejects each", async () => {
+    const calls: string[][] = [];
+    const result = await runReviewFinalize(
+      baseOpts(
+        calls,
+        { lensModelSupported: false, packUnsupported: true },
+        { pack: true, lensModels: ["security=alias-a"] },
+      ),
+    );
+    expect(result.telemetry_recorded).toBe(true);
+    const collects = calls.filter(
+      (c) => c[0] === "flow-review-telemetry" && c[1] === "collect",
+    );
+    expect(collects).toHaveLength(3);
+    expect(collects[2]).not.toContain("--pack");
+    expect(collects[2]).not.toContain("--lens-model");
+  });
+
   it("(c2) does not probe or retry when no --lens-model pairs were passed", async () => {
     const calls: string[][] = [];
     const result = await runReviewFinalize(

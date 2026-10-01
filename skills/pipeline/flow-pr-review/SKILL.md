@@ -616,9 +616,6 @@ stays `true` even when the kill switch fires, so it must not be read as
 the gate.
 
 - Spawn each lens from its rendered brief (`.flow-tmp/lens-prompt-<lens>.md`) per [references/lens-pack.md](references/lens-pack.md) — the pointer-prompt fallback lives there too.
-- Append the agent-specific section (Role, Process, False Positive Avoidance)
-- Include the path to that agent's lens checklist (`references/checklists/<lens>.md`) and to
-  `references/conventional-comments.md` so agents can read them
 - Instruct agents to treat commit bodies as author intent: a finding that contradicts a
   stated rationale should cite the commit and explain why the rationale doesn't hold,
   rather than assuming the author didn't consider the alternative.

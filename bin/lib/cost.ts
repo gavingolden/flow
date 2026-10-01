@@ -94,7 +94,6 @@ export async function findSessionJsonls(
 async function jsonlMatchesSlug(file: string, slug: string): Promise<boolean> {
   const stream = fs.createReadStream(file);
   const rl = readline.createInterface({ input: stream });
-  const seenIds = new Set<string>();
   try {
     for await (const line of rl) {
       if (!line) continue;
