@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "started_at": "2026-01-01T00:00:00Z",
+  "scope": "full",
+  "reason": "no prior marker",
+  "base_sha": null,
+  "head_sha": "def5678",
+  "pr_files": ["src/a.ts"],
+  "delta_files": [],
+  "delta_ratio": null,
+  "gates": {
+    "bug-detection": {
+      "run": true
+    },
+    "security": {
+      "run": true
+    },
+    "pattern-consistency": {
+      "run": true
+    },
+    "performance": {
+      "run": true
+    },
+    "supply-chain": {
+      "run": false,
+      "reason": "no dependency files changed"
+    },
+    "test-coverage": {
+      "run": true
+    },
+    "product": {
+      "run": true
+    }
+  },
+  "gates_enabled": true,
+  "delta_enabled": true,
+  "forced_full": false,
+  "product_brief": {
+    "found": true,
+    "scope": "repo",
+    "path": "/repo/.flow/product.md"
+  },
+  "tier": "standard",
+  "tier_reasons": []
+}

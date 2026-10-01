@@ -62,6 +62,64 @@ Run from a clean checkout of the default branch, same as the committed
 measurement — a dirty worktree or a feature branch changes what the
 review lenses see.
 
+## Packed vs pointer (lens brief) measurement
+
+The same harness compares two ways of handing a lens its inputs, for
+`review.lensPack` (see [`../review-pack-measurement.md`](../review-pack-measurement.md)):
+
+- `packed` — the lens is told to Read one pre-rendered brief
+  (`bin/lib/review-pack.ts`), the production spawn prompt.
+- `pointer` — today's fallback: shared block + lens section with the
+  variables filled and absolute paths to the checklist files.
+
+Both arms see identical content; only the delivery differs. Run it with:
+
+```sh
+D=<data-dir>
+bun build-prompt.ts materialize <pr> --data-dir $D          # per-PR inputs + ref files
+for lens in bug-detection pattern-consistency test-coverage; do
+  bun build-prompt.ts $lens <pr> --data-dir $D --mode packed --max-bytes 200000 > $D/prompt-$lens-<pr>-packed.txt
+  bun build-prompt.ts $lens <pr> --data-dir $D --mode pointer > $D/prompt-$lens-<pr>-pointer.txt
+done
+bun run.ts matrix --arms packed,pointer --lenses bug-detection,pattern-consistency,test-coverage \
+  --prs <pr>[,<pr>...] --runs 2 --model opus --data-dir $D --concurrency 6
+bun run.ts judge  --arms packed,pointer --lenses ... --prs ... --runs 2 --data-dir $D
+bun score.ts aggregate $D
+```
+
+Flags: `--arms <csv>` (default `sonnet,opus`; `sonnet`/`opus` run that model,
+any other arm runs `--model`, default `opus`), `--lenses`, `--prs`, `--runs`.
+`--max-bytes` raises the packed brief's production 80 KB cap for the
+harness: a merged PR's final body carries post-review evidence, so most
+merged PRs would otherwise fall back and never produce a packed cell.
+
+`score.ts aggregate` switches shape by arm set. For `sonnet,opus` it
+prints the committed `../review-model-recall.json` shape unchanged. For any
+other arms it prints `arms.<arm>` with `cost_usd {median, mean}`,
+`num_turns {median}`, `duration_ms {median}`, `recall_all` and
+`recall_acted`, plus a `ship_rule` (packed vs pointer):
+
+- `cost_ok`: packed median cost <= 0.85x pointer.
+- `recall_acted_ok`: per lens, packed acted recall is no more than one
+  pooled within-arm sd below pointer.
+- `findings_ok`: same bound on distinct findings per run.
+- `wallclock_ok`: packed median duration <= 1.1x pointer.
+- `pass`: all four true; `"insufficient"` when any arm has fewer than 2 runs
+  per (lens, PR) cell or a component has no data.
+
+Cost, turns and wall-clock are read from each cell's claude JSON
+(`runs/<cell>.json`), falling back to its `.envelope.json`.
+
+**Acted proxy.** Resolved-thread state is 0/0 on the committed PRs, so
+`materialize` marks a reference comment acted when its `path` is touched by
+a later fix-applier commit on that PR (a commit subject carrying
+`(pr-review #<pr>)`, `FIX_APPLIER_COMMIT_MARKER` in `bin/lib/ci-decision.ts`),
+written as 1-based indices into `ref-<pr>.json` to `ref-acted-<pr>.json`.
+PRs whose review fixes were not committed with that marker (812 and 756)
+get an empty acted set, so `recall_acted` is `null` for them.
+`ref-<pr>.json` holds top-level inline review comments only (replies are
+discussion, not findings).
+
 ## Inputs this harness needs that are NOT committed
 
 `<data-dir>` needs, per PR (`812`, `756`, `802` for the committed run):

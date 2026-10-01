@@ -9,6 +9,15 @@ Why it has to be committed: the audit script reads a **rolling 30-day
 transcript window**, so once a cost change lands the "before" arm becomes
 unreproducible. A number nobody can re-derive is not a baseline.
 
+**Correction (unit of the totals).** The turn and dollar totals below were
+summed per transcript line, but Claude Code writes one line per content
+block of the same assistant message, so every message that repeats was
+counted 2-3 times. The totals are inflated by that factor. Telemetry rows
+written with `version: 1` carry the same per-line unit; rows with
+`version: 2` de-duplicate by `message.id` and must never be averaged with
+version 1. The re-derived per-lens table lives in
+`docs/eval/review-lens-cost-baseline.md`.
+
 ## The measurement
 
 Recorded **2026-09-08** from every Claude Code transcript under

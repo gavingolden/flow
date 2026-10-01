@@ -101,6 +101,23 @@ describe("collect", () => {
     );
   });
 
+  it("records pack:true only when --pack is passed", async () => {
+    const read = (dir: string): ReviewTelemetry =>
+      JSON.parse(
+        fs.readFileSync(
+          path.join(dir, ".flow-tmp", "review-telemetry.json"),
+          "utf8",
+        ),
+      );
+    const a = makeWorktree();
+    await run(["collect", "--worktree", a, "--pr", "10", "--pack"], makeDeps());
+    expect(read(a).pack).toBe(true);
+    expect(read(a).version).toBe(2);
+    const b = makeWorktree();
+    await run(["collect", "--worktree", b, "--pr", "10"], makeDeps());
+    expect(read(b).pack).toBe(false);
+  });
+
   it("records the model from a single --lens-model flag", async () => {
     const dir = makeWorktree();
     const deps = makeDeps();
@@ -302,7 +319,7 @@ describe("print", () => {
     overrides: Partial<ReviewTelemetry> = {},
   ): ReviewTelemetry {
     return {
-      version: 1,
+      version: 2,
       run_id: "10:abc:2026",
       ts: "2026-01-01T00:00:00.000Z",
       repo: "flow",
@@ -317,6 +334,7 @@ describe("print", () => {
         delta_ratio: 0.1,
       },
       widened: { value: false, reason: null },
+      pack: false,
       lenses: {
         "bug-detection": {
           ran: true,
@@ -355,6 +373,18 @@ describe("print", () => {
     const table = renderTable(t);
     expect(table).toContain("scope: delta (1 files)");
     expect(table).toContain("NOTICE — tokens-unavailable: 1 lenses");
+  });
+
+  it("flags version 1 rows as a different unit and marks packed v2 rows", () => {
+    const v1 = {
+      ...fixtureTelemetry(),
+      version: 1,
+    } as unknown as ReviewTelemetry;
+    expect(renderTable(v1)).toContain("NOTICE — telemetry-version: v1");
+    expect(renderTable(fixtureTelemetry())).not.toContain("telemetry-version");
+    expect(renderTable(fixtureTelemetry({ pack: true }))).toContain(
+      "lens brief: packed",
+    );
   });
 
   it("renders n/a for null tokens", () => {

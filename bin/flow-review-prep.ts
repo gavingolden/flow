@@ -32,19 +32,31 @@ JSON envelope on stdout.
 Arguments:
   --pr <number>       PR number (required)
   --worktree <path>   Absolute worktree path (required)
+  --skill-dir <abs>   flow-pr-review skill directory; with review.lensPack on,
+                       renders one brief per lens under .flow-tmp/
+  --config <path>     Config file for the review gates (default
+                       ~/.flow/config.json)
   --out <path>        Where to also write the envelope
                        (default: <worktree>/.flow-tmp/review-prep.json)
   `);
 }
 
 export type ParsedArgs =
-  | { pr: number; worktree: string; out?: string }
+  | {
+      pr: number;
+      worktree: string;
+      out?: string;
+      skillDir?: string;
+      config?: string;
+    }
   | { error: string };
 
 export function parseArgs(argv: string[]): ParsedArgs {
   let pr: number | undefined;
   let worktree: string | undefined;
   let out: string | undefined;
+  let skillDir: string | undefined;
+  let config: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -71,6 +83,17 @@ export function parseArgs(argv: string[]): ParsedArgs {
         out = value;
         i++;
         break;
+      case "--skill-dir":
+        if (value === undefined)
+          return { error: "--skill-dir requires a value" };
+        skillDir = value;
+        i++;
+        break;
+      case "--config":
+        if (value === undefined) return { error: "--config requires a value" };
+        config = value;
+        i++;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -78,7 +101,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
   if (pr === undefined) return { error: "--pr is required" };
   if (worktree === undefined) return { error: "--worktree is required" };
-  return { pr, worktree, out };
+  return { pr, worktree, out, skillDir, config };
 }
 
 // `reviewPrep` is a test-only seam (defaults to the real `runReviewPrep`) so
@@ -89,6 +112,8 @@ export async function run(
   reviewPrep: (opts: {
     pr: number;
     worktree: string;
+    skillDir?: string;
+    configPath?: string;
   }) => Promise<ReviewPrep> = runReviewPrep,
 ): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
@@ -102,7 +127,12 @@ export async function run(
     return 2;
   }
 
-  const prep = await reviewPrep({ pr: parsed.pr, worktree: parsed.worktree });
+  const prep = await reviewPrep({
+    pr: parsed.pr,
+    worktree: parsed.worktree,
+    skillDir: parsed.skillDir,
+    configPath: parsed.config,
+  });
 
   const outPath =
     parsed.out ?? path.join(parsed.worktree, ".flow-tmp", "review-prep.json");

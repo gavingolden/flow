@@ -39,8 +39,11 @@ function seedEvent(content = SEED): object {
   return { type: "user", message: { role: "user", content } };
 }
 
-function assistant(model: string, usage: object): object {
-  return { type: "assistant", message: { model, usage } };
+function assistant(model: string, usage: object, id?: string): object {
+  return {
+    type: "assistant",
+    message: { ...(id ? { id } : {}), model, usage },
+  };
 }
 
 function state(overrides: Partial<PipelineState> = {}): PipelineState {
@@ -354,6 +357,37 @@ describe(computeCost, () => {
     expect(cost.byModel["claude-sonnet-4-6"]).toBeCloseTo(3, 6);
     expect(cost.unknownModels).toEqual(["claude-experimental-future"]);
     expect(cost.hasData).toBe(true);
+  });
+});
+
+describe("repeated message.id de-duplication", () => {
+  const usage = {
+    input_tokens: 1_000_000,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  };
+  const repeated = () => [
+    assistant("claude-sonnet-4-6", usage, "msg_1"),
+    assistant("claude-sonnet-4-6", usage, "msg_1"),
+    assistant("claude-sonnet-4-6", usage, "msg_1"),
+    assistant("claude-sonnet-4-6", usage, "msg_2"),
+    assistant("claude-sonnet-4-6", usage, "msg_2"),
+  ];
+
+  it("computeCost counts each distinct id once", async () => {
+    writeJsonl("session.jsonl", [seedEvent(), ...repeated()]);
+    const cost = await computeCost(state(), tmpRoot);
+    expect(cost.total).toBeCloseTo(6, 6);
+  });
+
+  it("sumTranscriptUsage counts a 3x-repeated message once and agrees with computeCost", async () => {
+    writeJsonl("session.jsonl", [seedEvent(), ...repeated()]);
+    const usageSum = await sumTranscriptUsage(
+      path.join(projectDir, "session.jsonl"),
+    );
+    expect(usageSum.input).toBe(2_000_000);
+    expect(usageSum.total).toBe(2_000_000);
   });
 });
 

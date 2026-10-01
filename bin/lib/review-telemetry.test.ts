@@ -275,6 +275,26 @@ describe("mergeTelemetry", () => {
     startedAt: "2026-01-01T00:00:00.000Z",
   };
 
+  it("records version 2 and the pack flag (default false)", () => {
+    const t = mergeTelemetry({
+      ...baseArgs,
+      counts: {},
+      lensTokens: {},
+      transcripts: {},
+    });
+    expect(t.version).toBe(2);
+    expect(t.pack).toBe(false);
+    expect(
+      mergeTelemetry({
+        ...baseArgs,
+        pack: true,
+        counts: {},
+        lensTokens: {},
+        transcripts: {},
+      }).pack,
+    ).toBe(true);
+  });
+
   it("should prefer --lens-tokens over transcript usage (tokens_source 'task-notification', tokens.total only)", () => {
     const t = mergeTelemetry({
       ...baseArgs,

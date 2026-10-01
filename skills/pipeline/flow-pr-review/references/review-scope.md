@@ -135,6 +135,11 @@ LENS_TOKEN_ARGS=()
 for t in "${LENS_TOKENS[@]}"; do LENS_TOKEN_ARGS+=(--lens-tokens "$t"); done
 ```
 
+When any lens was spawned from its rendered brief (`.lens_prompts[<lens>]`
+present, see [lens-pack.md](lens-pack.md)), set `PACK_USED=1`; otherwise leave
+it unset. It sits beside `LENS_TOKENS` / `LENS_MODELS` and is forwarded to the
+Step-12 call as `PACK_ARGS=(--pack)`.
+
 As each lens is spawned, record its resolved model the same way:
 
 ```bash
