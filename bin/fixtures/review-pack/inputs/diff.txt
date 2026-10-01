@@ -1,0 +1,2 @@
+diff --git a/src/a.ts b/src/a.ts
++export const widget = 1;

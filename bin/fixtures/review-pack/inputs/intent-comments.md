@@ -1,0 +1,1 @@
+- src/a.ts:L3 → because the widget needs a default

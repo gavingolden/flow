@@ -19,6 +19,7 @@ import { readTolerantBool } from "../flow-review-scope";
 import { readConfigDiscovery } from "../flow-research-note";
 import { readJudgeEnabled } from "./explain-judge";
 import { isGeminiLensEnabled } from "../flow-gemini-lens";
+import { isLensPackEnabled } from "./review-pack";
 
 function viewDefault(key: string): string {
   const row = buildSettingsRows(() => undefined).find((r) => r.setting === key);
@@ -93,6 +94,14 @@ describe("config-default-parity: the view's defaults match their real consumer's
       isGeminiLensEnabled(JSON.stringify({ review: { gemini: true } })),
     ).toBe(true);
     expect(viewDefault("review.gemini")).toBe(String(false));
+  });
+
+  it("review.lensPack: view default matches isLensPackEnabled's default", () => {
+    expect(isLensPackEnabled(() => ({}))).toBe(false);
+    expect(isLensPackEnabled(() => ({ review: { lensPack: true } }))).toBe(
+      true,
+    );
+    expect(viewDefault("review.lensPack")).toBe(String(false));
   });
 
   // SPECIAL CASE: research.deepResearchFallback has no TypeScript reader —

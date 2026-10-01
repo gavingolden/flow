@@ -308,6 +308,12 @@ const DESCRIPTORS: Descriptor[] = [
     resolve: (read) => strictTrueOptIn(read, "review.gemini"),
   },
   {
+    key: "review.lensPack",
+    meaning:
+      "whether each review lens starts from one pre-rendered brief (off = lenses read their inputs file by file)",
+    resolve: (read) => strictTrueOptIn(read, "review.lensPack"),
+  },
+  {
     key: "review.lensGates",
     meaning:
       "whether review skips the lenses with nothing to look at in this change (off = every lens always runs)",
