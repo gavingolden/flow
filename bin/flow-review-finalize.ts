@@ -9,7 +9,7 @@
  *     --status <clean|partial|escalated>
  *     [--ran <n> --total <n> --prose-promoted <n>]
  *     [--lens-model <lens>=<alias> ...] [--lens-tokens <lens>=<n> ...]
- *     [--widened <reason>] [--session-id <id>]
+ *     [--widened <reason>] [--pack] [--session-id <id>]
  *     [--summary <text>] [--completed-steps <csv>] [--missed-steps <csv>]
  *     [--escalation-tag <tag>]
  *
@@ -44,6 +44,8 @@ Arguments:
   --lens-tokens <l>=<n>    Repeatable lens->token-count pair (forwarded to
                            flow-review-telemetry collect)
   --widened <reason>       Forwarded to flow-review-telemetry collect
+  --pack                   Review ran from rendered lens briefs (forwarded
+                           to flow-review-telemetry collect)
   --session-id <id>        Claude session id for telemetry
   --summary <text>         Result-artifact summary (default: generated)
   --completed-steps <csv>  Comma-separated step labels
@@ -65,6 +67,7 @@ export type ParsedArgs =
       lensModels: string[];
       lensTokens: string[];
       widened?: string;
+      pack: boolean;
       sessionId?: string;
       summary?: string;
       completedSteps?: string[];
@@ -87,6 +90,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const lensModels: string[] = [];
   const lensTokens: string[] = [];
   let widened: string | undefined;
+  let pack = false;
   let sessionId: string | undefined;
   let summary: string | undefined;
   let completedSteps: string[] | undefined;
@@ -163,6 +167,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
         widened = value;
         i++;
         break;
+      case "--pack":
+        pack = true;
+        break;
       case "--session-id":
         if (value === undefined)
           return { error: "--session-id requires a value" };
@@ -213,6 +220,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     lensModels,
     lensTokens,
     widened,
+    pack,
     sessionId,
     summary,
     completedSteps,

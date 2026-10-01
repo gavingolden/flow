@@ -38,7 +38,7 @@ export type LensTelemetry = {
 };
 
 export type ReviewTelemetry = {
-  version: 1;
+  version: 2;
   run_id: string;
   ts: string;
   repo: string;
@@ -53,6 +53,7 @@ export type ReviewTelemetry = {
     delta_ratio: number | null;
   };
   widened: { value: boolean; reason: string | null };
+  pack: boolean;
   lenses: Record<string, LensTelemetry>;
 };
 
@@ -187,7 +188,7 @@ type TranscriptEntry = {
   model: string | null;
 };
 
-function lensFromMeta(meta: {
+export function lensFromMeta(meta: {
   agentType?: unknown;
   description?: unknown;
 }): string | null {
@@ -298,6 +299,7 @@ export function mergeTelemetry(args: {
     delta_ratio: number | null;
   };
   widened: { value: boolean; reason: string | null };
+  pack?: boolean;
   counts: Record<string, CountsEntry>;
   lensTokens: Record<string, number>;
   lensModels?: Record<string, string>;
@@ -349,7 +351,7 @@ export function mergeTelemetry(args: {
   }
 
   return {
-    version: 1,
+    version: 2,
     run_id: `${args.pr}:${args.scope.head_sha}:${args.startedAt}`,
     ts: new Date().toISOString(),
     repo: args.repo,
@@ -364,6 +366,7 @@ export function mergeTelemetry(args: {
       delta_ratio: args.scope.delta_ratio,
     },
     widened: args.widened,
+    pack: args.pack ?? false,
     lenses,
   };
 }

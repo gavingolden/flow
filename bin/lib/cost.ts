@@ -94,6 +94,7 @@ export async function findSessionJsonls(
 async function jsonlMatchesSlug(file: string, slug: string): Promise<boolean> {
   const stream = fs.createReadStream(file);
   const rl = readline.createInterface({ input: stream });
+  const seenIds = new Set<string>();
   try {
     for await (const line of rl) {
       if (!line) continue;
@@ -131,11 +132,13 @@ async function parseAndPrice(jsonl: string): Promise<CostBreakdown> {
   const rl = readline.createInterface({ input: stream });
   const byModel: Record<string, number> = {};
   const unknown = new Set<string>();
+  const seenIds = new Set<string>();
   let total = 0;
   for await (const line of rl) {
     if (!line) continue;
     const event = tryParse(line);
     if (!event || event.type !== "assistant") continue;
+    if (isRepeatedMessage(event, seenIds)) continue;
     const usage = event.message?.usage;
     if (!usage) continue;
     const model: string = event.message?.model ?? "";
@@ -192,9 +195,10 @@ export type TranscriptUsage = {
  * assistant event's `message.usage` fields and tracks the last-seen
  * `message.model`. Never throws — malformed lines are skipped, a missing
  * file yields all-zero counts with `model: null`. Kept separate from
- * `parseAndPrice` (module-private, priced in dollars) rather than
- * refactored into it, so a review-telemetry consumer gets raw token
- * counts without perturbing `computeCost`'s existing $ output.
+ * `parseAndPrice` (module-private, priced in dollars) so a review-telemetry
+ * consumer gets raw token counts. Both summers share the same dedupe: a
+ * message the transcript repeats (one line per content block) counts once,
+ * first occurrence wins by `message.id`.
  */
 export async function sumTranscriptUsage(
   jsonlPath: string,
@@ -214,11 +218,13 @@ export async function sumTranscriptUsage(
     return out;
   }
   const rl = readline.createInterface({ input: stream });
+  const seenIds = new Set<string>();
   try {
     for await (const line of rl) {
       if (!line) continue;
       const event = tryParse(line);
       if (!event || event.type !== "assistant") continue;
+      if (isRepeatedMessage(event, seenIds)) continue;
       const usage = event.message?.usage;
       if (!usage || typeof usage !== "object") continue;
       const u = usage as Record<string, unknown>;
@@ -259,6 +265,14 @@ function priceUsage(usage: unknown, p: ModelPricing): number {
   );
 }
 
+function isRepeatedMessage(event: JsonlEvent, seen: Set<string>): boolean {
+  const id = event.message?.id;
+  if (typeof id !== "string" || !id) return false;
+  if (seen.has(id)) return true;
+  seen.add(id);
+  return false;
+}
+
 function num(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
@@ -266,6 +280,7 @@ function num(v: unknown): number {
 type JsonlEvent = {
   type?: string;
   message?: {
+    id?: string;
     role?: string;
     model?: string;
     content?: unknown;

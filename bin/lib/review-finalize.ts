@@ -111,6 +111,8 @@ export type ReviewFinalizeOptions = {
   /** Forwarded verbatim as `--widened <reason>` when the consolidator
    * widened scope this run. */
   widened?: string;
+  /** Forwarded as `--pack` when the review ran from rendered lens briefs. */
+  pack?: boolean;
   exec?: ExecFn;
   readFile?: (p: string) => string | null;
   writeFile?: (p: string, content: string) => void;
@@ -246,21 +248,39 @@ export async function runReviewFinalize(
     ];
     if (lensTokens.length > 0) lens_tokens_forwarded = lensTokens.length;
     const lensModelArgs = lensModels.flatMap((pair) => ["--lens-model", pair]);
-    let collect = exec([...baseArgs, ...lensModelArgs, "--append"]);
-    const rejectedFlag =
-      lensModels.length > 0 &&
-      /unknown flag:\s*--lens-model/.test(`${collect.stdout}${collect.stderr}`);
-    if (rejectedFlag) {
+    let packArgs = opts.pack ? ["--pack"] : [];
+    let collect = exec([
+      ...baseArgs,
+      ...lensModelArgs,
+      ...packArgs,
+      "--append",
+    ]);
+    const rejected = (flag: string) =>
+      new RegExp(`unknown flag:\\s*${flag}`).test(
+        `${collect.stdout}${collect.stderr}`,
+      );
+    let keepModels = lensModels.length > 0;
+    if (packArgs.length > 0 && rejected("--pack")) {
+      skips.push({
+        step: "pack",
+        reason:
+          "installed flow-review-telemetry does not accept --pack yet; " +
+          "retried without it",
+      });
+      packArgs = [];
+      collect = exec([...baseArgs, ...lensModelArgs, ...packArgs, "--append"]);
+    }
+    if (keepModels && rejected("--lens-model")) {
       skips.push({
         step: "lens_models",
         reason:
           "installed flow-review-telemetry does not accept --lens-model yet; " +
           "retried without it",
       });
-      collect = exec([...baseArgs, "--append"]);
-    } else if (lensModels.length > 0) {
-      lens_models_forwarded = lensModels.length;
+      keepModels = false;
+      collect = exec([...baseArgs, ...packArgs, "--append"]);
     }
+    if (keepModels) lens_models_forwarded = lensModels.length;
     if (collect.exitCode !== 0) {
       skips.push({
         step: "telemetry",
