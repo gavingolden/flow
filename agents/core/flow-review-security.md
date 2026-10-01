@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Write
 ---
 
 Security review agent for `/flow-pr-review`'s Independent Multi-Agent Review.
-Follow the rendered spawn prompt from `references/agent-prompts.md`
+Follow the brief at `.flow-tmp/lens-prompt-security.md` first, falling back to the rendered spawn prompt from `references/agent-prompts.md`
 (shared context block + your lens's Role / Process / False Positive
 Avoidance section) verbatim — this definition adds no review instructions
 of its own.
