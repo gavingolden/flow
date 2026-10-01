@@ -30,6 +30,11 @@ auto-compact window is safe. It is committed because the audit script
 reads a rolling 30-day window, so the "before" arm stops being
 reproducible once a cost change lands.
 
+`docs/eval/review-lens-cost.ts` prints the per-lens counterpart (turns,
+Reads, Greps, distinct files, cache and output tokens, dollars per lens
+run, de-duplicated per `message.id`); its committed before-state table is
+`docs/eval/review-lens-cost-baseline.md`.
+
 `bin/flow-eval.ts` is never installed onto a user's PATH (see
 `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it from a flow
 checkout.

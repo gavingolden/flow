@@ -7,6 +7,7 @@ import {
   pvariance,
   round,
 } from "./score";
+import { aggregateArms, median, shipRule, type CellStat } from "./score-arms";
 
 // Coverage scope note: this harness is otherwise untested by design (a
 // one-off eval script) — EXCEPT this pure, I/O-free scoring math, which
@@ -87,5 +88,100 @@ describe("exactPermutationP", () => {
     // almost every split is at least as extreme as the observed one)
     const pALow = exactPermutationP(b, a);
     expect(pBHigh).toBeLessThan(pALow);
+  });
+});
+
+function cell(over: Partial<CellStat>): CellStat {
+  return {
+    lens: "bug-detection",
+    pr: "880",
+    arm: "pointer",
+    run: 1,
+    cost: 1,
+    turns: 10,
+    duration: 100_000,
+    recallAll: 0.5,
+    recallActed: 0.5,
+    candidates: 5,
+    ...over,
+  };
+}
+
+function pair(packed: Partial<CellStat>, pointer: Partial<CellStat>, runs = 2) {
+  const out: CellStat[] = [];
+  for (let run = 1; run <= runs; run++) {
+    out.push(cell({ ...pointer, arm: "pointer", run }));
+    out.push(cell({ ...packed, arm: "packed", run }));
+  }
+  return out;
+}
+
+describe("median", () => {
+  it("handles odd, even and empty inputs", () => {
+    expect(median([3, 1, 2])).toBe(2);
+    expect(median([4, 1, 2, 3])).toBe(2.5);
+    expect(median([])).toBeNull();
+  });
+});
+
+describe("aggregateArms", () => {
+  it("keys per-arm cost/turns/duration/recall by arm name", () => {
+    const { arms } = aggregateArms(pair({ cost: 0.5 }, { cost: 1 }));
+    expect(arms.packed!.cost_usd).toEqual({ median: 0.5, mean: 0.5 });
+    expect(arms.pointer!.cost_usd.median).toBe(1);
+    expect(arms.packed!.num_turns.median).toBe(10);
+    expect(arms.pointer!.duration_ms.median).toBe(100000);
+    expect(arms.packed!.recall_acted).toBe(0.5);
+  });
+});
+
+describe("shipRule", () => {
+  it("passes when packed is cheaper, no slower and no worse on recall/findings", () => {
+    const r = shipRule(pair({ cost: 0.5, duration: 90_000 }, {}));
+    expect(r).toEqual({
+      cost_ok: true,
+      recall_acted_ok: true,
+      findings_ok: true,
+      wallclock_ok: true,
+      pass: true,
+    });
+  });
+
+  it("fails when packed costs more than 0.85x pointer", () => {
+    const r = shipRule(pair({ cost: 0.9 }, { cost: 1 }));
+    expect(r?.cost_ok).toBe(false);
+    expect(r?.pass).toBe(false);
+  });
+
+  it("fails when packed is more than 1.1x slower", () => {
+    const r = shipRule(pair({ cost: 0.5, duration: 120_000 }, {}));
+    expect(r?.wallclock_ok).toBe(false);
+    expect(r?.pass).toBe(false);
+  });
+
+  it("fails when acted recall drops by more than one pooled sd", () => {
+    const cells = [
+      ...pair({ cost: 0.5, recallActed: 0.1 }, { recallActed: 0.5 }),
+    ];
+    expect(shipRule(cells)?.recall_acted_ok).toBe(false);
+  });
+
+  it("is insufficient with one run per cell, but still reports cost and wall-clock", () => {
+    const r = shipRule(pair({ cost: 0.9, duration: 200_000 }, {}, 1));
+    expect(r?.pass).toBe("insufficient");
+    expect(r?.cost_ok).toBe(false);
+    expect(r?.wallclock_ok).toBe(false);
+  });
+
+  it("is insufficient when no reference comment was acted on", () => {
+    const r = shipRule(
+      pair({ cost: 0.5, recallActed: null }, { recallActed: null }),
+    );
+    expect(r?.recall_acted_ok).toBeNull();
+    expect(r?.pass).toBe("insufficient");
+  });
+
+  it("is null without both packed and pointer arms", () => {
+    expect(shipRule([cell({ arm: "opus" })])).toBeNull();
   });
 });
