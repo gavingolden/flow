@@ -1,3 +1,0 @@
-# product checklist
-
-- check product

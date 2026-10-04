@@ -53,7 +53,6 @@ export type ReviewTelemetry = {
     delta_ratio: number | null;
   };
   widened: { value: boolean; reason: string | null };
-  pack: boolean;
   lenses: Record<string, LensTelemetry>;
 };
 
@@ -299,7 +298,6 @@ export function mergeTelemetry(args: {
     delta_ratio: number | null;
   };
   widened: { value: boolean; reason: string | null };
-  pack?: boolean;
   counts: Record<string, CountsEntry>;
   lensTokens: Record<string, number>;
   lensModels?: Record<string, string>;
@@ -366,7 +364,6 @@ export function mergeTelemetry(args: {
       delta_ratio: args.scope.delta_ratio,
     },
     widened: args.widened,
-    pack: args.pack ?? false,
     lenses,
   };
 }

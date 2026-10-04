@@ -10,7 +10,7 @@
  * Usage:
  *   flow-review-telemetry collect --worktree <dir> --pr <n>
  *     [--lens-tokens <lens>=<n> ...] [--session-id <id>] [--out <path>]
- *     [--append] [--jsonl <path>] [--widened <reason>] [--pack]
+ *     [--append] [--jsonl <path>] [--widened <reason>]
  *   flow-review-telemetry print --in <path>
  *
  * Exit codes: 0 graceful (including every degraded-artifact case), 2 bad args.
@@ -89,7 +89,6 @@ export type CollectArgs = {
   append: boolean;
   jsonl?: string;
   widened?: string;
-  pack: boolean;
 };
 
 export type PrintArgs = { sub: "print"; in: string };
@@ -121,15 +120,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
     let append = false;
     let jsonl: string | undefined;
     let widened: string | undefined;
-    let pack = false;
     for (let i = 0; i < rest.length; i++) {
       const flag = rest[i];
       if (flag === "--append") {
         append = true;
-        continue;
-      }
-      if (flag === "--pack") {
-        pack = true;
         continue;
       }
       const value = rest[i + 1];
@@ -195,7 +189,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
       append,
       jsonl,
       widened,
-      pack,
     };
   }
   return { error: "subcommand is required (collect | print)" };
@@ -329,7 +322,6 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
     sessionId,
     scope,
     widened: { value: !!args.widened, reason: args.widened ?? null },
-    pack: args.pack,
     counts,
     lensTokens,
     lensModels,
@@ -365,13 +357,6 @@ export function renderTable(t: ReviewTelemetry): string {
   lines.push(
     `scope: ${t.scope.kind} (${t.scope.delta_files} files${widenedSuffix})`,
   );
-  if (t.version !== 2) {
-    lines.push(
-      `NOTICE — telemetry-version: v${t.version} rows carry per-line token sums (2-3x inflated); never compare them with v2 rows`,
-    );
-  } else if (t.pack) {
-    lines.push("lens brief: packed");
-  }
   lines.push("");
   lines.push(
     "| Lens | Ran | Model | Tokens | Emitted | Survived | Acted | Deferred | Skip reason |",

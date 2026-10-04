@@ -1,7 +1,7 @@
 # Review-lens cost baseline (before-state, de-duplicated)
 
-Per-lens spend of the seven `flow-review-*` lens subagents before the lens
-brief (`review.lensPack`) is turned on. Every cell is a **per-run mean**
+Per-lens spend of the seven `flow-review-*` lens subagents, the before-state
+for any lens-side cost change. Every cell is a **per-run mean**
 over lens transcripts modified on or after **2026-09-11**, all repos under
 `~/.claude/projects/`, with usage counted once per `message.id` (Claude Code
 writes one line per content block of a message; summing lines inflates

@@ -47,7 +47,6 @@ function makeExec(
   calls: string[][],
   opts: {
     lensModelSupported?: boolean;
-    packUnsupported?: boolean;
     telemetryFails?: boolean;
     bodyEditFails?: boolean;
     untrackedGuardFails?: boolean;
@@ -77,18 +76,6 @@ function makeExec(
       return {
         stdout: "",
         stderr: "flow-review-telemetry: unknown flag: --lens-model",
-        exitCode: 2,
-      };
-    }
-    if (
-      cmd === "flow-review-telemetry" &&
-      sub === "collect" &&
-      argv.includes("--pack") &&
-      opts.packUnsupported
-    ) {
-      return {
-        stdout: "",
-        stderr: "flow-review-telemetry: unknown flag: --pack",
         exitCode: 2,
       };
     }
@@ -195,45 +182,6 @@ describe("runReviewFinalize", () => {
     );
     expect(collectCalls).toHaveLength(2);
     expect(collectCalls[1]).not.toContain("--lens-model");
-  });
-
-  it("forwards --pack to collect, and retries without it when the installed helper rejects it", async () => {
-    const ok: string[][] = [];
-    await runReviewFinalize(baseOpts(ok, {}, { pack: true }));
-    const okCollect = ok.find(
-      (c) => c[0] === "flow-review-telemetry" && c[1] === "collect",
-    );
-    expect(okCollect).toContain("--pack");
-
-    const calls: string[][] = [];
-    const result = await runReviewFinalize(
-      baseOpts(calls, { packUnsupported: true }, { pack: true }),
-    );
-    expect(result.telemetry_recorded).toBe(true);
-    expect(result.skips.some((sk) => sk.step === "pack")).toBe(true);
-    const collects = calls.filter(
-      (c) => c[0] === "flow-review-telemetry" && c[1] === "collect",
-    );
-    expect(collects).toHaveLength(2);
-    expect(collects[1]).not.toContain("--pack");
-  });
-
-  it("(c3) peels off both --lens-model and --pack when an old helper rejects each", async () => {
-    const calls: string[][] = [];
-    const result = await runReviewFinalize(
-      baseOpts(
-        calls,
-        { lensModelSupported: false, packUnsupported: true },
-        { pack: true, lensModels: ["security=alias-a"] },
-      ),
-    );
-    expect(result.telemetry_recorded).toBe(true);
-    const collects = calls.filter(
-      (c) => c[0] === "flow-review-telemetry" && c[1] === "collect",
-    );
-    expect(collects).toHaveLength(3);
-    expect(collects[2]).not.toContain("--pack");
-    expect(collects[2]).not.toContain("--lens-model");
   });
 
   it("(c2) does not probe or retry when no --lens-model pairs were passed", async () => {
@@ -783,22 +731,6 @@ describe("parseArgs", () => {
 
   it("rejects an unknown flag", () => {
     expect(parseArgs(["--bogus"])).toEqual({ error: "unknown flag: --bogus" });
-  });
-
-  it("accepts --pack", () => {
-    const parsed = parseArgs([
-      "--pr",
-      "1",
-      "--worktree",
-      "/tmp/x",
-      "--body-file",
-      "/tmp/x/b.md",
-      "--status",
-      "clean",
-      "--pack",
-    ]);
-    expect("error" in parsed).toBe(false);
-    if (!("error" in parsed)) expect(parsed.pack).toBe(true);
   });
 
   it("accepts repeatable --lens-tokens and a single --widened", () => {

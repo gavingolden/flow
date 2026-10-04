@@ -451,8 +451,7 @@ pre-digest, review scope + lens gates, and the intent-comment fetch, all
 in one call, writing each payload under `.flow-tmp/`:
 
 ```bash
-SUMMARY=$(flow-review-prep --pr <number> --worktree "$WORKTREE" --skill-dir "$SKILL_DIR" \
-  || flow-review-prep --pr <number> --worktree "$WORKTREE")  # older helper: no --skill-dir
+SUMMARY=$(flow-review-prep --pr <number> --worktree "$WORKTREE")
 ```
 
 Then perform pre-flight checks against the summary:
@@ -615,7 +614,26 @@ product lens's operative gate is `review-scope.json`'s `gates.product.run`
 stays `true` even when the kill switch fires, so it must not be read as
 the gate.
 
-- Spawn each lens from its rendered brief (`.flow-tmp/lens-prompt-<lens>.md`) per [references/lens-pack.md](references/lens-pack.md) — the pointer-prompt fallback lives there too.
+- Copy the shared context block from `references/agent-prompts.md`
+- Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
+  `{{COMMIT_MESSAGES}}` (full bodies from step 3), `{{CHANGED_FILES_LIST}}`, `{{DIFF}}`,
+  `{{STATIC_ANALYSIS_FACTS}}`, `{{EXISTING_INTENT_COMMENTS}}` (from step 6's
+  `.flow-tmp/intent-comments.md`), `{{REVIEW_SCOPE}}` (per
+  `references/review-scope.md` "Spawn only the ungated lenses"),
+  (Pattern & Consistency Agent only) `{{PROMPT_INTERPRETATION_TENSION}}` from
+  `$PROMPT_INTERPRETATION_TENSION` computed in step 5 above, and
+  (Product Agent only) `{{PRODUCT_BRIEF_PATH}}` from
+  `jq -r '.product_brief.path // empty' "$WORKTREE/.flow-tmp/review-scope.json"`.
+  For the static-analysis variable, substitute a single
+  self-contained JSON object containing both the lens findings and the matching meta
+  slice — agents are instructed to check `meta.<lens>.ran` so the substituted block
+  needs both. Construct each agent's `{{STATIC_ANALYSIS_FACTS}}` block by running
+  `flow-pr-agent-lens --agent <kebab-name>` against
+  `.flow-tmp/static-analysis.json` (the lens routing is owned by the helper; the
+  agent table below lists the lens-per-agent for human reference).
+- Append the agent-specific section (Role, Process, False Positive Avoidance)
+- Include the path to that agent's lens checklist (`references/checklists/<lens>.md`) and to
+  `references/conventional-comments.md` so agents can read them
 - Instruct agents to treat commit bodies as author intent: a finding that contradicts a
   stated rationale should cite the commit and explain why the rationale doesn't hold,
   rather than assuming the author didn't consider the alternative.
@@ -1642,13 +1660,12 @@ internally, never skipped:
 
 ```bash
 WIDEN_ARGS=(); [ -n "$WIDEN_REASON" ] && WIDEN_ARGS=(--widened "$WIDEN_REASON")
-PACK_ARGS=(); [ -n "$PACK_USED" ] && PACK_ARGS=(--pack)
 flow-review-finalize --pr "$PR_NUMBER" --worktree "$WORKTREE" \
   --body-file "$WORKTREE/.flow-tmp/body.md" --status clean \
   --session-id "$CLAUDE_CODE_SESSION_ID" \
   --ran $N --total $M --prose-promoted $X \
   --reason subjective-UX --reason production-only \
-  "${LENS_TOKEN_ARGS[@]}" "${LENS_MODEL_ARGS[@]}" "${WIDEN_ARGS[@]}" "${PACK_ARGS[@]}"
+  "${LENS_TOKEN_ARGS[@]}" "${LENS_MODEL_ARGS[@]}" "${WIDEN_ARGS[@]}"
 RC=$?
 if [ "$RC" -ne 0 ]; then
   echo "NOTICE — flow-review-finalize exited $RC; wrap-up (body/telemetry/result artifact) did not complete" >&2
