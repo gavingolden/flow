@@ -35,6 +35,14 @@ Reads, Greps, distinct files, cache and output tokens, dollars per lens
 run, de-duplicated per `message.id`); its committed before-state table is
 `docs/eval/review-lens-cost-baseline.md`.
 
+The token-spend audit, `docs/eval/token-spend-audit.ts`, measures where the
+whole Claude quota goes: spend by repo, model, sub-agent type and in-process
+skill segment, joined to flow's telemetry for per-pipeline cost, latency and
+outcome. Re-run it with `bun docs/eval/token-spend-audit.ts --since <YYYY-MM-DD>`;
+`--self-test` checks its parsing, pricing and join logic against an in-memory
+fixture. The dated before-state it produced is
+[`token-spend-baseline-2026-09.md`](token-spend-baseline-2026-09.md).
+
 `bin/flow-eval.ts` is never installed onto a user's PATH (see
 `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it from a flow
 checkout.

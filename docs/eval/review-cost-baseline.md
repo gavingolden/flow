@@ -24,22 +24,21 @@ Recorded **2026-09-08** from every Claude Code transcript under
 `~/.claude/projects/` for the `flow`, `pokemon` and `econ-data` repos
 (main + subagent JSONL, per-turn `usage` + `model`).
 
-Reproduce with:
+Re-measure with (not byte-comparable to the table below; see Limitation):
 
 ```sh
-bun ~/.flow/audits/transcript-review-segment.ts
+bun docs/eval/token-spend-audit.ts --since 2026-08-31
 ```
 
-**Limitation:** `~/.flow/audits/transcript-review-segment.ts` is a machine-local
-audit script, not committed to this repo, so the exact reproduce command above
-only runs on the machine it was authored on. `docs/eval/review-context-boundaries.ts`
-is the closest committed sibling — same rolling-window transcript scan, same
-per-turn `usage` read — but it measures **context size at phase boundaries**, not
-the segment-cost/turn-count/agent-count figures in the table below, so it does
-not reproduce this table byte-for-byte. Re-deriving this exact table on a fresh
-machine currently requires re-authoring `transcript-review-segment.ts` from this
-description; committing that script (parameterized per
-`review-context-boundaries.ts`'s `HOME`/repo-regex fix) is the durable follow-up.
+**Limitation:** the 2026-09-08 figures below came from a machine-local audit
+script that was never committed, so this table is not reproduced byte-for-byte
+by the committed script. `docs/eval/token-spend-audit.ts` is that script's
+committed successor: it reads the same rolling-window transcripts and per-turn
+`usage`, but deduplicates by message id and prices the 5-minute and 1-hour
+cache writes separately, so its numbers are not comparable to this table. Use
+it (`bun docs/eval/token-spend-audit.ts --since <YYYY-MM-DD>`) for new
+measurements; `docs/eval/review-context-boundaries.ts` covers context size at
+phase boundaries.
 
 | What was measured                                   | Value                               |
 | --------------------------------------------------- | ----------------------------------- |
@@ -75,8 +74,8 @@ instructions it is about to follow.
 
 Reproduce with the variant script committed beside this file
 (`review-context-boundaries.ts`), which differs from
-`transcript-review-segment.ts` in one way: instead of summing the review
-segment, it records the context size on the **first assistant turn after**
+the earlier machine-local segment-cost script in one way: instead of summing
+the review segment, it records the context size on the **first assistant turn after**
 each `Skill` tool-use, per session.
 
 ```sh
