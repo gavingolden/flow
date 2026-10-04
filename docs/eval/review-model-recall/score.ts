@@ -22,6 +22,7 @@
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { aggregateArms, type CellStat } from "./score-arms";
 
 const LENSES = [
   "bug-detection",
@@ -60,6 +61,8 @@ const UNMEASURABLE = [
 const SHIPPED_PINS = {
   note: "none. Every models.reviewLenses.<lens> key ships absent; see review-model-recall.md 'What was and was not changed'.",
 };
+
+const CELL_FILE = /^(.+)-(\d+)-([a-z0-9]+)-r(\d+)\.json$/;
 
 function usage(): string {
   return [
@@ -143,7 +146,7 @@ function runExtract(dataDir: string): number {
     findings: unknown[];
   }> = [];
   for (const f of files) {
-    const m = f.match(/^(.+)-(\d+)-(sonnet|opus)-r(\d)\.json$/);
+    const m = f.match(CELL_FILE);
     if (!m) continue;
     const [, lens, pr, arm, run] = m;
     const d = JSON.parse(readFileSync(join(runsDir, f), "utf8")) as CellFile;
@@ -171,7 +174,7 @@ function runExtract(dataDir: string): number {
   if (bad.length) console.log(`UNPARSED: ${bad.join(", ")}`);
   const lensSet = [...new Set(rows.map((r) => r.lens))].sort();
   for (const lens of lensSet) {
-    for (const arm of ["sonnet", "opus"]) {
+    for (const arm of [...new Set(rows.map((r) => r.arm))].sort()) {
       const ns = rows
         .filter((r) => r.lens === lens && r.arm === arm && r.parse_ok)
         .map((r) => r.n);
@@ -231,6 +234,10 @@ function combinations(n: number, k: number): number[][] {
   return result;
 }
 
+// One-sided: tests whether the SECOND group's mean exceeds the FIRST's
+// (sonnet -> opus for the committed pair; pointer -> packed for the lens-pack
+// measurement, so a small p means packed recalled MORE than pointer — the
+// ship rule's non-inferiority bound lives in score-arms.ts, not here).
 function exactPermutationP(
   sonnetRecalls: number[],
   opusRecalls: number[],
@@ -251,7 +258,10 @@ function exactPermutationP(
   return count / splits.length;
 }
 
-function runAggregate(dataDir: string, outFile: string | undefined): number {
+function runCommittedAggregate(
+  dataDir: string,
+  outFile: string | undefined,
+): number {
   const refCounts: Record<string, number> = {};
   for (const pr of PRS) {
     const refs = JSON.parse(
@@ -438,6 +448,108 @@ function runAggregate(dataDir: string, outFile: string | undefined): number {
   return 0;
 }
 
+function readJson(path: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function numOrNull(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+// Cost/turns/wall-clock come from the cell's claude JSON (runs/<cell>.json),
+// falling back to the wrapper's .envelope.json when the out file lacks them.
+function cellMetrics(runsDir: string, base: string) {
+  const out = readJson(join(runsDir, `${base}.json`)) ?? {};
+  const env = readJson(join(runsDir, `${base}.envelope.json`)) ?? {};
+  const pick = (k: string) => numOrNull(out[k]) ?? numOrNull(env[k]);
+  return {
+    cost: pick("total_cost_usd"),
+    turns: pick("num_turns"),
+    duration: pick("duration_ms"),
+  };
+}
+
+function judgedArms(dataDir: string): string[] {
+  const dir = join(dataDir, "judge");
+  const arms = new Set<string>();
+  for (const f of existsSync(dir) ? readdirSync(dir) : []) {
+    const m = f.match(CELL_FILE);
+    if (m && !f.endsWith(".envelope.json")) arms.add(m[3]!);
+  }
+  return [...arms];
+}
+
+function runArmsAggregate(
+  dataDir: string,
+  outFile: string | undefined,
+): number {
+  const judgeDir = join(dataDir, "judge");
+  const cells: CellStat[] = [];
+  const bad: string[] = [];
+  for (const f of readdirSync(judgeDir).sort()) {
+    const m = f.match(CELL_FILE);
+    if (!m || f.endsWith(".envelope.json") || f.endsWith(".prompt.json"))
+      continue;
+    const [, lens, pr, arm, run] = m;
+    const base = f.replace(/\.json$/, "");
+    const d = readJson(join(judgeDir, f));
+    const o = d
+      ? (extractJsonObject(
+          String(d.result ?? ""),
+          "matches",
+        ) as unknown as JudgeOutput | null)
+      : null;
+    if (!o) {
+      bad.push(base);
+      continue;
+    }
+    const refs = JSON.parse(
+      readFileSync(join(dataDir, `ref-${pr}.json`), "utf8"),
+    ) as unknown[];
+    const actedPath = join(dataDir, `ref-acted-${pr}.json`);
+    const acted = new Set<number>(
+      existsSync(actedPath)
+        ? (JSON.parse(readFileSync(actedPath, "utf8")) as number[])
+        : [],
+    );
+    const matched = o.matches.filter((x) => x.category);
+    const matchedActed = matched.filter((x) => acted.has(x.ref)).length;
+    cells.push({
+      lens: lens!,
+      pr: pr!,
+      arm: arm!,
+      run: Number(run),
+      ...cellMetrics(join(dataDir, "runs"), base),
+      recallAll: refs.length ? matched.length / refs.length : 0,
+      recallActed: acted.size ? matchedActed / acted.size : null,
+      candidates: o.candidate_total ?? 0,
+    });
+  }
+  if (bad.length) console.error(`UNPARSED JUDGES: ${bad.join(", ")}`);
+  const json = JSON.stringify(
+    {
+      schema: "flow/review-pack-recall@1",
+      measured_at: new Date().toISOString().slice(0, 10),
+      ...aggregateArms(cells),
+    },
+    null,
+    2,
+  );
+  if (outFile) Bun.write(outFile, json);
+  else process.stdout.write(json + "\n");
+  return 0;
+}
+
+function runAggregate(dataDir: string, outFile: string | undefined): number {
+  const arms = judgedArms(dataDir).sort().join(",");
+  if (arms !== "opus,sonnet") return runArmsAggregate(dataDir, outFile);
+  return runCommittedAggregate(dataDir, outFile);
+}
+
 if (import.meta.main) {
   const argv = process.argv.slice(2);
   const sub = argv[0];
@@ -468,6 +580,7 @@ if (import.meta.main) {
 }
 
 export {
+  CELL_FILE,
   extractJsonObject,
   exactPermutationP,
   combinations,

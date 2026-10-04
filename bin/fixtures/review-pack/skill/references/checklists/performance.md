@@ -1,0 +1,3 @@
+# performance checklist
+
+- check performance

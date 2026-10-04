@@ -1,0 +1,12 @@
+{
+  "types": [],
+  "security": [],
+  "dependencies": [],
+  "lint": [],
+  "meta": {
+    "types": { "ran": true, "duration_ms": 1 },
+    "security": { "ran": true, "duration_ms": 1 },
+    "dependencies": { "ran": true, "duration_ms": 1 },
+    "lint": { "ran": true, "duration_ms": 1 }
+  }
+}

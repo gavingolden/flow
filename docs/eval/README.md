@@ -30,6 +30,11 @@ auto-compact window is safe. It is committed because the audit script
 reads a rolling 30-day window, so the "before" arm stops being
 reproducible once a cost change lands.
 
+`docs/eval/review-lens-cost.ts` prints the per-lens counterpart (turns,
+Reads, Greps, distinct files, cache and output tokens, dollars per lens
+run, de-duplicated per `message.id`); its committed before-state table is
+`docs/eval/review-lens-cost-baseline.md`.
+
 The token-spend audit, `docs/eval/token-spend-audit.ts`, measures where the
 whole Claude quota goes: spend by repo, model, sub-agent type and in-process
 skill segment, joined to flow's telemetry for per-pipeline cost, latency and

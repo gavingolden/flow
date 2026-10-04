@@ -21,16 +21,28 @@ import { join } from "node:path";
 
 const LENSES = ["bug-detection", "pattern-consistency", "test-coverage"];
 const PRS = ["812", "756", "802"];
-const ARMS = ["sonnet", "opus"] as const;
-const RUNS = [1, 2];
+const ARMS = ["sonnet", "opus"];
+const DEFAULT_RUNS = 2;
+const DEFAULT_MODEL = "opus";
+const MODEL_ARMS = new Set(["sonnet", "opus"]);
 
 const DEFAULT_CONCURRENCY = 6;
 
 function usage(): string {
   return [
     "Usage:",
-    "  run.ts matrix [--data-dir <dir>] [--concurrency <n>]",
-    "  run.ts judge  [--data-dir <dir>] [--concurrency <n>]",
+    "  run.ts matrix [options]",
+    "  run.ts judge  [options]",
+    "",
+    "Options:",
+    "  --data-dir <dir>     inputs/outputs (default: ./data)",
+    "  --concurrency <n>    parallel cells (default: 6)",
+    "  --arms <csv>         arms to run (default: sonnet,opus). sonnet/opus run",
+    "                       that model; any other arm (packed, pointer) runs --model",
+    "  --lenses <csv>       lenses (default: bug-detection,pattern-consistency,test-coverage)",
+    "  --prs <csv>          PR numbers (default: 812,756,802)",
+    "  --runs <n>           runs per cell (default: 2)",
+    "  --model <alias>      model for every non-model arm (default: opus)",
   ].join("\n");
 }
 
@@ -83,13 +95,14 @@ async function pool<T>(
 }
 
 type Cell = { lens: string; pr: string; arm: string; run: number };
+type Opts = { lenses: string[]; prs: string[]; arms: string[]; runs: number };
 
-function allCells(): Cell[] {
+function allCells(opts: Opts): Cell[] {
   const cells: Cell[] = [];
-  for (const lens of LENSES) {
-    for (const pr of PRS) {
-      for (const arm of ARMS) {
-        for (const run of RUNS) {
+  for (const lens of opts.lenses) {
+    for (const pr of opts.prs) {
+      for (const arm of opts.arms) {
+        for (let run = 1; run <= opts.runs; run++) {
           cells.push({ lens, pr, arm, run });
         }
       }
@@ -98,7 +111,11 @@ function allCells(): Cell[] {
   return cells;
 }
 
-async function runMatrixCell(dataDir: string, cell: Cell): Promise<void> {
+async function runMatrixCell(
+  dataDir: string,
+  model: string,
+  cell: Cell,
+): Promise<void> {
   const { lens: L, pr: P, arm: ARM, run: R } = cell;
   const out = join(dataDir, "runs", `${L}-${P}-${ARM}-r${R}.json`);
   const envelope = join(
@@ -111,15 +128,18 @@ async function runMatrixCell(dataDir: string, cell: Cell): Promise<void> {
     return;
   }
   mkdirSync(join(dataDir, "runs"), { recursive: true });
-  const promptFile = join(dataDir, `prompt-${L}-${P}.txt`);
-  const budget = ARM === "opus" ? 14 : 6;
+  const promptFile = MODEL_ARMS.has(ARM)
+    ? join(dataDir, `prompt-${L}-${P}.txt`)
+    : join(dataDir, `prompt-${L}-${P}-${ARM}.txt`);
+  const cellModel = MODEL_ARMS.has(ARM) ? ARM : model;
+  const budget = cellModel === "opus" ? 14 : 6;
   const rc = await spawnCapture(
     [
       "flow-claude-headless",
       "--prompt-file",
       promptFile,
       "--model",
-      ARM,
+      cellModel,
       "--effort",
       "medium",
       "--allowed-tools",
@@ -206,14 +226,36 @@ async function runJudgeCell(
   console.log(`judged ${L} ${P} ${ARM} r${R} rc=${rc}`);
 }
 
-function parseArgs(argv: string[]): { dataDir: string; concurrency: number } {
-  const dataDirIdx = argv.indexOf("--data-dir");
-  const dataDir =
-    dataDirIdx !== -1 ? argv[dataDirIdx + 1]! : join(import.meta.dir, "data");
-  const concIdx = argv.indexOf("--concurrency");
-  const concurrency =
-    concIdx !== -1 ? Number(argv[concIdx + 1]) : DEFAULT_CONCURRENCY;
-  return { dataDir, concurrency };
+function flagValue(argv: string[], flag: string): string | undefined {
+  const i = argv.indexOf(flag);
+  return i !== -1 ? argv[i + 1] : undefined;
+}
+
+function csv(argv: string[], flag: string, fallback: string[]): string[] {
+  const v = flagValue(argv, flag);
+  return v ? v.split(",").filter(Boolean) : fallback;
+}
+
+function parseArgs(argv: string[]): {
+  dataDir: string;
+  concurrency: number;
+  lenses: string[];
+  prs: string[];
+  arms: string[];
+  runs: number;
+  model: string;
+} {
+  return {
+    dataDir: flagValue(argv, "--data-dir") ?? join(import.meta.dir, "data"),
+    concurrency: Number(
+      flagValue(argv, "--concurrency") ?? DEFAULT_CONCURRENCY,
+    ),
+    lenses: csv(argv, "--lenses", LENSES),
+    prs: csv(argv, "--prs", PRS),
+    arms: csv(argv, "--arms", ARMS),
+    runs: Number(flagValue(argv, "--runs") ?? DEFAULT_RUNS),
+    model: flagValue(argv, "--model") ?? DEFAULT_MODEL,
+  };
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -222,11 +264,14 @@ async function main(argv: string[]): Promise<number> {
     console.log(usage());
     return sub ? 0 : 2;
   }
-  const { dataDir, concurrency } = parseArgs(argv.slice(1));
+  const args = parseArgs(argv.slice(1));
+  const { dataDir, concurrency } = args;
 
   if (sub === "matrix") {
-    const cells = allCells();
-    await pool(cells, concurrency, (c) => runMatrixCell(dataDir, c));
+    const cells = allCells(args);
+    await pool(cells, concurrency, (c) =>
+      runMatrixCell(dataDir, args.model, c),
+    );
     const runsDir = join(dataDir, "runs");
     const n = existsSync(runsDir)
       ? readdirSync(runsDir).filter(
@@ -238,7 +283,7 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (sub === "judge") {
-    const cells = allCells();
+    const cells = allCells(args);
     await pool(cells, concurrency, (c) =>
       runJudgeCell(dataDir, import.meta.dir, c),
     );
