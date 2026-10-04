@@ -128,11 +128,7 @@ describe("buildSettingsRows", () => {
 
   it("strict-true opt-in research/review keys default to false", () => {
     const rows = buildSettingsRows(reader(undefined));
-    for (const key of [
-      "research.discovery",
-      "review.gemini",
-      "review.lensPack",
-    ]) {
+    for (const key of ["research.discovery", "review.gemini"]) {
       const row = rows.find((r) => r.setting === key);
       expect(row?.value, key).toBe("false");
     }
@@ -234,11 +230,6 @@ describe("buildSettingsRows", () => {
         { review: { gemini: false } },
         "review.gemini",
         "config (review.gemini)",
-      ],
-      [
-        { review: { lensPack: false } },
-        "review.lensPack",
-        "config (review.lensPack)",
       ],
     ];
     for (const [raw, key, expected] of PRESENCE_CASES) {

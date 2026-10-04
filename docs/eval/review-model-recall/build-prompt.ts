@@ -17,45 +17,28 @@
  * measurement-limits framing. Do not silently change their wording.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  LENS_HEADINGS,
-  extractLensBlock,
-  extractSharedBlock,
-  gatherPackVars,
-  loadPackTemplates,
-  makeFill,
-  renderLensBrief,
-  type PackInputs,
-} from "../../../bin/lib/review-pack";
-import type { AgentName } from "../../../bin/flow-pr-agent-lens";
 import { materialize } from "./materialize";
-
-const SKILL_DIR = join(
-  import.meta.dir,
-  "../../../skills/pipeline/flow-pr-review",
-);
 
 const AGENT_PROMPTS_PATH = join(
   import.meta.dir,
   "../../../skills/pipeline/flow-pr-review/references/agent-prompts.md",
 );
 
+const LENS_HEADINGS: Record<string, string> = {
+  "bug-detection": "## Bug Detection Agent",
+  "pattern-consistency": "## Pattern & Consistency Agent",
+  "test-coverage": "## Test Coverage Agent",
+};
+
 function usage(): string {
   return [
-    "Usage:",
-    "  build-prompt.ts <lens> <pr> [--data-dir <dir>] [--mode packed|pointer] [--max-bytes <n>]",
-    "  build-prompt.ts materialize <pr> --data-dir <dir>",
+    "Usage: build-prompt.ts <lens> <pr> [--data-dir <dir>]",
+    "       build-prompt.ts materialize <pr> --data-dir <dir>",
     "",
-    "  --mode packed   writes the lens brief under <dir>/pr-<pr>/.flow-tmp/ and emits the",
-    "                  production spawn prompt (Read exactly that brief first)",
-    "  --mode pointer  emits the production fallback prompt: shared block + lens section",
-    "                  with variables filled, checklist paths as absolute Read targets",
-    "  --max-bytes     packed-brief byte cap (default: production BRIEF_MAX_BYTES); a harness",
-    "                  raises it because a merged PR's final body carries post-review evidence",
-    "  materialize     writes the per-PR .flow-tmp-shaped inputs both modes read, plus",
-    "                  ref-<pr>.json and ref-acted-<pr>.json (see materialize.ts)",
+    "  materialize  writes <dir>/pr-<pr>/.flow-tmp/* (a review's inputs for any PR) plus",
+    "               ref-<pr>.json / ref-acted-<pr>.json reference sets (see materialize.ts)",
     "",
     `  <lens>  one of: ${Object.keys(LENS_HEADINGS).join(", ")}`,
     "  <pr>    PR number; reads <data-dir>/meta-<pr>.json and <data-dir>/diff-<pr>.patch",
@@ -65,89 +48,60 @@ function usage(): string {
   ].join("\n");
 }
 
-function packInputs(
-  lens: string,
-  pr: string,
-  dataDir: string,
-  maxBytes?: number,
-): PackInputs {
-  return {
-    lens: lens as AgentName,
-    skillDir: SKILL_DIR,
-    worktree: join(dataDir, `pr-${pr}`),
-    base: "main",
-    promptInterpretationTension: false,
-    maxBytes,
-    read: (p) => {
-      try {
-        return readFileSync(p, "utf8");
-      } catch {
-        return null;
-      }
-    },
-    exec: () => ({ stdout: "", stderr: "", exitCode: 1 }),
-  };
+function extractSharedBlock(md: string): string {
+  const lines = md.split("\n");
+  const headingIdx = lines.findIndex(
+    (l) => l.trim() === "## Shared Context Block",
+  );
+  if (headingIdx === -1) {
+    throw new Error(
+      "agent-prompts.md: '## Shared Context Block' heading not found",
+    );
+  }
+  const fenceStart = lines.findIndex(
+    (l, i) => i > headingIdx && l.trim() === "```",
+  );
+  if (fenceStart === -1) {
+    throw new Error(
+      "agent-prompts.md: opening fence for shared context block not found",
+    );
+  }
+  const fenceEnd = lines.findIndex(
+    (l, i) => i > fenceStart && l.trim() === "```",
+  );
+  if (fenceEnd === -1) {
+    throw new Error(
+      "agent-prompts.md: closing fence for shared context block not found",
+    );
+  }
+  return lines.slice(fenceStart + 1, fenceEnd).join("\n");
 }
 
-function modePrompt(
-  mode: string,
-  lens: string,
-  pr: string,
-  dataDir: string,
-  maxBytes?: number,
-): string {
-  const i = packInputs(lens, pr, dataDir, maxBytes);
-  if (mode === "packed") {
-    const r = renderLensBrief(i);
-    if ("error" in r) throw new Error(r.error);
-    const brief = join(i.worktree, ".flow-tmp", `lens-prompt-${lens}.md`);
-    writeFileSync(brief, r.text);
-    return `Read exactly ${brief} first — it is your complete brief; Read/Grep further only for a finding that needs it. Return your findings JSON object as your final message.\n`;
+function extractLensBlock(md: string, lens: string): string {
+  const heading = LENS_HEADINGS[lens];
+  if (!heading) {
+    throw new Error(
+      `unknown lens '${lens}' — expected one of: ${Object.keys(LENS_HEADINGS).join(", ")}`,
+    );
   }
-  const { shared, lensBlock } = loadPackTemplates(i);
-  const fill = makeFill(gatherPackVars(i, false));
-  const refs = join(SKILL_DIR, "references");
-  return [
-    fill(shared),
-    "",
-    fill(lensBlock),
-    "",
-    "## Input file paths",
-    `- Lens checklist: ${join(refs, "checklists", `${lens}.md`)}`,
-    `- Conventional comments: ${join(refs, "conventional-comments.md")}`,
-    "- Return your findings JSON object as your final message.",
-    "",
-  ].join("\n");
-}
-
-const VALUE_FLAGS = new Set(["--data-dir", "--mode", "--max-bytes"]);
-
-function parseCli(argv: string[]): {
-  positional: string[];
-  dataDir: string | undefined;
-  mode: string | undefined;
-  maxBytes: number | undefined;
-  missing: string | null;
-} {
-  const positional: string[] = [];
-  const flags: Record<string, string> = {};
-  let missing: string | null = null;
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
-    if (VALUE_FLAGS.has(a)) {
-      const v = argv[i + 1];
-      if (v === undefined) missing = a;
-      else flags[a] = v;
-      i++;
-    } else if (!a.startsWith("--")) positional.push(a);
+  const lines = md.split("\n");
+  const headingIdx = lines.findIndex((l) => l.trim() === heading);
+  if (headingIdx === -1) {
+    throw new Error(`agent-prompts.md: '${heading}' heading not found`);
   }
-  return {
-    positional,
-    dataDir: flags["--data-dir"],
-    mode: flags["--mode"],
-    maxBytes: flags["--max-bytes"] ? Number(flags["--max-bytes"]) : undefined,
-    missing,
-  };
+  let nextHeadingIdx = lines.findIndex(
+    (l, i) => i > headingIdx && /^## /.test(l),
+  );
+  if (nextHeadingIdx === -1) nextHeadingIdx = lines.length;
+  const body = lines.slice(headingIdx, nextHeadingIdx);
+  while (
+    body.length > 0 &&
+    (body[body.length - 1]!.trim() === "" ||
+      body[body.length - 1]!.trim() === "---")
+  ) {
+    body.pop();
+  }
+  return body.join("\n");
 }
 
 function main(argv: string[]): number {
@@ -155,33 +109,29 @@ function main(argv: string[]): number {
     console.log(usage());
     return 0;
   }
-  const cli = parseCli(argv);
-  if (cli.missing) {
-    console.error(`${cli.missing} requires a value`);
-    return 2;
-  }
-  const [lens, pr] = cli.positional;
+  const positional = argv.filter((a) => !a.startsWith("--"));
+  const [lens, pr] = positional;
   if (!lens || !pr) {
     console.error(usage());
     return 2;
   }
-  const dataDir = cli.dataDir ?? join(import.meta.dir, "data");
+  const dataDirFlagIdx = argv.indexOf("--data-dir");
+  const dataDir =
+    dataDirFlagIdx !== -1
+      ? argv[dataDirFlagIdx + 1]
+      : join(import.meta.dir, "data");
+  if (!dataDir) {
+    console.error("--data-dir requires a value");
+    return 2;
+  }
   if (lens === "materialize") {
     materialize(pr, dataDir);
-    return 0;
-  }
-  if (cli.mode) {
-    if (cli.mode !== "packed" && cli.mode !== "pointer") {
-      console.error(`unknown --mode: ${cli.mode}`);
-      return 2;
-    }
-    process.stdout.write(modePrompt(cli.mode, lens, pr, dataDir, cli.maxBytes));
     return 0;
   }
 
   const agentPrompts = readFileSync(AGENT_PROMPTS_PATH, "utf8");
   const shared = extractSharedBlock(agentPrompts);
-  const lensBlock = extractLensBlock(agentPrompts, lens as AgentName);
+  const lensBlock = extractLensBlock(agentPrompts, lens);
 
   const meta = JSON.parse(
     readFileSync(join(dataDir, `meta-${pr}.json`), "utf8"),

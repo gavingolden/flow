@@ -17,10 +17,7 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
-import type { ReadConfigFile } from "./models-config";
-import { runLensPackStep } from "./review-pack";
 
 export type ExecResult = { stdout: string; stderr: string; exitCode: number };
 export type ExecFn = (argv: string[], opts?: { cwd?: string }) => ExecResult;
@@ -43,7 +40,6 @@ export type ReviewPrep = {
   gated_lenses: string[];
   delta_files: string[];
   prompt_interpretation_tension: boolean;
-  lens_prompts: Record<string, string>;
   completeness: "full" | "partial";
   critical_skips: string[];
   paths: {
@@ -67,9 +63,6 @@ export type ReviewPrepOptions = {
   readFile?: (p: string) => string | null;
   writeFile?: (p: string, content: string) => void;
   deleteFile?: (p: string) => void;
-  skillDir?: string;
-  configPath?: string;
-  readConfig?: ReadConfigFile;
 };
 
 const COMMITS_JQ =
@@ -241,7 +234,6 @@ export async function runReviewPrep(
       prStr,
       "--worktree",
       opts.worktree,
-      ...(opts.configPath ? ["--config", opts.configPath] : []),
       "--json",
     ]);
     if (r.exitCode !== 0)
@@ -284,30 +276,6 @@ export async function runReviewPrep(
     );
   });
 
-  let lens_prompts: Record<string, string> = {};
-  runStep(skips, "lens_pack", false, () => {
-    const readConfig: ReadConfigFile =
-      opts.readConfig ??
-      (() => {
-        const raw = readFile(
-          opts.configPath ?? path.join(os.homedir(), ".flow", "config.json"),
-        );
-        return raw === null ? undefined : JSON.parse(raw);
-      });
-    const step = runLensPackStep({
-      pr: opts.pr,
-      worktree: opts.worktree,
-      skillDir: opts.skillDir,
-      readConfig,
-      promptInterpretationTension: prompt_interpretation_tension,
-      read: readFile,
-      exec,
-      write: writeFile,
-    });
-    lens_prompts = step.lens_prompts;
-    if (step.notice) notices.push(step.notice);
-  });
-
   const result: ReviewPrep = {
     pr: opts.pr,
     state,
@@ -320,7 +288,6 @@ export async function runReviewPrep(
     gated_lenses,
     delta_files,
     prompt_interpretation_tension,
-    lens_prompts,
     completeness: skips.length > 0 ? "partial" : "full",
     critical_skips: skips.filter((s) => s.critical).map((s) => s.step),
     paths,

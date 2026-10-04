@@ -13,9 +13,6 @@ in what each agent looks for and what it ignores.
 
 ---
 
-`bin/lib/review-pack.ts` renders this file into per-lens briefs
-(`.flow-tmp/lens-prompt-<lens>.md`); keep the headings below stable.
-
 ## Shared Context Block
 
 Provide this to every agent before their specialized prompt:

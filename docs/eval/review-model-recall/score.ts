@@ -235,9 +235,7 @@ function combinations(n: number, k: number): number[][] {
 }
 
 // One-sided: tests whether the SECOND group's mean exceeds the FIRST's
-// (sonnet -> opus for the committed pair; pointer -> packed for the lens-pack
-// measurement, so a small p means packed recalled MORE than pointer — the
-// ship rule's non-inferiority bound lives in score-arms.ts, not here).
+// (sonnet -> opus for the committed pair).
 function exactPermutationP(
   sonnetRecalls: number[],
   opusRecalls: number[],
@@ -532,7 +530,7 @@ function runArmsAggregate(
   if (bad.length) console.error(`UNPARSED JUDGES: ${bad.join(", ")}`);
   const json = JSON.stringify(
     {
-      schema: "flow/review-pack-recall@1",
+      schema: "flow/review-arms-recall@1",
       measured_at: new Date().toISOString().slice(0, 10),
       ...aggregateArms(cells),
     },

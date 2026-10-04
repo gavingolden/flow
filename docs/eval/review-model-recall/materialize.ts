@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * `build-prompt.ts materialize <pr> --data-dir <D>` — writes the per-PR
- * inputs the packed/pointer arms read, shaped like a review's `.flow-tmp/`:
+ * inputs a non-model arm reads, shaped like a review's `.flow-tmp/`:
  *
  *   <D>/pr-<pr>/.flow-tmp/{pr-review-fetch.md, pr-commits.md, diff.txt,
  *     intent-comments.md, static-analysis.json, review-scope.json}

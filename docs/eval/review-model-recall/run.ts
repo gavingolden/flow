@@ -38,7 +38,7 @@ function usage(): string {
     "  --data-dir <dir>     inputs/outputs (default: ./data)",
     "  --concurrency <n>    parallel cells (default: 6)",
     "  --arms <csv>         arms to run (default: sonnet,opus). sonnet/opus run",
-    "                       that model; any other arm (packed, pointer) runs --model",
+    "                       that model; any other arm name runs --model",
     "  --lenses <csv>       lenses (default: bug-detection,pattern-consistency,test-coverage)",
     "  --prs <csv>          PR numbers (default: 812,756,802)",
     "  --runs <n>           runs per cell (default: 2)",

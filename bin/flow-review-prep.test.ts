@@ -67,8 +67,6 @@ function makeExec(
       }
       return { stdout: "# PR #1: title\n", ...OK };
     }
-    if (cmd === "git")
-      return { stdout: "", stderr: "no such path", exitCode: 128 };
     if (cmd === "gh" && argv.includes("commits")) {
       if (opts.failCommits) {
         return { stdout: "", stderr: "gh: commits fetch failed", exitCode: 1 };
@@ -137,10 +135,7 @@ describe("runReviewPrep", () => {
     expect(prep.completeness).toBe("full");
     expect(prep.critical_skips).toEqual([]);
     expect(prep.skips).toEqual([]);
-    expect(prep.notices).toEqual([
-      "NOTICE — lens-pack: no --skill-dir passed; using pointer prompts",
-    ]);
-    expect(prep.lens_prompts).toEqual({});
+    expect(prep.notices).toEqual([]);
     expect(prep.tier).toBeUndefined();
     expect(prep.tier_reasons).toBeUndefined();
 
@@ -148,75 +143,6 @@ describe("runReviewPrep", () => {
       if (p === prep.paths.diff) continue; // diff.txt is flow-review-scope's own output, not written by this fake
       expect(fs.existsSync(p)).toBe(true);
     }
-  });
-
-  describe("lens_pack step", () => {
-    const skillDir = path.join(__dirname, "fixtures", "review-pack", "skill");
-    const lensPackNotices = (p: ReviewPrep) =>
-      p.notices.filter((n) => n.startsWith("NOTICE — lens-pack"));
-
-    it("renders a brief per run:true lens when review.lensPack is on and skillDir is given", async () => {
-      fs.mkdirSync(path.join(worktree, ".flow-tmp"), { recursive: true });
-      fs.writeFileSync(path.join(worktree, ".flow-tmp", "diff.txt"), "+x\n");
-      const prep = await runReviewPrep({
-        pr: 1,
-        worktree,
-        exec: makeExec(),
-        skillDir,
-        readConfig: () => ({ review: { lensPack: true } }),
-      });
-      expect(Object.keys(prep.lens_prompts)).toEqual(["bug-detection"]);
-      expect(fs.existsSync(prep.lens_prompts["bug-detection"]!)).toBe(true);
-      expect(lensPackNotices(prep)).toEqual([]);
-      for (const p of Object.values(prep.paths))
-        expect(typeof p).toBe("string");
-    });
-
-    it("defaults off: empty lens_prompts and exactly one lens-pack notice", async () => {
-      const prep = await runReviewPrep({
-        pr: 1,
-        worktree,
-        exec: makeExec(),
-        skillDir,
-        readConfig: () => ({}),
-      });
-      expect(prep.lens_prompts).toEqual({});
-      expect(lensPackNotices(prep)).toEqual([
-        "NOTICE — lens-pack: review.lensPack is off; using pointer prompts",
-      ]);
-    });
-
-    it("a render error degrades to a notice with the pointer prompt, never a skip", async () => {
-      const prep = await runReviewPrep({
-        pr: 1,
-        worktree,
-        exec: makeExec(),
-        skillDir,
-        readConfig: () => ({ review: { lensPack: true } }),
-      });
-      expect(prep.lens_prompts).toEqual({});
-      expect(lensPackNotices(prep)).toHaveLength(1);
-      expect(lensPackNotices(prep)[0]).toContain("diff.txt missing");
-      expect(prep.skips).toEqual([]);
-    });
-
-    it("forwards --config to the review-scope exec", async () => {
-      const calls: string[][] = [];
-      const exec = makeExec();
-      await runReviewPrep({
-        pr: 1,
-        worktree,
-        exec: (argv) => {
-          calls.push(argv);
-          return exec(argv);
-        },
-        configPath: "/tmp/cfg.json",
-        readConfig: () => ({}),
-      });
-      const scope = calls.find((c) => c[0] === "flow-review-scope")!;
-      expect(scope).toContain("--config");
-      expect(scope).toContain("/tmp/cfg.json");
-    });
   });
 
   it("defaults prompt_interpretation_tension to false when gatekeeper-result.json is absent", async () => {
@@ -394,26 +320,6 @@ describe("parseArgs", () => {
     });
   });
 
-  it("accepts --skill-dir and --config", () => {
-    expect(
-      parseArgs([
-        "--pr",
-        "7",
-        "--worktree",
-        "/tmp/wt",
-        "--skill-dir",
-        "/s",
-        "--config",
-        "/c.json",
-      ]),
-    ).toEqual({
-      pr: 7,
-      worktree: "/tmp/wt",
-      skillDir: "/s",
-      config: "/c.json",
-    });
-  });
-
   it("rejects an unknown flag", () => {
     expect(parseArgs(["--bogus"])).toEqual({ error: "unknown flag: --bogus" });
   });
@@ -432,7 +338,6 @@ describe("run()", () => {
     gated_lenses: [],
     delta_files: [],
     prompt_interpretation_tension: false,
-    lens_prompts: {},
     completeness: "full",
     critical_skips: [],
     paths: {
