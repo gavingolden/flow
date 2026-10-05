@@ -16,7 +16,13 @@
  * needed both after an account spend limit killed 10 cells mid-matrix.
  */
 
-import { existsSync, readFileSync, readdirSync, mkdirSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  mkdirSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 
 const LENSES = ["bug-detection", "pattern-consistency", "test-coverage"];
@@ -184,7 +190,12 @@ async function runJudgeCell(
 ): Promise<void> {
   const { lens: L, pr: P, arm: ARM, run: R } = cell;
   const out = join(dataDir, "judge", `${L}-${P}-${ARM}-r${R}.json`);
-  if (completed(out)) {
+  const review = join(dataDir, "runs", `${L}-${P}-${ARM}-r${R}.json`);
+  if (!completed(review)) {
+    console.log(`wait ${L} ${P} ${ARM} r${R} (review not complete)`);
+    return;
+  }
+  if (completed(out) && statSync(out).mtimeMs >= statSync(review).mtimeMs) {
     console.log(`skip ${L} ${P} ${ARM} r${R}`);
     return;
   }

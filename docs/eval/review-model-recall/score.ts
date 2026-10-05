@@ -311,6 +311,7 @@ function twoArmSeparation(cells: CellStat[]) {
     }
     const b = recalls[baseline]!;
     const c = recalls[candidate]!;
+    if (!b.length || !c.length) continue;
     const pooled = Math.sqrt((pstdev(b) ** 2 + pstdev(c) ** 2) / 2);
     separation[lens] = {
       baseline,
@@ -318,7 +319,7 @@ function twoArmSeparation(cells: CellStat[]) {
       delta_mean_recall: round(mean(c) - mean(b), 4),
       pooled_within_arm_sd: round(pooled, 4),
       exact_permutation_p_one_sided:
-        b.length + c.length <= 24 ? round(exactPermutationP(b, c), 4) : null,
+        b.length + c.length <= 20 ? round(exactPermutationP(b, c), 4) : null,
     };
   }
   return { perPr, separation };

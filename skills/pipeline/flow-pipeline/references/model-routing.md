@@ -83,7 +83,8 @@ so the sub-agent inherits the session model (the default Claude behaviour).
   rather than passed through, and a Fable session gets opus too. Any explicit
   `config.models.reviewLenses.product`, `--model-review`, or `config.models.review`
   still wins. It is also the one routed site whose `agents/*.md` definition
-  pins `effort` (see "One spawn site pins effort" above).
+  pins `effort` (see "One spawn site pins effort" below). The Opus move was
+  not quality-benchmarked; see `docs/configuration.md` for the trade-off.
 - **uiDriver falls back to a literal sonnet AND is the only routed site with
   no CLI flag at all.** `config.models.uiDriver` is the sole knob — no
   `--model-ui-driver` flag, no `state.json` field. A manifest-driven browser
@@ -130,10 +131,11 @@ runs on the supervisor's own turn, never in a spawned subagent, so there
 is no Task call for a `model:` argument to attach to.
 
 A `SKILL.md` may still carry `effort:` in its frontmatter to bound that
-turn's reasoning depth — a lever no `agents/*.md` Task-spawn definition may
-use (see "One spawn site pins effort" above), because an in-process skill
-runs on the supervisor's own turn rather than through the Task tool, so
-there is no per-spawn argument for the pin to conflict with. It should
+turn's reasoning depth — a lever that, among Task-spawn definitions, only the
+product lens's `agents/*.md` may use (see "One spawn site pins effort"
+above), because an in-process skill runs on the supervisor's own turn rather
+than through the Task tool, so there is no per-spawn argument for the pin to
+conflict with. It should
 **NOT** carry `model:`. Prompt caches are model-scoped, so a mid-turn
 model switch discards the supervisor's warm cache and forces a full
 re-read of the transcript at full input rate — the opposite of the

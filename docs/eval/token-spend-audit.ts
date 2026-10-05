@@ -403,7 +403,8 @@ export function spawnCostRows(spawns: SpawnRec[]) {
   const by = new Map<string, SpawnRec[]>();
   for (const s of spawns) {
     const k = `${s.type} @ ${modelLabel(s.model)}`;
-    by.set(k, [...(by.get(k) || []), s]);
+    if (!by.has(k)) by.set(k, []);
+    by.get(k)!.push(s);
   }
   return [...by.entries()]
     .map(([key, xs]) => {

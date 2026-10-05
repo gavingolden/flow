@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { run, type FlowReviewModelDeps } from "./flow-review-model";
 import type { ReadConfigFile } from "./lib/models-config";
+import { evaluateGates } from "./lib/review-lens-gates";
 import type { PipelineState } from "./lib/state";
 
 const reader =
@@ -160,6 +161,12 @@ describe("flow-review-model", () => {
       model: "opus",
       source: "pinned (opus)",
     });
+  });
+
+  it("every review-scope gate key is a lens flow-review-model resolves", () => {
+    const keys = Object.keys(evaluateGates([], { enabled: true }));
+    expect(keys).toContain("product");
+    for (const k of keys) expect(runWith([k]).code, k).toBe(0);
   });
 
   it("absent config and absent state print nothing and exit 0", () => {

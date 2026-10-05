@@ -8,8 +8,16 @@ import {
   type ConfigModels,
   type SpawnSite,
 } from "./model-routing-table";
-import { resolveFlowSource } from "./paths";
+import { fileURLToPath } from "node:url";
 import type { PipelineState } from "./state";
+
+// Module-relative, not resolveFlowSource(): that prefers ~/.flow/config.json's
+// `source`, which can point at a different checkout than the one under test.
+const FLOW_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+);
 
 // Minimal state fixture — resolveRouting only reads model/model<Phase>/effort.
 const st = (partial: Partial<PipelineState>): PipelineState =>
@@ -115,7 +123,7 @@ describe("pinned-effort invariant", () => {
         "every other row's effort must follow the session's state.effort.",
     ).toEqual([PINNED_PHASE]);
     const agent = fs.readFileSync(
-      path.join(resolveFlowSource(), "agents/core/flow-review-product.md"),
+      path.join(FLOW_ROOT, "agents/core/flow-review-product.md"),
       "utf8",
     );
     const frontmatter = agent.split(/^---$/m)[1] ?? "";
@@ -438,7 +446,7 @@ function matchSite(r: ParsedRow): SpawnSite | undefined {
 describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
   const md = fs.readFileSync(
     path.join(
-      resolveFlowSource(),
+      FLOW_ROOT,
       "skills/pipeline/flow-pipeline/references/model-routing.md",
     ),
     "utf8",

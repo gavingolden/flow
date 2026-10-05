@@ -31,13 +31,13 @@ import { dim } from "./color";
 
 /**
  * The two dim footer lines that explain the models table's `= session`
- * vocabulary and why EFFORT can't be pinned per row. Exported so
- * `config-all.ts`'s aggregate view prints the identical text under its own
- * models section rather than letting the two views drift.
+ * vocabulary and why EFFORT follows the session on every row but the product
+ * reviewer. Exported so `config-all.ts`'s aggregate view prints the identical
+ * text under its own models section rather than letting the two views drift.
  */
 export const MODEL_FOOTERS: readonly string[] = [
   "effort is fixed when the pipeline launches; MODEL resolves at each spawn",
-  "the Task tool has no per-spawn effort argument, so every sub-agent follows the session — except the product review lens, pinned to medium in its agent definition",
+  "the Task tool has no per-spawn effort argument, so every sub-agent follows the session — except the product reviewer, which always runs at medium effort (--effort does not change it)",
 ];
 
 export type ConfigModelsOptions = {

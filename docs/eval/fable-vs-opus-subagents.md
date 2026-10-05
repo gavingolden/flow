@@ -111,3 +111,12 @@ Planning was not benchmarked: it keeps inheriting the session model by the
 user's deliberate choice. The product review lens moves to Opus at medium
 effort in the same change; on the figures above that is about $0.55 a review
 against Fable's $1.10.
+
+Caveats on that move. The $0.55 was measured on past Opus 5.5 product reviews
+that ran at each session's own effort, before the medium pin, so it is a
+pre-pin estimate. The move off Fable was not quality-benchmarked: the recall
+check above covers bug-detection only, and it found Opus missing findings
+Fable catches, so the product reviewer may now miss findings too. On a Sonnet
+session the pin raises the product review to Opus 5.5, which lists at twice
+Sonnet's price ($4/$20 against $2/$10 per MTok in/out), roughly $0.27 more per
+review at equal tokens (a list-price estimate, not a measurement).
