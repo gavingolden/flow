@@ -252,9 +252,11 @@ Each closed below with its measured number.
   gives the identical tokens-per-acted-finding ordering of all seven lenses;
   magnitudes were about 1.7x overstated. A separate first-line output
   undercount (the summers kept the first line per message, whose output count
-  is a streaming placeholder) understated all spend by 5.0% and lens spend by
-  15.1%. Both are fixed from 2026-10-05 (#893); the figures in this document
-  were not re-rendered.
+  is a streaming placeholder) counted all transcripts since 2026-09-04 at
+  $8,692 against an actual $9,131 (+5.0%) and lens runs at $789.52 against an
+  actual $930.09 (+17.8%; $140.57, 15.1% of the actual lens dollars, was
+  missing). Both are fixed for version 3 rows (PR #896); the figures in this
+  document were not re-rendered.
 - **Instruction payload is not isolated.** The table of first-turn cache writes
   (discovery median 43,445 tokens against about 14,500 for the built-in
   explorer to 20,300 for the heaviest review lens) includes the task text and standing context as well as

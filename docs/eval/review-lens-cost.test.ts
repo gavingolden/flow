@@ -74,6 +74,16 @@ describe("statsFromJsonl last-occurrence rule", () => {
     expect(s.output).toBe(333);
     expect(s.dollars).toBeCloseTo(10 + 333, 6);
   });
+
+  it("keeps the earlier usage when the last line of a message has none", () => {
+    const noUsage = JSON.stringify({
+      type: "assistant",
+      message: { id: "m1", model: "claude-opus-4-7", content: [] },
+    });
+    const s = statsFromJsonl([withOutput(3), noUsage].join("\n"), outPrices);
+    expect(s.turns).toBe(1);
+    expect(s.output).toBe(3);
+  });
 });
 
 describe("priceFor", () => {

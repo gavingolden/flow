@@ -25,6 +25,7 @@ import {
   defaultProjectsRoot,
   encodeProjectSegment,
   findSessionJsonls,
+  recordLastLine,
 } from "./cost";
 
 export type Phase =
@@ -189,8 +190,7 @@ function lastLinePerMessage(records: RawRecord[]): RawRecord[] {
     const message = record.message as RawRecord | undefined;
     const usage = message?.usage;
     if (!usage || typeof usage !== "object") continue;
-    const id = message?.id;
-    byId.set(typeof id === "string" && id ? id : `\0line${byId.size}`, record);
+    recordLastLine(byId, message?.id, record);
   }
   return [...byId.values()];
 }

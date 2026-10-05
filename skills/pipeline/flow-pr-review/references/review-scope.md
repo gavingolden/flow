@@ -122,6 +122,10 @@ transcript:
 LENS_TOKENS+=("<lens>=<n>")
 ```
 
+If a lens reports twice (a widen re-spawns it), record every notification;
+the collector keeps the last figure per lens, which is its final context
+size.
+
 A widen re-pass (below) keeps the original review window
 (`flow-review-scope --force-full` reuses a same-head delta pass's
 `started_at`), so the transcript total covers both passes. A lens whose

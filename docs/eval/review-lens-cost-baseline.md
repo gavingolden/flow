@@ -14,9 +14,10 @@ so the dollar column is an API-equivalent estimate, not an invoice. Pass
 `--model-prices <json>` to override.
 
 > **Erratum:** the measurement below kept the first transcript line per
-> message, whose output count is a streaming placeholder, so output (86% of
-> lens output tokens) and about 15% of lens dollars were missing. Corrected
-> from 2026-10-05 (#893); the table is not re-rendered.
+> message, whose output count is a streaming placeholder. That dropped 86% of
+> lens output tokens and left lens runs at $789.52 counted against an actual
+> $930.09 (+17.8%; $140.57, 15.1% of the actual lens dollars, was missing).
+> Corrected for version 3 rows (PR #896); the table is not re-rendered.
 
 ## Measurement (2026-09-30)
 

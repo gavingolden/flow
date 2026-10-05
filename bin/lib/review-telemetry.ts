@@ -69,7 +69,7 @@ export function parseLensTokens(
     const lens = flag.slice(0, eq);
     const value = Number(flag.slice(eq + 1));
     if (!lens || !Number.isFinite(value)) continue;
-    out[lens] = (out[lens] ?? 0) + value;
+    out[lens] = value;
   }
   return out;
 }
@@ -246,10 +246,17 @@ export async function attributeTranscripts(
     filesByLens.set(lens, files);
   }
 
-  for (const [lens, files] of filesByLens) {
-    const sums = await Promise.all(
-      files.map((f) => sumTranscriptUsage(f.file)),
-    );
+  const perLens = await Promise.all(
+    [...filesByLens].map(
+      async ([lens, files]) =>
+        [
+          lens,
+          files,
+          await Promise.all(files.map((f) => sumTranscriptUsage(f.file))),
+        ] as const,
+    ),
+  );
+  for (const [lens, files, sums] of perLens) {
     const usage = {
       total: 0,
       input: 0,
@@ -331,8 +338,9 @@ export function mergeTelemetry(args: {
     const tokens_source: LensTelemetry["tokens_source"] = transcript
       ? "subagent-transcript"
       : "unavailable";
-    // An explicit --lens-model value wins over the transcript's model.
-    const model = args.lensModels?.[lens] ?? transcript?.model ?? null;
+    // The transcript's concrete model id is what the audit prices; the
+    // --lens-model alias is only the fallback when no transcript exists.
+    const model = transcript?.model ?? args.lensModels?.[lens] ?? null;
 
     lenses[lens] = {
       ran: counts.ran,

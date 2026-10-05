@@ -122,9 +122,9 @@ describe("parseLensTokens", () => {
     expect(out).toEqual({ "bug-detection": 123 });
   });
 
-  it("sums duplicate flags for the same lens (widen re-pass)", () => {
+  it("keeps the last figure per lens (widen re-pass)", () => {
     const out = parseLensTokens(["bug-detection=100", "bug-detection=50"]);
-    expect(out).toEqual({ "bug-detection": 150 });
+    expect(out).toEqual({ "bug-detection": 50 });
   });
 });
 
@@ -384,7 +384,7 @@ describe("mergeTelemetry", () => {
     expect(t.lenses["bug-detection"].model).toBe("opus");
   });
 
-  it("prefers an explicit --lens-model over the transcript-derived model, and uses the transcript model otherwise", () => {
+  it("prefers the transcript's concrete model over a --lens-model alias, and falls back to the alias without a transcript", () => {
     const transcripts = {
       "bug-detection": { usage: { total: 999 }, model: "claude-x" },
     };
@@ -395,7 +395,7 @@ describe("mergeTelemetry", () => {
       lensModels: { "bug-detection": "opus" },
       transcripts,
     });
-    expect(withFlag.lenses["bug-detection"].model).toBe("opus");
+    expect(withFlag.lenses["bug-detection"].model).toBe("claude-x");
     const without = mergeTelemetry({
       ...baseArgs,
       counts: {},
@@ -404,6 +404,14 @@ describe("mergeTelemetry", () => {
       transcripts,
     });
     expect(without.lenses["bug-detection"].model).toBe("claude-x");
+    const aliasOnly = mergeTelemetry({
+      ...baseArgs,
+      counts: {},
+      lensTokens: {},
+      lensModels: { "bug-detection": "opus" },
+      transcripts: {},
+    });
+    expect(aliasOnly.lenses["bug-detection"].model).toBe("opus");
   });
 
   it("tags rows version 3", () => {

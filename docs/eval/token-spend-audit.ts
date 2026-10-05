@@ -730,7 +730,7 @@ function run(argv: string[]) {
   const lensSummary = summarizeLenses(lensRows);
   const unpriced = lensSummary.reduce((n, r) => n + r.unpriced, 0);
   console.log(
-    `Review runs in window: ${lensRows.length}. Version 3 is the only comparable unit: tokens and dollars sum only version >= 3 rows, whose per-lens figure is the lens's own transcript (cumulative, final output per message). Dollars price each row's per-class breakdown at this file's list prices (cache writes at the 5-minute rate) and the row's model${unpriced ? `; ${unpriced} version-3 lens runs have an unpriced model and are excluded from dollars` : ""}. Per-acted figures divide by the acted findings of the rows that contributed. Older rows used other units (notification context size, pre-dedupe transcript sums) and appear only in the legacy rows column; their re-derived history is in the PR that closes #893.\n`,
+    `Review runs in window: ${lensRows.length}. Only reviews recorded since PR #896 are costed here. Older reviews appear in the legacy rows column but are not added in, because they used a different, non-comparable token unit; their re-derived history is in PR #896. Until new reviews accumulate, tokens and dollars read n/a and fill in as they do.${unpriced ? ` ${unpriced} runs whose model name could not be priced are counted separately and left out of dollars.` : ""} Per-acted figures divide by the acted findings of the reviews that contributed. Dollars use this file's list prices, with cache writes at the 5-minute rate.\n`,
   );
   table(
     [
@@ -791,7 +791,7 @@ export function summarizeLenses(rows: any[]) {
       a.survived += v.findings_survived || 0;
       a.acted += v.findings_acted || 0;
       a.src[v.tokens_source] = (a.src[v.tokens_source] || 0) + 1;
-      if (!current || !v.tokens) continue;
+      if (!current || !v.ran || !v.tokens) continue;
       const acted = v.findings_acted || 0;
       a.tokens += v.tokens.total || 0;
       a.token_runs++;
@@ -815,7 +815,7 @@ export function summarizeLenses(rows: any[]) {
   );
 }
 
-function selfTest() {
+export function selfTest(): string[] {
   const fails: string[] = [];
   const eq = (name: string, a: unknown, b: unknown) => {
     if (JSON.stringify(a) !== JSON.stringify(b))
@@ -1031,6 +1031,12 @@ function selfTest() {
     },
     { version: 3, lenses: { a: v3("claude-opus-5", null, 0, false) } },
     {
+      version: 3,
+      lenses: {
+        a: v3("claude-opus-5", { total: 999_999, input: 999_999 }, 0, false),
+      },
+    },
+    {
       version: 2,
       lenses: {
         a: {
@@ -1082,7 +1088,7 @@ function selfTest() {
   eq(
     "lens summary src",
     [ls[0].src["subagent-transcript"], ls[0].src.unavailable],
-    [3, 1],
+    [4, 1],
   );
   const stream = (outputs: number[]) =>
     outputs.map((o) =>
@@ -1110,15 +1116,17 @@ function selfTest() {
   });
   eq("resolveRepo skip", resolveRepo("/private/tmp/x/flow", ["flow"]), null);
 
-  if (fails.length) {
-    console.error(`self-test FAILED (${fails.length}):\n${fails.join("\n")}`);
-    process.exit(1);
-  }
-  console.log("self-test ok");
+  return fails;
 }
 
 if (import.meta.main) {
   const argv = process.argv.slice(2);
-  if (argv.includes("--self-test")) selfTest();
-  else run(argv);
+  if (argv.includes("--self-test")) {
+    const fails = selfTest();
+    if (fails.length) {
+      console.error(`self-test FAILED (${fails.length}):\n${fails.join("\n")}`);
+      process.exit(1);
+    }
+    console.log("self-test ok");
+  } else run(argv);
 }

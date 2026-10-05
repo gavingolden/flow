@@ -139,7 +139,7 @@ async function parseAndPrice(jsonl: string): Promise<CostBreakdown> {
     if (!event || event.type !== "assistant") continue;
     const usage = event.message?.usage;
     if (!usage) continue;
-    recordLastLine(messages, event, {
+    recordLastLine(messages, event.message?.id, {
       usage,
       model: event.message?.model ?? "",
     });
@@ -231,7 +231,11 @@ export async function sumTranscriptUsage(
       if (!event || event.type !== "assistant") continue;
       const usage = event.message?.usage;
       if (!usage || typeof usage !== "object") continue;
-      recordLastLine(messages, event, usage as Record<string, unknown>);
+      recordLastLine(
+        messages,
+        event.message?.id,
+        usage as Record<string, unknown>,
+      );
       const model = event.message?.model;
       if (typeof model === "string" && model) out.model = model;
     }
@@ -271,12 +275,18 @@ function priceUsage(usage: unknown, p: ModelPricing): number {
   );
 }
 
-function recordLastLine<T>(
+/**
+ * Records `value` as the line for message `id`, replacing any earlier line
+ * with the same id (the last one carries the final usage) while keeping the
+ * message's first-seen position. Id-less lines each count individually.
+ * Callers pass only usage-bearing lines, so a usage-less last line never
+ * erases an earlier one's usage.
+ */
+export function recordLastLine<T>(
   messages: Map<string, T>,
-  event: JsonlEvent,
+  id: unknown,
   value: T,
 ): void {
-  const id = event.message?.id;
   const key = typeof id === "string" && id ? id : `\0line${messages.size}`;
   messages.set(key, value);
 }

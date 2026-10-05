@@ -18,6 +18,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ALL_LENS_NAMES } from "../../bin/lib/agent-finding-schema";
+import { recordLastLine } from "../../bin/lib/cost";
 import { MODEL_PRICING, type ModelPricing } from "../../bin/lib/cost-pricing";
 import { lensFromMeta } from "../../bin/lib/review-telemetry";
 
@@ -77,12 +78,12 @@ export function statsFromJsonl(raw: string, prices: Prices): RunStats {
           s.files.add(c.input.file_path);
       } else if (c.name === "Grep") s.greps++;
     }
-    const id = e.message.id;
-    const key = typeof id === "string" && id ? id : `\0line${messages.size}`;
-    messages.set(key, {
-      usage: e.message.usage ?? messages.get(key)?.usage ?? {},
-      model: String(e.message.model ?? ""),
-    });
+    if (e.message.usage) {
+      recordLastLine(messages, e.message.id, {
+        usage: e.message.usage,
+        model: String(e.message.model ?? ""),
+      });
+    }
   }
   for (const { usage: u, model } of messages.values()) {
     s.turns++;
