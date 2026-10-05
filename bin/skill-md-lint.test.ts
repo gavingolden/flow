@@ -5361,6 +5361,24 @@ describe("pr-review include-by-reference structure", () => {
     ).toBeLessThan(1940);
   });
 
+  it("skills/pipeline/flow-pr-review/SKILL.md routes the agent-result boundaries through flow-review-collect with an explicit Bash timeout", () => {
+    // The helper's default 540 s wait only fits inside the Bash tool's 600 s
+    // ceiling when the caller passes `timeout: 600000`; without it the call
+    // dies at the 120 s default with no envelope.
+    const content = fs.readFileSync(
+      path.resolve(HERE, "..", "skills/pipeline/flow-pr-review/SKILL.md"),
+      "utf8",
+    );
+    for (const needle of [
+      "flow-review-collect --stage lenses",
+      "flow-review-collect --stage consolidator",
+      "flow-review-collect --stage fix-applier",
+      "timeout: 600000",
+    ]) {
+      expect(content.includes(needle), `missing: ${needle}`).toBe(true);
+    }
+  });
+
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
     const pipelineSkillPath = path.resolve(
       HERE,
