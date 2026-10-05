@@ -1,9 +1,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseArgs, run } from "./flow-run-test-steps";
-import { runTestSteps, type ExecFn } from "./lib/run-test-steps";
+import { defaultExec, runTestSteps, type ExecFn } from "./lib/run-test-steps";
 
 type Call = { argv: string[]; timeoutMs?: number; bodyAtCall?: string };
 
@@ -45,6 +45,8 @@ function harness(
     checkExit?: number;
     advanceMs?: number;
     viewExit?: number;
+    crossRepo?: boolean;
+    timeoutOn?: string[];
   } = {},
 ) {
   const calls: Call[] = [];
@@ -54,13 +56,21 @@ function harness(
     calls.push(call);
     if (argv[0] === "gh" && argv[2] === "view") {
       return {
-        stdout: JSON.stringify({ body }),
+        stdout: JSON.stringify({ body, isCrossRepository: opts.crossRepo }),
         stderr: "boom",
         exitCode: opts.viewExit ?? 0,
       };
     }
     if (argv[0] === "bash") {
       t += opts.advanceMs ?? 0;
+      if (opts.timeoutOn?.includes(argv[2])) {
+        return {
+          stdout: "partial\n",
+          stderr: "",
+          exitCode: 124,
+          timedOut: true,
+        };
+      }
       const [code, out] = opts.commands?.[argv[2]] ?? [0, `ran ${argv[2]}\n`];
       return { stdout: out, stderr: "", exitCode: code };
     }
@@ -181,7 +191,7 @@ describe("runTestSteps", () => {
       "view",
       "9",
       "--json",
-      "body",
+      "body,isCrossRepository",
     ]);
     expect(h.calls.some((c) => c.argv.includes("--jq"))).toBe(false);
   });
@@ -266,6 +276,155 @@ describe("runTestSteps", () => {
     expect(
       h2.calls.filter((c) => c.argv[0] === "bash").map((c) => c.argv[2]),
     ).toEqual(["c"]);
+  });
+
+  it("starts from a seeded body.md when --body-file is passed, keeping unpushed edits and prior ticks", async () => {
+    const remote = bodyOf(["- [ ] Run `a`", "- [ ] Run `b`"]);
+    const local = bodyOf([
+      "- [x] Run `a`",
+      "- [ ] Run `b`",
+      "- [ ] Check that the drafted 11e item reads well",
+    ]);
+    fs.mkdirSync(path.dirname(bodyFile), { recursive: true });
+    fs.writeFileSync(bodyFile, local);
+    const h = harness(remote);
+    const env = await runTestSteps({
+      pr: 1,
+      worktree,
+      only: [2],
+      bodyFile,
+      budgetSec: 60,
+      exec: h.exec,
+      now: h.now,
+    });
+    expect(env.ran).toBe(1);
+    const text = edits(h.calls)[0].bodyAtCall!;
+    expect(text).toContain("- [x] Run `a`");
+    expect(text).toContain("- [x] Run `b`");
+    expect(text).toContain("- [ ] Check that the drafted 11e item reads well");
+  });
+
+  it("falls back to the GitHub body when --body-file does not exist", async () => {
+    const h = harness(bodyOf(["- [ ] Run `a`"]));
+    const env = await runTestSteps({
+      pr: 1,
+      worktree,
+      bodyFile: path.join(worktree, ".flow-tmp", "missing.md"),
+      budgetSec: 60,
+      exec: h.exec,
+      now: h.now,
+    });
+    expect(env.passed).toBe(1);
+  });
+
+  it("replaces an existing FAILED evidence block on a --only re-run instead of stacking a second one", async () => {
+    const body = bodyOf(["- [ ] Run `flaky`", "- [ ] Run `other`"]);
+    const h1 = harness(body, { commands: { flaky: [2, "boom\n"] } });
+    const first = await runTestSteps({
+      pr: 1,
+      worktree,
+      budgetSec: 60,
+      exec: h1.exec,
+      now: h1.now,
+    });
+    expect(first.failed.map((f) => f.index)).toEqual([1]);
+    const afterFirst = edits(h1.calls)[0].bodyAtCall!;
+    expect(afterFirst).toContain("FAILED exit 2");
+
+    const h2 = harness(afterFirst);
+    const second = await runTestSteps({
+      pr: 1,
+      worktree,
+      only: [1],
+      budgetSec: 60,
+      exec: h2.exec,
+      now: h2.now,
+    });
+    expect(second.passed).toBe(1);
+    const text = edits(h2.calls)[0].bodyAtCall!;
+    expect(text).toContain("- [x] Run `flaky`");
+    expect(text).not.toContain("FAILED exit 2");
+    expect(text.match(/<!-- flow:evidence -->/g)).toHaveLength(2);
+  });
+
+  it("refuses to run a cross-repository PR unless --allow-cross-repo is passed", async () => {
+    const body = bodyOf(["- [ ] Run `a`", "- [ ] Run `b`"]);
+    const h = harness(body, { crossRepo: true });
+    const env = await runTestSteps({
+      pr: 1,
+      worktree,
+      budgetSec: 60,
+      exec: h.exec,
+      now: h.now,
+    });
+    expect(env.ran).toBe(0);
+    expect(env.pushSkippedReason).toBe("cross-repository-pr");
+    expect(env.pending.map((p) => p.index)).toEqual([1, 2]);
+    expect(h.calls.some((c) => c.argv[0] === "bash")).toBe(false);
+    expect(edits(h.calls)).toHaveLength(0);
+
+    const h2 = harness(body, { crossRepo: true });
+    const allowed = await runTestSteps({
+      pr: 1,
+      worktree,
+      budgetSec: 60,
+      allowCrossRepo: true,
+      exec: h2.exec,
+      now: h2.now,
+    });
+    expect(allowed.ran).toBe(2);
+    expect(allowed.pushSkippedReason).toBeNull();
+  });
+
+  it("reports an item killed by the shared budget as pending, with no failure block", async () => {
+    const body = bodyOf(["- [ ] Run `a`", "- [ ] Run `slow`"]);
+    const h = harness(body, { advanceMs: 200_000, timeoutOn: ["slow"] });
+    const env = await runTestSteps({
+      pr: 1,
+      worktree,
+      budgetSec: 300,
+      exec: h.exec,
+      now: h.now,
+    });
+    expect(env.failed).toEqual([]);
+    expect(env.pending).toEqual([{ index: 2, command: "slow" }]);
+    expect(env.ran).toBe(1);
+    const text = edits(h.calls)[0].bodyAtCall!;
+    expect(text).not.toContain("FAILED");
+    expect(text).toContain("- [ ] Run `slow`");
+    expect(fs.existsSync(path.join(worktree, ".flow-tmp/evidence-2.txt"))).toBe(
+      false,
+    );
+  });
+
+  it("still reports an item that hits its own 300 s cap as failed", async () => {
+    const h = harness(bodyOf(["- [ ] Run `a`", "- [ ] Run `hang`"]), {
+      timeoutOn: ["hang"],
+    });
+    const env = await runTestSteps({
+      pr: 1,
+      worktree,
+      budgetSec: 540,
+      exec: h.exec,
+      now: h.now,
+    });
+    expect(env.failed.map((f) => f.exitCode)).toEqual([124]);
+    expect(env.pending).toEqual([]);
+  });
+
+  it("gives a lone candidate (a --only re-run) the whole remaining budget", async () => {
+    const h = harness(bodyOf(["- [ ] Run `a`", "- [ ] Run `b`"]));
+    await runTestSteps({
+      pr: 1,
+      worktree,
+      only: [2],
+      budgetSec: 540,
+      exec: h.exec,
+      now: h.now,
+    });
+    expect(
+      h.calls.filter((c) => c.argv[0] === "bash").map((c) => c.timeoutMs),
+    ).toEqual([540_000]);
   });
 
   it("does not push when --check-pr-body fails, and keeps the pre-edit body", async () => {
@@ -357,6 +516,8 @@ describe("flow-run-test-steps CLI", () => {
       worktree: "/w",
       only: undefined,
       budgetSec: 540,
+      bodyFile: undefined,
+      allowCrossRepo: false,
     });
     expect(
       parseArgs([
@@ -368,8 +529,35 @@ describe("flow-run-test-steps CLI", () => {
         "1,3",
         "--budget-sec",
         "30",
+        "--body-file",
+        "/w/.flow-tmp/body.md",
+        "--allow-cross-repo",
       ]),
-    ).toEqual({ pr: 3, worktree: "/w", only: [1, 3], budgetSec: 30 });
+    ).toEqual({
+      pr: 3,
+      worktree: "/w",
+      only: [1, 3],
+      budgetSec: 30,
+      bodyFile: "/w/.flow-tmp/body.md",
+      allowCrossRepo: true,
+    });
+  });
+
+  it("exits 0 with the JSON envelope on stdout, and 1 on a gh read failure", async () => {
+    const h = harness(bodyOf(["- [ ] Run `a`"]));
+    const out: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((m) => {
+      out.push(String(m));
+    });
+    try {
+      expect(await run(["--pr", "1", "--worktree", worktree], h.exec)).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(JSON.parse(out[0])).toMatchObject({ ran: 1, passed: 1 });
+
+    const bad = harness("x", { viewExit: 1 });
+    expect(await run(["--pr", "1", "--worktree", worktree], bad.exec)).toBe(1);
   });
 
   it("rejects bad args with exit 2", async () => {
@@ -384,5 +572,44 @@ describe("flow-run-test-steps CLI", () => {
       parseArgs(["--pr", "1", "--worktree", "/w", "--only", "1,a"]),
     ).toEqual({ error: "invalid --only value: 1,a" });
     expect(await run(["--bogus"])).toBe(2);
+  });
+});
+
+describe("defaultExec", () => {
+  it("kills the whole process group on timeout, including backgrounded grandchildren", async () => {
+    const pidFile = path.join(worktree, "child.pid");
+    const r = await defaultExec(
+      ["bash", "-c", `sleep 30 & echo $! > ${pidFile}; wait`],
+      { cwd: worktree, timeoutMs: 500 },
+    );
+    expect(r.timedOut).toBe(true);
+    expect(r.exitCode).toBe(124);
+    const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
+    const alive = () => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    for (let i = 0; i < 20 && alive(); i++) {
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    expect(alive()).toBe(false);
+  });
+
+  it("returns stdout, stderr and the exit code of a normal run", async () => {
+    const r = await defaultExec([
+      "bash",
+      "-c",
+      "echo out; echo err >&2; exit 3",
+    ]);
+    expect(r).toMatchObject({
+      stdout: "out\n",
+      stderr: "err\n",
+      exitCode: 3,
+      timedOut: false,
+    });
   });
 });

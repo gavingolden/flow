@@ -191,8 +191,8 @@ export function clusterCommand(cmd: string): ReviewCluster {
   if (has(cmd, new RegExp(invokes("flow-review-(?:prep|finalize)"))))
     return "prep-finalize";
   if (
-    has(cmd, new RegExp(invokes("flow-inject-evidence"))) ||
-    has(cmd, /\bevidence-[\w.-]*\.txt\b|\bexit-\d+\b/) ||
+    has(cmd, new RegExp(invokes("flow-(?:inject-evidence|run-test-steps)"))) ||
+    has(cmd, /\bevidence-[\w.-]*\.txt\b|\bexit-p?\d+\b/) ||
     has(cmd, /\bgh\s+pr\s+edit\b[^\n]*--body-file/)
   )
     return "test-steps-run";
@@ -549,6 +549,8 @@ export function selfTest(): string[] {
     ["flow-inject-evidence --body-file b.md --item x", "test-steps-run"],
     ["bash -c 'true' > evidence-1.txt 2>&1", "test-steps-run"],
     ["gh pr edit 5 --body-file body.md", "test-steps-run"],
+    ["flow-run-test-steps --pr 5 --worktree /w", "test-steps-run"],
+    ["echo $? > .flow-tmp/exit-p3", "test-steps-run"],
     ["flow-post-findings --pr 5 --findings f.json", "findings-post"],
     ["flow-review-finalize --pr 5", "prep-finalize"],
     ["git status", "rest"],

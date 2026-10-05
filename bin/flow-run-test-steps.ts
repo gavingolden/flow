@@ -6,7 +6,14 @@
  *
  * Usage:
  *   flow-run-test-steps --pr <number> --worktree <path> [--only <csv>]
- *     [--budget-sec <n=540>]
+ *     [--budget-sec <n=540>] [--body-file <path>] [--allow-cross-repo]
+ *
+ * `--body-file` starts from that local body (the `.flow-tmp/body.md` the
+ * supervisor read and may have edited) when it exists, instead of the
+ * GitHub body, so a re-entry keeps unpushed edits and prior ticks.
+ * Cross-repository (fork) PRs are refused (`pushSkippedReason:
+ * "cross-repository-pr"`, every candidate left `pending`) unless
+ * `--allow-cross-repo` is passed: Test Step commands run unvetted.
  *
  * The 540 s default budget sits inside the Bash tool's 600 s ceiling (same
  * rationale as `flow-plan-review-wait`'s `--max-sec 540`; each item's
@@ -24,12 +31,13 @@
  *   2 — bad CLI arguments
  */
 
-import { defaultExec, runTestSteps } from "./lib/run-test-steps";
+import { defaultExec, runTestSteps, type ExecFn } from "./lib/run-test-steps";
 
 function printHelp(): void {
   console.log(`
 Usage: flow-run-test-steps --pr <number> --worktree <path>
-         [--only <csv>] [--budget-sec <n=540>]
+         [--only <csv>] [--budget-sec <n=540>] [--body-file <path>]
+         [--allow-cross-repo]
 
 Runs every unchecked command-kind Test Step in the PR body, ticks passes,
 attaches evidence, repairs and pushes the body once, and prints a JSON
@@ -38,7 +46,14 @@ envelope. Pass the Bash tool an explicit timeout: 600000.
 }
 
 export type ParsedArgs =
-  | { pr: number; worktree: string; only?: number[]; budgetSec: number }
+  | {
+      pr: number;
+      worktree: string;
+      only?: number[];
+      budgetSec: number;
+      bodyFile?: string;
+      allowCrossRepo: boolean;
+    }
   | { error: string };
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -46,6 +61,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let worktree: string | undefined;
   let only: number[] | undefined;
   let budgetSec = 540;
+  let bodyFile: string | undefined;
+  let allowCrossRepo = false;
 
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -88,6 +105,15 @@ export function parseArgs(argv: string[]): ParsedArgs {
         i++;
         break;
       }
+      case "--body-file":
+        if (value === undefined)
+          return { error: "--body-file requires a value" };
+        bodyFile = value;
+        i++;
+        break;
+      case "--allow-cross-repo":
+        allowCrossRepo = true;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -95,10 +121,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
   if (pr === undefined) return { error: "--pr is required" };
   if (worktree === undefined) return { error: "--worktree is required" };
-  return { pr, worktree, only, budgetSec };
+  return { pr, worktree, only, budgetSec, bodyFile, allowCrossRepo };
 }
 
-export async function run(argv: string[]): Promise<number> {
+export async function run(
+  argv: string[],
+  exec: ExecFn = defaultExec,
+): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
     printHelp();
     return 0;
@@ -109,7 +138,7 @@ export async function run(argv: string[]): Promise<number> {
     return 2;
   }
   try {
-    const envelope = await runTestSteps({ ...parsed, exec: defaultExec });
+    const envelope = await runTestSteps({ ...parsed, exec });
     console.log(JSON.stringify(envelope));
     return 0;
   } catch (e) {

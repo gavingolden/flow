@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "review-turn-folding",
   "candidate": "review-turn-folding",
-  "description": "Measures the supervisor turns, cost and context /flow-pr-review spends handling an agent that has ALREADY RETURNED (consolidator and fix-applier artifact collection, the two failure escalations) and running Step 8c's verification items. Each scenario seeds the .flow-tmp artifacts the agent would have written and bounds the run to one step's post-return handling, so the before/after delta of folding those mechanical steps into helpers is attributable to the folding and not to model variance. Record the before arm on the unchanged skills; compare after the foldings land.",
+  "description": "Measures the supervisor turns, cost and context /flow-pr-review spends handling an agent that has ALREADY RETURNED (consolidator and fix-applier artifact collection, the two failure escalations) and running Step 8c's verification items. Each scenario seeds the .flow-tmp artifacts the agent would have written and bounds the run to one step's post-return handling, so the before/after delta of folding those mechanical steps into helpers is attributable to the folding and not to model variance. Record the before arm on the unchanged skills; compare after the foldings land. Only the Step 8c fold shipped: the collection fold (s1, s2, s3, s5) was reverted, so those scenarios now measure the baseline and only s4 measures a fold.",
   "scenarios": [
     "s1-consolidator-collect",
     "s2-consolidator-schema-failure",

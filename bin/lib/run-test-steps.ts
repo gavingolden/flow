@@ -1,6 +1,7 @@
 /**
  * `/flow-pr-review` Step 8c's per-item loop as one call: fetch the PR body,
- * run every unchecked `command`-kind Test Step exactly as written, tick
+ * run every unchecked `command`-kind Test Step exactly as written (no
+ * per-item vetting: refused for cross-repository PRs unless allowed), tick
  * passes and attach an evidence block to every run (via `rewriteBody`, the
  * `flow-inject-evidence` engine), repair the body with `flow-md-validate`,
  * and push it ONCE.
@@ -9,23 +10,32 @@
  * `flow-md-validate --fix-pr-body` + `gh pr edit` recipe it replaces was
  * pinned by `bin/skill-md-lint.test.ts`'s BODY_EDIT_SITES; the ordering is
  * asserted in `bin/flow-run-test-steps.test.ts`). The PR body is read with
- * `gh pr view --json body` and parsed here — never `--jq`, which the eval
+ * `gh pr view --json body,isCrossRepository` (or from a local `bodyFile` the
+ * caller has unpushed edits in, so a re-entry never clobbers them) and parsed here — never `--jq`, which the eval
  * `gh` shim ignores.
  *
  * JUDGMENT STAYS OUT: classification of prose/browser/subjective items,
  * fixing failures, and prose promotion remain the supervisor's.
  */
 
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { rewriteBody } from "../flow-inject-evidence";
 import { parseTestSteps, type StepKind } from "./test-steps-parse";
 import { hasLocalImageRefs } from "./review-screenshots";
 
+export type ExecResult = {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  timedOut?: boolean;
+};
+
 export type ExecFn = (
   argv: string[],
   opts?: { cwd?: string; timeoutMs?: number },
-) => { stdout: string; stderr: string; exitCode: number };
+) => ExecResult | Promise<ExecResult>;
 
 export type RunEnvelope = {
   /** Unchecked command-kind items considered. */
@@ -46,22 +56,58 @@ const TAIL_LINES = 20;
 const TAIL_CHARS = 2000;
 const MARK = "\u0001";
 
+/**
+ * Each child runs in its own process group, and a timeout kills the whole
+ * group — a bare SIGTERM to `bash` leaves `npm test`'s grandchildren running
+ * (competing with the next item, outliving the helper).
+ */
 export function defaultExec(
   argv: string[],
   opts?: { cwd?: string; timeoutMs?: number },
-): { stdout: string; stderr: string; exitCode: number } {
-  const r = Bun.spawnSync(argv, {
-    cwd: opts?.cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    timeout: opts?.timeoutMs,
+): Promise<ExecResult> {
+  return new Promise((resolve) => {
+    const child = spawn(argv[0], argv.slice(1), {
+      cwd: opts?.cwd,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    child.stdout?.on("data", (d) => (stdout += d));
+    child.stderr?.on("data", (d) => (stderr += d));
+    const killGroup = (sig: NodeJS.Signals) => {
+      try {
+        if (child.pid) process.kill(-child.pid, sig);
+      } catch {
+        // group already gone
+      }
+    };
+    let hardKill: ReturnType<typeof setTimeout> | undefined;
+    const timer = opts?.timeoutMs
+      ? setTimeout(() => {
+          timedOut = true;
+          killGroup("SIGTERM");
+          hardKill = setTimeout(() => killGroup("SIGKILL"), 2000);
+        }, opts.timeoutMs)
+      : undefined;
+    const done = (r: ExecResult) => {
+      clearTimeout(timer);
+      clearTimeout(hardKill);
+      resolve(r);
+    };
+    child.on("error", (e) =>
+      done({ stdout, stderr: stderr + String(e), exitCode: 127 }),
+    );
+    child.on("close", (code) =>
+      done({
+        stdout,
+        stderr,
+        exitCode: timedOut ? 124 : (code ?? 1),
+        timedOut,
+      }),
+    );
   });
-  const timedOut = r.exitedDueToTimeout === true;
-  return {
-    stdout: r.stdout?.toString() ?? "",
-    stderr: r.stderr?.toString() ?? "",
-    exitCode: timedOut ? 124 : (r.exitCode ?? 1),
-  };
 }
 
 function escapeRegExp(s: string): string {
@@ -115,6 +161,10 @@ export async function runTestSteps(opts: {
   worktree: string;
   only?: number[];
   budgetSec: number;
+  /** Start from this local body (the one the supervisor read and may have
+   * edited) when it exists; GitHub's body is the fallback. */
+  bodyFile?: string;
+  allowCrossRepo?: boolean;
   exec: ExecFn;
   now?: () => number;
 }): Promise<RunEnvelope> {
@@ -124,21 +174,30 @@ export async function runTestSteps(opts: {
   const bodyFile = path.join(dir, "body.md");
   fs.mkdirSync(dir, { recursive: true });
 
-  const view = exec(["gh", "pr", "view", String(opts.pr), "--json", "body"], {
-    cwd: opts.worktree,
-  });
+  const view = await exec(
+    ["gh", "pr", "view", String(opts.pr), "--json", "body,isCrossRepository"],
+    { cwd: opts.worktree },
+  );
   if (view.exitCode !== 0) {
     throw new Error(`gh pr view failed: ${view.stderr.trim()}`);
   }
   let original: string;
+  let crossRepo: boolean;
   try {
-    const parsed = JSON.parse(view.stdout) as { body?: unknown };
+    const parsed = JSON.parse(view.stdout) as {
+      body?: unknown;
+      isCrossRepository?: unknown;
+    };
     if (typeof parsed.body !== "string") throw new Error("no string `body`");
     original = parsed.body;
+    crossRepo = parsed.isCrossRepository === true;
   } catch (e) {
     throw new Error(
       `gh pr view returned unparseable JSON: ${e instanceof Error ? e.message : String(e)}`,
     );
+  }
+  if (opts.bodyFile && fs.existsSync(opts.bodyFile)) {
+    original = fs.readFileSync(opts.bodyFile, "utf8");
   }
   fs.writeFileSync(bodyFile, original);
 
@@ -165,7 +224,16 @@ export async function runTestSteps(opts: {
     pushSkippedReason: null,
   };
 
+  if (crossRepo && !opts.allowCrossRepo) {
+    for (const s of candidates) {
+      envelope.pending.push({ index: s.index, command: firstCommand(s.text) });
+    }
+    envelope.pushSkippedReason = "cross-repository-pr";
+    return envelope;
+  }
+
   const start = now();
+  const single = candidates.length === 1;
   let body = original;
   for (const step of candidates) {
     const command = firstCommand(step.text);
@@ -174,10 +242,18 @@ export async function runTestSteps(opts: {
       envelope.pending.push({ index: step.index, command });
       continue;
     }
-    const run = exec(["bash", "-c", command], {
+    const itemSec = single
+      ? remainingSec
+      : Math.min(ITEM_TIMEOUT_SEC, remainingSec);
+    const run = await exec(["bash", "-c", command], {
       cwd: opts.worktree,
-      timeoutMs: Math.min(ITEM_TIMEOUT_SEC, remainingSec) * 1000,
+      timeoutMs: itemSec * 1000,
     });
+    // Cut by the shared budget, not the item's own cap: not a test failure.
+    if (run.timedOut && !single && itemSec < ITEM_TIMEOUT_SEC) {
+      envelope.pending.push({ index: step.index, command });
+      continue;
+    }
     const output = run.stdout + run.stderr;
     fs.writeFileSync(path.join(dir, `evidence-${step.index}.txt`), output);
     fs.writeFileSync(path.join(dir, `exit-${step.index}`), `${run.exitCode}\n`);
@@ -201,8 +277,10 @@ export async function runTestSteps(opts: {
 
   fs.writeFileSync(bodyFile, body);
   // `--fix-pr-body` always exits 0 (repair); `--check-pr-body` is the gate.
-  exec(["flow-md-validate", "--fix-pr-body", bodyFile], { cwd: opts.worktree });
-  const check = exec(["flow-md-validate", "--check-pr-body", bodyFile], {
+  await exec(["flow-md-validate", "--fix-pr-body", bodyFile], {
+    cwd: opts.worktree,
+  });
+  const check = await exec(["flow-md-validate", "--check-pr-body", bodyFile], {
     cwd: opts.worktree,
   });
   if (check.exitCode !== 0) {
@@ -214,7 +292,7 @@ export async function runTestSteps(opts: {
     envelope.pushSkippedReason = "local-image-refs-deferred-to-finalize";
     return envelope;
   }
-  const edit = exec(
+  const edit = await exec(
     ["gh", "pr", "edit", String(opts.pr), "--body-file", bodyFile],
     { cwd: opts.worktree },
   );

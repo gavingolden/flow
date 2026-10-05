@@ -5374,9 +5374,8 @@ describe("pr-review include-by-reference structure", () => {
       path.resolve(HERE, "..", "skills/pipeline/flow-pr-review/SKILL.md"),
       "utf8",
     );
-    for (const needle of ["flow-run-test-steps --pr", "timeout: 600000"]) {
-      expect(content.includes(needle), `missing: ${needle}`).toBe(true);
-    }
+    // Same line as the call: `timeout: 600000` also appears at Step 3.5.
+    expect(content).toMatch(/flow-run-test-steps --pr[^\n]*timeout: 600000/);
   });
 
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
