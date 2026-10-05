@@ -575,6 +575,9 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toContain(
       "flow-seed-ingested-hook",
     );
+    expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain(
+      "flow-doc-read-guard",
+    );
   });
 
   it("with materialized plugin roots, carries one --plugin-dir pair per root and the env prefix carries PATH= when a root's bin/ exists", () => {

@@ -3995,6 +3995,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   let installedHookPath!: string;
   let settingsPath!: string;
   let moduleRelativeHookPath!: string;
+  let installedGuardPath!: string;
 
   beforeEach(() => {
     installedHookPath = installedHelperPath("flow-seed-ingested-hook");
@@ -4008,6 +4009,8 @@ describe("ensureLaunchSettings hook-command resolution", () => {
       "flow-seed-ingested-hook.ts",
     );
     delete process.env.FLOW_SEED_HOOK_COMMAND;
+    delete process.env.FLOW_DOC_READ_GUARD_COMMAND;
+    installedGuardPath = installedHelperPath("flow-doc-read-guard");
     // Default-silence the divergence warning's stderr write across this
     // block's fixtures that happen to diverge (installHook()'s default
     // content differs from the real checked-out script); the two divergence
@@ -4017,8 +4020,22 @@ describe("ensureLaunchSettings hook-command resolution", () => {
 
   afterEach(() => {
     fs.rmSync(installedHookPath, { force: true });
+    fs.rmSync(installedGuardPath, { force: true });
     delete process.env.FLOW_SEED_HOOK_COMMAND;
+    delete process.env.FLOW_DOC_READ_GUARD_COMMAND;
   });
+
+  type PreToolUseEntry = {
+    matcher: string;
+    hooks: Array<{ type: string; command: string; if: string }>;
+  };
+
+  function readPreToolUse(): PreToolUseEntry[] {
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+      hooks: { PreToolUse: PreToolUseEntry[] };
+    };
+    return settings.hooks.PreToolUse;
+  }
 
   function readRecordedCommand(): string {
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
@@ -4195,6 +4212,42 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(readRecordedCommand()).toBe("/custom/override/hook.sh");
     expect(writeSpy).not.toHaveBeenCalled();
     writeSpy.mockRestore();
+  });
+
+  it("registers the flow-doc read guard as a Bash PreToolUse hook gated on sed and awk", () => {
+    ensureLaunchSettings(settingsPath);
+    const preToolUse = readPreToolUse();
+    expect(preToolUse).toHaveLength(1);
+    expect(preToolUse[0]!.matcher).toBe("Bash");
+    const hooks = preToolUse[0]!.hooks;
+    expect(hooks.map((h) => h.if)).toEqual(["Bash(sed *)", "Bash(awk *)"]);
+    for (const h of hooks) {
+      expect(h.type).toBe("command");
+      expect(h.command).toContain("flow-doc-read-guard");
+    }
+    expect(readRecordedCommand()).toContain("flow-seed-ingested-hook");
+  });
+
+  it("honors FLOW_DOC_READ_GUARD_COMMAND verbatim", () => {
+    process.env.FLOW_DOC_READ_GUARD_COMMAND = "/custom/override/guard.sh";
+    ensureLaunchSettings(settingsPath);
+    expect(readPreToolUse()[0]!.hooks.map((h) => h.command)).toEqual([
+      "/custom/override/guard.sh",
+      "/custom/override/guard.sh",
+    ]);
+  });
+
+  it("rewrites when a recorded guard command path no longer exists", () => {
+    fs.mkdirSync(path.dirname(installedGuardPath), { recursive: true });
+    fs.writeFileSync(installedGuardPath, "installed-guard\n");
+    fs.chmodSync(installedGuardPath, 0o755);
+    ensureLaunchSettings(settingsPath);
+    expect(readPreToolUse()[0]!.hooks[0]!.command).toBe(installedGuardPath);
+    fs.rmSync(installedGuardPath, { force: true });
+    ensureLaunchSettings(settingsPath);
+    const recorded = readPreToolUse()[0]!.hooks[0]!.command;
+    expect(recorded).not.toBe(installedGuardPath);
+    expect(fs.existsSync(recorded)).toBe(true);
   });
 
   it("ignores an empty-string FLOW_SEED_HOOK_COMMAND override", () => {

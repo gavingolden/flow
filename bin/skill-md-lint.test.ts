@@ -5603,12 +5603,19 @@ describe("pr-review include-by-reference structure", () => {
     // measured 3209), the same discipline as every raise above: the
     // arithmetic of two independently-budgeted features meeting, not new
     // bloat, and no side's content was trimmed to fake a fit.
+    //
+    // Flow-doc read-guard PR: the Hard-rules blockquote "You read flow's own
+    // docs with the Read tool, never awk or pattern-range sed" (+6 lines
+    // incl. its blank separator) lands the file at 3231 lines as this test
+    // counts them; the ceiling moves to 3233 (2 lines of headroom over the
+    // measured 3231), kept deliberately tight — the rule was already trimmed
+    // to five prose lines.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3226 lines. Material regrowth past this ceiling would ` +
+        `budget of 3233 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3226);
+    ).toBeLessThan(3233);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -11859,5 +11866,73 @@ describe("subagent contract fixes (#587, #853, #590, #494, #834)", () => {
       ),
     );
     expect(bad).toEqual([]);
+  });
+});
+
+describe("flow-doc read forms", () => {
+  const ROOT = path.resolve(HERE, "..");
+  const READ_RULE = "Read flow's own docs with the Read tool";
+
+  const walkMd = (dir: string): string[] =>
+    fs.existsSync(dir)
+      ? fs
+          .readdirSync(dir, { withFileTypes: true })
+          .flatMap((e) =>
+            e.isDirectory()
+              ? walkMd(path.join(dir, e.name))
+              : e.name.endsWith(".md")
+                ? [path.join(dir, e.name)]
+                : [],
+          )
+      : [];
+
+  it("the flow-pipeline supervisor carries the Read-tool-not-awk hard rule", () => {
+    const skill = fs.readFileSync(
+      path.resolve(ROOT, "skills", "pipeline", "flow-pipeline", "SKILL.md"),
+      "utf8",
+    );
+    expect(skill).toContain("never awk or pattern-range sed");
+  });
+
+  it("every Bash-capable (or tools-unrestricted) agents/core agent carries the read-forms invariant", () => {
+    const agentsDir = path.resolve(ROOT, "agents", "core");
+    for (const file of fs.readdirSync(agentsDir)) {
+      if (!file.endsWith(".md")) continue;
+      const content = fs.readFileSync(path.resolve(agentsDir, file), "utf8");
+      const frontmatter = content.split("---")[1] ?? "";
+      const tools = /^tools:\s*(.+)$/m.exec(frontmatter)?.[1];
+      const hasBash =
+        tools === undefined ||
+        tools.split(",").some((t) => t.trim() === "Bash");
+      if (!hasBash) continue;
+      expect(
+        content.includes(READ_RULE),
+        `agents/core/${file} can run Bash (or omits tools:), so it must carry ` +
+          `the "${READ_RULE}" invariant — otherwise it may awk/sed flow's ` +
+          "installed docs and stall on a protected-file prompt.",
+      ).toBe(true);
+    }
+  });
+
+  it("no skill, agent, or reference line pairs a flow doc home with awk, sed -i, or pattern-range sed", () => {
+    const docPath = /\.flow\/(?:claude-home|overlays)/;
+    const risky = /\bawk\b|sed -i|sed -n '\//;
+    const offenders: string[] = [];
+    for (const root of ["skills", "agents", "references"]) {
+      for (const file of walkMd(path.resolve(ROOT, root))) {
+        fs.readFileSync(file, "utf8")
+          .split("\n")
+          .forEach((line, i) => {
+            if (docPath.test(line) && risky.test(line))
+              offenders.push(`${path.relative(ROOT, file)}:${i + 1}`);
+          });
+      }
+    }
+    expect(
+      offenders,
+      "these lines show an awk / in-place / pattern-range sed form aimed at " +
+        "flow's installed docs, which Claude Code can flag as a protected-file " +
+        "edit; teach the Read tool (or sed -n 'N,Mp') instead.",
+    ).toEqual([]);
   });
 });

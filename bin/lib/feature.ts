@@ -1798,14 +1798,14 @@ function claudeArgv(
   return [...withEffort, "--settings", settingsPath];
 }
 
-/** Absolute path to the seed-ingested hook script, resolved relative to THIS
- * module so it works from a worktree smoke test AND the global install (Bun
- * resolves import.meta through symlinks to the canonical source file). */
-function hookScriptPath(): string {
+/** Absolute path to a flow hook script (`bin/<helper>.ts`), resolved relative
+ * to THIS module so it works from a worktree smoke test AND the global install
+ * (Bun resolves import.meta through symlinks to the canonical source file). */
+function hookScriptPath(helper: string): string {
   const here =
     (import.meta as { dir?: string }).dir ??
     path.dirname(fileURLToPath(import.meta.url));
-  return path.join(here, "..", "flow-seed-ingested-hook.ts");
+  return path.join(here, "..", `${helper}.ts`);
 }
 
 /**
@@ -1824,13 +1824,38 @@ function hookScriptPath(): string {
  * at launch time dangles once that worktree is removed.
  */
 export function resolveSeedHookCommand(): string {
-  const override = process.env.FLOW_SEED_HOOK_COMMAND;
+  return resolveHookCommand(
+    "flow-seed-ingested-hook",
+    "FLOW_SEED_HOOK_COMMAND",
+    true,
+  );
+}
+
+/**
+ * Same resolution order as `resolveSeedHookCommand`, for the PreToolUse
+ * flow-doc read guard (`FLOW_DOC_READ_GUARD_COMMAND` override). Never warns
+ * on divergence — only the seed hook carries that diagnostic.
+ */
+export function resolveDocReadGuardCommand(): string {
+  return resolveHookCommand(
+    "flow-doc-read-guard",
+    "FLOW_DOC_READ_GUARD_COMMAND",
+    false,
+  );
+}
+
+function resolveHookCommand(
+  helper: string,
+  envVar: string,
+  warnOnDivergence: boolean,
+): string {
+  const override = process.env[envVar];
   if (override && override.trim() !== "") return override;
 
-  const installed = installedHelperPath("flow-seed-ingested-hook");
-  const script = hookScriptPath();
+  const installed = installedHelperPath(helper);
+  const script = hookScriptPath(helper);
   if (fs.existsSync(installed)) {
-    warnOnHookDivergence(installed, script);
+    if (warnOnDivergence) warnOnHookDivergence(helper, installed, script);
     return installed;
   }
   return script;
@@ -1843,14 +1868,18 @@ export function resolveSeedHookCommand(): string {
  * exercised by launched sessions. Diagnostic only — never a failure; silent
  * when either file is unreadable or the contents match.
  */
-function warnOnHookDivergence(installedPath: string, scriptPath: string): void {
+function warnOnHookDivergence(
+  helper: string,
+  installedPath: string,
+  scriptPath: string,
+): void {
   try {
     if (!fs.existsSync(scriptPath)) return;
     const installedContent = fs.readFileSync(installedPath, "utf8");
     const scriptContent = fs.readFileSync(scriptPath, "utf8");
     if (installedContent === scriptContent) return;
     process.stderr.write(
-      `warning: running from ${scriptPath}, but the seed hook registered is the installed ${installedPath} — your local edits to bin/flow-seed-ingested-hook.ts will not be exercised (set FLOW_SEED_HOOK_COMMAND to override)\n`,
+      `warning: running from ${scriptPath}, but the seed hook registered is the installed ${installedPath} — your local edits to bin/${helper}.ts will not be exercised (set FLOW_SEED_HOOK_COMMAND to override)\n`,
     );
   } catch {
     // unreadable — stay silent, diagnostic only
@@ -1859,7 +1888,8 @@ function warnOnHookDivergence(installedPath: string, scriptPath: string): void {
 
 /**
  * Idempotently writes the flow-scoped `claude --settings` file registering the
- * UserPromptSubmit seed-ingested hook by absolute path. Writes ONLY this
+ * UserPromptSubmit seed-ingested hook and the PreToolUse flow-doc read guard
+ * (Bash `sed`/`awk` only) by absolute path. Writes ONLY this
  * flow-owned file — NEVER the user's global ~/.claude/settings.json (the
  * `--settings` flag is additive, so global settings still apply). Skips the
  * write when the on-disk content already matches the desired command AND
@@ -1870,12 +1900,22 @@ function warnOnHookDivergence(installedPath: string, scriptPath: string): void {
 export function ensureLaunchSettings(
   settingsPath: string = FLOW_LAUNCH_SETTINGS_PATH,
 ): void {
+  const guardCommand = resolveDocReadGuardCommand();
   const desired =
     JSON.stringify(
       {
         hooks: {
           UserPromptSubmit: [
             { hooks: [{ type: "command", command: resolveSeedHookCommand() }] },
+          ],
+          PreToolUse: [
+            {
+              matcher: "Bash",
+              hooks: [
+                { type: "command", command: guardCommand, if: "Bash(sed *)" },
+                { type: "command", command: guardCommand, if: "Bash(awk *)" },
+              ],
+            },
           ],
         },
         permissions: {
@@ -1895,10 +1935,20 @@ export function ensureLaunchSettings(
       const parsed = JSON.parse(current) as {
         hooks?: {
           UserPromptSubmit?: Array<{ hooks?: Array<{ command?: string }> }>;
+          PreToolUse?: Array<{ hooks?: Array<{ command?: string }> }>;
         };
       };
       const recorded = parsed.hooks?.UserPromptSubmit?.[0]?.hooks?.[0]?.command;
-      if (recorded && fs.existsSync(recorded)) return;
+      const guards = (parsed.hooks?.PreToolUse ?? []).flatMap((entry) =>
+        (entry.hooks ?? []).map((h) => h.command),
+      );
+      if (
+        recorded &&
+        fs.existsSync(recorded) &&
+        guards.length > 0 &&
+        guards.every((c) => c && fs.existsSync(c))
+      )
+        return;
     }
   } catch {
     // absent / unreadable / malformed — fall through to write

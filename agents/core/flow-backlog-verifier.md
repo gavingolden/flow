@@ -56,6 +56,7 @@ Invariants:
   artifact-file contract for this agent — the parent session consumes your
   return directly), then summarize both what you confirmed and what you
   could not verify.
+- **Read flow's own docs with the Read tool** — never `awk` or pattern-range `sed` on flow skill paths; Claude Code can flag it as a protected-file edit and stall the run.
 
 This definition deliberately omits `model:` and `effort:` from its
 frontmatter: verification is a judgment role, so its effort scales with the

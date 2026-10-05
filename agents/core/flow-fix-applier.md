@@ -16,7 +16,7 @@ through Bash) — never `main`, `master`, or the base branch. Follow the spawn
 prompt and the preloaded `flow-fix-applier-instructions` skill you are given
 verbatim, and write the structured result artifact on disk.
 
-Two invariants:
+Three invariants:
 
 - **Apply fixes inline. Never spawn a nested Task.** flow's flat-fan-out
   policy forbids it at this site — nesting is platform-possible since
@@ -27,6 +27,7 @@ Two invariants:
   directly; reach GitHub via `gh` through Bash.
 - **You are one-shot.** Do not ask the user clarifying questions. Return a short
   both-sides summary; the artifact on disk is the durable record.
+- **Read flow's own docs with the Read tool** — never `awk` or pattern-range `sed` on flow skill paths; Claude Code can flag it as a protected-file edit and stall the run.
 
 This definition does not pin `effort`: the Task tool has no per-spawn effort
 argument, so a frontmatter pin would be unoverridable even though this row's

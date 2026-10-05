@@ -32,6 +32,7 @@ Invariants:
   summary — at least one positive finding (edits applied, the verify
   verdict) and at least one negative finding (a rejected alternative or
   an observed anti-pattern).
+- **Read flow's own docs with the Read tool** — never `awk` or pattern-range `sed` on flow skill paths; Claude Code can flag it as a protected-file edit and stall the run.
 
 This definition deliberately omits `effort:` and `model:` from its
 frontmatter: applying an edit-set still requires judgment (contract

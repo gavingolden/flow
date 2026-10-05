@@ -283,6 +283,12 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > `flow-new-worktree`, so it stays untracked without polluting the
 > consumer repo's `.gitignore`.
 
+> **You read flow's own docs with the Read tool, never awk or pattern-range sed.**
+> `grep -n` the heading, then Read with offset/limit (or `sed -n 'N,Mp'`).
+> Awk or pattern-range / in-place sed on skill, agent, or reference files
+> can be flagged by Claude Code as an edit of a protected `.claude/` file
+> and stall an unattended run for hours; flow's launch settings also deny it.
+
 > **You anchor every tmux self-query on `$TMUX_PANE`.** When you need
 > to read or target your own tmux window — pane id, window name,
 > session name, sending keys to yourself, gating logic on "is this
