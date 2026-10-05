@@ -235,7 +235,14 @@ every other key above — in one view.
 
 Each `/flow-pr-review` run appends one JSON line to
 `~/.flow/telemetry/review-lenses.jsonl` (per-lens tokens/findings,
-jq-readable, no rotation in v1) — see `flow-review-telemetry`.
+jq-readable, no rotation in v1) — see `flow-review-telemetry`. Rows from
+version 3 (PR #896) take each lens's tokens from its transcript with a
+per-class breakdown and count each message's final output; older rows used a
+different unit and must not be summed with them. The change is a documented
+break in spend history. At the audit's price table, counting final output
+moves all transcripts since 2026-09-04 from $8,692 to $9,131 (+5.0%) and lens
+runs from $789.52 to $930.09 (+17.8%): $140.57, 15.1% of the actual lens
+dollars, was missing.
 
 Separately, a handful of helpers append one JSON line per event to
 `~/.flow/telemetry/events.jsonl` (`bin/lib/telemetry.ts`'s `recordEvent`),

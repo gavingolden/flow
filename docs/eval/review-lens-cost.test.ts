@@ -44,6 +44,48 @@ describe("statsFromJsonl", () => {
   });
 });
 
+describe("statsFromJsonl last-occurrence rule", () => {
+  const withOutput = (output: number, id = "m1") =>
+    JSON.stringify({
+      type: "assistant",
+      message: {
+        id,
+        model: "claude-opus-4-7",
+        content: [],
+        usage: { input_tokens: 1_000_000, output_tokens: output },
+      },
+    });
+  const outPrices = {
+    "claude-opus-4-7": {
+      friendlyName: "Opus",
+      input: 10,
+      cacheCreation: 0,
+      cacheRead: 0,
+      output: 1_000_000,
+    },
+  };
+
+  it("uses the last line's output (3 then 333 => 333, counted once)", () => {
+    const s = statsFromJsonl(
+      [withOutput(3), withOutput(333)].join("\n"),
+      outPrices,
+    );
+    expect(s.turns).toBe(1);
+    expect(s.output).toBe(333);
+    expect(s.dollars).toBeCloseTo(10 + 333, 6);
+  });
+
+  it("keeps the earlier usage when the last line of a message has none", () => {
+    const noUsage = JSON.stringify({
+      type: "assistant",
+      message: { id: "m1", model: "claude-opus-4-7", content: [] },
+    });
+    const s = statsFromJsonl([withOutput(3), noUsage].join("\n"), outPrices);
+    expect(s.turns).toBe(1);
+    expect(s.output).toBe(3);
+  });
+});
+
 describe("priceFor", () => {
   it("falls back to the model family's priced entry", () => {
     expect(priceFor("claude-opus-5", prices)).toBe(prices["claude-opus-4-7"]);

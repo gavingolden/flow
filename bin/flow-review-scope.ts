@@ -572,9 +572,15 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     staticAnalysisHits,
   });
 
+  const outPath =
+    parsed.out ?? path.join(worktree, ".flow-tmp", "review-scope.json");
+
   const scope: ReviewScope = {
     version: 1,
-    started_at: deps.now().toISOString(),
+    started_at:
+      (parsed.forceFull
+        ? widenedStartedAt(deps.readFile(outPath), headSha)
+        : null) ?? deps.now().toISOString(),
     scope: resolved.scope,
     reason: resolved.reason,
     base_sha: resolved.base_sha,
@@ -621,8 +627,6 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     }
   }
 
-  const outPath =
-    parsed.out ?? path.join(worktree, ".flow-tmp", "review-scope.json");
   atomicWrite(deps, outPath, JSON.stringify(scope));
 
   // Under --json stdout is reserved for the envelope so callers can pipe it
@@ -633,6 +637,31 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
   if (parsed.json) process.stdout.write(`${JSON.stringify(scope)}\n`);
 
   return 0;
+}
+
+// A widen re-pass (`--force-full`) follows a same-head delta pass in one
+// review; keeping that pass's started_at keeps both passes' lens transcripts
+// inside the telemetry attribution window. A full prior scope, another head,
+// or an unreadable file means an unrelated review: start a fresh window.
+function widenedStartedAt(
+  existing: string | null,
+  headSha: string,
+): string | null {
+  if (!existing) return null;
+  try {
+    const prior = JSON.parse(existing) as Partial<ReviewScope>;
+    if (
+      prior.head_sha === headSha &&
+      prior.scope === "delta" &&
+      typeof prior.started_at === "string" &&
+      !Number.isNaN(Date.parse(prior.started_at))
+    ) {
+      return prior.started_at;
+    }
+  } catch {
+    // malformed prior file — fall through to a fresh window
+  }
+  return null;
 }
 
 const defaultGh: GhRunner = (args) => {

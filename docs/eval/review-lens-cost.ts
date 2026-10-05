@@ -7,8 +7,9 @@
  *
  * Each review-lens subagent transcript (subagents/*.meta.json agentType
  * `flow-review-<lens>`) is one run. Claude Code writes one JSONL line per
- * content block of a message, so usage is counted once per `message.id`
- * (first occurrence wins) while tool calls are counted across every line.
+ * content block of a message and only the last line carries its final
+ * output_tokens, so usage is counted once per `message.id` (last occurrence
+ * wins) while tool calls are counted across every line.
  * Cells are per-run means. Dollars use MODEL_PRICING, falling back to the
  * model family's priced entry; `--model-prices` overrides with a JSON map
  * { "<model>": { input, cacheCreation, cacheRead, output } } in $/MTok.
@@ -17,6 +18,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ALL_LENS_NAMES } from "../../bin/lib/agent-finding-schema";
+import { recordLastLine } from "../../bin/lib/cost";
 import { MODEL_PRICING, type ModelPricing } from "../../bin/lib/cost-pricing";
 import { lensFromMeta } from "../../bin/lib/review-telemetry";
 
@@ -57,7 +59,7 @@ export function statsFromJsonl(raw: string, prices: Prices): RunStats {
     output: 0,
     dollars: 0,
   };
-  const seen = new Set<string>();
+  const messages = new Map<string, { usage: any; model: string }>();
   for (const line of raw.split("\n")) {
     if (!line) continue;
     let e: any;
@@ -76,20 +78,22 @@ export function statsFromJsonl(raw: string, prices: Prices): RunStats {
           s.files.add(c.input.file_path);
       } else if (c.name === "Grep") s.greps++;
     }
-    const id = e.message.id;
-    if (typeof id === "string" && id) {
-      if (seen.has(id)) continue;
-      seen.add(id);
+    if (e.message.usage) {
+      recordLastLine(messages, e.message.id, {
+        usage: e.message.usage,
+        model: String(e.message.model ?? ""),
+      });
     }
+  }
+  for (const { usage: u, model } of messages.values()) {
     s.turns++;
-    const u = e.message.usage ?? {};
     const cw = n(u.cache_creation_input_tokens);
     const cr = n(u.cache_read_input_tokens);
     const out = n(u.output_tokens);
     s.cacheWrite += cw;
     s.cacheRead += cr;
     s.output += out;
-    const p = priceFor(String(e.message.model ?? ""), prices);
+    const p = priceFor(model, prices);
     if (p) {
       s.dollars +=
         (n(u.input_tokens) * p.input +

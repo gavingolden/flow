@@ -434,10 +434,10 @@ export function renderLenses(
 
   let ranCount = 0;
   let totalCount = 0;
-  // Partitioned by tokens_source: a task-notification total and a
-  // subagent-transcript total are two INCOMPATIBLE accountings (one is a
-  // real usage figure, the other a transcript-derived estimate) and must
-  // never be added together into one number.
+  // Partitioned by tokens_source: a task-notification total (the lens's
+  // final context size) and a subagent-transcript total (cumulative usage
+  // over every turn) are two INCOMPATIBLE accountings and must never be
+  // added together into one number.
   const tokenTotalsBySource: Record<string, number> = {};
   let anyTokens = false;
   for (const [lens, l] of Object.entries(lenses)) {

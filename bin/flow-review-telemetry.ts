@@ -13,6 +13,10 @@
  *     [--append] [--jsonl <path>] [--widened <reason>]
  *   flow-review-telemetry print --in <path>
  *
+ * `--lens-tokens` is each Task notification's `subagent_tokens`: the lens's
+ * final context size, recorded as `context_tokens`. A lens's token total
+ * always comes from its subagent transcript.
+ *
  * Exit codes: 0 graceful (including every degraded-artifact case), 2 bad args.
  */
 
@@ -27,6 +31,7 @@ import {
   parseLensModels,
   parseLensTokens,
   type ReviewTelemetry,
+  type TokenUsage,
 } from "./lib/review-telemetry";
 import {
   ALL_LENS_NAMES,
@@ -299,10 +304,8 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
 
   const sessionId = args.sessionId ?? deps.env.CLAUDE_CODE_SESSION_ID ?? null;
 
-  let transcripts: Record<
-    string,
-    { usage: { total: number }; model: string | null }
-  > = {};
+  let transcripts: Record<string, { usage: TokenUsage; model: string | null }> =
+    {};
   if (sessionId) {
     const subagentsDir = findSubagentsDir(sessionId);
     if (subagentsDir) {
