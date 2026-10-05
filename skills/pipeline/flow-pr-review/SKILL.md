@@ -1012,25 +1012,12 @@ or `[ "$(jq -r '.field' X)" = "Y" ]` assertion, promote it to runnable per
 not-runnable. Open-ended LLM rewriting of arbitrary manual prose is out of
 scope — the bar is a literal one-line shell command, not interpretation.
 
-For each runnable item:
+Run `flow-run-test-steps --pr <number> --worktree "$WORKTREE"` (Bash `timeout: 600000`; default `--budget-sec 540`). It executes every unchecked `command`-kind item in `## Test Steps` exactly as written, ticks passes, attaches evidence (8c.i) and pushes the repaired body once; its envelope is `{total, uncheckedTotal, ran, passed, failed[], pending[], notRunnable[], bodyPushed, pushSkippedReason}`. A non-zero exit is data: investigate and fix the underlying issue, not explain it away.
 
-1. Execute it exactly as written, capturing both stdout and stderr to a file.
-   Run the item with no pipe and capture `$?` directly, so the recorded
-   exit status is shell-agnostic — a piped `tee` capture would leave the
-   exit code in a bash-only pipeline array that is empty under a zsh
-   outer shell, silently ticking the box on a failing item:
-
-   ```bash
-   bash -c 'cmd' > .flow-tmp/evidence-<n>.txt 2>&1
-   echo "$?" > .flow-tmp/exit-<n>
-   ```
-
-   Same discipline as Step 8 — a non-zero exit means investigate and fix the
-   underlying issue, not explain it away.
-2. If a fix is needed, make a **new commit** (do not amend the pushed commit per
-   `AGENTS.md`) and `git push` before re-running.
-3. On pass, the box gets ticked AND the captured output gets injected as a
-   `<details>` evidence block immediately under the item — see the next sub-step.
+- Each `failed` entry: make a **new commit** (do not amend the pushed commit per `AGENTS.md`), `git push`, then re-run with `--only <indices>`.
+- `pending` (budget spent): call again with `--only <indices>`.
+- `notRunnable` and items under legacy headings: handle per 8c.ii / 8c.iii, or by hand with `flow-inject-evidence` (8c.i).
+- `bodyPushed: false` with `pushSkippedReason` — `local-image-refs-deferred-to-finalize` leaves the ticked `.flow-tmp/body.md` for Step 12's `flow-review-finalize`; `md-validate-failed` leaves the pre-edit body, so repair it by hand.
 
 ### 8c.ii. Prose-to-runnable promotion (mechanical-obviousness only)
 
@@ -1178,44 +1165,7 @@ judgment stays in the wrapper, reading the artifact.
 
 ### 8c.i. Inject evidence under each runnable item
 
-Use `flow-inject-evidence` (installed by `flow install` and on PATH) to perform
-both the box-tick and the evidence injection in one idempotent edit. Save the
-PR body to scratch first so all items can be applied to the same working copy:
-
-```bash
-mkdir -p .flow-tmp
-gh pr view <number> --json body --jq '.body' > .flow-tmp/body.md
-
-# For each runnable item, after running it:
-flow-inject-evidence \
-  --body-file .flow-tmp/body.md \
-  --item '<regex matching the item line>' \
-  --output-file .flow-tmp/evidence-<n>.txt \
-  --exit-code "$(cat .flow-tmp/exit-<n>)"
-```
-
-The helper:
-
-- Finds the first body line matching `--item` (a JS regex tested per-line).
-- On exit code 0: ticks `- [ ]` → `- [x]`.
-- On any exit code: inserts a `<details><!-- flow:evidence --><summary>Output
-  (auto-captured <ts>; pass|FAILED exit N)</summary>...` block on the line below.
-- On re-run: replaces the existing `<details>` block in place via the
-  `<!-- flow:evidence -->` marker. Idempotent — running twice yields the same
-  body.
-- Trims output > 150 lines to head 100 + tail 50 with a count marker, so the
-  PR body stays under GitHub's 65,536-char limit.
-
-After every runnable item has been processed, write the body back in a single
-edit:
-
-```bash
-flow-md-validate --fix-pr-body .flow-tmp/body.md && gh pr edit <number> --body-file .flow-tmp/body.md
-```
-
-Apply the no-hard-wrap and preserve-existing-wrapping rules from 11e — the
-helper only edits the matched item line and the immediately-following block.
-Everything else in the body is preserved byte-for-byte.
+`flow-run-test-steps` writes `.flow-tmp/body.md`, `.flow-tmp/evidence-<n>.txt` and `.flow-tmp/exit-<n>`, ticks each passing item, injects the `<details><!-- flow:evidence -->` block under every item it ran, and pushes the repaired body once. For items it does not cover (8c.ii promotions, 8c.iii browser ticks, legacy headings), hand-run `flow-inject-evidence --body-file .flow-tmp/body.md --item '<regex>' --output-file .flow-tmp/evidence-<n>.txt --exit-code "$(cat .flow-tmp/exit-<n>)"` (`--item` is a JS regex; the same engine, idempotent on the marker) and let Step 12's `flow-review-finalize` push the body.
 
 The `<!-- flow:evidence -->` marker is **not** stripped by the auto-merge
 gate. The gate counts unchecked `- [ ]` items only; injected evidence sits
@@ -1693,8 +1643,8 @@ Automation-precedence audit: ran N/M items (X prose-promoted, Y left manual: <re
 
 Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X, Y) and the per-unticked-item rubric categories; the `flow-review-finalize` call above forwards them to `flow-classify-step --ran $N --total $M --prose-promoted $X --reason ...` internally and folds its stdout into the result artifact's `summary` field — read that field back (see above) and append it to the report under "Test Steps (from PR description)". Allowed `--reason` slugs (kebab-case form of the categories in references/manual-test-rubric.md, plus `credentials-unavailable` for a login blocked by a credential-denial per [references/ui-validation-evidence.md](references/ui-validation-evidence.md)): `subjective-UX`, `production-only`, `cross-browser`, `performance-under-realistic-load`, `cost-prohibitive-infra`, `browser-unavailable`, `credentials-unavailable`. The bullet list below remains the contract documentation; `bin/flow-classify-step.test.ts` pins the format on the helper side so the two cannot drift silently.
 
-- `M` is the total `- [ ]` item count in the section.
-- `N` is the number ticked by 8c (author-runnable + prose-promoted via 8c.ii).
+- `M` is the total `- [ ]` item count in the section (the envelope's `uncheckedTotal`).
+- `N` is the number ticked by 8c: the envelope's `passed` + prose-promoted via 8c.ii + 8c.iii browser ticks.
 - `X` is the subset of `N` that came from 8c.ii prose promotion.
 - `Y` is `M − N` — items left unticked. `<reasons>` is a comma-separated list of
   the manual-test-rubric categories that applied (`subjective UX`,
