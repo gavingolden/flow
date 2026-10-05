@@ -256,6 +256,74 @@ function exactPermutationP(
   return count / splits.length;
 }
 
+// Resolved model id of a review cell: the dominant non-haiku `modelUsage`
+// key of runs/<cell>.json. The `.envelope.json` echoes the CLI alias
+// (`fable`/`opus`), so only these dated canonical ids prove which model ran;
+// the auxiliary haiku id is ignored.
+function resolvedModelId(modelUsage: unknown): string | null {
+  if (typeof modelUsage !== "object" || modelUsage === null) return null;
+  let best: string | null = null;
+  let bestWeight = -Infinity;
+  for (const [id, raw] of Object.entries(modelUsage)) {
+    if (id.toLowerCase().includes("haiku")) continue;
+    const u = (raw ?? {}) as Record<string, unknown>;
+    const weight =
+      numOrNull(u.costUSD) ??
+      (numOrNull(u.inputTokens) ?? 0) + (numOrNull(u.outputTokens) ?? 0);
+    if (weight > bestWeight) {
+      best = id;
+      bestWeight = weight;
+    }
+  }
+  return best;
+}
+
+// Per-PR recall spread and a one-sided exact permutation test for any two
+// judged arms other than the committed pair. Baseline is opus when present,
+// else the alphabetically first arm; p tests "candidate exceeds baseline".
+// Keyed by lens like the committed path — pooling lenses would both confound
+// recall levels and blow up the C(n,k) split count.
+function twoArmSeparation(cells: CellStat[]) {
+  const names = [...new Set(cells.map((c) => c.arm))].sort();
+  if (names.length !== 2) return null;
+  const baseline = names.includes("opus") ? "opus" : names[0]!;
+  const candidate = names.find((n) => n !== baseline)!;
+  const perPr: Record<string, Record<string, Record<string, unknown>>> = {};
+  const separation: Record<string, unknown> = {};
+  for (const lens of [...new Set(cells.map((c) => c.lens))].sort()) {
+    const recalls: Record<string, number[]> = {};
+    for (const arm of names) {
+      const mine = cells.filter((c) => c.lens === lens && c.arm === arm);
+      recalls[arm] = mine.map((c) => c.recallAll);
+      const prs: Record<string, unknown> = {};
+      for (const pr of [...new Set(mine.map((c) => c.pr))].sort()) {
+        const rs = mine
+          .filter((c) => c.pr === pr)
+          .sort((a, b) => a.run - b.run)
+          .map((c) => c.recallAll);
+        prs[`pr-${pr}`] = {
+          runs: rs.map((x) => round(x, 4)),
+          mean_recall: round(mean(rs), 4),
+          variance: round(pvariance(rs), 6),
+        };
+      }
+      (perPr[arm] ??= {})[lens] = prs;
+    }
+    const b = recalls[baseline]!;
+    const c = recalls[candidate]!;
+    const pooled = Math.sqrt((pstdev(b) ** 2 + pstdev(c) ** 2) / 2);
+    separation[lens] = {
+      baseline,
+      candidate,
+      delta_mean_recall: round(mean(c) - mean(b), 4),
+      pooled_within_arm_sd: round(pooled, 4),
+      exact_permutation_p_one_sided:
+        b.length + c.length <= 24 ? round(exactPermutationP(b, c), 4) : null,
+    };
+  }
+  return { perPr, separation };
+}
+
 function runCommittedAggregate(
   dataDir: string,
   outFile: string | undefined,
@@ -487,6 +555,7 @@ function runArmsAggregate(
 ): number {
   const judgeDir = join(dataDir, "judge");
   const cells: CellStat[] = [];
+  const modelIds = new Map<string, Set<string>>();
   const bad: string[] = [];
   for (const f of readdirSync(judgeDir).sort()) {
     const m = f.match(CELL_FILE);
@@ -514,6 +583,12 @@ function runArmsAggregate(
         ? (JSON.parse(readFileSync(actedPath, "utf8")) as number[])
         : [],
     );
+    const runOut = readJson(join(dataDir, "runs", `${base}.json`));
+    const id = resolvedModelId(runOut?.modelUsage);
+    if (id) {
+      if (!modelIds.has(arm!)) modelIds.set(arm!, new Set());
+      modelIds.get(arm!)!.add(id);
+    }
     const matched = o.matches.filter((x) => x.category);
     const matchedActed = matched.filter((x) => acted.has(x.ref)).length;
     cells.push({
@@ -528,11 +603,24 @@ function runArmsAggregate(
     });
   }
   if (bad.length) console.error(`UNPARSED JUDGES: ${bad.join(", ")}`);
+  const agg = aggregateArms(cells);
+  const two = twoArmSeparation(cells);
+  const arms = Object.fromEntries(
+    Object.entries(agg.arms).map(([name, stats]) => [
+      name,
+      {
+        ...stats,
+        resolved_model_ids: [...(modelIds.get(name) ?? [])].sort(),
+        ...(two ? { per_pr: two.perPr[name] } : {}),
+      },
+    ]),
+  );
   const json = JSON.stringify(
     {
       schema: "flow/review-arms-recall@1",
       measured_at: new Date().toISOString().slice(0, 10),
-      ...aggregateArms(cells),
+      arms,
+      ...(two ? { separation: two.separation } : {}),
     },
     null,
     2,
@@ -586,4 +674,6 @@ export {
   pvariance,
   mean,
   round,
+  resolvedModelId,
+  twoArmSeparation,
 };

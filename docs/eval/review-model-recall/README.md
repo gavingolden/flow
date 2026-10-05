@@ -12,12 +12,12 @@ to re-run the harness itself.
 
 ## Scripts
 
-| Script            | Job                                                                                                                                                                                                                                                                                                 |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `build-prompt.ts` | Assembles one review-lens prompt: the shared context block plus the per-lens section, both extracted live from `skills/pipeline/flow-pr-review/references/agent-prompts.md`, substituted with a PR's metadata/diff.                                                                                 |
-| `build-judge.ts`  | Builds the blinded scoring-judge prompt for one cell — never names which model (sonnet/opus) produced the candidate output, only the lens.                                                                                                                                                          |
-| `score.ts`        | Two subcommands: `extract` (diagnostic — parses each cell's raw result into a findings list, tolerant of prose-only output) and `aggregate` (reads judge outputs, computes per-cell/per-lens-arm recall stats and the separation verdict, in the same JSON shape as `../review-model-recall.json`). |
-| `run.ts`          | Two subcommands: `matrix` (runs every review cell through `flow-claude-headless`) and `judge` (runs every judge cell). Resume-safe (skips a cell whose output file already exists) and bounded-concurrency.                                                                                         |
+| Script            | Job                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build-prompt.ts` | Assembles one review-lens prompt: the shared context block plus the per-lens section, both extracted live from `skills/pipeline/flow-pr-review/references/agent-prompts.md`, substituted with a PR's metadata/diff.                                                                                                                                     |
+| `build-judge.ts`  | Builds the blinded scoring-judge prompt for one cell — never names which model (sonnet/opus) produced the candidate output, only the lens.                                                                                                                                                                                                              |
+| `score.ts`        | Two subcommands: `extract` (diagnostic — parses each cell's raw result into a findings list, tolerant of prose-only output) and `aggregate` (reads judge outputs, computes per-cell/per-lens-arm recall stats and the separation verdict, in the same JSON shape as `../review-model-recall.json`).                                                     |
+| `run.ts`          | Two subcommands: `matrix` (runs every review cell through `flow-claude-headless`) and `judge` (runs every judge cell). Resume-safe (skips a cell only when its output file is a successful `claude -p` result; error and budget-killed cells are retried) and bounded-concurrency. Model arms: `sonnet`, `opus`, `fable` (per-cell cap $6 / $14 / $20). |
 
 All four are directly runnable (`chmod +x`, `#!/usr/bin/env bun`); none
 are symlinked onto PATH.
@@ -64,8 +64,9 @@ review lenses see.
 
 ## Arbitrary arms (lens A/B on real PRs)
 
-The harness is not limited to the sonnet/opus pair. Any arm name that is
-not a model alias runs `--model` (default `opus`) with the prompt file
+The harness is not limited to the sonnet/opus pair. The model-alias arms are
+`sonnet`, `opus` and `fable` (e.g. `--arms fable,opus`; the default stays
+`sonnet,opus`). Any other arm name runs `--model` (default `opus`) with the prompt file
 `prompt-<lens>-<pr>-<arm>.txt` you place in the data dir, so two spawn
 shapes, two prompt variants, or two config settings can be compared on the
 same lenses and PRs:
@@ -92,10 +93,19 @@ empty on flow PRs).
 prints the committed `../review-model-recall.json` shape unchanged. For any
 other arms it prints `arms.<arm>` with `cost_usd {median, mean}`,
 `num_turns {median}`, `duration_ms {median}`, `recall_all` and
-`recall_acted`; deciding what counts as a pass is the experiment's job.
+`recall_acted`, plus `resolved_model_ids` (the dominant non-haiku
+`modelUsage` key of each review cell, since the envelope only echoes the
+alias). When exactly two arms were judged it also emits, per arm, per-PR
+`{runs, mean_recall, variance}` and a per-lens `separation` block
+(`baseline` is `opus` when present, `candidate`, `delta_mean_recall`,
+`pooled_within_arm_sd`, `exact_permutation_p_one_sided` testing that the
+candidate exceeds the baseline); deciding what counts as a pass is the
+experiment's job.
 
 Cost, turns and wall-clock are read from each cell's claude JSON
-(`runs/<cell>.json`), falling back to its `.envelope.json`.
+(`runs/<cell>.json`), falling back to its `.envelope.json`. Re-running
+`matrix` or `judge` retries any cell whose out file is not a successful
+result (`is_error` true, a non-`success` `subtype`, or unparseable).
 
 **Acted proxy.** Resolved-thread state is 0/0 on the committed PRs, so
 `materialize` marks a reference comment acted when its `path` is touched by

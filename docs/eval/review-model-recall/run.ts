@@ -11,12 +11,12 @@
  * trip the parent pipeline's stop guard or overwrite its state.json
  * (see AGENTS.md "FLOW_SLUG leak into nested claude sessions").
  *
- * Both subcommands are resume-safe (a cell whose non-empty output file
+ * Both subcommands are resume-safe (a cell whose successful output file
  * already exists is skipped) and bounded-concurrency — the committed run
  * needed both after an account spend limit killed 10 cells mid-matrix.
  */
 
-import { existsSync, statSync, readdirSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 const LENSES = ["bug-detection", "pattern-consistency", "test-coverage"];
@@ -24,9 +24,10 @@ const PRS = ["812", "756", "802"];
 const ARMS = ["sonnet", "opus"];
 const DEFAULT_RUNS = 2;
 const DEFAULT_MODEL = "opus";
-const MODEL_ARMS = new Set(["sonnet", "opus"]);
+const MODEL_ARMS = new Set(["sonnet", "opus", "fable"]);
 
 const DEFAULT_CONCURRENCY = 6;
+const CELL_BUDGET_USD: Record<string, number> = { fable: 20, opus: 14 };
 
 function usage(): string {
   return [
@@ -37,8 +38,8 @@ function usage(): string {
     "Options:",
     "  --data-dir <dir>     inputs/outputs (default: ./data)",
     "  --concurrency <n>    parallel cells (default: 6)",
-    "  --arms <csv>         arms to run (default: sonnet,opus). sonnet/opus run",
-    "                       that model; any other arm name runs --model",
+    "  --arms <csv>         arms to run (default: sonnet,opus). sonnet/opus/fable",
+    "                       run that model; any other arm name runs --model",
     "  --lenses <csv>       lenses (default: bug-detection,pattern-consistency,test-coverage)",
     "  --prs <csv>          PR numbers (default: 812,756,802)",
     "  --runs <n>           runs per cell (default: 2)",
@@ -46,8 +47,24 @@ function usage(): string {
   ].join("\n");
 }
 
-function nonEmpty(path: string): boolean {
-  return existsSync(path) && statSync(path).size > 0;
+// A cell is done only when its out file is a successful `claude -p` result.
+// A budget/turn/rate-limit kill still writes a non-empty error envelope, and
+// skipping it would let the judge score a failed cell as zero recall.
+export function isCompletedCellOutput(text: string): boolean {
+  let j: unknown;
+  try {
+    j = JSON.parse(text);
+  } catch {
+    return false;
+  }
+  if (typeof j !== "object" || j === null || Array.isArray(j)) return false;
+  const r = j as { is_error?: unknown; subtype?: unknown };
+  if (r.is_error === true) return false;
+  return r.subtype === undefined || r.subtype === "success";
+}
+
+function completed(path: string): boolean {
+  return existsSync(path) && isCompletedCellOutput(readFileSync(path, "utf8"));
 }
 
 function strippedEnv(): Record<string, string> {
@@ -123,7 +140,7 @@ async function runMatrixCell(
     "runs",
     `${L}-${P}-${ARM}-r${R}.envelope.json`,
   );
-  if (nonEmpty(out)) {
+  if (completed(out)) {
     console.log(`skip ${L} ${P} ${ARM} r${R} (exists)`);
     return;
   }
@@ -132,7 +149,7 @@ async function runMatrixCell(
     ? join(dataDir, `prompt-${L}-${P}.txt`)
     : join(dataDir, `prompt-${L}-${P}-${ARM}.txt`);
   const cellModel = MODEL_ARMS.has(ARM) ? ARM : model;
-  const budget = cellModel === "opus" ? 14 : 6;
+  const budget = CELL_BUDGET_USD[cellModel] ?? 6;
   const rc = await spawnCapture(
     [
       "flow-claude-headless",
@@ -167,7 +184,7 @@ async function runJudgeCell(
 ): Promise<void> {
   const { lens: L, pr: P, arm: ARM, run: R } = cell;
   const out = join(dataDir, "judge", `${L}-${P}-${ARM}-r${R}.json`);
-  if (nonEmpty(out)) {
+  if (completed(out)) {
     console.log(`skip ${L} ${P} ${ARM} r${R}`);
     return;
   }
