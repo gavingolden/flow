@@ -8,7 +8,7 @@ quality and time, and which checks must run before any of them ships.
 Over the 30 days ending 2026-09-30, flow's three repos burned about $9,344 of
 list-price tokens across 309 sessions (the dollars are a proxy, not a bill;
 see the gaps section). The verdict count:
-**3 worth it / 7 not worth it / 4 unmeasured / 1 not pursued** (counting rows
+**3 worth it / 8 not worth it / 4 unmeasured / 1 not pursued** (counting rows
 in the ranked table). The reader gets a measured map of where the quota goes plus a
 ranked hypothesis list: a lever is `worth it` only when its named recall check
 has already been run and recorded, and otherwise it stays `unmeasured`, however
@@ -18,7 +18,7 @@ unrun.
 
 Every spend, token, turn and timing figure below is copied from the committed
 baseline ([token-spend-baseline-2026-09.md](eval/token-spend-baseline-2026-09.md)),
-which pastes the audit's output verbatim, except three sets of figures. The
+which pastes the audit's output verbatim, except four sets of figures. The
 cache-lifetime figures come from a second window in
 [cache-lifetime-baseline-2026-10.md](eval/cache-lifetime-baseline-2026-10.md)
 (2026-08-31 to the 2026-10-04 run). The discovery-payload spend, turn and
@@ -27,14 +27,19 @@ payload figures come from
 (2026-09-05 to 2026-10-05). The review-lens effort figures come from a third
 window in
 [review-lens-effort-baseline-2026-10.md](eval/review-lens-effort-baseline-2026-10.md)
-(2026-09-05 to the 2026-10-05 run). Figures marked "derived" are plain division
-or addition over those tables. The recall-check results quoted in the ranked
-table come from four other committed records: the eval-suite arms in
+(2026-09-05 to the 2026-10-05 run). The review-lens cache-prefix figures (the
+$428, $78 and 16,331 in the ranked table) come from
+[lens-cache-prefix-baseline-2026-10.md](eval/lens-cache-prefix-baseline-2026-10.md).
+Figures marked "derived" are plain division or addition over those tables. The
+recall-check results quoted in the ranked table come from five other committed
+records: the eval-suite arms in
 [scaffold-verdicts.md](eval/scaffold-verdicts.md), the Sonnet-vs-Opus study in
 [review-model-recall.md](eval/review-model-recall.md), the Fable-vs-Opus
 bug-detection recall check in
-[fable-vs-opus-subagents.md](eval/fable-vs-opus-subagents.md), and the
-150k-window arms in [review-cost-baseline.md](eval/review-cost-baseline.md).
+[fable-vs-opus-subagents.md](eval/fable-vs-opus-subagents.md), the 150k-window
+arms in [review-cost-baseline.md](eval/review-cost-baseline.md), and the
+review-lens cache-prefix measurement in
+[lens-cache-prefix-baseline-2026-10.md](eval/lens-cache-prefix-baseline-2026-10.md).
 Nothing is estimated.
 
 ## Vendor guidance
@@ -206,6 +211,7 @@ unmeasured levers each name the recall check that would have to run first.
 | Move the main conversation to 5-minute cache writes | not worth it | $1,590 in 1-hour writes, $596 of it the premium over the 5-minute rate (2026-10 window) | 1-hour writes 125.67M; not split by model | 24,539 requests | None expected, since it changes price not behavior. | Slower first turn back after every 5 to 60 minute pause; the vendor page says the first turn after the cache expires "can be noticeably slower". 1,276 main-conversation requests followed such a gap in the window. | Replay of every transcript at a 5-minute lifetime: run? yes; 5 minutes cost $2,571 more at list price ($2,545 by assistant-row send time) | none |
 | Discovery instruction payload | not worth it | $786.20 | opus-5 606.5M, opus-5-5 151.7M, fable-5-1 145.8M, fable-5 11.8M, sonnet-5 6.3M | 5,453 | Unknown, unmeasured; only 14,157 of 55,653 tokens sit in gated sections, 10,014 of them behind gates the sub-agent judges itself | Not measured; loading is a few reads at the start of a 42- to 53-turn Opus run | Plan quality with trimmed instructions on recorded tasks: run? no — a split's ceiling is $0.20 a plan on Opus 5.5 (5.2%), short of the Large refactor and new eval it needs ([record](eval/discovery-payload-2026-10.md)) | #891 (closed, not planned); #818 related |
 | Medium effort pin on the six unpinned review lenses | not worth it | about $634 across the six in the 2026-09-05 to 2026-10-05 window (derived: mean $ times spawns, summed); projected saving about $26 on Opus 5.5 and about $156 on Opus 5 (derived) | opus-5 373.6M, opus-5-5 143.6M, fable-5-1 19.3M (derived: sum of six rows each) | 6,707 (derived) | Not measured as recall. The observational gap, confounded by which tasks ran at which session effort: acted per run 1.31 at high against 0.81 at medium across all lenses ([baseline](eval/review-lens-effort-baseline-2026-10.md)). | Median bug-detection run 3.5 min at high against 2.0 at medium on Opus 5.5 (6.0 against 2.5 on Opus 5). | Medium vs high harness recall: run? no — not run because the projected saving does not cover the risk; production comparison by recorded effort: run? yes | #832 (closed, not planned) |
+| Share one prompt-cache prefix across the review lenses (reorder or stagger the spawns) | not worth it | $428 lens cache writes, of which $78 first-turn; the shareable part is a ~4K tool block (about $13 a month gross, ~$5 net; derived: 97 reviews in the window × $0.136 and × ~$0.05, list-price Opus 5.5 rates) | not split by model; first turn p50 16,331 written per lens | one extra supervisor request per review if staggered | none | +2–5 s before the other spawns start if staggered | Transcript measurement of first-turn cache reads, 97 reviews: run? yes ([results](eval/lens-cache-prefix-baseline-2026-10.md)) | #889 |
 | Cap the session context at 150k (`--autocompact 150k`) | not worth it | not shipped | not measured | turns rose in all five scenarios (for example 6 to 9) | Fidelity held, 5 of 5 | More turns | Phase-write fidelity, two arms: run? yes; cost rose 32.5% to 64.1% | none |
 | Route bug-detection and pattern-consistency lenses to Sonnet | not worth it | $387.06 is the pool on those two lenses | opus-5 311.0M, opus-5-5 45.0M, fable-5-1 26.2M, sonnet-5 7.1M, fable-5 4.2M | 4,106 | Sonnet re-found 0.6% and 0.0% of the reference findings against Opus 4.8% and 6.0% | none | Sonnet vs Opus recall on 3 PRs, 2 runs each: run? yes | none |
 | Remove the checkpoint-pause step | not worth it | not measured | not measured | no change on any metric | Suite score fell from 0.983 to 0.975 | None measured; every cost and context metric read the same | Eval suite with and without the step: run? yes; nothing cut, score fell | none |
@@ -291,6 +297,21 @@ Each closed below with its measured number.
    Revisit if a re-run shows the projected saving above about $300 per 30 days
    (about 4% of spend), or a production-depth recall check shows medium
    matching high on bug-detection and pattern-consistency.
+8. **Share one prompt-cache prefix across the review lenses.** The lenses can
+   share only the tool-definition block (2.6K to 4.6K tokens), because each
+   lens's own definition is its system prompt and differs from its first line.
+   That block is shared only when spawns start seconds apart; since about
+   2026-09-22 they start together, so 202 of 264 first turns read nothing. A
+   spawn-prompt reorder moves nothing into the shared block. Staggering the
+   spawns would save $0.136 a review gross at list price against a ~$0.08 extra
+   supervisor request, about $5 a month net (derived: 97 reviews × ~$0.05, list-price Opus 5.5 rates). Re-check
+   (`bun docs/eval/token-spend-audit.ts --since <date>`, first-turn read
+   columns) if Claude Code adds a Task-tool fan-out hold like its documented
+   5-second workflow hold. Sources:
+   [prompt caching (API)](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+   and [prompt caching (Claude Code)](https://code.claude.com/docs/en/prompt-caching);
+   measurements in
+   [lens-cache-prefix-baseline-2026-10.md](eval/lens-cache-prefix-baseline-2026-10.md).
 
 ## Revised verdicts
 

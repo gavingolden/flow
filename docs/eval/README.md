@@ -51,6 +51,11 @@ The review-lens cost and findings per run, split by recorded reasoning effort,
 behind issue #832's not-planned verdict, is
 [`review-lens-effort-baseline-2026-10.md`](review-lens-effort-baseline-2026-10.md).
 
+[`lens-cache-prefix-baseline-2026-10.md`](lens-cache-prefix-baseline-2026-10.md)
+records the issue #889 check: which part of the review lenses' first-turn
+prompt the cache shares across spawns, and why a prompt reorder cannot
+reach more.
+
 [`fable-vs-opus-subagents.md`](fable-vs-opus-subagents.md) records the
 issue #890 check: bug-detection recall on Fable 5.1 against Opus 5.5 on
 the review-recall harness's three PRs, under a pre-registered verdict rule.
