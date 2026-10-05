@@ -298,9 +298,8 @@ export type SetupOptions = {
    */
   checkDrift?: () => InstallDriftResult;
   /**
-   * Injectable environment for the auto-memory / subagent-cache-TTL install
-   * notices below. Defaults to `process.env`; tests stub
-   * `CLAUDE_CODE_DISABLE_AUTO_MEMORY` / `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL`
+   * Injectable environment for the auto-memory install notice below.
+   * Defaults to `process.env`; tests stub `CLAUDE_CODE_DISABLE_AUTO_MEMORY`
    * without mutating the real process env.
    */
   env?: NodeJS.ProcessEnv;
@@ -334,9 +333,9 @@ export type SetupSummary = {
  * 2.1.260: `1`/`true`/`yes`/`on`, case-insensitive and trimmed, are all
  * truthy — a strict `=== "1"` comparison would silently miss a user who
  * exported `=true`. Module-private: not exported, since the item-5
- * coverage calls `autoMemoryDisabled`/`subagentCacheTtlOverride` directly
- * (both already exported), so this predicate needs no public surface. A
- * future claude version divergence is re-checkable via this comment.
+ * coverage calls `autoMemoryDisabled` directly (already exported), so this
+ * predicate needs no public surface. A future claude version divergence is
+ * re-checkable via this comment.
  */
 function claudeEnvTruthy(value: string | undefined): boolean {
   if (value === undefined) return false;
@@ -365,44 +364,6 @@ export function autoMemoryDisabled(
     return parsed.autoMemoryEnabled === false;
   } catch {
     return false;
-  }
-}
-
-/**
- * Read-only, malformed-tolerant check for a `subagentPromptCacheTtl`
- * override (setting or env var) that would mask flow's per-agent
- * `experimental.cacheTtl: 1h` pins — the prompt-caching precedence list
- * puts this setting ABOVE per-agent `experimental.cacheTtl`. Returns the
- * overriding value's source string for the notice, or `null` when nothing
- * overrides. Same malformed-tolerant contract as `autoMemoryDisabled`.
- */
-export function subagentCacheTtlOverride(
-  settingsPath: string,
-  env: NodeJS.ProcessEnv = process.env,
-): string | null {
-  if (claudeEnvTruthy(env.FORCE_PROMPT_CACHING_5M))
-    return `FORCE_PROMPT_CACHING_5M=${env.FORCE_PROMPT_CACHING_5M}`;
-  if (env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL) {
-    // Deliberately unchanged — plain truthiness, not claudeEnvTruthy().
-    // Claude Code appears to enum-validate this against ["5m","1h"], so a
-    // plain-truthiness read may over-report for a bogus value. Kept
-    // because for a notice-only read, over-reporting is the safe
-    // direction: a wrong notice is cosmetic, a suppressed one hides an
-    // inert feature.
-    return `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=${env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL}`;
-  }
-  try {
-    const raw = fs.readFileSync(settingsPath, "utf8");
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (
-      typeof parsed.subagentPromptCacheTtl === "string" ||
-      typeof parsed.subagentPromptCacheTtl === "number"
-    ) {
-      return `subagentPromptCacheTtl=${parsed.subagentPromptCacheTtl}`;
-    }
-    return null;
-  } catch {
-    return null;
   }
 }
 
@@ -857,18 +818,12 @@ async function runUnderLock(
 
   // Read-only notices — unrelated to the hook merge above, so they must fire
   // regardless of `--no-hooks`. The users most likely to have hand-set
-  // `subagentPromptCacheTtl` or `autoMemoryEnabled: false` are exactly the
-  // `--no-hooks` users who hand-manage settings.json.
+  // `autoMemoryEnabled: false` are exactly the `--no-hooks` users who
+  // hand-manage settings.json.
   const notifyEnv = options.env ?? process.env;
   if (autoMemoryDisabled(settingsPath, notifyEnv)) {
     log(
       "  ! auto memory is disabled — flow-discovery/flow-scout memory: local will be inert (see docs/configuration.md)",
-    );
-  }
-  const cacheTtlOverride = subagentCacheTtlOverride(settingsPath, notifyEnv);
-  if (cacheTtlOverride) {
-    log(
-      `  ! ${cacheTtlOverride} overrides flow's per-agent 1h cache TTL (see docs/configuration.md)`,
     );
   }
 
