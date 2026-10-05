@@ -39,9 +39,13 @@ The token-spend audit, `docs/eval/token-spend-audit.ts`, measures where the
 whole Claude quota goes: spend by repo, model, sub-agent type and in-process
 skill segment, joined to flow's telemetry for per-pipeline cost, latency and
 outcome. Re-run it with `bun docs/eval/token-spend-audit.ts --since <YYYY-MM-DD>`;
-`--self-test` checks its parsing, pricing and join logic against an in-memory
-fixture. The dated before-state it produced is
-[`token-spend-baseline-2026-09.md`](token-spend-baseline-2026-09.md).
+`--self-test` checks its parsing, pricing, cache-lifetime replay and join logic
+against an in-memory fixture. Its last section replays every transcript at a
+5-minute cache lifetime to show what 1-hour cache writes bought. The dated
+before-state it produced is
+[`token-spend-baseline-2026-09.md`](token-spend-baseline-2026-09.md); the
+cache-lifetime measurement is
+[`cache-lifetime-baseline-2026-10.md`](cache-lifetime-baseline-2026-10.md).
 
 `bin/flow-eval.ts` is never installed onto a user's PATH (see
 `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it from a flow

@@ -7,7 +7,7 @@ quality and time, and which checks must run before any of them ships.
 
 Over the 30 days ending 2026-09-30, flow's three repos burned about $9,344 of
 list-price tokens across 309 sessions (the dollars are a proxy, not a bill;
-see the gaps section). The verdict count: **1 worth it / 4 not worth it / 7
+see the gaps section). The verdict count: **2 worth it / 5 not worth it / 6
 unmeasured** (counting rows in the ranked table). The reader gets a measured map of where the quota goes plus a
 ranked hypothesis list: a lever is `worth it` only when its named recall check
 has already been run and recorded, and otherwise it stays `unmeasured`, however
@@ -15,7 +15,10 @@ plausible it sounds.
 
 Every spend, token, turn and timing figure below is copied from the committed
 baseline ([token-spend-baseline-2026-09.md](eval/token-spend-baseline-2026-09.md)),
-which pastes the audit's output verbatim; figures marked "derived" are plain
+which pastes the audit's output verbatim, except the cache-lifetime figures,
+which come from a second window in
+[cache-lifetime-baseline-2026-10.md](eval/cache-lifetime-baseline-2026-10.md)
+(2026-08-31 to the 2026-10-04 run); figures marked "derived" are plain
 division or addition over those tables. The recall-check results quoted in the
 ranked table come from three other committed records: the eval-suite arms in
 [scaffold-verdicts.md](eval/scaffold-verdicts.md), the Sonnet-vs-Opus study in
@@ -94,8 +97,35 @@ caches. Flow reads 14,410.73M cached tokens and writes 371.19M. Of those writes,
 5-minute kind). List-price writes cost $3,432 (about 37% of all spend, derived),
 of which the 1-hour writes are $2,400 and the 5-minute writes $1,032. The 1-hour
 kind is priced at 2x rather than 1.25x, so it adds $900 over what the same
-tokens would have cost at the shorter lifetime. What that $900 bought, in
-avoided re-writes, has not been measured.
+tokens would have cost at the shorter lifetime.
+
+What that premium bought was measured in a later window (2026-08-31 to
+2026-10-05 UTC, the 2026-10 baseline, so its dollars are not comparable to the
+$2,400 and $900 above). The audit replays every transcript as if its cache
+lived five minutes and charges each read that came more than 5 and at most 60
+minutes after the stream's previous request as a re-write. The main conversation
+paid a $596 premium on 125.67M 1-hour-write tokens and avoided $3,167 of
+re-writes, so a five-minute lifetime would have cost $2,571 more at list price
+($2,545 timing the request from the assistant row instead of the preceding user
+row). The four sub-agents flow pins paid a $188 premium (derived: sum of four
+rows) and avoided $68 of re-writes (13.37M tokens re-read within a spawn plus
+0.53M re-read across spawns, derived), so five minutes would have been about
+$121 cheaper, and each of the four was cheaper under both timings. These are
+list-price figures, not subscription plan usage.
+
+**Where the 1-hour lifetime comes from.** On a Claude subscription within plan
+usage, Claude Code requests a one-hour lifetime for the main conversation by
+default; flow sets no override of it. Sub-agents and other requests outside the
+main conversation default to five minutes, so the 1-hour sub-agent writes in
+the window came from flow's per-agent `experimental.cacheTtl: 1h` pins on
+discovery, the consolidator, the fix-applier and the UI driver (a retired
+verify agent also shows 33 requests). The controls, first match wins:
+`FORCE_PROMPT_CACHING_5M=1`; the bucket's environment variable
+(`CLAUDE_CODE_PROMPT_CACHE_TTL` for the main conversation,
+`CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` for everything else); the bucket's
+setting (`promptCacheTtl`, `subagentPromptCacheTtl`); a sub-agent's frontmatter
+`experimental.cacheTtl`; then `ENABLE_PROMPT_CACHING_1H=1`; then the default.
+Source: https://code.claude.com/docs/en/prompt-caching (read 2026-10-04).
 
 ## Spend against outcome and time
 
@@ -148,7 +178,7 @@ comparison.
 ## Ranked levers
 
 Grouped by verdict (unmeasured, worth it, not worth it), then by the spend each
-lever touches within each group, since none has a measured saving yet. "30-day $" is the list-price spend the lever acts on, not the expected
+lever touches within each group, since most have no measured saving yet. "30-day $" is the list-price spend the lever acts on, not the expected
 saving. Raw tokens are in millions across all token classes, by model. The
 unmeasured levers each name the recall check that would have to run first.
 
@@ -156,22 +186,26 @@ unmeasured levers each name the recall check that would have to run first.
 | Lever | Verdict | 30-day $ | Raw tokens by model | Turns | Quality cost | Latency cost | Recall check (name, run?) | Existing issue |
 |---|---|---|---|---|---|---|---|---|
 | Fewer supervisor turns per phase, led by the review phase | unmeasured | $5,975 supervisor, of which review $1,914 | opus-5 5,741.0M, fable-5-1 1,764.5M, opus-5-5 438.3M, fable-5 130.6M, sonnet-5 66.1M, haiku-4-5-20251001 0.3M | 28,022 | Unknown. The worry is the supervisor losing its place in the gate and merge rules when its context is trimmed. | Fewer turns should also be faster; not measured. | Phase-write fidelity eval on the post-change flow: run? no | #835 |
-| Cache lifetime choice (1-hour vs 5-minute writes) | unmeasured | $2,400 in 1-hour writes; $900 of it is the premium over the 5-minute rate | 1-hour writes 202.07M; 5-minute writes 169.12M | all 83,021 | None expected, since it changes price not behavior. | None per the vendor, who says both lifetimes behave the same for latency. | Count how many 1-hour writes were reused after more than five minutes: run? no | none |
 | Effort pins on the Opus judgment sub-agents (lenses, consolidator, scout, discovery) | unmeasured | $1,489.68 on Opus 5 and 5.5 | opus-5 1,498.9M, opus-5-5 283.9M | 17,945 | Unknown. The vendor says "some capability reduction"; its sweeps were not reproduced here. | Fewer tool calls per task, so faster. | Medium vs high effort recall on the review lenses: run? no (the existing model study held effort at medium in both arms, so it is silent on effort) | #832 |
 | Edit-applier and fix-applier turn counts | unmeasured | $1,046.50 ($738.96 plus $307.54) | edit-applier: sonnet-5 2,797.8M, sonnet-5-5 60.2M, fable-5-1 42.2M, opus-5 39.9M; fix-applier: sonnet-5 1,100.9M, sonnet-5-5 18.8M, fable-5-1 10.9M, opus-5 8.5M | 29,130 | Unknown. Fewer turns could mean less verifying of its own edits. | Fewer turns is faster. | Re-run recorded edit-sets with a smaller turn budget and compare verify outcomes: run? no | none |
 | Discovery instruction payload | unmeasured | $786.20 | opus-5 606.5M, opus-5-5 151.7M, fable-5-1 145.8M, fable-5 11.8M, sonnet-5 6.3M | 5,453 | Unknown. Trimming instructions risks weaker plans. | Smaller starts load faster; not measured. | Plan quality with trimmed instructions on recorded tasks: run? no | #818 (related: the fixed start-up cost every sub-agent pays) |
 | Sub-agents inheriting the Fable session model | unmeasured | $666.39 across 3,379 sub-agent turns | fable-5-1 365.7M, fable-5 25.8M | 3,379 | Unknown. Fable may find more than Opus on hard reviews. | Unknown. | Re-run recorded discovery and bug-detection tasks pinned to Opus vs inherited and compare findings: run? no | none |
 | Low-yield review lenses (performance, supply-chain, security) | unmeasured | $276.22 ($104.32, $54.80, $117.10) | performance: opus-5 62.6M, fable-5-1 7.5M, opus-5-5 5.0M, fable-5 1.5M, sonnet-5 0.4M; supply-chain: opus-5 33.9M, fable-5-1 3.4M, opus-5-5 2.7M, fable-5 1.2M; security: opus-5 75.8M, fable-5-1 8.4M, opus-5-5 7.7M, fable-5 1.7M, sonnet-5 0.8M | 3,239 | Findings lost. They acted on 17, 5 and 40 findings respectively, against 162 for pattern-consistency; security findings can be rare and serious. | Fewer agents in flight. | Does another lens catch what a dropped lens caught? run? no (the existing recall study excluded these three for having too few acted findings) | none |
+| Drop flow's 1-hour pin on 4 sub-agents (discovery, consolidator, fix-applier, UI driver) | worth it at list price; plan-usage effect unknown | $503 in 1-hour writes, $188 of it the premium over the 5-minute rate (2026-10 window; derived: sum of four rows) | 1-hour writes 54.23M (derived: sum of four rows); not split by model | 17,518 requests (derived) | None expected, since it changes price not behavior. | Slower first turn back after a 5 to 60 minute pause; the vendor page says it "can be noticeably slower". 86 sub-agent requests followed such a gap inside a spawn (derived: sum of four rows), and cross-spawn first requests re-read 0.53M more tokens after one (the audit prints no request count for those). | Replay of every transcript at a 5-minute lifetime: run? yes; about $121 cheaper over the window, and each of the four cheaper under both send-time readings (the fix-applier by only $3.01 and $2.07) | none |
 | Keep triage in the main session instead of a cheap-model gatekeeper (already shipped) | worth it | $1.44, what the retired agent still shows in the window | haiku-4-5-20251001 4.4M | 171 | None measured: suite score 0.917 before and after; one scenario already failing with or without the agent. | None measured. | Gate-score and cost comparison on the eval suite: run? yes, cost fell 29% (27% with a Sonnet parent) | none |
+| Move the main conversation to 5-minute cache writes | not worth it | $1,590 in 1-hour writes, $596 of it the premium over the 5-minute rate (2026-10 window) | 1-hour writes 125.67M; not split by model | 24,539 requests | None expected, since it changes price not behavior. | Slower first turn back after every 5 to 60 minute pause; the vendor page says the first turn after the cache expires "can be noticeably slower". 1,276 main-conversation requests followed such a gap in the window. | Replay of every transcript at a 5-minute lifetime: run? yes; 5 minutes cost $2,571 more at list price ($2,545 by assistant-row send time) | none |
 | Cap the session context at 150k (`--autocompact 150k`) | not worth it | not shipped | not measured | turns rose in all five scenarios (for example 6 to 9) | Fidelity held, 5 of 5 | More turns | Phase-write fidelity, two arms: run? yes; cost rose 32.5% to 64.1% | none |
 | Route bug-detection and pattern-consistency lenses to Sonnet | not worth it | $387.06 is the pool on those two lenses | opus-5 311.0M, opus-5-5 45.0M, fable-5-1 26.2M, sonnet-5 7.1M, fable-5 4.2M | 4,106 | Sonnet re-found 0.6% and 0.0% of the reference findings against Opus 4.8% and 6.0% | none | Sonnet vs Opus recall on 3 PRs, 2 runs each: run? yes | none |
 | Remove the checkpoint-pause step | not worth it | not measured | not measured | no change on any metric | Suite score fell from 0.983 to 0.975 | None measured; every cost and context metric read the same | Eval suite with and without the step: run? yes; nothing cut, score fell | none |
 | Isolate the verify loop in its own sub-agent | not worth it | $5.02, what the retired agent still shows | sonnet-5 9.0M | 173 | none | Removing it made the loop slightly faster, not slower | Eval A/B with and without: run? yes; cost +0.3% and +0.6% when removed | none |
 
 Reading the table: the top three rows are where the money is and all three are
-still hypotheses. The one lever with a recorded recall check that clears the
-bar (the gatekeeper) is also the smallest, because it has already shipped and
-what remains in the window is pre-removal residue.
+still hypotheses. Two levers have a recorded check that clears the bar. The
+gatekeeper is the smallest, because it has already shipped and what remains in
+the window is pre-removal residue. The sub-agent pin drop is worth it at list
+price only: the saving is about $121 over the window, and the vendor publishes
+no weighting of 1-hour writes against subscription plan usage, so its effect
+on plan usage is unknown.
 
 ## Not worth it
 
@@ -199,6 +233,16 @@ Each closed below with its measured number.
 4. **Remove the checkpoint-pause step.** Removing it cut nothing measurable
    (every cost and context metric read the same) and lowered the suite score
    from 0.983 to 0.975, so it stayed.
+5. **Move the main conversation to 5-minute cache writes.** In the 2026-10
+   baseline window the main conversation paid a $596 premium on 125.67M
+   1-hour-write tokens and avoided $3,167 of re-writes, so five minutes would
+   have cost $2,571 more at list price ($2,545 by assistant-row send time):
+   1,276 requests re-read 399.27M tokens after a 5 to 60 minute pause that a
+   five-minute cache would have lost. The main conversation keeps Claude
+   Code's 1-hour default. The replay credits every such read to the 1-hour
+   lifetime even when a parallel session in the same directory would have
+   refreshed the prefix sooner, so the $3,167 is an upper bound, though it
+   would need to be overstated about fivefold to flip the verdict.
 
 ## Revised verdicts
 
@@ -239,7 +283,15 @@ Each closed below with its measured number.
   when the quota runs out. Report raw tokens by model alongside them, as the
   table above does. The cache-read discounts also differ per model (Opus 5.5
   and Fable 5.1 are cheaper than the standard rate), which list price models
-  but the quota may not.
+  but the quota may not. The same holds for cache lifetime: the prompt-caching
+  page (read 2026-10-04) says 1-hour writes bill at a higher rate but publishes
+  no plan-usage weighting for them, so the sub-agent pin-drop saving is a
+  list-price saving only.
+- **Cross-session cache reads.** The cache-lifetime replay looks only inside one
+  transcript stream (plus same-type sub-agent spawns in the same directory), so
+  a read served by a parallel session's fresher write is credited to the 1-hour
+  lifetime. That overstates what the 1-hour lifetime bought, most of all for the
+  main conversation.
 - **The mid-window review change.** The review phase changed on 2026-09-09
   (#829) and 2026-09-10 (#830), inside this window, so the review-phase rows mix
   before and after. A window starting 2026-09-10 would give a clean read and
