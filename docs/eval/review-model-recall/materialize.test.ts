@@ -4,7 +4,26 @@ import {
   DEFAULT_MAX_LINES,
   DEFAULT_MAX_TOTAL,
 } from "../../../bin/flow-pr-diff";
-import { actedIndices, isFixApplierSubject } from "./materialize";
+import {
+  actedIndices,
+  isFixApplierSubject,
+  isReviewFinding,
+} from "./materialize";
+
+describe("reference set", () => {
+  it("keeps labelled review findings, including praise and decorated labels", () => {
+    expect(isReviewFinding("**issue:** off by one")).toBe(true);
+    expect(isReviewFinding("**praise:** clean")).toBe(true);
+    expect(isReviewFinding("**suggestion (non-blocking):** rename")).toBe(true);
+  });
+
+  it("drops author-intent annotations and unlabelled bot or human remarks", () => {
+    expect(isReviewFinding("**why:** mirrors the helper")).toBe(false);
+    expect(isReviewFinding("This retry contradicts the stale check")).toBe(
+      false,
+    );
+  });
+});
 
 describe("production diff cap", () => {
   it("the production capDiff that materialize uses caps per file and in total", () => {
