@@ -655,7 +655,7 @@ function run(argv: string[]) {
   const byAgent: Record<string, Usage> = {};
   const bySeg: Record<string, Usage> = {};
   const byAgentModel: Record<string, Usage> = {};
-  const firstTurn: Record<string, number[]> = {};
+  const firstTurn: Record<string, { w: number[]; r: number[] }> = {};
   const spawnRecs: SpawnRec[] = [];
   const sessions: { sid: string; repo: string; usage: Usage }[] = [];
   let worktreeSessions = 0;
@@ -814,7 +814,9 @@ function run(argv: string[]) {
               if (isFirst) {
                 subCwd = t.cwd || cwd || "";
                 const c = classes(t.usage);
-                (firstTurn[type] ||= []).push(c.w5 + c.w1);
+                const ft = (firstTurn[type] ||= { w: [], r: [] });
+                ft.w.push(c.w5 + c.w1);
+                ft.r.push(c.read);
               }
             },
             [],
@@ -1016,14 +1018,23 @@ function run(argv: string[]) {
 
   console.log("## First-turn cache-write per sub-agent type\n");
   table(
-    ["sub-agent type", "transcripts", "median tokens", "mean tokens"],
+    [
+      "sub-agent type",
+      "transcripts",
+      "median tokens",
+      "mean tokens",
+      "median read tokens",
+      "zero-read first turns",
+    ],
     Object.entries(firstTurn)
-      .sort((a, b) => pct(b[1], 0.5) - pct(a[1], 0.5))
-      .map(([k, xs]) => [
+      .sort((a, b) => pct(b[1].w, 0.5) - pct(a[1].w, 0.5))
+      .map(([k, { w, r }]) => [
         k,
-        xs.length,
-        Math.round(pct(xs, 0.5)),
-        Math.round(mean(xs)),
+        w.length,
+        Math.round(pct(w, 0.5)),
+        Math.round(mean(w)),
+        Math.round(pct(r, 0.5)),
+        r.filter((x) => x === 0).length,
       ]),
   );
 
