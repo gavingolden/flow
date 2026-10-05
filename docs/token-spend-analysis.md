@@ -12,24 +12,27 @@ see the gaps section). The verdict count:
 in the ranked table). The reader gets a measured map of where the quota goes plus a
 ranked hypothesis list: a lever is `worth it` only when its named recall check
 has already been run and recorded, and otherwise it stays `unmeasured`, however
-plausible it sounds.
+plausible it sounds, unless the most the lever could save, measured, is too
+small to pay for the check, in which case it is `not worth it` with the check
+unrun.
 
 Every spend, token, turn and timing figure below is copied from the committed
 baseline ([token-spend-baseline-2026-09.md](eval/token-spend-baseline-2026-09.md)),
-which pastes the audit's output verbatim, except the cache-lifetime figures,
-which come from a second window in
+which pastes the audit's output verbatim, except two sets of figures. The
+cache-lifetime figures come from a second window in
 [cache-lifetime-baseline-2026-10.md](eval/cache-lifetime-baseline-2026-10.md)
-(2026-08-31 to the 2026-10-04 run); figures marked "derived" are plain
-division or addition over those tables. The recall-check results quoted in the
-ranked table come from five other committed records: the eval-suite arms in
+(2026-08-31 to the 2026-10-04 run). The discovery-payload spend, turn and
+payload figures come from
+[discovery-payload-2026-10.md](eval/discovery-payload-2026-10.md)
+(2026-09-05 to 2026-10-05). Figures marked "derived" are plain division or
+addition over those tables. The recall-check results quoted in the ranked table
+come from four other committed records: the eval-suite arms in
 [scaffold-verdicts.md](eval/scaffold-verdicts.md), the Sonnet-vs-Opus study in
 [review-model-recall.md](eval/review-model-recall.md), the Fable-vs-Opus
 bug-detection recall check in
-[fable-vs-opus-subagents.md](eval/fable-vs-opus-subagents.md), the
-150k-window arms in [review-cost-baseline.md](eval/review-cost-baseline.md), and
-the discovery instruction-payload measurement in
-[discovery-payload-2026-10.md](eval/discovery-payload-2026-10.md). Nothing is
-estimated.
+[fable-vs-opus-subagents.md](eval/fable-vs-opus-subagents.md), and the
+150k-window arms in [review-cost-baseline.md](eval/review-cost-baseline.md).
+Nothing is estimated.
 
 ## Vendor guidance
 
@@ -198,7 +201,7 @@ unmeasured levers each name the recall check that would have to run first.
 | Lift the bug-detection Opus cap on Fable sessions (shipped) | worth it | $194, all bug-detection spend in the window; +$1.79 a review on Fable sessions (measured at medium effort); re-check: the next token-spend audit compares flow-review-bug-detection @ Fable 5.1 per-run cost against the measured $2.50 | opus-5 157.0M, opus-5-5 22.4M, fable-5-1 12.7M, sonnet-5 3.7M, fable-5 2.0M | 2,059 | Gains findings: Fable re-found 8.7% against Opus 5.5's 3.9% (p = 0.0065) | Fable median 95 s against 46 s in the harness; the review waits on its slowest lens | Fable vs Opus 5.5 bug-detection recall on 3 PRs, 2 runs each: run? yes; cap lifted ([results](eval/fable-vs-opus-subagents.md)) | #890 |
 | Keep triage in the main session instead of a cheap-model gatekeeper (already shipped) | worth it | $1.44, what the retired agent still shows in the window | haiku-4-5-20251001 4.4M | 171 | None measured: suite score 0.917 before and after; one scenario already failing with or without the agent. | None measured. | Gate-score and cost comparison on the eval suite: run? yes, cost fell 29% (27% with a Sonnet parent) | none |
 | Move the main conversation to 5-minute cache writes | not worth it | $1,590 in 1-hour writes, $596 of it the premium over the 5-minute rate (2026-10 window) | 1-hour writes 125.67M; not split by model | 24,539 requests | None expected, since it changes price not behavior. | Slower first turn back after every 5 to 60 minute pause; the vendor page says the first turn after the cache expires "can be noticeably slower". 1,276 main-conversation requests followed such a gap in the window. | Replay of every transcript at a 5-minute lifetime: run? yes; 5 minutes cost $2,571 more at list price ($2,545 by assistant-row send time) | none |
-| Discovery instruction payload | not worth it | $786.20 | opus-5 606.5M, opus-5-5 151.7M, fable-5-1 145.8M, fable-5 11.8M, sonnet-5 6.3M | 5,453 | Unknown, unmeasured; only 14,157 of 55,653 tokens can move verbatim, 8,931 of them behind gates the sub-agent judges itself | Not measured; loading is a few reads at the start of a 42- to 53-turn Opus run | Plan quality with trimmed instructions on recorded tasks: run? no — a split's ceiling is $0.20 a plan on Opus 5.5 (5.2%), short of the Large refactor and new eval it needs ([record](eval/discovery-payload-2026-10.md)) | #891 (closed, not planned); #818 related |
+| Discovery instruction payload | not worth it | $786.20 | opus-5 606.5M, opus-5-5 151.7M, fable-5-1 145.8M, fable-5 11.8M, sonnet-5 6.3M | 5,453 | Unknown, unmeasured; only 14,157 of 55,653 tokens sit in gated sections, 10,014 of them behind gates the sub-agent judges itself | Not measured; loading is a few reads at the start of a 42- to 53-turn Opus run | Plan quality with trimmed instructions on recorded tasks: run? no — a split's ceiling is $0.20 a plan on Opus 5.5 (5.2%), short of the Large refactor and new eval it needs ([record](eval/discovery-payload-2026-10.md)) | #891 (closed, not planned); #818 related |
 | Cap the session context at 150k (`--autocompact 150k`) | not worth it | not shipped | not measured | turns rose in all five scenarios (for example 6 to 9) | Fidelity held, 5 of 5 | More turns | Phase-write fidelity, two arms: run? yes; cost rose 32.5% to 64.1% | none |
 | Route bug-detection and pattern-consistency lenses to Sonnet | not worth it | $387.06 is the pool on those two lenses | opus-5 311.0M, opus-5-5 45.0M, fable-5-1 26.2M, sonnet-5 7.1M, fable-5 4.2M | 4,106 | Sonnet re-found 0.6% and 0.0% of the reference findings against Opus 4.8% and 6.0% | none | Sonnet vs Opus recall on 3 PRs, 2 runs each: run? yes | none |
 | Remove the checkpoint-pause step | not worth it | not measured | not measured | no change on any metric | Suite score fell from 0.983 to 0.975 | None measured; every cost and context metric read the same | Eval suite with and without the step: run? yes; nothing cut, score fell | none |
@@ -255,8 +258,8 @@ Each closed below with its measured number.
    cost ($0.86 of a $3.78 Opus 5.5 run, derived), but 75% of it applies to
    every plan. A full split stops loading about 12,731 tokens a plan: $0.20 a
    plan on Opus 5.5, $0.34 on Opus 5 and $0.21 on Fable 5.1, about $25 a month
-   at the current Opus 5.5 rate, and it needs a Large lint repoint plus a
-   plan-quality eval flow does not have. Re-open when the file passes 75,000
+   at the current Opus 5.5 rate, and it means updating the 11 test files that
+   point at the current file, plus a plan-quality eval flow does not have. Re-open when the file passes 75,000
    tokens or a plan-quality eval lands
    ([record](eval/discovery-payload-2026-10.md)).
 
@@ -327,10 +330,14 @@ Each closed below with its measured number.
   document were not re-rendered.
 - **Instruction payload: isolated for discovery only.** The table of first-turn
   cache writes (discovery median 43,445 tokens against about 14,500 for the
-  built-in explorer to 20,300 for the heaviest review lens) measures standing
-  context (system prompt, tools, project instructions and task text), not
-  flow's instructions: discovery reads its instruction file after its first
-  turn. Discovery's payload is now measured on its own
+  built-in explorer to 20,300 for the heaviest review lens) measures, for
+  discovery, standing context (system prompt, tools, project instructions and
+  task text) and not flow's instructions: discovery reads its instruction file
+  after its first turn. Six agents preload an instruction skill through
+  `skills:` frontmatter, so for them the first-turn figure does include flow's
+  instructions and still bounds rather than measures the payload: flow-scout,
+  flow-fix-applier, flow-edit-applier, flow-consolidator, flow-merge-resolver
+  and flow-ui-driver. Discovery's payload is now measured on its own
   ([record](eval/discovery-payload-2026-10.md)); other sub-agents' instruction
   payloads are still not isolated.
 - **Per-turn multiples are confounded.** The per-turn price of discovery on

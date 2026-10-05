@@ -23,8 +23,13 @@ on-demand references. Two questions:
 2026-09-05`, run twice on 2026-10-05: once at planning time and again at
   implementation time. The two runs differ because transcripts aged out and new
   runs landed in between; both are given below.
-- **Payload per plan (derived).** The file is read on the first turn, written to
-  the cache once, then re-read from the cache on every later turn of the run:
+- **Payload per plan (derived).** The file is requested on the first turn and
+  arrives in the second request; it is written to the cache once, then re-read
+  from the cache on every later request of the run. The formula below counts
+  `turns − 1` cache reads, but the write request is the file's first
+  appearance, so the file is read from cache on `turns − 2` requests. The
+  formula is therefore a slight upper bound: one extra cache read, about $0.01
+  to $0.03 a plan depending on the model, which the stated figures keep:
 
   `payload $ = 55,653 × (cache-write price + cache-read price × (turns − 1)) / 1,000,000`
 
@@ -44,8 +49,10 @@ on-demand references. Two questions:
 - **Gated sections.** Sections of the file that only some plans need were sized
   by their share of the file's characters (applied to the 55,653 tokens), and
   their firing rate was counted from spawn-prompt markers, plan headings and
-  tool commands across the planning-time snapshot of 137 runs. Expected saving
-  per plan = section tokens × the share of runs that did not need it.
+  tool commands across the planning-time snapshot of 137 runs scanned, of which
+  136 were the priced feature-mode runs behind the planning-time figures above.
+  Expected saving per plan = section tokens × the share of runs that did not
+  need it.
 
 The scan scripts were not committed: the transcripts they read expire within
 about 30 days, so a committed script could not reproduce these numbers.
@@ -61,8 +68,12 @@ about 30 days, so a committed script could not reproduce these numbers.
   first assistant turn, so the file reaches the model from the second request
   on. Discovery's median first-turn cache write (37,318 tokens; 38,218 at
   planning time) matches the fix-applier (40,014) and the general-purpose agent
-  (38,114), neither of which reads the file. The first-turn table therefore
-  measures standing context and task text, not flow's instructions.
+  (38,114), neither of which reads discovery's file. The fix-applier preloads
+  its own instruction skill, so the comparison shows only that discovery's
+  first turn is no larger than agents that do not read its file, not that
+  those agents carry no instructions. The first-turn figure for discovery
+  therefore measures standing context and task text, not the instruction
+  file.
 
 ### What it costs a plan
 
@@ -122,7 +133,7 @@ condensed rules dropped an exception; see the vendor table in
 
 - **Forward-looking, Opus 5.5** (new pipelines default to it): about **$25 a
   month** at the audit's 128 finished runs per 30 days (planning time: $0.173 a
-  plan, about $24 a month).
+  plan × 136 runs per 30 days ≈ $23.5, about $24 a month).
 - **At the window's actual model mix:** 12,731 / 55,653 of the window payload,
   about **$40 a month** ($172.73 × 0.229); $45 at planning time.
 
@@ -149,7 +160,7 @@ Re-measure when either holds:
   bytes at the current ratio). The file grew from 137,468 to 157,049 bytes
   between 2026-09-02 and 2026-09-10, then by 1.1% to 158,733 bytes by
   2026-09-20, and has not changed since; at the recent rate there is no
-  near-term crossing date, while two more bursts like early September's would
-  cross it.
+  near-term crossing date, while about three more bursts like early September's
+  would cross it (two compounded reach about 207,000 bytes, under 214,000).
 - A plan-quality eval suite lands, since it removes the largest cost of the
   split and lets the attention question be tested.
