@@ -135,8 +135,12 @@ const skillName = (s: unknown) =>
   String(s).replace(/^flow-module-[a-z-]+:/, "");
 const agentLabel = (s: string) => s.replace(/^flow-module-[a-z-]+:/, "");
 
-// One API request = one message.id; later rows repeating the id (one per
-// content block) are dropped for usage, but still scanned for tool calls.
+// One API request = one message.id, written as one line per content block.
+// Only the LAST line carries the final output_tokens (earlier lines hold a
+// streaming placeholder; input and cache fields never differ). Usage is
+// buffered per id and flushed in first-seen order carrying the LAST line's
+// usage, with ts/seg/inWindow from the FIRST line; every line is still
+// scanned for tool calls.
 export function walkFile(
   lines: string[],
   stats: Stats,
@@ -144,7 +148,8 @@ export function walkFile(
   spawns: Spawn[] = [],
   inWindow: (ts: string) => boolean = () => true,
 ) {
-  const seen = new Set<string>();
+  const turns = new Map<string, Turn & { counted: boolean }>();
+  const missing = new Set<string>();
   let cur = "supervisor-base";
   let lastUser = "";
   for (const l of lines) {
@@ -162,28 +167,24 @@ export function walkFile(
     if (j?.type !== "assistant") continue;
     const m = j.message;
     const id = m?.id ?? j.uuid ?? l;
-    if (!seen.has(id)) {
-      if (!m?.usage) {
-        if (inWindow(j.timestamp)) stats.missingUsage++;
-      } else if (m.model !== "<synthetic>") {
-        seen.add(id);
-        const model = m.model || "unknown";
-        if (inWindow(j.timestamp)) {
-          if (!PRICES[model])
-            stats.unknownModels.set(
-              model,
-              (stats.unknownModels.get(model) || 0) + 1,
-            );
-          onTurn({
-            model,
-            usage: m.usage,
-            ts: j.timestamp,
-            seg: cur,
-            sent: lastUser || j.timestamp,
-            cwd: typeof j.cwd === "string" ? j.cwd : "",
-          });
-        }
+    if (!m?.usage) {
+      if (!turns.has(id) && !missing.has(id) && inWindow(j.timestamp)) {
+        missing.add(id);
+        stats.missingUsage++;
       }
+    } else if (m.model !== "<synthetic>") {
+      const prior = turns.get(id);
+      if (prior) prior.usage = m.usage;
+      else
+        turns.set(id, {
+          model: m.model || "unknown",
+          usage: m.usage,
+          ts: j.timestamp,
+          seg: cur,
+          sent: lastUser || j.timestamp,
+          cwd: typeof j.cwd === "string" ? j.cwd : "",
+          counted: inWindow(j.timestamp),
+        });
     }
     if (!Array.isArray(m?.content)) continue;
     for (const b of m.content) {
@@ -198,6 +199,15 @@ export function walkFile(
         });
       }
     }
+  }
+  for (const { counted, ...t } of turns.values()) {
+    if (!counted) continue;
+    if (!PRICES[t.model])
+      stats.unknownModels.set(
+        t.model,
+        (stats.unknownModels.get(t.model) || 0) + 1,
+      );
+    onTurn(t);
   }
 }
 
@@ -552,6 +562,78 @@ function cacheLifetimeSection(
   );
 }
 
+type SpawnAcc = Map<
+  string,
+  { turns: number; first: number; last: number; usd: number }
+>;
+type SpawnRec = {
+  type: string;
+  model: string;
+  turns: number;
+  minutes: number;
+  usd: number;
+};
+
+function accSpawnTurn(acc: SpawnAcc, t: Turn) {
+  const ms = Date.parse(t.ts);
+  const a = acc.get(t.model) ?? {
+    turns: 0,
+    first: Infinity,
+    last: -Infinity,
+    usd: 0,
+  };
+  a.turns++;
+  a.usd += priceTurn(t.usage, t.model);
+  if (!Number.isNaN(ms)) {
+    a.first = Math.min(a.first, ms);
+    a.last = Math.max(a.last, ms);
+  }
+  acc.set(t.model, a);
+}
+
+function flushSpawns(acc: SpawnAcc, type: string): SpawnRec[] {
+  return [...acc.entries()].map(([model, a]) => ({
+    type,
+    model,
+    turns: a.turns,
+    minutes: a.last >= a.first ? (a.last - a.first) / 6e4 : 0,
+    usd: a.usd,
+  }));
+}
+
+const median = (xs: number[]) => {
+  if (!xs.length) return NaN;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+
+// One record per (sub-agent transcript, model), grouped by `<type> @ <model>`:
+// per-spawn cost is the per-finished-task view that per-turn multiples hide.
+export function spawnCostRows(spawns: SpawnRec[]) {
+  const by = new Map<string, SpawnRec[]>();
+  for (const s of spawns) {
+    const k = `${s.type} @ ${modelLabel(s.model)}`;
+    if (!by.has(k)) by.set(k, []);
+    by.get(k)!.push(s);
+  }
+  return [...by.entries()]
+    .map(([key, xs]) => {
+      const turns = xs.reduce((a, s) => a + s.turns, 0);
+      const usd = xs.reduce((a, s) => a + s.usd, 0);
+      return {
+        key,
+        spawns: xs.length,
+        medianTurns: median(xs.map((s) => s.turns)),
+        medianMinutes: median(xs.map((s) => s.minutes)),
+        meanUsd: usd / xs.length,
+        medianUsd: median(xs.map((s) => s.usd)),
+        usdPerTurn: turns ? usd / turns : NaN,
+      };
+    })
+    .sort((a, b) => b.meanUsd * b.spawns - a.meanUsd * a.spawns);
+}
+
 function run(argv: string[]) {
   const flag = (n: string) => {
     const i = argv.indexOf(n);
@@ -574,6 +656,7 @@ function run(argv: string[]) {
   const bySeg: Record<string, Usage> = {};
   const byAgentModel: Record<string, Usage> = {};
   const firstTurn: Record<string, number[]> = {};
+  const spawnRecs: SpawnRec[] = [];
   const sessions: { sid: string; repo: string; usage: Usage }[] = [];
   let worktreeSessions = 0;
   let minTs = Infinity,
@@ -711,6 +794,7 @@ function run(argv: string[]) {
           let first = true;
           const subReqs = newReqs();
           let subCwd = "";
+          const spawnAcc: SpawnAcc = new Map();
           walkFile(
             sl,
             stats,
@@ -726,6 +810,7 @@ function run(argv: string[]) {
               ]);
               subUsd += priceTurn(t.usage, t.model);
               pushReq(subReqs, t);
+              accSpawnTurn(spawnAcc, t);
               if (isFirst) {
                 subCwd = t.cwd || cwd || "";
                 const c = classes(t.usage);
@@ -740,6 +825,7 @@ function run(argv: string[]) {
             spawnUser.push({ type, cwd: subCwd, reqs: subReqs.user });
             spawnAsst.push({ type, cwd: subCwd, reqs: subReqs.asst });
           }
+          spawnRecs.push(...flushSpawns(spawnAcc, type));
         }
       }
       if (counted) {
@@ -816,6 +902,31 @@ function run(argv: string[]) {
   usageTable("By sub-agent type", byAgent, true);
   usageTable("By in-process segment", bySeg, true);
   usageTable("Sub-agent type @ model", byAgentModel);
+
+  console.log("## Sub-agent spawn cost by type @ model\n");
+  console.log(
+    "One record per (sub-agent transcript, model). Minutes run first to last in-window turn; $ is list price. Per-spawn cost, not per-turn, is the per-finished-task comparison.\n",
+  );
+  table(
+    [
+      "key",
+      "spawns",
+      "median turns",
+      "median min",
+      "mean $",
+      "median $",
+      "$/turn",
+    ],
+    spawnCostRows(spawnRecs).map((r) => [
+      r.key,
+      r.spawns,
+      fmtN(r.medianTurns),
+      fmtN(r.medianMinutes),
+      fmtUsd(r.meanUsd),
+      fmtUsd(r.medianUsd),
+      r.usdPerTurn.toFixed(4),
+    ]),
+  );
 
   const keyed = new Map<string, number>();
   const pipeRows: {
@@ -956,29 +1067,39 @@ function run(argv: string[]) {
       stats.parseErrors++;
     }
   }
-  console.log("## Review lenses: tokens per acted finding\n");
+  console.log("## Review lenses: spend per acted finding\n");
+  const lensSummary = summarizeLenses(lensRows);
+  const unpriced = lensSummary.reduce((n, r) => n + r.unpriced, 0);
   console.log(
-    `Review runs in window: ${lensRows.length}. Tokens are raw totals across all token classes (not dollars) and come from mixed accounting sources, shown per lens; runs with no token figure contribute findings but no tokens.\n`,
+    `Review runs in window: ${lensRows.length}. Only reviews recorded since PR #896 are costed here. Older reviews appear in the legacy rows column but are not added in, because they used a different, non-comparable token unit; their re-derived history is in PR #896. Until new reviews accumulate, tokens and dollars read n/a and fill in as they do.${unpriced ? ` ${unpriced} runs whose model name could not be priced are counted separately and left out of dollars.` : ""} Per-acted figures divide by the acted findings of the reviews that contributed. Dollars use this file's list prices, with cache writes at the 5-minute rate.\n`,
   );
   table(
     [
       "lens",
       "runs",
+      "v3 token runs",
       "tokens",
+      "dollars",
       "emitted",
       "survived",
       "acted",
       "tokens per acted",
+      "dollars per acted",
+      "legacy rows",
       "token sources (transcript/notification/none)",
     ],
-    summarizeLenses(lensRows).map((r) => [
+    lensSummary.map((r) => [
       r.lens,
       r.runs,
+      r.token_runs,
       r.tokens ? fmtM(r.tokens) : "n/a",
+      r.dollars ? fmtUsd(r.dollars) : "n/a",
       r.emitted,
       r.survived,
       r.acted,
-      r.acted && r.tokens ? fmtM(r.tokens / r.acted) : "n/a",
+      r.acted_tok && r.tokens ? fmtM(r.tokens / r.acted_tok) : "n/a",
+      r.acted_usd && r.dollars ? fmtUsd(r.dollars / r.acted_usd) : "n/a",
+      r.legacy,
       `${r.src["subagent-transcript"] || 0}/${r.src["task-notification"] || 0}/${r.src["unavailable"] || 0}`,
     ]),
   );
@@ -988,29 +1109,56 @@ function run(argv: string[]) {
 
 export function summarizeLenses(rows: any[]) {
   const by = new Map<string, any>();
-  for (const r of rows)
+  for (const r of rows) {
+    const current = (r.version ?? 0) >= 3;
     for (const [lens, v] of Object.entries<any>(r.lenses || {})) {
       const a = by.get(lens) ?? {
         lens,
         runs: 0,
         tokens: 0,
+        dollars: 0,
+        token_runs: 0,
         emitted: 0,
         survived: 0,
         acted: 0,
+        acted_tok: 0,
+        acted_usd: 0,
+        unpriced: 0,
         src: {},
+        legacy: 0,
       };
       by.set(lens, a);
       if (v.ran) a.runs++;
-      a.tokens += v.tokens?.total || 0;
+      if (v.ran && !current) a.legacy++;
       a.emitted += v.findings_emitted || 0;
       a.survived += v.findings_survived || 0;
       a.acted += v.findings_acted || 0;
       a.src[v.tokens_source] = (a.src[v.tokens_source] || 0) + 1;
+      if (!current || !v.ran || !v.tokens) continue;
+      const acted = v.findings_acted || 0;
+      a.tokens += v.tokens.total || 0;
+      a.token_runs++;
+      a.acted_tok += acted;
+      if (PRICES[v.model]) {
+        a.dollars += priceTurn(
+          {
+            input_tokens: v.tokens.input,
+            cache_creation_input_tokens: v.tokens.cache_creation,
+            cache_read_input_tokens: v.tokens.cache_read,
+            output_tokens: v.tokens.output,
+          },
+          v.model,
+        );
+        a.acted_usd += acted;
+      } else a.unpriced++;
     }
-  return [...by.values()].sort((a, b) => b.tokens - a.tokens);
+  }
+  return [...by.values()].sort(
+    (a, b) => b.dollars - a.dollars || b.tokens - a.tokens,
+  );
 }
 
-export function selfTestFailures(): string[] {
+export function selfTest(): string[] {
   const fails: string[] = [];
   const eq = (name: string, a: unknown, b: unknown) => {
     if (JSON.stringify(a) !== JSON.stringify(b))
@@ -1194,7 +1342,65 @@ export function selfTestFailures(): string[] {
     [f.get("B")!.slug, f.get("B")!.terminal],
     [null, "merged"],
   );
+  const v3 = (model: string, tokens: any, acted: number, ran = true) => ({
+    ran,
+    model,
+    tokens,
+    tokens_source: tokens ? "subagent-transcript" : "unavailable",
+    findings_acted: acted,
+  });
   const ls = summarizeLenses([
+    {
+      version: 3,
+      lenses: {
+        a: v3(
+          "claude-opus-5",
+          {
+            total: 1_000_000 + 2_000_000 + 1_000_000 + 100_000,
+            input: 1_000_000,
+            cache_creation: 2_000_000,
+            cache_read: 1_000_000,
+            output: 100_000,
+          },
+          2,
+        ),
+      },
+    },
+    {
+      version: 3,
+      lenses: {
+        a: v3("claude-mystery-9", { total: 50, input: 50 }, 1),
+      },
+    },
+    { version: 3, lenses: { a: v3("claude-opus-5", null, 0, false) } },
+    {
+      version: 3,
+      lenses: {
+        a: v3("claude-opus-5", { total: 999_999, input: 999_999 }, 0, false),
+      },
+    },
+    {
+      version: 2,
+      lenses: {
+        a: {
+          ran: true,
+          tokens: { total: 7000 },
+          tokens_source: "subagent-transcript",
+          findings_acted: 5,
+        },
+      },
+    },
+    {
+      version: 1,
+      lenses: {
+        a: {
+          ran: true,
+          tokens: { total: 900 },
+          tokens_source: "task-notification",
+          findings_acted: 1,
+        },
+      },
+    },
     {
       lenses: {
         a: {
@@ -1205,22 +1411,89 @@ export function selfTestFailures(): string[] {
         },
       },
     },
-    {
-      lenses: {
-        a: {
-          ran: false,
-          tokens: null,
-          tokens_source: "unavailable",
-          findings_acted: 0,
-        },
-      },
-    },
   ]);
   eq(
-    "lens summary",
-    [ls[0].runs, ls[0].tokens, ls[0].acted, ls[0].src.unavailable],
-    [1, 100, 2, 1],
+    "lens summary: v3 only in tokens, older rows legacy",
+    [
+      ls[0].runs,
+      ls[0].tokens,
+      ls[0].token_runs,
+      ls[0].acted,
+      ls[0].legacy,
+      ls[0].unpriced,
+      ls[0].acted_tok,
+      ls[0].acted_usd,
+    ],
+    [5, 4_100_050, 2, 11, 3, 1, 3, 2],
   );
+  // opus-5: 1M*5 + 2M*6.25 (5m rate) + 1M*0.5 + 0.1M*25 = 5+12.5+0.5+2.5
+  close("lens summary dollars", ls[0].dollars, 20.5);
+  eq(
+    "lens summary src",
+    [ls[0].src["subagent-transcript"], ls[0].src.unavailable],
+    [4, 1],
+  );
+  const stream = (outputs: number[]) =>
+    outputs.map((o) =>
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-09-10T00:00:00Z",
+        message: {
+          id: "r1",
+          model: "claude-opus-5",
+          usage: { input_tokens: 10, output_tokens: o },
+          content: [{ type: "tool_use", id: "t", name: "Bash", input: {} }],
+        },
+      }),
+    );
+  const turns: Turn[] = [];
+  walkFile(stream([3, 333]), newStats(), (t) => turns.push(t));
+  eq(
+    "walkFile last line wins, one turn per id",
+    turns.map((t) => [t.usage.output_tokens, t.ts, t.seg]),
+    [[333, "2026-09-10T00:00:00Z", "supervisor-base"]],
+  );
+  const spawnFile = (id: string, ts: string[], model: string) => {
+    const acc: SpawnAcc = new Map();
+    walkFile(
+      ts.map((t, i) => asst(`${id}${i}`, model, split, [], t)),
+      newStats(),
+      (t) => accSpawnTurn(acc, t),
+    );
+    return flushSpawns(acc, "flow-review-product");
+  };
+  const sRows = spawnCostRows([
+    ...spawnFile(
+      "a",
+      ["2026-09-10T00:00:00Z", "2026-09-10T00:02:00Z"],
+      "claude-opus-5",
+    ),
+    ...spawnFile(
+      "b",
+      [
+        "2026-09-10T01:00:00Z",
+        "2026-09-10T01:02:00Z",
+        "2026-09-10T01:04:00Z",
+        "2026-09-10T01:06:00Z",
+      ],
+      "claude-opus-5",
+    ),
+  ]);
+  const unit = priceTurn(split, "claude-opus-5");
+  eq(
+    "spawn rows key",
+    sRows.map((r) => r.key),
+    ["flow-review-product @ claude-opus-5"],
+  );
+  eq(
+    "spawn medians",
+    [sRows[0].spawns, sRows[0].medianTurns, sRows[0].medianMinutes],
+    [2, 3, 4],
+  );
+  close("spawn mean usd", sRows[0].meanUsd, 3 * unit);
+  close("spawn median usd", sRows[0].medianUsd, 3 * unit);
+  close("spawn usd per turn", sRows[0].usdPerTurn, unit);
+
   eq("resolveRepo worktree", resolveRepo("/u/code/me/flow-foo", ["flow"]), {
     repo: "flow",
     worktree: true,
@@ -1403,7 +1676,7 @@ export function selfTestFailures(): string[] {
 if (import.meta.main) {
   const argv = process.argv.slice(2);
   if (argv.includes("--self-test")) {
-    const fails = selfTestFailures();
+    const fails = selfTest();
     if (fails.length) {
       console.error(`self-test FAILED (${fails.length}):\n${fails.join("\n")}`);
       process.exit(1);

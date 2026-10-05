@@ -41,7 +41,8 @@ Arguments:
   --total <n>               Test-steps total count (optional)
   --prose-promoted <n>     Prose-promoted count (optional)
   --lens-model <l>=<a>     Repeatable lens->model-alias pair
-  --lens-tokens <l>=<n>    Repeatable lens->token-count pair (forwarded to
+  --lens-tokens <l>=<n>    Repeatable lens->final-context-size pair, recorded
+                           as context_tokens (forwarded to
                            flow-review-telemetry collect)
   --widened <reason>       Forwarded to flow-review-telemetry collect
   --session-id <id>        Claude session id for telemetry

@@ -34,7 +34,8 @@ requests a widen to the full PR diff, inside this same exemption (no new
 Task-tool exemption; the count stays eight). Each spawned lens names
 `subagent_type: $LENS_AGENT` (resolved per-lens against the
 `agents/flow-review-<lens>.md` definitions with a Read/Grep/Glob/Write
-`tools:` allowlist and no `effort:`/`model:` pins), resolved via a
+`tools:` allowlist and no `model:` pin — nor an `effort:` pin, bar the product
+lens's `effort: medium`), resolved via a
 single plugin-root probe using the
 `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-review-<lens>.md ]` file-exists guard:
 the plugin-qualified `flow-module-core:flow-review-<lens>` name when

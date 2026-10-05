@@ -1,10 +1,12 @@
 /**
  * Pure per-lens review telemetry aggregation: composes a ReviewTelemetry
  * object from the on-disk `agent-output-<lens>.json` / consolidator /
- * fix-applier artifacts plus a token-usage source (primary: the
- * `--lens-tokens` figures sourced from each Task completion
- * notification's `<usage><subagent_tokens>`; fallback: subagent
- * transcript usage, attributed via the sibling `.meta.json`).
+ * fix-applier artifacts plus the lens transcripts. A lens's `tokens` always
+ * come from its subagent transcript (attributed via the sibling
+ * `.meta.json`, summed over every in-window transcript); the `--lens-tokens`
+ * figure from each Task completion notification's `<usage><subagent_tokens>`
+ * is the lens's final context size, a different unit, so it is kept apart
+ * as `context_tokens` and never written into `tokens`.
  */
 
 import * as fs from "node:fs";
@@ -29,7 +31,8 @@ export type LensTelemetry = {
   skip_reason: string | null;
   model: string | null;
   tokens: TokenUsage | null;
-  tokens_source: "task-notification" | "subagent-transcript" | "unavailable";
+  tokens_source: "subagent-transcript" | "unavailable";
+  context_tokens: number | null;
   findings_emitted: number;
   findings_survived: number;
   findings_dropped: number;
@@ -38,7 +41,7 @@ export type LensTelemetry = {
 };
 
 export type ReviewTelemetry = {
-  version: 2;
+  version: 3;
   run_id: string;
   ts: string;
   repo: string;
@@ -66,7 +69,7 @@ export function parseLensTokens(
     const lens = flag.slice(0, eq);
     const value = Number(flag.slice(eq + 1));
     if (!lens || !Number.isFinite(value)) continue;
-    out[lens] = (out[lens] ?? 0) + value;
+    out[lens] = value;
   }
   return out;
 }
@@ -205,6 +208,7 @@ export function lensFromMeta(meta: {
 export async function attributeTranscripts(
   subagentsDir: string,
   since: Date,
+  until?: Date,
 ): Promise<Record<string, TranscriptEntry>> {
   const out: Record<string, TranscriptEntry> = {};
   let entries: string[];
@@ -214,7 +218,7 @@ export async function attributeTranscripts(
     return out;
   }
 
-  const newestByLens = new Map<string, { file: string; mtime: number }>();
+  const filesByLens = new Map<string, { file: string; mtime: number }[]>();
 
   for (const name of entries) {
     if (!name.endsWith(".meta.json")) continue;
@@ -236,30 +240,42 @@ export async function attributeTranscripts(
       continue;
     }
     if (stat.mtimeMs < since.getTime()) continue;
-    const existing = newestByLens.get(lens);
-    if (!existing || stat.mtimeMs > existing.mtime) {
-      newestByLens.set(lens, { file: jsonlPath, mtime: stat.mtimeMs });
-    }
+    if (until && stat.mtimeMs > until.getTime()) continue;
+    const files = filesByLens.get(lens) ?? [];
+    files.push({ file: jsonlPath, mtime: stat.mtimeMs });
+    filesByLens.set(lens, files);
   }
 
-  const summed = await Promise.all(
-    [...newestByLens].map(
-      async ([lens, { file }]) =>
-        [lens, file, await sumTranscriptUsage(file)] as const,
+  const perLens = await Promise.all(
+    [...filesByLens].map(
+      async ([lens, files]) =>
+        [
+          lens,
+          files,
+          await Promise.all(files.map((f) => sumTranscriptUsage(f.file))),
+        ] as const,
     ),
   );
-  for (const [lens, file, usage] of summed) {
-    out[lens] = {
-      file,
-      usage: {
-        total: usage.total,
-        input: usage.input,
-        cache_creation: usage.cache_creation,
-        cache_read: usage.cache_read,
-        output: usage.output,
-      },
-      model: usage.model,
+  for (const [lens, files, sums] of perLens) {
+    const usage = {
+      total: 0,
+      input: 0,
+      cache_creation: 0,
+      cache_read: 0,
+      output: 0,
     };
+    for (const sum of sums) {
+      usage.total += sum.total;
+      usage.input += sum.input;
+      usage.cache_creation += sum.cache_creation;
+      usage.cache_read += sum.cache_read;
+      usage.output += sum.output;
+    }
+    let newest = 0;
+    for (let i = 1; i < files.length; i++) {
+      if (files[i].mtime > files[newest].mtime) newest = i;
+    }
+    out[lens] = { file: files[newest].file, usage, model: sums[newest].model };
   }
 
   return out;
@@ -317,22 +333,14 @@ export function mergeTelemetry(args: {
       findings_deferred: 0,
     };
 
-    let tokens: TokenUsage | null = null;
-    let tokens_source: LensTelemetry["tokens_source"] = "unavailable";
-    let model: string | null = null;
-
-    if (args.lensTokens[lens] !== undefined) {
-      tokens = { total: args.lensTokens[lens] };
-      tokens_source = "task-notification";
-      // An explicit --lens-model value wins; absent an entry, fall back to
-      // whatever model the transcript attribution already resolved (it may
-      // still exist even though the notification branch owns tokens here).
-      model = args.lensModels?.[lens] ?? args.transcripts[lens]?.model ?? null;
-    } else if (args.transcripts[lens]) {
-      tokens = args.transcripts[lens].usage;
-      tokens_source = "subagent-transcript";
-      model = args.transcripts[lens].model;
-    }
+    const transcript = args.transcripts[lens];
+    const tokens: TokenUsage | null = transcript?.usage ?? null;
+    const tokens_source: LensTelemetry["tokens_source"] = transcript
+      ? "subagent-transcript"
+      : "unavailable";
+    // The transcript's concrete model id is what the audit prices; the
+    // --lens-model alias is only the fallback when no transcript exists.
+    const model = transcript?.model ?? args.lensModels?.[lens] ?? null;
 
     lenses[lens] = {
       ran: counts.ran,
@@ -340,6 +348,7 @@ export function mergeTelemetry(args: {
       model,
       tokens,
       tokens_source,
+      context_tokens: args.lensTokens[lens] ?? null,
       findings_emitted: counts.findings_emitted,
       findings_survived: counts.findings_survived,
       findings_dropped: counts.findings_dropped,
@@ -349,7 +358,7 @@ export function mergeTelemetry(args: {
   }
 
   return {
-    version: 2,
+    version: 3,
     run_id: `${args.pr}:${args.scope.head_sha}:${args.startedAt}`,
     ts: new Date().toISOString(),
     repo: args.repo,

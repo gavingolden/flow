@@ -324,6 +324,113 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
     expect(artifact.gated).toBeDefined();
   });
 
+  describe("started_at across a --force-full widen re-pass", () => {
+    const PRIOR_START = "2025-12-31T23:00:00.000Z";
+    const NOW = "2026-01-01T00:00:00.000Z";
+
+    async function startedAtAfter(opts: {
+      args: string[];
+      prior: { scope: string; head: "same" | "other"; raw?: string } | null;
+    }): Promise<string> {
+      const dir = makeRepo();
+      const head = gitc(dir, ["rev-parse", "HEAD"]).stdout.trim();
+      const scopePath = path.join(dir, ".flow-tmp", "review-scope.json");
+      if (opts.prior) {
+        fs.writeFileSync(
+          scopePath,
+          opts.prior.raw ??
+            JSON.stringify({
+              started_at: PRIOR_START,
+              scope: opts.prior.scope,
+              head_sha: opts.prior.head === "same" ? head : "0".repeat(40),
+            }),
+        );
+      }
+      const gh = (args: string[]) => {
+        if (args[0] === "pr" && args[1] === "view")
+          return { stdout: "a.ts\n", exitCode: 0 };
+        if (args[0] === "pr" && args[1] === "diff")
+          return { stdout: "", exitCode: 0 };
+        return { stdout: "", exitCode: 1 };
+      };
+      const git = (args: string[], cwd: string) => {
+        const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+        return { stdout: r.stdout ?? "", exitCode: r.status ?? 1 };
+      };
+      const code = await run(["--pr", "5", "--worktree", dir, ...opts.args], {
+        gh,
+        git,
+        readFile: (p) => {
+          try {
+            return fs.readFileSync(p, "utf8");
+          } catch {
+            return null;
+          }
+        },
+        writeFile: (p, content) => {
+          fs.mkdirSync(path.dirname(p), { recursive: true });
+          fs.writeFileSync(p, content);
+        },
+        now: () => new Date(NOW),
+        homeDir: dir,
+        productBrief: () => ({ found: false }),
+      });
+      expect(code).toBe(0);
+      return JSON.parse(fs.readFileSync(scopePath, "utf8")).started_at;
+    }
+
+    it("keeps started_at when --force-full follows a same-head delta scope", async () => {
+      expect(
+        await startedAtAfter({
+          args: ["--force-full"],
+          prior: { scope: "delta", head: "same" },
+        }),
+      ).toBe(PRIOR_START);
+    });
+
+    it("gets a fresh started_at when the same-head prior scope was full", async () => {
+      expect(
+        await startedAtAfter({
+          args: ["--force-full"],
+          prior: { scope: "full", head: "same" },
+        }),
+      ).toBe(NOW);
+    });
+
+    it("gets a fresh started_at when the prior scope is for a different head", async () => {
+      expect(
+        await startedAtAfter({
+          args: ["--force-full"],
+          prior: { scope: "delta", head: "other" },
+        }),
+      ).toBe(NOW);
+    });
+
+    it("gets a fresh started_at with no existing review-scope.json", async () => {
+      expect(
+        await startedAtAfter({ args: ["--force-full"], prior: null }),
+      ).toBe(NOW);
+    });
+
+    it("gets a fresh started_at when the existing file is malformed", async () => {
+      expect(
+        await startedAtAfter({
+          args: ["--force-full"],
+          prior: { scope: "delta", head: "same", raw: "{not json" },
+        }),
+      ).toBe(NOW);
+    });
+
+    it("never reuses started_at without --force-full", async () => {
+      expect(
+        await startedAtAfter({
+          args: [],
+          prior: { scope: "delta", head: "same" },
+        }),
+      ).toBe(NOW);
+    });
+  });
+
   it("keeps stdout to the JSON envelope under --json (notices go to stderr)", () => {
     const dir = makeRepo();
     const r = spawnSync(

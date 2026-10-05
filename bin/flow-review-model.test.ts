@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { run, type FlowReviewModelDeps } from "./flow-review-model";
 import type { ReadConfigFile } from "./lib/models-config";
+import { evaluateGates } from "./lib/review-lens-gates";
 import type { PipelineState } from "./lib/state";
 
 const reader =
@@ -102,12 +103,111 @@ describe("flow-review-model", () => {
     });
   });
 
+  it("bug-detection on a fable session prints nothing — the cap is lifted, the spawn inherits Fable", () => {
+    const { code, out } = runWith(["bug-detection"], {
+      state: st({ model: "fable" }),
+    });
+    expect(code).toBe(0);
+    expect(out).toEqual([]);
+
+    const jsonResult = runWith(["bug-detection", "--json"], {
+      state: st({ model: "fable" }),
+    });
+    expect(JSON.parse(jsonResult.out[0])).toEqual({
+      lens: "bug-detection",
+      model: "",
+      source: "inherited",
+    });
+  });
+
+  it("models.reviewLenses.bug-detection = opus opts back to opus on a fable session", () => {
+    const { code, out } = runWith(["bug-detection"], {
+      config: { models: { reviewLenses: { "bug-detection": "opus" } } },
+      state: st({ model: "fable" }),
+    });
+    expect(code).toBe(0);
+    expect(out).toEqual(["opus"]);
+  });
+
+  it("every other capped lens still resolves to opus on a fable session", () => {
+    for (const lens of [
+      "security",
+      "pattern-consistency",
+      "performance",
+      "supply-chain",
+      "test-coverage",
+      "intent-guess",
+    ]) {
+      const { code, out } = runWith([lens], { state: st({ model: "fable" }) });
+      expect(code, lens).toBe(0);
+      expect(out, lens).toEqual(["opus"]);
+    }
+  });
+
   it("a sonnet session model resolves to sonnet, NOT escalated to opus (regression guard)", () => {
     const { code, out } = runWith(["test-coverage"], {
       state: st({ model: "sonnet" }),
     });
     expect(code).toBe(0);
     expect(out).toEqual(["sonnet"]);
+  });
+
+  it("product resolves to opus on a fable session (pinned, not session-capped)", () => {
+    const { code, out } = runWith(["product"], {
+      state: st({ model: "fable" }),
+    });
+    expect(code).toBe(0);
+    expect(out).toEqual(["opus"]);
+  });
+
+  it("product resolves to opus on a sonnet session (the cap would have returned sonnet)", () => {
+    const { code, out } = runWith(["product"], {
+      state: st({ model: "sonnet" }),
+    });
+    expect(code).toBe(0);
+    expect(out).toEqual(["opus"]);
+  });
+
+  it("product with no config or state is opus, not an uncapped inherit", () => {
+    const { code, out } = runWith(["product"], {});
+    expect(code).toBe(0);
+    expect(out).toEqual(["opus"]);
+  });
+
+  it("models.reviewLenses.product wins over the pinned opus", () => {
+    const { code, out } = runWith(["product"], {
+      config: { models: { reviewLenses: { product: "sonnet" } } },
+      state: st({ model: "fable" }),
+    });
+    expect(code).toBe(0);
+    expect(out).toEqual(["sonnet"]);
+  });
+
+  it("state.modelReview and models.review win over the pinned opus for product", () => {
+    expect(
+      runWith(["product"], { state: st({ modelReview: "sonnet" }) }).out,
+    ).toEqual(["sonnet"]);
+    expect(
+      runWith(["product"], { config: { models: { review: "haiku" } } }).out,
+    ).toEqual(["haiku"]);
+  });
+
+  it("product --json names the pinned source", () => {
+    const { code, out } = runWith(["product", "--json"], {
+      state: st({ model: "fable" }),
+    });
+    expect(code).toBe(0);
+    expect(JSON.parse(out[0])).toEqual({
+      lens: "product",
+      model: "opus",
+      source: "pinned (opus)",
+    });
+  });
+
+  it("every review-scope gate key is a lens flow-review-model resolves", () => {
+    const keys = Object.keys(evaluateGates([], { enabled: true }));
+    expect(keys).toContain("product");
+    for (const k of keys) expect(runWith([k]).code, k).toBe(0);
   });
 
   it("absent config and absent state print nothing and exit 0", () => {

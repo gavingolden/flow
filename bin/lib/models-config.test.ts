@@ -189,7 +189,7 @@ describe("collectModelConfigWarnings — reviewLenses", () => {
     expect(warnings[0]).toContain("gpt4");
   });
 
-  it("REVIEW_LENS_NAMES has exactly the six lenses plus intent-guess", () => {
+  it("REVIEW_LENS_NAMES has exactly the seven lenses (incl. product) plus intent-guess", () => {
     expect(REVIEW_LENS_NAMES).toEqual([
       "bug-detection",
       "security",
@@ -197,6 +197,7 @@ describe("collectModelConfigWarnings — reviewLenses", () => {
       "performance",
       "supply-chain",
       "test-coverage",
+      "product",
       "intent-guess",
     ]);
   });

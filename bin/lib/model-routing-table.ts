@@ -18,16 +18,18 @@ import {
   PHASE_MODEL_FLAGS,
   MODEL_PRICE_RANK,
   INHERITANCE_CAP_ALIAS,
+  type EffortLevel,
   type ModelAlias,
   type PipelineState,
 } from "./state";
-import { REVIEW_LENS_NAMES } from "./models-config";
+import { REVIEW_LENS_NAMES, type ReviewLensName } from "./models-config";
 
 /** Terminal fallback kind when neither a state override nor config resolves. */
 export type Fallback =
   | "inherited"
   | "builtin-sonnet"
   | "pinned-haiku"
+  | "pinned-opus"
   | "session-capped-opus";
 
 export type SpawnSite = {
@@ -53,6 +55,17 @@ export type SpawnSite = {
    */
   fineGrainAbove?: string;
   fallback: Fallback;
+  /**
+   * An `effort:` pinned in this site's agent definition. The ONE exception to
+   * "effort follows the session" (see `SPAWN_SITES`): resolved as a fixed
+   * value regardless of the session's effort.
+   */
+  effortPin?: EffortLevel;
+};
+
+const LENS_FALLBACK: Partial<Record<ReviewLensName, Fallback>> = {
+  product: "pinned-opus",
+  "bug-detection": "inherited",
 };
 
 /**
@@ -60,12 +73,12 @@ export type SpawnSite = {
  * prose-only in `model-routing.md` (not a precedence-table row); the drift
  * lint treats it as table-exempt.
  *
- * No row pins `effort`. The Task tool has no per-spawn effort argument, so a
- * frontmatter (or table) effort pin would be unoverridable even though the
- * same row's `model` is only a configurable default. Effort therefore
- * always follows the session's effort, resolved by the caller on
- * `state.effort > launch.effort config > built-in` and injected as
- * `resolveRouting`'s `effort` argument.
+ * One row pins `effort`: `review-lens:product` (`effortPin`, mirrored from
+ * `agents/core/flow-review-product.md`). The Task tool has no per-spawn effort
+ * argument, so that pin is unoverridable even though the row's `model` is a
+ * configurable default. Every other row's effort follows the session's effort,
+ * resolved by the caller on `state.effort > launch.effort config > built-in`
+ * and injected as `resolveRouting`'s `effort` argument.
  */
 export const SPAWN_SITES: readonly SpawnSite[] = [
   {
@@ -104,14 +117,19 @@ export const SPAWN_SITES: readonly SpawnSite[] = [
   // (models-config.ts) so this table and the warning text can't drift apart.
   // Each inherits the session model, capped: a session model priced above
   // `INHERITANCE_CAP_ALIAS` falls back to opus rather than reaching seven
-  // review spawns at once.
+  // expensive review spawns at once. Two exceptions. `product` is a literal opus on
+  // every session (a Sonnet session is NOT passed through) and a pinned medium
+  // effort. `bug-detection` inherits uncapped: the recall check in
+  // docs/eval/fable-vs-opus-subagents.md found Fable re-found 8.7% vs 3.9%
+  // (p = 0.0065) at $2.50 vs $0.71 a review.
   ...REVIEW_LENS_NAMES.map(
     (lens): SpawnSite => ({
       phase: `review-lens:${lens}`,
       stateField: "modelReview",
       configKey: "review",
       fineGrainAbove: `reviewLenses.${lens}`,
-      fallback: "session-capped-opus",
+      fallback: LENS_FALLBACK[lens] ?? "session-capped-opus",
+      ...(lens === "product" ? { effortPin: "medium" as const } : {}),
     }),
   ),
   // fix-applier falls back to a LITERAL sonnet, not the session model:
@@ -199,6 +217,8 @@ function fallbackRow(
       return { model: "sonnet", source: "built-in (sonnet)" };
     case "pinned-haiku":
       return { model: "haiku", source: "pinned" };
+    case "pinned-opus":
+      return { model: "opus", source: "pinned (opus)" };
     case "inherited":
       return { model: "", source: "inherited" };
     case "session-capped-opus": {
@@ -229,9 +249,11 @@ function fallbackRow(
  * module I/O-free): when the caller supplies `input.effort`, the `session`
  * row carries it verbatim and every other row follows the session
  * (`= session` / `follows session`) — the Task tool exposes no per-spawn
- * effort argument, so no row can pin its own. When `input.effort` is
- * omitted, behaviour is unchanged from before this field existed:
- * `state?.effort ?? "inherited"` on every row.
+ * effort argument, so a row's effort can only be fixed by its agent
+ * definition: the one row that does (`effortPin`, `review-lens:product`)
+ * reports that pinned value whether or not session effort is injected. When
+ * `input.effort` is omitted, behaviour is unchanged from before this field
+ * existed: `state?.effort ?? "inherited"` on every unpinned row.
  */
 export function resolveRouting(input: {
   state: PipelineState | null | undefined;
@@ -241,6 +263,14 @@ export function resolveRouting(input: {
   const { state, config, effort } = input;
   return SPAWN_SITES.map((site) => {
     const resolved = resolveModel(site, state, config);
+    if (site.effortPin) {
+      return {
+        phase: site.phase,
+        ...resolved,
+        effort: site.effortPin,
+        effortSource: "pinned (agents/core/flow-review-product.md)",
+      };
+    }
     if (effort) {
       const isSession = site.phase === "session";
       return {

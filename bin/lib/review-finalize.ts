@@ -105,8 +105,10 @@ export type ReviewFinalizeOptions = {
   reasons?: string[];
   /** Repeatable `--lens-model <lens>=<alias>` pairs, forwarded verbatim. */
   lensModels?: string[];
-  /** Repeatable `--lens-tokens <lens>=<n>` pairs — the real, currently
-   * supported `flow-review-telemetry collect` flag (see `bin/flow-review-telemetry.ts`). */
+  /** Repeatable `--lens-tokens <lens>=<n>` pairs, forwarded to
+   * `flow-review-telemetry collect` (see `bin/flow-review-telemetry.ts`). Each
+   * figure is the lens's final context size, recorded as `context_tokens`;
+   * the lens's token total comes from its transcript. */
   lensTokens?: string[];
   /** Forwarded verbatim as `--widened <reason>` when the consolidator
    * widened scope this run. */

@@ -113,17 +113,24 @@ Each lens prompt's `## Review scope` section (`{{REVIEW_SCOPE}}` in
 ## Record lens tokens
 
 As each lens's Task completion notification arrives, read its
-`<usage><subagent_tokens>` value and record it:
+`<usage><subagent_tokens>` value and record it. That figure is the lens's
+final context size, not its total spend; the collector records it as
+`context_tokens`, and the lens's token total always comes from its subagent
+transcript:
 
 ```bash
 LENS_TOKENS+=("<lens>=<n>")
 ```
 
-On a widen re-pass (below), ADD the second figure to the same lens's
-running total rather than replacing it — the widen's true cost is the
-delta pass plus the full pass. A lens whose notification carries no
-`subagent_tokens` is simply omitted from `LENS_TOKENS`; the Step-12
-collector falls back to the subagent transcript for that lens.
+If a lens reports twice (a widen re-spawns it), record every notification;
+the collector keeps the last figure per lens, which is its final context
+size.
+
+A widen re-pass (below) keeps the original review window
+(`flow-review-scope --force-full` reuses a same-head delta pass's
+`started_at`), so the transcript total covers both passes. A lens whose
+notification carries no `subagent_tokens` is simply omitted from
+`LENS_TOKENS`; its token total is unaffected.
 
 Build the `--lens-tokens` flags as a proper array — quoted
 `"${LENS_TOKENS[@]/#/--lens-tokens }"` glues each `--lens-tokens
@@ -135,10 +142,13 @@ LENS_TOKEN_ARGS=()
 for t in "${LENS_TOKENS[@]}"; do LENS_TOKEN_ARGS+=(--lens-tokens "$t"); done
 ```
 
-As each lens is spawned, record its resolved model the same way:
+As each lens is spawned, record its resolved model the same way — only when
+`$LENS_MODEL` is non-empty (bug-detection resolves to an empty model on every
+session: `flow-review-telemetry` rejects a bare `--lens-model <lens>=` with
+exit 2 and the whole telemetry row is lost):
 
 ```bash
-LENS_MODELS+=("<lens>=<resolved-model>")
+[ -n "$LENS_MODEL" ] && LENS_MODELS+=("<lens>=$LENS_MODEL")
 ```
 
 At Step 12, build the `--lens-model` flags the same way as

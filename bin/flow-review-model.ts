@@ -62,7 +62,7 @@ function isReviewLensName(v: string): v is ReviewLensName {
   return (REVIEW_LENS_NAMES as readonly string[]).includes(v);
 }
 
-/** `consolidator` is a valid `<lens>` argument alongside the six review lenses —
+/** `consolidator` is a valid `<lens>` argument alongside the seven review lenses —
  * it resolves the `consolidator` spawn site (not a `review-lens:*` row). */
 function isConsolidator(v: string): boolean {
   return v === "consolidator";

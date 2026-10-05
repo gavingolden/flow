@@ -73,7 +73,7 @@ describe("collect", () => {
     expect(Object.keys(telemetry.lenses).length).toBeGreaterThanOrEqual(6);
   });
 
-  it("honours --lens-tokens as the primary source", async () => {
+  it("records --lens-tokens as context_tokens, never as the token total", async () => {
     const dir = makeWorktree();
     const deps = makeDeps();
     const code = await run(
@@ -95,10 +95,10 @@ describe("collect", () => {
         "utf8",
       ),
     );
-    expect(telemetry.lenses["bug-detection"].tokens).toEqual({ total: 999 });
-    expect(telemetry.lenses["bug-detection"].tokens_source).toBe(
-      "task-notification",
-    );
+    expect(telemetry.version).toBe(3);
+    expect(telemetry.lenses["bug-detection"].context_tokens).toBe(999);
+    expect(telemetry.lenses["bug-detection"].tokens).toBeNull();
+    expect(telemetry.lenses["bug-detection"].tokens_source).toBe("unavailable");
   });
 
   it("records the model from a single --lens-model flag", async () => {
@@ -302,7 +302,7 @@ describe("print", () => {
     overrides: Partial<ReviewTelemetry> = {},
   ): ReviewTelemetry {
     return {
-      version: 2,
+      version: 3,
       run_id: "10:abc:2026",
       ts: "2026-01-01T00:00:00.000Z",
       repo: "flow",
@@ -323,7 +323,8 @@ describe("print", () => {
           skip_reason: null,
           model: null,
           tokens: { total: 100 },
-          tokens_source: "task-notification",
+          tokens_source: "subagent-transcript",
+          context_tokens: null,
           findings_emitted: 1,
           findings_survived: 1,
           findings_dropped: 0,
@@ -344,6 +345,7 @@ describe("print", () => {
           model: null,
           tokens: null,
           tokens_source: "unavailable",
+          context_tokens: null,
           findings_emitted: 0,
           findings_survived: 0,
           findings_dropped: 0,
@@ -366,6 +368,7 @@ describe("print", () => {
           model: null,
           tokens: null,
           tokens_source: "unavailable",
+          context_tokens: null,
           findings_emitted: 0,
           findings_survived: 0,
           findings_dropped: 0,
@@ -385,7 +388,8 @@ describe("print", () => {
           skip_reason: null,
           model: "opus",
           tokens: { total: 100 },
-          tokens_source: "task-notification",
+          tokens_source: "subagent-transcript",
+          context_tokens: null,
           findings_emitted: 1,
           findings_survived: 1,
           findings_dropped: 0,
@@ -397,7 +401,8 @@ describe("print", () => {
           skip_reason: null,
           model: null,
           tokens: { total: 50 },
-          tokens_source: "task-notification",
+          tokens_source: "subagent-transcript",
+          context_tokens: null,
           findings_emitted: 0,
           findings_survived: 0,
           findings_dropped: 0,

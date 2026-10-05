@@ -389,6 +389,51 @@ describe("repeated message.id de-duplication", () => {
     expect(usageSum.input).toBe(2_000_000);
     expect(usageSum.total).toBe(2_000_000);
   });
+
+  it("keeps the LAST line per message.id so output is the final value, in both summers", async () => {
+    const mk = (output: number) => ({
+      input_tokens: 1_000_000,
+      output_tokens: output,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    });
+    writeJsonl("session.jsonl", [
+      seedEvent(),
+      assistant("claude-sonnet-4-6", mk(3), "msg_1"),
+      assistant("claude-sonnet-4-6", mk(333), "msg_1"),
+    ]);
+    const usageSum = await sumTranscriptUsage(
+      path.join(projectDir, "session.jsonl"),
+    );
+    expect(usageSum.output).toBe(333);
+    expect(usageSum.input).toBe(1_000_000);
+    const cost = await computeCost(state(), tmpRoot);
+    // Sonnet: $3 input + 333 output tokens at $15/M.
+    expect(cost.total).toBeCloseTo(3 + (333 * 15) / 1_000_000, 9);
+  });
+
+  it("counts id-less lines individually and ignores a last line without usage", async () => {
+    const u = {
+      input_tokens: 10,
+      output_tokens: 5,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    };
+    const noUsage = assistant("claude-sonnet-4-6", u, "msg_1");
+    delete (noUsage as { message: { usage?: unknown } }).message.usage;
+    writeJsonl("session.jsonl", [
+      seedEvent(),
+      assistant("claude-sonnet-4-6", u),
+      assistant("claude-sonnet-4-6", u),
+      assistant("claude-sonnet-4-6", u, "msg_1"),
+      noUsage,
+    ]);
+    const usageSum = await sumTranscriptUsage(
+      path.join(projectDir, "session.jsonl"),
+    );
+    expect(usageSum.input).toBe(30);
+    expect(usageSum.output).toBe(15);
+  });
 });
 
 describe(sumTranscriptUsage, () => {
