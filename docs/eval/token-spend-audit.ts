@@ -462,7 +462,8 @@ export function replayCrossSpawn(spawns: CacheReq[][], into: LifetimeTally) {
       .flatMap((o) => o.reqs)
       .filter((r) => r.sent <= first.sent);
     if (!earlier.length || !earlier.some((r) => r.w1 > 0)) continue;
-    const gap = (first.sent - Math.max(...earlier.map((r) => r.sent))) / MIN;
+    const latest = earlier.reduce((m, r) => Math.max(m, r.sent), -Infinity);
+    const gap = (first.sent - latest) / MIN;
     if (gap <= 5 || gap > 60) continue;
     const p = PRICES[first.model];
     const rewrite = (first.read * (p[1] - p[3])) / 1e6;
@@ -1320,6 +1321,44 @@ export function selfTestFailures(): string[] {
     spawnB("/w/x"),
   );
   eq("cross-spawn without 1h write uncharged", no1h.crossSpawnReadsAfter5m, 0);
+  const composed = zeroTally();
+  const ca = spawnA("/w/x");
+  const cb = spawnB("/w/x");
+  replayCacheLifetime(ca.reqs, composed);
+  replayCacheLifetime(cb.reqs, composed);
+  replayCrossSpawnByGroup([ca, cb], () => composed);
+  eq(
+    "cross-spawn read leaves the unattributed column",
+    [composed.firstRequestReads, composed.crossSpawnReadsAfter5m],
+    [0, 1000],
+  );
+  const perType = new Map<string, LifetimeTally>();
+  const tallyFor = (type: string) => {
+    if (!perType.has(type)) perType.set(type, zeroTally());
+    return perType.get(type)!;
+  };
+  replayCrossSpawnByGroup(
+    [
+      spawnA("/w/x"),
+      { ...spawnB("/w/x"), type: "flow-consolidator" },
+      { type: "flow-fix-applier", cwd: "/w/x", reqs: [req(0, 0, 1000, 0)] },
+      { type: "flow-fix-applier", cwd: "/w/x", reqs: [req(20, 0, 0, 1000)] },
+    ],
+    tallyFor,
+  );
+  eq(
+    "cross-spawn never credits a different agent type",
+    [
+      perType.get("flow-consolidator")?.crossSpawnReadsAfter5m,
+      perType.get("flow-discovery")?.crossSpawnReadsAfter5m,
+    ],
+    [0, 0],
+  );
+  eq(
+    "cross-spawn credits the same agent type only",
+    perType.get("flow-fix-applier")?.crossSpawnReadsAfter5m,
+    1000,
+  );
 
   const sentTurns: Turn[] = [];
   walkFile(
