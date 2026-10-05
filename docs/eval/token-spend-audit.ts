@@ -578,9 +578,9 @@ type SpawnRec = {
   usd: number;
 };
 
-function accSpawnTurn(acc: SpawnAcc, t: Turn) {
+function accSpawnTurn(acc: SpawnAcc, t: Turn, byEffort: boolean) {
   const ms = Date.parse(t.ts);
-  const key = `${t.model}\t${t.effort}`;
+  const key = byEffort ? `${t.model}\t${t.effort}` : t.model;
   const a = acc.get(key) ?? {
     turns: 0,
     first: Infinity,
@@ -598,7 +598,7 @@ function accSpawnTurn(acc: SpawnAcc, t: Turn) {
 
 function flushSpawns(acc: SpawnAcc, type: string): SpawnRec[] {
   return [...acc.entries()].map(([key, a]) => {
-    const [model, effort] = key.split("\t");
+    const [model, effort = ""] = key.split("\t");
     return {
       type,
       model,
@@ -619,7 +619,8 @@ const median = (xs: number[]) => {
 
 // One record per (sub-agent transcript, model), grouped by `<type> @ <model>`:
 // per-spawn cost is the per-finished-task view that per-turn multiples hide.
-// `keyOf` regroups the same records, e.g. by recorded reasoning effort too.
+// `keyOf` regroups records; pass effort-split records (one per transcript,
+// model, effort) when keying by recorded reasoning effort.
 export function spawnCostRows(
   spawns: SpawnRec[],
   keyOf: (s: SpawnRec) => string = (s) => `${s.type} @ ${modelLabel(s.model)}`,
@@ -670,6 +671,7 @@ function run(argv: string[]) {
   const byAgentModel: Record<string, Usage> = {};
   const firstTurn: Record<string, number[]> = {};
   const spawnRecs: SpawnRec[] = [];
+  const spawnRecsByEffort: SpawnRec[] = [];
   const lensEffort = new Map<string, Set<string>>();
   const sessions: { sid: string; repo: string; usage: Usage }[] = [];
   let worktreeSessions = 0;
@@ -809,6 +811,7 @@ function run(argv: string[]) {
           const subReqs = newReqs();
           let subCwd = "";
           const spawnAcc: SpawnAcc = new Map();
+          const spawnAccEff: SpawnAcc = new Map();
           walkFile(
             sl,
             stats,
@@ -824,7 +827,8 @@ function run(argv: string[]) {
               ]);
               subUsd += priceTurn(t.usage, t.model);
               pushReq(subReqs, t);
-              accSpawnTurn(spawnAcc, t);
+              accSpawnTurn(spawnAcc, t, false);
+              accSpawnTurn(spawnAccEff, t, true);
               if (type.startsWith("flow-review-")) {
                 const k = `${sid}\t${type}`;
                 if (!lensEffort.has(k)) lensEffort.set(k, new Set());
@@ -845,6 +849,7 @@ function run(argv: string[]) {
             spawnAsst.push({ type, cwd: subCwd, reqs: subReqs.asst });
           }
           spawnRecs.push(...flushSpawns(spawnAcc, type));
+          spawnRecsByEffort.push(...flushSpawns(spawnAccEff, type));
         }
       }
       if (counted) {
@@ -962,7 +967,7 @@ function run(argv: string[]) {
       "$/turn",
     ],
     spawnCostRows(
-      spawnRecs,
+      spawnRecsByEffort,
       (s) => `${s.type} @ ${modelLabel(s.model)} @ ${s.effort}`,
     ).map((r) => [
       r.key,
@@ -1153,7 +1158,7 @@ function run(argv: string[]) {
 
   console.log("## Review lenses: findings per run by lens effort\n");
   console.log(
-    "Telemetry lens runs joined to their sub-agent transcript by session and lens, bucketed by the reasoning effort that transcript recorded. `mixed/unjoined` holds lens runs whose transcript recorded more than one effort or was not found (aged out, or the review began before --since). Per-run figures divide a bucket's findings by its lens runs. Effort follows the launching session, so a gap between buckets is observational, not a controlled comparison. Telemetry has no intent-guess entry, and gemini has no transcript, so neither is counted.\n",
+    "Telemetry lens runs joined to their sub-agent transcript by session and lens, bucketed by the reasoning effort that transcript recorded. `mixed/unjoined` holds lens runs whose transcript recorded more than one effort or was not found (aged out, or the review began before --since). Per-run figures divide a bucket's findings by its lens runs. Effort follows the launching session (the product lens has been pinned to medium since #898), so a gap between buckets is observational, not a controlled comparison. Telemetry has no intent-guess entry, and gemini has no transcript, so neither is counted.\n",
   );
   table(
     ["key", "reviews", "runs", "emitted/run", "survived/run", "acted/run"],
@@ -1589,7 +1594,7 @@ export function selfTest(): string[] {
     walkFile(
       ts.map((t, i) => asst(`${id}${i}`, model, split, [], t)),
       newStats(),
-      (t) => accSpawnTurn(acc, t),
+      (t) => accSpawnTurn(acc, t, false),
     );
     return flushSpawns(acc, "flow-review-product");
   };
@@ -1630,7 +1635,7 @@ export function selfTest(): string[] {
     walkFile(
       [asst(id, model, split, [], "2026-09-10T00:00:00Z", effort)],
       newStats(),
-      (t) => accSpawnTurn(acc, t),
+      (t) => accSpawnTurn(acc, t, true),
     );
     return flushSpawns(acc, "flow-review-product");
   };
@@ -1652,6 +1657,36 @@ export function selfTest(): string[] {
       "flow-review-product @ claude-opus-5 @ high",
       "flow-review-product @ claude-opus-5 @ medium",
       "flow-review-product @ claude-opus-5 @ unrecorded",
+    ],
+  );
+
+  const mixedTurns: Turn[] = [];
+  walkFile(
+    [
+      asst("m0", "claude-opus-5", split, [], "2026-09-10T00:00:00Z", "high"),
+      asst("m1", "claude-opus-5", split, [], "2026-09-10T00:01:00Z", "medium"),
+    ],
+    newStats(),
+    (t) => mixedTurns.push(t),
+  );
+  const mixedRecs = (byEff: boolean) => {
+    const acc: SpawnAcc = new Map();
+    for (const t of mixedTurns) accSpawnTurn(acc, t, byEff);
+    return flushSpawns(acc, "flow-review-product");
+  };
+  eq(
+    "one transcript at two efforts: default table counts one spawn",
+    spawnCostRows(mixedRecs(false)).map((r) => [r.key, r.spawns]),
+    [["flow-review-product @ claude-opus-5", 1]],
+  );
+  eq(
+    "one transcript at two efforts: effort table splits into two rows",
+    spawnCostRows(mixedRecs(true), byEffort)
+      .map((r) => [r.key, r.spawns])
+      .sort(),
+    [
+      ["flow-review-product @ claude-opus-5 @ high", 1],
+      ["flow-review-product @ claude-opus-5 @ medium", 1],
     ],
   );
 

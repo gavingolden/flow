@@ -215,7 +215,10 @@ It is arithmetic on the tables above, not a separate measurement.
 - Intent-guess yield is not measured: it is absent from lens telemetry. Its
   spawn cost is in the effort table.
 - A transcript that changed effort mid-run appears once per effort in the
-  spawn table, so the spawn count can exceed the transcript count.
+  effort spawn table, so the spawn count there can exceed the transcript
+  count.
+- Fable reviewer runs (about $53 in the window) count toward the $634 total
+  but get no saving estimate; the projections model Opus runs only.
 - Transcripts age out after about 30 days, so the pasted tables are the
   record; a re-run later will not reproduce them.
 

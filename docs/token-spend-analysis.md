@@ -260,8 +260,12 @@ Each closed below with its measured number.
    medium-to-high cost ratio, 0.71 and 0.49), against $6,822 of window spend.
    Issue #832's $500 to $1,000 estimate was off for four reasons: the audit it
    used double-counted repeated transcript rows, it predated the Opus cap on
-   Fable sessions, it predated the opus alias moving to Opus 5.5, and it folded
-   planning into the lever. Reviewers today follow the launching session's
+   Fable sessions (Fable reviewer runs cost more per review, so counting them
+   before the cap inflated the estimate), it predated the opus alias moving to
+   Opus 5.5, and it folded planning into the lever. The $26 projection models
+   Opus 5.5 runs only: #900 lifted the cap for bug-detection, so its runs on
+   Fable sessions fall outside it, and the next audit re-run is where that
+   shows. Reviewers today follow the launching session's
    effort, and the product lens is already pinned to medium by #898, whose
    per-lens exception already settles the policy-test question. The
    observational yield signal (acted per run 1.31 at high against 0.81 at
