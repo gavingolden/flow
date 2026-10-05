@@ -14,15 +14,17 @@
 const STDIN_TIMEOUT_MS = 250;
 const FLOW_DOC_PATH = /\.flow\/(?:claude-home|overlays)/;
 const AWK_NAMES = new Set(["awk", "gawk", "mawk", "nawk"]);
-const WRAPPERS = new Set([
-  "env",
-  "sudo",
-  "time",
-  "command",
-  "nice",
-  "nohup",
-  "exec",
-  "xargs",
+// Wrapper -> its short options that consume the NEXT token as a value, so
+// `sudo -u x awk` resolves to `awk` rather than treating `x` as the command.
+const WRAPPERS = new Map<string, Set<string>>([
+  ["env", new Set(["-u", "-C", "-S"])],
+  ["sudo", new Set(["-u", "-g", "-h", "-p", "-C", "-r", "-t", "-U", "-D"])],
+  ["time", new Set(["-f", "-o"])],
+  ["command", new Set()],
+  ["nice", new Set(["-n"])],
+  ["nohup", new Set()],
+  ["exec", new Set(["-a"])],
+  ["xargs", new Set(["-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a"])],
 ]);
 const LINE_NUMBER_PRINT = /^(?:\d+|\$)(?:,(?:\d+|\$))?p$/;
 
@@ -34,7 +36,7 @@ export type Decision = {
 const REASON =
   "This sed/awk form on flow's installed docs can be flagged by Claude Code as an edit of a protected .claude/ file and stall an unattended run. Use the Read tool instead: grep -n the heading to find its line, then Read with offset/limit (or sed -n 'N,Mp').";
 
-/** Quote-aware split on unquoted `|`, `||`, `&&`, `;` and newlines. */
+/** Quote-aware split on unquoted `|`, `||`, `&&`, `&`, `;` and newlines. */
 function splitSegments(command: string): string[] {
   const segments: string[] = [];
   let cur = "";
@@ -59,6 +61,13 @@ function splitSegments(command: string): string[] {
       segments.push(cur);
       cur = "";
       i++;
+    } else if (
+      c === "&" &&
+      !/[<>]/.test(command[i - 1] ?? "") &&
+      command[i + 1] !== ">"
+    ) {
+      segments.push(cur);
+      cur = "";
     } else {
       cur += c;
     }
@@ -108,8 +117,12 @@ function commandWord(
       continue;
     }
     const base = t.split("/").pop() ?? t;
-    if (WRAPPERS.has(base)) {
+    const wrapperArgFlags = WRAPPERS.get(base);
+    if (wrapperArgFlags) {
       i++;
+      while (i < tokens.length && /^-./.test(tokens[i]!)) {
+        i += wrapperArgFlags.has(tokens[i]!) ? 2 : 1;
+      }
       continue;
     }
     return { word: base, rest: tokens.slice(i + 1) };
@@ -136,11 +149,18 @@ function sedIsRisky(args: string[]): boolean {
       continue;
     }
     if (a.startsWith("-") && a.length > 1) {
-      const flags = a.slice(1);
-      if (flags.includes("i") || flags.includes("f")) return true;
-      if (flags.endsWith("e")) {
-        scriptViaE = true;
-        scripts.push(args[++i] ?? "");
+      for (let j = 1; j < a.length; j++) {
+        const f = a[j]!;
+        if (f === "i" || f === "f") return true;
+        if (f === "e") {
+          scriptViaE = true;
+          scripts.push(a.slice(j + 1) || (args[++i] ?? ""));
+          break;
+        }
+        if (f === "l") {
+          if (j === a.length - 1) i++;
+          break;
+        }
       }
       continue;
     }

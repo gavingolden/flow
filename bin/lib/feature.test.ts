@@ -4237,7 +4237,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     ]);
   });
 
-  it("rewrites when a recorded guard command path no longer exists", () => {
+  it("re-resolves the guard to the checkout path once the installed guard disappears", () => {
     fs.mkdirSync(path.dirname(installedGuardPath), { recursive: true });
     fs.writeFileSync(installedGuardPath, "installed-guard\n");
     fs.chmodSync(installedGuardPath, 0o755);

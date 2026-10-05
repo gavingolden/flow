@@ -1834,7 +1834,8 @@ export function resolveSeedHookCommand(): string {
 /**
  * Same resolution order as `resolveSeedHookCommand`, for the PreToolUse
  * flow-doc read guard (`FLOW_DOC_READ_GUARD_COMMAND` override). Never warns
- * on divergence — only the seed hook carries that diagnostic.
+ * on divergence — only the seed hook carries that diagnostic, though
+ * `warnOnHookDivergence` itself is helper-agnostic.
  */
 export function resolveDocReadGuardCommand(): string {
   return resolveHookCommand(
@@ -1855,7 +1856,8 @@ function resolveHookCommand(
   const installed = installedHelperPath(helper);
   const script = hookScriptPath(helper);
   if (fs.existsSync(installed)) {
-    if (warnOnDivergence) warnOnHookDivergence(helper, installed, script);
+    if (warnOnDivergence)
+      warnOnHookDivergence(helper, envVar, installed, script);
     return installed;
   }
   return script;
@@ -1864,12 +1866,13 @@ function resolveHookCommand(
 /**
  * Warns once to stderr when the resolver picked the installed hook but the
  * module-relative dev script also exists with DIFFERENT contents — signal
- * that local edits to `bin/flow-seed-ingested-hook.ts` are not being
- * exercised by launched sessions. Diagnostic only — never a failure; silent
+ * that local edits to `bin/<helper>.ts` are not being exercised by launched
+ * sessions. Diagnostic only — never a failure; silent
  * when either file is unreadable or the contents match.
  */
 function warnOnHookDivergence(
   helper: string,
+  envVar: string,
   installedPath: string,
   scriptPath: string,
 ): void {
@@ -1879,7 +1882,7 @@ function warnOnHookDivergence(
     const scriptContent = fs.readFileSync(scriptPath, "utf8");
     if (installedContent === scriptContent) return;
     process.stderr.write(
-      `warning: running from ${scriptPath}, but the seed hook registered is the installed ${installedPath} — your local edits to bin/${helper}.ts will not be exercised (set FLOW_SEED_HOOK_COMMAND to override)\n`,
+      `warning: running from ${scriptPath}, but the registered ${helper} hook is the installed ${installedPath} — your local edits to bin/${helper}.ts will not be exercised (set ${envVar} to override)\n`,
     );
   } catch {
     // unreadable — stay silent, diagnostic only
@@ -1892,10 +1895,12 @@ function warnOnHookDivergence(
  * (Bash `sed`/`awk` only) by absolute path. Writes ONLY this
  * flow-owned file — NEVER the user's global ~/.claude/settings.json (the
  * `--settings` flag is additive, so global settings still apply). Skips the
- * write when the on-disk content already matches the desired command AND
- * that command still exists on disk (self-heals a stale recorded path even
- * when the JSON text hasn't changed shape, e.g. after the target file was
- * deleted out from under an already-correct settings file).
+ * write when the on-disk content already matches the desired settings AND
+ * the recorded seed-hook command still exists on disk (self-heals a stale
+ * recorded path even when the JSON text hasn't changed shape, e.g. after the
+ * target file was deleted out from under an already-correct settings file).
+ * A guard path that vanishes needs no separate check: the desired settings
+ * then resolve to the checkout path, so the content differs and is rewritten.
  */
 export function ensureLaunchSettings(
   settingsPath: string = FLOW_LAUNCH_SETTINGS_PATH,
@@ -1935,20 +1940,10 @@ export function ensureLaunchSettings(
       const parsed = JSON.parse(current) as {
         hooks?: {
           UserPromptSubmit?: Array<{ hooks?: Array<{ command?: string }> }>;
-          PreToolUse?: Array<{ hooks?: Array<{ command?: string }> }>;
         };
       };
       const recorded = parsed.hooks?.UserPromptSubmit?.[0]?.hooks?.[0]?.command;
-      const guards = (parsed.hooks?.PreToolUse ?? []).flatMap((entry) =>
-        (entry.hooks ?? []).map((h) => h.command),
-      );
-      if (
-        recorded &&
-        fs.existsSync(recorded) &&
-        guards.length > 0 &&
-        guards.every((c) => c && fs.existsSync(c))
-      )
-        return;
+      if (recorded && fs.existsSync(recorded)) return;
     }
   } catch {
     // absent / unreadable / malformed — fall through to write

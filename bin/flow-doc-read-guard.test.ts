@@ -48,6 +48,87 @@ describe("flow-doc-read-guard decide()", () => {
     expect(decide(bash(`sed -n "3,9p" ${HOME_DOC}`))).toBeNull();
   });
 
+  describe("sed option parsing", () => {
+    it.each([
+      `sed -e 's/a/b/' ${HOME_DOC}`,
+      `sed -ne 's/a/b/p' ${HOME_DOC}`,
+      `sed --expression='s/a/b/' ${HOME_DOC}`,
+      `sed --expression 's/a/b/' ${HOME_DOC}`,
+      `sed -f script.sed ${HOME_DOC}`,
+      `sed -n -f script.sed ${HOME_DOC}`,
+      `sed --in-place 's/a/b/' ${HOME_DOC}`,
+      `sed -ni 's/a/b/p' ${HOME_DOC}`,
+      `sed -i.bak 's/a/b/' ${HOME_DOC}`,
+      `sed -n -e '12,20p' -e '/x/p' ${HOME_DOC}`,
+    ])("denies %s", (command) => {
+      expect(decide(bash(command))?.permissionDecision).toBe("deny");
+    });
+
+    it.each([
+      `sed -n -e '12,20p' ${HOME_DOC}`,
+      `sed -n -e'12,20p' ${HOME_DOC}`,
+      `sed -ne '12,20p' ${HOME_DOC}`,
+      `sed -n --expression='12,20p' ${HOME_DOC}`,
+      `sed -n -e 12p -e 14,16p ${HOME_DOC}`,
+      `sed -n -e '$p' ${HOME_DOC}`,
+    ])("allows line-number-only %s", (command) => {
+      expect(decide(bash(command))).toBeNull();
+    });
+  });
+
+  describe("segment splitting", () => {
+    it("does not split on a | or ; inside quotes", () => {
+      expect(decide(bash(`grep -n 'x|awk y' ${HOME_DOC}`))).toBeNull();
+      expect(decide(bash(`grep -n "x;awk y" ${HOME_DOC}`))).toBeNull();
+      expect(decide(bash(`grep -n 'x&&awk y' ${HOME_DOC}`))).toBeNull();
+      expect(
+        decide(bash("sed -n '/A\\|B/p' $WORKTREE/.flow-tmp/plan.md")),
+      ).toBeNull();
+      expect(
+        decide(bash(`awk -F'|' '{print $1}' $WORKTREE/.flow-tmp/plan.md`)),
+      ).toBeNull();
+    });
+
+    it.each([
+      [";", `cd /tmp; awk 1 ${HOME_DOC}`],
+      ["newline", `cd /tmp\nawk 1 ${HOME_DOC}`],
+      ["&", `sleep 1 & awk 1 ${HOME_DOC}`],
+      ["||", `false || awk 1 ${HOME_DOC}`],
+      ["pipe", `cat x | awk 1 ${HOME_DOC}`],
+    ])("denies a risky segment after %s", (_name, command) => {
+      expect(decide(bash(command))?.permissionDecision).toBe("deny");
+    });
+
+    it("keeps &&, >& and 2>&1 intact rather than splitting them", () => {
+      expect(decide(bash(`sed -n 12p ${HOME_DOC} 2>&1`))).toBeNull();
+      expect(decide(bash(`sed -n 12p ${HOME_DOC} >&2`))).toBeNull();
+      expect(decide(bash(`sed -n 12p ${HOME_DOC} &> /dev/null`))).toBeNull();
+      expect(decide(bash(`true && sed -n 12p ${HOME_DOC}`))).toBeNull();
+    });
+  });
+
+  describe("command-word normalization", () => {
+    it.each([
+      `env awk 1 ${HOME_DOC}`,
+      `env -i awk 1 ${HOME_DOC}`,
+      `LC_ALL=C awk 1 ${HOME_DOC}`,
+      `/usr/bin/awk 1 ${HOME_DOC}`,
+      `sudo -u x awk 1 ${HOME_DOC}`,
+      `xargs -0 awk 1 ${HOME_DOC}`,
+      `nice -n 5 awk 1 ${HOME_DOC}`,
+      `gawk 1 ${HOME_DOC}`,
+      `env sed -i s/a/b/ ${HOME_DOC}`,
+      `(awk 1 ${HOME_DOC})`,
+    ])("denies %s", (command) => {
+      expect(decide(bash(command))?.permissionDecision).toBe("deny");
+    });
+
+    it("still allows a wrapped line-number sed", () => {
+      expect(decide(bash(`env -i sed -n 12p ${HOME_DOC}`))).toBeNull();
+      expect(decide(bash(`sudo -u x sed -n 12,20p ${HOME_DOC}`))).toBeNull();
+    });
+  });
+
   it("allows grep -n and cat on the same path", () => {
     expect(decide(bash(`grep -n '^## X' ${HOME_DOC}`))).toBeNull();
     expect(decide(bash(`cat ${HOME_DOC}`))).toBeNull();
