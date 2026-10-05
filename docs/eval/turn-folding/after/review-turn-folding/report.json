@@ -1,0 +1,2751 @@
+{
+  "schemaVersion": 1,
+  "runner": {
+    "name": "flow-eval-headless",
+    "claudeVersion": "2.1.289",
+    "childArgvDigest": "4c488558c2d16c62"
+  },
+  "tree": {
+    "gitHead": "851bab286175642edbdc61079a925afdea8e573f",
+    "dirty": false
+  },
+  "suite": "review-turn-folding",
+  "candidate": "review-turn-folding",
+  "startedAt": "2026-10-05T22:51:19.903Z",
+  "finishedAt": "2026-10-05T22:53:12.679Z",
+  "scenarios": [
+    {
+      "id": "s1-consolidator-collect",
+      "title": "Returned consolidator artifact is read and counted",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "finding-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "blocking-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-escalation",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.29153660000000003,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 77234,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "6fe7e022-1e84-48a6-af72-12951e978e4a",
+          "costUsd": 0.29153660000000003,
+          "durationMs": 12579,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "finding-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "blocking-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-escalation",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.28602020000000006,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 76757,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "baabc965-318c-44f1-912c-234707c21900",
+          "costUsd": 0.28602020000000006,
+          "durationMs": 5558,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "finding-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "blocking-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-escalation",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.2897042,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 77143,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "8e24388f-ebdb-4c46-977c-5ac0f163d149",
+          "costUsd": 0.2897042,
+          "durationMs": 9121,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "finding-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "blocking-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-escalation",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.287947,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 77229,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "617e3785-dc1d-4c01-995c-4582cd8b7577",
+          "costUsd": 0.287947,
+          "durationMs": 5000,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "finding-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "blocking-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-escalation",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.2899726,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 77143,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "3acdb5dc-bddd-4e49-85e2-a1e0bdfb95f6",
+          "costUsd": 0.2899726,
+          "durationMs": 8190,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        }
+      ],
+      "metrics": {
+        "result.num_turns": {
+          "median": 6,
+          "min": 6,
+          "max": 6,
+          "direction": "lower",
+          "values": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 0.2897042,
+          "min": 0.28602020000000006,
+          "max": 0.29153660000000003,
+          "direction": "lower",
+          "values": [
+            0.29153660000000003,
+            0.28602020000000006,
+            0.2897042,
+            0.287947,
+            0.2899726
+          ]
+        },
+        "transcript.finalContextTokens": {
+          "median": 77143,
+          "min": 76757,
+          "max": 77234,
+          "direction": "lower",
+          "values": [
+            77234,
+            76757,
+            77143,
+            77229,
+            77143
+          ]
+        },
+        "transcript.toolCalls.Bash": {
+          "median": 2,
+          "min": 2,
+          "max": 2,
+          "direction": "lower",
+          "values": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "direction": "lower",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "s2-consolidator-schema-failure",
+      "title": "Schema-invalid consolidator artifact escalates",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "escalation-tag",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-status-escalated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-escalation-tag",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3286246,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 78106,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 3,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "3b70edef-c7f0-4275-995a-47a95dafb260",
+          "costUsd": 0.3286246,
+          "durationMs": 12010,
+          "numTurns": 7,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "escalation-tag",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-status-escalated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-escalation-tag",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.30210460000000006,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 76150,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "cf45f057-d726-4f7f-afec-87da44b00e3f",
+          "costUsd": 0.30210460000000006,
+          "durationMs": 24374,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "escalation-tag",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-status-escalated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-escalation-tag",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3303464,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 78541,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 3,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "dfbeee40-f4ae-4e04-8ea6-f718a48c61b6",
+          "costUsd": 0.3303464,
+          "durationMs": 16483,
+          "numTurns": 7,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "escalation-tag",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-status-escalated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-escalation-tag",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3333422,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 79265,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 3,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "4b3a656d-3821-4409-be21-1de7d72aad81",
+          "costUsd": 0.3333422,
+          "durationMs": 13996,
+          "numTurns": 7,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "escalation-tag",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-status-escalated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-escalation-tag",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3019942,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 76147,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "63d6d9e0-dbb4-402f-8504-06338028d77c",
+          "costUsd": 0.3019942,
+          "durationMs": 10872,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        }
+      ],
+      "metrics": {
+        "result.num_turns": {
+          "median": 7,
+          "min": 6,
+          "max": 7,
+          "direction": "lower",
+          "values": [
+            7,
+            6,
+            7,
+            7,
+            6
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 0.3286246,
+          "min": 0.3019942,
+          "max": 0.3333422,
+          "direction": "lower",
+          "values": [
+            0.3286246,
+            0.30210460000000006,
+            0.3303464,
+            0.3333422,
+            0.3019942
+          ]
+        },
+        "transcript.finalContextTokens": {
+          "median": 78106,
+          "min": 76147,
+          "max": 79265,
+          "direction": "lower",
+          "values": [
+            78106,
+            76150,
+            78541,
+            79265,
+            76147
+          ]
+        },
+        "transcript.toolCalls.Bash": {
+          "median": 3,
+          "min": 2,
+          "max": 3,
+          "direction": "lower",
+          "values": [
+            3,
+            2,
+            3,
+            3,
+            2
+          ]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "direction": "lower",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "s3-fix-applier-collect",
+      "title": "Returned fix-applier artifact passes the check and is read once",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "status",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "commit-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "deferred-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3026222,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 76505,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 3,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "3dffc3e5-6ba2-4d68-8958-f09c2fb88241",
+          "costUsd": 0.3026222,
+          "durationMs": 11765,
+          "numTurns": 7,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "status",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "commit-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "deferred-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.303312,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 76621,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 3,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "fcb63abc-5da6-45be-8d00-bb9329a1aa7c",
+          "costUsd": 0.303312,
+          "durationMs": 8135,
+          "numTurns": 7,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "status",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "commit-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "deferred-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.2872044,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 76493,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 3,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "deb894c6-3a75-449d-b7a7-9df399b6cb84",
+          "costUsd": 0.2872044,
+          "durationMs": 17434,
+          "numTurns": 7,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "status",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "commit-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "deferred-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3030732,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 76626,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 3,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "45a3db40-3a71-44be-adc5-126118272643",
+          "costUsd": 0.3030732,
+          "durationMs": 7660,
+          "numTurns": 7,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "status",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "commit-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "deferred-count",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.303136,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 76548,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 3,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "9ce04e4b-3862-4ceb-b220-c5d2894948b9",
+          "costUsd": 0.303136,
+          "durationMs": 12201,
+          "numTurns": 7,
+          "childArgvDigest": "d680e152d5a2156a"
+        }
+      ],
+      "metrics": {
+        "result.num_turns": {
+          "median": 7,
+          "min": 7,
+          "max": 7,
+          "direction": "lower",
+          "values": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 0.3030732,
+          "min": 0.2872044,
+          "max": 0.303312,
+          "direction": "lower",
+          "values": [
+            0.3026222,
+            0.303312,
+            0.2872044,
+            0.3030732,
+            0.303136
+          ]
+        },
+        "transcript.finalContextTokens": {
+          "median": 76548,
+          "min": 76493,
+          "max": 76626,
+          "direction": "lower",
+          "values": [
+            76505,
+            76621,
+            76493,
+            76626,
+            76548
+          ]
+        },
+        "transcript.toolCalls.Bash": {
+          "median": 3,
+          "min": 3,
+          "max": 3,
+          "direction": "lower",
+          "values": [
+            3,
+            3,
+            3,
+            3,
+            3
+          ]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "direction": "lower",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "s4-step8c-run-items",
+      "title": "Step 8c runs items, ticks passes, leaves failures and SUBJECTIVE unticked",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "ran",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "passed",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "failed",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-true-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-test-d-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-false-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-subjective-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-evidence-injected",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.280507,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 75453,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "e84596fd-06e5-44a0-bcff-7dba476b8178",
+          "costUsd": 0.280507,
+          "durationMs": 7656,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "ran",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "passed",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "failed",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-true-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-test-d-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-false-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-subjective-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-evidence-injected",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.2984616,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 75937,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "fd2b7e68-f6db-4209-9d88-593388711e84",
+          "costUsd": 0.2984616,
+          "durationMs": 10302,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "ran",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "passed",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "failed",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-true-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-test-d-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-false-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-subjective-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-evidence-injected",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.2973794,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 75778,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "2e36210d-cfdb-423f-9587-826de5cff093",
+          "costUsd": 0.2973794,
+          "durationMs": 16183,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "ran",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "passed",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "failed",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-true-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-test-d-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-false-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-subjective-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-evidence-injected",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.280988,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 75555,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "96f6a38f-29c3-426a-9404-03471db77eb8",
+          "costUsd": 0.280988,
+          "durationMs": 8245,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "ran",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "passed",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "failed",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-true-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-test-d-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-false-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-subjective-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "body-evidence-injected",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 5,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.280288,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 75263,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 1,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "26149266-3875-4639-9599-d783ff6e32b4",
+          "costUsd": 0.280288,
+          "durationMs": 8031,
+          "numTurns": 5,
+          "childArgvDigest": "d680e152d5a2156a"
+        }
+      ],
+      "metrics": {
+        "result.num_turns": {
+          "median": 6,
+          "min": 5,
+          "max": 6,
+          "direction": "lower",
+          "values": [
+            6,
+            6,
+            6,
+            6,
+            5
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 0.280988,
+          "min": 0.280288,
+          "max": 0.2984616,
+          "direction": "lower",
+          "values": [
+            0.280507,
+            0.2984616,
+            0.2973794,
+            0.280988,
+            0.280288
+          ]
+        },
+        "transcript.finalContextTokens": {
+          "median": 75555,
+          "min": 75263,
+          "max": 75937,
+          "direction": "lower",
+          "values": [
+            75453,
+            75937,
+            75778,
+            75555,
+            75263
+          ]
+        },
+        "transcript.toolCalls.Bash": {
+          "median": 1,
+          "min": 1,
+          "max": 2,
+          "direction": "lower",
+          "values": [
+            1,
+            2,
+            2,
+            1,
+            1
+          ]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "direction": "lower",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "s5-fix-applier-missing-artifact",
+      "title": "Missing fix-applier artifact escalates",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "escalation-tag",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-status-escalated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-escalation-tag",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3032266,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 76219,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "4d31b06d-7c59-4340-ad4a-4e873c0e957a",
+          "costUsd": 0.3032266,
+          "durationMs": 9090,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "escalation-tag",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-status-escalated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-escalation-tag",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.30424439999999997,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 76258,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "5fd033fe-b73d-4f2a-9350-75d4ea3fc2c9",
+          "costUsd": 0.30424439999999997,
+          "durationMs": 14154,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "escalation-tag",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-status-escalated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-escalation-tag",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3017066,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 75871,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "8a719950-dc8a-4fff-801b-ca2e53273a10",
+          "costUsd": 0.3017066,
+          "durationMs": 8330,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "escalation-tag",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-status-escalated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-escalation-tag",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3023312,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 76071,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "be9ad1c3-669a-4df8-98cc-cdeb095a50c0",
+          "costUsd": 0.3023312,
+          "durationMs": 9272,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "escalation-tag",
+              "kind": "structured",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-status-escalated",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result-escalation-tag",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.toolCalls.Bash",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3050968,
+              "direction": "lower"
+            },
+            "transcript.finalContextTokens": {
+              "value": 76331,
+              "direction": "lower"
+            },
+            "transcript.toolCalls.Bash": {
+              "value": 2,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "0ba22a40-cd1e-4bbd-b493-b55c2adf2130",
+          "costUsd": 0.3050968,
+          "durationMs": 16849,
+          "numTurns": 6,
+          "childArgvDigest": "d680e152d5a2156a"
+        }
+      ],
+      "metrics": {
+        "result.num_turns": {
+          "median": 6,
+          "min": 6,
+          "max": 6,
+          "direction": "lower",
+          "values": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ]
+        },
+        "result.total_cost_usd": {
+          "median": 0.3032266,
+          "min": 0.3017066,
+          "max": 0.3050968,
+          "direction": "lower",
+          "values": [
+            0.3032266,
+            0.30424439999999997,
+            0.3017066,
+            0.3023312,
+            0.3050968
+          ]
+        },
+        "transcript.finalContextTokens": {
+          "median": 76219,
+          "min": 75871,
+          "max": 76331,
+          "direction": "lower",
+          "values": [
+            76219,
+            76258,
+            75871,
+            76071,
+            76331
+          ]
+        },
+        "transcript.toolCalls.Bash": {
+          "median": 2,
+          "min": 2,
+          "max": 2,
+          "direction": "lower",
+          "values": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "direction": "lower",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    }
+  ],
+  "summary": {
+    "score": 1,
+    "scenarios": 5,
+    "passed": 5,
+    "failed": 0,
+    "errored": 0,
+    "costUsd": 7.49517
+  }
+}
