@@ -1,0 +1,8 @@
+{
+  "findings": [],
+  "rejected_alternatives": [],
+  "anti_patterns_found": [],
+  "gated": {
+    "reason": "no hot-path files changed"
+  }
+}

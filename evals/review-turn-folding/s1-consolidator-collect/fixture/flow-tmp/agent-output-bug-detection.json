@@ -1,0 +1,24 @@
+{
+  "findings": [
+    {
+      "file": "src/pricing.ts",
+      "line": 12,
+      "label": "issue",
+      "decoration": "blocking",
+      "confidence": 90,
+      "subject": "Threshold excludes a cart of exactly 100",
+      "body": "`total > 100` skips a cart of exactly 100, which the PR description says qualifies."
+    },
+    {
+      "file": "src/pricing.ts",
+      "line": 20,
+      "label": "suggestion",
+      "decoration": "non-blocking",
+      "confidence": 82,
+      "subject": "Guard against negative totals",
+      "body": "A negative total would pass through the discount unchanged."
+    }
+  ],
+  "rejected_alternatives": [],
+  "anti_patterns_found": []
+}

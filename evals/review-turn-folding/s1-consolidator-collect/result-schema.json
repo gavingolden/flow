@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "finding_count": {
+      "type": "number"
+    },
+    "blocking_count": {
+      "type": "number"
+    },
+    "escalation_tag": {
+      "type": ["string", "null"]
+    }
+  },
+  "required": ["finding_count", "blocking_count", "escalation_tag"]
+}

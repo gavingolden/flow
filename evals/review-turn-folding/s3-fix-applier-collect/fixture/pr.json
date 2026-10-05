@@ -1,0 +1,62 @@
+[
+  {
+    "number": 1,
+    "title": "feat: add cart bulk-discount tier",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "url": "https://github.com/example-org/example-repo/pull/1",
+    "headRefName": "feature-1",
+    "baseRefName": "main",
+    "headRefOid": "sha-head-1",
+    "additions": 40,
+    "deletions": 10,
+    "changed_files": 2,
+    "commits": [
+      {
+        "messageHeadline": "feat: add applyBulkDiscount pricing tier"
+      },
+      {
+        "messageHeadline": "test: cover bulk discount edge cases"
+      }
+    ],
+    "files": [
+      "src/pricing.ts",
+      "src/pricing.test.ts"
+    ],
+    "reviews": [],
+    "apiReviews": [],
+    "apiComments": [
+      {
+        "path": "src/pricing.ts",
+        "line": 12,
+        "start_line": null,
+        "body": "This threshold comparison looks off by one: a cart of exactly 100 should qualify.",
+        "diff_hunk": "@@ -10,3 +10,5 @@\n+  if (total > 100) {",
+        "html_url": "https://github.com/example-org/example-repo/pull/1#discussion_r1001",
+        "user": {
+          "login": "reviewer-a"
+        },
+        "in_reply_to_id": null,
+        "id": 1001
+      },
+      {
+        "path": "src/pricing.ts",
+        "line": 5,
+        "start_line": null,
+        "body": "nit: keep the tier constants in one table like the rest of this module.",
+        "diff_hunk": "@@ -3,2 +3,4 @@\n+const TIER_RATE = 0.1;",
+        "html_url": "https://github.com/example-org/example-repo/pull/1#discussion_r1002",
+        "user": {
+          "login": "reviewer-a"
+        },
+        "in_reply_to_id": null,
+        "id": 1002
+      }
+    ],
+    "author": {
+      "login": "contributor-a"
+    },
+    "body": "## Why\n\nSpend-based bulk discount tiers were requested by sales.\n\n## What\n\nAdds the pricing tier and tests.\n\n## Test Steps\n\n- [x] Run `npm run test` \u2014 all specs pass.\n"
+  }
+]

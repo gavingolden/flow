@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "ran": {
+      "type": "number"
+    },
+    "passed": {
+      "type": "number"
+    },
+    "failed": {
+      "type": "number"
+    }
+  },
+  "required": ["ran", "passed", "failed"]
+}

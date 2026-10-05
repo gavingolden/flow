@@ -1,0 +1,7 @@
+{
+  "number": 1,
+  "title": "feat: add cart bulk-discount tier",
+  "headRefName": "feature-1",
+  "baseRefName": "main",
+  "headRefOid": "sha-head-1"
+}
