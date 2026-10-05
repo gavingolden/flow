@@ -1909,7 +1909,6 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     inheritsAllTools?: boolean;
     wantMemory?: "local";
     wantMaxTurns?: number;
-    wantCacheTtl?: "1h";
     wantSkills?: string;
   }> = [
     {
@@ -1917,12 +1916,10 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
       wantTools:
         "Bash, Edit, Write, Read, ToolSearch, Skill, mcp__chrome-devtools__\\*",
       wantMaxTurns: 200,
-      wantCacheTtl: "1h",
       wantSkills: "flow-fix-applier-instructions",
     },
     {
       file: "flow-consolidator.md",
-      wantCacheTtl: "1h",
       wantSkills: "flow-consolidator-instructions",
     },
     {
@@ -1968,7 +1965,6 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
       file: "flow-discovery.md",
       inheritsAllTools: true,
       wantMemory: "local",
-      wantCacheTtl: "1h",
     },
     {
       file: "flow-merge-resolver.md",
@@ -1986,7 +1982,6 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     {
       file: "flow-ui-driver.md",
       wantMaxTurns: 120,
-      wantCacheTtl: "1h",
       wantSkills: "flow-ui-driver-instructions",
       wantTools: "Bash, Read, Write, ToolSearch, mcp__chrome-devtools__\\*",
     },
@@ -2013,7 +2008,6 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
       inheritsAllTools,
       wantMemory,
       wantMaxTurns,
-      wantCacheTtl,
       wantSkills,
     } of AGENT_FRONTMATTER_POLICY) {
       const agentPath = path.resolve(HERE, "..", "agents", "core", file);
@@ -2096,22 +2090,10 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
           `agents/${file} frontmatter must NOT declare 'maxTurns:'.`,
         ).toBe(false);
       }
-      if (wantCacheTtl) {
-        // cacheTtl is nested under experimental:, never a top-level key —
-        // the docs say it's read only from the nested map; a top-level
-        // ^cacheTtl: line is silently ignored.
-        expect(
-          /^experimental:\s*\n\s+cacheTtl:\s*1h\s*$/m.test(frontmatter),
-          `agents/${file} frontmatter must declare 'experimental:' with a ` +
-            `nested 'cacheTtl: ${wantCacheTtl}' — a top-level 'cacheTtl:' ` +
-            "key is silently ignored by Claude Code.",
-        ).toBe(true);
-      } else {
-        expect(
-          /^experimental:/m.test(frontmatter),
-          `agents/${file} frontmatter must NOT declare 'experimental:'.`,
-        ).toBe(false);
-      }
+      expect(
+        /^experimental:/m.test(frontmatter),
+        `agents/${file} frontmatter must NOT declare 'experimental:'.`,
+      ).toBe(false);
       if (wantSkills) {
         expect(
           new RegExp(`^skills:\\s*\\n\\s+-\\s+${wantSkills}\\s*$`, "m").test(

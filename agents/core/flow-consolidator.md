@@ -2,8 +2,6 @@
 name: flow-consolidator
 description: Independent Consolidator-Validator Subagent for /flow-pr-review Step 3.5. Merges the per-lens review outputs, applies confidence threshold + dedup, and runs the second-opinion validation pass.
 tools: Bash, Read, Grep, Write
-experimental:
-  cacheTtl: 1h
 skills:
   - flow-consolidator-instructions
 ---

@@ -3,8 +3,6 @@ name: flow-ui-driver
 description: Browser-drive sub-agent for /flow-verify's UI-smoke pass. Launches the app, drives chrome-devtools per route and viewport, writes the captures JSON + result artifact. The manifest already says what to do, so this agent does not deliberate.
 tools: Bash, Read, Write, ToolSearch, mcp__chrome-devtools__*
 maxTurns: 120
-experimental:
-  cacheTtl: 1h
 skills:
   - flow-ui-driver-instructions
 ---

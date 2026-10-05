@@ -3,8 +3,6 @@ name: flow-fix-applier
 description: Mechanical fix-applier for /flow-pr-review step 8. Applies each review finding, runs pre-commit, commits, and pushes to the PR's own branch. The findings are already diagnosed; applying them never needs deliberation.
 tools: Bash, Edit, Write, Read, ToolSearch, Skill, mcp__chrome-devtools__*
 maxTurns: 200
-experimental:
-  cacheTtl: 1h
 skills:
   - flow-fix-applier-instructions
 ---
