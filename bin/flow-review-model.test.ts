@@ -103,6 +103,47 @@ describe("flow-review-model", () => {
     });
   });
 
+  it("bug-detection on a fable session prints nothing — the cap is lifted, the spawn inherits Fable", () => {
+    const { code, out } = runWith(["bug-detection"], {
+      state: st({ model: "fable" }),
+    });
+    expect(code).toBe(0);
+    expect(out).toEqual([]);
+
+    const jsonResult = runWith(["bug-detection", "--json"], {
+      state: st({ model: "fable" }),
+    });
+    expect(JSON.parse(jsonResult.out[0])).toEqual({
+      lens: "bug-detection",
+      model: "",
+      source: "inherited",
+    });
+  });
+
+  it("models.reviewLenses.bug-detection = opus opts back to opus on a fable session", () => {
+    const { code, out } = runWith(["bug-detection"], {
+      config: { models: { reviewLenses: { "bug-detection": "opus" } } },
+      state: st({ model: "fable" }),
+    });
+    expect(code).toBe(0);
+    expect(out).toEqual(["opus"]);
+  });
+
+  it("every other capped lens still resolves to opus on a fable session", () => {
+    for (const lens of [
+      "security",
+      "pattern-consistency",
+      "performance",
+      "supply-chain",
+      "test-coverage",
+      "intent-guess",
+    ]) {
+      const { code, out } = runWith([lens], { state: st({ model: "fable" }) });
+      expect(code, lens).toBe(0);
+      expect(out, lens).toEqual(["opus"]);
+    }
+  });
+
   it("a sonnet session model resolves to sonnet, NOT escalated to opus (regression guard)", () => {
     const { code, out } = runWith(["test-coverage"], {
       state: st({ model: "sonnet" }),

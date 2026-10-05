@@ -22,7 +22,7 @@ import {
   type ModelAlias,
   type PipelineState,
 } from "./state";
-import { REVIEW_LENS_NAMES } from "./models-config";
+import { REVIEW_LENS_NAMES, type ReviewLensName } from "./models-config";
 
 /** Terminal fallback kind when neither a state override nor config resolves. */
 export type Fallback =
@@ -61,6 +61,11 @@ export type SpawnSite = {
    * value regardless of the session's effort.
    */
   effortPin?: EffortLevel;
+};
+
+const LENS_FALLBACK: Partial<Record<ReviewLensName, Fallback>> = {
+  product: "pinned-opus",
+  "bug-detection": "inherited",
 };
 
 /**
@@ -111,16 +116,19 @@ export const SPAWN_SITES: readonly SpawnSite[] = [
   // One row per review lens plus intent-guess, built off `REVIEW_LENS_NAMES`
   // (models-config.ts) so this table and the warning text can't drift apart.
   // Each inherits the session model, capped: a session model priced above
-  // `INHERITANCE_CAP_ALIAS` falls back to opus rather than reaching eight
-  // review spawns at once. `product` is the exception: a literal opus on every
-  // session (a Sonnet session is NOT passed through) and a pinned medium effort.
+  // `INHERITANCE_CAP_ALIAS` falls back to opus rather than reaching seven
+  // review spawns at once. Two exceptions. `product` is a literal opus on
+  // every session (a Sonnet session is NOT passed through) and a pinned medium
+  // effort. `bug-detection` inherits uncapped: the recall check in
+  // docs/eval/fable-vs-opus-subagents.md found Fable re-found 8.7% vs 3.9%
+  // (p = 0.0065) at $2.50 vs $0.71 a review.
   ...REVIEW_LENS_NAMES.map(
     (lens): SpawnSite => ({
       phase: `review-lens:${lens}`,
       stateField: "modelReview",
       configKey: "review",
       fineGrainAbove: `reviewLenses.${lens}`,
-      fallback: lens === "product" ? "pinned-opus" : "session-capped-opus",
+      fallback: LENS_FALLBACK[lens] ?? "session-capped-opus",
       ...(lens === "product" ? { effortPin: "medium" as const } : {}),
     }),
   ),
