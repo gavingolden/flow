@@ -206,41 +206,74 @@ describe("attributeTranscripts", () => {
     expect(out.performance).toBeUndefined();
   });
 
-  it("picks the newest transcript's usage/file when a widen re-pass produces two transcripts for the same lens", async () => {
+  it("sums every in-window transcript of a lens (a widen re-pass or respawn), excluding ones before since, with model/file from the newest", async () => {
     const dir = makeSubagentsDir();
     const since = new Date(Date.now() - 60_000);
-
-    fs.writeFileSync(
-      path.join(dir, "agent-old.meta.json"),
-      JSON.stringify({ agentType: "flow-review-bug-detection" }),
-    );
-    const oldJsonl = path.join(dir, "agent-old.jsonl");
-    writeUsageJsonl(oldJsonl, "claude-old");
-
-    fs.writeFileSync(
-      path.join(dir, "agent-new.meta.json"),
-      JSON.stringify({ agentType: "flow-review-bug-detection" }),
-    );
-    const newJsonl = path.join(dir, "agent-new.jsonl");
-    fs.writeFileSync(
-      newJsonl,
-      JSON.stringify({
-        type: "assistant",
-        message: {
-          model: "claude-new",
-          usage: { input_tokens: 200, output_tokens: 100 },
-        },
-      }),
-    );
-
     const now = Date.now() / 1000;
-    fs.utimesSync(oldJsonl, now - 30, now - 30);
-    fs.utimesSync(newJsonl, now, now);
+
+    const addTranscript = (
+      name: string,
+      model: string,
+      input: number,
+      output: number,
+      mtime: number,
+    ): string => {
+      fs.writeFileSync(
+        path.join(dir, `${name}.meta.json`),
+        JSON.stringify({ agentType: "flow-review-bug-detection" }),
+      );
+      const file = path.join(dir, `${name}.jsonl`);
+      fs.writeFileSync(
+        file,
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            model,
+            usage: { input_tokens: input, output_tokens: output },
+          },
+        }),
+      );
+      fs.utimesSync(file, mtime, mtime);
+      return file;
+    };
+
+    addTranscript("agent-before", "claude-before", 1000, 1000, now - 3600);
+    addTranscript("agent-old", "claude-old", 10, 5, now - 30);
+    const newJsonl = addTranscript("agent-new", "claude-new", 200, 100, now);
 
     const out = await attributeTranscripts(dir, since);
-    expect(out["bug-detection"].usage.total).toBe(300);
+    expect(out["bug-detection"].usage).toEqual({
+      total: 315,
+      input: 210,
+      cache_creation: 0,
+      cache_read: 0,
+      output: 105,
+    });
     expect(out["bug-detection"].model).toBe("claude-new");
     expect(out["bug-detection"].file).toBe(newJsonl);
+  });
+
+  it("excludes a transcript newer than the until bound", async () => {
+    const dir = makeSubagentsDir();
+    const now = Date.now() / 1000;
+    for (const [name, mtime] of [
+      ["agent-in", now - 30],
+      ["agent-late", now],
+    ] as const) {
+      fs.writeFileSync(
+        path.join(dir, `${name}.meta.json`),
+        JSON.stringify({ agentType: "flow-review-security" }),
+      );
+      const file = path.join(dir, `${name}.jsonl`);
+      writeUsageJsonl(file, "claude-x");
+      fs.utimesSync(file, mtime, mtime);
+    }
+    const out = await attributeTranscripts(
+      dir,
+      new Date((now - 60) * 1000),
+      new Date((now - 10) * 1000),
+    );
+    expect(out.security.usage.total).toBe(50);
   });
 });
 
@@ -275,30 +308,40 @@ describe("mergeTelemetry", () => {
     startedAt: "2026-01-01T00:00:00.000Z",
   };
 
-  it("should prefer --lens-tokens over transcript usage (tokens_source 'task-notification', tokens.total only)", () => {
+  it("takes tokens from the transcript and records the notification figure separately as context_tokens", () => {
     const t = mergeTelemetry({
       ...baseArgs,
-      counts: {
-        "bug-detection": {
-          ran: true,
-          skip_reason: null,
-          findings_emitted: 1,
-          findings_survived: 1,
-          findings_dropped: 0,
-          findings_acted: 0,
-          findings_deferred: 0,
-        },
-      },
+      counts: {},
       lensTokens: { "bug-detection": 12345 },
       transcripts: {
-        "bug-detection": { usage: { total: 999, input: 1 }, model: "claude-x" },
+        "bug-detection": {
+          usage: { total: 50, input: 30, output: 20 },
+          model: "claude-x",
+        },
       },
     });
-    expect(t.lenses["bug-detection"].tokens).toEqual({ total: 12345 });
-    expect(t.lenses["bug-detection"].tokens_source).toBe("task-notification");
+    expect(t.lenses["bug-detection"].tokens).toEqual({
+      total: 50,
+      input: 30,
+      output: 20,
+    });
+    expect(t.lenses["bug-detection"].tokens_source).toBe("subagent-transcript");
+    expect(t.lenses["bug-detection"].context_tokens).toBe(12345);
   });
 
-  it("falls back to the transcript split when no --lens-tokens figure exists", () => {
+  it("never writes the notification figure into tokens: notification only yields tokens null + 'unavailable' with context_tokens set", () => {
+    const t = mergeTelemetry({
+      ...baseArgs,
+      counts: {},
+      lensTokens: { "bug-detection": 12345 },
+      transcripts: {},
+    });
+    expect(t.lenses["bug-detection"].tokens).toBeNull();
+    expect(t.lenses["bug-detection"].tokens_source).toBe("unavailable");
+    expect(t.lenses["bug-detection"].context_tokens).toBe(12345);
+  });
+
+  it("transcript only keeps the per-class split with context_tokens null", () => {
     const t = mergeTelemetry({
       ...baseArgs,
       counts: {},
@@ -315,7 +358,7 @@ describe("mergeTelemetry", () => {
       input: 30,
       output: 20,
     });
-    expect(t.lenses["bug-detection"].tokens_source).toBe("subagent-transcript");
+    expect(t.lenses["bug-detection"].context_tokens).toBeNull();
   });
 
   it("yields tokens null + 'unavailable' when neither exists", () => {
@@ -327,44 +370,50 @@ describe("mergeTelemetry", () => {
     });
     expect(t.lenses["bug-detection"].tokens).toBeNull();
     expect(t.lenses["bug-detection"].tokens_source).toBe("unavailable");
+    expect(t.lenses["bug-detection"].context_tokens).toBeNull();
   });
 
-  it("populates model on the task-notification branch from --lens-model", () => {
+  it("populates model from --lens-model even with no transcript", () => {
     const t = mergeTelemetry({
       ...baseArgs,
       counts: {},
-      lensTokens: { "bug-detection": 12345 },
+      lensTokens: {},
       lensModels: { "bug-detection": "opus" },
       transcripts: {},
     });
-    expect(t.lenses["bug-detection"].tokens_source).toBe("task-notification");
     expect(t.lenses["bug-detection"].model).toBe("opus");
   });
 
-  it("prefers an explicit --lens-model over a transcript-derived model on the task-notification branch", () => {
-    const t = mergeTelemetry({
+  it("prefers an explicit --lens-model over the transcript-derived model, and uses the transcript model otherwise", () => {
+    const transcripts = {
+      "bug-detection": { usage: { total: 999 }, model: "claude-x" },
+    };
+    const withFlag = mergeTelemetry({
       ...baseArgs,
       counts: {},
-      lensTokens: { "bug-detection": 12345 },
+      lensTokens: {},
       lensModels: { "bug-detection": "opus" },
-      transcripts: {
-        "bug-detection": { usage: { total: 999 }, model: "claude-x" },
-      },
+      transcripts,
     });
-    expect(t.lenses["bug-detection"].model).toBe("opus");
+    expect(withFlag.lenses["bug-detection"].model).toBe("opus");
+    const without = mergeTelemetry({
+      ...baseArgs,
+      counts: {},
+      lensTokens: {},
+      lensModels: {},
+      transcripts,
+    });
+    expect(without.lenses["bug-detection"].model).toBe("claude-x");
   });
 
-  it("falls back to the transcript-derived model on the task-notification branch when --lens-model has no entry", () => {
+  it("tags rows version 3", () => {
     const t = mergeTelemetry({
       ...baseArgs,
       counts: {},
-      lensTokens: { "bug-detection": 12345 },
-      lensModels: {},
-      transcripts: {
-        "bug-detection": { usage: { total: 999 }, model: "claude-x" },
-      },
+      lensTokens: {},
+      transcripts: {},
     });
-    expect(t.lenses["bug-detection"].model).toBe("claude-x");
+    expect(t.version).toBe(3);
   });
 
   it("builds run_id as `<pr>:<head_sha>:<started_at>`", () => {
