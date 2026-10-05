@@ -69,3 +69,7 @@ docs/eval/f6/after/
 # byte-exact phrases nine skill-md-lint pins match on.
 templates/rules/
 templates/references/
+
+# Recorded eval-arm output (report.json / summary.md) is committed verbatim
+# as measured; reformatting would make it differ from what flow-eval wrote.
+docs/eval/turn-folding/

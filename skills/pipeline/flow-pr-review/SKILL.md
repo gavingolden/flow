@@ -1052,8 +1052,8 @@ For each promoted item:
    under both bash and zsh:
 
    ```bash
-   bash -c '.flow-tmp/promoted-<n>.sh' > .flow-tmp/evidence-<n>.txt 2>&1
-   echo "$?" > .flow-tmp/exit-<n>
+   bash -c '.flow-tmp/promoted-<n>.sh' > .flow-tmp/evidence-p<n>.txt 2>&1
+   echo "$?" > .flow-tmp/exit-p<n>
    ```
 
 3. On exit 0, hand off to 8c.i for the box-tick + evidence injection. The
@@ -1064,8 +1064,8 @@ For each promoted item:
    flow-inject-evidence \
      --body-file .flow-tmp/body.md \
      --item '<regex matching the author prose line>' \
-     --output-file .flow-tmp/evidence-<n>.txt \
-     --exit-code "$(cat .flow-tmp/exit-<n>)"
+     --output-file .flow-tmp/evidence-p<n>.txt \
+     --exit-code "$(cat .flow-tmp/exit-p<n>)"
    ```
 
 4. On non-zero exit: do NOT tick the box. Leave the item unchecked and record
