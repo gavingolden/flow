@@ -39,8 +39,10 @@ running seven committed suites, split by what each measures:
   `bun docs/eval/discovery-payload.ts --stream-dir <out>` (repeat
   `--instructions <path|basename>` per reference when the file is split); the
   production baseline is
-  [discovery-payload-baseline-2026-10.md](discovery-payload-baseline-2026-10.md).
-  The suite is paid (about $5 per run), so `run --all` now includes it.
+  [discovery-payload-baseline-2026-10.md](discovery-payload-baseline-2026-10.md),
+  and the split's go/no-go record is
+  [discovery-payload.md](discovery-payload.md). The suite is paid (about
+  $1.90 per run, $18 to $19 per 10-run arm), so `run --all` now includes it.
 
 Alongside the suites, `docs/eval/review-cost-baseline.md` records the
 measured **review-phase cost before-state** — the supervisor's own turn

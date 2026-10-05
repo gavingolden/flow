@@ -113,7 +113,7 @@ describe("measureSpawn", () => {
     });
     const rows = [
       user("t"),
-      asst("m1", usage(1000), [bash("t1", `cat "${IR}"`)]),
+      asst("m1", usage(1000), [bash("t1", `cat ${IR}; echo ===`)]),
       result("t1"),
       asst("m2", usage(50), [read("t2", "/s/tool-results/b1.txt")]),
       result("t2"),

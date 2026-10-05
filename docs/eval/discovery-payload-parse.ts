@@ -119,7 +119,7 @@ export function measureSpawn(
       if (b?.type !== "tool_use") continue;
       if (b.name === "Bash") {
         const cmd = String(b.input?.command ?? "");
-        const words = cmd.split(/[\s'"]+/).map((w) => basename(w));
+        const words = cmd.split(/[\s'";|&()<>]+/).map((w) => basename(w));
         if (words.some((w) => names.has(w))) {
           instrIds.add(b.id);
           bashInstr = true;

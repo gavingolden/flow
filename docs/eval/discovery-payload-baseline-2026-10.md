@@ -20,10 +20,9 @@ bun docs/eval/discovery-payload.ts --since 2026-09-05 --sections skills/pipeline
 - Runs: **129** discovery sub-agent transcripts under `~/.claude/projects`
   with `agentType: flow-module-core:flow-discovery`, modified on or after
   2026-09-05.
-- Of those, **105** runs carry an attributed instruction read: either a
-  Read of `discovery-instructions.md`, or a shell `cat` of it followed by a
-  Read of the spilled output file (a `tool-results/*.txt` path). The other
-  24 runs never loaded the file at all.
+- All 129 runs carry an attributed instruction read: either a Read of
+  `discovery-instructions.md`, or a shell command naming it followed by a
+  Read of the spilled output file (a `tool-results/*.txt` path).
 - Dollars are list-price equivalents from the script's dated price table
   (2026-09-30), not a bill.
 
@@ -34,22 +33,10 @@ bun docs/eval/discovery-payload.ts --since 2026-09-05 --sections skills/pipeline
 | First request context (tokens)         | 50,014 | 48,801 | 53,407 |
 | First-turn write (tokens)              | 36,248 | 30,589 | 49,530 |
 | Task text (chars)                      | 5,009  | 4,123  | 6,512  |
-| Instruction read (tokens, upper bound) | 65,252 | 41,287 | 70,161 |
-| Instruction read chunks                | 4      | 3      | 5      |
-| Turns after instructions               | 20     | 9      | 41     |
-| USD per run                            | 5.21   | 3.78   | 7.37   |
-
-### The 105 runs with an attributed instruction read
-
-| Metric                                 | Median | p25    | p75    |
-| -------------------------------------- | ------ | ------ | ------ |
-| First request context (tokens)         | 51,195 | 48,929 | 53,566 |
-| First-turn write (tokens)              | 38,070 | 32,315 | 51,093 |
-| Task text (chars)                      | 5,312  | 4,146  | 6,881  |
-| Instruction read (tokens, upper bound) | 66,665 | 58,999 | 71,205 |
+| Instruction read (tokens, upper bound) | 66,992 | 62,824 | 70,486 |
 | Instruction read chunks                | 4      | 4      | 5      |
-| Turns after instructions               | 27     | 16     | 45     |
-| USD per run                            | 5.31   | 3.82   | 7.37   |
+| Turns after instructions               | 31     | 17     | 46     |
+| USD per run                            | 5.21   | 3.78   | 7.37   |
 
 ### USD per run by model (all 129 runs)
 
@@ -62,37 +49,37 @@ bun docs/eval/discovery-payload.ts --since 2026-09-05 --sections skills/pipeline
 
 ### Instruction read share
 
-Computed over the same 105 attributed runs from the same transcripts, using
-the script's parser:
+Computed over the same 129 runs from the same transcripts, using the
+script's parser:
 
-- **Share of start-up payload:** the instruction read is 56.4% of
-  (first request context + instruction read tokens), summed over the 105
-  runs. The file arrives on later requests as 3 to 5 chunks, so it more
-  than doubles what the first request already carries (median 51,195
+- **Share of start-up payload:** the instruction read is 56.8% of
+  (first request context + instruction read tokens), summed over the 129
+  runs. The file arrives on later requests as 4 to 5 chunks, so it more
+  than doubles what the first request already carries (median 50,014
   tokens).
 - **First-turn write is not the instruction file.** The median first-turn
-  write (38,070 tokens) is standing context and task text; the
+  write (36,248 tokens) is standing context and task text; the
   instruction read lands on requests 2 onward. A saving of 20% of the
-  first-turn write is about 7.6K tokens of instruction read.
-- **Share of discovery spend:** about **18% to 22%** of the modeled spend
-  of the 129 runs ($736.61), i.e. roughly **$139 to $175** of the
+  first-turn write is **7,250 tokens** of instruction read per run.
+- **Share of discovery spend:** about **23% to 28%** of the modeled spend
+  of the 129 runs ($736.61), i.e. roughly **$178 to $219** of the
   $786.20 30-day discovery spend. The low end prices the instruction
   tokens at each model's 5-minute write rate, the high end at its 1-hour
   write rate; both add the cache re-read of every instruction token on
-  every later turn (median 27 turns).
+  every later turn (median 31 turns).
 
 ### Reference open rates (all 129 runs)
 
 | Reference                 | Opened | Runs | Rate |
 | ------------------------- | ------ | ---- | ---- |
-| prd-template.md           | 57     | 129  | 44%  |
-| architecture-patterns.md  | 7      | 129  | 5%   |
-| discovery-playbook.md     | 9      | 129  | 7%   |
-| example-prd.md            | 26     | 129  | 20%  |
-| discovery-instructions.md | 105    | 129  | 81%  |
+| prd-template.md           | 79     | 129  | 61%  |
+| architecture-patterns.md  | 10     | 129  | 8%   |
+| discovery-playbook.md     | 10     | 129  | 8%   |
+| example-prd.md            | 36     | 129  | 28%  |
+| discovery-instructions.md | 129    | 129  | 100% |
 
 The sibling references the instructions tell discovery to read are opened
-on 5% to 44% of runs, so any block moved out of the core file needs an
+on 8% to 61% of runs, so any block moved out of the core file needs an
 explicit gate-site pointer or spawn-prompt name rather than reliance on an
 optional read.
 
@@ -190,10 +177,40 @@ bun docs/eval/discovery-payload.ts --stream-dir <dir>
 | USD per discovery run                  | 0.95   | 0.72   | 1.01   |
 
 The eval fixture is small, so its first-turn write (15K) is far below
-production's (38K). The go/no-go bar therefore uses the production median
-first-turn write: 20% of 38,070 tokens is **7,614 tokens** of instruction
+production's (36K). The go/no-go bar therefore uses the production median
+first-turn write: 20% of 36,248 tokens is **7,250 tokens** of instruction
 read per run.
 
 ## After arm
 
-Pending.
+Recorded 2026-10-05 on the split instructions, tree `cc2e767`, same Claude
+Code version, model and command as the before arm, with a fresh
+`FLOW_RESEARCH_CACHE_DIR`. The measurement passes every split file:
+
+```sh
+bun docs/eval/discovery-payload.ts --stream-dir <dir> \
+  --instructions discovery-instructions.md --instructions discovery-research.md \
+  --instructions discovery-ui.md --instructions discovery-revision.md \
+  --instructions discovery-survey-epic.md --instructions discovery-prompt-interpretation.md
+```
+
+- Report: [after/report.json](discovery-payload/after/report.json),
+  [after/summary.md](discovery-payload/after/summary.md).
+- Quality: 5/5 scenarios pass; every gating grader passed on all 10 runs.
+- Eval spend: $17.88 for the 10 runs.
+
+| Metric (10 discovery runs)             | Median | p25    | p75    |
+| -------------------------------------- | ------ | ------ | ------ |
+| First request context (tokens)         | 22,846 | 22,794 | 22,894 |
+| First-turn write (tokens)              | 15,130 | 15,100 | 15,228 |
+| Task text (chars)                      | 3,279  | 3,122  | 3,482  |
+| Instruction read (tokens, upper bound) | 50,111 | 48,477 | 50,543 |
+| Instruction read chunks                | 2      | 2      | 2      |
+| Turns after instructions               | 13     | 10.5   | 15.5   |
+| USD per discovery run                  | 0.81   | 0.72   | 0.85   |
+
+Each branch reference was opened on both runs of the scenario that fires
+its branch: `discovery-ui.md` in s2, `discovery-prompt-interpretation.md`
+in s3, `discovery-revision.md` in s4, `discovery-research.md` in s5
+(plus two runs where research was considered but judged not
+researchable).
