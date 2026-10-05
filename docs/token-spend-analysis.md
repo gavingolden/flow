@@ -206,8 +206,8 @@ unmeasured levers each name the recall check that would have to run first.
 | Isolate the verify loop in its own sub-agent | not worth it | $5.02, what the retired agent still shows | sonnet-5 9.0M | 173 | none | Removing it made the loop slightly faster, not slower | Eval A/B with and without: run? yes; cost +0.3% and +0.6% when removed | none |
 | Sub-agents inheriting the Fable session model | not pursued | $666.39 across 3,379 sub-agent turns | fable-5-1 365.7M, fable-5 25.8M | 3,379 | Planning: not measured — planning tracks the session model by the user's deliberate choice; per finished run Fable discovery costs $5.34 against $3.85 on Opus 5.5 (+$1.49) and $5.57 on Opus 5. Bug-detection: cap lifted (own row above). The product review lens is now pinned to Opus at medium effort ($0.55 a review against Fable's $1.10) | Fable bug-detection median 95 s against 46 s on Opus 5.5; discovery median 10.0 min against 12.3 | Fable vs Opus 5.5 bug-detection recall on 3 PRs, 2 runs each: run? yes; Fable materially better, cap since lifted (own row above) ([results](eval/fable-vs-opus-subagents.md)) | #890 |
 
-Reading the table: the top three rows are where the money is and all three are
-still hypotheses. Four levers have a recorded check that clears the bar. Three
+Reading the table: the top three rows are the largest spend still unmeasured,
+and all three are hypotheses. Four levers have a recorded check that clears the bar. Three
 have shipped: the gatekeeper removal, the smallest row, because what remains in
 the window is pre-removal residue; the lifted bug-detection cap, which adds
 spend on purpose (+$1.79 a review on Fable sessions) to buy the findings Opus
