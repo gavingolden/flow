@@ -1,0 +1,54 @@
+{
+  "suite": "review-tail",
+  "base": {
+    "gitHead": "42914ebfcdb7fe102e44bd30693aa8fa07b4bab2"
+  },
+  "candidate": {
+    "gitHead": "c738831c773f3a075f7da9ab062ebdbdc2d42fb3"
+  },
+  "scenarios": [
+    {
+      "id": "s1-step8c-run-and-tick",
+      "baseScore": 1,
+      "candidateScore": 1,
+      "scoreDelta": 0,
+      "metrics": [
+        {
+          "name": "transcript.finalContextTokens",
+          "base": 76450,
+          "candidate": 76572,
+          "delta": 122,
+          "pct": 0.0015958142576847612,
+          "verdict": "same"
+        },
+        {
+          "name": "result.total_cost_usd",
+          "base": 0.3238208,
+          "candidate": 0.3248458000000001,
+          "delta": 0.0010250000000000536,
+          "pct": 0.0031653309484753716,
+          "verdict": "same"
+        },
+        {
+          "name": "result.num_turns",
+          "base": 6,
+          "candidate": 6,
+          "delta": 0,
+          "pct": 0,
+          "verdict": "same"
+        },
+        {
+          "name": "result.duration_ms",
+          "base": 12651,
+          "candidate": 12917,
+          "delta": 266,
+          "pct": 0.021026005849339974,
+          "verdict": "same"
+        }
+      ]
+    }
+  ],
+  "regressions": [],
+  "warnings": [],
+  "environmentMismatch": false
+}

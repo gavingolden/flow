@@ -1,0 +1,607 @@
+{
+  "schemaVersion": 1,
+  "runner": {
+    "name": "flow-eval-headless",
+    "claudeVersion": "2.1.289",
+    "childArgvDigest": "e22b86db7a4796b6"
+  },
+  "tree": {
+    "gitHead": "c738831c773f3a075f7da9ab062ebdbdc2d42fb3",
+    "dirty": false
+  },
+  "suite": "review-tail",
+  "candidate": "step8c-batched-runner",
+  "startedAt": "2026-10-05T22:48:14.210Z",
+  "finishedAt": "2026-10-05T22:49:31.439Z",
+  "scenarios": [
+    {
+      "id": "s1-step8c-run-and-tick",
+      "title": "Step 8c + 8c.i run the runnable Test Steps items and tick their boxes",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "ok-item-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "readme-item-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "fail-item-left-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "subjective-item-left-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "evidence-blocks-injected",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "worktree-clean",
+              "kind": "git-clean",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-reviewing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 77423,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3283356,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 12917,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "595cfd3c-c904-4160-b924-f5587686c1ea",
+          "costUsd": 0.3283356,
+          "durationMs": 12917,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "ok-item-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "readme-item-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "fail-item-left-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "subjective-item-left-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "evidence-blocks-injected",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "worktree-clean",
+              "kind": "git-clean",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-reviewing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 76300,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3069312,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 5,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 11588,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "095c004f-f34d-4be6-b168-a0d1a46ee1cf",
+          "costUsd": 0.3069312,
+          "durationMs": 11588,
+          "numTurns": 5,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "ok-item-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "readme-item-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "fail-item-left-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "subjective-item-left-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "evidence-blocks-injected",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "worktree-clean",
+              "kind": "git-clean",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-reviewing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 76991,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.32614879999999996,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 18854,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "a7c280ae-a719-4d27-93a0-351a6dd30e12",
+          "costUsd": 0.32614879999999996,
+          "durationMs": 18854,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "ok-item-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "readme-item-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "fail-item-left-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "subjective-item-left-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "evidence-blocks-injected",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "worktree-clean",
+              "kind": "git-clean",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-reviewing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 76572,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3248458000000001,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 17923,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "4102bf79-53d9-4326-b622-62148fee2b3a",
+          "costUsd": 0.3248458000000001,
+          "durationMs": 17923,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "ok-item-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "readme-item-ticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "fail-item-left-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "subjective-item-left-unticked",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "evidence-blocks-injected",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "worktree-clean",
+              "kind": "git-clean",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-phase-reviewing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 76385,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.3064518,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 5,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 10530,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "ca612b06-9bbe-4357-baa4-d499a0f79c33",
+          "costUsd": 0.3064518,
+          "durationMs": 10530,
+          "numTurns": 5,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "transcript.finalContextTokens": {
+          "median": 76572,
+          "min": 76300,
+          "max": 77423,
+          "direction": "lower",
+          "values": [77423, 76300, 76991, 76572, 76385]
+        },
+        "result.total_cost_usd": {
+          "median": 0.3248458000000001,
+          "min": 0.3064518,
+          "max": 0.3283356,
+          "direction": "lower",
+          "values": [
+            0.3283356, 0.3069312, 0.32614879999999996, 0.3248458000000001,
+            0.3064518
+          ]
+        },
+        "result.num_turns": {
+          "median": 6,
+          "min": 5,
+          "max": 6,
+          "direction": "lower",
+          "values": [6, 5, 6, 6, 5]
+        },
+        "result.duration_ms": {
+          "median": 12917,
+          "min": 10530,
+          "max": 18854,
+          "direction": "lower",
+          "values": [12917, 11588, 18854, 17923, 10530]
+        }
+      }
+    }
+  ],
+  "summary": {
+    "score": 1,
+    "scenarios": 1,
+    "passed": 1,
+    "failed": 0,
+    "errored": 0,
+    "costUsd": 1.5927132000000002
+  }
+}

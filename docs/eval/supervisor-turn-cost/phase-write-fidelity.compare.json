@@ -1,0 +1,254 @@
+{
+  "suite": "phase-write-fidelity",
+  "base": {
+    "gitHead": "42914ebfcdb7fe102e44bd30693aa8fa07b4bab2"
+  },
+  "candidate": {
+    "gitHead": "c738831c773f3a075f7da9ab062ebdbdc2d42fb3"
+  },
+  "scenarios": [
+    {
+      "id": "s1-step7-ci-wait",
+      "baseScore": 1,
+      "candidateScore": 0.8666666666666666,
+      "scoreDelta": -0.13333333333333341,
+      "metrics": [
+        {
+          "name": "transcript.finalContextTokens",
+          "base": 115894,
+          "candidate": 115901,
+          "delta": 7,
+          "pct": 0.000060400020708578526,
+          "verdict": "same"
+        },
+        {
+          "name": "result.total_cost_usd",
+          "base": 0.4762348,
+          "candidate": 0.47556119999999996,
+          "delta": -0.0006736000000000519,
+          "pct": -0.0014144283450097555,
+          "verdict": "same"
+        },
+        {
+          "name": "result.num_turns",
+          "base": 6,
+          "candidate": 6,
+          "delta": 0,
+          "pct": 0,
+          "verdict": "same"
+        },
+        {
+          "name": "result.duration_ms",
+          "base": 9147,
+          "candidate": 8535,
+          "delta": -612,
+          "pct": -0.06690718268284683,
+          "verdict": "same"
+        },
+        {
+          "name": "transcript.subagentsSpawned",
+          "base": 0,
+          "candidate": 0,
+          "delta": 0,
+          "pct": null,
+          "verdict": "same"
+        }
+      ]
+    },
+    {
+      "id": "s2-step8-reviewing",
+      "baseScore": 1,
+      "candidateScore": 1,
+      "scoreDelta": 0,
+      "metrics": [
+        {
+          "name": "transcript.finalContextTokens",
+          "base": 166579,
+          "candidate": 166711,
+          "delta": 132,
+          "pct": 0.0007924168112427136,
+          "verdict": "same"
+        },
+        {
+          "name": "result.total_cost_usd",
+          "base": 0.7306094000000001,
+          "candidate": 0.7298740000000001,
+          "delta": -0.0007353999999999417,
+          "pct": -0.0010065569920123414,
+          "verdict": "same"
+        },
+        {
+          "name": "result.num_turns",
+          "base": 9,
+          "candidate": 9,
+          "delta": 0,
+          "pct": 0,
+          "verdict": "same"
+        },
+        {
+          "name": "result.duration_ms",
+          "base": 19562,
+          "candidate": 17060,
+          "delta": -2502,
+          "pct": -0.12790103261425212,
+          "verdict": "better"
+        },
+        {
+          "name": "transcript.subagentsSpawned",
+          "base": 0,
+          "candidate": 0,
+          "delta": 0,
+          "pct": null,
+          "verdict": "same"
+        }
+      ]
+    },
+    {
+      "id": "s3-step9-gating",
+      "baseScore": 1,
+      "candidateScore": 1,
+      "scoreDelta": 0,
+      "metrics": [
+        {
+          "name": "transcript.finalContextTokens",
+          "base": 115261,
+          "candidate": 115444,
+          "delta": 183,
+          "pct": 0.001587700956958555,
+          "verdict": "same"
+        },
+        {
+          "name": "result.total_cost_usd",
+          "base": 0.44765940000000004,
+          "candidate": 0.47153140000000004,
+          "delta": 0.023872000000000004,
+          "pct": 0.05332625652449162,
+          "verdict": "same"
+        },
+        {
+          "name": "result.num_turns",
+          "base": 5,
+          "candidate": 6,
+          "delta": 1,
+          "pct": 0.2,
+          "verdict": "noisy"
+        },
+        {
+          "name": "result.duration_ms",
+          "base": 8269,
+          "candidate": 7851,
+          "delta": -418,
+          "pct": -0.05055024791389527,
+          "verdict": "same"
+        },
+        {
+          "name": "transcript.subagentsSpawned",
+          "base": 0,
+          "candidate": 0,
+          "delta": 0,
+          "pct": null,
+          "verdict": "same"
+        }
+      ]
+    },
+    {
+      "id": "s4-step10-merging",
+      "baseScore": 1,
+      "candidateScore": 1,
+      "scoreDelta": 0,
+      "metrics": [
+        {
+          "name": "transcript.finalContextTokens",
+          "base": 115434,
+          "candidate": 115457,
+          "delta": 23,
+          "pct": 0.0001992480551657224,
+          "verdict": "same"
+        },
+        {
+          "name": "result.total_cost_usd",
+          "base": 0.47158259999999996,
+          "candidate": 0.471903,
+          "delta": 0.000320400000000054,
+          "pct": 0.000679414380428909,
+          "verdict": "same"
+        },
+        {
+          "name": "result.num_turns",
+          "base": 6,
+          "candidate": 6,
+          "delta": 0,
+          "pct": 0,
+          "verdict": "same"
+        },
+        {
+          "name": "result.duration_ms",
+          "base": 11383,
+          "candidate": 9293,
+          "delta": -2090,
+          "pct": -0.18360713344461038,
+          "verdict": "better"
+        },
+        {
+          "name": "transcript.subagentsSpawned",
+          "base": 0,
+          "candidate": 0,
+          "delta": 0,
+          "pct": null,
+          "verdict": "same"
+        }
+      ]
+    },
+    {
+      "id": "s5-open-pr-implementing",
+      "baseScore": 1,
+      "candidateScore": 1,
+      "scoreDelta": 0,
+      "metrics": [
+        {
+          "name": "transcript.finalContextTokens",
+          "base": 115794,
+          "candidate": 115784,
+          "delta": -10,
+          "pct": -0.00008636026046254555,
+          "verdict": "same"
+        },
+        {
+          "name": "result.total_cost_usd",
+          "base": 0.450307,
+          "candidate": 0.4501862,
+          "delta": -0.00012080000000003199,
+          "pct": -0.0002682614305352393,
+          "verdict": "same"
+        },
+        {
+          "name": "result.num_turns",
+          "base": 5,
+          "candidate": 5,
+          "delta": 0,
+          "pct": 0,
+          "verdict": "same"
+        },
+        {
+          "name": "result.duration_ms",
+          "base": 6336,
+          "candidate": 6020,
+          "delta": -316,
+          "pct": -0.049873737373737376,
+          "verdict": "same"
+        },
+        {
+          "name": "transcript.subagentsSpawned",
+          "base": 0,
+          "candidate": 0,
+          "delta": 0,
+          "pct": null,
+          "verdict": "same"
+        }
+      ]
+    }
+  ],
+  "regressions": ["s1-step7-ci-wait: score"],
+  "warnings": [],
+  "environmentMismatch": false
+}
