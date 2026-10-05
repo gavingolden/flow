@@ -70,6 +70,7 @@ docs/eval/f6/after/
 templates/rules/
 templates/references/
 
-# Recorded eval-arm output (report.json / summary.md) is committed verbatim
-# as measured; reformatting would make it differ from what flow-eval wrote.
+# Recorded eval-arm output: summary.md as flow-eval wrote it, report.json as
+# compact one-line JSON (lossless `jq -c` of flow-eval's output) so a PR that
+# commits several arms stays under GitHub's 20,000-line diff limit.
 docs/eval/turn-folding/
