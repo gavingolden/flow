@@ -1043,25 +1043,20 @@ or `[ "$(jq -r '.field' X)" = "Y" ]` assertion, promote it to runnable per
 not-runnable. Open-ended LLM rewriting of arbitrary manual prose is out of
 scope — the bar is a literal one-line shell command, not interpretation.
 
-For each runnable item:
+For runnable items under `## Test Steps`, run them all in one call (Bash `timeout: 600000` — the default 2-minute tool timeout would kill the run mid-rewrite):
 
-1. Execute it exactly as written, capturing both stdout and stderr to a file.
-   Run the item with no pipe and capture `$?` directly, so the recorded
-   exit status is shell-agnostic — a piped `tee` capture would leave the
-   exit code in a bash-only pipeline array that is empty under a zsh
-   outer shell, silently ticking the box on a failing item:
+```bash
+mkdir -p .flow-tmp
+if command -v flow-run-test-steps >/dev/null; then flow-run-test-steps --pr <number> --body-file .flow-tmp/body.md --worktree "$PWD" > .flow-tmp/test-steps-run.json
+else echo "NOTICE — helper-missing: flow-run-test-steps (run flow install --upgrade); falling back to references/step-8c-manual-run.md"; fi
+```
 
-   ```bash
-   bash -c 'cmd' > .flow-tmp/evidence-<n>.txt 2>&1
-   echo "$?" > .flow-tmp/exit-<n>
-   ```
+`--pr` fetches a fresh body first; omit it when the body is already at `.flow-tmp/body.md`. The runner ticks passes and attaches evidence itself. Summary handling:
 
-   Same discipline as Step 8 — a non-zero exit means investigate and fix the
-   underlying issue, not explain it away.
-2. If a fix is needed, make a **new commit** (do not amend the pushed commit per
-   `AGENTS.md`) and `git push` before re-running.
-3. On pass, the box gets ticked AND the captured output gets injected as a
-   `<details>` evidence block immediately under the item — see the next sub-step.
+- `failed[]` — a non-zero exit means investigate and fix the underlying issue, not explain it away (same discipline as Step 8). Make a **new commit** (never amend a pushed commit per `AGENTS.md`), `git push`, re-run with `--only <line>` (lines are post-rewrite). A `timedOut: true` entry is a slow item, not necessarily a bug — re-run it alone with a larger `--timeout-sec`.
+- `skipped[]` — `prose` → 8c.ii, `browser` → 8c.iii, `human-only` stays untouched, `budget` → re-run with `--only`.
+- 8c.i only handles promoted prose/browser items and items outside `## Test Steps`, via the per-item recipe in [references/step-8c-manual-run.md](references/step-8c-manual-run.md) (also the helper-missing fallback).
+- Feed the summary's `ran`/`total` into Step 12's `flow-review-finalize --ran/--total`.
 
 ### 8c.ii. Prose-to-runnable promotion (mechanical-obviousness only)
 
@@ -1209,21 +1204,11 @@ judgment stays in the wrapper, reading the artifact.
 
 ### 8c.i. Inject evidence under each runnable item
 
-Use `flow-inject-evidence` (installed by `flow install` and on PATH) to perform
-both the box-tick and the evidence injection in one idempotent edit. Save the
-PR body to scratch first so all items can be applied to the same working copy:
-
-```bash
-mkdir -p .flow-tmp
-gh pr view <number> --json body --jq '.body' > .flow-tmp/body.md
-
-# For each runnable item, after running it:
-flow-inject-evidence \
-  --body-file .flow-tmp/body.md \
-  --item '<regex matching the item line>' \
-  --output-file .flow-tmp/evidence-<n>.txt \
-  --exit-code "$(cat .flow-tmp/exit-<n>)"
-```
+Use `flow-inject-evidence` (installed by `flow install` and on PATH) for items the
+runner did not handle (promoted prose, browser, non-`## Test Steps` items). It does
+the box-tick and the evidence injection in one idempotent edit; the per-item loop
+(body fetch, run, `flow-inject-evidence` call) is in
+[references/step-8c-manual-run.md](references/step-8c-manual-run.md).
 
 The helper:
 
