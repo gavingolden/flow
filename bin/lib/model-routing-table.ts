@@ -117,7 +117,7 @@ export const SPAWN_SITES: readonly SpawnSite[] = [
   // (models-config.ts) so this table and the warning text can't drift apart.
   // Each inherits the session model, capped: a session model priced above
   // `INHERITANCE_CAP_ALIAS` falls back to opus rather than reaching seven
-  // review spawns at once. Two exceptions. `product` is a literal opus on
+  // expensive review spawns at once. Two exceptions. `product` is a literal opus on
   // every session (a Sonnet session is NOT passed through) and a pinned medium
   // effort. `bug-detection` inherits uncapped: the recall check in
   // docs/eval/fable-vs-opus-subagents.md found Fable re-found 8.7% vs 3.9%

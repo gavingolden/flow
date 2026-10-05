@@ -142,10 +142,13 @@ LENS_TOKEN_ARGS=()
 for t in "${LENS_TOKENS[@]}"; do LENS_TOKEN_ARGS+=(--lens-tokens "$t"); done
 ```
 
-As each lens is spawned, record its resolved model the same way:
+As each lens is spawned, record its resolved model the same way — only when
+`$LENS_MODEL` is non-empty (bug-detection resolves to an empty model on every
+session: `flow-review-telemetry` rejects a bare `--lens-model <lens>=` with
+exit 2 and the whole telemetry row is lost):
 
 ```bash
-LENS_MODELS+=("<lens>=<resolved-model>")
+[ -n "$LENS_MODEL" ] && LENS_MODELS+=("<lens>=$LENS_MODEL")
 ```
 
 At Step 12, build the `--lens-model` flags the same way as

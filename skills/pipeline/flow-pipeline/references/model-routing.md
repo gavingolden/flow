@@ -75,7 +75,7 @@ so the sub-agent inherits the session model (the default Claude behaviour).
   at opus.** A lens inherits the session model unchanged when that model is
   priced at or below opus (`MODEL_PRICE_RANK` in `bin/lib/state.ts`); an
   alias priced above opus — today only `fable` — falls back to opus instead,
-  so an accidentally-expensive session can never fan out seven review spawns
+  so an accidentally-expensive session can never fan out seven expensive review spawns
   at once. This is a rank-ordering rule keyed on `MODEL_PRICE_RANK`, not a
   named-model special case. Bug-detection is the exception: it inherits the
   session model uncapped (Fable on Fable sessions) because the pre-registered
