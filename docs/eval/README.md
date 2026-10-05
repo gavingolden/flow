@@ -41,7 +41,13 @@ skill segment, joined to flow's telemetry for per-pipeline cost, latency and
 outcome. Re-run it with `bun docs/eval/token-spend-audit.ts --since <YYYY-MM-DD>`;
 `--self-test` checks its parsing, pricing and join logic against an in-memory
 fixture. The dated before-state it produced is
-[`token-spend-baseline-2026-09.md`](token-spend-baseline-2026-09.md).
+[`token-spend-baseline-2026-09.md`](token-spend-baseline-2026-09.md). It
+also prints cost per finished sub-agent run by type and model, the
+per-task view that per-turn figures confound.
+
+[`fable-vs-opus-subagents.md`](fable-vs-opus-subagents.md) records the
+issue #890 check: bug-detection recall on Fable 5.1 against Opus 5.5 on
+the review-recall harness's three PRs, under a pre-registered verdict rule.
 
 `bin/flow-eval.ts` is never installed onto a user's PATH (see
 `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it from a flow

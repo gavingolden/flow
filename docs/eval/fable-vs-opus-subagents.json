@@ -1,0 +1,103 @@
+{
+  "schema": "flow/fable-vs-opus-subagents@1",
+  "measured_at": "2026-10-04",
+  "issue": 890,
+  "arms": ["fable", "opus"],
+  "lens": "bug-detection",
+  "effort": "medium",
+  "prs": [812, 756, 802],
+  "reference_findings": {
+    "pr-812": 23,
+    "pr-756": 26,
+    "pr-802": 18
+  },
+  "runs_per_cell": 2,
+  "model_ids": {
+    "fable": ["claude-fable-5-1"],
+    "opus": ["claude-opus-5-5"]
+  },
+  "recall": {
+    "bugDetection": {
+      "fable": {
+        "mean": 0.0868,
+        "matched_findings": 12,
+        "candidate_findings_median": 7.5,
+        "median_turns": 6.5,
+        "median_duration_ms": 94622,
+        "per_pr": {
+          "pr-756": {
+            "runs": [0.0769, 0.1154],
+            "mean_recall": 0.0962,
+            "variance": 0.00037
+          },
+          "pr-802": {
+            "runs": [0.0556, 0.0556],
+            "mean_recall": 0.0556,
+            "variance": 0
+          },
+          "pr-812": {
+            "runs": [0.1304, 0.087],
+            "mean_recall": 0.1087,
+            "variance": 0.000473
+          }
+        }
+      },
+      "opus": {
+        "mean": 0.0386,
+        "matched_findings": 5,
+        "candidate_findings_median": 4,
+        "median_turns": 3.5,
+        "median_duration_ms": 46499,
+        "per_pr": {
+          "pr-756": {
+            "runs": [0.0385, 0.0385],
+            "mean_recall": 0.0385,
+            "variance": 0
+          },
+          "pr-802": {
+            "runs": [0.0556, 0.0556],
+            "mean_recall": 0.0556,
+            "variance": 0
+          },
+          "pr-812": {
+            "runs": [0, 0.0435],
+            "mean_recall": 0.0217,
+            "variance": 0.000473
+          }
+        }
+      }
+    },
+    "separation": {
+      "baseline": "opus",
+      "candidate": "fable",
+      "delta_mean_recall": 0.0482,
+      "pooled_within_arm_sd": 0.0239,
+      "exact_permutation_p_one_sided": 0.0065
+    }
+  },
+  "cost_usd": {
+    "fable": {
+      "review_total": 15.0,
+      "per_review_mean": 2.4993,
+      "per_review_median": 2.2607,
+      "per_matched_finding": 1.25
+    },
+    "opus": {
+      "review_total": 4.26,
+      "per_review_mean": 0.7095,
+      "per_review_median": 0.7669,
+      "per_matched_finding": 0.85
+    },
+    "judging_total": 1.05,
+    "review_total": 19.25,
+    "total": 20.3
+  },
+  "rule_checks": {
+    "fable_materially_better": true,
+    "cap_validated": false
+  },
+  "verdicts": {
+    "bugDetection": "Fable materially better"
+  },
+  "routing_change": "none \u2014 the bug-detection lens cap (#830) is left unchanged by request"
+}
