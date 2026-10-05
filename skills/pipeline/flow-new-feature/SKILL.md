@@ -378,7 +378,7 @@ discovered during implementation` bullet to the relevant task (or a minimal new 
     path** is anything other than `methods plausibly reach target`, the
     upstream discovery flagged a tension between prescribed methods and
     the stated target (see
-    `skills/pipeline/flow-product-planning/references/discovery-instructions.md`
+    `skills/pipeline/flow-product-planning/references/discovery-prompt-interpretation.md`
     "Prompt interpretation (conditional)" for the four-value enum). Add a
     **Prompt interpretation** row to the assessment table whose Assessment
     cell names the tension verbatim from plan.md and surfaces the

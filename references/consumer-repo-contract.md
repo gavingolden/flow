@@ -39,7 +39,7 @@ via `FLOW_TEST_CONCURRENCY`; on acquire timeout the test runs anyway.
 `flow-research-cache` caches synthesis at `~/.flow/research-cache/`, keyed
 on the normalized question; F2 discovery and direct `/flow-research` use
 disjoint keyspaces. 48h TTL; miss/stale/corrupt → exit 3, never errors.
-Opt-in `prune` sweep. Contract in `discovery-instructions.md`.
+Opt-in `prune` sweep. Contract in the `bin/flow-research-cache.ts` header.
 
 ## Zero-config monorepo auto-detect + three-layer command resolution
 

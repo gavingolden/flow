@@ -279,6 +279,7 @@ RESEARCH: force-on
   Discovery Step 1.5's web-grounded research pre-check is FORCED ON for this
   run — bypass the relevance gate and the research.discovery config opt-in
   (the agy-availability graceful no-op still applies). See discovery-instructions.md (a0).
+  Read {{SKILL_DIR}}/references/discovery-research.md before step 1.
 ```
 
 When the caller passed **no** marker, substitute the **empty string** —
@@ -305,6 +306,7 @@ REVISION: <n>
   `## Open Questions` verbatim, do NOT re-run Step 1.5 research when findings
   already exist, and extend `## Open Questions` with the redirect's questions
   (marking prior ones resolved with a decision note).
+  Read {{SKILL_DIR}}/references/discovery-revision.md before step 1.
 ```
 
 When the caller passed **no** marker, substitute the **empty string** — omit
@@ -328,6 +330,7 @@ EPIC: <slug>/<id> (design at .flow/epics/<slug>/design.md)
   signal (the description pointer and manifest scan are fallbacks), read the
   named `design.md` and `manifest.json`, and author the `## Epic context` PRD
   section with every claim traceable to those two files.
+  Read {{SKILL_DIR}}/references/discovery-survey-epic.md before step 1.
 ```
 
 When the caller passed **no** marker, substitute the **empty string** — omit
@@ -421,6 +424,7 @@ SURVEY: <absolute path> (judges: A=<model> ran|skipped:<reason>, B=<model> ran|s
   path with the Read tool, weigh each judge's top recommendation against
   the user's proposed method with cited codebase evidence, decide the
   verdict, and author `## Method selection` per the step-5 section list.
+  Read {{SKILL_DIR}}/references/discovery-survey-epic.md before step 1.
 ```
 
 When the survey did not run (gate closed, or `ran:false`), substitute the

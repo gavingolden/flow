@@ -39,7 +39,7 @@
      Names the epic slug, this feature's id + rationale, its dependsOn edges
      (produced/consumed artifacts), its downstream dependents, and a Manifest
      write-back line. Every claim must trace to design.md + manifest.json.
-     Full contract: discovery-instructions.md "Epic context" — the single
+     Full contract: discovery-survey-epic.md "Epic context" — the single
      source of truth. -->
 
 Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.md`.
@@ -56,7 +56,7 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 
 <!-- Omit-when-no-SURVEY-marker: include ONLY when the invocation carried a `SURVEY:`
      marker (the Step-3 blind method survey ran); otherwise omit the heading entirely
-     (never an empty heading). Full contract: discovery-instructions.md step 1.8 and
+     (never an empty heading). Full contract: discovery-survey-epic.md step 1.8 and
      the "Method selection" step-5 bullet — the single source of truth. -->
 
 - **User's method:** [the method the user's description proposed]
@@ -141,7 +141,7 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 
 ## Layout Intent
 
-<!-- Omit this whole section for non-UI plans. Authoring contract: discovery-instructions.md "Layout Intent". Do not inline the contract here. -->
+<!-- Omit this whole section for non-UI plans. Authoring contract: discovery-ui.md "Layout Intent". Do not inline the contract here. -->
 
 ### Surface: [name] ([route])
 
@@ -353,14 +353,14 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      section 5 (last section, after Recommendation) — the single source of
      truth for ordering. Full contract — trigger, three required subsections, the
      four-value Recommended-path enum, and the Open-Questions emission rule:
-       skills/pipeline/flow-product-planning/references/discovery-instructions.md
+       skills/pipeline/flow-product-planning/references/discovery-prompt-interpretation.md
        "Prompt interpretation (conditional)"
      Do NOT inline the enum or anti-pattern list here; this template is a thin
      sketch and the upstream reference is the single source of truth. -->
 
 - **Reading of prescribed methods:** [`exhaustive` | `starting points`]
 - **Plausibility estimate:** [your honest read on whether the named methods reach the target, with evidence]
-- **Recommended path:** [one of four enum values; see discovery-instructions.md for the verbatim strings]
+- **Recommended path:** [one of four enum values; see discovery-prompt-interpretation.md for the verbatim strings]
 <!-- Machine-parsed by bin/flow-step3-route.ts: keep this exact one-line form (colon, value on the SAME line). Do not reformat to a label-on-its-own-line shape. -->
 
 ## Candidate follow-up issues

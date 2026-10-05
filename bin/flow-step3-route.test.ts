@@ -503,7 +503,7 @@ describe(extractRecommendedPath, () => {
   });
 
   it("ignores a level-3 (###) Prompt-Interpretation heading", () => {
-    // discovery-instructions.md specifies a top-level ## heading;
+    // discovery-prompt-interpretation.md specifies a top-level ## heading;
     // level-3 is intentionally not recognised.
     const plan = `### Prompt interpretation\n\n- **Recommended path:** extend scope with named additional safe steps\n`;
     expect(extractRecommendedPath(plan)).toBeNull();
