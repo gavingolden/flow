@@ -63,7 +63,14 @@ type Stats = {
   missingUsage: number;
   unknownModels: Map<string, number>;
 };
-type Turn = { model: string; usage: any; ts: string; seg: string };
+type Turn = {
+  model: string;
+  usage: any;
+  ts: string;
+  seg: string;
+  sent: string;
+  cwd: string;
+};
 type Spawn = { prefix: string; type: string; toolUseId?: string };
 type Meta = { agentType?: string; toolUseId?: string };
 
@@ -139,12 +146,17 @@ export function walkFile(
 ) {
   const seen = new Set<string>();
   let cur = "supervisor-base";
+  let lastUser = "";
   for (const l of lines) {
     let j: any;
     try {
       j = JSON.parse(l);
     } catch {
       stats.parseErrors++;
+      continue;
+    }
+    if (j?.type === "user") {
+      if (typeof j.timestamp === "string") lastUser = j.timestamp;
       continue;
     }
     if (j?.type !== "assistant") continue;
@@ -162,7 +174,14 @@ export function walkFile(
               model,
               (stats.unknownModels.get(model) || 0) + 1,
             );
-          onTurn({ model, usage: m.usage, ts: j.timestamp, seg: cur });
+          onTurn({
+            model,
+            usage: m.usage,
+            ts: j.timestamp,
+            seg: cur,
+            sent: lastUser || j.timestamp,
+            cwd: typeof j.cwd === "string" ? j.cwd : "",
+          });
         }
       }
     }
@@ -351,6 +370,187 @@ function usageTable(title: string, o: Record<string, Usage>, churn = false) {
   table(heads, [...entries.map(([k, u]) => row(k, u)), row("**TOTAL**", sum)]);
 }
 
+export type CacheReq = {
+  sent: number;
+  model: string;
+  w5: number;
+  w1: number;
+  read: number;
+};
+export type LifetimeTally = {
+  requests: number;
+  oneHourTokens: number;
+  oneHourUsd: number;
+  premiumUsd: number;
+  readsWithin5m: number;
+  readsAfter5m: number;
+  requestsAfter5m: number;
+  rewriteUsdAt5m: number;
+  readsAfter60m: number;
+  firstRequestReads: number;
+  netUsdAt5m: number;
+  crossSpawnReadsAfter5m: number;
+  unreplayable: number;
+};
+export const zeroTally = (): LifetimeTally => ({
+  requests: 0,
+  oneHourTokens: 0,
+  oneHourUsd: 0,
+  premiumUsd: 0,
+  readsWithin5m: 0,
+  readsAfter5m: 0,
+  requestsAfter5m: 0,
+  rewriteUsdAt5m: 0,
+  readsAfter60m: 0,
+  firstRequestReads: 0,
+  netUsdAt5m: 0,
+  crossSpawnReadsAfter5m: 0,
+  unreplayable: 0,
+});
+
+const MIN = 6e4;
+const sortedBySent = (reqs: CacheReq[]) =>
+  [...reqs]
+    .filter((r) => PRICES[r.model] && Number.isFinite(r.sent))
+    .sort((a, b) => a.sent - b.sent);
+
+// Replays one stream as if its cache lived 5 minutes: a read more than 5 and
+// at most 60 minutes after the previous request would have missed, so those
+// tokens are re-written at the 5m rate instead of read.
+export function replayCacheLifetime(reqs: CacheReq[], into: LifetimeTally) {
+  into.unreplayable += reqs.filter(
+    (r) => PRICES[r.model] && !Number.isFinite(r.sent),
+  ).length;
+  let wrote1h = false;
+  sortedBySent(reqs).forEach((r, i, all) => {
+    const p = PRICES[r.model];
+    const premium = (r.w1 * (p[2] - p[1])) / 1e6;
+    into.requests++;
+    into.oneHourTokens += r.w1;
+    into.oneHourUsd += (r.w1 * p[2]) / 1e6;
+    into.premiumUsd += premium;
+    into.netUsdAt5m -= premium;
+    if (i === 0) into.firstRequestReads += r.read;
+    else {
+      const gap = (r.sent - all[i - 1].sent) / MIN;
+      if (gap <= 5) into.readsWithin5m += r.read;
+      else if (gap <= 60) {
+        if (wrote1h) {
+          const rewrite = (r.read * (p[1] - p[3])) / 1e6;
+          into.readsAfter5m += r.read;
+          if (r.read > 0) into.requestsAfter5m++;
+          into.rewriteUsdAt5m += rewrite;
+          into.netUsdAt5m += rewrite;
+        }
+      } else into.readsAfter60m += r.read;
+    }
+    if (r.w1 > 0) wrote1h = true;
+  });
+}
+
+// One call per (sub-agent type, working directory): a spawn's first request
+// reads the prefix an earlier spawn of the same group left behind.
+export function replayCrossSpawn(spawns: CacheReq[][], into: LifetimeTally) {
+  const lists = spawns
+    .map(sortedBySent)
+    .filter((l) => l.length)
+    .map((reqs) => ({ reqs, start: reqs[0].sent }));
+  for (const s of lists) {
+    const first = s.reqs[0];
+    const earlier = lists
+      .filter((o) => o.start < s.start)
+      .flatMap((o) => o.reqs)
+      .filter((r) => r.sent <= first.sent);
+    if (!earlier.length || !earlier.some((r) => r.w1 > 0)) continue;
+    const gap = (first.sent - Math.max(...earlier.map((r) => r.sent))) / MIN;
+    if (gap <= 5 || gap > 60) continue;
+    const p = PRICES[first.model];
+    const rewrite = (first.read * (p[1] - p[3])) / 1e6;
+    into.crossSpawnReadsAfter5m += first.read;
+    into.firstRequestReads -= first.read;
+    into.rewriteUsdAt5m += rewrite;
+    into.netUsdAt5m += rewrite;
+  }
+}
+
+export type SpawnStream = { type: string; cwd: string; reqs: CacheReq[] };
+export function replayCrossSpawnByGroup(
+  streams: SpawnStream[],
+  tallyFor: (type: string) => LifetimeTally,
+) {
+  const groups = new Map<string, SpawnStream[]>();
+  for (const s of streams) {
+    const k = `${s.type}\0${s.cwd}`;
+    groups.set(k, [...(groups.get(k) ?? []), s]);
+  }
+  for (const g of groups.values())
+    replayCrossSpawn(
+      g.map((s) => s.reqs),
+      tallyFor(g[0].type),
+    );
+}
+
+const fmtSigned = (n: number) => (n < 0 ? "-" : "") + fmtUsd(Math.abs(n));
+
+function cacheLifetimeSection(
+  byUser: Map<string, LifetimeTally>,
+  byAsst: Map<string, LifetimeTally>,
+  win: [number, number],
+) {
+  console.log("## Cache lifetime: 1-hour writes re-read after five minutes\n");
+  const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  console.log(
+    `Window: ${Number.isFinite(win[0]) ? `${day(win[0])} to ${day(win[1])}` : "none"} (request send dates, UTC)\n`,
+  );
+  const rows = [...byUser.entries()]
+    .filter(([, t]) => t.oneHourTokens > 0)
+    .sort((a, b) => b[1].premiumUsd - a[1].premiumUsd);
+  const sum = zeroTally();
+  for (const [, t] of rows)
+    for (const k of Object.keys(sum) as (keyof LifetimeTally)[]) sum[k] += t[k];
+  const sumA = rows.reduce((s, [k]) => s + (byAsst.get(k)?.netUsdAt5m ?? 0), 0);
+  const row = (k: string, t: LifetimeTally, netA: number) => [
+    k,
+    t.requests,
+    fmtM(t.oneHourTokens),
+    fmtUsd(t.oneHourUsd),
+    fmtUsd(t.premiumUsd),
+    fmtM(t.readsAfter5m),
+    fmtM(t.crossSpawnReadsAfter5m),
+    t.requestsAfter5m,
+    fmtUsd(t.rewriteUsdAt5m),
+    fmtSigned(t.netUsdAt5m),
+    fmtSigned(netA),
+    fmtM(t.firstRequestReads),
+  ];
+  table(
+    [
+      "stream",
+      "requests",
+      "1h-write tokens",
+      "1h-write $",
+      "1h premium $",
+      "tokens re-read 5-60 min later",
+      "cross-spawn tokens re-read 5-60 min later",
+      "requests re-reading after 5 min",
+      "re-write $ at 5m",
+      "net $ at 5m (negative = 5m cheaper)",
+      "net $ at 5m, assistant-row send time",
+      "first-request reads (unattributed)",
+    ],
+    [
+      ...rows.map(([k, t]) => row(k, t, byAsst.get(k)?.netUsdAt5m ?? 0)),
+      row("**TOTAL**", sum, sumA),
+    ],
+  );
+  console.log(
+    `Requests skipped for a non-finite send time (unreplayable): ${[...byUser.values()].reduce((n, t) => n + t.unreplayable, 0)}\n`,
+  );
+  console.log(
+    "Limitations: reads served by a parallel session's fresher write are not attributed; cross-spawn grouping assumes the same agent type in the same directory shares a prefix; dollars are list price, not subscription plan usage.\n",
+  );
+}
+
 function run(argv: string[]) {
   const flag = (n: string) => {
     const i = argv.indexOf(n);
@@ -384,6 +584,31 @@ function run(argv: string[]) {
     subUsd = 0;
   const tok = zero();
   const G = (o: Record<string, Usage>, k: string) => (o[k] ||= zero());
+  const lifeUser = new Map<string, LifetimeTally>();
+  const lifeAsst = new Map<string, LifetimeTally>();
+  const tallyIn = (m: Map<string, LifetimeTally>, k: string) => {
+    if (!m.has(k)) m.set(k, zeroTally());
+    return m.get(k)!;
+  };
+  const spawnUser: SpawnStream[] = [];
+  const spawnAsst: SpawnStream[] = [];
+  let sentMin = Infinity,
+    sentMax = -Infinity;
+  const newReqs = () => ({ user: [] as CacheReq[], asst: [] as CacheReq[] });
+  const pushReq = (p: ReturnType<typeof newReqs>, t: Turn) => {
+    if (!PRICES[t.model]) return;
+    const c = classes(t.usage);
+    const base = { model: t.model, w5: c.w5, w1: c.w1, read: c.read };
+    const sent = Date.parse(t.sent);
+    if (sent < sentMin) sentMin = sent;
+    if (sent > sentMax) sentMax = sent;
+    p.user.push({ ...base, sent });
+    p.asst.push({ ...base, sent: Date.parse(t.ts) });
+  };
+  const replayStream = (key: string, p: ReturnType<typeof newReqs>) => {
+    replayCacheLifetime(p.user, tallyIn(lifeUser, key));
+    replayCacheLifetime(p.asst, tallyIn(lifeAsst, key));
+  };
 
   const root = join(HOME, ".claude", "projects");
   const dirs = existsSync(root) ? readdirSync(root) : [];
@@ -430,6 +655,7 @@ function run(argv: string[]) {
         }
       };
       const spawns: Spawn[] = [];
+      const mainReqs = newReqs();
       walkFile(
         lines,
         stats,
@@ -441,10 +667,12 @@ function run(argv: string[]) {
             sess,
           ]);
           mainUsd += priceTurn(t.usage, t.model);
+          pushReq(mainReqs, t);
         },
         spawns,
         inWindow,
       );
+      replayStream("main conversation", mainReqs);
       const sadir = join(root, d, sid, "subagents");
       if (existsSync(sadir)) {
         for (const sf of readdirSync(sadir).filter((x) =>
@@ -480,6 +708,8 @@ function run(argv: string[]) {
             meta && (meta as any).description,
           );
           let first = true;
+          const subReqs = newReqs();
+          let subCwd = "";
           walkFile(
             sl,
             stats,
@@ -494,7 +724,9 @@ function run(argv: string[]) {
                 sess,
               ]);
               subUsd += priceTurn(t.usage, t.model);
+              pushReq(subReqs, t);
               if (isFirst) {
+                subCwd = t.cwd || cwd || "";
                 const c = classes(t.usage);
                 (firstTurn[type] ||= []).push(c.w5 + c.w1);
               }
@@ -502,6 +734,11 @@ function run(argv: string[]) {
             [],
             inWindow,
           );
+          if (subReqs.user.length) {
+            replayStream(`sub-agent: ${type}`, subReqs);
+            spawnUser.push({ type, cwd: subCwd, reqs: subReqs.user });
+            spawnAsst.push({ type, cwd: subCwd, reqs: subReqs.asst });
+          }
         }
       }
       if (counted) {
@@ -510,6 +747,13 @@ function run(argv: string[]) {
       }
     }
   }
+
+  replayCrossSpawnByGroup(spawnUser, (ty) =>
+    tallyIn(lifeUser, `sub-agent: ${ty}`),
+  );
+  replayCrossSpawnByGroup(spawnAsst, (ty) =>
+    tallyIn(lifeAsst, `sub-agent: ${ty}`),
+  );
 
   const events: EventRow[] = [];
   const evPath = join(HOME, ".flow", "telemetry", "events.jsonl");
@@ -737,6 +981,8 @@ function run(argv: string[]) {
       `${r.src["subagent-transcript"] || 0}/${r.src["task-notification"] || 0}/${r.src["unavailable"] || 0}`,
     ]),
   );
+
+  cacheLifetimeSection(lifeUser, lifeAsst, [sentMin, sentMax]);
 }
 
 export function summarizeLenses(rows: any[]) {
@@ -763,7 +1009,7 @@ export function summarizeLenses(rows: any[]) {
   return [...by.values()].sort((a, b) => b.tokens - a.tokens);
 }
 
-function selfTest() {
+export function selfTestFailures(): string[] {
   const fails: string[] = [];
   const eq = (name: string, a: unknown, b: unknown) => {
     if (JSON.stringify(a) !== JSON.stringify(b))
@@ -980,15 +1226,149 @@ function selfTest() {
   });
   eq("resolveRepo skip", resolveRepo("/private/tmp/x/flow", ["flow"]), null);
 
-  if (fails.length) {
-    console.error(`self-test FAILED (${fails.length}):\n${fails.join("\n")}`);
-    process.exit(1);
-  }
-  console.log("self-test ok");
+  const T0 = Date.parse("2026-09-10T00:00:00Z");
+  const req = (
+    min: number,
+    w5: number,
+    w1: number,
+    read: number,
+  ): CacheReq => ({
+    sent: T0 + min * MIN,
+    model: "claude-opus-5",
+    w5,
+    w1,
+    read,
+  });
+  const premium = (1000 * (10 - 6.25)) / 1e6;
+  const rewrite = (1000 * (6.25 - 0.5)) / 1e6;
+  const life = (reqs: CacheReq[]) => {
+    const t = zeroTally();
+    replayCacheLifetime(reqs, t);
+    return t;
+  };
+
+  const within = life([req(0, 0, 1000, 0), req(5, 0, 0, 1000)]);
+  close("gap<=5 premium", within.premiumUsd, premium);
+  close("gap<=5 no rewrite", within.rewriteUsdAt5m, 0);
+  close("gap<=5 net", within.netUsdAt5m, -premium);
+  eq("gap<=5 reads", [within.readsWithin5m, within.readsAfter5m], [1000, 0]);
+
+  const after = life([req(0, 0, 1000, 0), req(10, 0, 0, 1000)]);
+  close("5-60 rewrite", after.rewriteUsdAt5m, rewrite);
+  close("5-60 net", after.netUsdAt5m, rewrite - premium);
+  eq("5-60 counts", [after.readsAfter5m, after.requestsAfter5m], [1000, 1]);
+  close(
+    "gap=60 still charged",
+    life([req(0, 0, 1000, 0), req(60, 0, 0, 1000)]).rewriteUsdAt5m,
+    rewrite,
+  );
+  const long = life([req(0, 0, 1000, 0), req(61, 0, 0, 1000)]);
+  close("gap>60 no rewrite", long.rewriteUsdAt5m, 0);
+  eq("gap>60 reads", long.readsAfter60m, 1000);
+  const never = life([req(0, 1000, 0, 0), req(10, 0, 0, 1000)]);
+  close("never 1h no rewrite", never.rewriteUsdAt5m, 0);
+  close("never 1h no premium", never.premiumUsd, 0);
+  close(
+    "1h write after the gap does not retro-charge",
+    life([req(0, 1000, 0, 0), req(10, 0, 1000, 1000)]).rewriteUsdAt5m,
+    0,
+  );
+  eq(
+    "first request reads unattributed",
+    life([req(0, 0, 1000, 700)]).firstRequestReads,
+    700,
+  );
+  const unsorted = life([req(10, 0, 0, 1000), req(0, 0, 1000, 0)]);
+  close("replay sorts by sent", unsorted.rewriteUsdAt5m, rewrite);
+  const bad = life([req(0, 0, 1000, 0), { ...req(1, 0, 0, 5), sent: NaN }]);
+  eq("non-finite sent", [bad.unreplayable, bad.requests], [1, 1]);
+
+  const cross = (a: SpawnStream, b: SpawnStream) => {
+    const t = zeroTally();
+    replayCrossSpawnByGroup([a, b], () => t);
+    return t;
+  };
+  const spawnA = (cwd: string): SpawnStream => ({
+    type: "flow-discovery",
+    cwd,
+    reqs: [req(0, 0, 1000, 0)],
+  });
+  const spawnB = (cwd: string): SpawnStream => ({
+    type: "flow-discovery",
+    cwd,
+    reqs: [req(20, 0, 0, 1000)],
+  });
+  const same = cross(spawnA("/w/x"), spawnB("/w/x"));
+  eq("cross-spawn reads", same.crossSpawnReadsAfter5m, 1000);
+  close("cross-spawn rewrite", same.rewriteUsdAt5m, rewrite);
+  close("cross-spawn net", same.netUsdAt5m, rewrite);
+  const diff = cross(spawnA("/w/x"), spawnB("/w/y"));
+  eq("cross-spawn other cwd uncharged", diff.crossSpawnReadsAfter5m, 0);
+  close("cross-spawn other cwd net", diff.netUsdAt5m, 0);
+  const near = cross(spawnA("/w/x"), {
+    ...spawnB("/w/x"),
+    reqs: [req(4, 0, 0, 1000)],
+  });
+  eq("cross-spawn gap<=5 uncharged", near.crossSpawnReadsAfter5m, 0);
+  const stale = cross(spawnA("/w/x"), {
+    ...spawnB("/w/x"),
+    reqs: [req(90, 0, 0, 1000)],
+  });
+  eq("cross-spawn gap>60 uncharged", stale.crossSpawnReadsAfter5m, 0);
+  const no1h = cross(
+    { ...spawnA("/w/x"), reqs: [req(0, 1000, 0, 0)] },
+    spawnB("/w/x"),
+  );
+  eq("cross-spawn without 1h write uncharged", no1h.crossSpawnReadsAfter5m, 0);
+
+  const sentTurns: Turn[] = [];
+  walkFile(
+    [
+      JSON.stringify({ type: "user", timestamp: "2026-09-10T00:00:00Z" }),
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-09-10T00:00:30Z",
+        cwd: "/w/x",
+        message: { id: "s1", model: "claude-opus-5", usage: split },
+      }),
+      JSON.stringify({ type: "user", timestamp: "2026-09-10T00:20:00Z" }),
+      asst("s2", "claude-opus-5", split, [], "2026-09-10T00:20:10Z"),
+      asst("s2", "claude-opus-5", split, [], "2026-09-10T00:20:11Z"),
+    ],
+    newStats(),
+    (t) => sentTurns.push(t),
+  );
+  eq(
+    "walkFile sent and cwd",
+    sentTurns.map((t) => [t.sent, t.ts, t.cwd]),
+    [
+      ["2026-09-10T00:00:00Z", "2026-09-10T00:00:30Z", "/w/x"],
+      ["2026-09-10T00:20:00Z", "2026-09-10T00:20:10Z", ""],
+    ],
+  );
+  const firstOnly: Turn[] = [];
+  walkFile(
+    [asst("s3", "claude-opus-5", split, [], "2026-09-10T00:00:30Z")],
+    newStats(),
+    (t) => firstOnly.push(t),
+  );
+  eq(
+    "walkFile sent falls back to own ts",
+    firstOnly[0].sent,
+    "2026-09-10T00:00:30Z",
+  );
+
+  return fails;
 }
 
 if (import.meta.main) {
   const argv = process.argv.slice(2);
-  if (argv.includes("--self-test")) selfTest();
-  else run(argv);
+  if (argv.includes("--self-test")) {
+    const fails = selfTestFailures();
+    if (fails.length) {
+      console.error(`self-test FAILED (${fails.length}):\n${fails.join("\n")}`);
+      process.exit(1);
+    }
+    console.log("self-test ok");
+  } else run(argv);
 }
