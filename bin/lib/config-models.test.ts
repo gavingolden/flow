@@ -61,6 +61,7 @@ describe("runConfigModelsCli", () => {
       "review-lens:performance",
       "review-lens:supply-chain",
       "review-lens:test-coverage",
+      "review-lens:product",
       "review-lens:intent-guess",
       "fix-applier",
       "ui-driver",
@@ -157,13 +158,13 @@ describe("runConfigModelsCli", () => {
       "effort is fixed when the pipeline launches; MODEL resolves at each spawn",
     );
     expect(table).toContain(
-      "the Task tool has no per-spawn effort argument, so every sub-agent follows the session",
+      "the Task tool has no per-spawn effort argument, so every sub-agent follows the session — except the product review lens, pinned to medium in its agent definition",
     );
   });
 
   // Story 1b — review-lens rows: default inherited, an explicit
   // config.models.reviewLenses.<lens> override, and the fable-session cap.
-  it("renders the seven review-lens rows with their resolved model + source", () => {
+  it("renders the eight review-lens rows with their resolved model + source", () => {
     const code = runConfigModelsCli([], {
       read: reader({
         models: { reviewLenses: { "bug-detection": "haiku" } },
@@ -214,10 +215,10 @@ describe("runConfigModelsCli", () => {
     expect(out.length).toBe(1);
     const parsed = JSON.parse(out[0]);
     expect(Array.isArray(parsed)).toBe(true);
-    // 8 original spawn sites + 7 review-lens rows (bug-detection, security,
+    // 8 original spawn sites + 8 review-lens rows (bug-detection, security,
     // pattern-consistency, performance, supply-chain, test-coverage,
-    // intent-guess) + the config-only `ui-driver` row
-    expect(parsed.length).toBe(16);
+    // product, intent-guess) + the config-only `ui-driver` row
+    expect(parsed.length).toBe(17);
     for (const r of parsed) {
       expect(r).toHaveProperty("phase");
       expect(r).toHaveProperty("model");
@@ -233,6 +234,15 @@ describe("runConfigModelsCli", () => {
       source: "built-in (sonnet)",
       effort: "= session",
       effortSource: "follows session",
+    });
+    const product = parsed.find(
+      (r: { phase: string }) => r.phase === "review-lens:product",
+    );
+    expect(product).toMatchObject({
+      model: "opus",
+      source: "pinned (opus)",
+      effort: "medium",
+      effortSource: "pinned (agents/core/flow-review-product.md)",
     });
     const session = parsed.find(
       (r: { phase: string }) => r.phase === "session",

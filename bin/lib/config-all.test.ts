@@ -67,7 +67,7 @@ describe("runConfigAllCli", () => {
       "effort is fixed when the pipeline launches; MODEL resolves at each spawn",
     );
     expect(table).toContain(
-      "the Task tool has no per-spawn effort argument, so every sub-agent follows the session",
+      "the Task tool has no per-spawn effort argument, so every sub-agent follows the session — except the product review lens, pinned to medium in its agent definition",
     );
     expect(table).toContain(
       "model is shown for reference — set it with models.default (there is no launch.model)",

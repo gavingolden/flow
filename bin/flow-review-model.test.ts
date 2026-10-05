@@ -110,6 +110,58 @@ describe("flow-review-model", () => {
     expect(out).toEqual(["sonnet"]);
   });
 
+  it("product resolves to opus on a fable session (pinned, not session-capped)", () => {
+    const { code, out } = runWith(["product"], {
+      state: st({ model: "fable" }),
+    });
+    expect(code).toBe(0);
+    expect(out).toEqual(["opus"]);
+  });
+
+  it("product resolves to opus on a sonnet session (the cap would have returned sonnet)", () => {
+    const { code, out } = runWith(["product"], {
+      state: st({ model: "sonnet" }),
+    });
+    expect(code).toBe(0);
+    expect(out).toEqual(["opus"]);
+  });
+
+  it("product with no config or state is opus, not an uncapped inherit", () => {
+    const { code, out } = runWith(["product"], {});
+    expect(code).toBe(0);
+    expect(out).toEqual(["opus"]);
+  });
+
+  it("models.reviewLenses.product wins over the pinned opus", () => {
+    const { code, out } = runWith(["product"], {
+      config: { models: { reviewLenses: { product: "sonnet" } } },
+      state: st({ model: "fable" }),
+    });
+    expect(code).toBe(0);
+    expect(out).toEqual(["sonnet"]);
+  });
+
+  it("state.modelReview and models.review win over the pinned opus for product", () => {
+    expect(
+      runWith(["product"], { state: st({ modelReview: "sonnet" }) }).out,
+    ).toEqual(["sonnet"]);
+    expect(
+      runWith(["product"], { config: { models: { review: "haiku" } } }).out,
+    ).toEqual(["haiku"]);
+  });
+
+  it("product --json names the pinned source", () => {
+    const { code, out } = runWith(["product", "--json"], {
+      state: st({ model: "fable" }),
+    });
+    expect(code).toBe(0);
+    expect(JSON.parse(out[0])).toEqual({
+      lens: "product",
+      model: "opus",
+      source: "pinned (opus)",
+    });
+  });
+
   it("absent config and absent state print nothing and exit 0", () => {
     const { code, out } = runWith(["supply-chain"], {});
     expect(code).toBe(0);

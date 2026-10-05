@@ -37,7 +37,7 @@ import { dim } from "./color";
  */
 export const MODEL_FOOTERS: readonly string[] = [
   "effort is fixed when the pipeline launches; MODEL resolves at each spawn",
-  "the Task tool has no per-spawn effort argument, so every sub-agent follows the session",
+  "the Task tool has no per-spawn effort argument, so every sub-agent follows the session — except the product review lens, pinned to medium in its agent definition",
 ];
 
 export type ConfigModelsOptions = {

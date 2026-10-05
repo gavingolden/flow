@@ -136,10 +136,11 @@ with model/effort pins buried in prose. The frontmatter policy follows the
 verified Claude Code routing semantics (live Agent tool schema +
 code.claude.com/docs/en/sub-agents, 2026-07-05):
 
-- **`effort` is pinned only for mechanical roles** (verify, fix-applier).
-  Judgment roles omit `effort` so they inherit session effort — the Task/Agent
-  tool has no per-invocation `effort` parameter, so definition frontmatter is
-  the only place to pin it, and omitting the field inherits.
+- **No agent pins `effort` except the product review lens** (`effort: medium`).
+  Every other role omits `effort` so it inherits session effort — the
+  Task/Agent tool has no per-invocation `effort` parameter, so definition
+  frontmatter is the only place to pin it, a pin is unoverridable, and omitting
+  the field inherits.
 - **Frontmatter `model` is omitted wherever a spawn site threads a per-spawn
   `model:`** from flow's per-phase config, because per-invocation `model`
   always beats frontmatter in the resolution order (`CLAUDE_CODE_SUBAGENT_MODEL`
@@ -192,16 +193,16 @@ and the phase that closes it. The four axes the prior PRD marked
 "aligned" / "largely aligned" get their residuals elaborated below the table
 (per the redirect), because "aligned" is not "nothing left to do".
 
-| Axis                      | Ideal                                                            | Today                                                                           | Evidence                                                                                                                                                                                                                | Closed by                                                          |
-| ------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| **Install granularity**   | selected modules; core mandatory; opt-in stacks                  | `flow install` symlinks all skills, agents, helpers, validators unconditionally | `discoverAll` links everything; no module boundary or selection flag                                                                                                                                                    | Phase 1 (`p1-module-registry-install`)                             |
-| **Module absence**        | graceful named skip                                              | a deselected/absent module is a latent mid-pipeline failure                     | no absence contract beyond the ad-hoc agy graceful-skip                                                                                                                                                                 | Phase 2 (`p2-conditional-degradation`)                             |
-| **Launcher**              | plain shell default; tmux opt-in                                 | tmux is a hard prerequisite for every pipeline                                  | `flow feature create` opens a tmux window unconditionally                                                                                                                                                               | Phase 3 (`p3-launcher-backend`, `p3-plain-mode-docs`)              |
-| **Liveness signal**       | crash-safe PID + start-time, canonical for every launcher        | window existence is the liveness/collision source of truth                      | `windowExists` in `bin/lib/feature.ts` and `bin/lib/done.ts`                                                                                                                                                            | Phase 3 (`p3-file-liveness`)                                       |
-| **Session-scoped skills** | plain `claude` pays zero flow skills                             | every installed skill's frontmatter taxes **every** session on the machine      | skills linked into global `~/.claude/skills/`                                                                                                                                                                           | Phase 2 (`p2-standalone-skills-home`) + Phase 1 (module selection) |
-| **Agent topology**        | recurring fan-outs are named `agents/*.md` with declarative pins | closed: 14 named definitions across review + pipeline surfaces                  | `p4-pipeline-agents` promoted flow-scout/flow-discovery/flow-merge-resolver/flow-edit-applier beside `p4-review-agents`'s 7 roles (6 `flow-review-<lens>` + `flow-consolidator`) and the 1 `effort: low` mechanical pin | Phase 4 (`p4-pipeline-agents`)                                     |
-| **Skill naming**          | every skill `flow-`-prefixed; provenance clear in mixed sessions | unprefixed dir names (`verify`, `testing`, `coder`) invite collisions           | dir name = command name; no `flow-` prefix on most skills                                                                                                                                                               | Phase 2 (`p2-flow-prefix-rename`)                                  |
-| **Distribution**          | evidence-chosen among 3 candidates                               | no distribution story beyond global symlinks                                    | `flow install` symlink/manifest machinery only                                                                                                                                                                          | Phase 6 (`p6-distribution-eval`, `p6-distribution-impl`)           |
+| Axis                      | Ideal                                                            | Today                                                                           | Evidence                                                                                                                                                                                                                            | Closed by                                                          |
+| ------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| **Install granularity**   | selected modules; core mandatory; opt-in stacks                  | `flow install` symlinks all skills, agents, helpers, validators unconditionally | `discoverAll` links everything; no module boundary or selection flag                                                                                                                                                                | Phase 1 (`p1-module-registry-install`)                             |
+| **Module absence**        | graceful named skip                                              | a deselected/absent module is a latent mid-pipeline failure                     | no absence contract beyond the ad-hoc agy graceful-skip                                                                                                                                                                             | Phase 2 (`p2-conditional-degradation`)                             |
+| **Launcher**              | plain shell default; tmux opt-in                                 | tmux is a hard prerequisite for every pipeline                                  | `flow feature create` opens a tmux window unconditionally                                                                                                                                                                           | Phase 3 (`p3-launcher-backend`, `p3-plain-mode-docs`)              |
+| **Liveness signal**       | crash-safe PID + start-time, canonical for every launcher        | window existence is the liveness/collision source of truth                      | `windowExists` in `bin/lib/feature.ts` and `bin/lib/done.ts`                                                                                                                                                                        | Phase 3 (`p3-file-liveness`)                                       |
+| **Session-scoped skills** | plain `claude` pays zero flow skills                             | every installed skill's frontmatter taxes **every** session on the machine      | skills linked into global `~/.claude/skills/`                                                                                                                                                                                       | Phase 2 (`p2-standalone-skills-home`) + Phase 1 (module selection) |
+| **Agent topology**        | recurring fan-outs are named `agents/*.md` with declarative pins | closed: 14 named definitions across review + pipeline surfaces                  | `p4-pipeline-agents` promoted flow-scout/flow-discovery/flow-merge-resolver/flow-edit-applier beside `p4-review-agents`'s 7 roles (6 `flow-review-<lens>` + `flow-consolidator`) and the product lens's single `effort: medium` pin | Phase 4 (`p4-pipeline-agents`)                                     |
+| **Skill naming**          | every skill `flow-`-prefixed; provenance clear in mixed sessions | unprefixed dir names (`verify`, `testing`, `coder`) invite collisions           | dir name = command name; no `flow-` prefix on most skills                                                                                                                                                                           | Phase 2 (`p2-flow-prefix-rename`)                                  |
+| **Distribution**          | evidence-chosen among 3 candidates                               | no distribution story beyond global symlinks                                    | `flow install` symlink/manifest machinery only                                                                                                                                                                                      | Phase 6 (`p6-distribution-eval`, `p6-distribution-impl`)           |
 
 ### Elaborated residuals for the "aligned" / "largely aligned" axes
 
@@ -302,22 +303,22 @@ the PATH-bound schema validators. Always installed.
 
 **Agents**
 
-| Current                                     | Role                               | Frontmatter pin                                |
-| ------------------------------------------- | ---------------------------------- | ---------------------------------------------- |
-| `agents/flow-fix-applier.md`                | pr-review fix-applier              | `tools:` allowlist; `effort: low` (mechanical) |
-| `agents/flow-review-bug-detection.md`       | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-security.md`            | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-pattern-consistency.md` | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-performance.md`         | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-supply-chain.md`        | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-review-test-coverage.md`       | pr-review lens                     | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-consolidator.md`               | pr-review consolidator-validator   | `tools:` allowlist                             |
-| `agents/flow-review-intent-guess.md`        | pr-review cross-model intent guess | `tools: Read, Grep, Glob, Write`               |
-| `agents/flow-scout.md`                      | new-feature scout                  | `tools:` allowlist                             |
-| `agents/flow-discovery.md`                  | product-planning discovery         | no `tools:` (inherits all)                     |
-| `agents/flow-merge-resolver.md`             | pipeline merge-conflict resolver   | `tools:` allowlist                             |
-| `agents/flow-edit-applier.md`               | coder edit-applier                 | `tools:` allowlist                             |
-| `agents/flow-backlog-verifier.md`           | backlog-triage Phase-1 verifier    | `tools: Bash, Read, Grep, Glob`                |
+| Current                                     | Role                               | Frontmatter pin                    |
+| ------------------------------------------- | ---------------------------------- | ---------------------------------- |
+| `agents/flow-fix-applier.md`                | pr-review fix-applier              | `tools:` allowlist (no effort pin) |
+| `agents/flow-review-bug-detection.md`       | pr-review lens                     | `tools: Read, Grep, Glob, Write`   |
+| `agents/flow-review-security.md`            | pr-review lens                     | `tools: Read, Grep, Glob, Write`   |
+| `agents/flow-review-pattern-consistency.md` | pr-review lens                     | `tools: Read, Grep, Glob, Write`   |
+| `agents/flow-review-performance.md`         | pr-review lens                     | `tools: Read, Grep, Glob, Write`   |
+| `agents/flow-review-supply-chain.md`        | pr-review lens                     | `tools: Read, Grep, Glob, Write`   |
+| `agents/flow-review-test-coverage.md`       | pr-review lens                     | `tools: Read, Grep, Glob, Write`   |
+| `agents/flow-consolidator.md`               | pr-review consolidator-validator   | `tools:` allowlist                 |
+| `agents/flow-review-intent-guess.md`        | pr-review cross-model intent guess | `tools: Read, Grep, Glob, Write`   |
+| `agents/flow-scout.md`                      | new-feature scout                  | `tools:` allowlist                 |
+| `agents/flow-discovery.md`                  | product-planning discovery         | no `tools:` (inherits all)         |
+| `agents/flow-merge-resolver.md`             | pipeline merge-conflict resolver   | `tools:` allowlist                 |
+| `agents/flow-edit-applier.md`               | coder edit-applier                 | `tools:` allowlist                 |
+| `agents/flow-backlog-verifier.md`           | backlog-triage Phase-1 verifier    | `tools: Bash, Read, Grep, Glob`    |
 
 Phase 4 is complete: the scout, discovery, merge-resolver, and
 edit-applier fan-outs are now promoted `agents/*.md` definitions —
@@ -516,8 +517,8 @@ half of D-A is unaffected by the reversal.
 
 - **Entry:** the Roadmap's Phase-4 **consolidation map** — which recurring
   fan-out promotes to which named agent, and its model/effort pin per the
-  Ideal-flow §4 frontmatter policy (mechanical roles pin `effort`; judgment
-  roles inherit; frontmatter `model` omitted wherever a per-spawn `model:` is
+  Ideal-flow §4 frontmatter policy (only the product review lens pins `effort`;
+  every other role inherits; frontmatter `model` omitted wherever a per-spawn `model:` is
   config-threaded).
 - **Nodes:** `p4-review-agents` (`agents/*.md` for the six review lenses and
   the consolidator-validator); `p4-pipeline-agents` (`agents/*.md`

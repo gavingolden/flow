@@ -551,13 +551,13 @@ report.
 **Per-lens model resolution.** `flow-review-model <lens>` resolves each
 lens's spawn model (precedence `config.models.reviewLenses.<lens> >
 state.modelReview > config.models.review > session-capped inherit`, capped at
-opus — `../flow-pipeline/references/model-routing.md`), called once per lens in
-the loop below; empty stdout ⇒ omit `model:` ⇒ inherit.
+opus; `product` falls back to a pinned opus — `../flow-pipeline/references/model-routing.md`),
+called once per lens in the loop below; empty stdout ⇒ omit `model:` ⇒ inherit.
 
 **Per-lens subagent-type resolution.** Each lens has a named definition at
 `agents/flow-review-<lens>.md` (Definition column below) whose `tools:`
 allowlist (Read, Grep, Glob, Write) contains the review to read-and-report;
-none pins `effort:`/`model:` (judgment role — the per-spawn
+none pins `model:`, nor `effort:` bar `product`'s `medium` (the per-spawn
 `model: "$LENS_MODEL"` always wins, when non-empty). Plugin-hosted agents are
 addressable ONLY by the plugin-qualified name
 `<pluginRootName>:<agentBasename>` — a bare `flow-review-<lens>` subagent_type
