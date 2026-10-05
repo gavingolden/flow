@@ -128,8 +128,12 @@ const skillName = (s: unknown) =>
   String(s).replace(/^flow-module-[a-z-]+:/, "");
 const agentLabel = (s: string) => s.replace(/^flow-module-[a-z-]+:/, "");
 
-// One API request = one message.id; later rows repeating the id (one per
-// content block) are dropped for usage, but still scanned for tool calls.
+// One API request = one message.id, written as one line per content block.
+// Only the LAST line carries the final output_tokens (earlier lines hold a
+// streaming placeholder; input and cache fields never differ). Usage is
+// buffered per id and flushed in first-seen order carrying the LAST line's
+// usage, with ts/seg/inWindow from the FIRST line; every line is still
+// scanned for tool calls.
 export function walkFile(
   lines: string[],
   stats: Stats,
@@ -137,7 +141,8 @@ export function walkFile(
   spawns: Spawn[] = [],
   inWindow: (ts: string) => boolean = () => true,
 ) {
-  const seen = new Set<string>();
+  const turns = new Map<string, Turn & { counted: boolean }>();
+  const missing = new Set<string>();
   let cur = "supervisor-base";
   for (const l of lines) {
     let j: any;
@@ -150,21 +155,22 @@ export function walkFile(
     if (j?.type !== "assistant") continue;
     const m = j.message;
     const id = m?.id ?? j.uuid ?? l;
-    if (!seen.has(id)) {
-      if (!m?.usage) {
-        if (inWindow(j.timestamp)) stats.missingUsage++;
-      } else if (m.model !== "<synthetic>") {
-        seen.add(id);
-        const model = m.model || "unknown";
-        if (inWindow(j.timestamp)) {
-          if (!PRICES[model])
-            stats.unknownModels.set(
-              model,
-              (stats.unknownModels.get(model) || 0) + 1,
-            );
-          onTurn({ model, usage: m.usage, ts: j.timestamp, seg: cur });
-        }
+    if (!m?.usage) {
+      if (!turns.has(id) && !missing.has(id) && inWindow(j.timestamp)) {
+        missing.add(id);
+        stats.missingUsage++;
       }
+    } else if (m.model !== "<synthetic>") {
+      const prior = turns.get(id);
+      if (prior) prior.usage = m.usage;
+      else
+        turns.set(id, {
+          model: m.model || "unknown",
+          usage: m.usage,
+          ts: j.timestamp,
+          seg: cur,
+          counted: inWindow(j.timestamp),
+        });
     }
     if (!Array.isArray(m?.content)) continue;
     for (const b of m.content) {
@@ -179,6 +185,15 @@ export function walkFile(
         });
       }
     }
+  }
+  for (const { counted, ...t } of turns.values()) {
+    if (!counted) continue;
+    if (!PRICES[t.model])
+      stats.unknownModels.set(
+        t.model,
+        (stats.unknownModels.get(t.model) || 0) + 1,
+      );
+    onTurn(t);
   }
 }
 
@@ -711,29 +726,39 @@ function run(argv: string[]) {
       stats.parseErrors++;
     }
   }
-  console.log("## Review lenses: tokens per acted finding\n");
+  console.log("## Review lenses: spend per acted finding\n");
+  const lensSummary = summarizeLenses(lensRows);
+  const unpriced = lensSummary.reduce((n, r) => n + r.unpriced, 0);
   console.log(
-    `Review runs in window: ${lensRows.length}. Tokens are raw totals across all token classes (not dollars) and come from mixed accounting sources, shown per lens; runs with no token figure contribute findings but no tokens.\n`,
+    `Review runs in window: ${lensRows.length}. Version 3 is the only comparable unit: tokens and dollars sum only version >= 3 rows, whose per-lens figure is the lens's own transcript (cumulative, final output per message). Dollars price each row's per-class breakdown at this file's list prices (cache writes at the 5-minute rate) and the row's model${unpriced ? `; ${unpriced} version-3 lens runs have an unpriced model and are excluded from dollars` : ""}. Per-acted figures divide by the acted findings of the rows that contributed. Older rows used other units (notification context size, pre-dedupe transcript sums) and appear only in the legacy rows column; their re-derived history is in the PR that closes #893.\n`,
   );
   table(
     [
       "lens",
       "runs",
+      "v3 token runs",
       "tokens",
+      "dollars",
       "emitted",
       "survived",
       "acted",
       "tokens per acted",
+      "dollars per acted",
+      "legacy rows",
       "token sources (transcript/notification/none)",
     ],
-    summarizeLenses(lensRows).map((r) => [
+    lensSummary.map((r) => [
       r.lens,
       r.runs,
+      r.token_runs,
       r.tokens ? fmtM(r.tokens) : "n/a",
+      r.dollars ? fmtUsd(r.dollars) : "n/a",
       r.emitted,
       r.survived,
       r.acted,
-      r.acted && r.tokens ? fmtM(r.tokens / r.acted) : "n/a",
+      r.acted_tok && r.tokens ? fmtM(r.tokens / r.acted_tok) : "n/a",
+      r.acted_usd && r.dollars ? fmtUsd(r.dollars / r.acted_usd) : "n/a",
+      r.legacy,
       `${r.src["subagent-transcript"] || 0}/${r.src["task-notification"] || 0}/${r.src["unavailable"] || 0}`,
     ]),
   );
@@ -741,26 +766,53 @@ function run(argv: string[]) {
 
 export function summarizeLenses(rows: any[]) {
   const by = new Map<string, any>();
-  for (const r of rows)
+  for (const r of rows) {
+    const current = (r.version ?? 0) >= 3;
     for (const [lens, v] of Object.entries<any>(r.lenses || {})) {
       const a = by.get(lens) ?? {
         lens,
         runs: 0,
         tokens: 0,
+        dollars: 0,
+        token_runs: 0,
         emitted: 0,
         survived: 0,
         acted: 0,
+        acted_tok: 0,
+        acted_usd: 0,
+        unpriced: 0,
         src: {},
+        legacy: 0,
       };
       by.set(lens, a);
       if (v.ran) a.runs++;
-      a.tokens += v.tokens?.total || 0;
+      if (v.ran && !current) a.legacy++;
       a.emitted += v.findings_emitted || 0;
       a.survived += v.findings_survived || 0;
       a.acted += v.findings_acted || 0;
       a.src[v.tokens_source] = (a.src[v.tokens_source] || 0) + 1;
+      if (!current || !v.tokens) continue;
+      const acted = v.findings_acted || 0;
+      a.tokens += v.tokens.total || 0;
+      a.token_runs++;
+      a.acted_tok += acted;
+      if (PRICES[v.model]) {
+        a.dollars += priceTurn(
+          {
+            input_tokens: v.tokens.input,
+            cache_creation_input_tokens: v.tokens.cache_creation,
+            cache_read_input_tokens: v.tokens.cache_read,
+            output_tokens: v.tokens.output,
+          },
+          v.model,
+        );
+        a.acted_usd += acted;
+      } else a.unpriced++;
     }
-  return [...by.values()].sort((a, b) => b.tokens - a.tokens);
+  }
+  return [...by.values()].sort(
+    (a, b) => b.dollars - a.dollars || b.tokens - a.tokens,
+  );
 }
 
 function selfTest() {
@@ -947,7 +999,59 @@ function selfTest() {
     [f.get("B")!.slug, f.get("B")!.terminal],
     [null, "merged"],
   );
+  const v3 = (model: string, tokens: any, acted: number, ran = true) => ({
+    ran,
+    model,
+    tokens,
+    tokens_source: tokens ? "subagent-transcript" : "unavailable",
+    findings_acted: acted,
+  });
   const ls = summarizeLenses([
+    {
+      version: 3,
+      lenses: {
+        a: v3(
+          "claude-opus-5",
+          {
+            total: 1_000_000 + 2_000_000 + 1_000_000 + 100_000,
+            input: 1_000_000,
+            cache_creation: 2_000_000,
+            cache_read: 1_000_000,
+            output: 100_000,
+          },
+          2,
+        ),
+      },
+    },
+    {
+      version: 3,
+      lenses: {
+        a: v3("claude-mystery-9", { total: 50, input: 50 }, 1),
+      },
+    },
+    { version: 3, lenses: { a: v3("claude-opus-5", null, 0, false) } },
+    {
+      version: 2,
+      lenses: {
+        a: {
+          ran: true,
+          tokens: { total: 7000 },
+          tokens_source: "subagent-transcript",
+          findings_acted: 5,
+        },
+      },
+    },
+    {
+      version: 1,
+      lenses: {
+        a: {
+          ran: true,
+          tokens: { total: 900 },
+          tokens_source: "task-notification",
+          findings_acted: 1,
+        },
+      },
+    },
     {
       lenses: {
         a: {
@@ -958,21 +1062,47 @@ function selfTest() {
         },
       },
     },
-    {
-      lenses: {
-        a: {
-          ran: false,
-          tokens: null,
-          tokens_source: "unavailable",
-          findings_acted: 0,
-        },
-      },
-    },
   ]);
   eq(
-    "lens summary",
-    [ls[0].runs, ls[0].tokens, ls[0].acted, ls[0].src.unavailable],
-    [1, 100, 2, 1],
+    "lens summary: v3 only in tokens, older rows legacy",
+    [
+      ls[0].runs,
+      ls[0].tokens,
+      ls[0].token_runs,
+      ls[0].acted,
+      ls[0].legacy,
+      ls[0].unpriced,
+      ls[0].acted_tok,
+      ls[0].acted_usd,
+    ],
+    [5, 4_100_050, 2, 11, 3, 1, 3, 2],
+  );
+  // opus-5: 1M*5 + 2M*6.25 (5m rate) + 1M*0.5 + 0.1M*25 = 5+12.5+0.5+2.5
+  close("lens summary dollars", ls[0].dollars, 20.5);
+  eq(
+    "lens summary src",
+    [ls[0].src["subagent-transcript"], ls[0].src.unavailable],
+    [3, 1],
+  );
+  const stream = (outputs: number[]) =>
+    outputs.map((o) =>
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-09-10T00:00:00Z",
+        message: {
+          id: "r1",
+          model: "claude-opus-5",
+          usage: { input_tokens: 10, output_tokens: o },
+          content: [{ type: "tool_use", id: "t", name: "Bash", input: {} }],
+        },
+      }),
+    );
+  const turns: Turn[] = [];
+  walkFile(stream([3, 333]), newStats(), (t) => turns.push(t));
+  eq(
+    "walkFile last line wins, one turn per id",
+    turns.map((t) => [t.usage.output_tokens, t.ts, t.seg]),
+    [[333, "2026-09-10T00:00:00Z", "supervisor-base"]],
   );
   eq("resolveRepo worktree", resolveRepo("/u/code/me/flow-foo", ["flow"]), {
     repo: "flow",
