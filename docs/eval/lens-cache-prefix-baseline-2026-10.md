@@ -77,7 +77,11 @@ second turn.
 
 Stagger arithmetic: 7 × 4,050 × ($5 − $0.20)/M = $0.136 a review gross on Opus
 5.5 (a full review spawns 8 agents: seven lenses plus intent-guess; the first
-writes the tool block, the other 7 would read it). The supervisor's request at
+writes the tool block, the other 7 would read it). The 4,050-token block is
+the discovery run's working figure for the lens tool block; it sits inside the
+concurrent read cluster (3,019–4,602) and above the sequential p50 (2,926). At
+that p50 the gross falls to $0.098 a review, which only strengthens the
+verdict. The supervisor's request at
 the spawn re-read 357,815 and 397,743 cached tokens on the two 2026-10-05
 reviews checked (about $0.08 at $0.20/M), leaving about $0.05 net. Over the 35
 concurrent reviews the gross was $4.70 (summed over each review's actual spawn

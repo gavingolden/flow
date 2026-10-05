@@ -48,7 +48,10 @@ transcript at a 5-minute cache lifetime to show what 1-hour cache writes
 bought; the cache-lifetime measurement is
 [`cache-lifetime-baseline-2026-10.md`](cache-lifetime-baseline-2026-10.md).
 
-[`lens-cache-prefix-baseline-2026-10.md`](lens-cache-prefix-baseline-2026-10.md) records the issue #889 check: which part of the review lenses' first-turn prompt the cache shares across spawns, and why a prompt reorder cannot reach more.
+[`lens-cache-prefix-baseline-2026-10.md`](lens-cache-prefix-baseline-2026-10.md)
+records the issue #889 check: which part of the review lenses' first-turn
+prompt the cache shares across spawns, and why a prompt reorder cannot
+reach more.
 
 [`fable-vs-opus-subagents.md`](fable-vs-opus-subagents.md) records the
 issue #890 check: bug-detection recall on Fable 5.1 against Opus 5.5 on
