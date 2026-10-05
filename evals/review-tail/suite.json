@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "review-tail",
+  "candidate": "step8c-batched-runner",
+  "description": "Measures the supervisor's cost and turn count inside /flow-pr-review's Step 8c + 8c.i (run every runnable Test Steps item, tick the boxes, inject evidence) on a seeded PR body, with the surrounding review (fetch, fan-out, fixes) bounded away. One scenario: two passing items, one failing item and one SUBJECTIVE item, so a correct run ticks exactly two boxes and injects exactly two evidence blocks. It prices the per-item recipe against a batched runner on identical work; correctness graders gate, cost and turn metrics are informational.",
+  "scenarios": ["s1-step8c-run-and-tick"],
+  "defaults": {
+    "model": "sonnet",
+    "effort": "medium",
+    "runs": 5,
+    "maxBudgetUsd": 3
+  }
+}

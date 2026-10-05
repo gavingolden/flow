@@ -1,0 +1,34 @@
+[
+  {
+    "number": 1,
+    "title": "feat: seed the review-tail eval body",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "url": "https://github.com/example-org/example-repo/pull/1",
+    "headRefName": "feature-1",
+    "headRefOid": "sha-head-1",
+    "additions": 40,
+    "deletions": 10,
+    "changed_files": 2,
+    "commits": [
+      {
+        "messageHeadline": "feat: add applyBulkDiscount pricing tier"
+      },
+      {
+        "messageHeadline": "test: cover bulk discount edge cases"
+      }
+    ],
+    "files": [
+      "src/pricing.ts",
+      "src/pricing.test.ts"
+    ],
+    "reviews": [],
+    "apiReviews": [],
+    "apiComments": [],
+    "author": {
+      "login": "contributor-a"
+    },
+    "body": "## TLDR\n\nAdds a fixture change so the review tail has a body to run.\n\n## Why\n\nThe review's verification items need a body with runnable, failing and subjective Test Steps.\n\n## Test Steps\n\n- [ ] Run `bash scripts/ok.sh` — prints ok.\n- [ ] Run `test -f README.md && grep -aq fixture README.md` — the readme is the fixture's.\n- [ ] Run `bash scripts/fail.sh` — exits 0.\n- [ ] SUBJECTIVE: you approve the wording of this PR."
+  }
+]

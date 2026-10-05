@@ -634,6 +634,116 @@ export function spawnCostRows(spawns: SpawnRec[]) {
     .sort((a, b) => b.meanUsd * b.spawns - a.meanUsd * a.spawns);
 }
 
+export type PhaseTransition = { ts: number; to: string };
+export type MainTurn = { sid: string; ts: string; usd: number; ctx: number };
+export type PhaseAgg = {
+  usd: number;
+  turns: number;
+  ctx: number;
+  pipelines: Set<string>;
+  top: number;
+};
+
+export function phaseAt(transitions: PhaseTransition[], ts: number): string {
+  let hit = "before-first-phase";
+  let at = -Infinity;
+  for (const t of transitions)
+    if (t.ts <= ts && t.ts >= at) {
+      hit = t.to;
+      at = t.ts;
+    }
+  return hit;
+}
+
+export function attributePhases(
+  turns: MainTurn[],
+  transitions: Map<string, PhaseTransition[]>,
+  slugOf: Map<string, string>,
+): Record<string, PhaseAgg> {
+  const out: Record<string, PhaseAgg> = {};
+  const perSlug = new Map<string, Map<string, number>>();
+  for (const t of turns) {
+    const slug = slugOf.get(t.sid);
+    if (!slug) continue;
+    const phase = phaseAt(transitions.get(t.sid) ?? [], Date.parse(t.ts));
+    const a = (out[phase] ||= {
+      usd: 0,
+      turns: 0,
+      ctx: 0,
+      pipelines: new Set(),
+      top: 0,
+    });
+    a.usd += t.usd;
+    a.turns++;
+    a.ctx += t.ctx;
+    a.pipelines.add(slug);
+    const m = perSlug.get(slug) ?? new Map<string, number>();
+    m.set(phase, (m.get(phase) ?? 0) + t.usd);
+    perSlug.set(slug, m);
+  }
+  for (const m of perSlug.values()) {
+    const best = [...m.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (best) out[best[0]].top++;
+  }
+  return out;
+}
+
+function phaseTransitions(events: EventRow[]) {
+  const transitions = new Map<string, PhaseTransition[]>();
+  const slugOf = new Map<string, string>();
+  for (const e of events) {
+    if (!e.session_id) continue;
+    if (e.slug) slugOf.set(e.session_id, e.slug);
+    if (e.event !== "phase.transition" || typeof e.attrs?.to !== "string")
+      continue;
+    const ts = Date.parse(e.ts);
+    if (Number.isNaN(ts)) continue;
+    const list = transitions.get(e.session_id) ?? [];
+    list.push({ ts, to: e.attrs.to });
+    transitions.set(e.session_id, list);
+  }
+  return { transitions, slugOf };
+}
+
+function phaseSpendSection(
+  turns: MainTurn[],
+  transitions: Map<string, PhaseTransition[]>,
+  slugOf: Map<string, string>,
+) {
+  const by = attributePhases(turns, transitions, slugOf);
+  const total = Object.values(by).reduce((s, a) => s + a.usd, 0);
+  console.log("## Supervisor spend by pipeline phase\n");
+  console.log(
+    "Every main-session turn of a slugged session, attributed to the phase.transition active at its timestamp. Pipelines are slugs with at least one attributed turn in the phase, so eval-harness slugs whose transcripts are filtered out do not inflate the denominators.\n",
+  );
+  table(
+    [
+      "phase",
+      "pipelines",
+      "turns",
+      "turns per pipeline",
+      "mean context per turn",
+      "$",
+      "% of $",
+      "mean $ per pipeline",
+      "largest phase in N pipelines",
+    ],
+    Object.entries(by)
+      .sort((a, b) => b[1].usd - a[1].usd)
+      .map(([p, a]) => [
+        p,
+        a.pipelines.size,
+        a.turns,
+        fmtN(a.turns / a.pipelines.size),
+        fmtM(a.ctx / a.turns),
+        fmtUsd(a.usd),
+        total ? ((100 * a.usd) / total).toFixed(1) + "%" : "n/a",
+        fmtUsd(a.usd / a.pipelines.size),
+        a.top,
+      ]),
+  );
+}
+
 function run(argv: string[]) {
   const flag = (n: string) => {
     const i = argv.indexOf(n);
@@ -657,6 +767,7 @@ function run(argv: string[]) {
   const byAgentModel: Record<string, Usage> = {};
   const firstTurn: Record<string, number[]> = {};
   const spawnRecs: SpawnRec[] = [];
+  const mainTurns: MainTurn[] = [];
   const sessions: { sid: string; repo: string; usage: Usage }[] = [];
   let worktreeSessions = 0;
   let minTs = Infinity,
@@ -750,7 +861,15 @@ function run(argv: string[]) {
             G(bySeg, t.seg),
             sess,
           ]);
-          mainUsd += priceTurn(t.usage, t.model);
+          const usd = priceTurn(t.usage, t.model);
+          mainUsd += usd;
+          const c = classes(t.usage);
+          mainTurns.push({
+            sid,
+            ts: t.ts,
+            usd,
+            ctx: c.input + c.read + c.w5 + c.w1,
+          });
           pushReq(mainReqs, t);
         },
         spawns,
@@ -1103,6 +1222,9 @@ function run(argv: string[]) {
       `${r.src["subagent-transcript"] || 0}/${r.src["task-notification"] || 0}/${r.src["unavailable"] || 0}`,
     ]),
   );
+
+  const ph2 = phaseTransitions(events);
+  phaseSpendSection(mainTurns, ph2.transitions, ph2.slugOf);
 
   cacheLifetimeSection(lifeUser, lifeAsst, [sentMin, sentMax]);
 }
@@ -1668,6 +1790,51 @@ export function selfTest(): string[] {
     "walkFile sent falls back to own ts",
     firstOnly[0].sent,
     "2026-09-10T00:00:30Z",
+  );
+
+  const at = (iso: string) => Date.parse(iso);
+  const trans = [
+    { ts: at("2026-09-10T01:00:00Z"), to: "reviewing" },
+    { ts: at("2026-09-10T00:00:00Z"), to: "implementing" },
+  ];
+  eq(
+    "phaseAt before first",
+    phaseAt(trans, at("2026-09-09T23:59:59Z")),
+    "before-first-phase",
+  );
+  eq(
+    "phaseAt at transition",
+    phaseAt(trans, at("2026-09-10T00:00:00Z")),
+    "implementing",
+  );
+  eq(
+    "phaseAt after second",
+    phaseAt(trans, at("2026-09-10T01:00:01Z")),
+    "reviewing",
+  );
+  const phased = attributePhases(
+    [
+      { sid: "p1", ts: "2026-09-10T00:30:00Z", usd: 1, ctx: 100 },
+      { sid: "p1", ts: "2026-09-10T01:30:00Z", usd: 3, ctx: 300 },
+      { sid: "eval", ts: "2026-09-10T01:30:00Z", usd: 9, ctx: 900 },
+    ],
+    new Map([["p1", trans]]),
+    new Map([["p1", "slug-a"]]),
+  );
+  eq(
+    "attributePhases splits either side of a transition",
+    Object.entries(phased).map(([k, a]) => [
+      k,
+      a.usd,
+      a.turns,
+      a.ctx,
+      [...a.pipelines],
+      a.top,
+    ]),
+    [
+      ["implementing", 1, 1, 100, ["slug-a"], 0],
+      ["reviewing", 3, 1, 300, ["slug-a"], 1],
+    ],
   );
 
   return fails;

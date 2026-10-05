@@ -1,0 +1,103 @@
+{
+  "id": "s1-step8c-run-and-tick",
+  "title": "Step 8c + 8c.i run the runnable Test Steps items and tick their boxes",
+  "provenance": "Synthetic fixture authored against skills/pipeline/flow-pr-review/SKILL.md's Step 8c and 8c.i and bin/flow-inject-evidence.ts's `<!-- flow:evidence -->` marker. The seeded body carries two passing items, one failing item and one SUBJECTIVE item, so a correct run ticks exactly two boxes and injects exactly two evidence blocks. The prompt names neither the per-item recipe nor a batched runner, so the same scenario measures both arms.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture",
+    "state": "state.json",
+    "shims": ["../../_shims/gh"]
+  },
+  "env": { "flowSlug": true },
+  "ghCalls": [["pr", "view", "1", "--json", "body"]],
+  "graders": [
+    {
+      "id": "ok-item-ticked",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/body.md",
+      "matches": "- \\[x\\] Run `bash scripts/ok\\.sh`"
+    },
+    {
+      "id": "readme-item-ticked",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/body.md",
+      "matches": "- \\[x\\] Run `test -f README\\.md"
+    },
+    {
+      "id": "fail-item-left-unticked",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/body.md",
+      "matches": "- \\[ \\] Run `bash scripts/fail\\.sh`"
+    },
+    {
+      "id": "subjective-item-left-unticked",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/body.md",
+      "matches": "- \\[ \\] SUBJECTIVE:"
+    },
+    {
+      "id": "evidence-blocks-injected",
+      "kind": "command",
+      "argv": [
+        "bash",
+        "-c",
+        "test \"$(grep -ac 'flow:evidence' .flow-tmp/body.md)\" -ge 2"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "worktree-clean",
+      "kind": "git-clean",
+      "cwd": "$REPO",
+      "allow": [".flow-tmp/**"]
+    },
+    {
+      "id": "state-phase-reviewing",
+      "kind": "json-file",
+      "file": "$STATE",
+      "path": "phase",
+      "equals": "reviewing"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

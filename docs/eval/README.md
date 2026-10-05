@@ -1,7 +1,7 @@
 # flow-eval — maintainer guide
 
 `flow-eval` is a maintainer-only, locally-runnable headless eval harness
-running five committed suites, split by what each measures:
+running seven committed suites, split by what each measures:
 
 - Four **supervisor context-isolation scaffolds** (`verify-loop`,
   `haiku-gatekeeper`, `checkpoint-pending-clear`, `ui-smoke-isolation`) —
@@ -21,6 +21,12 @@ running five committed suites, split by what each measures:
   and `## User-facing changes` sections read as consequence-first, PM-facing
   writing rather than mechanism-first, code-centric writing, via the
   advisory `flow-explain-judge` check.
+- One **review-tail cost suite** (`review-tail`) — the supervisor's cost and
+  turn count inside `/flow-pr-review`'s Step 8c + 8c.i (run every runnable
+  Test Steps item, tick the boxes, inject evidence) on a seeded PR body,
+  with the rest of the review bounded away. Correctness graders gate; cost
+  and turn metrics are informational, so a candidate runner is priced
+  against the per-item recipe on identical work.
 
 Alongside the suites, `docs/eval/review-cost-baseline.md` records the
 measured **review-phase cost before-state** — the supervisor's own turn

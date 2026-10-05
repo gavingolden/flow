@@ -93,3 +93,76 @@ describe("token-spend-audit cache-lifetime table over a fixture home", () => {
     }
   });
 });
+
+describe("token-spend-audit per-phase table over a fixture home", () => {
+  it("should attribute two turns either side of a phase transition to different phases", () => {
+    const phaseHome = mkdtempSync(join(tmpdir(), "token-spend-phase-"));
+    try {
+      const proj = join(phaseHome, ".claude", "projects", "-u-code-me-flow");
+      mkdirSync(proj, { recursive: true });
+      writeFileSync(
+        join(proj, "P.jsonl"),
+        [
+          ...exchange(
+            "p1",
+            "2026-09-10T00:00:00Z",
+            "2026-09-10T00:00:30Z",
+            usage(0, 1e6),
+          ),
+          ...exchange(
+            "p2",
+            "2026-09-10T00:20:00Z",
+            "2026-09-10T00:20:10Z",
+            usage(2e6, 0),
+          ),
+        ].join("\n") + "\n",
+      );
+      const tele = join(phaseHome, ".flow", "telemetry");
+      mkdirSync(tele, { recursive: true });
+      const transition = (ts: string, from: string, to: string) =>
+        JSON.stringify({
+          ts,
+          event: "phase.transition",
+          slug: "demo",
+          repo: "/u/code/me/flow",
+          session_id: "P",
+          attrs: { from, to },
+        });
+      writeFileSync(
+        join(tele, "events.jsonl"),
+        [
+          transition("2026-09-09T23:59:00Z", "planning", "implementing"),
+          transition("2026-09-10T00:10:00Z", "implementing", "reviewing"),
+        ].join("\n") + "\n",
+      );
+
+      const r = spawnSync(
+        "bun",
+        [join(__dirname, "token-spend-audit.ts"), "--home", phaseHome],
+        { encoding: "utf8" },
+      );
+      expect(r.status).toBe(0);
+      const out = r.stdout;
+      const start = out.indexOf("## Supervisor spend by pipeline phase");
+      expect(start).toBeGreaterThanOrEqual(0);
+      const rest = out.slice(start + 1);
+      const next = rest.indexOf("\n## ");
+      const section =
+        next < 0 ? out.slice(start) : out.slice(start, start + 1 + next);
+      const rows = section
+        .split("\n")
+        .filter((l) => l.startsWith("| ") && !l.startsWith("| phase |"))
+        .map((l) => l.split("|").map((c) => c.trim()));
+      // ["", phase, pipelines, turns, turns per pipeline, mean context, $, % of $, mean $ per pipeline, largest in N]
+      expect(rows.map((c) => [c[1], c[2], c[3]])).toEqual([
+        ["implementing", "1", "1"],
+        ["reviewing", "1", "1"],
+      ]);
+      // The 1h write ($10) before the transition outweighs the re-read ($1) after it.
+      expect(rows[0][9]).toBe("1");
+      expect(rows[1][9]).toBe("0");
+    } finally {
+      rmSync(phaseHome, { recursive: true, force: true });
+    }
+  });
+});
