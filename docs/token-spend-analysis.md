@@ -247,9 +247,14 @@ Each closed below with its measured number.
 - **The 30-day garbage window.** Local transcripts older than about 30 days are
   deleted, so the earliest days are partial and a comparison window must be
   recorded before it ages out.
-- **Lens accounting.** The lens yield numbers mix three token-accounting
-  sources, and one lens (gemini) has almost no token data, so "tokens per acted
-  finding" ranks lenses only roughly.
+- **Lens accounting.** The lens yield numbers mixed three token-accounting
+  sources. Re-deriving the lens runs whose transcripts are still available
+  gives the identical tokens-per-acted-finding ordering of all seven lenses;
+  magnitudes were about 1.7x overstated. A separate first-line output
+  undercount (the summers kept the first line per message, whose output count
+  is a streaming placeholder) understated all spend by 5.0% and lens spend by
+  15.1%. Both are fixed from 2026-10-05 (#893); the figures in this document
+  were not re-rendered.
 - **Instruction payload is not isolated.** The table of first-turn cache writes
   (discovery median 43,445 tokens against about 14,500 for the built-in
   explorer to 20,300 for the heaviest review lens) includes the task text and standing context as well as

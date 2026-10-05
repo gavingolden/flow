@@ -13,6 +13,11 @@ exact entry (for example `claude-opus-5`) is priced at its family's entry,
 so the dollar column is an API-equivalent estimate, not an invoice. Pass
 `--model-prices <json>` to override.
 
+> **Erratum:** the measurement below kept the first transcript line per
+> message, whose output count is a streaming placeholder, so output (86% of
+> lens output tokens) and about 15% of lens dollars were missing. Corrected
+> from 2026-10-05 (#893); the table is not re-rendered.
+
 ## Measurement (2026-09-30)
 
 | Lens                | Runs | Turns | Reads | Greps | Distinct files | Cache-write tok | Cache-read tok | Output tok | $    |
