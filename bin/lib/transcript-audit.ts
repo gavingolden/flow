@@ -178,6 +178,23 @@ function addUsage(totals: UsageTotals, usage: RawRecord): void {
   totals.cacheRead += num(usage.cache_read_input_tokens);
 }
 
+// Claude Code writes one line per content block of a message; only the last
+// carries the final output_tokens (earlier lines hold a streaming placeholder
+// and repeat identical input/cache fields). Keep the last usage-bearing line
+// per message.id, in first-seen order; id-less lines count individually.
+function lastLinePerMessage(records: RawRecord[]): RawRecord[] {
+  const byId = new Map<string, RawRecord>();
+  for (const record of records) {
+    if (record.type !== "assistant") continue;
+    const message = record.message as RawRecord | undefined;
+    const usage = message?.usage;
+    if (!usage || typeof usage !== "object") continue;
+    const id = message?.id;
+    byId.set(typeof id === "string" && id ? id : `\0line${byId.size}`, record);
+  }
+  return [...byId.values()];
+}
+
 function mergeUsageInto(target: UsageTotals, src: UsageTotals): void {
   target.input += src.input;
   target.output += src.output;
@@ -281,11 +298,9 @@ async function analyzeOneFile(file: string): Promise<FileResult> {
   let sawAnyData = false;
   let lastAttributedPhase: Phase | null = null;
 
-  for (const record of records) {
-    if (record.type !== "assistant") continue;
+  for (const record of lastLinePerMessage(records)) {
     const message = record.message as RawRecord | undefined;
     const usage = message?.usage;
-    if (!usage || typeof usage !== "object") continue;
     sawAnyData = true;
 
     const attribution = record.attributionSkill;
