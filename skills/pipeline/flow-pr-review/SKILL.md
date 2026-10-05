@@ -193,21 +193,26 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
 
    **Per-phase model (fixApplier) resolution.** Field `state.modelFixApplier`; precedence `--model-fix-applier > config.models.fixApplier > "sonnet"` — fixApplier does **NOT** inherit the session model (a mechanical apply-commit-push loop over already-diagnosed findings rarely earns an expensive model — the same asymmetry as verify; see `../flow-pipeline/references/model-routing.md`). Resolve via `jq` (`SLUG="$FLOW_SLUG"; FIX_APPLIER_MODEL=$(jq -r '.modelFixApplier // empty' ~/.flow/state/"$SLUG".json); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL=$(jq -r '.models.fixApplier // empty' ~/.flow/config.json 2>/dev/null); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL="sonnet"`) and pass FIX_APPLIER_MODEL as the Task call's per-spawn `model:` (never empty — the `sonnet` fallback always resolves).
 
-4. When the subagent returns, treat its 3–5 sentence summary as the chat output and
-   do **not** read the artifact body — the envelope below carries its validated
-   digest, the wrapper's single read for Steps 9–12. Run
-   `flow-review-collect --stage fix-applier --worktree "$WORKTREE"` (pass the Bash
-   tool an explicit `timeout: 600000`: the default wait is 540 s). While the
-   fix-applier is still running, exit 3 means not ready — call again; the helper's
-   bounded wait replaces any hand-written loop — never a foreground `sleep` loop
-   (see `../flow-pipeline/references/polling-protocol.md` "What this wait means for
-   the harness-native wake"). Only `status == "complete"` counts as ready while
-   waiting (the subagent's step-0 skeleton is a schema-valid `partial`). Once its
-   completion notification has arrived, call with `--wait-sec 0`: a `partial`
-   envelope (or an `Agent stalled` failure) routes to the partial-result
-   continuation / Stall branch per Step 8's post-return block BEFORE the
-   missing-artifact escalation; exit 1 (missing or invalid) takes Step 8's
-   missing-artifact path, never a well-formed `partial`.
+4. When the subagent returns, treat its 3–5 sentence summary as the chat output. Do
+   **not** read the artifact body at the spawn boundary — Step 9's first read is
+   the wrapper's single read, and reading earlier would duplicate it. The only
+   post-spawn job here is a cheap completeness check. Probe
+   `command -v flow-fix-applier-schema` first: when present, use
+   `flow-fix-applier-schema --validate "$ARTIFACT_PATH" >/dev/null 2>&1 && jq -e '.status == "complete"' "$ARTIFACT_PATH" >/dev/null`;
+   when the helper is absent (PATH), fall back to the bare shape check
+   `jq -e '.status == "complete"' "$ARTIFACT_PATH" >/dev/null` so a missing
+   helper never masquerades as a missing artifact. Either way, on a `status:
+   partial` artifact (or an `Agent stalled` failure), route to the
+   partial-result continuation / Stall branch per Step 8's post-return block
+   BEFORE the missing-artifact escalation — the escalation fires only when
+   the artifact is genuinely missing or invalid, never on a well-formed
+   `partial`.
+
+   **Waiting for the agent.** The spawn is asynchronous; wake on its
+   completion notification, falling back to a bounded Monitor `until`
+   loop on the completeness check above — never a foreground `sleep`
+   loop (see `../flow-pipeline/references/polling-protocol.md` "What this
+   wait means for the harness-native wake").
 
 5. Continue to Step 8c (the wrapper's post-spawn verification-item run),
    then Step 9 onwards.
@@ -656,11 +661,9 @@ Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `l
 `decoration`, `confidence`, `subject`, `body`. The on-disk artifact at
 `$WORKTREE/.flow-tmp/agent-output-<lens>.json` carries three top-level keys — `findings`, `rejected_alternatives`, `anti_patterns_found` — per the per-agent schema validated at Step 3.5.
 
-Wait for all spawned agents before proceeding — the ungated lenses plus the
-diff-only intent-guess agent (§ Diff-only intent-guess agent below, unless
-skipped on delta re-entry): run `flow-review-collect --stage lenses --worktree
-"$WORKTREE"` (Bash `timeout: 600000`; exit 3 → call again). Its digest is
-per-lens presence/validity/finding counts only — never read lens findings here.
+Wait for all spawned agents to complete before proceeding — the ungated
+lenses plus the diff-only intent-guess agent (§ Diff-only intent-guess
+agent below, unless skipped on delta re-entry), same fan-out message.
 
 ### Cross-model (Gemini) lens (optional, config-gated)
 
@@ -796,17 +799,18 @@ may write `scope_verdict` to `$ARTIFACT_PATH` (see
 
 After the subagent returns:
 
-Run `flow-review-collect --stage consolidator --worktree "$WORKTREE" --wait-sec 0`
-(Bash `timeout: 600000`). It validates exactly as `flow-agent-finding-schema --validate`
-does, and its envelope `digest` IS the full validated consolidator result — the
-**single read**, parsed once and reused across Steps 4–12 (no second read of
-`$ARTIFACT_PATH`). On exit 1, escalate the envelope's `escalationTag`
-(`consolidator-missing-artifact` or `consolidator-schema-failure`) per its recipe in
-[references/escalation-recipes.md](references/escalation-recipes.md) — do not retry
-the Task call. The helper never writes the result artifact; the recipe's
-read-before-overwrite guard from
-[references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md)
-applies to the supervisor's write.
+1. **Existence check**: `test -s "$ARTIFACT_PATH"`. On missing or empty artifact,
+   escalate `NEEDS HUMAN: consolidator-missing-artifact` per the
+   `consolidator-missing-artifact` recipe in
+   [references/escalation-recipes.md](references/escalation-recipes.md) — do not
+   retry the Task call.
+2. **Schema validation**: `flow-agent-finding-schema --validate "$ARTIFACT_PATH"`.
+   On exit 1, escalate `NEEDS HUMAN: consolidator-schema-failure` per the
+   `consolidator-schema-failure` recipe in the same file. Both recipes apply the
+   read-before-overwrite guard from
+   [references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md)
+   — if a more specific tag is already on disk, the wrapper's write is skipped.
+3. **Read once**, parse into a typed object, reuse across Steps 4–7.
 
 ### Widen (consolidator authority, once)
 
@@ -834,7 +838,7 @@ weighing, vagueness-as-signal rule, and the artifact shape are in
 
 ## 4. Consume Consolidated Findings
 
-Use the Step 3.5 envelope `digest` (the already-validated `consolidator-result.json`).
+Read `consolidator-result.json` once (already validated in Step 3.5).
 Iterate `consolidated_findings[]`. Each finding has a `finding_id`,
 `agent_source`, and the standard fields `{file, line, end_line, label,
 decoration, confidence, subject, body}`. The confidence threshold
@@ -951,21 +955,48 @@ Subagent above. The subagent owns the per-finding fix loop (Steps 6, 7, 7.5),
 the pre-commit run, the commit + push, and the `/flow-verify` re-run — all inside
 its own context.
 
-After the subagent returns, the completeness check is the Spawn procedure's item 4
-call (`flow-review-collect --stage fix-applier --worktree "$WORKTREE" --wait-sec 0`,
-Bash `timeout: 600000`); its envelope `digest` is Step 9's single read, reused across
-Steps 9, 10, 11, 12. **Partial-result continuation:** a Task result marked partial with an agent id, an envelope `status: partial`, or an `Agent stalled` failure gets one `SendMessage` continuation per `../flow-pipeline/references/partial-result-continuation.md` (its Stall branch for the `Agent stalled` case) before falling through to the escalation below.
+After the subagent returns, do a cheap completeness check against the
+canonical `$ARTIFACT_PATH` resolved during the spawn procedure (the
+single source of truth for the artifact's location). **Partial-result continuation:** a Task result marked partial with an agent id, or the artifact missing, invalid, `status: partial`, or an `Agent stalled` failure, gets one `SendMessage` continuation per `../flow-pipeline/references/partial-result-continuation.md` (its Stall branch for the `Agent stalled` case) before falling through to the escalation below.
 
-On exit 1 (the artifact genuinely missing or invalid — a well-formed `partial` never
-reaches here), write the escalation result artifact per the
-`fix-applier-missing-artifact` recipe in
-[references/escalation-recipes.md](references/escalation-recipes.md), echo
-`NEEDS HUMAN: fix-applier-missing-artifact` to stderr, and exit non-zero. **Do not**
-retry the Task call — re-invocation is the supervisor's decision; a second call
-inside this run would violate the one-Task-call invariant. The wrapper writes
-`<worktree>/.flow-tmp/pr-review-result.json` (`status: "escalated"`,
-`escalation_tag: "fix-applier-missing-artifact"`) per the
+```bash
+command -v flow-fix-applier-schema > /dev/null \
+  && VALIDATE_CMD="flow-fix-applier-schema --validate" || VALIDATE_CMD="jq -e '.status'"
+eval "$VALIDATE_CMD \"\$ARTIFACT_PATH\"" >/dev/null 2>&1 \
+  && jq -e '.status == "partial" or .status == "complete"' "$ARTIFACT_PATH" >/dev/null 2>&1 || {
+  # `status: partial` (routed to the partial-result continuation / Stall
+  # branch, line 960 above) never reaches here — only a missing/invalid
+  # artifact does. Write the escalation result artifact per the
+  # `fix-applier-missing-artifact` recipe in references/escalation-recipes.md.
+  RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+  cat > "$RESULT_PATH.tmp" <<'EOF'
+{
+  "status": "escalated",
+  "completed_steps": ["1", "2", "3", "4", "5", "8"],
+  "missed_steps": ["8c", "9", "10", "11", "12", "13"],
+  "escalation_tag": "fix-applier-missing-artifact",
+  "summary": "Fix-Applier subagent returned but the artifact at .flow-tmp/fix-applier-result.json is missing or invalid. Wrapper bailed at Step 8's existence check; supervisor must restart."
+}
+EOF
+  flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
+    && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+  echo "NEEDS HUMAN: fix-applier-missing-artifact" >&2
+  exit 1
+}
+```
+
+On a genuinely missing or invalid artifact, surface the failure to the
+supervisor — **do not** retry the Task call. Re-invocation is the
+supervisor's decision; a second call inside this run would violate the
+one-Task-call invariant. On this bail-out path the wrapper writes
+`<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
+and `escalation_tag: "fix-applier-missing-artifact"` per the
 # Result artifact contract above, before exiting non-zero.
+
+Do **not** read the artifact's body at this boundary. Step 9 reads it once,
+parses into a typed object, and reuses that object across Steps 9, 10, 11,
+12. Reading earlier would duplicate the read in the wrapper's context and
+erode the context-cost win.
 
 Then continue to 8c (the wrapper's post-spawn verification-item run).
 
@@ -1185,10 +1216,14 @@ the new items before producing the final report.
 
 If there are no inline comments to reply to, this step is a no-op — skip to Step 10.
 
-Otherwise use the Step 8 envelope's `digest` (the validated fix-applier artifact,
-fetched by `flow-review-collect --stage fix-applier`) as the typed `ARTIFACT`,
-reused across Steps 9, 10, 11, 12 — do not re-read `$ARTIFACT_PATH` in subsequent
-steps.
+Otherwise, **read the artifact once** at this step and parse into a typed
+object that is reused across Steps 9, 10, 11, 12 — do not re-read in
+subsequent steps. Use the canonical `$ARTIFACT_PATH` resolved during the
+spawn procedure rather than rebuilding the path here:
+
+```bash
+ARTIFACT=$(cat "$ARTIFACT_PATH")
+```
 
 ### 9a. New-file anti-pattern audit (warn, not block)
 
@@ -1823,10 +1858,11 @@ a real review rather than a metadata-triage skip. The marker file's read site li
   never retries. (The Independent Multi-Agent Review at Step 3 is a
   separate, already-exempted Task call covering review mode; that
   exemption is unchanged.)
-- NEVER read `.flow-tmp/fix-applier-result.json` body directly at the spawn
-  boundary (Step 8). The `flow-review-collect --stage fix-applier` envelope is the
-  only allowed artifact access between spawn and Step 9, and its `digest` is the
-  wrapper's single read of the body, reused across Steps 9-12.
+- NEVER read `.flow-tmp/fix-applier-result.json` body at the spawn boundary
+  (Step 8). The cheap completeness check in Step 8 (schema-validate + `jq
+  -e '.status'`) is the only allowed artifact access between spawn and
+  Step 9. Step 9's first read is the wrapper's single read of the body;
+  reading earlier would duplicate that read in the same context.
 - NEVER read the artifact's body more than once. Parse it into a typed
   object at Step 9 and reuse the object across Steps 10, 11, 12. Re-reads
   defeat the context-cost win the subagent was designed to deliver.

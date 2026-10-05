@@ -713,12 +713,6 @@ magnitude below the old loop's ~40-80 KB (20 polls × 2-4 KB of raw CI and
 reviews JSON per poll). `gh` API call volume per wake is unchanged (3-4
 calls); only what lands in the conversation shrank.
 
-One bounded exception: `/flow-pr-review`'s agent-result boundaries use
-`flow-review-collect`'s in-call wait (≤540 s, Bash `timeout: 600000`) rather
-than a background wake, because `flow-stop-guard` keeps the supervisor in-turn
-mid-phase, so a background wake would only add turns. It is a single bounded
-helper call, not a hand-written foreground `sleep` loop.
-
 The pre-split design kept all wait-phase state in the supervisor's own
 conversation session, trading conversation growth for statelessness
 elsewhere. The anchors-based design inverts that: state lives in

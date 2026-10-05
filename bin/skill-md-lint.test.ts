@@ -5354,34 +5354,27 @@ describe("pr-review include-by-reference structure", () => {
     // Bumped 1930 -> 1940 (checkpointed applier artifact + turn-budget
     // loss accounting + non-blocking wait).
     //
-    // Lowered 1940 -> 1860 (review turn folding): Steps 3/3.5/8/9 now call
-    // `flow-review-collect` and Step 8c calls `flow-run-test-steps`, replacing
-    // the hand-written wait/validate/read recipes and the 8c per-item loop
-    // with one helper call each. The file lands at 1853 lines; 1860 locks the
-    // reduction in with 7 lines of headroom.
+    // Lowered 1940 -> 1895 (review turn folding): Step 8c calls
+    // `flow-run-test-steps`, replacing the 8c per-item run/inject loop and
+    // 8c.i's fences with one helper call. The file lands at 1889 lines; 1895
+    // locks the reduction in with 6 lines of headroom.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1860 lines. Material regrowth past this ceiling would ` +
+        `budget of 1895 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1860);
+    ).toBeLessThan(1895);
   });
 
-  it("skills/pipeline/flow-pr-review/SKILL.md routes the agent-result boundaries through flow-review-collect with an explicit Bash timeout", () => {
-    // The helper's default 540 s wait only fits inside the Bash tool's 600 s
+  it("skills/pipeline/flow-pr-review/SKILL.md routes Step 8c's runnable items through flow-run-test-steps with an explicit Bash timeout", () => {
+    // The helper's 540 s run budget only fits inside the Bash tool's 600 s
     // ceiling when the caller passes `timeout: 600000`; without it the call
     // dies at the 120 s default with no envelope.
     const content = fs.readFileSync(
       path.resolve(HERE, "..", "skills/pipeline/flow-pr-review/SKILL.md"),
       "utf8",
     );
-    for (const needle of [
-      "flow-review-collect --stage lenses",
-      "flow-review-collect --stage consolidator",
-      "flow-review-collect --stage fix-applier",
-      "flow-run-test-steps --pr",
-      "timeout: 600000",
-    ]) {
+    for (const needle of ["flow-run-test-steps --pr", "timeout: 600000"]) {
       expect(content.includes(needle), `missing: ${needle}`).toBe(true);
     }
   });
