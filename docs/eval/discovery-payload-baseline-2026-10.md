@@ -163,7 +163,36 @@ headings inside code fences are ignored.
 
 ## Before arm
 
-Pending.
+Recorded 2026-10-05 on the unsplit instruction file, tree `eb4e5d7`, Claude
+Code 2.1.289, discovery sub-agent on `claude-opus-5-5` (parent pinned to
+`opus` in the suite), with a fresh `FLOW_RESEARCH_CACHE_DIR`:
+
+```sh
+bun bin/flow-eval.ts run --suite discovery-plan-quality --out <dir> --runs 2 --concurrency 5
+bun docs/eval/discovery-payload.ts --stream-dir <dir>
+```
+
+- Report: [before/report.json](discovery-payload/before/report.json),
+  [before/summary.md](discovery-payload/before/summary.md).
+- Quality: 5/5 scenarios pass; every gating grader (plan written,
+  plan-lint, no agent fallback, and each scenario's branch grader) passed
+  on all 10 runs.
+- Eval spend: $19.18 for the 10 runs.
+
+| Metric (10 discovery runs)             | Median | p25    | p75    |
+| -------------------------------------- | ------ | ------ | ------ |
+| First request context (tokens)         | 22,791 | 22,628 | 22,844 |
+| First-turn write (tokens)              | 15,108 | 14,945 | 15,123 |
+| Task text (chars)                      | 3,173  | 2,810  | 3,305  |
+| Instruction read (tokens, upper bound) | 70,991 | 69,019 | 78,082 |
+| Instruction read chunks                | 4      | 4      | 4      |
+| Turns after instructions               | 12     | 9.3    | 14.8   |
+| USD per discovery run                  | 0.95   | 0.72   | 1.01   |
+
+The eval fixture is small, so its first-turn write (15K) is far below
+production's (38K). The go/no-go bar therefore uses the production median
+first-turn write: 20% of 38,070 tokens is **7,614 tokens** of instruction
+read per run.
 
 ## After arm
 
