@@ -70,6 +70,7 @@ type Turn = {
   seg: string;
   sent: string;
   cwd: string;
+  effort: string;
 };
 type Spawn = { prefix: string; type: string; toolUseId?: string };
 type Meta = { agentType?: string; toolUseId?: string };
@@ -139,7 +140,7 @@ const agentLabel = (s: string) => s.replace(/^flow-module-[a-z-]+:/, "");
 // Only the LAST line carries the final output_tokens (earlier lines hold a
 // streaming placeholder; input and cache fields never differ). Usage is
 // buffered per id and flushed in first-seen order carrying the LAST line's
-// usage, with ts/seg/inWindow from the FIRST line; every line is still
+// usage, with ts/seg/effort/inWindow from the FIRST line; every line is still
 // scanned for tool calls.
 export function walkFile(
   lines: string[],
@@ -183,6 +184,8 @@ export function walkFile(
           seg: cur,
           sent: lastUser || j.timestamp,
           cwd: typeof j.cwd === "string" ? j.cwd : "",
+          effort:
+            typeof j.effort === "string" && j.effort ? j.effort : "unrecorded",
           counted: inWindow(j.timestamp),
         });
     }
@@ -569,14 +572,16 @@ type SpawnAcc = Map<
 type SpawnRec = {
   type: string;
   model: string;
+  effort: string;
   turns: number;
   minutes: number;
   usd: number;
 };
 
-function accSpawnTurn(acc: SpawnAcc, t: Turn) {
+function accSpawnTurn(acc: SpawnAcc, t: Turn, byEffort: boolean) {
   const ms = Date.parse(t.ts);
-  const a = acc.get(t.model) ?? {
+  const key = byEffort ? `${t.model}\t${t.effort}` : t.model;
+  const a = acc.get(key) ?? {
     turns: 0,
     first: Infinity,
     last: -Infinity,
@@ -588,17 +593,21 @@ function accSpawnTurn(acc: SpawnAcc, t: Turn) {
     a.first = Math.min(a.first, ms);
     a.last = Math.max(a.last, ms);
   }
-  acc.set(t.model, a);
+  acc.set(key, a);
 }
 
 function flushSpawns(acc: SpawnAcc, type: string): SpawnRec[] {
-  return [...acc.entries()].map(([model, a]) => ({
-    type,
-    model,
-    turns: a.turns,
-    minutes: a.last >= a.first ? (a.last - a.first) / 6e4 : 0,
-    usd: a.usd,
-  }));
+  return [...acc.entries()].map(([key, a]) => {
+    const [model, effort = ""] = key.split("\t");
+    return {
+      type,
+      model,
+      effort,
+      turns: a.turns,
+      minutes: a.last >= a.first ? (a.last - a.first) / 6e4 : 0,
+      usd: a.usd,
+    };
+  });
 }
 
 const median = (xs: number[]) => {
@@ -610,10 +619,15 @@ const median = (xs: number[]) => {
 
 // One record per (sub-agent transcript, model), grouped by `<type> @ <model>`:
 // per-spawn cost is the per-finished-task view that per-turn multiples hide.
-export function spawnCostRows(spawns: SpawnRec[]) {
+// `keyOf` regroups records; pass effort-split records (one per transcript,
+// model, effort) when keying by recorded reasoning effort.
+export function spawnCostRows(
+  spawns: SpawnRec[],
+  keyOf: (s: SpawnRec) => string = (s) => `${s.type} @ ${modelLabel(s.model)}`,
+) {
   const by = new Map<string, SpawnRec[]>();
   for (const s of spawns) {
-    const k = `${s.type} @ ${modelLabel(s.model)}`;
+    const k = keyOf(s);
     if (!by.has(k)) by.set(k, []);
     by.get(k)!.push(s);
   }
@@ -657,6 +671,8 @@ function run(argv: string[]) {
   const byAgentModel: Record<string, Usage> = {};
   const firstTurn: Record<string, number[]> = {};
   const spawnRecs: SpawnRec[] = [];
+  const spawnRecsByEffort: SpawnRec[] = [];
+  const lensEffort = new Map<string, Set<string>>();
   const sessions: { sid: string; repo: string; usage: Usage }[] = [];
   let worktreeSessions = 0;
   let minTs = Infinity,
@@ -795,6 +811,7 @@ function run(argv: string[]) {
           const subReqs = newReqs();
           let subCwd = "";
           const spawnAcc: SpawnAcc = new Map();
+          const spawnAccEff: SpawnAcc = new Map();
           walkFile(
             sl,
             stats,
@@ -810,7 +827,13 @@ function run(argv: string[]) {
               ]);
               subUsd += priceTurn(t.usage, t.model);
               pushReq(subReqs, t);
-              accSpawnTurn(spawnAcc, t);
+              accSpawnTurn(spawnAcc, t, false);
+              accSpawnTurn(spawnAccEff, t, true);
+              if (type.startsWith("flow-review-")) {
+                const k = `${sid}\t${type}`;
+                if (!lensEffort.has(k)) lensEffort.set(k, new Set());
+                lensEffort.get(k)!.add(t.effort);
+              }
               if (isFirst) {
                 subCwd = t.cwd || cwd || "";
                 const c = classes(t.usage);
@@ -826,6 +849,7 @@ function run(argv: string[]) {
             spawnAsst.push({ type, cwd: subCwd, reqs: subReqs.asst });
           }
           spawnRecs.push(...flushSpawns(spawnAcc, type));
+          spawnRecsByEffort.push(...flushSpawns(spawnAccEff, type));
         }
       }
       if (counted) {
@@ -918,6 +942,34 @@ function run(argv: string[]) {
       "$/turn",
     ],
     spawnCostRows(spawnRecs).map((r) => [
+      r.key,
+      r.spawns,
+      fmtN(r.medianTurns),
+      fmtN(r.medianMinutes),
+      fmtUsd(r.meanUsd),
+      fmtUsd(r.medianUsd),
+      r.usdPerTurn.toFixed(4),
+    ]),
+  );
+
+  console.log("## Sub-agent spawn cost by type @ model @ effort\n");
+  console.log(
+    "The same per-spawn records split by the reasoning effort recorded on each turn (`unrecorded` when the transcript row carries none). A transcript that changed effort mid-run appears once per effort, so its spawn is counted in each.\n",
+  );
+  table(
+    [
+      "key",
+      "spawns",
+      "median turns",
+      "median min",
+      "mean $",
+      "median $",
+      "$/turn",
+    ],
+    spawnCostRows(
+      spawnRecsByEffort,
+      (s) => `${s.type} @ ${modelLabel(s.model)} @ ${s.effort}`,
+    ).map((r) => [
       r.key,
       r.spawns,
       fmtN(r.medianTurns),
@@ -1104,7 +1156,89 @@ function run(argv: string[]) {
     ]),
   );
 
+  console.log("## Review lenses: findings per run by lens effort\n");
+  console.log(
+    "Telemetry lens runs joined to their sub-agent transcript by session and lens, bucketed by the reasoning effort that transcript recorded. `mixed/unjoined` holds lens runs whose transcript recorded more than one effort or was not found (aged out, or the review began before --since). Per-run figures divide a bucket's findings by its lens runs. Effort follows the launching session (the product lens has been pinned to medium since #898), so a gap between buckets is observational, not a controlled comparison. Telemetry has no intent-guess entry, and gemini has no transcript, so neither is counted.\n",
+  );
+  table(
+    ["key", "reviews", "runs", "emitted/run", "survived/run", "acted/run"],
+    lensYieldByEffort(lensRows, lensEffort).map((r) => [
+      r.key,
+      r.reviews,
+      r.runs,
+      r.emittedPerRun.toFixed(2),
+      r.survivedPerRun.toFixed(2),
+      r.actedPerRun.toFixed(2),
+    ]),
+  );
+
   cacheLifetimeSection(lifeUser, lifeAsst, [sentMin, sentMax]);
+}
+
+const YIELD_LENSES = [
+  "bug-detection",
+  "security",
+  "pattern-consistency",
+  "performance",
+  "supply-chain",
+  "test-coverage",
+  "product",
+];
+
+// Joins telemetry lens runs (short lens key, parent session id) to the effort
+// their sub-agent transcript recorded; `lensEffort` is keyed
+// `${session_id}\t${agentType}` with agentType `flow-review-${lens}`.
+export function lensYieldByEffort(
+  rows: any[],
+  lensEffort: Map<string, Set<string>>,
+) {
+  type Acc = {
+    reviews: Set<number>;
+    runs: number;
+    emitted: number;
+    survived: number;
+    acted: number;
+  };
+  const by = new Map<string, Acc>();
+  const add = (key: string, row: number, v: any) => {
+    const a = by.get(key) ?? {
+      reviews: new Set<number>(),
+      runs: 0,
+      emitted: 0,
+      survived: 0,
+      acted: 0,
+    };
+    a.reviews.add(row);
+    a.runs++;
+    a.emitted += v.findings_emitted || 0;
+    a.survived += v.findings_survived || 0;
+    a.acted += v.findings_acted || 0;
+    by.set(key, a);
+  };
+  rows.forEach((r, i) => {
+    for (const lens of YIELD_LENSES) {
+      const v = r.lenses?.[lens];
+      if (!v?.ran) continue;
+      const efforts = lensEffort.get(`${r.session_id}\tflow-review-${lens}`);
+      const effort = efforts?.size === 1 ? [...efforts][0] : "mixed/unjoined";
+      add(`all @ ${effort}`, i, v);
+      add(`${lens} @ ${effort}`, i, v);
+    }
+  });
+  return [...by.entries()]
+    .map(([key, a]) => ({
+      key,
+      reviews: a.reviews.size,
+      runs: a.runs,
+      emittedPerRun: a.emitted / a.runs,
+      survivedPerRun: a.survived / a.runs,
+      actedPerRun: a.acted / a.runs,
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.key.startsWith("all @ ")) -
+          Number(a.key.startsWith("all @ ")) || a.key.localeCompare(b.key),
+    );
 }
 
 export function summarizeLenses(rows: any[]) {
@@ -1173,10 +1307,12 @@ export function selfTest(): string[] {
     usage: any,
     content: any[] = [],
     ts = "2026-09-10T00:00:00Z",
+    effort?: string,
   ) =>
     JSON.stringify({
       type: "assistant",
       timestamp: ts,
+      ...(effort === undefined ? {} : { effort }),
       message: { id, model, usage, content },
     });
   const split = {
@@ -1458,7 +1594,7 @@ export function selfTest(): string[] {
     walkFile(
       ts.map((t, i) => asst(`${id}${i}`, model, split, [], t)),
       newStats(),
-      (t) => accSpawnTurn(acc, t),
+      (t) => accSpawnTurn(acc, t, false),
     );
     return flushSpawns(acc, "flow-review-product");
   };
@@ -1493,6 +1629,118 @@ export function selfTest(): string[] {
   close("spawn mean usd", sRows[0].meanUsd, 3 * unit);
   close("spawn median usd", sRows[0].medianUsd, 3 * unit);
   close("spawn usd per turn", sRows[0].usdPerTurn, unit);
+
+  const effortSpawn = (id: string, model: string, effort?: string) => {
+    const acc: SpawnAcc = new Map();
+    walkFile(
+      [asst(id, model, split, [], "2026-09-10T00:00:00Z", effort)],
+      newStats(),
+      (t) => accSpawnTurn(acc, t, true),
+    );
+    return flushSpawns(acc, "flow-review-product");
+  };
+  const byEffort = (s: { type: string; model: string; effort: string }) =>
+    `${s.type} @ ${modelLabel(s.model)} @ ${s.effort}`;
+  eq(
+    "spawn effort keys",
+    spawnCostRows(
+      [
+        ...effortSpawn("e1", "claude-opus-5", "high"),
+        ...effortSpawn("e2", "claude-opus-5", "medium"),
+        ...effortSpawn("e3", "claude-opus-5"),
+      ],
+      byEffort,
+    )
+      .map((r) => r.key)
+      .sort(),
+    [
+      "flow-review-product @ claude-opus-5 @ high",
+      "flow-review-product @ claude-opus-5 @ medium",
+      "flow-review-product @ claude-opus-5 @ unrecorded",
+    ],
+  );
+
+  const mixedTurns: Turn[] = [];
+  walkFile(
+    [
+      asst("m0", "claude-opus-5", split, [], "2026-09-10T00:00:00Z", "high"),
+      asst("m1", "claude-opus-5", split, [], "2026-09-10T00:01:00Z", "medium"),
+    ],
+    newStats(),
+    (t) => mixedTurns.push(t),
+  );
+  const mixedRecs = (byEff: boolean) => {
+    const acc: SpawnAcc = new Map();
+    for (const t of mixedTurns) accSpawnTurn(acc, t, byEff);
+    return flushSpawns(acc, "flow-review-product");
+  };
+  eq(
+    "one transcript at two efforts: default table counts one spawn",
+    spawnCostRows(mixedRecs(false)).map((r) => [r.key, r.spawns]),
+    [["flow-review-product @ claude-opus-5", 1]],
+  );
+  eq(
+    "one transcript at two efforts: effort table splits into two rows",
+    spawnCostRows(mixedRecs(true), byEffort)
+      .map((r) => [r.key, r.spawns])
+      .sort(),
+    [
+      ["flow-review-product @ claude-opus-5 @ high", 1],
+      ["flow-review-product @ claude-opus-5 @ medium", 1],
+    ],
+  );
+
+  const yRow = (sid: string, lenses: Record<string, any>) => ({
+    session_id: sid,
+    lenses,
+  });
+  const yv = (emitted: number, survived: number, acted: number) => ({
+    ran: true,
+    findings_emitted: emitted,
+    findings_survived: survived,
+    findings_acted: acted,
+  });
+  const yields = lensYieldByEffort(
+    [
+      yRow("s1", {
+        "bug-detection": yv(4, 3, 2),
+        product: yv(2, 1, 0),
+        gemini: yv(9, 9, 9),
+        security: { ran: false, findings_emitted: 5 },
+      }),
+      yRow("s2", {
+        "bug-detection": yv(2, 1, 1),
+        product: yv(6, 3, 3),
+        security: yv(1, 1, 0),
+      }),
+    ],
+    new Map([
+      ["s1\tflow-review-bug-detection", new Set(["high"])],
+      ["s1\tflow-review-product", new Set(["medium"])],
+      ["s2\tflow-review-bug-detection", new Set(["high"])],
+      ["s2\tflow-review-product", new Set(["medium", "high"])],
+    ]),
+  );
+  eq(
+    "lens yield by effort buckets",
+    yields.map((r) => [
+      r.key,
+      r.reviews,
+      r.runs,
+      r.emittedPerRun,
+      r.survivedPerRun,
+      r.actedPerRun,
+    ]),
+    [
+      ["all @ high", 2, 2, 3, 2, 1.5],
+      ["all @ medium", 1, 1, 2, 1, 0],
+      ["all @ mixed/unjoined", 1, 2, 3.5, 2, 1.5],
+      ["bug-detection @ high", 2, 2, 3, 2, 1.5],
+      ["product @ medium", 1, 1, 2, 1, 0],
+      ["product @ mixed/unjoined", 1, 1, 6, 3, 3],
+      ["security @ mixed/unjoined", 1, 1, 1, 1, 0],
+    ],
+  );
 
   eq("resolveRepo worktree", resolveRepo("/u/code/me/flow-foo", ["flow"]), {
     repo: "flow",
