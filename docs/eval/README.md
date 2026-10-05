@@ -47,6 +47,9 @@ per-task view that per-turn figures confound. Its last section replays every
 transcript at a 5-minute cache lifetime to show what 1-hour cache writes
 bought; the cache-lifetime measurement is
 [`cache-lifetime-baseline-2026-10.md`](cache-lifetime-baseline-2026-10.md).
+The review-lens cost and findings per run, split by recorded reasoning effort,
+behind issue #832's not-planned verdict, is
+[`review-lens-effort-baseline-2026-10.md`](review-lens-effort-baseline-2026-10.md).
 
 [`lens-cache-prefix-baseline-2026-10.md`](lens-cache-prefix-baseline-2026-10.md)
 records the issue #889 check: which part of the review lenses' first-turn
