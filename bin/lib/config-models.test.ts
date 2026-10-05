@@ -192,7 +192,8 @@ describe("runConfigModelsCli", () => {
     });
     expect(code).toBe(0);
     const table = out.join("\n");
-    expect(table).toMatch(/review-lens:bug-detection\s+opus\s+capped/);
+    expect(table).toMatch(/review-lens:security\s+opus\s+capped/);
+    expect(table).toMatch(/review-lens:bug-detection\s+inherited\s+inherited/);
   });
 
   // Story 2 — a per-pipeline override landed.

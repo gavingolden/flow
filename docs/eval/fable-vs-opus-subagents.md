@@ -6,7 +6,7 @@ Harness: [`review-model-recall/`](review-model-recall/).
 A one-off measurement, not a committed eval suite. It answers one question:
 _does the Opus cap bug-detection already runs under on Fable sessions (#830)
 lose findings Fable would have caught?_ Whatever the answer, the lens cap is
-left unchanged — a Fable advantage is reported with its numbers, not acted on.
+left unchanged (lifted afterwards — see Follow-up: cap lifted) — a Fable advantage is reported with its numbers, not acted on.
 
 ## Pre-registered rule
 
@@ -75,7 +75,7 @@ judge cells).
 Fable's mean recall beats Opus's by +0.048, twice the pooled within-arm spread,
 at _p_ = 0.0065 — both halves of the pre-registered rule hold. (`cap
 validated` fails on its own terms too: on #756 Opus trails Fable by 0.058.)
-Per the request, **routing is unchanged**: bug-detection keeps its Opus cap on
+Per the request, **routing is unchanged** (lifted afterwards — see Follow-up: cap lifted): bug-detection keeps its Opus cap on
 Fable sessions. What the cap costs: on these PRs Fable re-found 2.4 times
 the reference findings at about 3.5 times the price per review, so a matched
 finding cost $1.25 on Fable against $0.85 on Opus.
@@ -83,6 +83,16 @@ finding cost $1.25 on Fable against $0.85 on Opus.
 Read it with its limits. Recall is low on both arms, so one matched finding
 moves a PR's recall by 0.04–0.056; the whole gap is 7 findings across 12 runs
 on 3 PRs, scored by a single fixed-model judge.
+
+## Follow-up: cap lifted
+
+A later change lifted the Opus cap for bug-detection only. The other lenses
+and the consolidator stay capped, and the product lens stays pinned to Opus at
+medium effort. The measured cost is +$1.79 a review at medium effort ($2.50
+against $0.71). Production Opus 5.5 bug-detection reviews averaged $0.99 over
+16 median turns, against the harness's $0.71 over 3.5, so the real premium at
+the session's effort is unmeasured. The token-spend audit's per-spawn table
+will show `flow-review-bug-detection @ Fable 5.1` once runs accumulate.
 
 ## Context: cost per finished helper run
 
@@ -105,7 +115,7 @@ per-task premium. Fable lists at 2x Opus 5's input and output price and 2.5x Opu
 5.5's; its discovery runs cost 2.0x and 3.7x as much per turn, but finish in
 41% and 37% of the turns. Per finished planning run, Fable costs 4% less than
 Opus 5 and $1.49 (39%) more than Opus 5.5. No bug-detection run in the window (from 2026-09-11) used
-Fable, so the lens cap (#830) is live.
+Fable, so the lens cap (#830) is live (lifted afterwards — see Follow-up: cap lifted).
 
 Planning was not benchmarked: it keeps inheriting the session model by the
 user's deliberate choice. The product review lens moves to Opus at medium

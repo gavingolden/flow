@@ -7,8 +7,9 @@ quality and time, and which checks must run before any of them ships.
 
 Over the 30 days ending 2026-09-30, flow's three repos burned about $9,344 of
 list-price tokens across 309 sessions (the dollars are a proxy, not a bill;
-see the gaps section). The verdict count: **1 worth it / 4 not worth it / 6
-unmeasured / 1 not pursued** (counting rows in the ranked table). The reader gets a measured map of where the quota goes plus a
+see the gaps section). The verdict count:
+**2 worth it / 4 not worth it / 6 unmeasured / 1 not pursued** (counting rows
+in the ranked table). The reader gets a measured map of where the quota goes plus a
 ranked hypothesis list: a lever is `worth it` only when its named recall check
 has already been run and recorded, and otherwise it stays `unmeasured`, however
 plausible it sounds.
@@ -17,10 +18,12 @@ Every spend, token, turn and timing figure below is copied from the committed
 baseline ([token-spend-baseline-2026-09.md](eval/token-spend-baseline-2026-09.md)),
 which pastes the audit's output verbatim; figures marked "derived" are plain
 division or addition over those tables. The recall-check results quoted in the
-ranked table come from three other committed records: the eval-suite arms in
+ranked table come from four other committed records: the eval-suite arms in
 [scaffold-verdicts.md](eval/scaffold-verdicts.md), the Sonnet-vs-Opus study in
-[review-model-recall.md](eval/review-model-recall.md), and the 150k-window arms
-in [review-cost-baseline.md](eval/review-cost-baseline.md). Nothing is
+[review-model-recall.md](eval/review-model-recall.md), the Fable-vs-Opus
+bug-detection recall check in
+[fable-vs-opus-subagents.md](eval/fable-vs-opus-subagents.md), and the
+150k-window arms in [review-cost-baseline.md](eval/review-cost-baseline.md). Nothing is
 estimated.
 
 ## Vendor guidance
@@ -161,17 +164,20 @@ unmeasured levers each name the recall check that would have to run first.
 | Edit-applier and fix-applier turn counts | unmeasured | $1,046.50 ($738.96 plus $307.54) | edit-applier: sonnet-5 2,797.8M, sonnet-5-5 60.2M, fable-5-1 42.2M, opus-5 39.9M; fix-applier: sonnet-5 1,100.9M, sonnet-5-5 18.8M, fable-5-1 10.9M, opus-5 8.5M | 29,130 | Unknown. Fewer turns could mean less verifying of its own edits. | Fewer turns is faster. | Re-run recorded edit-sets with a smaller turn budget and compare verify outcomes: run? no | none |
 | Discovery instruction payload | unmeasured | $786.20 | opus-5 606.5M, opus-5-5 151.7M, fable-5-1 145.8M, fable-5 11.8M, sonnet-5 6.3M | 5,453 | Unknown. Trimming instructions risks weaker plans. | Smaller starts load faster; not measured. | Plan quality with trimmed instructions on recorded tasks: run? no | #818 (related: the fixed start-up cost every sub-agent pays) |
 | Low-yield review lenses (performance, supply-chain, security) | unmeasured | $276.22 ($104.32, $54.80, $117.10) | performance: opus-5 62.6M, fable-5-1 7.5M, opus-5-5 5.0M, fable-5 1.5M, sonnet-5 0.4M; supply-chain: opus-5 33.9M, fable-5-1 3.4M, opus-5-5 2.7M, fable-5 1.2M; security: opus-5 75.8M, fable-5-1 8.4M, opus-5-5 7.7M, fable-5 1.7M, sonnet-5 0.8M | 3,239 | Findings lost. They acted on 17, 5 and 40 findings respectively, against 162 for pattern-consistency; security findings can be rare and serious. | Fewer agents in flight. | Does another lens catch what a dropped lens caught? run? no (the existing recall study excluded these three for having too few acted findings) | none |
+| Lift the bug-detection Opus cap on Fable sessions (shipped) | worth it | $194, all bug-detection spend in the window; +$1.79 a review on Fable sessions (measured at medium effort); re-check: the next token-spend audit compares flow-review-bug-detection @ Fable 5.1 per-run cost against the measured $2.50 | opus-5 157.0M, opus-5-5 22.4M, fable-5-1 12.7M, sonnet-5 3.7M, fable-5 2.0M | 2,059 | Gains findings: Fable re-found 8.7% against Opus 5.5's 3.9% (p = 0.0065) | Fable median 95 s against 46 s in the harness; the review waits on its slowest lens | Fable vs Opus 5.5 bug-detection recall on 3 PRs, 2 runs each: run? yes; cap lifted ([results](eval/fable-vs-opus-subagents.md)) | #890 |
 | Keep triage in the main session instead of a cheap-model gatekeeper (already shipped) | worth it | $1.44, what the retired agent still shows in the window | haiku-4-5-20251001 4.4M | 171 | None measured: suite score 0.917 before and after; one scenario already failing with or without the agent. | None measured. | Gate-score and cost comparison on the eval suite: run? yes, cost fell 29% (27% with a Sonnet parent) | none |
 | Cap the session context at 150k (`--autocompact 150k`) | not worth it | not shipped | not measured | turns rose in all five scenarios (for example 6 to 9) | Fidelity held, 5 of 5 | More turns | Phase-write fidelity, two arms: run? yes; cost rose 32.5% to 64.1% | none |
 | Route bug-detection and pattern-consistency lenses to Sonnet | not worth it | $387.06 is the pool on those two lenses | opus-5 311.0M, opus-5-5 45.0M, fable-5-1 26.2M, sonnet-5 7.1M, fable-5 4.2M | 4,106 | Sonnet re-found 0.6% and 0.0% of the reference findings against Opus 4.8% and 6.0% | none | Sonnet vs Opus recall on 3 PRs, 2 runs each: run? yes | none |
 | Remove the checkpoint-pause step | not worth it | not measured | not measured | no change on any metric | Suite score fell from 0.983 to 0.975 | None measured; every cost and context metric read the same | Eval suite with and without the step: run? yes; nothing cut, score fell | none |
 | Isolate the verify loop in its own sub-agent | not worth it | $5.02, what the retired agent still shows | sonnet-5 9.0M | 173 | none | Removing it made the loop slightly faster, not slower | Eval A/B with and without: run? yes; cost +0.3% and +0.6% when removed | none |
-| Sub-agents inheriting the Fable session model | not pursued | $666.39 across 3,379 sub-agent turns | fable-5-1 365.7M, fable-5 25.8M | 3,379 | Planning: not measured — planning tracks the session model by the user's deliberate choice; per finished run Fable discovery costs $5.34 against $3.85 on Opus 5.5 (+$1.49) and $5.57 on Opus 5. Bug-detection, already capped at Opus on Fable sessions: Fable re-found 8.7% of reference findings against Opus 5.5's 3.9% (p = 0.0065), so the cap forgoes findings. The product review lens is now pinned to Opus at medium effort ($0.55 a review against Fable's $1.10) | Fable bug-detection median 95 s against 46 s on Opus 5.5; discovery median 10.0 min against 12.3 | Fable vs Opus 5.5 bug-detection recall on 3 PRs, 2 runs each: run? yes; Fable materially better, routing left unchanged by request ([results](eval/fable-vs-opus-subagents.md)) | #890 |
+| Sub-agents inheriting the Fable session model | not pursued | $666.39 across 3,379 sub-agent turns | fable-5-1 365.7M, fable-5 25.8M | 3,379 | Planning: not measured — planning tracks the session model by the user's deliberate choice; per finished run Fable discovery costs $5.34 against $3.85 on Opus 5.5 (+$1.49) and $5.57 on Opus 5. Bug-detection: cap lifted (own row above). The product review lens is now pinned to Opus at medium effort ($0.55 a review against Fable's $1.10) | Fable bug-detection median 95 s against 46 s on Opus 5.5; discovery median 10.0 min against 12.3 | Fable vs Opus 5.5 bug-detection recall on 3 PRs, 2 runs each: run? yes; Fable materially better, cap since lifted (own row above) ([results](eval/fable-vs-opus-subagents.md)) | #890 |
 
 Reading the table: the top three rows are where the money is and all three are
-still hypotheses. The one lever with a recorded recall check that clears the
-bar (the gatekeeper) is also the smallest, because it has already shipped and
-what remains in the window is pre-removal residue.
+still hypotheses. The two levers with a recorded recall check that clears the
+bar have both shipped: the gatekeeper removal, the smallest row, because what
+remains in the window is pre-removal residue, and the lifted bug-detection cap,
+which adds spend on purpose (+$1.79 a review on Fable sessions) to buy the
+findings Opus misses.
 
 ## Not worth it
 

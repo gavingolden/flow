@@ -9,6 +9,7 @@ import {
   type SpawnSite,
 } from "./model-routing-table";
 import { fileURLToPath } from "node:url";
+import { REVIEW_LENS_NAMES } from "./models-config";
 import type { PipelineState } from "./state";
 
 // Module-relative, not resolveFlowSource(): that prefers ~/.flow/config.json's
@@ -320,7 +321,7 @@ describe("resolveRouting — config values", () => {
 });
 
 describe("resolveRouting — review-lens capped inheritance", () => {
-  const LENS_PHASE = "review-lens:bug-detection";
+  const LENS_PHASE = "review-lens:security";
 
   it("a fable session model caps a review lens to opus, and the source names the cap", () => {
     const rows = resolveRouting({ state: st({ model: "fable" }), config: {} });
@@ -339,7 +340,7 @@ describe("resolveRouting — review-lens capped inheritance", () => {
 
   it("an explicit config.models.reviewLenses.<lens> beats state.modelReview", () => {
     const config: ConfigModels = {
-      reviewLenses: { "bug-detection": "haiku" },
+      reviewLenses: { security: "haiku" },
     };
     const rows = resolveRouting({
       state: st({ model: "fable", modelReview: "opus" }),
@@ -347,7 +348,7 @@ describe("resolveRouting — review-lens capped inheritance", () => {
     });
     expect(row(rows, LENS_PHASE)).toMatchObject({
       model: "haiku",
-      source: "config (models.reviewLenses.bug-detection)",
+      source: "config (models.reviewLenses.security)",
     });
   });
 
@@ -366,6 +367,47 @@ describe("resolveRouting — review-lens capped inheritance", () => {
     const rows = resolveRouting({ state: st({ model: "fable" }), config: {} });
     expect(row(rows, "consolidator")).toMatchObject({ model: "opus" });
     expect(row(rows, "consolidator").source).toMatch(/capped/i);
+  });
+});
+
+describe("resolveRouting — bug-detection uncapped inheritance", () => {
+  const PHASE = "review-lens:bug-detection";
+
+  it("a fable session passes through uncapped", () => {
+    const rows = resolveRouting({ state: st({ model: "fable" }), config: {} });
+    expect(row(rows, PHASE)).toMatchObject({ model: "", source: "inherited" });
+  });
+
+  it.each(["sonnet", "opus"] as const)(
+    "a %s session inherits the session model",
+    (model) => {
+      const rows = resolveRouting({ state: st({ model }), config: {} });
+      expect(row(rows, PHASE)).toMatchObject({
+        model: "",
+        source: "inherited",
+      });
+    },
+  );
+
+  it("config.models.reviewLenses.bug-detection opts back to opus on a fable session", () => {
+    const rows = resolveRouting({
+      state: st({ model: "fable" }),
+      config: { reviewLenses: { "bug-detection": "opus" } },
+    });
+    expect(row(rows, PHASE)).toMatchObject({
+      model: "opus",
+      source: "config (models.reviewLenses.bug-detection)",
+    });
+  });
+
+  it("every other non-product lens is still capped to opus on a fable session", () => {
+    const rows = resolveRouting({ state: st({ model: "fable" }), config: {} });
+    for (const lens of REVIEW_LENS_NAMES) {
+      if (lens === "bug-detection" || lens === "product") continue;
+      expect(row(rows, `review-lens:${lens}`)).toMatchObject({
+        model: "opus",
+      });
+    }
   });
 });
 
