@@ -1,0 +1,56 @@
+{
+  "id": "s1-internal-change",
+  "title": "Internal non-UI refactor: one shared overdue predicate (no-branch path, non-researchable)",
+  "provenance": "Adapted from the past pipeline request `plan-cap-single-source` (~/.flow/state/plan-cap-single-source.request.md: make two functions share one effective-plan predicate), rewritten to the todo-cli fixture's three copies of the overdue check. Non-UI, non-researchable: exercises the common no-branch discovery path.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture"
+  },
+  "graders": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "exists": true
+    },
+    {
+      "id": "plan-lint",
+      "kind": "command",
+      "argv": ["flow-plan-lint", "--plan-md-file", ".flow-tmp/plan.md"],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "no-layout-intent",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "notMatches": "(^|\\n)## Layout Intent"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}
