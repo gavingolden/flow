@@ -201,10 +201,21 @@ inside your isolated context:
 flow-pre-commit --json
 ```
 
-The helper auto-detects scope from `git diff HEAD`, runs `npm run format`
-first, then each check separately with structured pass/fail output. The
-`--json` flag emits a single bounded JSON object with head/tail-capped
-failure excerpts.
+Run it as a Bash call with an explicit `timeout: 600000` — the Bash
+tool's 120 s default parks a longer run in the background, and this agent
+has no sanctioned way to wait for it.
+
+The helper does not format. On the first run, format the files you
+changed with the repo's formatter in the same Bash call, ahead of the
+helper, joined with `;` (never `&&`) so a formatter error never skips the
+verify — for example
+`npx prettier --write --ignore-unknown <files>; flow-pre-commit --json`
+when `npm run lint` runs `prettier --check` — so formatting costs no
+extra turn.
+
+The helper auto-detects scope from `git diff HEAD` and runs each check
+separately with structured pass/fail output. The `--json` flag emits a
+single bounded JSON object with head/tail-capped failure excerpts.
 
 Capture the verdict for the artifact's `verify_status`:
 
