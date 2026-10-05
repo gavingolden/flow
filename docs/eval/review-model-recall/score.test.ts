@@ -5,8 +5,11 @@ import {
   mean,
   pstdev,
   pvariance,
+  resolvedModelId,
   round,
+  twoArmSeparation,
 } from "./score";
+import { isCompletedCellOutput } from "./run";
 import { aggregateArms, median, type CellStat } from "./score-arms";
 
 // Coverage scope note: this harness is otherwise untested by design (a
@@ -128,5 +131,148 @@ describe("aggregateArms", () => {
     expect(arms.a!.num_turns.median).toBe(10);
     expect(arms.b!.duration_ms.median).toBe(100000);
     expect(arms.a!.recall_acted).toBe(0.5);
+  });
+});
+
+const armCell = (
+  arm: string,
+  pr: string,
+  run: number,
+  recallAll: number,
+  lens = "bug-detection",
+): CellStat => ({
+  lens,
+  pr,
+  arm,
+  run,
+  cost: 1,
+  turns: 10,
+  duration: 1000,
+  recallAll,
+  recallActed: null,
+  candidates: 3,
+});
+
+describe("twoArmSeparation", () => {
+  const fableOpus = [
+    armCell("fable", "812", 1, 0.1),
+    armCell("fable", "812", 2, 0.3),
+    armCell("fable", "756", 1, 0.2),
+    armCell("fable", "756", 2, 0.2),
+    armCell("fable", "802", 1, 0.4),
+    armCell("fable", "802", 2, 0.4),
+    armCell("opus", "812", 1, 0.0),
+    armCell("opus", "812", 2, 0.1),
+    armCell("opus", "756", 1, 0.1),
+    armCell("opus", "756", 2, 0.1),
+    armCell("opus", "802", 1, 0.2),
+    armCell("opus", "802", 2, 0.3),
+  ];
+
+  it("picks opus as baseline and reports delta, pooled sd and the exact p", () => {
+    const sep = twoArmSeparation(fableOpus)!.separation["bug-detection"] as {
+      baseline: string;
+      candidate: string;
+      delta_mean_recall: number;
+      pooled_within_arm_sd: number;
+      exact_permutation_p_one_sided: number;
+    };
+    const f = [0.1, 0.3, 0.2, 0.2, 0.4, 0.4];
+    const o = [0.0, 0.1, 0.1, 0.1, 0.2, 0.3];
+    expect(sep.baseline).toBe("opus");
+    expect(sep.candidate).toBe("fable");
+    expect(sep.delta_mean_recall).toBe(round(mean(f) - mean(o), 4));
+    expect(sep.pooled_within_arm_sd).toBe(
+      round(Math.sqrt((pstdev(f) ** 2 + pstdev(o) ** 2) / 2), 4),
+    );
+    expect(sep.exact_permutation_p_one_sided).toBe(
+      round(exactPermutationP(o, f), 4),
+    );
+  });
+
+  it("emits per-PR runs, mean recall and variance per arm", () => {
+    const pr = twoArmSeparation(fableOpus)!.perPr;
+    expect(pr.fable!["bug-detection"]!["pr-812"]).toEqual({
+      runs: [0.1, 0.3],
+      mean_recall: 0.2,
+      variance: 0.01,
+    });
+    expect(pr.opus!["bug-detection"]!["pr-802"]).toMatchObject({
+      mean_recall: 0.25,
+    });
+  });
+
+  it("omits a lens where one arm has no runs, instead of emitting NaN", () => {
+    const sep = twoArmSeparation([
+      ...fableOpus,
+      armCell("fable", "812", 1, 0.5, "security"),
+    ])!.separation;
+    expect(Object.keys(sep)).toEqual(["bug-detection"]);
+  });
+
+  it("leaves the exact p null once the two arms total more than 20 runs", () => {
+    const cells = [];
+    for (let r = 1; r <= 11; r++) cells.push(armCell("fable", "812", r, 0.3));
+    for (let r = 1; r <= 10; r++) cells.push(armCell("opus", "812", r, 0.1));
+    const sep = twoArmSeparation(cells)!.separation["bug-detection"] as {
+      exact_permutation_p_one_sided: number | null;
+    };
+    expect(sep.exact_permutation_p_one_sided).toBeNull();
+  });
+
+  it("is null unless exactly two arms were judged", () => {
+    expect(twoArmSeparation([armCell("opus", "812", 1, 0.1)])).toBeNull();
+    expect(
+      twoArmSeparation([
+        armCell("a", "812", 1, 0.1),
+        armCell("b", "812", 1, 0.1),
+        armCell("c", "812", 1, 0.1),
+      ]),
+    ).toBeNull();
+  });
+});
+
+describe("resolvedModelId", () => {
+  it("returns the dominant non-haiku modelUsage key", () => {
+    expect(
+      resolvedModelId({
+        "claude-haiku-4-5-20251001": { costUSD: 9 },
+        "claude-fable-5-1": { costUSD: 2 },
+        "claude-opus-5-5": { costUSD: 1 },
+      }),
+    ).toBe("claude-fable-5-1");
+  });
+
+  it("falls back to token totals and tolerates missing usage", () => {
+    expect(
+      resolvedModelId({
+        "claude-haiku-4-5-20251001": { inputTokens: 999 },
+        "claude-opus-5-5": { inputTokens: 5, outputTokens: 5 },
+      }),
+    ).toBe("claude-opus-5-5");
+    expect(resolvedModelId({ "claude-haiku-4-5-20251001": {} })).toBeNull();
+    expect(resolvedModelId(undefined)).toBeNull();
+  });
+});
+
+describe("isCompletedCellOutput (resume predicate)", () => {
+  it("accepts a successful result and one with no subtype", () => {
+    expect(
+      isCompletedCellOutput('{"is_error":false,"subtype":"success"}'),
+    ).toBe(true);
+    expect(isCompletedCellOutput('{"result":"x"}')).toBe(true);
+  });
+
+  it("rejects error, budget-killed, malformed and non-object outputs", () => {
+    expect(isCompletedCellOutput('{"is_error":true}')).toBe(false);
+    expect(
+      isCompletedCellOutput(
+        '{"is_error":false,"subtype":"error_max_budget_usd"}',
+      ),
+    ).toBe(false);
+    expect(isCompletedCellOutput("{truncated")).toBe(false);
+    expect(isCompletedCellOutput("")).toBe(false);
+    expect(isCompletedCellOutput("null")).toBe(false);
+    expect(isCompletedCellOutput("[1]")).toBe(false);
   });
 });

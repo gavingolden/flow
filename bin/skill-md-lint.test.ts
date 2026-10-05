@@ -1894,9 +1894,10 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
   // Frontmatter policy for the full thirteen-definition set
   // (p4-review-agents + p4-pipeline-agents): mechanical roles pin a cheap
   // sonnet-default model and the subagent_type wiring (checked above and
-  // re-checked here), and NO row — mechanical or judgment — pins `effort:`,
-  // so session effort and the spawn site's per-spawn/config-threaded model
-  // always win. flow-discovery
+  // re-checked here), and NO row pins `effort:` except the product review
+  // lens (`wantEffort: "medium"`, mirrored by `effortPin` in
+  // `model-routing-table.ts`), so session effort and the spawn site's
+  // per-spawn/config-threaded model win everywhere else. flow-discovery
   // is the one row with `inheritsAllTools: true` — plan Decision
   // analysis 2 deliberately leaves it with no `tools:` allowlist
   // (discovery's research + design-artifact passes span Bash/WebFetch/
@@ -1911,6 +1912,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     wantMaxTurns?: number;
     wantCacheTtl?: "1h";
     wantSkills?: string;
+    wantEffort?: string;
   }> = [
     {
       file: "flow-fix-applier.md",
@@ -1937,6 +1939,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     {
       file: "flow-review-product.md",
       wantTools: "Read, Grep, Glob, Write",
+      wantEffort: "medium",
     },
     {
       file: "flow-product-critic.md",
@@ -2015,6 +2018,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
       wantMaxTurns,
       wantCacheTtl,
       wantSkills,
+      wantEffort,
     } of AGENT_FRONTMATTER_POLICY) {
       const agentPath = path.resolve(HERE, "..", "agents", "core", file);
       expect(
@@ -2059,17 +2063,25 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
             "model: override / config threading must win.",
         ).toBe(false);
       }
-      // No agents/*.md row ever pins effort: the Task tool has no per-spawn
-      // effort argument, so a frontmatter pin would be unoverridable even
-      // though every row's model is only a configurable default — every
-      // role, mechanical or judgment, scales with the session's effort.
-      expect(
-        /^effort:/m.test(frontmatter),
-        `agents/${file} frontmatter must NOT pin 'effort:' — the Task tool ` +
-          "has no per-spawn effort argument, so a pinned effort would be " +
-          "unoverridable while this row's model is only a configurable " +
-          "default; effort must follow the session's state.effort.",
-      ).toBe(false);
+      // Only the row naming `wantEffort` (the product review lens) pins
+      // effort: the Task tool has no per-spawn effort argument, so a
+      // frontmatter pin is unoverridable even though the row's model is only
+      // a configurable default — every other role scales with the session.
+      if (wantEffort) {
+        expect(
+          new RegExp(`^effort:\\s*${wantEffort}\\s*$`, "m").test(frontmatter),
+          `agents/${file} frontmatter must pin 'effort: ${wantEffort}' — the ` +
+            "one named exception to effort-follows-session.",
+        ).toBe(true);
+      } else {
+        expect(
+          /^effort:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT pin 'effort:' — the Task tool ` +
+            "has no per-spawn effort argument, so a pinned effort would be " +
+            "unoverridable while this row's model is only a configurable " +
+            "default; effort must follow the session's state.effort.",
+        ).toBe(false);
+      }
       if (wantMemory) {
         expect(
           new RegExp(`^memory:\\s*${wantMemory}\\s*$`, "m").test(frontmatter),

@@ -5,7 +5,7 @@
  *
  *   <D>/pr-<pr>/.flow-tmp/{pr-review-fetch.md, pr-commits.md, diff.txt,
  *     intent-comments.md, static-analysis.json, review-scope.json}
- *   <D>/ref-<pr>.json        top-level inline review comments (the judge's
+ *   <D>/ref-<pr>.json        top-level labelled review findings (the judge's
  *                            reference set), [{path, line, body}]
  *   <D>/ref-acted-<pr>.json  1-based indices into ref-<pr>.json of the
  *                            comments judged "acted"
@@ -51,6 +51,15 @@ function tryCmd(argv: string[], fallback: string): string {
 
 export function actedIndices(refs: Ref[], touched: Set<string>): number[] {
   return refs.flatMap((r, i) => (touched.has(r.path) ? [i + 1] : []));
+}
+
+// A reference finding is a Conventional Comments-labelled review comment.
+// `**why:**` is the author's intent annotation, and an unlabelled body is a
+// bot (Copilot) or human remark — neither is a review finding the lenses can
+// re-find; keeping them reproduces the committed study's 23/26/18 sets.
+export function isReviewFinding(body: string): boolean {
+  const label = /^\*\*([a-z]+)(?: \([^)]*\))?:\*\*/.exec(body)?.[1];
+  return label !== undefined && label !== "why";
 }
 
 export function isFixApplierSubject(subject: string, pr: string): boolean {
@@ -172,7 +181,8 @@ export function materialize(pr: string, dataDir: string): void {
   const refs: Ref[] = raw
     .split("\n")
     .filter((l) => l.trim())
-    .map((l) => JSON.parse(l));
+    .map((l) => JSON.parse(l) as Ref)
+    .filter((r) => isReviewFinding(r.body));
   writeFileSync(join(dataDir, `ref-${pr}.json`), JSON.stringify(refs, null, 1));
   const acted = actedIndices(refs, fixApplierFiles(pr));
   writeFileSync(join(dataDir, `ref-acted-${pr}.json`), JSON.stringify(acted));

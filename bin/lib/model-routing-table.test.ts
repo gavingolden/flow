@@ -8,8 +8,16 @@ import {
   type ConfigModels,
   type SpawnSite,
 } from "./model-routing-table";
-import { resolveFlowSource } from "./paths";
+import { fileURLToPath } from "node:url";
 import type { PipelineState } from "./state";
+
+// Module-relative, not resolveFlowSource(): that prefers ~/.flow/config.json's
+// `source`, which can point at a different checkout than the one under test.
+const FLOW_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+);
 
 // Minimal state fixture — resolveRouting only reads model/model<Phase>/effort.
 const st = (partial: Partial<PipelineState>): PipelineState =>
@@ -20,6 +28,9 @@ const st = (partial: Partial<PipelineState>): PipelineState =>
     updatedAt: "",
     ...partial,
   }) as PipelineState;
+
+const PINNED_PHASE = "review-lens:product";
+const PINNED_SOURCE = "pinned (agents/core/flow-review-product.md)";
 
 const row = (rows: ReturnType<typeof resolveRouting>, phase: string) => {
   const r = rows.find((x) => x.phase === phase);
@@ -67,10 +78,15 @@ describe("resolveRouting — fallback branches (empty config + state)", () => {
     }
   });
 
-  it("no row pins effort; every row inherits when state is absent and no effort is injected", () => {
+  it("only the product lens pins effort; every other row inherits when state is absent and no effort is injected", () => {
     for (const r of rows) {
+      if (r.phase === PINNED_PHASE) continue;
       expect(r.effort).toBe("inherited");
     }
+    expect(row(rows, PINNED_PHASE)).toMatchObject({
+      effort: "medium",
+      effortSource: PINNED_SOURCE,
+    });
   });
 
   it("every non-session row follows the session's injected effort; the session row carries it verbatim", () => {
@@ -84,24 +100,36 @@ describe("resolveRouting — fallback branches (empty config + state)", () => {
       effortSource: "config (launch.effort)",
     });
     for (const r of injected) {
-      if (r.phase === "session") continue;
+      if (r.phase === "session" || r.phase === PINNED_PHASE) continue;
       expect(r.effort).toBe("= session");
       expect(r.effortSource).toBe("follows session");
     }
+    expect(row(injected, PINNED_PHASE)).toMatchObject({
+      effort: "medium",
+      effortSource: PINNED_SOURCE,
+    });
   });
 });
 
-describe("no-pinned-effort invariant", () => {
-  it("no SPAWN_SITES row declares an effortPin — the Task tool has no per-spawn effort argument", () => {
-    for (const site of SPAWN_SITES) {
-      expect(
-        Object.prototype.hasOwnProperty.call(site, "effortPin"),
-        `SPAWN_SITES row '${site.phase}' declares 'effortPin' — a pinned ` +
-          "effort would be unoverridable even though the row's model is " +
-          "only a configurable default; effort must follow the session's " +
-          "state.effort like every other row.",
-      ).toBe(false);
-    }
+describe("pinned-effort invariant", () => {
+  it("only review-lens:product declares an effortPin, and it equals the agent definition's `effort:` line", () => {
+    const pinned = SPAWN_SITES.filter((site) =>
+      Object.prototype.hasOwnProperty.call(site, "effortPin"),
+    );
+    expect(
+      pinned.map((site) => site.phase),
+      "a pinned effort is unoverridable (the Task tool has no per-spawn " +
+        "effort argument); the product lens is the one named exception — " +
+        "every other row's effort must follow the session's state.effort.",
+    ).toEqual([PINNED_PHASE]);
+    const agent = fs.readFileSync(
+      path.join(FLOW_ROOT, "agents/core/flow-review-product.md"),
+      "utf8",
+    );
+    const frontmatter = agent.split(/^---$/m)[1] ?? "";
+    expect(frontmatter.match(/^effort:\s*(\S+)\s*$/m)?.[1]).toBe(
+      pinned[0]!.effortPin,
+    );
   });
 });
 
@@ -125,11 +153,12 @@ describe("resolveRouting — state per-phase overrides", () => {
     });
   });
 
-  it("with no injected effort, state.effort is rendered on every row, including the two cheap-model fan-outs", () => {
+  it("with no injected effort, state.effort is rendered on every unpinned row, including the two cheap-model fan-outs", () => {
     const rows = resolveRouting({ state: st({ effort: "high" }), config: {} });
     expect(row(rows, "review").effort).toBe("high");
     expect(row(rows, "fix-applier").effort).toBe("high");
     expect(row(rows, "ui-driver").effort).toBe("high");
+    expect(row(rows, PINNED_PHASE).effort).toBe("medium");
   });
 
   it("with no injected effort, `effortSource` names a source phrase, never the bare effort value", () => {
@@ -141,12 +170,14 @@ describe("resolveRouting — state per-phase overrides", () => {
       config: {},
     });
     for (const r of withState) {
+      if (r.phase === PINNED_PHASE) continue;
       expect(r.effort).toBe("high");
       expect(r.effortSource).toBe("this run (fixed at launch)");
     }
 
     const withoutState = resolveRouting({ state: null, config: {} });
     for (const r of withoutState) {
+      if (r.phase === PINNED_PHASE) continue;
       expect(r.effort).toBe("inherited");
       expect(r.effortSource).toBe("inherited");
     }
@@ -162,6 +193,51 @@ describe("resolveRouting — state per-phase overrides", () => {
     expect(row(rows, "fix-applier").effort).toBe("= session");
     expect(row(rows, "ui-driver").effort).toBe("= session");
     expect(row(rows, "session").effort).toBe("high");
+  });
+});
+
+describe("resolveRouting — product lens pin", () => {
+  it("is a literal opus on every session model, with a pinned source", () => {
+    for (const model of ["fable", "sonnet", "opus"] as const) {
+      const rows = resolveRouting({ state: st({ model }), config: {} });
+      expect(row(rows, PINNED_PHASE)).toMatchObject({
+        model: "opus",
+        source: "pinned (opus)",
+      });
+    }
+  });
+
+  it("an explicit reviewLenses.product / state.modelReview / models.review still win", () => {
+    const viaLens = resolveRouting({
+      state: st({ modelReview: "opus" }),
+      config: { reviewLenses: { product: "sonnet" } },
+    });
+    expect(row(viaLens, PINNED_PHASE)).toMatchObject({
+      model: "sonnet",
+      source: "config (models.reviewLenses.product)",
+    });
+    const viaState = resolveRouting({
+      state: st({ modelReview: "haiku" }),
+      config: { review: "sonnet" },
+    });
+    expect(row(viaState, PINNED_PHASE).model).toBe("haiku");
+    const viaConfig = resolveRouting({
+      state: null,
+      config: { review: "haiku" },
+    });
+    expect(row(viaConfig, PINNED_PHASE).model).toBe("haiku");
+  });
+
+  it("the pinned effort is reported whether or not session effort is injected", () => {
+    const injected = resolveRouting({
+      state: null,
+      config: {},
+      effort: { value: "max", source: "config (launch.effort)" },
+    });
+    expect(row(injected, PINNED_PHASE)).toMatchObject({
+      effort: "medium",
+      effortSource: PINNED_SOURCE,
+    });
   });
 });
 
@@ -329,9 +405,13 @@ function parsePrecedenceTable(md: string): ParsedRow[] {
       ? "builtin-sonnet"
       : /capped at opus/i.test(cells[2])
         ? "session-capped-opus"
-        : /inherited/.test(cells[2])
-          ? "inherited"
-          : "unknown";
+        : // Before /inherited/: the product cell's "NOT inherited" would
+          // otherwise misclassify it.
+          /"opus"/.test(cells[2])
+          ? "pinned-opus"
+          : /inherited/.test(cells[2])
+            ? "inherited"
+            : "unknown";
     rows.push({ spawnSite: cells[0], stateField, configKeys, fallback });
   }
   return rows;
@@ -366,15 +446,15 @@ function matchSite(r: ParsedRow): SpawnSite | undefined {
 describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
   const md = fs.readFileSync(
     path.join(
-      resolveFlowSource(),
+      FLOW_ROOT,
       "skills/pipeline/flow-pipeline/references/model-routing.md",
     ),
     "utf8",
   );
   const parsed = parsePrecedenceTable(md);
 
-  it("parses every precedence-table row (8 original + 7 review-lens rows + ui-driver)", () => {
-    expect(parsed.length).toBe(16);
+  it("parses every precedence-table row (8 original + 8 review-lens rows incl. product + ui-driver)", () => {
+    expect(parsed.length).toBe(17);
     for (const r of parsed) expect(r.fallback).not.toBe("unknown");
   });
 

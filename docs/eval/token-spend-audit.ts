@@ -366,6 +366,78 @@ function usageTable(title: string, o: Record<string, Usage>, churn = false) {
   table(heads, [...entries.map(([k, u]) => row(k, u)), row("**TOTAL**", sum)]);
 }
 
+type SpawnAcc = Map<
+  string,
+  { turns: number; first: number; last: number; usd: number }
+>;
+type SpawnRec = {
+  type: string;
+  model: string;
+  turns: number;
+  minutes: number;
+  usd: number;
+};
+
+function accSpawnTurn(acc: SpawnAcc, t: Turn) {
+  const ms = Date.parse(t.ts);
+  const a = acc.get(t.model) ?? {
+    turns: 0,
+    first: Infinity,
+    last: -Infinity,
+    usd: 0,
+  };
+  a.turns++;
+  a.usd += priceTurn(t.usage, t.model);
+  if (!Number.isNaN(ms)) {
+    a.first = Math.min(a.first, ms);
+    a.last = Math.max(a.last, ms);
+  }
+  acc.set(t.model, a);
+}
+
+function flushSpawns(acc: SpawnAcc, type: string): SpawnRec[] {
+  return [...acc.entries()].map(([model, a]) => ({
+    type,
+    model,
+    turns: a.turns,
+    minutes: a.last >= a.first ? (a.last - a.first) / 6e4 : 0,
+    usd: a.usd,
+  }));
+}
+
+const median = (xs: number[]) => {
+  if (!xs.length) return NaN;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+
+// One record per (sub-agent transcript, model), grouped by `<type> @ <model>`:
+// per-spawn cost is the per-finished-task view that per-turn multiples hide.
+export function spawnCostRows(spawns: SpawnRec[]) {
+  const by = new Map<string, SpawnRec[]>();
+  for (const s of spawns) {
+    const k = `${s.type} @ ${modelLabel(s.model)}`;
+    if (!by.has(k)) by.set(k, []);
+    by.get(k)!.push(s);
+  }
+  return [...by.entries()]
+    .map(([key, xs]) => {
+      const turns = xs.reduce((a, s) => a + s.turns, 0);
+      const usd = xs.reduce((a, s) => a + s.usd, 0);
+      return {
+        key,
+        spawns: xs.length,
+        medianTurns: median(xs.map((s) => s.turns)),
+        medianMinutes: median(xs.map((s) => s.minutes)),
+        meanUsd: usd / xs.length,
+        medianUsd: median(xs.map((s) => s.usd)),
+        usdPerTurn: turns ? usd / turns : NaN,
+      };
+    })
+    .sort((a, b) => b.meanUsd * b.spawns - a.meanUsd * a.spawns);
+}
+
 function run(argv: string[]) {
   const flag = (n: string) => {
     const i = argv.indexOf(n);
@@ -388,6 +460,7 @@ function run(argv: string[]) {
   const bySeg: Record<string, Usage> = {};
   const byAgentModel: Record<string, Usage> = {};
   const firstTurn: Record<string, number[]> = {};
+  const spawnRecs: SpawnRec[] = [];
   const sessions: { sid: string; repo: string; usage: Usage }[] = [];
   let worktreeSessions = 0;
   let minTs = Infinity,
@@ -495,6 +568,7 @@ function run(argv: string[]) {
             meta && (meta as any).description,
           );
           let first = true;
+          const spawnAcc: SpawnAcc = new Map();
           walkFile(
             sl,
             stats,
@@ -509,6 +583,7 @@ function run(argv: string[]) {
                 sess,
               ]);
               subUsd += priceTurn(t.usage, t.model);
+              accSpawnTurn(spawnAcc, t);
               if (isFirst) {
                 const c = classes(t.usage);
                 (firstTurn[type] ||= []).push(c.w5 + c.w1);
@@ -517,6 +592,7 @@ function run(argv: string[]) {
             [],
             inWindow,
           );
+          spawnRecs.push(...flushSpawns(spawnAcc, type));
         }
       }
       if (counted) {
@@ -586,6 +662,31 @@ function run(argv: string[]) {
   usageTable("By sub-agent type", byAgent, true);
   usageTable("By in-process segment", bySeg, true);
   usageTable("Sub-agent type @ model", byAgentModel);
+
+  console.log("## Sub-agent spawn cost by type @ model\n");
+  console.log(
+    "One record per (sub-agent transcript, model). Minutes run first to last in-window turn; $ is list price. Per-spawn cost, not per-turn, is the per-finished-task comparison.\n",
+  );
+  table(
+    [
+      "key",
+      "spawns",
+      "median turns",
+      "median min",
+      "mean $",
+      "median $",
+      "$/turn",
+    ],
+    spawnCostRows(spawnRecs).map((r) => [
+      r.key,
+      r.spawns,
+      fmtN(r.medianTurns),
+      fmtN(r.medianMinutes),
+      fmtUsd(r.meanUsd),
+      fmtUsd(r.medianUsd),
+      r.usdPerTurn.toFixed(4),
+    ]),
+  );
 
   const keyed = new Map<string, number>();
   const pipeRows: {
@@ -1110,6 +1211,47 @@ export function selfTest(): string[] {
     turns.map((t) => [t.usage.output_tokens, t.ts, t.seg]),
     [[333, "2026-09-10T00:00:00Z", "supervisor-base"]],
   );
+  const spawnFile = (id: string, ts: string[], model: string) => {
+    const acc: SpawnAcc = new Map();
+    walkFile(
+      ts.map((t, i) => asst(`${id}${i}`, model, split, [], t)),
+      newStats(),
+      (t) => accSpawnTurn(acc, t),
+    );
+    return flushSpawns(acc, "flow-review-product");
+  };
+  const sRows = spawnCostRows([
+    ...spawnFile(
+      "a",
+      ["2026-09-10T00:00:00Z", "2026-09-10T00:02:00Z"],
+      "claude-opus-5",
+    ),
+    ...spawnFile(
+      "b",
+      [
+        "2026-09-10T01:00:00Z",
+        "2026-09-10T01:02:00Z",
+        "2026-09-10T01:04:00Z",
+        "2026-09-10T01:06:00Z",
+      ],
+      "claude-opus-5",
+    ),
+  ]);
+  const unit = priceTurn(split, "claude-opus-5");
+  eq(
+    "spawn rows key",
+    sRows.map((r) => r.key),
+    ["flow-review-product @ claude-opus-5"],
+  );
+  eq(
+    "spawn medians",
+    [sRows[0].spawns, sRows[0].medianTurns, sRows[0].medianMinutes],
+    [2, 3, 4],
+  );
+  close("spawn mean usd", sRows[0].meanUsd, 3 * unit);
+  close("spawn median usd", sRows[0].medianUsd, 3 * unit);
+  close("spawn usd per turn", sRows[0].usdPerTurn, unit);
+
   eq("resolveRepo worktree", resolveRepo("/u/code/me/flow-foo", ["flow"]), {
     repo: "flow",
     worktree: true,

@@ -72,8 +72,8 @@ function extractModelsKey(raw: unknown, key: string): ModelAlias | undefined {
 }
 
 /**
- * The seven `models.reviewLenses.<lens>` keys `flow-pr-review` may route on:
- * the six review lenses plus the intent-guess spawn. Exported so the
+ * The eight `models.reviewLenses.<lens>` keys `flow-pr-review` may route on:
+ * the seven review lenses (incl. `product`) plus the intent-guess spawn. Exported so the
  * warning text and `model-routing-table.ts`'s per-lens `SPAWN_SITES` rows
  * read off the same list and cannot drift apart.
  */
@@ -84,6 +84,7 @@ export const REVIEW_LENS_NAMES = [
   "performance",
   "supply-chain",
   "test-coverage",
+  "product",
   "intent-guess",
 ] as const;
 export type ReviewLensName = (typeof REVIEW_LENS_NAMES)[number];

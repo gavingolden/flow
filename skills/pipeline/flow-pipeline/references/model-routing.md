@@ -47,6 +47,7 @@ so the sub-agent inherits the session model (the default Claude behaviour).
 | `/flow-pr-review` Performance Lens (review)             | `modelReview`        | `config.models.reviewLenses.performance // state.modelReview // config.models.review // session model capped at opus`         |
 | `/flow-pr-review` Supply-Chain Lens (review)            | `modelReview`        | `config.models.reviewLenses.supply-chain // state.modelReview // config.models.review // session model capped at opus`        |
 | `/flow-pr-review` Test-Coverage Lens (review)           | `modelReview`        | `config.models.reviewLenses.test-coverage // state.modelReview // config.models.review // session model capped at opus`       |
+| `/flow-pr-review` Product Lens (review)                 | `modelReview`        | `config.models.reviewLenses.product // state.modelReview // config.models.review // "opus"` **(pinned; NOT inherited)**       |
 | `/flow-pr-review` Intent-Guess Lens (review)            | `modelReview`        | `config.models.reviewLenses.intent-guess // state.modelReview // config.models.review // session model capped at opus`        |
 | `/flow-pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`    | `state.modelFixApplier // config.models.fixApplier // "sonnet"` **(NOT inherited)**                                           |
 | `/flow-verify` UI-driver (uiDriver)                     | —                    | `config.models.uiDriver // "sonnet"` **(NOT inherited; config-only, no CLI flag)**                                            |
@@ -54,7 +55,7 @@ so the sub-agent inherits the session model (the default Claude behaviour).
 | Step 10 Merge-Conflict Resolver (mergeResolver)         | `modelMergeResolver` | `state.modelMergeResolver // config.models.mergeResolver // inherited`                                                        |
 | `/flow-epic-create` designer (planning)                 | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                                                                  |
 
-## Four deliberate asymmetries
+## Five deliberate asymmetries
 
 - **fixApplier defaults to `sonnet`, not inherited.** The Fix-Applier loop
   applies already-diagnosed findings — mechanical apply-commit-push work.
@@ -64,7 +65,7 @@ so the sub-agent inherits the session model (the default Claude behaviour).
   `effort`, though — the Task tool has no per-spawn effort argument, so a
   frontmatter effort pin would be unoverridable even though `model` here is
   only a configurable default; effort follows the session's `state.effort`
-  like every other routed site. Documented at the `/flow-pr-review`
+  like every routed site except the product lens. Documented at the `/flow-pr-review`
   Fix-Applier spawn site.
 - **scout / coder are config-only fine-grain (no flags).** `--model-implement`
   is the one primary grain over implementation; `config.models.scout` /
@@ -74,9 +75,16 @@ so the sub-agent inherits the session model (the default Claude behaviour).
   at opus.** A lens inherits the session model unchanged when that model is
   priced at or below opus (`MODEL_PRICE_RANK` in `bin/lib/state.ts`); an
   alias priced above opus — today only `fable` — falls back to opus instead,
-  so an accidentally-expensive session can never fan out seven review spawns
+  so an accidentally-expensive session can never fan out eight review spawns
   at once. This is a rank-ordering rule keyed on `MODEL_PRICE_RANK`, not a
   named-model special case.
+- **The product lens falls back to a literal opus, on every session.** Unlike
+  the other lenses it is NOT session-capped: a Sonnet session is raised to opus
+  rather than passed through, and a Fable session gets opus too. Any explicit
+  `config.models.reviewLenses.product`, `--model-review`, or `config.models.review`
+  still wins. It is also the one routed site whose `agents/*.md` definition
+  pins `effort` (see "One spawn site pins effort" below). The Opus move was
+  not quality-benchmarked; see `docs/configuration.md` for the trade-off.
 - **uiDriver falls back to a literal sonnet AND is the only routed site with
   no CLI flag at all.** `config.models.uiDriver` is the sole knob — no
   `--model-ui-driver` flag, no `state.json` field. A manifest-driven browser
@@ -88,25 +96,32 @@ so the sub-agent inherits the session model (the default Claude behaviour).
   its `agents/flow-ui-driver.md` definition does NOT pin `effort` — same
   unoverridable-pin reasoning; effort follows the session's `state.effort`.
 
-## No spawn site pins effort
+## One spawn site pins effort
 
-No row in the precedence table above — including fixApplier and uiDriver,
-whose `model` defaults to a literal `sonnet` rather than inheriting — pins
-`effort` in its `agents/*.md` definition. The Task tool exposes no
-per-spawn effort argument, so a frontmatter effort pin would be
-unoverridable, even though the same row's `model` is only a configurable
-default the caller can already override. Effort therefore always follows
-the session's effort, resolved on the precedence chain this run's frozen
-state > `launch.effort` config > built-in — the model-default axis and the
-effort axis are independent. `bin/lib/model-routing-table.test.ts` pins
-this invariant directly: no `SPAWN_SITES` row declares an `effortPin`.
+Exactly one row in the precedence table above — the `/flow-pr-review`
+Product Lens — pins `effort` in its `agents/*.md` definition
+(`effort: medium` in `agents/core/flow-review-product.md`). Every other row,
+including fixApplier and uiDriver, whose `model` defaults to a literal
+`sonnet` rather than inheriting, does not. The Task tool exposes no
+per-spawn effort argument, so a frontmatter effort pin is unoverridable,
+even though the same row's `model` is only a configurable default the caller
+can already override: no `--effort` value or config setting moves the product
+lens's effort, and a `general-purpose` fallback spawn (definition not
+installed) loses the pin. That is the accepted trade-off for this one lens.
+Every other row's effort follows the session's effort, resolved on the
+precedence chain this run's frozen state > `launch.effort` config >
+built-in — the model-default axis and the effort axis are independent.
+`bin/lib/model-routing-table.test.ts` pins this directly: only the
+`review-lens:product` `SPAWN_SITES` row declares an `effortPin`, and it equals
+the agent definition's `effort:` line.
 
 `flow config models` renders this directly: a line above the table shows
 the resolved session effort and its source, and every sub-agent row's
-EFFORT cell reads `= session` rather than repeating the value — the model
-column can differ spawn-to-spawn (a config edit changes the NEXT spawn),
-but effort is frozen for the whole run at launch, so every row's effort is
-by definition identical to the session's.
+EFFORT cell reads `= session` rather than repeating the value (the product
+lens row alone reads `medium`, sourced `pinned`) — the model column can
+differ spawn-to-spawn (a config edit changes the NEXT spawn), but effort is
+frozen for the whole run at launch, so every unpinned row's effort is by
+definition identical to the session's.
 
 ## In-process skills pin effort, not model
 
@@ -116,10 +131,11 @@ runs on the supervisor's own turn, never in a spawned subagent, so there
 is no Task call for a `model:` argument to attach to.
 
 A `SKILL.md` may still carry `effort:` in its frontmatter to bound that
-turn's reasoning depth — a lever no `agents/*.md` Task-spawn definition may
-use (see "No spawn site pins effort" below), because an in-process skill
-runs on the supervisor's own turn rather than through the Task tool, so
-there is no per-spawn argument for the pin to conflict with. It should
+turn's reasoning depth — a lever that, among Task-spawn definitions, only the
+product lens's `agents/*.md` may use (see "One spawn site pins effort"
+above), because an in-process skill runs on the supervisor's own turn rather
+than through the Task tool, so there is no per-spawn argument for the pin to
+conflict with. It should
 **NOT** carry `model:`. Prompt caches are model-scoped, so a mid-turn
 model switch discards the supervisor's warm cache and forces a full
 re-read of the transcript at full input rate — the opposite of the
