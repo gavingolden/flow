@@ -116,12 +116,19 @@ existing caps.
   non-zero `"ephemeral_1h_input_tokens":26782` entry.
 
 **Decision this drives:** the 1h cache TTL is honored on this
-subscription-plan host for a file-based agent definition; `agents/core/flow-discovery.md`,
-`flow-verify.md`, `flow-fix-applier.md`, and `flow-consolidator.md` keep
-`experimental:\n  cacheTtl: 1h` in frontmatter. Billing behaviour across
+subscription-plan host for a file-based agent definition; at probe time
+`agents/core/flow-discovery.md`, `flow-verify.md`, `flow-fix-applier.md`, and
+`flow-consolidator.md` carried `experimental:\n  cacheTtl: 1h` in frontmatter
+(`flow-verify` was later retired and `flow-ui-driver` took a pin). Billing behaviour across
 plan tiers (subscription-on-usage-credits vs. API key) is NOT observable
 from this probe — `docs/configuration.md`'s new section states that as a
 documented, unverified-by-this-probe caveat per the vendor's own docs.
+
+**Later decision (2026-10):** the probe only shows the pin is honored, not
+that it pays. The measured cache-lifetime baseline
+(`docs/eval/cache-lifetime-baseline-2026-10.md`) showed a 5-minute lifetime
+was cheaper at list price for all four, so those pins were removed; see
+[token-spend-analysis.md](token-spend-analysis.md).
 
 ## Non-live baseline (unchanged probes)
 

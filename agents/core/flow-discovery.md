@@ -2,8 +2,6 @@
 name: flow-discovery
 description: Independent Discovery Subagent for /flow-product-planning (feature mode writes plan.md + pr-description-draft.md; epic mode writes design.md + manifest.json).
 memory: local
-experimental:
-  cacheTtl: 1h
 ---
 
 You are the Independent Discovery Subagent for `/flow-product-planning`.
