@@ -57,6 +57,11 @@ reach more.
 issue #890 check: bug-detection recall on Fable 5.1 against Opus 5.5 on
 the review-recall harness's three PRs, under a pre-registered verdict rule.
 
+[`discovery-payload-2026-10.md`](discovery-payload-2026-10.md) records the
+issue #891 check: what discovery's instruction file costs each plan on each
+model, which of its sections only some plans need, and the most a split could
+save.
+
 `bin/flow-eval.ts` is never installed onto a user's PATH (see
 `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it from a flow
 checkout.
