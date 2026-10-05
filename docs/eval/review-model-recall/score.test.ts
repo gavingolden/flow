@@ -202,6 +202,24 @@ describe("twoArmSeparation", () => {
     });
   });
 
+  it("omits a lens where one arm has no runs, instead of emitting NaN", () => {
+    const sep = twoArmSeparation([
+      ...fableOpus,
+      armCell("fable", "812", 1, 0.5, "security"),
+    ])!.separation;
+    expect(Object.keys(sep)).toEqual(["bug-detection"]);
+  });
+
+  it("leaves the exact p null once the two arms total more than 20 runs", () => {
+    const cells = [];
+    for (let r = 1; r <= 11; r++) cells.push(armCell("fable", "812", r, 0.3));
+    for (let r = 1; r <= 10; r++) cells.push(armCell("opus", "812", r, 0.1));
+    const sep = twoArmSeparation(cells)!.separation["bug-detection"] as {
+      exact_permutation_p_one_sided: number | null;
+    };
+    expect(sep.exact_permutation_p_one_sided).toBeNull();
+  });
+
   it("is null unless exactly two arms were judged", () => {
     expect(twoArmSeparation([armCell("opus", "812", 1, 0.1)])).toBeNull();
     expect(
