@@ -81,7 +81,11 @@ writes the tool block, the other 7 would read it). The supervisor's request at
 the spawn re-read 357,815 and 397,743 cached tokens on the two 2026-10-05
 reviews checked (about $0.08 at $0.20/M), leaving about $0.05 net. Over the 35
 concurrent reviews the gross was $4.70 (summed over each review's actual spawn
-count and model, so it is not exactly 35 × $0.136). Break-even formula:
+count and model, so it is not exactly 35 × $0.136). The monthly figures in
+the analysis are derived from the per-review rates: 97 reviews in the 30-day
+window × $0.136 ≈ $13 a month gross, and 97 × ~$0.05 ≈ $5 a month net. Both are
+list-price, Opus 5.5 rates; most spawns in the window ran on Opus 5, which is
+priced differently, so read them as an order of magnitude. Break-even formula:
 staggering saves money only if
 `N_lenses × T_block × (P_write − P_read) > S_supervisor_tokens × P_read`.
 

@@ -1021,8 +1021,8 @@ function run(argv: string[]) {
     [
       "sub-agent type",
       "transcripts",
-      "median tokens",
-      "mean tokens",
+      "median write tokens",
+      "mean write tokens",
       "median read tokens",
       "zero-read first turns",
     ],
