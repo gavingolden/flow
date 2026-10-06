@@ -602,6 +602,10 @@ resolved, prints nothing); the eight are the seven review lenses plus
 general-purpose fallback. Spawn from that printed value, never from a
 loop/function variable's final value.
 
+**Delegated lenses.** When `flow-agy-lenses` is on PATH, the Task fan-out below
+covers only the lenses it routes to `task` plus its `fallback` lenses — see
+[references/delegated-lenses.md](references/delegated-lenses.md).
+
 **Spawn the ungated lenses plus intent-guess in one parallel message** — see
 [references/review-scope.md](references/review-scope.md) "Spawn only the
 ungated lenses" for the gate filter and delta-re-entry intent-guess skip. Each spawned agent gets `subagent_type:` set to that

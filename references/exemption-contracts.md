@@ -31,7 +31,10 @@ diff-only intent-guess agent (skipped on a delta re-entry with a prior
 message, via the Task tool; the fan-out is re-fanned at most once per
 invocation when the Consolidator-Validator's `scope_verdict.widen`
 requests a widen to the full PR diff, inside this same exemption (no new
-Task-tool exemption; the count stays eight). Each spawned lens names
+Task-tool exemption; the count stays eight). When delegation is on
+(`flow-agy-lenses`, a Bash fan-out), Task is the per-lens fallback: the
+fan-out spawns only the lenses the helper routes to `task` plus the
+lenses it reports as `fallback`. Each spawned lens names
 `subagent_type: $LENS_AGENT` (resolved per-lens against the
 `agents/flow-review-<lens>.md` definitions with a Read/Grep/Glob/Write
 `tools:` allowlist and no `model:` pin — nor an `effort:` pin, bar the product
