@@ -158,7 +158,8 @@ caller per the failure handling below.
   new behavior.
 - **Type errors from `npm run check`:** Resolve all errors before proceeding. Common causes
   include changed return types and narrowing changes after guard clause introduction.
-- **Lint errors:** Run `npm run format` first, then address remaining issues.
+- **Lint errors:** `flow-pre-commit` never formats, so formatting is your fix step.
+  Run `npm run format` yourself, then address remaining issues.
 
 # Anti-Patterns
 

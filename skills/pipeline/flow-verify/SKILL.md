@@ -174,8 +174,9 @@ relevant source file directly. Fix the issue in the source file.
 
 - **Type errors** (`npm run check`): Resolve type mismatches, missing
   imports, or incorrect generics.
-- **Lint errors** (`npm run lint`): Run `npm run format` first, then
-  fix remaining issues manually.
+- **Lint errors** (`npm run lint`): `flow-pre-commit` only reports the
+  failure; formatting is your fix step, not the helper's.
+  Run `npm run format` yourself, then fix any remaining issues by hand.
 - **Test failures** (`npm run test`): Read the failing test, understand
   the assertion, fix the code (not the test) unless the test itself is
   wrong.

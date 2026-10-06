@@ -10,7 +10,8 @@ import { STACK_TABLE } from "./lib/stack-table";
  * not format, no skill claims `flow-pre-commit` formats (it never does:
  * `format` is on the stack table's denylist), and the applier's verify stays
  * the whole-diff `flow-pre-commit --json`. The last one guards against the
- * narrowed-verify idea (#892) coming back.
+ * narrowed-verify idea (#892) coming back. The agent-side lint-fix wording
+ * is pinned too: it must say the agent runs the formatter itself.
  */
 
 const REPO_ROOT = path.resolve(
@@ -23,6 +24,7 @@ const read = (rel: string) =>
 const CODER = "skills/pipeline/flow-coder-instructions/SKILL.md";
 const FIX = "skills/pipeline/flow-fix-applier-instructions/SKILL.md";
 const VERIFY = "skills/pipeline/flow-verify/SKILL.md";
+const REFACTOR = "skills/universal/flow-refactoring/SKILL.md";
 
 function skillFiles(dir: string): string[] {
   return fs
@@ -59,6 +61,13 @@ describe("applier verify contract", () => {
       /full check suite \([^)]*\bformats?\b/,
     );
     expect(STACK_TABLE["package.json"].denylist).toContain("format");
+  });
+
+  it("should tell the agent to run the formatter itself on a lint failure", () => {
+    for (const rel of [VERIFY, REFACTOR])
+      expect(read(rel).replace(/\s*\n\s*/g, " "), rel).toContain(
+        "Run `npm run format` yourself",
+      );
   });
 
   it("should keep the applier verify a whole-diff run that is never skipped", () => {
