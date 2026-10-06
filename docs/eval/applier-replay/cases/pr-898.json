@@ -1,4 +1,6 @@
 {
+  "repo": "flow",
+  "treeDrift": [],
   "pr": 898,
   "slug": "fable-subagent-inheritance",
   "spawnAt": "2026-10-05T02:17:30.432Z",
@@ -13,6 +15,10 @@
     "fullVerifies": 1,
     "prettierRounds": 1,
     "parkedVerifies": 0,
-    "finalVerify": false
+    "finalVerify": false,
+    "toolCalls": 62,
+    "bashCalls": 59,
+    "shellOps": 194,
+    "pollCalls": 0
   }
 }

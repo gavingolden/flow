@@ -1,4 +1,6 @@
 {
+  "repo": "flow",
+  "treeDrift": [],
   "pr": 895,
   "slug": "cache-ttl-measurement",
   "spawnAt": "2026-10-05T00:00:31.286Z",
@@ -8,9 +10,13 @@
   "recorded": {
     "model": "claude-sonnet-5-5",
     "turns": 46,
-    "fullVerifies": 3,
+    "fullVerifies": 2,
     "prettierRounds": 0,
     "parkedVerifies": 1,
-    "finalVerify": null
+    "finalVerify": null,
+    "toolCalls": 47,
+    "bashCalls": 45,
+    "shellOps": 164,
+    "pollCalls": 2
   }
 }
