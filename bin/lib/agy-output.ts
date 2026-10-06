@@ -9,6 +9,14 @@ export function looksUnauthenticated(text: string): boolean {
   );
 }
 
+// agy rejects a retired/unknown `--model` before any model call, e.g.
+// "invalid model selection: model X is not recognized as a known model".
+export function looksModelUnavailable(text: string): boolean {
+  return /is not recognized as a known model|invalid model selection|unknown model/i.test(
+    text,
+  );
+}
+
 // A `--print-timeout` kill is distinguishable from a genuine model error.
 // Three verified agy 1.1.25 timeout signatures, none of which overlap
 // `looksUnauthenticated`'s patterns (flow-delegate checks timeouts first so a

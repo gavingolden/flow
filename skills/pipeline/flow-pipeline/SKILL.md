@@ -995,9 +995,8 @@ summary (never folded into "agy unavailable" prose), naming
 `partialArtifactPath`/`stderrTail` when present. The other two terminal
 skips are `review-timed-out` (`--check`'s give-up cap fired) and
 `reviewer-worker-died` (detached worker vanished, no result); both differ
-from `reviewer-timeout`, where the envelope survived one killed agy call.
-`ran:true` weighs each
-material AGY point as INPUT (never a verdict), revises plan.md **once**
+from `reviewer-timeout`, where the envelope survived one killed agy call. An `agy-model-unavailable` reviewer skip renders in the chat summary as "reviewer N's model is no longer offered by agy — run `flow doctor`" and rides the awaiting-approval `--why` as a demoted reviewer.
+`ran:true` weighs each material AGY point as INPUT (never a verdict), revises plan.md **once**
 where warranted, and appends a `### Cross-model review (AGY)` subsection
 recording each point **accepted** or **overridden** — also record the
 run's `depth` and, per reviewer, `model`/`ran`/`skipReason`/`lensesEngaged`

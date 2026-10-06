@@ -1,9 +1,15 @@
 /**
  * `flow doctor` agy check. The subprocess goes through `deps.run`, and agy's
- * output is never echoed — only exit status or a model count.
+ * output is never echoed — only exit status, a model count, or the names of
+ * configured models agy no longer lists.
  */
 
 import type { DoctorCheck, DoctorDeps } from "./doctor";
+import {
+  configuredAgyModels,
+  missingAgyModels,
+  parseAgyModelNames,
+} from "./agy-model-check";
 import { looksUnauthenticated } from "./agy-output";
 import { readManifest } from "./manifest";
 import { isModuleActive } from "./module-status";
@@ -68,6 +74,21 @@ export function checkAgy(
     ];
   }
   if (r.status === 0 && countModelRows(r.stdout) >= 1) {
+    const missing = missingAgyModels(
+      configuredAgyModels(readConfigFileAt(deps.configPath)),
+      parseAgyModelNames(r.stdout),
+    );
+    if (missing.length > 0) {
+      return [
+        {
+          ...base,
+          status: "warn",
+          summary: `agy no longer offers ${missing.length} configured model(s); those checks will be skipped`,
+          details: missing.map((m) => `"${m.model}" (used by ${m.surface})`),
+          fix: "set delegate.models.<surface> (or research.model/refuteModel) in ~/.flow/config.json to a model 'agy models' lists, or upgrade flow",
+        },
+      ];
+    }
     return [
       {
         ...base,

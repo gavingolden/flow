@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
 
 /**
  * Behavioral companion to `flow-research-budget-lint.test.ts`.
@@ -124,7 +125,7 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
     expect(r.vars.MAX).toBe("12");
     expect(r.vars.TIMEOUT).toBe("3m");
     expect(r.vars.MODEL).toBe("Gemini 3.1 Pro (High)");
-    expect(r.vars.REFUTE).toBe("Claude Opus 4.6 (Thinking)");
+    expect(r.vars.REFUTE).toBe(DELEGATE_MODEL_DEFAULTS.researchRefute);
   });
 
   it("a present-but-wrong-type maxCalls warns and falls back to the default (never the bad value)", () => {
@@ -148,14 +149,14 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
         maxCalls: 25,
         timeout: "5m",
         model: "GPT-OSS 120B (Medium)",
-        refuteModel: "Claude Opus 4.6 (Thinking)",
+        refuteModel: "Claude Opus 5.5 (High)",
       },
     });
     expect(r.status).toBe(0);
     expect(r.vars.MAX).toBe("25");
     expect(r.vars.TIMEOUT).toBe("5m");
     expect(r.vars.MODEL).toBe("GPT-OSS 120B (Medium)");
-    expect(r.vars.REFUTE).toBe("Claude Opus 4.6 (Thinking)");
+    expect(r.vars.REFUTE).toBe("Claude Opus 5.5 (High)");
   });
 
   it("a malformed config file degrades to defaults without throwing", () => {
@@ -170,12 +171,12 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
   it("a refuteModel colliding with the gather model falls back to a different variant (diversity guard)", () => {
     const r = runBudget({
       research: {
-        model: "Claude Opus 4.6 (Thinking)",
-        refuteModel: "Claude Opus 4.6 (Thinking)",
+        model: "Claude Opus 5.5 (High)",
+        refuteModel: "Claude Opus 5.5 (High)",
       },
     });
     expect(r.status).toBe(0);
-    expect(r.vars.MODEL).toBe("Claude Opus 4.6 (Thinking)");
+    expect(r.vars.MODEL).toBe("Claude Opus 5.5 (High)");
     expect(r.vars.REFUTE).not.toBe(r.vars.MODEL);
     expect(r.vars.REFUTE).toBe("GPT-OSS 120B (Medium)");
     expect(r.stderr).toContain("preserve adversarial diversity");
@@ -188,6 +189,6 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
     expect(r.status).toBe(0);
     expect(r.vars.MODEL).toBe("Gemini 3.1 Pro (High)");
     expect(r.vars.REFUTE).not.toBe(r.vars.MODEL);
-    expect(r.vars.REFUTE).toBe("Claude Opus 4.6 (Thinking)");
+    expect(r.vars.REFUTE).toBe(DELEGATE_MODEL_DEFAULTS.researchRefute);
   });
 });

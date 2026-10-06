@@ -10,9 +10,10 @@ import {
   type Deps,
   type FanoutAggregate,
 } from "./flow-blind-survey";
+import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
 
 const MODEL_A = "Gemini 3.1 Pro (High)";
-const MODEL_B = "Claude Opus 4.6 (Thinking)";
+const MODEL_B = DELEGATE_MODEL_DEFAULTS.blindSurveySecond!;
 
 const JUDGE_PROSE =
   '### 1. Goal as understood\n\nShip a way to validate the user\'s method.\n\n### 2. Recommended method\n\n"Add a supervisor-side blind survey before discovery drafts a plan." It runs two model-pinned judges over a goal-only brief.\n\n### 3. Alternatives considered and why not\n\nA Task-tool judge sub-agent — rejected, off-limits by policy.\n\n### 4. Risks and what would change your mind\n\nCosts one extra fan-out call per feature pipeline.';

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { classifyAgyFailure, AGY_FAILURE_CLASSES } from "./agy-failure-class";
 
 describe("AGY_FAILURE_CLASSES", () => {
-  it("is exactly the eight named classes, in order", () => {
+  it("is exactly the nine named classes, in order", () => {
     expect(AGY_FAILURE_CLASSES).toEqual([
       "quota-exhausted",
       "rate-limited",
@@ -12,6 +12,7 @@ describe("AGY_FAILURE_CLASSES", () => {
       "empty-artifact",
       "spawn-failed",
       "unknown",
+      "model-unavailable",
     ]);
   });
 });
@@ -61,6 +62,12 @@ describe("classifyAgyFailure", () => {
   it("maps agy-not-authenticated to auth", () => {
     expect(classifyAgyFailure({ skipReason: "agy-not-authenticated" })).toBe(
       "auth",
+    );
+  });
+
+  it("maps agy-model-unavailable to model-unavailable", () => {
+    expect(classifyAgyFailure({ skipReason: "agy-model-unavailable" })).toBe(
+      "model-unavailable",
     );
   });
 

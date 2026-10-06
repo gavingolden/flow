@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
 
 /**
  * Structural lint for the F2 research pre-check budget wiring in
@@ -68,8 +69,8 @@ describe("F2 research budget config lint", () => {
 
   it("preserves the byte-exact agy model-variant pins", () => {
     const pins = [
-      "Gemini 3.1 Pro (High)",
-      "Claude Opus 4.6 (Thinking)",
+      DELEGATE_MODEL_DEFAULTS.researchGather!,
+      DELEGATE_MODEL_DEFAULTS.researchRefute!,
       "GPT-OSS 120B (Medium)",
     ];
     const missing = pins.filter((p) => !content.includes(p));
@@ -92,16 +93,18 @@ describe("F2 research budget config lint", () => {
       `${FILE_LABEL} must default research.timeout to "3m" in the tolerant read.`,
     ).toBe(true);
     expect(
-      content.includes('read_budget model string "Gemini 3.1 Pro (High)"'),
+      content.includes(
+        `read_budget model string "${DELEGATE_MODEL_DEFAULTS.researchGather}"`,
+      ),
       `${FILE_LABEL} must default research.model (gather) to ` +
-        `"Gemini 3.1 Pro (High)".`,
+        `"${DELEGATE_MODEL_DEFAULTS.researchGather}".`,
     ).toBe(true);
     expect(
       content.includes(
-        'read_budget refuteModel string "Claude Opus 4.6 (Thinking)"',
+        `read_budget refuteModel string "${DELEGATE_MODEL_DEFAULTS.researchRefute}"`,
       ),
       `${FILE_LABEL} must default research.refuteModel to ` +
-        `"Claude Opus 4.6 (Thinking)".`,
+        `"${DELEGATE_MODEL_DEFAULTS.researchRefute}".`,
     ).toBe(true);
   });
 
@@ -139,8 +142,8 @@ describe("F2 research budget config lint", () => {
     // diversity guard swaps to on an Opus collision — their co-presence in the
     // helper catches a rename of either copy that the doc-only freeze would miss.
     const pins = [
-      "Gemini 3.1 Pro (High)",
-      "Claude Opus 4.6 (Thinking)",
+      DELEGATE_MODEL_DEFAULTS.researchGather!,
+      DELEGATE_MODEL_DEFAULTS.researchRefute!,
       "GPT-OSS 120B (Medium)",
     ];
     const missing = pins.filter((p) => !researchRunContent.includes(p));

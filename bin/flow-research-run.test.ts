@@ -10,6 +10,7 @@ import {
   resolveModels,
   run,
 } from "./flow-research-run";
+import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
 
 const ran = (text: string): EntryOutcome => ({ text, ran: true });
 const skipped = (
@@ -70,7 +71,7 @@ describe("buildManifest", () => {
   it("produces exactly 2 entries (gather + refute) carrying model and resolved timeout", () => {
     const m = buildManifest("add CSV export", {
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
+      refuteModel: "Claude Opus 5.5 (High)",
       timeout: "3m",
     });
     expect(m).toHaveLength(2);
@@ -81,13 +82,13 @@ describe("buildManifest", () => {
       expect(entry.prompt).toContain("add CSV export");
     }
     expect(m[0]!.model).toBe("Gemini 3.1 Pro (High)");
-    expect(m[1]!.model).toBe("Claude Opus 4.6 (Thinking)");
+    expect(m[1]!.model).toBe("Claude Opus 5.5 (High)");
   });
 
   it("opts both entries into skipPermissions:true and outputFormat:json, with no addDirs", () => {
     const m = buildManifest("add CSV export", {
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
+      refuteModel: "Claude Opus 5.5 (High)",
       timeout: "3m",
     });
     for (const entry of m) {
@@ -100,7 +101,7 @@ describe("buildManifest", () => {
   it("frames the gather prompt around web search + cited URLs + confidence", () => {
     const [gather] = buildManifest("X", {
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
+      refuteModel: "Claude Opus 5.5 (High)",
       timeout: "3m",
     });
     expect(gather!.prompt).toMatch(/web search/i);
@@ -111,7 +112,7 @@ describe("buildManifest", () => {
   it("frames the refute prompt adversarially (refute / critically assess)", () => {
     const [, refute] = buildManifest("X", {
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
+      refuteModel: "Claude Opus 5.5 (High)",
       timeout: "3m",
     });
     expect(refute!.prompt).toMatch(/refute/i);
@@ -121,21 +122,15 @@ describe("buildManifest", () => {
 
 describe("resolveModels (cross-model diversity guard)", () => {
   it("applies the frozen defaults when config is empty/garbage", () => {
-    // 2026-08-05 (PR #543): researchRefute's DELEGATE_MODEL_DEFAULTS entry
-    // stayed "Claude Opus 4.6 (Thinking)" — the bench run did NOT flip this
-    // default (see delegate-models.ts's inline comment for why) — so the
-    // default path still collides with researchGather's "Gemini 3.1 Pro
-    // (High)" default only when gather itself resolves to Opus; on an
-    // empty/garbage config gather resolves to Gemini 3.1 Pro, so no
-    // collision and the guard never fires here.
-    expect(resolveModels({})).toEqual({
-      gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
-    });
-    expect(resolveModels(null)).toEqual({
-      gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
-    });
+    // The default refute model collides with the default gather model only
+    // when gather itself resolves to the refute default; on an empty/garbage
+    // config the two defaults differ, so the guard never fires here.
+    const defaults = {
+      gatherModel: DELEGATE_MODEL_DEFAULTS.researchGather,
+      refuteModel: DELEGATE_MODEL_DEFAULTS.researchRefute,
+    };
+    expect(resolveModels({})).toEqual(defaults);
+    expect(resolveModels(null)).toEqual(defaults);
   });
 
   it("honours explicit overrides when they differ", () => {
@@ -143,29 +138,25 @@ describe("resolveModels (cross-model diversity guard)", () => {
       resolveModels({
         research: {
           model: "GPT-OSS 120B (Medium)",
-          refuteModel: "Claude Opus 4.6 (Thinking)",
+          refuteModel: "Claude Opus 5.5 (High)",
         },
       }),
     ).toEqual({
       gatherModel: "GPT-OSS 120B (Medium)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
+      refuteModel: "Claude Opus 5.5 (High)",
     });
   });
 
   it("falls back to FALLBACK_REFUTE_MODEL when both resolve to Opus", () => {
-    // PR #543 (2026-08-05) did NOT flip researchRefute's default — it
-    // remains "Claude Opus 4.6 (Thinking)", identical to defaultRefuteModel
-    // — so a gather===Opus collision still takes the FALLBACK_REFUTE_MODEL
-    // branch, unchanged from pre-PR behaviour. Only the resolution path
-    // changed: defaultRefuteModel now flows through resolveDelegateModel
-    // rather than a module-level constant.
+    // A gather===refute collision on the current refute default takes the
+    // FALLBACK_REFUTE_MODEL branch.
     const r = resolveModels({
       research: {
-        model: "Claude Opus 4.6 (Thinking)",
-        refuteModel: "Claude Opus 4.6 (Thinking)",
+        model: "Claude Opus 5.5 (High)",
+        refuteModel: "Claude Opus 5.5 (High)",
       },
     });
-    expect(r.gatherModel).toBe("Claude Opus 4.6 (Thinking)");
+    expect(r.gatherModel).toBe("Claude Opus 5.5 (High)");
     expect(r.refuteModel).toBe("GPT-OSS 120B (Medium)");
     expect(r.refuteModel).not.toBe(r.gatherModel);
   });
@@ -177,7 +168,7 @@ describe("resolveModels (cross-model diversity guard)", () => {
         refuteModel: "GPT-OSS 120B (Medium)",
       },
     });
-    expect(r.refuteModel).toBe("Claude Opus 4.6 (Thinking)");
+    expect(r.refuteModel).toBe(DELEGATE_MODEL_DEFAULTS.researchRefute);
     expect(r.refuteModel).not.toBe(r.gatherModel);
   });
 });
@@ -252,6 +243,21 @@ describe("boundFindings", () => {
     );
     expect(out).not.toContain("No web-grounded findings were returned");
     expect(out).not.toContain("Adversarial cross-check produced no caveats");
+  });
+
+  it("reads a retired agy model in plain language, not as a raw token", () => {
+    const gatherOut = boundFindings(
+      skipped("agy-model-unavailable"),
+      ran("caveat"),
+    );
+    expect(gatherOut).toContain("no longer offered by agy");
+    expect(gatherOut).not.toContain("agy-model-unavailable");
+    const refuteOut = boundFindings(
+      ran("claim"),
+      skipped("agy-model-unavailable"),
+    );
+    expect(refuteOut).toContain("no longer offered by agy");
+    expect(refuteOut).not.toContain("agy-model-unavailable");
   });
 
   it("emits a plain-language skip line for a ran:false refute", () => {
