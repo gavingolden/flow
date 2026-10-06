@@ -230,12 +230,13 @@ unmeasured levers each name the recall check that would have to run first.
 | Sub-agents inheriting the Fable session model | not pursued | $666.39 across 3,379 sub-agent turns | fable-5-1 365.7M, fable-5 25.8M | 3,379 | Planning: not measured — planning tracks the session model by the user's deliberate choice; per finished run Fable discovery costs $5.34 against $3.85 on Opus 5.5 (+$1.49) and $5.57 on Opus 5. Bug-detection: cap lifted (own row above). The product review lens is now pinned to Opus at medium effort ($0.55 a review against Fable's $1.10) | Fable bug-detection median 95 s against 46 s on Opus 5.5; discovery median 10.0 min against 12.3 | Fable vs Opus 5.5 bug-detection recall on 3 PRs, 2 runs each: run? yes; Fable materially better, cap since lifted (own row above) ([results](eval/fable-vs-opus-subagents.md)) | #890 |
 
 Reading the table: the top two rows are the unmeasured levers and both are
-still hypotheses. Four levers have a recorded check that clears the bar. Three
+still hypotheses. Five levers have a recorded check that clears the bar. Four
 have shipped: the gatekeeper removal, the smallest row, because what remains in
 the window is pre-removal residue; the lifted bug-detection cap, which adds
 spend on purpose (+$1.79 a review on Fable sessions) to buy the findings Opus
-misses; and the Test Steps fold, which saves at most the $31 cluster it acts on
-(its sibling collection fold failed its turn rule and was reverted). The
+misses; the Test Steps fold, which saves at most the $31 cluster it acts on
+(its sibling collection fold failed its turn rule and was reverted); and the
+slimmer discovery instructions, whose read per plan fell 29.4%. The
 sub-agent pin drop is worth it at list price only: the saving is
 about $121 over the window, and the vendor publishes no weighting of 1-hour
 writes against subscription plan usage, so its effect on plan usage is unknown.
@@ -277,7 +278,9 @@ Each closed below with its measured number.
    refreshed the prefix sooner, so the $3,167 is an upper bound, though it
    would need to be overstated about fivefold to flip the verdict.
 6. **Split discovery's instructions into a lean core plus on-demand references
-   (#891).** The file is 55,653 tokens and about a quarter of an Opus plan's
+   (#891).** Superseded: the plan-quality eval this item waited for has since
+   run, and the slimmed instructions shipped as `worth it` (the "Discovery
+   instruction payload" row above). The original estimate follows. The file is 55,653 tokens and about a quarter of an Opus plan's
    cost ($0.86 of a $3.78 Opus 5.5 run, derived), but 75% of it applies to
    every plan. A full split stops loading about 12,731 tokens a plan: $0.20 a
    plan on Opus 5.5, $0.34 on Opus 5 and $0.21 on Fable 5.1, about $25 a month
