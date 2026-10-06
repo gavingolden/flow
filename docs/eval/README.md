@@ -1,7 +1,7 @@
 # flow-eval — maintainer guide
 
 `flow-eval` is a maintainer-only, locally-runnable headless eval harness
-running five committed suites, split by what each measures:
+running seven committed suites, split by what each measures:
 
 - Four **supervisor context-isolation scaffolds** (`verify-loop`,
   `haiku-gatekeeper`, `checkpoint-pending-clear`, `ui-smoke-isolation`) —
@@ -21,6 +21,11 @@ running five committed suites, split by what each measures:
   and `## User-facing changes` sections read as consequence-first, PM-facing
   writing rather than mechanism-first, code-centric writing, via the
   advisory `flow-explain-judge` check.
+- One **turn-count suite** (`review-turn-folding`, issue #835) — five
+  scenarios, each bounded to one `/flow-pr-review` step with pre-written
+  artifacts, measuring how many supervisor turns a helper that folds
+  mechanical steps saves. Its before/after arms and per-fold verdict are in
+  [`turn-folding/README.md`](turn-folding/README.md).
 
 Alongside the suites, `docs/eval/review-cost-baseline.md` records the
 measured **review-phase cost before-state** — the supervisor's own turn
@@ -29,6 +34,12 @@ plus the phase-boundary context floors that decide whether any
 auto-compact window is safe. It is committed because the audit script
 reads a rolling 30-day window, so the "before" arm stops being
 reproducible once a cost change lands.
+
+`docs/eval/supervisor-turns.ts` prints the per-phase supervisor turn
+composition from local transcripts (turns, spend and context per phase, and
+the review phase's clusters); re-run it with
+`bun docs/eval/supervisor-turns.ts --since <YYYY-MM-DD>`. Its committed
+before-state is [`supervisor-turns-baseline-2026-10.md`](supervisor-turns-baseline-2026-10.md).
 
 `docs/eval/review-lens-cost.ts` prints the per-lens counterpart (turns,
 Reads, Greps, distinct files, cache and output tokens, dollars per lens

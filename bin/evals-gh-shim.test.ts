@@ -423,6 +423,65 @@ describe.skipIf(!bunOnPath)("evals/_shims/gh", () => {
     });
   });
 
+  describe("pr edit <n> --body-file <path>", () => {
+    it("copies the body file to $FLOW_EVAL_FIXTURE/.flow-tmp/gh-pr-edit-body.md, creating .flow-tmp", () => {
+      const body = path.join(fixtureDir, "body-in.md");
+      fs.writeFileSync(body, "## Test Steps\n- [x] Run `true`\n");
+      const r = runShim(["pr", "edit", "7", "--body-file", body]);
+      expect(r.status).toBe(0);
+      expect(r.stdout).toBe("");
+      expect(
+        fs.readFileSync(
+          path.join(fixtureDir, ".flow-tmp", "gh-pr-edit-body.md"),
+          "utf8",
+        ),
+      ).toBe("## Test Steps\n- [x] Run `true`\n");
+    });
+
+    it("overwrites a prior capture so the grader sees the last edit", () => {
+      const first = path.join(fixtureDir, "first.md");
+      const second = path.join(fixtureDir, "second.md");
+      fs.writeFileSync(first, "first");
+      fs.writeFileSync(second, "second");
+      runShim(["pr", "edit", "7", "--body-file", first]);
+      const r = runShim(["pr", "edit", "7", "--body-file", second]);
+      expect(r.status).toBe(0);
+      expect(
+        fs.readFileSync(
+          path.join(fixtureDir, ".flow-tmp", "gh-pr-edit-body.md"),
+          "utf8",
+        ),
+      ).toBe("second");
+    });
+
+    it("fails on a missing body file with stderr clear of the replay cross-check's forbidden patterns", () => {
+      const r = runShim([
+        "pr",
+        "edit",
+        "7",
+        "--body-file",
+        path.join(fixtureDir, "nope.md"),
+      ]);
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain("body file not found");
+      expect(r.stderr).not.toMatch(
+        /unsupported|no PR matching '(?:--|[^']*,)|could not read pr\.json|FLOW_EVAL_FIXTURE is not set/,
+      );
+    });
+
+    it("keeps every other pr edit form loud (exit 1, unsupported)", () => {
+      for (const argv of [
+        ["pr", "edit", "7", "--title", "x"],
+        ["pr", "edit", "7"],
+        ["pr", "edit", "--body-file", "x.md"],
+      ]) {
+        const r = runShim(argv);
+        expect(r.status, JSON.stringify(argv)).toBe(1);
+        expect(r.stderr).toContain("unsupported");
+      }
+    });
+  });
+
   describe("unsupported subcommands", () => {
     it("exits 1 with a loud stderr for an unrecognized gh api resource", () => {
       writeJson("pr.json", [{ number: 1 }]);

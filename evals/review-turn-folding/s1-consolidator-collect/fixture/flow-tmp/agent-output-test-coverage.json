@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "src/pricing.test.ts",
+      "line": 8,
+      "label": "suggestion",
+      "decoration": "non-blocking",
+      "confidence": 82,
+      "subject": "Add a boundary test at 100",
+      "body": "No test pins the exact-100 boundary behaviour."
+    }
+  ],
+  "rejected_alternatives": [],
+  "anti_patterns_found": []
+}
