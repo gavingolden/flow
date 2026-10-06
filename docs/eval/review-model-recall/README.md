@@ -107,6 +107,38 @@ Cost, turns and wall-clock are read from each cell's claude JSON
 `matrix` or `judge` retries any cell whose out file is not a successful
 result (`is_error` true, a non-`success` `subtype`, or unparseable).
 
+### The agy arm and `--effort`
+
+`--arms agy-opus-5-5-high` runs a cell through `flow-delegate` (the user's
+Google AI Ultra quota) instead of `claude -p`. It uses the SAME base prompt
+`prompt-<lens>-<pr>.txt` as the model-alias arms, plus the delegated-lens
+output contract from `bin/lib/lens-prompt.ts` (`agyLensOutputContract`: JSON
+only, no shell, no `.flow-tmp/` reads, file reads capped at the PR's changed
+files) — the same contract production's `flow-agy-lenses` sends, so the
+measurement covers the shipped read rules. The call passes the shared
+`AGENT_FINDINGS_JSON_SCHEMA`, `--add-dir <repo root>`, no
+`--skip-permissions` and a 15-minute timeout, and the arm name maps to the
+agy display name in `AGY_ARMS` (`Claude Opus 5.5 (High)`).
+
+A decoded response is written as a claude-shaped `runs/<cell>.json`
+(`type: "result"`, `subtype: "success"`, `result:` the projected findings
+JSON, `duration_ms`, `usage`), so `build-judge.ts` and `score.ts` need no
+agy-specific handling. A response that does not decode (empty body,
+schema-invalid, a skipped call) is written with `is_error: true`, so a
+re-run retries it, and is counted in `runs/<cell>.agy.json`
+(`attempts`, `unusable_attempts`, `last_skip_reason`) — "schema-valid on the
+first attempt" is `unusable_attempts == 0`. Agy cells carry no
+`total_cost_usd`; wall-clock comes from `duration_ms`. Cell file names allow
+hyphenated, digit-bearing arm names (`score.ts`'s `CELL_FILE`).
+
+`--effort <level>` sets the Claude arms' `--effort` (default `medium`, so
+the committed runs reproduce unchanged); use `--effort high` to run the
+`opus` arm at the effort production lenses run at. For an agy-vs-opus pair
+`separation.<lens>` additionally carries
+`exact_permutation_p_baseline_exceeds_one_sided`, the reverse-direction p
+(baseline exceeds candidate): a candidate that replaces the baseline has to
+clear the regression direction, not only the improvement direction.
+
 **Acted proxy.** Resolved-thread state is 0/0 on the committed PRs, so
 `materialize` marks a reference comment acted when its `path` is touched by
 a later fix-applier commit on that PR (a commit subject carrying
