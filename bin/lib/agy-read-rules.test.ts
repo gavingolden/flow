@@ -4,6 +4,7 @@ import { buildBatteryPrompt } from "./plan-review-prompt";
 import { buildSurveyPrompt } from "./blind-survey-prompt";
 import { buildPrompt as buildLensPrompt } from "../flow-gemini-lens";
 import { buildPrompt as buildIntentGuessPrompt } from "../flow-gemini-intent-guess";
+import { agyLensOutputContract } from "./lens-prompt";
 
 const BASE_INPUT = {
   worktreePath: "/repo",
@@ -56,7 +57,7 @@ describe("agyReadRules", () => {
 });
 
 // Task 3: pin all four --add-dir prompt sites to this one source of truth.
-describe("agy-read-rules composition across the four --add-dir prompt sites", () => {
+describe("agy-read-rules composition across the --add-dir prompt sites", () => {
   it("buildBatteryPrompt (flow-plan-review) composes the shared block", () => {
     const prompt = buildBatteryPrompt({
       planText: "# PRD\n\n**Goal:** ship the thing.\n",
@@ -88,5 +89,12 @@ describe("agy-read-rules composition across the four --add-dir prompt sites", ()
     const prompt = buildIntentGuessPrompt(diff, "x.ts\n", "/repo");
     expect(prompt).toContain("Reach for it with your file-reading tools ONLY");
     expect(prompt).toContain("Do NOT shell out");
+  });
+
+  it("agyLensOutputContract (delegated lenses) composes the shared block", () => {
+    const prompt = agyLensOutputContract("/repo", 3);
+    expect(prompt).toContain("Reach for it with your file-reading tools ONLY");
+    expect(prompt).toContain("Do NOT shell out");
+    expect(prompt).toContain("Spot-check AT MOST 3 files");
   });
 });
