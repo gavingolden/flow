@@ -64,4 +64,26 @@ measure this loss.
 
 ## Results
 
-Pending — filled in after the runs.
+### Run 1 (2026-10-06) — every lens fails rule 3
+
+| Lens                | agy cells unusable (of 6) | agy recall Δ vs opus (completed cells only) | pooled sd | p (opus > agy) |
+| ------------------- | ------------------------- | ------------------------------------------- | --------- | -------------- |
+| bug-detection       | 2 (#756 r1, r2)           | +0.007                                      | 0.039     | 0.65           |
+| pattern-consistency | 3 (#756 r1, r2; #802 r2)  | +0.067                                      | 0.037     | 0.99           |
+| test-coverage       | 2 (#756 r1, r2)           | −0.053                                      | 0.063     | 0.15           |
+
+- **Why the cells failed:** every unusable cell recorded a denied `RunCommand`: the model tried a shell command, agy refused it, and the run ended with an empty `SUCCESS` (6-7 s on #756, whose prompt is ~310 KB; 40 s on the #802 cell). The no-shell rule sat only at the end of the prompt, after the diff.
+- **Recall is not like-for-like:** the aggregate drops unusable cells instead of scoring them, so the agy arm has no #756 data at all. The Δ column compares the agy arm's completed cells against all of opus's.
+- **Verdict (pre-registered rule):** `keep Task` for all three lenses — rule 3 fails for each.
+- Claude spend: opus arm $17.90 (18 cells, `--effort high`, mean $0.99), judge ≈ $5. Agy arm: Ultra quota only.
+
+### Run 2 rule (pre-registered after run 1, before any run-2 cell)
+
+Run 1 showed a prompt defect, not a model-quality gap, so one re-run measures the fixed prompt. It is disclosed here as a second look chosen after seeing run 1.
+
+- **Change:** commit `195d8a3` opens every delegated agy prompt (lenses, scout, and the harness's agy arm) with the headless no-shell rules (`AGY_HEADLESS_PREAMBLE`, `bin/lib/lens-prompt.ts`). The Claude arm's prompt is unchanged, so run 1's 18 opus cells are reused as-is; only the 18 agy cells are re-run and judged.
+- **Rule:** the same four conditions as above, applied to run 2's agy cells. Run 2's verdict is final: there is no run 3. If a lens fails, it stays `keep Task`.
+
+### Run 2
+
+Pending.
