@@ -591,7 +591,7 @@ the CSP fix instead, never `credentials-unavailable`. On this inline path, put `
 fix-applier artifact summary and leave the affected signed-in items
 unchecked so the pr-review wrapper surfaces `smoketest-needs-creds`.
 
-`/flow-verify` runs the project's full check suite (typecheck, tests, lint — it never formats).
+`/flow-verify` runs the project's full check suite (typecheck, tests, lint). The helper never formats, but `/flow-verify`'s own lint-fix path may run `npm run format`, so expect formatting edits left behind.
 Apply the verdict to every commit produced this run:
 
 - **Pass** → reconcile whatever verify left behind into this one commit

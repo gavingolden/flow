@@ -3,6 +3,7 @@ import {
   attributeSpawn,
   classifyBash,
   failureClass,
+  isCalendarDate,
   isVerifyInvocation,
   verifyOutcome,
 } from "./applier-turns";
@@ -88,6 +89,30 @@ describe("isVerifyInvocation", () => {
   });
 });
 
+describe("isVerifyInvocation after a heredoc", () => {
+  it("should still count a real verify that follows a heredoc in the same command", () => {
+    expect(
+      isVerifyInvocation(
+        "cat > n.md <<'EOF'\nran npm run verify\nEOF\nnpm run verify 2>&1 | tail -5",
+      ),
+    ).toBe(true);
+    expect(
+      isVerifyInvocation(
+        "cat > n.md <<'EOF'\nran npm run verify\nEOF\nflow-pre-commit --json",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("isCalendarDate", () => {
+  it("should accept real dates and reject impossible or malformed ones", () => {
+    expect(isCalendarDate("2026-09-05")).toBe(true);
+    expect(isCalendarDate("2026-99-99")).toBe(false);
+    expect(isCalendarDate("2026-02-31")).toBe(false);
+    expect(isCalendarDate("2026-9-5")).toBe(false);
+  });
+});
+
 describe("verifyOutcome", () => {
   const cmd =
     "env -u FLOW_SLUG flow-pre-commit --json > out.json 2>&1; echo DONE_$?";
@@ -106,6 +131,21 @@ describe("verifyOutcome", () => {
     expect(
       verifyOutcome("  FAIL  npm run lint (2s)\n1/2 checks passed.", "x"),
     ).toBe(false);
+  });
+
+  it("should read the top-level allPassed, not one quoted in a failure excerpt", () => {
+    const report = JSON.stringify({
+      results: [
+        {
+          name: "npm run test",
+          scope: "scripts",
+          passed: false,
+          failure: { firstErrorText: '  "allPassed": true,\n' },
+        },
+      ],
+      allPassed: false,
+    });
+    expect(verifyOutcome(report, "flow-pre-commit --json")).toBe(false);
   });
 
   it("should return null for a parked run", () => {
@@ -208,6 +248,24 @@ describe("attributeSpawn", () => {
     ]);
     expect(s.prettierRounds).toBe(1);
     expect(s.finalVerify).toBeNull();
+  });
+
+  it("should open a failed round when a backgrounded verify later reports a failure", () => {
+    const s = attributeSpawn([
+      asst("m1", [use("t1", "Bash", { command: "flow-pre-commit --json" })]),
+      result("t1", "Command moved to the background. ID: b1"),
+      asst("m2", [
+        use("t2", "Bash", { command: "sleep 20; cat /t/tasks/b1.output" }),
+      ]),
+      result("t2", failJson(["npm run lint"], "\n[warn] a.ts")),
+      asst("m3", [use("t3", "Bash", { command: "flow-pre-commit --json" })]),
+      result("t3", '{"allPassed": true}'),
+    ]);
+    expect(s.rounds).toEqual([
+      { cls: "lint-only (prettier)", turns: 1, next: "pass" },
+    ]);
+    expect(s.prettierRounds).toBe(1);
+    expect(s.finalVerify).toBe(true);
   });
 
   it("should split a multi-tool turn evenly across categories", () => {

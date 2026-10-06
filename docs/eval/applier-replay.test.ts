@@ -1,13 +1,18 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   checkFailures,
   editSetFiles,
   extractFlowTmpFiles,
   lastRuns,
+  loadResults,
   mergeRescore,
   parseWorktree,
   pickBaseSha,
   renderReport,
+  retirePriorRun,
   rewritePrompt,
   selectTestFiles,
   verdict,
@@ -125,6 +130,18 @@ describe("verdict", () => {
   it("should fail (a) when a before-pass is not an after-pass", () => {
     break_({ finalVerify: false }, "a");
   });
+  it("should fail (a) when either arm has no final verify outcome", () => {
+    break_({ finalVerify: null }, "a");
+    const [b, a] = good();
+    const v = verdict([{ ...b, finalVerify: null }, a]);
+    expect(v.reasons.some((r) => r.startsWith("(a)"))).toBe(true);
+  });
+  it("should accept (a) when a before-fail stays a fail or becomes a pass", () => {
+    const [b, a] = good();
+    const failed = { ...b, finalVerify: false };
+    expect(verdict([failed, { ...a, finalVerify: false }]).ship).toBe(true);
+    expect(verdict([failed, a]).ship).toBe(true);
+  });
   it("should fail (b) when the after arm counts fewer tests", () => {
     break_({ tests: 9 }, "b");
   });
@@ -160,6 +177,50 @@ describe("verdict", () => {
     const rerun = { ...a, tests: 10 };
     expect(verdict([b, { ...a, tests: 3 }, rerun]).ship).toBe(true);
     expect(lastRuns([b, { ...a, tests: 3 }, rerun])).toHaveLength(2);
+  });
+});
+
+describe("retirePriorRun", () => {
+  const setup = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "retire-"));
+    const write = (n: number) => {
+      fs.mkdirSync(path.join(dir, "pr-1-after"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "pr-1-after", "stream.jsonl"), `s${n}`);
+      fs.writeFileSync(
+        path.join(dir, "pr-1-after.result.json"),
+        JSON.stringify(run({ arm: "after", tests: n })),
+      );
+    };
+    return { dir, write };
+  };
+  it("should keep each earlier run under a -runN suffix and load the latest last", () => {
+    const { dir, write } = setup();
+    write(1);
+    retirePriorRun(dir, "pr-1-after");
+    write(2);
+    retirePriorRun(dir, "pr-1-after");
+    write(3);
+    expect(
+      fs.readFileSync(
+        path.join(dir, "pr-1-after-run1", "stream.jsonl"),
+        "utf8",
+      ),
+    ).toBe("s1");
+    expect(
+      fs.readFileSync(
+        path.join(dir, "pr-1-after-run2", "stream.jsonl"),
+        "utf8",
+      ),
+    ).toBe("s2");
+    expect(loadResults(dir).map((r) => r.tests)).toEqual([1, 2, 3]);
+    expect(lastRuns(loadResults(dir))[0].tests).toBe(3);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  it("should do nothing when there is no prior run", () => {
+    const { dir } = setup();
+    retirePriorRun(dir, "pr-1-after");
+    expect(fs.readdirSync(dir)).toEqual([]);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 

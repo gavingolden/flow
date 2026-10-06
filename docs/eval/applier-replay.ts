@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Hand-run replay harness: re-runs a recorded edit-applier spawn under two
-// instruction arms (before = the instructions at BEFORE_REF, after = this
-// checkout's) and records turns, waste events, an independent final verify
+// instruction arms (before = the instructions at BEFORE_REF, after = those at
+// AFTER_REF, the tested instructions, not this checkout's) and records turns, waste events, an independent final verify
 // and a test count per run. Maintainer-only, never on PATH. Spends real
 // money on `run`; `snapshot` and `report` are free.
 //   bun docs/eval/applier-replay.ts snapshot --pr <n> [--repo flow]
@@ -21,10 +21,15 @@ import { fileURLToPath } from "node:url";
 import { runScenarioOnce } from "../../bin/lib/eval-runner";
 import type { MaterializedFixture } from "../../bin/lib/eval-fixture";
 import type { ResolvedScenario } from "../../bin/lib/eval-suite";
-import { attributeSpawn, type SpawnStats } from "./applier-turns";
+import {
+  attributeSpawn,
+  firstUserText,
+  type SpawnStats,
+} from "./applier-turns";
 import { parseStream } from "../../bin/lib/eval-transcript";
 
 const BEFORE_REF = "428642c";
+const AFTER_REF = "19c2228";
 const INSTRUCTIONS = "skills/pipeline/flow-coder-instructions/SKILL.md";
 const TEST_RE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const ARTIFACT_RE = /(coder-result|fix-applier-result)\.json$/;
@@ -324,15 +329,6 @@ const repoRoot = () =>
     "--show-toplevel",
   ).trim();
 
-const firstUserText = (recs: any[]): string => {
-  const c = recs.find((r) => r?.type === "user")?.message?.content;
-  return typeof c === "string"
-    ? c
-    : Array.isArray(c)
-      ? c.map((b: any) => b?.text ?? "").join("")
-      : "";
-};
-
 function snapshot(flag: (n: string) => string | undefined) {
   const pr = Number(flag("--pr"));
   const repo = flag("--repo") ?? "flow";
@@ -406,6 +402,24 @@ function snapshot(flag: (n: string) => string | undefined) {
   console.log(file);
 }
 
+// A second run of the same case and arm keeps the first one's stream and
+// result under a -runN suffix, so the rule's "both stay" holds on disk.
+export function retirePriorRun(outDir: string, name: string) {
+  const dir = path.join(outDir, name);
+  const result = path.join(outDir, `${name}.result.json`);
+  if (!fs.existsSync(dir) && !fs.existsSync(result)) return;
+  let n = 1;
+  while (
+    fs.existsSync(path.join(outDir, `${name}-run${n}`)) ||
+    fs.existsSync(path.join(outDir, `${name}-run${n}.result.json`))
+  )
+    n++;
+  if (fs.existsSync(dir))
+    fs.renameSync(dir, path.join(outDir, `${name}-run${n}`));
+  if (fs.existsSync(result))
+    fs.renameSync(result, path.join(outDir, `${name}-run${n}.result.json`));
+}
+
 async function run(flag: (n: string) => string | undefined) {
   const arm = flag("--arm");
   if (arm !== "before" && arm !== "after")
@@ -415,7 +429,7 @@ async function run(flag: (n: string) => string | undefined) {
   const id = path.basename(casePath, ".json");
   const outDir = path.resolve(flag("--out") ?? ".flow-tmp/applier-replay");
   const runDir = path.join(outDir, `${id}-${arm}`);
-  fs.rmSync(runDir, { recursive: true, force: true });
+  retirePriorRun(outDir, `${id}-${arm}`);
   fs.mkdirSync(runDir, { recursive: true });
   const root = repoRoot();
   const canonical = git(root, "worktree", "list", "--porcelain").match(
@@ -463,7 +477,7 @@ async function run(flag: (n: string) => string | undefined) {
       instr,
       arm === "before"
         ? git(root, "show", `${BEFORE_REF}:${INSTRUCTIONS}`)
-        : fs.readFileSync(path.join(root, INSTRUCTIONS), "utf8"),
+        : git(root, "show", `${AFTER_REF}:${INSTRUCTIONS}`),
     );
     fs.writeFileSync(
       path.join(runDir, "prompt-input.txt"),

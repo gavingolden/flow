@@ -124,7 +124,9 @@ export function verifyDetail(resultText: string, cmd: string): VerifyDetail {
   const t = resultText.replace(/\\"/g, '"').replace(/\\n/g, "\n");
   if (t.includes(PARKED)) return { ok: null, failed: [], prettier: false };
   const prettier = /Code style issues|\[warn\] /.test(t);
-  const m = t.match(/"allPassed":\s*(true|false)/);
+  // Last match: the top-level key follows `results`, whose failure excerpts
+  // can carry a quoted `"allPassed": true` of their own.
+  const m = [...t.matchAll(/"allPassed":\s*(true|false)/g)].at(-1);
   const failed = [
     ...t.matchAll(
       /"name":\s*"([^"]+)",\s*"scope":\s*"[^"]*",\s*"passed":\s*false/g,
@@ -310,6 +312,9 @@ export function attributeSpawn(records: unknown[]): SpawnStats {
           ) {
             s.finalVerify = d.ok;
             pending = false;
+            if (d.ok === false) {
+              open = { cls: failureClass(d.failed, d.prettier), start: i };
+            }
           }
         }
         if (isVerifyInvocation(cmd)) {
@@ -381,7 +386,7 @@ const parse = (lines: string[]): any[] =>
     }
   });
 
-function firstUserText(recs: any[]): string {
+export function firstUserText(recs: any[]): string {
   const u = recs.find((r) => r?.type === "user");
   const c = u?.message?.content;
   if (typeof c === "string") return c;
@@ -558,7 +563,7 @@ export function render(rows: Row[], since: string, runDate: string): string {
       ["Event", ...KINDS],
       [
         [
-          "Verify moved to background (Bash 120 s default)",
+          "Verify parked in background (at the call's timeout)",
           ...cell(
             (rs) =>
               `${sum(rs.map((r) => r.stats.parkedVerifies))} runs in ${spawnsWith(rs, (r) => r.stats.parkedVerifies)} spawns`,
@@ -606,12 +611,18 @@ export function render(rows: Row[], since: string, runDate: string): string {
   return out.join("\n");
 }
 
+export function isCalendarDate(d: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+  const t = Date.parse(`${d}T00:00:00Z`);
+  return !Number.isNaN(t) && new Date(t).toISOString().startsWith(d);
+}
+
 if (import.meta.main) {
   const argv = process.argv.slice(2);
   const flag = (n: string) =>
     argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined;
   const since = flag("--since");
-  if (!since || !/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+  if (!since || !isCalendarDate(since)) {
     console.error(
       "usage: bun docs/eval/applier-turns.ts --since <YYYY-MM-DD> [--model <id>] [--repo <flow|econ-data|pokemon>] [--home <dir>]",
     );

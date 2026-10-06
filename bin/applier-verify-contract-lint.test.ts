@@ -56,7 +56,7 @@ describe("applier verify contract", () => {
         expect(flat, `${rel} matches ${re}`).not.toMatch(re);
     }
     expect(read(FIX).replace(/\s*\n\s*/g, " ")).not.toMatch(
-      /full check suite \([^)]*\bformat\b/,
+      /full check suite \([^)]*\bformats?\b/,
     );
     expect(STACK_TABLE["package.json"].denylist).toContain("format");
   });
