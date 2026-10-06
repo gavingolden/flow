@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "commit_count": {
+      "type": "number"
+    },
+    "deferred_count": {
+      "type": "number"
+    }
+  },
+  "required": ["status", "commit_count", "deferred_count"]
+}

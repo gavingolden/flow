@@ -1,0 +1,35 @@
+[
+  {
+    "number": 1,
+    "title": "feat: add cart bulk-discount tier",
+    "state": "OPEN",
+    "isDraft": false,
+    "mergedAt": null,
+    "url": "https://github.com/example-org/example-repo/pull/1",
+    "headRefName": "feature-1",
+    "baseRefName": "main",
+    "headRefOid": "sha-head-1",
+    "additions": 40,
+    "deletions": 10,
+    "changed_files": 2,
+    "commits": [
+      {
+        "messageHeadline": "feat: add applyBulkDiscount pricing tier"
+      },
+      {
+        "messageHeadline": "test: cover bulk discount edge cases"
+      }
+    ],
+    "files": [
+      "src/pricing.ts",
+      "src/pricing.test.ts"
+    ],
+    "reviews": [],
+    "apiReviews": [],
+    "apiComments": [],
+    "author": {
+      "login": "contributor-a"
+    },
+    "body": "## Why\n\nSpend-based bulk discount tiers were requested by sales.\n\n## What\n\nAdds the pricing tier and tests.\n\n## Test Steps\n\n- [ ] Run `true` \u2014 exits 0.\n- [ ] Run `test -d .` \u2014 the repo root is a directory.\n- [ ] Run `false` \u2014 deliberately failing item (exits 1).\n- [ ] SUBJECTIVE: confirm the discount badge looks right to a human.\n"
+  }
+]

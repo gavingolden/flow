@@ -57,7 +57,7 @@ carries no payload — the redirect text itself rides the normal
 `USER REDIRECT (received during plan-pending-review): <verbatim>`
 channel. The spawn template forwards the marker via
 `{{REVISION_OVERRIDE}}` and the discovery subagent runs its **Revision
-pass mode** (`discovery-instructions.md` "Revision pass mode"): read the
+pass mode** (`discovery-revision.md` "Revision pass mode"): read the
 existing plan.md first, update in place, preserve untouched sections and
 the embedded `### Cross-model review (AGY)` subsection +
 `<!-- flow-plan-review-hash: <sha> -->` marker verbatim, do NOT re-run
@@ -164,7 +164,7 @@ SURVEY: <absolute path to .flow-tmp/blind-survey.md> (judges: A=<model> ran|skip
 
 `/flow-product-planning`'s `{{SURVEY_OVERRIDE}}` spawn-template
 placeholder forwards it to the Discovery Subagent, which runs
-`discovery-instructions.md` step 1.8 and authors `## Method selection`.
+`discovery-survey-epic.md` (step 1.8) and authors `## Method selection`.
 Absent (gate closed, or the survey's envelope came back `ran:false`) ≡
 no blind survey — append nothing.
 

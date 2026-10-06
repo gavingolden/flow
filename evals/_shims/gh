@@ -42,8 +42,17 @@
  * `apiComments` arrays (deliberately separate field names from the
  * `pr view --json reviews` shape the Step-1.5 gatekeeper also reads off
  * the same fixture record — the two `reviews` shapes are NOT
- * interchangeable). Any other subcommand is unsupported and loud, not
- * silently swallowed.
+ * interchangeable).
+ *
+ * `pr edit <n> --body-file <path>` (and ONLY that form) copies the body
+ * file to `$FLOW_EVAL_FIXTURE/.flow-tmp/gh-pr-edit-body.md` so a grader can
+ * assert on what flow-pr-review's Step 8c wrote back to the PR. A missing
+ * body file exits non-zero with a stderr that is deliberately NOT one of
+ * the shim's fixture-authoring-error shapes (see bin/evals-gh-shim.test.ts),
+ * because the `ghCalls` replay cross-check copies only `*.json` fixtures.
+ * Any other subcommand — including every other `pr edit` form — is
+ * unsupported and loud, not silently swallowed. Note: `pr view` ignores
+ * `--jq` and always returns JSON.
  */
 
 type PrRecord = Record<string, unknown>;
@@ -142,6 +151,29 @@ function main(): number {
       out[field] = Object.prototype.hasOwnProperty.call(pr, field) ? pr[field] : null;
     }
     process.stdout.write(JSON.stringify(out) + "\n");
+    return 0;
+  }
+
+  if (verb === "pr" && sub === "edit") {
+    const bodyFlagIdx = rest.indexOf("--body-file");
+    const bodyPath = bodyFlagIdx === -1 ? undefined : rest[bodyFlagIdx + 1];
+    const positional = rest.filter((t, i) => t !== "--body-file" && i !== bodyFlagIdx + 1);
+    if (bodyPath === undefined || positional.length !== 1 || positional[0].startsWith("--")) {
+      process.stderr.write(`flow-eval gh shim: unsupported: ${JSON.stringify(argv)}\n`);
+      return 1;
+    }
+    const fixtureDir = process.env.FLOW_EVAL_FIXTURE;
+    if (!fixtureDir) {
+      process.stderr.write("flow-eval gh shim: FLOW_EVAL_FIXTURE is not set\n");
+      return 1;
+    }
+    const fs = require("node:fs");
+    if (!fs.existsSync(bodyPath)) {
+      process.stderr.write(`gh pr edit: body file not found: ${bodyPath}\n`);
+      return 1;
+    }
+    fs.mkdirSync(`${fixtureDir}/.flow-tmp`, { recursive: true });
+    fs.copyFileSync(bodyPath, `${fixtureDir}/.flow-tmp/gh-pr-edit-body.md`);
     return 0;
   }
 

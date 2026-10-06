@@ -293,7 +293,7 @@ describe("resolveDelegateModel", () => {
 
   it("every Opus pin in the research prose and shell copies equals the code default", () => {
     const files = [
-      "skills/pipeline/flow-product-planning/references/discovery-instructions.md",
+      "skills/pipeline/flow-product-planning/references/discovery-research.md",
       "skills/universal/flow-research/SKILL.md",
       "templates/references/delegation.md",
     ];

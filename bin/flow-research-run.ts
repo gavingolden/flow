@@ -57,7 +57,7 @@ import { resolveDelegateModel } from "./lib/delegate-models";
 import { redactSecrets } from "./lib/redact-secrets";
 
 // Frozen to match discovery Step 1.5's budget defaults and model-variant pins
-// (skills/pipeline/flow-product-planning/references/discovery-instructions.md, the
+// (skills/pipeline/flow-product-planning/references/discovery-research.md, the
 // `read_budget` block). Keep these byte-identical to that source of truth.
 const DEFAULT_MAX_CALLS = 12;
 const DEFAULT_TIMEOUT = "3m";

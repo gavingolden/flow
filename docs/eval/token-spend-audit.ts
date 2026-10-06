@@ -11,7 +11,7 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { basename, join } from "path";
 
 // $/MTok: input, 5m cache write (1.25x), 1h cache write (2x), cache read, output.
-const PRICING_DATE = "2026-09-30"; // Last verified: 2026-09-30
+export const PRICING_DATE = "2026-09-30"; // Last verified: 2026-09-30
 type Price = [number, number, number, number, number];
 const PRICES: Record<string, Price> = {
   "claude-opus-5": [5, 6.25, 10, 0.5, 25],
@@ -63,7 +63,15 @@ type Stats = {
   missingUsage: number;
   unknownModels: Map<string, number>;
 };
-type Turn = { model: string; usage: any; ts: string; seg: string };
+type Turn = {
+  model: string;
+  usage: any;
+  ts: string;
+  seg: string;
+  sent: string;
+  cwd: string;
+  effort: string;
+};
 type Spawn = { prefix: string; type: string; toolUseId?: string };
 type Meta = { agentType?: string; toolUseId?: string };
 
@@ -132,7 +140,7 @@ const agentLabel = (s: string) => s.replace(/^flow-module-[a-z-]+:/, "");
 // Only the LAST line carries the final output_tokens (earlier lines hold a
 // streaming placeholder; input and cache fields never differ). Usage is
 // buffered per id and flushed in first-seen order carrying the LAST line's
-// usage, with ts/seg/inWindow from the FIRST line; every line is still
+// usage, with ts/seg/effort/inWindow from the FIRST line; every line is still
 // scanned for tool calls.
 export function walkFile(
   lines: string[],
@@ -144,12 +152,17 @@ export function walkFile(
   const turns = new Map<string, Turn & { counted: boolean }>();
   const missing = new Set<string>();
   let cur = "supervisor-base";
+  let lastUser = "";
   for (const l of lines) {
     let j: any;
     try {
       j = JSON.parse(l);
     } catch {
       stats.parseErrors++;
+      continue;
+    }
+    if (j?.type === "user") {
+      if (typeof j.timestamp === "string") lastUser = j.timestamp;
       continue;
     }
     if (j?.type !== "assistant") continue;
@@ -169,6 +182,10 @@ export function walkFile(
           usage: m.usage,
           ts: j.timestamp,
           seg: cur,
+          sent: lastUser || j.timestamp,
+          cwd: typeof j.cwd === "string" ? j.cwd : "",
+          effort:
+            typeof j.effort === "string" && j.effort ? j.effort : "unrecorded",
           counted: inWindow(j.timestamp),
         });
     }
@@ -366,6 +383,188 @@ function usageTable(title: string, o: Record<string, Usage>, churn = false) {
   table(heads, [...entries.map(([k, u]) => row(k, u)), row("**TOTAL**", sum)]);
 }
 
+export type CacheReq = {
+  sent: number;
+  model: string;
+  w5: number;
+  w1: number;
+  read: number;
+};
+export type LifetimeTally = {
+  requests: number;
+  oneHourTokens: number;
+  oneHourUsd: number;
+  premiumUsd: number;
+  readsWithin5m: number;
+  readsAfter5m: number;
+  requestsAfter5m: number;
+  rewriteUsdAt5m: number;
+  readsAfter60m: number;
+  firstRequestReads: number;
+  netUsdAt5m: number;
+  crossSpawnReadsAfter5m: number;
+  unreplayable: number;
+};
+export const zeroTally = (): LifetimeTally => ({
+  requests: 0,
+  oneHourTokens: 0,
+  oneHourUsd: 0,
+  premiumUsd: 0,
+  readsWithin5m: 0,
+  readsAfter5m: 0,
+  requestsAfter5m: 0,
+  rewriteUsdAt5m: 0,
+  readsAfter60m: 0,
+  firstRequestReads: 0,
+  netUsdAt5m: 0,
+  crossSpawnReadsAfter5m: 0,
+  unreplayable: 0,
+});
+
+const MIN = 6e4;
+const sortedBySent = (reqs: CacheReq[]) =>
+  [...reqs]
+    .filter((r) => PRICES[r.model] && Number.isFinite(r.sent))
+    .sort((a, b) => a.sent - b.sent);
+
+// Replays one stream as if its cache lived 5 minutes: a read more than 5 and
+// at most 60 minutes after the previous request would have missed, so those
+// tokens are re-written at the 5m rate instead of read.
+export function replayCacheLifetime(reqs: CacheReq[], into: LifetimeTally) {
+  into.unreplayable += reqs.filter(
+    (r) => PRICES[r.model] && !Number.isFinite(r.sent),
+  ).length;
+  let wrote1h = false;
+  sortedBySent(reqs).forEach((r, i, all) => {
+    const p = PRICES[r.model];
+    const premium = (r.w1 * (p[2] - p[1])) / 1e6;
+    into.requests++;
+    into.oneHourTokens += r.w1;
+    into.oneHourUsd += (r.w1 * p[2]) / 1e6;
+    into.premiumUsd += premium;
+    into.netUsdAt5m -= premium;
+    if (i === 0) into.firstRequestReads += r.read;
+    else {
+      const gap = (r.sent - all[i - 1].sent) / MIN;
+      if (gap <= 5) into.readsWithin5m += r.read;
+      else if (gap <= 60) {
+        if (wrote1h) {
+          const rewrite = (r.read * (p[1] - p[3])) / 1e6;
+          into.readsAfter5m += r.read;
+          if (r.read > 0) into.requestsAfter5m++;
+          into.rewriteUsdAt5m += rewrite;
+          into.netUsdAt5m += rewrite;
+        }
+      } else into.readsAfter60m += r.read;
+    }
+    if (r.w1 > 0) wrote1h = true;
+  });
+}
+
+// One call per (sub-agent type, working directory): a spawn's first request
+// reads the prefix an earlier spawn of the same group left behind.
+export function replayCrossSpawn(spawns: CacheReq[][], into: LifetimeTally) {
+  const lists = spawns
+    .map(sortedBySent)
+    .filter((l) => l.length)
+    .map((reqs) => ({ reqs, start: reqs[0].sent }));
+  for (const s of lists) {
+    const first = s.reqs[0];
+    const earlier = lists
+      .filter((o) => o.start < s.start)
+      .flatMap((o) => o.reqs)
+      .filter((r) => r.sent <= first.sent);
+    if (!earlier.length || !earlier.some((r) => r.w1 > 0)) continue;
+    const latest = earlier.reduce((m, r) => Math.max(m, r.sent), -Infinity);
+    const gap = (first.sent - latest) / MIN;
+    if (gap <= 5 || gap > 60) continue;
+    const p = PRICES[first.model];
+    const rewrite = (first.read * (p[1] - p[3])) / 1e6;
+    into.crossSpawnReadsAfter5m += first.read;
+    into.firstRequestReads -= first.read;
+    into.rewriteUsdAt5m += rewrite;
+    into.netUsdAt5m += rewrite;
+  }
+}
+
+export type SpawnStream = { type: string; cwd: string; reqs: CacheReq[] };
+export function replayCrossSpawnByGroup(
+  streams: SpawnStream[],
+  tallyFor: (type: string) => LifetimeTally,
+) {
+  const groups = new Map<string, SpawnStream[]>();
+  for (const s of streams) {
+    const k = `${s.type}\0${s.cwd}`;
+    groups.set(k, [...(groups.get(k) ?? []), s]);
+  }
+  for (const g of groups.values())
+    replayCrossSpawn(
+      g.map((s) => s.reqs),
+      tallyFor(g[0].type),
+    );
+}
+
+const fmtSigned = (n: number) => (n < 0 ? "-" : "") + fmtUsd(Math.abs(n));
+
+function cacheLifetimeSection(
+  byUser: Map<string, LifetimeTally>,
+  byAsst: Map<string, LifetimeTally>,
+  win: [number, number],
+) {
+  console.log("## Cache lifetime: 1-hour writes re-read after five minutes\n");
+  const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  console.log(
+    `Window: ${Number.isFinite(win[0]) ? `${day(win[0])} to ${day(win[1])}` : "none"} (request send dates, UTC)\n`,
+  );
+  const rows = [...byUser.entries()]
+    .filter(([, t]) => t.oneHourTokens > 0)
+    .sort((a, b) => b[1].premiumUsd - a[1].premiumUsd);
+  const sum = zeroTally();
+  for (const [, t] of rows)
+    for (const k of Object.keys(sum) as (keyof LifetimeTally)[]) sum[k] += t[k];
+  const sumA = rows.reduce((s, [k]) => s + (byAsst.get(k)?.netUsdAt5m ?? 0), 0);
+  const row = (k: string, t: LifetimeTally, netA: number) => [
+    k,
+    t.requests,
+    fmtM(t.oneHourTokens),
+    fmtUsd(t.oneHourUsd),
+    fmtUsd(t.premiumUsd),
+    fmtM(t.readsAfter5m),
+    fmtM(t.crossSpawnReadsAfter5m),
+    t.requestsAfter5m,
+    fmtUsd(t.rewriteUsdAt5m),
+    fmtSigned(t.netUsdAt5m),
+    fmtSigned(netA),
+    fmtM(t.firstRequestReads),
+  ];
+  table(
+    [
+      "stream",
+      "requests",
+      "1h-write tokens",
+      "1h-write $",
+      "1h premium $",
+      "tokens re-read 5-60 min later",
+      "cross-spawn tokens re-read 5-60 min later",
+      "requests re-reading after 5 min",
+      "re-write $ at 5m",
+      "net $ at 5m (negative = 5m cheaper)",
+      "net $ at 5m, assistant-row send time",
+      "first-request reads (unattributed)",
+    ],
+    [
+      ...rows.map(([k, t]) => row(k, t, byAsst.get(k)?.netUsdAt5m ?? 0)),
+      row("**TOTAL**", sum, sumA),
+    ],
+  );
+  console.log(
+    `Requests skipped for a non-finite send time (unreplayable): ${[...byUser.values()].reduce((n, t) => n + t.unreplayable, 0)}\n`,
+  );
+  console.log(
+    "Limitations: reads served by a parallel session's fresher write are not attributed; cross-spawn grouping assumes the same agent type in the same directory shares a prefix; dollars are list price, not subscription plan usage.\n",
+  );
+}
+
 type SpawnAcc = Map<
   string,
   { turns: number; first: number; last: number; usd: number }
@@ -373,14 +572,16 @@ type SpawnAcc = Map<
 type SpawnRec = {
   type: string;
   model: string;
+  effort: string;
   turns: number;
   minutes: number;
   usd: number;
 };
 
-function accSpawnTurn(acc: SpawnAcc, t: Turn) {
+function accSpawnTurn(acc: SpawnAcc, t: Turn, byEffort: boolean) {
   const ms = Date.parse(t.ts);
-  const a = acc.get(t.model) ?? {
+  const key = byEffort ? `${t.model}\t${t.effort}` : t.model;
+  const a = acc.get(key) ?? {
     turns: 0,
     first: Infinity,
     last: -Infinity,
@@ -392,17 +593,21 @@ function accSpawnTurn(acc: SpawnAcc, t: Turn) {
     a.first = Math.min(a.first, ms);
     a.last = Math.max(a.last, ms);
   }
-  acc.set(t.model, a);
+  acc.set(key, a);
 }
 
 function flushSpawns(acc: SpawnAcc, type: string): SpawnRec[] {
-  return [...acc.entries()].map(([model, a]) => ({
-    type,
-    model,
-    turns: a.turns,
-    minutes: a.last >= a.first ? (a.last - a.first) / 6e4 : 0,
-    usd: a.usd,
-  }));
+  return [...acc.entries()].map(([key, a]) => {
+    const [model, effort = ""] = key.split("\t");
+    return {
+      type,
+      model,
+      effort,
+      turns: a.turns,
+      minutes: a.last >= a.first ? (a.last - a.first) / 6e4 : 0,
+      usd: a.usd,
+    };
+  });
 }
 
 const median = (xs: number[]) => {
@@ -414,10 +619,15 @@ const median = (xs: number[]) => {
 
 // One record per (sub-agent transcript, model), grouped by `<type> @ <model>`:
 // per-spawn cost is the per-finished-task view that per-turn multiples hide.
-export function spawnCostRows(spawns: SpawnRec[]) {
+// `keyOf` regroups records; pass effort-split records (one per transcript,
+// model, effort) when keying by recorded reasoning effort.
+export function spawnCostRows(
+  spawns: SpawnRec[],
+  keyOf: (s: SpawnRec) => string = (s) => `${s.type} @ ${modelLabel(s.model)}`,
+) {
   const by = new Map<string, SpawnRec[]>();
   for (const s of spawns) {
-    const k = `${s.type} @ ${modelLabel(s.model)}`;
+    const k = keyOf(s);
     if (!by.has(k)) by.set(k, []);
     by.get(k)!.push(s);
   }
@@ -459,8 +669,10 @@ function run(argv: string[]) {
   const byAgent: Record<string, Usage> = {};
   const bySeg: Record<string, Usage> = {};
   const byAgentModel: Record<string, Usage> = {};
-  const firstTurn: Record<string, number[]> = {};
+  const firstTurn: Record<string, { w: number[]; r: number[] }> = {};
   const spawnRecs: SpawnRec[] = [];
+  const spawnRecsByEffort: SpawnRec[] = [];
+  const lensEffort = new Map<string, Set<string>>();
   const sessions: { sid: string; repo: string; usage: Usage }[] = [];
   let worktreeSessions = 0;
   let minTs = Infinity,
@@ -472,6 +684,31 @@ function run(argv: string[]) {
     subUsd = 0;
   const tok = zero();
   const G = (o: Record<string, Usage>, k: string) => (o[k] ||= zero());
+  const lifeUser = new Map<string, LifetimeTally>();
+  const lifeAsst = new Map<string, LifetimeTally>();
+  const tallyIn = (m: Map<string, LifetimeTally>, k: string) => {
+    if (!m.has(k)) m.set(k, zeroTally());
+    return m.get(k)!;
+  };
+  const spawnUser: SpawnStream[] = [];
+  const spawnAsst: SpawnStream[] = [];
+  let sentMin = Infinity,
+    sentMax = -Infinity;
+  const newReqs = () => ({ user: [] as CacheReq[], asst: [] as CacheReq[] });
+  const pushReq = (p: ReturnType<typeof newReqs>, t: Turn) => {
+    if (!PRICES[t.model]) return;
+    const c = classes(t.usage);
+    const base = { model: t.model, w5: c.w5, w1: c.w1, read: c.read };
+    const sent = Date.parse(t.sent);
+    if (sent < sentMin) sentMin = sent;
+    if (sent > sentMax) sentMax = sent;
+    p.user.push({ ...base, sent });
+    p.asst.push({ ...base, sent: Date.parse(t.ts) });
+  };
+  const replayStream = (key: string, p: ReturnType<typeof newReqs>) => {
+    replayCacheLifetime(p.user, tallyIn(lifeUser, key));
+    replayCacheLifetime(p.asst, tallyIn(lifeAsst, key));
+  };
 
   const root = join(HOME, ".claude", "projects");
   const dirs = existsSync(root) ? readdirSync(root) : [];
@@ -518,6 +755,7 @@ function run(argv: string[]) {
         }
       };
       const spawns: Spawn[] = [];
+      const mainReqs = newReqs();
       walkFile(
         lines,
         stats,
@@ -529,10 +767,12 @@ function run(argv: string[]) {
             sess,
           ]);
           mainUsd += priceTurn(t.usage, t.model);
+          pushReq(mainReqs, t);
         },
         spawns,
         inWindow,
       );
+      replayStream("main conversation", mainReqs);
       const sadir = join(root, d, sid, "subagents");
       if (existsSync(sadir)) {
         for (const sf of readdirSync(sadir).filter((x) =>
@@ -568,7 +808,10 @@ function run(argv: string[]) {
             meta && (meta as any).description,
           );
           let first = true;
+          const subReqs = newReqs();
+          let subCwd = "";
           const spawnAcc: SpawnAcc = new Map();
+          const spawnAccEff: SpawnAcc = new Map();
           walkFile(
             sl,
             stats,
@@ -583,16 +826,32 @@ function run(argv: string[]) {
                 sess,
               ]);
               subUsd += priceTurn(t.usage, t.model);
-              accSpawnTurn(spawnAcc, t);
+              pushReq(subReqs, t);
+              accSpawnTurn(spawnAcc, t, false);
+              accSpawnTurn(spawnAccEff, t, true);
+              if (type.startsWith("flow-review-")) {
+                const k = `${sid}\t${type}`;
+                if (!lensEffort.has(k)) lensEffort.set(k, new Set());
+                lensEffort.get(k)!.add(t.effort);
+              }
               if (isFirst) {
+                subCwd = t.cwd || cwd || "";
                 const c = classes(t.usage);
-                (firstTurn[type] ||= []).push(c.w5 + c.w1);
+                const ft = (firstTurn[type] ||= { w: [], r: [] });
+                ft.w.push(c.w5 + c.w1);
+                ft.r.push(c.read);
               }
             },
             [],
             inWindow,
           );
+          if (subReqs.user.length) {
+            replayStream(`sub-agent: ${type}`, subReqs);
+            spawnUser.push({ type, cwd: subCwd, reqs: subReqs.user });
+            spawnAsst.push({ type, cwd: subCwd, reqs: subReqs.asst });
+          }
           spawnRecs.push(...flushSpawns(spawnAcc, type));
+          spawnRecsByEffort.push(...flushSpawns(spawnAccEff, type));
         }
       }
       if (counted) {
@@ -601,6 +860,13 @@ function run(argv: string[]) {
       }
     }
   }
+
+  replayCrossSpawnByGroup(spawnUser, (ty) =>
+    tallyIn(lifeUser, `sub-agent: ${ty}`),
+  );
+  replayCrossSpawnByGroup(spawnAsst, (ty) =>
+    tallyIn(lifeAsst, `sub-agent: ${ty}`),
+  );
 
   const events: EventRow[] = [];
   const evPath = join(HOME, ".flow", "telemetry", "events.jsonl");
@@ -678,6 +944,34 @@ function run(argv: string[]) {
       "$/turn",
     ],
     spawnCostRows(spawnRecs).map((r) => [
+      r.key,
+      r.spawns,
+      fmtN(r.medianTurns),
+      fmtN(r.medianMinutes),
+      fmtUsd(r.meanUsd),
+      fmtUsd(r.medianUsd),
+      r.usdPerTurn.toFixed(4),
+    ]),
+  );
+
+  console.log("## Sub-agent spawn cost by type @ model @ effort\n");
+  console.log(
+    "The same per-spawn records split by the reasoning effort recorded on each turn (`unrecorded` when the transcript row carries none). A transcript that changed effort mid-run appears once per effort, so its spawn is counted in each.\n",
+  );
+  table(
+    [
+      "key",
+      "spawns",
+      "median turns",
+      "median min",
+      "mean $",
+      "median $",
+      "$/turn",
+    ],
+    spawnCostRows(
+      spawnRecsByEffort,
+      (s) => `${s.type} @ ${modelLabel(s.model)} @ ${s.effort}`,
+    ).map((r) => [
       r.key,
       r.spawns,
       fmtN(r.medianTurns),
@@ -776,14 +1070,23 @@ function run(argv: string[]) {
 
   console.log("## First-turn cache-write per sub-agent type\n");
   table(
-    ["sub-agent type", "transcripts", "median tokens", "mean tokens"],
+    [
+      "sub-agent type",
+      "transcripts",
+      "median write tokens",
+      "mean write tokens",
+      "median read tokens",
+      "zero-read first turns",
+    ],
     Object.entries(firstTurn)
-      .sort((a, b) => pct(b[1], 0.5) - pct(a[1], 0.5))
-      .map(([k, xs]) => [
+      .sort((a, b) => pct(b[1].w, 0.5) - pct(a[1].w, 0.5))
+      .map(([k, { w, r }]) => [
         k,
-        xs.length,
-        Math.round(pct(xs, 0.5)),
-        Math.round(mean(xs)),
+        w.length,
+        Math.round(pct(w, 0.5)),
+        Math.round(mean(w)),
+        Math.round(pct(r, 0.5)),
+        r.filter((x) => x === 0).length,
       ]),
   );
 
@@ -863,6 +1166,90 @@ function run(argv: string[]) {
       `${r.src["subagent-transcript"] || 0}/${r.src["task-notification"] || 0}/${r.src["unavailable"] || 0}`,
     ]),
   );
+
+  console.log("## Review lenses: findings per run by lens effort\n");
+  console.log(
+    "Telemetry lens runs joined to their sub-agent transcript by session and lens, bucketed by the reasoning effort that transcript recorded. `mixed/unjoined` holds lens runs whose transcript recorded more than one effort or was not found (aged out, or the review began before --since). Per-run figures divide a bucket's findings by its lens runs. Effort follows the launching session (the product lens has been pinned to medium since #898), so a gap between buckets is observational, not a controlled comparison. Telemetry has no intent-guess entry, and gemini has no transcript, so neither is counted.\n",
+  );
+  table(
+    ["key", "reviews", "runs", "emitted/run", "survived/run", "acted/run"],
+    lensYieldByEffort(lensRows, lensEffort).map((r) => [
+      r.key,
+      r.reviews,
+      r.runs,
+      r.emittedPerRun.toFixed(2),
+      r.survivedPerRun.toFixed(2),
+      r.actedPerRun.toFixed(2),
+    ]),
+  );
+
+  cacheLifetimeSection(lifeUser, lifeAsst, [sentMin, sentMax]);
+}
+
+const YIELD_LENSES = [
+  "bug-detection",
+  "security",
+  "pattern-consistency",
+  "performance",
+  "supply-chain",
+  "test-coverage",
+  "product",
+];
+
+// Joins telemetry lens runs (short lens key, parent session id) to the effort
+// their sub-agent transcript recorded; `lensEffort` is keyed
+// `${session_id}\t${agentType}` with agentType `flow-review-${lens}`.
+export function lensYieldByEffort(
+  rows: any[],
+  lensEffort: Map<string, Set<string>>,
+) {
+  type Acc = {
+    reviews: Set<number>;
+    runs: number;
+    emitted: number;
+    survived: number;
+    acted: number;
+  };
+  const by = new Map<string, Acc>();
+  const add = (key: string, row: number, v: any) => {
+    const a = by.get(key) ?? {
+      reviews: new Set<number>(),
+      runs: 0,
+      emitted: 0,
+      survived: 0,
+      acted: 0,
+    };
+    a.reviews.add(row);
+    a.runs++;
+    a.emitted += v.findings_emitted || 0;
+    a.survived += v.findings_survived || 0;
+    a.acted += v.findings_acted || 0;
+    by.set(key, a);
+  };
+  rows.forEach((r, i) => {
+    for (const lens of YIELD_LENSES) {
+      const v = r.lenses?.[lens];
+      if (!v?.ran) continue;
+      const efforts = lensEffort.get(`${r.session_id}\tflow-review-${lens}`);
+      const effort = efforts?.size === 1 ? [...efforts][0] : "mixed/unjoined";
+      add(`all @ ${effort}`, i, v);
+      add(`${lens} @ ${effort}`, i, v);
+    }
+  });
+  return [...by.entries()]
+    .map(([key, a]) => ({
+      key,
+      reviews: a.reviews.size,
+      runs: a.runs,
+      emittedPerRun: a.emitted / a.runs,
+      survivedPerRun: a.survived / a.runs,
+      actedPerRun: a.acted / a.runs,
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.key.startsWith("all @ ")) -
+          Number(a.key.startsWith("all @ ")) || a.key.localeCompare(b.key),
+    );
 }
 
 export function summarizeLenses(rows: any[]) {
@@ -931,10 +1318,12 @@ export function selfTest(): string[] {
     usage: any,
     content: any[] = [],
     ts = "2026-09-10T00:00:00Z",
+    effort?: string,
   ) =>
     JSON.stringify({
       type: "assistant",
       timestamp: ts,
+      ...(effort === undefined ? {} : { effort }),
       message: { id, model, usage, content },
     });
   const split = {
@@ -1216,7 +1605,7 @@ export function selfTest(): string[] {
     walkFile(
       ts.map((t, i) => asst(`${id}${i}`, model, split, [], t)),
       newStats(),
-      (t) => accSpawnTurn(acc, t),
+      (t) => accSpawnTurn(acc, t, false),
     );
     return flushSpawns(acc, "flow-review-product");
   };
@@ -1252,11 +1641,293 @@ export function selfTest(): string[] {
   close("spawn median usd", sRows[0].medianUsd, 3 * unit);
   close("spawn usd per turn", sRows[0].usdPerTurn, unit);
 
+  const effortSpawn = (id: string, model: string, effort?: string) => {
+    const acc: SpawnAcc = new Map();
+    walkFile(
+      [asst(id, model, split, [], "2026-09-10T00:00:00Z", effort)],
+      newStats(),
+      (t) => accSpawnTurn(acc, t, true),
+    );
+    return flushSpawns(acc, "flow-review-product");
+  };
+  const byEffort = (s: { type: string; model: string; effort: string }) =>
+    `${s.type} @ ${modelLabel(s.model)} @ ${s.effort}`;
+  eq(
+    "spawn effort keys",
+    spawnCostRows(
+      [
+        ...effortSpawn("e1", "claude-opus-5", "high"),
+        ...effortSpawn("e2", "claude-opus-5", "medium"),
+        ...effortSpawn("e3", "claude-opus-5"),
+      ],
+      byEffort,
+    )
+      .map((r) => r.key)
+      .sort(),
+    [
+      "flow-review-product @ claude-opus-5 @ high",
+      "flow-review-product @ claude-opus-5 @ medium",
+      "flow-review-product @ claude-opus-5 @ unrecorded",
+    ],
+  );
+
+  const mixedTurns: Turn[] = [];
+  walkFile(
+    [
+      asst("m0", "claude-opus-5", split, [], "2026-09-10T00:00:00Z", "high"),
+      asst("m1", "claude-opus-5", split, [], "2026-09-10T00:01:00Z", "medium"),
+    ],
+    newStats(),
+    (t) => mixedTurns.push(t),
+  );
+  const mixedRecs = (byEff: boolean) => {
+    const acc: SpawnAcc = new Map();
+    for (const t of mixedTurns) accSpawnTurn(acc, t, byEff);
+    return flushSpawns(acc, "flow-review-product");
+  };
+  eq(
+    "one transcript at two efforts: default table counts one spawn",
+    spawnCostRows(mixedRecs(false)).map((r) => [r.key, r.spawns]),
+    [["flow-review-product @ claude-opus-5", 1]],
+  );
+  eq(
+    "one transcript at two efforts: effort table splits into two rows",
+    spawnCostRows(mixedRecs(true), byEffort)
+      .map((r) => [r.key, r.spawns])
+      .sort(),
+    [
+      ["flow-review-product @ claude-opus-5 @ high", 1],
+      ["flow-review-product @ claude-opus-5 @ medium", 1],
+    ],
+  );
+
+  const yRow = (sid: string, lenses: Record<string, any>) => ({
+    session_id: sid,
+    lenses,
+  });
+  const yv = (emitted: number, survived: number, acted: number) => ({
+    ran: true,
+    findings_emitted: emitted,
+    findings_survived: survived,
+    findings_acted: acted,
+  });
+  const yields = lensYieldByEffort(
+    [
+      yRow("s1", {
+        "bug-detection": yv(4, 3, 2),
+        product: yv(2, 1, 0),
+        gemini: yv(9, 9, 9),
+        security: { ran: false, findings_emitted: 5 },
+      }),
+      yRow("s2", {
+        "bug-detection": yv(2, 1, 1),
+        product: yv(6, 3, 3),
+        security: yv(1, 1, 0),
+      }),
+    ],
+    new Map([
+      ["s1\tflow-review-bug-detection", new Set(["high"])],
+      ["s1\tflow-review-product", new Set(["medium"])],
+      ["s2\tflow-review-bug-detection", new Set(["high"])],
+      ["s2\tflow-review-product", new Set(["medium", "high"])],
+    ]),
+  );
+  eq(
+    "lens yield by effort buckets",
+    yields.map((r) => [
+      r.key,
+      r.reviews,
+      r.runs,
+      r.emittedPerRun,
+      r.survivedPerRun,
+      r.actedPerRun,
+    ]),
+    [
+      ["all @ high", 2, 2, 3, 2, 1.5],
+      ["all @ medium", 1, 1, 2, 1, 0],
+      ["all @ mixed/unjoined", 1, 2, 3.5, 2, 1.5],
+      ["bug-detection @ high", 2, 2, 3, 2, 1.5],
+      ["product @ medium", 1, 1, 2, 1, 0],
+      ["product @ mixed/unjoined", 1, 1, 6, 3, 3],
+      ["security @ mixed/unjoined", 1, 1, 1, 1, 0],
+    ],
+  );
+
   eq("resolveRepo worktree", resolveRepo("/u/code/me/flow-foo", ["flow"]), {
     repo: "flow",
     worktree: true,
   });
   eq("resolveRepo skip", resolveRepo("/private/tmp/x/flow", ["flow"]), null);
+
+  const T0 = Date.parse("2026-09-10T00:00:00Z");
+  const req = (
+    min: number,
+    w5: number,
+    w1: number,
+    read: number,
+  ): CacheReq => ({
+    sent: T0 + min * MIN,
+    model: "claude-opus-5",
+    w5,
+    w1,
+    read,
+  });
+  const premium = (1000 * (10 - 6.25)) / 1e6;
+  const rewrite = (1000 * (6.25 - 0.5)) / 1e6;
+  const life = (reqs: CacheReq[]) => {
+    const t = zeroTally();
+    replayCacheLifetime(reqs, t);
+    return t;
+  };
+
+  const within = life([req(0, 0, 1000, 0), req(5, 0, 0, 1000)]);
+  close("gap<=5 premium", within.premiumUsd, premium);
+  close("gap<=5 no rewrite", within.rewriteUsdAt5m, 0);
+  close("gap<=5 net", within.netUsdAt5m, -premium);
+  eq("gap<=5 reads", [within.readsWithin5m, within.readsAfter5m], [1000, 0]);
+
+  const after = life([req(0, 0, 1000, 0), req(10, 0, 0, 1000)]);
+  close("5-60 rewrite", after.rewriteUsdAt5m, rewrite);
+  close("5-60 net", after.netUsdAt5m, rewrite - premium);
+  eq("5-60 counts", [after.readsAfter5m, after.requestsAfter5m], [1000, 1]);
+  close(
+    "gap=60 still charged",
+    life([req(0, 0, 1000, 0), req(60, 0, 0, 1000)]).rewriteUsdAt5m,
+    rewrite,
+  );
+  const long = life([req(0, 0, 1000, 0), req(61, 0, 0, 1000)]);
+  close("gap>60 no rewrite", long.rewriteUsdAt5m, 0);
+  eq("gap>60 reads", long.readsAfter60m, 1000);
+  const never = life([req(0, 1000, 0, 0), req(10, 0, 0, 1000)]);
+  close("never 1h no rewrite", never.rewriteUsdAt5m, 0);
+  close("never 1h no premium", never.premiumUsd, 0);
+  close(
+    "1h write after the gap does not retro-charge",
+    life([req(0, 1000, 0, 0), req(10, 0, 1000, 1000)]).rewriteUsdAt5m,
+    0,
+  );
+  eq(
+    "first request reads unattributed",
+    life([req(0, 0, 1000, 700)]).firstRequestReads,
+    700,
+  );
+  const unsorted = life([req(10, 0, 0, 1000), req(0, 0, 1000, 0)]);
+  close("replay sorts by sent", unsorted.rewriteUsdAt5m, rewrite);
+  const bad = life([req(0, 0, 1000, 0), { ...req(1, 0, 0, 5), sent: NaN }]);
+  eq("non-finite sent", [bad.unreplayable, bad.requests], [1, 1]);
+
+  const cross = (a: SpawnStream, b: SpawnStream) => {
+    const t = zeroTally();
+    replayCrossSpawnByGroup([a, b], () => t);
+    return t;
+  };
+  const spawnA = (cwd: string): SpawnStream => ({
+    type: "flow-discovery",
+    cwd,
+    reqs: [req(0, 0, 1000, 0)],
+  });
+  const spawnB = (cwd: string): SpawnStream => ({
+    type: "flow-discovery",
+    cwd,
+    reqs: [req(20, 0, 0, 1000)],
+  });
+  const same = cross(spawnA("/w/x"), spawnB("/w/x"));
+  eq("cross-spawn reads", same.crossSpawnReadsAfter5m, 1000);
+  close("cross-spawn rewrite", same.rewriteUsdAt5m, rewrite);
+  close("cross-spawn net", same.netUsdAt5m, rewrite);
+  const diff = cross(spawnA("/w/x"), spawnB("/w/y"));
+  eq("cross-spawn other cwd uncharged", diff.crossSpawnReadsAfter5m, 0);
+  close("cross-spawn other cwd net", diff.netUsdAt5m, 0);
+  const near = cross(spawnA("/w/x"), {
+    ...spawnB("/w/x"),
+    reqs: [req(4, 0, 0, 1000)],
+  });
+  eq("cross-spawn gap<=5 uncharged", near.crossSpawnReadsAfter5m, 0);
+  const stale = cross(spawnA("/w/x"), {
+    ...spawnB("/w/x"),
+    reqs: [req(90, 0, 0, 1000)],
+  });
+  eq("cross-spawn gap>60 uncharged", stale.crossSpawnReadsAfter5m, 0);
+  const no1h = cross(
+    { ...spawnA("/w/x"), reqs: [req(0, 1000, 0, 0)] },
+    spawnB("/w/x"),
+  );
+  eq("cross-spawn without 1h write uncharged", no1h.crossSpawnReadsAfter5m, 0);
+  const composed = zeroTally();
+  const ca = spawnA("/w/x");
+  const cb = spawnB("/w/x");
+  replayCacheLifetime(ca.reqs, composed);
+  replayCacheLifetime(cb.reqs, composed);
+  replayCrossSpawnByGroup([ca, cb], () => composed);
+  eq(
+    "cross-spawn read leaves the unattributed column",
+    [composed.firstRequestReads, composed.crossSpawnReadsAfter5m],
+    [0, 1000],
+  );
+  const perType = new Map<string, LifetimeTally>();
+  const tallyFor = (type: string) => {
+    if (!perType.has(type)) perType.set(type, zeroTally());
+    return perType.get(type)!;
+  };
+  replayCrossSpawnByGroup(
+    [
+      spawnA("/w/x"),
+      { ...spawnB("/w/x"), type: "flow-consolidator" },
+      { type: "flow-fix-applier", cwd: "/w/x", reqs: [req(0, 0, 1000, 0)] },
+      { type: "flow-fix-applier", cwd: "/w/x", reqs: [req(20, 0, 0, 1000)] },
+    ],
+    tallyFor,
+  );
+  eq(
+    "cross-spawn never credits a different agent type",
+    [
+      perType.get("flow-consolidator")?.crossSpawnReadsAfter5m,
+      perType.get("flow-discovery")?.crossSpawnReadsAfter5m,
+    ],
+    [0, 0],
+  );
+  eq(
+    "cross-spawn credits the same agent type only",
+    perType.get("flow-fix-applier")?.crossSpawnReadsAfter5m,
+    1000,
+  );
+
+  const sentTurns: Turn[] = [];
+  walkFile(
+    [
+      JSON.stringify({ type: "user", timestamp: "2026-09-10T00:00:00Z" }),
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-09-10T00:00:30Z",
+        cwd: "/w/x",
+        message: { id: "s1", model: "claude-opus-5", usage: split },
+      }),
+      JSON.stringify({ type: "user", timestamp: "2026-09-10T00:20:00Z" }),
+      asst("s2", "claude-opus-5", split, [], "2026-09-10T00:20:10Z"),
+      asst("s2", "claude-opus-5", split, [], "2026-09-10T00:20:11Z"),
+    ],
+    newStats(),
+    (t) => sentTurns.push(t),
+  );
+  eq(
+    "walkFile sent and cwd",
+    sentTurns.map((t) => [t.sent, t.ts, t.cwd]),
+    [
+      ["2026-09-10T00:00:00Z", "2026-09-10T00:00:30Z", "/w/x"],
+      ["2026-09-10T00:20:00Z", "2026-09-10T00:20:10Z", ""],
+    ],
+  );
+  const firstOnly: Turn[] = [];
+  walkFile(
+    [asst("s3", "claude-opus-5", split, [], "2026-09-10T00:00:30Z")],
+    newStats(),
+    (t) => firstOnly.push(t),
+  );
+  eq(
+    "walkFile sent falls back to own ts",
+    firstOnly[0].sent,
+    "2026-09-10T00:00:30Z",
+  );
 
   return fails;
 }

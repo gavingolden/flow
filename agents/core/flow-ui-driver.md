@@ -3,8 +3,6 @@ name: flow-ui-driver
 description: Browser-drive sub-agent for /flow-verify's UI-smoke pass. Launches the app, drives chrome-devtools per route and viewport, writes the captures JSON + result artifact. The manifest already says what to do, so this agent does not deliberate.
 tools: Bash, Read, Write, ToolSearch, mcp__chrome-devtools__*
 maxTurns: 120
-experimental:
-  cacheTtl: 1h
 skills:
   - flow-ui-driver-instructions
 ---
@@ -16,7 +14,7 @@ manifest, drive `chrome-devtools` per route and viewport, run
 structured result artifact on disk. Follow the spawn prompt and the
 preloaded `flow-ui-driver-instructions` skill you are given verbatim.
 
-Two invariants:
+Three invariants:
 
 - **Drive the browser inline. Never spawn a nested Task.** flow's flat-fan-out
   policy forbids it at this site — nesting is platform-possible since
@@ -26,6 +24,7 @@ Two invariants:
   is the isolation a nested spawn would provide.
 - **You are one-shot.** Do not ask the user clarifying questions. Return a short
   both-sides summary; the artifact on disk is the durable record.
+- **Read flow's own docs with the Read tool** — never `awk` or pattern-range `sed` on flow skill paths; Claude Code can flag it as a protected-file edit and stall the run.
 
 This definition does not pin `effort`: the Task tool has no per-spawn effort
 argument, so a frontmatter pin would be unoverridable even though this row's

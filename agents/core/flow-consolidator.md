@@ -2,8 +2,6 @@
 name: flow-consolidator
 description: Independent Consolidator-Validator Subagent for /flow-pr-review Step 3.5. Merges the per-lens review outputs, applies confidence threshold + dedup, and runs the second-opinion validation pass.
 tools: Bash, Read, Grep, Write
-experimental:
-  cacheTtl: 1h
 skills:
   - flow-consolidator-instructions
 ---
@@ -29,6 +27,7 @@ Invariants:
   calls) only.
 - **Write `consolidator-result.json` at the absolute path passed in**,
   then return a both-sides summary.
+- **Read flow's own docs with the Read tool** — never `awk` or pattern-range `sed` on flow skill paths; Claude Code can flag it as a protected-file edit and stall the run.
 
 This definition deliberately omits `effort:` and `model:` from its
 frontmatter: consolidation-validation is a judgment role, so its effort

@@ -1,7 +1,7 @@
 # flow-eval — maintainer guide
 
 `flow-eval` is a maintainer-only, locally-runnable headless eval harness
-running five committed suites, split by what each measures:
+running eight committed suites, split by what each measures:
 
 - Four **supervisor context-isolation scaffolds** (`verify-loop`,
   `haiku-gatekeeper`, `checkpoint-pending-clear`, `ui-smoke-isolation`) —
@@ -21,6 +21,35 @@ running five committed suites, split by what each measures:
   and `## User-facing changes` sections read as consequence-first, PM-facing
   writing rather than mechanism-first, code-centric writing, via the
   advisory `flow-explain-judge` check.
+- One **turn-count suite** (`review-turn-folding`, issue #835) — five
+  scenarios, each bounded to one `/flow-pr-review` step with pre-written
+  artifacts, measuring how many supervisor turns a helper that folds
+  mechanical steps saves. Its before/after arms and per-fold verdict are in
+  [`turn-folding/README.md`](turn-folding/README.md).
+
+- One **plan-quality suite** (`discovery-plan-quality`, issue #891) — whether
+  `/flow-product-planning`'s discovery sub-agent still writes a conforming
+  plan after its instruction file changes, plus what each run costs. Five
+  scenarios on a small committed `todo-cli` fixture (an internal change, a
+  UI change, a methods-plus-target request, a revision pass and a
+  researchable request) are graded by `flow-plan-lint` and per-branch section
+  checks; cost, turns and duration are non-gating metrics. Both arms pin the
+  parent model as a measurement control only. Run each arm on a clean,
+  committed tree with a fresh research cache, because the child symlinks the
+  evaluating checkout's plugin files and the research synthesis is otherwise
+  cached host-wide:
+  `FLOW_RESEARCH_CACHE_DIR=$(mktemp -d) bun bin/flow-eval.ts run --suite discovery-plan-quality --out <dir> --runs 2 --concurrency 5`.
+  Scenario s5 needs `research.discovery: true` in `~/.flow/config.json`.
+  Instruction-read tokens come from the run's streams with
+  `bun docs/eval/discovery-payload.ts --stream-dir <out>` (the
+  default `--instructions` set is the core plus the five discovery
+  references; repeat `--instructions <path|basename>` to override it); the
+  production baseline is
+  [discovery-payload-baseline-2026-10.md](discovery-payload-baseline-2026-10.md),
+  and the split's go/no-go record is
+  [discovery-payload.md](discovery-payload.md). The suite is paid (about
+  $1.90 per run, $18 to $19 per 10-run arm), and `run --all` now includes it,
+  which adds that much to every `--all` invocation.
 
 Alongside the suites, `docs/eval/review-cost-baseline.md` records the
 measured **review-phase cost before-state** — the supervisor's own turn
@@ -29,6 +58,12 @@ plus the phase-boundary context floors that decide whether any
 auto-compact window is safe. It is committed because the audit script
 reads a rolling 30-day window, so the "before" arm stops being
 reproducible once a cost change lands.
+
+`docs/eval/supervisor-turns.ts` prints the per-phase supervisor turn
+composition from local transcripts (turns, spend and context per phase, and
+the review phase's clusters); re-run it with
+`bun docs/eval/supervisor-turns.ts --since <YYYY-MM-DD>`. Its committed
+before-state is [`supervisor-turns-baseline-2026-10.md`](supervisor-turns-baseline-2026-10.md).
 
 `docs/eval/review-lens-cost.ts` prints the per-lens counterpart (turns,
 Reads, Greps, distinct files, cache and output tokens, dollars per lens
@@ -39,15 +74,42 @@ The token-spend audit, `docs/eval/token-spend-audit.ts`, measures where the
 whole Claude quota goes: spend by repo, model, sub-agent type and in-process
 skill segment, joined to flow's telemetry for per-pipeline cost, latency and
 outcome. Re-run it with `bun docs/eval/token-spend-audit.ts --since <YYYY-MM-DD>`;
-`--self-test` checks its parsing, pricing and join logic against an in-memory
-fixture. The dated before-state it produced is
+`--self-test` checks its parsing, pricing, cache-lifetime replay and join logic
+against an in-memory fixture. The dated before-state it produced is
 [`token-spend-baseline-2026-09.md`](token-spend-baseline-2026-09.md). It
 also prints cost per finished sub-agent run by type and model, the
-per-task view that per-turn figures confound.
+per-task view that per-turn figures confound. Its last section replays every
+transcript at a 5-minute cache lifetime to show what 1-hour cache writes
+bought; the cache-lifetime measurement is
+[`cache-lifetime-baseline-2026-10.md`](cache-lifetime-baseline-2026-10.md).
+The review-lens cost and findings per run, split by recorded reasoning effort,
+behind issue #832's not-planned verdict, is
+[`review-lens-effort-baseline-2026-10.md`](review-lens-effort-baseline-2026-10.md).
+
+[`lens-cache-prefix-baseline-2026-10.md`](lens-cache-prefix-baseline-2026-10.md)
+records the issue #889 check: which part of the review lenses' first-turn
+prompt the cache shares across spawns, and why a prompt reorder cannot
+reach more.
+
+`docs/eval/applier-turns.ts` attributes the edit-applier's and fix-applier's turns
+to a cause from the local sub-agent transcripts
+(`bun docs/eval/applier-turns.ts --since <YYYY-MM-DD> [--model <id>] [--repo <name>]`);
+its dated before-state is
+[`applier-turn-baseline-2026-10.md`](applier-turn-baseline-2026-10.md).
+`docs/eval/applier-replay.ts` replays recorded edit-sets under a before and an
+after instruction arm (`snapshot`, `run`, `rescore`, `report`) through the eval
+runner's stream-json trace, with a zero-test guard; its record, with the
+pre-registered rule and the verdict (no-ship), is
+[`applier-replay.md`](applier-replay.md).
 
 [`fable-vs-opus-subagents.md`](fable-vs-opus-subagents.md) records the
 issue #890 check: bug-detection recall on Fable 5.1 against Opus 5.5 on
 the review-recall harness's three PRs, under a pre-registered verdict rule.
+
+[`discovery-payload-2026-10.md`](discovery-payload-2026-10.md) records the
+issue #891 check: what discovery's instruction file costs each plan on each
+model, which of its sections only some plans need, and the most a split could
+save.
 
 `bin/flow-eval.ts` is never installed onto a user's PATH (see
 `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it from a flow

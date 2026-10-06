@@ -19,7 +19,7 @@ import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
  *
  * This suite closes the gap WITHOUT duplicating the jq: it EXTRACTS the
  * `read_budget` helper + `RESEARCH_*` assignments + cross-model diversity guard
- * from the fenced ```bash block in discovery-instructions.md (the single source
+ * from the fenced ```bash block in discovery-research.md (the single source
  * of truth — the jq is inline-in-markdown by design because the discovery
  * subagent runs in a consumer worktree where flow's bin/lib is NOT on PATH, so
  * a committed shell-script copy would drift). It rewrites only the `CFG=` line to
@@ -31,14 +31,14 @@ import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
+const DISCOVERY_RESEARCH_PATH = path.resolve(
   HERE,
   "..",
   "skills",
   "pipeline",
   "flow-product-planning",
   "references",
-  "discovery-instructions.md",
+  "discovery-research.md",
 );
 
 const hasJq = spawnSync("jq", ["--version"], { encoding: "utf8" }).status === 0;
@@ -57,7 +57,7 @@ function extractBudgetBlock(md: string): string {
   }
   throw new Error(
     "could not locate the fenced ```bash block containing `read_budget() {` " +
-      `in ${DISCOVERY_INSTRUCTIONS_PATH}`,
+      `in ${DISCOVERY_RESEARCH_PATH}`,
   );
 }
 
@@ -67,7 +67,7 @@ let tmpDir: string;
 beforeAll(() => {
   if (!hasJq) return;
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-budget-behavior-"));
-  const md = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+  const md = fs.readFileSync(DISCOVERY_RESEARCH_PATH, "utf8");
   const block = extractBudgetBlock(md);
 
   // Repoint the hardcoded CFG at the fixture passed as $1, and echo the

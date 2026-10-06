@@ -123,7 +123,7 @@ SURVEY: <absolute path to .flow-tmp/blind-survey.md> (judges: A=<model> ran|skip
 
 `/flow-product-planning`'s `{{SURVEY_OVERRIDE}}` spawn-template
 placeholder forwards it to the Discovery Subagent, which runs
-`discovery-instructions.md` step 1.8 and authors `## Method selection`.
+`discovery-survey-epic.md` (step 1.8) and authors `## Method selection`.
 
 On a re-entry where `blind-survey.md` already exists (the Gate part 2
 reuse path above) but no envelope is live in the current turn, derive

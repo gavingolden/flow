@@ -6,7 +6,7 @@ import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
 
 /**
  * Structural lint for the F2 research pre-check budget wiring in
- * `skills/pipeline/flow-product-planning/references/discovery-instructions.md`.
+ * `skills/pipeline/flow-product-planning/references/discovery-research.md`.
  *
  * Step 1.5 of that file reads four OPTIONAL `~/.flow/config.json` budget keys
  * (`research.maxCalls` / `research.timeout` / `research.model` /
@@ -27,19 +27,19 @@ import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
+const DISCOVERY_RESEARCH_PATH = path.resolve(
   HERE,
   "..",
   "skills",
   "pipeline",
   "flow-product-planning",
   "references",
-  "discovery-instructions.md",
+  "discovery-research.md",
 );
-const content = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+const content = fs.readFileSync(DISCOVERY_RESEARCH_PATH, "utf8");
 
 const FILE_LABEL =
-  "skills/pipeline/flow-product-planning/references/discovery-instructions.md";
+  "skills/pipeline/flow-product-planning/references/discovery-research.md";
 
 // The forced (`flow feature create --research`) path runs bin/flow-research-run.ts, which
 // keeps its OWN copy of the model-variant pins + cross-model diversity-guard

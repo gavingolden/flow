@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "escalation_tag": {
+      "type": ["string", "null"]
+    },
+    "result_written": {
+      "type": "boolean"
+    }
+  },
+  "required": ["escalation_tag", "result_written"]
+}
