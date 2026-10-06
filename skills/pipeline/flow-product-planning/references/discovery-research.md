@@ -1,6 +1,6 @@
 # Discovery Step 1.5 research procedure (read only when research fires)
 
-When `RESEARCH_ON` is `true` (or `FORCE_RESEARCH` is `true`), also resolve the four **optional budget overrides** from the same `.research` object before building the manifest in (c). Each is **tolerant by construction with one twist over the boolean read above**: an absent key silently takes its v1 default; a key that is **present but the wrong JSON type emits a loud `stderr` warning and then falls back to the default** — it never throws and never aborts the pass (a config typo must degrade to a warning, mirroring the `allSkipped` graceful-skip discipline — research never blocks planning). A bare `// default` is **insufficient** because it only defaults on `null`/missing, not on a present wrong-type value, so each read type-guards explicitly:
+When `RESEARCH_ON` is `true` (or `FORCE_RESEARCH` is `true`), also resolve the four **optional budget overrides** from the same `.research` object before building the manifest in (c). Each is **tolerant by construction with one twist over the boolean read in discovery-instructions.md Step 1.5 (a)**: an absent key silently takes its v1 default; a key that is **present but the wrong JSON type emits a loud `stderr` warning and then falls back to the default** — it never throws and never aborts the pass (a config typo must degrade to a warning, mirroring the `allSkipped` graceful-skip discipline — research never blocks planning). A bare `// default` is **insufficient** because it only defaults on `null`/missing, not on a present wrong-type value, so each read type-guards explicitly:
 
 ```bash
 CFG=~/.flow/config.json
@@ -53,7 +53,7 @@ The four resolved variables — `RESEARCH_MAX_CALLS` (from `research.maxCalls`, 
 flow-module-status --check research || RESEARCH_MODULE_INACTIVE=1
 ```
 
-When `$RESEARCH_MODULE_INACTIVE` is set, the helper already emitted the named notice to stderr — skip the fan-out (and the cache read) entirely and take the SAME graceful-skip path as (e), reusing its machinery rather than inventing a new one: write `research-status.json` with `"reason": "research-deselected"` (extending the (e)/Visibility-note reason enum below) and the SAME `> [!NOTE]` visibility-note write, naming the deselected module in place of the agy-unavailable reason text. Then proceed to step 2 unchanged.
+When `$RESEARCH_MODULE_INACTIVE` is set, the helper already emitted the named notice to stderr — skip the fan-out (and the cache read) entirely and take the SAME graceful-skip path as (e), reusing its machinery rather than inventing a new one: write `research-status.json` with `"reason": "research-deselected"` (extending the (e)/Visibility-note reason enum in discovery-instructions.md Step 1.5) and the SAME `> [!NOTE]` visibility-note write, naming the deselected module in place of the agy-unavailable reason text. Then proceed to step 2 unchanged.
 
 **Cache-read first (before building the manifest).** A prior identical run may already have synthesized this exact question, so check the host-wide research cache before paying for a fresh fan-out. Run it by **bare PATH name** via Bash — exactly like the `jq` and `flow-delegate-fanout` invocations above, NOT a `bin/lib` import (Step 1.5 runs in the consumer/target worktree where flow's `bin/lib` is absent):
 

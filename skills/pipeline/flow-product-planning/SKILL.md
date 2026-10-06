@@ -299,7 +299,7 @@ substitute this block verbatim for `{{REVISION_OVERRIDE}}`:
 ```
 REVISION: <n>
   This is a REVISION pass on an existing plan.md, not a fresh draft. Run
-  discovery-instructions.md "Revision pass mode": read the existing plan.md
+  discovery-revision.md "Revision pass mode": read the existing plan.md
   first, update in place, preserve untouched sections and the embedded
   `### Cross-model review (AGY)` subsection + `<!-- flow-plan-review-hash: <sha> -->`
   marker verbatim, keep the `### Product critique (blind)` subsection under
@@ -420,7 +420,7 @@ block is the only way the survey result reaches it. When the survey ran
 
 ```
 SURVEY: <absolute path> (judges: A=<model> ran|skipped:<reason>, B=<model> ran|skipped:<reason>)
-  Run discovery-instructions.md step 1.8: read the file at this absolute
+  Run discovery-survey-epic.md step 1.8: read the file at this absolute
   path with the Read tool, weigh each judge's top recommendation against
   the user's proposed method with cited codebase evidence, decide the
   verdict, and author `## Method selection` per the step-5 section list.

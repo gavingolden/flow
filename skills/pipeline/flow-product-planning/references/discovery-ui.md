@@ -57,7 +57,7 @@ When (and only when) the step 1.6 design-artifact gate fired, add an omit-when-e
 
 Every mechanical bullet mirrors a `spec.json` assertion 1:1 (same id) — a bullet with no spec assertion, or a spec assertion with no bullet, is drift. Raw values pinned where the repo has no token are flagged here as **add-a-token smells** (step 1.6(c)).
 
-**Omit-when-empty (load-bearing).** When the design-artifact gate did not fire, **omit the `## Visual Spec` heading entirely; do not write an empty heading.** Same rule as `## Decision analysis` below: an empty heading implies a frozen artifact exists when none does, adds noise to plan review, and — because the section's presence is the trigger for `/flow-new-feature` Step 5's foundation-commit + `DESIGN_CONTEXT` pass-through and step 7's per-assertion Test Steps authoring — would falsely trigger the design-fidelity machinery with nothing to verify against.
+**Omit-when-empty (load-bearing).** When the design-artifact gate did not fire, **omit the `## Visual Spec` heading entirely; do not write an empty heading.** Same rule as `## Decision analysis` in discovery-instructions.md step 5: an empty heading implies a frozen artifact exists when none does, adds noise to plan review, and — because the section's presence is the trigger for `/flow-new-feature` Step 5's foundation-commit + `DESIGN_CONTEXT` pass-through and step 7's per-assertion Test Steps authoring — would falsely trigger the design-fidelity machinery with nothing to verify against.
 
 ### Layout Intent
 

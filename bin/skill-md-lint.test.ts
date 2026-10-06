@@ -3805,7 +3805,7 @@ describe("Metadata-triage artifact JSON schema drift (flow-pr-review/SKILL.md)",
   // on every verdict (always-emit boolean, never undefined) so the downstream
   // Pattern & Consistency Agent at Step 2 can read it from the artifact
   // unconditionally. Sibling contract: skills/pipeline/flow-product-planning/
-  // references/discovery-instructions.md "Prompt interpretation (conditional)"
+  // references/discovery-prompt-interpretation.md "Prompt interpretation (conditional)"
   // is the single source of truth for the detection heuristic and the
   // four-value Recommended-path enum.
   const GATEKEEPER_REQUIRED_KEYS = [
@@ -3958,7 +3958,7 @@ describe("AGENTS.md Output style anchors", () => {
     // The bolded anchor phrase **Treat user prompts as evidence of intent,
     // not exhaustive specifications.** is the stable lint hook for the rule
     // documented at AGENTS.md `## Output style`. Downstream contracts
-    // (skills/pipeline/flow-product-planning/references/discovery-instructions.md's
+    // (skills/pipeline/flow-product-planning/references/discovery-prompt-interpretation.md's
     // "Prompt interpretation (conditional)" sub-section,
     // skills/pipeline/flow-new-feature/SKILL.md Step 2's tension surfacing,
     // skills/pipeline/flow-pipeline/SKILL.md Step 3's non-feature-intent
@@ -4330,6 +4330,38 @@ describe("discovery reference reachability", () => {
       ).toEqual([file]);
     },
   );
+
+  // The spawn prompt names each marker-gated reference "before step 1" so
+  // discovery batches the read into its first turn instead of paying a mid-file
+  // pointer's sequential round trip. Nothing else would fail if a line is lost.
+  const overrideBlock = (marker: string) => {
+    const lines = productPlanningTopContent.split("\n");
+    const start = lines.findIndex((l) => l.startsWith(marker));
+    const end = lines.indexOf("```", start);
+    return start === -1 || end === -1 ? "" : lines.slice(start, end).join("\n");
+  };
+
+  it.each([
+    ["RESEARCH: force-on", "discovery-research.md"],
+    ["REVISION: <n>", "discovery-revision.md"],
+    ["EPIC: <slug>/<id>", "discovery-survey-epic.md"],
+    ["SURVEY: <absolute path>", "discovery-survey-epic.md"],
+  ])("the %s spawn block names %s before step 1", (marker, file) => {
+    const block = overrideBlock(marker);
+    expect(
+      block,
+      `no fenced '${marker}' block in flow-product-planning/SKILL.md`,
+    ).not.toBe("");
+    expect(block).toContain(
+      `Read {{SKILL_DIR}}/references/${file} before step 1.`,
+    );
+    expect(
+      block,
+      `the '${marker}' block must point at ${file}, not a section that moved out of discovery-instructions.md`,
+    ).not.toMatch(
+      /discovery-instructions\.md ("Revision pass mode"|step 1\.8)/,
+    );
+  });
 });
 
 describe("New planning-discipline contract anchors", () => {

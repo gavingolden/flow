@@ -16,7 +16,7 @@ bin/lib/*` — discovery runs in the consumer worktree, where flow's own source 
    `split` = anything else, including a single-judge run. A single-judge run can therefore
    never yield `converge-against` — there is no second independent judgment to converge
    against the user's method with.
-4. Author `## Method selection` per the step-5 section list above. Each judge line opens
+4. Author `## Method selection` per the step-5 section list in discovery-instructions.md. Each judge line opens
    with that judge's top recommendation quoted VERBATIM — its first sentence, in double
    quotes — before any paraphrase, so the user can audit the verdict both at the
    `pause-for-method` checkpoint (any intent, `converge-against`) and later at plan
@@ -40,7 +40,7 @@ method:** <one line> — <why>` — followed by a `| Before (user's method as as
 ### Epic context
 
 Populated only when step 1.7 detects epic membership (omit-when-empty — same
-never-an-empty-heading discipline as the sections above). Names: the epic slug, this
+never-an-empty-heading discipline as the sections in the discovery-instructions.md step-5 section list). Names: the epic slug, this
 feature's id and its rationale within the epic, its `dependsOn` edges (naming the
 produced/consumed artifact for each), and its downstream dependents whose consumed
 interfaces must stay stable.

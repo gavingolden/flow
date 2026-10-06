@@ -130,7 +130,7 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      entirely (never an empty heading). Per-surface element-level assertion bullets,
      each tagged with its spec.json assertion id + mechanical/judged tier — every
      mechanical bullet mirrors a spec assertion 1:1. Full contract lives in
-     skills/pipeline/flow-product-planning/references/discovery-instructions.md
+     skills/pipeline/flow-product-planning/references/discovery-ui.md
      "Visual Spec" — the single source of truth. Do NOT inline the contract here;
      this is a thin sketch. -->
 

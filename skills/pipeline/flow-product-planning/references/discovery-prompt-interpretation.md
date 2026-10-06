@@ -24,7 +24,7 @@ path captures that.
 
 **Omit-when-no-tension.** When discovery surfaces neither signal — or only one — omit the
 `## Prompt interpretation` section entirely. Same omit-when-empty rule as the
-`# Candidate follow-up issues` section above: an empty heading adds noise and risks
+`# Candidate follow-up issues` section in discovery-instructions.md: an empty heading adds noise and risks
 downstream consumers treating absent-tension prompts as tension-flagged (the
 `/flow-pipeline` Step 3 routing helper exact-matches against the four-value enum below
 and a missing heading is treated as "no tension", but an empty heading would be ambiguous
