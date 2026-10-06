@@ -1,0 +1,34 @@
+{
+  "schema": "flow/agy-delegation-recall@1",
+  "measured_at": null,
+  "rule": {
+    "lenses": {
+      "arms": { "baseline": "opus", "candidate": "agy-opus-5-5-high" },
+      "baseline_effort": "high",
+      "candidate_model": "Claude Opus 5.5 (High)",
+      "prs": [812, 756, 802],
+      "runs_per_cell": 2,
+      "delegate_if_all": [
+        "agy mean recall >= opus mean recall - pooled within-arm sd",
+        "one-sided exact permutation p (opus exceeds agy) >= 0.05",
+        "all six agy cells schema-valid on the first attempt",
+        "agy candidate findings >= 0.5 x opus candidate findings"
+      ]
+    },
+    "scout": {
+      "candidate": "claude-opus-5-5-high",
+      "incumbent": "claude-sonnet-4-6 (committed 2026-09-05 rows)",
+      "cases": [
+        "c1-multifile-contract",
+        "c2-planted-defects",
+        "c2b-real-defect"
+      ],
+      "delegate_if_all": [
+        "c2b real defect caught in at least the incumbent's share of repeats",
+        "mechanical recall >= incumbent - 0.05 on each case"
+      ]
+    }
+  },
+  "lenses": {},
+  "scout": null
+}
