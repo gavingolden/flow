@@ -26,7 +26,7 @@ Run all relevant pre-commit checks, fix any failures, and re-run until every che
 # Context
 
 - `flow-pre-commit` (installed globally by `flow install` and on PATH) auto-detects scope,
-  runs format + checks, and reports pass/fail. The `--json` flag emits a single bounded
+  runs the checks (it never formats), and reports pass/fail. The `--json` flag emits a single bounded
   JSON object — head/tail-capped failure excerpts plus a `firstErrorText` extraction —
   so this skill returns a compact summary to its caller instead of replaying 50–200 KB
   of raw test stack traces.

@@ -201,8 +201,8 @@ inside your isolated context:
 flow-pre-commit --json
 ```
 
-The helper auto-detects scope from `git diff HEAD`, runs `npm run format`
-first, then each check separately with structured pass/fail output. The
+The helper auto-detects scope from `git diff HEAD` and does not format;
+it runs each check separately with structured pass/fail output. The
 `--json` flag emits a single bounded JSON object with head/tail-capped
 failure excerpts.
 
