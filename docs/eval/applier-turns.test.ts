@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   attributeSpawn,
   classifyBash,
+  editScript,
   failureClass,
   isCalendarDate,
+  isLookupSegment,
   isVerifyInvocation,
+  shellSegments,
   verifyOutcome,
 } from "./applier-turns";
 import { walkFile } from "./token-spend-audit";
@@ -311,5 +314,178 @@ describe("attributeSpawn", () => {
     const a = attributeSpawn(transcript);
     const b = attributeSpawn(stream);
     expect(b).toEqual(a);
+  });
+});
+
+describe("shellSegments", () => {
+  it("should split on &&, ||, ; and newlines", () => {
+    expect(shellSegments("a && b || c; d\ne")).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+    ]);
+  });
+
+  it("should strip a leading cd and heredoc bodies", () => {
+    expect(shellSegments("cd /w && grep x f | head")).toEqual([
+      "grep x f | head",
+    ]);
+    expect(
+      shellSegments("python3 - <<'EOF'\nprint(1); print(2)\nEOF\nnpx vitest"),
+    ).toEqual(["python3 -", "npx vitest"]);
+  });
+});
+
+describe("isLookupSegment", () => {
+  it("should accept read-only commands", () => {
+    for (const c of [
+      "cat a.ts",
+      "sed -n '1,20p' a.ts",
+      "grep -n x a.ts 2>/dev/null",
+      "rg x",
+      "head -5 a",
+      "tail -5 a",
+      "ls docs",
+      "wc -l a",
+      "find . -name '*.ts'",
+      "git diff --stat",
+      "git log --oneline",
+      "git show HEAD:a",
+      "git status",
+    ]) {
+      expect(isLookupSegment(c), c).toBe(true);
+    }
+  });
+
+  it("should reject writes and other commands", () => {
+    for (const c of [
+      "cat > a.ts",
+      "sed -i s/a/b/ f",
+      "find . -delete",
+      "npx vitest run",
+      "git commit -m x",
+      "python3 -",
+    ]) {
+      expect(isLookupSegment(c), c).toBe(false);
+    }
+  });
+});
+
+describe("editScript", () => {
+  const script = (body: string, tail = "") =>
+    `python3 - <<'EOF'\n${body}\nEOF${tail}`;
+
+  it("should return null unless a python heredoc writes a file", () => {
+    expect(editScript("cat a.ts")).toBeNull();
+    expect(editScript(script("print(1)"))).toBeNull();
+    expect(
+      editScript(
+        script("open('r.json','w').write('x')").replace(
+          "r.json",
+          "coder-result.json",
+        ),
+      ),
+    ).toBeNull();
+  });
+
+  it("should detect a match guard", () => {
+    expect(
+      editScript(
+        script("s=open('a').read()\nassert 'x' in s\nopen('a','w').write(s)"),
+      ),
+    ).toEqual({ guarded: true, chained: false });
+    expect(
+      editScript(script("s=open('a').read()\nopen('a','w').write(s)")),
+    ).toEqual({ guarded: false, chained: false });
+  });
+
+  it("should detect a chained check", () => {
+    expect(
+      editScript(script("open('a','w').write('x')", "\ngit diff --stat")),
+    ).toEqual({ guarded: false, chained: true });
+  });
+});
+
+describe("attributeSpawn tool-use habit", () => {
+  const bash = (id: string, mid: string, command: string) =>
+    asst(mid, [use(id, "Bash", { command })]);
+  const verify = "flow-pre-commit --json";
+
+  it("should read the auto-mode steer from an attachment record", () => {
+    const att = (v: string) => ({
+      type: "attachment",
+      attachment: { type: "auto_mode", bashFirstSteer: v },
+    });
+    expect(attributeSpawn([att("relaxed")]).autoModeSteer).toBe("relaxed");
+    expect(attributeSpawn([att("strict"), att("relaxed")]).autoModeSteer).toBe(
+      "strict",
+    );
+    expect(attributeSpawn([asst("m1", [])]).autoModeSteer).toBe("none");
+  });
+
+  it("should count tool calls, shell operations and lookup-only turns", () => {
+    const s = attributeSpawn([
+      asst("m1", [
+        use("t1", "Read", { file_path: "/w/a.ts" }),
+        use("t2", "Grep", { pattern: "x" }),
+      ]),
+      result("t1", "x"),
+      result("t2", "x"),
+      bash("t3", "m2", "cd /w && cat a.ts && sed -n '1,5p' b.ts"),
+      result("t3", "x"),
+      bash("t4", "m3", "npx vitest run"),
+      result("t4", "ok"),
+      bash("t5", "m4", "grep x a.ts"),
+      result("t5", "x"),
+    ]);
+    expect(s.toolCalls).toBe(5);
+    expect(s.multiCallTurns).toBe(1);
+    expect(s.bashCalls).toBe(3);
+    expect(s.shellOps).toBe(4);
+    expect(s.chainedBash).toBe(1);
+    expect(s.lookupTurns).toBe(3);
+    expect(s.lookupAfterLookup).toBe(1);
+  });
+
+  it("should count edit scripts and tracebacks", () => {
+    const cmd =
+      "python3 - <<'EOF'\ns=open('a').read()\nassert 'x' in s\nopen('a','w').write(s)\nEOF\ngit diff";
+    const s = attributeSpawn([
+      bash("t1", "m1", cmd),
+      result("t1", "Traceback (most recent call last):\n  AssertionError"),
+    ]);
+    expect(s.editScripts).toBe(1);
+    expect(s.editScriptsGuarded).toBe(1);
+    expect(s.editScriptsChained).toBe(1);
+    expect(s.editScriptTracebacks).toBe(1);
+  });
+
+  it("should count only edit-separated verifies as fix rounds", () => {
+    const s = attributeSpawn([
+      bash("t1", "m1", verify),
+      result("t1", failJson(["npm run lint"])),
+      bash("t2", "m2", verify),
+      result("t2", failJson(["npm run lint"])),
+      asst("m3", [use("t3", "Edit", { file_path: "/w/a.ts" })]),
+      result("t3", "ok"),
+      bash("t4", "m4", verify),
+      result("t4", failJson(["npm run lint"])),
+      asst("m5", [
+        use("t5", "Write", { file_path: "/w/.flow-tmp/coder-result.json" }),
+      ]),
+      result("t5", "ok"),
+      bash("t6", "m6", verify),
+      result("t6", '{"allPassed": true}'),
+      bash("t7", "m7", "sed -i s/a/b/ a.ts"),
+      result("t7", ""),
+      bash("t8", "m8", `${verify} 2>&1 | tail -5`),
+      result("t8", '{"allPassed": true}'),
+      bash("t9", "m9", "which flow-pre-commit"),
+      result("t9", "/bin/flow-pre-commit"),
+    ]);
+    expect(s.fixRounds).toBe(2);
+    expect(s.noEditReruns).toBe(2);
   });
 });
