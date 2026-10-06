@@ -68,7 +68,7 @@
  *
  * stdout is always a one-line JSON envelope:
  *   success: {"ran":true,"task":..,"model":..,"artifactPath":..,"exitCode":0,"durationMs":..}
- *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-timeout"|"agy-canceled"|"agy-error"|"agy-empty-artifact"|"spawn-failed",..}
+ *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-model-unavailable"|"agy-timeout"|"agy-canceled"|"agy-error"|"agy-empty-artifact"|"spawn-failed",..}
  *            (every skip envelope from a dispatched agy call may also carry
  *            `exitCode`, a redacted <=2000-byte `stderrTail` (tail-most, when
  *            agy's stderr was non-empty), `agyStatus` (the json-mode
@@ -103,7 +103,11 @@ import { redactSecrets } from "./lib/redact-secrets";
 import { parseStructured } from "./lib/structured-response";
 import { recordEvent } from "./lib/telemetry";
 import { classifyAgyFailure } from "./lib/agy-failure-class";
-import { looksTimedOut, looksUnauthenticated } from "./lib/agy-output";
+import {
+  looksModelUnavailable,
+  looksTimedOut,
+  looksUnauthenticated,
+} from "./lib/agy-output";
 
 const DEFAULT_TIMEOUT = "5m";
 const DEFAULT_TASK = "default";
@@ -293,6 +297,7 @@ export type AgyOutcome =
   | "ran"
   | "agy-timeout"
   | "agy-not-authenticated"
+  | "agy-model-unavailable"
   | "agy-canceled"
   | "agy-error"
   | "agy-empty-artifact";
@@ -300,7 +305,8 @@ export type AgyOutcome =
 // Single classification chokepoint for the non-zero-exit AND json-mode-error
 // paths. Ordering is load-bearing: a timeout signal (stderr OR the json
 // envelope's `error` field) is checked first so a widened auth regex can
-// never shadow it, `CANCELED` next, then a generic non-zero-exit/`ERROR`
+// never shadow it, then auth, then a retired/unknown `--model` name
+// (`agy-model-unavailable`, rejected before any model call), `CANCELED` next, then a generic non-zero-exit/`ERROR`
 // status, then (only once every other check has passed, i.e. exactly the
 // case that would otherwise be a successful "ran") the `artifactHasContent`
 // flag — a 0-byte artifact from an otherwise-clean exit is #627/#712's
@@ -327,6 +333,12 @@ export function classifyAgyOutcome(
     (input.outcome.error && looksUnauthenticated(input.outcome.error))
   ) {
     return "agy-not-authenticated";
+  }
+  if (
+    looksModelUnavailable(input.stderr) ||
+    (input.outcome.error && looksModelUnavailable(input.outcome.error))
+  ) {
+    return "agy-model-unavailable";
   }
   if (input.outcome.status === "CANCELED") {
     return "agy-canceled";

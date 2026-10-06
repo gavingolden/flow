@@ -395,6 +395,49 @@ describe("classifyAgyOutcome", () => {
     ).toBe("agy-not-authenticated");
   });
 
+  const RETIRED_MODEL_TEXT =
+    "error: invalid model selection: model Claude Opus 4.6 (Thinking) is not recognized as a known model or custom model in settings";
+
+  it("classifies agy's retired-model stderr as agy-model-unavailable", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 1,
+        stderr: RETIRED_MODEL_TEXT,
+        outcome: {},
+      }),
+    ).toBe("agy-model-unavailable");
+  });
+
+  it("classifies the retired-model text in the json envelope error field as agy-model-unavailable", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 1,
+        stderr: "",
+        outcome: { status: "ERROR", error: RETIRED_MODEL_TEXT },
+      }),
+    ).toBe("agy-model-unavailable");
+  });
+
+  it("checks timeout before model-unavailable so a timeout signature still wins", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 1,
+        stderr: `${RETIRED_MODEL_TEXT}\nError: timeout waiting for response`,
+        outcome: {},
+      }),
+    ).toBe("agy-timeout");
+  });
+
+  it("leaves an unrelated 'model ... not found' error as agy-error", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 1,
+        stderr: "error: model weights file not found",
+        outcome: {},
+      }),
+    ).toBe("agy-error");
+  });
+
   it("classifies an otherwise-clean run with an empty artifact as agy-empty-artifact, not ran (#627/#712)", () => {
     expect(
       classifyAgyOutcome({ exitCode: 0, stderr: "", outcome: {} }, false),

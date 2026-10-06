@@ -22,7 +22,7 @@
  * graceful skip on any failure -> exit 0 on every operational path):
  *  1. Read budget/model overrides from ~/.flow/config.json tolerantly, reusing
  *     discovery's frozen defaults (maxCalls 12, timeout "3m", gather
- *     "Gemini 3.1 Pro (High)", refute "Claude Opus 4.6 (Thinking)" with the
+ *     "Gemini 3.1 Pro (High)", refute "Claude Opus 5.5 (Medium)" with the
  *     cross-model diversity guard).
  *  2. Build a deterministic 2-entry manifest (gather + adversarial refute).
  *  3. Run `flow-delegate-fanout` (concurrency pinned at 4 — 2 entries are one
@@ -299,6 +299,8 @@ function plainSkipReason(outcome: EntryOutcome): string {
       return "the research tool isn't installed";
     case "agy-not-authenticated":
       return "the research tool isn't signed in";
+    case "agy-model-unavailable":
+      return "its model is no longer offered by agy (run `flow doctor`)";
     case "spawn-failed":
       return "it failed to start";
     default:
@@ -308,7 +310,7 @@ function plainSkipReason(outcome: EntryOutcome): string {
 // NOTE: the `default` arm above is a last-resort fallback, not the intended
 // path — every skipReason flow-delegate can emit (see its module header:
 // "agy-not-found"|"agy-not-authenticated"|"agy-timeout"|"agy-canceled"|
-// "agy-error"|"agy-empty-artifact"|"spawn-failed", plus this file's own
+// "agy-error"|"agy-empty-artifact"|"agy-model-unavailable"|"spawn-failed", plus this file's own
 // "entry-missing"/"budget-exhausted") has an explicit case above so no raw
 // kebab-case token reaches the user-read findings block. Anything that still
 // lands in `default` is a genuinely new/unmapped reason.

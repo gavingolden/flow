@@ -26,6 +26,7 @@ export const AGY_FAILURE_CLASSES = [
   "empty-artifact",
   "spawn-failed",
   "unknown",
+  "model-unavailable",
 ] as const;
 
 export type AgyFailureClass = (typeof AGY_FAILURE_CLASSES)[number];
@@ -58,6 +59,8 @@ export function classifyAgyFailure(input: {
   switch (input.skipReason) {
     case "agy-not-authenticated":
       return "auth";
+    case "agy-model-unavailable":
+      return "model-unavailable";
     case "agy-timeout":
       return "timeout";
     case "agy-canceled":

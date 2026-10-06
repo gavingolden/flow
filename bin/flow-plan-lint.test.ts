@@ -440,7 +440,7 @@ describe("lintPlan — Method selection", () => {
       "\n## Method selection\n\n" +
       "- **User's method:** a Task-tool judge sub-agent\n" +
       '- **Judge A (Gemini 3.1 Pro (High)):** "Add a supervisor-side blind survey before discovery drafts a plan." — a fan-out over two pinned judges\n' +
-      '- **Judge B (Claude Opus 4.6 (Thinking)):** "Run two model-pinned judges over a goal-only brief." — converges with judge A\n' +
+      '- **Judge B (Claude Opus 5.5 (High)):** "Run two model-pinned judges over a goal-only brief." — converges with judge A\n' +
       "- **Survey verdict:** converge-against\n" +
       "- **Chosen method:** blind survey — both judges independently converged away from the user's proposed method\n";
     const { misses } = lintPlan(plan);
@@ -495,7 +495,7 @@ describe("lintPlan — Method selection", () => {
       "\n## Method selection\n\n" +
       "- **Survey verdict:** split\n" +
       "- **Judge A (Gemini 3.1 Pro (High)):** skipped: agy-timeout\n" +
-      '- **Judge B (Claude Opus 4.6 (Thinking)):** "Run two model-pinned judges." — recommendation\n' +
+      '- **Judge B (Claude Opus 5.5 (High)):** "Run two model-pinned judges." — recommendation\n' +
       "- **Chosen method:** blind survey — rationale\n";
     const { misses } = lintPlan(plan);
     expect(misses.some((m) => m.includes("Judge A"))).toBe(false);
@@ -553,7 +553,7 @@ describe("lintPlan — Method selection", () => {
       CONFORMING_PLAN +
       "\n## Method selection\n\n" +
       '- **Judge A (Gemini 3.1 Pro (High)):** "Add a supervisor-side blind survey before discovery drafts a plan." — a fan-out over two pinned judges\n' +
-      '- **Judge B (Claude Opus 4.6 (Thinking)):** "Run two model-pinned judges over a goal-only brief." — converges with judge A\n' +
+      '- **Judge B (Claude Opus 5.5 (High)):** "Run two model-pinned judges over a goal-only brief." — converges with judge A\n' +
       "- **Survey verdict:** converge-against\n" +
       "- **Chosen method:** blind survey — both judges independently converged away from the user's proposed method\n";
     const { misses } = lintPlan(plan, { surveyRan: true });

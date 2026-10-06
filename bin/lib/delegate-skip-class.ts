@@ -37,6 +37,8 @@ export type SkipClass = "environment" | "ran-unusable";
 export const ENVIRONMENT_SKIP_REASONS: ReadonlySet<string> = new Set([
   "agy-not-found",
   "agy-not-authenticated",
+  // agy rejects the model name before any model call, so no quota is spent.
+  "agy-model-unavailable",
   "gemini-lens-disabled",
   "gemini-intent-guess-disabled",
   "plan-review-disabled",

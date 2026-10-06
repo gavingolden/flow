@@ -34,6 +34,7 @@ describe("classifyDelegateSkip", () => {
       [
         "agy-not-found",
         "agy-not-authenticated",
+        "agy-model-unavailable",
         "gemini-lens-disabled",
         "gemini-intent-guess-disabled",
         "plan-review-disabled",
