@@ -118,6 +118,16 @@ const LOOKUP_TOOLS = new Set(["Read", "Grep", "Glob", "Bash"]);
 const LEADING_CD = /^\s*cd\s+[^&;\n]+(&&|;)\s*/;
 const FILE_REDIRECT = /(?<![\d&>])>{1,2}(?!&)\s*(?!\/dev\/null)[^\s|;&]+/g;
 
+// Same-length copy with operators inside quotes neutralised, so a search
+// pattern like "() =>" is not read as a file redirect. shellSegments stays
+// quote-blind on purpose: the recorded shellOps figures were computed with it.
+const QUOTED = /'[^']*'|"(?:[^"\\]|\\.)*"/g;
+const maskQuoted = (s: string) =>
+  s.replace(
+    QUOTED,
+    (q) => q[0] + q.slice(1, -1).replace(/[&|;>\n]/g, "_") + q.slice(-1),
+  );
+
 export function shellSegments(cmd: string): string[] {
   return cmd
     .replace(HEREDOC, "")
@@ -129,7 +139,9 @@ export function shellSegments(cmd: string): string[] {
 
 export function isLookupSegment(seg: string): boolean {
   const s = seg.trim();
-  if (/(?<![\d&>])>(?!&)\s*(?!\/dev\/null)\S/.test(s)) return false;
+  if (/(?<![\d&>])>(?!&)\s*(?!\/dev\/null)\S/.test(maskQuoted(s))) {
+    return false;
+  }
   if (/^find\b/.test(s)) return !/\s-(delete|exec|execdir|ok)\b/.test(s);
   return /^(cat|sed\s+-n|grep|rg|head|tail|ls|wc|git\s+(diff|log|show|status))\b/.test(
     s,
@@ -157,7 +169,7 @@ export function editScript(
 function writesFile(cmd: string): boolean {
   if (ARTIFACT_RE.test(cmd) || verifyKind(cmd)) return false;
   if (editScript(cmd)) return true;
-  const c = cmd.replace(HEREDOC, "");
+  const c = maskQuoted(cmd.replace(HEREDOC, ""));
   if (/\b(sed|perl)\s+-\w*i\b|\btee\b/.test(c)) return true;
   return [...c.matchAll(FILE_REDIRECT)].some((x) => !/\.flow-tmp\//.test(x[0]));
 }

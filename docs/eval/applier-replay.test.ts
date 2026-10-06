@@ -18,6 +18,7 @@ import {
   retirePriorRun,
   rewritePrompt,
   selectTestFiles,
+  snapshotOutDir,
   verdict,
   type RunResult,
 } from "./applier-replay";
@@ -98,6 +99,20 @@ describe("selectTestFiles", () => {
       "web/Foo.svelte.test.ts",
       "web/bar.spec.ts",
     ]);
+  });
+  it("should match colocated tests of any js/ts extension", () => {
+    const tests = [
+      "web/Foo.test.tsx",
+      "lib/util.spec.js",
+      "lib/other.test.mjs",
+    ];
+    expect(selectTestFiles(["web/Foo.tsx", "lib/util.js"], tests)).toEqual([
+      "lib/util.spec.js",
+      "web/Foo.test.tsx",
+    ]);
+  });
+  it("should not match a test of a longer-named sibling file", () => {
+    expect(selectTestFiles(["lib/util.ts"], ["lib/util2.test.ts"])).toEqual([]);
   });
   it("should return nothing when no test matches", () => {
     expect(selectTestFiles(["docs/x.md", "bin/zzz.ts"], all)).toEqual([]);
@@ -257,6 +272,36 @@ describe("report --check failure conditions", () => {
   it("should print the verdict line in the report", () => {
     expect(renderReport(good())).toContain("**Verdict:** ship");
     expect(renderReport([good()[0]])).toContain("**Verdict:** no-ship");
+  });
+});
+
+describe("snapshotOutDir", () => {
+  const harness = "/h/flow";
+  it("should default a flow case into the tracked cases directory", () => {
+    expect(snapshotOutDir("flow", undefined, harness)).toBe(
+      "/h/flow/docs/eval/applier-replay/cases",
+    );
+  });
+  it("should require --out for a non-flow repo", () => {
+    expect(() => snapshotOutDir("econ-data", undefined, harness)).toThrow(
+      /--out <dir> is required for repo econ-data/,
+    );
+  });
+  it("should refuse a non-flow --out inside the harness repo", () => {
+    expect(() =>
+      snapshotOutDir("econ-data", "docs/eval/applier-replay/cases", harness),
+    ).toThrow(/refusing to write a econ-data case inside/);
+    expect(() => snapshotOutDir("econ-data", "/h/flow", harness)).toThrow(
+      /refusing/,
+    );
+  });
+  it("should accept a non-flow --out outside the harness repo", () => {
+    expect(snapshotOutDir("econ-data", "/h/audits/cases", harness)).toBe(
+      "/h/audits/cases",
+    );
+    expect(snapshotOutDir("econ-data", "/h/flow-other/cases", harness)).toBe(
+      "/h/flow-other/cases",
+    );
   });
 });
 

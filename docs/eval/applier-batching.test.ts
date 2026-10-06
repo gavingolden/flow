@@ -18,7 +18,7 @@ import {
   withArmToken,
   type Production,
   preloadedPrompt,
-  recordedSteer,
+  parseJsonl,
 } from "./applier-batching";
 import type { RunResult } from "./applier-replay";
 
@@ -132,6 +132,27 @@ describe("treeDrift", () => {
     };
     expect(treeDrift([cat, res("c", "one\ntwo\n")], wt, at)).toEqual([]);
     expect(treeDrift([cat, res("c", "other\n")], wt, at)).toEqual(["a.ts"]);
+  });
+  it("should resolve a cat after cd into a subdirectory against that directory", () => {
+    const sub = {
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "s",
+            name: "Bash",
+            input: { command: `cd ${wt}/web && cat b.ts` },
+          },
+        ],
+      },
+    };
+    const files: Record<string, string> = { "web/b.ts": "x\n", "b.ts": "y\n" };
+    const atFiles = (rel: string) => files[rel] ?? null;
+    expect(treeDrift([sub, res("s", "x\n")], wt, atFiles)).toEqual([]);
+    expect(treeDrift([sub, res("s", "y\n")], wt, atFiles)).toEqual([
+      "web/b.ts",
+    ]);
   });
 });
 
@@ -493,6 +514,16 @@ describe("armVerdict batching conditions", () => {
     expect(reasons(missing)).toContain("(a) pr-3: missing");
     expect(missing.verdict).toBe("no-change");
   });
+  it("(a): should fail when either arm's run stopped on an error or timeout", () => {
+    const after = verdictOf({ ...AFTER_OK, error: "timeout", costUsd: 0 });
+    expect(after.verdict).toBe("no-change");
+    expect(reasons(after)).toContain("(a) pr-1/batching: run failed (timeout)");
+    const before = batching(
+      trio("batching", FLOW, AFTER_OK, { error: "timeout" }),
+    );
+    expect(before.verdict).toBe("no-change");
+    expect(reasons(before)).toContain("(a) pr-1/before: run failed (timeout)");
+  });
   it("(b): should fail on a zero test count or fewer summed after tests", () => {
     expect(reasons(verdictOf({ ...AFTER_OK, tests: 0 }))).toContain("(b) pr-1");
     const fewer = verdictOf({ ...AFTER_OK, tests: 9 });
@@ -602,23 +633,12 @@ describe("verdictsFor and checkShipped", () => {
   });
 });
 
-describe("recordedSteer", () => {
-  const att = (steer?: string) =>
-    JSON.stringify({
-      type: "attachment",
-      attachment: { type: "auto_mode", bashFirstSteer: steer },
-    });
-  it("should return the first auto_mode attachment's steer flag", () => {
-    expect(
-      recordedSteer([
-        JSON.stringify({ type: "user" }),
-        att("relaxed"),
-        att("strict"),
-      ]),
-    ).toBe("relaxed");
-  });
-  it("should return none when no auto_mode attachment is recorded", () => {
-    expect(recordedSteer([JSON.stringify({ type: "user" })])).toBe("none");
+describe("parseJsonl", () => {
+  it("should skip a truncated or blank line instead of throwing", () => {
+    expect(parseJsonl('{"a":1}\n\n{"b":\n{"c":3}')).toEqual([
+      { a: 1 },
+      { c: 3 },
+    ]);
   });
 });
 
@@ -641,5 +661,28 @@ describe("preloadedPrompt", () => {
       out.trimEnd().endsWith("<system-reminder>steer</system-reminder>"),
     ).toBe(true);
     expect(out.startsWith("-")).toBe(false);
+  });
+});
+
+describe("committed applier-batching record", () => {
+  const root = path.resolve(__dirname, "../..");
+  const rec = JSON.parse(
+    fs.readFileSync(path.join(root, "docs/eval/applier-batching.json"), "utf8"),
+  );
+  it("should re-derive the stored verdicts from the stored rows", () => {
+    expect(verdictsFor(rec.runs, rec.production)).toEqual(rec.verdicts);
+  });
+  it("should keep each non-shipped arm's marker out of the live skill", () => {
+    const live = fs.readFileSync(
+      path.join(root, "skills/pipeline/flow-coder-instructions/SKILL.md"),
+      "utf8",
+    );
+    expect(checkShipped(rec.verdicts, live)).toEqual([]);
+  });
+  it("should commit no private repo's snapshotted case file", () => {
+    const cases = fs.readdirSync(
+      path.join(root, "docs/eval/applier-replay/cases"),
+    );
+    expect(cases.filter((f) => !/^pr-\d+\.json$/.test(f))).toEqual([]);
   });
 });

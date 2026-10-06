@@ -140,13 +140,11 @@ export function selectTestFiles(
       continue;
     }
     const stem = f.replace(/\.[^./]+$/, "");
-    for (const t of [
-      `${stem}.test.ts`,
-      `${f}.test.ts`,
-      `${stem}.spec.ts`,
-      `${f}.spec.ts`,
-    ])
-      if (known.has(t)) picked.add(t);
+    for (const t of known) {
+      if (!TEST_RE.test(t)) continue;
+      const base = t.replace(TEST_RE, "");
+      if (base === stem || base === f) picked.add(t);
+    }
   }
   return [...picked].sort();
 }
@@ -425,6 +423,28 @@ function mapCmd(flag: (n: string) => string | undefined) {
   console.log(`${rows.length} spawns -> ${out}`);
 }
 
+// A non-flow case holds the private repo's prompts and plan text, so it must
+// never default into (or be written under) this public repo's tracked tree.
+export function snapshotOutDir(
+  repo: string,
+  outFlag: string | undefined,
+  harness: string,
+): string {
+  if (repo !== "flow" && !outFlag) {
+    throw new Error(
+      `--out <dir> is required for repo ${repo}; its cases are private and must stay outside this repo (e.g. ~/.flow/audits/<study>/cases)`,
+    );
+  }
+  const out = path.resolve(
+    harness,
+    outFlag ?? "docs/eval/applier-replay/cases",
+  );
+  if (repo !== "flow" && (out + path.sep).startsWith(harness + path.sep)) {
+    throw new Error(`refusing to write a ${repo} case inside ${harness}`);
+  }
+  return out;
+}
+
 function snapshot(flag: (n: string) => string | undefined) {
   const pr = Number(flag("--pr"));
   const repo = flag("--repo") ?? "flow";
@@ -514,10 +534,7 @@ function snapshot(flag: (n: string) => string | undefined) {
       pollCalls: s.pollCalls,
     },
   };
-  const out = path.resolve(
-    harness,
-    flag("--out") ?? "docs/eval/applier-replay/cases",
-  );
+  const out = snapshotOutDir(repo, flag("--out"), harness);
   fs.mkdirSync(out, { recursive: true });
   const id = flag("--id") ?? (repo === "flow" ? `pr-${pr}` : `${repo}-${pr}`);
   const file = path.join(out, `${id}.json`);

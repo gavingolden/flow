@@ -359,6 +359,18 @@ describe("isLookupSegment", () => {
     }
   });
 
+  it("should not read an operator inside a quoted pattern as a redirect", () => {
+    for (const c of [
+      'grep -n "=>" a.ts',
+      'grep -n "() =>" src/a.ts',
+      "rg 'x -> y'",
+      'grep -n "a > b" a.ts',
+    ]) {
+      expect(isLookupSegment(c), c).toBe(true);
+    }
+    expect(isLookupSegment('grep -n "x" a.ts > out.txt')).toBe(false);
+  });
+
   it("should reject writes and other commands", () => {
     for (const c of [
       "cat > a.ts",
@@ -447,6 +459,20 @@ describe("attributeSpawn tool-use habit", () => {
     expect(s.chainedBash).toBe(1);
     expect(s.lookupTurns).toBe(3);
     expect(s.lookupAfterLookup).toBe(1);
+  });
+
+  it("should not read a quoted > in a search pattern as a file write", () => {
+    const s = attributeSpawn([
+      bash("t1", "m1", verify),
+      result("t1", failJson(["npm run lint"])),
+      bash("t2", "m2", 'grep -n "() =>" src/a.ts'),
+      result("t2", "1:x"),
+      bash("t3", "m3", verify),
+      result("t3", '{"allPassed": true}'),
+    ]);
+    expect(s.fixRounds).toBe(0);
+    expect(s.noEditReruns).toBe(1);
+    expect(s.lookupTurns).toBe(1);
   });
 
   it("should count edit scripts and tracebacks", () => {

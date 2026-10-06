@@ -608,6 +608,7 @@
     "batching": {
       "verdict": "no-change",
       "reasons": [
+        "(a) econ-data-4/batching: run failed (timeout)",
         "(b) summed tests before=2480 after=2479",
         "(c) turns before=164 after=165 (limit 147.6)",
         "(d) shell ops per turn before=3.54 after=3.53"

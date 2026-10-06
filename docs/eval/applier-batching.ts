@@ -4,6 +4,8 @@
 // Not on PATH, not shipped. `armVerdict` is the rule; the markdown records it.
 //   bun docs/eval/applier-batching.ts report --results <dir|json>
 //     [--production-json <file>] [--write-json <file>] [--check]
+//   bun docs/eval/applier-batching.ts steer [--map <file>] [--projects <dir>]
+//     [--since <YYYY-MM-DD>]
 // The paid `run` lives in applier-replay.ts; this file spends nothing.
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -97,8 +99,13 @@ export function treeDrift(
         file = String(inp.file_path ?? "");
       } else if (b.name === "Bash") {
         const cmd = String(inp.command ?? "");
-        const cat = cmd.match(/^(?:cd [^&;]+(?:&&|;)\s*)?cat\s+(\S+)\s*$/)?.[1];
-        if (cat) file = cat.startsWith("/") ? cat : path.join(worktree, cat);
+        const m = cmd.match(
+          /^(?:cd\s+([^&;\s]+)\s*(?:&&|;)\s*)?cat\s+(\S+)\s*$/,
+        );
+        const cwd = m?.[1] ? path.resolve(worktree, m[1]) : worktree;
+        if (m && !/[$~"'`]/.test(`${m[1] ?? ""}${m[2]}`)) {
+          file = path.resolve(cwd, m[2]);
+        }
         for (const m of cmd.matchAll(/>\s*(\/\S+)/g)) written.add(m[1]);
       }
       if (!file.startsWith(prefix) || file.startsWith(`${prefix}.flow-tmp/`)) {
@@ -177,6 +184,20 @@ export const defaultMapDeps: MapDeps = {
 export const ghRepoFromUrl = (url: string): string | null =>
   url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/)?.[1] ?? null;
 
+// A live transcript can end on a truncated line; skip it rather than abort.
+export function parseJsonl(text: string): unknown[] {
+  return text
+    .split("\n")
+    .filter(Boolean)
+    .flatMap((l) => {
+      try {
+        return [JSON.parse(l)];
+      } catch {
+        return [];
+      }
+    });
+}
+
 export function buildMap(
   o: { projects: string; since: number },
   deps: MapDeps = defaultMapDeps,
@@ -196,17 +217,9 @@ export function buildMap(
       const sa = path.join(o.projects, proj, sid, "subagents");
       for (const f of dirs(sa).filter((x) => x.endsWith(".jsonl"))) {
         const rel = path.join(proj, sid, "subagents", f);
-        const recs = fs
-          .readFileSync(path.join(o.projects, rel), "utf8")
-          .split("\n")
-          .filter(Boolean)
-          .flatMap((l) => {
-            try {
-              return [JSON.parse(l)];
-            } catch {
-              return [];
-            }
-          });
+        const recs = parseJsonl(
+          fs.readFileSync(path.join(o.projects, rel), "utf8"),
+        );
         const text = firstUserText(recs);
         let meta: any;
         try {
@@ -268,17 +281,7 @@ export function withArmToken(instructions: string, token: string): string {
 }
 
 export function tokenWasRead(events: unknown[], token: string): boolean {
-  for (const e of events as any[]) {
-    if (e?.type !== "user" || !Array.isArray(e.message?.content)) continue;
-    for (const b of e.message.content) {
-      if (b?.type !== "tool_result") continue;
-      const text = Array.isArray(b.content)
-        ? b.content.map((x: any) => x?.text ?? "").join("\n")
-        : String(b.content ?? "");
-      if (text.includes(token)) return true;
-    }
-  }
-  return false;
+  return [...toolResults(events).values()].some((r) => r.text.includes(token));
 }
 
 export function checkArtifact(
@@ -425,6 +428,8 @@ export function armVerdict(
   const pb = pairs.map((p) => p.b);
   const pa = pairs.map((p) => p.a);
   for (const { id, b, a } of pairs) {
+    for (const r of [b, a])
+      if (r.error) reasons.push(`(a) ${id}/${r.arm}: run failed (${r.error})`);
     if (
       a.finalVerify === null ||
       b.finalVerify === null ||
@@ -578,19 +583,13 @@ function report(flag: (n: string) => string | undefined) {
   if (bad.length) process.exit(1);
 }
 
-// Transcripts record only the steer flag, never the rendered text.
-export function recordedSteer(lines: string[]): string {
-  for (const l of lines) {
-    const r = JSON.parse(l);
-    if (r?.type === "attachment" && r.attachment?.type === "auto_mode")
-      return String(r.attachment.bashFirstSteer ?? "none");
-  }
-  return "none";
-}
-
+// Transcripts record only the steer flag, never the rendered text. The count
+// uses attributeSpawn, the same rule applier-turns.ts's "auto-mode reminder"
+// line uses, so the two figures differ only by the spawn window.
 function steer(flag: (n: string) => string | undefined) {
   const projects =
     flag("--projects") ?? path.join(os.homedir(), ".claude/projects");
+  const since = flag("--since") ?? "";
   const rows: MapRow[] = JSON.parse(
     fs.readFileSync(
       flag("--map") ?? ".flow-tmp/edit-applier-pr-map.json",
@@ -598,11 +597,20 @@ function steer(flag: (n: string) => string | undefined) {
     ),
   );
   const seen = new Map<string, number>();
-  for (const row of rows.filter((r) => r[3].includes("5-5"))) {
-    const text = fs.readFileSync(path.join(projects, row[6]), "utf8");
-    const s = recordedSteer(text.split("\n").filter(Boolean));
+  const picked = rows.filter(
+    (r) => r[3].includes("sonnet-5-5") && r[0] >= since,
+  );
+  for (const row of picked) {
+    const recs = parseJsonl(
+      fs.readFileSync(path.join(projects, row[6]), "utf8"),
+    );
+    const s = attributeSpawn(recs).autoModeSteer;
     seen.set(s, (seen.get(s) ?? 0) + 1);
   }
+  const at = picked.map((r) => r[0]).sort();
+  console.log(
+    `window: ${at[0] ?? "none"} .. ${at[at.length - 1] ?? "none"} (${picked.length} Sonnet 5.5 spawns)`,
+  );
   for (const [s, n] of seen) console.log(`${s}: ${n} Sonnet 5.5 spawn(s)`);
 }
 

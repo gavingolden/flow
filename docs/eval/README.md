@@ -103,8 +103,9 @@ pre-registered rule and the verdict (no-ship), is
 [`applier-replay.md`](applier-replay.md).
 `applier-replay.ts` also builds its own cases: `map --since <date>` lists each
 spawn's repo, slug and PR from the local transcripts, `snapshot --repo <name>
---repo-dir <clone>` snapshots a case from another repo's clone (it refuses a
-drifted tree or a changed lockfile), and `run` takes `--repo-dir`, `--arm <name>
+--repo-dir <clone> --out <dir>` snapshots a case from another repo's clone (it
+refuses a drifted tree or a changed lockfile, and refuses an `--out` inside this
+repo for a non-flow repo), and `run` takes `--repo-dir`, `--arm <name>
 --instructions <ref>:<path>|<file>` and `--timeout-sec`. `applier-batching.ts`
 holds the pre-registered two-arm scorer and the replay's checks (arm token,
 reminder injection, artifact check), and `applier-batching.md` records the
