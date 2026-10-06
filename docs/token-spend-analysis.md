@@ -8,7 +8,7 @@ quality and time, and which checks must run before any of them ships.
 Over the 30 days ending 2026-09-30, flow's three repos burned about $9,344 of
 list-price tokens across 309 sessions (the dollars are a proxy, not a bill;
 see the gaps section). The verdict count:
-**5 worth it / 8 not worth it / 2 unmeasured / 1 not pursued** (counting rows
+**5 worth it / 10 not worth it / 2 unmeasured / 1 not pursued** (counting rows
 in the ranked table). The reader gets a measured map of where the quota goes plus a
 ranked hypothesis list: a lever is `worth it` only when its named recall check
 has already been run and recorded, and otherwise it stays `unmeasured`, however
@@ -220,6 +220,8 @@ unmeasured levers each name the recall check that would have to run first.
 | Move the main conversation to 5-minute cache writes | not worth it | $1,590 in 1-hour writes, $596 of it the premium over the 5-minute rate (2026-10 window) | 1-hour writes 125.67M; not split by model | 24,539 requests | None expected, since it changes price not behavior. | Slower first turn back after every 5 to 60 minute pause; the vendor page says the first turn after the cache expires "can be noticeably slower". 1,276 main-conversation requests followed such a gap in the window. | Replay of every transcript at a 5-minute lifetime: run? yes; 5 minutes cost $2,571 more at list price ($2,545 by assistant-row send time) | none |
 | Narrow the appliers' per-round verify scope (#892) | not worth it | $751.36 ($490.40 edit-applier plus $260.96 fix-applier; 2026-10 snapshot window, derived sum, from [applier-turn-baseline-2026-10.md](eval/applier-turn-baseline-2026-10.md)) | the 2026-10 baseline does not split by model; the 2026-09 window carried edit-applier: sonnet-5 2,797.8M, sonnet-5-5 60.2M, fable-5-1 42.2M, opus-5 39.9M; fix-applier: sonnet-5 1,100.9M, sonnet-5-5 18.8M, fable-5-1 10.9M, opus-5 8.5M | 12,093 edit-applier + 7,616 fix-applier (2026-10 window) | A narrowed run can pass on zero tests: vitest related exits 0 having run nothing. | A verify call is one turn at any scope, so narrowing it saves no turns. | Turn attribution of the applier transcripts: run? yes ([results](eval/applier-turn-baseline-2026-10.md)); full verify calls are about 2% of edit-applier turns (1.8% `verify:flow-pre-commit` plus 0.3% `verify:npm-verify` after the classifier fix), and turns track edit-set size (r = 0.55), not verify count (r = 0.02). Recorded-edit-set replay of the two verify-call fixes (10-minute timeout, format-first): run? yes, no-ship ([results](eval/applier-replay.md)) | #892 |
 | Medium effort pin on the six unpinned review lenses | not worth it | about $634 across the six in the 2026-09-05 to 2026-10-05 window (derived: mean $ times spawns, summed); projected saving about $26 on Opus 5.5 and about $156 on Opus 5 (derived) | opus-5 373.6M, opus-5-5 143.6M, fable-5-1 19.3M (derived: sum of six rows each) | 6,707 (derived) | Not measured as recall. The observational gap, confounded by which tasks ran at which session effort: acted per run 1.31 at high against 0.81 at medium across all lenses ([baseline](eval/review-lens-effort-baseline-2026-10.md)). | Median bug-detection run 3.5 min at high against 2.0 at medium on Opus 5.5 (6.0 against 2.5 on Opus 5). | Medium vs high harness recall: run? no — not run because the projected saving does not cover the risk; production comparison by recorded effort: run? yes | #832 (closed, not planned) |
+| Batch the edit-applier's independent tool calls (#912) | not worth it | $490.40 edit-applier (2026-10 snapshot window, from [applier-turn-baseline-2026-10.md](eval/applier-turn-baseline-2026-10.md)) | replay children on sonnet-5-5 only; recorded cases from sonnet-5 and sonnet-5-5 | 164 before, 165 after over 8 replayed edit-sets | no final-verify pass lost after the re-run clause, but econ-data-4's batching run timed out (counts as failed, rule a); pooled tests 2,480 against 2,479 | none measured | Recorded-edit-set replay, 4 flow and 4 econ-data cases, pre-registered rule, production auto-mode reminder injected: run? yes, no-change: the rule did not move the habit (3.54 against 3.53 shell operations per turn) ([results](eval/applier-batching.md)) | #912 |
+| Keep the edit-applier's verify in the foreground (#912) | not worth it | $490.40 edit-applier, of which econ-data carries most backgrounded verifies (27 of 30) | replay children on sonnet-5-5 only | 59 before, 55 after over 4 econ-data edit-sets | after runs counted 410 tests against 415 (rule b) | waits fell: parked, backgrounded and polling calls 11 against 5 | Same replay, econ-data cases only: run? yes, no-change on the test-count rule ([results](eval/applier-batching.md)) | #912 |
 | Share one prompt-cache prefix across the review lenses (reorder or stagger the spawns) | not worth it | $428 lens cache writes, of which $78 first-turn; the shareable part is a ~4K tool block (about $13 a month gross, ~$5 net; derived: 97 reviews in the window × $0.136 and × ~$0.05, list-price Opus 5.5 rates) | not split by model; first turn p50 16,331 written per lens | one extra supervisor request per review if staggered | none | +2–5 s before the other spawns start if staggered | Transcript measurement of first-turn cache reads, 97 reviews: run? yes ([results](eval/lens-cache-prefix-baseline-2026-10.md)) | #889 |
 | Cap the session context at 150k (`--autocompact 150k`) | not worth it | not shipped | not measured | turns rose in all five scenarios (for example 6 to 9) | Fidelity held, 5 of 5 | More turns | Phase-write fidelity, two arms: run? yes; cost rose 32.5% to 64.1% | none |
 | Route bug-detection and pattern-consistency lenses to Sonnet | not worth it | $387.06 is the pool on those two lenses | opus-5 311.0M, opus-5-5 45.0M, fable-5-1 26.2M, sonnet-5 7.1M, fable-5 4.2M | 4,106 | Sonnet re-found 0.6% and 0.0% of the reference findings against Opus 4.8% and 6.0% | none | Sonnet vs Opus recall on 3 PRs, 2 runs each: run? yes | none |
@@ -228,12 +230,13 @@ unmeasured levers each name the recall check that would have to run first.
 | Sub-agents inheriting the Fable session model | not pursued | $666.39 across 3,379 sub-agent turns | fable-5-1 365.7M, fable-5 25.8M | 3,379 | Planning: not measured — planning tracks the session model by the user's deliberate choice; per finished run Fable discovery costs $5.34 against $3.85 on Opus 5.5 (+$1.49) and $5.57 on Opus 5. Bug-detection: cap lifted (own row above). The product review lens is now pinned to Opus at medium effort ($0.55 a review against Fable's $1.10) | Fable bug-detection median 95 s against 46 s on Opus 5.5; discovery median 10.0 min against 12.3 | Fable vs Opus 5.5 bug-detection recall on 3 PRs, 2 runs each: run? yes; Fable materially better, cap since lifted (own row above) ([results](eval/fable-vs-opus-subagents.md)) | #890 |
 
 Reading the table: the top two rows are the unmeasured levers and both are
-still hypotheses. Four levers have a recorded check that clears the bar. Three
+still hypotheses. Five levers have a recorded check that clears the bar. Four
 have shipped: the gatekeeper removal, the smallest row, because what remains in
 the window is pre-removal residue; the lifted bug-detection cap, which adds
 spend on purpose (+$1.79 a review on Fable sessions) to buy the findings Opus
-misses; and the Test Steps fold, which saves at most the $31 cluster it acts on
-(its sibling collection fold failed its turn rule and was reverted). The
+misses; the Test Steps fold, which saves at most the $31 cluster it acts on
+(its sibling collection fold failed its turn rule and was reverted); and the
+slimmer discovery instructions, whose read per plan fell 29.4%. The
 sub-agent pin drop is worth it at list price only: the saving is
 about $121 over the window, and the vendor publishes no weighting of 1-hour
 writes against subscription plan usage, so its effect on plan usage is unknown.
@@ -275,7 +278,9 @@ Each closed below with its measured number.
    refreshed the prefix sooner, so the $3,167 is an upper bound, though it
    would need to be overstated about fivefold to flip the verdict.
 6. **Split discovery's instructions into a lean core plus on-demand references
-   (#891).** The file is 55,653 tokens and about a quarter of an Opus plan's
+   (#891).** Superseded: the plan-quality eval this item waited for has since
+   run, and the slimmed instructions shipped as `worth it` (the "Discovery
+   instruction payload" row above). The original estimate follows. The file is 55,653 tokens and about a quarter of an Opus plan's
    cost ($0.86 of a $3.78 Opus 5.5 run, derived), but 75% of it applies to
    every plan. A full split stops loading about 12,731 tokens a plan: $0.20 a
    plan on Opus 5.5, $0.34 on Opus 5 and $0.21 on Fable 5.1, about $25 a month
@@ -337,6 +342,24 @@ Each closed below with its measured number.
    tests after the change on both its run and the one re-run the rule allows
    (913 against 916, then 915 against 919; rule b), so only the factual
    correction (the helper does not format) shipped. See [applier-replay.md](eval/applier-replay.md).
+
+10. **Batch the edit-applier's independent tool calls (#912).** On the current
+    model the helper already chains about 3.5 shell operations into each turn,
+    and a rule asking it to issue independent lookups and edits together did not
+    change that: replayed on four flow and four econ-data edit-sets with its
+    instructions preloaded and the production auto-mode reminder injected, it
+    took 165 turns against 164 and 3.53 shell operations per turn against 3.54,
+    with no verify pass lost after the one re-run the rule allows (one batching run
+    timed out and the rule scores it as failed). Re-open only
+    with a structural change, such as passing each entry's file region in the
+    spawn prompt, not another instruction
+    ([applier-batching.md](eval/applier-batching.md)).
+11. **Keep the edit-applier's verify in the foreground on econ-data (#912).**
+    Telling the helper to run its verify with the 600 s timeout and never in the
+    background cut econ-data turns from 59 to 55 and waits from 11 to 5, but its
+    runs counted 410 tests against 415, which the pre-registered rule does not
+    allow; the replay ran on a heavily loaded machine, where verifies park at the
+    600 s ceiling more than in production. Same record as item 10.
 
 ## Revised verdicts
 

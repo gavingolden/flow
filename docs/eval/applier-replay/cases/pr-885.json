@@ -1,4 +1,6 @@
 {
+  "repo": "flow",
+  "treeDrift": [],
   "pr": 885,
   "slug": "reap-output-signal",
   "spawnAt": "2026-09-29T02:57:01.709Z",
@@ -11,6 +13,10 @@
     "fullVerifies": 2,
     "prettierRounds": 0,
     "parkedVerifies": 0,
-    "finalVerify": true
+    "finalVerify": true,
+    "toolCalls": 17,
+    "bashCalls": 16,
+    "shellOps": 47,
+    "pollCalls": 0
   }
 }

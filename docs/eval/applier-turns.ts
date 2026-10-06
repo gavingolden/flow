@@ -114,6 +114,66 @@ export function classifyBash(cmd: string): string {
   return "bash-other";
 }
 
+const LOOKUP_TOOLS = new Set(["Read", "Grep", "Glob", "Bash"]);
+const LEADING_CD = /^\s*cd\s+[^&;\n]+(&&|;)\s*/;
+const FILE_REDIRECT = /(?<![\d&>])>{1,2}(?!&)\s*(?!\/dev\/null)[^\s|;&]+/g;
+
+// Same-length copy with operators inside quotes neutralised, so a search
+// pattern like "() =>" is not read as a file redirect. shellSegments stays
+// quote-blind on purpose: the recorded shellOps figures were computed with it.
+const QUOTED = /'[^']*'|"(?:[^"\\]|\\.)*"/g;
+const maskQuoted = (s: string) =>
+  s.replace(
+    QUOTED,
+    (q) => q[0] + q.slice(1, -1).replace(/[&|;>\n]/g, "_") + q.slice(-1),
+  );
+
+export function shellSegments(cmd: string): string[] {
+  return cmd
+    .replace(HEREDOC, "")
+    .replace(LEADING_CD, "")
+    .split(/&&|\|\||;|\n/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+export function isLookupSegment(seg: string): boolean {
+  const s = seg.trim();
+  if (/(?<![\d&>])>(?!&)\s*(?!\/dev\/null)\S/.test(maskQuoted(s))) {
+    return false;
+  }
+  if (/^find\b/.test(s)) return !/\s-(delete|exec|execdir|ok)\b/.test(s);
+  return /^(cat|sed\s+-n|grep|rg|head|tail|ls|wc|git\s+(diff|log|show|status))\b/.test(
+    s,
+  );
+}
+
+export function editScript(
+  cmd: string,
+): { guarded: boolean; chained: boolean } | null {
+  if (ARTIFACT_RE.test(cmd)) return null;
+  const m = cmd.match(
+    /\bpython3?\b[^\n]*<<-?\s*['"]?(\w+)['"]?[^\n]*\n([\s\S]*?)\n\s*\1\b/,
+  );
+  if (!m) return null;
+  const body = m[2];
+  if (!/\.write(_text)?\(|\bopen\([^)]*['"][wa]b?['"]/.test(body)) {
+    return null;
+  }
+  return {
+    guarded: /\bassert\b| in |\.count\(/.test(body),
+    chained: shellSegments(cmd).length > 1,
+  };
+}
+
+function writesFile(cmd: string): boolean {
+  if (ARTIFACT_RE.test(cmd) || verifyKind(cmd)) return false;
+  if (editScript(cmd)) return true;
+  const c = maskQuoted(cmd.replace(HEREDOC, ""));
+  if (/\b(sed|perl)\s+-\w*i\b|\btee\b/.test(c)) return true;
+  return [...c.matchAll(FILE_REDIRECT)].some((x) => !/\.flow-tmp\//.test(x[0]));
+}
+
 export type VerifyDetail = {
   ok: boolean | null;
   failed: string[];
@@ -187,6 +247,20 @@ export type SpawnStats = {
   finalVerify: boolean | null;
   rounds: Round[];
   model: string;
+  toolCalls: number;
+  bashCalls: number;
+  shellOps: number;
+  chainedBash: number;
+  multiCallTurns: number;
+  lookupTurns: number;
+  lookupAfterLookup: number;
+  editScripts: number;
+  editScriptsGuarded: number;
+  editScriptsChained: number;
+  editScriptTracebacks: number;
+  noEditReruns: number;
+  fixRounds: number;
+  autoModeSteer: "relaxed" | "strict" | "none";
 };
 
 type Block = Record<string, any>;
@@ -212,8 +286,13 @@ export function attributeSpawn(records: unknown[]): SpawnStats {
   const hasUsage = new Set<string>();
   const results = new Map<string, { text: string; err: boolean }>();
   let model = "";
+  let steer: SpawnStats["autoModeSteer"] = "none";
   for (const raw of records) {
     const r = asRec(raw);
+    if (r?.type === "attachment" && r.attachment?.type === "auto_mode") {
+      const v = r.attachment.bashFirstSteer;
+      if ((v === "relaxed" || v === "strict") && steer === "none") steer = v;
+    }
     const msg = asRec(r?.message);
     if (!r || !msg) continue;
     if (r.type === "user" && Array.isArray(msg.content)) {
@@ -256,6 +335,20 @@ export function attributeSpawn(records: unknown[]): SpawnStats {
     finalVerify: null,
     rounds: [],
     model,
+    toolCalls: 0,
+    bashCalls: 0,
+    shellOps: 0,
+    chainedBash: 0,
+    multiCallTurns: 0,
+    lookupTurns: 0,
+    lookupAfterLookup: 0,
+    editScripts: 0,
+    editScriptsGuarded: 0,
+    editScriptsChained: 0,
+    editScriptTracebacks: 0,
+    noEditReruns: 0,
+    fixRounds: 0,
+    autoModeSteer: steer,
   };
   const add = (k: string, w: number) =>
     (s.catTurns[k] = (s.catTurns[k] ?? 0) + w);
@@ -264,6 +357,9 @@ export function attributeSpawn(records: unknown[]): SpawnStats {
   let prevErr = false;
   let pending = false;
   let open: { cls: string; start: number } | null = null;
+  let prevLookup = false;
+  let sawVerify = false;
+  let editedSinceVerify = false;
   const closeRound = (i: number, next: string) => {
     if (!open) return;
     s.rounds.push({ cls: open.cls, turns: i - open.start, next });
@@ -272,9 +368,15 @@ export function attributeSpawn(records: unknown[]): SpawnStats {
   };
   ids.forEach((id, i) => {
     const calls = tools.get(id)!;
-    if (!calls.length) return add("text-only", 1);
+    if (!calls.length) {
+      prevLookup = false;
+      return add("text-only", 1);
+    }
     const w = 1 / calls.length;
     let turnErr = false;
+    let turnLookup = true;
+    s.toolCalls += calls.length;
+    if (calls.length > 1) s.multiCallTurns++;
     for (const b of calls) {
       const res = results.get(b.id);
       const err = !!res?.err;
@@ -294,6 +396,7 @@ export function attributeSpawn(records: unknown[]): SpawnStats {
         const p = String(inp.file_path ?? inp.notebook_path ?? "");
         cat = ARTIFACT_RE.test(p) ? "artifact" : "edit";
         if (cat === "edit") editedSinceRead.add(p);
+        if (cat === "edit" && !err) editedSinceVerify = true;
         if (err && res!.text.includes("has not been read yet")) {
           s.refusedEdits++;
           cat = "edit:refused";
@@ -303,6 +406,29 @@ export function attributeSpawn(records: unknown[]): SpawnStats {
         const cmd = String(inp.command ?? "");
         const text = res?.text ?? "";
         cat = classifyBash(cmd);
+        const segs = shellSegments(cmd);
+        s.bashCalls++;
+        s.shellOps += segs.length;
+        if (segs.length > 1) s.chainedBash++;
+        if (!segs.length || !segs.every(isLookupSegment)) turnLookup = false;
+        const script = editScript(cmd);
+        if (script) {
+          s.editScripts++;
+          if (script.guarded) s.editScriptsGuarded++;
+          if (script.chained) s.editScriptsChained++;
+          if (text.includes("Traceback (most recent call last)")) {
+            s.editScriptTracebacks++;
+          }
+        }
+        if (!err && writesFile(cmd)) editedSinceVerify = true;
+        if (verifyKind(cmd) === "flow-pre-commit") {
+          if (sawVerify) {
+            if (editedSinceVerify) s.fixRounds++;
+            else s.noEditReruns++;
+          }
+          sawVerify = true;
+          editedSinceVerify = false;
+        }
         if (cat === "verify:wait-poll") s.pollCalls++;
         if (pending && !isVerifyInvocation(cmd)) {
           const d = verifyDetail(text, cmd);
@@ -340,11 +466,17 @@ export function attributeSpawn(records: unknown[]): SpawnStats {
         cat = "skill:" + String(inp.skill ?? "").replace(/^.*:/, "");
       } else if (b.name === "ToolSearch") cat = "toolsearch";
       else if (/^mcp__/.test(b.name)) cat = "mcp";
+      if (!LOOKUP_TOOLS.has(b.name)) turnLookup = false;
       add(
         err && !/^(edit|verify|test)/.test(cat) ? `tool-error:${cat}` : cat,
         w,
       );
     }
+    if (turnLookup) {
+      s.lookupTurns++;
+      if (prevLookup) s.lookupAfterLookup++;
+    }
+    prevLookup = turnLookup;
     prevErr = turnErr;
   });
   closeRound(s.turns, "no further verify");
@@ -393,7 +525,7 @@ export function firstUserText(recs: any[]): string {
   return Array.isArray(c) ? c.map((b: Block) => b?.text ?? "").join("") : "";
 }
 
-function kindOf(label: string, text: string): string {
+export function kindOf(label: string, text: string): string {
   if (/flow-edit-applier$/.test(label)) return "edit-applier";
   if (/flow-fix-applier$/.test(label)) return "fix-applier";
   if (/flow-/.test(label)) return "";
@@ -474,6 +606,36 @@ const table = (heads: string[], rows: (string | number)[][]) =>
     `|${heads.map(() => "---").join("|")}|`,
     ...rows.map((r) => `| ${r.join(" | ")} |`),
   ].join("\n");
+
+const ratio = (n: number, d: number) => (d ? n / d : 0);
+const share = (n: number, d: number) => `${f1(100 * ratio(n, d))}%`;
+
+function habitLines(kind: string, rs: Row[]): string[] {
+  const out = [`\n### ${kind}\n`];
+  if (!rs.length) return [...out, "No spawns in the window."];
+  const t = (fn: (s: SpawnStats) => number) => sum(rs.map((r) => fn(r.stats)));
+  const turns = t((s) => s.turns);
+  const calls = t((s) => s.toolCalls);
+  const bash = t((s) => s.bashCalls);
+  const lookups = t((s) => s.lookupTurns);
+  const after = t((s) => s.lookupAfterLookup);
+  const rounds = rs.map((r) => r.stats.fixRounds);
+  const steer = (v: string) =>
+    rs.filter((r) => r.stats.autoModeSteer === v).length;
+  out.push(
+    `- Tool calls per turn: ${f1(ratio(calls, turns))} (${t((s) => s.multiCallTurns)} multi-call turns); Bash share ${share(bash, calls)}; shell operations per turn ${f1(
+      ratio(
+        t((s) => s.shellOps),
+        turns,
+      ),
+    )} (${t((s) => s.chainedBash)} of ${bash} Bash calls chained)`,
+    `- Lookup-only turns: ${lookups} (${share(lookups, turns)}); directly after another: ${after} (${share(after, turns)})`,
+    `- Shell edit scripts: ${t((s) => s.editScripts)}; with a match guard ${t((s) => s.editScriptsGuarded)}; chained with a check ${t((s) => s.editScriptsChained)}; failed with a traceback ${t((s) => s.editScriptTracebacks)}`,
+    `- Verify calls ${t((s) => s.verifyCalls)}; no-edit re-runs ${t((s) => s.noEditReruns)}; edit-separated fix rounds per spawn: p50 ${pct(rounds, 0.5)}, max ${Math.max(...rounds)}; spawns over 5 rounds: ${rounds.filter((n) => n > 5).length}`,
+    `- Auto-mode Bash-first reminder: relaxed ${steer("relaxed")}, strict ${steer("strict")}, none ${steer("none")} spawns`,
+  );
+  return out;
+}
 
 export function render(rows: Row[], since: string, runDate: string): string {
   const out = [`# Applier turn attribution (since ${since}, run ${runDate})`];
@@ -604,6 +766,8 @@ export function render(rows: Row[], since: string, runDate: string): string {
       ],
     ),
   );
+  out.push("\n## Tool-use habit");
+  for (const kind of KINDS) out.push(...habitLines(kind, by(kind)));
   const bad = rows.filter((r) => r.walkTurns !== r.stats.turns).length;
   out.push(
     `\nTurn-identity check against token-spend-audit walkFile: ${bad} of ${rows.length} spawns differ.`,

@@ -1,4 +1,6 @@
 {
+  "repo": "flow",
+  "treeDrift": [],
   "pr": 900,
   "slug": "lift-bug-detection-opus-cap",
   "spawnAt": "2026-10-05T12:41:18.372Z",
@@ -11,6 +13,10 @@
     "fullVerifies": 3,
     "prettierRounds": 1,
     "parkedVerifies": 0,
-    "finalVerify": true
+    "finalVerify": true,
+    "toolCalls": 31,
+    "bashCalls": 29,
+    "shellOps": 75,
+    "pollCalls": 0
   }
 }

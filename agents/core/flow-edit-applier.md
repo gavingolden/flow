@@ -40,9 +40,10 @@ mismatches, ambiguous acceptance commands), so its effort scales with the
 session's, and the spawn site's per-spawn `model:` threading (the
 `CODER_MODEL` config resolution) always wins over any frontmatter value.
 
-`maxTurns: 240` (sized from the measured uncapped distribution — median
-134, p90 309 — with a 5-round verify-fix bound doing the runaway work)
-bounds the apply-and-verify loop. Write the `status: partial` skeleton
+`maxTurns: 240` (set by PR #859 from the then-uncapped distribution —
+median 134, p90 309; the 2026-10 baseline reads p50 73, p90 160, max 413
+— with a 5-round verify-fix bound doing the runaway work) bounds the
+apply-and-verify loop. Write the `status: partial` skeleton
 artifact FIRST and refresh it after every entry, so an interruption
 always leaves a consumable artifact. If you reach the budget the harness
 returns your output as partial; a continuation (`SendMessage`, per

@@ -6,15 +6,19 @@ import {
   checkFailures,
   editSetFiles,
   extractFlowTmpFiles,
+  isRateLimited,
   lastRuns,
+  linkRepoFiles,
   loadResults,
   mergeRescore,
   parseWorktree,
   pickBaseSha,
   renderReport,
+  resolveInstructions,
   retirePriorRun,
   rewritePrompt,
   selectTestFiles,
+  snapshotOutDir,
   verdict,
   type RunResult,
 } from "./applier-replay";
@@ -84,6 +88,31 @@ describe("selectTestFiles", () => {
       "bin/b.test.ts",
       "docs/eval/c.test.ts",
     ]);
+  });
+  it("should add the .svelte.test.ts and .spec.ts siblings of a source file", () => {
+    const tests = [
+      "web/Foo.svelte.test.ts",
+      "web/bar.spec.ts",
+      "web/x.test.ts",
+    ];
+    expect(selectTestFiles(["web/Foo.svelte", "web/bar.ts"], tests)).toEqual([
+      "web/Foo.svelte.test.ts",
+      "web/bar.spec.ts",
+    ]);
+  });
+  it("should match colocated tests of any js/ts extension", () => {
+    const tests = [
+      "web/Foo.test.tsx",
+      "lib/util.spec.js",
+      "lib/other.test.mjs",
+    ];
+    expect(selectTestFiles(["web/Foo.tsx", "lib/util.js"], tests)).toEqual([
+      "lib/util.spec.js",
+      "web/Foo.test.tsx",
+    ]);
+  });
+  it("should not match a test of a longer-named sibling file", () => {
+    expect(selectTestFiles(["lib/util.ts"], ["lib/util2.test.ts"])).toEqual([]);
   });
   it("should return nothing when no test matches", () => {
     expect(selectTestFiles(["docs/x.md", "bin/zzz.ts"], all)).toEqual([]);
@@ -246,6 +275,36 @@ describe("report --check failure conditions", () => {
   });
 });
 
+describe("snapshotOutDir", () => {
+  const harness = "/h/flow";
+  it("should default a flow case into the tracked cases directory", () => {
+    expect(snapshotOutDir("flow", undefined, harness)).toBe(
+      "/h/flow/docs/eval/applier-replay/cases",
+    );
+  });
+  it("should require --out for a non-flow repo", () => {
+    expect(() => snapshotOutDir("econ-data", undefined, harness)).toThrow(
+      /--out <dir> is required for repo econ-data/,
+    );
+  });
+  it("should refuse a non-flow --out inside the harness repo", () => {
+    expect(() =>
+      snapshotOutDir("econ-data", "docs/eval/applier-replay/cases", harness),
+    ).toThrow(/refusing to write a econ-data case inside/);
+    expect(() => snapshotOutDir("econ-data", "/h/flow", harness)).toThrow(
+      /refusing/,
+    );
+  });
+  it("should accept a non-flow --out outside the harness repo", () => {
+    expect(snapshotOutDir("econ-data", "/h/audits/cases", harness)).toBe(
+      "/h/audits/cases",
+    );
+    expect(snapshotOutDir("econ-data", "/h/flow-other/cases", harness)).toBe(
+      "/h/flow-other/cases",
+    );
+  });
+});
+
 describe("snapshot recovery", () => {
   const wt = "/w/flow-x";
   const asst = (id: string, name: string, input: object) => ({
@@ -290,7 +349,118 @@ describe("snapshot recovery", () => {
   });
 });
 
+describe("resolveInstructions", () => {
+  const none = () => false;
+  it("should keep the #910 refs for before and after without --instructions", () => {
+    expect(resolveInstructions("before", undefined, none)).toMatchObject({
+      arm: "before",
+      ref: "428642c",
+    });
+    expect(resolveInstructions("after", undefined, none)).toMatchObject({
+      ref: "19c2228",
+    });
+  });
+  it("should require --instructions for any other arm name", () => {
+    expect(() => resolveInstructions("batching", undefined, none)).toThrow(
+      /requires --instructions/,
+    );
+    expect(() => resolveInstructions(undefined, undefined, none)).toThrow(
+      /--arm/,
+    );
+  });
+  it("should read a file when it exists and a ref:path otherwise", () => {
+    expect(
+      resolveInstructions("batching", "arms/batching.md", () => true),
+    ).toEqual({ arm: "batching", file: "arms/batching.md" });
+    expect(resolveInstructions("before", "c51c3cc:a/b.md", none)).toEqual({
+      arm: "before",
+      ref: "c51c3cc",
+      path: "a/b.md",
+    });
+    expect(() => resolveInstructions("x", "nonsense", none)).toThrow();
+  });
+});
+
+describe("linkRepoFiles", () => {
+  it("should link only production's SYMLINK_FILES, never other .env files", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "link-"));
+    const clone = path.join(dir, "clone");
+    const wt = path.join(dir, "wt");
+    fs.mkdirSync(path.join(clone, ".claude"), { recursive: true });
+    fs.mkdirSync(wt);
+    for (const f of [
+      ".env",
+      ".env.prod-ops",
+      ".env.smoketest",
+      ".claude/settings.local.json",
+    ])
+      fs.writeFileSync(path.join(clone, f), "x");
+    linkRepoFiles(clone, wt);
+    expect(fs.lstatSync(path.join(wt, ".env")).isSymbolicLink()).toBe(true);
+    expect(
+      fs
+        .lstatSync(path.join(wt, ".claude/settings.local.json"))
+        .isSymbolicLink(),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(wt, ".env.prod-ops"))).toBe(false);
+    expect(fs.existsSync(path.join(wt, ".env.smoketest"))).toBe(false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("isRateLimited", () => {
+  it("should recognise usage and rate limit stops only", () => {
+    expect(isRateLimited("You've hit your usage limit")).toBe(true);
+    expect(isRateLimited('{"error":"rate_limit_error"}')).toBe(true);
+    expect(isRateLimited("error_max_turns")).toBe(false);
+  });
+});
+
 describe("mergeRescore", () => {
+  it("should carry the habit fields and keep the recorded booleans", () => {
+    const old = {
+      case: "econ-data-1",
+      arm: "batching",
+      turns: 10,
+      costUsd: 1,
+      fullVerifies: 1,
+      parkedVerifies: 0,
+      prettierRounds: 0,
+      verifyCalls: 1,
+      verifyCallsWithTimeout: 1,
+      finalVerify: true,
+      tests: 3,
+      steerInjected: true,
+      instructionsRead: true,
+      artifactValid: true,
+    } as RunResult;
+    const fresh = {
+      turns: 9,
+      fullVerifies: 1,
+      parkedVerifies: 0,
+      prettierRounds: 0,
+      verifyCalls: 1,
+      verifyCallsWithTimeout: 1,
+      toolCalls: 12,
+      bashCalls: 10,
+      shellOps: 30,
+      backgroundedVerifies: 0,
+      pollCalls: 2,
+    } as Parameters<typeof mergeRescore>[1];
+    expect(mergeRescore(old, fresh)).toMatchObject({
+      turns: 9,
+      toolCalls: 12,
+      bashCalls: 10,
+      shellOps: 30,
+      pollCalls: 2,
+      steerInjected: true,
+      instructionsRead: true,
+      artifactValid: true,
+      finalVerify: true,
+      costUsd: 1,
+    });
+  });
+
   it("should replace stream fields and keep cost, verify, tests and error", () => {
     const old: RunResult = {
       case: "pr-1",
