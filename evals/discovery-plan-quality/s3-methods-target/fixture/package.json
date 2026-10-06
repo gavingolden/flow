@@ -1,0 +1,10 @@
+{
+  "name": "todo-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "bun test",
+    "start": "bun src/index.ts"
+  }
+}

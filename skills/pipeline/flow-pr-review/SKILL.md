@@ -102,7 +102,7 @@ Step 2's Pattern & Consistency Agent — see `Step 3`'s multi-agent prep
 below for how the wrapper reads the field from the artifact and passes
 it as the `{{PROMPT_INTERPRETATION_TENSION}}` template variable. The
 canonical detection heuristic lives in
-`skills/pipeline/flow-product-planning/references/discovery-instructions.md`
+`skills/pipeline/flow-product-planning/references/discovery-prompt-interpretation.md`
 "Prompt interpretation (conditional)"; the AGENTS.md `## Output style`
 rule **Treat user prompts as evidence of intent, not exhaustive
 specifications.** documents the rationale, and PR #170 is the
@@ -400,7 +400,7 @@ how the text is phrased.
    prose judgment, not regex. When both signals are present, emit
    `prompt_interpretation_tension: true`; otherwise `false`.
    Always-emit the field. Same detection heuristic as
-   `skills/pipeline/flow-product-planning/references/discovery-instructions.md`
+   `skills/pipeline/flow-product-planning/references/discovery-prompt-interpretation.md`
    "Prompt interpretation (conditional)". PR #170 is the precedent.
 4. Write `$ARTIFACT_PATH` (write-`.tmp` → `mv` atomic protocol) with
    typed fields `decision`, `reason`, `skip_kind`, `prompt_interpretation_tension`,

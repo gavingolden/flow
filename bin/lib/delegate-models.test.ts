@@ -248,7 +248,7 @@ describe("resolveDelegateModel", () => {
     // deliberately NOT covered here (different formats — prose + a shell
     // read_budget call, not a markdown table row):
     // skills/universal/flow-research/SKILL.md:85-86,158,386-387,391-392 and
-    // skills/pipeline/flow-product-planning/references/discovery-instructions.md:106-107,114,117.
+    // skills/pipeline/flow-product-planning/references/discovery-research.md:29-30,37-40.
     // Reads the doc module-relative, the same way
     // the consumer-routing test above does (NOT cwd-relative — a cwd-relative
     // read here would ENOENT under any invocation whose cwd isn't the repo

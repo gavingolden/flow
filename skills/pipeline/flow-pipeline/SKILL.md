@@ -829,7 +829,7 @@ Discovery exemption, #2 in Hard rules):
   append `RESEARCH: force-on (flow feature create --research)`.
 - **Revision-pass threading (on step-3 re-entry)** — when
   `<worktree>/.flow-tmp/plan.md` already exists, append `REVISION: <n>` so
-  discovery runs its Revision pass mode (also on the auto-bundle re-entry).
+  discovery runs its Revision pass mode (`discovery-revision.md`; also on the auto-bundle re-entry).
 - **Epic-membership threading** — when `.epic` is set, append
   `EPIC: <slug>/<featureId> (design at .flow/epics/<slug>/design.md)`.
 - **Prompt-sanity threading** — on a `suspect` step-1 verdict, append `PROMPT-SANITY: <note>`.
@@ -1060,7 +1060,7 @@ The helper at `bin/flow-step3-route.ts` returns one of three decisions.
 The four-cell Prompt-Interpretation matrix it implements (feature/non-feature
 × Prompt-Interpretation absent/`methods plausibly reach target`/any other
 Recommended path) is documented at
-`skills/pipeline/flow-product-planning/references/discovery-instructions.md`
+`skills/pipeline/flow-product-planning/references/discovery-prompt-interpretation.md`
 "Prompt interpretation (conditional)" — the four enum values live there
 only and the helper exact-matches against them. The blind survey's
 `## Method selection` verdict adds a second axis — full precedence in

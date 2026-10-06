@@ -1,0 +1,70 @@
+{
+  "id": "s5-researchable",
+  "title": "Researchable request needing current external knowledge (config-on research relevance gate fires)",
+  "provenance": "Adapted from the past pipeline request `bad-answer-cache-guard` (~/.flow/state/bad-answer-cache-guard.request.md: handle bad answers from an upstream API), rewritten as GitHub REST secondary rate limits in the fixture's `src/github.ts`. Researchable by design. Requires the host's ~/.flow/config.json to carry `research.discovery: true` and agy to be available, so run each arm with FLOW_RESEARCH_CACHE_DIR=$(mktemp -d).",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture"
+  },
+  "graders": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "exists": true
+    },
+    {
+      "id": "plan-lint",
+      "kind": "command",
+      "argv": ["flow-plan-lint", "--plan-md-file", ".flow-tmp/plan.md"],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "research-ran",
+      "kind": "json-file",
+      "file": "$REPO/.flow-tmp/research-status.json",
+      "path": "ran",
+      "equals": true
+    },
+    {
+      "id": "research-no-skip-note",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "notMatches": "Web-grounded research \\(discovery Step 1\\.5\\): skipped"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

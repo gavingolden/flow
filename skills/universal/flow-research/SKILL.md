@@ -39,7 +39,7 @@ yield/resume and its synchronous run must stay under the observed-safe
 ~10-min ceiling. This skill's own research procedure (Instructions, report
 template, fan-out logic) is unchanged by that wiring.
 
-The F2 discovery pre-check's synthesis is cached host-wide at `~/.flow/research-cache/` keyed on the normalized sharp question (see `flow-research-cache` / `discovery-instructions.md` Step 1.5), so an identical same-scope redirect or crash-resume reuses it instead of re-running the fan-out.
+The F2 discovery pre-check's synthesis is cached host-wide at `~/.flow/research-cache/` keyed on the normalized sharp question (see `flow-research-cache` / `discovery-research.md` Step 1.5), so an identical same-scope redirect or crash-resume reuses it instead of re-running the fan-out.
 
 # When to Use
 
@@ -123,7 +123,7 @@ delegate it. Write the angles down; they become the gather manifest.
 Before paying for a fresh fan-out, check whether a prior identical `/flow-research`
 run already synthesized this exact question — mirroring `/flow-product-planning`
 discovery Step 1.5's cache pattern
-(`skills/pipeline/flow-product-planning/references/discovery-instructions.md`). Compose
+(`skills/pipeline/flow-product-planning/references/discovery-research.md`). Compose
 the cache key from the **final refined (post-clarification) question** under a
 direct-invocation namespace prefix so the direct `/flow-research` keyspace never
 collides with discovery's bare-question keyspace, then read the host-wide cache by
@@ -335,7 +335,7 @@ Tier 2 fires **only when ALL three hold**:
   `~/.flow/config.json` key `research.deepResearchFallback`. A sub-agent / skill
   cannot import flow's `bin/lib` (it is not on PATH in a consumer worktree — see
   the F2 idiom at
-  `skills/pipeline/flow-product-planning/references/discovery-instructions.md:53-59`),
+  `skills/pipeline/flow-product-planning/references/discovery-instructions.md` Step 1.5 (a)),
   so read the always-present global config via `jq`. **This INVERTS the F2
   default-OFF `== true` predicate — do NOT copy `== true`.** Absent file,
   malformed JSON, an absent/non-object `research`, or a missing

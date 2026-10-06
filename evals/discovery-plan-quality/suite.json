@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "discovery-plan-quality",
+  "candidate": "discovery-instruction-payload",
+  "description": "Measures /flow-product-planning discovery plan quality and per-run cost across five recorded-task scenarios (internal change, UI change, methods-plus-target, revision pass, researchable), for issue #891's before and after comparison of the discovery instruction payload. Both arms pin the parent model (opus) as a measurement control only; production discovery keeps inheriting the session model. Plan quality is deterministic: flow-plan-lint plus per-branch section graders; cost and turns are non-gating metrics.",
+  "scenarios": [
+    "s1-internal-change",
+    "s2-ui-change",
+    "s3-methods-target",
+    "s4-revision-pass",
+    "s5-researchable"
+  ],
+  "defaults": {
+    "model": "opus",
+    "effort": "high",
+    "runs": 2,
+    "maxBudgetUsd": 12,
+    "timeoutSec": 2400
+  }
+}

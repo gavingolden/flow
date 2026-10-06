@@ -196,6 +196,27 @@ const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "discovery-instructions.md",
 );
+const DISCOVERY_REFERENCES_DIR = path.dirname(DISCOVERY_INSTRUCTIONS_PATH);
+const DISCOVERY_RESEARCH_PATH = path.join(
+  DISCOVERY_REFERENCES_DIR,
+  "discovery-research.md",
+);
+const DISCOVERY_UI_PATH = path.join(
+  DISCOVERY_REFERENCES_DIR,
+  "discovery-ui.md",
+);
+const DISCOVERY_REVISION_PATH = path.join(
+  DISCOVERY_REFERENCES_DIR,
+  "discovery-revision.md",
+);
+const DISCOVERY_SURVEY_EPIC_PATH = path.join(
+  DISCOVERY_REFERENCES_DIR,
+  "discovery-survey-epic.md",
+);
+const DISCOVERY_PROMPT_INTERPRETATION_PATH = path.join(
+  DISCOVERY_REFERENCES_DIR,
+  "discovery-prompt-interpretation.md",
+);
 const EPIC_DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   HERE,
   "..",
@@ -432,6 +453,31 @@ const discoveryInstructionsContent = fs.readFileSync(
   DISCOVERY_INSTRUCTIONS_PATH,
   "utf8",
 );
+const discoveryResearchContent = fs.readFileSync(
+  DISCOVERY_RESEARCH_PATH,
+  "utf8",
+);
+const discoveryUiContent = fs.readFileSync(DISCOVERY_UI_PATH, "utf8");
+const discoveryRevisionContent = fs.readFileSync(
+  DISCOVERY_REVISION_PATH,
+  "utf8",
+);
+const discoverySurveyEpicContent = fs.readFileSync(
+  DISCOVERY_SURVEY_EPIC_PATH,
+  "utf8",
+);
+const discoveryPromptInterpretationContent = fs.readFileSync(
+  DISCOVERY_PROMPT_INTERPRETATION_PATH,
+  "utf8",
+);
+const discoveryCoreAndReferencesContent = [
+  discoveryInstructionsContent,
+  discoveryResearchContent,
+  discoveryUiContent,
+  discoveryRevisionContent,
+  discoverySurveyEpicContent,
+  discoveryPromptInterpretationContent,
+].join("\n");
 const epicDiscoveryInstructionsContent = fs.readFileSync(
   EPIC_DISCOVERY_INSTRUCTIONS_PATH,
   "utf8",
@@ -3291,10 +3337,10 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
   });
 
   it.each(SURVEY_VERDICTS)(
-    "the survey-verdict enum value '%s' and the '- **Survey verdict:**' label appear in discovery-instructions.md, prd-template.md, and blind-survey.md",
+    "the survey-verdict enum value '%s' and the '- **Survey verdict:**' label appear in discovery-survey-epic.md, prd-template.md, and blind-survey.md",
     (verdict) => {
       for (const [name, text] of [
-        ["discovery-instructions.md", discoveryInstructionsContent],
+        ["discovery-survey-epic.md", discoverySurveyEpicContent],
         ["prd-template.md", prdTemplateContent],
         ["blind-survey.md", blindSurveyContent],
       ] as const) {
@@ -3759,7 +3805,7 @@ describe("Metadata-triage artifact JSON schema drift (flow-pr-review/SKILL.md)",
   // on every verdict (always-emit boolean, never undefined) so the downstream
   // Pattern & Consistency Agent at Step 2 can read it from the artifact
   // unconditionally. Sibling contract: skills/pipeline/flow-product-planning/
-  // references/discovery-instructions.md "Prompt interpretation (conditional)"
+  // references/discovery-prompt-interpretation.md "Prompt interpretation (conditional)"
   // is the single source of truth for the detection heuristic and the
   // four-value Recommended-path enum.
   const GATEKEEPER_REQUIRED_KEYS = [
@@ -3912,7 +3958,7 @@ describe("AGENTS.md Output style anchors", () => {
     // The bolded anchor phrase **Treat user prompts as evidence of intent,
     // not exhaustive specifications.** is the stable lint hook for the rule
     // documented at AGENTS.md `## Output style`. Downstream contracts
-    // (skills/pipeline/flow-product-planning/references/discovery-instructions.md's
+    // (skills/pipeline/flow-product-planning/references/discovery-prompt-interpretation.md's
     // "Prompt interpretation (conditional)" sub-section,
     // skills/pipeline/flow-new-feature/SKILL.md Step 2's tension surfacing,
     // skills/pipeline/flow-pipeline/SKILL.md Step 3's non-feature-intent
@@ -4164,10 +4210,10 @@ describe("AGENTS.md Output style anchors", () => {
 });
 
 describe("Prompt-interpretation contract anchors", () => {
-  // discovery-instructions.md is the single source of truth for the four-value
+  // discovery-prompt-interpretation.md is the single source of truth for the four-value
   // Recommended-path enum that bin/flow-step3-route.ts exact-matches against.
   // bin/flow-step3-route.test.ts enumerates the four values, but nothing
-  // catches a drop / rename in discovery-instructions.md itself — that's the
+  // catches a drop / rename in discovery-prompt-interpretation.md itself — that's the
   // upstream silent-drift footgun this anchor block guards.
   it.each([
     "methods plausibly reach target",
@@ -4175,11 +4221,11 @@ describe("Prompt-interpretation contract anchors", () => {
     "relax target",
     "split into multiple pipelines",
   ])(
-    "discovery-instructions.md contains the Recommended-path enum value '%s'",
+    "discovery-prompt-interpretation.md contains the Recommended-path enum value '%s'",
     (enumValue) => {
       expect(
-        discoveryInstructionsContent.includes(enumValue),
-        `discovery-instructions.md must contain the verbatim Recommended-path enum ` +
+        discoveryPromptInterpretationContent.includes(enumValue),
+        `discovery-prompt-interpretation.md must contain the verbatim Recommended-path enum ` +
           `value '${enumValue}'. This file is the single source of truth (see the ` +
           `"Single source of truth" paragraph in the same file); bin/flow-step3-route.ts ` +
           `exact-matches against the first string, and drift here silently routes ` +
@@ -4189,12 +4235,12 @@ describe("Prompt-interpretation contract anchors", () => {
     },
   );
 
-  it("discovery-instructions.md contains the '### Prompt interpretation (conditional)' heading", () => {
+  it("discovery-prompt-interpretation.md contains the '### Prompt interpretation (conditional)' heading", () => {
     expect(
-      discoveryInstructionsContent.includes(
+      discoveryPromptInterpretationContent.includes(
         "### Prompt interpretation (conditional)",
       ),
-      "discovery-instructions.md must contain the heading " +
+      "discovery-prompt-interpretation.md must contain the heading " +
         "'### Prompt interpretation (conditional)' verbatim. The PRD template " +
         "(skills/pipeline/flow-product-planning/templates/prd-template.md), pr-review's " +
         "Step 1.5 metadata triage (skills/pipeline/flow-pr-review/SKILL.md), " +
@@ -4220,6 +4266,101 @@ describe("Prompt-interpretation contract anchors", () => {
         "flow-pr-review/SKILL.md step 5 — dropping the step would leave the variable " +
         "un-consumed and the metadata-triage-side tension signal silently dead.",
     ).toBe(true);
+  });
+});
+
+// Branch-only discovery procedure lives in references/discovery-*.md, read on
+// demand. An unwired reference is never opened (discovery opened its named
+// sibling references in only 11-76 of 149 runs), so every moved block needs a
+// gate-site pointer in discovery-instructions.md, and each moved heading must
+// live in exactly one file so a pin cannot silently read a stale duplicate.
+const DISCOVERY_REFERENCES: { file: string; headings: string[] }[] = [
+  { file: "discovery-research.md", headings: [] },
+  {
+    file: "discovery-ui.md",
+    headings: ["### Visual Spec", "### Layout Intent"],
+  },
+  { file: "discovery-revision.md", headings: ["## Revision pass mode"] },
+  { file: "discovery-survey-epic.md", headings: ["### Epic context"] },
+  {
+    file: "discovery-prompt-interpretation.md",
+    headings: ["### Prompt interpretation (conditional)"],
+  },
+];
+
+describe("discovery reference reachability", () => {
+  const read = (file: string) =>
+    fs.readFileSync(path.join(DISCOVERY_REFERENCES_DIR, file), "utf8");
+  const hasHeading = (text: string, heading: string) =>
+    text.split("\n").includes(heading);
+
+  it.each(DISCOVERY_REFERENCES.map((r) => r.file))("%s exists", (file) => {
+    expect(
+      fs.existsSync(path.join(DISCOVERY_REFERENCES_DIR, file)),
+      `${file} must exist beside discovery-instructions.md.`,
+    ).toBe(true);
+  });
+
+  it.each(DISCOVERY_REFERENCES.map((r) => r.file))(
+    "discovery-instructions.md names %s",
+    (file) => {
+      expect(
+        discoveryInstructionsContent.includes(file),
+        `discovery-instructions.md must name ${file} at its gate site — a ` +
+          `reference nothing points at is never opened.`,
+      ).toBe(true);
+    },
+  );
+
+  it.each(
+    DISCOVERY_REFERENCES.flatMap((r) =>
+      r.headings.map((heading) => [r.file, heading] as const),
+    ),
+  )(
+    "%s holds the heading '%s' in exactly one discovery file",
+    (file, heading) => {
+      const owners = [
+        "discovery-instructions.md",
+        ...DISCOVERY_REFERENCES.map((r) => r.file),
+      ].filter((f) => hasHeading(read(f), heading));
+      expect(
+        owners,
+        `heading '${heading}' must appear in exactly one of discovery-instructions.md ` +
+          `and the discovery-*.md references, and that file is ${file}.`,
+      ).toEqual([file]);
+    },
+  );
+
+  // The spawn prompt names each marker-gated reference "before step 1" so
+  // discovery batches the read into its first turn instead of paying a mid-file
+  // pointer's sequential round trip. Nothing else would fail if a line is lost.
+  const overrideBlock = (marker: string) => {
+    const lines = productPlanningTopContent.split("\n");
+    const start = lines.findIndex((l) => l.startsWith(marker));
+    const end = lines.indexOf("```", start);
+    return start === -1 || end === -1 ? "" : lines.slice(start, end).join("\n");
+  };
+
+  it.each([
+    ["RESEARCH: force-on", "discovery-research.md"],
+    ["REVISION: <n>", "discovery-revision.md"],
+    ["EPIC: <slug>/<id>", "discovery-survey-epic.md"],
+    ["SURVEY: <absolute path>", "discovery-survey-epic.md"],
+  ])("the %s spawn block names %s before step 1", (marker, file) => {
+    const block = overrideBlock(marker);
+    expect(
+      block,
+      `no fenced '${marker}' block in flow-product-planning/SKILL.md`,
+    ).not.toBe("");
+    expect(block).toContain(
+      `Read {{SKILL_DIR}}/references/${file} before step 1.`,
+    );
+    expect(
+      block,
+      `the '${marker}' block must point at ${file}, not a section that moved out of discovery-instructions.md`,
+    ).not.toMatch(
+      /discovery-instructions\.md ("Revision pass mode"|step 1\.8)/,
+    );
   });
 });
 
@@ -4458,10 +4599,10 @@ describe("Plan-artifact section anchors (discovery-instructions.md ↔ prd-templ
     },
   );
 
-  it("discovery-instructions.md carries the '## Epic context' anchor", () => {
+  it("discovery-survey-epic.md carries the '## Epic context' anchor", () => {
     expect(
-      discoveryInstructionsContent.includes("## Epic context"),
-      "discovery-instructions.md must carry the '## Epic context' section contract — " +
+      discoverySurveyEpicContent.includes("## Epic context"),
+      "discovery-survey-epic.md must carry the '## Epic context' section contract — " +
         "the omit-when-empty section populated by the step 1.7 epic-membership detection.",
     ).toBe(true);
   });
@@ -6818,8 +6959,8 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         prDescriptionAuthoringContent,
       ],
       [
-        "flow-product-planning/references/discovery-instructions.md",
-        discoveryInstructionsContent,
+        "flow-product-planning/references/discovery-*.md",
+        discoveryCoreAndReferencesContent,
       ],
       ["flow-pr-review/SKILL.md", prReviewContent],
     ] as const) {
@@ -6845,8 +6986,8 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         prDescriptionAuthoringContent,
       ],
       [
-        "flow-product-planning/references/discovery-instructions.md",
-        discoveryInstructionsContent,
+        "flow-product-planning/references/discovery-*.md",
+        discoveryCoreAndReferencesContent,
       ],
       [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
     ] as const) {
@@ -6952,8 +7093,8 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "anchored-phrase rule).",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes("Decompose a manual step by layer"),
-      "product-planning discovery-instructions.md Step 7 must reference the " +
+      discoveryUiContent.includes("Decompose a manual step by layer"),
+      "product-planning discovery-ui.md (step 7 UI paragraphs) must reference the " +
         "rubric's 'Decompose a manual step by layer' section — same " +
         "cross-file-deference contract as flow-new-feature/SKILL.md: the rule is " +
         "anchored once in manual-test-rubric.md and deferred to by name here. " +
@@ -8748,16 +8889,16 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
     expect(di).toContain("plain `Yes` / `No`");
   });
 
-  it("discovery-instructions.md carries the Revision pass mode section and the --lint consistency rubric", () => {
-    const di = read(
-      "flow-product-planning/references/discovery-instructions.md",
-    );
+  it("discovery-revision.md carries the Revision pass mode section and the --lint consistency rubric", () => {
+    const di = discoveryRevisionContent;
     expect(
       di.includes("## Revision pass mode"),
-      "discovery-instructions.md must carry the top-level 'Revision pass mode' " +
+      "discovery-revision.md must carry the top-level 'Revision pass mode' " +
         "section — the single source of truth the REVISION marker forwards to.",
     ).toBe(true);
-    expect(di).toContain("flow-candidate-issues --lint");
+    expect(discoveryInstructionsContent).toContain(
+      "flow-candidate-issues --lint",
+    );
     // The revision contract names the MUST-NOT-regenerate embedded marker.
     expect(di).toContain("flow-plan-review-hash");
   });
@@ -9121,8 +9262,8 @@ describe("design-artifact fidelity structural anchors", () => {
         "— no artifact reference → no section, no files, no browser pass.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes("Re-freeze is explicit-only"),
-      "discovery-instructions.md must state the explicit-only re-freeze policy " +
+      discoveryUiContent.includes("Re-freeze is explicit-only"),
+      "discovery-ui.md must state the explicit-only re-freeze policy " +
         "(a user redirect is the only trigger).",
     ).toBe(true);
   });
@@ -9161,8 +9302,8 @@ describe("design-artifact fidelity structural anchors", () => {
         `bin/lib/design-spec-schema.ts must declare the '${key}' field.`,
       ).toBe(true);
       expect(
-        discoveryInstructionsContent.includes(key),
-        `discovery-instructions.md's documented spec shape must carry '${key}' ` +
+        discoveryUiContent.includes(key),
+        `discovery-ui.md's documented spec shape must carry '${key}' ` +
           "— drift between the schema module and the documented shape silently " +
           "breaks the producer/consumer contract.",
       ).toBe(true);
@@ -9173,8 +9314,8 @@ describe("design-artifact fidelity structural anchors", () => {
         `design-spec-schema.ts must declare the ${tier} tier literal.`,
       ).toBe(true);
       expect(
-        discoveryInstructionsContent.includes(tier),
-        `discovery-instructions.md's spec shape must carry the ${tier} tier.`,
+        discoveryUiContent.includes(tier),
+        `discovery-ui.md's spec shape must carry the ${tier} tier.`,
       ).toBe(true);
     }
   });
@@ -9213,21 +9354,21 @@ describe("design-artifact fidelity structural anchors", () => {
 
   it("Layout Intent is wired symmetrically across producer and consumers", () => {
     expect(
-      discoveryInstructionsContent.includes("### Layout Intent"),
-      "discovery-instructions.md must carry the '### Layout Intent' " +
+      discoveryUiContent.includes("### Layout Intent"),
+      "discovery-ui.md must carry the '### Layout Intent' " +
         "authoring sub-section.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes(
+      discoveryUiContent.includes(
         "viewport-fill vs intrinsic vs scroll container",
       ),
-      "discovery-instructions.md's Layout Intent sub-section must require " +
+      "discovery-ui.md's Layout Intent sub-section must require " +
         "the sizing-policy facet to name viewport-fill vs intrinsic vs " +
         "scroll container.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes("the prose is normative"),
-      "discovery-instructions.md's Layout Intent sub-section must resolve " +
+      discoveryUiContent.includes("the prose is normative"),
+      "discovery-ui.md's Layout Intent sub-section must resolve " +
         "any topology-diagram/prose conflict to the prose.",
     ).toBe(true);
     expect(
@@ -9265,20 +9406,20 @@ describe("design-artifact fidelity structural anchors", () => {
     ).toBe(true);
   });
 
-  it("discovery-instructions.md carries the spec.json properties-map worked example and self-validate step", () => {
+  it("discovery-ui.md carries the spec.json properties-map worked example and self-validate step", () => {
     expect(
-      discoveryInstructionsContent.includes(
+      discoveryUiContent.includes(
         '"grid-template-columns": "repeat(auto-fill, minmax(240px, 1fr))"',
       ),
-      "discovery-instructions.md 1.6(c) must carry a worked example whose " +
+      "discovery-ui.md 1.6(c) must carry a worked example whose " +
         "'properties' is a {prop: extracted-value} map, not a bare array of " +
         "property names.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes(
+      discoveryUiContent.includes(
         "flow-design-spec validate .flow-tmp/design/spec.json",
       ),
-      "discovery-instructions.md 1.6(c) must instruct the discovery " +
+      "discovery-ui.md 1.6(c) must instruct the discovery " +
         "subagent to self-validate the frozen spec.json before proceeding.",
     ).toBe(true);
   });
@@ -9332,8 +9473,8 @@ describe("module-status conditional-degradation guards (flow-pipeline/SKILL.md, 
     ).toBeGreaterThanOrEqual(2);
   });
 
-  it("discovery-instructions.md Step 1.5 gates the flow-delegate-fanout research fan-out on the research module", () => {
-    expect(discoveryInstructionsContent).toContain(
+  it("discovery-research.md (Step 1.5) gates the flow-delegate-fanout research fan-out on the research module", () => {
+    expect(discoveryResearchContent).toContain(
       "flow-module-status --check research",
     );
   });
@@ -11688,10 +11829,10 @@ describe("flow-review-finalize's documented invocation actually parses", () => {
 });
 
 describe("Manifest write-back + shared-artifact write-back anchors", () => {
-  it("discovery-instructions.md and prd-template.md carry the Manifest write-back contract", () => {
+  it("discovery-survey-epic.md and prd-template.md carry the Manifest write-back contract", () => {
     expect(
-      discoveryInstructionsContent.includes("Manifest write-back"),
-      "skills/pipeline/flow-product-planning/references/discovery-instructions.md " +
+      discoverySurveyEpicContent.includes("Manifest write-back"),
+      "skills/pipeline/flow-product-planning/references/discovery-survey-epic.md " +
         "must contain the verbatim 'Manifest write-back' anchor — dropping it silently " +
         "drops the same-PR manifest write-back obligation for a discovered/standalone " +
         "producer edge.",
@@ -11703,10 +11844,10 @@ describe("Manifest write-back + shared-artifact write-back anchors", () => {
     ).toBe(true);
   });
 
-  it("discovery-instructions.md documents the sharedArtifacts field", () => {
+  it("discovery-survey-epic.md documents the sharedArtifacts field", () => {
     expect(
-      discoveryInstructionsContent.includes("sharedArtifacts"),
-      "skills/pipeline/flow-product-planning/references/discovery-instructions.md must " +
+      discoverySurveyEpicContent.includes("sharedArtifacts"),
+      "skills/pipeline/flow-product-planning/references/discovery-survey-epic.md must " +
         "document the optional per-feature `sharedArtifacts` field.",
     ).toBe(true);
   });
