@@ -200,8 +200,8 @@ describe("parseArgs", () => {
   });
 });
 
-describe("delegated + fallback cover exactly the agy-routed lenses (Story 1)", () => {
-  it("delegates a decodable lens and keeps the others on task", async () => {
+describe("delegated + fallback cover exactly the requested lenses (Story 1)", () => {
+  it("delegates a decodable lens and reports a requested non-agy lens as a fallback with its route reason", async () => {
     expect(await run(argv("pattern-consistency,security"), deps())).toBe(0);
     const e = envelope();
     expect(e.model).toBe(VARIANT);
@@ -212,7 +212,13 @@ describe("delegated + fallback cover exactly the agy-routed lenses (Story 1)", (
     expect(e.delegated.map((d: { lens: string }) => d.lens)).toEqual([
       "pattern-consistency",
     ]);
-    expect(e.fallback).toEqual([]);
+    expect(e.fallback).toEqual([
+      {
+        lens: "security",
+        reason: "not-in-delegated-set",
+        skipClass: "environment",
+      },
+    ]);
     expect(e.routes[1]).toEqual({
       lens: "security",
       route: "task",
@@ -351,7 +357,7 @@ describe("routing without an agy call", () => {
     ).toBe(true);
   });
 
-  it("--plan-only makes no agy call, covers --lenses exactly and writes no record", async () => {
+  it("--plan-only makes no agy call, covers --lenses exactly and records only the routes", async () => {
     await run(argv("security,pattern-consistency", ["--plan-only"]), deps());
     expect(fanoutCalls).toHaveLength(0);
     const e = envelope();
@@ -360,7 +366,53 @@ describe("routing without an agy call", () => {
       "security",
       "pattern-consistency",
     ]);
-    expect(fs.existsSync(tmpFile("agy-lenses-result.json"))).toBe(false);
+    const rec = JSON.parse(
+      fs.readFileSync(tmpFile("agy-lenses-result.json"), "utf8"),
+    );
+    expect(rec.routes.map((r: { lens: string }) => r.lens)).toEqual([
+      "security",
+      "pattern-consistency",
+    ]);
+    expect(rec.delegated).toEqual([]);
+    expect(rec.fallback).toEqual([]);
+  });
+
+  it("--plan-only records a live cooldown even though no lens routes to agy", async () => {
+    await run(
+      argv("pattern-consistency", ["--plan-only"]),
+      deps({ readCooldown: () => ({ live: true, until: "later" }) }),
+    );
+    const rec = JSON.parse(
+      fs.readFileSync(tmpFile("agy-lenses-result.json"), "utf8"),
+    );
+    expect(rec.routes).toEqual([
+      { lens: "pattern-consistency", route: "task", reason: "agy-cooldown" },
+    ]);
+  });
+
+  it("a lens planned for agy that the full run re-routes to task is a fallback, never dropped", async () => {
+    await run(argv("pattern-consistency", ["--plan-only"]), deps());
+    expect(envelope().routes[0].route).toBe("agy");
+    // another pipeline armed the cooldown between the plan and the full run
+    await run(
+      argv("pattern-consistency"),
+      deps({ readCooldown: () => ({ live: true, until: "later" }) }),
+    );
+    const e = envelope();
+    expect(fanoutCalls).toHaveLength(0);
+    expect(e.delegated).toEqual([]);
+    expect(e.fallback).toEqual([
+      {
+        lens: "pattern-consistency",
+        reason: "agy-cooldown",
+        skipClass: "environment",
+      },
+    ]);
+    const rec = JSON.parse(
+      fs.readFileSync(tmpFile("agy-lenses-result.json"), "utf8"),
+    );
+    expect(rec.routes).toHaveLength(1);
+    expect(rec.fallback).toHaveLength(1);
   });
 
   it("a live cooldown routes everything to task/agy-cooldown with no agy call", async () => {
@@ -407,6 +459,9 @@ describe("cooldown arming (Story 2b)", () => {
       }),
     );
     expect(armed).toEqual([["quota-exhausted", "quota-exhausted"]]);
+    expect(
+      envelope().fallback.map((f: { reason: string }) => f.reason),
+    ).toEqual(["agy-quota-exhausted", "agy-quota-exhausted"]);
     expect(armedReset).toEqual([null]);
     expect(envelope().cooldownArmed).toBe(true);
   });
@@ -465,16 +520,137 @@ describe("cooldown arming (Story 2b)", () => {
     );
     expect(armed).toEqual([["empty-artifact"]]);
   });
+
+  it("reports agy-tools-denied for a shell denial; a wave of them arms the cooldown like any unusable body", async () => {
+    await run(
+      argv("pattern-consistency"),
+      deps({
+        runFanout: fanoutWith(() => ({
+          raw: JSON.stringify({ response: "" }),
+          deniedActions: ["RunCommand"],
+        })),
+      }),
+    );
+    expect(envelope().fallback).toEqual([
+      {
+        lens: "pattern-consistency",
+        reason: "agy-tools-denied",
+        skipClass: "ran-unusable",
+      },
+    ]);
+    expect(armed).toEqual([["empty-artifact"]]);
+  });
+
+  it("reports agy-token-exhausted when thinking consumed the output budget", async () => {
+    await run(
+      argv("pattern-consistency"),
+      deps({
+        runFanout: fanoutWith(() => ({
+          raw: JSON.stringify({ response: "" }),
+          usage: { thinking_tokens: 950, output_tokens: 1000 },
+        })),
+      }),
+    );
+    expect(envelope().fallback[0]).toMatchObject({
+      reason: "agy-token-exhausted",
+      skipClass: "ran-unusable",
+    });
+  });
+
+  it("a lens whose finalize write fails is ran-unusable (agy already spent quota)", async () => {
+    await run(
+      argv("pattern-consistency"),
+      deps({
+        writeFile: (p, c) => {
+          if (p.endsWith("agent-output-pattern-consistency.json")) {
+            throw new Error("disk full");
+          }
+          fs.writeFileSync(p, c);
+        },
+      }),
+    );
+    expect(envelope().fallback).toEqual([
+      {
+        lens: "pattern-consistency",
+        reason: "agy-finalize-failed",
+        skipClass: "ran-unusable",
+      },
+    ]);
+  });
 });
 
 describe("prompt inputs", () => {
+  const rewriteScope = (patch: Record<string, unknown>) => {
+    const scopePath = tmpFile("review-scope.json");
+    const scope = JSON.parse(fs.readFileSync(scopePath, "utf8"));
+    fs.writeFileSync(scopePath, JSON.stringify({ ...scope, ...patch }));
+  };
+
+  it("carries a delta re-review scope into the prompt", async () => {
+    rewriteScope({
+      scope: "delta",
+      base_sha: "aaaaaaaa1",
+      head_sha: "bbbbbbbb2",
+      delta_files: ["src/a.ts"],
+    });
+    await run(argv("pattern-consistency"), deps());
+    expect(prompts["pattern-consistency"]).toContain(
+      "Delta re-entry: the diff below covers only aaaaaaa..bbbbbbb (1 files)",
+    );
+  });
+
+  it("inlines the product brief named by review-scope.json", async () => {
+    const briefPath = tmpFile("brief.md");
+    fs.writeFileSync(briefPath, "BRIEF-MARKER");
+    rewriteScope({ product_brief: { found: true, path: briefPath } });
+    await run(
+      argv("product"),
+      deps({ readConfig: cfg({ lenses: ["product"] }) }),
+    );
+    expect(prompts.product).toContain("BRIEF-MARKER");
+  });
+
+  it("one lens failing prep leaves the other lens's result attributed to it", async () => {
+    await run(
+      argv("pattern-consistency,bug-detection"),
+      deps({
+        readFile: (p) =>
+          p.endsWith(path.join("checklists", "bug-detection.md"))
+            ? null
+            : (() => {
+                try {
+                  return fs.readFileSync(p, "utf8");
+                } catch {
+                  return null;
+                }
+              })(),
+        runFanout: fanoutWith((lens) =>
+          lens === "pattern-consistency" ? { raw: GOOD } : { raw: "" },
+        ),
+      }),
+    );
+    const e = envelope();
+    expect(fanoutCalls[0]).toHaveLength(1);
+    expect(e.delegated.map((d: { lens: string }) => d.lens)).toEqual([
+      "pattern-consistency",
+    ]);
+    expect(e.fallback).toEqual([
+      {
+        lens: "bug-detection",
+        reason: "agy-prep-failed",
+        skipClass: "environment",
+      },
+    ]);
+    expect(armed).toEqual([]);
+  });
+
   it("never reads the fetch.md reviewer-comment dump into a prompt", async () => {
     await run(argv("pattern-consistency"), deps());
     expect(reads.some((r) => r.endsWith("pr-review-fetch.md"))).toBe(false);
     expect(prompts["pattern-consistency"]).not.toContain(
       "REVIEWER-COMMENT-SENTINEL",
     );
-    expect(prompts["pattern-consistency"]).toContain("PR #7: Add the thing");
+    expect(prompts["pattern-consistency"]).toContain("Add the thing");
     expect(prompts["pattern-consistency"]).toContain("UNTRUSTED_DIFF_BEGIN");
   });
 

@@ -5,7 +5,9 @@
  * on Claude Opus through the user's idle Google AI Ultra quota (agy) instead
  * of as Claude Task agents, and tells the supervisor which lenses it could
  * NOT deliver so it Task-spawns exactly those. No lens is ever silently
- * dropped: delegated ∪ fallback == the agy-routed lenses.
+ * dropped: delegated ∪ fallback == the requested `--lenses`. A requested lens
+ * the full run no longer routes to agy (the cooldown armed or the config
+ * changed since `--plan-only`) is a `fallback` lens carrying its route reason.
  *
  * Modeled on `bin/flow-gemini-lens.ts` (the additive Gemini lens): pre-clean,
  * write-only-on-success, branch on `ran` / a schema-valid payload (never the
@@ -16,7 +18,9 @@
  *
  * `--plan-only` prints `{routes}` and exits with NO agy call (instant): the
  * supervisor uses it to Task-spawn the `task`-routed lenses in parallel with
- * the agy wave. The full run prints
+ * the agy wave, then passes ONLY the agy-routed lenses to the full run. It
+ * also records the routes (empty `delegated`/`fallback`) so a cooldown or
+ * Fable keep reaches telemetry even when no lens goes to agy. The full run prints
  * `{model, routes, delegated, fallback, cooldownArmed}` and writes the same
  * record (merged across waves of one review) to `.flow-tmp/agy-lenses-result.json`.
  *
@@ -417,7 +421,7 @@ async function runDelegated(
         fallback.push({
           lens,
           reason: "agy-prep-failed",
-          skipClass: "environment",
+          skipClass: classifyDelegateSkip("agy-prep-failed"),
         });
         classes.push("environment");
       }
@@ -448,15 +452,22 @@ async function runDelegated(
       fallback.push({
         lens,
         reason: "agy-fanout-failed",
-        skipClass: "ran-unusable",
+        skipClass: classifyDelegateSkip("agy-fanout-failed"),
       });
       classes.push("environment");
       return;
     }
     if (!e.ran) {
-      const reason = e.skipReason ?? "agy-skip";
+      const skipReason = e.skipReason ?? "agy-skip";
+      const cls = failureClass(skipReason, e);
+      // A quota hit gets its own reason so the Step 12 report can say so
+      // instead of a generic "the Google-plan run failed".
+      const reason =
+        cls === "quota-exhausted" || cls === "rate-limited"
+          ? "agy-quota-exhausted"
+          : skipReason;
       fallback.push({ lens, reason, skipClass: classifyDelegateSkip(reason) });
-      classes.push(failureClass(reason, e));
+      classes.push(cls);
       failureTexts.push(e.agyError ?? "", e.stderrTail ?? "");
       return;
     }
@@ -469,7 +480,7 @@ async function runDelegated(
     const decoded = decodeLensArtifact(raw);
     if (!decoded.ok) {
       const reason = `agy-${classifyUnusableLensRun(raw, e)}`;
-      fallback.push({ lens, reason, skipClass: "ran-unusable" });
+      fallback.push({ lens, reason, skipClass: classifyDelegateSkip(reason) });
       classes.push("empty-artifact");
       return;
     }
@@ -482,7 +493,7 @@ async function runDelegated(
       fallback.push({
         lens,
         reason: "agy-finalize-failed",
-        skipClass: "environment",
+        skipClass: classifyDelegateSkip("agy-finalize-failed"),
       });
       classes.push("environment");
       return;
@@ -529,11 +540,33 @@ export async function run(
   });
 
   if (parsed.planOnly) {
+    persistRecord(parsed, deps, {
+      review_started_at: readStartedAt(parsed, deps),
+      model: variant,
+      routes,
+      delegated: [],
+      fallback: [],
+      cooldownArmed: false,
+    });
     deps.writeOut(JSON.stringify({ routes }));
     return 0;
   }
 
   const agyLenses = routes.filter((r) => r.route === "agy").map((r) => r.lens);
+  // A requested lens that no longer routes to agy must reach the supervisor as
+  // a fallback lens: it Task-spawns only `fallback`, so omitting it here would
+  // drop the lens from the review.
+  const rerouted: FallbackLensResult[] = routes.flatMap((r) =>
+    r.route === "task"
+      ? [
+          {
+            lens: r.lens,
+            reason: r.reason,
+            skipClass: classifyDelegateSkip(r.reason),
+          },
+        ]
+      : [],
+  );
   // Pre-clean: a stale agent-output from an earlier run on this reused
   // worktree must never be consumed as this run's lens output.
   for (const lens of agyLenses) {
@@ -541,13 +574,13 @@ export async function run(
   }
 
   let delegated: DelegatedLensResult[] = [];
-  let fallback: FallbackLensResult[] = [];
+  let fallback: FallbackLensResult[] = rerouted;
   let cooldownArmed = false;
   let startedAt: string | null = null;
   if (agyLenses.length > 0 && variant !== null) {
     const r = await runDelegated(parsed, deps, variant, agyLenses);
     delegated = r.delegated;
-    fallback = r.fallback;
+    fallback = [...rerouted, ...r.fallback];
     startedAt = r.startedAt;
     // Every agy-routed lens failing is the signature of exhausted or
     // throttled quota; hold the next reviews on Claude for a while.
@@ -569,9 +602,22 @@ export async function run(
     fallback,
     cooldownArmed,
   };
-  const resultPath = tmp(parsed.worktree, "agy-lenses-result.json");
+  persistRecord(parsed, deps, record);
+  const envelope: AgyLensesEnvelope = {
+    model: variant,
+    routes,
+    delegated,
+    fallback,
+    cooldownArmed,
+  };
+  deps.writeOut(JSON.stringify(envelope));
+  return 0;
+}
+
+function persistRecord(args: Args, deps: Deps, record: AgyLensesRecord): void {
+  const resultPath = tmp(args.worktree, "agy-lenses-result.json");
   try {
-    deps.mkdirp(join(parsed.worktree, ".flow-tmp"));
+    deps.mkdirp(join(args.worktree, ".flow-tmp"));
     deps.writeFile(
       resultPath,
       JSON.stringify(
@@ -584,17 +630,9 @@ export async function run(
       ),
     );
   } catch {
-    // The envelope below is the contract; the record only feeds telemetry.
+    // The envelope printed to stdout is the contract; the record only feeds
+    // telemetry.
   }
-  const envelope: AgyLensesEnvelope = {
-    model: variant,
-    routes,
-    delegated,
-    fallback,
-    cooldownArmed,
-  };
-  deps.writeOut(JSON.stringify(envelope));
-  return 0;
 }
 
 function readStartedAt(args: Args, deps: Deps): string | null {
