@@ -91,5 +91,21 @@ describe("token-spend-audit cache-lifetime table over a fixture home", () => {
       expect(c![10], `${label} net at 5m`).toBe("$7.75");
       expect(c![11], `${label} net at 5m, assistant-row`).toBe("$7.75");
     }
+
+    const first = out.slice(
+      out.indexOf("## First-turn cache-write per sub-agent type"),
+    );
+    const firstLines = first.split("\n");
+    expect(firstLines[2]).toContain("median read tokens");
+    expect(firstLines[2]).toContain("zero-read first turns");
+    const row = firstLines
+      .find((l) => l.startsWith("| flow-discovery |"))
+      ?.split("|")
+      .map((c) => c.trim());
+    expect(row).toBeDefined();
+    // ["", type, transcripts, median write, mean write, median read, zero-read, ""]
+    expect(row![2], "first-turn transcripts").toBe("1");
+    expect(row![5], "first-turn median read").toBe("0");
+    expect(row![6], "first-turn zero-read count").toBe("1");
   });
 });

@@ -162,6 +162,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-design-spec",
       "flow-md-validate",
       "flow-seed-ingested-hook",
+      "flow-doc-read-guard",
       "flow-session-start-hook",
       "flow-epic-dag",
       "flow-epic-resume-decide",

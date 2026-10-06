@@ -119,6 +119,25 @@ structure-only (it does not bound issue content), so a flow-launched session
 can publish arbitrary text to the current repo's issue tracker without an
 auto-mode review.
 
+## Flow-doc read guard
+
+flow-launched sessions (`flow feature create`/`resume` and epic launches)
+deny a Bash `awk`, or a `sed` whose script is anything other than a
+line-number print, aimed at flow's installed skill, agent, and reference
+directories. Claude Code can classify those forms as an edit of a protected
+`.claude/` file and raise a permission prompt even in auto mode, which
+stalls an unattended pipeline for hours. The sanctioned read forms are the
+`Read` tool (`grep -n` the heading to find its line, then `Read` with
+`offset`/`limit`) and line-number `sed -n 'N,Mp'`, both always allowed.
+
+The guard is a PreToolUse hook (`bin/flow-doc-read-guard.ts`) that only
+ever denies: it never approves, so it adds no trust and cannot widen a
+permission. It fails open, so a malformed payload, a missing command, or
+any internal error lets the command proceed unchanged. It registers only in
+flow's launch-settings file, so it never reaches a consumer repo's
+`.claude/settings.json` or the user's global `~/.claude/settings.json`, and
+`flow-claude-headless` sessions do not carry it.
+
 ## Design foundation
 
 `.flow/design/foundation.md` is a small human-legible contract —
