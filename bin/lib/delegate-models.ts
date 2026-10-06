@@ -101,8 +101,8 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // through and left BOTH research passes on Gemini — the adversarial half
   // silently ceasing to be adversarial, with nothing warning. A structural
   // hold on top of the strict rule, same shape as planReviewSecond below.
-  // RETIRED (2026-10-05): agy no longer offers Claude Opus 4.6 (Thinking) (rejected as "not recognized as a known model"); moved to Claude Opus 5.5 (High), the nearest analogue to the max-reasoning tier.
-  researchRefute: "Claude Opus 5.5 (High)",
+  // RETIRED (2026-10-05): agy no longer offers Claude Opus 4.6 (Thinking) (rejected as "not recognized as a known model"); moved to Claude Opus 5.5 (Medium): (High) timed out the 3m refute cap on a live forced-research probe, Medium finished in ~2m.
+  researchRefute: "Claude Opus 5.5 (Medium)",
   // FLIPPED (2026-08-17 run): gemini-3.7-flash-high cleared every
   // plan-review gate on c6-plan-review at N=10 (no defect regression,
   // mechanical parity, structured integrity, reliability, real latency

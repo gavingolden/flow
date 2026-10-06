@@ -22,7 +22,7 @@
  * graceful skip on any failure -> exit 0 on every operational path):
  *  1. Read budget/model overrides from ~/.flow/config.json tolerantly, reusing
  *     discovery's frozen defaults (maxCalls 12, timeout "3m", gather
- *     "Gemini 3.1 Pro (High)", refute "Claude Opus 5.5 (High)" with the
+ *     "Gemini 3.1 Pro (High)", refute "Claude Opus 5.5 (Medium)" with the
  *     cross-model diversity guard).
  *  2. Build a deterministic 2-entry manifest (gather + adversarial refute).
  *  3. Run `flow-delegate-fanout` (concurrency pinned at 4 — 2 entries are one

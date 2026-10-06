@@ -160,7 +160,7 @@ describe("checkClaude", () => {
 describe("checkAgy", () => {
   const active = { researchActive: () => true };
   const models =
-    "Fetching available models...\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\ngemini-3.7-flash-high\tGemini 3.7 Flash (High)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\n";
+    "Fetching available models...\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\ngemini-3.7-flash-high\tGemini 3.7 Flash (High)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\nclaude-opus-5-5-medium\tClaude Opus 5.5 (Medium)\n";
 
   it("skips when the research module is not active, without spawning agy", () => {
     const calls: RunCall[] = [];
@@ -240,9 +240,9 @@ describe("checkAgy", () => {
     expect(c.status).toBe("warn");
     expect(c.summary).toContain("no longer offers");
     expect(c.details).toContain(
-      '"Claude Opus 5.5 (High)" (used by researchRefute)',
+      '"Claude Opus 5.5 (High)" (used by planReviewSecond)',
     );
-    expect(c.fix).toContain("delegate.models.<surface>");
+    expect(c.fix).toContain("delegate.models.planReviewSecond");
   });
 
   it("warns naming research.refuteModel when that configured model is unlisted", () => {

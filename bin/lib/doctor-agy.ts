@@ -85,7 +85,7 @@ export function checkAgy(
           status: "warn",
           summary: `agy no longer offers ${missing.length} configured model(s); those checks will be skipped`,
           details: missing.map((m) => `"${m.model}" (used by ${m.surface})`),
-          fix: "set delegate.models.<surface> (or research.model/refuteModel) in ~/.flow/config.json to a model 'agy models' lists, or upgrade flow",
+          fix: `set ${[...new Set(missing.map((m) => (m.surface.startsWith("research.") ? m.surface : `delegate.models.${m.surface}`)))].join(", ")} in ~/.flow/config.json to a model 'agy models' lists, or upgrade flow`,
         },
       ];
     }

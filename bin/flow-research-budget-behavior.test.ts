@@ -149,14 +149,14 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
         maxCalls: 25,
         timeout: "5m",
         model: "GPT-OSS 120B (Medium)",
-        refuteModel: "Claude Opus 5.5 (High)",
+        refuteModel: "Claude Opus 5.5 (Medium)",
       },
     });
     expect(r.status).toBe(0);
     expect(r.vars.MAX).toBe("25");
     expect(r.vars.TIMEOUT).toBe("5m");
     expect(r.vars.MODEL).toBe("GPT-OSS 120B (Medium)");
-    expect(r.vars.REFUTE).toBe("Claude Opus 5.5 (High)");
+    expect(r.vars.REFUTE).toBe("Claude Opus 5.5 (Medium)");
   });
 
   it("a malformed config file degrades to defaults without throwing", () => {
@@ -171,12 +171,12 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
   it("a refuteModel colliding with the gather model falls back to a different variant (diversity guard)", () => {
     const r = runBudget({
       research: {
-        model: "Claude Opus 5.5 (High)",
-        refuteModel: "Claude Opus 5.5 (High)",
+        model: "Claude Opus 5.5 (Medium)",
+        refuteModel: "Claude Opus 5.5 (Medium)",
       },
     });
     expect(r.status).toBe(0);
-    expect(r.vars.MODEL).toBe("Claude Opus 5.5 (High)");
+    expect(r.vars.MODEL).toBe("Claude Opus 5.5 (Medium)");
     expect(r.vars.REFUTE).not.toBe(r.vars.MODEL);
     expect(r.vars.REFUTE).toBe("GPT-OSS 120B (Medium)");
     expect(r.stderr).toContain("preserve adversarial diversity");

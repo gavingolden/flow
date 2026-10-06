@@ -71,7 +71,7 @@ describe("buildManifest", () => {
   it("produces exactly 2 entries (gather + refute) carrying model and resolved timeout", () => {
     const m = buildManifest("add CSV export", {
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 5.5 (High)",
+      refuteModel: "Claude Opus 5.5 (Medium)",
       timeout: "3m",
     });
     expect(m).toHaveLength(2);
@@ -82,13 +82,13 @@ describe("buildManifest", () => {
       expect(entry.prompt).toContain("add CSV export");
     }
     expect(m[0]!.model).toBe("Gemini 3.1 Pro (High)");
-    expect(m[1]!.model).toBe("Claude Opus 5.5 (High)");
+    expect(m[1]!.model).toBe("Claude Opus 5.5 (Medium)");
   });
 
   it("opts both entries into skipPermissions:true and outputFormat:json, with no addDirs", () => {
     const m = buildManifest("add CSV export", {
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 5.5 (High)",
+      refuteModel: "Claude Opus 5.5 (Medium)",
       timeout: "3m",
     });
     for (const entry of m) {
@@ -101,7 +101,7 @@ describe("buildManifest", () => {
   it("frames the gather prompt around web search + cited URLs + confidence", () => {
     const [gather] = buildManifest("X", {
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 5.5 (High)",
+      refuteModel: "Claude Opus 5.5 (Medium)",
       timeout: "3m",
     });
     expect(gather!.prompt).toMatch(/web search/i);
@@ -112,7 +112,7 @@ describe("buildManifest", () => {
   it("frames the refute prompt adversarially (refute / critically assess)", () => {
     const [, refute] = buildManifest("X", {
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 5.5 (High)",
+      refuteModel: "Claude Opus 5.5 (Medium)",
       timeout: "3m",
     });
     expect(refute!.prompt).toMatch(/refute/i);
@@ -138,12 +138,12 @@ describe("resolveModels (cross-model diversity guard)", () => {
       resolveModels({
         research: {
           model: "GPT-OSS 120B (Medium)",
-          refuteModel: "Claude Opus 5.5 (High)",
+          refuteModel: "Claude Opus 5.5 (Medium)",
         },
       }),
     ).toEqual({
       gatherModel: "GPT-OSS 120B (Medium)",
-      refuteModel: "Claude Opus 5.5 (High)",
+      refuteModel: "Claude Opus 5.5 (Medium)",
     });
   });
 
@@ -152,11 +152,11 @@ describe("resolveModels (cross-model diversity guard)", () => {
     // FALLBACK_REFUTE_MODEL branch.
     const r = resolveModels({
       research: {
-        model: "Claude Opus 5.5 (High)",
-        refuteModel: "Claude Opus 5.5 (High)",
+        model: "Claude Opus 5.5 (Medium)",
+        refuteModel: "Claude Opus 5.5 (Medium)",
       },
     });
-    expect(r.gatherModel).toBe("Claude Opus 5.5 (High)");
+    expect(r.gatherModel).toBe("Claude Opus 5.5 (Medium)");
     expect(r.refuteModel).toBe("GPT-OSS 120B (Medium)");
     expect(r.refuteModel).not.toBe(r.gatherModel);
   });
