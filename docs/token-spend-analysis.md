@@ -18,7 +18,7 @@ unrun.
 
 Every spend, token, turn and timing figure below is copied from the committed
 baseline ([token-spend-baseline-2026-09.md](eval/token-spend-baseline-2026-09.md)),
-which pastes the audit's output verbatim, except five sets of figures. The
+which pastes the audit's output verbatim, except six sets of figures. The
 cache-lifetime figures come from a second window in
 [cache-lifetime-baseline-2026-10.md](eval/cache-lifetime-baseline-2026-10.md)
 (2026-08-31 to the 2026-10-04 run). The discovery-payload spend, turn and
@@ -32,7 +32,10 @@ $428, $78 and 16,331 in the ranked table) come from
 [lens-cache-prefix-baseline-2026-10.md](eval/lens-cache-prefix-baseline-2026-10.md).
 The review-turn figures in the ranked table come from
 [supervisor-turns-baseline-2026-10.md](eval/supervisor-turns-baseline-2026-10.md)
-(2026-09-10 to 2026-10-05). Figures marked "derived" are plain division or
+(2026-09-10 to 2026-10-05). The applier spend and turn figures (the $751.36
+and 12,093 plus 7,616 turns) come from
+[applier-turn-baseline-2026-10.md](eval/applier-turn-baseline-2026-10.md)
+(2026-09-05 to the 2026-10-05 run). Figures marked "derived" are plain division or
 addition over those tables. The recall-check results quoted in the ranked table
 come from eight other committed records: the turn-folding arms in
 [turn-folding/README.md](eval/turn-folding/README.md), the eval-suite arms in
