@@ -707,6 +707,10 @@ async function run(flag: (n: string) => string | undefined) {
     delete env.FLOW_SLUG;
     delete env.TMUX_PANE;
     const v = sh(tmp, ["flow-pre-commit", "--json"], env);
+    fs.writeFileSync(
+      path.join(runDir, "final-verify.txt"),
+      `exit ${v.code}\n--- stdout\n${v.out}\n--- stderr\n${v.err}`,
+    );
     const m = v.out.match(/"allPassed":\s*(true|false)/);
     result.finalVerify = m ? m[1] === "true" : null;
   } catch (e) {
