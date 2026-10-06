@@ -141,6 +141,13 @@ Either way it is 3-6% of discovery's spend and under 1% of flow's total.
 
 ## Verdict
 
+> [!NOTE]
+> **Superseded on 2026-10-05** by [discovery-payload.md](discovery-payload.md).
+> The plan-quality eval this record names as a re-open trigger landed. The
+> split shipped after a measured go: the instruction read per run fell 29.4%,
+> with every quality grader green before and after. The measurements below
+> stand; only the verdict changed.
+
 **Not worth it.** The payload is real, about a quarter of an Opus plan, but
 three quarters of it is needed on every plan. A full split saves about $0.20 a
 plan on Opus 5.5 and needs a Large change: 11 test files name the file (the

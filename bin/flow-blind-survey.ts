@@ -25,7 +25,7 @@
  * `fanout-error` (the fanout call itself came back empty — binary missing,
  * a usage-error exit, or an unparsable aggregate line — distinct from a
  * per-entry failure because neither judge task even reached the
- * aggregate), `agy-not-found` / `agy-not-authenticated` / `agy-error`
+ * aggregate), `agy-not-found` / `agy-not-authenticated` / `agy-model-unavailable` / `agy-error`
  * (propagated from a `ran:false` fanout entry that IS present in the
  * aggregate), `judge-timeout` (a fanout entry's `agy-timeout`, mapped the
  * way `flow-plan-review`'s `mapReviewerSkipReason` maps its own
@@ -78,6 +78,7 @@ export const SKIP_REASONS = [
   "fanout-error",
   "agy-not-found",
   "agy-not-authenticated",
+  "agy-model-unavailable",
   "agy-error",
   "agy-canceled",
   "judge-timeout",

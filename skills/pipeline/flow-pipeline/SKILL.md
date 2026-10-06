@@ -829,7 +829,7 @@ Discovery exemption, #2 in Hard rules):
   append `RESEARCH: force-on (flow feature create --research)`.
 - **Revision-pass threading (on step-3 re-entry)** — when
   `<worktree>/.flow-tmp/plan.md` already exists, append `REVISION: <n>` so
-  discovery runs its Revision pass mode (also on the auto-bundle re-entry).
+  discovery runs its Revision pass mode (`discovery-revision.md`; also on the auto-bundle re-entry).
 - **Epic-membership threading** — when `.epic` is set, append
   `EPIC: <slug>/<featureId> (design at .flow/epics/<slug>/design.md)`.
 - **Prompt-sanity threading** — on a `suspect` step-1 verdict, append `PROMPT-SANITY: <note>`.
@@ -1001,9 +1001,8 @@ summary (never folded into "agy unavailable" prose), naming
 `partialArtifactPath`/`stderrTail` when present. The other two terminal
 skips are `review-timed-out` (`--check`'s give-up cap fired) and
 `reviewer-worker-died` (detached worker vanished, no result); both differ
-from `reviewer-timeout`, where the envelope survived one killed agy call.
-`ran:true` weighs each
-material AGY point as INPUT (never a verdict), revises plan.md **once**
+from `reviewer-timeout`, where the envelope survived one killed agy call. An `agy-model-unavailable` reviewer skip renders in the chat summary as "reviewer N's model is no longer offered by agy — run `flow doctor`" and rides the awaiting-approval `--why` as a demoted reviewer.
+`ran:true` weighs each material AGY point as INPUT (never a verdict), revises plan.md **once**
 where warranted, and appends a `### Cross-model review (AGY)` subsection
 recording each point **accepted** or **overridden** — also record the
 run's `depth` and, per reviewer, `model`/`ran`/`skipReason`/`lensesEngaged`
@@ -1060,7 +1059,7 @@ The helper at `bin/flow-step3-route.ts` returns one of three decisions.
 The four-cell Prompt-Interpretation matrix it implements (feature/non-feature
 × Prompt-Interpretation absent/`methods plausibly reach target`/any other
 Recommended path) is documented at
-`skills/pipeline/flow-product-planning/references/discovery-instructions.md`
+`skills/pipeline/flow-product-planning/references/discovery-prompt-interpretation.md`
 "Prompt interpretation (conditional)" — the four enum values live there
 only and the helper exact-matches against them. The blind survey's
 `## Method selection` verdict adds a second axis — full precedence in

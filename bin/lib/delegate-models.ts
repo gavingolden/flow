@@ -101,7 +101,11 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // through and left BOTH research passes on Gemini — the adversarial half
   // silently ceasing to be adversarial, with nothing warning. A structural
   // hold on top of the strict rule, same shape as planReviewSecond below.
-  researchRefute: "Claude Opus 4.6 (Thinking)",
+  // RETIRED (2026-10-05): agy no longer offers Claude Opus 4.6 (Thinking)
+  // ("not recognized as a known model"). Moved to Claude Opus 5.5 (Medium):
+  // (High) timed out the 3m refute cap on a live forced-research probe;
+  // Medium finished in ~2m.
+  researchRefute: "Claude Opus 5.5 (Medium)",
   // FLIPPED (2026-08-17 run): gemini-3.7-flash-high cleared every
   // plan-review gate on c6-plan-review at N=10 (no defect regression,
   // mechanical parity, structured integrity, reliability, real latency
@@ -122,7 +126,9 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // UNCHANGED (2026-09-05 run): the structural cross-model-diversity
   // rationale above is independent of any single arm's verdict, and 3.8
   // cleared nothing that would have tested it.
-  planReviewSecond: "Claude Opus 4.6 (Thinking)",
+  // RETIRED (2026-10-05): agy dropped Claude Opus 4.6 (Thinking); Opus 5.5
+  // (High) replaced it and was not benchmarked on this surface.
+  planReviewSecond: "Claude Opus 5.5 (High)",
   // Pinned judges for the Step-3 blind method survey (flow-blind-survey):
   // the dogfood run's judge A rode the unpinned agy session default, so
   // both surfaces are pinned here rather than left to whatever agy
@@ -133,7 +139,9 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   blindSurvey: "Gemini 3.1 Pro (High)",
   // UNCHANGED (2026-09-05 run): structural cross-vendor hold against
   // blindSurvey, on the same rationale as planReviewSecond.
-  blindSurveySecond: "Claude Opus 4.6 (Thinking)",
+  // RETIRED (2026-10-05): Opus 4.6 (Thinking) retired; Opus 5.5 (High)
+  // replaced it, not benchmarked on this surface.
+  blindSurveySecond: "Claude Opus 5.5 (High)",
   // null means "use the Claude Task subagent" (today's behaviour) rather
   // than delegating scouting to an agy variant. Both bench candidates were
   // rejected on a real-defect regression (c2b, docs/model-bench/report.md,
@@ -151,7 +159,7 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
 const warnedOverrideSurfaces = new Set<DelegateSurface>();
 const warnedTypeSurfaces = new Set<DelegateSurface>();
 
-function extractDelegateModelsKey(raw: unknown, key: string): unknown {
+export function extractDelegateModelsKey(raw: unknown, key: string): unknown {
   if (typeof raw !== "object" || raw === null) return undefined;
   const delegate = (raw as Record<string, unknown>).delegate;
   if (typeof delegate !== "object" || delegate === null) return undefined;

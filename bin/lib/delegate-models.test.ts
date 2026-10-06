@@ -243,13 +243,8 @@ describe("resolveDelegateModel", () => {
   it("docs/configuration.md's delegate-models table cannot drift from the code defaults", () => {
     // PR #644 shipped a code flip whose docs/configuration.md "default today"
     // row went stale, and only a human reviewer caught it. This makes that
-    // class of drift mechanical for THIS ONE FILE. Two other sites pin the
-    // same researchGather/researchRefute strings byte-exactly and are
-    // deliberately NOT covered here (different formats — prose + a shell
-    // read_budget call, not a markdown table row):
-    // skills/universal/flow-research/SKILL.md:85-86,158,386-387,391-392 and
-    // skills/pipeline/flow-product-planning/references/discovery-instructions.md:106-107,114,117.
-    // Reads the doc module-relative, the same way
+    // class of drift mechanical for this file (the prose copies in the
+    // research docs are covered by the sibling test below). Reads the doc module-relative, the same way
     // the consumer-routing test above does (NOT cwd-relative — a cwd-relative
     // read here would ENOENT under any invocation whose cwd isn't the repo
     // root, e.g. a single-file vitest run from an editor).
@@ -293,6 +288,34 @@ describe("resolveDelegateModel", () => {
       expect(row, `stale doc row for ${surface}: expected ${value}`).toContain(
         value,
       );
+    }
+  });
+
+  it("every Opus pin in the research prose and shell copies equals the code default", () => {
+    const files = [
+      "skills/pipeline/flow-product-planning/references/discovery-research.md",
+      "skills/universal/flow-research/SKILL.md",
+      "templates/references/delegation.md",
+    ];
+    const refute = DELEGATE_MODEL_DEFAULTS.researchRefute!;
+    for (const rel of files) {
+      const text = fs.readFileSync(
+        new URL(`../../${rel}`, import.meta.url),
+        "utf8",
+      );
+      expect(text, `${rel} lost the gather pin`).toContain(
+        DELEGATE_MODEL_DEFAULTS.researchGather!,
+      );
+      const opus = text.match(/Claude Opus [\d.]+ \([^)]+\)/g) ?? [];
+      expect(
+        opus.length,
+        `${rel} no longer names the refute model`,
+      ).toBeGreaterThan(0);
+      for (const m of opus) {
+        expect(m, `stale refute pin in ${rel}: expected ${refute}`).toBe(
+          refute,
+        );
+      }
     }
   });
 });

@@ -160,7 +160,7 @@ describe("checkClaude", () => {
 describe("checkAgy", () => {
   const active = { researchActive: () => true };
   const models =
-    "Fetching available models...\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\nclaude-x\tClaude X\n";
+    "Fetching available models...\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\ngemini-3.7-flash-high\tGemini 3.7 Flash (High)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\nclaude-opus-5-5-medium\tClaude Opus 5.5 (Medium)\n";
 
   it("skips when the research module is not active, without spawning agy", () => {
     const calls: RunCall[] = [];
@@ -229,6 +229,47 @@ describe("checkAgy", () => {
       expect(c.summary).toContain("could not confirm");
       expect(c.fix).toBe("agy models");
     }
+  });
+
+  it("warns naming the surface when a default model is no longer listed", () => {
+    const stdout = models.replace(/.*Opus.*\n/, "");
+    const [c] = checkAgy(
+      makeDeps(root, { run: scriptedRun(() => ({ status: 0, stdout })) }),
+      active,
+    );
+    expect(c.status).toBe("warn");
+    expect(c.summary).toContain("no longer offers");
+    expect(c.details).toContain(
+      '"Claude Opus 5.5 (High)" (plan review\'s second reviewer)',
+    );
+    expect(c.fix).toContain("delegate.models.planReviewSecond");
+  });
+
+  it("warns naming research.refuteModel when that configured model is unlisted", () => {
+    writeConfig({ research: { refuteModel: "Retired Model (Max)" } });
+    const [c] = checkAgy(
+      makeDeps(root, {
+        run: scriptedRun(() => ({ status: 0, stdout: models })),
+      }),
+      active,
+    );
+    expect(c.status).toBe("warn");
+    expect(c.details).toContain('"Retired Model (Max)" (research fact-check)');
+    expect(c.fix).toContain("research.refuteModel");
+    expect(c.fix).not.toContain("delegate.models.research");
+  });
+
+  it("falls back to defaults on a malformed config and still passes", () => {
+    const p = path.join(root, "home", ".flow", "config.json");
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, "{ not json");
+    const [c] = checkAgy(
+      makeDeps(root, {
+        run: scriptedRun(() => ({ status: 0, stdout: models })),
+      }),
+      active,
+    );
+    expect(c.status).toBe("pass");
   });
 
   it("derives research activity from deps.configPath by default", () => {

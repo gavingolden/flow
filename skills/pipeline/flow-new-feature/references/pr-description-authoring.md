@@ -174,7 +174,7 @@ Always emit the heading. Decide the body based on the change:
 
   **Artifact-referencing PRs (the plan carries `## Visual Spec`) scope the two rules above
   differently** — mirroring discovery step 7's authoring rule in
-  `skills/pipeline/flow-product-planning/references/discovery-instructions.md`: emit one enumerated
+  `skills/pipeline/flow-product-planning/references/discovery-ui.md`: emit one enumerated
   `- [ ]` Test Step per Visual Spec assertion, tagged with its assertion id (e.g.
   `- [ ] [nav-active-weight] .nav a.active renders font-weight: 600 — verified by
   flow-design-spec diff`), plus **exactly one** overall `SUBJECTIVE: ` sign-off for the

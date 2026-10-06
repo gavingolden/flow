@@ -39,7 +39,7 @@ yield/resume and its synchronous run must stay under the observed-safe
 ~10-min ceiling. This skill's own research procedure (Instructions, report
 template, fan-out logic) is unchanged by that wiring.
 
-The F2 discovery pre-check's synthesis is cached host-wide at `~/.flow/research-cache/` keyed on the normalized sharp question (see `flow-research-cache` / `discovery-instructions.md` Step 1.5), so an identical same-scope redirect or crash-resume reuses it instead of re-running the fan-out.
+The F2 discovery pre-check's synthesis is cached host-wide at `~/.flow/research-cache/` keyed on the normalized sharp question (see `flow-research-cache` / `discovery-research.md` Step 1.5), so an identical same-scope redirect or crash-resume reuses it instead of re-running the fan-out.
 
 # When to Use
 
@@ -96,7 +96,7 @@ addDirs?, out?, skipPermissions?, outputFormat? }`. `skipPermissions` and
   file.
 - **Exact agy model variants** (live `agy models`, do not paraphrase): gather
   runs on `Gemini 3.1 Pro (High)`; refutation runs on a DIFFERENT variant from
-  {`Claude Opus 4.6 (Thinking)`, `GPT-OSS 120B (Medium)`}.
+  {`Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)`}.
 - **Coding / output standards:** `AGENTS.md`. The no-nested-LLM rule is
   load-bearing here — see Constraints.
 - [report template](references/report-template.md) — the cited-report
@@ -123,7 +123,7 @@ delegate it. Write the angles down; they become the gather manifest.
 Before paying for a fresh fan-out, check whether a prior identical `/flow-research`
 run already synthesized this exact question — mirroring `/flow-product-planning`
 discovery Step 1.5's cache pattern
-(`skills/pipeline/flow-product-planning/references/discovery-instructions.md`). Compose
+(`skills/pipeline/flow-product-planning/references/discovery-research.md`). Compose
 the cache key from the **final refined (post-clarification) question** under a
 direct-invocation namespace prefix so the direct `/flow-research` keyspace never
 collides with discovery's bare-question keyspace, then read the host-wide cache by
@@ -200,7 +200,7 @@ In Claude, **rank the gathered claims by importance × source-quality** and
 select the top-N to verify (N is a generous default, ~40, tunable — see
 Constraints). For each selected claim, build a refute manifest entry that runs
 on a **DIFFERENT model from the gatherer** — a variant from
-{`Claude Opus 4.6 (Thinking)`, `GPT-OSS 120B (Medium)`} — so the adversarial
+{`Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)`} — so the adversarial
 signal is genuinely cross-model rather than one model checking itself. Write it
 to `.flow-tmp/research/<run-id>/refute-manifest.json`.
 
@@ -267,6 +267,10 @@ the degraded/partial-run flag section of the template. Never present a
 half-researched report as a complete research result. A budget-truncated run is
 detectable from the aggregate's `calls` counts and the per-entry
 `skipReason:"budget-exhausted"`.
+
+An `agy-model-unavailable` skip means agy no longer offers the pinned model — run
+`flow doctor`, then set the model's config key to one `agy models` lists; do not
+retry.
 
 ## 6. Graceful agy-absent fallback (honestly degraded, three-tier)
 
@@ -335,7 +339,7 @@ Tier 2 fires **only when ALL three hold**:
   `~/.flow/config.json` key `research.deepResearchFallback`. A sub-agent / skill
   cannot import flow's `bin/lib` (it is not on PATH in a consumer worktree — see
   the F2 idiom at
-  `skills/pipeline/flow-product-planning/references/discovery-instructions.md:53-59`),
+  `skills/pipeline/flow-product-planning/references/discovery-instructions.md` Step 1.5 (a)),
   so read the always-present global config via `jq`. **This INVERTS the F2
   default-OFF `== true` predicate — do NOT copy `== true`.** Absent file,
   malformed JSON, an absent/non-object `research`, or a missing
@@ -399,12 +403,12 @@ produced it (tier-2 `claude -p` vs tier-3 sequential).
   silently presented as a finished result.
 - **Paraphrasing the agy model-variant strings.** A wrong / renamed variant
   silently forces a skip. Keep `Gemini 3.1 Pro (High)`,
-  `Claude Opus 4.6 (Thinking)`, `GPT-OSS 120B (Medium)` byte-exact.
+  `Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)` byte-exact.
 
 # Verification
 
 - The gather manifest pins `Gemini 3.1 Pro (High)`; the refute manifest pins a
-  different variant from {`Claude Opus 4.6 (Thinking)`, `GPT-OSS 120B (Medium)`}.
+  different variant from {`Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)`}.
 - The report has confidence-ranked findings (high/medium/low), a refuted-claims
   transparency block, caveats, and open questions; it is both returned in chat
   and written to `.flow-tmp/research/<run-id>/report.md`.

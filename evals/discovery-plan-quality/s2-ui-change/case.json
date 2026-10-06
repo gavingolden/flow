@@ -1,0 +1,63 @@
+{
+  "id": "s2-ui-change",
+  "title": "UI-touching change: multi-select priority filter on the todo list page (Layout Intent gate fires)",
+  "provenance": "Adapted from the past pipeline request `add-rarity-filter-dropdown-multi` (~/.flow/state/add-rarity-filter-dropdown-multi.request.md: a multi-select rarity filter dropdown on a list page), rewritten to the fixture's `src/ui/TodoList.svelte` and `src/routes/+page.svelte`. Non-researchable.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture"
+  },
+  "graders": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "exists": true
+    },
+    {
+      "id": "plan-lint",
+      "kind": "command",
+      "argv": ["flow-plan-lint", "--plan-md-file", ".flow-tmp/plan.md"],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "layout-intent",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "matches": "(^|\\n)## Layout Intent"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

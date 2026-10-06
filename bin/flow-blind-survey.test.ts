@@ -10,9 +10,10 @@ import {
   type Deps,
   type FanoutAggregate,
 } from "./flow-blind-survey";
+import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
 
 const MODEL_A = "Gemini 3.1 Pro (High)";
-const MODEL_B = "Claude Opus 4.6 (Thinking)";
+const MODEL_B = DELEGATE_MODEL_DEFAULTS.blindSurveySecond!;
 
 const JUDGE_PROSE =
   '### 1. Goal as understood\n\nShip a way to validate the user\'s method.\n\n### 2. Recommended method\n\n"Add a supervisor-side blind survey before discovery drafts a plan." It runs two model-pinned judges over a goal-only brief.\n\n### 3. Alternatives considered and why not\n\nA Task-tool judge sub-agent — rejected, off-limits by policy.\n\n### 4. Risks and what would change your mind\n\nCosts one extra fan-out call per feature pipeline.';
@@ -476,6 +477,41 @@ describe("run — fanout skip propagation", () => {
     const env = envelope(deps);
     expect(env.judges[1].skipReason).toBe("agy-not-found");
     expect(env.judges[1].partialArtifactPath).toBeUndefined();
+  });
+
+  it("a judge-B agy-model-unavailable skip surfaces as that reason and never emits partialArtifactPath even if the --out path exists", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        deps.calls.fanout.push(input);
+        let manifest: Array<{ task: string; model: string; out?: string }> = [];
+        try {
+          manifest = JSON.parse(deps.files.get(input.manifestPath) ?? "[]");
+        } catch {
+          manifest = [];
+        }
+        const entries = manifest.map((m, i) => {
+          if (m.task === "blind-survey-judge-b") {
+            deps.files.set(m.out!, "stale partial");
+            return {
+              task: m.task,
+              ran: false,
+              skipReason: "agy-model-unavailable",
+            };
+          }
+          const artifactPath = m.out ?? `${input.outPath}.artifact.${i}.md`;
+          deps.files.set(artifactPath, JUDGE_PROSE);
+          return { task: m.task, model: m.model, ran: true, artifactPath };
+        });
+        return { entries, anyRan: true, allSkipped: false } as FanoutAggregate;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.judges[1].skipReason).toBe("agy-model-unavailable");
+    expect(env.judges[1].partialArtifactPath).toBeUndefined();
+    expect(deps.files.get(OUT)).toContain(
+      "_Judge B skipped: agy-model-unavailable_",
+    );
   });
 
   it("an empty entries array ⇒ fanout-error (fanout binary missing / usage-error / malformed aggregate, distinct from a per-entry agy-not-found)", () => {

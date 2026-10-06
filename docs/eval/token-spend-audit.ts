@@ -11,7 +11,7 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { basename, join } from "path";
 
 // $/MTok: input, 5m cache write (1.25x), 1h cache write (2x), cache read, output.
-const PRICING_DATE = "2026-09-30"; // Last verified: 2026-09-30
+export const PRICING_DATE = "2026-09-30"; // Last verified: 2026-09-30
 type Price = [number, number, number, number, number];
 const PRICES: Record<string, Price> = {
   "claude-opus-5": [5, 6.25, 10, 0.5, 25],

@@ -17,9 +17,10 @@ import {
   type Deps,
   type FanoutAggregate,
 } from "./flow-plan-review";
+import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
 
 const MODEL_1 = "Gemini 3.7 Flash (High)";
-const MODEL_2 = "Claude Opus 4.6 (Thinking)";
+const MODEL_2 = DELEGATE_MODEL_DEFAULTS.planReviewSecond!;
 
 // Must clear BOTH the engagement bars in bin/lib/plan-review-engagement.ts:
 // >=40 chars AND >=2 lens tokens (case-insensitive, from the lens-matcher
@@ -1107,6 +1108,50 @@ describe("run — deep tier partial failure", () => {
     ]);
     expect(deps.files.get(OUT)).toBe(
       "Reviewer one prose, verbatim: judged against the stated goal, this structurally different alternative holds up well.",
+    );
+  });
+});
+
+describe("run — deep tier retired model", () => {
+  it("passes a reviewer's agy-model-unavailable skipReason through unchanged in reviewers[]", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        const artifactPath = `${input.outPath}.artifact.0.md`;
+        deps.files.set(
+          artifactPath,
+          "Reviewer one prose, verbatim: judged against the stated goal, this structurally different alternative holds up well.",
+        );
+        return {
+          entries: [
+            {
+              task: manifest[0].task,
+              model: manifest[0].model,
+              ran: true,
+              artifactPath,
+            },
+            {
+              task: manifest[1].task,
+              model: manifest[1].model,
+              ran: false,
+              skipReason: "agy-model-unavailable",
+            },
+          ],
+          anyRan: true,
+          allSkipped: false,
+        } as FanoutAggregate;
+      },
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    expect(envelope(deps).reviewers).toEqual([
+      { model: MODEL_1, ran: true, lensesEngaged: 2 },
+      { model: MODEL_2, ran: false, skipReason: "agy-model-unavailable" },
+    ]);
+  });
+
+  it("mapReviewerSkipReason leaves agy-model-unavailable untouched", () => {
+    expect(mapReviewerSkipReason("agy-model-unavailable")).toBe(
+      "agy-model-unavailable",
     );
   });
 });

@@ -1,7 +1,7 @@
 # flow-eval — maintainer guide
 
 `flow-eval` is a maintainer-only, locally-runnable headless eval harness
-running seven committed suites, split by what each measures:
+running eight committed suites, split by what each measures:
 
 - Four **supervisor context-isolation scaffolds** (`verify-loop`,
   `haiku-gatekeeper`, `checkpoint-pending-clear`, `ui-smoke-isolation`) —
@@ -26,6 +26,30 @@ running seven committed suites, split by what each measures:
   artifacts, measuring how many supervisor turns a helper that folds
   mechanical steps saves. Its before/after arms and per-fold verdict are in
   [`turn-folding/README.md`](turn-folding/README.md).
+
+- One **plan-quality suite** (`discovery-plan-quality`, issue #891) — whether
+  `/flow-product-planning`'s discovery sub-agent still writes a conforming
+  plan after its instruction file changes, plus what each run costs. Five
+  scenarios on a small committed `todo-cli` fixture (an internal change, a
+  UI change, a methods-plus-target request, a revision pass and a
+  researchable request) are graded by `flow-plan-lint` and per-branch section
+  checks; cost, turns and duration are non-gating metrics. Both arms pin the
+  parent model as a measurement control only. Run each arm on a clean,
+  committed tree with a fresh research cache, because the child symlinks the
+  evaluating checkout's plugin files and the research synthesis is otherwise
+  cached host-wide:
+  `FLOW_RESEARCH_CACHE_DIR=$(mktemp -d) bun bin/flow-eval.ts run --suite discovery-plan-quality --out <dir> --runs 2 --concurrency 5`.
+  Scenario s5 needs `research.discovery: true` in `~/.flow/config.json`.
+  Instruction-read tokens come from the run's streams with
+  `bun docs/eval/discovery-payload.ts --stream-dir <out>` (the
+  default `--instructions` set is the core plus the five discovery
+  references; repeat `--instructions <path|basename>` to override it); the
+  production baseline is
+  [discovery-payload-baseline-2026-10.md](discovery-payload-baseline-2026-10.md),
+  and the split's go/no-go record is
+  [discovery-payload.md](discovery-payload.md). The suite is paid (about
+  $1.90 per run, $18 to $19 per 10-run arm), and `run --all` now includes it,
+  which adds that much to every `--all` invocation.
 
 Alongside the suites, `docs/eval/review-cost-baseline.md` records the
 measured **review-phase cost before-state** — the supervisor's own turn
