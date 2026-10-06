@@ -107,6 +107,15 @@ describe("validateScoutReport", () => {
     });
   });
 
+  it("keeps a summary whose body holds a fenced `# comment` line", () => {
+    const md = report().replace(
+      "Positive: x. Negative: y.",
+      "Positive: x.\n```bash\n# run the tests\nnpm test\n```\nNegative: y.",
+    );
+    const v = validateScoutReport(md);
+    expect(v.ok && v.summary).toContain("Negative: y.");
+  });
+
   it("has a null summary when none is given", () => {
     const v = validateScoutReport(report().split("## summary")[0]!);
     expect(v.ok && v.summary).toBeNull();
@@ -120,6 +129,15 @@ describe("extractTaskBreakdown", () => {
     const got = extractTaskBreakdown(md);
     expect(got).toContain("### Task 1");
     expect(got).not.toContain("prose");
+    expect(got).not.toContain("nope");
+  });
+
+  it("does not end the section at a `#` comment inside a fenced code block", () => {
+    const md =
+      "# Task breakdown\n\n```bash\n# Install dependencies\nnpm ci\n```\n\nafter-fence\n\n# Next section\n\nnope\n";
+    const got = extractTaskBreakdown(md);
+    expect(got).toContain("# Install dependencies");
+    expect(got).toContain("after-fence");
     expect(got).not.toContain("nope");
   });
 

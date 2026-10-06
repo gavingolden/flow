@@ -55,17 +55,10 @@ export const SCOUT_SECTIONS = [
 const USAGE =
   "usage: flow-agy-scout --worktree <dir> --skill-dir <flow-new-feature skill dir> --description-file <path> --out <scout.md path> [--plan <path|absent>] [--excluded-paths <path>] [--memory-dir <dir>] [--config <path>]";
 
-// Never-dispatched skips: no quota spent, so never a cooldown signal.
-const ENVIRONMENT_SKIPS = new Set([
-  "scout-delegation-off",
-  "agy-cooldown",
-  "scout-input-unreadable",
-  "scout-prep-failed",
-]);
-
 // A single failed scout call is "every agy call failed", but only an
 // explicit quota signal justifies holding the whole delegated pool on Claude
-// for an hour; a timeout or a model-quirk incomplete report is not one.
+// until agy's reported reset (else 60 minutes); a timeout or a model-quirk
+// incomplete report is not one.
 const SCOUT_COOLDOWN_CLASSES = new Set(["quota-exhausted", "rate-limited"]);
 
 export type Args = {
@@ -142,6 +135,25 @@ const headingLevel = (line: string): number => {
   return m ? m[1]!.length : 0;
 };
 
+// Per-line "inside a fenced code block" flags, so a `# comment` in a bash
+// fence is never read as a markdown heading. A fence closes on a line that
+// starts with the same fence character at least as long as the opener.
+function fencedLines(lines: string[]): boolean[] {
+  const inFence: boolean[] = [];
+  let open: { ch: string; len: number } | null = null;
+  for (const line of lines) {
+    const m = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (open === null) {
+      inFence.push(false);
+      if (m) open = { ch: m[1]![0]!, len: m[1]!.length };
+    } else {
+      inFence.push(true);
+      if (m && m[1]![0] === open.ch && m[1]!.length >= open.len) open = null;
+    }
+  }
+  return inFence;
+}
+
 // The plan's `# Task breakdown` section (any heading level, case-insensitive)
 // through the next heading of the same or a shallower level.
 export function extractTaskBreakdown(planMd: string): string | null {
@@ -149,8 +161,10 @@ export function extractTaskBreakdown(planMd: string): string | null {
   const start = lines.findIndex((l) => /^#{1,6}\s+task breakdown\b/i.test(l));
   if (start === -1) return null;
   const level = headingLevel(lines[start]!);
+  const inFence = fencedLines(lines);
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
+    if (inFence[i]) continue;
     const h = headingLevel(lines[i]!);
     if (h > 0 && h <= level) {
       end = i;
@@ -219,9 +233,11 @@ export function validateScoutReport(
   const fenced = /^```[a-z]*\n([\s\S]*?)\n```$/.exec(text);
   if (fenced) text = fenced[1]!.trim();
   const lines = text.split("\n");
+  const inFence = fencedLines(lines);
   const sectionAt = new Map<string, number>();
   let summaryAt = -1;
   lines.forEach((line, idx) => {
+    if (inFence[idx]) return;
     const m = /^##\s+([a-z_]+)\s*$/.exec(line.trim());
     if (!m) return;
     const name = m[1]!;
@@ -235,7 +251,7 @@ export function validateScoutReport(
   });
   const nextHeading = (from: number): number => {
     for (let i = from + 1; i < lines.length; i++) {
-      if (/^#{1,2}\s/.test(lines[i]!)) return i;
+      if (!inFence[i] && /^#{1,2}\s/.test(lines[i]!)) return i;
     }
     return lines.length;
   };
@@ -321,9 +337,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       JSON.stringify({
         ran: false,
         skipReason,
-        skipClass: ENVIRONMENT_SKIPS.has(skipReason)
-          ? "environment"
-          : classifyDelegateSkip(skipReason),
+        skipClass: classifyDelegateSkip(skipReason),
         ...extra,
       }),
     );

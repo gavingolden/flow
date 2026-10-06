@@ -43,9 +43,21 @@ The helper prints one JSON envelope. Branch on `.ran`, never the exit code:
 - `ran: true` — `scout.md` is complete at `$SCOUT_PATH`. Skip the Task call
   in item 3 entirely and use the envelope's `summary` as the chat output
   (item 4's existence check still applies).
-- anything else — print one line naming `skipReason` (for example
-  `scout: delegated run unavailable (agy-cooldown) — using the Claude scout`),
-  then spawn the Task scout exactly as item 3 describes.
+- anything else — spawn the Task scout exactly as item 3 describes. Unless
+  the reason is `scout-delegation-off` (the default state: print nothing),
+  first print one plain-language line translating `skipReason`; never print
+  the reason string raw (same rule as `/flow-pr-review`'s
+  `references/delegated-lenses.md`):
+
+  | `skipReason`                                                        | Say                                                                                         |
+  | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+  | `agy-cooldown`                                                      | `scout: running on Claude — Google plan cooling down after a quota failure`                 |
+  | `scout-report-incomplete`, `scout-output-empty`                     | `scout: running on Claude — the Google-plan scout report was incomplete`                    |
+  | `scout-tools-denied`                                                | `scout: running on Claude — the Google-plan scout tried a command it is not allowed to run` |
+  | `scout-token-exhausted`                                             | `scout: running on Claude — the Google-plan scout ran out of output budget`                 |
+  | `agy-not-found`, `agy-not-authenticated`, `agy-model-unavailable`   | `scout: running on Claude — the Google plan is not available on this machine`               |
+  | `scout-input-unreadable`, `scout-prep-failed`, `scout-write-failed` | `scout: running on Claude — the Google-plan scout could not be prepared`                    |
+  | any other                                                           | `scout: running on Claude — the Google-plan scout run failed`                               |
 
 `scout-delegation-off` and `agy-cooldown` make no agy call, so they cost
 nothing but the one Bash call.
