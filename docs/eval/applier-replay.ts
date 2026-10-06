@@ -36,6 +36,7 @@ import {
   buildMap,
   checkArtifact,
   ghRepoFromUrl,
+  preloadedPrompt,
   tokenWasRead,
   treeDrift,
   withArmToken,
@@ -605,16 +606,17 @@ async function run(flag: (n: string) => string | undefined) {
       "file" in src
         ? fs.readFileSync(path.resolve(src.file), "utf8")
         : git(harness, "show", `${src.ref}:${src.path}`);
-    fs.writeFileSync(instr, withArmToken(instrText, token));
+    const armText = withArmToken(instrText, token);
+    fs.writeFileSync(instr, armText);
     const prompt = rewritePrompt(c.spawnPrompt, {
       fromWorktree: from,
       toWorktree: tmp,
       instructionPath: instr,
     });
-    fs.writeFileSync(
-      path.join(runDir, "prompt-input.txt"),
-      `${prompt}\n\n${AUTO_MODE_STEER}\n`,
-    );
+    // Production preloads the instructions; a smoke child asked to read them
+    // grepped two fragments instead, so the arm text never reached it.
+    const input = preloadedPrompt(armText, prompt, AUTO_MODE_STEER);
+    fs.writeFileSync(path.join(runDir, "prompt-input.txt"), input);
     result.steerInjected = true;
 
     const mk = (n: string) => {
@@ -659,7 +661,8 @@ async function run(flag: (n: string) => string | undefined) {
     });
     const err = out.timedOut ? "timeout" : out.error;
     if (err) result.error = err;
-    result.instructionsRead = tokenWasRead(out.events, token);
+    result.instructionsRead =
+      input.includes(token) || tokenWasRead(out.events, token);
     if (err) {
       const stderr = path.join(runDir, "stderr.txt");
       result.rateLimited = isRateLimited(

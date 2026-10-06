@@ -249,6 +249,14 @@ While auto mode is active:
 You can do much of your work through the Bash tool when it is the simpler route: read files with cat, head, or sed -n, search with grep and find, and make small, mechanical file changes with sed, heredocs, or short scripts instead of the dedicated Read, Edit, or Write tools. The choice is yours: prefer Edit or Write when a shell edit would be fragile, such as exact or multi-line replacements, or sed/awk flags that differ between GNU and BSD/macOS.
 </system-reminder>`;
 
+export function preloadedPrompt(
+  instructions: string,
+  prompt: string,
+  steer: string,
+): string {
+  return `${instructions.trimEnd()}\n\n---\n\n${prompt}\n\n${steer}\n`;
+}
+
 export function withArmToken(instructions: string, token: string): string {
   const m = instructions.match(SENTINEL);
   if (!m || m.index === undefined) {

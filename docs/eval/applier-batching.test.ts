@@ -17,6 +17,7 @@ import {
   verdictsFor,
   withArmToken,
   type Production,
+  preloadedPrompt,
   recordedSteer,
 } from "./applier-batching";
 import type { RunResult } from "./applier-replay";
@@ -618,5 +619,26 @@ describe("recordedSteer", () => {
   });
   it("should return none when no auto_mode attachment is recorded", () => {
     expect(recordedSteer([JSON.stringify({ type: "user" })])).toBe("none");
+  });
+});
+
+describe("preloadedPrompt", () => {
+  it("should put the arm's instructions, sentinel and token before the task prompt, and the reminder last", () => {
+    const instr =
+      "---\nname: x\n---\n<!-- flow-instructions-sentinel: flow-coder-instructions -->\n<!-- replay-arm-token: before-1 -->\nbody\n";
+    const out = preloadedPrompt(
+      instr,
+      "TASK PROMPT",
+      "<system-reminder>steer</system-reminder>",
+    );
+    expect(out.indexOf("replay-arm-token: before-1")).toBeLessThan(
+      out.indexOf("TASK PROMPT"),
+    );
+    expect(out.indexOf("flow-instructions-sentinel")).toBeLessThan(
+      out.indexOf("TASK PROMPT"),
+    );
+    expect(
+      out.trimEnd().endsWith("<system-reminder>steer</system-reminder>"),
+    ).toBe(true);
   });
 });
