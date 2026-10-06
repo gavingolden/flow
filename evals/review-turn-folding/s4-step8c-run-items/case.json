@@ -1,0 +1,111 @@
+{
+  "id": "s4-step8c-run-items",
+  "title": "Step 8c runs items, ticks passes, leaves failures and SUBJECTIVE unticked",
+  "provenance": "Synthetic fixture authored for issue #835's turn-folding measurement: pre-written .flow-tmp artifacts (valid per bin/lib/agent-finding-schema.ts and bin/lib/fix-applier-schema.ts unless the scenario says otherwise) stand in for what the named agent wrote, and the prompt bounds the run to the post-return handling at skills/pipeline/flow-pr-review/SKILL.md. Run against the unchanged skills to record the before arm. The gh shim's `pr edit --body-file` copies the written body to .flow-tmp/gh-pr-edit-body.md for the graders.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture",
+    "state": "state.json",
+    "shims": ["../../_shims/gh"]
+  },
+  "env": {
+    "flowSlug": true
+  },
+  "ghCalls": [
+    ["pr", "view", "1", "--json", "body"],
+    ["pr", "edit", "1", "--body-file", ".flow-tmp/body.md"]
+  ],
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "ran",
+      "kind": "structured",
+      "path": "ran",
+      "equals": 3
+    },
+    {
+      "id": "passed",
+      "kind": "structured",
+      "path": "passed",
+      "equals": 2
+    },
+    {
+      "id": "failed",
+      "kind": "structured",
+      "path": "failed",
+      "equals": 1
+    },
+    {
+      "id": "body-true-ticked",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/gh-pr-edit-body.md",
+      "matches": "- \\[x\\] Run `true`"
+    },
+    {
+      "id": "body-test-d-ticked",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/gh-pr-edit-body.md",
+      "matches": "- \\[x\\] Run `test -d \\.`"
+    },
+    {
+      "id": "body-false-unticked",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/gh-pr-edit-body.md",
+      "matches": "- \\[ \\] Run `false`"
+    },
+    {
+      "id": "body-subjective-unticked",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/gh-pr-edit-body.md",
+      "matches": "- \\[ \\] SUBJECTIVE:"
+    },
+    {
+      "id": "body-evidence-injected",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/gh-pr-edit-body.md",
+      "contains": "<!-- flow:evidence -->"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.toolCalls.Bash",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.toolCalls.Bash",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.subagentsSpawned",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.subagentsSpawned",
+      "direction": "lower"
+    }
+  ]
+}

@@ -5353,12 +5353,29 @@ describe("pr-review include-by-reference structure", () => {
     // growth.
     // Bumped 1930 -> 1940 (checkpointed applier artifact + turn-budget
     // loss accounting + non-blocking wait).
+    //
+    // Lowered 1940 -> 1895 (review turn folding): Step 8c calls
+    // `flow-run-test-steps`, replacing the 8c per-item run/inject loop and
+    // 8c.i's fences with one helper call. The file lands at 1889 lines; 1895
+    // locks the reduction in with 6 lines of headroom.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1940 lines. Material regrowth past this ceiling would ` +
+        `budget of 1895 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1940);
+    ).toBeLessThan(1895);
+  });
+
+  it("skills/pipeline/flow-pr-review/SKILL.md routes Step 8c's runnable items through flow-run-test-steps with an explicit Bash timeout", () => {
+    // The helper's 540 s run budget only fits inside the Bash tool's 600 s
+    // ceiling when the caller passes `timeout: 600000`; without it the call
+    // dies at the 120 s default with no envelope.
+    const content = fs.readFileSync(
+      path.resolve(HERE, "..", "skills/pipeline/flow-pr-review/SKILL.md"),
+      "utf8",
+    );
+    // Same line as the call: `timeout: 600000` also appears at Step 3.5.
+    expect(content).toMatch(/flow-run-test-steps --pr[^\n]*timeout: 600000/);
   });
 
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
@@ -10467,12 +10484,11 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
       kind: "adjacent-lines",
       anchor: "--clear-caution | grep",
     },
-    {
-      file: "skills/pipeline/flow-pr-review/SKILL.md",
-      siteName: "pr-review-evidence-injection",
-      kind: "adjacent-lines",
-      anchor: "After every runnable item has been processed",
-    },
+    // The former `pr-review-evidence-injection` entry (flow-pr-review 8c.i's
+    // hand-written fix-then-edit fence) is gone: `flow-run-test-steps` now owns
+    // that repair-before-push, and bin/flow-run-test-steps.test.ts asserts the
+    // `flow-md-validate --fix-pr-body` -> `--check-pr-body` -> single
+    // `gh pr edit` ordering instead.
     {
       file: "skills/pipeline/flow-new-feature/SKILL.md",
       siteName: "new-feature-overflow-note",
@@ -10539,12 +10555,11 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
     },
   );
 
-  it("covers exactly the five known gh pr edit --body-file recipe sites, by name", () => {
+  it("covers exactly the four known gh pr edit --body-file recipe sites, by name", () => {
     expect(BODY_EDIT_SITES.map((s) => s.siteName)).toEqual([
       "pipeline-ui-smoke-note",
       "pipeline-verify-exhausted-caution",
       "pipeline-verify-clear-caution",
-      "pr-review-evidence-injection",
       "new-feature-overflow-note",
     ]);
   });
