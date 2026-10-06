@@ -26,7 +26,12 @@
  * for why the PR #543 bench run (2026-08-05) did NOT flip that default.
  */
 
-import { defaultReadConfigFile, type ReadConfigFile } from "./models-config";
+import {
+  defaultReadConfigFile,
+  REVIEW_LENS_NAMES,
+  type ReadConfigFile,
+  type ReviewLensName,
+} from "./models-config";
 
 export type DelegateSurface =
   | "intentGuess"
@@ -37,7 +42,8 @@ export type DelegateSurface =
   | "planReviewSecond"
   | "blindSurvey"
   | "blindSurveySecond"
-  | "scout";
+  | "scout"
+  | "claudeLenses";
 
 // planReviewSecond corrects the plan's false claim that flow-plan-review.ts
 // carries no model constant: it carries two (MODEL + SECOND_MODEL), and the
@@ -151,7 +157,29 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // "src/pipeline-summary-sources.ts.txt:237:real-defect", which
   // claude-sonnet-4-6 caught. Three candidate generations, same miss.
   scout: null,
+  // null means "delegation off": every Claude review lens runs as a Task
+  // agent, exactly as before. The variant stays null until
+  // docs/eval/agy-delegation-recall-2026-10 records a clear for at least one
+  // lens (the recall check, not this seam, decides which lenses move — see
+  // DEFAULT_DELEGATED_LENSES below).
+  claudeLenses: null,
 };
+
+// The seven real review lenses; intent-guess is a second artifact shape with
+// its own consumer and is deliberately not delegatable.
+export type DelegatableLens = Exclude<ReviewLensName, "intent-guess">;
+
+export const DELEGATABLE_LENSES: readonly DelegatableLens[] =
+  REVIEW_LENS_NAMES.filter((l): l is DelegatableLens => l !== "intent-guess");
+
+// Empty until the recorded recall check clears a lens; a user opts further
+// lenses in through `delegate.lenses`.
+export const DEFAULT_DELEGATED_LENSES: readonly DelegatableLens[] = [];
+
+// Fixed per-run agy budgets (see delegate-timeouts.ts for the configurable
+// surfaces and the 9m sync ceiling these must stay under).
+export const DELEGATED_LENS_TIMEOUT = "8m";
+export const DELEGATED_SCOUT_TIMEOUT = "8m";
 
 // Fires at most once per surface per process. Without this, a maintainer
 // who pinned a surface months ago via config would keep silently overriding
@@ -205,4 +233,59 @@ export function resolveDelegateModel(
   }
 
   return value;
+}
+
+let warnedLensesType = false;
+const warnedLensNames = new Set<string>();
+
+/**
+ * Resolves the set of review lenses to delegate to agy: `delegate.lenses`
+ * from `~/.flow/config.json` (an array of known lens names) else
+ * DEFAULT_DELEGATED_LENSES. Unknown entries (including `intent-guess`) warn
+ * once and drop; a wrong-typed value warns once and returns the default.
+ * Never throws.
+ */
+export function resolveDelegatedLenses(
+  readConfigFile: ReadConfigFile = defaultReadConfigFile,
+): DelegatableLens[] {
+  const raw = readConfigFile();
+  const delegate =
+    typeof raw === "object" && raw !== null
+      ? (raw as Record<string, unknown>).delegate
+      : undefined;
+  const value =
+    typeof delegate === "object" && delegate !== null
+      ? (delegate as Record<string, unknown>).lenses
+      : undefined;
+
+  if (value === undefined) return [...DEFAULT_DELEGATED_LENSES];
+
+  if (!Array.isArray(value)) {
+    if (!warnedLensesType) {
+      warnedLensesType = true;
+      console.error(
+        `delegate.lenses: '${String(value)}' is not an array of lens names; ` +
+          `ignoring and using the default.`,
+      );
+    }
+    return [...DEFAULT_DELEGATED_LENSES];
+  }
+
+  const out: DelegatableLens[] = [];
+  for (const entry of value) {
+    const known = DELEGATABLE_LENSES.find((l) => l === entry);
+    if (known === undefined) {
+      const key = String(entry);
+      if (!warnedLensNames.has(key)) {
+        warnedLensNames.add(key);
+        console.error(
+          `delegate.lenses: '${key}' is not a delegatable review lens ` +
+            `(${DELEGATABLE_LENSES.join(", ")}); ignoring it.`,
+        );
+      }
+      continue;
+    }
+    if (!out.includes(known)) out.push(known);
+  }
+  return out;
 }

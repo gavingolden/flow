@@ -1,8 +1,13 @@
 import * as fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_DELEGATED_LENSES,
+  DELEGATABLE_LENSES,
   DELEGATE_MODEL_DEFAULTS,
+  DELEGATED_LENS_TIMEOUT,
+  DELEGATED_SCOUT_TIMEOUT,
   resolveDelegateModel,
+  resolveDelegatedLenses,
   type DelegateSurface,
 } from "./delegate-models";
 import type { ReadConfigFile } from "./models-config";
@@ -317,5 +322,72 @@ describe("resolveDelegateModel", () => {
         );
       }
     }
+  });
+});
+
+describe("claudeLenses surface", () => {
+  it("defaults to null (delegation off) until a recall check records a clear", () => {
+    expect(DELEGATE_MODEL_DEFAULTS.claudeLenses).toBeNull();
+    expect(resolveDelegateModel("claudeLenses", reader(undefined))).toBeNull();
+  });
+
+  it("resolves a configured agy variant", () => {
+    expect(
+      resolveDelegateModel(
+        "claudeLenses",
+        reader({
+          delegate: { models: { claudeLenses: "Claude Opus 5.5 (High)" } },
+        }),
+      ),
+    ).toBe("Claude Opus 5.5 (High)");
+  });
+
+  it("keeps the fixed delegated budgets at 8m", () => {
+    expect(DELEGATED_LENS_TIMEOUT).toBe("8m");
+    expect(DELEGATED_SCOUT_TIMEOUT).toBe("8m");
+  });
+});
+
+describe("resolveDelegatedLenses", () => {
+  const cfg = (lenses: unknown) => reader({ delegate: { lenses } });
+
+  it("defaults to the empty set when config is absent", () => {
+    expect(DEFAULT_DELEGATED_LENSES).toEqual([]);
+    expect(resolveDelegatedLenses(reader(undefined))).toEqual([]);
+    expect(resolveDelegatedLenses(reader({ delegate: {} }))).toEqual([]);
+  });
+
+  it("lists exactly the seven real lenses as delegatable", () => {
+    expect(DELEGATABLE_LENSES).toHaveLength(7);
+    expect(DELEGATABLE_LENSES).not.toContain("intent-guess");
+  });
+
+  it("returns a valid configured list", () => {
+    expect(
+      resolveDelegatedLenses(cfg(["bug-detection", "test-coverage"])),
+    ).toEqual(["bug-detection", "test-coverage"]);
+  });
+
+  it("drops unknown entries (including intent-guess) with a warning", () => {
+    const out = resolveDelegatedLenses(
+      cfg(["security", "intent-guess", "not-a-lens-xyz", 7]),
+    );
+    expect(out).toEqual(["security"]);
+    const messages = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(messages.some((m: string) => m.includes("intent-guess"))).toBe(true);
+    expect(messages.some((m: string) => m.includes("not-a-lens-xyz"))).toBe(
+      true,
+    );
+  });
+
+  it("de-duplicates repeated entries", () => {
+    expect(resolveDelegatedLenses(cfg(["security", "security"]))).toEqual([
+      "security",
+    ]);
+  });
+
+  it("returns the default for a wrong-typed value", () => {
+    expect(resolveDelegatedLenses(cfg("security"))).toEqual([]);
+    expect(resolveDelegatedLenses(cfg({ a: 1 }))).toEqual([]);
   });
 });

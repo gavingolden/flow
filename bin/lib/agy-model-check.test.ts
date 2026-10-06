@@ -37,6 +37,19 @@ describe("configuredAgyModels", () => {
     });
   });
 
+  it("checks a claudeLenses override with a plain-language label", () => {
+    const got = configuredAgyModels({
+      delegate: { models: { claudeLenses: "Claude Opus 5.5 (High)" } },
+    });
+    expect(got).toContainEqual({
+      surface: "claudeLenses",
+      model: "Claude Opus 5.5 (High)",
+    });
+    expect(surfaceLabel("claudeLenses")).toBe(
+      "the delegated Claude review lenses",
+    );
+  });
+
   it("ignores a scout override (no runtime path consumes it)", () => {
     expect(
       configuredAgyModels({ delegate: { models: { scout: "Scout M" } } }).map(

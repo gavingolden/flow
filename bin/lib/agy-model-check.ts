@@ -23,6 +23,7 @@ const SURFACE_LABELS: Record<string, string> = {
   planReviewSecond: "plan review's second reviewer",
   blindSurvey: "method survey's first judge",
   blindSurveySecond: "method survey's second judge",
+  claudeLenses: "the delegated Claude review lenses",
   "research.model": "research gathering",
   "research.refuteModel": "research fact-check",
 };
