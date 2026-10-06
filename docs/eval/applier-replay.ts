@@ -4,8 +4,11 @@
 // AFTER_REF, the tested instructions, not this checkout's) and records turns, waste events, an independent final verify
 // and a test count per run. Maintainer-only, never on PATH. Spends real
 // money on `run`; `snapshot` and `report` are free.
-//   bun docs/eval/applier-replay.ts snapshot --pr <n> [--repo flow]
+//   bun docs/eval/applier-replay.ts map --since <YYYY-MM-DD> [--projects <dir>] [--out <file>]
+//   bun docs/eval/applier-replay.ts snapshot --pr <n> [--repo flow] [--repo-dir <clone>]
+//     [--gh-repo <owner/name>] [--id <case-id>] [--out <dir>] [--allow-drift]
 //   bun docs/eval/applier-replay.ts run --arm before|after --case <file> --out <dir>
+//     [--repo-dir <clone>] [--instructions <ref>:<path>|<file>] [--timeout-sec <n>]
 //   bun docs/eval/applier-replay.ts rescore --dir <outDir>
 //   bun docs/eval/applier-replay.ts report --results <json|dir> [--check]
 // `rescore` re-derives the stream-derived fields from each saved stream.jsonl
@@ -27,6 +30,16 @@ import {
   type SpawnStats,
 } from "./applier-turns";
 import { parseStream } from "../../bin/lib/eval-transcript";
+import { SYMLINK_FILES } from "../../bin/lib/worktree-fs";
+import {
+  AUTO_MODE_STEER,
+  buildMap,
+  checkArtifact,
+  ghRepoFromUrl,
+  tokenWasRead,
+  treeDrift,
+  withArmToken,
+} from "./applier-batching";
 
 const BEFORE_REF = "428642c";
 const AFTER_REF = "19c2228";
@@ -41,8 +54,14 @@ export type Recorded = {
   prettierRounds: number;
   parkedVerifies: number;
   finalVerify: boolean | null;
+  toolCalls?: number;
+  bashCalls?: number;
+  shellOps?: number;
+  pollCalls?: number;
 };
 export type Case = {
+  repo?: string;
+  treeDrift?: string[];
   pr: number;
   slug: string;
   spawnAt: string;
@@ -53,7 +72,7 @@ export type Case = {
 };
 export type RunResult = {
   case: string;
-  arm: "before" | "after";
+  arm: string;
   turns: number;
   costUsd: number;
   fullVerifies: number;
@@ -64,6 +83,15 @@ export type RunResult = {
   finalVerify: boolean | null;
   tests: number;
   error?: string;
+  toolCalls?: number;
+  bashCalls?: number;
+  shellOps?: number;
+  backgroundedVerifies?: number;
+  pollCalls?: number;
+  steerInjected?: boolean;
+  instructionsRead?: boolean;
+  artifactValid?: boolean;
+  rateLimited?: boolean;
 };
 
 export function pickBaseSha(
@@ -110,8 +138,14 @@ export function selectTestFiles(
       if (known.has(f)) picked.add(f);
       continue;
     }
-    const colocated = f.replace(/\.[^./]+$/, "") + ".test.ts";
-    if (known.has(colocated)) picked.add(colocated);
+    const stem = f.replace(/\.[^./]+$/, "");
+    for (const t of [
+      `${stem}.test.ts`,
+      `${f}.test.ts`,
+      `${stem}.spec.ts`,
+      `${f}.spec.ts`,
+    ])
+      if (known.has(t)) picked.add(t);
   }
   return [...picked].sort();
 }
@@ -219,7 +253,7 @@ export function renderReport(runs: RunResult[]): string {
   ].join("\n");
 }
 
-const unwrapRead = (text: string) =>
+export const unwrapRead = (text: string) =>
   text
     .replace(/\n*<system-reminder>[\s\S]*?<\/system-reminder>\s*$/, "")
     .replace(/^\s*\d+\t/gm, "");
@@ -329,11 +363,74 @@ const repoRoot = () =>
     "--show-toplevel",
   ).trim();
 
+export function resolveInstructions(
+  arm: string | undefined,
+  spec: string | undefined,
+  exists: (p: string) => boolean,
+): { arm: string; ref: string; path: string } | { arm: string; file: string } {
+  if (!arm) throw new Error("--arm <name> is required");
+  if (!spec) {
+    const ref = { before: BEFORE_REF, after: AFTER_REF }[arm];
+    if (!ref) throw new Error(`--arm ${arm} requires --instructions`);
+    return { arm, ref, path: INSTRUCTIONS };
+  }
+  if (exists(spec)) return { arm, file: spec };
+  const at = spec.indexOf(":");
+  if (at < 1) throw new Error(`--instructions ${spec}: not a file or ref:path`);
+  return { arm, ref: spec.slice(0, at), path: spec.slice(at + 1) };
+}
+
+export function linkRepoFiles(clone: string, worktree: string) {
+  for (const rel of SYMLINK_FILES) {
+    const src = path.join(clone, rel);
+    const dest = path.join(worktree, rel);
+    if (!fs.existsSync(src) || fs.existsSync(dest)) continue;
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.symlinkSync(src, dest);
+  }
+}
+
+export const isRateLimited = (text: string): boolean =>
+  /usage limit|rate[ _-]?limit|limit reached|hit your limit|quota/i.test(text);
+
+function repoDirFor(repo: string, repoDir: string | undefined): string {
+  if (repoDir) return path.resolve(repoDir);
+  if (repo === "flow") return repoRoot();
+  throw new Error(`--repo-dir <clone> is required for repo ${repo}`);
+}
+
+function ghRepoOf(clone: string, flagValue: string | undefined): string {
+  const gh =
+    flagValue ??
+    ghRepoFromUrl(git(clone, "remote", "get-url", "origin").trim());
+  if (!gh) throw new Error(`cannot derive owner/name for ${clone}: --gh-repo`);
+  return gh;
+}
+
+function mapCmd(flag: (n: string) => string | undefined) {
+  const since = flag("--since");
+  if (!since || !/^\d{4}-\d{2}-\d{2}$/.test(since))
+    throw new Error("--since <YYYY-MM-DD> is required");
+  const rows = buildMap({
+    projects:
+      flag("--projects") ?? path.join(os.homedir(), ".claude", "projects"),
+    since: Date.parse(`${since}T00:00:00Z`),
+  });
+  const out = path.resolve(
+    flag("--out") ?? ".flow-tmp/edit-applier-pr-map.json",
+  );
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, JSON.stringify(rows) + "\n");
+  console.log(`${rows.length} spawns -> ${out}`);
+}
+
 function snapshot(flag: (n: string) => string | undefined) {
   const pr = Number(flag("--pr"));
   const repo = flag("--repo") ?? "flow";
   if (!Number.isInteger(pr)) throw new Error("--pr <n> is required");
-  const root = repoRoot();
+  const harness = repoRoot();
+  const clone = repoDirFor(repo, flag("--repo-dir"));
+  const gh = ghRepoOf(clone, flag("--gh-repo"));
   const mapPath = path.resolve(
     flag("--map") ?? ".flow-tmp/edit-applier-pr-map.json",
   );
@@ -357,13 +454,14 @@ function snapshot(flag: (n: string) => string | undefined) {
   const files = editSetFiles(spawnPrompt, flowTmpFiles, worktree);
   if (!files?.length) throw new Error(`PR ${pr}: edit-set is not recoverable`);
 
-  git(root, "fetch", "origin", `pull/${pr}/head`);
+  git(clone, "fetch", "origin", `pull/${pr}/head`);
   const commits = JSON.parse(
-    sh(root, ["gh", "pr", "view", String(pr), "--json", "commits"]).out,
+    sh(clone, ["gh", "pr", "view", String(pr), "-R", gh, "--json", "commits"])
+      .out,
   ).commits as { oid: string; committedDate: string }[];
-  const firstParent = git(root, "rev-parse", `${commits[0].oid}^`).trim();
+  const firstParent = git(clone, "rev-parse", `${commits[0].oid}^`).trim();
   const baseSha = pickBaseSha(commits, spawnAt, firstParent);
-  const tests = git(root, "ls-tree", "-r", "--name-only", baseSha)
+  const tests = git(clone, "ls-tree", "-r", "--name-only", baseSha)
     .split("\n")
     .filter((f) => TEST_RE.test(f));
   const picked = selectTestFiles(files, tests);
@@ -374,9 +472,28 @@ function snapshot(flag: (n: string) => string | undefined) {
     throw new Error(
       `PR ${pr}: no tested file at base — pick another PR (or pass --allow-no-tests)`,
     );
+  if (repo !== "flow") {
+    const lock = path.join(clone, "package-lock.json");
+    const atBase = sh(clone, ["git", "show", `${baseSha}:package-lock.json`]);
+    const now = fs.existsSync(lock) ? fs.readFileSync(lock, "utf8") : "";
+    if ((atBase.code === 0 ? atBase.out : "") !== now)
+      throw new Error(
+        `PR ${pr}: package-lock.json changed since base ${baseSha.slice(0, 7)}; the clone's node_modules would not match`,
+      );
+  }
+  const drift = treeDrift(recs, worktree, (f) => {
+    const r = sh(clone, ["git", "show", `${baseSha}:${f}`]);
+    return r.code === 0 ? r.out : null;
+  });
+  if (drift.length && !process.argv.includes("--allow-drift"))
+    throw new Error(
+      `PR ${pr}: the recorded run read ${drift.length} file(s) that differ at base: ${drift.join(", ")} (pass --allow-drift to keep)`,
+    );
 
   const s = attributeSpawn(recs);
   const c: Case = {
+    repo,
+    treeDrift: drift,
     pr,
     slug: String(slug),
     spawnAt,
@@ -390,14 +507,19 @@ function snapshot(flag: (n: string) => string | undefined) {
       prettierRounds: s.prettierRounds,
       parkedVerifies: s.parkedVerifies,
       finalVerify: s.finalVerify,
+      toolCalls: s.toolCalls,
+      bashCalls: s.bashCalls,
+      shellOps: s.shellOps,
+      pollCalls: s.pollCalls,
     },
   };
   const out = path.resolve(
-    root,
+    harness,
     flag("--out") ?? "docs/eval/applier-replay/cases",
   );
   fs.mkdirSync(out, { recursive: true });
-  const file = path.join(out, `pr-${pr}.json`);
+  const id = flag("--id") ?? (repo === "flow" ? `pr-${pr}` : `${repo}-${pr}`);
+  const file = path.join(out, `${id}.json`);
   fs.writeFileSync(file, JSON.stringify(c, null, 2) + "\n");
   console.log(file);
 }
@@ -421,9 +543,12 @@ export function retirePriorRun(outDir: string, name: string) {
 }
 
 async function run(flag: (n: string) => string | undefined) {
-  const arm = flag("--arm");
-  if (arm !== "before" && arm !== "after")
-    throw new Error("--arm before|after");
+  const src = resolveInstructions(
+    flag("--arm"),
+    flag("--instructions"),
+    fs.existsSync,
+  );
+  const arm = src.arm;
   const casePath = path.resolve(flag("--case") ?? "");
   const c: Case = JSON.parse(fs.readFileSync(casePath, "utf8"));
   const id = path.basename(casePath, ".json");
@@ -431,7 +556,8 @@ async function run(flag: (n: string) => string | undefined) {
   const runDir = path.join(outDir, `${id}-${arm}`);
   retirePriorRun(outDir, `${id}-${arm}`);
   fs.mkdirSync(runDir, { recursive: true });
-  const root = repoRoot();
+  const harness = repoRoot();
+  const root = repoDirFor(c.repo ?? "flow", flag("--repo-dir"));
   const canonical = git(root, "worktree", "list", "--porcelain").match(
     /^worktree (.+)$/m,
   )![1];
@@ -464,6 +590,7 @@ async function run(flag: (n: string) => string | undefined) {
     }
     fs.rmSync(nm, { recursive: true, force: true });
     fs.symlinkSync(path.join(canonical, "node_modules"), nm);
+    linkRepoFiles(canonical, tmp);
     for (const [rel, text] of Object.entries(c.flowTmpFiles)) {
       const f = path.join(tmp, ".flow-tmp", rel);
       fs.mkdirSync(path.dirname(f), { recursive: true });
@@ -473,20 +600,22 @@ async function run(flag: (n: string) => string | undefined) {
 
     const instr = path.join(runDir, "instructions", "SKILL.md");
     fs.mkdirSync(path.dirname(instr), { recursive: true });
-    fs.writeFileSync(
-      instr,
-      arm === "before"
-        ? git(root, "show", `${BEFORE_REF}:${INSTRUCTIONS}`)
-        : git(root, "show", `${AFTER_REF}:${INSTRUCTIONS}`),
-    );
+    const token = `${arm}-${crypto.randomUUID()}`;
+    const instrText =
+      "file" in src
+        ? fs.readFileSync(path.resolve(src.file), "utf8")
+        : git(harness, "show", `${src.ref}:${src.path}`);
+    fs.writeFileSync(instr, withArmToken(instrText, token));
+    const prompt = rewritePrompt(c.spawnPrompt, {
+      fromWorktree: from,
+      toWorktree: tmp,
+      instructionPath: instr,
+    });
     fs.writeFileSync(
       path.join(runDir, "prompt-input.txt"),
-      rewritePrompt(c.spawnPrompt, {
-        fromWorktree: from,
-        toWorktree: tmp,
-        instructionPath: instr,
-      }),
+      `${prompt}\n\n${AUTO_MODE_STEER}\n`,
     );
+    result.steerInjected = true;
 
     const mk = (n: string) => {
       const d = path.join(runDir, n);
@@ -502,7 +631,7 @@ async function run(flag: (n: string) => string | undefined) {
       dir: runDir,
       runs: 1,
       maxBudgetUsd: 20,
-      timeoutSec: 2700,
+      timeoutSec: Number(flag("--timeout-sec") ?? 2700),
       mcpServers: [],
       allowedTools: ["Bash", "Read", "Edit", "Write", "Grep", "Glob"],
     };
@@ -530,6 +659,17 @@ async function run(flag: (n: string) => string | undefined) {
     });
     const err = out.timedOut ? "timeout" : out.error;
     if (err) result.error = err;
+    result.instructionsRead = tokenWasRead(out.events, token);
+    if (err) {
+      const stderr = path.join(runDir, "stderr.txt");
+      result.rateLimited = isRateLimited(
+        [
+          err,
+          JSON.stringify(out.result ?? {}),
+          fs.existsSync(stderr) ? fs.readFileSync(stderr, "utf8") : "",
+        ].join("\n"),
+      );
+    }
 
     // Exit 1 when it only warns about ignored paths; new files are still added.
     sh(tmp, ["git", "add", "-N", "--", ".", ":!node_modules", ":!.flow-tmp"]);
@@ -540,6 +680,16 @@ async function run(flag: (n: string) => string | undefined) {
     const allTests = git(tmp, "ls-files")
       .split("\n")
       .filter((f) => TEST_RE.test(f));
+    const artifactPath =
+      prompt.match(/artifact[^\n]*\n\s*(\/\S+coder-result\.json)/)?.[1] ??
+      path.join(tmp, ".flow-tmp", "coder-result.json");
+    result.artifactValid = checkArtifact(
+      fs.existsSync(artifactPath)
+        ? fs.readFileSync(artifactPath, "utf8")
+        : null,
+      editSetFiles(c.spawnPrompt, c.flowTmpFiles, from) ?? [],
+      changed,
+    );
     const files = selectTestFiles(changed, allTests);
     if (files.length) {
       const t = sh(tmp, ["npx", "vitest", "run", "--reporter=json", ...files]);
@@ -552,6 +702,7 @@ async function run(flag: (n: string) => string | undefined) {
     }
     const env = { ...process.env };
     delete env.FLOW_SLUG;
+    delete env.TMUX_PANE;
     const v = sh(tmp, ["flow-pre-commit", "--json"], env);
     const m = v.out.match(/"allPassed":\s*(true|false)/);
     result.finalVerify = m ? m[1] === "true" : null;
@@ -573,6 +724,11 @@ export const streamFields = (s: SpawnStats) => ({
   prettierRounds: s.prettierRounds,
   verifyCalls: s.verifyCalls,
   verifyCallsWithTimeout: s.verifyCallsWithTimeout,
+  toolCalls: s.toolCalls,
+  bashCalls: s.bashCalls,
+  shellOps: s.shellOps,
+  backgroundedVerifies: s.backgroundedVerifies,
+  pollCalls: s.pollCalls,
 });
 
 export const mergeRescore = (old: RunResult, s: SpawnStats): RunResult => ({
@@ -635,13 +791,14 @@ if (import.meta.main) {
     argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined;
   const cmd = argv[0];
   try {
-    if (cmd === "snapshot") snapshot(flag);
+    if (cmd === "map") mapCmd(flag);
+    else if (cmd === "snapshot") snapshot(flag);
     else if (cmd === "run") await run(flag);
     else if (cmd === "rescore") rescore(flag);
     else if (cmd === "report") report(flag);
     else
       throw new Error(
-        "usage: applier-replay.ts snapshot|run|rescore|report (see header)",
+        "usage: applier-replay.ts map|snapshot|run|rescore|report (see header)",
       );
   } catch (e) {
     console.error((e as Error).message);

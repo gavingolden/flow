@@ -513,7 +513,7 @@ export function firstUserText(recs: any[]): string {
   return Array.isArray(c) ? c.map((b: Block) => b?.text ?? "").join("") : "";
 }
 
-function kindOf(label: string, text: string): string {
+export function kindOf(label: string, text: string): string {
   if (/flow-edit-applier$/.test(label)) return "edit-applier";
   if (/flow-fix-applier$/.test(label)) return "fix-applier";
   if (/flow-/.test(label)) return "";

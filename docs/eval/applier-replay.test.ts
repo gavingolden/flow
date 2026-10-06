@@ -6,12 +6,15 @@ import {
   checkFailures,
   editSetFiles,
   extractFlowTmpFiles,
+  isRateLimited,
   lastRuns,
+  linkRepoFiles,
   loadResults,
   mergeRescore,
   parseWorktree,
   pickBaseSha,
   renderReport,
+  resolveInstructions,
   retirePriorRun,
   rewritePrompt,
   selectTestFiles,
@@ -83,6 +86,17 @@ describe("selectTestFiles", () => {
     expect(selectTestFiles(["bin/b.ts", "docs/eval/c.md"], all)).toEqual([
       "bin/b.test.ts",
       "docs/eval/c.test.ts",
+    ]);
+  });
+  it("should add the .svelte.test.ts and .spec.ts siblings of a source file", () => {
+    const tests = [
+      "web/Foo.svelte.test.ts",
+      "web/bar.spec.ts",
+      "web/x.test.ts",
+    ];
+    expect(selectTestFiles(["web/Foo.svelte", "web/bar.ts"], tests)).toEqual([
+      "web/Foo.svelte.test.ts",
+      "web/bar.spec.ts",
     ]);
   });
   it("should return nothing when no test matches", () => {
@@ -290,7 +304,118 @@ describe("snapshot recovery", () => {
   });
 });
 
+describe("resolveInstructions", () => {
+  const none = () => false;
+  it("should keep the #910 refs for before and after without --instructions", () => {
+    expect(resolveInstructions("before", undefined, none)).toMatchObject({
+      arm: "before",
+      ref: "428642c",
+    });
+    expect(resolveInstructions("after", undefined, none)).toMatchObject({
+      ref: "19c2228",
+    });
+  });
+  it("should require --instructions for any other arm name", () => {
+    expect(() => resolveInstructions("batching", undefined, none)).toThrow(
+      /requires --instructions/,
+    );
+    expect(() => resolveInstructions(undefined, undefined, none)).toThrow(
+      /--arm/,
+    );
+  });
+  it("should read a file when it exists and a ref:path otherwise", () => {
+    expect(
+      resolveInstructions("batching", "arms/batching.md", () => true),
+    ).toEqual({ arm: "batching", file: "arms/batching.md" });
+    expect(resolveInstructions("before", "c51c3cc:a/b.md", none)).toEqual({
+      arm: "before",
+      ref: "c51c3cc",
+      path: "a/b.md",
+    });
+    expect(() => resolveInstructions("x", "nonsense", none)).toThrow();
+  });
+});
+
+describe("linkRepoFiles", () => {
+  it("should link only production's SYMLINK_FILES, never other .env files", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "link-"));
+    const clone = path.join(dir, "clone");
+    const wt = path.join(dir, "wt");
+    fs.mkdirSync(path.join(clone, ".claude"), { recursive: true });
+    fs.mkdirSync(wt);
+    for (const f of [
+      ".env",
+      ".env.prod-ops",
+      ".env.smoketest",
+      ".claude/settings.local.json",
+    ])
+      fs.writeFileSync(path.join(clone, f), "x");
+    linkRepoFiles(clone, wt);
+    expect(fs.lstatSync(path.join(wt, ".env")).isSymbolicLink()).toBe(true);
+    expect(
+      fs
+        .lstatSync(path.join(wt, ".claude/settings.local.json"))
+        .isSymbolicLink(),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(wt, ".env.prod-ops"))).toBe(false);
+    expect(fs.existsSync(path.join(wt, ".env.smoketest"))).toBe(false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("isRateLimited", () => {
+  it("should recognise usage and rate limit stops only", () => {
+    expect(isRateLimited("You've hit your usage limit")).toBe(true);
+    expect(isRateLimited('{"error":"rate_limit_error"}')).toBe(true);
+    expect(isRateLimited("error_max_turns")).toBe(false);
+  });
+});
+
 describe("mergeRescore", () => {
+  it("should carry the habit fields and keep the recorded booleans", () => {
+    const old = {
+      case: "econ-data-1",
+      arm: "batching",
+      turns: 10,
+      costUsd: 1,
+      fullVerifies: 1,
+      parkedVerifies: 0,
+      prettierRounds: 0,
+      verifyCalls: 1,
+      verifyCallsWithTimeout: 1,
+      finalVerify: true,
+      tests: 3,
+      steerInjected: true,
+      instructionsRead: true,
+      artifactValid: true,
+    } as RunResult;
+    const fresh = {
+      turns: 9,
+      fullVerifies: 1,
+      parkedVerifies: 0,
+      prettierRounds: 0,
+      verifyCalls: 1,
+      verifyCallsWithTimeout: 1,
+      toolCalls: 12,
+      bashCalls: 10,
+      shellOps: 30,
+      backgroundedVerifies: 0,
+      pollCalls: 2,
+    } as Parameters<typeof mergeRescore>[1];
+    expect(mergeRescore(old, fresh)).toMatchObject({
+      turns: 9,
+      toolCalls: 12,
+      bashCalls: 10,
+      shellOps: 30,
+      pollCalls: 2,
+      steerInjected: true,
+      instructionsRead: true,
+      artifactValid: true,
+      finalVerify: true,
+      costUsd: 1,
+    });
+  });
+
   it("should replace stream fields and keep cost, verify, tests and error", () => {
     const old: RunResult = {
       case: "pr-1",
