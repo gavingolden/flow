@@ -232,8 +232,10 @@ export function buildMap(
         } catch {}
         const label = resolveAgentType(meta, text, [], meta?.description);
         if (kindOf(label, text) !== "edit-applier") continue;
-        const spawnAt: string | undefined = recs.find(
-          (r) => r?.timestamp,
+        const spawnAt = (
+          recs.find((r) => (r as { timestamp?: string })?.timestamp) as
+            | { timestamp?: string }
+            | undefined
         )?.timestamp;
         const worktree = parseWorktree(text);
         if (!spawnAt || !worktree || Date.parse(spawnAt) < o.since) continue;
