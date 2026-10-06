@@ -640,5 +640,6 @@ describe("preloadedPrompt", () => {
     expect(
       out.trimEnd().endsWith("<system-reminder>steer</system-reminder>"),
     ).toBe(true);
+    expect(out.startsWith("-")).toBe(false);
   });
 });

@@ -254,7 +254,8 @@ export function preloadedPrompt(
   prompt: string,
   steer: string,
 ): string {
-  return `${instructions.trimEnd()}\n\n---\n\n${prompt}\n\n${steer}\n`;
+  // A leading "---" (skill frontmatter) is parsed as a CLI option by `claude`.
+  return `Preloaded skill instructions:\n\n${instructions.trimEnd()}\n\n---\n\n${prompt}\n\n${steer}\n`;
 }
 
 export function withArmToken(instructions: string, token: string): string {
