@@ -47,7 +47,7 @@ Helpers (installed globally by `flow install` and on PATH):
   meta}`, default `--min-confidence 80`). Used at Step 3 so each agent receives only
   its lens subset. Tool-presence detection is graceful: a missing tool produces
   `meta.<lens>.ran=false` + `skipped_reason` and the lens emits `[]`.
-- `flow-pre-commit` — auto-detects scope, runs format + checks, reports pass/fail
+- `flow-pre-commit` — auto-detects scope, runs the checks (no formatting), reports pass/fail
 - `flow-reply-pr-comments` — batch-posts replies to PR review comments
 
 If `flow install` has not been run on this machine, fall back to `gh pr view`, `gh pr diff`,

@@ -496,9 +496,9 @@ Run the pre-commit helper with the PR number:
 flow-pre-commit --pr "$PR_NUMBER"
 ```
 
-The helper auto-detects changed areas, runs `npm run format` first, then
-each check separately with structured pass/fail output. A non-zero exit
-means a check failed — investigate, fix, and re-run.
+The helper auto-detects changed areas and does not format; it runs each
+check separately with structured pass/fail output. A non-zero exit means
+a check failed — investigate, fix, and re-run.
 
 **Verify-fix round cap.** At most 5 verify-fix rounds per run. After the
 fifth failing round, record the failure excerpt in the affected
@@ -591,7 +591,7 @@ the CSP fix instead, never `credentials-unavailable`. On this inline path, put `
 fix-applier artifact summary and leave the affected signed-in items
 unchecked so the pr-review wrapper surfaces `smoketest-needs-creds`.
 
-`/flow-verify` runs the project's full check suite (typecheck, tests, format).
+`/flow-verify` runs the project's full check suite (typecheck, tests, lint). The helper never formats, but `/flow-verify`'s own lint-fix path may run `npm run format`, so expect formatting edits left behind.
 Apply the verdict to every commit produced this run:
 
 - **Pass** → reconcile whatever verify left behind into this one commit
