@@ -17,6 +17,7 @@ import {
   verdictsFor,
   withArmToken,
   type Production,
+  recordedSteer,
 } from "./applier-batching";
 import type { RunResult } from "./applier-replay";
 
@@ -597,5 +598,25 @@ describe("verdictsFor and checkShipped", () => {
     ).toEqual([
       "verify-timeout does not ship but its marker is in the live skill",
     ]);
+  });
+});
+
+describe("recordedSteer", () => {
+  const att = (steer?: string) =>
+    JSON.stringify({
+      type: "attachment",
+      attachment: { type: "auto_mode", bashFirstSteer: steer },
+    });
+  it("should return the first auto_mode attachment's steer flag", () => {
+    expect(
+      recordedSteer([
+        JSON.stringify({ type: "user" }),
+        att("relaxed"),
+        att("strict"),
+      ]),
+    ).toBe("relaxed");
+  });
+  it("should return none when no auto_mode attachment is recorded", () => {
+    expect(recordedSteer([JSON.stringify({ type: "user" })])).toBe("none");
   });
 });

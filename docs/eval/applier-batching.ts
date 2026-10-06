@@ -6,6 +6,7 @@
 //     [--production-json <file>] [--write-json <file>] [--check]
 // The paid `run` lives in applier-replay.ts; this file spends nothing.
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -568,13 +569,43 @@ function report(flag: (n: string) => string | undefined) {
   if (bad.length) process.exit(1);
 }
 
+// Transcripts record only the steer flag, never the rendered text.
+export function recordedSteer(lines: string[]): string {
+  for (const l of lines) {
+    const r = JSON.parse(l);
+    if (r?.type === "attachment" && r.attachment?.type === "auto_mode")
+      return String(r.attachment.bashFirstSteer ?? "none");
+  }
+  return "none";
+}
+
+function steer(flag: (n: string) => string | undefined) {
+  const projects =
+    flag("--projects") ?? path.join(os.homedir(), ".claude/projects");
+  const rows: MapRow[] = JSON.parse(
+    fs.readFileSync(
+      flag("--map") ?? ".flow-tmp/edit-applier-pr-map.json",
+      "utf8",
+    ),
+  );
+  const seen = new Map<string, number>();
+  for (const row of rows.filter((r) => r[3].includes("5-5"))) {
+    const text = fs.readFileSync(path.join(projects, row[6]), "utf8");
+    const s = recordedSteer(text.split("\n").filter(Boolean));
+    seen.set(s, (seen.get(s) ?? 0) + 1);
+  }
+  for (const [s, n] of seen) console.log(`${s}: ${n} Sonnet 5.5 spawn(s)`);
+}
+
 if (import.meta.main) {
   const argv = process.argv.slice(2);
   const flag = (x: string) =>
     argv.includes(x) ? argv[argv.indexOf(x) + 1] : undefined;
   try {
     if (argv[0] === "report") report(flag);
-    else throw new Error("usage: applier-batching.ts report (see header)");
+    else if (argv[0] === "steer") steer(flag);
+    else
+      throw new Error("usage: applier-batching.ts report|steer (see header)");
   } catch (e) {
     console.error((e as Error).message);
     process.exit(1);
