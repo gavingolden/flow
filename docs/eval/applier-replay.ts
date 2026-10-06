@@ -521,7 +521,8 @@ async function run(flag: (n: string) => string | undefined) {
 
     // Exit 1 when it only warns about ignored paths; new files are still added.
     sh(tmp, ["git", "add", "-N", "--", ".", ":!node_modules", ":!.flow-tmp"]);
-    const changed = git(tmp, "diff", "--name-only", "HEAD")
+    // Against the base, not HEAD: some recorded prompts tell the agent to commit.
+    const changed = git(tmp, "diff", "--name-only", c.baseSha)
       .split("\n")
       .filter(Boolean);
     const allTests = git(tmp, "ls-files")
