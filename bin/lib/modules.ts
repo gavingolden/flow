@@ -234,7 +234,7 @@ export const MODULES: ModuleDefinition[] = [
   {
     id: "research",
     description:
-      "The Google-AI-Ultra (agy) delegation engine, the research helpers built on it, and the four agy-dependent cross-model reviewers.",
+      "The Google-AI-Ultra (agy) delegation engine, the research helpers built on it, the agy-dependent cross-model reviewers, and the delegated review lenses and scout.",
     skills: ["flow-research"],
     agents: [],
     helpers: [
@@ -248,6 +248,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-gemini-lens",
       "flow-gemini-intent-guess",
       "flow-blind-survey",
+      "flow-agy-lenses",
     ],
     validators: [],
   },
