@@ -29,6 +29,7 @@ import { readEpicMaxParallel, DEFAULT_MAX_PARALLEL } from "./epic-config";
 import { isOutputLens } from "./output-lens";
 import {
   DELEGATE_MODEL_DEFAULTS,
+  resolveDelegatedLenses,
   type DelegateSurface,
 } from "./delegate-models";
 import {
@@ -155,11 +156,11 @@ function resolveResearchModelField(
 /**
  * Plain-language name for each delegate surface — never the raw camelCase
  * identifier, which a reader can't parse without opening the code.
- * `scout` is the only surface that actually replaces a Claude Task
- * subagent (and is unwired today — see `docs/configuration.md`'s
- * `delegate.models.scout` row); the rest are either an additional
- * opt-in lens or a delegate-only path that skips (no Task spawn) when
- * agy is unavailable, so their meaning must not claim a substitution.
+ * `scout` and `claudeLenses` are the surfaces that actually replace a Claude
+ * Task subagent (the scout, and the Claude review lenses — see
+ * `docs/configuration.md`'s Delegate models table); the rest are either an
+ * additional opt-in lens or a delegate-only path that skips (no Task spawn)
+ * when agy is unavailable, so their meaning must not claim a substitution.
  */
 const DELEGATE_MODEL_SURFACE_NAMES: Record<DelegateSurface, string> = {
   intentGuess: "the cross-model intent guess",
@@ -171,6 +172,7 @@ const DELEGATE_MODEL_SURFACE_NAMES: Record<DelegateSurface, string> = {
   blindSurvey: "the first blind-method-survey judge",
   blindSurveySecond: "the second blind-method-survey judge",
   scout: "the implementation scout",
+  claudeLenses: "the delegated Claude review lenses",
 };
 
 function delegateModelRow(surface: DelegateSurface): Descriptor {
@@ -178,8 +180,10 @@ function delegateModelRow(surface: DelegateSurface): Descriptor {
   const name = DELEGATE_MODEL_SURFACE_NAMES[surface];
   const meaning =
     surface === "scout"
-      ? `the agy model variant ${name} uses instead of a Claude Task subagent (reserved — not yet wired)`
-      : `the agy model variant ${name} uses`;
+      ? `the agy model variant ${name} tries first, with the Claude Task scout as the fallback (unset = Claude Task scout only)`
+      : surface === "claudeLenses"
+        ? `the agy model variant ${name} run on; takes effect only for the lenses listed in delegate.lenses (unset = every review lens stays on Claude)`
+        : `the agy model variant ${name} uses`;
   return {
     key,
     meaning,
@@ -507,6 +511,21 @@ const DESCRIPTORS: Descriptor[] = [
     },
   },
   ...DELEGATE_MODEL_SURFACES.map(delegateModelRow),
+  {
+    key: "delegate.lenses",
+    meaning:
+      "which Claude review lenses run on the Google plan instead of Claude when a delegated-lens model is set (a lens that fails there falls back to Claude)",
+    resolve: (read) => {
+      const lenses = resolveDelegatedLenses(() => safeRead(read));
+      const configured = getPath(safeRead(read), ["delegate", "lenses"]);
+      return {
+        value: lenses.length > 0 ? lenses.join(", ") : "(none)",
+        source: Array.isArray(configured)
+          ? "config (delegate.lenses)"
+          : "built-in (none)",
+      };
+    },
+  },
   ...DELEGATE_TIMEOUT_SURFACES.map(delegateTimeoutRow),
   {
     key: "source",
@@ -523,7 +542,7 @@ const DESCRIPTORS: Descriptor[] = [
 /**
  * The key list `config-key-coverage.test.ts` pins against `docs/configuration.md`.
  * Falls out of `DESCRIPTORS` rather than being a second hand-maintained
- * list — but the 11 individual `delegate.models.<surface>` /
+ * list — but the 12 individual `delegate.models.<surface>` /
  * `delegate.timeouts.<surface>` descriptor keys (kept individual so an
  * override is actually visible in the RENDERED rows, see `delegateModelRow`)
  * collapse to the two existing `delegate.models.*` / `delegate.timeouts.*`

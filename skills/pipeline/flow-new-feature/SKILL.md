@@ -204,6 +204,8 @@ plan.md's `## Alternatives considered` (see
    fi
    ```
 
+   When `flow-agy-scout` is on PATH, try it first — see [references/delegated-scout.md](references/delegated-scout.md).
+
    Make exactly **one** Task-tool call:
 
    ```

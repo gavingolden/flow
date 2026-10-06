@@ -9,6 +9,7 @@ import {
   mergeTelemetry,
   parseLensModels,
   parseLensTokens,
+  readDelegationRecord,
 } from "./review-telemetry";
 import type { ConsolidatorResult } from "./agent-finding-schema";
 import type { FixApplierResult } from "./fix-applier-schema";
@@ -107,7 +108,102 @@ describe("aggregateCounts", () => {
       findings_dropped: 0,
       findings_acted: 0,
       findings_deferred: 0,
+      engine: "task",
+      agy_model: null,
+      fallback_reason: null,
     });
+  });
+
+  it("carries a lens's delegation record onto its counts entry", () => {
+    const counts = aggregateCounts({
+      agentOutputs: { "bug-detection": { findings: [] }, security: null },
+      consolidator: null,
+      fixApplier: null,
+      delegation: {
+        "bug-detection": {
+          engine: "agy",
+          agy_model: "Claude Opus 5.5 (High)",
+          fallback_reason: null,
+        },
+        security: {
+          engine: "task",
+          agy_model: null,
+          fallback_reason: "agy-output-unparseable",
+        },
+      },
+    });
+    expect(counts["bug-detection"]).toMatchObject({
+      engine: "agy",
+      agy_model: "Claude Opus 5.5 (High)",
+    });
+    expect(counts.security).toMatchObject({
+      engine: "task",
+      fallback_reason: "agy-output-unparseable",
+    });
+  });
+});
+
+describe("readDelegationRecord", () => {
+  const record = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      review_started_at: "2026-10-06T10:00:00Z",
+      model: "Claude Opus 5.5 (High)",
+      routes: [
+        { lens: "bug-detection", route: "agy" },
+        { lens: "security", route: "agy" },
+        { lens: "performance", route: "task", reason: "not-in-delegated-set" },
+        {
+          lens: "test-coverage",
+          route: "task",
+          reason: "fable-session-keeps-task",
+        },
+      ],
+      delegated: [
+        {
+          lens: "bug-detection",
+          findingCount: 2,
+          decodedVia: "structured-output",
+          durationSec: 90,
+        },
+      ],
+      fallback: [{ lens: "security", reason: "agy-output-unparseable" }],
+      cooldownArmed: false,
+      ...over,
+    });
+
+  it("reads an absent or garbage record as empty (every lens defaults to task)", () => {
+    expect(readDelegationRecord(null)).toEqual({});
+    expect(readDelegationRecord("not json")).toEqual({});
+    expect(readDelegationRecord("{}")).toEqual({});
+  });
+
+  it("marks a delegated lens agy with the model, a fallback lens task with the reason", () => {
+    const out = readDelegationRecord(record());
+    expect(out["bug-detection"]).toEqual({
+      engine: "agy",
+      agy_model: "Claude Opus 5.5 (High)",
+      fallback_reason: null,
+    });
+    expect(out.security).toEqual({
+      engine: "task",
+      agy_model: null,
+      fallback_reason: "agy-output-unparseable",
+    });
+  });
+
+  it("surfaces a deliberate keep-on-Claude route reason but not the default state", () => {
+    const out = readDelegationRecord(record());
+    expect(out["test-coverage"]?.fallback_reason).toBe(
+      "fable-session-keeps-task",
+    );
+    expect(out.performance).toBeUndefined();
+  });
+
+  it("ignores a record from a different review window", () => {
+    expect(readDelegationRecord(record(), "2026-10-06T18:00:00Z")).toEqual({});
+    expect(
+      Object.keys(readDelegationRecord(record(), "2026-10-06T10:00:00Z")),
+    ).toContain("bug-detection");
   });
 });
 
@@ -412,6 +508,53 @@ describe("mergeTelemetry", () => {
       transcripts: {},
     });
     expect(aliasOnly.lenses["bug-detection"].model).toBe("opus");
+  });
+
+  it("carries engine/agy_model/fallback_reason, and labels a delegated lens with the agy model rather than a Claude alias", () => {
+    const entry = {
+      ran: true,
+      skip_reason: null,
+      findings_emitted: 0,
+      findings_survived: 0,
+      findings_dropped: 0,
+      findings_acted: 0,
+      findings_deferred: 0,
+    };
+    const t = mergeTelemetry({
+      ...baseArgs,
+      counts: {
+        "bug-detection": {
+          ...entry,
+          engine: "agy",
+          agy_model: "Claude Opus 5.5 (High)",
+          fallback_reason: null,
+        },
+        security: {
+          ...entry,
+          engine: "task",
+          agy_model: null,
+          fallback_reason: "agy-timeout",
+        },
+      },
+      lensTokens: {},
+      lensModels: { "bug-detection": "opus", security: "opus" },
+      transcripts: {},
+    });
+    expect(t.lenses["bug-detection"]).toMatchObject({
+      engine: "agy",
+      agy_model: "Claude Opus 5.5 (High)",
+      model: "Claude Opus 5.5 (High)",
+    });
+    expect(t.lenses.security).toMatchObject({
+      engine: "task",
+      fallback_reason: "agy-timeout",
+      model: "opus",
+    });
+    expect(t.lenses.performance).toMatchObject({
+      engine: "task",
+      agy_model: null,
+      fallback_reason: null,
+    });
   });
 
   it("tags rows version 3", () => {

@@ -66,14 +66,6 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
-import {
-  VALID_DECORATIONS,
-  VALID_LABELS,
-  classifyLensNegatives,
-  collectLensNegatives,
-  normalizeParsedFindings,
-  validateAgentFindings,
-} from "./lib/agent-finding-schema";
 import { resolveDelegateModel } from "./lib/delegate-models";
 import {
   clampDelegateTimeout,
@@ -82,13 +74,19 @@ import {
   SYNC_DELEGATE_CEILING,
 } from "./lib/delegate-timeouts";
 import { classifyDelegateSkip } from "./lib/delegate-skip-class";
+import type { DecodeVia } from "./lib/structured-response";
 import {
-  decodeDelegateArtifact,
-  unwrapAgyEnvelope,
-  type DecodeVia,
-} from "./lib/structured-response";
+  AGENT_FINDINGS_JSON_SCHEMA,
+  classifyUnusableLensRun,
+  decodeLensArtifact,
+  projectLensFindings,
+} from "./lib/agy-lens-core";
 import { agyReadRules } from "./lib/agy-read-rules";
 import type { AgentFindings } from "./lib/agent-finding-schema";
+
+// Re-exported so existing importers (the test suite) keep resolving the wire
+// schema from this module; the definition lives in the shared lens core.
+export { AGENT_FINDINGS_JSON_SCHEMA };
 
 // The model routes through resolveDelegateModel("reviewLens") — the default
 // lives in DELEGATE_MODEL_DEFAULTS; a `delegate.models.reviewLens` config
@@ -172,120 +170,6 @@ export function isGeminiLensEnabled(rawConfigText: string): boolean {
   if (typeof review !== "object" || review === null) return false;
   return (review as Record<string, unknown>).gemini === true;
 }
-
-// Wire-level `--json-schema` contract for the agy call. Every property
-// carries a `description` (load-bearing — a description-less schema was
-// observed to produce degenerate output in probing). `reasoning` is a
-// LEADING scratchpad-only field, never projected into the finalized
-// `{findings}` file. `decoration` is deliberately NOT in `required` on each
-// finding — `validateFinding` allows a `praise` finding to omit it. The
-// `label` / `decoration` enums are built FROM the imported
-// `VALID_LABELS` / `VALID_DECORATIONS` sets so the schema cannot drift from
-// the validator.
-export const AGENT_FINDINGS_JSON_SCHEMA: Record<string, unknown> = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "reasoning",
-    "findings",
-    "rejected_alternatives",
-    "anti_patterns_found",
-  ],
-  properties: {
-    reasoning: {
-      type: "string",
-      description:
-        "Use this exclusively for scratchpad reasoning; every finding you want reported must go in the findings array, never here.",
-    },
-    findings: {
-      type: "array",
-      items: {
-        type: "object",
-        required: ["file", "line", "label", "confidence", "subject", "body"],
-        properties: {
-          file: { type: "string", description: "The changed file path." },
-          line: { type: "number", description: "The primary line number." },
-          end_line: {
-            type: "number",
-            description: "Optional end line for a multi-line span.",
-          },
-          label: {
-            type: "string",
-            enum: Array.from(VALID_LABELS),
-            description: "The conventional-comments label for this finding.",
-          },
-          decoration: {
-            type: "string",
-            enum: Array.from(VALID_DECORATIONS),
-            description:
-              "The bare decoration keyword. Omit (or set null) for a praise finding; every other label requires one.",
-          },
-          confidence: {
-            type: "number",
-            description:
-              "0-100. Only emit findings you are >= 80% confident are real.",
-          },
-          subject: {
-            type: "string",
-            description: "A short description of the finding.",
-          },
-          body: {
-            type: "string",
-            description:
-              "Detailed explanation in conventional-comments format with a concrete fix.",
-          },
-        },
-      },
-      description: "The reviewer's findings, one entry per issue/praise/etc.",
-    },
-    rejected_alternatives: {
-      type: "array",
-      items: {
-        type: "object",
-        required: ["considered_approach", "why_rejected"],
-        properties: {
-          considered_approach: {
-            type: "string",
-            description:
-              "An approach you considered while reviewing a hunk of the reviewed code.",
-          },
-          why_rejected: {
-            type: "string",
-            description:
-              "Why the code as written is preferable to the considered approach.",
-          },
-        },
-      },
-      description:
-        "Code-scoped claims about approaches you considered and rejected while reviewing. A genuine none is the empty array; do not omit this key.",
-    },
-    anti_patterns_found: {
-      type: "array",
-      items: {
-        type: "object",
-        required: ["location", "pattern", "recommendation"],
-        properties: {
-          location: {
-            type: "string",
-            description:
-              "The file:line of the off-pattern in the reviewed code.",
-          },
-          pattern: {
-            type: "string",
-            description:
-              "The off-pattern observed — not itself a findings entry.",
-          },
-          recommendation: {
-            type: "string",
-            description: "What the next person touching this code should do.",
-          },
-        },
-      },
-      description:
-        "Code-scoped off-patterns you noticed but didn't surface as a findings entry. A genuine none is the empty array; do not omit this key.",
-    },
-  },
-};
 
 // Counts `diff --git ` file-header occurrences to derive a diff-sized file
 // cap for agyReadRules — a one-file diff gets a floor of 1, a large diff is
@@ -519,8 +403,8 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     "--prompt-file",
     promptPath,
     "--model",
-    // Non-null: only the "scout" surface's default is null; reviewLens's
-    // default and every well-typed override are strings.
+    // Non-null: only the "scout" and "claudeLenses" surfaces default to null;
+    // reviewLens's default and every well-typed override are strings.
     resolveDelegateModel("reviewLens") as string,
     ...(addDir !== null ? ["--add-dir", addDir] : []),
     "--out",
@@ -531,13 +415,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     timeout,
   ];
 
-  const decodeAgentFindings = (rawArtifact: string) =>
-    // Normalization applies to EVERY rung, including structured_output —
-    // this is what lets a model's off-enum label still land through the
-    // ladder, not just through the prose-parse rungs.
-    decodeDelegateArtifact(rawArtifact, (candidate) =>
-      validateAgentFindings(normalizeParsedFindings(candidate)),
-    );
+  const decodeAgentFindings = decodeLensArtifact;
 
   const finalizeSuccess = (
     decodedValue: AgentFindings,
@@ -545,37 +423,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     extra: Record<string, unknown> = {},
   ): number => {
     try {
-      // MANDATORY, not cosmetic: validateAgentFindings tolerates extra
-      // top-level keys and returns the input unmodified, so writing
-      // decoded.value directly would leak a schema-supplied `reasoning` key
-      // into agent-output-gemini.json and hand the consolidator a non-
-      // {findings, rejected_alternatives, anti_patterns_found} artifact.
-      // Re-project to exactly those three keys. The two negative arrays
-      // route through the TOLERANT collectLensNegatives — a wire-schema
-      // violation on one malformed negative entry must never sink the whole
-      // cross-model review (this helper already skips with
-      // `gemini-output-unparseable` on a genuinely-broken payload; that path
-      // is for the whole artifact, not one entry).
-      const negatives = collectLensNegatives(decodedValue);
-      const state = classifyLensNegatives(decodedValue);
-      const finalized: {
-        findings: unknown;
-        rejected_alternatives?: unknown;
-        anti_patterns_found?: unknown;
-      } = { findings: decodedValue.findings };
-      // Preserve genuine absence rather than laundering it into `[]`: the
-      // wire schema now REQUIRES both keys from agy, but decodedValue may
-      // still come from a salvage rung that never enforced that
-      // requirement. Only write the key when the source actually carried an
-      // array (populated or empty), so the consolidator's
-      // `classifyLensNegatives` can still tell "lens omitted this" from
-      // "lens explicitly reported none".
-      if (state.rejected_alternatives !== "absent") {
-        finalized.rejected_alternatives = negatives.rejected_alternatives;
-      }
-      if (state.anti_patterns_found !== "absent") {
-        finalized.anti_patterns_found = negatives.anti_patterns_found;
-      }
+      const finalized = projectLensFindings(decodedValue);
       deps.writeFile(parsed.out, JSON.stringify(finalized, null, 2));
     } catch {
       return skip("gemini-finalize-failed");
@@ -591,34 +439,16 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     });
   };
 
-  // Self-diagnosing classification for a dispatched-but-unusable run: a
-  // denied tool call (checked FIRST — see the header) or a thinking-token-
-  // dominated empty response, falling back to the prior generic reason when
-  // neither signal is present.
+  // Maps the shared lens-core classification onto this helper's `gemini-*`
+  // skip vocabulary.
   const classifyUnusable = (
     rawArtifact: string,
     env: Pick<DelegateEnvelope, "deniedActions" | "usage">,
   ):
     | "gemini-tools-denied"
     | "gemini-token-exhausted"
-    | "gemini-output-unparseable" => {
-    if (env.deniedActions && env.deniedActions.length > 0) {
-      return "gemini-tools-denied";
-    }
-    const usage = env.usage;
-    const { text } = unwrapAgyEnvelope(rawArtifact);
-    if (
-      text.trim() === "" &&
-      usage &&
-      typeof usage.thinking_tokens === "number" &&
-      typeof usage.output_tokens === "number" &&
-      usage.output_tokens > 0 &&
-      usage.thinking_tokens >= usage.output_tokens * 0.9
-    ) {
-      return "gemini-token-exhausted";
-    }
-    return "gemini-output-unparseable";
-  };
+    | "gemini-output-unparseable" =>
+    `gemini-${classifyUnusableLensRun(rawArtifact, env)}` as const;
 
   const PLAUSIBLE_DENIAL_SKIP_REASONS = new Set(["agy-canceled", "agy-error"]);
 

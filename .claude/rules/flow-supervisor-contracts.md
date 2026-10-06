@@ -80,7 +80,9 @@ done`'s heal): that one commit, never forced. Both contracts:
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
     Multi-Agent Review.** Step 8's up to seven review agents (the seventh,
     `product`, brief-gated) plus one intent-guess agent, in one fan-out
-    message re-fanned at most once on a widen.
+    message re-fanned at most once on a widen (with delegation on, each wave is
+    at most two Task messages: the `task`-routed lenses up front, then the
+    helper's `fallback` lenses).
   - **Task-tool exemption: `/flow-pipeline` → `/flow-product-planning`
     Independent Discovery Subagent.** Step 3's one discovery agent + one
     blind `flow-product-critic`.
@@ -125,7 +127,10 @@ done`'s heal): that one commit, never forced. Both contracts:
     **blind method survey** are a
     **Bash fan-out, not an eighth exemption** —
     `flow-delegate`/`flow-plan-review`/`flow-blind-survey` calls, no
-    Task, graceful skip sans agy. The same holds for **headless Claude
+    Task, graceful skip sans agy. The **delegated review lenses**
+    (`flow-agy-lenses`) and the **delegated scout** (`flow-agy-scout`)
+    are Bash fan-outs too, but fall back to the per-lens or scout Task
+    agent rather than gracefully skipping, so no lens is dropped. The same holds for **headless Claude
     via `flow-claude-headless`** (contract:
     `skills/pipeline/flow-pipeline/references/headless-claude.md`).
   - **AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override

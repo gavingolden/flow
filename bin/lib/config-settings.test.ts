@@ -8,7 +8,7 @@ const reader =
     raw;
 
 describe("buildSettingsRows", () => {
-  // SETTINGS_KEYS collapses the 11 individual delegate.models.*/
+  // SETTINGS_KEYS collapses the 12 individual delegate.models.*/
   // delegate.timeouts.* rows down to their two existing doc-table glob
   // entries (see config-settings.ts's SETTINGS_KEYS doc comment), so a
   // rendered row's `setting` is either a literal SETTINGS_KEYS entry or
@@ -101,7 +101,7 @@ describe("buildSettingsRows", () => {
     errSpy.mockRestore();
   });
 
-  it("renders 11 individual delegate rows (9 models + 2 timeouts)", () => {
+  it("renders 12 individual delegate rows (10 models + 2 timeouts)", () => {
     const rows = buildSettingsRows(reader(undefined));
     const modelRows = rows.filter((r) =>
       r.setting.startsWith("delegate.models."),
@@ -109,8 +109,44 @@ describe("buildSettingsRows", () => {
     const timeoutRows = rows.filter((r) =>
       r.setting.startsWith("delegate.timeouts."),
     );
-    expect(modelRows.length).toBe(9);
+    expect(modelRows.length).toBe(10);
     expect(timeoutRows.length).toBe(2);
+  });
+
+  it("renders the claudeLenses row off by default, with a plain-language name", () => {
+    const row = buildSettingsRows(reader(undefined)).find(
+      (r) => r.setting === "delegate.models.claudeLenses",
+    );
+    expect(row?.value).toBe("(none)");
+    expect(row?.meaning).toContain("the delegated Claude review lenses");
+    expect(row?.source).toBe("built-in (none)");
+  });
+
+  it("describes the scout row as live (agy first, Claude Task scout fallback), never 'reserved'", () => {
+    const row = buildSettingsRows(reader(undefined)).find(
+      (r) => r.setting === "delegate.models.scout",
+    );
+    expect(row?.meaning).toContain("Claude Task scout as the fallback");
+    expect(row?.meaning).not.toContain("reserved");
+    expect(row?.meaning).not.toContain("not yet wired");
+    expect(row?.value).toBe("(none)");
+  });
+
+  it("renders delegate.lenses: none by default, the configured set when present", () => {
+    const find = (raw: unknown) =>
+      buildSettingsRows(reader(raw)).find(
+        (r) => r.setting === "delegate.lenses",
+      );
+    expect(find(undefined)).toMatchObject({
+      value: "(none)",
+      source: "built-in (none)",
+    });
+    expect(
+      find({ delegate: { lenses: ["bug-detection", "test-coverage"] } }),
+    ).toMatchObject({
+      value: "bug-detection, test-coverage",
+      source: "config (delegate.lenses)",
+    });
   });
 
   it("strict-false opt-out research/review keys default to true", () => {

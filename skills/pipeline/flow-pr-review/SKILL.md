@@ -588,6 +588,8 @@ while IFS= read -r LENS_KEY; do
 done < <(jq -r '.gates | to_entries[] | select(.value.run==true) | .key' "$WORKTREE/.flow-tmp/review-scope.json")
 # read loop, not `mapfile`/`readarray` (bash 4.0+; silently empty on macOS 3.2).
 [ "${#RUN_LENSES[@]}" -eq 0 ] && echo "NOTICE — zero lenses resolved (all gated off, or review-scope.json read no matches)."
+command -v flow-agy-lenses >/dev/null && [ "${#RUN_LENSES[@]}" -gt 0 ] && flow-agy-lenses \
+  --worktree "$WORKTREE" --skill-dir "$SKILL_DIR" --lenses "$(IFS=,; echo "${RUN_LENSES[*]}")" --plan-only
 for LENS in "${RUN_LENSES[@]}"; do resolve_lens "$LENS"; done
 # intent-guess is not a gate key — resolved explicitly so the loop can't drop it.
 resolve_lens intent-guess
@@ -601,6 +603,9 @@ resolved, prints nothing); the eight are the seven review lenses plus
 `intent-guess`, resolved via the same `flow-review-<name>.md` /
 general-purpose fallback. Spawn from that printed value, never from a
 loop/function variable's final value.
+
+**Delegated lenses.** The block's `flow-agy-lenses --plan-only` line (research
+module; instant, no agy call) prints each lens's route. When it printed an `agy` route, follow [references/delegated-lenses.md](references/delegated-lenses.md): the Task fan-out below then covers only the `task`-routed lenses plus its `fallback` lenses.
 
 **Spawn the ungated lenses plus intent-guess in one parallel message** — see
 [references/review-scope.md](references/review-scope.md) "Spawn only the

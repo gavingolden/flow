@@ -193,6 +193,7 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 | `models.*`                      | per-phase model routing (see [Per-phase models](#per-phase-models))                                                                                                                                                                                                                                                                                                                          |
 | `models.reviewLenses.*`         | per-review-lens model routing for the seven review lenses (incl. `product`, which falls back to a pinned `opus`, and `bug-detection`, which inherits the session model uncapped) plus `intent-guess`, layered above `models.review` (see [Per-phase models](#per-phase-models)); an unknown lens name or non-alias value emits a best-effort warning at create time and is ignored           |
 | `delegate.models.*`             | per-surface agy delegate-model routing (see [Delegate models](#delegate-models))                                                                                                                                                                                                                                                                                                             |
+| `delegate.lenses`               | which Claude review lenses run on the Google plan (agy) instead of Claude once `delegate.models.claudeLenses` is set; a lens that fails there falls back to Claude (see [Delegate models](#delegate-models))                                                                                                                                                                                 |
 | `delegate.timeouts.*`           | per-surface agy `--print-timeout` routing (see [Delegate timeouts](#delegate-timeouts))                                                                                                                                                                                                                                                                                                      |
 | `update.checkFor`               | staleness-notice behaviour; set `"off"` to silence (or export `FLOW_UPDATE_CHECK=off`)                                                                                                                                                                                                                                                                                                       |
 | `update.autoUpgrade`            | reserved future opt-in for automatic upgrades (default off, parsed but not yet executing)                                                                                                                                                                                                                                                                                                    |
@@ -393,17 +394,18 @@ emits). Absent key = today's default for that surface; a present but
 wrong-typed value warns on stderr and falls back to the default; never
 throws.
 
-| surface             | what it drives                                                                                                                                | default today                             |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `intentGuess`       | `/flow-pr-review` cross-model intent guess                                                                                                    | `Gemini 3.1 Pro (High)`                   |
-| `reviewLens`        | `/flow-pr-review` Gemini review lens                                                                                                          | `Gemini 3.1 Pro (High)`                   |
-| `researchGather`    | forced-research gather pass                                                                                                                   | `Gemini 3.1 Pro (High)`                   |
-| `researchRefute`    | forced-research adversarial refute pass                                                                                                       | `Claude Opus 5.5 (Medium)`                |
-| `planReview`        | `/flow-pipeline` step 3 plan review, reviewer 1                                                                                               | `Gemini 3.7 Flash (High)`                 |
-| `planReviewSecond`  | `/flow-pipeline` step 3 plan review, deep-tier reviewer 2                                                                                     | `Claude Opus 5.5 (High)`                  |
-| `blindSurvey`       | `/flow-pipeline` step 3 blind method survey, judge A                                                                                          | `Gemini 3.1 Pro (High)`                   |
-| `blindSurveySecond` | `/flow-pipeline` step 3 blind method survey, judge B; when equal to `blindSurvey` the helper falls back to the other pinned default and warns | `Claude Opus 5.5 (High)`                  |
-| `scout`             | reserved — not yet wired; scouting still spawns the Claude Task subagent                                                                      | `null` (no effect on any code path today) |
+| surface             | what it drives                                                                                                                                                                            | default today              |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `intentGuess`       | `/flow-pr-review` cross-model intent guess                                                                                                                                                | `Gemini 3.1 Pro (High)`    |
+| `reviewLens`        | `/flow-pr-review` Gemini review lens                                                                                                                                                      | `Gemini 3.1 Pro (High)`    |
+| `researchGather`    | forced-research gather pass                                                                                                                                                               | `Gemini 3.1 Pro (High)`    |
+| `researchRefute`    | forced-research adversarial refute pass                                                                                                                                                   | `Claude Opus 5.5 (Medium)` |
+| `planReview`        | `/flow-pipeline` step 3 plan review, reviewer 1                                                                                                                                           | `Gemini 3.7 Flash (High)`  |
+| `planReviewSecond`  | `/flow-pipeline` step 3 plan review, deep-tier reviewer 2                                                                                                                                 | `Claude Opus 5.5 (High)`   |
+| `blindSurvey`       | `/flow-pipeline` step 3 blind method survey, judge A                                                                                                                                      | `Gemini 3.1 Pro (High)`    |
+| `blindSurveySecond` | `/flow-pipeline` step 3 blind method survey, judge B; when equal to `blindSurvey` the helper falls back to the other pinned default and warns                                             | `Claude Opus 5.5 (High)`   |
+| `scout`             | `/flow-new-feature` Step 1b scout: tried first on agy when set, with the Claude Task scout as the fallback; `null` keeps the Claude Task scout only                                       | `null` (delegation off)    |
+| `claudeLenses`      | `/flow-pr-review` Claude review lenses run on agy instead of a Task agent (only the lenses in `delegate.lenses`; a failed lens falls back to the Task agent); `null` turns delegation off | `null` (delegation off)    |
 
 **Namespace disambiguation — `models.scout` vs `delegate.models.scout`:**
 these two keys share the `scout` suffix but mean opposite things and use
@@ -411,12 +413,27 @@ disjoint value grammars. `models.scout` (see [Per-phase
 models](#per-phase-models)) is a **Claude Code model alias**
 (`opus`/`haiku`/`sonnet`/`fable`) for the Step-1b scout **Task subagent**,
 and it IS wired. `delegate.models.scout` is an **agy variant display-name
-string** that is meant to eventually mean "delegate scouting to agy instead
-of spawning the Task subagent at all" — but no code reads it yet (the
-default flip is gated on a benchmark clear that has not happened yet), so
-**setting it today is a silent no-op**: scouting keeps using the Claude
-Task subagent regardless of this key's value. Setting
-one has no effect on the other.
+string**: when set, `flow-agy-scout` tries the scout on that agy variant
+first (Google AI Ultra quota), and the Claude Task subagent runs as the
+fallback whenever the agy run does not return a complete report, while
+the Google plan is cooling down after a quota failure, or when the key is
+`null` (the default). Setting one has no effect on the other.
+
+**`delegate.lenses`** lists which review lenses run on agy instead of
+Claude once `delegate.models.claudeLenses` names a variant: an array of
+lens names from `bug-detection`, `security`, `pattern-consistency`,
+`performance`, `supply-chain`, `test-coverage`, `product`. Unknown entries
+(including `intent-guess`, which is never delegated) warn once and are
+dropped; a wrong-typed value warns once and falls back to the default (no
+lens delegated). A delegated lens that returns an unusable result — or any
+lens while the Google plan is cooling down after a quota failure — runs as
+a Claude Task agent instead, so no lens is ever dropped.
+
+Not recommended yet: in the October 2026 recall check the Ultra plan's
+Claude allowance ran out after about 23 Opus-High lens runs in one
+five-hour window, and a lens that fails there waits for the whole delegated
+wave before its Claude run starts, up to 8 minutes. See [the recall
+record](eval/agy-delegation-recall-2026-10.md).
 
 ## Delegate timeouts
 

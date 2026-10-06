@@ -26,7 +26,12 @@
  * for why the PR #543 bench run (2026-08-05) did NOT flip that default.
  */
 
-import { defaultReadConfigFile, type ReadConfigFile } from "./models-config";
+import {
+  defaultReadConfigFile,
+  REVIEW_LENS_NAMES,
+  type ReadConfigFile,
+  type ReviewLensName,
+} from "./models-config";
 
 export type DelegateSurface =
   | "intentGuess"
@@ -37,7 +42,8 @@ export type DelegateSurface =
   | "planReviewSecond"
   | "blindSurvey"
   | "blindSurveySecond"
-  | "scout";
+  | "scout"
+  | "claudeLenses";
 
 // planReviewSecond corrects the plan's false claim that flow-plan-review.ts
 // carries no model constant: it carries two (MODEL + SECOND_MODEL), and the
@@ -45,7 +51,7 @@ export type DelegateSurface =
 export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // 2026-09-05 RUN (gemini-3.8-flash-high, agy 1.1.27): REJECTED on every
   // one of the ten surfaces this run's fixtures cover (a bench-coverage
-  // set, NOT the same as this record's nine keys — see report.md for the
+  // set, NOT the same as this record's ten keys — see report.md for the
   // exact roster) and nominated on none: zero flips. Root cause:
   // docs/model-bench/report.md: 83/196 committed entries (42.3%) came back
   // with an EMPTY response — 81/196 in the separate uncommitted raw-envelope
@@ -150,8 +156,37 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // REJECT on the same c2b-real-defect regression — it missed
   // "src/pipeline-summary-sources.ts.txt:237:real-defect", which
   // claude-sonnet-4-6 caught. Three candidate generations, same miss.
+  // STILL NULL (2026-10-06, docs/eval/agy-delegation-recall-2026-10.md):
+  // Claude Opus 5.5 (High) bench not run — the Ultra Claude quota was
+  // exhausted by the lens recall check. The slot is now live: setting it
+  // runs flow-agy-scout first, with the Task scout as the fallback.
   scout: null,
+  // null means "delegation off": every Claude review lens runs as a Task
+  // agent, exactly as before. NULL (2026-10-06,
+  // docs/eval/agy-delegation-recall-2026-10.md): no lens cleared — run 1
+  // lost 7/18 agy cells to shell attempts (fixed), run 2 lost 13/18 to the
+  // Ultra Claude quota (~23 Opus-High runs per five-hour window). Completed
+  // bug-detection cells matched or beat Opus; capacity is the blocker.
+  claudeLenses: null,
 };
+
+// The seven real review lenses; intent-guess is a second artifact shape with
+// its own consumer and is deliberately not delegatable.
+export type DelegatableLens = Exclude<ReviewLensName, "intent-guess">;
+
+export const DELEGATABLE_LENSES: readonly DelegatableLens[] =
+  REVIEW_LENS_NAMES.filter((l): l is DelegatableLens => l !== "intent-guess");
+
+// The lenses whose recorded recall check cleared — none as of 2026-10-06
+// (docs/eval/agy-delegation-recall-2026-10.json; delegate-models.test.ts
+// pins this list to the record). A user opts lenses in through
+// `delegate.lenses`.
+export const DEFAULT_DELEGATED_LENSES: readonly DelegatableLens[] = [];
+
+// Fixed per-run agy budgets (see delegate-timeouts.ts for the configurable
+// surfaces and the 9m sync ceiling these must stay under).
+export const DELEGATED_LENS_TIMEOUT = "8m";
+export const DELEGATED_SCOUT_TIMEOUT = "8m";
 
 // Fires at most once per surface per process. Without this, a maintainer
 // who pinned a surface months ago via config would keep silently overriding
@@ -169,12 +204,12 @@ export function extractDelegateModelsKey(raw: unknown, key: string): unknown {
 }
 
 /**
- * Resolves the agy variant string (or `null` for the scout Task-subagent
- * fallback) for a given delegate surface: `delegate.models.<surface>` from
- * `~/.flow/config.json` when present and well-typed, else the seeded
- * default. Never throws — a missing file, malformed JSON, absent key, or
- * wrong-typed value all collapse to the default (the last case also warns
- * on stderr once).
+ * Resolves the agy variant string (or `null` for the scout / claudeLenses
+ * surfaces, meaning "use the Claude Task agent") for a given delegate
+ * surface: `delegate.models.<surface>` from `~/.flow/config.json` when
+ * present and well-typed, else the seeded default. Never throws — a missing
+ * file, malformed JSON, absent key, or wrong-typed value all collapse to the
+ * default (the last case also warns on stderr once).
  */
 export function resolveDelegateModel(
   surface: DelegateSurface,
@@ -205,4 +240,59 @@ export function resolveDelegateModel(
   }
 
   return value;
+}
+
+let warnedLensesType = false;
+const warnedLensNames = new Set<string>();
+
+/**
+ * Resolves the set of review lenses to delegate to agy: `delegate.lenses`
+ * from `~/.flow/config.json` (an array of known lens names) else
+ * DEFAULT_DELEGATED_LENSES. Unknown entries (including `intent-guess`) warn
+ * once and drop; a wrong-typed value warns once and returns the default.
+ * Never throws.
+ */
+export function resolveDelegatedLenses(
+  readConfigFile: ReadConfigFile = defaultReadConfigFile,
+): DelegatableLens[] {
+  const raw = readConfigFile();
+  const delegate =
+    typeof raw === "object" && raw !== null
+      ? (raw as Record<string, unknown>).delegate
+      : undefined;
+  const value =
+    typeof delegate === "object" && delegate !== null
+      ? (delegate as Record<string, unknown>).lenses
+      : undefined;
+
+  if (value === undefined) return [...DEFAULT_DELEGATED_LENSES];
+
+  if (!Array.isArray(value)) {
+    if (!warnedLensesType) {
+      warnedLensesType = true;
+      console.error(
+        `delegate.lenses: '${String(value)}' is not an array of lens names; ` +
+          `ignoring and using the default.`,
+      );
+    }
+    return [...DEFAULT_DELEGATED_LENSES];
+  }
+
+  const out: DelegatableLens[] = [];
+  for (const entry of value) {
+    const known = DELEGATABLE_LENSES.find((l) => l === entry);
+    if (known === undefined) {
+      const key = String(entry);
+      if (!warnedLensNames.has(key)) {
+        warnedLensNames.add(key);
+        console.error(
+          `delegate.lenses: '${key}' is not a delegatable review lens ` +
+            `(${DELEGATABLE_LENSES.join(", ")}); ignoring it.`,
+        );
+      }
+      continue;
+    }
+    if (!out.includes(known)) out.push(known);
+  }
+  return out;
 }
