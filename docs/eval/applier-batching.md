@@ -49,3 +49,50 @@ Conditions, per case and summed over the cases with both arms:
 - (f) Verify-timeout only: the summed after (`parkedVerifies` + `backgroundedVerifies` + `pollCalls`) is below the summed before figure.
 
 An arm is `ship` iff its gates pass and all its conditions hold; otherwise `no-change`. The verdict maps to the record's wording as `ship` to worth it, `no-change` to not worth it, and `inconclusive` to unmeasured, naming the failed gate or validity run. Each arm ships on its own verdict, and a `ship` edits the live `skills/pipeline/flow-coder-instructions/SKILL.md` with that arm's change only; otherwise the live file stays as it is and the result is recorded.
+
+## Results
+
+Both arms are `no-change`: neither rule ships, and `skills/pipeline/flow-coder-instructions/SKILL.md` is unchanged. The verdicts re-derive from [applier-batching.json](applier-batching.json) with `bun docs/eval/applier-batching.ts report --results docs/eval/applier-batching.json --check`.
+
+- **Batching: no-change.** Summed turns 164 before and 165 after against a limit of 147.6 (c), and the habit did not move: 3.54 shell operations per turn before and 3.53 after (d). Pooled tests 2,480 against 2,479 (b). After the re-runs no final-verify pass was lost (a), and every run proved its instructions were delivered.
+- **Verify timeout: no-change.** Summed turns 59 before and 55 after, and waits fell (parked, backgrounded and polling calls 11 against 5), but the after runs counted 410 tests against 415 (b). Its fidelity gates passed after the re-runs; before them, the econ-data before arm's Bash share was 0.81 against production's 0.933 and the arm read `inconclusive`.
+- **Re-runs.** econ-data-2 (batching lost a pass: before passed, after failed) and econ-data-3 (two arms recorded no final-verify outcome) were re-run once in all three arms under the re-run clause; the later rows replace the earlier ones, and both stay in the JSON. The re-run of econ-data-2 passed in every arm.
+- **Cost.** 27 scored runs recorded $16.93 at list price, plus three invalid smoke runs kept out of the results. econ-data-4's batching run hit the 5,400 s timeout after its edits and recorded no cost, so the batching total is a floor.
+- **Machine load.** The replay ran beside other live pipelines at a load average of about 110 to 155. Each case's arms ran together so they shared the load, but econ-data verifies parked at the 600 s ceiling more than in production, which weakens the timeout arm's wait signal more than its turn and test counts.
+
+The last run per case and arm:
+
+<!-- prettier-ignore -->
+| Case | Arm | Turns | Cost | Final verify | Tests | Shell ops per turn | Parked | Backgrounded | Polls |
+|---|---|---|---|---|---|---|---|---|---|
+| econ-data-1 | before | 13 | $0.46 | pass | 244 | 4.2 | 1 | 0 | 2 |
+| econ-data-1 | batching | 14 | $0.48 | pass | 240 | 5.1 | 1 | 0 | 1 |
+| econ-data-1 | verify-timeout | 17 | $0.55 | pass | 240 | 4.8 | 1 | 0 | 1 |
+| econ-data-2 | before | 11 | $0.48 | pass | 19 | 3.7 | 1 | 0 | 1 |
+| econ-data-2 | batching | 19 | $0.64 | pass | 19 | 2.1 | 1 | 0 | 3 |
+| econ-data-2 | verify-timeout | 9 | $0.44 | pass | 19 | 3.4 | 0 | 0 | 1 |
+| econ-data-3 | before | 13 | $0.40 | pass | 107 | 2.8 | 1 | 0 | 1 |
+| econ-data-3 | batching | 15 | $0.46 | pass | 107 | 3.1 | 1 | 1 | 2 |
+| econ-data-3 | verify-timeout | 10 | $0.43 | pass | 107 | 3.1 | 0 | 0 | 0 |
+| econ-data-4 | before | 22 | $0.71 | fail | 45 | 2.3 | 1 | 1 | 2 |
+| econ-data-4 | batching | 12 | timeout | pass | 46 | 3.2 | 1 | 0 | 2 |
+| econ-data-4 | verify-timeout | 19 | $0.60 | fail | 44 | 1.6 | 1 | 0 | 1 |
+| pr-885 | before | 15 | $0.63 | pass | 144 | 2.7 | 0 | 0 | 0 |
+| pr-885 | batching | 15 | $0.65 | pass | 143 | 2.7 | 0 | 0 | 0 |
+| pr-895 | before | 28 | $1.30 | fail | 933 | 4.9 | 0 | 0 | 0 |
+| pr-895 | batching | 33 | $1.35 | fail | 933 | 4.4 | 0 | 0 | 0 |
+| pr-898 | before | 37 | $1.39 | fail | 910 | 3.9 | 0 | 0 | 0 |
+| pr-898 | batching | 38 | $1.43 | fail | 914 | 3.9 | 0 | 0 | 1 |
+| pr-900 | before | 25 | $0.63 | pass | 78 | 3.1 | 0 | 0 | 0 |
+| pr-900 | batching | 19 | $0.53 | pass | 77 | 2.8 | 0 | 0 | 0 |
+
+pr-895 and pr-898 fail their final verify in both arms here, as they did in both arms of #910's replay, so they add no pass to lose.
+
+## Also checked
+
+- **Instructions were not reaching the replay child.** The first smoke run asked to read its instruction file grepped two fragments and never saw steps 1 or 3, so no instruction arm could have reached it; #910's replay used the same read-on-request delivery. The harness now preloads the arm text into the prompt, as production preloads it.
+- **A backgrounded verify ends a print-mode run early.** econ-data-3's first batching run started its verify in the background, said it was waiting, and ended its turn, which ends a print-mode session: the verify was killed and the result file never finalised. The re-run did not repeat it.
+- **Verify-fix cap.** No edit-applier spawn since 2026-09-12 went past the five-round cap: edit-separated fix rounds per spawn p50 0, max 3, none over 5 (`applier-turns.ts`). The "round 6" reading counted verify mentions.
+- **Turn cap.** The 240-turn cap stays above the 2026-10 baseline's p90 of 160 (max 413); the edit-applier definition now cites both readings.
+- **Shell-first habit.** 82 of 98 edit-applier spawns since 2026-09-12 received the auto-mode Bash-first reminder (65 relaxed, 17 strict); its 550 python edit scripts carried a match guard in 399 and failed with a visible traceback 3 times.
+- **Next structural lever.** If turns still matter, pre-fetching each edit-set entry's file region in `/flow-coder` and passing it in the spawn prompt removes lookup turns without asking the model to batch; it changes the spawn template, so it needs its own replay.
