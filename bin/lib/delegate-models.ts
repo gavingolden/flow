@@ -51,7 +51,7 @@ export type DelegateSurface =
 export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // 2026-09-05 RUN (gemini-3.8-flash-high, agy 1.1.27): REJECTED on every
   // one of the ten surfaces this run's fixtures cover (a bench-coverage
-  // set, NOT the same as this record's nine keys — see report.md for the
+  // set, NOT the same as this record's ten keys — see report.md for the
   // exact roster) and nominated on none: zero flips. Root cause:
   // docs/model-bench/report.md: 83/196 committed entries (42.3%) came back
   // with an EMPTY response — 81/196 in the separate uncommitted raw-envelope
@@ -204,12 +204,12 @@ export function extractDelegateModelsKey(raw: unknown, key: string): unknown {
 }
 
 /**
- * Resolves the agy variant string (or `null` for the scout Task-subagent
- * fallback) for a given delegate surface: `delegate.models.<surface>` from
- * `~/.flow/config.json` when present and well-typed, else the seeded
- * default. Never throws — a missing file, malformed JSON, absent key, or
- * wrong-typed value all collapse to the default (the last case also warns
- * on stderr once).
+ * Resolves the agy variant string (or `null` for the scout / claudeLenses
+ * surfaces, meaning "use the Claude Task agent") for a given delegate
+ * surface: `delegate.models.<surface>` from `~/.flow/config.json` when
+ * present and well-typed, else the seeded default. Never throws — a missing
+ * file, malformed JSON, absent key, or wrong-typed value all collapse to the
+ * default (the last case also warns on stderr once).
  */
 export function resolveDelegateModel(
   surface: DelegateSurface,

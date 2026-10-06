@@ -67,7 +67,7 @@ describe("agyReadRules", () => {
   });
 });
 
-// Task 3: pin all four --add-dir prompt sites to this one source of truth.
+// Task 3: pin every --add-dir prompt site to this one source of truth.
 describe("agy-read-rules composition across the --add-dir prompt sites", () => {
   it("buildBatteryPrompt (flow-plan-review) composes the shared block", () => {
     const prompt = buildBatteryPrompt({

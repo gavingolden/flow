@@ -429,6 +429,12 @@ lens delegated). A delegated lens that returns an unusable result — or any
 lens while the Google plan is cooling down after a quota failure — runs as
 a Claude Task agent instead, so no lens is ever dropped.
 
+Not recommended yet: in the October 2026 recall check the Ultra plan's
+Claude allowance ran out after about 23 Opus-High lens runs in one
+five-hour window, and a lens that fails there waits for the whole delegated
+wave before its Claude run starts, up to 8 minutes. See [the recall
+record](eval/agy-delegation-recall-2026-10.md).
+
 ## Delegate timeouts
 
 `delegate.timeouts.<surface>` (`bin/lib/delegate-timeouts.ts`) routes the

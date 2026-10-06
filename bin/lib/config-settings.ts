@@ -182,7 +182,7 @@ function delegateModelRow(surface: DelegateSurface): Descriptor {
     surface === "scout"
       ? `the agy model variant ${name} tries first, with the Claude Task scout as the fallback (unset = Claude Task scout only)`
       : surface === "claudeLenses"
-        ? `the agy model variant ${name} run on (unset = every review lens stays on Claude)`
+        ? `the agy model variant ${name} run on; takes effect only for the lenses listed in delegate.lenses (unset = every review lens stays on Claude)`
         : `the agy model variant ${name} uses`;
   return {
     key,

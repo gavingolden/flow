@@ -80,7 +80,9 @@ done`'s heal): that one commit, never forced. Both contracts:
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
     Multi-Agent Review.** Step 8's up to seven review agents (the seventh,
     `product`, brief-gated) plus one intent-guess agent, in one fan-out
-    message re-fanned at most once on a widen.
+    message re-fanned at most once on a widen (with delegation on, each wave is
+    at most two Task messages: the `task`-routed lenses up front, then the
+    helper's `fallback` lenses).
   - **Task-tool exemption: `/flow-pipeline` → `/flow-product-planning`
     Independent Discovery Subagent.** Step 3's one discovery agent + one
     blind `flow-product-critic`.
