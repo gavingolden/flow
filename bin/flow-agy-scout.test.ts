@@ -281,7 +281,9 @@ describe("scout prompt", () => {
     expect(p).toContain("Add a frobnicator to the widget.");
     expect(p).toContain("Do NOT run shell commands of any kind");
     expect(p).toContain("Never read anything under `.flow-tmp/`");
-    expect(p).toContain("Spot-check AT MOST 40 files");
+    expect(p).toContain(
+      "Read AT MOST 40 files — this is the primary run, not a sample",
+    );
     expect(p).not.toContain("Bash is in the allowlist");
     expect(p).not.toContain("flow-instructions-sentinel");
     expect(p.startsWith("---")).toBe(false);

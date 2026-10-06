@@ -162,8 +162,9 @@ export function agyLensOutputContract(
     worktreePath: worktree,
     readPurpose:
       "read the changed files in full, and the code around them, for context",
-    fileCap: Math.max(diffFileCount, 1),
+    fileCap: Math.max(diffFileCount * 2, 10),
     outputNoun: "review",
+    depth: "full",
   });
   return `## Output contract (headless agy run — this overrides anything above that conflicts)
 

@@ -152,8 +152,15 @@ describe("agyLensOutputContract", () => {
     expect(c).toContain("/work/tree is the readable repository root");
   });
 
-  it("sizes the read cap to the changed-file count with no upper cap, floor 1", () => {
-    expect(agyLensOutputContract("/w", 25)).toContain("AT MOST 25 files");
-    expect(agyLensOutputContract("/w", 0)).toContain("AT MOST 1 files");
+  it("sizes the read cap to twice the changed-file count with no upper cap, floor 10", () => {
+    expect(agyLensOutputContract("/w", 25)).toContain("AT MOST 50 files");
+    expect(agyLensOutputContract("/w", 0)).toContain("AT MOST 10 files");
+  });
+
+  it("uses full-depth read rules, not the sampling cap a replacement lens would lose recall to", () => {
+    const c = agyLensOutputContract("/w", 3);
+    expect(c).toContain("this is the primary run, not a sample");
+    expect(c).not.toContain("sampling, not auditing");
+    expect(c).not.toContain("a third of your run");
   });
 });

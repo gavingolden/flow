@@ -175,6 +175,7 @@ export function buildScoutPrompt(i: ScoutPromptInputs): string {
       "scout the codebase: read the files the description implicates, their tests, their callers, and the project's README/AGENTS.md",
     fileCap: 40,
     outputNoun: "scout report",
+    depth: "full",
   });
   const sections = [
     `You are the Independent Scout for \`/flow-new-feature\`, running as a headless read-only run. Follow the scout instructions below in order. You are one-shot — do not ask clarifying questions; when the description leaves something unspecified, make a defensible assumption and surface it under \`## open_questions\`.`,

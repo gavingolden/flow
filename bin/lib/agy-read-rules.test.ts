@@ -35,6 +35,16 @@ describe("agyReadRules", () => {
     );
   });
 
+  it("swaps the sampling cap and one-third pacing for a full read at depth full", () => {
+    const block = agyReadRules({ ...BASE_INPUT, depth: "full" });
+    expect(block).toContain(
+      "Read AT MOST 6 files — this is the primary run, not a sample, so read every file you need in full.",
+    );
+    expect(block).not.toContain("sampling, not auditing");
+    expect(block).not.toContain("a third of your run");
+    expect(block).toContain("Do NOT shell out");
+  });
+
   it("orders 'Reach for it with your file-reading tools ONLY' before 'Do NOT shell out'", () => {
     const block = agyReadRules(BASE_INPUT);
     expect(
@@ -96,7 +106,9 @@ describe("agy-read-rules composition across the --add-dir prompt sites", () => {
     const prompt = agyLensOutputContract("/repo", 3);
     expect(prompt).toContain("Reach for it with your file-reading tools ONLY");
     expect(prompt).toContain("Do NOT shell out");
-    expect(prompt).toContain("Spot-check AT MOST 3 files");
+    expect(prompt).toContain(
+      "Read AT MOST 10 files — this is the primary run, not a sample",
+    );
   });
 
   it("buildScoutPrompt (flow-agy-scout) composes the shared block", () => {
