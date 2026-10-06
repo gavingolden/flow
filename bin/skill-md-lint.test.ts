@@ -5519,6 +5519,19 @@ describe("pr-review include-by-reference structure", () => {
     expect(content).toMatch(/flow-run-test-steps --pr[^\n]*timeout: 600000/);
   });
 
+  it("skills/pipeline/flow-new-feature/SKILL.md links the delegated-scout reference, which names the ran:true branch and the Task fallback", () => {
+    const root = path.resolve(HERE, "..", "skills/pipeline/flow-new-feature");
+    const skill = fs.readFileSync(path.join(root, "SKILL.md"), "utf8");
+    expect(skill).toContain("references/delegated-scout.md");
+    const reference = fs.readFileSync(
+      path.join(root, "references/delegated-scout.md"),
+      "utf8",
+    );
+    for (const needle of ["ran: true", "timeout: 600000", "Task scout"]) {
+      expect(reference, needle).toContain(needle);
+    }
+  });
+
   it("skills/pipeline/flow-pr-review/SKILL.md links the delegated-lenses reference, which names the plan-only, background and fallback mechanics", () => {
     const root = path.resolve(HERE, "..", "skills/pipeline/flow-pr-review");
     const skill = fs.readFileSync(path.join(root, "SKILL.md"), "utf8");

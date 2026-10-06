@@ -126,9 +126,9 @@ done`'s heal): that one commit, never forced. Both contracts:
     **Bash fan-out, not an eighth exemption** —
     `flow-delegate`/`flow-plan-review`/`flow-blind-survey` calls, no
     Task, graceful skip sans agy. The **delegated review lenses**
-    (`flow-agy-lenses`) are a Bash fan-out too, but fall back to the
-    per-lens Task agent rather than gracefully skipping, so no lens is
-    dropped. The same holds for **headless Claude
+    (`flow-agy-lenses`) and the **delegated scout** (`flow-agy-scout`)
+    are Bash fan-outs too, but fall back to the per-lens or scout Task
+    agent rather than gracefully skipping, so no lens is dropped. The same holds for **headless Claude
     via `flow-claude-headless`** (contract:
     `skills/pipeline/flow-pipeline/references/headless-claude.md`).
   - **AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override

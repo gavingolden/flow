@@ -249,6 +249,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-gemini-intent-guess",
       "flow-blind-survey",
       "flow-agy-lenses",
+      "flow-agy-scout",
     ],
     validators: [],
   },

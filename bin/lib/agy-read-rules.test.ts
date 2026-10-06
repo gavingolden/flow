@@ -5,6 +5,7 @@ import { buildSurveyPrompt } from "./blind-survey-prompt";
 import { buildPrompt as buildLensPrompt } from "../flow-gemini-lens";
 import { buildPrompt as buildIntentGuessPrompt } from "../flow-gemini-intent-guess";
 import { agyLensOutputContract } from "./lens-prompt";
+import { buildScoutPrompt } from "../flow-agy-scout";
 
 const BASE_INPUT = {
   worktreePath: "/repo",
@@ -96,5 +97,18 @@ describe("agy-read-rules composition across the --add-dir prompt sites", () => {
     expect(prompt).toContain("Reach for it with your file-reading tools ONLY");
     expect(prompt).toContain("Do NOT shell out");
     expect(prompt).toContain("Spot-check AT MOST 3 files");
+  });
+
+  it("buildScoutPrompt (flow-agy-scout) composes the shared block", () => {
+    const prompt = buildScoutPrompt({
+      instructionsBody: "# Scout instructions",
+      description: "Add a thing",
+      worktree: "/repo",
+      planBreakdown: null,
+      excludedPaths: null,
+      memoryIndex: null,
+    });
+    expect(prompt).toContain("Reach for it with your file-reading tools ONLY");
+    expect(prompt).toContain("Do NOT shell out");
   });
 });

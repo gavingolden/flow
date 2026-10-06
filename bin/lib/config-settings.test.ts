@@ -122,6 +122,16 @@ describe("buildSettingsRows", () => {
     expect(row?.source).toBe("built-in (none)");
   });
 
+  it("describes the scout row as live (agy first, Claude Task scout fallback), never 'reserved'", () => {
+    const row = buildSettingsRows(reader(undefined)).find(
+      (r) => r.setting === "delegate.models.scout",
+    );
+    expect(row?.meaning).toContain("Claude Task scout as the fallback");
+    expect(row?.meaning).not.toContain("reserved");
+    expect(row?.meaning).not.toContain("not yet wired");
+    expect(row?.value).toBe("(none)");
+  });
+
   it("renders delegate.lenses: none by default, the configured set when present", () => {
     const find = (raw: unknown) =>
       buildSettingsRows(reader(raw)).find(

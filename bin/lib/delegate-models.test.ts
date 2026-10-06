@@ -147,6 +147,12 @@ describe("resolveDelegateModel", () => {
     );
     expect(agyLensesSrc).toContain('resolveDelegateModel("claudeLenses"');
 
+    const agyScoutSrc = fs.readFileSync(
+      new URL("../flow-agy-scout.ts", import.meta.url),
+      "utf8",
+    );
+    expect(agyScoutSrc).toContain('resolveDelegateModel("scout"');
+
     const researchRunSrc = fs.readFileSync(
       new URL("../flow-research-run.ts", import.meta.url),
       "utf8",

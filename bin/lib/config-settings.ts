@@ -180,7 +180,7 @@ function delegateModelRow(surface: DelegateSurface): Descriptor {
   const name = DELEGATE_MODEL_SURFACE_NAMES[surface];
   const meaning =
     surface === "scout"
-      ? `the agy model variant ${name} uses instead of a Claude Task subagent (reserved — not yet wired)`
+      ? `the agy model variant ${name} tries first, with the Claude Task scout as the fallback (unset = Claude Task scout only)`
       : surface === "claudeLenses"
         ? `the agy model variant ${name} run on (unset = every review lens stays on Claude)`
         : `the agy model variant ${name} uses`;

@@ -24,6 +24,7 @@ const SURFACE_LABELS: Record<string, string> = {
   blindSurvey: "method survey's first judge",
   blindSurveySecond: "method survey's second judge",
   claudeLenses: "the delegated Claude review lenses",
+  scout: "the delegated implementation scout",
   "research.model": "research gathering",
   "research.refuteModel": "research fact-check",
 };
@@ -32,10 +33,10 @@ export const surfaceLabel = (surface: string): string =>
   SURFACE_LABELS[surface] ?? surface;
 
 // Resolves without `resolveDelegateModel` so a doctor run never emits its
-// once-per-process "config override active" stderr notice. `scout` is skipped
-// (no runtime path consumes it); a `research.model`/`research.refuteModel`
-// override replaces the delegate surface it shadows, mirroring
-// flow-research-run's `resolveModels` precedence.
+// once-per-process "config override active" stderr notice. A
+// `research.model`/`research.refuteModel` override replaces the delegate
+// surface it shadows, mirroring flow-research-run's `resolveModels`
+// precedence.
 export function configuredAgyModels(raw: unknown): ConfiguredModel[] {
   const out: ConfiguredModel[] = [];
   const research =
@@ -54,7 +55,6 @@ export function configuredAgyModels(raw: unknown): ConfiguredModel[] {
     researchRefute: ["refuteModel", "research.refuteModel"],
   };
   for (const surface of Object.keys(DELEGATE_MODEL_DEFAULTS)) {
-    if (surface === "scout") continue;
     const shadow = shadowing[surface];
     const legacyValue = shadow ? legacy(shadow[0]) : null;
     if (shadow && legacyValue !== null) {

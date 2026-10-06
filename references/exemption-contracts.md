@@ -111,7 +111,10 @@ file-exists guard: the plugin-qualified `flow-module-core:flow-scout`
 name when present (a bare `flow-scout` subagent_type fails Task-tool
 resolution outright — measured: "Agent type 'flow-scout' not found"),
 else `general-purpose` fallback emitting the `NOTICE — agent-fallback:` line
-(no bare-name legacy-install tier).
+(no bare-name legacy-install tier). When `delegate.models.scout` is set,
+`flow-agy-scout` (a Bash fan-out) runs first and writes `scout.md` only
+from a complete report; the Task scout above is the fallback whenever it
+does not.
 
 ## `/flow-pr-review` Fix-Applier Subagent
 

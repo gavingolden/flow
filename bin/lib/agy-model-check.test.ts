@@ -20,6 +20,8 @@ describe("configuredAgyModels", () => {
     for (const [surface, model] of expected) {
       expect(got).toContainEqual({ surface, model });
     }
+    // scout's and claudeLenses' defaults are null, so they only appear once
+    // a config override names a variant.
     expect(got.map((c) => c.surface)).not.toContain("scout");
   });
 
@@ -50,12 +52,12 @@ describe("configuredAgyModels", () => {
     );
   });
 
-  it("ignores a scout override (no runtime path consumes it)", () => {
-    expect(
-      configuredAgyModels({ delegate: { models: { scout: "Scout M" } } }).map(
-        (c) => c.surface,
-      ),
-    ).not.toContain("scout");
+  it("checks a scout override (flow-agy-scout now consumes the slot)", () => {
+    const got = configuredAgyModels({
+      delegate: { models: { scout: "Scout M" } },
+    });
+    expect(got).toContainEqual({ surface: "scout", model: "Scout M" });
+    expect(surfaceLabel("scout")).toBe("the delegated implementation scout");
   });
 
   it("falls back to defaults for malformed or non-object config", () => {
@@ -81,7 +83,7 @@ describe("configuredAgyModels", () => {
     const surfaces = got.map((c) => c.surface);
     expect(surfaces).not.toContain("researchGather");
     expect(surfaces).not.toContain("researchRefute");
-    expect(surfaces).not.toContain("scout");
+    expect(surfaces).toContain("scout");
     expect(got.map((c) => c.model)).not.toContain("Shadowed G");
   });
 
