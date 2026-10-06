@@ -8,6 +8,7 @@
     "bin/flow-confidence-rubric-lint.test.ts",
     "bin/flow-delegate.test.ts",
     "bin/flow-design-spec.test.ts",
+    "bin/flow-doc-read-guard.test.ts",
     "bin/flow-followups.test.ts",
     "bin/flow-foreclosed-paths.test.ts",
     "bin/flow-md-validate.test.ts",

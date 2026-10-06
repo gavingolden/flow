@@ -21,6 +21,11 @@ running seven committed suites, split by what each measures:
   and `## User-facing changes` sections read as consequence-first, PM-facing
   writing rather than mechanism-first, code-centric writing, via the
   advisory `flow-explain-judge` check.
+- One **turn-count suite** (`review-turn-folding`, issue #835) — five
+  scenarios, each bounded to one `/flow-pr-review` step with pre-written
+  artifacts, measuring how many supervisor turns a helper that folds
+  mechanical steps saves. Its before/after arms and per-fold verdict are in
+  [`turn-folding/README.md`](turn-folding/README.md).
 
 - One **plan-quality suite** (`discovery-plan-quality`, issue #891) — whether
   `/flow-product-planning`'s discovery sub-agent still writes a conforming
@@ -52,6 +57,12 @@ auto-compact window is safe. It is committed because the audit script
 reads a rolling 30-day window, so the "before" arm stops being
 reproducible once a cost change lands.
 
+`docs/eval/supervisor-turns.ts` prints the per-phase supervisor turn
+composition from local transcripts (turns, spend and context per phase, and
+the review phase's clusters); re-run it with
+`bun docs/eval/supervisor-turns.ts --since <YYYY-MM-DD>`. Its committed
+before-state is [`supervisor-turns-baseline-2026-10.md`](supervisor-turns-baseline-2026-10.md).
+
 `docs/eval/review-lens-cost.ts` prints the per-lens counterpart (turns,
 Reads, Greps, distinct files, cache and output tokens, dollars per lens
 run, de-duplicated per `message.id`); its committed before-state table is
@@ -69,10 +80,23 @@ per-task view that per-turn figures confound. Its last section replays every
 transcript at a 5-minute cache lifetime to show what 1-hour cache writes
 bought; the cache-lifetime measurement is
 [`cache-lifetime-baseline-2026-10.md`](cache-lifetime-baseline-2026-10.md).
+The review-lens cost and findings per run, split by recorded reasoning effort,
+behind issue #832's not-planned verdict, is
+[`review-lens-effort-baseline-2026-10.md`](review-lens-effort-baseline-2026-10.md).
+
+[`lens-cache-prefix-baseline-2026-10.md`](lens-cache-prefix-baseline-2026-10.md)
+records the issue #889 check: which part of the review lenses' first-turn
+prompt the cache shares across spawns, and why a prompt reorder cannot
+reach more.
 
 [`fable-vs-opus-subagents.md`](fable-vs-opus-subagents.md) records the
 issue #890 check: bug-detection recall on Fable 5.1 against Opus 5.5 on
 the review-recall harness's three PRs, under a pre-registered verdict rule.
+
+[`discovery-payload-2026-10.md`](discovery-payload-2026-10.md) records the
+issue #891 check: what discovery's instruction file costs each plan on each
+model, which of its sections only some plans need, and the most a split could
+save.
 
 `bin/flow-eval.ts` is never installed onto a user's PATH (see
 `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it from a flow

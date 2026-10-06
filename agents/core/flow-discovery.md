@@ -37,6 +37,7 @@ Invariants:
   path was dormant), and `Vetting verdict:` (the `## Request vetting`
   verdict line, verbatim), matching the spawn prompt's return contract
   verbatim.
+- **Read flow's own docs with the Read tool** — never `awk` or pattern-range `sed` on flow skill paths; Claude Code can flag it as a protected-file edit and stall the run.
 
 This definition deliberately omits `effort:` and `model:` from its
 frontmatter: discovery is a judgment role, so its effort scales with the

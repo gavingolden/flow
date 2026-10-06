@@ -66,10 +66,11 @@ flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
 ## `fix-applier-missing-artifact`
 
 Raised by Step 8's post-spawn completeness check when the artifact is
-missing, invalid, or present with `status: "partial"` (not merely
-`test -s "$ARTIFACT_PATH"` — a present-but-partial artifact is treated
-the same as a missing one). Steps 1 through 5 plus the Step 8 spawn ran;
-Steps 8c onward did not.
+missing or invalid (not merely `test -s "$ARTIFACT_PATH"`). A
+`status: "partial"` artifact first routes to the partial-result
+continuation (SKILL Spawn procedure item 4) and escalates here only when
+the continuation also leaves it missing, invalid, or still `partial`.
+Steps 1 through 5 plus the Step 8 spawn ran; Steps 8c onward did not.
 
 ```bash
 RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"

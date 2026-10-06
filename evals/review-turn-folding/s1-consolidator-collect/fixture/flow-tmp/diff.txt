@@ -1,0 +1,24 @@
+diff --git a/src/pricing.ts b/src/pricing.ts
+--- a/src/pricing.ts
++++ b/src/pricing.ts
+@@ -1,0 +1,9 @@
++export const TIER_RATE = 0.1;
++
++export function applyBulkDiscount(total: number): number {
++  // bulk tier
++  if (total > 100) {
++    return total * (1 - TIER_RATE);
++  }
++  return total;
++}
+diff --git a/src/pricing.test.ts b/src/pricing.test.ts
+--- a/src/pricing.test.ts
++++ b/src/pricing.test.ts
+@@ -1,0 +1,7 @@
++import { applyBulkDiscount } from "./pricing";
++
++describe("applyBulkDiscount", () => {
++  it("discounts a large cart", () => {
++    expect(applyBulkDiscount(200)).toBe(180);
++  });
++});

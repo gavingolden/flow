@@ -29,6 +29,7 @@ Invariants:
   (affected modules, relevant tests, public API surface) and at least
   one negative finding (anti-patterns, off-limits surfaces, foreclosed
   approaches).
+- **Read flow's own docs with the Read tool** — never `awk` or pattern-range `sed` on flow skill paths; Claude Code can flag it as a protected-file edit and stall the run.
 
 This definition deliberately omits `effort:` and `model:` from its
 frontmatter: scouting is a judgment role, so its effort scales with the
