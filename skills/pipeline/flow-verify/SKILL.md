@@ -41,9 +41,6 @@ Run all relevant pre-commit checks, fix any failures, and re-run until every che
 flow-pre-commit --json $ARGUMENTS
 ```
 
-Run it as a Bash call with an explicit `timeout: 600000` — the Bash tool's 120 s default parks a
-longer run in the background, and a sub-agent caller has no sanctioned way to wait for it.
-
 If `$ARGUMENTS` is empty, the helper auto-detects scope from `git diff HEAD`. The `--json`
 flag is required: it bounds each failed check's output to ~200 lines (head 100 + tail 100)
 and extracts a `firstErrorText` field so the model summarising results doesn't have to scrape

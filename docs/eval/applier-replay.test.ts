@@ -4,6 +4,7 @@ import {
   editSetFiles,
   extractFlowTmpFiles,
   lastRuns,
+  mergeRescore,
   parseWorktree,
   pickBaseSha,
   renderReport,
@@ -225,5 +226,38 @@ describe("snapshot recovery", () => {
       editSetFiles(ondisk, { "edit-set.json": '[{"file":"c.ts"}]' }, wt),
     ).toEqual(["c.ts"]);
     expect(editSetFiles(ondisk, {}, wt)).toBeNull();
+  });
+});
+
+describe("mergeRescore", () => {
+  it("should replace stream fields and keep cost, verify, tests and error", () => {
+    const old: RunResult = {
+      case: "pr-1",
+      arm: "after",
+      turns: 10,
+      costUsd: 1.5,
+      fullVerifies: 2,
+      parkedVerifies: 0,
+      prettierRounds: 0,
+      verifyCalls: 2,
+      verifyCallsWithTimeout: 1,
+      finalVerify: true,
+      tests: 7,
+      error: "timeout",
+    };
+    const fresh = {
+      turns: 10,
+      fullVerifies: 0,
+      parkedVerifies: 0,
+      prettierRounds: 0,
+      verifyCalls: 0,
+      verifyCallsWithTimeout: 0,
+    } as Parameters<typeof mergeRescore>[1];
+    expect(mergeRescore(old, fresh)).toEqual({
+      ...old,
+      fullVerifies: 0,
+      verifyCalls: 0,
+      verifyCallsWithTimeout: 0,
+    });
   });
 });

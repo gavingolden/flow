@@ -48,6 +48,17 @@ transcript at a 5-minute cache lifetime to show what 1-hour cache writes
 bought; the cache-lifetime measurement is
 [`cache-lifetime-baseline-2026-10.md`](cache-lifetime-baseline-2026-10.md).
 
+`docs/eval/applier-turns.ts` attributes the edit-applier's and fix-applier's turns
+to a cause from the local sub-agent transcripts
+(`bun docs/eval/applier-turns.ts --since <YYYY-MM-DD> [--model <id>] [--repo <name>]`);
+its dated before-state is
+[`applier-turn-baseline-2026-10.md`](applier-turn-baseline-2026-10.md).
+`docs/eval/applier-replay.ts` replays recorded edit-sets under a before and an
+after instruction arm (`snapshot`, `run`, `rescore`, `report`) through the eval
+runner's stream-json trace, with a zero-test guard; its record, with the
+pre-registered rule and the verdict (no-ship), is
+[`applier-replay.md`](applier-replay.md).
+
 [`fable-vs-opus-subagents.md`](fable-vs-opus-subagents.md) records the
 issue #890 check: bug-detection recall on Fable 5.1 against Opus 5.5 on
 the review-recall harness's three PRs, under a pre-registered verdict rule.

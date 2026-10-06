@@ -6,7 +6,10 @@
 // money on `run`; `snapshot` and `report` are free.
 //   bun docs/eval/applier-replay.ts snapshot --pr <n> [--repo flow]
 //   bun docs/eval/applier-replay.ts run --arm before|after --case <file> --out <dir>
+//   bun docs/eval/applier-replay.ts rescore --dir <outDir>
 //   bun docs/eval/applier-replay.ts report --results <json|dir> [--check]
+// `rescore` re-derives the stream-derived fields from each saved stream.jsonl
+// (free); costUsd, finalVerify, tests and error are kept as recorded.
 // The child goes through bin/lib/eval-runner.ts (stream-json, so its tool
 // calls stay observable); never a raw `claude -p`.
 import * as crypto from "node:crypto";
@@ -18,7 +21,8 @@ import { fileURLToPath } from "node:url";
 import { runScenarioOnce } from "../../bin/lib/eval-runner";
 import type { MaterializedFixture } from "../../bin/lib/eval-fixture";
 import type { ResolvedScenario } from "../../bin/lib/eval-suite";
-import { attributeSpawn } from "./applier-turns";
+import { attributeSpawn, type SpawnStats } from "./applier-turns";
+import { parseStream } from "../../bin/lib/eval-transcript";
 
 const BEFORE_REF = "428642c";
 const INSTRUCTIONS = "skills/pipeline/flow-coder-instructions/SKILL.md";
@@ -507,13 +511,7 @@ async function run(flag: (n: string) => string | undefined) {
       effort: "medium",
     });
     const s = attributeSpawn(out.events);
-    Object.assign(result, {
-      turns: s.turns,
-      fullVerifies: s.fullVerifies,
-      parkedVerifies: s.parkedVerifies,
-      prettierRounds: s.prettierRounds,
-      verifyCalls: s.verifyCalls,
-      verifyCallsWithTimeout: s.verifyCallsWithTimeout,
+    Object.assign(result, streamFields(s), {
       costUsd: out.result?.total_cost_usd ?? 0,
     });
     const err = out.timedOut ? "timeout" : out.error;
@@ -554,6 +552,46 @@ async function run(flag: (n: string) => string | undefined) {
   console.log(file);
 }
 
+export const streamFields = (s: SpawnStats) => ({
+  turns: s.turns,
+  fullVerifies: s.fullVerifies,
+  parkedVerifies: s.parkedVerifies,
+  prettierRounds: s.prettierRounds,
+  verifyCalls: s.verifyCalls,
+  verifyCallsWithTimeout: s.verifyCallsWithTimeout,
+});
+
+export const mergeRescore = (old: RunResult, s: SpawnStats): RunResult => ({
+  ...old,
+  ...streamFields(s),
+});
+
+function rescore(flag: (n: string) => string | undefined) {
+  const dir = path.resolve(flag("--dir") ?? "");
+  for (const f of fs
+    .readdirSync(dir)
+    .filter((n) => n.endsWith(".result.json"))) {
+    const file = path.join(dir, f);
+    const stream = path.join(
+      dir,
+      f.replace(/\.result\.json$/, ""),
+      "stream.jsonl",
+    );
+    const old: RunResult = JSON.parse(fs.readFileSync(file, "utf8"));
+    const { events } = parseStream(fs.readFileSync(stream, "utf8"));
+    const fresh = attributeSpawn(events);
+    const next = mergeRescore(old, fresh);
+    const diffs = (Object.keys(streamFields(fresh)) as (keyof RunResult)[])
+      .filter((k) => old[k] !== next[k])
+      .map((k) => `${k} ${old[k]} -> ${next[k]}`);
+    if (diffs.length)
+      fs.writeFileSync(file, JSON.stringify(next, null, 2) + "\n");
+    console.log(
+      `${f.replace(/\.result\.json$/, "")}: ${diffs.join(", ") || "unchanged"}`,
+    );
+  }
+}
+
 export function loadResults(p: string): RunResult[] {
   if (!fs.statSync(p).isDirectory())
     return JSON.parse(fs.readFileSync(p, "utf8"));
@@ -585,10 +623,11 @@ if (import.meta.main) {
   try {
     if (cmd === "snapshot") snapshot(flag);
     else if (cmd === "run") await run(flag);
+    else if (cmd === "rescore") rescore(flag);
     else if (cmd === "report") report(flag);
     else
       throw new Error(
-        "usage: applier-replay.ts snapshot|run|report (see header)",
+        "usage: applier-replay.ts snapshot|run|rescore|report (see header)",
       );
   } catch (e) {
     console.error((e as Error).message);

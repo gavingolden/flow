@@ -30,23 +30,24 @@ const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const MENTION_ONLY =
   /(which|command -v)\s+[^|;&\n]*|(pgrep -f|pkill -f|grep[^|;&\n]*|ps aux[^|;&\n]*|cat|head|tail|ls|wc|nl|less|bat|sed[^|;&\n]*)\s+["']?[^\s|;&]*flow-pre-commit\S*/g;
 const QUOTED_MENTION = /(["'])[^"'\n]*flow-pre-commit[^"'\n]*\1/g;
+const QUOTED_NPM_VERIFY = /(["'`])[^"'`\n]*npm run verify[^"'`\n]*\1/g;
 const HEREDOC = /<<-?\s*['"]?(\w+)['"]?[^\n]*\n[\s\S]*?\n\s*\1\b/g;
 const PRE_COMMIT_CALL =
   /flow-pre-commit(\.ts)?(?=\s+(--json|--pr|--scope)|\s*(2>|>|\||;|&&|\n|$))/;
 
 function verifyKind(cmd: string): "flow-pre-commit" | "npm-verify" | null {
   if (/flow-pre-commit --help/.test(cmd)) return null;
+  const noHeredoc = cmd.replace(HEREDOC, "");
   if (
     PRE_COMMIT_CALL.test(
-      cmd
-        .replace(HEREDOC, "")
-        .replace(QUOTED_MENTION, '""')
-        .replace(MENTION_ONLY, ""),
+      noHeredoc.replace(QUOTED_MENTION, '""').replace(MENTION_ONLY, ""),
     )
   ) {
     return "flow-pre-commit";
   }
-  return /npm run verify\b/.test(cmd) ? "npm-verify" : null;
+  return /npm run verify\b/.test(noHeredoc.replace(QUOTED_NPM_VERIFY, '""'))
+    ? "npm-verify"
+    : null;
 }
 
 export const isVerifyInvocation = (cmd: string): boolean =>

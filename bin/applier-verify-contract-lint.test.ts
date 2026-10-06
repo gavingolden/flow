@@ -6,11 +6,11 @@ import { STACK_TABLE } from "./lib/stack-table";
 
 /**
  * Pins the verify-call contract of the edit-applier, the fix-applier and
- * /flow-verify (which the fix-applier runs inline): the verify call carries
- * an explicit 10-minute Bash timeout, no skill claims `flow-pre-commit`
- * formats (it never does: `format` is on the stack table's denylist), and
- * the applier's verify stays the whole-diff `flow-pre-commit --json`. The
- * last one guards against the narrowed-verify idea (#892) coming back.
+ * /flow-verify (which the fix-applier runs inline): each says the helper does
+ * not format, no skill claims `flow-pre-commit` formats (it never does:
+ * `format` is on the stack table's denylist), and the applier's verify stays
+ * the whole-diff `flow-pre-commit --json`. The last one guards against the
+ * narrowed-verify idea (#892) coming back.
  */
 
 const REPO_ROOT = path.resolve(
@@ -35,19 +35,14 @@ function skillFiles(dir: string): string[] {
 }
 
 describe("applier verify contract", () => {
-  it("should require timeout: 600000 near each flow-pre-commit code block", () => {
-    for (const rel of [CODER, FIX, VERIFY]) {
-      const lines = read(rel).split("\n");
-      const fence = lines.findIndex(
-        (l, i) =>
-          l.startsWith("```") && lines[i + 1]?.includes("flow-pre-commit"),
-      );
-      expect(fence, `${rel}: no flow-pre-commit code block`).toBeGreaterThan(
-        -1,
-      );
-      const window = lines.slice(fence, fence + 15).join("\n");
-      expect(window, rel).toContain("timeout: 600000");
-    }
+  it("should state in each verify skill that the helper does not format", () => {
+    const wording: Record<string, string> = {
+      [CODER]: "does not format",
+      [FIX]: "does not format",
+      [VERIFY]: "it never formats",
+    };
+    for (const [rel, phrase] of Object.entries(wording))
+      expect(read(rel).replace(/\s*\n\s*/g, " "), rel).toContain(phrase);
   });
 
   it("should not claim the verify helper formats", () => {

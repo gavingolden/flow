@@ -67,6 +67,25 @@ describe("isVerifyInvocation", () => {
     ).toBe(true);
     expect(isVerifyInvocation("cd /w && npm run verify")).toBe(true);
   });
+
+  it("should not count heredoc bodies that merely mention a verify command", () => {
+    expect(
+      isVerifyInvocation(
+        "python3 -I - <<'EOF'\nopen('r.json','w').write('ran npm run verify')\nEOF",
+      ),
+    ).toBe(false);
+    expect(
+      isVerifyInvocation(
+        "cat > .flow-tmp/n.md <<'EOF'\nran flow-pre-commit --json\nEOF",
+      ),
+    ).toBe(false);
+    expect(
+      isVerifyInvocation("echo 'note: npm run verify is slow' > n.txt"),
+    ).toBe(false);
+    expect(
+      isVerifyInvocation("env -u FLOW_SLUG npm run verify 2>&1 | tail -5"),
+    ).toBe(true);
+  });
 });
 
 describe("verifyOutcome", () => {
