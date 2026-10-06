@@ -287,6 +287,7 @@ describe("scout prompt", () => {
     expect(p).not.toContain("Bash is in the allowlist");
     expect(p).not.toContain("flow-instructions-sentinel");
     expect(p.startsWith("---")).toBe(false);
+    expect(p.startsWith("# Headless run rules")).toBe(true);
   });
 
   it("inlines only the plan's Task breakdown, never its PRD prose", () => {

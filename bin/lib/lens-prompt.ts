@@ -175,6 +175,15 @@ export function agyLensOutputContract(
 - ${reads}`;
 }
 
+// Leads every delegated agy prompt (lenses and scout), not only the tail
+// contract: the 2026-10 recall run saw
+// 7 of 18 agy cells try a shell command within seconds — on the largest
+// prompts the end-of-prompt contract arrives ~300 KB too late — and a
+// denied shell call ends the run with an empty "success".
+export const AGY_HEADLESS_PREAMBLE = `# Headless run rules — read these first
+
+You are running headless with NO shell. Every shell, Bash, \`git\`, \`gh\`, \`grep\`, \`find\`, \`ls\`, \`cat\` or \`npm\` command is auto-denied, and a denied command ends your run instantly with no output, so all your work is lost. This overrides every instruction below that tells you to run a command, fetch a full diff, or check git history: never do it. Use ONLY your file-reading tools (read a file, list a directory). The exact output format you must produce is specified at the end of this prompt.`;
+
 export function buildDelegatedLensPrompt(i: LensPromptInputs): string {
   const { shared, lensSection } = extractLensSections(i.agentPromptsMd, i.lens);
   const safeDiff = i.diff
@@ -231,5 +240,5 @@ export function buildDelegatedLensPrompt(i: LensPromptInputs): string {
     );
   }
 
-  return `${body}\n\n${reference.join("\n")}\n\n${agyLensOutputContract(i.worktree, i.changedFiles.length)}`;
+  return `${AGY_HEADLESS_PREAMBLE}\n\n${body}\n\n${reference.join("\n")}\n\n${agyLensOutputContract(i.worktree, i.changedFiles.length)}`;
 }

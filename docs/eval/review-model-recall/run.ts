@@ -31,7 +31,10 @@ import {
   projectLensFindings,
 } from "../../../bin/lib/agy-lens-core";
 import type { AgentFindings } from "../../../bin/lib/agent-finding-schema";
-import { agyLensOutputContract } from "../../../bin/lib/lens-prompt";
+import {
+  AGY_HEADLESS_PREAMBLE,
+  agyLensOutputContract,
+} from "../../../bin/lib/lens-prompt";
 
 const LENSES = ["bug-detection", "pattern-consistency", "test-coverage"];
 const PRS = ["812", "756", "802"];
@@ -242,7 +245,7 @@ async function runAgyMatrixCell(dataDir: string, cell: Cell): Promise<void> {
   const promptFile = join(runsDir, `${base}.agy-prompt.txt`);
   writeFileSync(
     promptFile,
-    `${readFileSync(join(dataDir, `prompt-${L}-${P}.txt`), "utf8")}\n\n${agyLensOutputContract(REPO_ROOT, diffFiles)}`,
+    `${AGY_HEADLESS_PREAMBLE}\n\n${readFileSync(join(dataDir, `prompt-${L}-${P}.txt`), "utf8")}\n\n${agyLensOutputContract(REPO_ROOT, diffFiles)}`,
   );
   const schemaFile = join(dataDir, "agy-findings-schema.json");
   writeFileSync(schemaFile, JSON.stringify(AGENT_FINDINGS_JSON_SCHEMA));

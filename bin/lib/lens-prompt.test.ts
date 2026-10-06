@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DELEGATABLE_LENSES } from "./delegate-models";
 import {
+  AGY_HEADLESS_PREAMBLE,
   LENS_HEADINGS,
   agyLensOutputContract,
   buildDelegatedLensPrompt,
@@ -115,6 +116,12 @@ describe("buildDelegatedLensPrompt", () => {
     expect(buildDelegatedLensPrompt(inputs())).toMatch(
       /base-branch copy\)\n\n\(none\)/,
     );
+  });
+
+  it("leads with the no-shell rules so a long diff cannot bury them", () => {
+    const prompt = buildDelegatedLensPrompt(inputs());
+    expect(prompt.startsWith(AGY_HEADLESS_PREAMBLE)).toBe(true);
+    expect(AGY_HEADLESS_PREAMBLE).toContain("NO shell");
   });
 
   it("inlines the product brief text when given", () => {

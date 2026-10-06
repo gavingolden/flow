@@ -31,6 +31,7 @@ import { armCooldown, readCooldown } from "./lib/agy-cooldown";
 import { classifyUnusableLensRun } from "./lib/agy-lens-core";
 import { classifyAgyFailure } from "./lib/agy-failure-class";
 import { agyReadRules } from "./lib/agy-read-rules";
+import { AGY_HEADLESS_PREAMBLE } from "./lib/lens-prompt";
 import {
   DELEGATED_SCOUT_TIMEOUT,
   resolveDelegateModel,
@@ -178,6 +179,7 @@ export function buildScoutPrompt(i: ScoutPromptInputs): string {
     depth: "full",
   });
   const sections = [
+    AGY_HEADLESS_PREAMBLE,
     `You are the Independent Scout for \`/flow-new-feature\`, running as a headless read-only run. Follow the scout instructions below in order. You are one-shot — do not ask clarifying questions; when the description leaves something unspecified, make a defensible assumption and surface it under \`## open_questions\`.`,
     `## Inputs\n\nUser feature description (verbatim):\n\n${i.description.trim()}\n\nWorking directory: ${i.worktree}\n\nApproved plan: ${i.planBreakdown === null ? "absent" : "the plan's Task breakdown section is inlined below (verify-not-rederive mode applies)."}`,
   ];
