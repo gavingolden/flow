@@ -470,6 +470,14 @@ const discoveryPromptInterpretationContent = fs.readFileSync(
   DISCOVERY_PROMPT_INTERPRETATION_PATH,
   "utf8",
 );
+const discoveryCoreAndReferencesContent = [
+  discoveryInstructionsContent,
+  discoveryResearchContent,
+  discoveryUiContent,
+  discoveryRevisionContent,
+  discoverySurveyEpicContent,
+  discoveryPromptInterpretationContent,
+].join("\n");
 const epicDiscoveryInstructionsContent = fs.readFileSync(
   EPIC_DISCOVERY_INSTRUCTIONS_PATH,
   "utf8",
@@ -4559,10 +4567,10 @@ describe("Plan-artifact section anchors (discovery-instructions.md ↔ prd-templ
     },
   );
 
-  it("discovery-instructions.md carries the '## Epic context' anchor", () => {
+  it("discovery-survey-epic.md carries the '## Epic context' anchor", () => {
     expect(
-      discoveryInstructionsContent.includes("## Epic context"),
-      "discovery-instructions.md must carry the '## Epic context' section contract — " +
+      discoverySurveyEpicContent.includes("## Epic context"),
+      "discovery-survey-epic.md must carry the '## Epic context' section contract — " +
         "the omit-when-empty section populated by the step 1.7 epic-membership detection.",
     ).toBe(true);
   });
@@ -6919,8 +6927,8 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         prDescriptionAuthoringContent,
       ],
       [
-        "flow-product-planning/references/discovery-instructions.md",
-        discoveryInstructionsContent,
+        "flow-product-planning/references/discovery-*.md",
+        discoveryCoreAndReferencesContent,
       ],
       ["flow-pr-review/SKILL.md", prReviewContent],
     ] as const) {
@@ -6946,8 +6954,8 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         prDescriptionAuthoringContent,
       ],
       [
-        "flow-product-planning/references/discovery-instructions.md",
-        discoveryInstructionsContent,
+        "flow-product-planning/references/discovery-*.md",
+        discoveryCoreAndReferencesContent,
       ],
       [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
     ] as const) {
@@ -11789,10 +11797,10 @@ describe("flow-review-finalize's documented invocation actually parses", () => {
 });
 
 describe("Manifest write-back + shared-artifact write-back anchors", () => {
-  it("discovery-instructions.md and prd-template.md carry the Manifest write-back contract", () => {
+  it("discovery-survey-epic.md and prd-template.md carry the Manifest write-back contract", () => {
     expect(
-      discoveryInstructionsContent.includes("Manifest write-back"),
-      "skills/pipeline/flow-product-planning/references/discovery-instructions.md " +
+      discoverySurveyEpicContent.includes("Manifest write-back"),
+      "skills/pipeline/flow-product-planning/references/discovery-survey-epic.md " +
         "must contain the verbatim 'Manifest write-back' anchor — dropping it silently " +
         "drops the same-PR manifest write-back obligation for a discovered/standalone " +
         "producer edge.",
@@ -11804,10 +11812,10 @@ describe("Manifest write-back + shared-artifact write-back anchors", () => {
     ).toBe(true);
   });
 
-  it("discovery-instructions.md documents the sharedArtifacts field", () => {
+  it("discovery-survey-epic.md documents the sharedArtifacts field", () => {
     expect(
-      discoveryInstructionsContent.includes("sharedArtifacts"),
-      "skills/pipeline/flow-product-planning/references/discovery-instructions.md must " +
+      discoverySurveyEpicContent.includes("sharedArtifacts"),
+      "skills/pipeline/flow-product-planning/references/discovery-survey-epic.md must " +
         "document the optional per-feature `sharedArtifacts` field.",
     ).toBe(true);
   });
