@@ -26,6 +26,13 @@
       "notMatches": "NOTICE — agent-fallback:"
     },
     {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
       "id": "research-ran",
       "kind": "json-file",
       "file": "$REPO/.flow-tmp/research-status.json",

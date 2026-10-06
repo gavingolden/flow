@@ -1,19 +1,18 @@
 // Pure parsing and statistics for docs/eval/discovery-payload.ts. Standalone
-// on purpose: no bin/lib imports, so it runs on any checkout.
+// on purpose: no bin/lib imports, so it runs on any checkout. Pricing comes
+// from the sibling token-spend-audit.ts so dollars never diverge from it.
 import { basename } from "path";
-// $/MTok: input, 5m cache write (1.25x), 1h cache write (2x), cache read, output.
-export const PRICING_DATE = "2026-09-30"; // Last verified: 2026-09-30
-type Price = [number, number, number, number, number];
-const PRICES: Record<string, Price> = {
-  "claude-opus-5": [5, 6.25, 10, 0.5, 25],
-  "claude-opus-5-5": [4, 5, 8, 0.2, 20],
-  "claude-sonnet-5": [2, 2.5, 4, 0.2, 10],
-  "claude-sonnet-5-5": [2, 2.5, 4, 0.2, 10],
-  "claude-fable-5": [10, 12.5, 20, 1, 50],
-  "claude-fable-5-1": [10, 12.5, 20, 0.25, 50],
-  "claude-haiku-4-5-20251001": [1, 1.25, 2, 0.1, 5],
-};
-export const DEFAULT_INSTRUCTIONS = ["discovery-instructions.md"];
+import { priceTurn, PRICING_DATE } from "./token-spend-audit";
+
+export { PRICING_DATE };
+export const DEFAULT_INSTRUCTIONS = [
+  "discovery-instructions.md",
+  "discovery-research.md",
+  "discovery-ui.md",
+  "discovery-revision.md",
+  "discovery-survey-epic.md",
+  "discovery-prompt-interpretation.md",
+];
 export const SIBLING_REFS = [
   "prd-template.md",
   "architecture-patterns.md",
@@ -33,28 +32,6 @@ export type SpawnPayload = {
   referencesRead: string[];
   usd: number;
 };
-
-function priceUsage(u: any, model: string): number {
-  const p = PRICES[model];
-  if (!p) return 0;
-  const cc = u?.cache_creation;
-  const split =
-    cc &&
-    (cc.ephemeral_5m_input_tokens != null ||
-      cc.ephemeral_1h_input_tokens != null);
-  const w5 = split
-    ? cc.ephemeral_5m_input_tokens || 0
-    : u?.cache_creation_input_tokens || 0;
-  const w1 = split ? cc.ephemeral_1h_input_tokens || 0 : 0;
-  return (
-    ((u?.input_tokens || 0) * p[0] +
-      w5 * p[1] +
-      w1 * p[2] +
-      (u?.cache_read_input_tokens || 0) * p[3] +
-      (u?.output_tokens || 0) * p[4]) /
-    1e6
-  );
-}
 
 export const blocks = (row: any): any[] =>
   Array.isArray(row?.message?.content) ? row.message.content : [];
@@ -78,12 +55,13 @@ export function measureSpawn(
   );
   const reqs = new Map<string, { model: string; usage: any }>();
   const instrIds = new Set<string>();
+  const bashIds = new Set<string>();
   const instrReqs = new Set<string>();
   const refs: string[] = [];
   let firstUser: string | null = null;
   let firstReq: string | null = null;
   let pending = false;
-  let bashInstr = false;
+  let spillArmed = false;
   let chunks = 0;
   let after = new Set<string>();
   rows.forEach((r: any, i) => {
@@ -93,11 +71,13 @@ export function measureSpawn(
         if (t && !blocks(r).some((b) => b?.type === "tool_result"))
           firstUser = t;
       }
+      spillArmed = false;
       for (const b of blocks(r)) {
         if (b?.type === "tool_result" && instrIds.has(b.tool_use_id)) {
           chunks++;
           pending = true;
           after = new Set();
+          if (bashIds.has(b.tool_use_id)) spillArmed = true;
         }
       }
       return;
@@ -122,7 +102,7 @@ export function measureSpawn(
         const words = cmd.split(/[\s'";|&()<>]+/).map((w) => basename(w));
         if (words.some((w) => names.has(w))) {
           instrIds.add(b.id);
-          bashInstr = true;
+          bashIds.add(b.id);
         }
         for (const w of words)
           if (isReference(w) && !refs.includes(w)) refs.push(w);
@@ -131,8 +111,11 @@ export function measureSpawn(
       if (b.name !== "Read") continue;
       const path = String(b.input?.file_path ?? "");
       const file = basename(path);
-      if (names.has(file) || (bashInstr && path.includes("/tool-results/")))
+      if (names.has(file)) instrIds.add(b.id);
+      else if (spillArmed && path.includes("/tool-results/")) {
         instrIds.add(b.id);
+        spillArmed = false;
+      }
       if (isReference(file) && !refs.includes(file)) refs.push(file);
     }
   });
@@ -141,12 +124,14 @@ export function measureSpawn(
   const write = (u: any) => u?.cache_creation_input_tokens || 0;
   const text: string = firstUser ?? "";
   let usd = 0;
-  for (const { model, usage } of reqs.values()) usd += priceUsage(usage, model);
+  for (const { model, usage } of reqs.values()) usd += priceTurn(usage, model);
   return {
     model: reqs.get(firstReq)!.model,
     mode: text.includes("REVISION:")
       ? "revision"
-      : text.includes("MODE: epic")
+      : /Read the full instructions at:\s*\S*epic-discovery-instructions\.md/.test(
+            text,
+          )
         ? "epic"
         : "feature",
     firstContext:

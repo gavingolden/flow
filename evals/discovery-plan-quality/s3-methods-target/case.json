@@ -26,10 +26,17 @@
       "notMatches": "NOTICE — agent-fallback:"
     },
     {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
       "id": "recommended-path",
       "kind": "file",
       "file": "$REPO/.flow-tmp/plan.md",
-      "contains": "- **Recommended path:** "
+      "matches": "- \\*\\*Recommended path:\\*\\* `?(methods plausibly reach target|extend scope with named additional safe steps|relax target|split into multiple pipelines)`?[.,;:]*\\s*(\\n|$)"
     },
     {
       "id": "result.total_cost_usd",

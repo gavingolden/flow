@@ -26,6 +26,13 @@
       "notMatches": "NOTICE — agent-fallback:"
     },
     {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
       "id": "no-layout-intent",
       "kind": "file",
       "file": "$REPO/.flow-tmp/plan.md",

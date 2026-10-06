@@ -63,8 +63,9 @@ production measurement.
 ## Re-check
 
 The next token-spend audit re-runs
-`bun docs/eval/discovery-payload.ts --since <window start>` and checks two
-things:
+`bun docs/eval/discovery-payload.ts --since <window start>` (the default
+`--instructions` set is the core plus the five references named below, so the
+median counts every instruction file a run reads) and checks two things:
 
 - the production median instruction read has fallen by about the eval's
   29%;

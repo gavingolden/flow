@@ -1,11 +1,16 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { describe, expect, it } from "vitest";
 import {
   measureSpawn,
   referenceOpenRates,
   sectionSizes,
+  streamSpawns,
   summarize,
   type SpawnPayload,
 } from "./discovery-payload";
+import { DEFAULT_INSTRUCTIONS } from "./discovery-payload-parse";
 
 const MODEL = "claude-opus-5";
 const IR = "/x/references/discovery-instructions.md";
@@ -41,6 +46,11 @@ const result = (toolId: string) => ({
     content: [{ type: "tool_result", tool_use_id: toolId, content: "ok" }],
   },
 });
+
+// The fixed spawn-template prose names MODE: epic and epic-discovery-instructions.md
+// for every run; only the path after "Read the full instructions at:" differs.
+const spawnPrompt = (file: string) =>
+  `Read the full instructions at:\n  /s/references/${file}\n\nFollow the /s/references/${file} steps in order (the feature-grain\ndiscovery-instructions.md by default; under \`MODE: epic\` this resolves to\nepic-discovery-instructions.md)`;
 
 // Three instruction chunks, each followed by a request that writes 100/200/300.
 const threeChunks = () => [
@@ -97,10 +107,25 @@ describe("measureSpawn", () => {
     const m = measureSpawn(rows, { instructionNames: names })!;
     expect(m.instructionChunks).toBe(2);
     expect(m.instructionTokens).toBe(100 + 40);
-    expect(measureSpawn(rows)!.instructionChunks).toBe(1);
+    expect(
+      measureSpawn(rows, { instructionNames: ["discovery-instructions.md"] })!
+        .instructionChunks,
+    ).toBe(1);
+    expect(measureSpawn(rows)!.instructionChunks).toBe(2);
     expect(m.referencesRead).toEqual([
       "discovery-instructions.md",
       "discovery-research.md",
+    ]);
+  });
+
+  it("should default the instruction names to the core plus all five discovery references", () => {
+    expect([...DEFAULT_INSTRUCTIONS].sort()).toEqual([
+      "discovery-instructions.md",
+      "discovery-prompt-interpretation.md",
+      "discovery-research.md",
+      "discovery-revision.md",
+      "discovery-survey-epic.md",
+      "discovery-ui.md",
     ]);
   });
 
@@ -127,6 +152,41 @@ describe("measureSpawn", () => {
     expect(m.referencesRead).toEqual(["discovery-instructions.md"]);
   });
 
+  it("should not attribute a later unrelated tool-results Read to the instructions", () => {
+    const bash = {
+      type: "tool_use",
+      id: "t1",
+      name: "Bash",
+      input: { command: `cat ${IR}; echo ===` },
+    };
+    const rows = [
+      user("t"),
+      asst("m1", usage(1000), [bash]),
+      result("t1"),
+      asst("m2", usage(50), [read("t2", "/s/tool-results/b1.txt")]),
+      result("t2"),
+      asst("m3", usage(400), [read("t3", "/s/tool-results/unrelated.txt")]),
+      result("t3"),
+      asst("m4", usage(9)),
+    ];
+    const m = measureSpawn(rows)!;
+    expect(m.instructionChunks).toBe(2);
+    expect(m.instructionTokens).toBe(50 + 400);
+    const noSpill = [
+      user("t"),
+      asst("m1", usage(1000), [bash]),
+      result("t1"),
+      asst("m2", usage(50), [read("t2", "/x/src/a.ts")]),
+      result("t2"),
+      asst("m3", usage(400), [read("t3", "/s/tool-results/unrelated.txt")]),
+      result("t3"),
+      asst("m4", usage(9)),
+    ];
+    const n = measureSpawn(noSpill)!;
+    expect(n.instructionChunks).toBe(1);
+    expect(n.instructionTokens).toBe(50);
+  });
+
   it("should count turnsAfterInstructions after the last instruction result", () => {
     expect(measureSpawn(threeChunks())!.turnsAfterInstructions).toBe(3);
   });
@@ -142,7 +202,8 @@ describe("measureSpawn", () => {
     const mode = (t: string) =>
       measureSpawn([user(t), asst("m", usage(1))])!.mode;
     expect(mode("hi\nREVISION: 1\nUSER REDIRECT")).toBe("revision");
-    expect(mode("MODE: epic\nbody")).toBe("epic");
+    expect(mode(spawnPrompt("epic-discovery-instructions.md"))).toBe("epic");
+    expect(mode(spawnPrompt("discovery-instructions.md"))).toBe("feature");
     expect(mode("plain feature request")).toBe("feature");
     expect(
       measureSpawn([user("12345"), asst("m", usage(1))])!.taskTextChars,
@@ -171,6 +232,30 @@ describe("measureSpawn", () => {
 
   it("should price a known model above zero", () => {
     expect(measureSpawn(threeChunks())!.usd).toBeGreaterThan(0);
+  });
+
+  it("should price the 5m/1h cache-write split exactly and fall back to the 5m rate without it", () => {
+    const base = {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 3_000_000,
+    };
+    const split = {
+      ...base,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 1_000_000,
+        ephemeral_1h_input_tokens: 2_000_000,
+      },
+    };
+    expect(measureSpawn([user("t"), asst("m", split)])!.usd).toBeCloseTo(
+      26.25,
+      10,
+    );
+    expect(measureSpawn([user("t"), asst("m", base)])!.usd).toBeCloseTo(
+      18.75,
+      10,
+    );
   });
 });
 
@@ -237,5 +322,41 @@ describe("referenceOpenRates", () => {
       "b.md": { opened: 1, total: 3 },
       "c.md": { opened: 0, total: 3 },
     });
+  });
+});
+
+describe("streamSpawns", () => {
+  it("should pick the largest parent group, add the synthetic user row, and ignore stray parents", () => {
+    const dir = mkdtempSync(join(tmpdir(), "discovery-stream-"));
+    mkdirSync(join(dir, "run-1"));
+    const child = (id: string, parent: string, u: object) => ({
+      ...asst(id, u, [read(`r-${id}`, "/x/src/a.ts")]),
+      parent_tool_use_id: parent,
+    });
+    const rows = [
+      asst("top", usage(1), [
+        {
+          type: "tool_use",
+          id: "T",
+          name: "Task",
+          input: { prompt: "REVISION: 2\nredo it" },
+        },
+      ]),
+      child("c1", "T", usage(100)),
+      child("c2", "T", usage(200)),
+      child("c3", "T", usage(300)),
+      child("s1", "OTHER", usage(9)),
+    ];
+    writeFileSync(
+      join(dir, "run-1", "stream.jsonl"),
+      rows.map((r) => JSON.stringify(r)).join("\n"),
+    );
+    const runs = streamSpawns(dir);
+    expect(runs).toHaveLength(1);
+    const group = runs[0] as any[];
+    expect(group.filter((r) => r.parent_tool_use_id === "T")).toHaveLength(3);
+    expect(group[0].type).toBe("user");
+    expect(group).toHaveLength(4);
+    expect(measureSpawn(group)!.mode).toBe("revision");
   });
 });

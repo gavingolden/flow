@@ -26,10 +26,17 @@
       "notMatches": "NOTICE — agent-fallback:"
     },
     {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
       "id": "hash-kept",
       "kind": "file",
       "file": "$REPO/.flow-tmp/plan.md",
-      "contains": "<!-- flow-plan-review-hash:"
+      "contains": "<!-- flow-plan-review-hash: 0000000000000000000000000000000000000000000000000000000000000000 -->"
     },
     {
       "id": "redirect-applied",

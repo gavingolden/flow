@@ -5,7 +5,8 @@
 //   bun docs/eval/discovery-payload.ts --stream-dir <flow-eval out dir>
 // Flags: --home <dir> (default $HOME), --project-match <substring>,
 // --since <YYYY-MM-DD>, --stream-dir <dir>, --instructions <path|basename>
-// (repeatable; default discovery-instructions.md), --sections <path>.
+// (repeatable; default the core plus all five discovery references),
+// --sections <path>.
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { homedir } from "os";
 import { basename, join } from "path";
@@ -51,17 +52,18 @@ function walk(dir: string, hit: (p: string) => boolean, out: string[] = []) {
   return out;
 }
 
-function transcriptSpawns(a: Args): unknown[][] {
+function transcriptSpawns(a: Args): SpawnPayload[] {
   const root = join(a.home, ".claude", "projects");
   if (!existsSync(root)) return [];
   const since = a.since ? Date.parse(`${a.since}T00:00:00Z`) : 0;
-  const runs: unknown[][] = [];
+  const spawns: SpawnPayload[] = [];
   for (const proj of readdirSync(root)) {
     if (a.projectMatch && !proj.includes(a.projectMatch)) continue;
     const files = walk(join(root, proj), (p) =>
       /\/subagents\/agent-[^/]+\.jsonl$/.test(p),
     );
     for (const f of files) {
+      if (statSync(f).mtimeMs < since) continue;
       const meta = f.replace(/\.jsonl$/, ".meta.json");
       if (!existsSync(meta)) continue;
       try {
@@ -70,14 +72,16 @@ function transcriptSpawns(a: Args): unknown[][] {
       } catch {
         continue;
       }
-      if (statSync(f).mtimeMs < since) continue;
-      runs.push(parseLines(f));
+      const s = measureSpawn(parseLines(f), {
+        instructionNames: a.instructions,
+      });
+      if (s) spawns.push(s);
     }
   }
-  return runs;
+  return spawns;
 }
 
-function streamSpawns(dir: string): unknown[][] {
+export function streamSpawns(dir: string): unknown[][] {
   const runs: unknown[][] = [];
   const files = walk(dir, (p) =>
     /\/run-[^/]+\/stream\.jsonl$/.test(p.replace(/\\/g, "/")),
@@ -160,10 +164,11 @@ function table(title: string, spawns: SpawnPayload[]) {
 }
 
 function report(a: Args) {
-  const runs = a.streamDir ? streamSpawns(a.streamDir) : transcriptSpawns(a);
-  const spawns = runs
-    .map((r) => measureSpawn(r, { instructionNames: a.instructions }))
-    .filter((s): s is SpawnPayload => s !== null);
+  const spawns = a.streamDir
+    ? streamSpawns(a.streamDir)
+        .map((r) => measureSpawn(r, { instructionNames: a.instructions }))
+        .filter((s): s is SpawnPayload => s !== null)
+    : transcriptSpawns(a);
   const read = spawns.filter((x) => x.instructionChunks > 0);
   console.log(`# Discovery start-up payload\n`);
   console.log(`Runs: ${spawns.length}. Prices dated ${PRICING_DATE}.`);
