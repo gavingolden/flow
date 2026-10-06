@@ -32,6 +32,7 @@ let lines: string[];
 let fanoutCalls: ManifestEntry[][];
 let prompts: Record<string, string>;
 let armed: string[][];
+let armedReset: Array<number | null>;
 let reads: string[];
 
 const cfg =
@@ -92,7 +93,10 @@ const deps = (over: Partial<Deps> = {}): Partial<Deps> => ({
   }),
   gitShow: () => null,
   readCooldown: () => ({ live: false }),
-  armCooldown: (classes) => void armed.push(classes),
+  armCooldown: (classes, resetMs) => {
+    armed.push(classes);
+    armedReset.push(resetMs);
+  },
   writeOut: (l) => void lines.push(l),
   readFile: (p) => {
     reads.push(p);
@@ -172,6 +176,7 @@ beforeEach(() => {
   fanoutCalls = [];
   prompts = {};
   armed = [];
+  armedReset = [];
   reads = [];
 });
 
@@ -402,7 +407,23 @@ describe("cooldown arming (Story 2b)", () => {
       }),
     );
     expect(armed).toEqual([["quota-exhausted", "quota-exhausted"]]);
+    expect(armedReset).toEqual([null]);
     expect(envelope().cooldownArmed).toBe(true);
+  });
+
+  it("holds the cooldown until the reset agy names in its quota error", async () => {
+    await run(
+      argv("pattern-consistency,bug-detection"),
+      deps({
+        runFanout: fanoutWith(() => ({
+          ran: false,
+          skipReason: "agy-error",
+          agyError:
+            "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 4h44m12s.",
+        })),
+      }),
+    );
+    expect(armedReset).toEqual([(4 * 3600 + 44 * 60 + 12) * 1000]);
   });
 
   it("does not arm when the failure is an environment skip (agy-not-found)", async () => {

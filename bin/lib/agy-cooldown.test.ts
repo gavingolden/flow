@@ -6,6 +6,7 @@ import {
   AGY_COOLDOWN_MINUTES,
   COOLDOWN_ARMING_CLASSES,
   armCooldown,
+  quotaResetMs,
   readCooldown,
   shouldArmCooldown,
 } from "./agy-cooldown";
@@ -81,5 +82,32 @@ describe("shouldArmCooldown", () => {
   ])("never arms on the environment class %s", (c) => {
     expect(shouldArmCooldown([c])).toBe(false);
     expect(shouldArmCooldown(["quota-exhausted", c])).toBe(false);
+  });
+});
+
+describe("quota reset parsing", () => {
+  it("reads agy's 'Resets in' duration and keeps the longest", () => {
+    expect(
+      quotaResetMs([
+        "Individual quota reached. Resets in 4h44m12s.",
+        undefined,
+        "Resets in 30m",
+      ]),
+    ).toBe((4 * 3600 + 44 * 60 + 12) * 1000);
+  });
+
+  it("returns null when no text names a reset", () => {
+    expect(quotaResetMs(["quota reached", undefined])).toBeNull();
+  });
+
+  it("holds the marker until the named reset instead of the default window", () => {
+    const now = new Date("2026-10-06T08:00:00Z");
+    armCooldown(["quota-exhausted"], now, file, 5 * 3_600_000);
+    expect(readCooldown(new Date("2026-10-06T12:59:00Z"), file).live).toBe(
+      true,
+    );
+    expect(readCooldown(new Date("2026-10-06T13:01:00Z"), file).live).toBe(
+      false,
+    );
   });
 });

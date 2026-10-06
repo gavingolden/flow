@@ -8,7 +8,7 @@ dropped: any lens it cannot deliver is a `fallback` lens, and you Task-spawn
 it as you always did. Which lenses move is config: `delegate.models.claudeLenses`
 (`null` = delegation off) and `delegate.lenses`; the helper owns the routing
 (delegation off, not in the delegated set, a Fable session keeps
-bug-detection on Claude, a live 60-minute cooldown after a quota failure).
+bug-detection on Claude, a live cooldown after a quota failure — until the reset agy names, else 60 minutes).
 
 This reference is a Bash fan-out, not a new Task-tool exemption: the Task
 spawns below are the existing Multi-Agent Review exemption.

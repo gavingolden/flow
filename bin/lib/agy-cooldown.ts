@@ -4,7 +4,9 @@
  * (the signature of exhausted or throttled quota), the marker holds all
  * delegated review lenses and the delegated scout on Claude for
  * AGY_COOLDOWN_MINUTES, so a dry quota window costs one failed attempt, not
- * one per review.
+ * one per review. When agy's quota error names its reset ("Resets in
+ * 4h44m12s" — Ultra windows are five hours), the marker holds until then
+ * instead, so a dry window is not retried, and failed, every hour.
  *
  * The marker lives in `FLOW_CACHE_DIR`, NOT `~/.flow/state/`: that directory
  * is the pipeline-state store, and a `<slug>.json` there is read as a
@@ -60,12 +62,32 @@ export function shouldArmCooldown(classes: string[]): boolean {
   );
 }
 
+// Longest "Resets in [Nh][Nm][Ns]" across agy failure texts, in ms; null
+// when none names a reset.
+export function quotaResetMs(texts: Array<string | undefined>): number | null {
+  let best: number | null = null;
+  for (const t of texts) {
+    if (!t) continue;
+    for (const m of t.matchAll(/Resets in ((?:\d+[hms])+)/g)) {
+      let ms = 0;
+      for (const [, n, u] of m[1]!.matchAll(/(\d+)([hms])/g)) {
+        ms += Number(n) * (u === "h" ? 3_600_000 : u === "m" ? 60_000 : 1_000);
+      }
+      if (ms > 0 && (best === null || ms > best)) best = ms;
+    }
+  }
+  return best;
+}
+
 export function armCooldown(
   classes: string[],
   now: Date = new Date(),
   file: string = defaultCooldownFile(),
+  resetMs: number | null = null,
 ): void {
-  const until = new Date(now.getTime() + AGY_COOLDOWN_MINUTES * 60_000);
+  const until = new Date(
+    now.getTime() + (resetMs ?? AGY_COOLDOWN_MINUTES * 60_000),
+  );
   const record = {
     armed_at: now.toISOString(),
     until: until.toISOString(),

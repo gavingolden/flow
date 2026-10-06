@@ -27,7 +27,7 @@
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { armCooldown, readCooldown } from "./lib/agy-cooldown";
+import { armCooldown, quotaResetMs, readCooldown } from "./lib/agy-cooldown";
 import { classifyUnusableLensRun } from "./lib/agy-lens-core";
 import { classifyAgyFailure } from "./lib/agy-failure-class";
 import { agyReadRules } from "./lib/agy-read-rules";
@@ -287,7 +287,7 @@ export type Deps = {
   mkdirp: (dir: string) => void;
   runDelegate: (argv: string[]) => DelegateEnvelope;
   readCooldown: () => { live: boolean; until?: string };
-  armCooldown: (classes: string[]) => void;
+  armCooldown: (classes: string[], resetMs: number | null) => void;
   writeOut: (line: string) => void;
 };
 
@@ -400,7 +400,10 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     });
     if (SCOUT_COOLDOWN_CLASSES.has(cls)) {
       try {
-        deps.armCooldown([cls]);
+        deps.armCooldown(
+          [cls],
+          quotaResetMs([envelope.agyError, envelope.stderrTail]),
+        );
       } catch {
         // the marker is an optimisation; the skip envelope is the contract
       }
@@ -489,7 +492,10 @@ function resolveDeps(args: Args, o?: Partial<Deps>): Deps {
         }
       }),
     readCooldown: o?.readCooldown ?? (() => readCooldown()),
-    armCooldown: o?.armCooldown ?? ((classes) => armCooldown(classes)),
+    armCooldown:
+      o?.armCooldown ??
+      ((classes, resetMs) =>
+        armCooldown(classes, undefined, undefined, resetMs)),
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
   };
 }

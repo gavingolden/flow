@@ -40,6 +40,7 @@ import {
 } from "./lib/agy-lens-core";
 import {
   armCooldown,
+  quotaResetMs,
   readCooldown,
   shouldArmCooldown,
 } from "./lib/agy-cooldown";
@@ -177,7 +178,7 @@ export type Deps = {
     opts: { concurrency: number; manifestPath: string; outPath: string },
   ) => Promise<FanoutResult>;
   readCooldown: () => { live: boolean; until?: string };
-  armCooldown: (classes: string[]) => void;
+  armCooldown: (classes: string[], resetMs: number | null) => void;
   writeOut: (line: string) => void;
 };
 
@@ -335,11 +336,13 @@ async function runDelegated(
   delegated: DelegatedLensResult[];
   fallback: FallbackLensResult[];
   classes: string[];
+  failureTexts: string[];
   startedAt: string | null;
 }> {
   const delegated: DelegatedLensResult[] = [];
   const fallback: FallbackLensResult[] = [];
   const classes: string[] = [];
+  const failureTexts: string[] = [];
   const failAll = (reason: string, startedAt: string | null) => {
     for (const lens of agyLenses) {
       fallback.push({
@@ -349,7 +352,7 @@ async function runDelegated(
       });
       classes.push("environment");
     }
-    return { delegated, fallback, classes, startedAt };
+    return { delegated, fallback, classes, failureTexts, startedAt };
   };
 
   let inputs: PrepInputs;
@@ -454,6 +457,7 @@ async function runDelegated(
       const reason = e.skipReason ?? "agy-skip";
       fallback.push({ lens, reason, skipClass: classifyDelegateSkip(reason) });
       classes.push(failureClass(reason, e));
+      failureTexts.push(e.agyError ?? "", e.stderrTail ?? "");
       return;
     }
     let raw = "";
@@ -492,7 +496,13 @@ async function runDelegated(
   });
 
   for (const p of scratch) deps.removeFile(p);
-  return { delegated, fallback, classes, startedAt: inputs.reviewStartedAt };
+  return {
+    delegated,
+    fallback,
+    classes,
+    failureTexts,
+    startedAt: inputs.reviewStartedAt,
+  };
 }
 
 export async function run(
@@ -543,7 +553,7 @@ export async function run(
     // throttled quota; hold the next reviews on Claude for a while.
     if (delegated.length === 0 && shouldArmCooldown(r.classes)) {
       try {
-        deps.armCooldown(r.classes);
+        deps.armCooldown(r.classes, quotaResetMs(r.failureTexts));
         cooldownArmed = true;
       } catch {
         cooldownArmed = false;
@@ -678,7 +688,10 @@ function resolveDeps(args: Args, o?: Partial<Deps>): Deps {
       o?.gitShow ?? ((spec, cwd) => spawnText(["git", "show", spec], cwd)),
     runFanout: o?.runFanout ?? defaultRunFanout,
     readCooldown: o?.readCooldown ?? (() => readCooldown()),
-    armCooldown: o?.armCooldown ?? ((classes) => armCooldown(classes)),
+    armCooldown:
+      o?.armCooldown ??
+      ((classes, resetMs) =>
+        armCooldown(classes, undefined, undefined, resetMs)),
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
   };
 }
