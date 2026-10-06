@@ -4,6 +4,7 @@ import {
   configuredAgyModels,
   missingAgyModels,
   parseAgyModelNames,
+  surfaceLabel,
 } from "./agy-model-check";
 
 const LIVE =
@@ -36,10 +37,12 @@ describe("configuredAgyModels", () => {
     });
   });
 
-  it("includes a configured scout override", () => {
+  it("ignores a scout override (no runtime path consumes it)", () => {
     expect(
-      configuredAgyModels({ delegate: { models: { scout: "Scout M" } } }),
-    ).toContainEqual({ surface: "scout", model: "Scout M" });
+      configuredAgyModels({ delegate: { models: { scout: "Scout M" } } }).map(
+        (c) => c.surface,
+      ),
+    ).not.toContain("scout");
   });
 
   it("falls back to defaults for malformed or non-object config", () => {
@@ -52,15 +55,28 @@ describe("configuredAgyModels", () => {
     ).toEqual(base);
   });
 
-  it("includes research.model and research.refuteModel strings", () => {
+  it("reports research.model / research.refuteModel INSTEAD of the defaults they shadow", () => {
     const got = configuredAgyModels({
       research: { model: "G Model", refuteModel: "R Model", maxCalls: 3 },
+      delegate: { models: { researchGather: "Shadowed G", scout: "Scout M" } },
     });
     expect(got).toContainEqual({ surface: "research.model", model: "G Model" });
     expect(got).toContainEqual({
       surface: "research.refuteModel",
       model: "R Model",
     });
+    const surfaces = got.map((c) => c.surface);
+    expect(surfaces).not.toContain("researchGather");
+    expect(surfaces).not.toContain("researchRefute");
+    expect(surfaces).not.toContain("scout");
+    expect(got.map((c) => c.model)).not.toContain("Shadowed G");
+  });
+
+  it("shadows only the surface whose research override is set", () => {
+    const got = configuredAgyModels({ research: { refuteModel: "R Model" } });
+    const surfaces = got.map((c) => c.surface);
+    expect(surfaces).toContain("researchGather");
+    expect(surfaces).not.toContain("researchRefute");
   });
 });
 
@@ -85,5 +101,15 @@ describe("missingAgyModels", () => {
     expect(missingAgyModels(configured, parseAgyModelNames(LIVE))).toEqual([
       { surface: "b", model: "Claude Opus 4.6 (Thinking)" },
     ]);
+  });
+});
+
+describe("surfaceLabel", () => {
+  it("names every configured surface in plain words", () => {
+    for (const { surface } of configuredAgyModels({
+      research: { model: "G", refuteModel: "R" },
+    })) {
+      expect(surfaceLabel(surface), surface).not.toBe(surface);
+    }
   });
 });

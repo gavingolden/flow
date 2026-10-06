@@ -138,25 +138,21 @@ describe("resolveModels (cross-model diversity guard)", () => {
       resolveModels({
         research: {
           model: "GPT-OSS 120B (Medium)",
-          refuteModel: "Claude Opus 5.5 (Medium)",
+          refuteModel: DELEGATE_MODEL_DEFAULTS.researchRefute,
         },
       }),
     ).toEqual({
       gatherModel: "GPT-OSS 120B (Medium)",
-      refuteModel: "Claude Opus 5.5 (Medium)",
+      refuteModel: DELEGATE_MODEL_DEFAULTS.researchRefute,
     });
   });
 
   it("falls back to FALLBACK_REFUTE_MODEL when both resolve to Opus", () => {
     // A gather===refute collision on the current refute default takes the
     // FALLBACK_REFUTE_MODEL branch.
-    const r = resolveModels({
-      research: {
-        model: "Claude Opus 5.5 (Medium)",
-        refuteModel: "Claude Opus 5.5 (Medium)",
-      },
-    });
-    expect(r.gatherModel).toBe("Claude Opus 5.5 (Medium)");
+    const d = DELEGATE_MODEL_DEFAULTS.researchRefute!;
+    const r = resolveModels({ research: { model: d, refuteModel: d } });
+    expect(r.gatherModel).toBe(d);
     expect(r.refuteModel).toBe("GPT-OSS 120B (Medium)");
     expect(r.refuteModel).not.toBe(r.gatherModel);
   });

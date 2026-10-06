@@ -479,6 +479,41 @@ describe("run — fanout skip propagation", () => {
     expect(env.judges[1].partialArtifactPath).toBeUndefined();
   });
 
+  it("a judge-B agy-model-unavailable skip surfaces as that reason and never emits partialArtifactPath even if the --out path exists", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        deps.calls.fanout.push(input);
+        let manifest: Array<{ task: string; model: string; out?: string }> = [];
+        try {
+          manifest = JSON.parse(deps.files.get(input.manifestPath) ?? "[]");
+        } catch {
+          manifest = [];
+        }
+        const entries = manifest.map((m, i) => {
+          if (m.task === "blind-survey-judge-b") {
+            deps.files.set(m.out!, "stale partial");
+            return {
+              task: m.task,
+              ran: false,
+              skipReason: "agy-model-unavailable",
+            };
+          }
+          const artifactPath = m.out ?? `${input.outPath}.artifact.${i}.md`;
+          deps.files.set(artifactPath, JUDGE_PROSE);
+          return { task: m.task, model: m.model, ran: true, artifactPath };
+        });
+        return { entries, anyRan: true, allSkipped: false } as FanoutAggregate;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.judges[1].skipReason).toBe("agy-model-unavailable");
+    expect(env.judges[1].partialArtifactPath).toBeUndefined();
+    expect(deps.files.get(OUT)).toContain(
+      "_Judge B skipped: agy-model-unavailable_",
+    );
+  });
+
   it("an empty entries array ⇒ fanout-error (fanout binary missing / usage-error / malformed aggregate, distinct from a per-entry agy-not-found)", () => {
     const deps = makeDeps({
       runFanout: (input) => {

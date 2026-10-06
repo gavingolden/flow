@@ -240,7 +240,7 @@ describe("checkAgy", () => {
     expect(c.status).toBe("warn");
     expect(c.summary).toContain("no longer offers");
     expect(c.details).toContain(
-      '"Claude Opus 5.5 (High)" (used by planReviewSecond)',
+      '"Claude Opus 5.5 (High)" (plan review\'s second reviewer)',
     );
     expect(c.fix).toContain("delegate.models.planReviewSecond");
   });
@@ -254,9 +254,9 @@ describe("checkAgy", () => {
       active,
     );
     expect(c.status).toBe("warn");
-    expect(c.details).toContain(
-      '"Retired Model (Max)" (used by research.refuteModel)',
-    );
+    expect(c.details).toContain('"Retired Model (Max)" (research fact-check)');
+    expect(c.fix).toContain("research.refuteModel");
+    expect(c.fix).not.toContain("delegate.models.research");
   });
 
   it("falls back to defaults on a malformed config and still passes", () => {

@@ -9,6 +9,7 @@ import {
   configuredAgyModels,
   missingAgyModels,
   parseAgyModelNames,
+  surfaceLabel,
 } from "./agy-model-check";
 import { looksUnauthenticated } from "./agy-output";
 import { readManifest } from "./manifest";
@@ -26,12 +27,6 @@ export const TOOLS_AGY_META = {
   section: "tools",
   title: "agy",
 } as const;
-
-// `agy models` prints a progress line, then one `<slug>\t<Display Name>` row
-// per model; only tab-separated rows count as models.
-function countModelRows(stdout: string): number {
-  return stdout.split("\n").filter((l) => /^[\w.-]+\t\S/.test(l)).length;
-}
 
 export function checkAgy(
   deps: DoctorDeps,
@@ -73,10 +68,12 @@ export function checkAgy(
       },
     ];
   }
-  if (r.status === 0 && countModelRows(r.stdout) >= 1) {
+  const listed =
+    r.status === 0 ? parseAgyModelNames(r.stdout) : new Set<string>();
+  if (listed.size >= 1) {
     const missing = missingAgyModels(
       configuredAgyModels(readConfigFileAt(deps.configPath)),
-      parseAgyModelNames(r.stdout),
+      listed,
     );
     if (missing.length > 0) {
       return [
@@ -84,7 +81,9 @@ export function checkAgy(
           ...base,
           status: "warn",
           summary: `agy no longer offers ${missing.length} configured model(s); those checks will be skipped`,
-          details: missing.map((m) => `"${m.model}" (used by ${m.surface})`),
+          details: missing.map(
+            (m) => `"${m.model}" (${surfaceLabel(m.surface)})`,
+          ),
           fix: `set ${[...new Set(missing.map((m) => (m.surface.startsWith("research.") ? m.surface : `delegate.models.${m.surface}`)))].join(", ")} in ~/.flow/config.json to a model 'agy models' lists, or upgrade flow`,
         },
       ];

@@ -291,28 +291,31 @@ describe("resolveDelegateModel", () => {
     }
   });
 
-  it("the prose and shell copies of the research pins cannot drift from the code defaults", () => {
+  it("every Opus pin in the research prose and shell copies equals the code default", () => {
     const files = [
       "skills/pipeline/flow-product-planning/references/discovery-instructions.md",
       "skills/universal/flow-research/SKILL.md",
       "templates/references/delegation.md",
     ];
+    const refute = DELEGATE_MODEL_DEFAULTS.researchRefute!;
     for (const rel of files) {
       const text = fs.readFileSync(
         new URL(`../../${rel}`, import.meta.url),
         "utf8",
       );
-      for (const surface of ["researchGather", "researchRefute"] as const) {
-        const value = DELEGATE_MODEL_DEFAULTS[surface]!;
-        expect(
-          text,
-          `stale research pin in ${rel}: expected ${value} (${surface})`,
-        ).toContain(value);
-      }
+      expect(text, `${rel} lost the gather pin`).toContain(
+        DELEGATE_MODEL_DEFAULTS.researchGather!,
+      );
+      const opus = text.match(/Claude Opus [\d.]+ \([^)]+\)/g) ?? [];
       expect(
-        text,
-        `${rel} still names the retired Opus 4.6 (Thinking) model`,
-      ).not.toContain("Opus 4.6 (Thinking)");
+        opus.length,
+        `${rel} no longer names the refute model`,
+      ).toBeGreaterThan(0);
+      for (const m of opus) {
+        expect(m, `stale refute pin in ${rel}: expected ${refute}`).toBe(
+          refute,
+        );
+      }
     }
   });
 });
