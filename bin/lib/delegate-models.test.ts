@@ -403,3 +403,29 @@ describe("resolveDelegatedLenses", () => {
     expect(resolveDelegatedLenses(cfg({ a: 1 }))).toEqual([]);
   });
 });
+
+describe("delegation defaults match the recorded recall verdicts", () => {
+  const record = JSON.parse(
+    fs.readFileSync("docs/eval/agy-delegation-recall-2026-10.json", "utf8"),
+  ) as {
+    lenses: Record<string, { verdict: string }>;
+    scout: { verdict: string } | null;
+  };
+
+  it("delegates by default exactly the lenses whose verdict is delegate", () => {
+    const cleared = Object.entries(record.lenses)
+      .filter(([, v]) => v.verdict === "delegate")
+      .map(([l]) => l)
+      .sort();
+    expect([...DEFAULT_DELEGATED_LENSES].sort()).toEqual(cleared);
+    expect(DELEGATE_MODEL_DEFAULTS.claudeLenses !== null).toBe(
+      cleared.length > 0,
+    );
+  });
+
+  it("sets the scout default iff the scout verdict is delegate", () => {
+    expect(DELEGATE_MODEL_DEFAULTS.scout !== null).toBe(
+      record.scout?.verdict === "delegate",
+    );
+  });
+});

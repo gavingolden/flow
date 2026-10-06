@@ -84,6 +84,27 @@ Run 1 showed a prompt defect, not a model-quality gap, so one re-run measures th
 - **Change:** commit `195d8a3` opens every delegated agy prompt (lenses, scout, and the harness's agy arm) with the headless no-shell rules (`AGY_HEADLESS_PREAMBLE`, `bin/lib/lens-prompt.ts`). The Claude arm's prompt is unchanged, so run 1's 18 opus cells are reused as-is; only the 18 agy cells are re-run and judged.
 - **Rule:** the same four conditions as above, applied to run 2's agy cells. Run 2's verdict is final: there is no run 3. If a lens fails, it stays `keep Task`.
 
-### Run 2
+### Run 2 (2026-10-06) — the prompt fix worked; the Google plan ran out
 
-Pending.
+| Lens                | agy cells unusable (of 6) | completed-cell recall vs opus                                   |
+| ------------------- | ------------------------- | --------------------------------------------------------------- |
+| bug-detection       | 1 (#802 r2: quota)        | Δ +0.036 (sd 0.039; p opus > agy 0.91); ≥ opus on all three PRs |
+| pattern-consistency | 6 (all: quota)            | none                                                            |
+| test-coverage       | 6 (all: quota)            | none                                                            |
+
+- **Shell attempts: zero.** Every agy cell that dispatched (5 of 18) completed with a full review in 120-186 s, including both #756 bug-detection cells that died within seconds in run 1. Leading the prompt with the no-shell rules fixed the run-1 failure mode.
+- **Quota:** the other 13 cells were refused with `RESOURCE_EXHAUSTED (code 429): Individual quota reached … Resets in 4h44m12s`. The plan ran dry after about 23 `Claude Opus 5.5 (High)` lens runs (18 in run 1, 5 in run 2) inside roughly an hour. This answers the plan's open quota question: the Ultra plan's Claude bucket cannot absorb a burst of delegated review lenses, let alone the ~700 lens runs plus ~100 scouts a month the full pool would need.
+- **Verdict (pre-registered rule, final):** `keep Task` for all three lenses — rule 3 fails for each (1, 6 and 6 unusable cells). `DEFAULT_DELEGATED_LENSES` stays `[]` and `DELEGATE_MODEL_DEFAULTS.claudeLenses` stays `null`.
+- Claude spend for run 2: judge only (≈ $1); the opus cells were reused from run 1.
+
+### Scout
+
+**Not run.** The bench needs the same Ultra Claude bucket the lens check exhausted (reset 4h44m after run 2). The rule requires a run, so the verdict is `keep Task` and `DELEGATE_MODEL_DEFAULTS.scout` stays `null`.
+
+## What this means
+
+- **Nothing moves off Claude by default.** The delegation path ships, and it is safe. When it is switched on, a lens or scout run that fails or comes back empty falls back to the Claude agent, and a quota failure holds every delegated surface on Claude until the reset agy names.
+- **Quality is not the blocker.** On the fixed prompt, agy Opus 5.5 (High) matched or beat the Claude Code Opus lens on every bug-detection PR it finished. The evidence is thin: five cells, and none for the other two lenses.
+- **Quota capacity is the blocker.** About 23 Opus-High lens runs exhausted the five-hour window. A typical review delegating three lenses would exhaust it after about seven reviews, and the fallback would then run every lens on Claude anyway, after the agy attempt.
+- **To opt in anyway:** set `delegate.models.claudeLenses` to `"Claude Opus 5.5 (High)"` (or `(Medium)`) and list lenses in `delegate.lenses`; set `delegate.models.scout` for the scout.
+- **Follow-up:** measure the Ultra Claude bucket's capacity per variant (Medium may stretch it further), then re-run this check in a fresh window as a newly pre-registered measurement.

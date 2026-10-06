@@ -156,12 +156,17 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // REJECT on the same c2b-real-defect regression — it missed
   // "src/pipeline-summary-sources.ts.txt:237:real-defect", which
   // claude-sonnet-4-6 caught. Three candidate generations, same miss.
+  // STILL NULL (2026-10-06, docs/eval/agy-delegation-recall-2026-10.md):
+  // Claude Opus 5.5 (High) bench not run — the Ultra Claude quota was
+  // exhausted by the lens recall check. The slot is now live: setting it
+  // runs flow-agy-scout first, with the Task scout as the fallback.
   scout: null,
   // null means "delegation off": every Claude review lens runs as a Task
-  // agent, exactly as before. The variant stays null until
-  // docs/eval/agy-delegation-recall-2026-10 records a clear for at least one
-  // lens (the recall check, not this seam, decides which lenses move — see
-  // DEFAULT_DELEGATED_LENSES below).
+  // agent, exactly as before. NULL (2026-10-06,
+  // docs/eval/agy-delegation-recall-2026-10.md): no lens cleared — run 1
+  // lost 7/18 agy cells to shell attempts (fixed), run 2 lost 13/18 to the
+  // Ultra Claude quota (~23 Opus-High runs per five-hour window). Completed
+  // bug-detection cells matched or beat Opus; capacity is the blocker.
   claudeLenses: null,
 };
 
@@ -172,8 +177,10 @@ export type DelegatableLens = Exclude<ReviewLensName, "intent-guess">;
 export const DELEGATABLE_LENSES: readonly DelegatableLens[] =
   REVIEW_LENS_NAMES.filter((l): l is DelegatableLens => l !== "intent-guess");
 
-// Empty until the recorded recall check clears a lens; a user opts further
-// lenses in through `delegate.lenses`.
+// The lenses whose recorded recall check cleared — none as of 2026-10-06
+// (docs/eval/agy-delegation-recall-2026-10.json; delegate-models.test.ts
+// pins this list to the record). A user opts lenses in through
+// `delegate.lenses`.
 export const DEFAULT_DELEGATED_LENSES: readonly DelegatableLens[] = [];
 
 // Fixed per-run agy budgets (see delegate-timeouts.ts for the configurable
