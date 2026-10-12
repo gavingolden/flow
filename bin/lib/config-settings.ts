@@ -29,6 +29,7 @@ import { readEpicMaxParallel, DEFAULT_MAX_PARALLEL } from "./epic-config";
 import { isOutputLens } from "./output-lens";
 import {
   DELEGATE_MODEL_DEFAULTS,
+  DEFAULT_DELEGATED_LENSES,
   resolveDelegatedLenses,
   type DelegateSurface,
 } from "./delegate-models";
@@ -522,7 +523,7 @@ const DESCRIPTORS: Descriptor[] = [
         value: lenses.length > 0 ? lenses.join(", ") : "(none)",
         source: Array.isArray(configured)
           ? "config (delegate.lenses)"
-          : "built-in (none)",
+          : `built-in (${DEFAULT_DELEGATED_LENSES.join(", ") || "none"})`,
       };
     },
   },

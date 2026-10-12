@@ -589,7 +589,7 @@ done < <(jq -r '.gates | to_entries[] | select(.value.run==true) | .key' "$WORKT
 # read loop, not `mapfile`/`readarray` (bash 4.0+; silently empty on macOS 3.2).
 [ "${#RUN_LENSES[@]}" -eq 0 ] && echo "NOTICE — zero lenses resolved (all gated off, or review-scope.json read no matches)."
 command -v flow-agy-lenses >/dev/null && [ "${#RUN_LENSES[@]}" -gt 0 ] && flow-agy-lenses \
-  --worktree "$WORKTREE" --skill-dir "$SKILL_DIR" --lenses "$(IFS=,; echo "${RUN_LENSES[*]}")" --plan-only
+  --worktree "$WORKTREE" --skill-dir "$SKILL_DIR" --lenses "$(IFS=,; echo "${RUN_LENSES[*]}")" --plan-only 2>>"$WORKTREE/.flow-tmp/agy-lenses.stderr"
 for LENS in "${RUN_LENSES[@]}"; do resolve_lens "$LENS"; done
 # intent-guess is not a gate key — resolved explicitly so the loop can't drop it.
 resolve_lens intent-guess

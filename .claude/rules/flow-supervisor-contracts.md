@@ -130,7 +130,13 @@ done`'s heal): that one commit, never forced. Both contracts:
     Task, graceful skip sans agy. The **delegated review lenses**
     (`flow-agy-lenses`) and the **delegated scout** (`flow-agy-scout`)
     are Bash fan-outs too, but fall back to the per-lens or scout Task
-    agent rather than gracefully skipping, so no lens is dropped. The same holds for **headless Claude
+    agent rather than gracefully skipping, so no lens is dropped. These two are
+    documented through `references/exemption-contracts.md` and the two
+    reference files (`skills/pipeline/flow-pr-review/references/delegated-lenses.md`,
+    `skills/pipeline/flow-new-feature/references/delegated-scout.md`)
+    rather than a sibling Hard-rules note in
+    `skills/pipeline/flow-pipeline/SKILL.md`, which is at its line budget.
+    The same holds for **headless Claude
     via `flow-claude-headless`** (contract:
     `skills/pipeline/flow-pipeline/references/headless-claude.md`).
   - **AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override

@@ -34,12 +34,15 @@ Let `AGY_LENSES` be the lenses the plan routed to `agy`, comma-joined, and
 
    ```bash
    flow-agy-lenses --worktree "$WORKTREE" --skill-dir "$SKILL_DIR" \
-     --lenses "$AGY_LENSES"
+     --lenses "$AGY_LENSES" 2>"$WORKTREE/.flow-tmp/agy-lenses.stderr"
    ```
 
    (the `--plan-only` flag dropped, and ONLY the agy-routed lenses passed),
    AND the Task spawns for every `TASK_LENSES` lens plus intent-guess. Lenses
    that do not move therefore start no later than they do today.
+
+   The stderr file holds warnings (for example an opted-in config notice);
+   read it only when the envelope is missing or unparseable. Never `2>&1`.
 
 2. **Collect the fallback.** When the background Bash call's completion
    notification arrives, read its stdout: one JSON envelope

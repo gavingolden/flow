@@ -29,8 +29,12 @@ flow-agy-scout --worktree "$WORKTREE" --skill-dir "$SKILL_DIR" \
   --description-file "$WORKTREE/.flow-tmp/scout-description.md" \
   --out "$SCOUT_PATH" --plan "$PLAN_PATH" \
   --excluded-paths "$WORKTREE/.flow-tmp/excluded-paths.json" \
-  --memory-dir "$PWD/.claude/agent-memory-local/flow-module-core-flow-scout"
+  --memory-dir "$PWD/.claude/agent-memory-local/flow-module-core-flow-scout" \
+  2>"$WORKTREE/.flow-tmp/agy-scout.stderr"
 ```
+
+The stderr file holds warnings (for example an opted-in config notice); read
+it only when the envelope is missing or unparseable. Never `2>&1`.
 
 `$PLAN_PATH` is the literal `absent` when no approved plan exists. The scout's
 saved memory lives under the SUPERVISOR's working directory, not the
