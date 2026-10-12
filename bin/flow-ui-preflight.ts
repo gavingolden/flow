@@ -14,7 +14,9 @@
  * A probe is ready on any HTTP status < 500. Load factor =
  * clamp(loadavg1 / cpus, 1, 3); probe timeout (5 s), every wait and the
  * budget scale by it, the budget capped at 540 s so one Bash call (timeout
- * 600000) covers it. `start` runs as a plain foreground `sh -c` — NOT via
+ * 600000) covers it. The budget is ONE deadline shared by all dependencies
+ * (not per dependency): probing continues, repeating the last wait, until it
+ * is spent, and each probe's timeout is clamped to the time left. `start` runs as a plain foreground `sh -c` — NOT via
  * flow-spawn, whose registry rows `flow-browser-teardown --reap` signals at
  * terminal states; a service flow starts is left running (`startedByFlow`).
  * `start` must therefore RETURN once the service is up.
@@ -181,15 +183,23 @@ export async function runPreflight(
     };
     dependencies.push(r);
     for (;;) {
+      let remaining = deadline - deps.now();
+      if (r.attempts > 0 && remaining <= 0) break;
+      // A dependency always gets one probe, even when an earlier one spent
+      // the shared budget; the 1 s floor is the only overshoot.
+      const timeoutMs = Math.min(
+        sched.probeTimeoutMs,
+        r.attempts === 0 ? Math.max(remaining, 1_000) : remaining,
+      );
       r.attempts++;
       try {
-        r.lastStatus = await deps.fetch(dep.url, sched.probeTimeoutMs);
+        r.lastStatus = await deps.fetch(dep.url, timeoutMs);
         r.ready = r.lastStatus < 500;
       } catch (e) {
         r.lastStatus = e instanceof Error ? e.message : String(e);
       }
-      if (r.ready || r.attempts >= WAITS_SEC.length) break;
-      let remaining = deadline - deps.now();
+      if (r.ready) break;
+      remaining = deadline - deps.now();
       if (remaining <= 0) break;
       if (dep.start && !r.startAttempted) {
         r.startAttempted = true;
@@ -201,9 +211,10 @@ export async function runPreflight(
         r.startedByFlow = res.code === 0;
         continue; // start returns once the service is up: re-probe at once
       }
-      remaining = deadline - deps.now();
-      if (remaining <= 0) break;
-      await deps.sleep(Math.min(sched.waitsMs[r.attempts - 1], remaining));
+      // Past the schedule, keep probing on the last wait until the budget is spent.
+      const wait =
+        sched.waitsMs[Math.min(r.attempts - 1, WAITS_SEC.length - 1)];
+      await deps.sleep(Math.min(wait, remaining));
     }
   }
 

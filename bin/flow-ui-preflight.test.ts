@@ -26,6 +26,7 @@ function harness(
     cpus?: number;
     startCode?: number;
     manifestRaw?: string | null;
+    probesTakeFullTimeout?: boolean;
   } = {},
 ): Harness {
   const h: Harness = {
@@ -40,6 +41,7 @@ function harness(
   h.deps = {
     fetch: async (url, timeoutMs) => {
       h.fetches.push({ url, timeoutMs });
+      if (opts.probesTakeFullTimeout) h.clock.t += timeoutMs;
       const next = statuses.length > 1 ? statuses.shift()! : statuses[0];
       if (next === undefined || next === "refused") {
         throw new Error("connection refused");
@@ -143,7 +145,6 @@ describe("runPreflight", () => {
     expect(h.execs.filter((a) => a[0] === "sh")).toHaveLength(1);
     expect(env.dependencies[0]).toMatchObject({
       ready: false,
-      attempts: 5,
       startExitCode: 1,
       startedByFlow: false,
     });
@@ -171,8 +172,66 @@ describe("runPreflight", () => {
     );
     expect(hot.fetches[0].timeoutMs).toBe(15_000);
     expect(hot.sleeps[0]).toBe(15_000);
-    const spent = hot.clock.t - 1_000_000;
-    expect(spent).toBeLessThanOrEqual(540_000);
+    expect(hot.clock.t - 1_000_000).toBe(540_000);
+  });
+
+  it("waits out the whole budget on an unreachable dependency, repeating the last wait", async () => {
+    const h = harness({ statuses: ["refused"] });
+    const env = await runPreflight(
+      manifest([DB]),
+      { budgetSec: 300, worktree: "/wt" },
+      h.deps,
+    );
+    expect(env.ready).toBe(false);
+    expect(h.sleeps.slice(0, 6)).toEqual([
+      5_000, 15_000, 30_000, 60_000, 90_000, 90_000,
+    ]);
+    expect(h.sleeps.reduce((a, b) => a + b, 0)).toBe(300_000);
+    expect(env.dependencies[0].attempts).toBe(h.sleeps.length);
+  });
+
+  it("the 540 s cap is what stops a fully loaded run", async () => {
+    const h = harness({
+      statuses: ["refused"],
+      loadavg: [400, 400, 400],
+      cpus: 4,
+    });
+    await runPreflight(
+      manifest([DB]),
+      { budgetSec: 300, worktree: "/wt" },
+      h.deps,
+    );
+    expect(h.sleeps.reduce((a, b) => a + b, 0)).toBe(540_000);
+    expect(h.sleeps.at(-1)).toBeLessThan(270_000);
+  });
+
+  it("clamps each probe to the time left, so slow probes never overrun the budget", async () => {
+    const h = harness({ statuses: ["refused"], probesTakeFullTimeout: true });
+    await runPreflight(
+      manifest([DB]),
+      { budgetSec: 12, worktree: "/wt" },
+      h.deps,
+    );
+    expect(h.clock.t - 1_000_000).toBe(12_000);
+    expect(h.fetches.at(-1)!.timeoutMs).toBe(2_000);
+  });
+
+  it("shares one budget across dependencies: a later one still gets a single probe", async () => {
+    const h = harness({ statuses: ["refused"] });
+    const env = await runPreflight(
+      manifest([
+        DB,
+        { name: "cache", url: "http://127.0.0.1:6379/", start: "x" },
+      ]),
+      { budgetSec: 10, worktree: "/wt" },
+      h.deps,
+    );
+    expect(env.dependencies[1]).toMatchObject({
+      attempts: 1,
+      startAttempted: false,
+    });
+    expect(h.fetches.at(-1)!.timeoutMs).toBe(1_000);
+    expect(h.execs.filter((a) => a[0] === "sh")).toEqual([]);
   });
 
   it("counts 5xx as not ready and 404 as ready", async () => {

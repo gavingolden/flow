@@ -95,7 +95,9 @@ The three-ingredient new-repo onboarding:
      services (a database, an API) the app needs before it can be driven.
      `flow-ui-preflight` probes each `url` (any HTTP response below 500 counts
      as up) with a load-aware backoff, so a briefly overloaded host is waited
-     out instead of being reported "browser unavailable". When the first probe
+     out instead of being reported "browser unavailable". One shared budget
+     (about 5 minutes, up to 9 on a loaded machine) covers all dependencies
+     together, not each. When the first probe
      fails and `start` is declared, it runs `start` once in the foreground:
      `start` must **return** once the service is up (`supabase start`,
      `docker compose up -d`) — never a long-running foreground server. A
