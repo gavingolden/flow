@@ -982,6 +982,22 @@ describe("lintPlan — confidence + stakes markers", () => {
     ).toBe(false);
   });
 
+  it("ends the last Open Question entry at a following '### Product critique (blind)' heading", () => {
+    const plan =
+      oqPlan(
+        '- [ ] Q?\n  - **Stakes:** system — degrades reliability\n  - **Recommended:** yes — because. [confidence: high] [anchor: user: "quote"]\n\n### Product critique (blind)\n\n- P1 [accepted] — the wait only helps repos that declare dependencies.\n- P2 [overridden] — the deferred pause stays deferred.',
+      ) + "\n## Decision analysis\n\nNone.\n";
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) =>
+          m.startsWith("anchor-missing-tag") ||
+          m.startsWith("confidence-missing") ||
+          m.includes("resolution-first"),
+      ),
+    ).toBe(false);
+  });
+
   it("does not false-positive when a soft-wrapped '## Recommendation' verdict carries the tag pair on a later line (example-prd.md's shape)", () => {
     const plan =
       "## Recommendation\n\n" +
