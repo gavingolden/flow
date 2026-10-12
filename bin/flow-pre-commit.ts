@@ -744,18 +744,6 @@ export function parseScopes(
 }
 
 /**
- * Returns the check commands for a built-in scope. Re-expressed to resolve
- * through the shared stack table (`npmRunCheck` builds the node command form;
- * the go marker's default + a `-C backend` cwd option backs `backend`) so
- * built-in and auto-detected scopes share one command-shape mechanism. The
- * argv arrays are byte-for-byte identical to the previous static switch when
- * no `selection` is passed — the `describe(checksForScope)` block is the
- * guard against drift. Takes an optional `selection?: SelectionPlan` second
- * argument (see `tieredTestChecks` above): omitted or
- * `undefined` reproduces the original zero-arg argv exactly; passed, it
- * narrows the test check(s) per the tiered-selection plan.
- */
-/**
  * Builds the src/scripts/root-fallback test check(s) for a `selected` plan:
  * one `npm run test -- <explicit non-isolated files> --no-isolate` check,
  * plus a SEPARATE isolated check (no `--no-isolate`) for the colocated
@@ -809,6 +797,18 @@ function tieredTestChecks(selection: SelectionPlan): CheckDef[] {
   return checks;
 }
 
+/**
+ * Returns the check commands for a built-in scope. Re-expressed to resolve
+ * through the shared stack table (`npmRunCheck` builds the node command form;
+ * the go marker's default + a `-C backend` cwd option backs `backend`) so
+ * built-in and auto-detected scopes share one command-shape mechanism. The
+ * argv arrays are byte-for-byte identical to the previous static switch when
+ * no `selection` is passed — the `describe(checksForScope)` block is the
+ * guard against drift. Takes an optional `selection?: SelectionPlan` second
+ * argument (see `tieredTestChecks`, defined above): omitted or
+ * `undefined` reproduces the original zero-arg argv exactly; passed, it
+ * narrows the test check(s) per the tiered-selection plan.
+ */
 export function checksForScope(
   scope: Scope,
   selection?: SelectionPlan,
@@ -1611,7 +1611,10 @@ function executeScopedCheck(
       testConcurrency,
       () => runCheck(`${check.name} (isolated retry)`, isolatedArgv, scope),
     );
-    return isolatedResult;
+    return {
+      ...isolatedResult,
+      durationMs: result.durationMs + isolatedResult.durationMs,
+    };
   }
   return result;
 }
@@ -1737,10 +1740,9 @@ async function main(): Promise<void> {
       planned.push({ scope, argv: check.argv, check });
     }
   }
-  const { results: ran, savedMs } = runDeduped(planned, (p) =>
+  const { results, savedMs } = runDeduped(planned, (p) =>
     executeScopedCheck(p.check, p.scope, { json, testConcurrency }),
   );
-  const results: CheckResult[] = [...ran];
   if (selection && selection.mode === "selected") {
     const note = `selected ${selection.explicitFiles.length} test file(s), deferred ${selection.deferredCount} to CI; local ran with --no-isolate, CI re-runs isolated.`;
     if (json) console.error(note);

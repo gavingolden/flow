@@ -34,9 +34,12 @@ verifier runs once per invocation: `npm run test`, `test:related`, `lint`,
 `flow-md-validate`, `actionlint`, and `go vet` / `go test`. It executes at
 its first position; each later scope still gets a result row, carrying
 `dedupedFrom` (the executing scope), `durationMs: 0`, and — for a failing
-row — empty `headExcerpt`/`tailExcerpt` with `firstErrorText` kept. Any
-other command (build, generate, a configured user command) always runs and
-resets reuse, so a mutating step can never leave a stale verdict behind.
+row — empty `headExcerpt`/`tailExcerpt` with `firstErrorText` kept. Reuse
+is decided by the command's shape, not its origin, so a configured command
+spelled like one of these (e.g. `npm run test` in `.flow/pre-commit.json`) is
+reused too. Any command not on that list (build, generate, other configured
+commands) always runs and resets reuse, so a mutating step can never leave a
+stale verdict behind.
 Reuse never spans invocations, and an npm-workspaces root `npm run test`
 is not a duplicate of `npm run test -w <pkg>`.
 

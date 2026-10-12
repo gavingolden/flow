@@ -14,12 +14,14 @@ const NPM_VERIFY_SCRIPTS = new Set<string>([
 ]);
 
 export function checkKey(argv: readonly string[]): string {
-  return JSON.stringify([...argv]);
+  return JSON.stringify(argv);
 }
 
 /** Exact-argv reuse is only safe for commands that verify and never mutate
- * the tree; anything else (build, generate, configured user commands) must
- * always run. */
+ * the tree. Reuse is decided purely by command shape (this list), not by where
+ * the command came from: a configured command spelled like a known verifier
+ * (e.g. `npm run test`) is reused too. Any command not on the list (build,
+ * generate, other user commands) always runs and resets reuse. */
 export function isReadOnlyVerifier(argv: readonly string[]): boolean {
   const [bin, sub, script] = argv;
   if (bin === "flow-md-validate" || bin === "actionlint") return true;

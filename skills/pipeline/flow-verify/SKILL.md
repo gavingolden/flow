@@ -172,7 +172,8 @@ threshold**:
 
 ### Inline fix (trivial path)
 
-For each failed check (`results[].passed === false`), use
+For each distinct failing check `name` (`results[].passed === false`,
+skipping rows that carry `dedupedFrom`), use
 `failure.firstErrorText` to locate the failing file/test, then read the
 relevant source file directly. Fix the issue in the source file.
 
