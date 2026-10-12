@@ -324,7 +324,7 @@ fan-out from scratch. If no prior artifact exists when
 `--resume-from` is passed, the wrapper escalates `NEEDS HUMAN:
 pr-review-missing-artifact` — the flag's contract is to resume an
 existing run, not to fabricate one. `--resume-from 8c` also takes
-`--browser-items <indices>` (the 1-based indices from `flow-gate-decide`'s
+`--browser-items <indices>` (comma-separated 1-based indices from `flow-gate-decide`'s
 `.browserItems`): it skips the command-item run and 8c.ii, still runs
 `flow-ui-validate` then `flow-ui-preflight`, drives only the listed items, then
 jumps to Step 12, recomputing the audit M/N from the live body.

@@ -5783,12 +5783,21 @@ describe("pr-review include-by-reference structure", () => {
     // counts them; the ceiling moves to 3233 (2 lines of headroom over the
     // measured 3231), kept deliberately tight — the rule was already trimmed
     // to five prose lines.
+    //
+    // Raised 3233 -> 3239 (browser-retry contract): Step 9 gains the
+    // non-terminal `browser-retry` decision row and the Resume-mode row (one
+    // dense line each, detail in references/failure-recovery.md), the
+    // `browser-retry-pending` turn-end in the Hard-rules enumeration and the
+    // phase list, a feedback-mode sentence for the post-GATED re-drive, and
+    // the stop-hook contract now names `PENDING_PHASES` instead of a stale
+    // "six" count. The file lands at 3237 lines as this test counts them;
+    // 3239 leaves 2 lines of headroom.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3233 lines. Material regrowth past this ceiling would ` +
+        `budget of 3239 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3233);
+    ).toBeLessThan(3239);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -7388,6 +7397,34 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       "inside the already-exempt Fix-Applier surface",
     );
     expect(uiValidationEvidenceContent).toContain("\n## Headless fallback\n");
+  });
+
+  it("pipeline Step 9 carries a non-terminal browser-retry row: auto-redrive marker, pending phase, no browser reap", () => {
+    const pipelineContent = fs.readFileSync(
+      path.resolve(
+        HERE,
+        "..",
+        "skills",
+        "pipeline",
+        "flow-pipeline",
+        "SKILL.md",
+      ),
+      "utf8",
+    );
+    const row = pipelineContent
+      .split("\n")
+      .find((l) => l.startsWith("| `browser-retry` | **Non-terminal**"));
+    expect(row, "Step 9 table must carry the browser-retry row").toBeDefined();
+    expect(row).toContain("browser-auto-redrive");
+    expect(row).toContain("--browser-items");
+    expect(row).toContain("browser-retry-pending");
+    expect(row).not.toContain("flow-browser-teardown --reap");
+    expect(pipelineContent).toContain(
+      "browser-retry-pending              (step 9 pause",
+    );
+    expect(pipelineContent).toContain(
+      "Never decide a Step 8c outcome before Step 8c",
+    );
   });
 
   it("review routes the three browser item kinds and never relabels an undriven check", () => {
