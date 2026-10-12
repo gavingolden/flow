@@ -818,11 +818,21 @@ evidence against:
 ```text
 MODE: items
 
-Items (work them in order; one item_results[] entry each, `item` copied verbatim):
-- [behavior] Browser: on /pricing, click Upgrade — expect the plan dialog.
-- [appearance] The delete button is right-aligned in the card footer.
-- [capture] SUBJECTIVE: the pricing page looks balanced on a phone.
+Items (work them in order; one item_results[] entry each, `item` copied verbatim, `index` echoed):
+- [behavior] index: 10 — Browser: on /pricing, click Upgrade — expect the plan dialog.
+- [appearance] index: 11 — The delete button is right-aligned in the card footer.
+- [capture] index: 12 — SUBJECTIVE: the pricing page looks balanced on a phone.
+
+Caller: review-8c
 ```
+
+`index` is the item's 1-based position across ALL checklist items in the
+`## Test Steps` section, ticked ones included, so it stays stable as boxes are
+ticked; the driver copies it into each `item_results[]` entry (the gate matches
+on `index` only). The driver also stamps `headSha` (`git rev-parse HEAD`,
+computed immediately before it writes the artifact) and `caller: "review-8c"`
+into `ui-driver-result.json`; when `flow-ui-preflight` reported `ready: false`,
+the prompt carries that envelope and the driver skips with `dependency-unready`.
 
 Tagging rule: a `Browser: `-prefixed item is `behavior`; a `SUBJECTIVE: `
 item is `capture`; an enumerated visual-appearance assertion is `appearance`.

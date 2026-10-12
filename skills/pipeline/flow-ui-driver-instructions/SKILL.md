@@ -58,6 +58,13 @@ verify` rubric, follow its `## Item-driven drive` section for the per-kind
   to the checklist item it maps evidence back to, and write one
   `item_results[]` entry per item (see step 4 below). An untagged item under
   the alias is `appearance`.
+- `CALLER` — optional: `review-8c` from the `/flow-pr-review` 8c.iii caller;
+  absent means `verify` (the `/flow-verify` smoke pass). Stamped into the
+  artifact as `caller` so the merge gate can tell the two writers of the same
+  path apart.
+- `PREFLIGHT` — optional: the `flow-ui-preflight` envelope the caller already
+  ran. When it says `ready: false`, do not launch anything: write the artifact
+  with `ran: false`, `ok: false`, `skipped_reason: "dependency-unready"`.
 - `SKILL_DIR` — the absolute skill base directory. Resolve
   `../flow-pipeline/references/ui-smoke-pass.md` relative to this path, not
   the worktree you `cd`'d into.
@@ -169,7 +176,8 @@ Two mappings this agent owns that the caller does not do for you:
 
 - **`item_results[]` assembly (`MODE: items` only).** One entry per item in
   the spawn prompt's list, in list order, per `ui-smoke-pass.md`
-  `## Item-driven drive`:
+  `## Item-driven drive`. Echo each item's `index` (the 1-based checklist
+  index the list gave it) in its entry — the gate matches on `index` only:
   - `appearance` — assert the observation against the a11y snapshot; verdict
     `pass` / `fail` / `not-drivable`; `snapshot_path` is the saved snapshot.
   - `behavior` — perform the item's action chain, `wait_for` the expected
@@ -193,7 +201,10 @@ Two mappings this agent owns that the caller does not do for you:
 ## 5. Write the artifact (last act)
 
 Write `ARTIFACT_PATH` as the LAST act, after teardown, conforming to
-`bin/lib/ui-driver-schema.ts`'s `UiDriverResult` shape:
+`bin/lib/ui-driver-schema.ts`'s `UiDriverResult` shape. `headSha` is the output
+of `git rev-parse HEAD` in `WORKTREE` computed immediately before the write —
+AFTER any manifest commit-back above, so a self-improving commit never makes
+fresh evidence look stale; `caller` is `CALLER` (default `verify`):
 
 ```json
 {
@@ -209,8 +220,11 @@ Write `ARTIFACT_PATH` as the LAST act, after teardown, conforming to
       "missingSelectors": []
     }
   ],
+  "headSha": "<git rev-parse HEAD, computed immediately before writing>",
+  "caller": "<verify | review-8c — per CALLER>",
   "item_results": [
     {
+      "index": 10,
       "item": "<checklist item text>",
       "kind": "behavior",
       "verdict": "pass",
@@ -229,7 +243,8 @@ denied), set `ran`/`ok` to reflect the degrade and set `skipped_reason` to
 the matching member of the schema's union (`mcp-not-available`,
 `browser-profile-busy`, `app-launch-failed`, `login-failed`,
 `screenshots-unwritable`, `credentials-unavailable` — a credential action
-was refused or the credentials are absent) — never `driver-no-artifact`,
+was refused or the credentials are absent, `dependency-unready` — the
+`PREFLIGHT` envelope said `ready: false`) — never `driver-no-artifact`,
 which is reserved for the CALLER to synthesize when this agent's artifact
 never lands on disk at all (a timeout, a crash before step 5). Validate
 before returning: `flow-ui-driver-schema --validate "$ARTIFACT_PATH"`
