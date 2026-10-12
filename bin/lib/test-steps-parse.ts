@@ -24,6 +24,9 @@ export type ParsedStep = {
   checked: boolean;
   kind: StepKind;
   text: string;
+  /** `text` plus the indented continuation lines of a wrapped item,
+   * single-spaced — what the browser-shape lints read. */
+  fullText: string;
   hasEvidence: boolean;
   hasImage: boolean;
   noScreenshotReason: boolean;
@@ -36,7 +39,10 @@ export type LintCode =
   | "subjective-no-image"
   | "ticked-no-evidence"
   | "post-merge-step"
-  | "human-only-ticked";
+  | "human-only-ticked"
+  | "browser-shape"
+  | "browser-over-bound"
+  | "browser-input-unsupported";
 
 export type LintFinding = {
   code: LintCode;
@@ -96,11 +102,28 @@ export function parseTestSteps(body: string): {
   const locate = bodyLineLocator(body);
   const bodyLines = body.split("\n");
   const sectionLines = section.split("\n");
-  const heads: { line: number; checked: boolean; text: string }[] = [];
-  for (const raw of sectionLines) {
+  const heads: {
+    line: number;
+    checked: boolean;
+    text: string;
+    fullText: string;
+  }[] = [];
+  for (let i = 0; i < sectionLines.length; i++) {
+    const raw = sectionLines[i];
     const m = raw.match(ITEM_RE);
     if (!m) continue;
-    heads.push({ line: locate(raw), checked: m[1] !== " ", text: m[2] });
+    const parts = [m[2]];
+    for (let j = i + 1; j < sectionLines.length; j++) {
+      const next = sectionLines[j];
+      if (!/^\s+\S/.test(next) || ITEM_RE.test(next)) break;
+      parts.push(next.trim());
+    }
+    heads.push({
+      line: locate(raw),
+      checked: m[1] !== " ",
+      text: m[2],
+      fullText: parts.join(" "),
+    });
   }
 
   const sectionEnd = testStepsSectionBounds(bodyLines)?.end ?? bodyLines.length;
@@ -115,6 +138,7 @@ export function parseTestSteps(body: string): {
       checked: head.checked,
       kind: classify(head.text),
       text: head.text,
+      fullText: head.fullText,
       hasEvidence: span.includes(EVIDENCE_MARKER),
       hasImage: IMAGE_RE.test(span) || IMAGE_RE.test(head.text),
       noScreenshotReason:
@@ -133,6 +157,18 @@ const POST_MERGE_RE =
 const MEASURABLE_RE =
   /\bno (?:horizontal|vertical) scroll|\b\d+\s?(?:px|ms|rem|%)|\bat least \d|\bat most \d|\bshows only\b|\bexactly \d|\bcontrast ratio\b|\bno console errors?\b|\bno layout shift\b/i;
 
+const BROWSER_SHAPE_RE = /^Browser: on \S*\/[^,]*, .+ — expect .+/;
+const BROWSER_ACTION_RE =
+  /\b(?:click|type|fill|press|hold|scroll|drag|select|hover|navigate|open|add|set|save|log in|start)\b/gi;
+const BROWSER_MAX_ACTIONS = 8;
+const BROWSER_INPUT_RES = [
+  /\b(?:wheel|pinch|trackpad)\b/i,
+  /\b(?:cmd|ctrl|command|control|shift|alt|option)\b[-+ ]?(?:\w+ )?(?:scroll|drag|wheel)\b/i,
+];
+
+const BROWSER_FIX =
+  "split it into smaller Browser items, seed the state via a fixture or URL, or write a durable Playwright/vitest test.";
+
 const HINTS: Record<LintCode, string> = {
   "generic-suite":
     "CI already runs the whole suite; name the specific test file or case this PR adds.",
@@ -148,6 +184,9 @@ const HINTS: Record<LintCode, string> = {
     "Post-merge or post-deploy steps never go in Test Steps; move to the local follow-ups list.",
   "human-only-ticked":
     "SUBJECTIVE and DECISION items are ticked by a human only; untick it unless the user ticked it.",
+  "browser-shape": `Browser items read 'Browser: on <route>, <action chain> — expect <result>'; rewrite to that shape, or ${BROWSER_FIX}`,
+  "browser-over-bound": `The browser driver runs at most ${BROWSER_MAX_ACTIONS} actions per item; ${BROWSER_FIX}`,
+  "browser-input-unsupported": `The browser driver cannot produce wheel, pinch or modifier-held scroll/drag input; seed the state via a fixture or URL, or write a durable Playwright/vitest test.`,
 };
 
 export function lintTestSteps(
@@ -175,6 +214,14 @@ export function lintTestSteps(
       add("subjective-mixed", step);
     if (POST_MERGE_RE.test(step.text)) add("post-merge-step", step);
     if (humanOnly && step.checked) add("human-only-ticked", step);
+    if (step.kind === "browser") {
+      if (!BROWSER_SHAPE_RE.test(step.fullText)) add("browser-shape", step);
+      const chain = step.fullText.split(" — expect")[0];
+      if ((chain.match(BROWSER_ACTION_RE) ?? []).length > BROWSER_MAX_ACTIONS)
+        add("browser-over-bound", step);
+      if (BROWSER_INPUT_RES.some((re) => re.test(chain)))
+        add("browser-input-unsupported", step);
+    }
     if (phase !== "review") continue;
     if (
       step.kind === "subjective" &&
