@@ -91,6 +91,17 @@ The three-ingredient new-repo onboarding:
      process for **non-secret launch config only** (ports, public URLs, CORS
      origins). Secrets stay as NAMES in `credentialEnvVars`, resolved from the
      shell env; never inline a credential value here.
+   - `dependsOn` (optional) — an array of `{ name, url, start? }` fixed local
+     services (a database, an API) the app needs before it can be driven.
+     `flow-ui-preflight` probes each `url` (any HTTP response below 500 counts
+     as up) with a load-aware backoff, so a briefly overloaded host is waited
+     out instead of being reported "browser unavailable". When the first probe
+     fails and `start` is declared, it runs `start` once in the foreground:
+     `start` must **return** once the service is up (`supabase start`,
+     `docker compose up -d`) — never a long-running foreground server. A
+     service flow starts is left running (shared local services) and recorded
+     as `startedByFlow` in `.flow-tmp/ui-preflight.json`. The `url` takes no
+     `{{PORT}}` sentinel. Names, URLs and commands only — never a secret.
 
    **Dedicated agent-test ports.** Agents launch the app on a freshly-allocated
    free port **per process**, never a fixed offset: one `{{PORT}}` sentinel for
