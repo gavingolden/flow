@@ -199,6 +199,7 @@ describe("classifyOpenBrowserItems", () => {
       "mcp-not-available",
       "browser-profile-busy",
       "driver-no-artifact",
+      "headless-binaries-missing",
     ]) {
       const deps = files({
         [DRIVER_PATH]: driver({ ran: false, skipped_reason: reason }),
@@ -265,6 +266,24 @@ describe("browserUnavailableBacked", () => {
       }),
     );
     expect(r).toMatchObject({ backed: true, source: "driver" });
+  });
+
+  it("is backed by a fresh review-8c headless-binaries-missing result, and unbacked when stamped with an older head", () => {
+    const skipped = { ran: false, skipped_reason: "headless-binaries-missing" };
+    expect(
+      browserUnavailableBacked(
+        WT,
+        HEAD,
+        files({ [DRIVER_PATH]: driver(skipped) }),
+      ),
+    ).toMatchObject({ backed: true, source: "driver" });
+    const stale = files({
+      [DRIVER_PATH]: driver({ ...skipped, headSha: "old" }),
+    });
+    expect(browserUnavailableBacked(WT, HEAD, stale).backed).toBe(false);
+    expect(classifyOpenBrowserItems(BODY, WT, HEAD, stale)[0].status).toBe(
+      "not-attempted",
+    );
   });
 
   it("is unbacked with no files, a ready preflight, a stale stamp, or a verify driver", () => {

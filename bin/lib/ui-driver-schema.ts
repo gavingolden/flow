@@ -33,6 +33,7 @@ const SKIPPED_REASONS = [
   "driver-no-artifact",
   "credentials-unavailable",
   "dependency-unready",
+  "headless-binaries-missing",
 ] as const;
 
 export type UiDriverSkippedReason = (typeof SKIPPED_REASONS)[number];

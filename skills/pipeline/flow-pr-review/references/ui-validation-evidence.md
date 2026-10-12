@@ -313,10 +313,15 @@ timeout, and no state carried between items. Log in by spawning
 `flow-ui-login serve` and evaluating the fill script it returns in the page —
 the agent never reads a `.env` file or a credential value (see "Login step
 (auth-gated apps)"). Never install browser binaries (a download outside the
-worktree is neither local nor cheaply reversible): when none are cached, record
-`browser-unavailable` with the reason "headless browser binaries not installed".
-Record results in the same `item_results[]` shape, `index` included, and tick
-only on a pass with the script's output as evidence.
+worktree is neither local nor cheaply reversible).
+Write the results to `.flow-tmp/ui-driver-result.json` in the driver's schema
+(validate with `flow-ui-driver-schema --validate`), stamped `caller: "review-8c"`
+and `headSha` from `git rev-parse HEAD` at write time, with `item_results[]`
+carrying each item's `index` — otherwise the gate cannot see the verdicts. Tick
+only on a pass with the script's output as evidence. When no browser binaries
+are cached, write that file with `ran: false` and
+`skipped_reason: "headless-binaries-missing"`, and pass
+`--reason browser-unavailable` (backed by that file).
 
 After GATED the browser was reaped at the terminal state, so a "run the
 remaining tests" re-drive (`/flow-pr-review --resume-from 8c --browser-items`)

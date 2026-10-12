@@ -39,6 +39,7 @@ const ENV_DRIVER_REASONS: readonly UiDriverSkippedReason[] = [
   "mcp-not-available",
   "browser-profile-busy",
   "driver-no-artifact",
+  "headless-binaries-missing",
 ];
 // A launch/login failure is environmental only while the preflight shows the
 // dependencies down; with dependencies ready it is a defect in the app.

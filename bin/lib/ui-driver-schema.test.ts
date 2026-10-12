@@ -88,6 +88,7 @@ describe("validateUiDriverResult", () => {
     "driver-no-artifact",
     "credentials-unavailable",
     "dependency-unready",
+    "headless-binaries-missing",
   ])("accepts skipped_reason member %s", (reason) => {
     const result = validateUiDriverResult({
       ...VALID_FULL,
