@@ -17,6 +17,7 @@ import {
   type ConsolidatorResult,
 } from "./agent-finding-schema";
 import type { FixApplierResult } from "./fix-applier-schema";
+import { parseAgyLensesRecord } from "./agy-lenses-record";
 
 export type TokenUsage = {
   total: number;
@@ -38,7 +39,72 @@ export type LensTelemetry = {
   findings_dropped: number;
   findings_acted: number;
   findings_deferred: number;
+  // Which engine ran the lens: "agy" (delegated to the Google plan) or
+  // "task" (a Claude Task agent). `agy_model` is the agy variant for a
+  // delegated lens; `fallback_reason` says why a Claude lens did not run on
+  // the Google plan when delegation was in play. JSONL only — the printed
+  // table layout is unchanged.
+  engine: "agy" | "task";
+  agy_model: string | null;
+  fallback_reason: string | null;
 };
+
+export type LensDelegation = {
+  engine: "agy" | "task";
+  agy_model: string | null;
+  fallback_reason: string | null;
+};
+
+const TASK_DEFAULT: LensDelegation = {
+  engine: "task",
+  agy_model: null,
+  fallback_reason: null,
+};
+
+// Route reasons that say "delegation was on and chose Claude on purpose";
+// delegation-off / not-in-delegated-set are the default state, not news.
+const REPORTABLE_ROUTE_REASONS = new Set([
+  "fable-session-keeps-task",
+  "agy-cooldown",
+]);
+
+/**
+ * Reads `.flow-tmp/agy-lenses-result.json` (written by `flow-agy-lenses`)
+ * into a per-lens engine map. Absent, garbage, or — when `reviewStartedAt`
+ * is given — a record from a different review window reads as empty, so
+ * every lens defaults to `engine: "task"` with null model and reason.
+ */
+export function readDelegationRecord(
+  text: string | null,
+  reviewStartedAt?: string | null,
+): Record<string, LensDelegation> {
+  const rec = parseAgyLensesRecord(text);
+  if (rec === null) return {};
+  if (
+    reviewStartedAt != null &&
+    rec.review_started_at !== null &&
+    rec.review_started_at !== reviewStartedAt
+  ) {
+    return {};
+  }
+  const out: Record<string, LensDelegation> = {};
+  for (const r of rec.routes) {
+    if (r.route === "task" && REPORTABLE_ROUTE_REASONS.has(r.reason)) {
+      out[r.lens] = { ...TASK_DEFAULT, fallback_reason: r.reason };
+    }
+  }
+  for (const f of rec.fallback) {
+    out[f.lens] = { ...TASK_DEFAULT, fallback_reason: f.reason };
+  }
+  for (const d of rec.delegated) {
+    out[d.lens] = {
+      engine: "agy",
+      agy_model: rec.model,
+      fallback_reason: null,
+    };
+  }
+  return out;
+}
 
 export type ReviewTelemetry = {
   version: 3;
@@ -104,6 +170,9 @@ type CountsEntry = Pick<
   | "findings_deferred"
   | "ran"
   | "skip_reason"
+  | "engine"
+  | "agy_model"
+  | "fallback_reason"
 >;
 
 function isGated(v: unknown): v is { gated: { reason: string } } {
@@ -120,6 +189,7 @@ export function aggregateCounts(inputs: {
   agentOutputs: Record<string, unknown | null>;
   consolidator: ConsolidatorResult | null;
   fixApplier: FixApplierResult | null;
+  delegation?: Record<string, LensDelegation>;
 }): Record<string, CountsEntry> {
   const out: Record<string, CountsEntry> = {};
 
@@ -178,6 +248,7 @@ export function aggregateCounts(inputs: {
       findings_dropped: dropped,
       findings_acted: acted,
       findings_deferred: deferred,
+      ...(inputs.delegation?.[lens] ?? TASK_DEFAULT),
     };
   }
 
@@ -331,6 +402,7 @@ export function mergeTelemetry(args: {
       findings_dropped: 0,
       findings_acted: 0,
       findings_deferred: 0,
+      ...TASK_DEFAULT,
     };
 
     const transcript = args.transcripts[lens];
@@ -340,7 +412,12 @@ export function mergeTelemetry(args: {
       : "unavailable";
     // The transcript's concrete model id is what the audit prices; the
     // --lens-model alias is only the fallback when no transcript exists.
-    const model = transcript?.model ?? args.lensModels?.[lens] ?? null;
+    // A delegated lens ran on the agy model, never a Claude one — the
+    // --lens-model alias would mislabel where it ran.
+    const model =
+      counts.engine === "agy" && counts.agy_model
+        ? counts.agy_model
+        : (transcript?.model ?? args.lensModels?.[lens] ?? null);
 
     lenses[lens] = {
       ran: counts.ran,
@@ -354,6 +431,9 @@ export function mergeTelemetry(args: {
       findings_dropped: counts.findings_dropped,
       findings_acted: counts.findings_acted,
       findings_deferred: counts.findings_deferred,
+      engine: counts.engine,
+      agy_model: counts.agy_model,
+      fallback_reason: counts.fallback_reason,
     };
   }
 

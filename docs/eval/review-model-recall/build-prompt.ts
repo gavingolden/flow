@@ -19,18 +19,17 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  LENS_HEADINGS,
+  extractLensSections,
+} from "../../../bin/lib/lens-prompt";
+import type { DelegatableLens } from "../../../bin/lib/delegate-models";
 import { materialize } from "./materialize";
 
 const AGENT_PROMPTS_PATH = join(
   import.meta.dir,
   "../../../skills/pipeline/flow-pr-review/references/agent-prompts.md",
 );
-
-const LENS_HEADINGS: Record<string, string> = {
-  "bug-detection": "## Bug Detection Agent",
-  "pattern-consistency": "## Pattern & Consistency Agent",
-  "test-coverage": "## Test Coverage Agent",
-};
 
 function usage(): string {
   return [
@@ -46,62 +45,6 @@ function usage(): string {
     "",
     "Writes the assembled review prompt to stdout.",
   ].join("\n");
-}
-
-function extractSharedBlock(md: string): string {
-  const lines = md.split("\n");
-  const headingIdx = lines.findIndex(
-    (l) => l.trim() === "## Shared Context Block",
-  );
-  if (headingIdx === -1) {
-    throw new Error(
-      "agent-prompts.md: '## Shared Context Block' heading not found",
-    );
-  }
-  const fenceStart = lines.findIndex(
-    (l, i) => i > headingIdx && l.trim() === "```",
-  );
-  if (fenceStart === -1) {
-    throw new Error(
-      "agent-prompts.md: opening fence for shared context block not found",
-    );
-  }
-  const fenceEnd = lines.findIndex(
-    (l, i) => i > fenceStart && l.trim() === "```",
-  );
-  if (fenceEnd === -1) {
-    throw new Error(
-      "agent-prompts.md: closing fence for shared context block not found",
-    );
-  }
-  return lines.slice(fenceStart + 1, fenceEnd).join("\n");
-}
-
-function extractLensBlock(md: string, lens: string): string {
-  const heading = LENS_HEADINGS[lens];
-  if (!heading) {
-    throw new Error(
-      `unknown lens '${lens}' — expected one of: ${Object.keys(LENS_HEADINGS).join(", ")}`,
-    );
-  }
-  const lines = md.split("\n");
-  const headingIdx = lines.findIndex((l) => l.trim() === heading);
-  if (headingIdx === -1) {
-    throw new Error(`agent-prompts.md: '${heading}' heading not found`);
-  }
-  let nextHeadingIdx = lines.findIndex(
-    (l, i) => i > headingIdx && /^## /.test(l),
-  );
-  if (nextHeadingIdx === -1) nextHeadingIdx = lines.length;
-  const body = lines.slice(headingIdx, nextHeadingIdx);
-  while (
-    body.length > 0 &&
-    (body[body.length - 1]!.trim() === "" ||
-      body[body.length - 1]!.trim() === "---")
-  ) {
-    body.pop();
-  }
-  return body.join("\n");
 }
 
 function main(argv: string[]): number {
@@ -130,8 +73,15 @@ function main(argv: string[]): number {
   }
 
   const agentPrompts = readFileSync(AGENT_PROMPTS_PATH, "utf8");
-  const shared = extractSharedBlock(agentPrompts);
-  const lensBlock = extractLensBlock(agentPrompts, lens);
+  if (!(lens in LENS_HEADINGS)) {
+    throw new Error(
+      `unknown lens '${lens}' — expected one of: ${Object.keys(LENS_HEADINGS).join(", ")}`,
+    );
+  }
+  const { shared, lensSection: lensBlock } = extractLensSections(
+    agentPrompts,
+    lens as DelegatableLens,
+  );
 
   const meta = JSON.parse(
     readFileSync(join(dataDir, `meta-${pr}.json`), "utf8"),
@@ -172,5 +122,3 @@ function main(argv: string[]): number {
 if (import.meta.main) {
   process.exit(main(process.argv.slice(2)));
 }
-
-export { extractSharedBlock, extractLensBlock, LENS_HEADINGS };

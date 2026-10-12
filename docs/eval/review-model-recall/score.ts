@@ -62,7 +62,11 @@ const SHIPPED_PINS = {
   note: "none. Every models.reviewLenses.<lens> key ships absent; see review-model-recall.md 'What was and was not changed'.",
 };
 
-const CELL_FILE = /^(.+)-(\d+)-([a-z0-9]+)-r(\d+)\.json$/;
+// lens names carry no digits and the PR number is all digits, so the first
+// `-<digits>-` is the PR boundary; an arm may itself hyphenate and contain
+// digits (`agy-opus-5-5-high`).
+const CELL_FILE =
+  /^([a-z]+(?:-[a-z]+)*)-(\d+)-([a-z0-9]+(?:-[a-z0-9]+)*)-r(\d+)\.json$/;
 
 function usage(): string {
   return [
@@ -280,7 +284,9 @@ function resolvedModelId(modelUsage: unknown): string | null {
 
 // Per-PR recall spread and a one-sided exact permutation test for any two
 // judged arms other than the committed pair. Baseline is opus when present,
-// else the alphabetically first arm; p tests "candidate exceeds baseline".
+// else the alphabetically first arm; p tests "candidate exceeds baseline", and
+// the reverse-direction p tests "baseline exceeds candidate" — the regression
+// direction a replacement arm (e.g. agy) has to clear.
 // Keyed by lens like the committed path — pooling lenses would both confound
 // recall levels and blow up the C(n,k) split count.
 function twoArmSeparation(cells: CellStat[]) {
@@ -320,6 +326,8 @@ function twoArmSeparation(cells: CellStat[]) {
       pooled_within_arm_sd: round(pooled, 4),
       exact_permutation_p_one_sided:
         b.length + c.length <= 20 ? round(exactPermutationP(b, c), 4) : null,
+      exact_permutation_p_baseline_exceeds_one_sided:
+        b.length + c.length <= 20 ? round(exactPermutationP(c, b), 4) : null,
     };
   }
   return { perPr, separation };

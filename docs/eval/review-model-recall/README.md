@@ -12,12 +12,12 @@ to re-run the harness itself.
 
 ## Scripts
 
-| Script            | Job                                                                                                                                                                                                                                                                                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `build-prompt.ts` | Assembles one review-lens prompt: the shared context block plus the per-lens section, both extracted live from `skills/pipeline/flow-pr-review/references/agent-prompts.md`, substituted with a PR's metadata/diff.                                                                                                                                     |
-| `build-judge.ts`  | Builds the blinded scoring-judge prompt for one cell — never names which model (sonnet/opus) produced the candidate output, only the lens.                                                                                                                                                                                                              |
-| `score.ts`        | Two subcommands: `extract` (diagnostic — parses each cell's raw result into a findings list, tolerant of prose-only output) and `aggregate` (reads judge outputs, computes per-cell/per-lens-arm recall stats and the separation verdict, in the same JSON shape as `../review-model-recall.json`).                                                     |
-| `run.ts`          | Two subcommands: `matrix` (runs every review cell through `flow-claude-headless`) and `judge` (runs every judge cell). Resume-safe (skips a cell only when its output file is a successful `claude -p` result; error and budget-killed cells are retried) and bounded-concurrency. Model arms: `sonnet`, `opus`, `fable` (per-cell cap $6 / $14 / $20). |
+| Script            | Job                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build-prompt.ts` | Assembles one review-lens prompt: the shared context block plus the per-lens section, both extracted live from `skills/pipeline/flow-pr-review/references/agent-prompts.md`, substituted with a PR's metadata/diff.                                                                                                                                                                                     |
+| `build-judge.ts`  | Builds the blinded scoring-judge prompt for one cell — never names which model (sonnet/opus) produced the candidate output, only the lens.                                                                                                                                                                                                                                                              |
+| `score.ts`        | Two subcommands: `extract` (diagnostic — parses each cell's raw result into a findings list, tolerant of prose-only output) and `aggregate` (reads judge outputs, computes per-cell/per-lens-arm recall stats and the separation verdict, in the same JSON shape as `../review-model-recall.json`).                                                                                                     |
+| `run.ts`          | Two subcommands: `matrix` (runs every review cell through `flow-claude-headless`, and every agy-arm cell through `flow-delegate`) and `judge` (runs every judge cell). Resume-safe (skips a cell only when its output file is a successful `claude -p` result; error and budget-killed cells are retried) and bounded-concurrency. Model arms: `sonnet`, `opus`, `fable` (per-cell cap $6 / $14 / $20). |
 
 All four are directly runnable (`chmod +x`, `#!/usr/bin/env bun`); none
 are symlinked onto PATH.
@@ -52,10 +52,12 @@ bun score.ts aggregate <data-dir> > <data-dir>/scores.json
 ```
 
 `run.ts`'s two subcommands are the only sanctioned spawn site for
-headless Claude here — both shell out to `flow-claude-headless`
+headless Claude here — the Claude cells of both shell out to
+`flow-claude-headless`
 (`skills/pipeline/flow-pipeline/references/headless-claude.md`), the
-repo's one sanctioned raw `claude -p` call site, with `env -u FLOW_SLUG
--u TMUX_PANE` so a nested run from inside a flow pipeline session cannot
+repo's one sanctioned raw `claude -p` call site (the agy arm's cells go
+through `flow-delegate` instead, see "The agy arm and `--effort`" below),
+with `env -u FLOW_SLUG -u TMUX_PANE` so a nested run from inside a flow pipeline session cannot
 trip the parent's stop guard or overwrite its state.
 
 Run from a clean checkout of the default branch, same as the committed
@@ -106,6 +108,41 @@ Cost, turns and wall-clock are read from each cell's claude JSON
 (`runs/<cell>.json`), falling back to its `.envelope.json`. Re-running
 `matrix` or `judge` retries any cell whose out file is not a successful
 result (`is_error` true, a non-`success` `subtype`, or unparseable).
+
+### The agy arm and `--effort`
+
+`--arms agy-opus-5-5-high` runs a cell through `flow-delegate` (the user's
+Google AI Ultra quota) instead of `claude -p`. It uses the SAME base prompt
+`prompt-<lens>-<pr>.txt` as the model-alias arms, led by the headless
+no-shell preamble (`AGY_HEADLESS_PREAMBLE`) and followed by the
+delegated-lens output contract from `bin/lib/lens-prompt.ts`
+(`agyLensOutputContract`: JSON only, no shell, no `.flow-tmp/` reads, file
+reads capped at twice the changed-file count, minimum 10) — the same
+preamble and contract production's `flow-agy-lenses` sends, so the
+measurement covers the shipped read rules. It does not wrap the PR
+metadata in production's untrusted-PR-data delimiters. The call passes the shared
+`AGENT_FINDINGS_JSON_SCHEMA`, `--add-dir <repo root>`, no
+`--skip-permissions` and a 15-minute timeout, and the arm name maps to the
+agy display name in `AGY_ARMS` (`Claude Opus 5.5 (High)`).
+
+A decoded response is written as a claude-shaped `runs/<cell>.json`
+(`type: "result"`, `subtype: "success"`, `result:` the projected findings
+JSON, `duration_ms`, `usage`), so `build-judge.ts` and `score.ts` need no
+agy-specific handling. A response that does not decode (empty body,
+schema-invalid, a skipped call) is written with `is_error: true`, so a
+re-run retries it, and is counted in `runs/<cell>.agy.json`
+(`attempts`, `unusable_attempts`, `last_skip_reason`) — "schema-valid on the
+first attempt" is `unusable_attempts == 0`. Agy cells carry no
+`total_cost_usd`; wall-clock comes from `duration_ms`. Cell file names allow
+hyphenated, digit-bearing arm names (`score.ts`'s `CELL_FILE`).
+
+`--effort <level>` sets the Claude arms' `--effort` (default `medium`, so
+the committed runs reproduce unchanged); use `--effort high` to run the
+`opus` arm at the effort production lenses run at. For an agy-vs-opus pair
+`separation.<lens>` additionally carries
+`exact_permutation_p_baseline_exceeds_one_sided`, the reverse-direction p
+(baseline exceeds candidate): a candidate that replaces the baseline has to
+clear the regression direction, not only the improvement direction.
 
 **Acted proxy.** Resolved-thread state is 0/0 on the committed PRs, so
 `materialize` marks a reference comment acted when its `path` is touched by

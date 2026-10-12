@@ -49,6 +49,14 @@ describe("classifyDelegateSkip", () => {
         "worktree-not-provided",
         "worktree-not-found",
         "spawn-failed",
+        "agy-prep-failed",
+        "agy-cooldown",
+        "scout-delegation-off",
+        "scout-input-unreadable",
+        "scout-prep-failed",
+        "delegation-off",
+        "not-in-delegated-set",
+        "fable-session-keeps-task",
       ].sort(),
     );
   });

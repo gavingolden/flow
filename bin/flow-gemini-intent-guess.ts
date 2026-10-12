@@ -406,8 +406,8 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     "--prompt-file",
     promptPath,
     "--model",
-    // Non-null: only the "scout" surface's default is null; intentGuess's
-    // default and every well-typed override are strings.
+    // Non-null: only the "scout" and "claudeLenses" surfaces default to null;
+    // intentGuess's default and every well-typed override are strings.
     resolveDelegateModel("intentGuess") as string,
     "--add-dir",
     parsed.worktree,

@@ -160,6 +160,96 @@ describe("collect", () => {
     expect(telemetry.lenses.security.model).toBe("sonnet");
   });
 
+  describe("delegated-lens engine (Story 5)", () => {
+    const writeRecord = (dir: string, startedAt: string) =>
+      fs.writeFileSync(
+        path.join(dir, ".flow-tmp", "agy-lenses-result.json"),
+        JSON.stringify({
+          review_started_at: startedAt,
+          model: "Claude Opus 5.5 (High)",
+          routes: [
+            { lens: "bug-detection", route: "agy" },
+            { lens: "security", route: "agy" },
+          ],
+          delegated: [
+            {
+              lens: "bug-detection",
+              findingCount: 1,
+              decodedVia: "structured-output",
+              durationSec: 60,
+            },
+          ],
+          fallback: [{ lens: "security", reason: "agy-output-unparseable" }],
+          cooldownArmed: false,
+        }),
+      );
+    const collectLenses = async (dir: string) => {
+      const out = path.join(dir, "telemetry.json");
+      const code = await run(
+        ["collect", "--pr", "7", "--worktree", dir, "--out", out],
+        makeDeps(),
+      );
+      expect(code).toBe(0);
+      return (JSON.parse(fs.readFileSync(out, "utf8")) as ReviewTelemetry)
+        .lenses;
+    };
+    const writeScope = (dir: string, startedAt: string) =>
+      fs.writeFileSync(
+        path.join(dir, ".flow-tmp", "review-scope.json"),
+        JSON.stringify({
+          scope: "full",
+          base_sha: null,
+          head_sha: "def",
+          delta_files: [],
+          delta_ratio: null,
+          started_at: startedAt,
+        }),
+      );
+
+    it("records engine task + the fallback reason for a fallen-back lens, engine agy + model for a delegated one", async () => {
+      const dir = makeWorktree();
+      writeScope(dir, "2026-10-06T10:00:00Z");
+      writeRecord(dir, "2026-10-06T10:00:00Z");
+      const lenses = await collectLenses(dir);
+      expect(lenses["bug-detection"]).toMatchObject({
+        engine: "agy",
+        agy_model: "Claude Opus 5.5 (High)",
+        model: "Claude Opus 5.5 (High)",
+        fallback_reason: null,
+      });
+      expect(lenses.security).toMatchObject({
+        engine: "task",
+        fallback_reason: "agy-output-unparseable",
+      });
+      expect(lenses.performance).toMatchObject({
+        engine: "task",
+        agy_model: null,
+        fallback_reason: null,
+      });
+    });
+
+    it("ignores a record left over from an earlier review window", async () => {
+      const dir = makeWorktree();
+      writeScope(dir, "2026-10-07T10:00:00Z");
+      writeRecord(dir, "2026-10-06T10:00:00Z");
+      const lenses = await collectLenses(dir);
+      expect(lenses["bug-detection"].engine).toBe("task");
+    });
+
+    it("defaults every lens to engine task when no record exists", async () => {
+      const dir = makeWorktree();
+      const lenses = await collectLenses(dir);
+      expect(
+        Object.values(lenses).every(
+          (l) =>
+            l.engine === "task" &&
+            l.agy_model === null &&
+            l.fallback_reason === null,
+        ),
+      ).toBe(true);
+    });
+  });
+
   it("rejects a malformed --lens-model value with exit 2", async () => {
     const dir = makeWorktree();
     const deps = makeDeps();
@@ -330,6 +420,9 @@ describe("print", () => {
           findings_dropped: 0,
           findings_acted: 0,
           findings_deferred: 0,
+          engine: "task",
+          agy_model: null,
+          fallback_reason: null,
         },
       },
       ...overrides,
@@ -351,6 +444,9 @@ describe("print", () => {
           findings_dropped: 0,
           findings_acted: 0,
           findings_deferred: 0,
+          engine: "task",
+          agy_model: null,
+          fallback_reason: null,
         },
       },
     });
@@ -374,6 +470,9 @@ describe("print", () => {
           findings_dropped: 0,
           findings_acted: 0,
           findings_deferred: 0,
+          engine: "task",
+          agy_model: null,
+          fallback_reason: null,
         },
       },
     });
@@ -395,6 +494,9 @@ describe("print", () => {
           findings_dropped: 0,
           findings_acted: 0,
           findings_deferred: 0,
+          engine: "task",
+          agy_model: null,
+          fallback_reason: null,
         },
         security: {
           ran: true,
@@ -408,6 +510,9 @@ describe("print", () => {
           findings_dropped: 0,
           findings_acted: 0,
           findings_deferred: 0,
+          engine: "task",
+          agy_model: null,
+          fallback_reason: null,
         },
       },
     });

@@ -1104,8 +1104,8 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // ~/.flow/config.json before any test can inject an override, defeating
   // the injectable-config-reader seam and breaking `npm run verify` for a
   // maintainer with `delegate.models.planReview*` set. Non-null: only the
-  // "scout" surface's default is null; planReview / planReviewSecond's
-  // defaults and every well-typed override are strings.
+  // "scout" and "claudeLenses" surfaces default to null; planReview /
+  // planReviewSecond's defaults and every well-typed override are strings.
   const MODEL = resolveDelegateModel("planReview") as string;
   const SECOND_MODEL = resolveDelegateModel("planReviewSecond") as string;
 

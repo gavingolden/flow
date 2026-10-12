@@ -30,8 +30,20 @@ export function agyReadRules(input: {
   // file's own header comment.
   readVerb?: string;
   pacingPhrase?: string;
+  // "full" is for a run that REPLACES a Claude agent (delegated lenses, the
+  // delegated scout): the sampling cap and one-third pacing were tuned for
+  // the additive cross-model reviewers and would cap a replacement's recall.
+  depth?: "sample" | "full";
 }): string {
   const readVerb = input.readVerb ?? "reading";
   const pacingPhrase = input.pacingPhrase ?? readVerb;
-  return `${input.worktreePath} is the readable repository root — READ it to ${input.readPurpose}. Reach for it with your file-reading tools ONLY (read a file, list a directory). Spot-check AT MOST ${input.fileCap} files — you are sampling, not auditing the repo. Do NOT spawn subagents or delegate this ${readVerb} to other agents — read the files yourself. Spend at most a third of your run ${pacingPhrase}, then STOP. Do NOT shell out — no \`grep\`, \`find\`, \`ls\`, \`cat\`, or \`git\` commands: this is a headless run in which shell commands need a permission nothing can grant mid-run, so they are auto-denied and your ${input.outputNoun} ends silently with no output at all. Do NOT open \`.env*\` files or any credential/secret file — you never need them for this task, and reading them would be a pure liability with no benefit.`;
+  const scope =
+    input.depth === "full"
+      ? `Read AT MOST ${input.fileCap} files — this is the primary run, not a sample, so read every file you need in full.`
+      : `Spot-check AT MOST ${input.fileCap} files — you are sampling, not auditing the repo.`;
+  const pacing =
+    input.depth === "full"
+      ? `Leave enough of your run to write your complete ${input.outputNoun}.`
+      : `Spend at most a third of your run ${pacingPhrase}, then STOP.`;
+  return `${input.worktreePath} is the readable repository root — READ it to ${input.readPurpose}. Reach for it with your file-reading tools ONLY (read a file, list a directory). ${scope} Do NOT spawn subagents or delegate this ${readVerb} to other agents — read the files yourself. ${pacing} Do NOT shell out — no \`grep\`, \`find\`, \`ls\`, \`cat\`, or \`git\` commands: this is a headless run in which shell commands need a permission nothing can grant mid-run, so they are auto-denied and your ${input.outputNoun} ends silently with no output at all. Do NOT open \`.env*\` files or any credential/secret file — you never need them for this task, and reading them would be a pure liability with no benefit.`;
 }

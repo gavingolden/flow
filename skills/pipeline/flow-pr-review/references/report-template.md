@@ -10,6 +10,7 @@ Use this format for the structured report at the end of every PR review.
 - **PR size**: +<additions> -<deletions> across <N> files
 - **Agents**: <ran> ran, <gated> gated (<names>) · scope: <kind>, <M> findings above 80 confidence, <P> praise observations
 - **Cross-model (Gemini) lens**: `ran (<N> findings[, decoded via <decodedVia>][, degraded: diff-only (<degradedReason>)])` (the `decoded via` clause appears ONLY when `decodedVia` is not `structured-output`, so a silently-degrading model surface stays visible without adding noise to the happy path; the `degraded: diff-only` clause appears ONLY after the one bounded no-`--add-dir` fallback retry succeeded — the review still ran, but with no filesystem access, so it is a weaker pass than a normal run) / `not run (<skipReason>) — pre-dispatch gate or local precondition failed, no quota spent` (`skipClass: environment`) / `ran but unusable (<skipReason>[, exit <exitCode>][, agy: <agyError>][, stderr: <stderrTail>][; partial at <partialArtifactPath>]) — the cross-model call executed and spent quota but returned nothing the review could use` (`skipClass: ran-unusable`) — the `stderr: <stderrTail>` clause appears ONLY when `stderrTail` is present (it is already redacted and tail-capped at the source), so a generic/text-mode failure with no `agyError` still surfaces its actionable error text instead of collapsing to just `<skipReason>` and an exit code — `<skipReason>` includes `gemini-tools-denied` (agy denied a tool call — the archived reproduction denied `RunCommand`, a shell-out the prompt's read-rules block should have prevented the model from attempting) and `gemini-token-exhausted` (a thinking-token-dominated empty response — the model spent its budget reasoning and returned no text), alongside the prior generic `gemini-output-unparseable`, both self-diagnosing the CAUSE rather than just the symptom — reflects the `flow-gemini-lens` `{ran}` result (off by default; only "ran" when `review.gemini` is enabled and `agy` is available)
+- **Lens engines** (only when `flow-agy-lenses` was available and `delegate.models.claudeLenses` is set): `<lens> ran on the Google plan (<agy model>)` for each delegated lens, and `<lens> ran on Claude: <plain-language reason>` for each lens that fell back (translate the helper's reason per [delegated-lenses.md](delegated-lenses.md) — e.g. "Google-plan result came back empty", "Google plan cooling down after a quota failure"); omit the line entirely when no lens was delegated or fell back
 - **Blocking issues**: <count>
 - **Inline review comments addressed**: <count> (or "none" when the PR had none)
 
@@ -24,8 +25,8 @@ resolved for this PR (from `review-scope.json`'s `tier` /
 Paste `flow-review-telemetry print`'s stdout verbatim below — the scope
 line plus a per-lens table (tokens, findings emitted/survived/acted/
 deferred) read from `review-telemetry.json`. The table carries a
-per-reviewer **Model** column (the model that actually ran that lens,
-rendering `-` when unrecorded) — sourced from the helper's own output,
+per-reviewer **Model** column (the model that actually ran that lens —
+the agy model for a delegated lens — rendering `-` when unrecorded) — sourced from the helper's own output,
 never authored by hand.
 
 ---

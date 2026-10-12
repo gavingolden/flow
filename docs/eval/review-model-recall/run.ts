@@ -22,8 +22,19 @@ import {
   readdirSync,
   mkdirSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import {
+  AGENT_FINDINGS_JSON_SCHEMA,
+  decodeLensArtifact,
+  projectLensFindings,
+} from "../../../bin/lib/agy-lens-core";
+import type { AgentFindings } from "../../../bin/lib/agent-finding-schema";
+import {
+  AGY_HEADLESS_PREAMBLE,
+  agyLensOutputContract,
+} from "../../../bin/lib/lens-prompt";
 
 const LENSES = ["bug-detection", "pattern-consistency", "test-coverage"];
 const PRS = ["812", "756", "802"];
@@ -31,6 +42,19 @@ const ARMS = ["sonnet", "opus"];
 const DEFAULT_RUNS = 2;
 const DEFAULT_MODEL = "opus";
 const MODEL_ARMS = new Set(["sonnet", "opus", "fable"]);
+const DEFAULT_EFFORT = "medium";
+// Bun exposes import.meta.dir; vitest (Node) only import.meta.dirname.
+const HERE = import.meta.dirname ?? import.meta.dir;
+const REPO_ROOT = join(HERE, "../../..");
+
+// Arms that run through agy (`flow-delegate`) instead of `claude -p`, keyed
+// by arm name -> the agy display-name variant. The arm name rides in cell
+// file names (`<lens>-<pr>-<arm>-r<run>.json`), so it stays lowercase
+// alphanumerics joined by hyphens.
+export const AGY_ARMS: Record<string, string> = {
+  "agy-opus-5-5-high": "Claude Opus 5.5 (High)",
+};
+const AGY_CELL_TIMEOUT = "15m";
 
 const DEFAULT_CONCURRENCY = 6;
 const CELL_BUDGET_USD: Record<string, number> = { fable: 20, opus: 14 };
@@ -50,6 +74,9 @@ function usage(): string {
     "  --prs <csv>          PR numbers (default: 812,756,802)",
     "  --runs <n>           runs per cell (default: 2)",
     "  --model <alias>      model for every non-model arm (default: opus)",
+    "  --effort <level>     --effort for the Claude arms (default: medium)",
+    `  agy arms (${Object.keys(AGY_ARMS).join(", ")}) run the base prompt plus the delegated-lens`,
+    "                       output contract through flow-delegate on the Google plan",
   ].join("\n");
 }
 
@@ -134,11 +161,156 @@ function allCells(opts: Opts): Cell[] {
   return cells;
 }
 
+export function agyCellArgv(o: {
+  promptFile: string;
+  schemaFile: string;
+  out: string;
+  model: string;
+  addDir: string;
+  task: string;
+}): string[] {
+  return [
+    "--output-format",
+    "json",
+    "--json-schema",
+    o.schemaFile,
+    "--prompt-file",
+    o.promptFile,
+    "--model",
+    o.model,
+    "--add-dir",
+    o.addDir,
+    "--out",
+    o.out,
+    "--task",
+    o.task,
+    "--timeout",
+    AGY_CELL_TIMEOUT,
+  ];
+}
+
+// A decoded cell is written claude-shaped so judge and score read it
+// unchanged; an unusable one is `is_error: true`, which the resume predicate
+// (isCompletedCellOutput) treats as not done so the next run retries it.
+export function wrapAgyCell(
+  decoded: { ok: true; value: AgentFindings } | { ok: false },
+  meta: { durationMs: number; usage?: Record<string, number> },
+): Record<string, unknown> {
+  const common = {
+    type: "result",
+    duration_ms: meta.durationMs,
+    ...(meta.usage ? { usage: meta.usage } : {}),
+  };
+  if (!decoded.ok) {
+    return {
+      ...common,
+      subtype: "error_agy_unusable",
+      is_error: true,
+      result: "",
+    };
+  }
+  return {
+    ...common,
+    subtype: "success",
+    is_error: false,
+    result: JSON.stringify(projectLensFindings(decoded.value)),
+  };
+}
+
+function lastJsonLine(path: string): Record<string, unknown> {
+  try {
+    const line =
+      readFileSync(path, "utf8").trim().split("\n").filter(Boolean).pop() ??
+      "{}";
+    return JSON.parse(line) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+async function runAgyMatrixCell(dataDir: string, cell: Cell): Promise<void> {
+  const { lens: L, pr: P, arm: ARM, run: R } = cell;
+  const base = `${L}-${P}-${ARM}-r${R}`;
+  const runsDir = join(dataDir, "runs");
+  const out = join(runsDir, `${base}.json`);
+  if (completed(out)) {
+    console.log(`skip ${L} ${P} ${ARM} r${R} (exists)`);
+    return;
+  }
+  mkdirSync(runsDir, { recursive: true });
+  const diffPath = join(dataDir, `diff-${P}.patch`);
+  const diffFiles = existsSync(diffPath)
+    ? (readFileSync(diffPath, "utf8").match(/^\+\+\+ b\//gm) ?? []).length
+    : 0;
+  const promptFile = join(runsDir, `${base}.agy-prompt.txt`);
+  writeFileSync(
+    promptFile,
+    `${AGY_HEADLESS_PREAMBLE}\n\n${readFileSync(join(dataDir, `prompt-${L}-${P}.txt`), "utf8")}\n\n${agyLensOutputContract(REPO_ROOT, diffFiles)}`,
+  );
+  const schemaFile = join(dataDir, "agy-findings-schema.json");
+  writeFileSync(schemaFile, JSON.stringify(AGENT_FINDINGS_JSON_SCHEMA));
+  const raw = join(runsDir, `${base}.agy-raw.json`);
+  const envelope = join(runsDir, `${base}.envelope.json`);
+  const started = Date.now();
+  const rc = await spawnCapture(
+    [
+      "flow-delegate",
+      ...agyCellArgv({
+        promptFile,
+        schemaFile,
+        out: raw,
+        model: AGY_ARMS[ARM]!,
+        addDir: REPO_ROOT,
+        task: `recall-${base}`,
+      }),
+    ],
+    envelope,
+  );
+  const env = lastJsonLine(envelope);
+  const artifact =
+    typeof env.artifactPath === "string" ? env.artifactPath : raw;
+  const decoded =
+    env.ran === true && existsSync(artifact)
+      ? decodeLensArtifact(readFileSync(artifact, "utf8"))
+      : ({ ok: false } as const);
+  const cellJson = wrapAgyCell(decoded, {
+    durationMs: Date.now() - started,
+    usage:
+      typeof env.usage === "object" && env.usage !== null
+        ? (env.usage as Record<string, number>)
+        : undefined,
+  });
+  writeFileSync(out, JSON.stringify(cellJson));
+
+  // Count unusable attempts across resumes: "schema-valid on the first
+  // attempt" is a recorded clear criterion, and an overwritten out file
+  // would otherwise lose the failed attempts that preceded a retry success.
+  const sidecar = join(runsDir, `${base}.agy.json`);
+  const prior = lastJsonLine(sidecar) as {
+    attempts?: number;
+    unusable_attempts?: number;
+  };
+  writeFileSync(
+    sidecar,
+    JSON.stringify({
+      attempts: (prior.attempts ?? 0) + 1,
+      unusable_attempts: (prior.unusable_attempts ?? 0) + (decoded.ok ? 0 : 1),
+      last_ran: env.ran === true,
+      last_skip_reason: env.skipReason ?? null,
+    }),
+  );
+  console.log(
+    `done ${L} ${P} ${ARM} r${R} rc=${rc} ${decoded.ok ? "decoded" : "unusable"}`,
+  );
+}
+
 async function runMatrixCell(
   dataDir: string,
   model: string,
+  effort: string,
   cell: Cell,
 ): Promise<void> {
+  if (cell.arm in AGY_ARMS) return runAgyMatrixCell(dataDir, cell);
   const { lens: L, pr: P, arm: ARM, run: R } = cell;
   const out = join(dataDir, "runs", `${L}-${P}-${ARM}-r${R}.json`);
   const envelope = join(
@@ -164,7 +336,7 @@ async function runMatrixCell(
       "--model",
       cellModel,
       "--effort",
-      "medium",
+      effort,
       "--allowed-tools",
       "Read,Grep,Glob",
       "--max-budget-usd",
@@ -272,9 +444,10 @@ function parseArgs(argv: string[]): {
   arms: string[];
   runs: number;
   model: string;
+  effort: string;
 } {
   return {
-    dataDir: flagValue(argv, "--data-dir") ?? join(import.meta.dir, "data"),
+    dataDir: flagValue(argv, "--data-dir") ?? join(HERE, "data"),
     concurrency: Number(
       flagValue(argv, "--concurrency") ?? DEFAULT_CONCURRENCY,
     ),
@@ -283,6 +456,7 @@ function parseArgs(argv: string[]): {
     arms: csv(argv, "--arms", ARMS),
     runs: Number(flagValue(argv, "--runs") ?? DEFAULT_RUNS),
     model: flagValue(argv, "--model") ?? DEFAULT_MODEL,
+    effort: flagValue(argv, "--effort") ?? DEFAULT_EFFORT,
   };
 }
 
@@ -298,12 +472,15 @@ async function main(argv: string[]): Promise<number> {
   if (sub === "matrix") {
     const cells = allCells(args);
     await pool(cells, concurrency, (c) =>
-      runMatrixCell(dataDir, args.model, c),
+      runMatrixCell(dataDir, args.model, args.effort, c),
     );
     const runsDir = join(dataDir, "runs");
     const n = existsSync(runsDir)
       ? readdirSync(runsDir).filter(
-          (f) => f.endsWith(".json") && !f.endsWith(".envelope.json"),
+          (f) =>
+            f.endsWith(".json") &&
+            !f.endsWith(".envelope.json") &&
+            !f.includes(".agy"),
         ).length
       : 0;
     console.log(`MATRIX COMPLETE: ${n} result files`);
@@ -312,9 +489,7 @@ async function main(argv: string[]): Promise<number> {
 
   if (sub === "judge") {
     const cells = allCells(args);
-    await pool(cells, concurrency, (c) =>
-      runJudgeCell(dataDir, import.meta.dir, c),
-    );
+    await pool(cells, concurrency, (c) => runJudgeCell(dataDir, HERE, c));
     console.log("JUDGING COMPLETE");
     return 0;
   }

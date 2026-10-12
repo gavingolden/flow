@@ -75,11 +75,11 @@ describe("config-key coverage: docs/configuration.md agrees with the rendered vi
   // A handful of doc rows describe nested grains under a `.*` umbrella that
   // isn't itself a SETTINGS_KEYS/CONFIG_KEYS/LAUNCH_CONFIG_KEYS entry.
   // `delegate.models.*` / `delegate.timeouts.*` are NOT in this set: those
-  // globs ARE rendered (SETTINGS_KEYS collapses the 11 individual
+  // globs ARE rendered (SETTINGS_KEYS collapses the 12 individual
   // `delegate.models.<surface>` / `delegate.timeouts.<surface>` descriptors
   // down to these two glob keys — see `SETTINGS_KEYS`'s doc comment), so
   // carving them out here would switch off the doc→view direction for all
-  // 11 delegate rows without the carve-out being needed. Only
+  // 12 delegate rows without the carve-out being needed. Only
   // `models.reviewLenses.*` is a nested grain under the `models.*` view
   // with no rendered key of its own.
   const DOC_ONLY_UMBRELLAS = new Set(["models.reviewLenses.*"]);

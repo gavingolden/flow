@@ -30,6 +30,7 @@ import {
   mergeTelemetry,
   parseLensModels,
   parseLensTokens,
+  readDelegationRecord,
   type ReviewTelemetry,
   type TokenUsage,
 } from "./lib/review-telemetry";
@@ -316,7 +317,18 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
 
   const lensTokens = parseLensTokens(args.lensTokens);
   const lensModels = parseLensModels(args.lensModels);
-  const counts = aggregateCounts({ agentOutputs, consolidator, fixApplier });
+  const delegation = readDelegationRecord(
+    deps.readFile(
+      path.join(args.worktree, ".flow-tmp", "agy-lenses-result.json"),
+    ),
+    scopeRaw ? startedAt : null,
+  );
+  const counts = aggregateCounts({
+    agentOutputs,
+    consolidator,
+    fixApplier,
+    delegation,
+  });
 
   const telemetry = mergeTelemetry({
     pr: args.pr,

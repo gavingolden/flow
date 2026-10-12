@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CELL_FILE,
   combinations,
   exactPermutationP,
   mean,
@@ -190,6 +191,32 @@ describe("twoArmSeparation", () => {
     );
   });
 
+  it("reports the reverse-direction p (baseline exceeds candidate) alongside the forward one", () => {
+    const sep = twoArmSeparation(fableOpus)!.separation["bug-detection"] as {
+      exact_permutation_p_one_sided: number;
+      exact_permutation_p_baseline_exceeds_one_sided: number;
+    };
+    const f = [0.1, 0.3, 0.2, 0.2, 0.4, 0.4];
+    const o = [0.0, 0.1, 0.1, 0.1, 0.2, 0.3];
+    expect(sep.exact_permutation_p_baseline_exceeds_one_sided).toBe(
+      round(exactPermutationP(f, o), 4),
+    );
+    // Fable beats opus here, so the regression direction is the unlikely one.
+    expect(sep.exact_permutation_p_baseline_exceeds_one_sided).toBeGreaterThan(
+      sep.exact_permutation_p_one_sided,
+    );
+  });
+
+  it("is null for the reverse-direction p once the arms total more than 20 runs", () => {
+    const cells = [];
+    for (let r = 1; r <= 11; r++) cells.push(armCell("fable", "812", r, 0.3));
+    for (let r = 1; r <= 10; r++) cells.push(armCell("opus", "812", r, 0.1));
+    const sep = twoArmSeparation(cells)!.separation["bug-detection"] as {
+      exact_permutation_p_baseline_exceeds_one_sided: number | null;
+    };
+    expect(sep.exact_permutation_p_baseline_exceeds_one_sided).toBeNull();
+  });
+
   it("emits per-PR runs, mean recall and variance per arm", () => {
     const pr = twoArmSeparation(fableOpus)!.perPr;
     expect(pr.fable!["bug-detection"]!["pr-812"]).toEqual({
@@ -229,6 +256,30 @@ describe("twoArmSeparation", () => {
         armCell("c", "812", 1, 0.1),
       ]),
     ).toBeNull();
+  });
+});
+
+describe("CELL_FILE", () => {
+  it("parses a plain arm and a hyphenated, digit-bearing agy arm", () => {
+    expect("bug-detection-812-opus-r2.json".match(CELL_FILE)?.slice(1)).toEqual(
+      ["bug-detection", "812", "opus", "2"],
+    );
+    expect(
+      "pattern-consistency-756-agy-opus-5-5-high-r1.json"
+        .match(CELL_FILE)
+        ?.slice(1),
+    ).toEqual(["pattern-consistency", "756", "agy-opus-5-5-high", "1"]);
+  });
+
+  it("does not match envelope, sidecar, raw or prompt companions", () => {
+    for (const f of [
+      "bug-detection-812-agy-opus-5-5-high-r1.envelope.json",
+      "bug-detection-812-agy-opus-5-5-high-r1.agy.json",
+      "bug-detection-812-agy-opus-5-5-high-r1.agy-raw.json",
+      "bug-detection-812-opus-r1.prompt.txt",
+    ]) {
+      expect(f.match(CELL_FILE), f).toBeNull();
+    }
   });
 });
 

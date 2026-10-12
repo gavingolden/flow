@@ -31,7 +31,13 @@ diff-only intent-guess agent (skipped on a delta re-entry with a prior
 message, via the Task tool; the fan-out is re-fanned at most once per
 invocation when the Consolidator-Validator's `scope_verdict.widen`
 requests a widen to the full PR diff, inside this same exemption (no new
-Task-tool exemption; the count stays eight). Each spawned lens names
+Task-tool exemption; the count stays eight). When delegation is on
+(`flow-agy-lenses`, a Bash fan-out), Task is the per-lens fallback: the
+fan-out spawns only the lenses the helper routes to `task` plus the
+lenses it reports as `fallback`, so each wave is at most two Task
+messages (the `task`-routed lenses plus intent-guess up front, then the
+`fallback` lenses once the helper returns) — still inside this one
+exemption. Each spawned lens names
 `subagent_type: $LENS_AGENT` (resolved per-lens against the
 `agents/flow-review-<lens>.md` definitions with a Read/Grep/Glob/Write
 `tools:` allowlist and no `model:` pin — nor an `effort:` pin, bar the product
@@ -108,7 +114,10 @@ file-exists guard: the plugin-qualified `flow-module-core:flow-scout`
 name when present (a bare `flow-scout` subagent_type fails Task-tool
 resolution outright — measured: "Agent type 'flow-scout' not found"),
 else `general-purpose` fallback emitting the `NOTICE — agent-fallback:` line
-(no bare-name legacy-install tier).
+(no bare-name legacy-install tier). When `delegate.models.scout` is set,
+`flow-agy-scout` (a Bash fan-out) runs first and writes `scout.md` only
+from a complete report; the Task scout above is the fallback whenever it
+does not.
 
 ## `/flow-pr-review` Fix-Applier Subagent
 
