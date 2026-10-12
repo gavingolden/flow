@@ -286,6 +286,12 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
     }
   });
 
+  it("NEXT_STEP_BY_PHASE names the browser re-drive for browser-retry-pending", () => {
+    expect(nextStepLabel("browser-retry-pending")).toBe(
+      "step 9 (gate) — re-drive the open browser items via /flow-pr-review --resume-from 8c --browser-items, then flow-gate-decide",
+    );
+  });
+
   it("NEXT_STEP_BY_PHASE points ci-wait-pending back at step 7 (the yielded CI-wait phase)", () => {
     // ci-wait-pending is a pending phase, so run() exits 0 before building a
     // reminder — assert the breadcrumb directly via nextStepLabel rather than

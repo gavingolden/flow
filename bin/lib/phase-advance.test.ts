@@ -180,6 +180,26 @@ describe("advancePhase", () => {
     expect(readState("s6b", stateDir)?.phase).toBe("reviewing");
   });
 
+  it("anchors browser-retry-pending at reviewing: gating is forward, a backward write is refused", () => {
+    expect(PENDING_PHASE_ANCHOR["browser-retry-pending"]).toBe("reviewing");
+    seedState("s6c", "browser-retry-pending");
+    const forward = advancePhase("gating", { slug: "s6c", dir: stateDir });
+    expect(forward.advanced).toBe(true);
+    expect(readState("s6c", stateDir)?.phase).toBe("gating");
+
+    seedState("s6d", "browser-retry-pending");
+    const backward = advancePhase("implementing", {
+      slug: "s6d",
+      dir: stateDir,
+    });
+    expect(backward.advanced).toBe(false);
+    expect(readState("s6d", stateDir)?.phase).toBe("browser-retry-pending");
+
+    seedState("s6e", "browser-retry-pending");
+    const same = advancePhase("reviewing", { slug: "s6e", dir: stateDir });
+    expect(same.reason).toBe("already-at-or-past");
+  });
+
   it("returns no-slug and writes nothing when no slug resolves", () => {
     const result = advancePhase("gating", {
       slug: null,
