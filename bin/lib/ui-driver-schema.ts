@@ -32,6 +32,7 @@ const SKIPPED_REASONS = [
   "screenshots-unwritable",
   "driver-no-artifact",
   "credentials-unavailable",
+  "dependency-unready",
 ] as const;
 
 export type UiDriverSkippedReason = (typeof SKIPPED_REASONS)[number];
@@ -61,7 +62,12 @@ export const ITEM_VERDICTS = [
 // /flow-pr-review 8c.iii caller). `capture` items are photographed, never
 // judged, so they take only `captured` / `not-captured`; the other two kinds
 // take only `pass` / `fail` / `not-drivable`.
+//
+// `index` is the 1-based Test Steps index across ALL checklist items in parse
+// order, echoed from the spawn prompt's tagged list; `flow-gate-decide`
+// matches an open Browser item to its verdict by `index` only.
 export type UiDriverItemResult = {
+  index?: number;
   item: string;
   kind: (typeof ITEM_KINDS)[number];
   verdict: (typeof ITEM_VERDICTS)[number];
@@ -70,7 +76,14 @@ export type UiDriverItemResult = {
   screenshots: string[];
 };
 
+export const UI_DRIVER_CALLERS = ["verify", "review-8c"] as const;
+
+// `headSha` (local `git rev-parse HEAD` at artifact-write time) and `caller`
+// let the gate ignore an artifact from an older commit or from the verify
+// stage, which writes the same path.
 export type UiDriverResult = {
+  headSha?: string;
+  caller?: (typeof UI_DRIVER_CALLERS)[number];
   ran: boolean;
   ok: boolean;
   skipped_reason?: UiDriverSkippedReason;
@@ -176,6 +189,12 @@ function validateItemResult(entry: unknown, path: string): string[] {
   if (!isString(o.item) || o.item.length === 0) {
     errors.push(`'${path}.item' must be a non-empty string`);
   } else capped("item", o.item);
+  if (
+    o.index !== undefined &&
+    !(typeof o.index === "number" && Number.isInteger(o.index) && o.index > 0)
+  ) {
+    errors.push(`'${path}.index' must be a positive integer when present`);
+  }
   const kindOk =
     isString(o.kind) && (ITEM_KINDS as readonly string[]).includes(o.kind);
   if (!kindOk) {
@@ -235,6 +254,21 @@ export function validateUiDriverResult(raw: unknown): ValidationResult {
         `'skipped_reason' must be one of ${SKIPPED_REASONS.join(", ")} when present`,
       );
     }
+  }
+
+  if (o.headSha !== undefined && !(isString(o.headSha) && o.headSha !== "")) {
+    errors.push("'headSha' must be a non-empty string when present");
+  }
+  if (
+    o.caller !== undefined &&
+    !(
+      isString(o.caller) &&
+      (UI_DRIVER_CALLERS as readonly string[]).includes(o.caller)
+    )
+  ) {
+    errors.push(
+      `'caller' must be one of ${UI_DRIVER_CALLERS.join(", ")} when present`,
+    );
   }
 
   if (!isString(o.captures_path)) {

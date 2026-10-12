@@ -87,6 +87,7 @@ describe("validateUiDriverResult", () => {
     "screenshots-unwritable",
     "driver-no-artifact",
     "credentials-unavailable",
+    "dependency-unready",
   ])("accepts skipped_reason member %s", (reason) => {
     const result = validateUiDriverResult({
       ...VALID_FULL,
@@ -95,6 +96,56 @@ describe("validateUiDriverResult", () => {
       skipped_reason: reason,
     });
     expect(result.ok).toBe(true);
+  });
+
+  it("accepts the stamped headSha / caller and a positive-integer item index", () => {
+    const result = validateUiDriverResult({
+      ...VALID_FULL,
+      headSha: "abc123",
+      caller: "review-8c",
+      item_results: [
+        {
+          index: 10,
+          item: "Browser: on /x, click Y — expect Z",
+          kind: "behavior",
+          verdict: "pass",
+          screenshots: [],
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    expect(validateUiDriverResult({ ...VALID_FULL, caller: "verify" }).ok).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    ["empty headSha", { headSha: "" }, "'headSha'"],
+    ["non-string headSha", { headSha: 7 }, "'headSha'"],
+    ["unknown caller", { caller: "pipeline" }, "'caller'"],
+  ])("rejects %s", (_label, patch, needle) => {
+    const result = validateUiDriverResult({ ...VALID_FULL, ...patch });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join("\n")).toContain(needle);
+  });
+
+  it.each([0, -1, 1.5, "3"])("rejects item_results index %j", (index) => {
+    const result = validateUiDriverResult({
+      ...VALID_FULL,
+      item_results: [
+        {
+          index,
+          item: "Browser: on /x, click Y — expect Z",
+          kind: "behavior",
+          verdict: "pass",
+          screenshots: [],
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.join("\n")).toContain("item_results[0].index");
+    }
   });
 
   it("rejects an unknown skipped_reason", () => {
