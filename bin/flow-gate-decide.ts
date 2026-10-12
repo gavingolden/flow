@@ -27,6 +27,7 @@
  *     "prUrl": "https://github.com/.../pull/<n>",
  *     "validationItems": ["..."],   // present when decision == "gated" | "browser-retry"
  *     "browserItems": [{index,text,status,reason?}], // present when "browser-retry"
+ *     "autoRedriven": true | false, // present when "browser-retry"
  *     "reason": "<one-line summary>",
  *     "autoMerge": true | false
  *   }
@@ -39,12 +40,22 @@
  * `browser-retry-pending` if they are still blocked. Any open command/prose
  * item, or a `failed` / `not-drivable` browser item, keeps `gated`.
  *
+ * "Once" is read from `<worktree>/.flow-tmp/browser-auto-redrive`, which the
+ * supervisor writes with the head sha it re-drove (so a new commit re-arms
+ * the re-drive). When that sha equals the current head, `autoRedriven` is
+ * true and `browser-retry` is returned only while an item is still
+ * `env-blocked` (an outage a retry can outlast); any other leftover status
+ * means the re-drive itself could not reach a verdict, which retrying again
+ * will not change, so the gate returns `gated`.
+ *
  * Exit codes:
  *   0 — decision computed (any kind, including escalations — caller branches on `decision`)
  *   2 — bad CLI args
  */
 
 import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { readState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
@@ -74,6 +85,7 @@ export type DecisionResult = {
   prUrl?: string;
   validationItems?: string[];
   browserItems?: OpenBrowserItem[];
+  autoRedriven?: boolean;
   reason: string;
   autoMerge: boolean;
 };
@@ -214,11 +226,21 @@ export function findTrappedTestSteps(body: string): string[] {
   return items;
 }
 
+export const AUTO_REDRIVE_MARKER = ".flow-tmp/browser-auto-redrive";
+
 const RETRYABLE: readonly BrowserItemStatus[] = [
   "env-blocked",
   "not-attempted",
   "passed-unticked",
 ];
+
+function defaultReadFile(p: string): string | null {
+  try {
+    return fs.readFileSync(p, "utf8");
+  } catch {
+    return null;
+  }
+}
 
 const isHumanOnly = (text: string): boolean =>
   text.startsWith("SUBJECTIVE: ") || text.startsWith("DECISION: ");
@@ -316,10 +338,15 @@ export function decide(
     const others = section.uncheckedItems.filter(
       (t) => !t.startsWith("Browser: "),
     );
+    const markerRaw = (deps.readFile ?? defaultReadFile)(
+      path.join(inputs.worktree, AUTO_REDRIVE_MARKER),
+    );
+    const autoRedriven = markerRaw?.trim() === inputs.headSha;
     if (
       browserItems.length > 0 &&
       browserItems.every((b) => RETRYABLE.includes(b.status)) &&
-      others.every(isHumanOnly)
+      others.every(isHumanOnly) &&
+      (!autoRedriven || browserItems.some((b) => b.status === "env-blocked"))
     ) {
       return {
         decision: "browser-retry",
@@ -327,6 +354,7 @@ export function decide(
         prUrl: url,
         validationItems: section.uncheckedItems,
         browserItems,
+        autoRedriven,
         reason: `${browserItems.length} open Browser item(s) not run to a verdict (${browserItems.map((b) => b.index).join(", ")}); re-drive them before gating`,
         autoMerge,
       };

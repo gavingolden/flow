@@ -481,8 +481,13 @@ describe("decide() — browser-retry", () => {
   ];
   const files = (map: Record<string, unknown>) => ({
     readFile: (p: string): string | null =>
-      p in map ? JSON.stringify(map[p]) : null,
+      p in map
+        ? typeof map[p] === "string"
+          ? (map[p] as string)
+          : JSON.stringify(map[p])
+        : null,
   });
+  const MARKER = "/wt/.flow-tmp/browser-auto-redrive";
   const gate = (
     b: string,
     map: Record<string, unknown> = {},
@@ -575,6 +580,62 @@ describe("decide() — browser-retry", () => {
     expect(
       gate(body("- [ ] Check the thing by eye", BROWSER[0])).decision,
     ).toBe("gated");
+  });
+
+  it("stays gated when only SUBJECTIVE/DECISION items are open (nothing to re-drive)", () => {
+    expect(
+      gate(
+        body(
+          ...ticked(2),
+          "- [ ] SUBJECTIVE: it feels calm",
+          "- [ ] DECISION: accept X",
+        ),
+      ).decision,
+    ).toBe("gated");
+    expect(
+      gate(body("- [x] " + BROWSER[0].slice(6), "- [ ] SUBJECTIVE: ok"))
+        .decision,
+    ).toBe("gated");
+  });
+
+  it("stays gated when an item is trapped in an unterminated <details>", () => {
+    expect(
+      gate(body(BROWSER[0], "<details>", "- [ ] Run `x` — ok")).decision,
+    ).toBe("gated");
+  });
+
+  it("reports autoRedriven false until the marker carries the current head", () => {
+    const b = body(...ticked(1), BROWSER[0]);
+    expect(gate(b).autoRedriven).toBe(false);
+    expect(gate(b, { [MARKER]: "old999\n" }).autoRedriven).toBe(false);
+    expect(
+      gate(b, {
+        [MARKER]: `${HEAD}\n`,
+        [PREFLIGHT]: { headSha: HEAD, ready: false },
+      }).autoRedriven,
+    ).toBe(true);
+  });
+
+  it("after the automatic re-drive, pauses only while an item is env-blocked", () => {
+    const b = body(...ticked(1), BROWSER[0]);
+    const redriven = { [MARKER]: HEAD };
+    const blocked = gate(b, {
+      ...redriven,
+      [PREFLIGHT]: { headSha: HEAD, ready: false },
+    });
+    expect(blocked.decision).toBe("browser-retry");
+    expect(blocked.autoRedriven).toBe(true);
+    // The driver ran but returned nothing for the item: retrying cannot help.
+    expect(gate(b, { ...redriven, ...driver([]) }).decision).toBe("gated");
+    expect(
+      gate(b, { ...redriven, ...driver([verdict(2, "pass")]) }).decision,
+    ).toBe("gated");
+  });
+
+  it("a fix commit re-arms the automatic re-drive (marker names an older head)", () => {
+    const r = gate(body(...ticked(1), BROWSER[0]), { [MARKER]: "old999" });
+    expect(r.decision).toBe("browser-retry");
+    expect(r.autoRedriven).toBe(false);
   });
 
   it("still returns browser-retry with autoMerge false (it re-runs, then gates)", () => {

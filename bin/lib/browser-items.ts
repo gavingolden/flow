@@ -49,6 +49,18 @@ const DEPENDENCY_DRIVER_REASONS: readonly UiDriverSkippedReason[] = [
   "dependency-unready",
 ];
 
+// The driver ran into something only a human can resolve; re-driving hits the
+// same wall, so these never reach the retry pause (the gate reads `failed` as
+// GATED).
+const HUMAN_DRIVER_REASONS: Readonly<
+  Partial<Record<UiDriverSkippedReason, string>>
+> = {
+  "credentials-unavailable":
+    "credentials were absent or refused; a human must supply them",
+  "screenshots-unwritable":
+    "no writable screenshot path; a human must fix the filesystem",
+};
+
 type Evidence = {
   driver: Record<string, unknown> | null;
   preflight: Record<string, unknown> | null;
@@ -151,6 +163,15 @@ function classifyOne(
   const skip = driverSkip(ev.driver);
   if (skip && (ENV_DRIVER_REASONS as readonly string[]).includes(skip)) {
     return { status: "env-blocked", reason: `driver skipped: ${skip}` };
+  }
+  const human = skip
+    ? HUMAN_DRIVER_REASONS[skip as UiDriverSkippedReason]
+    : undefined;
+  if (skip && human) {
+    return {
+      status: "failed",
+      reason: `driver skipped: ${skip} (${human}; retrying cannot fix it)`,
+    };
   }
   if (
     (skip === "app-launch-failed" || skip === "login-failed") &&

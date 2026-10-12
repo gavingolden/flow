@@ -117,6 +117,18 @@ describe("classifyOpenBrowserItems", () => {
     expect(items.every((i) => i.status === "failed")).toBe(true);
   });
 
+  it.each(["credentials-unavailable", "screenshots-unwritable"])(
+    "classifies a %s driver skip as failed so the gate does not offer a pointless retry",
+    (skipped_reason) => {
+      const deps = files({
+        [DRIVER_PATH]: driver({ ran: false, skipped_reason }),
+      });
+      const items = classifyOpenBrowserItems(BODY, WT, HEAD, deps);
+      expect(items.every((i) => i.status === "failed")).toBe(true);
+      expect(items[0].reason).toContain(skipped_reason);
+    },
+  );
+
   it("classifies login-failed with no preflight as not-attempted", () => {
     const deps = files({
       [DRIVER_PATH]: driver({ ran: false, skipped_reason: "login-failed" }),
