@@ -20,15 +20,24 @@
  *
  * Output: a single JSON object on stdout.
  *   {
- *     "decision": "auto-merge" | "gated" | "merged-externally"
- *               | "closed-no-merge" | "escalate-heading-missing"
- *               | "escalate-gh-error",
+ *     "decision": "auto-merge" | "gated" | "browser-retry"
+ *               | "merged-externally" | "closed-no-merge"
+ *               | "escalate-heading-missing" | "escalate-gh-error",
  *     "prState": "OPEN" | "MERGED" | "CLOSED",
  *     "prUrl": "https://github.com/.../pull/<n>",
- *     "validationItems": ["..."],   // present when decision == "gated"
+ *     "validationItems": ["..."],   // present when decision == "gated" | "browser-retry"
+ *     "browserItems": [{index,text,status,reason?}], // present when "browser-retry"
  *     "reason": "<one-line summary>",
  *     "autoMerge": true | false
  *   }
+ *
+ * `browser-retry`: every open item is either a `Browser:` item nobody ran
+ * (env-blocked, not-attempted, or passed-but-unticked per `bin/lib/
+ * browser-items.ts`, from head-fresh evidence under the pipeline's worktree)
+ * or human-only (`SUBJECTIVE:` / `DECISION:`). It is NON-terminal — unlike
+ * `gated`: the supervisor re-drives those browser items once, then pauses at
+ * `browser-retry-pending` if they are still blocked. Any open command/prose
+ * item, or a `failed` / `not-drivable` browser item, keeps `gated`.
  *
  * Exit codes:
  *   0 — decision computed (any kind, including escalations — caller branches on `decision`)
@@ -44,10 +53,16 @@ import {
   findUnterminatedHtmlBlockLines,
 } from "./lib/md-block-structure";
 import { advancePhase } from "./lib/phase-advance";
+import {
+  classifyOpenBrowserItems,
+  type BrowserItemStatus,
+  type OpenBrowserItem,
+} from "./lib/browser-items";
 
 export type Decision =
   | "auto-merge"
   | "gated"
+  | "browser-retry"
   | "merged-externally"
   | "closed-no-merge"
   | "escalate-heading-missing"
@@ -58,6 +73,7 @@ export type DecisionResult = {
   prState?: "OPEN" | "MERGED" | "CLOSED";
   prUrl?: string;
   validationItems?: string[];
+  browserItems?: OpenBrowserItem[];
   reason: string;
   autoMerge: boolean;
 };
@@ -67,6 +83,8 @@ export type GateInputs = {
   state: "OPEN" | "MERGED" | "CLOSED";
   url: string;
   autoMerge: boolean;
+  worktree?: string | null;
+  headSha?: string | null;
 };
 
 const HEADING_RE = /^## Test Steps[ \t]*$/m;
@@ -196,7 +214,19 @@ export function findTrappedTestSteps(body: string): string[] {
   return items;
 }
 
-export function decide(inputs: GateInputs): DecisionResult {
+const RETRYABLE: readonly BrowserItemStatus[] = [
+  "env-blocked",
+  "not-attempted",
+  "passed-unticked",
+];
+
+const isHumanOnly = (text: string): boolean =>
+  text.startsWith("SUBJECTIVE: ") || text.startsWith("DECISION: ");
+
+export function decide(
+  inputs: GateInputs,
+  deps: { readFile?: (p: string) => string | null } = {},
+): DecisionResult {
   const { body, state, url, autoMerge } = inputs;
 
   if (state === "MERGED") {
@@ -272,6 +302,35 @@ export function decide(inputs: GateInputs): DecisionResult {
       reason: "no unchecked test steps; auto-merge" + trappedSuffix,
       autoMerge,
     };
+  }
+  // Browser items nobody ran (plus judgment items) are a pause, not a
+  // dead end. Needs a worktree to read evidence from and a local head to
+  // judge its freshness; without both, today's `gated` stands.
+  if (inputs.worktree && inputs.headSha && trappedItems.length === 0) {
+    const browserItems = classifyOpenBrowserItems(
+      body,
+      inputs.worktree,
+      inputs.headSha,
+      deps,
+    );
+    const others = section.uncheckedItems.filter(
+      (t) => !t.startsWith("Browser: "),
+    );
+    if (
+      browserItems.length > 0 &&
+      browserItems.every((b) => RETRYABLE.includes(b.status)) &&
+      others.every(isHumanOnly)
+    ) {
+      return {
+        decision: "browser-retry",
+        prState: state,
+        prUrl: url,
+        validationItems: section.uncheckedItems,
+        browserItems,
+        reason: `${browserItems.length} open Browser item(s) not run to a verdict (${browserItems.map((b) => b.index).join(", ")}); re-drive them before gating`,
+        autoMerge,
+      };
+    }
   }
   // has-unchecked → gated
   return {
@@ -379,7 +438,20 @@ export type Deps = {
   gh?: GhRunner;
   stateDir?: string;
   resolveSlug?: () => string | null;
+  readFile?: (p: string) => string | null;
+  localHead?: (cwd: string) => string | null;
 };
+
+// LOCAL HEAD only, never `gh pr view` (head-sync stall: the PR object can
+// hold a stale head SHA for hours).
+function defaultLocalHead(cwd: string): string | null {
+  const r = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+  });
+  const sha = (r.stdout ?? "").trim();
+  return r.status === 0 && sha ? sha : null;
+}
 
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
@@ -423,12 +495,21 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 0;
   }
 
-  const result = decide({
-    body: fetched.body,
-    state: fetched.state,
-    url: fetched.url,
-    autoMerge,
-  });
+  const worktree = state?.worktree ?? null;
+  const headSha = worktree
+    ? (deps.localHead ?? defaultLocalHead)(worktree)
+    : null;
+  const result = decide(
+    {
+      body: fetched.body,
+      state: fetched.state,
+      url: fetched.url,
+      autoMerge,
+      worktree,
+      headSha,
+    },
+    { readFile: deps.readFile },
+  );
   process.stdout.write(JSON.stringify(result) + "\n");
   return 0;
 }
