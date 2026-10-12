@@ -26,6 +26,20 @@ scopes for any unclaimed file (never when the diff is fully claimed).
 (`filterDefinedChecks` drops undefined-script checks; a zero-check
 non-empty diff signals `reason: "no-checks-defined"`.)
 
+## Cross-scope dedupe
+
+When several scopes resolve to the same command, an identical read-only
+verifier runs once per invocation: `npm run test`, `test:related`, `lint`,
+`typecheck`, `typecheck:*`, `check`, or `format:check` (any trailing args),
+`flow-md-validate`, `actionlint`, and `go vet` / `go test`. It executes at
+its first position; each later scope still gets a result row, carrying
+`dedupedFrom` (the executing scope), `durationMs: 0`, and — for a failing
+row — empty `headExcerpt`/`tailExcerpt` with `firstErrorText` kept. Any
+other command (build, generate, a configured user command) always runs and
+resets reuse, so a mutating step can never leave a stale verdict behind.
+Reuse never spans invocations, and an npm-workspaces root `npm run test`
+is not a duplicate of `npm run test -w <pkg>`.
+
 ## Host-wide test-concurrency cap
 
 `flow-pre-commit` caps concurrent local test runs host-wide at

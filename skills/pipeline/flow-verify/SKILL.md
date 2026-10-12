@@ -141,8 +141,12 @@ this shape (failed checks only — passing checks omit the `failure` field):
 }
 ```
 
-Parse the JSON — `failure.firstErrorText` and `failure.headExcerpt` are the canonical
-source of failure context. Do not paste the full raw stderr back into chat; the bounded
+A row carrying `dedupedFrom: "<scope>"` repeats that scope's result for the identical
+command, and its `headExcerpt`/`tailExcerpt` are empty — read the excerpt from the
+executed row it names.
+
+Parse the JSON — `failure.firstErrorText` and `failure.headExcerpt` (on the executed
+row, not a `dedupedFrom` copy) are the canonical source of failure context. Do not paste the full raw stderr back into chat; the bounded
 excerpt is intentional. If the supervisor needs more than the excerpt for a non-obvious
 failure, the user can re-run `flow-pre-commit` (without `--json`) to see the full output
 in the terminal — but that detail does not need to flow back through the supervisor's
@@ -186,9 +190,9 @@ relevant source file directly. Fix the issue in the source file.
 ### Spawn procedure (wider-scope path only)
 
 1. Compose the **edit-set** from each failed `results[]` entry of the
-   `flow-pre-commit --json` report. One entry per failed check
-   (`results[i].passed === false`), each a JSON-shaped object with three
-   fields:
+   `flow-pre-commit --json` report. One entry per distinct failing check
+   `name` (`results[i].passed === false`), skipping rows that carry
+   `dedupedFrom`, each a JSON-shaped object with three fields:
    - `file` — repo-relative path of the failing source (resolved from
      `results[i].failure.firstErrorText`).
    - `intent` — 1–2 lines naming the issue (typically
