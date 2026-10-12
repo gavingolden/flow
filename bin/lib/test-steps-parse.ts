@@ -163,7 +163,8 @@ const BROWSER_ACTION_RE =
 const BROWSER_MAX_ACTIONS = 8;
 const BROWSER_INPUT_RES = [
   /\b(?:wheel|pinch|trackpad)\b/i,
-  /\b(?:cmd|ctrl|command|control|shift|alt|option)\b[-+ ]?(?:\w+ )?(?:scroll|drag|wheel)\b/i,
+  /\b(?:hold(?:ing)?|press(?:ing)?)\s+(?:the\s+)?(?:cmd|ctrl|command|control|shift|alt|option)\b/i,
+  /\b(?:cmd|ctrl|command|control|shift|alt|option)[-+ ](?:scroll|drag|wheel)\b/i,
 ];
 
 const BROWSER_FIX =

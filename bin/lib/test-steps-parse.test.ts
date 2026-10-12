@@ -294,16 +294,26 @@ describe("lintTestSteps — Browser items the driver cannot run", () => {
     ]);
   });
 
-  it("does not flag plain scroll or an unrelated Control label", () => {
-    expect(
-      browserCodes(
-        bodyOf(
-          "- [ ] Browser: on /a, scroll to the footer — expect the Control panel link",
-        ),
-        "authoring",
-      ),
-    ).toEqual([]);
+  it.each([
+    "- [ ] Browser: on /a, hold Cmd and drag the handle — expect a range",
+    "- [ ] Browser: on /a, press and hold Shift, then scroll — expect a zoom",
+  ])("flags a hold-modifier gesture: %s", (item) => {
+    expect(browserCodes(bodyOf(item), "authoring")).toContain(
+      "browser-input-unsupported",
+    );
   });
+
+  it.each([
+    "- [ ] Browser: on /a, scroll to the footer — expect the Control panel link",
+    "- [ ] Browser: on /a, open the Control panel and scroll to the footer — expect a link",
+    "- [ ] Browser: on /board, select the card option and drag it to Done — expect it in Done",
+    "- [ ] Browser: on /shifts, select the shift and drag it to Monday — expect it on Monday",
+  ])(
+    "does not flag plain scroll or an unrelated modifier word in the steps: %s",
+    (item) => {
+      expect(browserCodes(bodyOf(item), "authoring")).toEqual([]);
+    },
+  );
 
   it("never lints non-browser items for browser codes", () => {
     expect(

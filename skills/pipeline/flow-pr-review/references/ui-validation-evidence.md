@@ -312,7 +312,11 @@ worktree with the consumer's `@playwright/test`, one item per run, a hard
 timeout, and no state carried between items. Log in by spawning
 `flow-ui-login serve` and evaluating the fill script it returns in the page —
 the agent never reads a `.env` file or a credential value (see "Login step
-(auth-gated apps)"). Never install browser binaries (a download outside the
+(auth-gated apps)"). That section's no-capture rule applies unchanged: the
+script takes no screenshot, trace, video or HAR while on `loginUrl` (launch the
+context with tracing, video and HAR off, starting them only after the
+post-login redirect), and its evidence output never includes the fill
+script's network response. Never install browser binaries (a download outside the
 worktree is neither local nor cheaply reversible).
 Write the results to `.flow-tmp/ui-driver-result.json` in the driver's schema
 (validate with `flow-ui-driver-schema --validate`), stamped `caller: "review-8c"`
