@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  AGY_COOLDOWN_MAX_MS,
   AGY_COOLDOWN_MINUTES,
   COOLDOWN_ARMING_CLASSES,
   armCooldown,
@@ -109,5 +110,32 @@ describe("quota reset parsing", () => {
     expect(readCooldown(new Date("2026-10-06T13:01:00Z"), file).live).toBe(
       false,
     );
+  });
+
+  it("clamps an absurd reset to the ceiling", () => {
+    expect(quotaResetMs(["Resets in 99999h"])).toBe(AGY_COOLDOWN_MAX_MS);
+    expect(quotaResetMs(["Resets in 4h44m12s"])).toBe(
+      (4 * 3600 + 44 * 60 + 12) * 1000,
+    );
+  });
+});
+
+describe("armCooldown never shortens a hold", () => {
+  it("keeps a later existing hold when a shorter arm follows", () => {
+    const t0 = new Date("2026-10-06T08:00:00Z");
+    armCooldown(["quota-exhausted"], t0, file, 5 * 3_600_000);
+    armCooldown(["timeout"], new Date("2026-10-06T08:10:00Z"), file);
+    const rec = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(rec.until).toBe("2026-10-06T13:00:00.000Z");
+    expect(rec.classes).toEqual(["quota-exhausted"]);
+  });
+
+  it("extends a shorter existing hold", () => {
+    const t0 = new Date("2026-10-06T08:00:00Z");
+    armCooldown(["timeout"], t0, file);
+    armCooldown(["quota-exhausted"], t0, file, 5 * 3_600_000);
+    const rec = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(rec.until).toBe("2026-10-06T13:00:00.000Z");
+    expect(rec.classes).toEqual(["quota-exhausted"]);
   });
 });

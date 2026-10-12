@@ -21,6 +21,10 @@ import { FLOW_CACHE_DIR } from "./paths";
 
 export const AGY_COOLDOWN_MINUTES = 60;
 
+// Just over agy's five-hour Ultra window: a malformed or hostile "Resets in
+// 99999h" string must not disable delegation indefinitely.
+export const AGY_COOLDOWN_MAX_MS = 6 * 3_600_000;
+
 // Dispatched failure classes (bin/lib/agy-failure-class.ts) that may have
 // spent quota. Environment skips (agy-not-found, model-unavailable, auth,
 // spawn-failed, canceled) never arm: a "Google plan cooling down" message
@@ -76,7 +80,7 @@ export function quotaResetMs(texts: Array<string | undefined>): number | null {
       if (ms > 0 && (best === null || ms > best)) best = ms;
     }
   }
-  return best;
+  return best === null ? null : Math.min(best, AGY_COOLDOWN_MAX_MS);
 }
 
 export function armCooldown(
@@ -88,6 +92,18 @@ export function armCooldown(
   const until = new Date(
     now.getTime() + (resetMs ?? AGY_COOLDOWN_MINUTES * 60_000),
   );
+  // Never shorten a hold: a concurrent pipeline's default window must not
+  // replace another's longer quota-reset hold. The longer record is kept as-is.
+  try {
+    const existing = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      until?: unknown;
+    };
+    const existingMs =
+      typeof existing.until === "string" ? Date.parse(existing.until) : NaN;
+    if (!Number.isNaN(existingMs) && existingMs >= until.getTime()) return;
+  } catch {
+    // missing or unparseable marker: arm normally
+  }
   const record = {
     armed_at: now.toISOString(),
     until: until.toISOString(),
