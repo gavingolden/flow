@@ -39,6 +39,7 @@ export const SLUG_TO_HUMAN: Record<string, string> = {
   "performance-under-realistic-load": "performance under realistic load",
   "cost-prohibitive-infra": "cost-prohibitive infra",
   "browser-unavailable": "browser unavailable",
+  "browser-not-attempted": "browser not attempted",
   "credentials-unavailable": "credentials unavailable",
 };
 

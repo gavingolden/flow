@@ -18,6 +18,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { browserUnavailableBacked } from "./browser-items";
 import { validatePrReviewResult } from "./pr-review-result-schema";
 import {
   ghSupportsAttach,
@@ -344,6 +345,25 @@ export async function runReviewFinalize(
     opts.ran !== undefined &&
     opts.total !== undefined
   ) {
+    // A free-text `browser-unavailable` must be backed by a fresh
+    // ui-preflight.json / review-8c ui-driver-result.json; otherwise nobody
+    // tried, and the audit line says so (exit code unchanged — the gate is
+    // what forces the re-drive).
+    const reasons = (opts.reasons ?? []).map((r) => {
+      if (r !== "browser-unavailable") return r;
+      if (
+        browserUnavailableBacked(opts.worktree, last_sha || null, { readFile })
+          .backed
+      ) {
+        return r;
+      }
+      skips.push({
+        step: "classify_step",
+        reason:
+          "browser-unavailable not backed by ui-preflight.json or ui-driver-result.json — relabelled browser-not-attempted",
+      });
+      return "browser-not-attempted";
+    });
     const classifyArgs = [
       "flow-classify-step",
       "--ran",
@@ -352,7 +372,7 @@ export async function runReviewFinalize(
       String(opts.total),
       "--prose-promoted",
       String(opts.prosePromoted ?? 0),
-      ...(opts.reasons ?? []).flatMap((r) => ["--reason", r]),
+      ...reasons.flatMap((r) => ["--reason", r]),
     ];
     const classify = exec(classifyArgs);
     if (classify.exitCode === 0) {
