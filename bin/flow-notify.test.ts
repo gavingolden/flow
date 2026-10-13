@@ -192,6 +192,20 @@ describe("buildPayload", () => {
     }
   });
 
+  it("browser-retry-pending maps to its own retry recipe, not the default action", () => {
+    const action = nextActionHeadline("browser-retry-pending");
+    expect(action).not.toBe(DEFAULT_NEXT_ACTION);
+    expect(action).toBe(
+      "Reply retry in the pipeline window to re-run the open browser checks, then the merge gate.",
+    );
+    const { message } = buildPayload({
+      status: "needs-human",
+      tag: "browser-retry-pending",
+      reason: "2 browser checks did not run",
+    });
+    expect(message.startsWith(`Next: ${action}`)).toBe(true);
+  });
+
   it("gated leads with the Validate action, then the TLDR", () => {
     const payload = buildPayload({
       status: "gated",

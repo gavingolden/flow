@@ -761,6 +761,47 @@ describe("decide() — row 7 (ci-wait)", () => {
     expect(r.resumeAt).toBe("step-7");
   });
 
+  it("resumes at browser-retry when phase is 'browser-retry-pending' and the PR is OPEN", () => {
+    const r = decide(
+      makeInputs({ state: baseState({ phase: "browser-retry-pending" }) }),
+    );
+    expect(r.resumeAt).toBe("browser-retry");
+    expect(r.reason).toBe("browser-retry-pending-open-browser-items");
+    expect(r.context.pr).toBe(100);
+  });
+
+  it("keeps the shared merged / closed handling for 'browser-retry-pending'", () => {
+    const merged = decide(
+      makeInputs({
+        state: baseState({ phase: "browser-retry-pending" }),
+        pr: {
+          kind: "found",
+          state: "MERGED",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
+      }),
+    );
+    expect(merged.resumeAt).toBe("step-9");
+    expect(merged.reason).toBe("pr-merged-worktree-still-exists");
+    const closed = decide(
+      makeInputs({
+        state: baseState({ phase: "browser-retry-pending" }),
+        pr: {
+          kind: "found",
+          state: "CLOSED",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
+      }),
+    );
+    expect(closed.resumeAt).toBe("escalate");
+  });
+
+  it("does not treat 'browser-retry-pending' as a no-in-flight-work phase", () => {
+    expect(NO_INFLIGHT_WORK_PHASES.has("browser-retry-pending")).toBe(false);
+  });
+
   it("resumes at step-3 when phase is 'plan-review-pending' (yielded while the async cross-model review was in flight)", () => {
     // plan-review-pending implies plan.md is already drafted (planExists
     // stays true), so a crash while yielded must resume at step-3 to

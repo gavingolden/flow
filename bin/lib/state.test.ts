@@ -1501,6 +1501,19 @@ describe("phase constants", () => {
     expect(isPipelinePhase("ci-wait-pending")).toBe(true);
   });
 
+  it("browser-retry-pending is a pending phase with the brwsr? label, disjoint from STEP and TERMINAL", () => {
+    expect(PENDING_PHASES).toContain("browser-retry-pending");
+    expect(STEP_PHASES as readonly string[]).not.toContain(
+      "browser-retry-pending",
+    );
+    expect(TERMINAL_PHASES as readonly string[]).not.toContain(
+      "browser-retry-pending",
+    );
+    expect(PHASE_SHORT["browser-retry-pending"]).toBe("brwsr?");
+    expect(isLegitimateEndPhase("browser-retry-pending")).toBe(true);
+    expect(isPipelinePhase("browser-retry-pending")).toBe(true);
+  });
+
   it("isPipelinePhase narrows known phases", () => {
     expect(isPipelinePhase("implementing")).toBe(true);
     expect(isPipelinePhase("merged")).toBe(true);
@@ -1803,6 +1816,7 @@ describe("shortPhase", () => {
     "triage-pending-interview": "intq?",
     "approval-pending-clarification": "appr?",
     "ci-wait-pending": "ci?",
+    "browser-retry-pending": "brwsr?",
     "checkpoint-pending-clear": "ckpt?",
     merged: "merged",
     gated: "gated",

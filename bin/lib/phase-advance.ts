@@ -105,15 +105,21 @@ export type AdvancePhaseOpts = {
  * pipeline sits in that pending phase is a safe equal-phase no-op rather
  * than a backward move.
  *
- * Deliberately anchors `ci-wait-pending` ONLY, not all nine
- * `PENDING_PHASES` entries — the cut-list form (plan.md "## Cut list" +
- * the cross-model review's accepted point) wins over Task 1's original
- * nine-entry enumeration: helper emissions only ever advance from forward
- * step phases, and `ci-wait-pending` (the Step-7 yield) is the only
- * pending phase one of the six helpers can observe live.
+ * Deliberately anchors only the pending phases a helper can observe live
+ * (not all `PENDING_PHASES`) — the cut-list form (plan.md "## Cut list" +
+ * the cross-model review's accepted point) wins over an every-entry
+ * enumeration, since helper emissions only ever advance from forward step
+ * phases. Two anchors:
+ *  - `ci-wait-pending` (the Step-7 yield) -> `ci-wait`.
+ *  - `browser-retry-pending` (Step 9's pause on un-run Browser items) ->
+ *    `reviewing`, the step it re-enters: the gate's `gating` write after
+ *    the re-drive is then a forward move, and a `reviewing` write is an
+ *    equal-phase no-op. An unanchored pending phase would resolve to index
+ *    -1 and let ANY target through, including a backward write.
  */
 export const PENDING_PHASE_ANCHOR: Readonly<Record<string, string>> = {
   "ci-wait-pending": "ci-wait",
+  "browser-retry-pending": "reviewing",
 };
 
 /**

@@ -105,6 +105,7 @@ export type ResumeAt =
   | "step-8"
   | "step-9"
   | "gated-feedback"
+  | "browser-retry"
   | "awaiting-human"
   | "terminal"
   | "escalate"
@@ -260,8 +261,9 @@ export const TERMINAL_PHASE_SET = new Set<string>(TERMINAL_PHASES);
 // is checked before Row 2.
 //
 // The other PENDING_PHASES (plan-pending-review, approval-pending-clarification,
-// ci-wait-pending, plan-pending-interview) DO have in-flight work and fall
-// through to their correct rows (4 / 4 / 7 / 3) — deliberately excluded here.
+// ci-wait-pending, plan-pending-interview, browser-retry-pending) DO have
+// in-flight work and fall through to their correct rows (4 / 4 / 7 / 3, and
+// the dedicated browser-retry branch) — deliberately excluded here.
 // The subset relationship to the canonical PENDING_PHASES is guarded in
 // flow-resume-decide.test.ts.
 export const NO_INFLIGHT_WORK_PHASES = new Set<string>([
@@ -272,7 +274,10 @@ export const NO_INFLIGHT_WORK_PHASES = new Set<string>([
 // Row 4: approval done — phase advanced past plan-pending-review.
 // `ci-wait-pending` (the step-7 yield-while-backgrounded pending phase)
 // implies every earlier phase is complete, so it belongs in all three
-// "phase advanced past row N" sets below alongside `ci-wait`.
+// "phase advanced past row N" sets below alongside `ci-wait`;
+// `browser-retry-pending` (step 9's pause on un-run Browser items) likewise
+// implies verify and CI are done. It is deliberately NOT in
+// NO_INFLIGHT_WORK_PHASES: resume must re-drive, not terminate.
 const POST_APPROVAL_PHASES = new Set([
   "checkpoint-pending-clear",
   "implementing",
@@ -280,6 +285,7 @@ const POST_APPROVAL_PHASES = new Set([
   "verifying",
   "ci-wait",
   "ci-wait-pending",
+  "browser-retry-pending",
   "reviewing",
   "gating",
   "merging",
@@ -292,6 +298,7 @@ const POST_SYMLINK_PHASES = new Set([
   "verifying",
   "ci-wait",
   "ci-wait-pending",
+  "browser-retry-pending",
   "reviewing",
   "gating",
   "merging",
@@ -306,6 +313,7 @@ const POST_SYMLINK_PHASES = new Set([
 const POST_VERIFY_PHASES = new Set([
   "ci-wait",
   "ci-wait-pending",
+  "browser-retry-pending",
   "reviewing",
   "gating",
   "merging",
@@ -587,6 +595,22 @@ export function decide(inputs: Inputs): DecisionResult {
     return {
       resumeAt: "step-2",
       reason: "worktree not yet created",
+      context: ctx,
+    };
+  }
+
+  // Browser-retry pause: the PR is OPEN (MERGED / CLOSED / missing worktree
+  // were resolved above by the shared handling) and the open Browser items
+  // were never driven to a verdict — re-enter review Step 8c for them, then
+  // re-run the merge gate.
+  if (
+    inputs.state.phase === "browser-retry-pending" &&
+    inputs.pr.kind === "found" &&
+    inputs.pr.state === "OPEN"
+  ) {
+    return {
+      resumeAt: "browser-retry",
+      reason: "browser-retry-pending-open-browser-items",
       context: ctx,
     };
   }

@@ -323,7 +323,11 @@ retry a `status: "partial"` review without re-running the multi-agent
 fan-out from scratch. If no prior artifact exists when
 `--resume-from` is passed, the wrapper escalates `NEEDS HUMAN:
 pr-review-missing-artifact` — the flag's contract is to resume an
-existing run, not to fabricate one.
+existing run, not to fabricate one. `--resume-from 8c` also takes
+`--browser-items <indices>` (comma-separated 1-based indices from `flow-gate-decide`'s
+`.browserItems`): it skips the command-item run and 8c.ii, still runs
+`flow-ui-validate` then `flow-ui-preflight`, drives only the listed items, then
+jumps to Step 12, recomputing the audit M/N from the live body.
 
 # Instructions
 
@@ -1131,6 +1135,8 @@ become a runnable bucket** rather than not-runnable — no hand-authored
 self-completes + commits (names/config only, never a secret value — see the manifest-less bootstrap flow in [references/ui-validation-evidence.md](references/ui-validation-evidence.md)). A
 `SUBJECTIVE: `-prefixed item is never validated into a tick, only photographed. The bucket holds **three kinds** — `appearance`, `behavior` (`Browser: ` items), `capture` (`SUBJECTIVE: ` items) — sent to the one spawn as a tagged `MODE: items` list; tick only on `pass`, leave `fail` / `not-drivable` / no-browser open with the reason (`browser-unavailable`, never `subjective UX`), and inject captures via `flow-inject-evidence --no-tick --image`: see "Three item kinds, one spawn" and "Capture-only evidence for SUBJECTIVE items" in [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
 
+**Preflight, then drive — never pre-decide.** Whenever a `Browser: ` item is open, run `flow-ui-preflight --worktree "$WORKTREE"` (Bash `timeout: 600000`) after `flow-ui-validate` and before the driver spawn. Its envelope (`.flow-tmp/ui-preflight.json`, with the recorded load and dependency snapshot) is the ONLY readiness verdict: an ad-hoc probe (`curl`, a port check) is never a veto, no browser item's outcome may be decided before 8c.iii runs, and `browser-unavailable` may be emitted only with that recorded snapshot. Tag each item in the `MODE: items` list with its 1-based index across ALL checklist items; the driver echoes it in `item_results[]` and stamps `headSha` + `caller: "review-8c"` into its artifact. Evidence detail: [references/ui-validation-evidence.md](references/ui-validation-evidence.md) "Three item kinds, one spawn".
+
 The MCP-present path spawns the **UI-driver Subagent** — the same eighth
 Task-tool exemption `/flow-verify`'s Optional UI-smoke pass uses, a second
 caller (mirrors `/flow-coder`'s own multi-caller shape, so the exemption
@@ -1177,17 +1183,20 @@ session — live in [references/ui-validation-evidence.md](references/ui-validat
 When the `chrome-devtools` MCP is **absent or contended** — the guarded
 `ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns nothing
 (absent), or an attempted MCP call fails because its single Chrome profile is
-already in use by a concurrent pipeline (contended) — drive the repo's
-own headless browser instead (e.g. `@playwright/test`) **when the repo has one**,
-rather than leaving the browser item manual: a local headless browser is a
-local-and-reversible dependency the agent stands up, not an external service. The
-`@playwright/test` run is an ordinary Bash invocation, so it preserves
+already in use by a concurrent pipeline (contended) — or the preflight reports
+`dependency-unready` (after its own start attempt), or an item comes back
+`not-drivable` (e.g. wheel or modifier-held input), drive the repo's own
+headless browser instead **when the repo has one**: a bounded script under
+`.flow-tmp/browser-fallback/`, run from the worktree with the repo's own
+`@playwright/test`, logging in through `flow-ui-login serve`'s fill script
+(never reading a value or a `.env` file) and never installing browser binaries.
+See [references/ui-validation-evidence.md](references/ui-validation-evidence.md)
+"Headless fallback". It is an ordinary Bash invocation, so it preserves
 **Durable-test precedence** and stays **Automatable via the browser-validation
-capability**. Only if neither the MCP nor a repo headless browser is available does
-the browser item legitimately stay not-runnable and unticked exactly as today —
-no regression. This fallback path adds **no new Task-tool exemption**: it runs
-inline inside the already-exempt Fix-Applier surface, never spawning the
-UI-driver.
+capability**, and it adds **no new Task-tool exemption**: 8c is wrapper-side,
+and the fallback never spawns the UI-driver. Only if neither the MCP nor a repo
+headless browser is available does the browser item stay not-runnable and
+unticked — no regression.
 
 When the worktree-local `.flow-tmp/design/spec.json` exists, this bucket also
 runs the **design-fidelity per-assertion walk** — mechanical Visual Spec items
@@ -1681,7 +1690,7 @@ section ends with one summary line:
 Automation-precedence audit: ran N/M items (X prose-promoted, Y left manual: <reasons>)
 ```
 
-Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X, Y) and the per-unticked-item rubric categories; the `flow-review-finalize` call above forwards them to `flow-classify-step --ran $N --total $M --prose-promoted $X --reason ...` internally and folds its stdout into the result artifact's `summary` field — read that field back (see above) and append it to the report under "Test Steps (from PR description)". Allowed `--reason` slugs (kebab-case form of the categories in references/manual-test-rubric.md, plus `credentials-unavailable` for a login blocked by a credential-denial per [references/ui-validation-evidence.md](references/ui-validation-evidence.md)): `subjective-UX`, `production-only`, `cross-browser`, `performance-under-realistic-load`, `cost-prohibitive-infra`, `browser-unavailable`, `credentials-unavailable`. The bullet list below remains the contract documentation; `bin/flow-classify-step.test.ts` pins the format on the helper side so the two cannot drift silently.
+Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X, Y) and the per-unticked-item rubric categories; the `flow-review-finalize` call above forwards them to `flow-classify-step --ran $N --total $M --prose-promoted $X --reason ...` internally and folds its stdout into the result artifact's `summary` field — read that field back (see above) and append it to the report under "Test Steps (from PR description)". Allowed `--reason` slugs (kebab-case form of the categories in references/manual-test-rubric.md, plus `credentials-unavailable` for a login blocked by a credential-denial per [references/ui-validation-evidence.md](references/ui-validation-evidence.md)): `subjective-UX`, `production-only`, `cross-browser`, `performance-under-realistic-load`, `cost-prohibitive-infra`, `browser-unavailable` (only with a fresh preflight/driver artifact behind it, else the wrap-up relabels it `browser-not-attempted`), `browser-not-attempted`, `credentials-unavailable`. The audit also names any dependency `startedByFlow: true` in `.flow-tmp/ui-preflight.json` as left running. The bullet list below remains the contract documentation; `bin/flow-classify-step.test.ts` pins the format on the helper side so the two cannot drift silently.
 
 - `M` is the total `- [ ]` item count in the section (the FIRST `flow-run-test-steps` call's `uncheckedTotal`; later `--only` re-runs see a smaller count).
 - `N` is the number ticked by 8c: `passed` summed across every `flow-run-test-steps` call + prose-promoted via 8c.ii + 8c.iii browser ticks.

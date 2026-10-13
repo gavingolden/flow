@@ -571,8 +571,9 @@ function checkRequestVetting(
 /**
  * Joins a sub-bullet's soft-wrapped continuation lines into one logical
  * line: starting at `startIndex` within `text`, consume lines up to (but
- * not including) the next line that starts a new sub-bullet (`/^\s*- /`)
- * or the end of the text, and join them with single spaces. Markdown in
+ * not including) the next line that starts a new sub-bullet (`/^\s*- /`),
+ * the next markdown heading line (`/^#{1,6} /`), or the end of the text, and
+ * join them with single spaces. Markdown in
  * this repo is routinely soft-wrapped (see `example-prd.md`'s
  * `**Recommended:**` and `## Recommendation` verdict entries), so matching
  * only the first physical line misses a trailing tag pair that lands on a
@@ -583,7 +584,7 @@ function joinLogicalLine(text: string, startIndex: number): string {
   // Match a NEW bullet line, i.e. one preceded by a newline — `^` under the
   // `m` flag also matches index 0 of `rest` (the current bullet's own start),
   // which would end the join before it begins.
-  const nextBulletMatch = rest.match(/\n\s*- /);
+  const nextBulletMatch = rest.match(/\n\s*- |\n#{1,6} /);
   const end =
     nextBulletMatch && nextBulletMatch.index !== undefined
       ? nextBulletMatch.index
@@ -634,7 +635,9 @@ function joinLogicalLineToBlankLine(text: string, startIndex: number): string {
 /**
  * Slices `## Open Questions` into its top-level `- [ ]` / `- [x]` entry
  * blocks (each block runs up to, but not including, the next top-level
- * `- ` bullet — indented sub-bullets like `  - **Stakes:**` stay inside).
+ * `- ` bullet or markdown heading line — indented sub-bullets like
+ * `  - **Stakes:**` stay inside, but a following `### Product critique`
+ * heading and its bullets do not).
  * Returns `null` when the heading is absent (callers no-op in that case).
  */
 function extractOpenQuestionsBlocks(
@@ -657,7 +660,7 @@ function extractOpenQuestionsBlocks(
   for (let i = 0; i < entries.length; i++) {
     const start = entries[i].index;
     const rest = body.slice(start + entries[i].text.length);
-    const nextTopLevel = rest.search(/^- /m);
+    const nextTopLevel = rest.search(/^(?:- |#{1,6} )/m);
     const block =
       body.slice(start, start + entries[i].text.length) +
       (nextTopLevel === -1 ? rest : rest.slice(0, nextTopLevel));

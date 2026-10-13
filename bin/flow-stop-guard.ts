@@ -360,6 +360,8 @@ export const NEXT_STEP_BY_PHASE: Record<string, string> = {
   "ci-wait": "step 7 (ci-wait)",
   "ci-wait-pending":
     "step 7 (ci-wait) — run flow-ci-check and branch on .status/.decision",
+  "browser-retry-pending":
+    "step 9 (gate) — re-drive the open browser items via /flow-pr-review --resume-from 8c --browser-items, then flow-gate-decide",
   "plan-review-pending":
     "step 3 (plan) — run flow-plan-review --check and branch on .status",
   "epic-plan-review-pending":

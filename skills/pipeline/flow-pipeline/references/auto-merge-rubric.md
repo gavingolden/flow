@@ -38,6 +38,17 @@ The gate decides:
 
 - **No unchecked items** → auto-merge.
 - **Has unchecked items** → gated; surface the checklist to the user.
+- **Has unchecked items, all of them un-run `Browser:` checks** (plus any
+  `SUBJECTIVE:` / `DECISION:` judgment items) → `browser-retry`, which is
+  **non-terminal**, unlike `gated`. "Un-run" means environment-blocked,
+  never attempted, or passed but left unticked, judged from head-fresh
+  evidence (`.flow-tmp/ui-driver-result.json` from review Step 8c,
+  `.flow-tmp/ui-preflight.json`) matched by checklist index. Those items get
+  one automatic re-drive; if any stay environment-blocked the run pauses at
+  `browser-retry-pending` for a typed `retry`, and the gate re-reads the live
+  body afterwards. `gated` stays terminal for judgment items, any open
+  command or prose item, and a `Browser:` check that genuinely failed or the
+  driver could not drive.
 - **Heading missing entirely** → escalate
   `NEEDS HUMAN: test-steps-section-missing`. A missing heading
   signals an upstream regression (template drift, hand-edited PR), not

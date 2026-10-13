@@ -478,6 +478,11 @@ export const PENDING_PHASES = [
   "triage-pending-interview",
   "approval-pending-clarification",
   "ci-wait-pending",
+  // Step 9's pause when open `Browser:` Test Steps are still env-blocked
+  // after the automatic re-drive (`flow-gate-decide` -> `browser-retry`).
+  // A non-terminal yield — the browser is NOT reaped — that resumes into
+  // `/flow-pr-review --resume-from 8c --browser-items`, then the gate again.
+  "browser-retry-pending",
   // Auto-checkpoint at the approval → implement hand-off (step 4 affirmative
   // branch). The supervisor flushes conversational state to
   // `~/.flow/state/checkpoints/<slug>/checkpoint.md`, nudges "safe to
@@ -799,6 +804,7 @@ export const PHASE_SHORT: Record<PipelinePhase, string> = {
   "triage-pending-interview": "intq?",
   "approval-pending-clarification": "appr?",
   "ci-wait-pending": "ci?",
+  "browser-retry-pending": "brwsr?",
   "checkpoint-pending-clear": "ckpt?",
   merged: "merged",
   gated: "gated",

@@ -237,6 +237,9 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "verify-exhausted": `Read the failure log, then reply in the pipeline window with a fix hint.
   1. Attach (flow attach <slug>).
   2. Redirect /flow-verify with the failure hint from <worktree>/.flow-tmp/verify-failure-N.log`,
+  "browser-retry-pending": `Reply retry in the pipeline window to re-run the open browser checks, then the merge gate.
+  1. Attach (flow attach <slug>).
+  2. Reply retry, or close the window first, then run flow feature resume <slug>`,
   "ci-hang": `Check the stalled CI run, then reply done in the pipeline window.
   1. Attach (flow attach <slug>).
   2. Inspect GitHub Actions for the stalled check.
@@ -351,6 +354,7 @@ export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
   "approval-ambiguous": ["flow attach <slug>"],
   "implement-failed": ["flow attach <slug>"],
   "verify-exhausted": ["flow attach <slug>"],
+  "browser-retry-pending": ["flow attach <slug>", "flow feature resume <slug>"],
   "ci-hang": ["flow attach <slug>", "flow feature resume <slug>"],
   "pr-blocked": ["flow feature resume <slug>"],
   "ci-fix-exhausted": ["flow attach <slug>"],
@@ -452,6 +456,8 @@ export const WHY_BY_REASON: Record<string, string> = {
   "implement-failed": "Implementation stopped without a usable result.",
   "verify-exhausted":
     "The automated checks still fail after every automatic fix attempt.",
+  "browser-retry-pending":
+    "Some browser checks did not run because the app's environment was not ready; nothing is lost.",
   "ci-hang": "CI has not finished in the expected time and may be stuck.",
   "pr-blocked":
     "Branch protection blocks the merge (a failing required check, a missing required review, CODEOWNERS, or linear history), and waiting will not clear it.",

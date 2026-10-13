@@ -292,6 +292,73 @@ describe("runReviewFinalize", () => {
     );
   });
 
+  describe("browser-unavailable backing", () => {
+    const run = async (extraFiles: Record<string, unknown> = {}) => {
+      for (const [name, content] of Object.entries(extraFiles)) {
+        fs.writeFileSync(
+          path.join(worktree, ".flow-tmp", name),
+          JSON.stringify(content),
+        );
+      }
+      const calls: string[][] = [];
+      const result = await runReviewFinalize(
+        baseOpts(
+          calls,
+          {},
+          {
+            ran: 9,
+            total: 12,
+            prosePromoted: 0,
+            reasons: ["browser-unavailable"],
+          },
+        ),
+      );
+      const classifyCall = calls.find((c) => c[0] === "flow-classify-step");
+      return { result, reasonArgs: classifyCall?.slice(-2) };
+    };
+
+    it("relabels to browser-not-attempted with a named skip when no evidence backs it", async () => {
+      const { result, reasonArgs } = await run();
+      expect(reasonArgs).toEqual(["--reason", "browser-not-attempted"]);
+      expect(result.skips).toContainEqual({
+        step: "classify_step",
+        reason:
+          "browser-unavailable not backed by ui-preflight.json or ui-driver-result.json — relabelled browser-not-attempted",
+      });
+    });
+
+    it("keeps browser-unavailable when a fresh preflight shows ready:false", async () => {
+      const { result, reasonArgs } = await run({
+        "ui-preflight.json": { headSha: "deadbeef1234", ready: false },
+      });
+      expect(reasonArgs).toEqual(["--reason", "browser-unavailable"]);
+      expect(result.skips.filter((s) => s.step === "classify_step")).toEqual(
+        [],
+      );
+    });
+
+    it("relabels when the preflight is stamped for another head", async () => {
+      const { reasonArgs } = await run({
+        "ui-preflight.json": { headSha: "stale", ready: false },
+      });
+      expect(reasonArgs).toEqual(["--reason", "browser-not-attempted"]);
+    });
+
+    it("leaves other reasons untouched", async () => {
+      const calls: string[][] = [];
+      await runReviewFinalize(
+        baseOpts(
+          calls,
+          {},
+          { ran: 1, total: 2, reasons: ["subjective-UX", "cross-browser"] },
+        ),
+      );
+      expect(
+        calls.find((c) => c[0] === "flow-classify-step")?.slice(-4),
+      ).toEqual(["--reason", "subjective-UX", "--reason", "cross-browser"]);
+    });
+  });
+
   it("(f) a schema-invalid artifact yields result_valid:false rather than throwing", async () => {
     const calls: string[][] = [];
     const result = await runReviewFinalize(

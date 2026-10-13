@@ -453,6 +453,61 @@ describe("validateUiValidationManifest — wrong-shape rejections", () => {
   });
 });
 
+describe("validateUiValidationManifest — dependsOn", () => {
+  const withDeps = (deps: unknown): unknown => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.dependsOn = deps;
+    return fixture;
+  };
+
+  it("accepts a well-formed dependsOn (start optional)", () => {
+    const result = validateUiValidationManifest(
+      withDeps([
+        {
+          name: "supabase",
+          url: "http://127.0.0.1:54321/rest/v1/",
+          start: "npx supabase start",
+        },
+        { name: "api", url: "https://localhost:8443/health" },
+      ]),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("still accepts a manifest without dependsOn", () => {
+    expect(validateUiValidationManifest(MINIMAL_MANIFEST).ok).toBe(true);
+  });
+
+  it.each([
+    ["not an array", { name: "db", url: "http://127.0.0.1:1/" }, "dependsOn"],
+    ["entry not an object", ["db"], "dependsOn[0]"],
+    [
+      "empty name",
+      [{ name: "", url: "http://127.0.0.1:1/" }],
+      "dependsOn[0].name",
+    ],
+    [
+      "non-http url",
+      [{ name: "db", url: "ftp://127.0.0.1/" }],
+      "dependsOn[0].url",
+    ],
+    [
+      "url with a {{PORT}} sentinel",
+      [{ name: "db", url: "http://localhost:{{PORT}}/" }],
+      "dependsOn[0].url",
+    ],
+    [
+      "empty start",
+      [{ name: "db", url: "http://127.0.0.1:1/", start: "" }],
+      "dependsOn[0].start",
+    ],
+  ])("rejects dependsOn: %s", (_label, deps, field) => {
+    const result = validateUiValidationManifest(withDeps(deps));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain(field);
+  });
+});
+
 describe("ui-validation-schema CLI — `--validate <path>`", () => {
   it("exits 2 with usage on stderr when --validate is missing", () => {
     const result = runCli([]);
