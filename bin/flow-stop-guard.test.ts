@@ -4,6 +4,7 @@ import {
   buildReminder,
   buildStagnationReminder,
   epicMetadataBlockIsSatisfiable,
+  hasWakingBackgroundWork,
   nextStepLabel,
   run,
   type Deps,
@@ -14,7 +15,12 @@ import {
   TERMINAL_PHASES,
   type PipelineState,
 } from "./lib/state";
-import { TURN_BLOCK_LIMIT, type TurnTracking } from "./lib/stop-turn-tracking";
+import {
+  BACKGROUND_EXEMPT_LIMIT,
+  STAGNATION_PAUSE_LIMIT,
+  TURN_BLOCK_LIMIT,
+  type TurnTracking,
+} from "./lib/stop-turn-tracking";
 import type { RepoState } from "./lib/epic-metadata-commit";
 import type { GuardCapability } from "./lib/base-branch-guard";
 
@@ -38,6 +44,7 @@ type Stub = {
   writeTurn: ReturnType<typeof vi.fn>;
   readTurn: ReturnType<typeof vi.fn>;
   repoCommitStateSpy: ReturnType<typeof vi.fn>;
+  writePause: ReturnType<typeof vi.fn>;
 };
 
 function makeDeps(opts: {
@@ -56,6 +63,7 @@ function makeDeps(opts: {
   const loadCalls: string[] = [];
   const writeTurn = vi.fn();
   const readTurn = vi.fn(() => opts.turnTracking ?? null);
+  const writePause = vi.fn();
   const repoCommitStateSpy = vi.fn(
     opts.repoCommitState ?? (() => "clean" as RepoState),
   );
@@ -75,8 +83,17 @@ function makeDeps(opts: {
     dirtyEpicPaths: opts.dirtyEpicPaths ?? (() => []),
     repoCommitState: repoCommitStateSpy,
     guardCapability: opts.guardCapability ?? (() => ALWAYS_ALLOWS_CAPABILITY),
+    writePause,
   };
-  return { deps, errLines, loadCalls, writeTurn, readTurn, repoCommitStateSpy };
+  return {
+    deps,
+    errLines,
+    loadCalls,
+    writeTurn,
+    readTurn,
+    repoCommitStateSpy,
+    writePause,
+  };
 }
 
 function fakeState(
@@ -805,5 +822,194 @@ describe("epicMetadataBlockIsSatisfiable", () => {
         () => false,
       ),
     ).toBe(true);
+  });
+});
+
+/**
+ * Drives `run` repeatedly the way the harness does: each call reads back the
+ * turn record the previous call wrote, so counts accumulate exactly as in a
+ * real stuck session.
+ */
+async function replayStops(opts: {
+  stops: number;
+  state: PipelineState;
+  stdin: string | ((stop: number) => string);
+}) {
+  let turn: TurnTracking | null = null;
+  const exits: number[] = [];
+  const pauses: Array<{ state: PipelineState; outcome: string }> = [];
+  const errs: string[] = [];
+  for (let i = 1; i <= opts.stops; i++) {
+    const { deps } = makeDeps({
+      stdin: typeof opts.stdin === "function" ? opts.stdin(i) : opts.stdin,
+      slug: "demo",
+      state: opts.state,
+    });
+    deps.readTurn = () => turn;
+    deps.writeTurn = (t) => {
+      turn = t;
+    };
+    deps.writeErr = (s) => {
+      errs.push(s);
+    };
+    deps.writePause = (state, outcome) => {
+      pauses.push({ state, outcome });
+    };
+    exits.push(await run(deps));
+  }
+  return { exits, pauses, errs, turn: turn as TurnTracking | null };
+}
+
+describe("bounded stagnation pause", () => {
+  it("432-stop incident replay: blocks stops 1-3, then pauses needs-human on stop 4 naming the stalled phase and merge #<pr>", async () => {
+    const { exits, pauses } = await replayStops({
+      stops: 432,
+      state: fakeState("gating", { pr: 950 }),
+      stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
+    });
+    expect(exits.slice(0, 3)).toEqual([2, 2, 2]);
+    expect(exits[3]).toBe(0);
+    expect(pauses.length).toBeGreaterThanOrEqual(1);
+    expect(pauses[0]!.outcome).toBe(
+      "stalled at gating after 3 blocked stops — reply merge #950",
+    );
+    expect(TURN_BLOCK_LIMIT + STAGNATION_PAUSE_LIMIT).toBe(4);
+  });
+
+  it("names `continue` as the one reply at a non-merge phase", async () => {
+    const { exits, pauses } = await replayStops({
+      stops: 4,
+      state: fakeState("verifying", { pr: 12 }),
+      stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
+    });
+    expect(exits).toEqual([2, 2, 2, 0]);
+    expect(pauses).toHaveLength(1);
+    expect(pauses[0]!.outcome).toBe(
+      "stalled at verifying after 3 blocked stops — reply continue",
+    );
+  });
+
+  it("falls back to `continue` at gating when state has no PR number", async () => {
+    const { pauses } = await replayStops({
+      stops: 4,
+      state: fakeState("merging"),
+      stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
+    });
+    expect(pauses[0]!.outcome).toContain("reply continue");
+  });
+
+  it("a stop with a running subagent or shell exits 0 uncounted and never pauses", async () => {
+    for (const type of ["subagent", "shell", "monitor", "workflow"]) {
+      const { exits, pauses, turn } = await replayStops({
+        stops: 12,
+        state: fakeState("gating", { pr: 5 }),
+        stdin: (i) =>
+          JSON.stringify({
+            stop_hook_active: i > 1,
+            background_tasks:
+              i > 1 ? [{ id: "t1", type, status: "running" }] : [],
+          }),
+      });
+      expect(exits[0]).toBe(2);
+      expect(exits.slice(1)).toEqual(Array(11).fill(0));
+      expect(pauses).toEqual([]);
+      expect(turn!.blockCount).toBe(TURN_BLOCK_LIMIT);
+      expect(turn!.exemptCount).toBe(11);
+    }
+  });
+
+  it("after BACKGROUND_EXEMPT_LIMIT exempt stops at one phase, stops count again and the run pauses", async () => {
+    const stops = 1 + BACKGROUND_EXEMPT_LIMIT + 3;
+    const { exits, pauses } = await replayStops({
+      stops,
+      state: fakeState("gating", { pr: 5 }),
+      stdin: (i) =>
+        JSON.stringify({
+          stop_hook_active: i > 1,
+          background_tasks: i > 1 ? [{ type: "shell" }] : [],
+        }),
+    });
+    expect(exits.slice(1, 1 + BACKGROUND_EXEMPT_LIMIT)).toEqual(
+      Array(BACKGROUND_EXEMPT_LIMIT).fill(0),
+    );
+    // Stops past the cap count: stagnation blocks, then the bounded pause.
+    expect(exits.slice(1 + BACKGROUND_EXEMPT_LIMIT)).toEqual([2, 2, 0]);
+    expect(pauses).toHaveLength(1);
+  });
+
+  it("exemptCount survives a stop_hook_active:false turn boundary at the same phase", async () => {
+    const state = fakeState("gating", { pr: 5 });
+    let turn: TurnTracking | null = fakeTracking({
+      blockCount: TURN_BLOCK_LIMIT,
+      lastPhase: "gating",
+      exemptCount: 7,
+    });
+    const { deps } = makeDeps({
+      stdin: JSON.stringify({
+        stop_hook_active: false,
+        background_tasks: [{ type: "shell" }],
+      }),
+      slug: "demo",
+      state,
+    });
+    deps.readTurn = () => turn;
+    deps.writeTurn = (t) => {
+      turn = t;
+    };
+    // New turn: blockCount rebuilds at 0, so the first stop gets the nudge...
+    expect(await run(deps)).toBe(2);
+    expect(turn!.exemptCount).toBe(7);
+    // ...and the following same-turn stop is exempt, continuing the count.
+    const second = makeDeps({
+      stdin: JSON.stringify({
+        stop_hook_active: true,
+        background_tasks: [{ type: "shell" }],
+      }),
+      slug: "demo",
+      state,
+    });
+    second.deps.readTurn = () => turn;
+    second.deps.writeTurn = (t) => {
+      turn = t;
+    };
+    expect(await run(second.deps)).toBe(0);
+    expect(turn!.exemptCount).toBe(8);
+  });
+
+  it("a phase change resets the exempt and block counts", async () => {
+    const { deps, writeTurn } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: true }),
+      slug: "demo",
+      state: fakeState("merging"),
+      turnTracking: fakeTracking({
+        blockCount: TURN_BLOCK_LIMIT + 1,
+        lastPhase: "gating",
+        exemptCount: 20,
+      }),
+    });
+    expect(await run(deps)).toBe(0);
+    const written = writeTurn.mock.calls.at(-1)![0] as TurnTracking;
+    expect(written.lastPhase).toBe("merging");
+    expect(written.exemptCount).toBeUndefined();
+  });
+
+  it("an empty background_tasks array exempts nothing", () => {
+    expect(hasWakingBackgroundWork([])).toBe(false);
+    expect(hasWakingBackgroundWork(undefined)).toBe(false);
+    expect(hasWakingBackgroundWork([{ status: "pending" }])).toBe(true);
+  });
+});
+
+describe("reminders name commands, not display labels", () => {
+  it("buildReminder and buildStagnationReminder name needs-human and the pause command, with no uppercase end-state labels", () => {
+    const joined = [
+      ...buildReminder("gating", "step 10 (merge)"),
+      ...buildStagnationReminder("gating", 2),
+    ].join("\n");
+    expect(joined).toContain("needs-human");
+    expect(joined).toContain("flow-gate-summary --status needs-human");
+    expect(joined).not.toMatch(/NEEDS HUMAN|MERGED|GATED/);
+    expect(joined).toContain("DO NOT END THE TURN");
+    expect(joined).toContain("phase has not advanced");
   });
 });
