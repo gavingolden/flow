@@ -160,7 +160,7 @@ describe("checkClaude", () => {
 describe("checkAgy", () => {
   const active = { researchActive: () => true };
   const models =
-    "Fetching available models...\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\ngemini-3.7-flash-high\tGemini 3.7 Flash (High)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\nclaude-opus-5-5-medium\tClaude Opus 5.5 (Medium)\n";
+    "Fetching available models...\ngemini-4-argon-high\tGemini 4 Argon (High)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\nclaude-opus-5-5-medium\tClaude Opus 5.5 (Medium)\n";
 
   it("skips when the research module is not active, without spawning agy", () => {
     const calls: RunCall[] = [];

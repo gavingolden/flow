@@ -40,7 +40,7 @@
  * - No `--model` is passed unless requested, deferring to the user's agy
  *   session default; hardcoding a variant string would rot on the next agy
  *   rename and silently force every run to skip. Research callers should
- *   pass `--model "Gemini 3.1 Pro (High)"` for Gemini diversity + arbitrage.
+ *   pass `--model "Gemini 4 Argon (High)"` for Gemini diversity + arbitrage.
  * - Every prompt is prefixed, UNCONDITIONALLY, with AGY_SAFETY_PREAMBLE at
  *   the single buildAgyArgv chokepoint (withSafetyPreamble). The prompt is
  *   the only viable delivery vehicle for this: there is no global

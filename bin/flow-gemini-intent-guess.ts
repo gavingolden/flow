@@ -17,7 +17,7 @@
  *  2. Build the embedded blind-guess prompt (diff + file list ONLY, no PR
  *     title/body/plan/commit messages — mirrors the diff-only agent's
  *     blindness contract) and delegate ONE bounded agy call via
- *     `flow-delegate` (model "Gemini 3.1 Pro (High)", `--timeout` from
+ *     `flow-delegate` (model "Gemini 4 Argon (High)", `--timeout` from
  *     `resolveDelegateTimeout("intentGuess")` — `delegate.timeouts.intentGuess`,
  *     default 5m, clamped to a 9m sync ceiling).
  *  3. Branch on the flow-delegate envelope's `ran` field (NEVER the exit

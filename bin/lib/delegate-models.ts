@@ -66,16 +66,31 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // NO FLIP (2026-09-05): intent-guess rejected for 3.8 on mechanical parity
   // (c4-intent-json recall 0.44 vs incumbent 1.00); recommend() nominates no
   // candidate for this surface.
-  intentGuess: "Gemini 3.1 Pro (High)",
+  // RETIRED (2026-10-13): agy no longer offers Gemini 3.1 Pro / 3.7 Flash
+  // ("not recognized as a known model"), so every surface pinned to them
+  // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
+  // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
+  // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
+  intentGuess: "Gemini 4 Argon (High)",
   // NO FLIP (2026-09-05): review-lens rejected for 3.8 on mechanical parity
   // (c7-review-lens recall 0.00 vs incumbent 0.83 — the empty-response mode
   // above, at its most complete); recommend() nominates no candidate.
-  reviewLens: "Gemini 3.1 Pro (High)",
+  // RETIRED (2026-10-13): agy no longer offers Gemini 3.1 Pro / 3.7 Flash
+  // ("not recognized as a known model"), so every surface pinned to them
+  // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
+  // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
+  // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
+  reviewLens: "Gemini 4 Argon (High)",
   // NO BENCH COVERAGE (2026-09-05): bin/fixtures/model-bench/ contains no
   // research-gather case, so NO bench run has ever measured this surface and
   // none can until that fixture exists. This pin is inherited, not evidenced
   // — do not read the silence here as a clear. Tracked as a follow-up issue.
-  researchGather: "Gemini 3.1 Pro (High)",
+  // RETIRED (2026-10-13): agy no longer offers Gemini 3.1 Pro / 3.7 Flash
+  // ("not recognized as a known model"), so every surface pinned to them
+  // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
+  // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
+  // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
+  researchGather: "Gemini 4 Argon (High)",
   // NO FLIP (evaluated 2026-08-05, PR #543): both Gemini candidates
   // cleared research-refute on the hardened c8 fixture at N=10, and the
   // recommendation tie-break nominally preferred 3.1 Pro — NOT Flash.
@@ -122,7 +137,12 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // mechanical parity (c6-plan-review recall 0.75 vs incumbent 1.00), and
   // recommend() still nominates gemini-3.7-flash-high for this surface — the
   // pin below is re-validated against the newer arm, not merely unrevisited.
-  planReview: "Gemini 3.7 Flash (High)",
+  // RETIRED (2026-10-13): agy no longer offers Gemini 3.1 Pro / 3.7 Flash
+  // ("not recognized as a known model"), so every surface pinned to them
+  // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
+  // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
+  // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
+  planReview: "Gemini 4 Argon (High)",
   // Does NOT flip despite plan-review's gemini-3.1-pro-high clear (same
   // bench run): the deep-tier second reviewer exists for cross-model
   // diversity against the Gemini first reviewer (the convergence rule
@@ -142,7 +162,12 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // NO BENCH COVERAGE (2026-09-05): bin/fixtures/model-bench/ contains no
   // blind-survey case, so no bench run has ever measured this surface either.
   // Same caveat as researchGather above — inherited, not evidenced.
-  blindSurvey: "Gemini 3.1 Pro (High)",
+  // RETIRED (2026-10-13): agy no longer offers Gemini 3.1 Pro / 3.7 Flash
+  // ("not recognized as a known model"), so every surface pinned to them
+  // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
+  // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
+  // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
+  blindSurvey: "Gemini 4 Argon (High)",
   // UNCHANGED (2026-09-05 run): structural cross-vendor hold against
   // blindSurvey, on the same rationale as planReviewSecond.
   // RETIRED (2026-10-05): Opus 4.6 (Thinking) retired; Opus 5.5 (High)

@@ -124,7 +124,7 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
     expect(r.status).toBe(0);
     expect(r.vars.MAX).toBe("12");
     expect(r.vars.TIMEOUT).toBe("3m");
-    expect(r.vars.MODEL).toBe("Gemini 3.1 Pro (High)");
+    expect(r.vars.MODEL).toBe("Gemini 4 Argon (High)");
     expect(r.vars.REFUTE).toBe(DELEGATE_MODEL_DEFAULTS.researchRefute);
   });
 
@@ -139,7 +139,7 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
   it("a present-but-wrong-type model (number) warns and falls back to the default string", () => {
     const r = runBudget({ research: { model: 7 } });
     expect(r.status).toBe(0);
-    expect(r.vars.MODEL).toBe("Gemini 3.1 Pro (High)");
+    expect(r.vars.MODEL).toBe("Gemini 4 Argon (High)");
     expect(r.stderr).toContain("research.model is present but not a string");
   });
 
@@ -165,7 +165,7 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
     const res = spawnSync("bash", [scriptPath, cfgPath], { encoding: "utf8" });
     expect(res.status).toBe(0);
     expect(res.stdout).toContain("MAX=12");
-    expect(res.stdout).toContain("MODEL=Gemini 3.1 Pro (High)");
+    expect(res.stdout).toContain("MODEL=Gemini 4 Argon (High)");
   });
 
   it("a refuteModel colliding with the gather model falls back to a different variant (diversity guard)", () => {
@@ -184,10 +184,10 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
 
   it("the diversity guard also fires for the default gather model when refute is forced equal", () => {
     const r = runBudget({
-      research: { refuteModel: "Gemini 3.1 Pro (High)" },
+      research: { refuteModel: "Gemini 4 Argon (High)" },
     });
     expect(r.status).toBe(0);
-    expect(r.vars.MODEL).toBe("Gemini 3.1 Pro (High)");
+    expect(r.vars.MODEL).toBe("Gemini 4 Argon (High)");
     expect(r.vars.REFUTE).not.toBe(r.vars.MODEL);
     expect(r.vars.REFUTE).toBe(DELEGATE_MODEL_DEFAULTS.researchRefute);
   });

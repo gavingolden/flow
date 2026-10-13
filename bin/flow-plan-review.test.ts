@@ -19,7 +19,7 @@ import {
 } from "./flow-plan-review";
 import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
 
-const MODEL_1 = "Gemini 3.7 Flash (High)";
+const MODEL_1 = "Gemini 4 Argon (High)";
 const MODEL_2 = DELEGATE_MODEL_DEFAULTS.planReviewSecond!;
 
 // Must clear BOTH the engagement bars in bin/lib/plan-review-engagement.ts:
@@ -438,7 +438,7 @@ describe("run — happy path", () => {
       depth: "standard",
       reviewers: [
         {
-          model: "Gemini 3.7 Flash (High)",
+          model: "Gemini 4 Argon (High)",
           ran: true,
           skipReason: null,
           lensesEngaged: 4,
@@ -456,7 +456,7 @@ describe("run — happy path", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
     const argv = deps.calls.delegate[0]!;
-    expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 3.7 Flash (High)");
+    expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 4 Argon (High)");
     expect(argv[argv.indexOf("--add-dir") + 1]).toBe(WORKTREE);
     expect(argv[argv.indexOf("--task") + 1]).toBe("plan-review");
     expect(argv[argv.indexOf("--timeout") + 1]).toBe("3m");

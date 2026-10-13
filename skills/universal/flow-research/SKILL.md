@@ -95,7 +95,7 @@ addDirs?, out?, skipPermissions?, outputFormat? }`. `skipPermissions` and
   outlive the harness foreground budget and a resumed turn reads the result
   file.
 - **Exact agy model variants** (live `agy models`, do not paraphrase): gather
-  runs on `Gemini 3.1 Pro (High)`; refutation runs on a DIFFERENT variant from
+  runs on `Gemini 4 Argon (High)`; refutation runs on a DIFFERENT variant from
   {`Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)`}.
 - **Coding / output standards:** `AGENTS.md`. The no-nested-LLM rule is
   load-bearing here — see Constraints.
@@ -168,7 +168,7 @@ refresh repopulates the cache for the next caller.
 
 Build a gather manifest — one entry per angle — and write it to
 `.flow-tmp/research/<run-id>/gather-manifest.json`. **Every gather entry uses
-`"model": "Gemini 3.1 Pro (High)"`.** This GATHER step is a single-model
+`"model": "Gemini 4 Argon (High)"`.** This GATHER step is a single-model
 monoculture (agy's native Google grounding is the point); cross-model
 diversity lives only in the refute step (Step 3). Do not claim pervasive
 diversity — the diverse signal is adversarial, in the refute step.
@@ -402,12 +402,12 @@ produced it (tier-2 `claude -p` vs tier-3 sequential).
   mid-run must degrade the report's confidence and name the gaps, not be
   silently presented as a finished result.
 - **Paraphrasing the agy model-variant strings.** A wrong / renamed variant
-  silently forces a skip. Keep `Gemini 3.1 Pro (High)`,
+  silently forces a skip. Keep `Gemini 4 Argon (High)`,
   `Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)` byte-exact.
 
 # Verification
 
-- The gather manifest pins `Gemini 3.1 Pro (High)`; the refute manifest pins a
+- The gather manifest pins `Gemini 4 Argon (High)`; the refute manifest pins a
   different variant from {`Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)`}.
 - The report has confidence-ranked findings (high/medium/low), a refuted-claims
   transparency block, caveats, and open questions; it is both returned in chat

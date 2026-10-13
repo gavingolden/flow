@@ -17,7 +17,7 @@
  *  2. Build the embedded Gemini review prompt (self-contained so it works
  *     on any consumer PATH — the single source of truth for the lens prompt)
  *     and delegate ONE bounded agy call via `flow-delegate` (model
- *     "Gemini 3.1 Pro (High)", `--timeout` from
+ *     "Gemini 4 Argon (High)", `--timeout` from
  *     `resolveDelegateTimeout("reviewLens")` — `delegate.timeouts.reviewLens`,
  *     default 8m, clamped to a 9m sync ceiling).
  *  3. Branch on the flow-delegate envelope's `ran` field (NEVER the exit
