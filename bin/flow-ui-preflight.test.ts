@@ -266,6 +266,145 @@ describe("runPreflight", () => {
   });
 });
 
+describe("runPreflight — probe dependencies and requires", () => {
+  const DOCKER = { name: "docker", probe: "docker info" };
+  const SUPABASE = {
+    name: "supabase",
+    url: "http://127.0.0.1:54321/",
+    requires: ["docker"],
+  };
+
+  /** Scripts `sh -c <command>` exits on top of the base harness (git stays 0). */
+  function withShell(
+    h: Harness,
+    exits: (command: string, call: number) => number,
+  ): Record<string, number> {
+    const calls: Record<string, number> = {};
+    const base = h.deps.exec;
+    h.deps.exec = async (argv, opts) => {
+      if (argv[0] !== "sh") return base(argv, opts);
+      h.execs.push(argv);
+      calls[argv[2]] = (calls[argv[2]] ?? 0) + 1;
+      return { code: exits(argv[2], calls[argv[2]]), stdout: "" };
+    };
+    return calls;
+  }
+
+  it("docker down blocks supabase: not probed, not started, blockedBy docker, rootCause docker", async () => {
+    const h = harness({ statuses: [200] });
+    withShell(h, () => 1);
+    const env = await runPreflight(
+      manifest([DOCKER, { ...SUPABASE, start: "npx supabase start" }]),
+      { budgetSec: 3, worktree: "/wt" },
+      h.deps,
+    );
+    expect(env.ready).toBe(false);
+    expect(env.skipped_reason).toBe("dependency-unready");
+    expect(env.dependencies[0]).toMatchObject({
+      name: "docker",
+      probe: "docker info",
+      ready: false,
+    });
+    expect(env.dependencies[1]).toMatchObject({
+      name: "supabase",
+      ready: false,
+      attempts: 0,
+      blockedBy: "docker",
+      startAttempted: false,
+    });
+    expect(h.fetches).toEqual([]);
+    expect(h.execs.some((a) => a[2] === "npx supabase start")).toBe(false);
+    expect(env.rootCause).toEqual({ name: "docker", reason: "probe exit 1" });
+  });
+
+  it("starts docker when its probe fails, then probes supabase once docker is ready", async () => {
+    const h = harness({ statuses: [200] });
+    withShell(h, (command, call) =>
+      command === "docker info" && call === 1 ? 1 : 0,
+    );
+    const env = await runPreflight(
+      manifest([{ ...DOCKER, start: "orbctl start" }, SUPABASE]),
+      { budgetSec: 300, worktree: "/wt" },
+      h.deps,
+    );
+    expect(env.ready).toBe(true);
+    expect(env.rootCause).toBeUndefined();
+    expect(env.dependencies[0]).toMatchObject({
+      ready: true,
+      startAttempted: true,
+      startExitCode: 0,
+      startedByFlow: true,
+    });
+    expect(env.dependencies[1]).toMatchObject({ ready: true, attempts: 1 });
+    expect(env.dependencies[1].blockedBy).toBeUndefined();
+  });
+
+  it("runs the probe through sh -c in the worktree with the scaled probe timeout", async () => {
+    const h = harness({});
+    let seen: { cwd: string; timeoutMs: number } | undefined;
+    const base = h.deps.exec;
+    h.deps.exec = async (argv, opts) => {
+      if (argv[0] === "sh") seen = { cwd: opts.cwd, timeoutMs: opts.timeoutMs };
+      return base(argv, opts);
+    };
+    await runPreflight(
+      manifest([DOCKER]),
+      { budgetSec: 300, worktree: "/wt" },
+      h.deps,
+    );
+    expect(seen).toEqual({ cwd: "/wt", timeoutMs: 5_000 });
+  });
+
+  it("names the first unready dependency that is not itself blocked, with the start exit in the reason", async () => {
+    const h = harness({ statuses: ["refused"], startCode: 3 });
+    withShell(h, (command) => (command === "docker info" ? 0 : 3));
+    const env = await runPreflight(
+      manifest([
+        DOCKER,
+        {
+          name: "db",
+          url: "http://127.0.0.1:1/",
+          requires: ["docker"],
+          start: "start-db",
+        },
+        { name: "api", url: "http://127.0.0.1:2/", requires: ["db"] },
+      ]),
+      { budgetSec: 3, worktree: "/wt" },
+      h.deps,
+    );
+    expect(env.dependencies.map((d) => [d.name, d.ready, d.blockedBy])).toEqual(
+      [
+        ["docker", true, undefined],
+        ["db", false, undefined],
+        ["api", false, "db"],
+      ],
+    );
+    expect(env.rootCause).toEqual({
+      name: "db",
+      reason: "connection refused; start exit 3",
+    });
+  });
+
+  it("a url-only manifest produces the same envelope shape as before (no probe, blockedBy or rootCause keys)", async () => {
+    const h = harness({ statuses: [200] });
+    const env = await runPreflight(
+      manifest([DB]),
+      { budgetSec: 300, worktree: "/wt" },
+      h.deps,
+    );
+    expect(env.dependencies[0]).toEqual({
+      name: "db",
+      url: "http://127.0.0.1:54321/",
+      ready: true,
+      attempts: 1,
+      lastStatus: 200,
+      startAttempted: false,
+      startedByFlow: false,
+    });
+    expect("rootCause" in env).toBe(false);
+  });
+});
+
 describe("run", () => {
   beforeEach(() => {
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);

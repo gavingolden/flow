@@ -5,7 +5,7 @@
   "_comment_maintained": "The agent completes and maintains EVERYTHING the smoketest needs, not just the launch: when it adapts on the fly to make a run work (tweaks the command, adds/changes an env var, fixes baseUrl, corrects a 404'd route, records the login route + credential NAMES), it persists the launch adaptation back into the consumer's `.flow/ui-validation.json` and commits it into the reviewable PR diff, so the next run starts deterministic. Runtime credential VALUES are resolved from the local .env/shell env and never persisted here. Treat the manifest as a deterministic cache of non-secret facts the agent maintains, not a frozen contract.",
   "_comment_ignore": "ignoreRequestPatterns / ignoreConsolePatterns are optional substring lists (NOT regex) that suppress benign browser noise before a route's ok is computed. The canonical case is the favicon 404 the browser auto-requests: it emits both a /favicon.ico failed network request (URL-filterable here via ignoreRequestPatterns) and a generic 'Failed to load resource' console error. Resource-load failures are URL-filterable through ignoreRequestPatterns; genuine JS console errors are suppressed through ignoreConsolePatterns. Absent => no filtering (current behavior).",
   "_comment_viewports": "viewports is an OPTIONAL array of { name, width, height? } widths every route is rendered and measured at; `height` is optional (when given, the driver resizes to width x height; otherwise it falls back to a tall default so above-the-fold cropping never hides overflow). OMIT the field entirely to apply the built-in default shown below (xs 320, mobile 390, tablet 768, desktop 1280, wide 1440); 320 satisfies WCAG 1.4.10 Reflow mechanically and 1280/1440 catch wide-monitor centering regressions. When the key IS present the array MUST be non-empty (minimum 1) — an empty [] is rejected, since it would capture zero viewports rather than fall back to the default. Each viewport runs the same drive (resize -> navigate -> snapshot -> console/network -> screenshot) plus three mechanical geometry assertions (off-center constrained column, horizontal overflow, missing-element-at-breakpoint). Shrink (minimum 1) this array to reduce capture cost; a route without a non-empty viewports[] capture stays on the legacy single-viewport path.",
-  "_comment_dependsOn": "dependsOn is an OPTIONAL array of { name, url, start? } fixed local services (a database, an API) the app needs before it can be driven. `flow-ui-preflight` probes each `url` (any HTTP response below 500 counts as up) with a load-aware backoff, and runs `start` ONCE after the first failed probe. `start` must RETURN once the service is up (e.g. `npx supabase start`, `docker compose up -d`) — never a long-running foreground server; a service flow starts is left running. The url takes no {{PORT}} sentinel (dependencies sit on fixed ports). Names, URLs and commands only — never a secret.",
+  "_comment_dependsOn": "dependsOn is an OPTIONAL array of { name, url | probe, start?, requires? } fixed local services (a database, an API, a container runtime) the app needs before it can be driven. Give EXACTLY ONE of `url` (probed over HTTP; any response below 500 counts as up) or `probe` (a shell command run in the worktree; ready on exit 0). `requires` names EARLIER entries that must be ready first: a dependent of an unready entry is neither probed nor started, and the preflight reports the deepest unready entry as its rootCause. `flow-ui-preflight` probes with a load-aware backoff, and runs `start` ONCE after the first failed probe. `start` must RETURN once the service is up (e.g. `npx supabase start`, `docker compose up -d`) — never a long-running foreground server; a service flow starts is left running. The url takes no {{PORT}} sentinel (dependencies sit on fixed ports). Names, URLs and commands only — never a secret.",
   "launch": "concurrently \"PORT={{PORT}} VITE_PORT={{PORT}} npm run dev:frontend\" \"PORT={{PORT_BACKEND}} npm run dev:backend\"",
   "baseUrl": "http://localhost:{{PORT}}",
   "loginUrl": "/login",
@@ -26,9 +26,14 @@
   "ignoreConsolePatterns": [],
   "dependsOn": [
     {
+      "name": "docker",
+      "probe": "docker info"
+    },
+    {
       "name": "supabase",
       "url": "http://127.0.0.1:54321/rest/v1/",
-      "start": "npx supabase start"
+      "start": "npx supabase start",
+      "requires": ["docker"]
     }
   ],
   "viewports": [
