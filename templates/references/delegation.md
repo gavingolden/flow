@@ -16,7 +16,7 @@ never hard-fails — the same opt-in-by-presence model as UI validation in
 `rules/ui-validation.md`.
 
 Usage: `flow-delegate (--prompt "<text>" | --prompt-file <path>) [--model
-"Gemini 3.1 Pro (High)"] [--timeout 5m] [--skip-permissions] [--add-dir
+"Gemini 4 Argon (High)"] [--timeout 5m] [--skip-permissions] [--add-dir
 <dir>]... [--out <path>] [--task <name>]`. Pass exactly one prompt source
 (`--prompt` for inline text, `--prompt-file` for a path — also the escape hatch
 for a prompt that literally begins with `--`). Omit `--model` to use your agy
@@ -48,7 +48,7 @@ Four optional **budget keys** tune the bounded pass; each defaults to its v1 val
 
 - `research.maxCalls` (number, default `12`) — the `flow-delegate-fanout --max-calls` cap on total agy calls.
 - `research.timeout` (string, default `"3m"`) — the per-manifest-entry agy timeout, applied to every entry.
-- `research.model` (string, default `"Gemini 3.1 Pro (High)"`) — the **gather** model variant.
+- `research.model` (string, default `"Gemini 4 Argon (High)"`) — the **gather** model variant.
 - `research.refuteModel` (string, default `"Claude Opus 5.5 (Medium)"`) — the adversarial **refute** model variant. It must stay a _different_ variant from `research.model`; if you set both equal, flow warns and falls back the refute to a pinned alternate (`"Claude Opus 5.5 (Medium)"` / `"GPT-OSS 120B (Medium)"`) that differs.
 
 Each key is **tolerant by construction**: an absent key silently takes its default; a key that is **present but the wrong JSON type triggers a loud `stderr` warning and falls back to the default** — never a throw, never an aborted pass, so a config typo degrades to a warning rather than blocking planning. `--concurrency` is **not** operator-tunable (pinned at `4`; it is load-bearing in the runtime-ceiling arithmetic). The pass stays **bounded** — the synchronous worst case is `ceil(maxCalls / 4)` waves × the per-entry timeout, ~9-min at the defaults (`3` waves × `3m`). **Runtime-ceiling caveat:** raising `maxCalls` and `timeout` together can push that product past the observed-safe ~10-min one-shot sub-agent wall-clock, so keep it under ~10 min when tuning. Off by default; absent or malformed config behaves exactly as today.
@@ -84,7 +84,7 @@ reviewer at PR time wants one at plan time too). When it is opted in and the PRD
 carries an omit-when-empty `## Decision analysis` section, the supervisor runs one
 AGY (`flow-delegate`) review of the plan's consequential decisions, reads the
 feedback, and revises the PRD once if warranted. It reuses the same tolerant jq
-gate shown above, the AGY model is hardcoded (`Gemini 3.1 Pro (High)`, no override
+gate shown above, the AGY model is hardcoded (`Gemini 4 Argon (High)`, no override
 key), and it is the same graceful no-op when agy is absent — a `ran:false` skip
 that never blocks the plan gate.
 

@@ -12,7 +12,7 @@ import {
 } from "./flow-blind-survey";
 import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
 
-const MODEL_A = "Gemini 3.1 Pro (High)";
+const MODEL_A = "Gemini 4 Argon (High)";
 const MODEL_B = DELEGATE_MODEL_DEFAULTS.blindSurveySecond!;
 
 const JUDGE_PROSE =

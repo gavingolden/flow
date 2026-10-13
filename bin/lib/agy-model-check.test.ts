@@ -8,7 +8,7 @@ import {
 } from "./agy-model-check";
 
 const LIVE =
-  "Fetching available models...\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\n";
+  "Fetching available models...\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\ngemini-4-argon-high\tGemini 4 Argon (High)\n";
 
 describe("configuredAgyModels", () => {
   it("lists every non-null default surface when config is empty", () => {
@@ -98,7 +98,7 @@ describe("configuredAgyModels", () => {
 describe("parseAgyModelNames", () => {
   it("parses display names from the live tab-separated format", () => {
     expect(parseAgyModelNames(LIVE)).toEqual(
-      new Set(["Claude Opus 5.5 (High)", "Gemini 3.1 Pro (High)"]),
+      new Set(["Claude Opus 5.5 (High)", "Gemini 4 Argon (High)"]),
     );
   });
 
