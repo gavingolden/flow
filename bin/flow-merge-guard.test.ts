@@ -3,12 +3,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  CONFLICT_STDERR_PATTERNS,
   evaluateMergeGuard,
+  evaluateMergePreconditions,
   OVERRIDE_FRESHNESS_MS,
   parseArgs,
   run,
+  type Deps,
   type GuardResult,
+  type MergeOutcome,
 } from "./flow-merge-guard";
+import { FLOW_MERGE_ALLOW_RULE } from "./lib/merge-allow-rule";
 import type { PipelineState } from "./lib/state";
 
 let stateDir!: string;
@@ -475,6 +480,357 @@ describe("run() — phase advance", () => {
     expect(written.gateOverride).toEqual({
       pr: 5,
       confirmedAt: new Date(NOW).toISOString(),
+    });
+  });
+});
+
+// --- merge mode ------------------------------------------------------------
+
+describe("run() — merge mode", () => {
+  const PASSING = JSON.stringify([{ name: "verify", state: "SUCCESS" }]);
+
+  function ghFor(opts: {
+    body?: string;
+    prState?: string;
+    checks?: { stdout: string; stderr?: string; exitCode?: number };
+  }) {
+    return vi.fn((argv: string[]) => {
+      if (argv[1] === "view") {
+        return {
+          stdout: JSON.stringify({
+            body: opts.body ?? NO_UNCHECKED,
+            state: opts.prState ?? "OPEN",
+            url: "https://x/y/pull/5",
+          }),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      const c = opts.checks ?? { stdout: PASSING };
+      return {
+        stdout: c.stdout,
+        stderr: c.stderr ?? "",
+        exitCode: c.exitCode ?? 0,
+      };
+    });
+  }
+
+  function seedMerge(slug: string, extra: Partial<PipelineState> = {}): string {
+    const worktree = path.join(stateDir, `wt-${slug}`);
+    fs.mkdirSync(worktree, { recursive: true });
+    seedState(slug, { pr: 5, repo: "/base/checkout", worktree, ...extra });
+    return worktree;
+  }
+
+  const phaseOf = (slug: string) =>
+    JSON.parse(fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"))
+      .phase as string;
+
+  function runMerge(
+    argv: string[],
+    deps: Partial<Deps>,
+  ): { exit: number; out: MergeOutcome } {
+    const cap = captureStdout();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let exit: number;
+    try {
+      exit = run(argv, { stateDir, now: () => NOW, ...deps });
+    } finally {
+      cap.restore();
+      errSpy.mockRestore();
+    }
+    const line = cap.writes.join("").trim();
+    return { exit, out: (line ? JSON.parse(line) : {}) as MergeOutcome };
+  }
+
+  const okMerge = () => ({ exitCode: 0, stderr: "" });
+
+  it("merges with a bare --squash <pr> from state.repo, writes merging and merge-result.json", () => {
+    const wt = seedMerge("m1");
+    const runMergeSpy = vi.fn(okMerge);
+    const gh = ghFor({});
+    const { exit, out } = runMerge(["merge", "5", "--slug", "m1"], {
+      gh,
+      runMerge: runMergeSpy,
+    });
+    expect(exit).toBe(0);
+    expect(out).toEqual({ decision: "merged", reason: "merged" });
+    expect(runMergeSpy.mock.calls).toEqual([[5, "/base/checkout"]]);
+    expect(phaseOf("m1")).toBe("merging");
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(wt, ".flow-tmp", "merge-result.json"),
+          "utf8",
+        ),
+      ),
+    ).toEqual(out);
+    expect(gh).toHaveBeenCalledWith([
+      "pr",
+      "checks",
+      "5",
+      "--json",
+      "name,state",
+    ]);
+  });
+
+  it("the default runner invokes bare `gh pr merge --squash <pr>` (no --body/--subject/--delete-branch)", () => {
+    seedMerge("m1b");
+    const calls: Array<{ pr: number; cwd: string }> = [];
+    runMerge(["merge", "5", "--slug", "m1b"], {
+      gh: ghFor({}),
+      runMerge: (pr, cwd) => {
+        calls.push({ pr, cwd });
+        return okMerge();
+      },
+    });
+    expect(calls).toEqual([{ pr: 5, cwd: "/base/checkout" }]);
+    const src = fs.readFileSync(
+      path.join(__dirname, "flow-merge-guard.ts"),
+      "utf8",
+    );
+    expect(src).toContain('["pr", "merge", "--squash", String(pr)]');
+    expect(src).not.toMatch(/--body|--subject|--delete-branch|--admin/);
+  });
+
+  it("refuses unchecked Test Steps without an override token (exit 1, no merge, phase untouched)", () => {
+    seedMerge("m2");
+    const spy = vi.fn(okMerge);
+    const { exit, out } = runMerge(["merge", "5", "--slug", "m2"], {
+      gh: ghFor({ body: HAS_UNCHECKED }),
+      runMerge: spy,
+    });
+    expect(exit).toBe(1);
+    expect(out.decision).toBe("refused");
+    expect(out.reason).toContain("gate-blocked");
+    expect(out.uncheckedItems).toHaveLength(2);
+    expect(spy).not.toHaveBeenCalled();
+    expect(phaseOf("m2")).toBe("gating");
+  });
+
+  it("merges unchecked items when a fresh override token exists", () => {
+    seedMerge("m3", { gateOverride: freshOverride(5, 1000) });
+    const { exit } = runMerge(["merge", "5", "--slug", "m3"], {
+      gh: ghFor({ body: HAS_UNCHECKED }),
+      runMerge: okMerge,
+    });
+    expect(exit).toBe(0);
+  });
+
+  it("refuses a pending check and a failed check", () => {
+    seedMerge("m4");
+    const spy = vi.fn(okMerge);
+    const pending = runMerge(["merge", "5", "--slug", "m4"], {
+      gh: ghFor({
+        checks: {
+          stdout: JSON.stringify([{ name: "v", state: "IN_PROGRESS" }]),
+        },
+      }),
+      runMerge: spy,
+    });
+    expect(pending.exit).toBe(1);
+    expect(pending.out.reason).toBe("checks-pending");
+    const failed = runMerge(["merge", "5", "--slug", "m4"], {
+      gh: ghFor({
+        checks: {
+          stdout: JSON.stringify([{ name: "lint", state: "FAILURE" }]),
+          exitCode: 1,
+        },
+      }),
+      runMerge: spy,
+    });
+    expect(failed.exit).toBe(1);
+    expect(failed.out.reason).toBe("checks-failed: lint");
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the checks read fails (fail-closed), but treats gh's 'no checks reported' as an empty CI", () => {
+    seedMerge("m5");
+    const spy = vi.fn(okMerge);
+    const unreadable = runMerge(["merge", "5", "--slug", "m5"], {
+      gh: ghFor({
+        checks: { stdout: "", stderr: "HTTP 502: bad gateway", exitCode: 1 },
+      }),
+      runMerge: spy,
+    });
+    expect(unreadable.exit).toBe(1);
+    expect(unreadable.out.reason).toContain("checks-unreadable");
+    expect(spy).not.toHaveBeenCalled();
+    const none = runMerge(["merge", "5", "--slug", "m5"], {
+      gh: ghFor({
+        checks: {
+          stdout: "",
+          stderr: "no checks reported on the 'x' branch",
+          exitCode: 1,
+        },
+      }),
+      runMerge: spy,
+    });
+    expect(none.exit).toBe(0);
+  });
+
+  it("refuses when autoMerge is false and no fresh token exists", () => {
+    seedMerge("m6", { autoMerge: false });
+    const { exit, out } = runMerge(["merge", "5", "--slug", "m6"], {
+      gh: ghFor({}),
+      runMerge: okMerge,
+    });
+    expect(exit).toBe(1);
+    expect(out.reason).toContain("auto-merge-disabled");
+  });
+
+  it("refuses another pipeline's PR and a closed PR", () => {
+    seedMerge("m7", { pr: 99 });
+    const other = runMerge(["merge", "5", "--slug", "m7"], {
+      gh: ghFor({}),
+      runMerge: okMerge,
+    });
+    expect(other.exit).toBe(1);
+    expect(other.out.reason).toContain("pr-not-owned");
+    seedMerge("m7b");
+    const closed = runMerge(["merge", "5", "--slug", "m7b"], {
+      gh: ghFor({ prState: "CLOSED" }),
+      runMerge: okMerge,
+    });
+    expect(closed.exit).toBe(1);
+    expect(closed.out.reason).toBe("pr-not-open: CLOSED");
+  });
+
+  it("refuses with phase-not-advanceable from needs-human and does not merge", () => {
+    seedMerge("m8", { phase: "needs-human" });
+    const spy = vi.fn(okMerge);
+    const { exit, out } = runMerge(["merge", "5", "--slug", "m8"], {
+      gh: ghFor({}),
+      runMerge: spy,
+    });
+    expect(exit).toBe(1);
+    expect(out.reason).toBe("phase-not-advanceable: terminal");
+    expect(spy).not.toHaveBeenCalled();
+    expect(phaseOf("m8")).toBe("needs-human");
+  });
+
+  it("re-entry at merging (a retry after a resolver) proceeds", () => {
+    seedMerge("m9", { phase: "merging" });
+    const { exit } = runMerge(["merge", "5", "--slug", "m9"], {
+      gh: ghFor({}),
+      runMerge: okMerge,
+    });
+    expect(exit).toBe(0);
+  });
+
+  it("an already-MERGED PR is idempotent success: exit 0, no gh merge, no phase write", () => {
+    seedMerge("m10");
+    const spy = vi.fn(okMerge);
+    const { exit, out } = runMerge(["merge", "5", "--slug", "m10"], {
+      gh: ghFor({ prState: "MERGED" }),
+      runMerge: spy,
+    });
+    expect(exit).toBe(0);
+    expect(out).toEqual({ decision: "merged", reason: "already-merged" });
+    expect(spy).not.toHaveBeenCalled();
+    expect(phaseOf("m10")).toBe("gating");
+  });
+
+  it("classifies each conflict stderr pattern as conflict and anything else as other (exit 3)", () => {
+    seedMerge("m11");
+    for (const pattern of CONFLICT_STDERR_PATTERNS) {
+      const { exit, out } = runMerge(["merge", "5", "--slug", "m11"], {
+        gh: ghFor({}),
+        runMerge: () => ({ exitCode: 1, stderr: `GraphQL: ${pattern} (x)` }),
+      });
+      expect(exit).toBe(3);
+      expect(out).toMatchObject({
+        decision: "merge-failed",
+        failureClass: "conflict",
+      });
+      expect(out.stderr).toContain(pattern);
+    }
+    const other = runMerge(["merge", "5", "--slug", "m11"], {
+      gh: ghFor({}),
+      runMerge: () => ({ exitCode: 1, stderr: "HTTP 401" }),
+    });
+    expect(other.exit).toBe(3);
+    expect(other.out.failureClass).toBe("other");
+  });
+
+  it("exits 2 on a gh error reading the PR, and on usage errors including --record-override", () => {
+    seedMerge("m12");
+    const boom = vi.fn(() => ({ stdout: "", stderr: "boom", exitCode: 1 }));
+    expect(runMerge(["merge", "5", "--slug", "m12"], { gh: boom }).exit).toBe(
+      2,
+    );
+    const spy = vi.fn(okMerge);
+    for (const argv of [
+      ["merge"],
+      ["merge", "abc"],
+      ["merge", "5", "--record-override", "--slug", "m12"],
+      ["merge", "5", "--bogus"],
+      ["merge", "5", "--slug"],
+    ]) {
+      expect(runMerge(argv, { gh: ghFor({}), runMerge: spy }).exit).toBe(2);
+    }
+    expect(spy).not.toHaveBeenCalled();
+    expect(phaseOf("m12")).toBe("gating");
+  });
+
+  it("a missing state file is an error (exit 2), not a merge", () => {
+    const spy = vi.fn(okMerge);
+    const { exit, out } = runMerge(["merge", "5", "--slug", "no-such-slug"], {
+      gh: ghFor({}),
+      runMerge: spy,
+    });
+    expect(exit).toBe(2);
+    expect(out.decision).toBe("error");
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("existing parseArgs shape is untouched by merge mode", () => {
+    expect(parseArgs(["100"])).toEqual({
+      pr: 100,
+      slug: undefined,
+      recordOverride: false,
+    });
+    expect(parseArgs(["merge", "5"])).toHaveProperty("error");
+  });
+
+  it("an invocation of merge mode starts with the owner's allow-rule prefix", () => {
+    const prefix = FLOW_MERGE_ALLOW_RULE.slice("Bash(".length, -" *)".length);
+    expect("flow-merge-guard merge 1 --slug x".startsWith(`${prefix} `)).toBe(
+      true,
+    );
+  });
+});
+
+describe(evaluateMergePreconditions, () => {
+  const base = {
+    body: NO_UNCHECKED,
+    prState: "OPEN",
+    state: {
+      slug: "s",
+      phase: "gating",
+      repo: "/r",
+      updatedAt: "x",
+      pr: 5,
+    } as PipelineState,
+    pr: 5,
+    checks: { kind: "all-passed" } as const,
+    nowMs: NOW,
+  };
+
+  it("passes when everything holds, including no-checks-reported", () => {
+    expect(evaluateMergePreconditions(base)).toEqual({ ok: true });
+    expect(
+      evaluateMergePreconditions({
+        ...base,
+        checks: { kind: "no-checks-reported" },
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it("refuses a missing state file", () => {
+    expect(evaluateMergePreconditions({ ...base, state: null })).toEqual({
+      ok: false,
+      reason: "no-state",
     });
   });
 });

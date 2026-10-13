@@ -25,6 +25,8 @@ The resolved selection persists to `~/.flow/config.json`'s `modules` array, so `
 
 `flow install` also registers a `SessionStart` hook in `~/.claude/settings.json` (used by the checkpoint/auto-resume flow); skip it with `flow install --no-hooks`.
 
+**Unattended merges under auto mode.** A passed pipeline merges itself through `flow-merge-guard merge <pr>`, which re-checks the Test Steps, CI and the PR's ownership before it runs the squash merge. Under Claude Code's auto mode the permission classifier still reviews every Bash call, so unattended merging needs one line in your own user-global settings: add `Bash(flow-merge-guard merge *)` to `permissions.allow` in `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json` when that variable is set). flow never writes this rule — not into your settings, not into a repo, not into its launch settings; `flow doctor` reads the file (read-only, following a symlink) and warns with the exact line and the real file to edit when it is missing, and warns separately about a broader `Bash(flow-merge-guard *)` rule, which would also pre-approve recording a gate override. `flow doctor` reads `CLAUDE_CONFIG_DIR` from the shell it runs in, which can differ from the one your pipelines inherit. Without the rule, a passed run pauses with `merge-permission-denied` and one reply, `merge #<pr>`, finishes the merge and cleanup.
+
 ## Subagent memory, preloaded instructions, turn budgets, and cache TTL
 
 flow's core agent definitions (`agents/core/*.md`) use three Claude Code subagent features. Each is opt-out at the Claude Code layer, not the flow layer — flow pins the value; Claude Code's own settings/env-var overrides win.

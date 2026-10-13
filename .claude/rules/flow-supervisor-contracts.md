@@ -58,7 +58,8 @@ the tmux-pane / port-override / post-commit-diff rules live in
 done`'s heal): that one commit, never forced. Both contracts:
     [git-workflow.md](../../references/git-workflow.md).
   - **Auto-merge exemption: `/flow-pipeline` step 10.** Exempt for one
-    narrow, named operation: `gh pr merge --squash <PR>` inside step 10,
+    narrow, named operation: the squash merge of `<PR>` inside step 10
+    (a bare `gh pr merge --squash <PR>` run by `flow-merge-guard merge <PR>`),
     only on an auto-merge gate verdict (`flow-gate-decide` returns
     `auto-merge`), only on a PR `/flow-pipeline` opened itself. The
     exemption does **not** extend to a `gated` verdict: a `gated` PR is

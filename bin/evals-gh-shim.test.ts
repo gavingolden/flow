@@ -482,6 +482,32 @@ describe.skipIf(!bunOnPath)("evals/_shims/gh", () => {
     });
   });
 
+  describe("pr merge --squash <n>", () => {
+    it("succeeds and records the argv for a grader", () => {
+      const r = runShim(["pr", "merge", "--squash", "1"]);
+      expect(r.status).toBe(0);
+      expect(
+        fs.readFileSync(
+          path.join(fixtureDir, ".flow-tmp", "gh-pr-merge.log"),
+          "utf8",
+        ),
+      ).toBe("--squash 1\n");
+    });
+
+    it("keeps every other pr merge form loud (exit 1, unsupported)", () => {
+      for (const argv of [
+        ["pr", "merge", "1"],
+        ["pr", "merge", "--squash", "1", "--delete-branch"],
+        ["pr", "merge", "--squash", "1", "--body", "x"],
+        ["pr", "merge", "--admin", "1"],
+      ]) {
+        const r = runShim(argv);
+        expect(r.status, JSON.stringify(argv)).toBe(1);
+        expect(r.stderr).toContain("unsupported");
+      }
+    });
+  });
+
   describe("unsupported subcommands", () => {
     it("exits 1 with a loud stderr for an unrecognized gh api resource", () => {
       writeJson("pr.json", [{ number: 1 }]);

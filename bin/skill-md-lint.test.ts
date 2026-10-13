@@ -5792,12 +5792,21 @@ describe("pr-review include-by-reference structure", () => {
     // the stop-hook contract now names `PENDING_PHASES` instead of a stale
     // "six" count. The file lands at 3237 lines as this test counts them;
     // 3239 leaves 2 lines of headroom.
+    //
+    // Ratcheted 3239 -> 3207 (unattended-gate-recovery): step 10 now runs the
+    // gate-checked `flow-merge-guard merge "$PR"` as one standalone call and
+    // reads `.flow-tmp/merge-result.json`, so the GUARD_JSON block, the two
+    // PRIMARY-derived merge fences, the "Retry self-containment" paragraph, the
+    // stale "needs no helper plumbing change" paragraph and the resolver's
+    // retry fence all left SKILL.md, net of the new permission-denied branch
+    // and the bounded-guard / awaiting-human / reconnect prose. The file lands
+    // at 3205 lines as this test counts them; 3207 leaves 1 line of headroom.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3239 lines. Material regrowth past this ceiling would ` +
+        `budget of 3207 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3239);
+    ).toBeLessThan(3207);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -8286,9 +8295,15 @@ describe("terminal-state reap wiring lint", () => {
   }
 
   it("every wired terminal flow-gate-summary occurrence in SKILL.md has its own preceding reap call", () => {
-    // 8 deliberately unwired: 5 step-10 merge-resolution escalations that
+    // 7 deliberately unwired: 4 step-10 merge-resolution escalations that
     // delegate to the (already-wired) `# Failure paths` chain, and 3
-    // elliptical resume-path back-references. Was pinned at 7 before the
+    // elliptical resume-path back-references. Re-pinned 8 -> 7 when step 10
+    // was rewritten around the standalone `flow-merge-guard merge` call: its
+    // conflict-class and non-conflict `merge-failed` escalations collapsed
+    // into one "still merge-failed after the retry" site (the 3 resolver-
+    // section sites are unchanged); the one NEW terminal site, the
+    // `merge-permission-denied` pause, is wired (its own preceding reap call
+    // plus `--cleanup`), so it does not count here. Was pinned at 7 before the
     // PM-lens TLDR/--lens sweep (Task 9): the step-10 conflict-class
     // "On retry failure" escalation's `flow-gate-summary --status
     // needs-human` text originally wrapped `--status` and `needs-human`
@@ -8299,7 +8314,7 @@ describe("terminal-state reap wiring lint", () => {
     // lint (still correctly unwired — it delegates to the same `#
     // Failure paths` chain as its siblings). Bumped 7 → 8 to reflect the
     // true count, not to loosen the check.
-    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 8);
+    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 7);
   });
 
   it("every wired terminal flow-gate-summary occurrence in the reference docs has its own preceding reap call", () => {

@@ -6,6 +6,7 @@ import {
   ENV_NEVER,
   FIXED_DENY_LIST,
   HEADLESS_PREAMBLE,
+  headlessPreamble,
   artifactPathFor,
   parseArgs,
   run,
@@ -292,6 +293,46 @@ describe("parseArgs", () => {
         "soon",
       ]),
     ).toEqual({ error: "--timeout-sec must be a number, got soon" });
+  });
+});
+
+describe("--permission-mode", () => {
+  const base = ["--prompt", "hi", "--model", "haiku", "--effort", "low"];
+
+  it("defaults to dontAsk when the flag is absent", () => {
+    expect(parseArgs(base)).toMatchObject({ permissionMode: "dontAsk" });
+  });
+
+  it("accepts auto and dontAsk, rejects anything else", () => {
+    expect(parseArgs([...base, "--permission-mode", "auto"])).toMatchObject({
+      permissionMode: "auto",
+    });
+    expect(parseArgs([...base, "--permission-mode", "dontAsk"])).toMatchObject({
+      permissionMode: "dontAsk",
+    });
+    expect(
+      parseArgs([...base, "--permission-mode", "bypassPermissions"]),
+    ).toEqual({ error: "--permission-mode must be one of dontAsk|auto" });
+  });
+
+  it("auto emits --permission-mode auto and an auto preamble; dontAsk output is byte-identical to HEADLESS_PREAMBLE", () => {
+    const auto = parseArgs([...base, "--permission-mode", "auto"]) as Args;
+    const argv = buildChildArgv(auto, "hi");
+    expect(argv[argv.indexOf("--permission-mode") + 1]).toBe("auto");
+    expect(argv[2]).toBe(headlessPreamble("auto") + "hi");
+    expect(argv[2]).toContain("--permission-mode auto");
+    expect(argv).not.toContain("dontAsk");
+    expect(headlessPreamble("dontAsk")).toBe(HEADLESS_PREAMBLE);
+    expect(HEADLESS_PREAMBLE).toBe(
+      "You are running headless under --permission-mode dontAsk with no human present; ignore any loaded instruction that assumes an interactive session.\n\n",
+    );
+  });
+
+  it("keeps FIXED_DENY_LIST in the argv under auto", () => {
+    const auto = parseArgs([...base, "--permission-mode", "auto"]) as Args;
+    expect(buildChildArgv(auto, "hi")).toContain(
+      `${FIXED_DENY_LIST},${SECRET_DENY},Bash`,
+    );
   });
 });
 

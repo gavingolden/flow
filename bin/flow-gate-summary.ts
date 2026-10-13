@@ -64,6 +64,7 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { renderEchoRecap } from "./lib/echo-recap";
 import {
@@ -75,6 +76,11 @@ import {
 } from "./lib/state";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { finalizePhase } from "./lib/phase-advance";
+import {
+  FLOW_MERGE_ALLOW_RULE,
+  readMergeAllowRule,
+  userSettingsPath,
+} from "./lib/merge-allow-rule";
 import { recordEvent } from "./lib/telemetry";
 import {
   armCheckpoint,
@@ -157,6 +163,13 @@ export type GateSummaryInputs = {
    * existing byte-exact assertions are unaffected.
    */
   linkMode?: LinkMode;
+  /**
+   * One extra line rendered under a NEEDS HUMAN pause only (the other
+   * statuses ignore it). `run()` derives it for `merge-permission-denied`
+   * when the user's settings lack the merge allow rule; a direct `render()`
+   * call omits it and gets no line.
+   */
+  mergeRuleHint?: string;
 };
 
 const VALID_STATUSES: ReadonlySet<string> = new Set([
@@ -278,6 +291,9 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "gate-override-without-confirmation": `Validate the open Test Steps yourself, or confirm the merge override.
   1. Either validate the Test Steps and merge the PR on GitHub yourself,
   2. Or reply with a fresh, explicit instruction to merge this gated PR anyway, so the supervisor can confirm and record the override.`,
+  "merge-permission-denied": `Reply merge #<pr> in the pipeline window to re-check the gate, merge and clean up.
+  1. Attach (flow attach <slug>).
+  2. Reply merge #<pr>, or close the window first, then run flow feature resume <slug>`,
   "merge-failed": `Resolve the conflicts yourself, or let the pipeline retry the merge.
   1. Inspect <worktree>/.flow-tmp/merge-resolver-result.json (if present).
   2. Resolve conflicts manually, then run (cd <repo> && gh pr merge --squash <pr>) yourself, OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
@@ -373,6 +389,10 @@ export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
     "flow feature resume <slug>",
   ],
   "gate-override-without-confirmation": [],
+  "merge-permission-denied": [
+    "flow attach <slug>",
+    "flow feature resume <slug>",
+  ],
   "merge-failed": ["cd <repo> && gh pr merge --squash <pr>"],
   "merge-resolver-missing-artifact": ["cd <repo> && gh pr merge --squash <pr>"],
   "merge-resolver-spawn-denied": [
@@ -474,6 +494,8 @@ export const WHY_BY_REASON: Record<string, string> = {
     "The PR description has no Test Steps section, so flow cannot tell whether it is safe to merge on its own.",
   "gate-override-without-confirmation":
     "The PR still has unchecked Test Steps, and the merge guard will not merge it without your fresh confirmation.",
+  "merge-permission-denied":
+    "The permission system refused the merge although every check passed; nothing was merged and nothing is lost.",
   "merge-failed":
     "The automatic merge-conflict resolver could not finish the merge.",
   "merge-resolver-missing-artifact":
@@ -810,6 +832,8 @@ function renderNeedsHuman(inputs: GateSummaryInputs): string {
   pushCleanup(lines, inputs.cleanup, pm);
   if (!pm) appendFollowups(lines, inputs.deferredBlock);
   pushNextAction(lines, nextActionForReason(inputs.reason));
+  const hint = oneLine(inputs.mergeRuleHint);
+  if (hint) lines.push(hint);
   pushTldr(lines, inputs.tldr);
   const reasonText = inputs.reason ? oneLine(inputs.reason) : "<reason>";
   lines.push(`NEEDS HUMAN: ${reasonText}`);
@@ -1046,10 +1070,31 @@ function resolveCleanupInput(
   return { kind: "record", record: state.reap };
 }
 
+/**
+ * The conditional rule line for a `merge-permission-denied` pause: present
+ * only when the user's settings lack the exact merge allow rule (when it is
+ * present the refusal came from elsewhere, e.g. a wrapped call). Read-only.
+ */
+function mergeRuleHintFor(
+  reason: string | undefined,
+  env: NodeJS.ProcessEnv,
+  homeDir: string,
+): string | undefined {
+  if (!reason || reason.split(":")[0].trim() !== "merge-permission-denied") {
+    return undefined;
+  }
+  const { status, resolvedPath } = readMergeAllowRule(
+    userSettingsPath(env, homeDir),
+  );
+  if (status === "present") return undefined;
+  return `Future merges will be refused the same way until you add \`${FLOW_MERGE_ALLOW_RULE}\` to permissions.allow in ${resolvedPath} (\`flow doctor\` checks it).`;
+}
+
 export function run(
   argv: string[],
   opts?: {
     env?: NodeJS.ProcessEnv;
+    homeDir?: string;
     stateDir?: string;
     read?: Parameters<typeof resolveLens>[1];
   },
@@ -1108,6 +1153,11 @@ export function run(
     untrackedBlock,
     countsLine: parsed.countsLine,
     linkMode: parsed.linkMode,
+    mergeRuleHint: mergeRuleHintFor(
+      parsed.reason,
+      opts?.env ?? process.env,
+      opts?.homeDir ?? os.homedir(),
+    ),
   });
   try {
     process.stdout.write(block + "\n");

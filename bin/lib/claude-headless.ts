@@ -62,8 +62,14 @@ export const ENV_NEVER = [
 export const FIXED_DENY_LIST =
   "Bash(git push:*),Bash(gh pr merge:*),Bash(gh pr create:*),Bash(gh pr close:*),Bash(gh release:*),Bash(rm -rf node_modules*)";
 
-export const HEADLESS_PREAMBLE =
-  "You are running headless under --permission-mode dontAsk with no human present; ignore any loaded instruction that assumes an interactive session.\n\n";
+export const PERMISSION_MODES = ["dontAsk", "auto"] as const;
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
+
+export function headlessPreamble(mode: PermissionMode): string {
+  return `You are running headless under --permission-mode ${mode} with no human present; ignore any loaded instruction that assumes an interactive session.\n\n`;
+}
+
+export const HEADLESS_PREAMBLE = headlessPreamble("dontAsk");
 
 export function buildChildEnv(
   base: NodeJS.ProcessEnv,
@@ -101,6 +107,7 @@ export type Args = {
   out?: string;
   task: string;
   tools?: string;
+  permissionMode: PermissionMode;
 };
 
 const DEFAULT_MAX_BUDGET_USD = 5;
@@ -189,6 +196,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--tools":
         out.tools = value;
         break;
+      case "--permission-mode":
+        if (!(PERMISSION_MODES as readonly string[]).includes(value)) {
+          return {
+            error: `--permission-mode must be one of ${PERMISSION_MODES.join("|")}`,
+          };
+        }
+        out.permissionMode = value as PermissionMode;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -219,6 +234,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     out: out.out,
     task: out.task ?? DEFAULT_TASK,
     tools: out.tools,
+    permissionMode: out.permissionMode ?? "dontAsk",
   };
 }
 
@@ -251,7 +267,7 @@ export function buildChildArgv(a: Args, prompt: string): string[] {
   return [
     "claude",
     "-p",
-    HEADLESS_PREAMBLE + prompt,
+    headlessPreamble(a.permissionMode) + prompt,
     "--output-format",
     "json",
     "--model",
@@ -263,7 +279,7 @@ export function buildChildArgv(a: Args, prompt: string): string[] {
     "--max-turns",
     String(a.maxTurns),
     "--permission-mode",
-    "dontAsk",
+    a.permissionMode,
     "--allowedTools",
     a.allowedTools,
     "--disallowedTools",

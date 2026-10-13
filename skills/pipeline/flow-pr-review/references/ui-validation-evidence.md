@@ -330,7 +330,12 @@ are cached, write that file with `ran: false` and
 After GATED the browser was reaped at the terminal state, so a "run the
 remaining tests" re-drive (`/flow-pr-review --resume-from 8c --browser-items`)
 normally takes this path: bring the stack up from the manifest (`launch`, plus
-each `dependsOn[].start`), log in through `flow-ui-login`, and drive.
+each `dependsOn[].start`), log in through `flow-ui-login`, and drive. When
+such a re-drive finds no `chrome-devtools` tools, the turn-ending reply
+carries `**Manual action:** run /mcp and reconnect chrome-devtools to use the
+in-session browser again (optional — these checks ran headless)`; when the
+repo also lacks `@playwright/test`, the `browser-retry` pause names that
+reconnect as the one step before `retry`.
 
 ## Teardown (servers and browser, symmetric)
 

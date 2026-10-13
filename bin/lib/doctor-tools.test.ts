@@ -3,7 +3,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkAgy } from "./doctor-agy";
-import { checkClaude, checkGh, checkTmux } from "./doctor-tools";
+import {
+  checkClaude,
+  checkGh,
+  checkMergeAllowRule,
+  checkTmux,
+} from "./doctor-tools";
 import { makeDeps, scriptedRun, type RunCall } from "./doctor-test-deps";
 
 let root: string;
@@ -279,5 +284,54 @@ describe("checkAgy", () => {
     writeConfig({ modules: ["core", "research"] });
     const [d] = checkAgy(makeDeps(root, { run: scriptedRun(() => missing) }));
     expect(d.status).toBe("warn");
+  });
+});
+
+describe("checkMergeAllowRule", () => {
+  function settingsAt(dir: string, body: string): string {
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "settings.json");
+    fs.writeFileSync(file, body);
+    return fs.realpathSync(file);
+  }
+
+  it("passes when the rule is in CLAUDE_CONFIG_DIR/settings.json, naming the resolved file", () => {
+    const cfg = path.join(root, "cfg");
+    const file = settingsAt(
+      cfg,
+      JSON.stringify({
+        permissions: { allow: ["Bash(flow-merge-guard merge *)"] },
+      }),
+    );
+    const [c] = checkMergeAllowRule(
+      makeDeps(root, { env: { CLAUDE_CONFIG_DIR: cfg } }),
+    );
+    expect(c).toMatchObject({ id: "tools-merge-rule", status: "pass" });
+    expect(c.summary).toContain(file);
+  });
+
+  it("warns for a broader rule, saying it also pre-approves recording a gate override", () => {
+    const file = settingsAt(
+      path.join(root, "home", ".claude"),
+      JSON.stringify({ permissions: { allow: ["Bash(flow-merge-guard *)"] } }),
+    );
+    const [c] = checkMergeAllowRule(makeDeps(root));
+    expect(c.status).toBe("warn");
+    expect(c.details.join(" ")).toContain(
+      "also pre-approves recording a gate override",
+    );
+    expect(c.fix).toBe(
+      `add "Bash(flow-merge-guard merge *)" to permissions.allow in ${file}`,
+    );
+  });
+
+  it("warns on a missing file and on malformed JSON", () => {
+    const [missingFile] = checkMergeAllowRule(makeDeps(root));
+    expect(missingFile.status).toBe("warn");
+    expect(missingFile.details.join(" ")).toContain("does not exist");
+    settingsAt(path.join(root, "home", ".claude"), "{ nope");
+    const [bad] = checkMergeAllowRule(makeDeps(root));
+    expect(bad.status).toBe("warn");
+    expect(bad.details.join(" ")).toContain("not valid JSON");
   });
 });
