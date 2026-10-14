@@ -33,7 +33,7 @@ export const FLOW_HOOK_NAMES: readonly string[] = [
 ];
 
 /** Marker line identifying a flow-written chaining shim. */
-export const CHAIN_HOOK_MARKER = "# flow:worktree-hook-chain v1";
+const CHAIN_HOOK_MARKER = "# flow:worktree-hook-chain v1";
 
 /**
  * One POSIX `sh` body installed under every name in `FLOW_HOOK_NAMES`; it
