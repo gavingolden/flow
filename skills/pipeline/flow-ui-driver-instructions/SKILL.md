@@ -85,9 +85,16 @@ Follow `ui-smoke-pass.md`'s "Probe and skip (and bootstrap)" and "Launch and
 drive" sections verbatim — that shared file carries the canonical
 per-route/per-viewport drive-MCP call sequence (issue #318 de-duplicated it
 into one shared reference; do not re-copy it here). In short: bring the
-launch up via `flow-spawn --class default -- sh -c '<meta.launch>'` with
-`meta.env` injected inline (never a `.env.local`/`.env`/config file), open a
-per-pipeline isolated page keyed on `SLUG`, run the Login step when the
+launch up with one standalone call, `flow-spawn --detach --class default
+--stdout <WORKTREE>/.flow-tmp/ui-launch.out --stderr
+<WORKTREE>/.flow-tmp/ui-launch.err --slug <SLUG> --cwd <WORKTREE>
+--from-envelope <ENVELOPE_PATH>`, every placeholder written as a literal
+absolute path or the slug (the helper reads `meta.launch`/`meta.env` from the
+verdict file and applies `meta.env` to the launch process only — never a
+`.env.local`/`.env`/config file); a `flow-spawn` usage error on
+`--from-envelope` (an older install) means `skipped_reason:
+"app-launch-failed"` with "flow-spawn too old — run flow install --upgrade"
+in the summary, never another launch form. Then open a per-pipeline isolated page keyed on `SLUG`, run the Login step when the
 manifest declares a login wall — credential presence is checked with
 `flow-ui-login check` (names only) and login goes through `flow-ui-login
 serve`, never by the agent resolving a VALUE itself — then drive each
@@ -150,8 +157,8 @@ Follow `ui-smoke-pass.md`'s "Teardown (servers and browser, symmetric)"
 section exactly, on completion **and on every error / early-exit path** —
 close the isolated page/context you opened (by the numeric `pageId` your own
 `new_page` call returned, never a re-derived `list_pages` scan) and bring the
-launched server(s) down (by the `flow-spawn` pid or the registry `pgid`,
-never a bare shell-job kill). Do this before writing the artifact in step 5,
+launched server(s) down (by the printed launch pid's process group,
+`kill -TERM -<pid>`, or the registry `pgid`, never a bare shell-job kill). Do this before writing the artifact in step 5,
 so a crash after teardown still leaves the worktree clean.
 
 <!-- flow-denial-teardown -->

@@ -110,7 +110,10 @@ export type UiValidateEnvelope = {
   ok?: boolean;
   evidence_paths?: string[];
   /**
-   * Present in SKIP-DECISION ready output: `baseUrl`/`launch`/`loginUrl`/
+   * Present in SKIP-DECISION ready output AND in BOOTSTRAP output (bootstrap
+   * carries only `launch`/`baseUrl`/`port`/`env: {}`, with {{PORT}} resolved to
+   * a freshly-allocated port, and only when a launch was inferred and a port
+   * could be allocated): `baseUrl`/`launch`/`loginUrl`/
    * `disableAnimations`/`env`/`viewports`, plus an optional `port: number`
    * emitted ONLY when the bare {{PORT}} sentinel in the manifest actually
    * resolved to a freshly-allocated free port this run, and/or an optional
@@ -631,6 +634,19 @@ export function run(argv: string[], deps: Deps = {}): number {
       if (launchInfo) {
         env.launch = launchInfo.launch;
         env.baseUrl = launchInfo.baseUrl;
+        // Top-level launch/baseUrl keep the {{PORT}} form for the manifest
+        // write-back; meta carries the same launch resolved to one freshly
+        // allocated port so `flow-spawn --from-envelope` can run it directly.
+        const pool = deps.allocPorts?.(1) ?? [];
+        if (pool.length >= 1) {
+          const bare = pool[0];
+          env.meta = {
+            launch: resolvePorts(launchInfo.launch, { bare }),
+            baseUrl: resolvePorts(launchInfo.baseUrl, { bare }),
+            port: bare,
+            env: {},
+          };
+        }
       }
       if (auth.loginUrl) env.loginUrl = auth.loginUrl;
       if (auth.credentialEnvVars)

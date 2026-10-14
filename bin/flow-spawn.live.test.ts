@@ -175,6 +175,79 @@ describeOnPosix("flow-spawn (live end-to-end)", () => {
     expect(childInfo!.pgid).not.toBe(wrapperInfo!.pgid);
   });
 
+  function detachFromEnvelope(
+    workDir: string,
+    meta: unknown,
+  ): { status: number | null; stdout: string } {
+    const envelope = path.join(workDir, "envelope.json");
+    fs.writeFileSync(envelope, JSON.stringify({ meta }));
+    const r = spawnSync(
+      "bun",
+      [
+        "bin/flow-spawn.ts",
+        "--detach",
+        "--stdout",
+        path.join(workDir, "o"),
+        "--stderr",
+        path.join(workDir, "e"),
+        "--slug",
+        `live-env-${process.pid}-${Date.now()}`,
+        "--cwd",
+        workDir,
+        "--from-envelope",
+        envelope,
+      ],
+      { cwd: repoRoot, env: launchEnv(), encoding: "utf8" },
+    );
+    const pid = Number(r.stdout.trim());
+    if (Number.isInteger(pid) && pid > 0) cleanupPgids.push(pid);
+    return { status: r.status, stdout: r.stdout };
+  }
+
+  async function waitForFile(file: string, timeoutMs = 5000): Promise<string> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (fs.existsSync(file)) {
+        const text = fs.readFileSync(file, "utf8");
+        if (text.length > 0) return text.trim();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error(`timed out waiting for ${file}`);
+  }
+
+  it("--detach --from-envelope launches meta.launch with meta.env in --cwd", async () => {
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-spawn-env-"));
+    try {
+      const { status, stdout } = detachFromEnvelope(workDir, {
+        launch: `echo "it's up: $GREETING" > launched.txt`,
+        env: { GREETING: "hi" },
+      });
+      expect(status).toBe(0);
+      expect(Number(stdout.trim())).toBeGreaterThan(0);
+      expect(await waitForFile(path.join(workDir, "launched.txt"))).toBe(
+        "it's up: hi",
+      );
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it("--detach --from-envelope survives nested quoting and a sourced relative env file", async () => {
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-spawn-env-"));
+    try {
+      fs.writeFileSync(path.join(workDir, ".env.test"), "PORT_X=4242\n");
+      const launch = `bash -lc 'set -a; . ./.env.test; set +a; echo "$PORT_X it'"'"'s up" > launched2.txt'`;
+      const { status } = detachFromEnvelope(workDir, { launch, env: {} });
+      expect(status).toBe(0);
+      expect(await waitForFile(path.join(workDir, "launched2.txt"))).toBe(
+        "4242 it's up",
+      );
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  }, 15000);
+
   it("propagates the child's exit code end-to-end", () => {
     const slug = `live-exit-${process.pid}-${Date.now()}`;
     const r = spawnSync(

@@ -184,6 +184,45 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
     expect(e.skipped_reason).toBeUndefined();
   });
 
+  it("bootstrap with allocPorts carries a resolved meta alongside the {{PORT}}-form top-level launch", () => {
+    const FIXED_PORT = 54321;
+    const c = drive(
+      ["--changed-files", "changed.txt"],
+      {
+        "changed.txt": "src/routes/about/+page.svelte\n",
+        "package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+      },
+      { allocPorts: (n) => Array.from({ length: n }, () => FIXED_PORT) },
+    );
+    const e = envelope(c);
+    expect(e.action).toBe("bootstrap");
+    expect(e.launch).toBe("PORT={{PORT}} npm run dev");
+    expect(e.baseUrl).toBe("http://localhost:{{PORT}}");
+    const meta = e.meta as Record<string, unknown>;
+    expect(meta.launch).not.toContain("{{PORT");
+    expect(meta.launch).toBe(
+      (e.launch as string).split("{{PORT}}").join(String(FIXED_PORT)),
+    );
+    expect(meta.baseUrl).toBe(`http://localhost:${FIXED_PORT}`);
+    expect(meta.port).toBe(FIXED_PORT);
+    expect(meta.env).toEqual({});
+  });
+
+  it("bootstrap omits meta when allocPorts returns no port", () => {
+    const c = drive(
+      ["--changed-files", "changed.txt"],
+      {
+        "changed.txt": "src/routes/about/+page.svelte\n",
+        "package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+      },
+      { allocPorts: () => [] },
+    );
+    const e = envelope(c);
+    expect(e.action).toBe("bootstrap");
+    expect(e.launch).toBe("PORT={{PORT}} npm run dev");
+    expect(e.meta).toBeUndefined();
+  });
+
   it("bootstrap infers loginUrl + credential NAMES from routes + .env.example", () => {
     const c = drive(["--changed-files", "changed.txt"], {
       "changed.txt": "src/routes/login/+page.svelte\n",
