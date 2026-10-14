@@ -17,10 +17,12 @@ import {
   checkClaude,
   checkGh,
   checkMergeAllowRule,
+  checkOverrideAskRule,
   checkTmux,
   TOOLS_CLAUDE_META,
   TOOLS_GH_META,
   TOOLS_MERGE_RULE_META,
+  TOOLS_OVERRIDE_ASK_META,
   TOOLS_TMUX_META,
 } from "./doctor-tools";
 import {
@@ -57,6 +59,7 @@ export const DOCTOR_PROBES: DoctorProbe[] = [
   guarded(TOOLS_TMUX_META, (deps) => checkTmux(deps)),
   guarded(TOOLS_CLAUDE_META, (deps) => checkClaude(deps)),
   guarded(TOOLS_MERGE_RULE_META, (deps) => checkMergeAllowRule(deps)),
+  guarded(TOOLS_OVERRIDE_ASK_META, (deps) => checkOverrideAskRule(deps)),
   guarded(TOOLS_AGY_META, (deps) => checkAgy(deps)),
   guarded(STALE_WORKTREES_META, (deps) => checkStaleWorktrees(deps)),
   guarded(PIPELINE_RECORDS_META, (deps) => checkPipelineState(deps)),

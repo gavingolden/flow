@@ -107,6 +107,12 @@ export type Args = {
   out?: string;
   task: string;
   tools?: string;
+  /**
+   * Comma-separated `permissions.ask` rules, passed to the child as inline
+   * `--settings` JSON. Tightening only: the rules can add prompts, never
+   * grant a permission (no `allow` key is ever emitted).
+   */
+  askTools?: string;
   permissionMode: PermissionMode;
 };
 
@@ -196,6 +202,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--tools":
         out.tools = value;
         break;
+      case "--ask-tools":
+        out.askTools = value;
+        break;
       case "--permission-mode":
         if (!(PERMISSION_MODES as readonly string[]).includes(value)) {
           return {
@@ -234,6 +243,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     out: out.out,
     task: out.task ?? DEFAULT_TASK,
     tools: out.tools,
+    askTools: out.askTools,
     permissionMode: out.permissionMode ?? "dontAsk",
   };
 }
@@ -289,7 +299,18 @@ export function buildChildArgv(a: Args, prompt: string): string[] {
     "--no-session-persistence",
     ...(a.bare ? ["--bare"] : []),
     ...(a.tools !== undefined ? ["--tools", a.tools] : []),
+    ...askSettingsArgv(a.askTools),
   ];
+}
+
+function askSettingsArgv(askTools: string | undefined): string[] {
+  if (askTools === undefined) return [];
+  const rules = askTools
+    .split(",")
+    .map((r) => r.trim())
+    .filter((r) => r !== "");
+  if (rules.length === 0) return [];
+  return ["--settings", JSON.stringify({ permissions: { ask: rules } })];
 }
 
 export function artifactPathFor(a: Args): string {

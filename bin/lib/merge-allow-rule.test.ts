@@ -4,7 +4,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseMergeArgs } from "../flow-merge-guard";
-import { FLOW_MERGE_ALLOW_RULE, readMergeAllowRule } from "./merge-allow-rule";
+import {
+  FLOW_MERGE_ALLOW_RULE,
+  FLOW_OVERRIDE_ASK_RULES,
+  readMergeAllowRule,
+  readOverrideAskRule,
+} from "./merge-allow-rule";
 
 let root: string;
 
@@ -131,6 +136,93 @@ describe("readMergeAllowRule", () => {
     };
     const before = stat();
     readMergeAllowRule(file);
+    expect(stat()).toBe(before);
+  });
+});
+
+const askSettings = (ask: unknown) => JSON.stringify({ permissions: { ask } });
+const [ASK_BARE, ASK_ARGS] = FLOW_OVERRIDE_ASK_RULES;
+
+describe("readOverrideAskRule", () => {
+  it("names the owner's two rules exactly", () => {
+    expect([...FLOW_OVERRIDE_ASK_RULES]).toEqual([
+      "Bash(flow-merge-guard * --record-override)",
+      "Bash(flow-merge-guard * --record-override *)",
+    ]);
+  });
+
+  it("reports present when both rules sit in permissions.ask", () => {
+    const file = write("p.json", askSettings([ASK_BARE, ASK_ARGS]));
+    expect(readOverrideAskRule(file)).toEqual({
+      status: "present",
+      resolvedPath: file,
+      missing: [],
+    });
+  });
+
+  it("reports partial and names the absent rule", () => {
+    const file = write("pa.json", askSettings([ASK_BARE]));
+    expect(readOverrideAskRule(file)).toEqual({
+      status: "partial",
+      resolvedPath: file,
+      missing: [ASK_ARGS],
+    });
+  });
+
+  it("reports absent with both rules missing (allow entries do not count)", () => {
+    const file = write(
+      "a.json",
+      JSON.stringify({ permissions: { allow: [ASK_BARE, ASK_ARGS] } }),
+    );
+    expect(readOverrideAskRule(file)).toEqual({
+      status: "absent",
+      resolvedPath: file,
+      missing: [ASK_BARE, ASK_ARGS],
+    });
+  });
+
+  it("reports merge-covered, first, for an ask entry that would make every merge prompt", () => {
+    const file = write(
+      "m.json",
+      askSettings([ASK_BARE, ASK_ARGS, "Bash(flow-merge-guard *)"]),
+    );
+    expect(readOverrideAskRule(file)).toEqual({
+      status: "merge-covered",
+      resolvedPath: file,
+      missing: [],
+      mergeCovering: "Bash(flow-merge-guard *)",
+    });
+  });
+
+  it("reports missing-file and malformed without throwing", () => {
+    expect(readOverrideAskRule(write("e.json", "{not json")).status).toBe(
+      "malformed",
+    );
+    const missing = path.join(root, "nope.json");
+    expect(readOverrideAskRule(missing)).toEqual({
+      status: "missing-file",
+      resolvedPath: missing,
+      missing: [],
+    });
+  });
+
+  it("reports the resolved path for a symlinked settings file", () => {
+    const real = write("dotfiles.json", askSettings([ASK_BARE, ASK_ARGS]));
+    const link = path.join(root, "settings.json");
+    fs.symlinkSync(real, link);
+    const result = readOverrideAskRule(link);
+    expect(result.status).toBe("present");
+    expect(result.resolvedPath).toBe(real);
+  });
+
+  it("never writes: bytes and mtime of the settings file are unchanged by a read", () => {
+    const file = write("f.json", askSettings([ASK_BARE]));
+    const stat = () => {
+      const st = fs.statSync(file);
+      return `${createHash("sha1").update(fs.readFileSync(file)).digest("hex")}@${st.mtimeMs}`;
+    };
+    const before = stat();
+    readOverrideAskRule(file);
     expect(stat()).toBe(before);
   });
 });

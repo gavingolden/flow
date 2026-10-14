@@ -506,6 +506,49 @@ describe("buildChildArgv", () => {
       "--no-session-persistence",
     ]);
     expect(argv).not.toContain("--tools");
+    expect(argv).not.toContain("--settings");
+  });
+
+  it("passes --ask-tools as an ask-only inline --settings JSON, never an allow key", () => {
+    const a = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+      "--ask-tools",
+      "Bash(flow-merge-guard * --record-override), Bash(flow-merge-guard * --record-override *),,",
+    ]) as Args;
+    expect(a.askTools).toContain("--record-override");
+    const argv = buildChildArgv(a, "hi");
+    const idx = argv.indexOf("--settings");
+    expect(idx).toBeGreaterThan(-1);
+    expect(JSON.parse(argv[idx + 1]!)).toEqual({
+      permissions: {
+        ask: [
+          "Bash(flow-merge-guard * --record-override)",
+          "Bash(flow-merge-guard * --record-override *)",
+        ],
+      },
+    });
+    expect(argv[idx + 1]).not.toContain("allow");
+    expect(argv.filter((x) => x === "--settings")).toHaveLength(1);
+    expect(argv[argv.indexOf("--setting-sources") + 1]).toBe("project");
+  });
+
+  it("emits no --settings for an --ask-tools value with no rules in it", () => {
+    const a = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+      "--ask-tools",
+      " , ",
+    ]) as Args;
+    expect(buildChildArgv(a, "hi")).not.toContain("--settings");
   });
 });
 

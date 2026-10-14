@@ -7,6 +7,7 @@ import {
   checkClaude,
   checkGh,
   checkMergeAllowRule,
+  checkOverrideAskRule,
   checkTmux,
 } from "./doctor-tools";
 import { makeDeps, scriptedRun, type RunCall } from "./doctor-test-deps";
@@ -350,5 +351,72 @@ describe("checkMergeAllowRule", () => {
     const [bad] = checkMergeAllowRule(makeDeps(root));
     expect(bad.status).toBe("warn");
     expect(bad.details.join(" ")).toContain("not a valid JSON object");
+  });
+});
+
+describe("checkOverrideAskRule", () => {
+  const BARE = "Bash(flow-merge-guard * --record-override)";
+  const ARGS = "Bash(flow-merge-guard * --record-override *)";
+
+  function settingsAt(dir: string, body: string): string {
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "settings.json");
+    fs.writeFileSync(file, body);
+    return fs.realpathSync(file);
+  }
+  const askBody = (ask: string[]) => JSON.stringify({ permissions: { ask } });
+  const home = () => path.join(root, "home", ".claude");
+
+  it("passes when both rules are in permissions.ask, naming the resolved file", () => {
+    const file = settingsAt(home(), askBody([BARE, ARGS]));
+    const [c] = checkOverrideAskRule(makeDeps(root));
+    expect(c).toMatchObject({ id: "tools-override-ask", status: "pass" });
+    expect(c.summary).toContain(file);
+  });
+
+  it("warns for a partial pair, naming only the missing line and the file", () => {
+    const file = settingsAt(home(), askBody([BARE]));
+    const [c] = checkOverrideAskRule(makeDeps(root));
+    expect(c.status).toBe("warn");
+    expect(c.fix).toBe(`add "${ARGS}" to permissions.ask in ${file}`);
+  });
+
+  it("warns for an absent pair, naming both lines", () => {
+    const file = settingsAt(home(), askBody([]));
+    const [c] = checkOverrideAskRule(makeDeps(root));
+    expect(c.status).toBe("warn");
+    expect(c.fix).toBe(
+      `add "${BARE}" and "${ARGS}" to permissions.ask in ${file}`,
+    );
+  });
+
+  it("warns for a merge-covering ask entry, naming it as the one to narrow", () => {
+    const file = settingsAt(
+      home(),
+      askBody([BARE, ARGS, "Bash(flow-merge-guard *)"]),
+    );
+    const [c] = checkOverrideAskRule(makeDeps(root));
+    expect(c.status).toBe("warn");
+    expect(c.details.join(" ")).toContain("Bash(flow-merge-guard *)");
+    expect(c.fix).toContain('narrow "Bash(flow-merge-guard *)"');
+    expect(c.fix).toContain(file);
+  });
+
+  it("warns on a missing file and on malformed JSON, naming the path", () => {
+    const [missingFile] = checkOverrideAskRule(makeDeps(root));
+    expect(missingFile.status).toBe("warn");
+    expect(missingFile.details.join(" ")).toContain("does not exist");
+    expect(missingFile.fix).toContain("settings.json");
+    settingsAt(home(), "{ nope");
+    const [bad] = checkOverrideAskRule(makeDeps(root));
+    expect(bad.status).toBe("warn");
+    expect(bad.details.join(" ")).toContain("not a valid JSON object");
+  });
+
+  it("never rewrites the settings file", () => {
+    const file = settingsAt(home(), askBody([BARE]));
+    const before = fs.readFileSync(file, "utf8");
+    checkOverrideAskRule(makeDeps(root));
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
   });
 });

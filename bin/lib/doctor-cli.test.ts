@@ -39,7 +39,10 @@ vi.mock("./paths", async (orig) => ({
 }));
 
 import { runDoctorCli } from "./doctor-cli";
-import { FLOW_MERGE_ALLOW_RULE } from "./merge-allow-rule";
+import {
+  FLOW_MERGE_ALLOW_RULE,
+  FLOW_OVERRIDE_ASK_RULES,
+} from "./merge-allow-rule";
 import type { DoctorDeps, DoctorReport } from "./doctor";
 import { makeDeps, scriptedRun } from "./doctor-test-deps";
 import { appendRow } from "./proc-registry";
@@ -118,7 +121,12 @@ function healthyDeps(): DoctorDeps {
   fs.mkdirSync(path.join(deps.homeDir, ".claude"), { recursive: true });
   fs.writeFileSync(
     path.join(deps.homeDir, ".claude", "settings.json"),
-    JSON.stringify({ permissions: { allow: [FLOW_MERGE_ALLOW_RULE] } }),
+    JSON.stringify({
+      permissions: {
+        allow: [FLOW_MERGE_ALLOW_RULE],
+        ask: [...FLOW_OVERRIDE_ASK_RULES],
+      },
+    }),
   );
   fs.mkdirSync(deps.targets.binDir, { recursive: true });
   const symlinks = [
@@ -242,6 +250,7 @@ describe("runDoctorCli full probe run in a sandbox", () => {
         "tools-tmux",
         "tools-claude",
         "tools-merge-rule",
+        "tools-override-ask",
         "tools-agy",
         "leftovers-worktrees",
         "leftovers-processes",
@@ -251,6 +260,9 @@ describe("runDoctorCli full probe run in a sandbox", () => {
     expect(procs.status).toBe("pass");
     expect(procs.details.join(" ")).toContain("1 stale registry entry");
     expect(r.checks.find((c) => c.id === "tools-merge-rule")?.status).toBe(
+      "pass",
+    );
+    expect(r.checks.find((c) => c.id === "tools-override-ask")?.status).toBe(
       "pass",
     );
     expect(r.checks.find((c) => c.id === "tools-tmux")?.status).toBe("skip");
