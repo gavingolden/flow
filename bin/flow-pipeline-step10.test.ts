@@ -349,3 +349,18 @@ describe("manual-merge instructions are one standalone gate-checked command", ()
     ).toEqual([]);
   });
 });
+
+describe("flow-owned merge and override rules replace the paste-a-rule docs", () => {
+  const read = (...p: string[]) =>
+    fs.readFileSync(path.join(REPO_ROOT, ...p), "utf8");
+
+  it("docs, SKILL.md and the contract no longer tell the owner to paste a rule", () => {
+    expect(read("docs", "configuration.md")).not.toContain(
+      "Confirming a gate override",
+    );
+    expect(skillContent).not.toContain("user-global allow rule");
+    expect(read("references", "consumer-repo-contract.md")).toContain(
+      "flow-merge-guard * --record-override",
+    );
+  });
+});

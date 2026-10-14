@@ -444,7 +444,11 @@ describe("render — needs-human (per-reason mapping)", () => {
   });
 
   describe("run() derives mergeRuleHint from the user's settings (read-only)", () => {
-    function renderViaRun(home: string, reason: string): string {
+    function renderViaRun(
+      home: string,
+      reason: string,
+      extra: string[] = [],
+    ): string {
       const original = process.stdout.write.bind(process.stdout);
       let captured = "";
       process.stdout.write = ((chunk: unknown) => {
@@ -462,6 +466,7 @@ describe("render — needs-human (per-reason mapping)", () => {
             "dev",
             "--slug",
             "mrh-test-slug",
+            ...extra,
           ],
           { stateDir: tmpRoot, homeDir: home, env: {} },
         );
@@ -498,6 +503,42 @@ describe("render — needs-human (per-reason mapping)", () => {
       expect(out).toContain(path.join(home, ".claude", "settings.json"));
       expect(out).toContain("makes every merge prompt");
       expect(out).not.toContain("permissions.allow");
+    });
+
+    it("names classifyAllShell and says relaunching will not help when no ask entry conflicts", () => {
+      const home = homeWithSettings(
+        JSON.stringify({ autoMode: { classifyAllShell: true } }),
+      );
+      const out = renderViaRun(home, "merge-permission-denied", [
+        "--pr-url",
+        "https://github.com/o/r/pull/77",
+      ]);
+      expect(out).toContain("autoMode.classifyAllShell");
+      expect(out).toContain("relaunching will not help");
+      expect(out).toContain("merge #77");
+      expect(out).not.toContain(
+        "launched before flow shipped its own merge rule",
+      );
+    });
+
+    it("the conflicting-entry line carries the narrow-or-delete remedy and the real PR number", () => {
+      const home = homeWithSettings(
+        JSON.stringify({
+          permissions: { ask: ["Bash(flow-merge-guard *)"] },
+        }),
+      );
+      const out = renderViaRun(home, "merge-permission-denied", [
+        "--pr-url",
+        "https://github.com/o/r/pull/77",
+      ]);
+      expect(out).toContain("Narrow or delete that entry");
+      expect(out).toContain("merge #77");
+    });
+
+    it("falls back to <pr> when no PR URL is given", () => {
+      const home = homeWithSettings(null);
+      const out = renderViaRun(home, "merge-permission-denied");
+      expect(out).toContain("merge #<pr>");
     });
 
     it("adds no line for any other reason", () => {

@@ -76,7 +76,10 @@ import {
 } from "./lib/state";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { finalizePhase } from "./lib/phase-advance";
-import { findMergeCoveringAskEntry } from "./lib/merge-allow-rule";
+import {
+  classifyAllShellOn,
+  findMergeCoveringAskEntry,
+} from "./lib/merge-allow-rule";
 import { userSettingsPath } from "./lib/claude-user-settings";
 import { recordEvent } from "./lib/telemetry";
 import {
@@ -1116,17 +1119,21 @@ function mergeRuleHintFor(
   env: NodeJS.ProcessEnv,
   homeDir: string,
   slug?: string | null,
+  prUrl?: string,
 ): string | undefined {
   if (!reason || reason.split(":")[0].trim() !== "merge-permission-denied") {
     return undefined;
   }
-  const { entry, resolvedPath } = findMergeCoveringAskEntry(
-    userSettingsPath(env, homeDir),
-  );
+  const pr = (prUrl && extractPrNumber(prUrl)) || "<pr>";
+  const settingsPath = userSettingsPath(env, homeDir);
+  const { entry, resolvedPath } = findMergeCoveringAskEntry(settingsPath);
   if (entry !== undefined) {
-    return `Your Claude settings ask before every flow-merge-guard call (\`${entry}\` in ${resolvedPath}), which makes every merge prompt (\`flow doctor\` checks it).`;
+    return `Your Claude settings ask before every flow-merge-guard call (\`${entry}\` in ${resolvedPath}), which makes every merge prompt. Narrow or delete that entry (\`flow doctor\` checks it), or reply \`merge #${pr}\` to finish this one.`;
   }
-  return `If this pipeline was launched before flow shipped its own merge rule, \`flow feature resume ${slug || "<slug>"}\` relaunches it with the rule; replying \`merge #<pr>\` also finishes it.`;
+  if (classifyAllShellOn(settingsPath)) {
+    return `Your Claude settings turn on \`autoMode.classifyAllShell\` (${settingsPath}), which makes auto mode ignore every Bash allow rule, so relaunching will not help; reply \`merge #${pr}\` to finish this one.`;
+  }
+  return `If this pipeline was launched before flow shipped its own merge rule, \`flow feature resume ${slug || "<slug>"}\` relaunches it with the rule; replying \`merge #${pr}\` also finishes it.`;
 }
 
 export function run(
@@ -1198,6 +1205,7 @@ export function run(
       opts?.env ?? process.env,
       opts?.homeDir ?? os.homedir(),
       resolvedSlug,
+      parsed.prUrl,
     ),
   });
   try {
