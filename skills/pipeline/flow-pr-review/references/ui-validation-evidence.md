@@ -62,7 +62,7 @@ repeat the same call; when the verdict carries no `meta` (port allocation
 failed), record `app-launch-failed` rather than substituting a port by hand.
 Empirically verify the inference (launch starts, routes render, login succeeds
 via `flow-ui-login` and the "Login step (auth-gated apps)" section below —
-the agent never resolves or reads a credential VALUE itself), and write the
+the agent never reads a `.env` file itself), and write the
 verified NAMES/config back into `.flow/ui-validation.json` — storing names and
 non-secret config only — never a secret value — committing it into the reviewable
 PR diff before driving the bucket. The same sentinel grammar is now honored on
@@ -130,8 +130,8 @@ sentinel by hand on that path. Then, per visual item:
 ## Login step (auth-gated apps)
 
 When the manifest declares `loginUrl` and `credentialEnvVars`, log in
-through the helper — never resolve, read, or fill a credential VALUE
-yourself:
+through the helper — never read a `.env` file or resolve a credential
+VALUE yourself:
 
 1. `flow-ui-login check --manifest <absolute worktree path>/.flow/ui-validation.json --worktree <absolute worktree path>`
    as its own standalone Bash call — foreground, no `cd … &&`, no env-var
@@ -139,39 +139,42 @@ yourself:
    exit 3 (either name absent), take the existing
    `NEEDS HUMAN: smoketest-needs-creds` escalation (autonomous path) rather
    than driving an unauthenticated pass.
-2. `navigate_page` to `loginUrl`.
-3. An optional transient working snapshot — never saved or injected as
-   evidence — to confirm the form exists, before any fill.
-4. Read the page's own origin via `evaluate_script () => location.origin`.
-5. `flow-ui-login serve --manifest <absolute worktree path>/.flow/ui-validation.json --origin <that origin> --worktree <absolute worktree path>`
-   as its own standalone Bash call — same shape as step 1 (foreground,
-   nothing before, after or around it). It returns in under 3s with one JSON
-   line; that line is the only read of the script.
-6. `evaluate_script` with the returned `fillScript` verbatim as its
-   `function` — it fetches the values inside the page and fills + submits
-   the form itself; the agent's own tool call never carries a value.
-7. `wait_for` the post-login redirect.
-8. `evaluate_script () => location.pathname` **only**, and set `loginOk`
+2. `flow-ui-login test-account --manifest <absolute worktree path>/.flow/ui-validation.json --worktree <absolute worktree path>`
+   as its own standalone Bash call — same shape as step 1. It prints one
+   JSON line carrying the seeded local test account's two values. Exit 3
+   means credentials-unavailable; exit 2 with `non-local-base-url` means the
+   manifest points off localhost — record `login-failed` naming the
+   `baseUrl`.
+3. If the MCP tools are deferred, load `mcp__chrome-devtools__fill_form`
+   with `ToolSearch` (`select:`) alongside `navigate_page`, then
+   `navigate_page` to `loginUrl`.
+4. `take_snapshot` — mandatory (`fill_form` needs the element `uid`s),
+   transient, never saved or injected as evidence.
+5. ONE `fill_form` call with the two values `test-account` printed, then
+   click the submit button.
+6. `wait_for` the post-login redirect.
+7. `evaluate_script () => location.pathname` **only**, and set `loginOk`
    from whether the pathname no longer equals `loginUrl`'s path (still
    recorded in the captures JSON, as before).
 
-<!-- flow-ui-login-handoff -->
+**Never persist or inject as review evidence a screenshot or saved a11y
+snapshot of the credential-bearing login form — capture evidence only on
+the post-auth gated route** (the form is simply never captured — this is
+not because the password field is masked: the email/username field
+renders in plaintext in both a screenshot and an a11y snapshot, so masking
+is not the protection here, the unconditional no-capture rule is), and
+never snapshot or screenshot the page while still on `loginUrl` after the
+fill runs.
 
-The hand-off rule: `serve` runs as one standalone foreground call, its
-single output line is read once, and `fillScript` goes verbatim into
-`evaluate_script`'s `function` — never saved to a file, printed, sliced,
-piped through `jq`/`head`/`tail`, or re-read.
+Type the values only through that one `fill_form`; never write them to the
+captures JSON, the result artifact, the manifest, a commit, a PR body or a
+Test Step. Never echo, grep, cat, or `Read` a `.env`-family file or print a
+credential variable. **Committed artifacts reference credential NAMES
+only** — the manifest, plan, commit messages, and PR bodies name the env
+vars, never a VALUE.
 
-A `fillScript` result of `reason: "fetch-blocked"` means the browser's own
-`fetch` threw before a response ever came back — almost always the app's
-dev-mode CSP `connect-src` refusing the loopback fetch, or the fill ran
-after `serve`'s 90s window closed — record
-`login-failed` naming that fix (allow `http://127.0.0.1:*` in
-`connect-src`); never fall back to `fill`/`type` with a value. A result of
-`reason: "endpoint-refused"` means the fetch reached the one-time endpoint
-but got a non-OK status back (the one-time endpoint was already used or the origin
-didn't match) — that is a credential refusal,
-not a CSP problem: follow the `<!-- flow-credential-denial-rule -->` below
+<!-- flow-credential-denial-rule -->` below
+
 and record `credentials-unavailable`, not `login-failed`.
 
 **Never persist or inject as review evidence a screenshot or saved a11y
@@ -195,20 +198,16 @@ vars, never a VALUE.
 
 **Credential denial means stop.** When a permission check, the auto-mode
 classifier, or a deny rule refuses any credential-related action —
-printing, grepping or reading a credential variable or a `.env`-family
-file, or running `flow-ui-login` — STOP the browser check. Never retry
-through another tool (Read, grep, cat, a script, or `fill`/`type` with the
-value). A `fillScript` result of `reason: "endpoint-refused"` (the
-one-time endpoint answered non-OK — it was already used or the
-origin didn't match) is the same kind of refusal:
-record `skipped_reason: "credentials-unavailable"` and let the caller
-surface `smoketest-needs-creds`, naming only the variable NAMES. A
-`fetch-blocked` result (the browser's own `fetch` threw — almost always
-the app's dev-mode CSP, or the fill ran after the 90s window closed) is not a refusal: record `login-failed` naming
-the CSP fix instead (per above), never `credentials-unavailable`. In
-items mode (`MODE: items`), the affected signed-in items stay unchecked
-with reason `credentials-unavailable` (endpoint-refused / permission
-denial) or the driver's `login-failed` note (fetch-blocked).
+reading a `.env`-family file, printing a credential variable, running
+`flow-ui-login test-account`, or the `fill_form` that types the
+test-account values — STOP the browser check. Never retry through another
+tool (Read, grep, cat, a script, `evaluate_script`, or a different
+fill/type tool): record `skipped_reason: "credentials-unavailable"` and let
+the caller surface `smoketest-needs-creds`, naming only the variable NAMES.
+Values filled and submitted but the page still on `loginUrl` is not a
+refusal: record `login-failed`. In items mode (`MODE: items`), the affected
+signed-in items stay unchecked with reason `credentials-unavailable`
+(permission denial) or the driver's `login-failed` note.
 
 This adds **no new Task-tool exemption**: Step 8c.iii spawns the **UI-Driver
 Subagent** — the same eighth Task-tool exemption `/flow-verify`'s Optional
@@ -269,7 +268,7 @@ per item, matched on `index` only — review rewrites item text):
   invalid driver artifact, or an item absent from `item_results[]`) — the box
   stays open with the reason **`browser-unavailable`**
   (`flow-classify-step --reason browser-unavailable`).
-- **Credential denial** (`flow-ui-login check`/`serve` refused or the
+- **Credential denial** (`flow-ui-login check`/`test-account` refused or the
   credentials never resolved, per the `<!-- flow-credential-denial-rule -->`
   in the "Login step (auth-gated apps)" section) — the affected signed-in
   items stay unchecked with the reason **`credentials-unavailable`**,
@@ -333,16 +332,15 @@ Drive the item with the repo's own headless browser, inline in the wrapper
 
 The script is bounded: written under `.flow-tmp/browser-fallback/`, run from the
 worktree with the consumer's `@playwright/test`, one item per run, a hard
-timeout, and no state carried between items. Log in by spawning
-`flow-ui-login serve` and evaluating the fill script it returns in the page —
-the agent never reads a `.env` file or a credential value (see "Login step
-(auth-gated apps)"). That section's no-capture rule applies unchanged: the
-script takes no screenshot, trace, video or HAR while on `loginUrl` (launch the
-context with tracing, video and HAR off, starting them only after the
-post-login redirect), and its evidence output never includes the fill
-script's network response. The Playwright script may capture `serve`'s stdout
-internally but must never log or print it — the "never save, pipe or re-read"
-rule governs the agent's own Bash/MCP calls. Never install browser binaries (a download outside the
+timeout, and no state carried between items. Log in by
+running `flow-ui-login test-account` (standalone foreground call) and filling
+the form with `page.fill` using the two values it prints — the agent never
+reads a `.env` file (see "Login step (auth-gated apps)"). That section's
+no-capture rule applies unchanged: the script takes no screenshot, trace, video
+or HAR while on `loginUrl` (launch the context with tracing, video and HAR off,
+starting them only after the post-login redirect), and its evidence output
+never includes the values. The values live only in the run's memory — never
+logged, printed, or written to the script file or results. Never install browser binaries (a download outside the
 worktree is neither local nor cheaply reversible).
 Write the results to `.flow-tmp/ui-driver-result.json` in the driver's schema
 (validate with `flow-ui-driver-schema --validate`), stamped `caller: "review-8c"`
@@ -437,9 +435,9 @@ work (tweaks the command, adds/changes an `env` var, fixes `baseUrl`, corrects a
 persists the launch adaptation back into `.flow/ui-validation.json`
 (env/launch/baseUrl/routes/loginUrl/credentialEnvVars) and commits it into the
 reviewable PR diff, so the next run starts deterministic. Runtime credential
-VALUES are resolved by `flow-ui-login` and NEVER persisted — the agent never
-reads them itself: the committed manifest stores names and non-secret config
-only — never a secret value. Treat the manifest as a deterministic cache of non-secret facts the agent
+VALUES come from `flow-ui-login test-account` and are NEVER persisted: the
+committed manifest stores names and non-secret config only — never a secret
+value. Treat the manifest as a deterministic cache of non-secret facts the agent
 maintains, not a frozen contract.
 
 ## Snapshot-primary, screenshot-by-reference

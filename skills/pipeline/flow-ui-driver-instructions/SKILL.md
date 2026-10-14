@@ -100,26 +100,36 @@ means `app-launch-failed` quoting that message as the cause — never another
 launch form, and always put the cause in the summary (the supervisor relays it
 as the skip reason). Then open a per-pipeline isolated page keyed on `SLUG`, run the Login step when the
 manifest declares a login wall — credential presence is checked with
-`flow-ui-login check` (names only) and login goes through `flow-ui-login
-serve`, never by the agent resolving a VALUE itself — then drive each
+`flow-ui-login check` (names only), and the seeded local test account's
+values come from `flow-ui-login test-account` — then drive each
 route × each declared viewport per `ui-smoke-pass.md`'s "Launch and drive"
 section.
 
-<!-- flow-ui-login-handoff -->
+Login recipe (a manifest with a login wall):
 
-Run `flow-ui-login check` and `flow-ui-login serve` each as its own
-standalone foreground Bash call (absolute `--manifest`/`--worktree` paths, no
-`cd … &&`, no env-var prefix, no `&`/`nohup`, no redirect, no pipe, no
-`head`/`tail`/`jq`); read `serve`'s single output line once and pass
-`fillScript` verbatim to `evaluate_script` — never save, print, slice or
-re-read it.
+1. Run `flow-ui-login test-account --manifest <abs>/.flow/ui-validation.json
+--worktree <abs>` as its own standalone foreground Bash call (absolute
+   paths, no pipe, no redirect, no env-var prefix, no `cd … &&`, no
+   background). Exit 3 means the account is missing: record
+   `credentials-unavailable`. Exit 2 with `non-local-base-url` means the
+   manifest points off localhost: record `login-failed` naming the `baseUrl`.
+2. If the MCP tools are deferred, load `mcp__chrome-devtools__fill_form`
+   with `ToolSearch` (`select:`) alongside `navigate_page`, then
+   `navigate_page` to `loginUrl`.
+3. `take_snapshot` (mandatory — `fill_form` needs the element `uid`s; the
+   snapshot is transient and never saved). Never snapshot again while still on
+   `loginUrl` after filling.
+4. ONE `fill_form` call with the two values `test-account` printed, then
+   click the submit button.
+5. `wait_for` the redirect and derive `loginOk` from `location.pathname`
+   leaving `loginUrl`.
 
 **Never capture the login form, and never persist a credential VALUE.** The
 email/username field renders in plaintext in both a screenshot and an a11y
 snapshot — masking is not the protection here — so the unconditional rule is:
-the login form is simply never captured as evidence, and only credential
-NAMES (never a VALUE) are ever written to the manifest, a commit message, or
-this agent's own artifact. Your `Write` grant makes omitting this rule more
+the login form is never screenshotted or saved as evidence, and only
+credential NAMES (never a VALUE) are ever written to the captures JSON, the
+result artifact, the manifest, a commit message, a PR body or a Test Step. Your `Write` grant makes omitting this rule more
 dangerous than it was when the pass ran inline, not less — honor it exactly
 as written in `ui-smoke-pass.md`.
 
@@ -127,17 +137,14 @@ as written in `ui-smoke-pass.md`.
 
 **Credential denial means stop.** When a permission check, the auto-mode
 classifier, or a deny rule refuses any credential-related action —
-printing, grepping or reading a credential variable or a `.env`-family
-file, or running `flow-ui-login` — STOP the browser check. Never retry
-through another tool (Read, grep, cat, a script, or `fill`/`type` with the
-value). A `fillScript` result of `reason: "endpoint-refused"` (the
-one-time endpoint answered non-OK — it was already used or the
-origin didn't match) is the same kind of refusal:
-record `skipped_reason: "credentials-unavailable"` and let the caller
-surface `smoketest-needs-creds`, naming only the variable NAMES. A
-`fetch-blocked` result (the browser's own `fetch` threw — almost always
-the app's dev-mode CSP, or the fill ran after the 90s window closed) is not a refusal: record `login-failed` naming
-the CSP fix instead, never `credentials-unavailable`.
+reading a `.env`-family file, printing a credential variable, running
+`flow-ui-login test-account`, or the `fill_form` that types the
+test-account values — STOP the browser check. Never retry through another
+tool (Read, grep, cat, a script, `evaluate_script`, or a different
+fill/type tool): record `skipped_reason: "credentials-unavailable"` and let
+the caller surface `smoketest-needs-creds`, naming only the variable NAMES.
+Values filled and submitted but the page still on `loginUrl` is not a
+refusal: record `login-failed`.
 
 **Slug resolution is env-only.** Resolve `SLUG` from the value the wrapper
 passed you (itself derived from `FLOW_SLUG` / `~/.flow/state/<slug>.json` /

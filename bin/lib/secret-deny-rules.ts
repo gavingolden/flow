@@ -33,16 +33,14 @@ export const SECRET_FILE_DENY_RULES: readonly string[] = [
 ];
 
 /**
- * Pre-approves `flow-ui-login check`/`serve` only — never a blanket
- * `flow-ui-login *`, which would also pre-approve the hidden
- * `__serve-child` subcommand (arbitrary `--user-name`/`--pass-name` on
- * argv, no classifier check) and let an agent that improvises after a
- * denial reach it directly. The auto-mode classifier still sees, and can
+ * Pre-approves `flow-ui-login check`/`test-account` only — one rule per
+ * subcommand, never a blanket `flow-ui-login *`, so a future subcommand is
+ * never silently pre-approved. The auto-mode classifier still sees, and can
  * still deny, every other `flow-ui-login` invocation.
  */
 export const FLOW_UI_LOGIN_ALLOW_RULES: readonly string[] = [
   "Bash(flow-ui-login check *)",
-  "Bash(flow-ui-login serve *)",
+  "Bash(flow-ui-login test-account *)",
 ];
 
 /**

@@ -9,24 +9,24 @@ import { fileURLToPath } from "node:url";
  * credential-related action must stop the browser check, never route
  * through another tool.
  *
- * Two checks, both `fs.readFileSync`-based (never the shell `grep`, which
+ * All checks are `fs.readFileSync`-based (never the shell `grep`, which
  * silently treats `ui-smoke-pass.md`'s very long lines as binary and skips
  * them — see that file's own header note):
  *
  * 1. The rule anchor `<!-- flow-credential-denial-rule -->` plus the terms
- *    `credentials-unavailable`, `fetch-blocked` and `flow-ui-login` are all
+ *    `credentials-unavailable` and `flow-ui-login test-account` are all
  *    present in each of the four rule sites.
  * 2. Across those four files plus the two sibling docs the login recipe was
  *    rewritten in, none of the three pre-fix phrases survives anywhere: the
  *    `fill`-with-values instruction, the "resolve from the local
  *    `.env`/shell env" instruction, and the obsolete "token was already
  *    spent" wording.
- *
- * Two more blocks pin the login hand-off (every doc naming `flow-ui-login
- * serve` carries `<!-- flow-ui-login-handoff -->` and none instructs saving,
- * slicing, piping or backgrounding its output) and the after-denial teardown
- * exception (`<!-- flow-denial-teardown -->`, plus the verify carve-out's
- * `flow-browser-teardown --reap --record` before the escalation).
+ * 3. Dead references: no doc names the retired loopback hand-off
+ *    (`flow-ui-login serve`, `fillScript`, `fetch-blocked`,
+ *    `endpoint-refused`, `flow-ui-login-handoff`, `__serve-child`).
+ * 4. The after-denial teardown exception (`<!-- flow-denial-teardown -->`,
+ *    plus the verify carve-out's `flow-browser-teardown --reap --record`
+ *    before the escalation).
  */
 
 const REPO_ROOT = path.resolve(
@@ -66,11 +66,8 @@ describe("credential-denial lint — rule sites", () => {
       expect(text, `${relPath} missing credentials-unavailable`).toContain(
         "credentials-unavailable",
       );
-      expect(text, `${relPath} missing fetch-blocked`).toContain(
-        "fetch-blocked",
-      );
-      expect(text, `${relPath} missing flow-ui-login`).toContain(
-        "flow-ui-login",
+      expect(text, `${relPath} missing flow-ui-login test-account`).toContain(
+        "flow-ui-login test-account",
       );
     },
   );
@@ -124,95 +121,39 @@ describe("credential-denial lint — old phrases removed", () => {
   });
 });
 
-const HANDOFF_ANCHOR = "<!-- flow-ui-login-handoff -->";
 const DENIAL_TEARDOWN_ANCHOR = "<!-- flow-denial-teardown -->";
 
-// Shapes of the incident's own commands: saving serve's output to a file,
-// jq-ing fillScript out of it, slicing it with head/tail, backgrounding
-// serve. Each of those made the model re-read or hand-assemble the script,
-// which the classifier read as tunnelling the credential fetch.
-const FORBIDDEN_HANDOFF_PATTERNS: RegExp[] = [
-  /jq[^\n]*fillScript/,
-  /fillScript[^\n]*\|\s*(head|tail|cut|sed|awk)/,
-  /flow-ui-login\s+serve[^\n`]*(\s&\s|\s&$|\s>\s?|\|)/m,
-  /nohup\s+flow-ui-login/,
+const DEAD_REFERENCE_FILES = [
+  ...NO_OLD_PHRASE_FILES,
+  "skills/pipeline/flow-pr-review/SKILL.md",
+  "references/consumer-repo-contract.md",
+  "skills/pipeline/flow-pipeline/references/failure-recovery.md",
+  "docs/configuration.md",
 ];
 
-const SERVE_MENTION = /flow-ui-login\s+serve/;
+const DEAD_REFERENCES = [
+  "flow-ui-login serve",
+  "fillScript",
+  "fetch-blocked",
+  "endpoint-refused",
+  "flow-ui-login-handoff",
+  "__serve-child",
+];
 
-function markdownFiles(relDir: string): string[] {
-  const out: string[] = [];
-  for (const entry of fs.readdirSync(path.join(REPO_ROOT, relDir), {
-    withFileTypes: true,
-  })) {
-    const rel = path.join(relDir, entry.name);
-    if (entry.isDirectory()) out.push(...markdownFiles(rel));
-    else if (entry.name.endsWith(".md")) out.push(rel);
-  }
-  return out;
-}
-
-const SERVE_DOCS = [
-  ...markdownFiles("skills"),
-  ...markdownFiles("templates/rules"),
-].filter((rel) => SERVE_MENTION.test(read(rel)));
-
-describe("credential-denial lint — login hand-off", () => {
-  it("finds the docs that mention flow-ui-login serve", () => {
-    expect(SERVE_DOCS).toEqual(
-      expect.arrayContaining([
-        "skills/pipeline/flow-pipeline/references/ui-smoke-pass.md",
-        "skills/pipeline/flow-pr-review/references/ui-validation-evidence.md",
-        "skills/pipeline/flow-ui-driver-instructions/SKILL.md",
-        "templates/rules/ui-validation.md",
-      ]),
-    );
-  });
-
-  it.each(SERVE_DOCS)("%s carries the hand-off anchor", (relPath) => {
-    expect(read(relPath), `${relPath} missing hand-off anchor`).toContain(
-      HANDOFF_ANCHOR,
-    );
-  });
-
-  it.each(SERVE_DOCS)(
-    "%s never instructs saving, slicing, piping or backgrounding serve",
+describe("credential-denial lint — dead references", () => {
+  it.each(DEAD_REFERENCE_FILES)(
+    "%s names none of the retired loopback login path",
     (relPath) => {
       const text = read(relPath);
-      for (const pattern of FORBIDDEN_HANDOFF_PATTERNS) {
-        expect(text, `${relPath} matches ${pattern}`).not.toMatch(pattern);
+      for (const dead of DEAD_REFERENCES) {
+        expect(text, `${relPath} still names ${dead}`).not.toContain(dead);
       }
     },
   );
 
-  it("[negative] the anchor predicate catches a line-wrapped serve mention without the anchor", () => {
-    const text = "log in through `flow-ui-login\n  serve` and run the script";
-    expect(SERVE_MENTION.test(text)).toBe(true);
-    expect(text.includes(HANDOFF_ANCHOR)).toBe(false);
-  });
-
-  it.each<[number, string]>([
-    [0, "cd /w && jq -r .fillScript .flow-tmp/ui-login-serve.out"],
-    [1, 'printf %s "$fillScript" | head -c 400'],
-    [1, "echo $fillScript | tail -n +28"],
-    [2, "flow-ui-login serve --manifest m --worktree w > out.txt"],
-    [2, "flow-ui-login serve --manifest m --worktree w 2>&1 &"],
-    [2, "flow-ui-login serve --manifest m --worktree w &"],
-    [2, "flow-ui-login serve --manifest m --worktree w | head -c 2000"],
-    [2, "flow-ui-login   serve --manifest m --worktree w > out.txt"],
-    [2, "flow-ui-login\n  serve --manifest m --worktree w | tee out.txt"],
-    [3, "nohup flow-ui-login serve --manifest m --worktree w"],
-  ])(
-    "[negative] forbidden pattern %i catches the incident command: %s",
-    (index, cmd) => {
-      expect(FORBIDDEN_HANDOFF_PATTERNS[index].test(cmd)).toBe(true);
-    },
-  );
-
-  it("[negative] a clean standalone serve call is not flagged", () => {
-    const clean =
-      "`flow-ui-login serve --manifest /w/.flow/ui-validation.json --origin http://localhost:5173 --worktree /w`";
-    expect(FORBIDDEN_HANDOFF_PATTERNS.some((p) => p.test(clean))).toBe(false);
+  it("[negative] a doc still naming the retired path would be caught", () => {
+    const text = "log in through `flow-ui-login serve` and run the fillScript";
+    expect(DEAD_REFERENCES.some((dead) => text.includes(dead))).toBe(true);
   });
 });
 

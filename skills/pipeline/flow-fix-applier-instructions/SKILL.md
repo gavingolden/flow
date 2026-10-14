@@ -577,18 +577,15 @@ per `../flow-ui-driver-instructions/SKILL.md` rather than spawning the
 
 **Credential denial means stop.** When a permission check, the auto-mode
 classifier, or a deny rule refuses any credential-related action —
-printing, grepping or reading a credential variable or a `.env`-family
-file, or running `flow-ui-login` — STOP the browser check. Never retry
-through another tool (Read, grep, cat, a script, or `fill`/`type` with the
-value). A `fillScript` result of `reason: "endpoint-refused"` (the
-one-time endpoint answered non-OK — it was already used or the
-origin didn't match) is the same kind of refusal:
-record `skipped_reason: "credentials-unavailable"` and let the caller
-surface `smoketest-needs-creds`, naming only the variable NAMES. A
-`fetch-blocked` result (the browser's own `fetch` threw — almost always
-the app's dev-mode CSP, or the fill ran after the 90s window closed) is not a refusal: record `login-failed` naming
-the CSP fix instead, never `credentials-unavailable`. On this inline path, put `credentials-unavailable` in the
-fix-applier artifact summary and leave the affected signed-in items
+reading a `.env`-family file, printing a credential variable, running
+`flow-ui-login test-account`, or the `fill_form` that types the
+test-account values — STOP the browser check. Never retry through another
+tool (Read, grep, cat, a script, `evaluate_script`, or a different
+fill/type tool): record `skipped_reason: "credentials-unavailable"` and let
+the caller surface `smoketest-needs-creds`, naming only the variable NAMES.
+Values filled and submitted but the page still on `loginUrl` is not a
+refusal: record `login-failed`. On this inline path, put
+`credentials-unavailable` in the fix-applier artifact summary and leave the affected signed-in items
 unchecked so the pr-review wrapper surfaces `smoketest-needs-creds`.
 
 <!-- flow-denial-teardown -->

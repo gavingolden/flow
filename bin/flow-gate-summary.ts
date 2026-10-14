@@ -347,7 +347,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   3. Re-invoke the caller skill.`,
   "smoketest-needs-creds": `Make the test-user credentials available, then reply done in the pipeline window.
   1. Run flow-ui-login check --manifest .flow/ui-validation.json — it prints names only. If a variable shows present: false, set it in your shell env or the worktree .env.
-  2. If both show present: true, auto mode or a permission rule refused the login: run flow doctor — its Auto-mode UI login line prints the exact entry to add to your Claude settings (flow's launch settings already pre-approve flow-ui-login check/serve; a session started outside flow does not).
+  2. If both show present: true, auto mode or a permission rule refused the login. A run launched by flow pre-approves flow-ui-login test-account; a session started outside flow does not, and a pipeline launched before the upgrade picks it up when resumed (step 3). Reply done to retry once.
   3. ${CONTINUE_OR_RESUME_STEP}`,
   "state-file-missing-on-start": `Check whether this pipeline's saved state exists; relaunch it only if it is missing.
   1. Check ~/.flow/state/<slug>.json

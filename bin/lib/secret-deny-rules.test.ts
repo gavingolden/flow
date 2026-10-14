@@ -57,10 +57,10 @@ describe("SECRET_FILE_DENY_RULES", () => {
 });
 
 describe("FLOW_UI_LOGIN_ALLOW_RULES", () => {
-  it("pre-approves only check and serve, never a blanket flow-ui-login *", () => {
+  it("pre-approves only check and test-account, never a blanket flow-ui-login *", () => {
     expect(FLOW_UI_LOGIN_ALLOW_RULES).toEqual([
       "Bash(flow-ui-login check *)",
-      "Bash(flow-ui-login serve *)",
+      "Bash(flow-ui-login test-account *)",
     ]);
   });
 });

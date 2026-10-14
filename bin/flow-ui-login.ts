@@ -1,101 +1,60 @@
 #!/usr/bin/env bun
 /**
- * Safe login helper for the browser-driven UI-validation capability. Two
- * subcommands, neither of which ever prints a credential VALUE:
+ * Login helper for the browser-driven UI-validation capability. Two
+ * subcommands:
  *
  *   flow-ui-login check --manifest <path> [--worktree <dir>]
  *     Reports whether each of the manifest's `credentialEnvVars` NAMES
  *     resolves to a value, and where — never the value itself. Exit 0 when
  *     both resolve, 3 when either is missing, 2 on a manifest/args problem.
  *
- *   flow-ui-login serve --manifest <path> --origin <origin> [--worktree <dir>]
- *     Spawns a detached, single-use, ~90-second local HTTP endpoint (see
- *     `bin/lib/ui-credential-server.ts`) that answers only the app's own
- *     origin, and prints a `fillScript` (see `bin/lib/ui-credentials.ts`)
- *     for the caller to run via `evaluate_script` inside the browser page.
- *     The values travel only inside that one HTTP response the page itself
- *     fetches — never through this CLI's stdout, stderr, or argv. Exit 0 on
- *     success, 3 (with a presence JSON, no child spawned) when either
- *     credential is missing, 2 on a manifest/args problem (including a
- *     manifest that fails full schema validation — `serve` never falls back
- *     to the lenient bootstrap-draft read `check` uses), 4 (with a
- *     structured `{ok:false, reason:"serve-timeout"}` on stdout) when the
- *     spawned child never reports its port within 3s.
+ *   flow-ui-login test-account --manifest <path> [--worktree <dir>]
+ *     Prints `{"ok":true,"user":"<v>","pass":"<v>"}` — the two seeded
+ *     LOCAL test-account VALUES — so the browser agent can type them into
+ *     the login form with chrome-devtools `fill_form`. Exit 0 on success,
+ *     3 (names-only presence JSON, no value) when either credential is
+ *     missing, 2 on a manifest/args problem (including a manifest that
+ *     fails full schema validation — `test-account` never falls back to the
+ *     lenient bootstrap-draft read `check` uses) or when `baseUrl` (or an
+ *     absolute `loginUrl`) is not a localhost address
+ *     (`{ok:false,reason:"non-local-base-url"}`, no value printed).
  *
- * `__serve-child` is a hidden third subcommand: the detached child process
- * `serve` spawns to actually bind and answer the endpoint. It re-resolves
- * the credential VALUES itself from the NAMES passed on its argv — the
- * VALUES never travel from parent to child.
- *
- * Token-free threat model: the endpoint is a fixed path, so neither the
- * `fillScript` nor the child's argv/env carries a secret. The defences are
- * the origin match, `Sec-Fetch-Mode: cors`, single use (any rejected request
- * to the login path also spends it) and the ~90s TTL. It assumes a
- * single-user dev machine: on a shared multi-user host another account can
- * forge both headers and race the page within the TTL. Fail-closed refusals
- * and single use make any interference a visible stop (`endpoint-refused`,
- * so the driver reports `credentials-unavailable`) — treat an unexplained
- * `credentials-unavailable` with both names present as a possible leak and
- * rotate the seeded test account.
+ * `test-account` reuses the `user`/`pass` keys `check` uses for presence
+ * objects, but here they carry the values. Threat model: this is the one
+ * command that prints credential VALUES, so it resolves only the two
+ * manifest-named keys (never any other `.env` key), reads only a
+ * schema-valid manifest, and refuses any non-localhost target — the account
+ * is a seeded test user for a local dev server. The values still never
+ * belong in a committed or published artifact.
  */
 
 import * as fs from "node:fs";
-import * as path from "node:path";
-import * as crypto from "node:crypto";
-import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
 
 import { validateUiValidationManifest } from "./lib/ui-validation-schema";
-import { buildFillScript, resolveCredentials } from "./lib/ui-credentials";
-import {
-  CREDENTIAL_LOGIN_PATH,
-  DEFAULT_CREDENTIAL_SERVER_TTL_MS,
-  startCredentialServer,
-} from "./lib/ui-credential-server";
+import { resolveCredentials } from "./lib/ui-credentials";
 
 type CredentialNames = { user: string; pass: string };
 
-export type SpawnChildOpts = {
-  scriptPath: string;
-  userName: string;
-  passName: string;
-  origin: string;
-  worktree: string;
-  ttlMs: number;
-  portFilePath: string;
-};
-
-/**
- * Pure argv builder for the detached `__serve-child` invocation. Exported
- * so tests can exercise the real child-argv shape without spawning an OS
- * subprocess.
- */
-export function buildServeChildArgs(opts: SpawnChildOpts): string[] {
-  return [
-    opts.scriptPath,
-    "__serve-child",
-    "--user-name",
-    opts.userName,
-    "--pass-name",
-    opts.passName,
-    "--origin",
-    opts.origin,
-    "--worktree",
-    opts.worktree,
-    "--ttl-ms",
-    String(opts.ttlMs),
-    "--port-file",
-    opts.portFilePath,
-  ];
-}
-
-export type SpawnChildFn = (opts: SpawnChildOpts) => void;
-
 export type MainDeps = {
   env?: NodeJS.ProcessEnv;
-  spawnChild?: SpawnChildFn;
-  ttlMs?: number;
 };
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+const PORT_SENTINEL_RE = /\{\{PORT(?:_[A-Z0-9_]+)?\}\}/g;
+
+/**
+ * True only when `url` parses and its hostname is a loopback name. The
+ * `{{PORT}}` placeholder is replaced with a dummy port first so a
+ * manifest's templated `baseUrl` still parses.
+ */
+export function isLocalBaseUrl(url: string): boolean {
+  try {
+    const u = new URL(url.replace(PORT_SENTINEL_RE, "1"));
+    return LOOPBACK_HOSTS.has(u.hostname);
+  } catch {
+    return false;
+  }
+}
 
 function isCredentialNames(v: unknown): v is CredentialNames {
   return (
@@ -115,11 +74,11 @@ function isCredentialNames(v: unknown): v is CredentialNames {
  * `credentialEnvVars` itself is well-formed — `check` is exactly the tool
  * the bootstrap flow runs before the manifest is complete.
  *
- * `strict: true` (`serve`) requires full schema validation and never takes
- * the lenient fallback: an agent that hands `serve` a hand-rolled manifest
- * naming an arbitrary env var pair (bypassing the classifier that gates a
- * legitimate `.flow/ui-validation.json`) gets rejected here instead of a
- * live credential-serving endpoint.
+ * `strict: true` (`test-account`) requires full schema validation and never
+ * takes the lenient fallback: an agent that hands `test-account` a
+ * hand-rolled manifest naming an arbitrary env var pair (bypassing the
+ * classifier that gates a legitimate `.flow/ui-validation.json`) gets
+ * rejected here instead of a general secret printer.
  */
 function readCredentialNames(
   manifestPath: string,
@@ -195,57 +154,56 @@ async function runCheck(argv: string[], deps: MainDeps = {}): Promise<number> {
   return ok ? 0 : 3;
 }
 
-function defaultSpawnChild(opts: SpawnChildOpts): void {
-  const child = spawn(process.execPath, buildServeChildArgs(opts), {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.on("error", () => {});
-  child.unref();
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForPortFile(
-  portFilePath: string,
-  timeoutMs = 3000,
-): Promise<number> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (fs.existsSync(portFilePath)) {
-      const raw = fs.readFileSync(portFilePath, "utf8").trim();
-      const port = Number(raw);
-      if (Number.isInteger(port) && port > 0) return port;
-    }
-    await sleep(20);
+function readLoginTargets(
+  manifestPath: string,
+): { baseUrl: string; loginUrl?: string } | null {
+  try {
+    const validated = validateUiValidationManifest(
+      JSON.parse(fs.readFileSync(manifestPath, "utf8")),
+    );
+    if (!validated.ok) return null;
+    return {
+      baseUrl: validated.value.baseUrl,
+      loginUrl: validated.value.loginUrl,
+    };
+  } catch {
+    return null;
   }
-  throw new Error(
-    "timed out waiting for the credential server to report its port",
-  );
 }
 
-const SERVE_HANDOFF_HINT =
-  "serve returns in under 3s; run it in the foreground as its own command; pass fillScript verbatim to evaluate_script; never save, print, slice or re-read it.\n";
+function isAbsoluteUrlRef(ref: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(ref) || /^[/\\]{2}/.test(ref);
+}
 
-async function runServe(argv: string[], deps: MainDeps): Promise<number> {
-  const { flags, error } = parseFlags(
-    argv,
-    new Set(["manifest", "origin", "worktree"]),
-  );
-  if (error || !flags.manifest || !flags.origin) {
+async function runTestAccount(
+  argv: string[],
+  deps: MainDeps = {},
+): Promise<number> {
+  const { flags, error } = parseFlags(argv, new Set(["manifest", "worktree"]));
+  if (error || !flags.manifest) {
     process.stderr.write(
-      "usage: flow-ui-login serve --manifest <path> --origin <origin> [--worktree <dir>]\n" +
-        SERVE_HANDOFF_HINT,
+      "usage: flow-ui-login test-account --manifest <path> [--worktree <dir>]\n",
     );
     return 2;
   }
   const worktree = flags.worktree ?? process.cwd();
   const names = readCredentialNames(flags.manifest, { strict: true });
-  if (!names) {
+  const targets = names ? readLoginTargets(flags.manifest) : null;
+  if (!names || !targets) {
     process.stdout.write(
       JSON.stringify({ ok: false, reason: "no-credential-env-vars" }) + "\n",
+    );
+    return 2;
+  }
+  const loginUrl = targets.loginUrl;
+  if (
+    !isLocalBaseUrl(targets.baseUrl) ||
+    (loginUrl !== undefined &&
+      isAbsoluteUrlRef(loginUrl) &&
+      !isLocalBaseUrl(loginUrl))
+  ) {
+    process.stdout.write(
+      JSON.stringify({ ok: false, reason: "non-local-base-url" }) + "\n",
     );
     return 2;
   }
@@ -259,111 +217,13 @@ async function runServe(argv: string[], deps: MainDeps): Promise<number> {
     );
     return 3;
   }
-
-  const ttlMs = deps.ttlMs ?? DEFAULT_CREDENTIAL_SERVER_TTL_MS;
-  const scriptPath = fileURLToPath(import.meta.url);
-  const portFilePath = path.join(
-    worktree,
-    ".flow-tmp",
-    `ui-login-port-${crypto.randomBytes(8).toString("hex")}.txt`,
-  );
-  fs.mkdirSync(path.dirname(portFilePath), { recursive: true });
-  try {
-    fs.rmSync(portFilePath, { force: true });
-  } catch {
-    // best-effort stale-file cleanup only
-  }
-
-  const spawnChild = deps.spawnChild ?? defaultSpawnChild;
-  spawnChild({
-    scriptPath,
-    userName: names.user,
-    passName: names.pass,
-    origin: flags.origin,
-    worktree,
-    ttlMs,
-    portFilePath,
-  });
-
-  let port: number;
-  try {
-    port = await waitForPortFile(portFilePath);
-  } catch {
-    process.stdout.write(
-      JSON.stringify({ ok: false, reason: "serve-timeout" }) + "\n",
-    );
-    return 4;
-  } finally {
-    try {
-      fs.rmSync(portFilePath, { force: true });
-    } catch {
-      // best-effort cleanup only
-    }
-  }
-
-  const fillScript = buildFillScript({
-    url: `http://127.0.0.1:${port}${CREDENTIAL_LOGIN_PATH}`,
-  });
   process.stdout.write(
     JSON.stringify({
       ok: true,
-      port,
-      expiresInSec: Math.round(ttlMs / 1000),
-      fillScript,
+      user: resolved.values.user,
+      pass: resolved.values.pass,
     }) + "\n",
   );
-  return 0;
-}
-
-async function runServeChild(
-  argv: string[],
-  deps: { env?: NodeJS.ProcessEnv } = {},
-): Promise<number> {
-  const { flags, error } = parseFlags(
-    argv,
-    new Set([
-      "user-name",
-      "pass-name",
-      "origin",
-      "worktree",
-      "ttl-ms",
-      "port-file",
-    ]),
-  );
-  const env = deps.env ?? process.env;
-  if (
-    error ||
-    !flags["user-name"] ||
-    !flags["pass-name"] ||
-    !flags.origin ||
-    !flags["port-file"]
-  ) {
-    return 2;
-  }
-  const worktree = flags.worktree ?? process.cwd();
-  const ttlMs = flags["ttl-ms"]
-    ? Number(flags["ttl-ms"])
-    : DEFAULT_CREDENTIAL_SERVER_TTL_MS;
-
-  const resolved = resolveCredentials(
-    { user: flags["user-name"], pass: flags["pass-name"] },
-    { worktree, env },
-  );
-  if (!resolved.values) {
-    // Nothing to serve. The parent's port-file poll times out (surfaced
-    // to the parent's caller as exit 4 / {ok:false, reason:"serve-timeout"})
-    // and the caller sees a fetch-blocked/endpoint-refused result — never
-    // a value.
-    return 3;
-  }
-
-  const handle = await startCredentialServer({
-    values: resolved.values,
-    origin: flags.origin,
-    ttlMs,
-  });
-  fs.writeFileSync(flags["port-file"], String(handle.port));
-  await handle.closed;
   return 0;
 }
 
@@ -375,14 +235,10 @@ export async function main(
   switch (sub) {
     case "check":
       return runCheck(rest, deps);
-    case "serve":
-      return runServe(rest, deps);
-    case "__serve-child":
-      return runServeChild(rest, deps);
+    case "test-account":
+      return runTestAccount(rest, deps);
     default:
-      process.stderr.write(
-        "usage: flow-ui-login <check|serve> ...\n" + SERVE_HANDOFF_HINT,
-      );
+      process.stderr.write("usage: flow-ui-login <check|test-account> ...\n");
       return 2;
   }
 }
