@@ -8,7 +8,9 @@
     "state": "state.json",
     "shims": ["../../_shims/gh"]
   },
-  "env": { "flowSlug": true },
+  "env": {
+    "flowSlug": true
+  },
   "ghCalls": [
     ["pr", "view", "1", "--json", "body,state,url"],
     ["pr", "checks", "1", "--json", "name,state"],
@@ -38,9 +40,15 @@
     },
     {
       "id": "step-doc-opened",
-      "kind": "file",
-      "file": "$STREAM",
-      "contains": "## Step 10 — Merge"
+      "kind": "command",
+      "gate": false,
+      "argv": [
+        "jq",
+        "-e",
+        "-s",
+        "any(.[]; .type==\"assistant\" and any(.message.content[]?; .type==\"tool_use\" and .name==\"Read\" and ((.input.file_path // \"\") | test(\"references/phases/step-10-merge\\\\.md\"))))",
+        "$STREAM"
+      ]
     },
     {
       "id": "transcript.finalContextTokens",

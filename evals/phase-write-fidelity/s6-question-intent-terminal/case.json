@@ -7,7 +7,9 @@
     "repo": "fixture",
     "state": "state.json"
   },
-  "env": { "flowSlug": true },
+  "env": {
+    "flowSlug": true
+  },
   "resultSchema": "result-schema.json",
   "graders": [
     {
@@ -32,9 +34,15 @@
     },
     {
       "id": "step-doc-opened",
-      "kind": "file",
-      "file": "$STREAM",
-      "contains": "## Step 1 — Triage"
+      "kind": "command",
+      "gate": false,
+      "argv": [
+        "jq",
+        "-e",
+        "-s",
+        "any(.[]; .type==\"assistant\" and any(.message.content[]?; .type==\"tool_use\" and .name==\"Read\" and ((.input.file_path // \"\") | test(\"references/phases/step-01-triage\\\\.md\"))))",
+        "$STREAM"
+      ]
     },
     {
       "id": "transcript.finalContextTokens",

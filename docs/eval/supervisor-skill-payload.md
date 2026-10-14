@@ -23,6 +23,8 @@ Set before either arm ran:
   branch. The parts that do not depend on the split (the measurement script,
   the corpus helper, the prose deduplication) can still ship by redirect.
 
+**Grader fix after the before arm, rule unchanged.** As first written, `step-doc-opened` checked that the stream contained the step's heading. s1 to s4's prompts already quote that heading, so it passed whether or not the doc was opened. Before the after arm it was replaced with a non-scoring (`gate: false`) check that a `Read` tool call targeted that step's `references/phases/` doc. That makes the "opened in 4 of 5 runs" condition a real measurement. Because the grader is non-scoring, the run-pass comparison uses the same scored graders on both arms. In the before arm the old heading check passed in 30 of 30 runs and changed no run's outcome.
+
 ## Evidence
 
 **Outcome:** pending

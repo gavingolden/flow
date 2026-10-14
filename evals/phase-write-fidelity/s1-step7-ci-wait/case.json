@@ -8,7 +8,9 @@
     "state": "state.json",
     "shims": ["../../_shims/gh"]
   },
-  "env": { "flowSlug": true },
+  "env": {
+    "flowSlug": true
+  },
   "ghCalls": [
     ["pr", "view", "1", "--json", "state,url,reviews,headRefOid"],
     ["pr", "view", "1", "--json", "mergeable,mergeStateStatus"]
@@ -37,9 +39,15 @@
     },
     {
       "id": "step-doc-opened",
-      "kind": "file",
-      "file": "$STREAM",
-      "contains": "## Step 7 — CI + Copilot wait"
+      "kind": "command",
+      "gate": false,
+      "argv": [
+        "jq",
+        "-e",
+        "-s",
+        "any(.[]; .type==\"assistant\" and any(.message.content[]?; .type==\"tool_use\" and .name==\"Read\" and ((.input.file_path // \"\") | test(\"references/phases/step-07-ci-wait\\\\.md\"))))",
+        "$STREAM"
+      ]
     },
     {
       "id": "transcript.finalContextTokens",

@@ -8,7 +8,9 @@
     "state": "state.json",
     "shims": ["../../_shims/gh"]
   },
-  "env": { "flowSlug": true },
+  "env": {
+    "flowSlug": true
+  },
   "ghCalls": [["pr", "view", "1", "--json", "body,state,url"]],
   "resultSchema": "result-schema.json",
   "graders": [
@@ -34,9 +36,15 @@
     },
     {
       "id": "step-doc-opened",
-      "kind": "file",
-      "file": "$STREAM",
-      "contains": "## Step 9 — Auto-merge gate"
+      "kind": "command",
+      "gate": false,
+      "argv": [
+        "jq",
+        "-e",
+        "-s",
+        "any(.[]; .type==\"assistant\" and any(.message.content[]?; .type==\"tool_use\" and .name==\"Read\" and ((.input.file_path // \"\") | test(\"references/phases/step-09-gate\\\\.md\"))))",
+        "$STREAM"
+      ]
     },
     {
       "id": "transcript.finalContextTokens",
