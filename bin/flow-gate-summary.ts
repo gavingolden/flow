@@ -239,6 +239,12 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   1. Inspect the flow-new-worktree stderr in scrollback for disk space or branch-name collisions.
   2. Once resolved, run flow done <slug> to clean up the failed launch.
   3. Re-launch with flow feature create "<description>"`,
+  "wrong-repo": `Relaunch in the right repository; this request belongs to a different one.
+  1. flow done <slug>
+  2. cd <the right checkout> && flow feature create "<description>"`,
+  "prompt-contradiction": `Restate the request so its claims match the repository.
+  1. flow attach <slug>
+  2. Restate the claim the evidence contradicted, or say which side is right.`,
   "plan-missing": `Relaunch planning with a more specific description.
   1. Attach (flow attach <slug>).
   2. Re-run /flow-pipeline with a more specific description, or invoke /flow-product-planning manually in the worktree.`,
@@ -376,6 +382,8 @@ export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
     "flow done <slug>",
     'flow feature create "<description>"',
   ],
+  "wrong-repo": ["flow done <slug>", 'flow feature create "<description>"'],
+  "prompt-contradiction": ["flow attach <slug>"],
   "plan-missing": ["flow attach <slug>"],
   "pr-missing": ["gh auth status", "flow feature resume <slug>"],
   "scout-missing": ["flow attach <slug>"],
@@ -479,6 +487,10 @@ export const WHY_BY_REASON: Record<string, string> = {
     "The request could be read as more than one kind of change, so planning did not start.",
   "worktree-create-failed":
     "flow could not create this pipeline's working copy, so there is nothing to resume.",
+  "wrong-repo":
+    "The request names surfaces and domain terms that do not exist in this repository, so planning did not start.",
+  "prompt-contradiction":
+    "A concrete claim in the request conflicts with what the repository shows, so planning did not start.",
   "plan-missing":
     "Planning ended without writing a plan, so implementation cannot start.",
   "pr-missing": "The pull request could not be opened on GitHub.",
