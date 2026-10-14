@@ -136,6 +136,37 @@ structure-only (it does not bound issue content), so a flow-launched session
 can publish arbitrary text to the current repo's issue tracker without an
 auto-mode review.
 
+## Auto-mode UI login
+
+The browser UI check logs in through `flow-ui-login serve`, which starts a
+token-free, fixed-path loopback endpoint (`/flow-ui-login`) that answers once:
+it checks the request origin, requires `Sec-Fetch-Mode: cors`, serves a single
+use (410 afterwards) and expires after 90 seconds. Any rejected request to
+the login path also spends the single use, so probing the endpoint ends in the
+same stop.
+
+The endpoint assumes a single-user dev machine. On a shared multi-user host
+(another OS account, or a sandboxed app that can reach loopback) a hostile
+process can race the page within the 90-second window. Single use and the
+fail-closed refusals make any interference a visible `credentials-unavailable`
+stop rather than a quiet success, but that stop does not say the credentials
+were read: treat an unexplained `credentials-unavailable` with both variable
+names present as a possible leak and rotate the seeded test account.
+
+The driver runs `serve` as its own foreground call, reads its one output line
+once, and passes the printed `fillScript` verbatim to `evaluate_script` —
+never saved, printed, sliced or re-read. Auto mode can still refuse that call
+unless the owner's user-scope `autoMode.allow` carries a `flow-ui-login` entry
+(keep `"$defaults"`, or the built-in allow exceptions are replaced). `flow
+doctor`'s Auto-mode UI login line prints the exact entry and the file to edit.
+Claude Code reads `autoMode` only from user, managed and `--settings` scope,
+never from a repo's `.claude/settings*.json`, so nothing goes in a consumer
+repo; `CLAUDE_CONFIG_DIR` relocates the user file. flow never writes the entry.
+
+After a credential denial the driver stops: no further browser, MCP or
+teardown calls, a `credentials-unavailable` artifact, and the pipeline's
+`flow-browser-teardown --reap --record` closes the page, browser and servers.
+
 ## Flow-doc read guard
 
 flow-launched sessions (`flow feature create`/`resume` and epic launches)

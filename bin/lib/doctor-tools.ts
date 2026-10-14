@@ -5,13 +5,13 @@
  * of claude's own error.
  */
 
+import { userSettingsPath } from "./claude-user-settings";
 import type { DoctorCheck, DoctorDeps } from "./doctor";
 import { installCommand } from "./doctor-util";
 import {
   broaderRuleFix,
   FLOW_MERGE_ALLOW_RULE,
   readMergeAllowRule,
-  userSettingsPath,
   type MergeRuleStatus,
 } from "./merge-allow-rule";
 import { readConfigFileAt } from "./modules-config";
@@ -52,7 +52,7 @@ const MERGE_RULE_REASON: Record<Exclude<MergeRuleStatus, "present">, string> = {
     "the broader rule also pre-approves recording a gate override, which should still need your confirmation",
   absent: "the file has no matching entry in permissions.allow",
   "missing-file": "the settings file does not exist",
-  malformed: "the settings file is not valid JSON",
+  malformed: "the settings file is not a valid JSON object",
 };
 
 export function checkMergeAllowRule(deps: DoctorDeps): DoctorCheck[] {

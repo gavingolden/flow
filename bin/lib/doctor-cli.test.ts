@@ -39,6 +39,7 @@ vi.mock("./paths", async (orig) => ({
 }));
 
 import { runDoctorCli } from "./doctor-cli";
+import { FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY } from "./doctor-ui-login";
 import { FLOW_MERGE_ALLOW_RULE } from "./merge-allow-rule";
 import type { DoctorDeps, DoctorReport } from "./doctor";
 import { makeDeps, scriptedRun } from "./doctor-test-deps";
@@ -118,7 +119,10 @@ function healthyDeps(): DoctorDeps {
   fs.mkdirSync(path.join(deps.homeDir, ".claude"), { recursive: true });
   fs.writeFileSync(
     path.join(deps.homeDir, ".claude", "settings.json"),
-    JSON.stringify({ permissions: { allow: [FLOW_MERGE_ALLOW_RULE] } }),
+    JSON.stringify({
+      permissions: { allow: [FLOW_MERGE_ALLOW_RULE] },
+      autoMode: { allow: ["$defaults", FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY] },
+    }),
   );
   fs.mkdirSync(deps.targets.binDir, { recursive: true });
   const symlinks = [
@@ -243,6 +247,7 @@ describe("runDoctorCli full probe run in a sandbox", () => {
         "tools-claude",
         "tools-merge-rule",
         "tools-agy",
+        "tools-ui-login-automode",
         "leftovers-worktrees",
         "leftovers-processes",
       ]),
@@ -255,6 +260,25 @@ describe("runDoctorCli full probe run in a sandbox", () => {
     );
     expect(r.checks.find((c) => c.id === "tools-tmux")?.status).toBe("skip");
     expect(r.checks.find((c) => c.id === "tools-agy")?.status).toBe("skip");
+    expect(
+      r.checks.find((c) => c.id === "tools-ui-login-automode")?.status,
+    ).toBe("pass");
+  });
+
+  it("a settings file without the auto-mode UI login entry warns with the entry, and exits 0", async () => {
+    const deps = healthyDeps();
+    const settings = path.join(deps.homeDir, ".claude", "settings.json");
+    fs.writeFileSync(
+      settings,
+      JSON.stringify({ permissions: { allow: [FLOW_MERGE_ALLOW_RULE] } }),
+    );
+    expect(await runDoctorCli(["--json"], { deps })).toBe(0);
+    const c = jsonReport().checks.find(
+      (x) => x.id === "tools-ui-login-automode",
+    )!;
+    expect(c.status).toBe("warn");
+    expect(c.details.join("\n")).toContain(FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY);
+    expect(c.fix).toContain(fs.realpathSync(settings));
   });
 
   it("a settings file without the merge rule warns with the exact rule text and the file to edit, and exits 0", async () => {

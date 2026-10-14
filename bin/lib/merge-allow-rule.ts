@@ -1,7 +1,7 @@
 /**
  * The one permission rule that lets an unattended `/flow-pipeline` run merge
- * under Claude Code's auto mode, plus a read-only reader for the user's
- * settings file.
+ * under Claude Code's auto mode, plus a read-only check for it in the user's
+ * settings file (read via `./claude-user-settings`).
  *
  * ACCEPTED RISK: once this rule is in `permissions.allow`, the auto-mode
  * classifier no longer reviews the merge — flow-merge-guard's own checks
@@ -17,14 +17,12 @@
  * a `$(…)` wrapper, a pipe, or a `cd … &&` prefix never matches.
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { readUserSettings } from "./claude-user-settings";
 
 export const FLOW_MERGE_ALLOW_RULE = "Bash(flow-merge-guard merge *)";
 
 const RULE_FAMILY_PREFIX = "Bash(flow-merge-guard";
 const NARROWER_PREFIX = "Bash(flow-merge-guard merge";
-const MAX_LINK_HOPS = 16;
 
 export type MergeRuleStatus =
   | "present"
@@ -33,35 +31,10 @@ export type MergeRuleStatus =
   | "missing-file"
   | "malformed";
 
-/** `settings.json` under `CLAUDE_CONFIG_DIR` when set and non-empty, else `~/.claude/settings.json`. */
-export function userSettingsPath(
-  env: NodeJS.ProcessEnv,
-  homeDir: string,
-): string {
-  const dir = env.CLAUDE_CONFIG_DIR;
-  return dir !== undefined && dir.length > 0
-    ? path.join(dir, "settings.json")
-    : path.join(homeDir, ".claude", "settings.json");
-}
-
-/** Where a possibly dangling symlink chain ends, so the owner is told which file to create. */
-function followLinks(start: string): string {
-  let current = start;
-  for (let i = 0; i < MAX_LINK_HOPS; i++) {
-    try {
-      const target = fs.readlinkSync(current);
-      current = path.resolve(path.dirname(current), target);
-    } catch {
-      return current;
-    }
-  }
-  return current;
-}
-
 /**
- * Read-only, never throws. Follows symlinks (the owner's file is typically a
- * dotfiles link) and reports the resolved path so a warning names the real
- * file to edit.
+ * Read-only, never throws. Reads through {@link readUserSettings}, which
+ * follows symlinks (the owner's file is typically a dotfiles link) and
+ * reports the resolved path so a warning names the real file to edit.
  */
 export function readMergeAllowRule(settingsPath: string): {
   status: MergeRuleStatus;
@@ -69,21 +42,13 @@ export function readMergeAllowRule(settingsPath: string): {
   /** Set with `broader` when the exact rule is also present, so the fix is "remove", not "replace". */
   exactPresent?: true;
 } {
-  let resolvedPath: string;
-  try {
-    resolvedPath = fs.realpathSync(settingsPath);
-  } catch {
-    return { status: "missing-file", resolvedPath: followLinks(settingsPath) };
+  const read = readUserSettings(settingsPath);
+  if (read.status !== "ok") {
+    return { status: read.status, resolvedPath: read.path };
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(fs.readFileSync(resolvedPath, "utf8"));
-  } catch (e) {
-    const missing = (e as NodeJS.ErrnoException).code === "ENOENT";
-    return { status: missing ? "missing-file" : "malformed", resolvedPath };
-  }
-  const allow = (parsed as { permissions?: { allow?: unknown } } | null)
-    ?.permissions?.allow;
+  const resolvedPath = read.path;
+  const allow = (read.settings.permissions as { allow?: unknown } | undefined)
+    ?.allow;
   const entries = Array.isArray(allow)
     ? allow.filter((e): e is string => typeof e === "string")
     : [];

@@ -5506,6 +5506,10 @@ describe("pr-review include-by-reference structure", () => {
     // "Headless fallback"), the `--resume-from 8c --browser-items` modifier,
     // and the `browser-not-attempted` --reason slug. The file lands at 1903
     // lines as this test counts them; 1905 leaves 2 lines of headroom.
+    //
+    // The login hand-off anchor folds inline into the headless-fallback
+    // paragraph (no new lines beyond one rewrap): the file now lands at 1904
+    // lines as this test counts them; 1905 leaves 1 line of headroom.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +

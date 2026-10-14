@@ -4,11 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseMergeArgs } from "../flow-merge-guard";
-import {
-  FLOW_MERGE_ALLOW_RULE,
-  readMergeAllowRule,
-  userSettingsPath,
-} from "./merge-allow-rule";
+import { FLOW_MERGE_ALLOW_RULE, readMergeAllowRule } from "./merge-allow-rule";
 
 let root: string;
 
@@ -51,20 +47,6 @@ describe("FLOW_MERGE_ALLOW_RULE", () => {
     });
     expect(parseMergeArgs(["merge", "1", "--record-override"])).toHaveProperty(
       "error",
-    );
-  });
-});
-
-describe("userSettingsPath", () => {
-  it("honours CLAUDE_CONFIG_DIR and falls back to ~/.claude when it is empty or unset", () => {
-    expect(userSettingsPath({ CLAUDE_CONFIG_DIR: "/cfg" }, "/home/u")).toBe(
-      "/cfg/settings.json",
-    );
-    expect(userSettingsPath({ CLAUDE_CONFIG_DIR: "" }, "/home/u")).toBe(
-      "/home/u/.claude/settings.json",
-    );
-    expect(userSettingsPath({}, "/home/u")).toBe(
-      "/home/u/.claude/settings.json",
     );
   });
 });

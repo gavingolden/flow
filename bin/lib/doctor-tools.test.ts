@@ -349,6 +349,6 @@ describe("checkMergeAllowRule", () => {
     settingsAt(path.join(root, "home", ".claude"), "{ nope");
     const [bad] = checkMergeAllowRule(makeDeps(root));
     expect(bad.status).toBe("warn");
-    expect(bad.details.join(" ")).toContain("not valid JSON");
+    expect(bad.details.join(" ")).toContain("not a valid JSON object");
   });
 });

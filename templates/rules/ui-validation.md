@@ -166,9 +166,16 @@ The three-ingredient new-repo onboarding:
 
 **Committed artifacts reference credential NAMES only.** The manifest, plan,
 commit messages, and PR bodies reference credential env-var NAMES only —
-never a plaintext VALUE. A browser-driving sub-agent logs in through
+never a plaintext VALUE.
+
+<!-- flow-ui-login-handoff -->
+
+A browser-driving sub-agent logs in through
 `flow-ui-login`: `flow-ui-login check` for presence, then `flow-ui-login
-serve` plus its returned fill-and-submit script run via `evaluate_script` —
+serve`, each as its own standalone foreground Bash call (absolute paths, no
+`cd … &&`, no redirect or pipe). `serve`'s single output line is read once and
+its `fillScript` is passed verbatim to `evaluate_script` — never saved, printed,
+sliced or re-read —
 the credential VALUE never enters a tool call or a tool result (no
 `fill`/`type` with a value), and confirming login uses only the resulting
 URL, never a screenshot or saved snapshot of the login form. This is

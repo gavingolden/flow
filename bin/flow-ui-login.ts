@@ -25,9 +25,18 @@
  * `__serve-child` is a hidden third subcommand: the detached child process
  * `serve` spawns to actually bind and answer the endpoint. It re-resolves
  * the credential VALUES itself from the NAMES passed on its argv — the
- * VALUES never travel from parent to child. The one-time bearer token is
- * handed to the child over an env var (`FLOW_UI_LOGIN_TOKEN`), never argv —
- * a local `ps aux` shows every user's argv but not another process's env.
+ * VALUES never travel from parent to child.
+ *
+ * Token-free threat model: the endpoint is a fixed path, so neither the
+ * `fillScript` nor the child's argv/env carries a secret. The defences are
+ * the origin match, `Sec-Fetch-Mode: cors`, single use (any rejected request
+ * to the login path also spends it) and the ~90s TTL. It assumes a
+ * single-user dev machine: on a shared multi-user host another account can
+ * forge both headers and race the page within the TTL. Fail-closed refusals
+ * and single use make any interference a visible stop (`endpoint-refused`,
+ * so the driver reports `credentials-unavailable`) — treat an unexplained
+ * `credentials-unavailable` with both names present as a possible leak and
+ * rotate the seeded test account.
  */
 
 import * as fs from "node:fs";
@@ -39,6 +48,7 @@ import { spawn } from "node:child_process";
 import { validateUiValidationManifest } from "./lib/ui-validation-schema";
 import { buildFillScript, resolveCredentials } from "./lib/ui-credentials";
 import {
+  CREDENTIAL_LOGIN_PATH,
   DEFAULT_CREDENTIAL_SERVER_TTL_MS,
   startCredentialServer,
 } from "./lib/ui-credential-server";
@@ -49,7 +59,6 @@ export type SpawnChildOpts = {
   scriptPath: string;
   userName: string;
   passName: string;
-  token: string;
   origin: string;
   worktree: string;
   ttlMs: number;
@@ -57,12 +66,9 @@ export type SpawnChildOpts = {
 };
 
 /**
- * Pure argv builder for the detached `__serve-child` invocation. The
- * bearer token is deliberately absent here — it travels via the
- * `FLOW_UI_LOGIN_TOKEN` env var (see `defaultSpawnChild`), never argv,
- * since a local `ps aux` shows every user's argv but not another
- * process's env. Exported so tests can exercise the real child-argv
- * shape without spawning an OS subprocess.
+ * Pure argv builder for the detached `__serve-child` invocation. Exported
+ * so tests can exercise the real child-argv shape without spawning an OS
+ * subprocess.
  */
 export function buildServeChildArgs(opts: SpawnChildOpts): string[] {
   return [
@@ -193,7 +199,6 @@ function defaultSpawnChild(opts: SpawnChildOpts): void {
   const child = spawn(process.execPath, buildServeChildArgs(opts), {
     detached: true,
     stdio: "ignore",
-    env: { ...process.env, FLOW_UI_LOGIN_TOKEN: opts.token },
   });
   child.on("error", () => {});
   child.unref();
@@ -221,6 +226,9 @@ async function waitForPortFile(
   );
 }
 
+const SERVE_HANDOFF_HINT =
+  "serve returns in under 3s; run it in the foreground as its own command; pass fillScript verbatim to evaluate_script; never save, print, slice or re-read it.\n";
+
 async function runServe(argv: string[], deps: MainDeps): Promise<number> {
   const { flags, error } = parseFlags(
     argv,
@@ -228,7 +236,8 @@ async function runServe(argv: string[], deps: MainDeps): Promise<number> {
   );
   if (error || !flags.manifest || !flags.origin) {
     process.stderr.write(
-      "usage: flow-ui-login serve --manifest <path> --origin <origin> [--worktree <dir>]\n",
+      "usage: flow-ui-login serve --manifest <path> --origin <origin> [--worktree <dir>]\n" +
+        SERVE_HANDOFF_HINT,
     );
     return 2;
   }
@@ -252,12 +261,11 @@ async function runServe(argv: string[], deps: MainDeps): Promise<number> {
   }
 
   const ttlMs = deps.ttlMs ?? DEFAULT_CREDENTIAL_SERVER_TTL_MS;
-  const token = crypto.randomBytes(32).toString("hex");
   const scriptPath = fileURLToPath(import.meta.url);
   const portFilePath = path.join(
     worktree,
     ".flow-tmp",
-    `ui-login-port-${token.slice(0, 16)}.txt`,
+    `ui-login-port-${crypto.randomBytes(8).toString("hex")}.txt`,
   );
   fs.mkdirSync(path.dirname(portFilePath), { recursive: true });
   try {
@@ -271,7 +279,6 @@ async function runServe(argv: string[], deps: MainDeps): Promise<number> {
     scriptPath,
     userName: names.user,
     passName: names.pass,
-    token,
     origin: flags.origin,
     worktree,
     ttlMs,
@@ -295,7 +302,7 @@ async function runServe(argv: string[], deps: MainDeps): Promise<number> {
   }
 
   const fillScript = buildFillScript({
-    url: `http://127.0.0.1:${port}/${token}`,
+    url: `http://127.0.0.1:${port}${CREDENTIAL_LOGIN_PATH}`,
   });
   process.stdout.write(
     JSON.stringify({
@@ -324,12 +331,10 @@ async function runServeChild(
     ]),
   );
   const env = deps.env ?? process.env;
-  const token = env.FLOW_UI_LOGIN_TOKEN;
   if (
     error ||
     !flags["user-name"] ||
     !flags["pass-name"] ||
-    !token ||
     !flags.origin ||
     !flags["port-file"]
   ) {
@@ -354,7 +359,6 @@ async function runServeChild(
 
   const handle = await startCredentialServer({
     values: resolved.values,
-    token,
     origin: flags.origin,
     ttlMs,
   });
@@ -376,7 +380,9 @@ export async function main(
     case "__serve-child":
       return runServeChild(rest, deps);
     default:
-      process.stderr.write("usage: flow-ui-login <check|serve> ...\n");
+      process.stderr.write(
+        "usage: flow-ui-login <check|serve> ...\n" + SERVE_HANDOFF_HINT,
+      );
       return 2;
   }
 }
