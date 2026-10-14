@@ -1601,9 +1601,9 @@ CI just as easily as it can resolve a review finding.
 
 **End condition:** `$PR` is set; the branch has been pushed.
 
-On non-zero exit without a PR: retry once with the failure context
-appended. If the retry also fails, escalate `NEEDS HUMAN:
-implement-failed`.
+On non-zero exit without a PR: never bypass hooks with `--no-verify`; run `flow-open-pr` and every push with Bash `timeout: 600000`. A push refused by a local hook (flow-open-pr's hook-refusal line, or any failed push with no `[rejected]` line) re-enters step 6 with that output as the failure excerpt, per [references/git-workflow.md](../../../references/git-workflow.md) `### Pipeline pushes run the consumer's hooks`.
+Any other failure: retry once with the failure context appended. If the retry
+also fails, escalate `NEEDS HUMAN: implement-failed`.
 
 ## Step 5.5 — Sync skills into the pipeline's copy
 
