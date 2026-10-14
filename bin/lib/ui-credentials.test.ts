@@ -392,6 +392,64 @@ describe("buildFillScript — every branch returns exactly the documented keys",
     expect(requested).toBe(true);
   });
 
+  it("queries the documented user-field fallbacks in order", async () => {
+    const seen: string[] = [];
+    const script = buildFillScript({
+      url: "http://127.0.0.1:1/flow-ui-login",
+    });
+    const document = { querySelector: (s: string) => (seen.push(s), null) };
+    await new Function("document", "fetch", `return (${script})`)(
+      document,
+      okFetch,
+    )();
+    expect(seen).toEqual([
+      'input[type="email"]',
+      'input[autocomplete="username"]',
+      'input[name*="email" i]',
+      'input[name*="user" i]',
+      "#email",
+      'input[type="password"]',
+    ]);
+  });
+
+  it.each([
+    'input[autocomplete="username"]',
+    'input[name*="email" i]',
+    'input[name*="user" i]',
+    "#email",
+  ])("finds the user field through the %s fallback", async (selector) => {
+    const user = new FakeInput();
+    const pass = new FakeInput();
+    const r = await run(
+      { [selector]: user, 'input[type="password"]': pass },
+      okFetch,
+    );
+    expect(r.reason).toBeNull();
+    expect(r.userFilled).toBe(true);
+    expect(user.value).toBe(SENTINEL_USER);
+    expect(pass.value).toBe(SENTINEL_PASS);
+  });
+
+  it("submits through the user field's form when the password input has none", async () => {
+    const user = new FakeInput();
+    const pass = new FakeInput();
+    let clicked = false;
+    user.form = {
+      querySelector: () => ({
+        click: () => {
+          clicked = true;
+        },
+      }),
+    };
+    pass.form = null;
+    const r = await run(
+      { 'input[name*="user" i]': user, 'input[type="password"]': pass },
+      okFetch,
+    );
+    expect(r.submitted).toBe(true);
+    expect(clicked).toBe(true);
+  });
+
   it("success without a form reports submitted:false", async () => {
     const r = await run(
       {
