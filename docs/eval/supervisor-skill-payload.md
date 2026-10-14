@@ -54,12 +54,12 @@ Static, from `bun docs/eval/supervisor-skill-payload.ts --static`. This is the s
 
 | Step entered    | Resident chars | Share of before |
 | --------------- | -------------- | --------------- |
-| 0 (start)       | 20,720         | 9%              |
-| 3 (plan)        | 68,970         | 31%             |
-| 8 (review)      | 121,200        | 55%             |
-| 11 (follow-ups) | 166,623        | 75%             |
+| 0 (start)       | 20,840         | 9%              |
+| 3 (plan)        | 79,842         | 36%             |
+| 8 (review)      | 132,069        | 60%             |
+| 11 (follow-ups) | 180,175        | 81%             |
 
-- The core is 19,369 chars, which fits the 20,000-char compaction restore window (measured: 16 of 16 re-attachments were exactly 20,000 chars; see the baseline doc).
+- The core is 19,489 chars, which fits the 20,000-char compaction restore window (measured: 16 of 16 re-attachments were exactly 20,000 chars; see the baseline doc).
 - Resume, failure paths, redirects and the hard-rule detail are never loaded on a clean run.
 
 ## Re-check

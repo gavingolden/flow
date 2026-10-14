@@ -31,6 +31,18 @@ describe("unaccounted", () => {
     ]);
   });
 
+  it("does not accept a line whose halves only end and start unrelated corpus lines", () => {
+    expect(unaccounted("alpha beta", "x alpha\nbeta y")).toEqual([
+      "alpha beta",
+    ]);
+  });
+
+  it("accepts a line re-wrapped into the tail of a longer corpus line", () => {
+    expect(
+      unaccounted("never a command.", "a phase value is never a command."),
+    ).toEqual([]);
+  });
+
   it("accepts a ledgered line", () => {
     const ledger = `${FENCE}\nremoved line\nowner: bin/x.test.ts\n${FENCE}\n`;
     expect(unaccounted("removed line", "", ledger)).toEqual([]);

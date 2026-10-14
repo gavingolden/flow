@@ -2,10 +2,13 @@
 // Proves the flow-pipeline skill split dropped nothing: every non-blank line
 // of SKILL.md at a given sha must be in the current corpus (core + phase docs
 // + hard-rules detail) or in the deletion ledger. Exits 1 listing the rest.
-//   bun docs/eval/skill-split-fidelity.ts --before 8e5c823 \
+//   bun docs/eval/skill-split-fidelity.ts --before 6acd8ee \
 //     [--ledger docs/eval/skill-split/deletion-ledger.md]
-// A line may also be accounted for when it was cut in two across files: its
-// head ends one corpus line and its tail starts another.
+// 6acd8ee is the post-merge base; the original split point 8e5c823 now
+// reports the 3 lines main's #941 changed.
+// A line may also be accounted for when it was re-wrapped into a longer corpus
+// line (a substring of one), or cut in two across files (its head and its tail
+// are each a whole corpus line).
 import { execFileSync } from "child_process";
 import { readFileSync } from "fs";
 import { readPipelineSkillCorpus } from "../../bin/lib/pipeline-skill-corpus";
@@ -35,17 +38,12 @@ export function unaccounted(
   ledger = "",
 ): string[] {
   const lines = new Set<string>();
-  const heads = new Set<string>();
-  const tails = new Set<string>();
+  const contained: string[] = [];
   for (const raw of corpus.split("\n")) {
     const l = norm(raw);
     if (!l) continue;
     lines.add(l);
-    const w = words(l);
-    for (let i = 0; i < w.length; i++) {
-      heads.add(w.slice(0, i + 1).join(" "));
-      tails.add(w.slice(i).join(" "));
-    }
+    contained.push(l);
   }
   const owned = ledgerLines(ledger);
   const missing: string[] = [];
@@ -53,12 +51,15 @@ export function unaccounted(
     const l = norm(raw);
     if (!l || lines.has(l) || owned.has(l)) continue;
     const w = words(l);
-    const cut = w.some(
-      (_, k) =>
-        k > 0 &&
-        tails.has(w.slice(0, k).join(" ")) &&
-        heads.has(w.slice(k).join(" ")),
-    );
+    const rewrapped = contained.some((c) => c.includes(l));
+    const cut =
+      rewrapped ||
+      w.some(
+        (_, k) =>
+          k > 0 &&
+          lines.has(w.slice(0, k).join(" ")) &&
+          lines.has(w.slice(k).join(" ")),
+      );
     if (!cut) missing.push(raw);
   }
   return missing;

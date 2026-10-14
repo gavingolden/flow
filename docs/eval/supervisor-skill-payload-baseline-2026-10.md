@@ -2,7 +2,8 @@
 
 The dated BEFORE measurement of what the `flow-pipeline` supervisor skill
 costs and how much of it survives a compaction, taken on the unsplit tree at
-HEAD `8e5c823`, before the core-plus-step-docs split. The decision rule is in
+HEAD `8e5c823`, before the core-plus-step-docs split (the fidelity proof
+now runs against the post-merge base `6acd8ee`, which carries main's #941). The decision rule is in
 [supervisor-skill-payload.md](supervisor-skill-payload.md); this file is only
 the measured numbers, so the after arm compares against them instead of a
 guess.

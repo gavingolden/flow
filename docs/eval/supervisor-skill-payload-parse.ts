@@ -133,7 +133,12 @@ export function staticSizes(skillDir: string): StaticSizes {
   }
   const parsed = rows.map((r) => ({
     step: Number(/(\d+(?:\.\d+)?)/.exec(r.split("|")[1] ?? "")?.[1] ?? NaN),
-    docs: [...r.matchAll(/references\/phases\/[\w.-]+\.md/g)].map((m) => m[0]),
+    docs: [
+      ...r.matchAll(/references\/phases\/[\w.-]+\.md/g),
+      // A dispatch row may name its second doc by bare file name; resolve it
+      // against references/phases/ like the full-path form.
+      ...(r.split("|")[4] ?? "").matchAll(/`(?!references\/)([\w.-]+\.md)`/g),
+    ].map((m) => (m[1] ? `references/phases/${m[1]}` : m[0])),
   }));
   for (const { step } of parsed.filter((p) => !Number.isNaN(p.step))) {
     const open = new Set(

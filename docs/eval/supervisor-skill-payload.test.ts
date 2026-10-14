@@ -97,6 +97,12 @@ describe("analyzeSession", () => {
     expect(s.reattachChars).toEqual([20_000]);
     expect(s.reloadedAfterCompaction).toBe(true);
   });
+  it("does not count a skill load or doc read from before the compaction as a reload", () => {
+    const notReloaded = analyzeSession(fixture.slice(0, -1));
+    expect(notReloaded.compactions).toBe(1);
+    expect(notReloaded.reattachChars).toEqual([20_000]);
+    expect(notReloaded.reloadedAfterCompaction).toBe(false);
+  });
   it("counts reads of flow-pipeline docs only by relative path", () => {
     expect(s.docReads).toEqual({
       "references/phases/step-01-triage.md": 1,
@@ -143,6 +149,20 @@ describe("staticSizes", () => {
     expect(s.coreChars).toBe(core.length);
     expect(s.docs).toEqual({ "references/r.md": 5 });
     expect(s.residentAtStep).toEqual({ "0": core.length, "1": core.length });
+  });
+  it("resolves a bare doc name in the Doc cell against references/phases/", () => {
+    const core = [
+      "| Step | Phases | One-liner | Doc |",
+      "|---|---|---|---|",
+      "| 3 | `planning` | x.md notes | `references/phases/step-03-plan.md` + `shared.md` |",
+    ].join("\n");
+    const s = staticSizes(
+      make(core, {
+        "references/phases/step-03-plan.md": "aa",
+        "references/phases/shared.md": "bbb",
+      }),
+    );
+    expect(s.residentAtStep).toEqual({ "3": core.length + 5 });
   });
   it("accumulates phase docs along the dispatch table", () => {
     const core = [
