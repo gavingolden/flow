@@ -4,6 +4,14 @@
  * once, to the app's own origin, on a page-initiated `fetch` (never to a
  * bare `curl`) — then shuts itself down.
  *
+ * Token-free by design: the URL is a fixed path ({@link CREDENTIAL_LOGIN_PATH}),
+ * so the page's `fetch` URL and the `fillScript` carry no secret. The defences
+ * are the origin match (403), `Sec-Fetch-Mode: cors` (403), single use (410
+ * after the first 200) and the TTL. A same-machine process can forge both
+ * headers and race the page within the TTL; single use turns a lost race into
+ * a visible stop (the page sees `endpoint-refused`, the driver reports
+ * `credentials-unavailable`) rather than a silent leak.
+ *
  * `node:http`, not `Bun.serve`: this module is imported directly by
  * `bin/lib/ui-credential-server.test.ts` and `bin/flow-ui-login.test.ts`
  * under vitest, which runs on Node, not the Bun runtime (`Bun` is
@@ -16,7 +24,6 @@ import * as http from "node:http";
 
 export type CredentialServerOpts = {
   values: { user: string; pass: string };
-  token: string;
   origin: string;
   ttlMs?: number;
 };
@@ -28,6 +35,8 @@ export type CredentialServerHandle = {
 };
 
 export const DEFAULT_CREDENTIAL_SERVER_TTL_MS = 90_000;
+
+export const CREDENTIAL_LOGIN_PATH = "/flow-ui-login";
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
@@ -86,13 +95,15 @@ export function startCredentialServer(
   const server = http.createServer((req, res) => {
     const requestOrigin = req.headers.origin;
     const secFetchMode = req.headers["sec-fetch-mode"];
-    const pathToken = (req.url ?? "/").replace(/^\//, "").split("?")[0];
+    const pathOk = (req.url ?? "/").split("?")[0] === CREDENTIAL_LOGIN_PATH;
     const originOk =
       typeof requestOrigin === "string" &&
       originsMatch(requestOrigin, opts.origin);
 
     if (req.method === "OPTIONS") {
-      if (originOk) {
+      if (!pathOk) {
+        res.writeHead(404);
+      } else if (originOk) {
         res.writeHead(204, {
           "Access-Control-Allow-Origin": requestOrigin as string,
           Vary: "Origin",
@@ -106,7 +117,7 @@ export function startCredentialServer(
       return;
     }
 
-    if (pathToken !== opts.token) {
+    if (!pathOk) {
       res.writeHead(404);
       res.end();
       return;

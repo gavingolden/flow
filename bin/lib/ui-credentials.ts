@@ -133,65 +133,36 @@ export function resolveCredentials(
 }
 
 /**
- * Build the JS source of an `async () => {...}` function for
+ * Build the JS source of a one-line `async () => {...}` function for
  * `evaluate_script` that fetches `url` (a one-time local endpoint, see
  * `bin/flow-ui-login.ts`), fills the login form found on the current page,
- * and submits it. The returned SOURCE never contains a credential value —
- * the values live only inside the fetch response the page itself receives.
+ * and submits it. The returned SOURCE never contains a credential value and
+ * the URL carries no secret — the values live only inside the fetch response
+ * the page itself receives. Kept on one line and compact so it travels
+ * through the model's own tool call without looking truncated.
  */
 export function buildFillScript(opts: { url: string }): string {
   const url = JSON.stringify(opts.url);
-  return `async () => {
-  const userField =
-    document.querySelector('input[type="email"]') ||
-    document.querySelector('input[autocomplete="username"]') ||
-    document.querySelector('input[name*="email" i]') ||
-    document.querySelector('input[name*="user" i]') ||
-    document.querySelector("#email");
-  const passField = document.querySelector('input[type="password"]');
-
-  if (!userField) {
-    return { fetched: false, userFilled: false, passFilled: false, submitted: false, reason: "user-field-not-found" };
-  }
-  if (!passField) {
-    return { fetched: false, userFilled: false, passFilled: false, submitted: false, reason: "pass-field-not-found" };
-  }
-
-  let res;
-  try {
-    res = await fetch(${url}, { mode: "cors", credentials: "omit" });
-  } catch {
-    return { fetched: false, userFilled: false, passFilled: false, submitted: false, reason: "fetch-blocked" };
-  }
-  if (!res.ok) {
-    return { fetched: false, userFilled: false, passFilled: false, submitted: false, reason: "endpoint-refused" };
-  }
-  const creds = await res.json();
-
-  const setValue = (el, value) => {
-    const proto = Object.getPrototypeOf(el);
-    const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
-    setter.call(el, value);
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-  };
-
-  setValue(userField, creds.user);
-  setValue(passField, creds.pass);
-
-  const form = passField.closest("form") || userField.closest("form");
-  let submitted = false;
-  if (form) {
-    const submitControl = form.querySelector('button[type="submit"], input[type="submit"]');
-    if (submitControl) {
-      submitControl.click();
-      submitted = true;
-    } else if (typeof form.requestSubmit === "function") {
-      form.requestSubmit();
-      submitted = true;
-    }
-  }
-
-  return { fetched: true, userFilled: true, passFilled: true, submitted: submitted, reason: null };
-}`;
+  return (
+    "async () => {" +
+    "const f=r=>({fetched:false,userFilled:false,passFilled:false,submitted:false,reason:r})," +
+    "q=s=>document.querySelector(s)," +
+    "u=q('input[type=\"email\"]')||q('input[autocomplete=\"username\"]')||q('input[name*=\"email\" i]')||q('input[name*=\"user\" i]')||q('#email')," +
+    "p=q('input[type=\"password\"]');" +
+    "if(!u)return f('user-field-not-found');" +
+    "if(!p)return f('pass-field-not-found');" +
+    "let r;try{r=await fetch(" +
+    url +
+    ",{mode:\"cors\",credentials:\"omit\"})}catch{return f('fetch-blocked')}" +
+    "if(!r.ok)return f('endpoint-refused');" +
+    "const c=await r.json()," +
+    "s=(e,v)=>{Object.getOwnPropertyDescriptor(Object.getPrototypeOf(e),'value').set.call(e,v);" +
+    "e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))};" +
+    "s(u,c.user);s(p,c.pass);" +
+    "const m=p.closest('form')||u.closest('form')," +
+    "b=m&&m.querySelector('button[type=\"submit\"],input[type=\"submit\"]');" +
+    "let d=false;" +
+    "if(b){b.click();d=true}else if(m&&typeof m.requestSubmit=='function'){m.requestSubmit();d=true}" +
+    "return{fetched:true,userFilled:true,passFilled:true,submitted:d,reason:null}}"
+  );
 }

@@ -130,24 +130,19 @@ describe("resolveCredentials — precedence", () => {
 
 describe("buildFillScript", () => {
   it("never contains the sentinel values", () => {
-    const script = buildFillScript({ url: "http://127.0.0.1:12345/tok" });
+    const script = buildFillScript({ url: "http://127.0.0.1:12345/flow-ui-login" });
     expect(script).not.toContain(SENTINEL_USER);
     expect(script).not.toContain(SENTINEL_PASS);
   });
 
-  it("returns an async arrow function source with only the documented return keys", () => {
-    const script = buildFillScript({ url: "http://127.0.0.1:12345/tok" });
-    expect(script.trim().startsWith("async ()")).toBe(true);
-    const returnObjects = [...script.matchAll(/return \{([^}]*)\};?/g)].map(
-      (m) => m[1],
-    );
-    expect(returnObjects.length).toBeGreaterThan(0);
-    for (const body of returnObjects) {
-      const keys = [...body.matchAll(/(\w+):/g)].map((m) => m[1]);
-      expect(new Set(keys)).toEqual(
-        new Set(["fetched", "userFilled", "passFilled", "submitted", "reason"]),
-      );
-    }
+  it("is a one-line async arrow function source, compact, with no secret-shaped run", () => {
+    const script = buildFillScript({
+      url: "http://127.0.0.1:12345/flow-ui-login",
+    });
+    expect(script.startsWith("async () =>")).toBe(true);
+    expect(script).not.toContain("\n");
+    expect(script.length).toBeLessThanOrEqual(1200);
+    expect(script).not.toMatch(/[0-9a-f]{32,}/);
   });
 
   it("embeds the url verbatim", () => {
@@ -189,9 +184,9 @@ describe("buildFillScript — field-lookup-before-fetch ordering & fetch outcome
     }>;
   }
 
-  it("never calls fetch (spends no token) when the fields aren't on the page", async () => {
+  it("never calls fetch (leaves the one-time endpoint unused) when the fields aren't on the page", async () => {
     let fetchCalled = false;
-    const script = buildFillScript({ url: "http://127.0.0.1:1/tok" });
+    const script = buildFillScript({ url: "http://127.0.0.1:1/flow-ui-login" });
     const fn = makeFn(script, makeDocument(), async () => {
       fetchCalled = true;
       return { ok: true, json: async () => ({}) };
@@ -203,7 +198,7 @@ describe("buildFillScript — field-lookup-before-fetch ordering & fetch outcome
 
   it("returns fetch-blocked when fetch throws (network/CSP failure)", async () => {
     const fakeInput = { value: "" };
-    const script = buildFillScript({ url: "http://127.0.0.1:1/tok" });
+    const script = buildFillScript({ url: "http://127.0.0.1:1/flow-ui-login" });
     const doc = makeDocument({
       'input[type="email"]': fakeInput,
       'input[type="password"]': fakeInput,
@@ -217,7 +212,7 @@ describe("buildFillScript — field-lookup-before-fetch ordering & fetch outcome
 
   it("returns endpoint-refused (never fetch-blocked) on a non-OK response", async () => {
     const fakeInput = { value: "" };
-    const script = buildFillScript({ url: "http://127.0.0.1:1/tok" });
+    const script = buildFillScript({ url: "http://127.0.0.1:1/flow-ui-login" });
     const doc = makeDocument({
       'input[type="email"]': fakeInput,
       'input[type="password"]': fakeInput,
@@ -225,5 +220,194 @@ describe("buildFillScript — field-lookup-before-fetch ordering & fetch outcome
     const fn = makeFn(script, doc, async () => ({ ok: false, status: 410 }));
     const result = await fn();
     expect(result.reason).toBe("endpoint-refused");
+  });
+});
+
+describe("buildFillScript — every branch returns exactly the documented keys", () => {
+  const KEYS = ["fetched", "passFilled", "reason", "submitted", "userFilled"];
+
+  class FakeInput {
+    events: string[] = [];
+    form: unknown = null;
+    private v = "";
+    set value(x: string) {
+      this.v = x;
+    }
+    get value(): string {
+      return this.v;
+    }
+    dispatchEvent(e: { type: string }): void {
+      this.events.push(e.type);
+    }
+    closest(): unknown {
+      return this.form;
+    }
+  }
+
+  function run(
+    selectors: Record<string, unknown>,
+    fetchImpl: (...args: unknown[]) => Promise<unknown>,
+  ): Promise<Record<string, unknown>> {
+    const script = buildFillScript({
+      url: "http://127.0.0.1:1/flow-ui-login",
+    });
+    class FakeEvent {
+      type: string;
+      constructor(type: string) {
+        this.type = type;
+      }
+    }
+    const document = {
+      querySelector: (sel: string) =>
+        Object.prototype.hasOwnProperty.call(selectors, sel)
+          ? selectors[sel]
+          : null,
+    };
+    const fn = new Function(
+      "document",
+      "fetch",
+      "Event",
+      `return (${script})`,
+    )(document, fetchImpl, FakeEvent) as () => Promise<
+      Record<string, unknown>
+    >;
+    return fn();
+  }
+
+  const okFetch = async () => ({
+    ok: true,
+    json: async () => ({ user: SENTINEL_USER, pass: SENTINEL_PASS }),
+  });
+
+  it("user-field-not-found", async () => {
+    const r = await run({}, okFetch);
+    expect(Object.keys(r).sort()).toEqual(KEYS);
+    expect(r).toEqual({
+      fetched: false,
+      userFilled: false,
+      passFilled: false,
+      submitted: false,
+      reason: "user-field-not-found",
+    });
+  });
+
+  it("pass-field-not-found", async () => {
+    const r = await run({ 'input[type="email"]': new FakeInput() }, okFetch);
+    expect(Object.keys(r).sort()).toEqual(KEYS);
+    expect(r.reason).toBe("pass-field-not-found");
+    expect(r.fetched).toBe(false);
+  });
+
+  it("fetch-blocked", async () => {
+    const r = await run(
+      {
+        'input[type="email"]': new FakeInput(),
+        'input[type="password"]': new FakeInput(),
+      },
+      async () => {
+        throw new Error("blocked");
+      },
+    );
+    expect(Object.keys(r).sort()).toEqual(KEYS);
+    expect(r.reason).toBe("fetch-blocked");
+    expect(r.userFilled).toBe(false);
+  });
+
+  it("endpoint-refused", async () => {
+    const r = await run(
+      {
+        'input[type="email"]': new FakeInput(),
+        'input[type="password"]': new FakeInput(),
+      },
+      async () => ({ ok: false, status: 410 }),
+    );
+    expect(Object.keys(r).sort()).toEqual(KEYS);
+    expect(r.reason).toBe("endpoint-refused");
+  });
+
+  it("fetches with mode cors and credentials omit", async () => {
+    let init: unknown;
+    await run(
+      {
+        'input[type="email"]': new FakeInput(),
+        'input[type="password"]': new FakeInput(),
+      },
+      async (...args: unknown[]) => {
+        init = args[1];
+        return { ok: false };
+      },
+    );
+    expect(init).toEqual({ mode: "cors", credentials: "omit" });
+  });
+
+  it("success clicks the submit button and fills both fields via input/change", async () => {
+    const user = new FakeInput();
+    const pass = new FakeInput();
+    let clicked = false;
+    const form = {
+      querySelector: () => ({
+        click: () => {
+          clicked = true;
+        },
+      }),
+    };
+    user.form = form;
+    pass.form = form;
+    const r = await run(
+      { 'input[type="email"]': user, 'input[type="password"]': pass },
+      okFetch,
+    );
+    expect(Object.keys(r).sort()).toEqual(KEYS);
+    expect(r).toEqual({
+      fetched: true,
+      userFilled: true,
+      passFilled: true,
+      submitted: true,
+      reason: null,
+    });
+    expect(clicked).toBe(true);
+    expect(user.events).toEqual(["input", "change"]);
+    expect(pass.events).toEqual(["input", "change"]);
+    expect(user.value).toBe(SENTINEL_USER);
+    expect(pass.value).toBe(SENTINEL_PASS);
+  });
+
+  it("success falls back to requestSubmit when there is no submit control", async () => {
+    const user = new FakeInput();
+    const pass = new FakeInput();
+    let requested = false;
+    const form = {
+      querySelector: () => null,
+      requestSubmit: () => {
+        requested = true;
+      },
+    };
+    user.form = form;
+    pass.form = form;
+    const r = await run(
+      { 'input[type="email"]': user, 'input[type="password"]': pass },
+      okFetch,
+    );
+    expect(Object.keys(r).sort()).toEqual(KEYS);
+    expect(r.submitted).toBe(true);
+    expect(requested).toBe(true);
+  });
+
+  it("success without a form reports submitted:false", async () => {
+    const r = await run(
+      {
+        'input[type="email"]': new FakeInput(),
+        'input[type="password"]': new FakeInput(),
+      },
+      okFetch,
+    );
+    expect(Object.keys(r).sort()).toEqual(KEYS);
+    expect(r).toEqual({
+      fetched: true,
+      userFilled: true,
+      passFilled: true,
+      submitted: false,
+      reason: null,
+    });
   });
 });
