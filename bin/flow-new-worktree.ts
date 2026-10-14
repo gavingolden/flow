@@ -4,7 +4,11 @@
  *
  * Usage:
  *   flow-new-worktree [<branch-name>] [base-branch] [--reuse]
+ *   flow-new-worktree --repair-hooks
  *
+ * - `--repair-hooks` re-installs the git-hook chaining shims into every
+ *   existing flow worktree of the current repo and exits; it creates nothing.
+ *   Every normal launch heals the same worktrees automatically.
  * - The branch name is optional when a pipeline is live: it auto-resolves
  *   from `$FLOW_SLUG`. The supervisor pattern relies on the auto-resolve
  *   path; the explicit positional stays for callers with no live
@@ -18,7 +22,10 @@ import { git } from "./lib/git";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { findAvailableSlot, toDirSuffix } from "./lib/worktree-slot";
 import { ensureFlowExcludes, writeBranchMarker } from "./lib/worktree-marker";
-import { installCommitHook } from "./lib/worktree-commit-hook";
+import {
+  installCommitHook,
+  repairFlowWorktreeHooks,
+} from "./lib/worktree-commit-hook";
 import {
   detectDefaultBranch,
   getPrimaryDir,
@@ -105,6 +112,7 @@ function run(argv: string[], cwd?: string): void {
 function printHelp(): void {
   console.log(`
 Usage: flow-new-worktree [<branch-name>] [base-branch] [--reuse]
+       flow-new-worktree --repair-hooks
 
 Creates a git worktree for parallel agent development as a sibling
 directory of this repo. Branch name is converted to a directory-safe
@@ -115,6 +123,10 @@ collision so concurrent calls return distinct paths.
 The branch name is optional when a pipeline is live — it auto-resolves
 from $FLOW_SLUG. When the positional is also given it must match the
 ambient slug, otherwise the helper exits 2 (slug-mismatch).
+
+--repair-hooks re-installs the git-hook chaining shims into every existing
+flow worktree of this repo (so consumer hooks run there) and exits without
+creating a worktree. Every normal launch does the same automatically.
 
 Examples:
   flow-new-worktree feature/new-chart
@@ -127,6 +139,7 @@ Examples:
 export type ParseArgsResult =
   | { kind: "ok"; config: WorktreeConfig }
   | { kind: "help" }
+  | { kind: "repair-hooks" }
   | { kind: "error"; message: string; exitCode: number; showHelp?: boolean };
 
 export function parseArgs(
@@ -134,6 +147,7 @@ export function parseArgs(
   deps: RunNewWorktreeDeps = {},
 ): ParseArgsResult {
   if (argv.includes("--help") || argv.includes("-h")) return { kind: "help" };
+  if (argv.includes("--repair-hooks")) return { kind: "repair-hooks" };
   const reuse = argv.includes("--reuse");
   const positional = argv.filter((a) => a !== "--reuse");
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
@@ -235,10 +249,24 @@ export function createWorktreeWithRetry(
       );
 }
 
+/** Heals every existing flow worktree of `repoDir`; warns once per failure. */
+function healFlowWorktrees(repoDir: string): number {
+  const { repaired, failed } = repairFlowWorktreeHooks(repoDir);
+  for (const f of failed) {
+    log.warn(`could not repair hooks in ${f.dir}: ${f.error}`);
+  }
+  return repaired.length;
+}
+
 function main(): void {
   const parsed = parseArgs();
   if (parsed.kind === "help") {
     printHelp();
+    process.exit(0);
+  }
+  if (parsed.kind === "repair-hooks") {
+    const count = healFlowWorktrees(git(["rev-parse", "--show-toplevel"]));
+    console.log(`repaired ${count} flow worktree(s)`);
     process.exit(0);
   }
   if (parsed.kind === "error") {
@@ -286,7 +314,16 @@ function main(): void {
     installCommitHook(chosen.worktreeDir);
   } catch (e: unknown) {
     log.warn(
-      `could not install prepare-commit-msg hook: ${e instanceof Error ? e.message : String(e)}`,
+      `could not install git hooks: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  // Older flow worktrees still hold the single-hook layout that switches the
+  // consumer's hooks off; every launch heals them.
+  try {
+    healFlowWorktrees(config.repoDir);
+  } catch (e: unknown) {
+    log.warn(
+      `could not repair existing flow worktree hooks: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
 
