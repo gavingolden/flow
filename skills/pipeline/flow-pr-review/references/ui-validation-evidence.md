@@ -140,15 +140,17 @@ yourself:
 6. `evaluate_script` with the returned `fillScript` verbatim as its
    `function` — it fetches the values inside the page and fills + submits
    the form itself; the agent's own tool call never carries a value.
+7. `wait_for` the post-login redirect.
+8. `evaluate_script () => location.pathname` **only**, and set `loginOk`
+   from whether the pathname no longer equals `loginUrl`'s path (still
+   recorded in the captures JSON, as before).
 
 <!-- flow-ui-login-handoff -->
 
 The hand-off rule: `serve` runs as one standalone foreground call, its
 single output line is read once, and `fillScript` goes verbatim into
 `evaluate_script`'s `function` — never saved to a file, printed, sliced,
-piped through `jq`/`head`/`tail`, or re-read. 7. `wait_for` the post-login redirect. 8. `evaluate_script () => location.pathname` **only**, and set `loginOk`
-from whether the pathname no longer equals `loginUrl`'s path (still
-recorded in the captures JSON, as before).
+piped through `jq`/`head`/`tail`, or re-read.
 
 A `fillScript` result of `reason: "fetch-blocked"` means the browser's own
 `fetch` threw before a response ever came back — almost always the app's
@@ -374,7 +376,7 @@ paths opened nothing, so teardown is a no-op there, never a failure.
 
 Exception — after a credential denial: make no further browser, MCP or
 teardown calls (the classifier treats them as tunneling the denied action).
-Write the artifact with `credentials-unavailable` and return. The caller's
+Write the artifact with `credentials-unavailable` and return. The pipeline's
 `flow-browser-teardown --reap --record` closes the page, the browser and the
 launched servers.
 

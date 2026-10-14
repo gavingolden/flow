@@ -1190,19 +1190,14 @@ headless browser instead **when the repo has one**: a bounded script under
 `.flow-tmp/browser-fallback/`, run from the worktree with the repo's own
 `@playwright/test`, logging in through `flow-ui-login serve`'s fill script
 (never reading a value or a `.env` file) and never installing browser binaries.
-
 See [references/ui-validation-evidence.md](references/ui-validation-evidence.md)
-"Headless fallback". It is an ordinary Bash invocation, so it preserves
-**Durable-test precedence** and stays **Automatable via the browser-validation
-capability**, and it adds **no new Task-tool exemption**: 8c is wrapper-side,
-and the fallback never spawns the UI-driver. Only if neither the MCP nor a repo
-headless browser is available does the browser item stay not-runnable and
-unticked — no regression.
-
-<!-- flow-ui-login-handoff -->
-
-The hand-off rule (standalone call, read once, `fillScript` verbatim, never
-logged) lives in `references/ui-validation-evidence.md`.
+"Headless fallback" and its hand-off rule (standalone call, read once,
+`fillScript` verbatim, never logged) <!-- flow-ui-login-handoff -->. It is an
+ordinary Bash invocation, so it preserves **Durable-test precedence** and stays
+**Automatable via the browser-validation capability**, and it adds **no new
+Task-tool exemption**: 8c is wrapper-side, and the fallback never spawns the
+UI-driver. Only if neither the MCP nor a repo headless browser is available does
+the browser item stay not-runnable and unticked — no regression.
 
 When the worktree-local `.flow-tmp/design/spec.json` exists, this bucket also
 runs the **design-fidelity per-assertion walk** — mechanical Visual Spec items

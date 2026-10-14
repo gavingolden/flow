@@ -125,7 +125,7 @@ completion and on every error/early-exit path — no reaper runs here.
 
 <!-- flow-denial-teardown -->
 
-Exception — after a credential denial: make no further browser, MCP or teardown calls (the classifier treats them as tunneling the denied action). Write the artifact with `credentials-unavailable` and return. The caller's `flow-browser-teardown --reap --record` closes the page, the browser and the launched servers.
+Exception — after a credential denial: make no further browser, MCP or teardown calls (the classifier treats them as tunneling the denied action). Write the artifact with `credentials-unavailable` and return. The pipeline's `flow-browser-teardown --reap --record` closes the page, the browser and the launched servers.
 
 **One thing the wrapper DOES change about teardown.** `flow-spawn` launches
 the server detached, in its own process group, so it is no longer in the Bash

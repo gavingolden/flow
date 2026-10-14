@@ -158,7 +158,7 @@ so a crash after teardown still leaves the worktree clean.
 
 Exception — after a credential denial: make no further browser, MCP or
 teardown calls (the classifier treats them as tunneling the denied action).
-Write the artifact with `credentials-unavailable` and return. The caller's
+Write the artifact with `credentials-unavailable` and return. The pipeline's
 `flow-browser-teardown --reap --record` closes the page, the browser and the
 launched servers.
 

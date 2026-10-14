@@ -589,7 +589,14 @@ surface `smoketest-needs-creds`, naming only the variable NAMES. A
 the app's dev-mode CSP) is not a refusal: record `login-failed` naming
 the CSP fix instead, never `credentials-unavailable`. On this inline path, put `credentials-unavailable` in the
 fix-applier artifact summary and leave the affected signed-in items
-unchecked so the pr-review wrapper surfaces `smoketest-needs-creds`. After a credential denial make no further browser, MCP or teardown calls — the supervisor's reap owns teardown.
+unchecked so the pr-review wrapper surfaces `smoketest-needs-creds`.
+
+<!-- flow-denial-teardown -->
+
+Exception — after a credential denial: make no further browser, MCP or
+teardown calls (the classifier treats them as tunneling the denied action).
+The pipeline's `flow-browser-teardown --reap --record` closes the page, the
+browser and the launched servers.
 
 `/flow-verify` runs the project's full check suite (typecheck, tests, lint). The helper never formats, but `/flow-verify`'s own lint-fix path may run `npm run format`, so expect formatting edits left behind.
 Apply the verdict to every commit produced this run:

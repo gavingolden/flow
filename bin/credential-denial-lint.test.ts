@@ -17,8 +17,8 @@ import { fileURLToPath } from "node:url";
  *    `credentials-unavailable`, `fetch-blocked` and `flow-ui-login` are all
  *    present in each of the four rule sites.
  * 2. Across those four files plus the two sibling docs the login recipe was
- *    rewritten in, neither of the two pre-fix phrases survives anywhere:
- *    the `fill`-with-values instruction, and the "resolve from the local
+ *    rewritten in, none of the three pre-fix phrases survives anywhere: the
+ *    `fill`-with-values instruction, the "resolve from the local
  *    `.env`/shell env" instruction, and the obsolete "token was already
  *    spent" wording.
  *
@@ -134,7 +134,7 @@ const DENIAL_TEARDOWN_ANCHOR = "<!-- flow-denial-teardown -->";
 const FORBIDDEN_HANDOFF_PATTERNS: RegExp[] = [
   /jq[^\n]*fillScript/,
   /fillScript[^\n]*\|\s*(head|tail|cut|sed|awk)/,
-  /flow-ui-login serve[^\n`]*(\s&\s|\s&$|\s>\s?|\|)/m,
+  /flow-ui-login\s+serve[^\n`]*(\s&\s|\s&$|\s>\s?|\|)/m,
   /nohup\s+flow-ui-login/,
 ];
 
@@ -191,14 +191,21 @@ describe("credential-denial lint — login hand-off", () => {
     expect(text.includes(HANDOFF_ANCHOR)).toBe(false);
   });
 
-  it.each([
-    "cd /w && jq -r .fillScript .flow-tmp/ui-login-serve.out | tail -n +28",
-    "flow-ui-login serve --manifest m --worktree w > .flow-tmp/ui-login-serve.out 2>&1 &",
-    "nohup flow-ui-login serve --manifest m --worktree w",
+  it.each<[number, string]>([
+    [0, "cd /w && jq -r .fillScript .flow-tmp/ui-login-serve.out"],
+    [1, 'printf %s "$fillScript" | head -c 400'],
+    [1, "echo $fillScript | tail -n +28"],
+    [2, "flow-ui-login serve --manifest m --worktree w > out.txt"],
+    [2, "flow-ui-login serve --manifest m --worktree w 2>&1 &"],
+    [2, "flow-ui-login serve --manifest m --worktree w &"],
+    [2, "flow-ui-login serve --manifest m --worktree w | head -c 2000"],
+    [2, "flow-ui-login   serve --manifest m --worktree w > out.txt"],
+    [2, "flow-ui-login\n  serve --manifest m --worktree w | tee out.txt"],
+    [3, "nohup flow-ui-login serve --manifest m --worktree w"],
   ])(
-    "[negative] the forbidden patterns catch the incident command: %s",
-    (cmd) => {
-      expect(FORBIDDEN_HANDOFF_PATTERNS.some((p) => p.test(cmd))).toBe(true);
+    "[negative] forbidden pattern %i catches the incident command: %s",
+    (index, cmd) => {
+      expect(FORBIDDEN_HANDOFF_PATTERNS[index].test(cmd)).toBe(true);
     },
   );
 
@@ -214,6 +221,7 @@ describe("credential-denial lint — after-denial teardown", () => {
     "skills/pipeline/flow-ui-driver-instructions/SKILL.md",
     "skills/pipeline/flow-pipeline/references/ui-smoke-pass.md",
     "skills/pipeline/flow-pr-review/references/ui-validation-evidence.md",
+    "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
   ];
 
   it.each(TEARDOWN_SITES)(
@@ -221,6 +229,19 @@ describe("credential-denial lint — after-denial teardown", () => {
     (relPath) => {
       expect(read(relPath), `${relPath} missing teardown anchor`).toContain(
         DENIAL_TEARDOWN_ANCHOR,
+      );
+    },
+  );
+
+  it.each(TEARDOWN_SITES)(
+    "%s names the pipeline's reap, not the caller's",
+    (relPath) => {
+      const text = read(relPath);
+      expect(text, `${relPath} should name the pipeline's reap`).toMatch(
+        /pipeline's\s+`flow-browser-teardown --reap --record`/,
+      );
+      expect(text, `${relPath} still says the caller's reap`).not.toMatch(
+        /caller's\s+`flow-browser-teardown/,
       );
     },
   );
