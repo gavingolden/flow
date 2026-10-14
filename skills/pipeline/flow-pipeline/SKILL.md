@@ -52,8 +52,8 @@ Stay in-process for skills; shell out for scripts; never delegate.
   the entry point. The wrapper re-launches Claude Code into the same
   tmux window with the resume seed prompt; this skill detects the
   prompt prefix and walks the decision tree in
-  `references/failure-recovery.md` section (b). See **Resume mode**
-  below.
+  `references/failure-recovery.md` section (b). See
+  `references/phases/resume.md`.
 
 # Hard rules
 
@@ -288,13 +288,13 @@ state.json, and the PR are the state.
 
 Each step's procedure lives in its own doc. On entering a step, Read its doc with the Read tool before acting; the one-liner here is only the floor if you have not. Phase values come from `STEP_PHASES` and `PENDING_PHASES` in `bin/lib/state.ts`; `PIPELINE_PHASES` also holds the terminals.
 
-| Step | Phases written | Non-negotiable | Doc |
+| Step | Phases | Non-negotiable | Doc |
 |---|---|---|---|
 | 0 — Echo | none | echo the request verbatim as the first output | `references/phases/step-00-echo.md` |
 | 1 — Triage | `triaging`, `triage-pending-clarification`, `triage-pending-interview`, `triaged-no-change` | classify before any worktree; a question-only request ends in `triaged-no-change` | `references/phases/step-01-triage.md` |
 | 2 — Worktree | `worktree-create` | `flow-new-worktree` creates it, never raw git | `references/phases/step-02-worktree.md` |
-| 3 — Plan | `planning`, `plan-pending-review`, `plan-pending-interview`, `plan-review-pending` | the discovery agent authors the plan; helpers route and back-stop it | `references/phases/step-03-plan.md` + `shared-gate-contracts.md` |
-| 4 — Approval | `approval-pending-clarification`, `checkpoint-pending-clear` | only a feature plan waits for approval | `references/phases/step-04-approval.md` + `shared-gate-contracts.md` |
+| 3 — Plan | `planning`, `plan-pending-interview`, `plan-review-pending` | the discovery agent authors the plan; helpers route and back-stop it | `references/phases/step-03-plan.md` + `shared-gate-contracts.md` |
+| 4 — Approval | `plan-pending-review`, `approval-pending-clarification`, `checkpoint-pending-clear` | only a feature plan waits for approval | `references/phases/step-04-approval.md` + `shared-gate-contracts.md` |
 | 5 — Implement | `implementing` | `flow-open-pr` opens the PR and records it | `references/phases/step-05-implement.md` |
 | 5.5 — Install skills | `installing-skills` | runs only when the worktree adds skills or agents | `references/phases/step-05.5-install-skills.md` |
 | 6 — Verify | `verifying` | three outer attempts, then `NEEDS HUMAN` | `references/phases/step-06-verify.md` |
@@ -335,7 +335,7 @@ Open one only when its situation arises.
 
 ## After a compaction or resume
 
-A compaction keeps only the first ~20,000 characters of this skill: this core is sized to survive it whole, the step docs are not. If this skill is not in your context, invoke it again. Then read `phase` from `~/.flow/state/<slug>.json`, find it in the table above, and Read that step's doc before you act. Never continue a step from a summary alone.
+A compaction keeps only the first ~20,000 characters of this skill: this core is sized to survive it whole, the step docs are not. If this skill is not in your context, invoke it again. On a `--resume mode` seed, Read `references/phases/resume.md` and run `flow-resume-decide` instead. Otherwise read `phase` from `~/.flow/state/<slug>.json`, find it in the table above, and Read that step's doc before you act. Never continue a step from a summary alone.
 
 # End conditions
 
@@ -352,8 +352,8 @@ glance:
 
 The first three lines (`MERGED` / `GATED: <url>` / `NEEDS HUMAN: <reason>`)
 may be preceded by a `LOCAL FOLLOW-UPS:` (or `LOCAL FOLLOW-UPS (deferred —
-PR not yet merged):`) block written by step 11 — see the step 11 contract
-above for when it appears. The `cancelled` line is never preceded by a
+PR not yet merged):`) block written by step 11 — see `references/phases/step-11-follow-ups.md`
+for when it appears. The `cancelled` line is never preceded by a
 follow-ups block.
 
 After printing the end-condition line, **end the turn**. The tmux

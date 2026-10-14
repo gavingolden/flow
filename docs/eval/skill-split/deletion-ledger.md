@@ -1,6 +1,6 @@
 # Skill-split deletion ledger
 
-Every pre-split line of `skills/pipeline/flow-pipeline/SKILL.md` (at `8e5c823`) that is not present byte-for-byte in the corpus after the split. `bun docs/eval/skill-split-fidelity.ts --before 8e5c823` reads the fenced blocks below: the lines above each `owner:` line are the original text, and `owner:` names the test or helper that owns the fact (or the reason the line changed).
+Every pre-split line of `skills/pipeline/flow-pipeline/SKILL.md` (at `6acd8ee`, the post-merge base; the original split point was `8e5c823`, and main's #941 changed 3 of its lines in the merge at `d4a0fa1`) that is not present byte-for-byte in the corpus after the split. `bun docs/eval/skill-split-fidelity.ts --before 6acd8ee` reads the fenced blocks below: the lines above each `owner:` line are the original text, and `owner:` names the test or helper that owns the fact (or the reason the line changed).
 
 ## Relative links re-pathed for the deeper doc location
 
@@ -121,6 +121,23 @@ owner: link target re-pathed for references/phases/mid-flight-redirects.md (move
 > `.flow-tmp/consolidator-result.json`; full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 owner: link target re-pathed for references/hard-rules-detail.md (moved text; target file unchanged)
+```
+
+## Core pointers re-aimed at the doc that now holds the section
+
+Two prose pointers in the core said "below" / "above" for sections that now live in step docs. Only the pointer was reworded; the surrounding sentence is unchanged.
+
+```
+`references/failure-recovery.md` section (b). See **Resume mode**
+below.
+PR not yet merged):`) block written by step 11 — see the step 11 contract
+above for when it appears. The `cancelled` line is never preceded by a
+owner: deliberate pointer fix in skills/pipeline/flow-pipeline/SKILL.md (now names references/phases/resume.md and references/phases/step-11-follow-ups.md)
+```
+
+```
+**Durable PR-comment persistence (MERGED-only, `--post-comment`).** The scrollback render is transient — close the tmux window or overflow the buffer and the snapshot is gone. On the MERGED terminal state, the three MERGED call sites (the step-11 block and both `merged-externally` renders) additionally pass `--post-comment "$PR"`, which posts the rendered `## PIPELINE SNAPSHOT` as a **top-level PR issue-comment** (not a review), so a merged PR carries its own pipeline provenance. The write is **idempotent**: the comment body is the rendered block plus a single-line HTML-comment marker (`<!-- flow-pipeline-snapshot-v1 -->`); the helper lists the PR's issue-comments, edits the marked one in place if present, and only creates a new one otherwise — a resume / watch-driven re-render replaces rather than duplicates. The marker lives ONLY in the posted comment body, never in stdout, so the scrollback render and the `flow-stop-guard`/auto-merge invariants are byte-for-byte unchanged. Persistence is **MERGED-only** (enforced inside the helper — `--post-comment` is ignored on `gated`/`needs-human` even if supplied), because a gated PR keeps churning and a snapshot comment would go stale while a merged PR is frozen. The write is **best-effort, never escalated** — a `gh` failure (or an empty `$PR`) is reported to stderr and never changes the exit code, the scrollback render, or the terminal verdict; this mirrors the "Failed auto-runs are reported, not escalated" rule below (a peripheral comment-post failure must not un-merge a PR).
+owner: deliberate pointer fix in references/phases/shared-gate-contracts.md (the "Failed auto-runs" rule it cites now lives in references/phases/step-11-follow-ups.md)
 ```
 
 ## Deleted: Stop-hook internals

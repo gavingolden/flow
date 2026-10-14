@@ -65,6 +65,46 @@ recap see it.
 The helper silently suppresses the FOLLOW-UPS slot when the follow-ups
 file is empty, so call sites do not stat the path first. End.
 
+**Remote-branch deletion is delegated to GitHub.** `flow-remove-worktree
+--delete-branch` runs `git branch -d <branch>` locally only — it does not
+push a delete to `origin`. The remote feature branch is reaped by
+GitHub's `deleteBranchOnMerge` repo setting (Settings → General →
+"Automatically delete head branches"), which fires server-side on
+squash. flow assumes this setting is on; consumers who disable it must
+either re-enable it or run `git push origin --delete <branch>` manually
+after each merge.
+
+**Failed auto-runs are reported, not escalated.** A non-zero exit code from
+an allowlisted command (e.g. `flow install --upgrade` failed because of a
+permission issue) is rendered in the printed block as `FAIL <command> (exit
+N)` with a tail excerpt. The supervisor still ends with `MERGED` — the user
+inspects scrollback. Escalating to `NEEDS HUMAN` would block a successful
+merge on a peripheral failure, which inverts the priority.
+
+**Canonical fast-forward.** `flow install --upgrade` opportunistically
+fast-forwards the canonical install root before discovery — this fixes
+the PR #115 race where freshly-merged skills got orphan-reaped because
+the canonical checkout still had the pre-merge tree. On an advance the line
+reads `flow updated: v<ver>, N commit`/`commits`, optionally suffixed
+`, <beforeSha> → <afterSha>`; on a skip it reads `flow: content not
+refreshed (<reason>)` — `dirty` (an uncommitted change to a tracked file — untracked files block the refresh only when an incoming file would land on one, reported as `merge-failed`), `non-default-branch`, `fetch-failed`,
+`merge-failed`, `no-default-branch`, `not-a-git-repo`, or `repointed-source`
+(the install-root guard already repointed `installRoot`, so the fast-forward
+is skipped) — appearing in LOCAL FOLLOW-UPS before the symlink summary.
+`dirty`/`merge-failed` render red (`flow: content NOT refreshed (<reason>)`); other skips stay dim.
+As a defense-in-depth layer for the dirty-canonical case,
+`removeIfManagedSymlink` (in `bin/lib/symlink.ts`) now defers reaping a
+dangling pointer when the recorded source still exists in
+`origin/<default>`'s tree but not in the canonical working tree. Opt out
+per-run with `flow install --upgrade --no-pull-canonical`; the followup
+itself does NOT pass this flag — the allowlist exact-match is load-bearing.
+
+**No new phase value.** Step 11 is bookkeeping inside `merging` (MERGED
+path) or a final read just before the terminal print (GATED / NEEDS HUMAN).
+Adding `local-followups` to `STEP_PHASES` would force a state.json write
+that adds nothing — there's no resume scenario where the supervisor crashed
+mid-step-11 and needs to know that.
+
 ### `flow-foreclosed-paths` (PR-body `## Foreclosed Paths` upsert)
 
 `flow-foreclosed-paths pr-body-upsert <PR>` persists the rejected
