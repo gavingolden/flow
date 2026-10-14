@@ -1691,6 +1691,32 @@ function seedFromVerifiedTree(
  * what later checks saw. Rows reused from this or an earlier run carry no
  * fresh timing and are left to the run that executed them.
  */
+/**
+ * runDeduped credits a seeded duration once per reusing row (`rowMs`), but
+ * without the memo each distinct check would still have run only once, so the
+ * reported saving (`savedMs`) counts distinct check keys.
+ */
+export function earlierRunSavings(
+  planned: Array<{ argv: string[] }>,
+  results: CheckResult[],
+  prior: ReadonlyMap<string, CheckResult> | undefined,
+): { reusedChecks: number; rowMs: number; savedMs: number } {
+  let reusedChecks = 0;
+  let rowMs = 0;
+  const byKey = new Map<string, number>();
+  planned.forEach((p, i) => {
+    if (results[i]?.dedupedFrom !== EARLIER_RUN_SCOPE) return;
+    const key = checkKey(p.argv);
+    const ms = prior?.get(key)?.durationMs ?? 0;
+    reusedChecks++;
+    rowMs += ms;
+    byKey.set(key, ms);
+  });
+  let savedMs = 0;
+  for (const ms of byKey.values()) savedMs += ms;
+  return { reusedChecks, rowMs, savedMs };
+}
+
 function recordPassesForTree(
   tree: string | null,
   planned: Array<{ argv: string[] }>,
@@ -1847,14 +1873,12 @@ async function main(): Promise<void> {
     (p) => executeScopedCheck(p.check, p.scope, { json, testConcurrency }),
     priorResults,
   );
-  let earlierRunSavedMs = 0;
-  let reusedChecks = 0;
-  planned.forEach((p, i) => {
-    if (results[i].dedupedFrom !== EARLIER_RUN_SCOPE) return;
-    reusedChecks++;
-    earlierRunSavedMs += priorResults?.get(checkKey(p.argv))?.durationMs ?? 0;
-  });
-  const savedMs = totalSavedMs - earlierRunSavedMs;
+  const {
+    reusedChecks,
+    rowMs: earlierRunRowMs,
+    savedMs: earlierRunSavedMs,
+  } = earlierRunSavings(planned, results, priorResults);
+  const savedMs = totalSavedMs - earlierRunRowMs;
   recordPassesForTree(treeAtStart, planned, results);
   if (selection && selection.mode === "selected") {
     const note = `selected ${selection.explicitFiles.length} test file(s), deferred ${selection.deferredCount} to CI; local ran with --no-isolate, CI re-runs isolated.`;

@@ -31,6 +31,7 @@ import {
   checkHelperExecutableModes,
   checksForScope,
   EARLIER_RUN_SCOPE,
+  earlierRunSavings,
   computeAllPassedAndReason,
   computeUnmatchedAfterDynamic,
   computeUnmatchedFiles,
@@ -2472,6 +2473,34 @@ describe("dedupe reporting", () => {
       "Reused 1 check result(s) from an earlier run on this exact tree (saved ~",
     );
     expect(output).not.toContain("across scopes");
+  });
+
+  it("counts an earlier-run saving once per distinct check when several scopes reuse it", () => {
+    const testArgv = ["npm", "run", "test"];
+    const lintArgv = ["npm", "run", "lint"];
+    const seeded = (name: string, durationMs: number) =>
+      createResult({ name, durationMs, dedupedFrom: EARLIER_RUN_SCOPE });
+    const prior = new Map<string, CheckResult>([
+      [JSON.stringify(testArgv), createResult({ durationMs: 45000 })],
+      [JSON.stringify(lintArgv), createResult({ durationMs: 20000 })],
+    ]);
+    const planned = [
+      { argv: testArgv },
+      { argv: lintArgv },
+      { argv: testArgv },
+      { argv: lintArgv },
+    ];
+    const results = [
+      seeded("npm run test", 45000),
+      seeded("npm run lint", 20000),
+      seeded("npm run test", 45000),
+      seeded("npm run lint", 20000),
+    ];
+    expect(earlierRunSavings(planned, results, prior)).toEqual({
+      reusedChecks: 4,
+      rowMs: 130000,
+      savedMs: 65000,
+    });
   });
 
   it("emits dedupedFrom 'earlier-run' in JSON for an earlier-run row", () => {
