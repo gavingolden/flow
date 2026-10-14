@@ -4153,11 +4153,11 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     }
   });
 
-  it("pre-approves only flow-ui-login check/serve in permissions.allow, never a blanket flow-ui-login *", () => {
+  it("pre-approves only flow-ui-login check/test-account in permissions.allow, never a blanket flow-ui-login *", () => {
     ensureLaunchSettings(settingsPath);
     const { allow } = readPermissions();
     expect(allow).toContain("Bash(flow-ui-login check *)");
-    expect(allow).toContain("Bash(flow-ui-login serve *)");
+    expect(allow).toContain("Bash(flow-ui-login test-account *)");
     expect(allow).not.toContain("Bash(flow-ui-login *)");
   });
 
@@ -4166,7 +4166,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     const { allow } = readPermissions();
     expect(allow).toContain("Bash(flow-create-issue *)");
     expect(allow).toContain("Bash(flow-ui-login check *)");
-    expect(allow).toContain("Bash(flow-ui-login serve *)");
+    expect(allow).toContain("Bash(flow-ui-login test-account *)");
   });
 
   it("a second call with permissions already present leaves the file unchanged", () => {

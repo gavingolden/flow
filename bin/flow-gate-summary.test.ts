@@ -334,9 +334,11 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(out).toContain("refused");
     expect(out).toContain("flow-ui-login check");
     expect(out).not.toContain("Nothing was read from your .env");
-    expect(out).toContain("permission rule");
-    expect(out).toContain("flow doctor");
-    expect(out).toContain("Auto-mode UI login");
+    expect(out).toContain("deny or ask rule");
+    expect(out).toContain("Nothing is lost");
+    expect(out).toContain("flow feature resume <slug>");
+    expect(out).not.toContain("flow doctor");
+    expect(out).not.toContain("Auto-mode UI login");
   });
 
   it("maps merge-refused to a fix-the-cause recipe that replies done and never offers an override", () => {

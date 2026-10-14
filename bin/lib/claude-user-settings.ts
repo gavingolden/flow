@@ -1,8 +1,7 @@
 /**
  * Read-only access to the owner's Claude user settings file. Shared by every
- * doctor probe and gate-summary hint that inspects it (the merge permission,
- * the auto-mode UI login entry) so they all resolve the same file the same
- * way. flow reads this file and never writes it — not here, not from
+ * doctor probe and gate-summary hint that inspects it (the merge permission)
+ * so they all resolve the same file the same way. flow reads this file and never writes it — not here, not from
  * `flow install`, not into a consumer repo.
  */
 

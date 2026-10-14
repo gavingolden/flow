@@ -33,16 +33,14 @@ export const SECRET_FILE_DENY_RULES: readonly string[] = [
 ];
 
 /**
- * Pre-approves `flow-ui-login check`/`serve` only — never a blanket
- * `flow-ui-login *`, which would also pre-approve the hidden
- * `__serve-child` subcommand (arbitrary `--user-name`/`--pass-name` on
- * argv, no classifier check) and let an agent that improvises after a
- * denial reach it directly. The auto-mode classifier still sees, and can
+ * Pre-approves `flow-ui-login check`/`test-account` only — one rule per
+ * subcommand, never a blanket `flow-ui-login *`, so a future subcommand is
+ * never silently pre-approved. The auto-mode classifier still sees, and can
  * still deny, every other `flow-ui-login` invocation.
  */
 export const FLOW_UI_LOGIN_ALLOW_RULES: readonly string[] = [
   "Bash(flow-ui-login check *)",
-  "Bash(flow-ui-login serve *)",
+  "Bash(flow-ui-login test-account *)",
 ];
 
 /**
@@ -58,8 +56,13 @@ export const FLOW_UI_LOGIN_ALLOW_RULES: readonly string[] = [
  * fix-applier reading untrusted PR text) can publish arbitrary text to the
  * current repo's issue tracker without an auto-mode classifier review. The
  * payload is limited to data already in the agent's context (the credential
- * deny rules still block reading `.env`-family files); we accept that narrow
- * prompt-injection path in exchange for review deferrals not being refused.
+ * deny rules still block reading `.env`-family files) — which now includes
+ * the two test-account values `flow-ui-login test-account` prints. That
+ * helper reads only the two variable names in the COMMITTED
+ * `.flow/ui-validation.json` and refuses non-localhost targets, so a steered
+ * agent cannot point it at real secrets without a visible commit; we accept
+ * the remaining narrow path (seeded local test-account values reaching an
+ * issue body) in exchange for review deferrals not being refused.
  */
 export const FLOW_CREATE_ISSUE_ALLOW_RULES: readonly string[] = [
   "Bash(flow-create-issue *)",

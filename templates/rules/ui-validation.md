@@ -154,10 +154,11 @@ The three-ingredient new-repo onboarding:
    the same for every other field it verified — and commits it into the
    reviewable PR diff, so the human never has to ask and the next run starts
    deterministic. Runtime
-   credential VALUES are resolved by `flow-ui-login`, never by the agent
-   itself: `flow-ui-login check` reports presence (names only), and
-   `flow-ui-login serve` performs the login — the manifest stores names and
-   non-secret config only — never a secret value. Treat the manifest as a
+   credential VALUES come from `flow-ui-login`, never from the agent reading
+   a `.env` file: `flow-ui-login check` reports presence (names only), and
+   `flow-ui-login test-account` prints the seeded local test account's values
+   for the login form — the manifest stores names and non-secret config only
+   — never a secret value. Treat the manifest as a
    deterministic cache of non-secret facts the agent maintains, not a
    frozen contract.
 3. **Seed + creds, once per repo.** Provide a loginable test user + fixture
@@ -168,22 +169,23 @@ The three-ingredient new-repo onboarding:
 commit messages, and PR bodies reference credential env-var NAMES only —
 never a plaintext VALUE.
 
-<!-- flow-ui-login-handoff -->
-
-A browser-driving sub-agent logs in through
-`flow-ui-login`: `flow-ui-login check` for presence, then `flow-ui-login
-serve`, each as its own standalone foreground Bash call (absolute paths, no
-`cd … &&`, no redirect or pipe). `serve`'s single output line is read once and
-its `fillScript` is passed verbatim to `evaluate_script` — never saved, printed,
-sliced or re-read —
-the credential VALUE never enters a tool call or a tool result (no
-`fill`/`type` with a value), and confirming login uses only the resulting
-URL, never a screenshot or saved snapshot of the login form. This is
-scoped to zero-risk seed/test accounts named in the manifest; it is not a
-license to hand-type arbitrary or production passwords. A refused
-credential action (a permission check, the auto-mode classifier, or a deny
-rule blocking it) means stop, never a workaround — record
-`credentials-unavailable` and let the caller surface the pause.
+A browser-driving sub-agent logs in through `flow-ui-login`:
+`flow-ui-login check` for presence, then `flow-ui-login test-account`, each as
+its own standalone foreground Bash call (absolute paths, no `cd … &&`, no
+redirect or pipe). `test-account` prints the two values of the seeded LOCAL
+test account (localhost targets only; it never prints any other `.env` key,
+and it reads only the COMMITTED `.flow/ui-validation.json`, so a bootstrap
+must commit the manifest before logging in),
+and the agent types them with ONE chrome-devtools `fill_form` after a
+transient `take_snapshot`. The values are never written to committed or
+published artifacts (captures JSON, result artifact, manifest, commit, PR body,
+Test Step), and confirming login uses only the resulting URL, never a
+screenshot or saved snapshot of the login form. This is scoped to zero-risk
+seed/test accounts named in the manifest; it is not a license to hand-type
+arbitrary or production passwords. A refused credential action (a permission
+check, the auto-mode classifier, or a deny rule blocking it) means stop,
+never a workaround — record `credentials-unavailable` and let the caller
+surface the pause.
 
 **Operational notes.** The `chrome-devtools` MCP must be connected at
 session start: a mid-session registration is invisible to the running

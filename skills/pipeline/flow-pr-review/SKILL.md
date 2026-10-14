@@ -1188,11 +1188,11 @@ already in use by a concurrent pipeline (contended) — or the preflight reports
 `not-drivable` (e.g. wheel or modifier-held input), drive the repo's own
 headless browser instead **when the repo has one**: a bounded script under
 `.flow-tmp/browser-fallback/`, run from the worktree with the repo's own
-`@playwright/test`, logging in through `flow-ui-login serve`'s fill script
-(never reading a value or a `.env` file) and never installing browser binaries.
+`@playwright/test`, logging in by running `flow-ui-login test-account` and
+filling the form with `page.fill` (never reading a `.env` file, never logging
+or writing the values) and never installing browser binaries.
 See [references/ui-validation-evidence.md](references/ui-validation-evidence.md)
-"Headless fallback" and its hand-off rule (standalone call, read once,
-`fillScript` verbatim, never logged) <!-- flow-ui-login-handoff -->. It is an
+"Headless fallback". It is an
 ordinary Bash invocation, so it preserves **Durable-test precedence** and stays
 **Automatable via the browser-validation capability**, and it adds **no new
 Task-tool exemption**: 8c is wrapper-side, and the fallback never spawns the

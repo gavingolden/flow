@@ -347,8 +347,9 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   3. Re-invoke the caller skill.`,
   "smoketest-needs-creds": `Make the test-user credentials available, then reply done in the pipeline window.
   1. Run flow-ui-login check --manifest .flow/ui-validation.json — it prints names only. If a variable shows present: false, set it in your shell env or the worktree .env.
-  2. If both show present: true, auto mode or a permission rule refused the login: run flow doctor — its Auto-mode UI login line prints the exact entry to add to your Claude settings (flow's launch settings already pre-approve flow-ui-login check/serve; a session started outside flow does not).
-  3. ${CONTINUE_OR_RESUME_STEP}`,
+  2. If both show present: true, a refusal that repeats usually means a deny or ask rule in your own Claude settings matches flow-ui-login or the chrome-devtools fill tool. Remove that rule, then retry. Nothing is lost: the UI check is skipped, and the PR and its other checks are intact.
+  3. A pipeline started before the upgrade picks up the new pre-approval only after flow feature resume <slug>; reply done alone will not bring it in.
+  4. ${CONTINUE_OR_RESUME_STEP}`,
   "state-file-missing-on-start": `Check whether this pipeline's saved state exists; relaunch it only if it is missing.
   1. Check ~/.flow/state/<slug>.json
   2. If it is missing, never work inline on the base branch — re-run flow feature create "<description>"`,
