@@ -19,7 +19,13 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import * as os from "node:os";
 import picomatch from "picomatch";
 import { resolveChecks, npmRunCheck, type CheckDef } from "./lib/stack-table";
-import { runDeduped } from "./lib/check-dedupe";
+import { checkKey, isReadOnlyVerifier, runDeduped } from "./lib/check-dedupe";
+import { withoutGitLocalEnv } from "./lib/git-local-env";
+import {
+  readVerifiedTree,
+  recordVerifiedTree,
+  workingTreeId,
+} from "./lib/verified-tree";
 import { withTestSemaphore } from "./lib/lock";
 import { FLOW_TEST_SEM_DIR } from "./lib/paths";
 import { detectStrayEnvFiles, strayEnvWarning } from "./lib/stray-env-file";
@@ -75,6 +81,11 @@ export type ScopeMatcher = {
   requireAll?: boolean;
 };
 
+/** Scope label on a result seeded from the same-tree memo. Deliberately not
+ * scope-shaped, so no user-configured scope name can collide with it. */
+export const EARLIER_RUN_SCOPE = "<earlier-run>";
+const EARLIER_RUN_LABEL = "an earlier run on this exact tree";
+
 export type CheckResult = {
   name: string;
   scope: ScopeName;
@@ -97,8 +108,10 @@ export type CheckReport = {
   scopes: ScopeName[];
   results: CheckResult[];
   allPassed: boolean;
-  /** Sum of the durations the reused rows avoided re-running. */
+  /** Sum of the durations the in-run reused rows avoided re-running. */
   savedMs?: number;
+  /** Sum of the durations the rows reused from an earlier run avoided. */
+  earlierRunSavedMs?: number;
   /**
    * The file list scope detection saw, when available. Empty for the
    * `--scope <list>` path where the user named scopes explicitly and there
@@ -239,12 +252,15 @@ const SCOPE_MATCHERS: Record<Exclude<Scope, "root-fallback">, ScopeMatcher> = {
 
 // --- Helpers ---
 
-function run(argv: string[]): {
+function run(
+  argv: string[],
+  env?: NodeJS.ProcessEnv,
+): {
   stdout: string;
   stderr: string;
   exitCode: number;
 } {
-  const result = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" });
+  const result = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe", env });
   return {
     stdout: result.stdout.toString().trim(),
     stderr: result.stderr.toString().trim(),
@@ -341,7 +357,7 @@ export function runViaRegistry(argv: string[]): {
   stderr: string;
   exitCode: number;
 } {
-  return run(registryArgv(argv));
+  return run(registryArgv(argv), withoutGitLocalEnv(process.env));
 }
 
 // --- Scope Detection ---
@@ -1343,17 +1359,18 @@ export function formatReport(report: CheckReport): string {
 
   for (const result of report.results) {
     const icon = result.skipReason ? "SKIP" : result.passed ? "PASS" : "FAIL";
+    const reusedFrom =
+      result.dedupedFrom === EARLIER_RUN_SCOPE
+        ? EARLIER_RUN_LABEL
+        : result.dedupedFrom;
     const label = result.dedupedFrom
-      ? `reused from ${result.dedupedFrom}`
+      ? `reused from ${reusedFrom}`
       : formatDuration(result.durationMs);
     lines.push(`  ${icon}  ${result.name} (${label})`);
 
     if (result.dedupedFrom) {
       if (!result.passed) {
-        lines.push(
-          `        (same output as the ${result.dedupedFrom} run above)`,
-          "",
-        );
+        lines.push(`        (same output as the ${reusedFrom} run above)`, "");
       }
     } else if (result.skipReason && result.output) {
       const indented = result.output
@@ -1374,11 +1391,17 @@ export function formatReport(report: CheckReport): string {
   lines.push("");
   const executed = report.results.filter((r) => !r.dedupedFrom);
   const reusedCount = report.results.length - executed.length;
+  const earlierCount = report.results.filter(
+    (r) => r.dedupedFrom === EARLIER_RUN_SCOPE,
+  ).length;
+  const acrossCount = reusedCount - earlierCount;
   const skipped = executed.filter((r) => r.skipReason).length;
   const ran = executed.filter((r) => !r.skipReason);
   const passed = ran.filter((r) => r.passed).length;
   const total = ran.length;
-  if (total === 0 && skipped === 0) {
+  if (total === 0 && skipped === 0 && reusedCount > 0 && report.allPassed) {
+    lines.push(`All ${reusedCount} checks passed (reused).`);
+  } else if (total === 0 && skipped === 0) {
     if (report.reason === "no-checks-defined") {
       lines.push(
         "No checks ran (no matching npm scripts defined in package.json).",
@@ -1407,9 +1430,14 @@ export function formatReport(report: CheckReport): string {
     }
   }
 
-  if (reusedCount > 0) {
+  if (acrossCount > 0) {
     lines.push(
-      `Reused ${reusedCount} identical check run(s) across scopes (saved ~${formatDuration(report.savedMs ?? 0)}).`,
+      `Reused ${acrossCount} identical check run(s) across scopes (saved ~${formatDuration(report.savedMs ?? 0)}).`,
+    );
+  }
+  if (earlierCount > 0) {
+    lines.push(
+      `Reused ${earlierCount} check result(s) from ${EARLIER_RUN_LABEL} (saved ~${formatDuration(report.earlierRunSavedMs ?? 0)}).`,
     );
   }
 
@@ -1503,7 +1531,10 @@ export function formatJsonReport(report: CheckReport): string {
         }
       }
       if (r.skipReason) result.skipReason = r.skipReason;
-      if (r.dedupedFrom) result.dedupedFrom = r.dedupedFrom;
+      if (r.dedupedFrom) {
+        result.dedupedFrom =
+          r.dedupedFrom === EARLIER_RUN_SCOPE ? "earlier-run" : r.dedupedFrom;
+      }
       return result;
     }),
     allPassed: report.allPassed,
@@ -1562,7 +1593,9 @@ The lint check is skipped when no 'lint' npm script is defined.
 Identical read-only checks (test, lint, typecheck, …) run once per
 invocation; later scopes reuse the first result and are labelled
 'reused from <scope>'. Any other command always runs.
-Each check reports its own pass/fail.
+With --pre-push on a clean tree that an earlier all-read-only run already
+passed, those passes are reused too ('reused from an earlier run on this
+exact tree'). Each check reports its own pass/fail.
   `);
 }
 
@@ -1619,6 +1652,70 @@ function executeScopedCheck(
   return result;
 }
 
+/**
+ * Seeds the push-time reuse table from the same-tree memo. Only when every
+ * pushed non-delete local sha is HEAD and the clean tree is exactly the one
+ * the memo recorded — anything else (a dirty tree, an older sha, a tree no
+ * check has seen) leaves every check to run.
+ */
+function seedFromVerifiedTree(
+  refs: PrePushRef[],
+  tree: string | null,
+): Map<string, CheckResult> | undefined {
+  if (!tree) return undefined;
+  const pushed = refs.filter((r) => !/^0+$/.test(r.localSha));
+  if (pushed.length === 0) return undefined;
+  const head = run(["git", "rev-parse", "HEAD"]);
+  const headTree = run(["git", "rev-parse", "HEAD^{tree}"]);
+  if (head.exitCode !== 0 || headTree.exitCode !== 0) return undefined;
+  if (headTree.stdout !== tree) return undefined;
+  if (pushed.some((r) => r.localSha !== head.stdout)) return undefined;
+  const memo = readVerifiedTree();
+  if (!memo || memo.tree !== tree) return undefined;
+  const seeds = new Map<string, CheckResult>();
+  for (const [key, entry] of Object.entries(memo.passed)) {
+    seeds.set(key, {
+      name: entry.name,
+      scope: EARLIER_RUN_SCOPE,
+      passed: true,
+      output: "",
+      durationMs: entry.durationMs,
+    });
+  }
+  return seeds;
+}
+
+/**
+ * Remembers this run's passes against the tree it ran on, but only when every
+ * planned check was a read-only verifier — a mutating check may have changed
+ * what later checks saw. Rows reused from this or an earlier run carry no
+ * fresh timing and are left to the run that executed them.
+ */
+function recordPassesForTree(
+  tree: string | null,
+  planned: Array<{ argv: string[] }>,
+  results: CheckResult[],
+): void {
+  if (!tree || planned.length === 0) return;
+  if (!planned.every((p) => isReadOnlyVerifier(p.argv))) return;
+  recordVerifiedTree(
+    tree,
+    planned.flatMap((p, i) =>
+      results[i].dedupedFrom
+        ? []
+        : [
+            {
+              argv: p.argv,
+              name: results[i].name,
+              passed: results[i].passed,
+              durationMs: results[i].durationMs,
+              skipped: Boolean(results[i].skipReason),
+            },
+          ],
+    ),
+  );
+}
+
 async function main(): Promise<void> {
   const startedAt = Date.now();
   const args = process.argv.slice(2);
@@ -1637,11 +1734,15 @@ async function main(): Promise<void> {
 
   const json = args.includes("--json");
   const prePush = args.includes("--pre-push");
+  const treeAtStart = workingTreeId();
   let scopes: ScopeName[];
   let changedFiles: string[] | undefined;
   // Dynamic scopes claimed via auto-detect/config, keyed by name for the
   // run loop. Empty on the --scope path (no diff to detect against).
   let dynamicScopes: DynamicScope[] = [];
+  // Passes from an earlier run on this exact tree; only ever set in --pre-push
+  // (/flow-verify and every other mode observe the worktree fresh).
+  let priorResults: Map<string, CheckResult> | undefined;
   const scopeIdx = args.indexOf("--scope");
   const prIdx = args.indexOf("--pr");
 
@@ -1659,6 +1760,7 @@ async function main(): Promise<void> {
     if (refs.length === 0) {
       process.exit(0);
     }
+    priorResults = seedFromVerifiedTree(refs, treeAtStart);
     changedFiles = getChangedFilesForPush(refs);
     dynamicScopes = loadDynamicScopes(computeUnmatchedFiles(changedFiles));
     scopes = detectScopesFromFiles(changedFiles, dynamicScopes);
@@ -1740,9 +1842,20 @@ async function main(): Promise<void> {
       planned.push({ scope, argv: check.argv, check });
     }
   }
-  const { results, savedMs } = runDeduped(planned, (p) =>
-    executeScopedCheck(p.check, p.scope, { json, testConcurrency }),
+  const { results, savedMs: totalSavedMs } = runDeduped(
+    planned,
+    (p) => executeScopedCheck(p.check, p.scope, { json, testConcurrency }),
+    priorResults,
   );
+  let earlierRunSavedMs = 0;
+  let reusedChecks = 0;
+  planned.forEach((p, i) => {
+    if (results[i].dedupedFrom !== EARLIER_RUN_SCOPE) return;
+    reusedChecks++;
+    earlierRunSavedMs += priorResults?.get(checkKey(p.argv))?.durationMs ?? 0;
+  });
+  const savedMs = totalSavedMs - earlierRunSavedMs;
+  recordPassesForTree(treeAtStart, planned, results);
   if (selection && selection.mode === "selected") {
     const note = `selected ${selection.explicitFiles.length} test file(s), deferred ${selection.deferredCount} to CI; local ran with --no-isolate, CI re-runs isolated.`;
     if (json) console.error(note);
@@ -1783,6 +1896,7 @@ async function main(): Promise<void> {
     changedFiles,
   };
   if (savedMs > 0) report.savedMs = savedMs;
+  if (earlierRunSavedMs > 0) report.earlierRunSavedMs = earlierRunSavedMs;
   if (unmatchedFiles && unmatchedFiles.length > 0)
     report.unmatchedFiles = unmatchedFiles;
   if (reason) report.reason = reason;
@@ -1803,6 +1917,7 @@ async function main(): Promise<void> {
       failing_checks: failingChecks,
       duration_ms: Date.now() - startedAt,
       json_mode: json,
+      reused_checks: reusedChecks,
     });
   } catch {
     // swallowed — telemetry must never affect this CLI's exit code.

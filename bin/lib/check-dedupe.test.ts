@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  checkKey,
   isReadOnlyVerifier,
   runDeduped,
   type DedupableResult,
@@ -116,6 +117,54 @@ describe("runDeduped", () => {
       execute,
     );
     expect(calls).toHaveLength(2);
+  });
+});
+
+describe("runDeduped with prior results", () => {
+  const seed = (cmd: string): Res => ({
+    name: cmd,
+    scope: "<earlier-run>",
+    durationMs: 700,
+    passed: true,
+  });
+  const prior = (cmd: string) =>
+    new Map<string, Res>([[checkKey(cmd.split(" ")), seed(cmd)]]);
+
+  it("does not execute a seeded key and labels the reuse with the seed's scope", () => {
+    const { calls, execute } = harness();
+    const { results, savedMs } = runDeduped(
+      [item("src", "npm run test")],
+      execute,
+      prior("npm run test"),
+    );
+    expect(calls).toEqual([]);
+    expect(results[0]).toMatchObject({
+      scope: "src",
+      durationMs: 0,
+      dedupedFrom: "<earlier-run>",
+    });
+    expect(savedMs).toBe(700);
+  });
+
+  it("clears the seeds after a mutating check", () => {
+    const { calls, execute } = harness();
+    runDeduped(
+      [item("src", "npm run build"), item("src", "npm run test")],
+      execute,
+      prior("npm run test"),
+    );
+    expect(calls).toEqual(["src:npm run build", "src:npm run test"]);
+  });
+
+  it("leaves the caller's map untouched", () => {
+    const seeds = prior("npm run test");
+    const { execute } = harness();
+    runDeduped(
+      [item("src", "npm run build"), item("src", "npm run lint")],
+      execute,
+      seeds,
+    );
+    expect(seeds.size).toBe(1);
   });
 });
 

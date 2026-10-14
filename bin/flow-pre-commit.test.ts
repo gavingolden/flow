@@ -30,6 +30,7 @@ import {
   checkConflictMarkers,
   checkHelperExecutableModes,
   checksForScope,
+  EARLIER_RUN_SCOPE,
   computeAllPassedAndReason,
   computeUnmatchedAfterDynamic,
   computeUnmatchedFiles,
@@ -2446,6 +2447,45 @@ describe("dedupe reporting", () => {
     expect(output).toContain(
       "Reused 2 identical check run(s) across scopes (saved ~2.5s).",
     );
+  });
+
+  it("labels a row reused from an earlier run with the exact-tree wording", () => {
+    const output = formatReport(
+      createReport({
+        allPassed: true,
+        results: [
+          createResult({
+            name: "npm run test",
+            scope: "src",
+            durationMs: 0,
+            dedupedFrom: EARLIER_RUN_SCOPE,
+          }),
+        ],
+        earlierRunSavedMs: 166000,
+      }),
+    );
+    expect(output).toContain(
+      "  PASS  npm run test (reused from an earlier run on this exact tree)",
+    );
+    expect(output).toContain("All 1 checks passed (reused).");
+    expect(output).toContain(
+      "Reused 1 check result(s) from an earlier run on this exact tree (saved ~",
+    );
+    expect(output).not.toContain("across scopes");
+  });
+
+  it("emits dedupedFrom 'earlier-run' in JSON for an earlier-run row", () => {
+    const parsed = JSON.parse(
+      formatJsonReport(
+        createReport({
+          allPassed: true,
+          results: [
+            createResult({ durationMs: 0, dedupedFrom: EARLIER_RUN_SCOPE }),
+          ],
+        }),
+      ),
+    );
+    expect(parsed.results[0].dedupedFrom).toBe("earlier-run");
   });
 
   it("does not dump the failure output twice for a reused failing row", () => {
