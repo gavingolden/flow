@@ -17,7 +17,9 @@ import {
 import { SURVEY_VERDICTS, VETTING_VERDICTS } from "./flow-step3-route";
 import { UI_EXTENSIONS } from "./flow-ui-validate";
 import {
+  PIPELINE_SKILL_DIR,
   parseDispatchTable,
+  parseReferenceIndex,
   readPipelineSkillCore,
   readPipelineSkillCorpus,
 } from "./lib/pipeline-skill-corpus";
@@ -5369,6 +5371,7 @@ describe("pr-review include-by-reference structure", () => {
     ).toBeGreaterThanOrEqual(5);
   });
 
+  // Ceiling kept until flow-pr-review gets the core-plus-step-docs split (follow-up candidate).
   it("skills/pipeline/flow-pr-review/SKILL.md line count stays under the post-refactor budget", () => {
     const prReviewSkillPath = path.resolve(
       HERE,
@@ -5586,263 +5589,14 @@ describe("pr-review include-by-reference structure", () => {
     }
   });
 
-  it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
-    // Skill split: the corpus is core + phase docs and is deliberately larger
-    // than this ceiling; the ceiling now measures the core file alone.
-    const content = readPipelineSkillCore();
-    const lineCount = content.split("\n").length;
-    // Clickable-targets PR: raised 3080 -> 3090. `main` had already climbed
-    // to 3078 (2 lines of headroom) before this branch, so the +5 net lines
-    // here are not the regrowth this ceiling guards against: they document
-    // the new emission mechanism at the four sites that actually print a
-    // path (the two AWAITING-APPROVAL bullets, the two screenshot-path
-    // prints, and the echo-recap contract), demoting the old
-    // no-trailing-punctuation rule from mechanism to fallback at each. The
-    // prose was tightened three times before raising — the fallback
-    // rationale is now stated once and cross-referenced rather than
-    // restated per site. 3090 restores the ~7 lines of genuine headroom the
-    // chain below has repeatedly found necessary, instead of re-pinning at
-    // zero headroom, which is the exact tension this ceiling exists to
-    // prevent.
-    // New lint (p5-context-diet): the supervisor body had regrown 236 lines
-    // since its #411 split before this diet trimmed it 2,986 → 2,700 lines
-    // by moving the Step 3 threading/backstop contracts to
-    // references/step3-threading.md. 2750 leaves modest headroom above the
-    // 2,700-line post-diet floor without reopening the zero-headroom gate
-    // tension this same PR's Test Steps hit at exactly 2,700 — regrowth
-    // past 2750 should be treated as bloat creeping back in, the failure
-    // mode this diet exists to prevent. Raised from 2750 to 2760 to fund the
-    // rebase-to-merge conversion's `merge-resolver-spawn-denied` escalation
-    // branch in the Independent Merge-Conflict Resolver Subagent section — a
-    // few lines naming the new NEEDS HUMAN reason and its no-re-spawn /
-    // no-inline-resolution invariants. Kept deliberately tight rather than
-    // offloaded, since the branch is a handful of lines, not a new section.
-    // Tightened the spawn-denied branch (pr-review #485): removed a
-    // restated no-re-spawn clause (already stated three lines below) and
-    // moved the trailing context-isolation rationale to
-    // references/exemption-contracts.md. File now lands at 2758 lines —
-    // raised the ceiling to 2765 (7 lines of genuine headroom) rather than
-    // pinning it back at zero headroom, which is the exact tension this
-    // ceiling exists to prevent.
-    // Resolver-contract-hygiene PR: extracted the three no-retry escalation
-    // variants (branch-mismatch, terminal-regression, task-tool-unavailable)
-    // out of the `# Failure paths` block into references/failure-recovery.md
-    // § (c), replacing them with a compact trigger table, then appended a
-    // short "standard `# Failure paths` chain" pointer clause to each of the
-    // five terse step-10 escalation sites (the fifth,
-    // merge-resolver-missing-artifact, was initially missed in this PR and
-    // added in a pr-review #506 follow-up fix commit). File lands at 2660
-    // lines — RATCHETED the ceiling DOWN to 2685 (measured + ~25, rounded to
-    // the nearest 5), not raised, so the headroom this extraction freed is
-    // not silently refilled by unrelated regrowth.
-    // Terminal-state reap wiring PR: rewrote "# Resource cleanup" as the
-    // three-layer contract (point-of-use / registry-first backstop /
-    // orphan-sweep crash net) and wired `flow-browser-teardown --reap
-    // --record` + `flow-gate-summary --cleanup` into every terminal-state
-    // runbook block. This is genuine load-bearing safety content (the
-    // standalone-call / non-`&&`-chained warning this feature exists to
-    // enforce), already tightened repeatedly rather than offloaded — no
-    // references/ file is a natural home for a supervisor-wide invariant
-    // spanning every terminal exit. File lands at 2696 lines — raised the
-    // ceiling to 2700 (4 lines of genuine headroom), same discipline as the
-    // 2765 precedent above: not pinned back at zero headroom.
-    // Plugin-qualified agent-resolution fix: a bare `flow-<agent>`
-    // subagent_type fails Task-tool resolution outright on a plugin-root
-    // install (measured: "Agent type 'flow-scout' not found"). The
-    // flow-verify and flow-merge-resolver resolvers each grew from a
-    // one-line guard to an explicit three-tier if/elif/else block
-    // (plugin-qualified → legacy bare → general-purpose), plus corrected
-    // prose at each site — genuine load-bearing correctness content. File
-    // lands at 2725 lines — raised the ceiling to 2735 (10 lines of genuine
-    // headroom), same discipline as the precedents above.
-    // Note: a later PR collapsed these three-tier guards to two tiers
-    // (plugin-qualified → general-purpose, dropping the legacy-bare
-    // elif branch), shrinking the file below this ceiling — the number
-    // above is left as historical record, not re-tightened.
-    // Intent interview (adaptive): step 1's Intent interview sub-step,
-    // step 3's Question-gate branch, the sixth invocation-threading
-    // marker, the answer-sheet End-condition addition, and the two new
-    // pending-phase enumerations are genuine load-bearing feature
-    // content, not incidental bloat. File lands at 2815 lines — raised
-    // the ceiling to 2830 (15 lines of genuine headroom), same
-    // discipline as the precedents above.
-    // pr-review fix pass (PR #637): the step-1 per-round persistence fix,
-    // the step-3 question-gate post-answer persistence fix, and the
-    // reconciled step-3 resume-row wording are genuine correctness content
-    // fixing a mid-interview data-loss bug, not incidental bloat. File
-    // lands at 2845 lines — raised the ceiling to 2860 (15 lines of
-    // genuine headroom), same discipline as the precedents above.
-    // PM-lens supervisor wiring (Task 9): every terminal-state
-    // `flow-gate-summary` / `flow-pipeline-summary` / `flow-notify` call
-    // site across steps 3, 7, 9, 10, 11, and the resume/cancel paths
-    // gained `--tldr`/`--lens`/`--untracked-file`/`--counts-line`
-    // wiring, plus the six-slot pause-block templates and the `file #N`
-    // / `drop #N` reply-verb documentation at three sites — this is the
-    // feature's own mechanical breadth, not incidental bloat, and there
-    // is no references/ file that would not just relocate the same
-    // per-site wiring away from the site it documents. File lands at
-    // 2904 lines — raised the ceiling to 2920 (16 lines of genuine
-    // headroom), same discipline as the precedents above.
-    // Merging that PM-lens work with the flow-ci-check/flow-ci-wait
-    // step-7 split (PR #666) lands the combined file at 2923 lines —
-    // both sides' growth is feature-mechanical, so the ceiling moves to
-    // 2940 (17 lines of headroom), same discipline as above.
-    // Seed-integrity REQUEST_FILE contract: the "When to Use" bullet and
-    // Step 1's slug-extraction paragraph both gained the REQUEST_FILE
-    // pointer + NEEDS HUMAN: request-file-missing escalation — genuine
-    // correctness content for the single-line seed migration, not
-    // incidental bloat.
-    // Merged with the blind method survey from main (#720), which is
-    // itself feature-mechanical (a Hard-rules sibling blockquote, a
-    // ~7-line opener sub-step pointing at references/blind-survey.md,
-    // one new `flow-step3-route` decision's routing bullets, one
-    // plan-summary line, one resume-row clause) and had raised the
-    // ceiling to 3015. Both sides' growth is feature-mechanical and
-    // additive, and the combined file lands at 3024 lines, so the
-    // ceiling moves to 3040 (16 lines of genuine headroom), the same
-    // discipline as every raise above. This also absorbs — and does NOT
-    // retroactively re-tighten for — the pre-existing #704 overshoot
-    // already noted on the main side.
-    //
-    // Raised 3040 → 3060 by the graded-confidence PR (the step-3
-    // plan-summary template and the answer-sheet paragraph each grew by
-    // in-sentence extensions, +11 lines, landing the branch at 3037), which
-    // then absorbed #687's +8 on merge: the combined file measures 3044,
-    // so the ceiling moves to 3060 (16 lines of headroom, same discipline).
-    // Narrowing the `claude -p` prohibition to the sanctioned
-    // `flow-claude-headless` Bash fan-out (Hard-rules rewrite + new F2
-    // sibling blockquote + Verification bullet rewrite) is genuine
-    // feature-mechanical content, not incidental bloat. Measured via
-    // `wc -l`: pre-edit 3035, post-edit 3047 — a +12-line delta, which
-    // on its own had also targeted 3060. Merging it with the
-    // graded-confidence raise above lands the combined file at 3062
-    // `wc -l` lines (3063 as this test counts them), past the 3060 both
-    // sides had chosen independently, so the ceiling moves to 3080
-    // (17 lines of genuine headroom), the same discipline as every
-    // raise above.
-    //
-    // Raised 3080 → 3115 by the checkpoint arm-signal echo-verbatim PR: a
-    // new "Checkpoint arm signal (echo-verbatim)" subsection plus repointing
-    // six existing arm sites and closing three terminal arm-coverage gaps —
-    // genuine feature-mechanical content (the same nudge text was previously
-    // duplicated per-site; it now lives once, referenced everywhere), not
-    // incidental bloat. Lands the file at 3095 lines, so the ceiling moves
-    // to 3115 (20 lines of genuine headroom), the same discipline as above.
-    // Merge note: this branch raised 3080 -> 3090 while `main` raised
-    // 3080 -> 3115 for the checkpoint arm-signal work; both prose ledgers
-    // above survive the merge. `main`'s higher ceiling is kept — the
-    // merged file lands at 3019 lines after `main`'s verify-loop diet, so
-    // 3115 clears it and no third number is invented.
-    //
-    // Raised 3115 → 3167 by the PR-body explanation-judge PR (epic
-    // make-flow-reason-from-explain f2): Task 6 inserted the "PR-body
-    // explanation judge (advisory)" paragraph + guarded flow-explain-judge
-    // bash block ahead of the flow-open-pr call, and Task 7 added the new
-    // "### TLDR and WHY authoring (product brief)" subsection plus six
-    // one-line pointer sentences at the existing TLDR-authoring sites —
-    // both genuine feature-mechanical content, not incidental bloat. Lands
-    // the file at 3151 lines, so the ceiling moves to 3167 (16 lines of
-    // genuine headroom), the same discipline as every raise above.
-    //
-    // Request-vetting note: PR #812's Task 8 (`## Request vetting`
-    // rendering + non-feature push-back routing + the FOUR-hashed-inputs
-    // doc update) added genuine step-3 prose, landing `main` at 3127
-    // lines — a ceiling of 3140 (13 lines of genuine headroom) on that
-    // side, the same discipline as above.
-    //
-    // Merge note (f3 product critic, PR #822): `main` independently raised
-    // 3115 -> 3140 -> 3155 for the "Blind product critic (brief-gated,
-    // once per step-3 pass)" sub-step plus the exemption #1/#2 wording
-    // widening. That ledger survives verbatim above; only its ceiling is
-    // superseded below.
-    //
-    // Merge note (this merge): `main` advanced by six commits while this
-    // branch sat gated, two of which touched this SKILL.md — the f3
-    // product critic (#822, +19/-3) and the review-phase cost cut
-    // (#829, +8/-2) — landing `main` at 3149 lines as this test counts
-    // them, against this branch's 3171. Both sides budgeted a ceiling for
-    // their OWN content (3167 here, 3155 on `main`), so neither clears the
-    // union: the merged file measures 3193 lines. The ceiling moves to
-    // 3210 (17 lines of genuine headroom) to cover the union — the
-    // arithmetic of two independently-budgeted features meeting, not new
-    // bloat, and neither side's content was trimmed to fake a fit.
-    //
-    // (`main`-side ledger, preserved verbatim:)
-    // Three independent raises have now landed together:
-    //   - PR #812's Task 8 (`## Request vetting` rendering + non-feature
-    //     push-back routing + the FOUR-hashed-inputs doc update).
-    //   - The eighth Task-tool exemption (`/flow-verify` Independent
-    //     UI-Driver Subagent): a new Hard-rules exemption blockquote, the
-    //     Verification-list eighth name, and the Step 6
-    //     Automated-UI-smoke-pass / Surface-UI-screenshots rewrites to
-    //     read the driver artifact.
-    //   - `main`'s f3 blind product critic: the "Blind product critic
-    //     (brief-gated, once per step-3 pass)" sub-step plus the
-    //     exemption #1/#2 wording widening.
-    // All three are genuine feature-mechanical content, not incidental
-    // bloat. Each was independently budgeted (3160 for the first two,
-    // 3155 for the third), but the merged file carries every body and
-    // lands at 3165 lines, so the ceiling moves to 3180 (15 lines of
-    // genuine headroom) to cover the union. That is the arithmetic of
-    // independently-budgeted features meeting, not new bloat, and no
-    // side's content was trimmed to fake a fit.
-    //
-    // Merge note (main -> branch, 2026-09-11): the two ledgers above were
-    // budgeted independently and neither number covers the union. This
-    // branch (the PR-body explanation judge, f2) sat gated while `main`
-    // advanced five commits, two of which touched this SKILL.md: the
-    // eighth Task-tool exemption (the `/flow-verify` Independent UI-Driver
-    // Subagent, #820, +46/-30) and the always-loaded AGENTS.md routing-core
-    // shrink (#837, +9/-9, net zero here).
-    // Measured the way this test counts (`content.split("\n").length`):
-    // `main` lands at 3165, this branch at 3193, their merge-base at 3149 —
-    // so the merged file measures exactly 3149 + (3193-3149) + (3165-3149)
-    // = 3209 lines, the clean additive union with nothing dropped or
-    // duplicated. Both sides' prose ledgers survive verbatim above; only
-    // their ceilings (3210 here, 3180 on `main`) are superseded. The
-    // ceiling moves to 3226 (17 lines of genuine headroom over the
-    // measured 3209), the same discipline as every raise above: the
-    // arithmetic of two independently-budgeted features meeting, not new
-    // bloat, and no side's content was trimmed to fake a fit.
-    //
-    // Flow-doc read-guard PR: the Hard-rules blockquote "You read flow's own
-    // docs with the Read tool, never awk or pattern-range sed" (+6 lines
-    // incl. its blank separator) lands the file at 3231 lines as this test
-    // counts them; the ceiling moves to 3233 (2 lines of headroom over the
-    // measured 3231), kept deliberately tight — the rule was already trimmed
-    // to five prose lines.
-    //
-    // Raised 3233 -> 3239 (browser-retry contract): Step 9 gains the
-    // non-terminal `browser-retry` decision row and the Resume-mode row (one
-    // dense line each, detail in references/failure-recovery.md), the
-    // `browser-retry-pending` turn-end in the Hard-rules enumeration and the
-    // phase list, a feedback-mode sentence for the post-GATED re-drive, and
-    // the stop-hook contract now names `PENDING_PHASES` instead of a stale
-    // "six" count. The file lands at 3237 lines as this test counts them;
-    // 3239 leaves 2 lines of headroom.
-    //
-    // Ratcheted 3239 -> 3207 (unattended-gate-recovery): step 10 now runs the
-    // gate-checked `flow-merge-guard merge "$PR"` as one standalone call and
-    // reads `.flow-tmp/merge-result.json`, so the GUARD_JSON block, the two
-    // PRIMARY-derived merge fences, the "Retry self-containment" paragraph, the
-    // stale "needs no helper plumbing change" paragraph and the resolver's
-    // retry fence all left SKILL.md, net of the new permission-denied branch
-    // and the bounded-guard / awaiting-human / reconnect prose. The file lands
-    // at 3205 lines as this test counts them; 3207 leaves 1 line of headroom.
-    //
-    // Raised 3207 -> 3211 (senior-engineer pushback): Step 1 gains the
-    // `Solution fit:` paragraph, Step 3's plan-summary clause gains the
-    // `Existing code:` line, and the route-to-step-4 WHY block gains the
-    // `EXISTING_CODE` derivation; bodies live in references/. The file lands
-    // at 3209 lines as this test counts them; 3211 leaves 2 lines of headroom.
-    expect(
-      lineCount,
-      `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3211 lines. Material regrowth past this ceiling would ` +
-        `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3211);
-  });
+  // flow-pipeline's line ceiling (raised 22 times, last 3211) is gone: the skill
+  // is a core plus per-step docs and the structural cases in "flow-pipeline
+  // skill split structure" below guard it. The core budget there comes from the
+  // compaction re-attach window (docs/eval/supervisor-skill-payload-baseline-2026-10.md).
+  // flow-pr-review (1905) and flow-new-feature (810) keep their ceilings until
+  // their own splits, the follow-up candidates in this change's plan.
 
+  // Ceiling kept until flow-new-feature gets the core-plus-step-docs split (follow-up candidate).
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
     const newFeatureSkillPath = path.resolve(
       HERE,
@@ -5933,6 +5687,7 @@ describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-do
           `would be uninformative.`,
       ).toBeGreaterThan(0);
 
+      const dispatch = parseDispatchTable(readPipelineSkillCore());
       for (const n of refs) {
         const needle = `## Step ${n} `;
         expect(
@@ -5942,9 +5697,227 @@ describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-do
             `A step renumber/rename in SKILL.md has drifted the helper's ` +
             `reminder text away from the doc.`,
         ).toBe(true);
+        // Skill split: the step text lives in a doc, so the label must also
+        // resolve to a dispatch row whose doc exists on disk.
+        const row = dispatch.find((r) => r.step.split(" ")[0] === n);
+        expect(
+          row,
+          `NEXT_STEP_BY_PHASE['${phase}'] references 'step ${n}', but the core's ` +
+            "`## Phase dispatch` table has no row for it.",
+        ).toBeDefined();
+        expect(
+          fs.existsSync(path.join(PIPELINE_SKILL_DIR, row!.doc)),
+          `the dispatch row for step ${n} names '${row!.doc}', which does not exist.`,
+        ).toBe(true);
       }
     },
   );
+});
+
+describe("flow-pipeline skill split structure (core + phase docs)", () => {
+  // Replaces the flow-pipeline line ceiling. CORE_REATTACH_BUDGET_CHARS is not
+  // a tuning knob: Claude Code re-attaches only the first ~20,000 chars of a
+  // skill after a compaction (measured 16 of 16 re-attachments, see
+  // docs/eval/supervisor-skill-payload-baseline-2026-10.md), less the "Base
+  // directory" prefix line. SINGLE_READ_DOC_CHARS keeps each doc inside one
+  // Read call (25,000-token cap at ~2.46 chars/token).
+  const CORE_REATTACH_BUDGET_CHARS = 19_500;
+  const SINGLE_READ_DOC_CHARS = 60_000;
+
+  const core = readPipelineSkillCore();
+  const dispatch = parseDispatchTable(core);
+  const index = parseReferenceIndex(core);
+  const phasesDir = path.join(PIPELINE_SKILL_DIR, "references", "phases");
+  const phaseFiles = fs
+    .readdirSync(phasesDir)
+    .filter((f) => f.endsWith(".md"))
+    .sort();
+  const rel = (f: string) => `references/phases/${f}`;
+  const read = (r: string) =>
+    fs.readFileSync(path.join(PIPELINE_SKILL_DIR, r), "utf8");
+  const outsideFences = (md: string): string[] => {
+    let fence = 0;
+    return md.split("\n").filter((l) => {
+      const m = /^\s*(`{3,})(.*)$/.exec(l);
+      if (m) {
+        if (!fence) fence = m[1].length;
+        else if (m[1].length >= fence && m[2].trim() === "") fence = 0;
+        return false;
+      }
+      return !fence;
+    });
+  };
+  // GitHub's heading slug: lowercase, drop punctuation except hyphens,
+  // spaces become hyphens.
+  const slug = (h: string) =>
+    h
+      .replace(/`/g, "")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{M}\p{N}\p{Pc}\- ]/gu, "")
+      .replace(/ /g, "-");
+
+  it("the core fits the compaction re-attach window", () => {
+    expect(
+      core.length,
+      `flow-pipeline/SKILL.md is ${core.length} chars; the budget is ` +
+        `${CORE_REATTACH_BUDGET_CHARS}. Claude Code re-attaches only the first ~20,000 chars of a ` +
+        "skill after a compaction (measured: docs/eval/supervisor-skill-payload-baseline-2026-10.md), so " +
+        "a longer core loses its tail — hard rules and dispatch rows — on exactly the long runs that " +
+        "need them. Raising this number defeats the purpose: move step prose into references/phases/ instead.",
+    ).toBeLessThanOrEqual(CORE_REATTACH_BUDGET_CHARS);
+  });
+
+  it("the post-compaction rule starts inside the re-attached window", () => {
+    const at = core.indexOf("## After a compaction or resume");
+    expect(
+      at,
+      "core is missing '## After a compaction or resume'",
+    ).toBeGreaterThan(-1);
+    expect(at).toBeLessThan(CORE_REATTACH_BUDGET_CHARS);
+  });
+
+  it("every non-epic step phase maps through NEXT_STEP_BY_PHASE to a dispatch row whose doc exists, and the row writes it", () => {
+    const stepPhases = STEP_PHASES.filter(
+      (ph) => !ph.startsWith("epic-") && ph !== "starting",
+    );
+    for (const phase of stepPhases) {
+      const refs = [
+        ...NEXT_STEP_BY_PHASE[phase].matchAll(/step (\d+(?:\.\d+)?)/gi),
+      ].map((m) => m[1]);
+      expect(
+        refs.length,
+        `NEXT_STEP_BY_PHASE['${phase}'] names no step`,
+      ).toBeGreaterThan(0);
+      for (const n of refs) {
+        const row = dispatch.find((r) => r.step.split(" ")[0] === n);
+        expect(
+          row,
+          `no dispatch row for step ${n} (phase '${phase}')`,
+        ).toBeDefined();
+        expect(
+          fs.existsSync(path.join(PIPELINE_SKILL_DIR, row!.doc)),
+          row!.doc,
+        ).toBe(true);
+      }
+      expect(
+        dispatch.some((r) => r.phases.includes(phase)),
+        `no dispatch row lists the phase '${phase}' under "Phases written".`,
+      ).toBe(true);
+    }
+  });
+
+  it("every phases doc is named by the dispatch table or the on-demand index", () => {
+    const named = new Set([
+      ...dispatch.flatMap((r) =>
+        [...r.doc.matchAll(/references\/phases\/[\w.-]+\.md/g)].map(
+          (m) => m[0],
+        ),
+      ),
+      ...core
+        .split("\n")
+        .filter((l) => l.startsWith("|") && l.includes("references/phases/"))
+        .flatMap((l) =>
+          [...l.matchAll(/references\/phases\/[\w.-]+\.md/g)].map((m) => m[0]),
+        ),
+      ...index.map((r) => r.doc),
+    ]);
+    for (const f of phaseFiles)
+      expect(
+        named.has(rel(f)),
+        `${rel(f)} is in neither the dispatch table nor the on-demand index`,
+      ).toBe(true);
+    for (const d of named)
+      expect(fs.existsSync(path.join(PIPELINE_SKILL_DIR, d)), d).toBe(true);
+  });
+
+  it("the core has no step headings and each step doc has exactly one", () => {
+    const stepHeading = /^## Step /;
+    expect(outsideFences(core).filter((l) => stepHeading.test(l))).toEqual([]);
+    for (const f of phaseFiles) {
+      const count = outsideFences(read(rel(f))).filter((l) =>
+        stepHeading.test(l),
+      ).length;
+      expect(
+        count,
+        `${rel(f)} must carry ${f.startsWith("step-") ? "exactly one" : "no"} '## Step ' heading`,
+      ).toBe(f.startsWith("step-") ? 1 : 0);
+    }
+    expect(
+      outsideFences(read("references/hard-rules-detail.md")).filter((l) =>
+        stepHeading.test(l),
+      ),
+    ).toEqual([]);
+  });
+
+  it("every doc fits one Read", () => {
+    const docs = [
+      "SKILL.md",
+      "references/hard-rules-detail.md",
+      ...phaseFiles.map(rel),
+      ...index.map((r) => r.doc),
+    ];
+    for (const d of new Set(docs))
+      expect(
+        read(d).length,
+        `${d} exceeds one Read (${SINGLE_READ_DOC_CHARS} chars)`,
+      ).toBeLessThanOrEqual(SINGLE_READ_DOC_CHARS);
+  });
+
+  it("every skill reference a phases doc names is in the core's on-demand index", () => {
+    const refsDir = path.join(PIPELINE_SKILL_DIR, "references");
+    const indexed = new Set(index.map((r) => r.doc));
+    for (const f of phaseFiles) {
+      const named = [...read(rel(f)).matchAll(/references\/([\w.-]+\.md)/g)]
+        .map((m) => m[1])
+        .filter((n) => fs.existsSync(path.join(refsDir, n)));
+      for (const n of named)
+        expect(
+          indexed.has(`references/${n}`),
+          `${rel(f)} names references/${n}, which the core's on-demand index does not list`,
+        ).toBe(true);
+    }
+  });
+
+  it("every relative markdown link in the core and the docs resolves, anchor included", () => {
+    const files = [
+      "SKILL.md",
+      "references/hard-rules-detail.md",
+      ...phaseFiles.map(rel),
+    ];
+    const headingSlugs = (md: string) =>
+      new Set(
+        outsideFences(md)
+          .filter((l) => /^#{1,6}\s/.test(l))
+          .map((l) => slug(l.replace(/^#{1,6}\s+/, ""))),
+      );
+    let checked = 0;
+    for (const f of files) {
+      const text = read(f);
+      const body = outsideFences(text).join("\n");
+      for (const m of body.matchAll(/\]\(([^)\s]+)\)/g)) {
+        const [target, anchor] = m[1].split("#");
+        if (/^[a-z]+:/i.test(target)) continue;
+        const dest = target
+          ? path.resolve(path.dirname(path.join(PIPELINE_SKILL_DIR, f)), target)
+          : path.join(PIPELINE_SKILL_DIR, f);
+        expect(
+          fs.existsSync(dest),
+          `${f}: link '${m[1]}' does not resolve to a file`,
+        ).toBe(true);
+        if (anchor !== undefined) {
+          expect(
+            headingSlugs(fs.readFileSync(dest, "utf8")).has(anchor),
+            `${f}: link '${m[1]}' has no heading with that slug in ${path.relative(PIPELINE_SKILL_DIR, dest)}`,
+          ).toBe(true);
+        }
+        checked++;
+      }
+    }
+    expect(
+      checked,
+      "no relative links were checked — the extraction is vacuous",
+    ).toBeGreaterThan(20);
+  });
 });
 
 describe("flow-pipeline SKILL.md ↔ TERMINAL_EXIT_TRANSITIONS cross-doc lint", () => {
