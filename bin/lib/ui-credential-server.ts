@@ -7,10 +7,19 @@
  * Token-free by design: the URL is a fixed path ({@link CREDENTIAL_LOGIN_PATH}),
  * so the page's `fetch` URL and the `fillScript` carry no secret. The defences
  * are the origin match (403), `Sec-Fetch-Mode: cors` (403), single use (410
- * after the first 200) and the TTL. A same-machine process can forge both
- * headers and race the page within the TTL; single use turns a lost race into
- * a visible stop (the page sees `endpoint-refused`, the driver reports
- * `credentials-unavailable`) rather than a silent leak.
+ * after the first 200) and the TTL. Any rejected request to the login path
+ * also spends the single use (fail closed), and the listener stays up until
+ * the TTL answering 410 — with the page's own allowed origin echoed so the
+ * page reads the status as `endpoint-refused` rather than a blocked fetch.
+ * A mismatched origin is never echoed and `*` is never used.
+ *
+ * Threat model: a single-user dev machine. Another OS account (or a
+ * sandboxed app) on a shared host can reach loopback without any token and
+ * could race the page within the TTL. Fail-closed refusals and single use
+ * make any interference a visible `credentials-unavailable` stop, but a
+ * reader who lost the race is not told the credentials were taken: treat an
+ * unexplained `credentials-unavailable` with both variable names present as
+ * a possible leak and rotate the seeded test account.
  *
  * `node:http`, not `Bun.serve`: this module is imported directly by
  * `bin/lib/ui-credential-server.test.ts` and `bin/flow-ui-login.test.ts`
@@ -99,54 +108,64 @@ export function startCredentialServer(
     const originOk =
       typeof requestOrigin === "string" &&
       originsMatch(requestOrigin, opts.origin);
-
-    if (req.method === "OPTIONS") {
-      if (!pathOk) {
-        res.writeHead(404);
-      } else if (originOk) {
-        res.writeHead(204, {
+    // Only an origin that matched is ever echoed — never `*`, never a
+    // mismatched origin. It lets the page read a refusal's status (so it
+    // reports `endpoint-refused`) instead of its fetch throwing.
+    const corsHeaders: http.OutgoingHttpHeaders = originOk
+      ? {
           "Access-Control-Allow-Origin": requestOrigin as string,
           Vary: "Origin",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "*",
-        });
-      } else {
-        res.writeHead(403);
-      }
-      res.end();
-      return;
-    }
+        }
+      : {};
 
     if (!pathOk) {
       res.writeHead(404);
       res.end();
       return;
     }
+
+    if (req.method === "OPTIONS") {
+      if (originOk) {
+        res.writeHead(204, {
+          ...corsHeaders,
+          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Headers": "*",
+        });
+      } else {
+        used = true;
+        res.writeHead(403);
+      }
+      res.end();
+      return;
+    }
+
+    if (used) {
+      res.writeHead(410, corsHeaders);
+      res.end();
+      return;
+    }
+    // Fail closed: a rejected request to the login path spends the single
+    // use, so probing origins is not free — the page's later request gets a
+    // 410 and the run stops visibly.
     if (!originOk) {
+      used = true;
       res.writeHead(403);
       res.end();
       return;
     }
     if (secFetchMode !== "cors") {
-      res.writeHead(403);
-      res.end();
-      return;
-    }
-    if (used) {
-      res.writeHead(410);
+      used = true;
+      res.writeHead(403, corsHeaders);
       res.end();
       return;
     }
     used = true;
     res.writeHead(200, {
       "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": requestOrigin as string,
-      Vary: "Origin",
+      ...corsHeaders,
       "Cache-Control": "no-store",
     });
     res.end(JSON.stringify({ user: opts.values.user, pass: opts.values.pass }));
-    // Let the response flush before tearing the socket down.
-    setTimeout(stop, 50);
   });
 
   const ttlTimer = setTimeout(stop, ttlMs);

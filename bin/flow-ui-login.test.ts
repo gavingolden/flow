@@ -506,7 +506,7 @@ describe("flow-ui-login __serve-child (real child argv path)", () => {
       passName: "TEST_USER_PASSWORD",
       origin: "http://localhost:5173",
       worktree: dir,
-      ttlMs: 5000,
+      ttlMs: 800,
       portFilePath,
     });
     expect(args).not.toContain("--token");
@@ -530,36 +530,6 @@ describe("flow-ui-login __serve-child (real child argv path)", () => {
     const body = await res.json();
     expect(body).toEqual({ user: SENTINEL_USER, pass: SENTINEL_PASS });
 
-    expect(await childPromise).toBe(0);
-  });
-
-  it("child serves without a token env", async () => {
-    const dir = mkTmpDir();
-    writeSentinelEnv(dir);
-    const portFilePath = path.join(dir, "port.txt");
-    const args = buildServeChildArgs({
-      scriptPath: "unused-in-test",
-      userName: "TEST_USER_EMAIL",
-      passName: "TEST_USER_PASSWORD",
-      origin: "http://localhost:5173",
-      worktree: dir,
-      ttlMs: 5000,
-      portFilePath,
-    });
-    const childEnv = { ...process.env };
-    delete childEnv.FLOW_UI_LOGIN_TOKEN;
-    const childPromise = main(["__serve-child", ...args.slice(2)], {
-      env: childEnv,
-    });
-    const start = Date.now();
-    while (!fs.existsSync(portFilePath) && Date.now() - start < 3000) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    const port = Number(fs.readFileSync(portFilePath, "utf8").trim());
-    const res = await fetch(`http://127.0.0.1:${port}/flow-ui-login`, {
-      headers: { Origin: "http://localhost:5173", "Sec-Fetch-Mode": "cors" },
-    });
-    expect(res.status).toBe(200);
     expect(await childPromise).toBe(0);
   });
 });

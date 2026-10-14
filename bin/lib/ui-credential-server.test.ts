@@ -134,29 +134,117 @@ describe("startCredentialServer fixed path", () => {
     }
   });
 
-  it("403s the fixed path without Sec-Fetch-Mode: cors or from another origin", async () => {
+  it("fails closed: a 403 refusal spends the single use, so a later valid request gets 410", async () => {
+    const refusals: Array<[string, Record<string, string>, string?]> = [
+      ["missing Sec-Fetch-Mode", { Origin: ORIGIN }],
+      [
+        "wrong origin",
+        { Origin: "http://evil.example", "Sec-Fetch-Mode": "cors" },
+      ],
+      ["no headers", {}],
+      [
+        "OPTIONS from a wrong origin",
+        { Origin: "http://evil.example" },
+        "OPTIONS",
+      ],
+    ];
+    for (const [label, headers, method] of refusals) {
+      const handle = await startCredentialServer({
+        values: { user: "u", pass: "p" },
+        origin: ORIGIN,
+      });
+      try {
+        const url = `http://127.0.0.1:${handle.port}${CREDENTIAL_LOGIN_PATH}`;
+        expect((await get(url, { headers, method })).status, label).toBe(403);
+        expect((await get(url, { headers: corsHeaders })).status, label).toBe(
+          410,
+        );
+      } finally {
+        handle.stop();
+      }
+    }
+  });
+
+  it("a wrong-path 404 does not spend the single use", async () => {
+    const handle = await startCredentialServer({
+      values: { user: "u", pass: "p" },
+      origin: ORIGIN,
+    });
+    try {
+      const base = `http://127.0.0.1:${handle.port}`;
+      expect(
+        (await get(`${base}/other`, { headers: corsHeaders })).status,
+      ).toBe(404);
+      expect(
+        (await get(`${base}${CREDENTIAL_LOGIN_PATH}`, { headers: corsHeaders }))
+          .status,
+      ).toBe(200);
+    } finally {
+      handle.stop();
+    }
+  });
+
+  it("echoes the allowed origin on 410 and the Sec-Fetch-Mode 403, never a mismatched one", async () => {
     const handle = await startCredentialServer({
       values: { user: "u", pass: "p" },
       origin: ORIGIN,
     });
     try {
       const url = `http://127.0.0.1:${handle.port}${CREDENTIAL_LOGIN_PATH}`;
-      expect((await get(url, { headers: { Origin: ORIGIN } })).status).toBe(
-        403,
-      );
-      expect(
-        (
-          await get(url, {
-            headers: {
-              Origin: "http://evil.example",
-              "Sec-Fetch-Mode": "cors",
-            },
-          })
-        ).status,
-      ).toBe(403);
-      expect((await get(url)).status).toBe(403);
+      const noMode = await get(url, { headers: { Origin: ORIGIN } });
+      expect(noMode.status).toBe(403);
+      expect(noMode.headers["access-control-allow-origin"]).toBe(ORIGIN);
+      expect(noMode.headers.vary).toBe("Origin");
+
+      const used = await get(url, { headers: corsHeaders });
+      expect(used.status).toBe(410);
+      expect(used.headers["access-control-allow-origin"]).toBe(ORIGIN);
+      expect(used.headers.vary).toBe("Origin");
+
+      const mismatched = await get(url, {
+        headers: { Origin: "http://evil.example", "Sec-Fetch-Mode": "cors" },
+      });
+      expect(mismatched.status).toBe(410);
+      expect(mismatched.headers["access-control-allow-origin"]).toBeUndefined();
+
+      const bare = await get(url);
+      expect(bare.headers["access-control-allow-origin"]).toBeUndefined();
     } finally {
       handle.stop();
     }
+  });
+
+  it("does not echo a mismatched origin on the first-request 403", async () => {
+    const handle = await startCredentialServer({
+      values: { user: "u", pass: "p" },
+      origin: ORIGIN,
+    });
+    try {
+      const url = `http://127.0.0.1:${handle.port}${CREDENTIAL_LOGIN_PATH}`;
+      const res = await get(url, {
+        headers: { Origin: "http://evil.example", "Sec-Fetch-Mode": "cors" },
+      });
+      expect(res.status).toBe(403);
+      expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+      expect(res.headers["access-control-allow-origin"]).not.toBe("*");
+    } finally {
+      handle.stop();
+    }
+  });
+
+  it("keeps listening after the 200 and answers 410 until the TTL expires", async () => {
+    const handle = await startCredentialServer({
+      values: { user: "u", pass: "p" },
+      origin: ORIGIN,
+      ttlMs: 600,
+    });
+    const url = `http://127.0.0.1:${handle.port}${CREDENTIAL_LOGIN_PATH}`;
+    expect((await get(url, { headers: corsHeaders })).status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const after = await get(url, { headers: corsHeaders });
+    expect(after.status).toBe(410);
+    expect(after.headers["access-control-allow-origin"]).toBe(ORIGIN);
+    await handle.closed;
+    await expect(get(url, { headers: corsHeaders })).rejects.toThrow();
   });
 });

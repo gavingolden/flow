@@ -29,10 +29,14 @@
  *
  * Token-free threat model: the endpoint is a fixed path, so neither the
  * `fillScript` nor the child's argv/env carries a secret. The defences are
- * the origin match, `Sec-Fetch-Mode: cors`, single use and the ~90s TTL. A
- * same-machine process can forge both headers and race the page within the
- * TTL; single use turns a lost race into a visible stop (`endpoint-refused`,
- * so the driver reports `credentials-unavailable`).
+ * the origin match, `Sec-Fetch-Mode: cors`, single use (any rejected request
+ * to the login path also spends it) and the ~90s TTL. It assumes a
+ * single-user dev machine: on a shared multi-user host another account can
+ * forge both headers and race the page within the TTL. Fail-closed refusals
+ * and single use make any interference a visible stop (`endpoint-refused`,
+ * so the driver reports `credentials-unavailable`) — treat an unexplained
+ * `credentials-unavailable` with both names present as a possible leak and
+ * rotate the seeded test account.
  */
 
 import * as fs from "node:fs";
@@ -222,6 +226,9 @@ async function waitForPortFile(
   );
 }
 
+const SERVE_HANDOFF_HINT =
+  "serve returns in under 3s; run it in the foreground as its own command; pass fillScript verbatim to evaluate_script; never save, print, slice or re-read it.\n";
+
 async function runServe(argv: string[], deps: MainDeps): Promise<number> {
   const { flags, error } = parseFlags(
     argv,
@@ -230,7 +237,7 @@ async function runServe(argv: string[], deps: MainDeps): Promise<number> {
   if (error || !flags.manifest || !flags.origin) {
     process.stderr.write(
       "usage: flow-ui-login serve --manifest <path> --origin <origin> [--worktree <dir>]\n" +
-        "serve returns in under 3s; run it in the foreground as its own command; pass fillScript verbatim to evaluate_script; never save, pipe, truncate or re-read it.\n",
+        SERVE_HANDOFF_HINT,
     );
     return 2;
   }
@@ -375,7 +382,7 @@ export async function main(
     default:
       process.stderr.write(
         "usage: flow-ui-login <check|serve> ...\n" +
-          "serve returns in under 3s; run it in the foreground as its own command; pass fillScript verbatim to evaluate_script; never save, pipe, truncate or re-read it.\n",
+          SERVE_HANDOFF_HINT,
       );
       return 2;
   }
