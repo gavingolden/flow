@@ -1497,7 +1497,9 @@ describe("flow install", () => {
         await runUpgrade(seam);
         expect(calls).toBe(0);
 
-        // skipped(dirty): an uncommitted change blocks the fast-forward.
+        // skipped(dirty): origin is now ahead (a ready update), but an
+        // uncommitted tracked edit blocks the fast-forward.
+        addSkillToOriginMain(flowSource, "epsilon");
         fs.appendFileSync(
           path.join(flowSource, "agents", "core", "reviewer.md"),
           "uncommitted\n",

@@ -1364,9 +1364,13 @@ function printOutcome(
       ff?.status === "skipped" &&
       (ff.reason === "dirty" || ff.reason === "merge-failed")
     ) {
+      const hint =
+        ff.reason === "dirty"
+          ? "commit or discard tracked edits in the flow checkout, then re-run `flow install --upgrade`"
+          : "move aside any untracked file in the way or local commits not on origin, then re-run `flow install --upgrade`";
       log(
         red(
-          `flow: content NOT refreshed (${ff.reason}) — links re-pointed but content not refreshed`,
+          `flow: content NOT refreshed (${ff.reason}) — links re-pointed but content not refreshed; ${hint}`,
         ),
       );
     } else if (ff?.status === "skipped" && ff.reason === "non-default-branch") {
