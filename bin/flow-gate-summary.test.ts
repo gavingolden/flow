@@ -348,10 +348,11 @@ describe("NEXT_ACTION_BY_REASON manual merge recipes", () => {
     "merge-failed",
     "merge-resolver-missing-artifact",
     "merge-resolver-spawn-denied",
-  ])("%s names one standalone gate-checked merge command", (reason) => {
+  ])("%s never points at flow-merge-guard merge (it cannot leave needs-human)", (reason) => {
     const text = NEXT_ACTION_BY_REASON[reason]!;
-    expect(text).toContain("flow-merge-guard merge <pr> --slug <slug>");
-    expect(text).toContain("reply merge in the pipeline window");
+    expect(text).not.toContain("flow-merge-guard merge");
+    expect(text).toContain("reply done in the pipeline window");
+    expect(text).toContain("merge the PR on GitHub yourself");
     expect(text).not.toContain("gh pr merge");
     expect(text).not.toContain("cd <repo>");
   });

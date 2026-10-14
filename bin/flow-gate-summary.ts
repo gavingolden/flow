@@ -307,16 +307,16 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   3. ${CONTINUE_OR_RESUME_STEP}`,
   "merge-failed": `Resolve the conflicts yourself, or let the pipeline retry the merge.
   1. Inspect <worktree>/.flow-tmp/merge-resolver-result.json (if present).
-  2. Resolve conflicts manually, then run flow-merge-guard merge <pr> --slug <slug> in your own terminal (or reply merge in the pipeline window), OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
+  2. Resolve conflicts manually, then ${CONTINUE_OR_RESUME_STEP} (re-runs the step 9 gate, then merges), OR merge the PR on GitHub yourself.`,
   "merge-resolver-missing-artifact": `Resolve the conflicts yourself, or let the pipeline retry the merge.
   1. Inspect <worktree>/.flow-tmp/ for partial resolver state.
-  2. Resolve conflicts manually, then run flow-merge-guard merge <pr> --slug <slug> in your own terminal (or reply merge in the pipeline window), OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
+  2. Resolve conflicts manually, then ${CONTINUE_OR_RESUME_STEP} (re-runs the step 9 gate, then merges), OR merge the PR on GitHub yourself.`,
   "merge-resolver-spawn-denied": `Merge the base branch in by hand, then merge the PR.
   1. Run cd <worktree> && git fetch origin <base> && git merge origin/<base>
   2. STOP and resolve every conflict marker in your editor before committing.
   3. Once resolved, run git add <resolved-files>, git commit, git push
   4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
-  5. Then run flow-merge-guard merge <pr> --slug <slug> in your own terminal (or reply merge in the pipeline window), OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
+  5. Then ${CONTINUE_OR_RESUME_STEP} (re-runs the step 9 gate, then merges), OR merge the PR on GitHub yourself.`,
   "verify-loop-missing-artifact": `Run the checks yourself, fix what fails, then reply done in the pipeline window.
   1. Inspect <worktree>/.flow-tmp/ for partial verify-loop state.
   2. Run (cd <worktree> && flow-pre-commit --json) and fix any failures manually.
@@ -406,17 +406,15 @@ export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
     "flow feature resume <slug>",
   ],
   "merge-refused": ["flow attach <slug>", "flow feature resume <slug>"],
-  "merge-failed": ["flow-merge-guard merge <pr> --slug <slug>"],
-  "merge-resolver-missing-artifact": [
-    "flow-merge-guard merge <pr> --slug <slug>",
-  ],
+  "merge-failed": ["flow feature resume <slug>"],
+  "merge-resolver-missing-artifact": ["flow feature resume <slug>"],
   "merge-resolver-spawn-denied": [
     "cd <worktree> && git fetch origin <base> && git merge origin/<base>",
     "git add <resolved-files>",
     "git commit",
     "git push",
     "git fetch origin <pr-branch> && git merge origin/<pr-branch>",
-    "flow-merge-guard merge <pr> --slug <slug>",
+    "flow feature resume <slug>",
   ],
   "verify-loop-missing-artifact": ["flow feature resume <slug>"],
   "branch-mismatch": ["git reflog", "git worktree list"],
