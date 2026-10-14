@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { classify, ROWS } from "../scripts/probe-merge-allow-rule";
+import {
+  classify,
+  overallExit,
+  ROWS,
+  type RowVerdict,
+} from "../scripts/probe-merge-allow-rule";
 
-const [merge, recordOverride, autoMerge] = ROWS;
+const [merge, recordOverride, noRuleControl, autoControl, autoMerge] = ROWS;
 const base = { ran: true, markerSeen: false, denied: false, diagnostics: "" };
 
 describe("probe-merge-allow-rule classify", () => {
@@ -30,6 +35,19 @@ describe("probe-merge-allow-rule classify", () => {
     );
   });
 
+  it("passes the no-rule dontAsk control only on an observed refusal", () => {
+    expect(classify({ ...base, row: noRuleControl, denied: true })).toBe(
+      "pass",
+    );
+    expect(classify({ ...base, row: noRuleControl })).toBe("inconclusive");
+  });
+
+  it("fails the no-rule dontAsk control when the stub ran without the rule", () => {
+    expect(classify({ ...base, row: noRuleControl, markerSeen: true })).toBe(
+      "fail",
+    );
+  });
+
   it("reports auto-unavailable from the diagnostics, never as a rule failure", () => {
     expect(
       classify({
@@ -46,5 +64,81 @@ describe("probe-merge-allow-rule classify", () => {
         diagnostics: "auto mode is unavailable",
       }),
     ).toBe("pass");
+  });
+
+  it("reports classifier-approves for the auto pair when the no-rule control also ran", () => {
+    expect(classify({ ...base, row: autoControl, markerSeen: true })).toBe(
+      "classifier-approves",
+    );
+    expect(
+      classify({
+        ...base,
+        row: autoMerge,
+        markerSeen: true,
+        controlRan: true,
+      }),
+    ).toBe("classifier-approves");
+  });
+
+  it("passes the auto rule row when the control was refused and the rule made it run", () => {
+    expect(
+      classify({
+        ...base,
+        row: autoMerge,
+        markerSeen: true,
+        controlRan: false,
+      }),
+    ).toBe("pass");
+    expect(classify({ ...base, row: autoControl, denied: true })).toBe("pass");
+  });
+});
+
+describe("probe-merge-allow-rule overallExit", () => {
+  const verdicts = (v: RowVerdict[]) =>
+    ROWS.map((row, i) => ({ row, verdict: v[i] }));
+
+  it("exits 0 when rows 1-3 pass, whatever the auto rows report", () => {
+    expect(
+      overallExit(
+        verdicts([
+          "pass",
+          "pass",
+          "pass",
+          "classifier-approves",
+          "classifier-approves",
+        ]),
+      ),
+    ).toBe(0);
+    expect(
+      overallExit(
+        verdicts([
+          "pass",
+          "pass",
+          "pass",
+          "auto-unavailable",
+          "auto-unavailable",
+        ]),
+      ),
+    ).toBe(0);
+  });
+
+  it("exits 1 when any of rows 1-3 fails", () => {
+    for (let i = 0; i < 3; i++) {
+      const v: RowVerdict[] = ["pass", "pass", "pass", "pass", "pass"];
+      v[i] = "fail";
+      expect(overallExit(verdicts(v))).toBe(1);
+    }
+  });
+
+  it("never fails the probe on an auto row", () => {
+    expect(
+      overallExit(verdicts(["pass", "pass", "pass", "fail", "fail"])),
+    ).toBe(0);
+  });
+
+  it("exits 2 when any of rows 1-3 is inconclusive and none failed", () => {
+    expect(
+      overallExit(verdicts(["pass", "inconclusive", "pass", "pass", "pass"])),
+    ).toBe(2);
   });
 });

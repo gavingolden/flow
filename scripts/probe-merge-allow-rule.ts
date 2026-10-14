@@ -8,19 +8,28 @@
  * Nothing can merge: `flow-merge-guard` on PATH is a stub that only appends
  * its argv to a marker file.
  *
- * `flow-claude-headless` reads project settings only (`--setting-sources
- * project`), so the probe writes the rule into a scratch repo's own
- * `.claude/settings.json`. It never reads or writes any real settings file,
- * and removes its temp dir on exit. `Bash(true)` is passed as the caller's
- * allowed tool so the blanket Bash deny is not appended and the rule under
- * test is the only approval in play.
+ * The rule is supplied by appending it to `--allowed-tools`, which goes
+ * through the same permission-rule matching engine as `permissions.allow`.
+ * It is NOT written to a scratch repo's `.claude/settings.json`: the headless
+ * child does not load an untrusted scratch project's settings (empirically,
+ * dontAsk denied the merge with the rule only in that file). That user-scope
+ * `permissions.allow` loads the same way rests on Claude Code's documented
+ * settings merge semantics, not on this probe. It never reads or writes any
+ * real settings file, and removes its temp dir on exit. `Bash(true)` is always
+ * passed so the blanket Bash deny is not appended.
  *
- * Spends three short Haiku sessions (each capped at $0.50).
+ * Rows 1-3 are the verdict: (1) dontAsk merge WITH the rule runs; (2) dontAsk
+ * record-override WITH the rule is refused; (3) dontAsk merge WITHOUT the rule
+ * (control) is refused, proving the rule is what approves row 1. Rows 4-5 are
+ * informational: auto mode's classifier approved a bare stub merge with no rule
+ * at all, so when the no-rule control also runs they print `classifier-approves`
+ * (auto behaviour unproven) and never fail the probe.
  *
- * Exit codes: 0 — all three rows hold; 1 — a row failed (rule not honoured, or
- * the sibling was approved); 2 — `claude` missing, a run could not complete, or
- * auto mode is unavailable for the child (reported as its own row, not as a
- * rule failure).
+ * Spends five short Haiku sessions (each capped at $0.50).
+ *
+ * Exit codes: 0 - rows 1-3 hold; 1 - one of rows 1-3 failed; 2 - `claude`
+ * missing or one of rows 1-3 could not complete. Auto rows never change the
+ * exit code; auto mode being unavailable is reported as its own verdict.
  */
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -28,14 +37,23 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { FLOW_MERGE_ALLOW_RULE } from "../bin/lib/merge-allow-rule";
 
-export type RowVerdict = "pass" | "fail" | "inconclusive" | "auto-unavailable";
+export type RowVerdict =
+  | "pass"
+  | "fail"
+  | "inconclusive"
+  | "auto-unavailable"
+  | "classifier-approves";
 
 export type Row = {
   name: string;
   mode: "dontAsk" | "auto";
   command: string;
+  /** The merge allow rule is appended to `--allowed-tools` for this row. */
+  withRule: boolean;
   /** The marker (stub invocation) is expected to appear. */
   expectMarker: boolean;
+  /** Reported only; never decides the probe's exit code. */
+  informational?: boolean;
 };
 
 export const ROWS: Row[] = [
@@ -43,19 +61,38 @@ export const ROWS: Row[] = [
     name: "dontAsk merge",
     mode: "dontAsk",
     command: "flow-merge-guard merge 999999",
+    withRule: true,
     expectMarker: true,
   },
   {
     name: "dontAsk record-override",
     mode: "dontAsk",
     command: "flow-merge-guard 999999 --record-override",
+    withRule: true,
     expectMarker: false,
+  },
+  {
+    name: "dontAsk merge, no rule",
+    mode: "dontAsk",
+    command: "flow-merge-guard merge 999999",
+    withRule: false,
+    expectMarker: false,
+  },
+  {
+    name: "auto merge, no rule",
+    mode: "auto",
+    command: "flow-merge-guard merge 999999",
+    withRule: false,
+    expectMarker: false,
+    informational: true,
   },
   {
     name: "auto merge",
     mode: "auto",
     command: "flow-merge-guard merge 999999",
+    withRule: true,
     expectMarker: true,
+    informational: true,
   },
 ];
 
@@ -69,8 +106,10 @@ export function classify(input: {
   /** The child reported at least one permission denial. */
   denied: boolean;
   diagnostics: string;
+  /** For the auto-with-rule row: the no-rule auto control also ran the stub. */
+  controlRan?: boolean;
 }): RowVerdict {
-  const { row, ran, markerSeen, denied, diagnostics } = input;
+  const { row, ran, markerSeen, denied, diagnostics, controlRan } = input;
   if (
     row.mode === "auto" &&
     !markerSeen &&
@@ -79,6 +118,10 @@ export function classify(input: {
     return "auto-unavailable";
   }
   if (!ran) return "inconclusive";
+  if (row.mode === "auto") {
+    if (!row.withRule && markerSeen) return "classifier-approves";
+    if (row.withRule && markerSeen && controlRan) return "classifier-approves";
+  }
   if (row.expectMarker) return markerSeen ? "pass" : "fail";
   if (markerSeen) return "fail";
   // A refusal only counts when the child actually tried and was denied; a
@@ -86,11 +129,28 @@ export function classify(input: {
   return denied ? "pass" : "inconclusive";
 }
 
+export function overallExit(
+  verdicts: { row: Row; verdict: RowVerdict }[],
+): 0 | 1 | 2 {
+  const decisive = verdicts.filter((v) => !v.row.informational);
+  if (decisive.some((v) => v.verdict === "fail")) return 1;
+  if (decisive.length > 0 && decisive.every((v) => v.verdict === "pass")) {
+    return 0;
+  }
+  return 2;
+}
+
 function claudeOnPath(): boolean {
   return spawnSync("claude", ["--version"], { stdio: "ignore" }).status === 0;
 }
 
-function runRow(row: Row, scratch: string, binDir: string, index: number) {
+function runRow(
+  row: Row,
+  scratch: string,
+  binDir: string,
+  index: number,
+  controlRan: boolean,
+) {
   const marker = path.join(scratch, `marker-${index}.txt`);
   const stub = path.join(binDir, "flow-merge-guard");
   fs.writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${marker}'\n`, {
@@ -114,7 +174,7 @@ function runRow(row: Row, scratch: string, binDir: string, index: number) {
       "--effort",
       "low",
       "--allowed-tools",
-      "Bash(true)",
+      row.withRule ? `Bash(true),${FLOW_MERGE_ALLOW_RULE}` : "Bash(true)",
       "--env",
       "PATH",
       "--max-budget-usd",
@@ -149,6 +209,7 @@ function runRow(row: Row, scratch: string, binDir: string, index: number) {
       Array.isArray(envelope.permission_denials) &&
       envelope.permission_denials.length > 0,
     diagnostics: `${r.stdout}\n${r.stderr}\n${artifact}`,
+    controlRan,
   });
 }
 
@@ -161,26 +222,24 @@ function main(): number {
   try {
     const binDir = path.join(scratch, "bin");
     fs.mkdirSync(binDir);
-    fs.mkdirSync(path.join(scratch, ".claude"));
     spawnSync("git", ["init", "-q"], { cwd: scratch });
-    fs.writeFileSync(
-      path.join(scratch, ".claude", "settings.json"),
-      JSON.stringify({ permissions: { allow: [FLOW_MERGE_ALLOW_RULE] } }),
-    );
-    const verdicts = ROWS.map((row, i) => ({
-      row,
-      verdict: runRow(row, scratch, binDir, i + 1),
-    }));
+    const verdicts: { row: Row; verdict: RowVerdict }[] = [];
+    let autoControlRan = false;
+    ROWS.forEach((row, i) => {
+      const verdict = runRow(row, scratch, binDir, i + 1, autoControlRan);
+      if (row.mode === "auto" && !row.withRule) {
+        autoControlRan = verdict === "classifier-approves";
+      }
+      verdicts.push({ row, verdict });
+    });
     for (const { row, verdict } of verdicts) {
       const want = row.expectMarker ? "runs" : "refused";
+      const tag = row.informational ? " (informational)" : "";
       process.stdout.write(
-        `${verdict.padEnd(16)} ${row.name.padEnd(24)} expected: ${want}\n`,
+        `${verdict.padEnd(20)} ${row.name.padEnd(26)} expected: ${want}${tag}\n`,
       );
     }
-    const verdictSet = verdicts.map((v) => v.verdict);
-    if (verdictSet.includes("fail")) return 1;
-    if (verdictSet.every((v) => v === "pass")) return 0;
-    return 2;
+    return overallExit(verdicts);
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }
