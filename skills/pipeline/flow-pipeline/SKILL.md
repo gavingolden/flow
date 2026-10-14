@@ -628,9 +628,9 @@ interrogation or an emitted section).
 
 This is the triage-side entry point for the AGENTS.md `## Output style`
 rule **Understand the ultimate goal behind the request, not just the
-literal ask.**, and it is **conditional**: skip the whole sub-step —
-laddering and lenses alike — on expert-specified / trivial /
-time-critical requests. Infer-and-proceed is the default: flow PRs are
+literal ask.**, and it is **conditional**: skip the whole sub-step on
+trivial / time-critical requests; expert-specified ones still run the
+one-line goal and Solution fit, never the lenses. Infer-and-proceed is the default: flow PRs are
 gated and revertible, so proceed on the most-likely goal and surface the
 considered alternative in the PRD and the PR `## Why` (gated at
 `plan-pending-review` for feature intent) rather than stopping to ask.
@@ -1264,7 +1264,7 @@ only and the helper exact-matches against them. The blind survey's
     USER_METHOD=$(sed -n "s/^- \*\*User's method:\*\* *//p" "$WORKTREE/.flow-tmp/plan.md" | head -1)
     CHOSEN_METHOD=$(sed -n 's/^- \*\*Chosen method:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)
     VETTING_VERDICT=$(sed -n 's/^- \*\*Verdict:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)
-    EXISTING_CODE=$(sed -E -n 's/^- \*\*([^:]*):\*\* (simplify|rewrite) — .*/\1 → \2/p' "$WORKTREE/.flow-tmp/plan.md" | head -1)
+    EXISTING_CODE=$(sed -E -n 's/^- \*\*[^:]*:\*\* (simplify|rewrite) — (.*)/\1 — \2/p' "$WORKTREE/.flow-tmp/plan.md" | sed -E 's/ *\[anchor:[^]]*\]//g' | head -1)
     if [ "$VETTING_VERDICT" = "push back" ]; then
       WHY="plan ready for review (intent=$INTENT, ## Request vetting verdict: push back)"
     else

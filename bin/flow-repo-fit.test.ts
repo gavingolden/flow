@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decideRepoFit, type TermHit } from "./flow-repo-fit";
 
@@ -63,8 +63,27 @@ describe("flow-repo-fit CLI", () => {
     expect(r.status).toBe(0);
     expect(r.out.verdict).toBe("wrong-repo");
   });
-  it("README title match prevents wrong-repo", () => {
-    expect(cli("widget", "nope-two").out.verdict).toBe("unclear");
+  it("README title match alone prevents wrong-repo", () => {
+    writeFileSync(join(dir, "package.json"), '{"name":"sprocket-shop"}');
+    expect(cli("garden", "nope-two").out.verdict).toBe("unclear");
+  });
+  it("package name match alone prevents wrong-repo", () => {
+    writeFileSync(join(dir, "README.md"), "# Other\n");
+    const r = cli("garden", "nope-two");
+    expect(r.out.verdict).toBe("unclear");
+    expect(r.out.repoName).toBe("widget-garden");
+  });
+  it("repoName falls back to the directory basename", () => {
+    rmSync(join(dir, "package.json"));
+    expect(cli("nope-one").out.repoName).toBe(basename(dir));
+  });
+  it("a path-like term not at the repo root falls back to grep", () => {
+    mkdirSync(join(dir, "sub"));
+    writeFileSync(join(dir, "sub", "deep.md"), "state.reap and deep.md\n");
+    expect(cli("deep.md", "state.reap").out.verdict).toBe("fit");
+  });
+  it("a term escaping the repo root is not a path hit", () => {
+    expect(cli("/etc/hosts").out.hits[0].paths).toEqual([]);
   });
   it("excludes .flow-tmp from grep hits", () => {
     const r = cli("flibbertigibbet", "other-missing");

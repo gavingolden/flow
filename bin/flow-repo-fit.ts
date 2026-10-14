@@ -11,7 +11,7 @@
  * verdict; exit 2 on usage errors.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 export type Verdict = "fit" | "unclear" | "wrong-repo";
@@ -38,17 +38,38 @@ function looksLikePath(term: string): boolean {
   return /[/\\]/.test(term) || /\.[A-Za-z0-9]{1,5}$/.test(term);
 }
 
-function grepTerm(repo: string, term: string): string[] {
-  const args = ["-rliF", ...EXCLUDES.map((d) => `--exclude-dir=${d}`)];
-  const r = spawnSync("grep", [...args, "--", term, "."], {
-    cwd: repo,
-    encoding: "utf8",
-  });
-  return (r.stdout ?? "")
+const GREP_TIMEOUT_MS = 5000;
+
+function grepTerm(
+  repo: string,
+  term: string,
+): { paths: string[]; timedOut: boolean } {
+  const inGit =
+    spawnSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: repo })
+      .status === 0;
+  const r = inGit
+    ? spawnSync(
+        "git",
+        ["grep", "-l", "-i", "-F", "-I", "--", term, "--", ".", ":!.flow-tmp"],
+        { cwd: repo, encoding: "utf8", timeout: GREP_TIMEOUT_MS },
+      )
+    : spawnSync(
+        "grep",
+        [
+          "-rliFI",
+          ...EXCLUDES.map((d) => `--exclude-dir=${d}`),
+          "--",
+          term,
+          ".",
+        ],
+        { cwd: repo, encoding: "utf8", timeout: GREP_TIMEOUT_MS },
+      );
+  const paths = (r.stdout ?? "")
     .split("\n")
     .filter(Boolean)
     .map((p) => p.replace(/^\.\//, ""))
     .slice(0, MAX_PATHS);
+  return { paths, timedOut: r.error !== undefined };
 }
 
 function readFirstLine(file: string): string {
@@ -99,17 +120,36 @@ export function run(argv: string[]): number {
   const probes: string[] = [];
   const hits: TermHit[] = [];
   let nameMatches = 0;
+  let timedOut = false;
 
   for (const term of terms) {
     const lower = term.toLowerCase();
     if (looksLikePath(term)) {
-      const found = existsSync(join(root, term));
+      const abs = resolve(root, term);
+      const rel = relative(root, abs);
+      const found =
+        rel !== "" &&
+        !rel.startsWith("..") &&
+        !isAbsolute(rel) &&
+        existsSync(abs);
       probes.push(`exists ${term}: ${found}`);
-      hits.push({ term, kind: "path", paths: found ? [term] : [] });
+      if (found) {
+        hits.push({ term, kind: "path", paths: [term] });
+      } else {
+        const g = grepTerm(root, term);
+        timedOut ||= g.timedOut;
+        probes.push(`grep ${term}: ${g.paths.length} hit(s)`);
+        hits.push({
+          term,
+          kind: g.paths.length > 0 ? "noun" : "path",
+          paths: g.paths,
+        });
+      }
     } else {
-      const paths = grepTerm(root, term);
-      probes.push(`grep -rliF ${term}: ${paths.length} hit(s)`);
-      hits.push({ term, kind: "noun", paths });
+      const g = grepTerm(root, term);
+      timedOut ||= g.timedOut;
+      probes.push(`grep ${term}: ${g.paths.length} hit(s)`);
+      hits.push({ term, kind: "noun", paths: g.paths });
     }
     const inTitle = readmeTitle.toLowerCase().includes(lower);
     const inName = pkgName.toLowerCase().includes(lower);
@@ -117,7 +157,8 @@ export function run(argv: string[]): number {
     if (inTitle || inName) nameMatches++;
   }
 
-  const verdict = decideRepoFit(hits, nameMatches);
+  let verdict = decideRepoFit(hits, nameMatches);
+  if (timedOut && verdict === "wrong-repo") verdict = "unclear";
   console.log(JSON.stringify({ verdict, repoName, hits, probes }));
   return 0;
 }

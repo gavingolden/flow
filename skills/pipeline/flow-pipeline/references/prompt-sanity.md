@@ -16,7 +16,9 @@ preferences.
 
 Before the claim checks, confirm the request belongs in this repository at
 all. Derive the **named surfaces** (paths, symbols, flags) and 2-3 **domain
-nouns** from the request, then run:
+nouns** from the request, then run (pick terms for the existing surface the
+request extends; skip nouns and paths the request asks to create — they
+have zero hits by design):
 
 ```bash
 flow-repo-fit --repo "$PWD" --term <t> [--term <t>...] --json
@@ -33,7 +35,7 @@ Branch on `.verdict`:
   `hits` entries and the `repoName` / README title), and offer the reply
   verbs `cancel` and `proceed: <why this repo>`. If the reply is `cancel`,
   or does not resolve it, or confirms the wrong repo, escalate via
-  `flow-gate-summary --reason wrong-repo` (`NEEDS HUMAN: wrong-repo`).
+  `flow-gate-summary --status needs-human --reason wrong-repo` (`NEEDS HUMAN: wrong-repo`).
 
 ## What counts as a "concrete factual claim"
 

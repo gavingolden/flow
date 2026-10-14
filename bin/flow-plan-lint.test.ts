@@ -1090,6 +1090,27 @@ describe("lintPlan — confidence + stakes markers", () => {
     );
   });
 
+  it("the shipped example-prd.md's '## Existing-code assessment' passes its own check (drift pin)", () => {
+    const { misses } = lintPlan(readFileSync(EXAMPLE_PRD_PATH, "utf8"), {
+      planMdFile: EXAMPLE_PRD_PATH,
+    });
+    expect(
+      misses.filter((m) => m.includes("Existing-code assessment")),
+    ).toEqual([]);
+  });
+
+  it("a malformed bullet next to a valid one is reported, not skipped", () => {
+    const base = readFileSync(EXAMPLE_PRD_PATH, "utf8");
+    const start = base.indexOf("## Existing-code assessment");
+    const end = base.indexOf("\n## ", start + 5);
+    const plan =
+      base.slice(0, start) +
+      "## Existing-code assessment\n\n- **bin/foo.ts:** keep — fits.\n- **bin/bar.ts**: keep — bad colon.\n" +
+      base.slice(end);
+    const { misses } = lintPlan(plan, { planMdFile: EXAMPLE_PRD_PATH });
+    expect(misses.some((m) => m.includes("is malformed"))).toBe(true);
+  });
+
   it("the shipped example-prd.md's '## Open Questions' and '## Recommendation' sections never trip the soft-wrap checks (drift pin)", () => {
     const planText = readFileSync(EXAMPLE_PRD_PATH, "utf8");
     const oqStart = planText.indexOf("## Open Questions");
