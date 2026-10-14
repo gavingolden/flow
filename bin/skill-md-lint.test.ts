@@ -4,8 +4,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
+import { extractLinks, validateFile } from "./flow-md-validate";
 import { CONTINUE_PHASE_BY_EPIC_STEP } from "./flow-epic-resume-decide";
-import { STEP_PHASES, TERMINAL_EXIT_TRANSITIONS } from "./lib/state";
+import {
+  PENDING_PHASES,
+  STEP_PHASES,
+  TERMINAL_EXIT_TRANSITIONS,
+} from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 import { ALWAYS_ON_LENSES, evaluateGates } from "./lib/review-lens-gates";
 import { CHECKPOINT_SITES } from "./flow-checkpoint";
@@ -5753,15 +5758,6 @@ describe("flow-pipeline skill split structure (core + phase docs)", () => {
       return !fence;
     });
   };
-  // GitHub's heading slug: lowercase, drop punctuation except hyphens,
-  // spaces become hyphens.
-  const slug = (h: string) =>
-    h
-      .replace(/`/g, "")
-      .toLowerCase()
-      .replace(/[^\p{L}\p{M}\p{N}\p{Pc}\- ]/gu, "")
-      .replace(/ /g, "-");
-
   it("the core fits the compaction re-attach window", () => {
     expect(
       core.length,
@@ -5810,6 +5806,54 @@ describe("flow-pipeline skill split structure (core + phase docs)", () => {
         `no dispatch row lists the phase '${phase}' under "Phases written".`,
       ).toBe(true);
     }
+  });
+
+  it("every non-epic pending phase maps to exactly one dispatch row", () => {
+    for (const ph of PENDING_PHASES.filter((p) => !p.startsWith("epic-")))
+      expect(
+        dispatch.filter((r) => r.phases.includes(ph)).length,
+        `pending phase '${ph}' must appear in exactly one '## Phase dispatch' row; ` +
+          "the after-compaction rule looks the phase up there.",
+      ).toBe(1);
+  });
+
+  it("the Hard rules the split promises to keep stay in the core, not a step doc or hard-rules-detail", () => {
+    const start = core.indexOf("\n# Hard rules\n");
+    expect(start, "core is missing '# Hard rules'").toBeGreaterThan(-1);
+    const next = core.indexOf("\n# ", start + 1);
+    const rules = core.slice(start, next === -1 ? undefined : next);
+    const flat = rules.replace(/\s*\n>?\s*/g, " ");
+    expect(flat).toMatch(
+      /the \*\*only eight\*\* authorised Task-tool fan-out sites/,
+    );
+    expect(flat).toMatch(
+      /the eight narrowly-named Task-tool exceptions that follow/,
+    );
+    expect(flat).toContain(
+      "You only call `AskUserQuestion` from the one named form.",
+    );
+    const turnEnd = flat.slice(
+      flat.indexOf("You never end the turn between sub-skills"),
+    );
+    expect(
+      turnEnd.startsWith("You never end"),
+      "never-end-the-turn rule missing",
+    ).toBe(true);
+    const listed = [
+      "plan-pending-review",
+      "triage-pending-clarification",
+      "approval-pending-clarification",
+      "triaged-no-change",
+      "ci-wait-pending",
+      "checkpoint-pending-clear",
+      "triage-pending-interview",
+      "plan-pending-interview",
+      "browser-retry-pending",
+    ];
+    for (const ph of listed)
+      expect(turnEnd, `never-end-the-turn list must name '${ph}'`).toContain(
+        ph,
+      );
   });
 
   it("every phases doc is named by the dispatch table or the on-demand index", () => {
@@ -5890,34 +5934,12 @@ describe("flow-pipeline skill split structure (core + phase docs)", () => {
       "references/hard-rules-detail.md",
       ...phaseFiles.map(rel),
     ];
-    const headingSlugs = (md: string) =>
-      new Set(
-        outsideFences(md)
-          .filter((l) => /^#{1,6}\s/.test(l))
-          .map((l) => slug(l.replace(/^#{1,6}\s+/, ""))),
-      );
     let checked = 0;
     for (const f of files) {
-      const text = read(f);
-      const body = outsideFences(text).join("\n");
-      for (const m of body.matchAll(/\]\(([^)\s]+)\)/g)) {
-        const [target, anchor] = m[1].split("#");
-        if (/^[a-z]+:/i.test(target)) continue;
-        const dest = target
-          ? path.resolve(path.dirname(path.join(PIPELINE_SKILL_DIR, f)), target)
-          : path.join(PIPELINE_SKILL_DIR, f);
-        expect(
-          fs.existsSync(dest),
-          `${f}: link '${m[1]}' does not resolve to a file`,
-        ).toBe(true);
-        if (anchor !== undefined) {
-          expect(
-            headingSlugs(fs.readFileSync(dest, "utf8")).has(anchor),
-            `${f}: link '${m[1]}' has no heading with that slug in ${path.relative(PIPELINE_SKILL_DIR, dest)}`,
-          ).toBe(true);
-        }
-        checked++;
-      }
+      expect(validateFile(path.join(PIPELINE_SKILL_DIR, f)), f).toEqual([]);
+      checked += extractLinks(read(f)).filter(
+        (l) => !l.isImage && !/^[a-z]+:/i.test(l.raw),
+      ).length;
     }
     expect(
       checked,
