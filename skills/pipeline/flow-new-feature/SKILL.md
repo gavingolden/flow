@@ -304,14 +304,14 @@ scout report back; the artifact on disk is the record.
 - Before committing to implementation, perform a brief structured
   assessment. Present findings to the user as a table:
 
-  | Criterion            | Assessment                                                                                              |
-  | -------------------- | ------------------------------------------------------------------------------------------------------- |
-  | Customer value       | _How much does this improve the user's workflow?_                                                       |
-  | Technical complexity | _Rough effort estimate and what areas of the codebase are affected_                                     |
-  | Debt risk            | _Does this follow existing patterns or introduce new ones?_                                             |
-  | Composability        | _Can this design be easily extended, layered on, or reused?_                                            |
-  | Redundancy           | Does this duplicate an existing capability (skill/helper/config/prior feature)? Cite it, or state none. |
-  | **Recommendation**   | **Proceed / Reconsider scope / Defer / Reject**                                                         |
+  | Criterion            | Assessment                                                                                                                                                  |
+  | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Customer value       | _How much does this improve the user's workflow?_                                                                                                           |
+  | Technical complexity | _Rough effort estimate and what areas of the codebase are affected_                                                                                         |
+  | Debt risk            | _Does this follow existing patterns or introduce new ones? Carry each non-keep `assessment:` verdict from scout's `## affected_modules` here with its why._ |
+  | Composability        | _Can this design be easily extended, layered on, or reused?_                                                                                                |
+  | Redundancy           | Does this duplicate an existing capability (skill/helper/config/prior feature)? Cite it, or state none.                                                     |
+  | **Recommendation**   | **Proceed / Reconsider scope / Defer / Reject**                                                                                                             |
 
 - Within this analysis:
   - **Challenge the feature.** Don't just validate the user's idea. Identify potential

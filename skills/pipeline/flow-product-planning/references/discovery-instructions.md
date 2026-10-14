@@ -299,7 +299,8 @@ Categories worth examining (use them as a checklist, not a question list):
 - **Trade-offs** — Would a simplification be acceptable for v1? If the request is framed as a binary A-or-B choice, is there a middle-ground option? When a trade-off hinges on a consequential decision whose branches genuinely diverge, simulate it in the "Decision analysis" sub-section (step 5).
 - **Necessity & redundancy** — Is this request necessary at all? Could doing nothing, or an existing capability the user has overlooked, serve them just as well? Treat "reject — do nothing" as a legitimate verdict to weigh, not a non-answer; the user invited the feature, but inviting it is not the same as needing it. Framing lens: **first-principles** — strip inherited constraints to what is necessarily true (see discovery-playbook.md, internal-only). **Redundancy obligation:** explicitly check the request for duplication against an existing capability (a skill, a helper, a config surface, or a prior feature) and either cite the specific capability or state "no duplication found"; a found duplication routes into the `## Recommendation` verdict (`Reconsider scope` or `Reject — do nothing`) and/or the `### Alternatives considered` sub-section.
 - **Premise check** — Is the request's stated factual premise verified against the codebase? Treat a threaded `PROMPT-SANITY: <note>` (see `{{PROMPT_SANITY_OVERRIDE}}` in `flow-product-planning/SKILL.md`) as evidence to weigh alongside the codebase scan, and cross-check any attached/referenced files against the request's claims even when no note was threaded. A failed premise surfaces as a `**Premise check:**` line in the Problem Statement (step 5) and forces a non-`Proceed` `## Recommendation` verdict; omit-when-sound — no line is written when the stated premise holds.
-- **Approach vetting** — Assume the premise holds and the request is worth doing — is the CHOSEN APPROACH itself sound? What is the best evidence (a paper, a post-mortem, a measured number, or a file path) that it is wrong or worse than the obvious alternative? This is the `## Request vetting` section's own hypothesis/case-against/verdict — see the "Request vetting" sub-section (step 5) for the full contract.
+- **Approach vetting** — Assume the premise holds and the request is worth doing — is the CHOSEN APPROACH itself sound? What is the best evidence (a paper, a post-mortem, a measured number, or a file path) that it is wrong or worse than the obvious alternative? This is the `## Request vetting` section's own hypothesis/case-against/verdict — see the "Request vetting" sub-section (step 5) for the full contract. A threaded `SOLUTION-FIT: <case>` line (triage's solution-fit one-liner, riding the ultimate-goal line) is Case-against input: quote it or rebut it in `## Request vetting`, never ignore it.
+- **Existing-code rethink** — For each surface the plan edits: keep, simplify, or rewrite? Ask it as a senior engineer would before adding to it. The answer is the `## Existing-code assessment` section — see its sub-section (step 5) for the full contract.
 - **Options & exclusivity** — What other options exist beyond the literal request? Of the adjacent features, which are **complementary** (pair well, increase the request's value) and which are **mutually exclusive** — cannot coexist with the request, or conflict with each other, so the user must pick one path? Name both kinds, not just the complementary ones. The exclusive-vs-complementary marking and ranked combinations feed the "Decision analysis" sub-section (step 5) when the decision is consequential.
 - **Existing patterns** — Is this similar to an existing feature? Follow the same pattern unless there's a reason to deviate.
 
@@ -442,6 +443,9 @@ effect on model comprehension either way) — never required.
 - **Request vetting** — always-present — a falsifiable hypothesis, a sourced case against
   the request's chosen approach, and a closed verdict. See the "Request vetting"
   sub-section below for the full contract.
+- **Existing-code assessment** — always-present — a keep / simplify / rewrite verdict for
+  every existing surface the plan touches. See the "Existing-code assessment" sub-section
+  below for the full contract.
 - **Epic context** (omit-when-empty) — only when step 1.7 detects epic membership: the
   epic slug, this feature's id and rationale, its `dependsOn` edges with produced/consumed
   artifacts, its downstream dependents, and a `**Manifest write-back:**` line. See the
@@ -731,6 +735,20 @@ exist on the common run.
 **Short form for goal-only requests.** A trivial, single-outcome request may use a
 one-line case against: hypothesis, `- **Case against:** none material — <why>`, `adopt`
 — the same anchor/word-count/Sources bar still applies to `<why>`.
+
+### Existing-code assessment
+
+An always-present `## Existing-code assessment` section, placed directly after `## Request vetting`. One bullet per existing surface the plan touches:
+
+`- **<repo path or surface>:** keep | simplify | rewrite — <why> [anchor: path[:line]]`
+
+When no existing surface is touched, write the literal line `none — no existing surface touched`. Do not label these bullets `- **Verdict:**` — that prefix belongs to `## Request vetting` alone.
+
+- **keep** — the shape fits; extend in place.
+- **simplify** — extend after a small local cleanup; bundle that cleanup into `# Task breakdown`.
+- **rewrite** — extending would compound debt. A rewrite that is a prerequisite for the feature becomes a bundled task; otherwise it is a ticked candidate under the large-refactor exclusion.
+
+Any non-`keep` verdict is named in `## Recommendation`. Anchors cite committed paths only — never a `.flow-tmp/` path.
 
 ### Goal line
 
@@ -1495,7 +1513,7 @@ When the spawn prompt carries `REVISION: <n>`, **MUST Read `<SKILL_DIR>/referenc
 - A failed premise check surfaces as a `**Premise check:**` line in the Problem
   Statement and the `## Recommendation` verdict is non-`Proceed`; a sound premise
   carries no line.
-- `flow-plan-lint` already checks the Goal line, Behavioral contrast, Recommendation, Plan risks, Cut list, Request vetting, Method selection, the Open Questions resolution / confidence / stakes markers, task Contract blocks, and the `excluded-paths.json` mirror, and `flow-candidate-issues --lint` already checks the candidate follow-up value bars, references, and bundling — do not re-verify those by hand.
+- `flow-plan-lint` already checks the Goal line, Behavioral contrast, Recommendation, Plan risks, Cut list, Request vetting, Existing-code assessment, Method selection, the Open Questions resolution / confidence / stakes markers, task Contract blocks, and the `excluded-paths.json` mirror, and `flow-candidate-issues --lint` already checks the candidate follow-up value bars, references, and bundling — do not re-verify those by hand.
 - **Self-check before returning:** run `flow-plan-lint --plan-md-file <the plan.md path>`
   by bare PATH name and fix every named miss. Tolerant: when the helper is missing
   from PATH, the check skips silently (same research-cache discipline as Step 1.5) —

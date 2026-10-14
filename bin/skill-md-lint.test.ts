@@ -4805,6 +4805,21 @@ describe("Scout plan-verification anchors (PLAN wiring + PLAN-DEVIATION channel)
     ).toBe(false);
   });
 
+  it("flow-scout-instructions/SKILL.md carries the existing-code assessment verdicts and the EXISTING-CODE: mirror", () => {
+    expect(scoutInstructionsContent).toContain(
+      "assessment: keep|simplify|rewrite",
+    );
+    expect(scoutInstructionsContent).toContain("EXISTING-CODE:");
+  });
+
+  it("flow-new-feature/SKILL.md Step 2 carries the assessment: verdict into the Debt risk row", () => {
+    const debtRow = newFeatureContent
+      .split("\n")
+      .find((l) => l.includes("| Debt risk"));
+    expect(debtRow).toBeDefined();
+    expect(debtRow).toContain("assessment:");
+  });
+
   it("flow-new-feature/SKILL.md passes {{PLAN_PATH}} into the scout spawn and reconciles PLAN-DEVIATION findings", () => {
     expect(
       newFeatureContent.includes("{{PLAN_PATH}}"),
@@ -5805,12 +5820,18 @@ describe("pr-review include-by-reference structure", () => {
     // retry fence all left SKILL.md, net of the new permission-denied branch
     // and the bounded-guard / awaiting-human / reconnect prose. The file lands
     // at 3205 lines as this test counts them; 3207 leaves 1 line of headroom.
+    //
+    // Raised 3207 -> 3211 (senior-engineer pushback): Step 1 gains the
+    // `Solution fit:` paragraph, Step 3's plan-summary clause gains the
+    // `Existing code:` line, and the route-to-step-4 WHY block gains the
+    // `EXISTING_CODE` derivation; bodies live in references/. The file lands
+    // at 3209 lines as this test counts them; 3211 leaves 2 lines of headroom.
     expect(
       lineCount,
       `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3207 lines. Material regrowth past this ceiling would ` +
+        `budget of 3211 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3207);
+    ).toBeLessThan(3211);
   });
 
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
@@ -9626,6 +9647,33 @@ describe("prompt-intent-sanity-check structural anchors", () => {
     for (const verdict of ["sound", "suspect", "contradicted"]) {
       expect(promptSanityContent).toContain(verdict);
     }
+  });
+
+  it("flow-pipeline/SKILL.md carries the Solution fit and Existing code lines and the SOLUTION-FIT: thread marker", () => {
+    expect(content).toContain("Solution fit:");
+    expect(content).toContain("SOLUTION-FIT:");
+    expect(content).toContain("Existing code:");
+  });
+
+  it("flow-pipeline/SKILL.md Prompt sanity gate names the wrong-repo escalation", () => {
+    expect(content).toContain("wrong-repo");
+  });
+
+  it("references/prompt-sanity.md carries the Repo-fit check and wrong-repo sub-tag", () => {
+    const promptSanityContent = fs.readFileSync(
+      path.resolve(
+        HERE,
+        "..",
+        "skills",
+        "pipeline",
+        "flow-pipeline",
+        "references",
+        "prompt-sanity.md",
+      ),
+      "utf8",
+    );
+    expect(promptSanityContent).toContain("Repo-fit check");
+    expect(promptSanityContent).toContain("wrong-repo");
   });
 
   it("flow-pr-review/SKILL.md Step 3 carries the diff-only intent-guess sub-step and blindness prose", () => {
