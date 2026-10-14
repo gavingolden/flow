@@ -123,17 +123,30 @@ When the manifest declares `loginUrl` and `credentialEnvVars`, log in
 through the helper — never resolve, read, or fill a credential VALUE
 yourself:
 
-1. `flow-ui-login check --manifest .flow/ui-validation.json` — on exit 3
-   (either name absent), take the existing `NEEDS HUMAN: smoketest-needs-creds`
-   escalation (autonomous path) rather than driving an unauthenticated pass.
+1. `flow-ui-login check --manifest <absolute worktree path>/.flow/ui-validation.json --worktree <absolute worktree path>`
+   as its own standalone Bash call — foreground, no `cd … &&`, no env-var
+   prefix, no `&`/`nohup`, no redirect, no pipe, no `head`/`tail`/`jq`. On
+   exit 3 (either name absent), take the existing
+   `NEEDS HUMAN: smoketest-needs-creds` escalation (autonomous path) rather
+   than driving an unauthenticated pass.
 2. `navigate_page` to `loginUrl`.
 3. An optional transient working snapshot — never saved or injected as
    evidence — to confirm the form exists, before any fill.
 4. Read the page's own origin via `evaluate_script () => location.origin`.
-5. `flow-ui-login serve --manifest .flow/ui-validation.json --origin <that origin>`.
-6. `evaluate_script` with the returned `fillScript` verbatim — it fetches
-   the values inside the page and fills + submits the form itself; the
-   agent's own tool call never carries a value.
+5. `flow-ui-login serve --manifest <absolute worktree path>/.flow/ui-validation.json --origin <that origin> --worktree <absolute worktree path>`
+   as its own standalone Bash call — same shape as step 1 (foreground,
+   nothing before, after or around it). It returns in under 3s with one JSON
+   line; that line is the only read of the script.
+6. `evaluate_script` with the returned `fillScript` verbatim as its
+   `function` — it fetches the values inside the page and fills + submits
+   the form itself; the agent's own tool call never carries a value.
+
+<!-- flow-ui-login-handoff -->
+
+The hand-off rule: `serve` runs as one standalone foreground call, its
+single output line is read once, and `fillScript` goes verbatim into
+`evaluate_script`'s `function` — never saved to a file, printed, sliced,
+piped through `jq`/`head`/`tail`, or re-read.
 7. `wait_for` the post-login redirect.
 8. `evaluate_script () => location.pathname` **only**, and set `loginOk`
    from whether the pathname no longer equals `loginUrl`'s path (still
@@ -145,7 +158,7 @@ dev-mode CSP `connect-src` refusing the loopback fetch — record
 `login-failed` naming that fix (allow `http://127.0.0.1:*` in
 `connect-src`); never fall back to `fill`/`type` with a value. A result of
 `reason: "endpoint-refused"` means the fetch reached the one-time endpoint
-but got a non-OK status back (the token was already spent, the origin
+but got a non-OK status back (the one-time endpoint was already used, the origin
 didn't match, or the 90s window expired) — that is a credential refusal,
 not a CSP problem: follow the `<!-- flow-credential-denial-rule -->` below
 and record `credentials-unavailable`, not `login-failed`.
@@ -175,7 +188,7 @@ printing, grepping or reading a credential variable or a `.env`-family
 file, or running `flow-ui-login` — STOP the browser check. Never retry
 through another tool (Read, grep, cat, a script, or `fill`/`type` with the
 value). A `fillScript` result of `reason: "endpoint-refused"` (the
-one-time endpoint answered non-OK — the token was already spent, the
+one-time endpoint answered non-OK — it was already used, the
 origin didn't match, or the window expired) is the same kind of refusal:
 record `skipped_reason: "credentials-unavailable"` and let the caller
 surface `smoketest-needs-creds`, naming only the variable NAMES. A
@@ -316,7 +329,9 @@ the agent never reads a `.env` file or a credential value (see "Login step
 script takes no screenshot, trace, video or HAR while on `loginUrl` (launch the
 context with tracing, video and HAR off, starting them only after the
 post-login redirect), and its evidence output never includes the fill
-script's network response. Never install browser binaries (a download outside the
+script's network response. The Playwright script may capture `serve`'s stdout
+internally but must never log or print it — the "never save, pipe or re-read"
+rule governs the agent's own Bash/MCP calls. Never install browser binaries (a download outside the
 worktree is neither local nor cheaply reversible).
 Write the results to `.flow-tmp/ui-driver-result.json` in the driver's schema
 (validate with `flow-ui-driver-schema --validate`), stamped `caller: "review-8c"`
@@ -356,6 +371,14 @@ the page via `list_pages` at teardown, since the `isolatedContext` name is not a
 closeable handle and a `list_pages` scan under a shared MCP server can land on a
 sibling pipeline's page or the user's own tab. The MCP-absent and browser-busy
 paths opened nothing, so teardown is a no-op there, never a failure.
+
+<!-- flow-denial-teardown -->
+
+Exception — after a credential denial: make no further browser, MCP or
+teardown calls (the classifier treats them as tunneling the denied action).
+Write the artifact with `credentials-unavailable` and return. The caller's
+`flow-browser-teardown --reap --record` closes the page, the browser and the
+launched servers.
 
 `close_page` is per-pass and stays as described above; it disposes the
 `isolatedContext` but does NOT close the Chrome process — chrome-devtools-mcp

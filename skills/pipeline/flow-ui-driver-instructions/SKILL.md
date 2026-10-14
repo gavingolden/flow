@@ -94,6 +94,15 @@ serve`, never by the agent resolving a VALUE itself — then drive each
 route × each declared viewport per `ui-smoke-pass.md`'s "Launch and drive"
 section.
 
+<!-- flow-ui-login-handoff -->
+
+Run `flow-ui-login check` and `flow-ui-login serve` each as its own
+standalone foreground Bash call (absolute `--manifest`/`--worktree` paths, no
+`cd … &&`, no env-var prefix, no `&`/`nohup`, no redirect, no pipe, no
+`head`/`tail`/`jq`); read `serve`'s single output line once and pass
+`fillScript` verbatim to `evaluate_script` — never save, print, slice or
+re-read it.
+
 **Never capture the login form, and never persist a credential VALUE.** The
 email/username field renders in plaintext in both a screenshot and an a11y
 snapshot — masking is not the protection here — so the unconditional rule is:
@@ -111,7 +120,7 @@ printing, grepping or reading a credential variable or a `.env`-family
 file, or running `flow-ui-login` — STOP the browser check. Never retry
 through another tool (Read, grep, cat, a script, or `fill`/`type` with the
 value). A `fillScript` result of `reason: "endpoint-refused"` (the
-one-time endpoint answered non-OK — the token was already spent, the
+one-time endpoint answered non-OK — it was already used, the
 origin didn't match, or the window expired) is the same kind of refusal:
 record `skipped_reason: "credentials-unavailable"` and let the caller
 surface `smoketest-needs-creds`, naming only the variable NAMES. A
@@ -144,6 +153,14 @@ close the isolated page/context you opened (by the numeric `pageId` your own
 launched server(s) down (by the `flow-spawn` pid or the registry `pgid`,
 never a bare shell-job kill). Do this before writing the artifact in step 5,
 so a crash after teardown still leaves the worktree clean.
+
+<!-- flow-denial-teardown -->
+
+Exception — after a credential denial: make no further browser, MCP or
+teardown calls (the classifier treats them as tunneling the denied action).
+Write the artifact with `credentials-unavailable` and return. The caller's
+`flow-browser-teardown --reap --record` closes the page, the browser and the
+launched servers.
 
 ## 4. Map captures to the artifact shape
 

@@ -5506,12 +5506,17 @@ describe("pr-review include-by-reference structure", () => {
     // "Headless fallback"), the `--resume-from 8c --browser-items` modifier,
     // and the `browser-not-attempted` --reason slug. The file lands at 1903
     // lines as this test counts them; 1905 leaves 2 lines of headroom.
+    //
+    // Raised 1905 -> 1910 (login hand-off rule): the headless-fallback
+    // paragraph gains a `<!-- flow-ui-login-handoff -->` anchor plus a
+    // one-clause pointer to ui-validation-evidence.md. The file lands at
+    // 1909 lines; 1910 leaves 1 line of headroom.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1905 lines. Material regrowth past this ceiling would ` +
+        `budget of 1910 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1905);
+    ).toBeLessThan(1910);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md routes Step 8c's runnable items through flow-run-test-steps with an explicit Bash timeout", () => {
