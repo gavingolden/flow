@@ -97,6 +97,11 @@ export type AdvancePhaseOpts = {
    * nothing.
    */
   allowHumanPauseExit?: boolean;
+  /**
+   * Phase-log outcome text for a `finalizePhase` write (e.g. the stop
+   * guard's "stalled at <phase> ..." pause). Absent → no outcome recorded.
+   */
+  outcome?: string;
 };
 
 /**
@@ -501,7 +506,7 @@ export function finalizePhase(
   const written = {
     ...(dropWorktree ? rest : state),
     phase: target,
-    phaseLog: appendPhaseLog(state, target),
+    phaseLog: appendPhaseLog(state, target, opts.outcome),
     updatedAt: nowIso(),
   };
   writeState(written, dir);
@@ -528,7 +533,7 @@ export function finalizePhase(
     recordEvent("phase.transition", {
       from: state.phase,
       to: target,
-      outcome: null,
+      outcome: opts.outcome ?? null,
       since_prev_ms: sincePrevMs,
       forced: false,
     });

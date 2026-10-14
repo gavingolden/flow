@@ -31,7 +31,8 @@ PR number:
 Base branch:
   {{BASE_BRANCH}}
 
-`gh pr merge --squash` stderr that triggered this resolver:
+`gh pr merge --squash` stderr that triggered this resolver (the `.stderr`
+of `.flow-tmp/merge-result.json`, written by `flow-merge-guard merge`):
   {{MERGE_STDERR}}
 
 Conflicting file paths (may be empty if the merge has not yet been

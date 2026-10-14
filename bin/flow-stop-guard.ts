@@ -43,11 +43,14 @@ import {
   type PipelineState,
 } from "./lib/state";
 import {
+  BACKGROUND_EXEMPT_LIMIT,
   readTurnTracking,
+  STAGNATION_PAUSE_LIMIT,
   TURN_BLOCK_LIMIT,
   writeTurnTracking,
   type TurnTracking,
 } from "./lib/stop-turn-tracking";
+import { finalizePhase } from "./lib/phase-advance";
 import {
   dirtyEpicMetadata as defaultDirtyEpicPaths,
   repoCommitState as defaultRepoCommitState,
@@ -56,7 +59,21 @@ import {
 
 type HookInput = {
   stop_hook_active?: boolean;
+  /** In-flight background work; documented as empty when nothing is in flight. */
+  background_tasks?: Array<{
+    id?: string;
+    type?: string;
+    status?: string;
+    description?: string;
+  }>;
 };
+
+/** True when the Stop payload lists any in-flight background work (agent, monitor, workflow, shell). */
+export function hasWakingBackgroundWork(
+  tasks: HookInput["background_tasks"],
+): boolean {
+  return Array.isArray(tasks) && tasks.length > 0;
+}
 
 export type Deps = {
   readStdin: () => Promise<string>;
@@ -73,6 +90,19 @@ export type Deps = {
   repoCommitState: (repoRoot: string) => RepoState;
   /** Installed pre-commit hook capability probe (test seam; production: base-branch-guard.ts). */
   guardCapability: (repoRoot: string) => GuardCapability;
+  /**
+   * Records the bounded `needs-human` pause (test seam; production:
+   * `finalizePhase`, so its epic/finished/pr/branch guards apply). Runs
+   * inside the hook, so no permission check can refuse it. Returns whether
+   * the pause actually landed (an `epic-*` phase or a failed write does not).
+   */
+  writePause: (state: PipelineState, outcome: string) => boolean;
+  /**
+   * Stdout channel for the Stop hook's JSON output (`systemMessage`); the
+   * owner sees it even though the exit-0 stderr is not shown. Optional so
+   * tests that do not assert on it need not supply it.
+   */
+  writeOut?: (s: string) => void;
 };
 
 function dedupe(items: string[]): string[] {
@@ -198,6 +228,12 @@ export async function run(deps: Deps): Promise<number> {
   const now = deps.nowIso();
   const prior = deps.readTurn(slug);
   const turnBoundary = input.stop_hook_active === false || prior === null;
+  // A background-task wake-up arrives as a fresh turn; carry exemptCount at
+  // the same phase so BACKGROUND_EXEMPT_LIMIT is reachable across turns.
+  const carriedExempt =
+    prior !== null && prior.lastPhase === state.phase
+      ? prior.exemptCount
+      : undefined;
   let tracking: TurnTracking = turnBoundary
     ? {
         slug,
@@ -205,6 +241,7 @@ export async function run(deps: Deps): Promise<number> {
         blockCount: 0,
         lastPhase: state.phase,
         lastStopAt: now,
+        ...(carriedExempt !== undefined ? { exemptCount: carriedExempt } : {}),
       }
     : prior!;
 
@@ -301,7 +338,12 @@ export async function run(deps: Deps): Promise<number> {
     deps.writeErr(
       `flow-stop-guard: loop-break consumed at phase=${state.phase}; subsequent stops will exit 0 only if phase keeps advancing — stalling at this phase re-engages the stagnation reminder. Continue per /flow-pipeline SKILL.md.\n`,
     );
-    tracking = { ...tracking, lastPhase: state.phase, lastStopAt: now };
+    tracking = {
+      ...tracking,
+      exemptCount: undefined,
+      lastPhase: state.phase,
+      lastStopAt: now,
+    };
     deps.writeTurn(tracking);
     return 0;
   }
@@ -310,6 +352,35 @@ export async function run(deps: Deps): Promise<number> {
     tracking.blockCount >= TURN_BLOCK_LIMIT &&
     state.phase === tracking.lastPhase
   ) {
+    const exempt = tracking.exemptCount ?? 0;
+    if (
+      hasWakingBackgroundWork(input.background_tasks) &&
+      exempt < BACKGROUND_EXEMPT_LIMIT
+    ) {
+      deps.writeErr(
+        `flow-stop-guard: background work is in flight at phase=${state.phase}; allowing this stop uncounted (${exempt + 1}/${BACKGROUND_EXEMPT_LIMIT}).\n`,
+      );
+      tracking = { ...tracking, exemptCount: exempt + 1, lastStopAt: now };
+      deps.writeTurn(tracking);
+      return 0;
+    }
+    if (tracking.blockCount + 1 >= TURN_BLOCK_LIMIT + STAGNATION_PAUSE_LIMIT) {
+      const outcome = `stalled at ${state.phase} after ${tracking.blockCount} blocked stops — reply ${pauseReply(state)}`;
+      const recorded = deps.writePause(state, outcome);
+      deps.writeErr(
+        `flow-stop-guard: phase=${state.phase} has not advanced after ${tracking.blockCount} blocked stops; ${recorded ? "recorded" : "could not record"} a needs-human pause (${outcome}). Ending the turn.\n`,
+      );
+      if (recorded) {
+        deps.writeOut?.(
+          JSON.stringify({
+            systemMessage: `flow paused this pipeline (needs-human): ${outcome}.`,
+          }) + "\n",
+        );
+      }
+      tracking = { ...tracking, lastStopAt: now };
+      deps.writeTurn(tracking);
+      return 0;
+    }
     const reminder = buildStagnationReminder(
       state.phase,
       tracking.blockCount + 1,
@@ -330,11 +401,21 @@ export async function run(deps: Deps): Promise<number> {
   tracking = {
     ...tracking,
     blockCount: tracking.blockCount + 1,
+    exemptCount:
+      tracking.lastPhase === state.phase ? tracking.exemptCount : undefined,
     lastPhase: state.phase,
     lastStopAt: now,
   };
   deps.writeTurn(tracking);
   return 2;
+}
+
+/** The single reply that continues a paused run: the merge reply where a merge was in play, the usual needs-human `done` elsewhere. */
+function pauseReply(state: PipelineState): string {
+  const mergePhase = state.phase === "gating" || state.phase === "merging";
+  return mergePhase && typeof state.pr === "number"
+    ? `merge #${state.pr}`
+    : "done";
 }
 
 /**
@@ -382,7 +463,8 @@ export function buildReminder(phase: string, next: string): string[] {
   const pendingList = PENDING_PHASES.join(", ");
   return [
     `flow-stop-guard: phase=${phase}; the supervisor must continue to ${next} per /flow-pipeline SKILL.md.`,
-    `Legitimate end-states are MERGED, GATED, NEEDS HUMAN, cancelled, and the pending phases (${pendingList}).`,
+    `Legitimate end-state phases are merged, gated, needs-human, cancelled, and the pending phases (${pendingList}); these are phase values, not commands.`,
+    "To pause for the owner, run flow-gate-summary --status needs-human --reason <tag>.",
     "DO NOT END THE TURN — proceed to the next step now.",
   ];
 }
@@ -393,7 +475,7 @@ export function buildStagnationReminder(
 ): string[] {
   return [
     `flow-stop-guard: phase has not advanced for ${count} consecutive stops; phase=${phase}.`,
-    "The supervisor must continue to the next step per /flow-pipeline SKILL.md, or transition to a legitimate end-state if blocked.",
+    "The supervisor must continue to the next step per /flow-pipeline SKILL.md, or, if blocked, pause for the owner with flow-gate-summary --status needs-human --reason <tag>.",
     "DO NOT END THE TURN — proceed to the next step now.",
   ];
 }
@@ -430,5 +512,15 @@ if (import.meta.main) {
     dirtyEpicPaths: (repoRoot) => defaultDirtyEpicPaths({ repoRoot }),
     repoCommitState: (repoRoot) => defaultRepoCommitState({ repoRoot }),
     guardCapability: (repoRoot) => installedGuardCapability(repoRoot),
+    writePause: (state, outcome) => {
+      try {
+        return finalizePhase("needs-human", { slug: state.slug, outcome })
+          .advanced;
+      } catch {
+        // The bound must hold even when the pause cannot be recorded.
+        return false;
+      }
+    },
+    writeOut: (s) => process.stdout.write(s),
   }).then((code) => process.exit(code));
 }

@@ -50,8 +50,12 @@
  * body file exits non-zero with a stderr that is deliberately NOT one of
  * the shim's fixture-authoring-error shapes (see bin/evals-gh-shim.test.ts),
  * because the `ghCalls` replay cross-check copies only `*.json` fixtures.
- * Any other subcommand — including every other `pr edit` form — is
- * unsupported and loud, not silently swallowed. Note: `pr view` ignores
+ * `pr merge --squash <n>` (ONLY that bare form — `flow-merge-guard merge`'s
+ * exact call; any extra flag is unsupported) succeeds without touching
+ * anything and appends the argv to `$FLOW_EVAL_FIXTURE/.flow-tmp/gh-pr-merge.log`
+ * so a grader can assert the merge ran. Any other subcommand — including
+ * every other `pr edit` / `pr merge` form — is unsupported and loud, not
+ * silently swallowed. Note: `pr view` ignores
  * `--jq` and always returns JSON.
  */
 
@@ -174,6 +178,22 @@ function main(): number {
     }
     fs.mkdirSync(`${fixtureDir}/.flow-tmp`, { recursive: true });
     fs.copyFileSync(bodyPath, `${fixtureDir}/.flow-tmp/gh-pr-edit-body.md`);
+    return 0;
+  }
+
+  if (verb === "pr" && sub === "merge") {
+    if (rest.length !== 2 || rest[0] !== "--squash" || !/^\d+$/.test(rest[1])) {
+      process.stderr.write(`flow-eval gh shim: unsupported: ${JSON.stringify(argv)}\n`);
+      return 1;
+    }
+    const fixtureDir = process.env.FLOW_EVAL_FIXTURE;
+    if (!fixtureDir) {
+      process.stderr.write("flow-eval gh shim: FLOW_EVAL_FIXTURE is not set\n");
+      return 1;
+    }
+    const fs = require("node:fs");
+    fs.mkdirSync(`${fixtureDir}/.flow-tmp`, { recursive: true });
+    fs.appendFileSync(`${fixtureDir}/.flow-tmp/gh-pr-merge.log`, `${rest.join(" ")}\n`);
     return 0;
   }
 

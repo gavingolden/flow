@@ -7,6 +7,13 @@
 
 import type { DoctorCheck, DoctorDeps } from "./doctor";
 import { installCommand } from "./doctor-util";
+import {
+  broaderRuleFix,
+  FLOW_MERGE_ALLOW_RULE,
+  readMergeAllowRule,
+  userSettingsPath,
+  type MergeRuleStatus,
+} from "./merge-allow-rule";
 import { readConfigFileAt } from "./modules-config";
 import { readLauncherConfig } from "./launcher-config";
 import {
@@ -33,6 +40,59 @@ export const TOOLS_CLAUDE_META = {
   section: "tools",
   title: "claude",
 } as const;
+
+export const TOOLS_MERGE_RULE_META = {
+  id: "tools-merge-rule",
+  section: "tools",
+  title: "merge permission",
+} as const;
+
+const MERGE_RULE_REASON: Record<Exclude<MergeRuleStatus, "present">, string> = {
+  broader:
+    "the broader rule also pre-approves recording a gate override, which should still need your confirmation",
+  absent: "the file has no matching entry in permissions.allow",
+  "missing-file": "the settings file does not exist",
+  malformed: "the settings file is not valid JSON",
+};
+
+export function checkMergeAllowRule(deps: DoctorDeps): DoctorCheck[] {
+  const base = TOOLS_MERGE_RULE_META;
+  const { status, resolvedPath, exactPresent } = readMergeAllowRule(
+    userSettingsPath(deps.env, deps.homeDir),
+  );
+  if (status === "broader") {
+    return [
+      {
+        ...base,
+        status: "warn",
+        summary:
+          "your Claude settings carry a broader flow-merge-guard rule than unattended merges need",
+        details: [MERGE_RULE_REASON.broader],
+        fix: broaderRuleFix(resolvedPath, exactPresent === true),
+      },
+    ];
+  }
+  if (status === "present") {
+    return [
+      {
+        ...base,
+        status: "pass",
+        summary: `unattended merges are pre-approved (${resolvedPath})`,
+        details: [],
+      },
+    ];
+  }
+  return [
+    {
+      ...base,
+      status: "warn",
+      summary:
+        "unattended merges under auto mode will be refused until the merge rule is in your Claude settings",
+      details: [MERGE_RULE_REASON[status]],
+      fix: `add "${FLOW_MERGE_ALLOW_RULE}" to permissions.allow in ${resolvedPath}`,
+    },
+  ];
+}
 
 export function checkGh(deps: DoctorDeps): DoctorCheck[] {
   const base = TOOLS_GH_META;

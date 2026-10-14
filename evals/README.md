@@ -49,7 +49,9 @@ are different shapes off the same PR). `pr edit <n> --body-file <path>`
 copies the body file to `$FLOW_EVAL_FIXTURE/.flow-tmp/gh-pr-edit-body.md`
 (a grader reads it back from `$REPO/.flow-tmp/`); a missing body file
 exits non-zero with `gh pr edit: body file not found`, and every other
-`pr edit` form stays unsupported. Every other subcommand is
+`pr edit` form stays unsupported. `pr merge --squash <n>` (that bare form
+only — it is `flow-merge-guard merge`'s exact call) succeeds and appends
+its argv to `$FLOW_EVAL_FIXTURE/.flow-tmp/gh-pr-merge.log`. Every other subcommand is
 unsupported and loud (`flow-eval gh shim: unsupported: [...]` on stderr,
 exit 1), never a silent success — a fixture-authoring gap must read as a
 red run, not a green one that proved nothing.

@@ -91,10 +91,17 @@ The three-ingredient new-repo onboarding:
      process for **non-secret launch config only** (ports, public URLs, CORS
      origins). Secrets stay as NAMES in `credentialEnvVars`, resolved from the
      shell env; never inline a credential value here.
-   - `dependsOn` (optional) — an array of `{ name, url, start? }` fixed local
-     services (a database, an API) the app needs before it can be driven.
-     `flow-ui-preflight` probes each `url` (any HTTP response below 500 counts
-     as up) with a load-aware backoff, so a briefly overloaded host is waited
+   - `dependsOn` (optional) — an array of `{ name, url | probe, start?,
+     requires? }` fixed local services (a database, an API, a container
+     runtime) the app needs before it can be driven. Give EXACTLY ONE of
+     `url` or `probe`: `url` is probed over HTTP (any response below 500
+     counts as up); `probe` is a shell command run in the worktree (ready on
+     exit 0, e.g. `docker info`). `requires` lists the `name`s of EARLIER
+     entries that must be ready first — a dependent of an unready entry is
+     neither probed nor started, and the preflight's `rootCause` names the
+     deepest entry that is down (for example `docker`, not the database that
+     needs it). `flow-ui-preflight` probes with a load-aware backoff, so a
+     briefly overloaded host is waited
      out instead of being reported "browser unavailable". One shared budget
      (about 5 minutes, up to 9 on a loaded machine) covers all dependencies
      together, not each. When the first probe

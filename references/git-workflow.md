@@ -304,9 +304,11 @@ candidates` / `file candidate #N` / `defer task #N` at plan review
 
 ## Auto-merge exemption detail (`/flow-pipeline` step 10)
 
-The exemption covers exactly one operation: `gh pr merge --squash <PR>`
-inside step 10, only when the auto-merge gate fires (`flow-gate-decide`
-returns `auto-merge` — the Test Steps section has zero unchecked items)
+The exemption covers exactly one operation: the squash merge of `<PR>`
+inside step 10 — a bare `gh pr merge --squash <PR>` run by
+`flow-merge-guard merge <PR>`, which re-checks the gate and CI first —
+only when the auto-merge gate fires (`flow-gate-decide` returns
+`auto-merge` — the Test Steps section has zero unchecked items)
 and only on a PR opened by `/flow-pipeline` itself. It does **not**
 extend to a `gated` verdict: a `gated` verdict is terminal, and a `gated`
 PR is merged by `/flow-pipeline` only through the fresh-confirmation

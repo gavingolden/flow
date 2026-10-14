@@ -24,11 +24,14 @@
  * reads the file, parses JSON, runs the validator, prints `{ok: true}` to
  * stdout (exit 0) or `{ok: false, reason, path}` to stderr (exit 1).
  *
- * `dependsOn` declares fixed local services (a database, an API) the app
- * needs before it can be driven: `[{ name, url, start? }]`. `url` is a plain
- * `http(s)://` probe target (no `{{PORT...}}` sentinel — these are fixed
- * ports), `start` an optional command that must RETURN once the service is
- * up. `bin/flow-ui-preflight.ts` is the only consumer.
+ * `dependsOn` declares fixed local services (a database, an API, a container
+ * runtime) the app needs before it can be driven: `[{ name, url | probe,
+ * start?, requires? }]`. EXACTLY ONE of `url` (a plain `http(s)://` probe
+ * target, no `{{PORT...}}` sentinel — these are fixed ports) or `probe` (a
+ * shell command, ready on exit 0); `start` an optional command that must
+ * RETURN once the service is up; `requires` the names of EARLIER entries that
+ * must be ready first (earlier-only keeps the order topological and rules out
+ * cycles). `bin/flow-ui-preflight.ts` is the only consumer.
  *
  * SECRET-VALUE GUARDRAIL: whether hand-authored or bootstrapped by
  * `flow-ui-validate`, this manifest stores env-var names and non-secret
@@ -72,8 +75,10 @@ export type Viewport = {
 
 export type UiValidationDependency = {
   name: string;
-  url: string;
+  url?: string;
+  probe?: string;
   start?: string;
+  requires?: string[];
 };
 
 export type UiValidationManifest = {
@@ -157,6 +162,7 @@ function validateViewport(v: unknown, idx: number): ValidationResult<Viewport> {
 function validateDependency(
   d: unknown,
   idx: number,
+  names: readonly unknown[],
 ): ValidationResult<UiValidationDependency> {
   if (!isPlainObject(d)) {
     return err(`dependsOn[${idx}] must be an object`);
@@ -164,18 +170,44 @@ function validateDependency(
   if (!isNonEmptyString(d.name)) {
     return err(`dependsOn[${idx}].name must be a non-empty string`);
   }
-  if (!isNonEmptyString(d.url) || !/^https?:\/\/\S+$/.test(d.url)) {
-    return err(`dependsOn[${idx}].url must be an http(s):// URL`);
-  }
-  if (d.url.includes("{{PORT")) {
+  if (d.url !== undefined && d.probe !== undefined) {
     return err(
-      `dependsOn[${idx}].url must not contain a {{PORT}} sentinel — a dependency is a fixed local service`,
+      `dependsOn[${idx}] must have exactly one of 'url' or 'probe', not both`,
     );
+  }
+  if (d.probe !== undefined) {
+    if (!isNonEmptyString(d.probe)) {
+      return err(`dependsOn[${idx}].probe must be a non-empty string`);
+    }
+  } else {
+    if (!isNonEmptyString(d.url) || !/^https?:\/\/\S+$/.test(d.url)) {
+      return err(
+        `dependsOn[${idx}].url must be an http(s):// URL (or give 'probe' instead)`,
+      );
+    }
+    if (d.url.includes("{{PORT")) {
+      return err(
+        `dependsOn[${idx}].url must not contain a {{PORT}} sentinel — a dependency is a fixed local service`,
+      );
+    }
   }
   if (d.start !== undefined && !isNonEmptyString(d.start)) {
     return err(
       `dependsOn[${idx}].start must be a non-empty string when present`,
     );
+  }
+  if (d.requires !== undefined) {
+    if (!isStringArray(d.requires)) {
+      return err(`dependsOn[${idx}].requires must be an array of names`);
+    }
+    for (let j = 0; j < d.requires.length; j++) {
+      const ref = d.requires[j];
+      if (names.slice(0, idx).includes(ref)) continue;
+      const kind = names.slice(idx).includes(ref)
+        ? "a later (or the same) entry — requires may only name EARLIER entries"
+        : "no dependsOn entry";
+      return err(`dependsOn[${idx}].requires[${j}] '${ref}' names ${kind}`);
+    }
   }
   return { ok: true, value: d as unknown as UiValidationDependency };
 }
@@ -285,8 +317,11 @@ export function validateUiValidationManifest(
     if (!Array.isArray(parsed.dependsOn)) {
       return err("'dependsOn' must be an array when present");
     }
+    const dependencyNames = parsed.dependsOn.map((e: unknown) =>
+      isPlainObject(e) ? e.name : undefined,
+    );
     for (let i = 0; i < parsed.dependsOn.length; i++) {
-      const d = validateDependency(parsed.dependsOn[i], i);
+      const d = validateDependency(parsed.dependsOn[i], i, dependencyNames);
       if (!d.ok) return d;
     }
   }

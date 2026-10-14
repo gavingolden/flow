@@ -9,7 +9,7 @@ description: Preloaded instructions for the flow-merge-resolver subagent; not fo
 
 These instructions are read by the merge-conflict resolver subagent that
 `/flow-pipeline`'s SKILL.md spawns via the Task tool when step 10's
-`gh pr merge --squash` returns a conflict-class failure. The subagent runs
+`flow-merge-guard merge` returns a conflict-class failure. The subagent runs
 in an isolated context — its file reads, per-file resolution rationale,
 merge output, and the push prose stay inside its own session and are
 never returned to the supervisor. The only outputs it produces are the
@@ -20,8 +20,8 @@ summary it returns on completion.
 
 The wrapper passes you these inputs in its spawn prompt:
 
-- The verbatim stderr from the failed `gh pr merge --squash` call (so you
-  can confirm the conflict class the wrapper detected).
+- The verbatim `.stderr` of the failed `flow-merge-guard merge` result (the
+  `gh pr merge --squash` it ran; so you can confirm the conflict class the wrapper detected).
 - The PR number.
 - The base branch name (typically `main`, but read from the wrapper's
   prompt — the supervisor resolved it from `gh pr view`).
@@ -97,8 +97,8 @@ Two cases:
 
 ### Detection patterns
 
-The wrapper triggers the resolver when `gh pr merge --squash` stderr
-matches any of these fingerprints. If your local merge output also
+The wrapper triggers the resolver when `flow-merge-guard merge` reports
+`failureClass: conflict` for a `gh pr merge --squash` stderr that matches any of these fingerprints. If your local merge output also
 matches, you're aligned with what the wrapper saw:
 
 - `Pull Request is not mergeable`
@@ -209,8 +209,8 @@ defensible default — escalation required"` and the strategies you
   considered + why each was rejected in `alternatives_considered`.
 - Skip the merge-commit step in step 4. Set `push_status: skipped`
   in step 6. Write the artifact in step 7.
-- Return a summary that names the blocker. The supervisor will retry
-  `gh pr merge`, it will fail again, and `NEEDS HUMAN: merge-failed`
+- Return a summary that names the blocker. The supervisor will re-run
+  `flow-merge-guard merge` once CI settles, it will fail again, and `NEEDS HUMAN: merge-failed`
   fires with your blocker text.
 
 ## 4. Complete the merge
@@ -460,8 +460,8 @@ Before writing the artifact and returning, self-check:
   PR targets); the branch-name guard in Step 6 is mandatory.
 - NEVER use `git push --force` or `--force-with-lease` — a rejected
   push is recorded as `push_status: failed`, never forced.
-- NEVER call `gh pr merge` yourself. The wrapper retries the merge
-  after you return.
+- NEVER call `gh pr merge` yourself. The wrapper re-runs
+  `flow-merge-guard merge` after CI settles on your pushed head.
 - NEVER spawn another resolver via the Task tool. Exactly one resolver
   per `/flow-pipeline` run.
 - NEVER ask the user clarifying questions — the Task tool is one-shot.
@@ -475,7 +475,7 @@ Before writing the artifact and returning, self-check:
   troubleshooting case above.
 - NEVER run `/flow-verify` or `flow-pre-commit` from inside the resolver.
   Verification of the merged branch is the supervisor's job — the
-  retried `gh pr merge --squash` is the verification, and CI re-runs
+  re-run `flow-merge-guard merge` is the verification, and CI re-runs
   on the pushed head. Re-running `/flow-verify` here would defeat
   the context-cost win the fan-out exists for. This is also why Step
   4's resolution commit uses `--no-verify` — see the rationale there.

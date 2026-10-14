@@ -11,7 +11,12 @@
  *   flow-ui-preflight [--manifest <path>] [--budget-sec <n=300>]
  *                     [--worktree <dir=cwd>]
  *
- * A probe is ready on any HTTP status < 500. Load factor =
+ * A `url` probe is ready on any HTTP status < 500; a `probe` dependency runs
+ * `sh -c <probe>` in the worktree and is ready on exit 0. A dependency that
+ * `requires` earlier entries is skipped (no probe, no `start`, `blockedBy` the
+ * first unready one) while any of them is unready, and the envelope's
+ * `rootCause` names the first unready dependency that is not itself blocked.
+ * Load factor =
  * clamp(loadavg1 / cpus, 1, 3); probe timeout (5 s), every wait and the
  * budget scale by it, the budget capped at 540 s so one Bash call (timeout
  * 600000) covers it. The budget is ONE deadline shared by all dependencies
@@ -41,7 +46,9 @@ const DEFAULT_MANIFEST = ".flow/ui-validation.json";
 
 export type DependencyResult = {
   name: string;
-  url: string;
+  url?: string;
+  probe?: string;
+  blockedBy?: string;
   ready: boolean;
   attempts: number;
   lastStatus: number | string | null;
@@ -56,6 +63,7 @@ export type PreflightEnvelope = {
   headSha: string | null;
   load: { loadavg: number[]; cpus: number };
   dependencies: DependencyResult[];
+  rootCause?: { name: string; reason: string };
   startedAt: string;
   finishedAt: string;
 };
@@ -158,6 +166,19 @@ async function headSha(worktree: string, deps: PreflightDeps) {
   }
 }
 
+/** Why a dependency is down: its last status or probe exit code, plus the start exit when a start ran. */
+function reasonFor(d: DependencyResult): string {
+  const base =
+    d.lastStatus === null
+      ? "never probed"
+      : d.probe !== undefined && typeof d.lastStatus === "number"
+        ? `probe exit ${d.lastStatus}`
+        : typeof d.lastStatus === "number"
+          ? `HTTP ${d.lastStatus}`
+          : d.lastStatus;
+  return d.startAttempted ? `${base}; start exit ${d.startExitCode}` : base;
+}
+
 export async function runPreflight(
   manifest: UiValidationManifest | null,
   opts: { budgetSec: number; worktree: string },
@@ -174,7 +195,8 @@ export async function runPreflight(
   for (const dep of manifest?.dependsOn ?? []) {
     const r: DependencyResult = {
       name: dep.name,
-      url: dep.url,
+      ...(dep.url !== undefined ? { url: dep.url } : {}),
+      ...(dep.probe !== undefined ? { probe: dep.probe } : {}),
       ready: false,
       attempts: 0,
       lastStatus: null,
@@ -182,6 +204,13 @@ export async function runPreflight(
       startedByFlow: false,
     };
     dependencies.push(r);
+    const blocker = (dep.requires ?? []).find(
+      (name) => !dependencies.some((d) => d.name === name && d.ready),
+    );
+    if (blocker !== undefined) {
+      r.blockedBy = blocker;
+      continue;
+    }
     for (;;) {
       let remaining = deadline - deps.now();
       if (r.attempts > 0 && remaining <= 0) break;
@@ -193,8 +222,17 @@ export async function runPreflight(
       );
       r.attempts++;
       try {
-        r.lastStatus = await deps.fetch(dep.url, timeoutMs);
-        r.ready = r.lastStatus < 500;
+        if (dep.probe !== undefined) {
+          const res = await deps.exec(["sh", "-c", dep.probe], {
+            cwd: opts.worktree,
+            timeoutMs,
+          });
+          r.lastStatus = res.code;
+          r.ready = res.code === 0;
+        } else {
+          r.lastStatus = await deps.fetch(dep.url as string, timeoutMs);
+          r.ready = r.lastStatus < 500;
+        }
       } catch (e) {
         r.lastStatus = e instanceof Error ? e.message : String(e);
       }
@@ -219,12 +257,16 @@ export async function runPreflight(
   }
 
   const ready = dependencies.every((d) => d.ready);
+  const root = dependencies.find((d) => !d.ready && d.blockedBy === undefined);
   return {
     ready,
     ...(ready ? {} : { skipped_reason: "dependency-unready" as const }),
     headSha: await headSha(opts.worktree, deps),
     load: { loadavg, cpus },
     dependencies,
+    ...(root
+      ? { rootCause: { name: root.name, reason: reasonFor(root) } }
+      : {}),
     startedAt: new Date(startedMs).toISOString(),
     finishedAt: new Date(deps.now()).toISOString(),
   };
