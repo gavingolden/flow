@@ -18,21 +18,11 @@
  * before ending.
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-
-const repoRoot = path.resolve(import.meta.dirname, "..", "..");
-const skillPath = path.join(
-  repoRoot,
-  "skills",
-  "pipeline",
-  "flow-pipeline",
-  "SKILL.md",
-);
+import { readPipelineSkillCorpus } from "./pipeline-skill-corpus";
 
 function readSkill(): string {
-  return fs.readFileSync(skillPath, "utf8");
+  return readPipelineSkillCorpus();
 }
 
 function sliceBetween(

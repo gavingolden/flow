@@ -16,6 +16,7 @@ import {
 } from "./lib/phase-advance";
 import { SURVEY_VERDICTS, VETTING_VERDICTS } from "./flow-step3-route";
 import { UI_EXTENSIONS } from "./flow-ui-validate";
+import { readPipelineSkillCorpus } from "./lib/pipeline-skill-corpus";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -402,7 +403,7 @@ const UI_VALIDATION_SCHEMA_PATH = path.resolve(
   "ui-validation-schema.ts",
 );
 
-const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
+const content = readPipelineSkillCorpus();
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
 const supervisorRulesContent = fs.readFileSync(SUPERVISOR_RULES_PATH, "utf8");
 const binRulesContent = fs.readFileSync(BIN_RULES_PATH, "utf8");
@@ -5573,15 +5574,7 @@ describe("pr-review include-by-reference structure", () => {
   });
 
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
-    const pipelineSkillPath = path.resolve(
-      HERE,
-      "..",
-      "skills",
-      "pipeline",
-      "flow-pipeline",
-      "SKILL.md",
-    );
-    const content = fs.readFileSync(pipelineSkillPath, "utf8");
+    const content = readPipelineSkillCorpus();
     const lineCount = content.split("\n").length;
     // Clickable-targets PR: raised 3080 -> 3090. `main` had already climbed
     // to 3078 (2 lines of headroom) before this branch, so the +5 net lines
@@ -10051,7 +10044,7 @@ describe("pause-output contract wiring lint", () => {
     // the bug (its battery survives on disk at
     // .flow-tmp/interview-questions.md), which is why this pins step 1
     // specifically.
-    const c = fs.readFileSync(SKILL_MD_PATH, "utf8").replace(/\s+/g, " ");
+    const c = readPipelineSkillCorpus().replace(/\s+/g, " ");
     const askTimeWrite =
       /flow-state-update --phase triage-pending-interview --interview-stdin/;
     expect(
@@ -10528,7 +10521,7 @@ describe("pause-output contract wiring lint", () => {
 
 describe("PM-lens supervisor wiring lint (Tasks 9/10)", () => {
   it("every flow-gate-summary --status (merged|gated|needs-human|cancelled) invocation in flow-pipeline SKILL.md carries --tldr", () => {
-    const c = fs.readFileSync(SKILL_MD_PATH, "utf8");
+    const c = readPipelineSkillCorpus();
     const stripped = c.replace(/<!--[\s\S]*?-->/g, "");
     const lines = stripped.split("\n");
     const offenders: string[] = [];
@@ -10572,12 +10565,12 @@ describe("PM-lens supervisor wiring lint (Tasks 9/10)", () => {
   });
 
   it("step-3 plan-summary template states task titles and file lists are not echoed", () => {
-    const c = fs.readFileSync(SKILL_MD_PATH, "utf8");
+    const c = readPipelineSkillCorpus();
     expect(c).toContain("task titles and file lists are not echoed");
   });
 
   it("`file #N` / `drop #N` reply verbs appear at the three named sites", () => {
-    const skillC = fs.readFileSync(SKILL_MD_PATH, "utf8");
+    const skillC = readPipelineSkillCorpus();
     const matches = skillC.match(/file #N/g) ?? [];
     expect(
       matches.length,
