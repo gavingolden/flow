@@ -858,17 +858,26 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // window never re-derives the path nor imports bin/lib.
   const epicDir = epicDirRelative(slug);
   const seed = epicResumeSeed(slug, epicDir, PRODUCT_PLANNING_SKILL_DIR);
-  const settingsPath = launchSettingsPathFor(options);
-  const command =
-    options.command ??
-    resumeCommand(
-      slug,
-      worktree,
-      state.effort,
-      settingsPath,
-      state.model,
-      options.pluginRootsScan,
-    );
+  // A fresh reservation is not recorded in state until the write below, so a
+  // throw while building the launch argv would leak the empty folder.
+  let settingsPath: string;
+  let command: string[];
+  try {
+    settingsPath = launchSettingsPathFor(options);
+    command =
+      options.command ??
+      resumeCommand(
+        slug,
+        worktree,
+        state.effort,
+        settingsPath,
+        state.model,
+        options.pluginRootsScan,
+      );
+  } catch (err) {
+    releaseReservedWorktree(newlyReserved);
+    throw err;
+  }
   // Record THIS resume's own seed and clear any earlier hook markers before
   // capturing the consumption baseline below (mirrors feature.ts runResume;
   // Task 4b cross-path hazard fix). Two reasons this must happen HERE, before

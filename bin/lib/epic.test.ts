@@ -4462,6 +4462,189 @@ describe("epic launches reserve the worktree folder (real reservation)", () => {
     expect(firstAddDir(command)).toBe(recorded);
   });
 
+  const throwingReserve: NonNullable<EpicOptions["reserveWorktree"]> = () => {
+    throw new Error("no available slot");
+  };
+
+  it("create: a reservation failure returns 2 before any state or launch", () => {
+    gitInit();
+    expect(
+      runEpicCli(["create", "design the thing"], {
+        stateDir,
+        cwd: repoDir,
+        reserveWorktree: throwingReserve,
+        readConfig: () => ({}),
+      }),
+    ).toBe(2);
+    expect(errors.join("\n")).toMatch(
+      /flow epic create: could not reserve a worktree folder: no available slot/,
+    );
+    expect(readState("design-thing", stateDir)).toBeNull();
+    expect(fs.existsSync(requestFilePath("design-thing", stateDir))).toBe(
+      false,
+    );
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("create: a throw before the first state write releases the reserved folder and propagates", () => {
+    gitInit();
+    const blocker = path.join(stateDir, "not-a-dir");
+    fs.writeFileSync(blocker, "x");
+    expect(() =>
+      runEpicCli(["create", "design the thing"], {
+        stateDir: path.join(blocker, "sub"),
+        cwd: repoDir,
+        reserveWorktree: realReserve,
+        readConfig: () => ({}),
+      }),
+    ).toThrow();
+    expect(
+      fs.existsSync(
+        deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
+      ),
+    ).toBe(false);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("resume: a reservation failure returns 2 without launching", () => {
+    seedState("resv-fail-resume");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    expect(
+      runEpicCli(["create", "--resume", "resv-fail-resume"], {
+        stateDir,
+        reserveWorktree: throwingReserve,
+      }),
+    ).toBe(2);
+    expect(errors.join("\n")).toMatch(
+      /flow epic create --resume: could not reserve a worktree folder: no available slot/,
+    );
+    expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("resume: a throw while building the launch argv releases a newly reserved folder", () => {
+    seedState("resume-throw-epic");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    expect(() =>
+      runEpicCli(["create", "--resume", "resume-throw-epic"], {
+        stateDir,
+        reserveWorktree: realReserve,
+        pluginRootsScan: () => {
+          throw new Error("scan boom");
+        },
+      }),
+    ).toThrow(/scan boom/);
+    expect(
+      fs.existsSync(deriveWorktreePath(repoDir, "resume-throw-epic")),
+    ).toBe(false);
+    expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("run: a reservation failure returns 2 without launching", () => {
+    gitInit();
+    writeRunManifest("run-resv-fail");
+    seedState("run-resv-fail", { phase: "epic-approved" });
+    expect(
+      runEpicCli(["run", "run-resv-fail"], {
+        cwd: repoDir,
+        epicsDir,
+        stateDir,
+        reserveWorktree: throwingReserve,
+      }),
+    ).toBe(2);
+    expect(errors.join("\n")).toMatch(
+      /flow epic run: could not reserve a worktree folder: no available slot/,
+    );
+    expect(
+      readState("run-resv-fail", stateDir)?.reservedWorktree,
+    ).toBeUndefined();
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("run: a recorded reservedWorktree whose folder vanished is re-created, nothing newly reserved", () => {
+    gitInit();
+    writeRunManifest("run-vanished-epic");
+    const reserved = siblingOf("run-vanished-epic");
+    reservedToClean.push(reserved);
+    seedState("run-vanished-epic", {
+      phase: "epic-approved",
+      reservedWorktree: reserved,
+    });
+    freshWindowOk();
+    const reserve = vi.fn(realReserve);
+    expect(
+      runEpicCli(["run", "run-vanished-epic"], {
+        cwd: repoDir,
+        epicsDir,
+        stateDir,
+        reserveWorktree: reserve,
+      }),
+    ).toBe(0);
+    expect(reserve).not.toHaveBeenCalled();
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(firstAddDir(command)).toBe(reserved);
+    expect(fs.statSync(reserved).isDirectory()).toBe(true);
+  });
+
+  it("run: a state.worktree missing on disk falls through to the recorded reservedWorktree", () => {
+    gitInit();
+    writeRunManifest("run-stale-wt-epic");
+    const reserved = siblingOf("run-stale-wt-epic");
+    reservedToClean.push(reserved);
+    const gone = path.join(os.tmpdir(), "flow-epic-gone-wt-does-not-exist");
+    seedState("run-stale-wt-epic", {
+      phase: "epic-approved",
+      worktree: gone,
+      reservedWorktree: reserved,
+    });
+    freshWindowOk();
+    const reserve = vi.fn(realReserve);
+    expect(
+      runEpicCli(["run", "run-stale-wt-epic"], {
+        cwd: repoDir,
+        epicsDir,
+        stateDir,
+        reserveWorktree: reserve,
+      }),
+    ).toBe(0);
+    expect(reserve).not.toHaveBeenCalled();
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(firstAddDir(command)).toBe(reserved);
+    expect(fs.existsSync(gone)).toBe(false);
+  });
+
+  it("run: a state.worktree missing on disk with no reservedWorktree reserves a fresh folder", () => {
+    gitInit();
+    writeRunManifest("run-stale-fresh-epic");
+    const gone = path.join(os.tmpdir(), "flow-epic-gone-wt-does-not-exist-2");
+    seedState("run-stale-fresh-epic", {
+      phase: "epic-approved",
+      worktree: gone,
+    });
+    freshWindowOk();
+    const reserve = vi.fn(realReserve);
+    expect(
+      runEpicCli(["run", "run-stale-fresh-epic"], {
+        cwd: repoDir,
+        epicsDir,
+        stateDir,
+        reserveWorktree: reserve,
+      }),
+    ).toBe(0);
+    const expected = deriveWorktreePath(
+      fs.realpathSync(repoDir),
+      "run-stale-fresh-epic",
+    );
+    expect(reserve).toHaveBeenCalledTimes(1);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(firstAddDir(command)).toBe(expected);
+    expect(readState("run-stale-fresh-epic", stateDir)?.reservedWorktree).toBe(
+      expected,
+    );
+  });
+
   it("run: with NO state file keeps the derived path and creates no folder", () => {
     gitInit();
     writeRunManifest("run-nostate-epic");
