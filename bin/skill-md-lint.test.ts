@@ -47,6 +47,12 @@ const SKILL_MD_PATH = path.resolve(
   "flow-pipeline",
   "SKILL.md",
 );
+// The pipeline SKILL.md is read as a corpus (core + phase docs); any other
+// path reads as the single file it names.
+const readSkillText = (p: string): string =>
+  path.resolve(p) === SKILL_MD_PATH
+    ? readPipelineSkillCorpus()
+    : fs.readFileSync(p, "utf8");
 const AGENTS_MD_PATH = path.resolve(HERE, "..", "AGENTS.md");
 const SUPERVISOR_RULES_PATH = path.resolve(
   HERE,
@@ -2226,7 +2232,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     ].filter((p, i, arr) => fs.existsSync(p) && arr.indexOf(p) === i);
     let matchCount = 0;
     for (const file of corpus) {
-      const content = fs.readFileSync(file, "utf8");
+      const content = readSkillText(file);
       for (const match of content.matchAll(guardRegex)) {
         matchCount++;
         const [, moduleId, agentName] = match;
@@ -3234,7 +3240,7 @@ describe("blind product critic doc symmetry (plan-time, distinct from the PR-rev
    */
   const skillsDirForCritic = path.resolve(HERE, "..", "skills", "pipeline");
   const readForCritic = (rel: string) =>
-    fs.readFileSync(path.resolve(skillsDirForCritic, rel), "utf8");
+    readSkillText(path.resolve(skillsDirForCritic, rel));
   const t3 = readForCritic("flow-pipeline/references/step3-threading.md");
   const flowPipelineSkill = readForCritic("flow-pipeline/SKILL.md");
 
@@ -5057,7 +5063,7 @@ describe("Task-tool ToolSearch-load preamble at all top-level spawn sites (ten s
     "$file carries the 'Load the Task tool before spawning' preamble and escalation tag for $exemption_name",
     ({ file, exemption_name }) => {
       const absPath = path.resolve(HERE, "..", ...file.split("/"));
-      const fileContent = fs.readFileSync(absPath, "utf8");
+      const fileContent = readSkillText(absPath);
       expect(
         fileContent.includes("Load the Task tool before spawning"),
         `${file} must include the literal 'Load the Task tool before spawning' anchor at ` +
@@ -5110,7 +5116,7 @@ describe("Task-tool ToolSearch-load preamble at all top-level spawn sites (ten s
     "$file names both Task and Agent aliases at the spawn site for $exemption_name",
     ({ file, exemption_name }) => {
       const absPath = path.resolve(HERE, "..", ...file.split("/"));
-      const fileContent = fs.readFileSync(absPath, "utf8");
+      const fileContent = readSkillText(absPath);
       const hasTaskInSkill = fileContent.includes('"name": "Task"');
       const hasAgentInSkill = fileContent.includes('"name": "Agent"');
 
@@ -5203,7 +5209,7 @@ describe("Agent spawn sites resolve plugin-qualified subagent_type on the plugin
     "$file resolves $agent to flow-module-core:$agent on the plugin-root branch, never the bare name",
     ({ file, agent }) => {
       const absPath = path.resolve(HERE, "..", ...file.split("/"));
-      const fileContent = fs.readFileSync(absPath, "utf8");
+      const fileContent = readSkillText(absPath);
       const qualified = `flow-module-core:${agent}`;
       expect(
         fileContent.includes(qualified),
@@ -8923,8 +8929,7 @@ describe("per-phase model-routing wiring lint (feature: per-phase model selectio
   // override to an EXISTING fan-out is NOT a new exemption — these anchors guard
   // the wiring, not a new spawn count.
   const skillsDir = path.resolve(HERE, "..", "skills", "pipeline");
-  const read = (rel: string) =>
-    fs.readFileSync(path.resolve(skillsDir, rel), "utf8");
+  const read = (rel: string) => readSkillText(path.resolve(skillsDir, rel));
 
   it("the central model-routing reference exists with its precedence table", () => {
     const routing = read("flow-pipeline/references/model-routing.md");
@@ -9000,8 +9005,7 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
   // loop: the exact contract strings live in the docs, so an edit that drops or
   // renames one goes red here on `npm run verify`.
   const skillsDir = path.resolve(HERE, "..", "skills", "pipeline");
-  const read = (rel: string) =>
-    fs.readFileSync(path.resolve(skillsDir, rel), "utf8");
+  const read = (rel: string) => readSkillText(path.resolve(skillsDir, rel));
 
   const RANKING_TABLE_HEADER =
     "Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline?";
@@ -10837,7 +10841,7 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
     "$file names the '$siteName' site running flow-md-validate --fix-pr-body before its gh pr edit --body-file call",
     ({ file, siteName, kind, anchor }) => {
       const absPath = path.resolve(HERE, "..", ...file.split("/"));
-      const content = fs.readFileSync(absPath, "utf8");
+      const content = readSkillText(absPath);
       const found =
         kind === "adjacent-lines"
           ? findAdjacentRepairPair(content, anchor)
@@ -10872,7 +10876,7 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
     const filesCovered = [...new Set(BODY_EDIT_SITES.map((s) => s.file))];
     for (const file of filesCovered) {
       const absPath = path.resolve(HERE, "..", ...file.split("/"));
-      const content = fs.readFileSync(absPath, "utf8");
+      const content = readSkillText(absPath);
       const actualCount = (content.match(/gh pr edit .*--body-file/g) ?? [])
         .length;
       const enumeratedCount = BODY_EDIT_SITES.filter(
@@ -11536,7 +11540,7 @@ describe("partial-result-continuation.md pointer-site lint", () => {
     "%s references partial-result-continuation.md",
     (file) => {
       const p = path.resolve(HERE, "..", file);
-      const content = fs.readFileSync(p, "utf8");
+      const content = readSkillText(p);
       expect(
         content.includes("partial-result-continuation.md"),
         `${p} must reference references/partial-result-continuation.md — a dropped pointer silently reverts to immediate *-missing-artifact escalation.`,
@@ -11557,7 +11561,7 @@ describe("partial-result-continuation.md pointer-site lint", () => {
     "%s references partial-result-continuation.md",
     (file) => {
       const p = path.resolve(HERE, "..", file);
-      const content = fs.readFileSync(p, "utf8");
+      const content = readSkillText(p);
       expect(
         content.includes("partial-result-continuation.md"),
         `${p} must reference skills/pipeline/flow-pipeline/references/partial-result-continuation.md.`,
