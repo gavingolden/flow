@@ -483,7 +483,7 @@ describe("render — needs-human (per-reason mapping)", () => {
     it("with no personal rules, points at flow feature resume and never says to edit permissions.allow", () => {
       const home = homeWithSettings(null);
       const out = renderViaRun(home, "merge-permission-denied");
-      expect(out).toContain("flow feature resume");
+      expect(out).toContain("flow feature resume mrh-test-slug");
       expect(out).not.toContain("permissions.allow");
     });
 

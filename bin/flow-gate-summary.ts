@@ -1115,6 +1115,7 @@ function mergeRuleHintFor(
   reason: string | undefined,
   env: NodeJS.ProcessEnv,
   homeDir: string,
+  slug?: string | null,
 ): string | undefined {
   if (!reason || reason.split(":")[0].trim() !== "merge-permission-denied") {
     return undefined;
@@ -1125,7 +1126,7 @@ function mergeRuleHintFor(
   if (entry !== undefined) {
     return `Your Claude settings ask before every flow-merge-guard call (\`${entry}\` in ${resolvedPath}), which makes every merge prompt (\`flow doctor\` checks it).`;
   }
-  return "If this pipeline was launched before flow shipped its own merge rule, `flow feature resume <slug>` relaunches it with the rule; replying `merge #<pr>` also finishes it.";
+  return `If this pipeline was launched before flow shipped its own merge rule, \`flow feature resume ${slug || "<slug>"}\` relaunches it with the rule; replying \`merge #<pr>\` also finishes it.`;
 }
 
 export function run(
@@ -1196,6 +1197,7 @@ export function run(
       parsed.reason,
       opts?.env ?? process.env,
       opts?.homeDir ?? os.homedir(),
+      resolvedSlug,
     ),
   });
   try {
