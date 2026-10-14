@@ -1,6 +1,6 @@
 ## Step 7 — CI + Copilot wait
 
-Contents: Copilot-module precheck · Copilot request decision ·  · Anchors, not an in-process clock · Fix-loop cap: 3 total ci-fix loops · End condition
+Contents: Copilot-module precheck · Copilot request decision · Anchors, not an in-process clock · Fix-loop cap: 3 total ci-fix loops · End condition
 
 **Phase:** `ci-wait`
 
