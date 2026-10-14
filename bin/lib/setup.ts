@@ -1360,10 +1360,13 @@ function printOutcome(
         afterSha: ff.afterSha,
       });
       if (changed.length > 0) log(dim(`      changed: ${changed.join(", ")}`));
-    } else if (ff?.status === "skipped" && ff.reason === "dirty") {
+    } else if (
+      ff?.status === "skipped" &&
+      (ff.reason === "dirty" || ff.reason === "merge-failed")
+    ) {
       log(
         red(
-          `flow: content NOT refreshed (dirty) — links re-pointed but content not refreshed`,
+          `flow: content NOT refreshed (${ff.reason}) — links re-pointed but content not refreshed`,
         ),
       );
     } else if (ff?.status === "skipped" && ff.reason === "non-default-branch") {

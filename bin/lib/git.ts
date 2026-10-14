@@ -110,8 +110,9 @@ export type FastForwardOptions = {
  * Opportunistically fast-forwards `<canonicalRoot>` to `origin/<default>`.
  * Never throws — returns a typed `skipped` reason on any failure so callers
  * (`flow install --upgrade`) can log and continue. Only advances when the
- * working tree is clean, the current branch matches the default, and the
- * fetch succeeds.
+ * working tree has no uncommitted tracked changes (untracked files are
+ * ignored — git's ff-only refuses on its own if one would be overwritten),
+ * the current branch matches the default, and the fetch succeeds.
  */
 export function fastForwardCanonical(
   opts: FastForwardOptions,
@@ -119,10 +120,14 @@ export function fastForwardCanonical(
   const spawn = opts.spawn ?? defaultSpawn;
   const cwd = opts.canonicalRoot;
 
-  const status = spawn("git", ["status", "--porcelain"], {
-    cwd,
-    encoding: "utf8",
-  });
+  const status = spawn(
+    "git",
+    ["status", "--porcelain", "--untracked-files=no"],
+    {
+      cwd,
+      encoding: "utf8",
+    },
+  );
   if (status.status !== 0) {
     return { status: "skipped", reason: "not-a-git-repo" };
   }
