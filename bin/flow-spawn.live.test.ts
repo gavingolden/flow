@@ -178,6 +178,7 @@ describeOnPosix("flow-spawn (live end-to-end)", () => {
   function detachFromEnvelope(
     workDir: string,
     meta: unknown,
+    inheritedEnv: Record<string, string> = {},
   ): { status: number | null; stdout: string } {
     const envelope = path.join(workDir, "envelope.json");
     fs.writeFileSync(envelope, JSON.stringify({ meta }));
@@ -197,7 +198,11 @@ describeOnPosix("flow-spawn (live end-to-end)", () => {
         "--from-envelope",
         envelope,
       ],
-      { cwd: repoRoot, env: launchEnv(), encoding: "utf8" },
+      {
+        cwd: repoRoot,
+        env: { ...launchEnv(), ...inheritedEnv },
+        encoding: "utf8",
+      },
     );
     const pid = Number(r.stdout.trim());
     if (Number.isInteger(pid) && pid > 0) cleanupPgids.push(pid);
@@ -227,6 +232,29 @@ describeOnPosix("flow-spawn (live end-to-end)", () => {
       expect(Number(stdout.trim())).toBeGreaterThan(0);
       expect(await waitForFile(path.join(workDir, "launched.txt"))).toBe(
         "it's up: hi",
+      );
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  }, 15000);
+
+  it("--detach --from-envelope merges meta.env over the inherited env (meta.env wins on a clash)", async () => {
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-spawn-env-"));
+    try {
+      const { status } = detachFromEnvelope(
+        workDir,
+        {
+          launch: `echo "$FLOW_SPAWN_LIVE_INHERITED $FLOW_SPAWN_LIVE_CLASH $GREETING" > merged.txt`,
+          env: { GREETING: "hi", FLOW_SPAWN_LIVE_CLASH: "from-meta" },
+        },
+        {
+          FLOW_SPAWN_LIVE_INHERITED: "from-parent",
+          FLOW_SPAWN_LIVE_CLASH: "from-parent",
+        },
+      );
+      expect(status).toBe(0);
+      expect(await waitForFile(path.join(workDir, "merged.txt"))).toBe(
+        "from-parent from-meta hi",
       );
     } finally {
       fs.rmSync(workDir, { recursive: true, force: true });
