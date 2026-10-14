@@ -348,14 +348,17 @@ describe("NEXT_ACTION_BY_REASON manual merge recipes", () => {
     "merge-failed",
     "merge-resolver-missing-artifact",
     "merge-resolver-spawn-denied",
-  ])("%s never points at flow-merge-guard merge (it cannot leave needs-human)", (reason) => {
-    const text = NEXT_ACTION_BY_REASON[reason]!;
-    expect(text).not.toContain("flow-merge-guard merge");
-    expect(text).toContain("reply done in the pipeline window");
-    expect(text).toContain("merge the PR on GitHub yourself");
-    expect(text).not.toContain("gh pr merge");
-    expect(text).not.toContain("cd <repo>");
-  });
+  ])(
+    "%s never points at flow-merge-guard merge (it cannot leave needs-human)",
+    (reason) => {
+      const text = NEXT_ACTION_BY_REASON[reason]!;
+      expect(text).not.toContain("flow-merge-guard merge");
+      expect(text).toContain("reply done in the pipeline window");
+      expect(text).toContain("merge the PR on GitHub yourself");
+      expect(text).not.toContain("gh pr merge");
+      expect(text).not.toContain("cd <repo>");
+    },
+  );
 });
 
 describe("render — needs-human (per-reason mapping)", () => {

@@ -4799,6 +4799,23 @@ describe("private skill copy (flow-self and --skills-from launches)", () => {
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
+  it("a --skills-from copy failure releases the reserved folder so a retry lands unsuffixed", () => {
+    const branch = path.join(scratch, "branch-checkout");
+    flowLike(branch);
+    fs.writeFileSync(overlaysDir, "");
+    const code = runFeatureCli(
+      ["create", "--skills-from", branch, "CSV export"],
+      baseOptions({
+        flowCanonicalRoot: path.join(scratch, "some-flow"),
+        reserveWorktree: realReserve,
+      }),
+    );
+    expect(code).toBe(1);
+    const base = deriveWorktreePath(fs.realpathSync(repoDir), "csv-export");
+    expect(fs.existsSync(base)).toBe(false);
+    expect(fs.existsSync(`${base}-2`)).toBe(false);
+  });
+
   it("an automatic flow-self copy that cannot be built warns and launches on the shared skills", () => {
     flowLike(repoDir);
     fs.writeFileSync(overlaysDir, "");

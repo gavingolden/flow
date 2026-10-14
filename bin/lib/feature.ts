@@ -982,6 +982,7 @@ function runFresh(
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     if (options.skillsFrom) {
+      releaseReservedWorktree(worktree);
       console.error(
         `flow feature create: could not build the private skill copy: ${reason} — nothing was started; fix that and re-run.`,
       );
@@ -995,13 +996,23 @@ function runFresh(
     overlay = null;
   }
 
-  const settingsPath = launchSettingsPathFor(options);
-  const seed = flowPipelineSeed(slug, description, options.stateDir);
-  // Write the request file BEFORE the launcher dispatch below, so BOTH
-  // backends (plain, the default, dispatches a few lines down; tmux inside
-  // the `launch` closure further below) find it in place — the seed only
-  // carries a REQUEST_FILE pointer, never the verbatim text.
-  writeRequestFile(slug, description, options.stateDir);
+  // No state file records the reservation until the launch writes `starting`,
+  // so a throw from here to that write would leak the empty folder (nothing
+  // for `flow done` or the orphan reaper to find) and push a retry to `-2`.
+  let settingsPath: string;
+  let seed: string;
+  try {
+    settingsPath = launchSettingsPathFor(options);
+    seed = flowPipelineSeed(slug, description, options.stateDir);
+    // Write the request file BEFORE the launcher dispatch below, so BOTH
+    // backends (plain, the default, dispatches a few lines down; tmux inside
+    // the `launch` closure further below) find it in place — the seed only
+    // carries a REQUEST_FILE pointer, never the verbatim text.
+    writeRequestFile(slug, description, options.stateDir);
+  } catch (err) {
+    releaseReservedWorktree(worktree);
+    throw err;
+  }
 
   // Read + parse `~/.flow/config.json` at most once for this launch and
   // share it across every reader below (models.default, launch.<key>
@@ -1716,9 +1727,11 @@ function runResume(
  * with `branch === slug`); `toDirSuffix` is a no-op for a slash-free slug but
  * is reused here so the two derivations cannot drift. This is the COMMON-CASE
  * path only — when `<repo>-<slug>` already exists (parallel pipelines, stale
- * worktrees), `findAvailableSlot` auto-suffixes (`-2`/`-3`/…); the launch
- * reserves whichever slot wins (`reserveWorktreeSlot`) and `flow-new-worktree`
- * fills that same folder, so the reserved path may diverge from this value.
+ * worktrees), `findAvailableSlot` auto-suffixes (`-2`/`-3`/…). `flow feature
+ * create` reserves whichever slot wins (`reserveWorktreeSlot`) and
+ * `flow-new-worktree` fills that same folder, so the reserved path may diverge
+ * from this value. Epic launches (`epic.ts`) do NOT reserve: they pass this
+ * derived path straight to `--add-dir`, so the folder may not exist yet.
  */
 export function deriveWorktreePath(repo: string, slug: string): string {
   return path.join(
@@ -1751,10 +1764,11 @@ function resumeWorktree(state: PipelineState, slug: string): string {
  * Prepend `--add-dir <worktree>` so the chrome-devtools MCP treats the
  * per-pipeline worktree as a workspace root, letting `take_screenshot
  * --filePath` write UI evidence into `<worktree>/.flow-tmp/ui-evidence/`
- * instead of falling back to the session cwd (issue #317). The folder exists
- * at launch — `flow feature create` reserves it (empty) before Claude starts,
- * because a non-existent `--add-dir` path is dropped — and step 2's
- * `flow-new-worktree` fills that same folder. The a11y snapshot remains the
+ * instead of falling back to the session cwd (issue #317). For feature
+ * launches the folder exists at launch — `flow feature create` reserves it
+ * (empty) before Claude starts, because a non-existent `--add-dir` path is
+ * dropped — and step 2's `flow-new-worktree` fills that same folder. (Epic
+ * launches have their own `launchArgv` in `epic.ts` and do not reserve.) The a11y snapshot remains the
  * evidence gate regardless; this only makes the supplementary screenshot
  * artifact land in the documented preferred path. NOTE: `--add-dir` is
  * documented to grant Claude Code's own file-tool access; its propagation to
