@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { withoutGitLocalEnv } from "./git-local-env";
 
 /**
  * Shared repo-root resolver. Consolidates four divergent copies that used to
@@ -14,6 +15,7 @@ export function resolveRepoRoot(cwd: string): string | null {
   const r = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
     encoding: "utf8",
     timeout: 2000,
+    env: withoutGitLocalEnv(process.env),
   });
   if (r.status !== 0) return null;
   const out = r.stdout.trim();
@@ -31,6 +33,7 @@ export function resolveGitCommonDir(cwd: string): string | null {
   const r = spawnSync("git", ["-C", cwd, "rev-parse", "--git-common-dir"], {
     encoding: "utf8",
     timeout: 2000,
+    env: withoutGitLocalEnv(process.env),
   });
   if (r.status !== 0) return null;
   const out = r.stdout.trim();
