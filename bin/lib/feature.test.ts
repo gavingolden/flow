@@ -144,10 +144,15 @@ vi.mock("./liveness", async () => {
 
 import { FLOW_CLAUDE_HOME, installedHelperPath } from "./paths";
 import {
+  FLOW_MERGE_ALLOW_RULE,
+  FLOW_OVERRIDE_ASK_RULES,
+} from "./merge-allow-rule";
+import {
   runNew as runNewReal,
   runFeatureCli as runFeatureCliReal,
   deriveWorktreePath,
   ensureLaunchSettings,
+  launchSettingsPermissions,
   flowPipelineResumeSeed,
   resolveSeedHookCommand,
   type FeatureOptions,
@@ -4306,9 +4311,13 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(fs.statSync(settingsPath).mtimeMs).toBe(firstMtime);
   });
 
-  function readPermissions(): { deny: string[]; allow: string[] } {
+  function readPermissions(): {
+    deny: string[];
+    allow: string[];
+    ask: string[];
+  } {
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
-      permissions: { deny: string[]; allow: string[] };
+      permissions: { deny: string[]; allow: string[]; ask: string[] };
     };
     return settings.permissions;
   }
@@ -4358,6 +4367,33 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(allow).toContain("Bash(flow-create-issue *)");
     expect(allow).toContain("Bash(flow-ui-login check *)");
     expect(allow).toContain("Bash(flow-ui-login test-account *)");
+  });
+
+  it("pre-approves exactly the merge call and no other flow-merge-guard allow entry", () => {
+    ensureLaunchSettings(settingsPath);
+    const { allow } = readPermissions();
+    expect(allow).toContain(FLOW_MERGE_ALLOW_RULE);
+    expect(allow.filter((r) => r.startsWith("Bash(flow-merge-guard"))).toEqual([
+      FLOW_MERGE_ALLOW_RULE,
+    ]);
+  });
+
+  it("asks on exactly the two --record-override rules, never a merge-covering ask", () => {
+    ensureLaunchSettings(settingsPath);
+    const { ask } = readPermissions();
+    expect(ask).toEqual([...FLOW_OVERRIDE_ASK_RULES]);
+    expect(
+      ask.filter(
+        (r) =>
+          r.startsWith("Bash(flow-merge-guard") &&
+          !r.includes("--record-override"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("launchSettingsPermissions() matches the written file", () => {
+    ensureLaunchSettings(settingsPath);
+    expect(readPermissions()).toEqual(launchSettingsPermissions());
   });
 
   it("a second call with permissions already present leaves the file unchanged", () => {

@@ -77,9 +77,8 @@ import {
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { finalizePhase } from "./lib/phase-advance";
 import {
-  broaderRuleFix,
-  FLOW_MERGE_ALLOW_RULE,
-  readMergeAllowRule,
+  classifyAllShellOn,
+  findMergeCoveringAskEntry,
 } from "./lib/merge-allow-rule";
 import { userSettingsPath } from "./lib/claude-user-settings";
 import { recordEvent } from "./lib/telemetry";
@@ -1109,26 +1108,32 @@ function resolveCleanupInput(
 }
 
 /**
- * The conditional rule line for a `merge-permission-denied` pause: present
- * only when the user's settings lack the exact merge allow rule (when it is
- * present the refusal came from elsewhere, e.g. a wrapped call). Read-only.
+ * The conditional line for a `merge-permission-denied` pause. flow's launch
+ * settings already carry the merge rule, so the cause is either a personal
+ * `permissions.ask` entry that makes every merge prompt, or a pipeline
+ * launched before flow shipped the rule. Read-only; never tells the owner to
+ * paste a rule.
  */
 function mergeRuleHintFor(
   reason: string | undefined,
   env: NodeJS.ProcessEnv,
   homeDir: string,
+  slug?: string | null,
+  prUrl?: string,
 ): string | undefined {
   if (!reason || reason.split(":")[0].trim() !== "merge-permission-denied") {
     return undefined;
   }
-  const { status, resolvedPath, exactPresent } = readMergeAllowRule(
-    userSettingsPath(env, homeDir),
-  );
-  if (status === "present") return undefined;
-  if (status === "broader") {
-    return `Your settings carry a broader flow-merge-guard rule that also pre-approves recording a gate override: ${broaderRuleFix(resolvedPath, exactPresent === true)} (\`flow doctor\` checks it).`;
+  const pr = (prUrl && extractPrNumber(prUrl)) || "<pr>";
+  const settingsPath = userSettingsPath(env, homeDir);
+  const { entry, resolvedPath } = findMergeCoveringAskEntry(settingsPath);
+  if (entry !== undefined) {
+    return `Your Claude settings ask before every flow-merge-guard call (\`${entry}\` in ${resolvedPath}), which makes every merge prompt. Narrow or delete that entry (\`flow doctor\` checks it), or reply \`merge #${pr}\` to finish this one.`;
   }
-  return `Future merges will be refused the same way until you add \`${FLOW_MERGE_ALLOW_RULE}\` to permissions.allow in ${resolvedPath} (\`flow doctor\` checks it).`;
+  if (classifyAllShellOn(settingsPath)) {
+    return `Your Claude settings turn on \`autoMode.classifyAllShell\` (${settingsPath}), which makes auto mode ignore every Bash allow rule, so relaunching will not help; reply \`merge #${pr}\` to finish this one.`;
+  }
+  return `If this pipeline was launched before flow shipped its own merge rule, \`flow feature resume ${slug || "<slug>"}\` relaunches it with the rule; replying \`merge #${pr}\` also finishes it.`;
 }
 
 export function run(
@@ -1199,6 +1204,8 @@ export function run(
       parsed.reason,
       opts?.env ?? process.env,
       opts?.homeDir ?? os.homedir(),
+      resolvedSlug,
+      parsed.prUrl,
     ),
   });
   try {

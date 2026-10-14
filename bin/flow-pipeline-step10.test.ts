@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
  * Doc-lint regression for `/flow-pipeline` step 10's merge invocation.
  *
  * Step 10 runs `flow-merge-guard merge "$PR"` as a standalone Bash call so
- * the owner's user-global allow rule `Bash(flow-merge-guard merge *)` matches
+ * flow's launch-settings allow rule `Bash(flow-merge-guard merge *)` matches
  * it (a `$(...)` wrapper, pipe or `cd ... &&` prefix never would). The bare
  * `gh pr merge --squash` and its base-checkout cwd (gh's post-merge `git
  * checkout <base>` collides with a feature worktree) live in the helper and
@@ -60,7 +60,7 @@ const STEP_10 = extractStep10(skillContent);
 
 describe("flow-pipeline SKILL.md step 10 — standalone gate-checked merge", () => {
   it('invokes `flow-merge-guard merge "$PR"` as its own standalone Bash call', () => {
-    // The owner's user-global allow rule `Bash(flow-merge-guard merge *)`
+    // flow's launch-settings allow rule `Bash(flow-merge-guard merge *)`
     // only matches a standalone call: a `$(...)` wrapper, a pipe or a
     // `cd ... &&` prefix falls back to the permission classifier.
     const needle = 'flow-merge-guard merge "$PR"';
@@ -347,5 +347,20 @@ describe("manual-merge instructions are one standalone gate-checked command", ()
     expect(
       compoundMergeLines("`flow-merge-guard merge 5 --slug s` in a terminal"),
     ).toEqual([]);
+  });
+});
+
+describe("flow-owned merge and override rules replace the paste-a-rule docs", () => {
+  const read = (...p: string[]) =>
+    fs.readFileSync(path.join(REPO_ROOT, ...p), "utf8");
+
+  it("docs, SKILL.md and the contract no longer tell the owner to paste a rule", () => {
+    expect(read("docs", "configuration.md")).not.toContain(
+      "Confirming a gate override",
+    );
+    expect(skillContent).not.toContain("user-global allow rule");
+    expect(read("references", "consumer-repo-contract.md")).toContain(
+      "flow-merge-guard * --record-override",
+    );
   });
 });

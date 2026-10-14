@@ -6,8 +6,7 @@ import { checkAgy } from "./doctor-agy";
 import {
   checkClaude,
   checkGh,
-  checkMergeAllowRule,
-  checkOverrideAskRule,
+  checkPipelinePermissions,
   checkTmux,
 } from "./doctor-tools";
 import { makeDeps, scriptedRun, type RunCall } from "./doctor-test-deps";
@@ -288,75 +287,10 @@ describe("checkAgy", () => {
   });
 });
 
-describe("checkMergeAllowRule", () => {
-  function settingsAt(dir: string, body: string): string {
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, "settings.json");
-    fs.writeFileSync(file, body);
-    return fs.realpathSync(file);
-  }
-
-  it("passes when the rule is in CLAUDE_CONFIG_DIR/settings.json, naming the resolved file", () => {
-    const cfg = path.join(root, "cfg");
-    const file = settingsAt(
-      cfg,
-      JSON.stringify({
-        permissions: { allow: ["Bash(flow-merge-guard merge *)"] },
-      }),
-    );
-    const [c] = checkMergeAllowRule(
-      makeDeps(root, { env: { CLAUDE_CONFIG_DIR: cfg } }),
-    );
-    expect(c).toMatchObject({ id: "tools-merge-rule", status: "pass" });
-    expect(c.summary).toContain(file);
-  });
-
-  it("warns for a broader rule, saying it also pre-approves recording a gate override", () => {
-    const file = settingsAt(
-      path.join(root, "home", ".claude"),
-      JSON.stringify({ permissions: { allow: ["Bash(flow-merge-guard *)"] } }),
-    );
-    const [c] = checkMergeAllowRule(makeDeps(root));
-    expect(c.status).toBe("warn");
-    expect(c.details.join(" ")).toContain(
-      "also pre-approves recording a gate override",
-    );
-    expect(c.summary).not.toContain("refused");
-    expect(c.fix).toBe(
-      `replace the broader Bash(flow-merge-guard …) entry in permissions.allow in ${file} with "Bash(flow-merge-guard merge *)"`,
-    );
-  });
-
-  it("warns for a broader rule even when the exact rule is also present, telling the owner to remove it", () => {
-    const file = settingsAt(
-      path.join(root, "home", ".claude"),
-      JSON.stringify({
-        permissions: {
-          allow: ["Bash(flow-merge-guard merge *)", "Bash(flow-merge-guard *)"],
-        },
-      }),
-    );
-    const [c] = checkMergeAllowRule(makeDeps(root));
-    expect(c.status).toBe("warn");
-    expect(c.fix).toBe(
-      `remove the broader Bash(flow-merge-guard …) entry from permissions.allow in ${file}; keep "Bash(flow-merge-guard merge *)"`,
-    );
-  });
-
-  it("warns on a missing file and on malformed JSON", () => {
-    const [missingFile] = checkMergeAllowRule(makeDeps(root));
-    expect(missingFile.status).toBe("warn");
-    expect(missingFile.details.join(" ")).toContain("does not exist");
-    settingsAt(path.join(root, "home", ".claude"), "{ nope");
-    const [bad] = checkMergeAllowRule(makeDeps(root));
-    expect(bad.status).toBe("warn");
-    expect(bad.details.join(" ")).toContain("not a valid JSON object");
-  });
-});
-
-describe("checkOverrideAskRule", () => {
+describe("checkPipelinePermissions", () => {
   const BARE = "Bash(flow-merge-guard * --record-override)";
   const ARGS = "Bash(flow-merge-guard * --record-override *)";
+  const home = () => path.join(root, "home", ".claude");
 
   function settingsAt(dir: string, body: string): string {
     fs.mkdirSync(dir, { recursive: true });
@@ -365,61 +299,60 @@ describe("checkOverrideAskRule", () => {
     return fs.realpathSync(file);
   }
   const askBody = (ask: string[]) => JSON.stringify({ permissions: { ask } });
-  const home = () => path.join(root, "home", ".claude");
 
-  it("passes when both rules are in permissions.ask, naming the resolved file", () => {
-    const file = settingsAt(home(), askBody([BARE, ARGS]));
-    const [c] = checkOverrideAskRule(makeDeps(root));
-    expect(c).toMatchObject({ id: "tools-override-ask", status: "pass" });
-    expect(c.summary).toContain(file);
-    expect(c.summary).not.toContain("always asks");
+  it("passes with no personal settings file", () => {
+    const [c] = checkPipelinePermissions(makeDeps(root));
+    expect(c).toMatchObject({
+      id: "tools-pipeline-permissions",
+      status: "pass",
+    });
+    expect(c.summary).toContain("launch settings");
+    expect(c.details).toEqual([]);
   });
 
-  it("warns for a partial pair, naming only the missing line and the file", () => {
-    const file = settingsAt(home(), askBody([BARE]));
-    const [c] = checkOverrideAskRule(makeDeps(root));
-    expect(c.status).toBe("warn");
-    expect(c.fix).toBe(`add "${ARGS}" to permissions.ask in ${file}`);
+  it("passes with a malformed settings file", () => {
+    settingsAt(home(), "{ nope");
+    const [c] = checkPipelinePermissions(makeDeps(root));
+    expect(c.status).toBe("pass");
   });
 
-  it("skips (opt-in not set up) for an absent pair, naming both lines and not overstating the risk", () => {
-    const file = settingsAt(home(), askBody([]));
-    const [c] = checkOverrideAskRule(makeDeps(root));
-    expect(c.status).toBe("skip");
-    const line = `add "${BARE}" and "${ARGS}" to permissions.ask in ${file}`;
-    expect(c.fix).toBe(line);
-    expect(c.details).toContain(`to opt in: ${line}`);
-    expect(c.summary).toContain("pipeline's own confirmation");
-    expect(c.summary).not.toContain("will not ask you first");
+  it("passes with only the two override rules in personal ask", () => {
+    settingsAt(home(), askBody([BARE, ARGS]));
+    const [c] = checkPipelinePermissions(makeDeps(root));
+    expect(c.status).toBe("pass");
   });
 
-  it("warns for a merge-covering ask entry, naming it as the one to narrow", () => {
+  it("passes with an informational detail when autoMode.classifyAllShell is on", () => {
+    settingsAt(
+      home(),
+      JSON.stringify({ autoMode: { classifyAllShell: true } }),
+    );
+    const [c] = checkPipelinePermissions(makeDeps(root));
+    expect(c.status).toBe("pass");
+    expect(c.details.join(" ")).toContain("autoMode.classifyAllShell");
+    expect(c.details.join(" ")).toContain("merge #<pr>");
+  });
+
+  it("warns for a merge-covering personal ask entry, naming it and the real file", () => {
     const file = settingsAt(
       home(),
       askBody([BARE, ARGS, "Bash(flow-merge-guard *)"]),
     );
-    const [c] = checkOverrideAskRule(makeDeps(root));
+    const [c] = checkPipelinePermissions(makeDeps(root));
     expect(c.status).toBe("warn");
-    expect(c.details.join(" ")).toContain("Bash(flow-merge-guard *)");
+    expect(c.summary).toContain("Bash(flow-merge-guard *)");
     expect(c.fix).toContain('narrow "Bash(flow-merge-guard *)"');
     expect(c.fix).toContain(file);
   });
 
-  it("skips on a missing file and warns on malformed JSON, naming the path", () => {
-    const [missingFile] = checkOverrideAskRule(makeDeps(root));
-    expect(missingFile.status).toBe("skip");
-    expect(missingFile.details.join(" ")).toContain("does not exist");
-    expect(missingFile.fix).toContain("settings.json");
-    settingsAt(home(), "{ nope");
-    const [bad] = checkOverrideAskRule(makeDeps(root));
-    expect(bad.status).toBe("warn");
-    expect(bad.details.join(" ")).toContain("not a valid JSON object");
-  });
-
-  it("never rewrites the settings file", () => {
-    const file = settingsAt(home(), askBody([BARE]));
+  it("reads CLAUDE_CONFIG_DIR/settings.json and never rewrites the file", () => {
+    const cfg = path.join(root, "cfg");
+    const file = settingsAt(cfg, askBody(["Bash(flow-merge-guard *)"]));
     const before = fs.readFileSync(file, "utf8");
-    checkOverrideAskRule(makeDeps(root));
+    const [c] = checkPipelinePermissions(
+      makeDeps(root, { env: { CLAUDE_CONFIG_DIR: cfg } }),
+    );
+    expect(c.status).toBe("warn");
     expect(fs.readFileSync(file, "utf8")).toBe(before);
   });
 });
