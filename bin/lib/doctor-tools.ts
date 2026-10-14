@@ -5,13 +5,13 @@
  * of claude's own error.
  */
 
+import { userSettingsPath } from "./claude-user-settings";
 import type { DoctorCheck, DoctorDeps } from "./doctor";
 import { installCommand } from "./doctor-util";
 import {
   broaderRuleFix,
   FLOW_MERGE_ALLOW_RULE,
   readMergeAllowRule,
-  userSettingsPath,
   type MergeRuleStatus,
 } from "./merge-allow-rule";
 import { readConfigFileAt } from "./modules-config";
