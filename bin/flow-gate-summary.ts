@@ -295,6 +295,10 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "merge-permission-denied": `Reply merge #<pr> in the pipeline window to re-check the gate, merge and clean up.
   1. Attach (flow attach <slug>).
   2. Reply merge #<pr>, or close the window first, then run flow feature resume <slug>`,
+  "merge-refused": `Fix what the merge guard named, then reply done in the pipeline window.
+  1. Attach (flow attach <slug>).
+  2. Read the reason above and fix it (the PR open and this pipeline's own, auto-merge allowed, CI settled).
+  3. ${CONTINUE_OR_RESUME_STEP}`,
   "merge-failed": `Resolve the conflicts yourself, or let the pipeline retry the merge.
   1. Inspect <worktree>/.flow-tmp/merge-resolver-result.json (if present).
   2. Resolve conflicts manually, then run (cd <repo> && gh pr merge --squash <pr>) yourself, OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
@@ -394,6 +398,7 @@ export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
     "flow attach <slug>",
     "flow feature resume <slug>",
   ],
+  "merge-refused": ["flow attach <slug>", "flow feature resume <slug>"],
   "merge-failed": ["cd <repo> && gh pr merge --squash <pr>"],
   "merge-resolver-missing-artifact": ["cd <repo> && gh pr merge --squash <pr>"],
   "merge-resolver-spawn-denied": [
@@ -497,6 +502,8 @@ export const WHY_BY_REASON: Record<string, string> = {
     "The PR still has unchecked Test Steps, and the merge guard will not merge it without your fresh confirmation.",
   "merge-permission-denied":
     "The permission system refused the merge although every check passed; nothing was merged and nothing is lost.",
+  "merge-refused":
+    "The merge guard refused the merge because a precondition it re-checks did not hold; nothing was merged and nothing is lost.",
   "merge-failed":
     "The automatic merge-conflict resolver could not finish the merge.",
   "merge-resolver-missing-artifact":

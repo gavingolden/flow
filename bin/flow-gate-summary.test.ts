@@ -337,6 +337,15 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(out).toContain("permission rule");
   });
 
+  it("maps merge-refused to a fix-the-cause recipe that replies done and never offers an override", () => {
+    const out = render({ status: "needs-human", reason: "merge-refused" });
+    expect(out).toContain("Fix what the merge guard named");
+    expect(out).toContain("flow feature resume <slug>");
+    expect(out).not.toContain("confirm the merge override");
+    expect(whyForReason("merge-refused")).toContain("merge guard refused");
+    expect(finalLine(out)).toBe("NEEDS HUMAN: merge-refused");
+  });
+
   it("maps merge-permission-denied to the one-reply recipe naming merge #<pr> and flow feature resume", () => {
     const out = render({
       status: "needs-human",

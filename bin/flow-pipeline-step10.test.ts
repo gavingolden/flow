@@ -122,6 +122,27 @@ describe("flow-pipeline SKILL.md step 10 — standalone gate-checked merge", () 
     expect(rubricContent).not.toContain('(cd "$PRIMARY" && gh pr merge');
   });
 
+  it("routes merge refusals by .reason instead of one catch-all tag", () => {
+    for (const needle of [
+      "`checks-pending` / `checks-unreadable`",
+      "`checks-failed`",
+      "`gate-blocked`",
+      "`merge-refused`",
+      '--reason "$TAG"',
+    ]) {
+      expect(STEP_10).toContain(needle);
+    }
+    expect(STEP_10).toContain("gate-override-without-confirmation");
+  });
+
+  it("re-enters step 7 after a resolver push instead of re-running the merge immediately", () => {
+    const at = STEP_10.indexOf("`push_status`. If `succeeded`");
+    expect(at).toBeGreaterThan(-1);
+    const item = STEP_10.slice(at, at + 700);
+    expect(item).toMatch(/re-enter step 7/);
+    expect(item).not.toMatch(/exactly once/);
+  });
+
   it("routes a permission-refused merge call to the merge-permission-denied pause with its own reap", () => {
     const at = STEP_10.indexOf("--reason merge-permission-denied");
     expect(at).toBeGreaterThan(-1);

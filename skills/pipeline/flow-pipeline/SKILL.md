@@ -2311,12 +2311,11 @@ merge path. It re-fetches the *live* PR body and checks (the same audited
 merge — unless the PR is open and this pipeline's own, the section has zero
 unchecked items **or** a fresh gate-override token exists (written by the step 9
 "Gate override" sub-step), `autoMerge` is not `false` (or that token is
-fresh), and CI has no pending or failed check. On pass it writes `merging`
-and runs a bare `gh pr merge --squash` — no `--body`, no `--subject`, so gh
-builds the squash body from the branch's commit messages (issue #486
-re-litigated this and lost; see
-[references/git-workflow.md](../../../references/git-workflow.md)) — from
-the base checkout, never the feature worktree: gh's post-merge `git
+fresh), and every CI check is passing. On pass it writes `merging` and runs a
+bare `gh pr merge --squash` — no `--body`, no `--subject`, so gh builds the
+squash body from the branch's commit messages (issue #486 re-litigated this
+and lost; see [references/git-workflow.md](../../../references/git-workflow.md))
+— from the base checkout, never the feature worktree: gh's post-merge `git
 checkout <base>` would collide with the primary checkout.
 
 Run it as its **own standalone Bash call** — never inside `$(...)`, a pipe,
@@ -2336,11 +2335,17 @@ call). Read that file, never a stdout capture, and branch on `.decision`:
 - **`merged`** (exit 0, including `reason: already-merged`) — continue to the
   post-merge sweep below.
 - **`refused`** (exit 1), **`error`** (exit 2), or exit 127 (helper missing:
-  run `flow install --upgrade`) — escalate
-  `gate-override-without-confirmation` and end. Never merge past the guard,
-  never retry it.
+  run `flow install --upgrade`) — never merge past the guard or retry it in
+  place. Route on the `.reason` prefix: `checks-pending` / `checks-unreadable`
+  — CI has not settled, re-enter step 7, then steps 9 and 10; `checks-failed`
+  — the step 7 `ci-failed` path; `gate-blocked` — escalate
+  `gate-override-without-confirmation`; anything else (`pr-not-owned`,
+  `pr-not-open`, `auto-merge-disabled`, `phase-not-advanceable`,
+  `checks-unrecognised`, `error`, a missing helper) — escalate
+  `merge-refused`. Both escalations render the same block:
 
   ```bash
+  TAG=merge-refused  # or gate-override-without-confirmation, per the routing above
   PR_URL=$(gh pr view "$PR" --json url -q .url 2>/dev/null)
   GUARD_REASON=$(jq -r '.reason // empty' "$WORKTREE/.flow-tmp/merge-result.json" 2>/dev/null)
   GUARD_REASON=${GUARD_REASON:-"flow-merge-guard merge produced no result (helper missing from PATH? run flow install --upgrade)"}
@@ -2349,22 +2354,23 @@ call). Read that file, never a stdout capture, and branch on `.decision`:
   TLDR="Merge was refused by the merge guard; nothing was merged."
   LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)
   flow-gate-summary --status needs-human \
-    --reason gate-override-without-confirmation --cleanup \
+    --reason "$TAG" --cleanup \
     --pr-url "$PR_URL" --why "$GUARD_REASON" \
     --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" \
     --tldr "$TLDR" --lens "$LENS"  # records phase: needs-human itself (flow-gate-summary is the sole terminal-phase emitter)
   flow-notify --status needs-human --url "$PR_URL" \
-    --reason "$TLDR" --tag gate-override-without-confirmation
+    --reason "$TLDR" --tag "$TAG"
   ```
 - **`merge-failed`** (exit 3) with `failureClass: conflict` — spawn the
-  Independent Merge-Conflict Resolver Subagent (below), then re-run the same
-  standalone call **exactly once**.
+  Independent Merge-Conflict Resolver Subagent (below), then follow its
+  step 3 (CI re-runs on the pushed head first).
 - **`merge-failed`** with `failureClass: other` (auth, network,
   branch-protection denial, required check failed, PR closed externally,
   any unrecognised stderr) — re-run the same standalone call once. Do
   **not** spawn the resolver: it can't help with non-conflict failures and
   would waste a Task call.
-- **Still `merge-failed` after that one retry** — author `TLDR="The merge
+- **Still `merge-failed` after that one retry** (or a second conflict-class
+  failure after a resolver push) — author `TLDR="The merge
   failed after a retry; nothing was lost."`, capture follow-ups
   (`flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"`),
   render via `flow-gate-summary --status needs-human --reason merge-failed
@@ -2459,24 +2465,18 @@ and the filled prompt. After it returns:
    `NEEDS HUMAN: merge-resolver-missing-artifact` and end. (Do not
    re-spawn the resolver — exactly one Task call per run, per the
    exemption contract.) Then the standard `# Failure paths` chain.
-3. Read the artifact's `push_status`. If `succeeded`, re-run the same
-   standalone `flow-merge-guard merge "$PR"` call **exactly once** and
-   read `.flow-tmp/merge-result.json` again. If `failed` or `skipped`,
-   do not retry — author `TLDR="The
+3. Read the artifact's `push_status`. If `succeeded`, the push moved the head
+   and CI re-runs on it, so a merge call now would refuse `checks-pending`:
+   re-enter step 7 (CI wait), then steps 9 and 10, which call `flow-merge-guard
+   merge "$PR"` again. Spawn the resolver at most once per run — a later
+   conflict-class failure takes the "Still `merge-failed`" bullet above. If
+   `failed` or `skipped`, do not retry — author `TLDR="The
    conflict-resolver's push didn't take; the merge still needs you."`
    and render the NEEDS HUMAN block via `flow-gate-summary --status needs-human
    --reason merge-failed --pr-url "$PR_URL" --why "$(jq -r
    .summary "$ARTIFACT_PATH" | head -1)" --tldr "$TLDR" --lens "$(jq -r
    '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)"`. End.
-   Then the standard `# Failure paths` chain.
-4. On retry success, continue to the post-merge sweep below.
-5. On retry failure, author `TLDR="The retried merge still failed;
-   nothing was lost — the resolved branch is on disk."` and render the
-   NEEDS HUMAN block via `flow-gate-summary --status needs-human
-   --reason merge-failed --pr-url "$PR_URL" --why "$(jq -r .summary
-   "$ARTIFACT_PATH" | head -1)" --tldr "$TLDR" --lens "$(jq -r
-   '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)"`. End. Then
-   the standard `# Failure paths` chain. The artifact stays on disk in
+   Then the standard `# Failure paths` chain. The artifact stays on disk in
    the worktree for human inspection.
 
 On success, the roadmap row for this PR was already flipped to
@@ -2864,7 +2864,7 @@ Branch on `.resumeAt`:
 | `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — which re-runs `flow-pipeline-summary ... --echo-prose ...` and re-echoes the recap verbatim per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection — then render the MERGED block via `flow-gate-summary --status merged ...` (same `--tldr`/`--lens` augmentation as step 11's MERGED block; records `phase: merged` itself, only after its block reaches stdout) then, since arming first would be stale on arrival, best-effort checkpoint: `[ "$(flow-checkpoint --probe --site terminal \| jq -r '.verdict')" = write ] && echo "Pipeline reached MERGED at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null` (stdout muted, stderr deliberately left connected — echo the `checkpointed: ` line verbatim per the [Checkpoint arm signal (echo-verbatim)](#checkpoint-arm-signal-echo-verbatim) subsection) and run `flow-remove-worktree --delete-branch`, end; **do not** fall through to step 10's merge on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
 | `gated-feedback` | Re-enter feedback mode for a `gated` PR carrying a checkpoint marker. Print `RESUMING AT: gated-feedback (gated-with-checkpoint-marker)`, re-inject `$CHECKPOINT_PATH` (the generic checkpoint re-injection above), then position to take a bug callout → route it through the `/flow-coder` interactive redirect → re-verify (step 6) → re-gate (step 9). **This loop introduces no new merge path and never merges on its own authority:** its re-gate re-enters the normal step 9 gate, which routes every merge through the existing `flow-merge-guard` backstop (Decision A1) — a still-`gated` PR ends terminally at `gated`; the only merge routes are the user ticking all Test Steps boxes (gate re-reads `auto-merge`, `flow-merge-guard` confirms zero-unchecked) or the existing gate-override token. Then `flow-checkpoint --consume` to retire the body (archive to `checkpoint.consumed.md`, clear the freshness record) and drop the one-shot marker. The loop's phase writes are exactly `verifying` (step 6) and `gating` (step 9) — the `/flow-coder` step itself writes no phase — and both are allowlisted in `TERMINAL_EXIT_TRANSITIONS` (`bin/lib/state.ts`) so they no longer trip the exit-4 terminal-regression guard. |
 | `browser-retry` | Re-enter step 9's `browser-retry` re-drive for a `browser-retry-pending` PR. Print `RESUMING AT: browser-retry (browser-retry-pending-open-browser-items)`, re-run `flow-gate-decide "$PR"` to recompute `.browserItems`, then record phase `reviewing` (Step 8's head fence) and run `/flow-pr-review "$PR" --resume-from 8c --browser-items <indices>` (the marker is ignored: a human asked), then step 9 again. |
-| `awaiting-human` | A `needs-human` pipeline with a live worktree and no PR, or an open PR (mirrors `gated`). Print `RESUMING AT: awaiting-human (needs-human-awaiting-human-step)`. When `$CHECKPOINT_EXISTS` is true, read `$CHECKPOINT_PATH` per the generic checkpoint re-injection above, but do NOT run `flow-checkpoint --consume` at this pause — consume only on the confirming reply, so a second `/clear` before `done` re-resumes into the same pause. Resolve the effective step BEFORE rendering: checkpoint notes that explicitly name a `step-N` target override `.context.continueAt`, so the step shown here is always the step a `done` reply uses. Render the pause per `references/pause-output-contract.md` (`**TLDR:**` paused waiting on you; `**Manual action:**` the human step from the notes; when no notes are usable, say plainly that the pending step's details were not recorded and ask what it was — never print `.reason` (an internal verdict tag, e.g. `needs-human-awaiting-human-step`, not a human-facing description); when the pause's last `phaseLog` row carries an `outcome` (e.g. the stop guard's `stalled at <phase> after <n> blocked stops — reply …`), show it as the cause; `**Next action:**` reply `done` to continue at the effective step — or `merge #<pr>` at a `merge-permission-denied` pause — or redirect / cancel) and end the turn. **This row never continues the pipeline before the user confirms the human step is done.** On a later affirmative reply: run `flow-checkpoint --consume`, then `flow-state-update --phase "$(printf '%s' "$RESULT" \| jq -r '.context.continuePhase')"` with no `--force` (allowlisted in `TERMINAL_EXIT_TRANSITIONS`; it grants no merge authority — its FEATURE continue phases are exactly `planning`, `plan-pending-review`, `implementing`, `installing-skills`, `verifying`, `ci-wait`, `reviewing`, `gating` (the four epic-design continue phases in the same allowlist belong to `/flow-epic-create`'s Resume mode), and `merging` is never one, so any merge always re-runs the step 9 gate — a merge-failed pause continues at that gate, never straight to a merge; a `merge #<pr>` reply is this same affirmative reply, continuing `gating` → step 9 `flow-gate-decide` → step 10), then re-enter the resume row for the effective step shown at the pause. A reply carrying detail or an instruction is an imperative redirect applied at that step; `cancel` runs the Mid-flight redirects cancel path. When `.context.continueAt` is absent, ask one clarifying question naming the escalation reason. |
+| `awaiting-human` | A `needs-human` pipeline with a live worktree and no PR, or an open PR (mirrors `gated`). Print `RESUMING AT: awaiting-human (needs-human-awaiting-human-step)`. When `$CHECKPOINT_EXISTS` is true, read `$CHECKPOINT_PATH` per the generic checkpoint re-injection above, but do NOT run `flow-checkpoint --consume` at this pause — consume only on the confirming reply, so a second `/clear` before `done` re-resumes into the same pause. Resolve the effective step BEFORE rendering: checkpoint notes that explicitly name a `step-N` target override `.context.continueAt`, so the step shown here is always the step a `done` reply uses. Render the pause per `references/pause-output-contract.md` (`**TLDR:**` paused waiting on you; `**Manual action:**` the human step from the notes; when no notes are usable, say plainly that the pending step's details were not recorded and ask what it was — never print `.reason` (an internal verdict tag, e.g. `needs-human-awaiting-human-step`, not a human-facing description); when the pause's last `phaseLog` row carries an `outcome` (e.g. the stop guard's `stalled at <phase> after <n> blocked stops — reply …`), show it as the cause; `**Next action:**` reply `done` to continue at the effective step — or `merge #<pr>` at a `merge-permission-denied` pause or a stop-guard stall at `gating`/`merging` — or redirect / cancel) and end the turn. **This row never continues the pipeline before the user confirms the human step is done.** On a later affirmative reply: run `flow-checkpoint --consume`, then `flow-state-update --phase "$(printf '%s' "$RESULT" \| jq -r '.context.continuePhase')"` with no `--force` (allowlisted in `TERMINAL_EXIT_TRANSITIONS`; it grants no merge authority — its FEATURE continue phases are exactly `planning`, `plan-pending-review`, `implementing`, `installing-skills`, `verifying`, `ci-wait`, `reviewing`, `gating` (the four epic-design continue phases in the same allowlist belong to `/flow-epic-create`'s Resume mode), and `merging` is never one, so any merge always re-runs the step 9 gate — a merge-failed pause continues at that gate, never straight to a merge; a `merge #<pr>` reply is this same affirmative reply, continuing `gating` → step 9 `flow-gate-decide` → step 10), then re-enter the resume row for the effective step shown at the pause. A reply carrying detail or an instruction is an imperative redirect applied at that step; `cancel` runs the Mid-flight redirects cancel path. When `.context.continueAt` is absent, ask one clarifying question naming the escalation reason. |
 | `terminal` | Already in a terminal state. Re-run the corresponding gate render (the same helpers every gate-emission site uses) and end without re-running anything else. On `merged`/`gated` the render re-runs `flow-pipeline-summary ... --echo-prose ...` above `flow-gate-summary --status <merged\|gated> ...`, so the echo recap re-surfaces on resume re-entry — extract the `<!-- flow-echo-recap:start -->`…`<!-- flow-echo-recap:end -->` block and echo it VERBATIM per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection (re-orientation is exactly the resume use case). `cancelled` has no PR, so `--echo-prose` is a no-op there. `needs-human` re-renders the escalation via `flow-gate-summary --status needs-human ...` (same `--tldr`/`--lens` augmentation as its originating render) ONLY when the worktree is gone; a `needs-human` pipeline with a live worktree resolves `awaiting-human` above instead, never this row. The two no-in-flight-work pending phases short-circuit here pre-tree (reasons `no-change-investigation-complete` for `triaged-no-change`, `awaiting-triage-clarification` for `triage-pending-clarification`): they carry no PR/worktree and have no gate-summary status, so print a one-line note that the pipeline already completed (a no-change investigation, or one awaiting a clarification a resume can't re-ask) and end — do NOT build a worktree. On the `triaged-no-change` path, when `$ANSWER` is non-empty, re-print the saved `$ANSWER` (as markdown) so the user re-reads the original answer instead of the generic terminal note; fall back to the generic note when `$ANSWER` is empty. The re-rendered UNTRACKED row still accepts `file #N` / `drop #N` (`flow-untracked file|drop <N>`) on the very next reply — the resume terminal row is not read-only. |
 | `escalate` | Escalate `NEEDS HUMAN: <.reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact. |
 | `abort` | The state file is missing. Escalate `NEEDS HUMAN: state-missing-on-resume` and end. |

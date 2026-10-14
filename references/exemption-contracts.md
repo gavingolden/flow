@@ -151,17 +151,18 @@ inside this exemption — not an eighth site.
 
 ## Merge-Conflict Resolver Subagent
 
-When `/flow-pipeline` step 10's `gh pr merge --squash` returns a
-conflict-class failure (stderr matching the detection patterns in
-`skills/pipeline/flow-merge-resolver-instructions/SKILL.md`),
-the supervisor spawns one resolver subagent via the Task tool for the
-base-branch merge + per-file resolution + push. Artifact:
-`.flow-tmp/merge-resolver-result.json` (typed fields `resolved_files`,
-`ambiguous_resolutions`, `rejected_strategies`, `commits`,
-`push_status`, `summary`). After it returns the supervisor retries
-`gh pr merge --squash` exactly once; on second failure it escalates
-`NEEDS HUMAN: merge-failed` with the resolver's summary first sentence
-appended. **No force-push.** The resolver merges the base branch into
+When `/flow-pipeline` step 10's `flow-merge-guard merge` call returns
+`merge-failed` with `failureClass: conflict` (its `.stderr` matching
+`CONFLICT_STDERR_PATTERNS` in `bin/flow-merge-guard.ts`), the supervisor
+spawns one resolver subagent via the Task tool for the base-branch merge +
+per-file resolution + push. Artifact: `.flow-tmp/merge-resolver-result.json`
+(typed fields `resolved_files`, `ambiguous_resolutions`, `rejected_strategies`,
+`commits`, `push_status`, `summary`). After it returns with a successful
+push, CI re-runs on the new head, so the supervisor re-enters step 7 (CI
+wait) and then steps 9 and 10, which call `flow-merge-guard merge` again; a
+second conflict-class failure escalates `NEEDS HUMAN: merge-failed` with the
+resolver's summary first sentence appended. The supervisor never merges with
+a raw `gh pr merge`. **No force-push.** The resolver merges the base branch into
 the pipeline branch and pushes normally, so nothing irreversible is
 delegated to a subagent spawn (an autonomous force-push is gated by the
 permission classifier under auto permission mode, and `AGENTS.md`

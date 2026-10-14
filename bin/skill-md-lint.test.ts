@@ -8295,7 +8295,11 @@ describe("terminal-state reap wiring lint", () => {
   }
 
   it("every wired terminal flow-gate-summary occurrence in SKILL.md has its own preceding reap call", () => {
-    // 7 deliberately unwired: 4 step-10 merge-resolution escalations that
+    // 6 deliberately unwired (pr-review #926 re-pinned 7 -> 6: after a
+    // resolver push step 10 now re-enters step 7 and re-calls the merge
+    // helper, so the separate "retry failed" resolver-section escalation
+    // collapsed into step 10's single "still merge-failed" site). The
+    // earlier breakdown follows. 7 deliberately unwired: 4 step-10 merge-resolution escalations that
     // delegate to the (already-wired) `# Failure paths` chain, and 3
     // elliptical resume-path back-references. Re-pinned 8 -> 7 when step 10
     // was rewritten around the standalone `flow-merge-guard merge` call: its
@@ -8314,7 +8318,7 @@ describe("terminal-state reap wiring lint", () => {
     // lint (still correctly unwired — it delegates to the same `#
     // Failure paths` chain as its siblings). Bumped 7 → 8 to reflect the
     // true count, not to loosen the check.
-    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 7);
+    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 6);
   });
 
   it("every wired terminal flow-gate-summary occurrence in the reference docs has its own preceding reap call", () => {
