@@ -141,10 +141,13 @@ VALUE yourself:
    than driving an unauthenticated pass.
 2. `flow-ui-login test-account --manifest <absolute worktree path>/.flow/ui-validation.json --worktree <absolute worktree path>`
    as its own standalone Bash call — same shape as step 1. It prints one
-   JSON line carrying the seeded local test account's two values. Exit 3
-   means credentials-unavailable; exit 2 with `non-local-base-url` means the
-   manifest points off localhost — record `login-failed` naming the
-   `baseUrl`.
+   JSON line carrying the seeded local test account's two values. It reads
+   ONLY the committed `.flow/ui-validation.json` (tracked and unmodified vs
+   HEAD), so a bootstrap must commit the manifest before logging in; exit 2
+   `manifest-not-committed` / `manifest-not-in-worktree` means commit it (or
+   fix the path) first. Exit 3 means credentials-unavailable; exit 2 with
+   `non-local-base-url` means the manifest points off localhost — record
+   `login-failed` naming the non-local address (`baseUrl` or `loginUrl`).
 3. If the MCP tools are deferred, load `mcp__chrome-devtools__fill_form`
    with `ToolSearch` (`select:`) alongside `navigate_page`, then
    `navigate_page` to `loginUrl`.
@@ -170,27 +173,6 @@ Type the values only through that one `fill_form`; never write them to the
 captures JSON, the result artifact, the manifest, a commit, a PR body or a
 Test Step. Never echo, grep, cat, or `Read` a `.env`-family file or print a
 credential variable. **Committed artifacts reference credential NAMES
-only** — the manifest, plan, commit messages, and PR bodies name the env
-vars, never a VALUE.
-
-<!-- flow-credential-denial-rule -->` below
-
-and record `credentials-unavailable`, not `login-failed`.
-
-**Never persist or inject as review evidence a screenshot or saved a11y
-snapshot of the credential-bearing login form — capture evidence only on
-the post-auth gated route** (the form is simply never captured — this is
-not because the password field is masked: the email/username field
-renders in plaintext in both a screenshot and an a11y snapshot, so masking
-is not the protection here, the unconditional no-capture rule is), and
-never snapshot or screenshot the page while still on `loginUrl` after the
-fill runs.
-
-Never pass a credential value to `fill`, `type`, or a hand-written
-`evaluate_script`; never echo, grep, cat, or `Read` a `.env`-family file
-or print a credential variable; never `curl` (or otherwise directly
-request) the helper's one-time endpoint — it exists only for the page's
-own `fetch` to call. **Committed artifacts reference credential NAMES
 only** — the manifest, plan, commit messages, and PR bodies name the env
 vars, never a VALUE.
 

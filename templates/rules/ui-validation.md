@@ -173,7 +173,9 @@ A browser-driving sub-agent logs in through `flow-ui-login`:
 `flow-ui-login check` for presence, then `flow-ui-login test-account`, each as
 its own standalone foreground Bash call (absolute paths, no `cd … &&`, no
 redirect or pipe). `test-account` prints the two values of the seeded LOCAL
-test account (localhost targets only; it never prints any other `.env` key),
+test account (localhost targets only; it never prints any other `.env` key,
+and it reads only the COMMITTED `.flow/ui-validation.json`, so a bootstrap
+must commit the manifest before logging in),
 and the agent types them with ONE chrome-devtools `fill_form` after a
 transient `take_snapshot`. The values are never written to committed or
 published artifacts (captures JSON, result artifact, manifest, commit, PR body,

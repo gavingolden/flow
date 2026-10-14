@@ -110,9 +110,13 @@ Login recipe (a manifest with a login wall):
 1. Run `flow-ui-login test-account --manifest <abs>/.flow/ui-validation.json
 --worktree <abs>` as its own standalone foreground Bash call (absolute
    paths, no pipe, no redirect, no env-var prefix, no `cd … &&`, no
-   background). Exit 3 means the account is missing: record
+   background). It reads only the committed, unmodified
+   `.flow/ui-validation.json`, so a bootstrap must commit the manifest before
+   logging in (exit 2 `manifest-not-committed` / `manifest-not-in-worktree`
+   otherwise). Exit 3 means the account is missing: record
    `credentials-unavailable`. Exit 2 with `non-local-base-url` means the
-   manifest points off localhost: record `login-failed` naming the `baseUrl`.
+   manifest points off localhost: record `login-failed` naming the non-local
+   address (`baseUrl` or `loginUrl`).
 2. If the MCP tools are deferred, load `mcp__chrome-devtools__fill_form`
    with `ToolSearch` (`select:`) alongside `navigate_page`, then
    `navigate_page` to `loginUrl`.

@@ -123,7 +123,8 @@ ordinary, non-flow session. A pipeline that needs a new local setting
 registers a manual follow-up naming the variable, rather than editing
 `.env.local` itself. Logging into an app under test goes through
 `flow-ui-login` (`check` for presence, `test-account` for the seeded local
-test account's values), pre-approved in the same launch settings via
+test account's values, read only from the committed `.flow/ui-validation.json`
+so a bootstrap commits the manifest before logging in), pre-approved in the same launch settings via
 `Bash(flow-ui-login check *)` and `Bash(flow-ui-login test-account *)` (one
 rule per subcommand, never a blanket `Bash(flow-ui-login *)`, so a future
 subcommand is never silently pre-approved) so the guard never blocks the two
@@ -134,7 +135,9 @@ deferrals are not refused by auto mode; it matches only a standalone
 consumer or global settings. Accepted risk: the helper's body check is
 structure-only (it does not bound issue content), so a flow-launched session
 can publish arbitrary text to the current repo's issue tracker without an
-auto-mode review.
+auto-mode review. That text can include the two seeded local test-account
+values `flow-ui-login test-account` printed (only the committed manifest's two
+named variables, localhost targets only).
 
 After a credential denial the driver stops: no further browser, MCP or
 teardown calls, a `credentials-unavailable` artifact, and the pipeline's

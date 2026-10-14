@@ -56,8 +56,13 @@ export const FLOW_UI_LOGIN_ALLOW_RULES: readonly string[] = [
  * fix-applier reading untrusted PR text) can publish arbitrary text to the
  * current repo's issue tracker without an auto-mode classifier review. The
  * payload is limited to data already in the agent's context (the credential
- * deny rules still block reading `.env`-family files); we accept that narrow
- * prompt-injection path in exchange for review deferrals not being refused.
+ * deny rules still block reading `.env`-family files) — which now includes
+ * the two test-account values `flow-ui-login test-account` prints. That
+ * helper reads only the two variable names in the COMMITTED
+ * `.flow/ui-validation.json` and refuses non-localhost targets, so a steered
+ * agent cannot point it at real secrets without a visible commit; we accept
+ * the remaining narrow path (seeded local test-account values reaching an
+ * issue body) in exchange for review deferrals not being refused.
  */
 export const FLOW_CREATE_ISSUE_ALLOW_RULES: readonly string[] = [
   "Bash(flow-create-issue *)",

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { execFileSync } from "node:child_process";
 import { main, isLocalBaseUrl } from "./flow-ui-login";
 
 const SENTINEL_USER = "sentinel-user@x";
@@ -22,7 +23,8 @@ function writeManifest(
   dir: string,
   overrides: Record<string, unknown> = {},
 ): string {
-  const manifestPath = path.join(dir, "ui-validation.json");
+  const manifestPath = path.join(dir, ".flow", "ui-validation.json");
+  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
   fs.writeFileSync(
     manifestPath,
     JSON.stringify({
@@ -39,6 +41,22 @@ function writeManifest(
   );
   return manifestPath;
 }
+
+function git(dir: string, ...args: string[]): void {
+  execFileSync(
+    "git",
+    ["-C", dir, "-c", "user.email=t@x", "-c", "user.name=t", ...args],
+    { stdio: "ignore" },
+  );
+}
+
+function commitManifest(dir: string): void {
+  git(dir, "init", "-q");
+  git(dir, "add", ".flow/ui-validation.json");
+  git(dir, "commit", "-q", "-m", "manifest");
+}
+
+const COMMITTED = { env: {}, isManifestCommitted: () => true };
 
 async function captureStdio(
   fn: () => Promise<number>,
@@ -112,9 +130,10 @@ describe("flow-ui-login test-account", () => {
     fs.appendFileSync(path.join(dir, ".env"), `OTHER_KEY=${OTHER_SECRET}\n`);
     const manifestPath = writeManifest(dir);
     const { rc, stdout, stderr } = await captureStdio(() =>
-      main(["test-account", "--manifest", manifestPath, "--worktree", dir], {
-        env: {},
-      }),
+      main(
+        ["test-account", "--manifest", manifestPath, "--worktree", dir],
+        COMMITTED,
+      ),
     );
     expect(rc).toBe(0);
     expect(JSON.parse(stdout)).toEqual({
@@ -135,9 +154,10 @@ describe("flow-ui-login test-account", () => {
     );
     const manifestPath = writeManifest(dir);
     const { rc, stdout } = await captureStdio(() =>
-      main(["test-account", "--manifest", manifestPath, "--worktree", dir], {
-        env: {},
-      }),
+      main(
+        ["test-account", "--manifest", manifestPath, "--worktree", dir],
+        COMMITTED,
+      ),
     );
     expect(rc).toBe(0);
     expect(JSON.parse(stdout)).toEqual({
@@ -155,9 +175,10 @@ describe("flow-ui-login test-account", () => {
     );
     const manifestPath = writeManifest(dir);
     const { rc, stdout, stderr } = await captureStdio(() =>
-      main(["test-account", "--manifest", manifestPath, "--worktree", dir], {
-        env: {},
-      }),
+      main(
+        ["test-account", "--manifest", manifestPath, "--worktree", dir],
+        COMMITTED,
+      ),
     );
     expect(rc).toBe(3);
     const parsed = JSON.parse(stdout);
@@ -175,9 +196,10 @@ describe("flow-ui-login test-account", () => {
       baseUrl: "https://staging.example.com",
     });
     const { rc, stdout, stderr } = await captureStdio(() =>
-      main(["test-account", "--manifest", manifestPath, "--worktree", dir], {
-        env: {},
-      }),
+      main(
+        ["test-account", "--manifest", manifestPath, "--worktree", dir],
+        COMMITTED,
+      ),
     );
     expect(rc).toBe(2);
     expect(JSON.parse(stdout)).toEqual({
@@ -194,14 +216,164 @@ describe("flow-ui-login test-account", () => {
     const manifestPath = writeManifest(dir, {
       loginUrl: "https://evil.example.com/login",
     });
-    const { rc, stdout } = await captureStdio(() =>
-      main(["test-account", "--manifest", manifestPath, "--worktree", dir], {
-        env: {},
-      }),
+    const { rc, stdout, stderr } = await captureStdio(() =>
+      main(
+        ["test-account", "--manifest", manifestPath, "--worktree", dir],
+        COMMITTED,
+      ),
     );
     expect(rc).toBe(2);
     expect(JSON.parse(stdout).reason).toBe("non-local-base-url");
+    expect(stdout + stderr).not.toContain(SENTINEL_PASS);
+    expect(stdout + stderr).not.toContain(SENTINEL_USER);
+  });
+
+  it.each([
+    ["//evil.example.com/login", 2],
+    [" //evil.example.com/login", 2],
+    ["\\\\evil.example.com/login", 2],
+    ["http://127.0.0.1:5173/login", 0],
+    ["/login", 0],
+  ])("loginUrl %j -> exit %i", async (loginUrl, expectedRc) => {
+    const dir = mkTmpDir();
+    writeSentinelEnv(dir);
+    const manifestPath = writeManifest(dir, { loginUrl });
+    const { rc, stdout, stderr } = await captureStdio(() =>
+      main(
+        ["test-account", "--manifest", manifestPath, "--worktree", dir],
+        COMMITTED,
+      ),
+    );
+    expect(rc).toBe(expectedRc);
+    if (expectedRc === 2) {
+      expect(JSON.parse(stdout).reason).toBe("non-local-base-url");
+      expect(stdout + stderr).not.toContain(SENTINEL_PASS);
+      expect(stdout + stderr).not.toContain(SENTINEL_USER);
+    }
+  });
+
+  it("exits 2 manifest-not-in-worktree for a schema-valid manifest elsewhere", async () => {
+    const dir = mkTmpDir();
+    writeSentinelEnv(dir);
+    writeManifest(dir);
+    const elsewhere = path.join(mkTmpDir(), "m.json");
+    fs.writeFileSync(
+      elsewhere,
+      JSON.stringify({
+        launch: "x",
+        baseUrl: "http://localhost:1",
+        routes: [{ path: "/" }],
+        credentialEnvVars: {
+          user: "TEST_USER_EMAIL",
+          pass: "TEST_USER_PASSWORD",
+        },
+      }),
+    );
+    const { rc, stdout, stderr } = await captureStdio(() =>
+      main(
+        ["test-account", "--manifest", elsewhere, "--worktree", dir],
+        COMMITTED,
+      ),
+    );
+    expect(rc).toBe(2);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      reason: "manifest-not-in-worktree",
+    });
+    expect(stdout + stderr).not.toContain(SENTINEL_PASS);
+  });
+
+  it("exits 2 manifest-not-in-worktree for a .flow symlink that escapes the worktree", async () => {
+    const dir = mkTmpDir();
+    writeSentinelEnv(dir);
+    const outside = mkTmpDir();
+    writeManifest(outside);
+    fs.symlinkSync(path.join(outside, ".flow"), path.join(dir, ".flow"));
+    const { rc, stdout } = await captureStdio(() =>
+      main(
+        [
+          "test-account",
+          "--manifest",
+          path.join(dir, ".flow", "ui-validation.json"),
+          "--worktree",
+          dir,
+        ],
+        COMMITTED,
+      ),
+    );
+    expect(rc).toBe(2);
+    expect(JSON.parse(stdout).reason).toBe("manifest-not-in-worktree");
     expect(stdout).not.toContain(SENTINEL_PASS);
+  });
+
+  describe("against a real git work tree", () => {
+    it("prints the values for a committed, unmodified manifest", async () => {
+      const dir = mkTmpDir();
+      writeSentinelEnv(dir);
+      const manifestPath = writeManifest(dir);
+      commitManifest(dir);
+      const { rc, stdout } = await captureStdio(() =>
+        main(["test-account", "--manifest", manifestPath, "--worktree", dir], {
+          env: {},
+        }),
+      );
+      expect(rc).toBe(0);
+      expect(JSON.parse(stdout)).toEqual({
+        ok: true,
+        user: SENTINEL_USER,
+        pass: SENTINEL_PASS,
+      });
+    });
+
+    it("exits 2 manifest-not-committed for an uncommitted manifest", async () => {
+      const dir = mkTmpDir();
+      writeSentinelEnv(dir);
+      const manifestPath = writeManifest(dir);
+      git(dir, "init", "-q");
+      const { rc, stdout, stderr } = await captureStdio(() =>
+        main(["test-account", "--manifest", manifestPath, "--worktree", dir], {
+          env: {},
+        }),
+      );
+      expect(rc).toBe(2);
+      expect(JSON.parse(stdout)).toEqual({
+        ok: false,
+        reason: "manifest-not-committed",
+      });
+      expect(stdout + stderr).not.toContain(SENTINEL_PASS);
+    });
+
+    it("exits 2 manifest-not-committed when the manifest was edited after the commit", async () => {
+      const dir = mkTmpDir();
+      writeSentinelEnv(dir);
+      fs.appendFileSync(path.join(dir, ".env"), "GH_TOKEN=ghp-real-secret\n");
+      const manifestPath = writeManifest(dir);
+      commitManifest(dir);
+      writeManifest(dir, {
+        credentialEnvVars: { user: "GH_TOKEN", pass: "GH_TOKEN" },
+      });
+      const { rc, stdout, stderr } = await captureStdio(() =>
+        main(["test-account", "--manifest", manifestPath, "--worktree", dir], {
+          env: {},
+        }),
+      );
+      expect(rc).toBe(2);
+      expect(JSON.parse(stdout).reason).toBe("manifest-not-committed");
+      expect(stdout + stderr).not.toContain("ghp-real-secret");
+    });
+
+    it("exits 2 manifest-not-committed when the worktree is not a git work tree", async () => {
+      const dir = mkTmpDir();
+      writeSentinelEnv(dir);
+      const manifestPath = writeManifest(dir);
+      const { rc, stdout } = await captureStdio(() =>
+        main(["test-account", "--manifest", manifestPath, "--worktree", dir], {
+          env: {},
+        }),
+      );
+      expect(rc).toBe(2);
+      expect(JSON.parse(stdout).reason).toBe("manifest-not-committed");
+    });
   });
 
   it("accepts the {{PORT}} placeholder baseUrl", async () => {
@@ -212,9 +384,10 @@ describe("flow-ui-login test-account", () => {
       baseUrl: "http://localhost:{{PORT}}",
     });
     const { rc, stdout } = await captureStdio(() =>
-      main(["test-account", "--manifest", manifestPath, "--worktree", dir], {
-        env: {},
-      }),
+      main(
+        ["test-account", "--manifest", manifestPath, "--worktree", dir],
+        COMMITTED,
+      ),
     );
     expect(rc).toBe(0);
     expect(JSON.parse(stdout).ok).toBe(true);
@@ -223,7 +396,7 @@ describe("flow-ui-login test-account", () => {
   it("exits 2 (never falls back) for the bootstrap-draft manifest `check` accepts", async () => {
     const dir = mkTmpDir();
     writeSentinelEnv(dir);
-    const manifestPath = path.join(dir, "ui-validation.json");
+    const manifestPath = writeManifest(dir);
     fs.writeFileSync(
       manifestPath,
       JSON.stringify({
@@ -234,9 +407,10 @@ describe("flow-ui-login test-account", () => {
       }),
     );
     const { rc, stdout } = await captureStdio(() =>
-      main(["test-account", "--manifest", manifestPath, "--worktree", dir], {
-        env: {},
-      }),
+      main(
+        ["test-account", "--manifest", manifestPath, "--worktree", dir],
+        COMMITTED,
+      ),
     );
     expect(rc).toBe(2);
     expect(JSON.parse(stdout)).toEqual({

@@ -9,7 +9,12 @@
  *     both resolve, 3 when either is missing, 2 on a manifest/args problem.
  *
  *   flow-ui-login test-account --manifest <path> [--worktree <dir>]
- *     Prints `{"ok":true,"user":"<v>","pass":"<v>"}` — the two seeded
+ *     Reads ONLY the committed `<worktree>/.flow/ui-validation.json`: a
+ *     `--manifest` that resolves elsewhere exits 2
+ *     `{ok:false,reason:"manifest-not-in-worktree"}`, and a manifest that is
+ *     untracked or differs from HEAD exits 2
+ *     `{ok:false,reason:"manifest-not-committed"}` — no value printed either
+ *     way. Prints `{"ok":true,"user":"<v>","pass":"<v>"}` — the two seeded
  *     LOCAL test-account VALUES — so the browser agent can type them into
  *     the login form with chrome-devtools `fill_form`. Exit 0 on success,
  *     3 (names-only presence JSON, no value) when either credential is
@@ -21,15 +26,21 @@
  *
  * `test-account` reuses the `user`/`pass` keys `check` uses for presence
  * objects, but here they carry the values. Threat model: this is the one
- * command that prints credential VALUES, so it resolves only the two
- * manifest-named keys (never any other `.env` key), reads only a
- * schema-valid manifest, and refuses any non-localhost target — the account
- * is a seeded test user for a local dev server. The values still never
- * belong in a committed or published artifact.
+ * command that prints credential VALUES, and it is pre-approved in flow's
+ * launch settings (no classifier review). So it resolves only the two
+ * manifest-named keys (never any other `.env` key) and takes those names
+ * only from the committed, unmodified worktree manifest: pointing it at
+ * different variables needs a visible commit, never a scratch file a steered
+ * agent wrote. It also refuses any non-localhost target — the account is a
+ * seeded test user for a local dev server. The values still never belong in
+ * a committed or published artifact.
  */
 
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as path from "node:path";
 
+import { stubPortSentinels } from "./lib/ui-launch-infer";
 import { validateUiValidationManifest } from "./lib/ui-validation-schema";
 import { resolveCredentials } from "./lib/ui-credentials";
 
@@ -37,10 +48,30 @@ type CredentialNames = { user: string; pass: string };
 
 export type MainDeps = {
   env?: NodeJS.ProcessEnv;
+  /** True when the worktree's manifest is tracked and unmodified vs HEAD. */
+  isManifestCommitted?: (worktree: string) => boolean;
 };
 
+const MANIFEST_REL = path.join(".flow", "ui-validation.json");
+
+function isManifestCommittedInGit(worktree: string): boolean {
+  const git = (args: string[]): number | null =>
+    spawnSync("git", ["-C", worktree, ...args], { stdio: "ignore" }).status;
+  return (
+    git(["ls-files", "--error-unmatch", "--", MANIFEST_REL]) === 0 &&
+    git(["diff", "--quiet", "HEAD", "--", MANIFEST_REL]) === 0
+  );
+}
+
+function realpathOrNull(p: string): string | null {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return null;
+  }
+}
+
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-const PORT_SENTINEL_RE = /\{\{PORT(?:_[A-Z0-9_]+)?\}\}/g;
 
 /**
  * True only when `url` parses and its hostname is a loopback name. The
@@ -49,7 +80,21 @@ const PORT_SENTINEL_RE = /\{\{PORT(?:_[A-Z0-9_]+)?\}\}/g;
  */
 export function isLocalBaseUrl(url: string): boolean {
   try {
-    const u = new URL(url.replace(PORT_SENTINEL_RE, "1"));
+    const u = new URL(stubPortSentinels(url));
+    return LOOPBACK_HOSTS.has(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when `loginUrl`, resolved against `baseUrl` the way a browser would
+ * (so `//host`, `\\host` and leading whitespace all land on their real
+ * host), points at a loopback name. A parse failure is a refusal.
+ */
+function isLocalLoginUrl(baseUrl: string, loginUrl: string): boolean {
+  try {
+    const u = new URL(stubPortSentinels(loginUrl), stubPortSentinels(baseUrl));
     return LOOPBACK_HOSTS.has(u.hostname);
   } catch {
     return false;
@@ -75,10 +120,10 @@ function isCredentialNames(v: unknown): v is CredentialNames {
  * the bootstrap flow runs before the manifest is complete.
  *
  * `strict: true` (`test-account`) requires full schema validation and never
- * takes the lenient fallback: an agent that hands `test-account` a
- * hand-rolled manifest naming an arbitrary env var pair (bypassing the
- * classifier that gates a legitimate `.flow/ui-validation.json`) gets
- * rejected here instead of a general secret printer.
+ * takes the lenient fallback. That only rejects a schema-INVALID manifest —
+ * a hand-rolled schema-valid one still parses, which is why `test-account`
+ * additionally pins the manifest to the committed worktree copy before
+ * calling this.
  */
 function readCredentialNames(
   manifestPath: string,
@@ -171,8 +216,9 @@ function readLoginTargets(
   }
 }
 
-function isAbsoluteUrlRef(ref: string): boolean {
-  return /^[a-z][a-z0-9+.-]*:/i.test(ref) || /^[/\\]{2}/.test(ref);
+function refuse(reason: string): number {
+  process.stdout.write(JSON.stringify({ ok: false, reason }) + "\n");
+  return 2;
 }
 
 async function runTestAccount(
@@ -186,26 +232,27 @@ async function runTestAccount(
     );
     return 2;
   }
-  const worktree = flags.worktree ?? process.cwd();
-  const names = readCredentialNames(flags.manifest, { strict: true });
-  const targets = names ? readLoginTargets(flags.manifest) : null;
-  if (!names || !targets) {
-    process.stdout.write(
-      JSON.stringify({ ok: false, reason: "no-credential-env-vars" }) + "\n",
-    );
-    return 2;
+  const worktree = realpathOrNull(flags.worktree ?? process.cwd());
+  const manifest = realpathOrNull(flags.manifest);
+  if (
+    !worktree ||
+    !manifest ||
+    manifest !== path.join(worktree, MANIFEST_REL)
+  ) {
+    return refuse("manifest-not-in-worktree");
   }
+  const isCommitted = deps.isManifestCommitted ?? isManifestCommittedInGit;
+  if (!isCommitted(worktree)) return refuse("manifest-not-committed");
+
+  const names = readCredentialNames(manifest, { strict: true });
+  const targets = names ? readLoginTargets(manifest) : null;
+  if (!names || !targets) return refuse("no-credential-env-vars");
   const loginUrl = targets.loginUrl;
   if (
     !isLocalBaseUrl(targets.baseUrl) ||
-    (loginUrl !== undefined &&
-      isAbsoluteUrlRef(loginUrl) &&
-      !isLocalBaseUrl(loginUrl))
+    (loginUrl !== undefined && !isLocalLoginUrl(targets.baseUrl, loginUrl))
   ) {
-    process.stdout.write(
-      JSON.stringify({ ok: false, reason: "non-local-base-url" }) + "\n",
-    );
-    return 2;
+    return refuse("non-local-base-url");
   }
 
   const env = deps.env ?? process.env;
