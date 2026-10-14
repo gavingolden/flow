@@ -77,6 +77,10 @@ import {
   SECRET_FILE_DENY_RULES,
 } from "./secret-deny-rules";
 import {
+  FLOW_MERGE_ALLOW_RULE,
+  FLOW_OVERRIDE_ASK_RULES,
+} from "./merge-allow-rule";
+import {
   seedIngestConfirmsDelivery,
   seedIngestIsCorrupt,
   unverifiedSeedWarning,
@@ -1954,6 +1958,23 @@ function warnOnHookDivergence(
   }
 }
 
+/** The permission rules in flow's launch settings (flow-launched sessions only). */
+export function launchSettingsPermissions(): {
+  deny: string[];
+  allow: string[];
+  ask: string[];
+} {
+  return {
+    deny: [...SECRET_FILE_DENY_RULES],
+    allow: [
+      ...FLOW_UI_LOGIN_ALLOW_RULES,
+      ...FLOW_CREATE_ISSUE_ALLOW_RULES,
+      FLOW_MERGE_ALLOW_RULE,
+    ],
+    ask: [...FLOW_OVERRIDE_ASK_RULES],
+  };
+}
+
 /**
  * Idempotently writes the flow-scoped `claude --settings` file registering the
  * UserPromptSubmit seed-ingested hook and the PreToolUse flow-doc read guard
@@ -1988,13 +2009,7 @@ export function ensureLaunchSettings(
             },
           ],
         },
-        permissions: {
-          deny: [...SECRET_FILE_DENY_RULES],
-          allow: [
-            ...FLOW_UI_LOGIN_ALLOW_RULES,
-            ...FLOW_CREATE_ISSUE_ALLOW_RULES,
-          ],
-        },
+        permissions: launchSettingsPermissions(),
       },
       null,
       2,
