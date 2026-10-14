@@ -132,6 +132,9 @@ export const BARE_TARGET_ALLOWLIST: readonly string[] = [
   // Emits launch status lines to stdout and separately reads the reserved
   // slot's `worktreeDir` to pass to `claude --add-dir` — never printed bare.
   "bin/lib/feature.ts",
+  // Emits launch status lines to stdout and separately reads the reserved
+  // slot's `worktreeDir` to pass to `claude --add-dir` — never printed bare.
+  "bin/lib/epic.ts",
   // Emits its rendered blocks via `process.stdout.write`, but the actual
   // `prUrl`/`planFile` click targets in those blocks are already routed
   // through `renderEchoRecap` (bin/lib/link.ts, markdown mode) before
