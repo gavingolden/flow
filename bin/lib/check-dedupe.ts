@@ -37,11 +37,15 @@ export function isReadOnlyVerifier(argv: readonly string[]): boolean {
   return false;
 }
 
+/** `prior` seeds the reuse table with results from outside this invocation
+ * (keyed by `checkKey`); a seeded hit is labelled with the seed's own scope,
+ * and a mutating check clears the seeds like any other earlier result. */
 export function runDeduped<I extends DedupeItem, R extends DedupableResult>(
   items: readonly I[],
   execute: (item: I) => R,
+  prior?: ReadonlyMap<string, R>,
 ): { results: R[]; savedMs: number } {
-  const seen = new Map<string, R>();
+  const seen = new Map<string, R>(prior);
   const results: R[] = [];
   let savedMs = 0;
   for (const item of items) {

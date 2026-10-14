@@ -1519,7 +1519,7 @@ plan-review checkpoint — this is where that obligation gets discharged,
 not just asserted.
 
 Write the PR body to the worktree's scratch dir, then call
-`flow-open-pr` once and capture both the URL (from stdout) and the
+`flow-open-pr` once (Bash `timeout: 600000` — its push runs the consumer's pre-push hook) and capture both the URL (from stdout) and the
 PR number (from the state.json the helper just wrote):
 
 **PR-body explanation judge (advisory).** Before the first `flow-open-pr`
@@ -1601,9 +1601,9 @@ CI just as easily as it can resolve a review finding.
 
 **End condition:** `$PR` is set; the branch has been pushed.
 
-On non-zero exit without a PR: retry once with the failure context
-appended. If the retry also fails, escalate `NEEDS HUMAN:
-implement-failed`.
+On non-zero exit without a PR: never bypass hooks with `--no-verify`; run `flow-open-pr` and every push with Bash `timeout: 600000`. A push refused by a local hook (flow-open-pr's hook-refusal line, or any failed push with no `[rejected]` line) re-enters step 6 with that output as the failure excerpt; once step 6 ends clean, re-run `flow-open-pr` (Bash `timeout: 600000`) before advancing to step 7, because `$PR` is set only after it succeeds — per [references/git-workflow.md](../../../references/git-workflow.md) `### Pipeline pushes run the consumer's hooks`.
+Any other failure: retry once with the failure context appended. If the retry
+also fails, escalate `NEEDS HUMAN: implement-failed`.
 
 ## Step 5.5 — Sync skills into the pipeline's copy
 

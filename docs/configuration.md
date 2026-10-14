@@ -260,7 +260,8 @@ write, OR per `bin/lib/phase-advance.ts` phase advance — `phase-advance.ts`
 is the SOLE emitter for six phases in the implement→merge half of the
 pipeline, so reading only `flow-state-update` call sites undercounts this
 event), `verify.attempt` (one per `flow-pre-commit` run, scopes/verdict/
-failing-check-names only, never output text), `run.terminal` (one per
+failing-check-names and the `reused_checks` count only, never output
+text), `run.terminal` (one per
 `flow-gate-summary` render that reaches a terminal status), and
 `explain.judge` (one per `flow-explain-judge` invocation; verdict/
 skipReason/model/effort/cost only — NEVER the judged text). Every event

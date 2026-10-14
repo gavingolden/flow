@@ -75,7 +75,7 @@ describe("resolveHooksTarget", () => {
 
   // Regression spec: the reported bug. A flow worktree sets a
   // WORKTREE-SCOPED core.hooksPath pointing at its own <gitdir>/flow-hooks
-  // (mirroring worktree-commit-hook.ts's installCommitHook). The base-branch
+  // (mirroring worktree-commit-hook.ts's installWorktreeHooks). The base-branch
   // guard must still target the MAIN worktree's hooks dir, never that
   // per-worktree flow-hooks dir.
   it("resolves mainWorktree to the primary checkout even when the worktree carries a WORKTREE-SCOPED core.hooksPath (flow-worktree shape)", () => {

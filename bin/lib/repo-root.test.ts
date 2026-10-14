@@ -296,3 +296,40 @@ describe("makeSameRepository", () => {
     }
   });
 });
+
+describe("inherited git environment", () => {
+  let repoA: string;
+  let repoB: string;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    repoA = fs.mkdtempSync(path.join(os.tmpdir(), "flow-repo-root-env-a-"));
+    repoB = fs.mkdtempSync(path.join(os.tmpdir(), "flow-repo-root-env-b-"));
+    spawnSync("git", ["init", "-q"], { cwd: repoA });
+    spawnSync("git", ["init", "-q"], { cwd: repoB });
+    for (const name of ["GIT_DIR", "GIT_COMMON_DIR"]) {
+      saved[name] = process.env[name];
+    }
+    process.env.GIT_DIR = path.join(repoA, ".git");
+    process.env.GIT_COMMON_DIR = path.join(repoA, ".git");
+  });
+
+  afterEach(() => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    fs.rmSync(repoA, { recursive: true, force: true });
+    fs.rmSync(repoB, { recursive: true, force: true });
+  });
+
+  it("resolveGitCommonDir answers the repo asked about, not GIT_COMMON_DIR's", () => {
+    expect(resolveGitCommonDir(repoB)).toBe(
+      path.join(fs.realpathSync(repoB), ".git"),
+    );
+  });
+
+  it("resolveRepoRoot answers the repo asked about, not GIT_DIR's", () => {
+    expect(resolveRepoRoot(repoB)).toBe(fs.realpathSync(repoB));
+  });
+});

@@ -2598,7 +2598,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
 
     const negatedButMatchesTokenAndVerb = readAnchoredLine(
       "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
-      459,
+      466,
       "NEVER push to the base branch",
     );
     expect(
@@ -2610,7 +2610,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        531,
+        532,
         "NEVER commit to or push the base branch",
       ],
       [
@@ -2620,7 +2620,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
       ],
       [
         "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
-        461,
+        468,
         "NEVER use `git push --force`",
       ],
     ];

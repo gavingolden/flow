@@ -50,6 +50,8 @@
     "bin/flow-epic-sync.test.ts",
     "bin/flow-gemini-lens.live.test.ts",
     "bin/flow-new-worktree.test.ts",
+    "bin/flow-pre-commit-git-env.live.test.ts",
+    "bin/flow-pre-commit-reuse.live.test.ts",
     "bin/flow-pre-commit.live.test.ts",
     "bin/flow-pre-commit.test.ts",
     "bin/flow-remove-worktree.test.ts",

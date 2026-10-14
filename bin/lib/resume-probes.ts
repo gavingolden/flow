@@ -44,7 +44,12 @@ export const defaultGh: GhRunner = (argv) => {
 };
 
 export const defaultGit: GitRunner = (argv, cwd) => {
-  const r = spawnSync("git", argv, { cwd, encoding: "utf8" });
+  // A push runs the consumer's hooks, whose output can pass Node's 1 MB default.
+  const r = spawnSync("git", argv, {
+    cwd,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
   return {
     stdout: r.stdout ?? "",
     stderr: r.stderr ?? "",

@@ -228,9 +228,10 @@ bypasses `pre-commit`/`commit-msg` hooks entirely), a plain `git commit`
 runs them, so a consumer repo's husky/lefthook `pre-commit` hook could
 abort this resolution commit for a reason wholly unrelated to the
 conflict and route the resolver into `git merge --abort`, discarding
-all resolution work. The session-id `prepare-commit-msg` hook still
-fires under `--no-verify` (only `pre-commit` and `commit-msg` are
-skipped). This is consistent with the Constraints section's ban on
+all resolution work. The worktree's chaining `prepare-commit-msg` shim
+still fires under `--no-verify` (only `pre-commit` and `commit-msg` are
+skipped): it chains to the consumer's own `prepare-commit-msg` and still
+adds the session-id trailer. This is consistent with the Constraints section's ban on
 running `flow-pre-commit` from inside the resolver — verification of
 the merged branch is the supervisor's job, not this commit's. A
 conventional-commit subject here matters downstream: GitHub's default
@@ -324,6 +325,9 @@ test "$CURRENT_BRANCH" != "$BASE_BRANCH" || {
 git push origin "$CURRENT_BRANCH"
 ```
 
+Run this with Bash `timeout: 600000`: the consumer's pre-push hook runs
+here and can take minutes.
+
 A plain push is refused non-fast-forward if the remote advanced,
 giving the same parallel-supervisor race protection as a leased,
 forced push would, without delegating an irreversible operation to a
@@ -333,7 +337,9 @@ Record the outcome in `push_status`:
 
 - `succeeded` — push exited 0.
 - `failed` — push returned non-zero. Capture the verbatim stderr in
-  `summary`. Do not retry; the wrapper decides escalation.
+  `summary`. Do not retry; the wrapper decides escalation. A non-zero push
+  with no `[rejected]` / `[remote rejected]` line was refused by a local
+  hook (see the table below).
 - `skipped` — you did not push (no-conflict false positive,
   unresolvable conflict, etc.).
 
@@ -427,6 +433,7 @@ of the subagent fan-out.
 | Merge aborts mid-flight           | Committing the resolution errors out for a non-conflict reason (e.g. invalid commit)                                 | Run `git merge --abort` to return to pre-merge state. Record the failure in `summary`; set `push_status: skipped`. The supervisor's retry will fail and escalate.                                                                                                  |
 | Conflict marker survives the Edit | `git diff --check` flags `<<<<<<<` after your edit (valid here — this fires during Step 3, BEFORE the Step 4 commit) | Re-open the file, expand the `Edit` `old_string` to include the full marker triple, retry. The Edit tool requires unique `old_string`; conflict markers within similar files can collide.                                                                          |
 | Push rejected (non-fast-forward)  | `git push` exits non-zero with `! [rejected] ... (fetch first)`                                                      | The remote advanced — another process pushed. Record `push_status: failed` with the verbatim stderr in `summary`. Do not retry blindly. NEVER escalate to `--force`; let the wrapper decide.                                                                       |
+| Push refused by a hook            | `git push` exits non-zero, `failed to push some refs`, but no `[rejected]` / `[remote rejected]` line                | Never retry with `--no-verify`. Record `push_status: failed` with the hook's output verbatim in `summary` — it is a failing consumer check; the supervisor escalates `merge-failed` with it.                                                                       |
 | `modify/delete` conflict          | One side deleted the file, the other modified it                                                                     | Choose `delete` (accept the deletion) or `prefer-current` (keep the modified file, undo the deletion). Record the call in `ambiguous_resolutions` if the PR's intent doesn't clearly favour one.                                                                   |
 | Both sides rename the same file   | `rename/rename` conflict                                                                                             | Choose one of the two new names by reading both sides' usages. Record in `ambiguous_resolutions` with the alternative name in `alternatives_considered`.                                                                                                           |
 | Lockfile conflict                 | `package-lock.json` / `bun.lock` / `yarn.lock` conflicts                                                             | Use `prefer-incoming` (take `main`'s lockfile), then re-run the dependency installer (`npm install` / `bun install`) and `git add` the regenerated lockfile. Record `strategy: prefer-incoming` and note "regenerated via package manager" in `semantic_decision`. |
@@ -478,7 +485,11 @@ Before writing the artifact and returning, self-check:
   re-run `flow-merge-guard merge` is the verification, and CI re-runs
   on the pushed head. Re-running `/flow-verify` here would defeat
   the context-cost win the fan-out exists for. This is also why Step
-  4's resolution commit uses `--no-verify` — see the rationale there.
+  4's resolution commit uses `--no-verify` — see the rationale there;
+  that `--no-verify` covers the merge commit only, never the push.
+  The consumer's push-time hook running `flow-pre-commit` is not a
+  resolver-initiated verify: record its output verbatim in `summary` and do
+  not act on it.
   A narrow, named exception carves out `$MARKER_CHECK_CMD --committed`
   (Step 5's Layer 2 check) from this ban: it is not `flow-pre-commit`
   and not `/flow-verify`, so running it is permitted — and Step 5 in
