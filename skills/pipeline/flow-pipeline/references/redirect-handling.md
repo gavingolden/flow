@@ -220,8 +220,11 @@ supervisor:
    `AskUserQuestion` exemption in SKILL.md "Hard rules".
 2. On an affirmative answer, run `flow-merge-guard "$PR"
 --record-override` to write the fresh-confirmation token, then
-   re-enter step 10. On any non-affirmative answer, the PR stays
-   `gated` — re-render the GATED block and end.
+   re-enter step 10. With the owner's `permissions.ask` rules, that call
+   raises a Claude Code permission prompt even in auto mode; a declined
+   prompt is a non-affirmative answer (record nothing). On any
+   non-affirmative answer, the PR stays `gated` — re-render the GATED
+   block and end.
 
 When the instruction fails the "fresh" or "in-context" test — or the
 "unambiguous" test on an input that isn't about merging at all — do

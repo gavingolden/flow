@@ -163,12 +163,56 @@ describe("render — gated", () => {
     expect(out).toContain("PR: https://github.com/org/repo/pull/142");
     expect(out).toContain("WHY: 2 unchecked test steps remain");
     expect(out).toContain(
-      "NEXT ACTION: validate then run: gh pr merge --squash 142",
+      "NEXT ACTION: tick each step once validated, then run: flow-merge-guard merge 142 --slug <slug> (or reply `merge` in the pipeline window)",
     );
     expect(out).toContain(
       "  - Open /portfolio with the seeded user — chart renders",
     );
     expect(out).toContain("  - Switch time range to 1y — chart updates");
+  });
+
+  it("renders the real slug in the manual-merge command when provided, <slug> otherwise", () => {
+    const withSlug = render({
+      status: "gated",
+      prUrl: "https://github.com/org/repo/pull/142",
+      slug: "csv-export",
+    });
+    expect(withSlug).toContain(
+      "then run: flow-merge-guard merge 142 --slug csv-export (or reply `merge` in the pipeline window)",
+    );
+    const pmWithSlug = render({
+      status: "gated",
+      prUrl: "https://github.com/org/repo/pull/142",
+      slug: "csv-export",
+      lens: "pm",
+    });
+    expect(pmWithSlug).toContain(
+      "NEXT ACTION: tick the items above, then: flow-merge-guard merge 142 --slug csv-export",
+    );
+    const without = render({
+      status: "gated",
+      prUrl: "https://github.com/org/repo/pull/142",
+    });
+    expect(without).toContain("--slug <slug> (or reply");
+    const hostile = render({
+      status: "gated",
+      prUrl: "https://github.com/org/repo/pull/142",
+      slug: "x; rm -rf ~",
+    });
+    expect(hostile).toContain("--slug <slug> (or reply");
+    expect(hostile).not.toContain("rm -rf");
+  });
+
+  it("no gated text puts a cd, subshell or && before the manual merge command", () => {
+    for (const lens of ["pm", "dev"] as const) {
+      const out = render({
+        status: "gated",
+        prUrl: "https://github.com/org/repo/pull/7",
+        slug: "s",
+        lens,
+      });
+      expect(out).not.toMatch(/gh pr merge|cd .*&&.*merge/);
+    }
   });
 
   it("renders gated with empty validation items (no-auto-merge opted out)", () => {
@@ -182,7 +226,7 @@ describe("render — gated", () => {
     // helper does not gate on item presence; absence just means no
     // bulleted items appear.
     expect(out).toContain(
-      "NEXT ACTION: validate then run: gh pr merge --squash 1",
+      "NEXT ACTION: tick each step once validated, then run: flow-merge-guard merge 1 --slug <slug> (or reply `merge` in the pipeline window)",
     );
     expect(out.split("\n").filter((l) => l.startsWith("  - "))).toEqual([]);
     expect(finalLine(out)).toBe("GATED: https://example/pr/1");
@@ -207,7 +251,7 @@ describe("render — gated", () => {
       why: "no URL given",
     });
     expect(out).toContain(
-      "NEXT ACTION: validate then run: gh pr merge --squash <pr>",
+      "NEXT ACTION: tick each step once validated, then run: flow-merge-guard merge <pr> --slug <slug> (or reply `merge` in the pipeline window)",
     );
     expect(finalLine(out)).toBe("GATED:");
   });
@@ -297,6 +341,24 @@ describe("render — needs-human WHY row (--why -> per-reason default -> omit)",
       .find((l) => l.startsWith("NEXT ACTION:"))!;
     expect(nextAction).not.toContain("(spawn site:");
   });
+});
+
+describe("NEXT_ACTION_BY_REASON manual merge recipes", () => {
+  it.each([
+    "merge-failed",
+    "merge-resolver-missing-artifact",
+    "merge-resolver-spawn-denied",
+  ])(
+    "%s never points at flow-merge-guard merge (it cannot leave needs-human)",
+    (reason) => {
+      const text = NEXT_ACTION_BY_REASON[reason]!;
+      expect(text).not.toContain("flow-merge-guard merge");
+      expect(text).toContain("reply done in the pipeline window");
+      expect(text).toContain("merge the PR on GitHub yourself");
+      expect(text).not.toContain("gh pr merge");
+      expect(text).not.toContain("cd <repo>");
+    },
+  );
 });
 
 describe("render — needs-human (per-reason mapping)", () => {
@@ -924,7 +986,7 @@ describe("render — pm lens", () => {
     expect(out).toContain("16 findings fixed, none changed behavior");
     const nextActionIdx = lines.findIndex((l) => l.startsWith("NEXT ACTION:"));
     expect(lines[nextActionIdx]).toBe(
-      "NEXT ACTION: tick the items above, then: gh pr merge --squash 640",
+      "NEXT ACTION: tick the items above, then: flow-merge-guard merge 640 --slug <slug> (or reply `merge` in the pipeline window)",
     );
     expect(lines[nextActionIdx + 1]).toBe(
       "GATED: https://github.com/org/repo/pull/640",
@@ -1472,6 +1534,10 @@ describe("run (end-to-end CLI)", () => {
     const lines = captured.split("\n").filter((l) => l !== "");
     expect(lines[0]).toBe("STATUS: GATED");
     expect(lines[lines.length - 1]).toBe("GATED: https://example/pr/1");
+    // The resolved --slug reaches the manual-merge command.
+    expect(captured).toContain(
+      "flow-merge-guard merge 1 --slug gate-write-test-slug",
+    );
   });
 
   it("silently suppresses FOLLOW-UPS when deferred file is missing on disk", () => {

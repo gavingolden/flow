@@ -21,6 +21,8 @@ import { FLOW_HOOK_NAMES } from "./lib/worktree-commit-hook";
 import {
   MAX_SUFFIX_ATTEMPTS,
   findAvailableSlot,
+  releaseReservedWorktree,
+  reserveWorktreeSlot,
   toDirSuffix,
 } from "./lib/worktree-slot";
 import {
@@ -332,6 +334,126 @@ describe(findAvailableSlot, () => {
   });
 });
 
+describe("findAvailableSlot reservedDir", () => {
+  let fx: Fixture;
+  beforeEach(() => {
+    fx = makeFixture();
+  });
+  afterEach(() => fx.cleanup());
+
+  it("adopts an empty reserved folder on the unsuffixed branch", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    fs.mkdirSync(initialDir);
+    const slot = findAvailableSlot("foo", initialDir, fx.repoDir, initialDir);
+    expect(slot).toEqual({ branchName: "foo", worktreeDir: initialDir });
+  });
+
+  it("skips a non-empty reserved folder to -2", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    fs.mkdirSync(initialDir);
+    fs.writeFileSync(path.join(initialDir, "keep.txt"), "x");
+    const slot = findAvailableSlot("foo", initialDir, fx.repoDir, initialDir);
+    expect(slot.branchName).toBe("foo-2");
+    expect(slot.worktreeDir).toBe(initialDir + "-2");
+  });
+
+  it("still requires the branch to be free", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    fs.mkdirSync(initialDir);
+    mustGit(["branch", "foo"], fx.repoDir);
+    const slot = findAvailableSlot("foo", initialDir, fx.repoDir, initialDir);
+    expect(slot.branchName).toBe("foo-2");
+  });
+
+  it("adopts a suffixed reserved folder and compares in realpath form", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    fs.mkdirSync(initialDir);
+    fs.mkdirSync(initialDir + "-2");
+    const viaRealpath = path.join(
+      fs.realpathSync(path.dirname(fx.repoDir)),
+      "repo-foo-2",
+    );
+    const slot = findAvailableSlot("foo", initialDir, fx.repoDir, viaRealpath);
+    expect(slot.branchName).toBe("foo-2");
+    expect(slot.worktreeDir).toBe(initialDir + "-2");
+  });
+
+  it("ignores an empty folder that is not the reserved one", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    fs.mkdirSync(initialDir);
+    const slot = findAvailableSlot("foo", initialDir, fx.repoDir);
+    expect(slot.branchName).toBe("foo-2");
+  });
+});
+
+describe(reserveWorktreeSlot, () => {
+  let fx: Fixture;
+  beforeEach(() => {
+    fx = makeFixture();
+  });
+  afterEach(() => fx.cleanup());
+
+  it("creates the empty slot folder", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    const slot = reserveWorktreeSlot("foo", initialDir, fx.repoDir);
+    expect(slot).toEqual({ branchName: "foo", worktreeDir: initialDir });
+    expect(fs.readdirSync(initialDir)).toEqual([]);
+  });
+
+  it("moves past a pre-existing folder (a racing launch) to the next slot", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    fs.mkdirSync(initialDir);
+    const slot = reserveWorktreeSlot("foo", initialDir, fx.repoDir);
+    expect(slot.branchName).toBe("foo-2");
+    expect(fs.existsSync(initialDir + "-2")).toBe(true);
+  });
+
+  it("throws the no-slot error when every slot is taken", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    fs.mkdirSync(initialDir);
+    for (let i = 2; i <= MAX_SUFFIX_ATTEMPTS; i++) {
+      fs.mkdirSync(initialDir + `-${i}`);
+    }
+    expect(() => reserveWorktreeSlot("foo", initialDir, fx.repoDir)).toThrow(
+      /100 attempts/,
+    );
+  });
+});
+
+describe(releaseReservedWorktree, () => {
+  let root: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "flow-release-"));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it("removes an empty folder", () => {
+    const dir = path.join(root, "empty");
+    fs.mkdirSync(dir);
+    releaseReservedWorktree(dir);
+    expect(fs.existsSync(dir)).toBe(false);
+  });
+
+  it("keeps a non-empty folder", () => {
+    const dir = path.join(root, "full");
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, "f"), "x");
+    releaseReservedWorktree(dir);
+    expect(fs.existsSync(path.join(dir, "f"))).toBe(true);
+  });
+
+  it("tolerates a missing path, a plain file and undefined", () => {
+    const file = path.join(root, "file");
+    fs.writeFileSync(file, "x");
+    expect(() =>
+      releaseReservedWorktree(path.join(root, "nope")),
+    ).not.toThrow();
+    expect(() => releaseReservedWorktree(file)).not.toThrow();
+    expect(() => releaseReservedWorktree(undefined)).not.toThrow();
+    expect(fs.existsSync(file)).toBe(true);
+  });
+});
+
 describe(writeBranchMarker, () => {
   let dir: string;
   beforeEach(() => {
@@ -557,6 +679,55 @@ describe(createWorktreeWithRetry, () => {
     expect(calls[1].branchName).toBe("foo-2");
   });
 
+  it("fills an empty reserved folder on the unsuffixed branch", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    fs.mkdirSync(initialDir);
+    const warnings: string[] = [];
+    const slot = createWorktreeWithRetry(
+      "foo",
+      initialDir,
+      "main",
+      fx.repoDir,
+      () => {},
+      (msg) => warnings.push(msg),
+      initialDir,
+    );
+    expect(slot).toEqual({ branchName: "foo", worktreeDir: initialDir });
+    expect(warnings).toEqual([]);
+  });
+
+  it("never adopts a non-empty reserved folder (falls through to -2)", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    fs.mkdirSync(initialDir);
+    fs.writeFileSync(path.join(initialDir, "keep.txt"), "x");
+    const slot = createWorktreeWithRetry(
+      "foo",
+      initialDir,
+      "main",
+      fx.repoDir,
+      () => {},
+      () => {},
+      initialDir,
+    );
+    expect(slot.branchName).toBe("foo-2");
+  });
+
+  it("really creates a git worktree inside an empty reserved folder", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    fs.mkdirSync(initialDir);
+    const slot = createWorktreeWithRetry(
+      "foo",
+      initialDir,
+      "main",
+      fx.repoDir,
+      undefined,
+      () => {},
+      initialDir,
+    );
+    expect(slot.worktreeDir).toBe(initialDir);
+    expect(fs.existsSync(path.join(initialDir, ".git"))).toBe(true);
+  });
+
   it("rethrows the last error when gitWorktreeAdd fails on every attempt", () => {
     const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
     let count = 0;
@@ -686,6 +857,39 @@ describe("flow-new-worktree (integration)", () => {
     expect(
       fs.existsSync(path.join(gitDir, "flow-hooks", "prepare-commit-msg")),
     ).toBe(true);
+  });
+
+  it("main() adopts the folder recorded in state.reservedWorktree instead of suffixing to -2", async () => {
+    // The child resolves ~/.flow/state under the suite's sandboxed $HOME
+    // (vitest.setup.ts), so the real state file the launch writes can be
+    // faked here and read back by the spawned helper's main().
+    const reserved = path.join(path.dirname(fx.repoDir), "repo-resv-foo");
+    fs.mkdirSync(reserved);
+    const stateDir = path.join(process.env.HOME!, ".flow", "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const stateFile = path.join(stateDir, "resv-foo.json");
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        slug: "resv-foo",
+        phase: "starting",
+        repo: fx.repoDir,
+        reservedWorktree: reserved,
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+    try {
+      const r = await spawnHelper(["resv-foo"], fx.repoDir);
+      expect(r.exitCode, `stderr: ${r.stderr}`).toBe(0);
+      expect(fs.existsSync(path.join(reserved, ".git"))).toBe(true);
+      expect(fs.existsSync(`${reserved}-2`)).toBe(false);
+      expect(mustGit(["branch", "--list"], fx.repoDir)).toMatch(/\bresv-foo\b/);
+      expect(mustGit(["branch", "--list"], fx.repoDir)).not.toContain(
+        "resv-foo-2",
+      );
+    } finally {
+      fs.rmSync(stateFile, { force: true });
+    }
   });
 
   it("two parallel calls with the same slug return distinct paths and branches", async () => {

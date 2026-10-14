@@ -4,8 +4,10 @@
  *
  * Proves, against a real headless Claude session, that the rule text flow
  * documents (`FLOW_MERGE_ALLOW_RULE`) pre-approves `flow-merge-guard merge …`
- * and does NOT pre-approve its sibling `flow-merge-guard <PR> --record-override`.
- * Nothing can merge: `flow-merge-guard` on PATH is a stub that only appends
+ * and does NOT pre-approve its sibling `flow-merge-guard <PR> --record-override`,
+ * and that the owner's two `permissions.ask` rules (`FLOW_OVERRIDE_ASK_RULES`)
+ * make `--record-override` prompt (refused headless) without touching the
+ * merge. Nothing can merge: `flow-merge-guard` on PATH is a stub that only appends
  * its argv to a marker file.
  *
  * The rule is supplied by appending it to `--allowed-tools`, which goes
@@ -25,17 +27,28 @@
  * at all, so when the no-rule control also runs they print `classifier-approves`
  * (auto behaviour unproven) and never fail the probe.
  *
- * Spends five short Haiku sessions (each capped at $0.50).
+ * Rows 6-8 are decisive auto-mode rows for the ask rules, supplied through
+ * `--ask-tools` (inline `permissions.ask`, tightening only): (6) and (7)
+ * `--record-override` with the ask rules is refused, bare and with `--slug`;
+ * (8) `merge` with the merge allow rule AND the ask rules still runs. Row 9
+ * (`--record-override` with no rules) is an informational control. When auto
+ * mode is unavailable the decisive auto rows are skipped, not failed.
  *
- * Exit codes: 0 - rows 1-3 hold; 1 - one of rows 1-3 failed; 2 - `claude`
- * missing or one of rows 1-3 could not complete. Auto rows never change the
- * exit code; auto mode being unavailable is reported as its own verdict.
+ * Spends nine short Haiku sessions (each capped at $0.50).
+ *
+ * Exit codes: 0 - every decisive row holds; 1 - a decisive row failed; 2 -
+ * `claude` missing or a decisive row could not complete. Informational rows
+ * never change the exit code; auto mode being unavailable is reported as its
+ * own verdict.
  */
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { FLOW_MERGE_ALLOW_RULE } from "../bin/lib/merge-allow-rule";
+import {
+  FLOW_MERGE_ALLOW_RULE,
+  FLOW_OVERRIDE_ASK_RULES,
+} from "../bin/lib/merge-allow-rule";
 
 export type RowVerdict =
   | "pass"
@@ -50,6 +63,8 @@ export type Row = {
   command: string;
   /** The merge allow rule is appended to `--allowed-tools` for this row. */
   withRule: boolean;
+  /** `FLOW_OVERRIDE_ASK_RULES` are passed to the child via `--ask-tools`. */
+  askRules?: boolean;
   /** The marker (stub invocation) is expected to appear. */
   expectMarker: boolean;
   /** Reported only; never decides the probe's exit code. */
@@ -94,6 +109,38 @@ export const ROWS: Row[] = [
     expectMarker: true,
     informational: true,
   },
+  {
+    name: "auto record-override, ask rules",
+    mode: "auto",
+    command: "flow-merge-guard 999999 --record-override",
+    withRule: false,
+    askRules: true,
+    expectMarker: false,
+  },
+  {
+    name: "auto record-override --slug, ask",
+    mode: "auto",
+    command: "flow-merge-guard 999999 --record-override --slug probe",
+    withRule: false,
+    askRules: true,
+    expectMarker: false,
+  },
+  {
+    name: "auto merge, allow + ask rules",
+    mode: "auto",
+    command: "flow-merge-guard merge 999999",
+    withRule: true,
+    askRules: true,
+    expectMarker: true,
+  },
+  {
+    name: "auto record-override, no rules",
+    mode: "auto",
+    command: "flow-merge-guard 999999 --record-override",
+    withRule: false,
+    expectMarker: false,
+    informational: true,
+  },
 ];
 
 const AUTO_UNAVAILABLE =
@@ -118,6 +165,13 @@ export function classify(input: {
     return "auto-unavailable";
   }
   if (!ran) return "inconclusive";
+  if (row.askRules) {
+    // The ask rules are the subject, so the classifier control is irrelevant:
+    // a seen marker settles the row either way.
+    if (markerSeen) return row.expectMarker ? "pass" : "fail";
+    if (row.expectMarker) return "fail";
+    return denied ? "pass" : "inconclusive";
+  }
   if (row.mode === "auto") {
     if (!row.withRule && markerSeen) return "classifier-approves";
     if (row.withRule && markerSeen && controlRan) return "classifier-approves";
@@ -132,7 +186,9 @@ export function classify(input: {
 export function overallExit(
   verdicts: { row: Row; verdict: RowVerdict }[],
 ): 0 | 1 | 2 {
-  const decisive = verdicts.filter((v) => !v.row.informational);
+  const decisive = verdicts.filter(
+    (v) => !v.row.informational && v.verdict !== "auto-unavailable",
+  );
   if (decisive.some((v) => v.verdict === "fail")) return 1;
   if (decisive.length > 0 && decisive.every((v) => v.verdict === "pass")) {
     return 0;
@@ -175,6 +231,9 @@ function runRow(
       "low",
       "--allowed-tools",
       row.withRule ? `Bash(true),${FLOW_MERGE_ALLOW_RULE}` : "Bash(true)",
+      ...(row.askRules
+        ? ["--ask-tools", FLOW_OVERRIDE_ASK_RULES.join(",")]
+        : []),
       "--env",
       "PATH",
       "--max-budget-usd",
@@ -227,7 +286,7 @@ function main(): number {
     let autoControlRan = false;
     ROWS.forEach((row, i) => {
       const verdict = runRow(row, scratch, binDir, i + 1, autoControlRan);
-      if (row.mode === "auto" && !row.withRule) {
+      if (row.command.startsWith("flow-merge-guard merge") && !row.withRule) {
         autoControlRan = verdict === "classifier-approves";
       }
       verdicts.push({ row, verdict });

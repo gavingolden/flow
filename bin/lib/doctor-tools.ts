@@ -11,8 +11,11 @@ import { installCommand } from "./doctor-util";
 import {
   broaderRuleFix,
   FLOW_MERGE_ALLOW_RULE,
+  FLOW_OVERRIDE_ASK_RULES,
   readMergeAllowRule,
+  readOverrideAskRule,
   type MergeRuleStatus,
+  type OverrideAskStatus,
 } from "./merge-allow-rule";
 import { readConfigFileAt } from "./modules-config";
 import { readLauncherConfig } from "./launcher-config";
@@ -90,6 +93,79 @@ export function checkMergeAllowRule(deps: DoctorDeps): DoctorCheck[] {
         "unattended merges under auto mode will be refused until the merge rule is in your Claude settings",
       details: [MERGE_RULE_REASON[status]],
       fix: `add "${FLOW_MERGE_ALLOW_RULE}" to permissions.allow in ${resolvedPath}`,
+    },
+  ];
+}
+
+export const TOOLS_OVERRIDE_ASK_META = {
+  id: "tools-override-ask",
+  section: "tools",
+  title: "override confirmation",
+} as const;
+
+const OVERRIDE_ASK_REASON: Record<
+  Exclude<OverrideAskStatus, "present" | "merge-covered">,
+  string
+> = {
+  partial: "one of the two override rules is missing from permissions.ask",
+  absent: "the file has neither override rule in permissions.ask",
+  "missing-file": "the settings file does not exist",
+  malformed: "the settings file is not a valid JSON object",
+};
+
+export function checkOverrideAskRule(deps: DoctorDeps): DoctorCheck[] {
+  const base = TOOLS_OVERRIDE_ASK_META;
+  const { status, resolvedPath, missing, mergeCovering } = readOverrideAskRule(
+    userSettingsPath(deps.env, deps.homeDir),
+  );
+  if (status === "present") {
+    return [
+      {
+        ...base,
+        status: "pass",
+        summary: `recording a gate override raises a Claude Code permission prompt the agent can't answer for you (${resolvedPath})`,
+        details: [],
+      },
+    ];
+  }
+  if (status === "merge-covered") {
+    return [
+      {
+        ...base,
+        status: "warn",
+        summary:
+          "your Claude settings ask before every flow-merge-guard call, so unattended merges would prompt",
+        details: [`the ask entry ${mergeCovering} also matches the merge call`],
+        fix: `narrow "${mergeCovering}" in permissions.ask in ${resolvedPath} to the two override rules: ${FLOW_OVERRIDE_ASK_RULES.map((r) => `"${r}"`).join(" and ")}`,
+      },
+    ];
+  }
+  const lines = status === "partial" ? missing : [...FLOW_OVERRIDE_ASK_RULES];
+  const fix = `add ${lines.map((r) => `"${r}"`).join(" and ")} to permissions.ask in ${resolvedPath}`;
+  if (status === "absent" || status === "missing-file") {
+    // An opt-in that was never set up is not a misconfiguration: the pipeline
+    // still confirms every override itself, and only auto mode's own review
+    // decides whether the recording step runs. `skip` renders no fix line, so
+    // the opt-in line lives in details.
+    return [
+      {
+        ...base,
+        status: "skip",
+        summary:
+          "the override rules are not set; gate overrides still go through the pipeline's own confirmation, but auto mode decides whether the recording step runs",
+        details: [OVERRIDE_ASK_REASON[status], `to opt in: ${fix}`],
+        fix,
+      },
+    ];
+  }
+  return [
+    {
+      ...base,
+      status: "warn",
+      summary:
+        "the override rules are only partly set, so recording a gate override may not raise the Claude Code prompt you expect",
+      details: [OVERRIDE_ASK_REASON[status]],
+      fix,
     },
   ];
 }

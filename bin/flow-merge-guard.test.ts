@@ -714,6 +714,19 @@ describe("run() — merge mode", () => {
     expect(phaseOf("m8")).toBe("needs-human");
   });
 
+  it("merges from gated (the GATED manual-merge command works at the phase it is printed at)", () => {
+    seedMerge("m8g", { phase: "gated" });
+    const spy = vi.fn(okMerge);
+    const { exit, out } = runMerge(["merge", "5", "--slug", "m8g"], {
+      gh: ghFor({}),
+      runMerge: spy,
+    });
+    expect(exit).toBe(0);
+    expect(out.decision).toBe("merged");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(phaseOf("m8g")).toBe("merging");
+  });
+
   it("re-entry at merging (a retry after a resolver) proceeds", () => {
     seedMerge("m9", { phase: "merging" });
     const { exit } = runMerge(["merge", "5", "--slug", "m9"], {

@@ -37,6 +37,7 @@ import {
 import { deleteTurnTracking } from "./stop-turn-tracking";
 import { deleteCheckpointDir } from "./checkpoint-freshness";
 import { plainTerminate } from "./launcher";
+import { releaseReservedWorktree } from "./worktree-slot";
 import { dim } from "./color";
 import { compact, readRows } from "./proc-registry";
 
@@ -304,7 +305,8 @@ export function runDone(
   }
 
   const hasWindow = windowExists(name);
-  const hasState = readState(name) !== null;
+  const recordedState = readState(name);
+  const hasState = recordedState !== null;
   // A registry row can outlive both the window and the state file (the
   // plain-launcher crash shape this feature exists for) — a slug with rows
   // but neither of the other two signals must still be reachable so its
@@ -358,6 +360,9 @@ export function runDone(
   safeRegistryReap(name, options);
   if (hasState) {
     deleteState(name);
+    // Unconditional: only an EMPTY folder is removed, and a live worktree
+    // always holds a .git file.
+    releaseReservedWorktree(recordedState?.reservedWorktree);
     deleteTurnTracking(name);
     deleteCheckpointDir(name);
   } else if (!warned) {
@@ -487,6 +492,7 @@ function sweep(
       );
     }
     deleteState(s.slug);
+    releaseReservedWorktree(s.reservedWorktree);
     deleteTurnTracking(s.slug);
     deleteCheckpointDir(s.slug);
     console.log(`closed: ${s.slug}`);

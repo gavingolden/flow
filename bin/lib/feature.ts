@@ -20,7 +20,12 @@ import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
 import { resolveRepoRoot } from "./repo-root";
 import { slugify, isValidSlug } from "./slug";
 import { confirmStdin } from "./confirm";
-import { toDirSuffix, MAX_SUFFIX_ATTEMPTS } from "./worktree-slot";
+import {
+  toDirSuffix,
+  MAX_SUFFIX_ATTEMPTS,
+  releaseReservedWorktree,
+  reserveWorktreeSlot,
+} from "./worktree-slot";
 import {
   createWindowVerified,
   respawnWindowVerified,
@@ -165,6 +170,15 @@ function launchWithRetry(
 export type FeatureOptions = {
   /** Override the cwd for the new window (default: process.cwd()). */
   cwd?: string;
+  /**
+   * Reserves the worktree folder at launch (test seam). Production uses
+   * `reserveWorktreeSlot(slug, deriveWorktreePath(repo, slug), repo)`, which
+   * creates the empty folder so it exists when Claude starts.
+   */
+  reserveWorktree?: (
+    slug: string,
+    repo: string,
+  ) => { branchName: string; worktreeDir: string };
   /** Override the command launched in the window. */
   command?: string[];
   /** Resume a crashed pipeline rather than start a new one. */
@@ -908,6 +922,23 @@ function runFresh(
     return 1;
   }
 
+  // Reserve the worktree folder BEFORE anything is written, so a no-slot
+  // failure aborts cleanly and the folder exists when Claude starts (a
+  // non-existent --add-dir path is dropped at launch). Step 2's
+  // flow-new-worktree fills this folder via state.reservedWorktree.
+  let worktree: string;
+  try {
+    worktree = (
+      options.reserveWorktree ??
+      ((s, r) => reserveWorktreeSlot(s, deriveWorktreePath(r, s), r))
+    )(slug, repo).worktreeDir;
+  } catch (err) {
+    console.error(
+      `flow feature create: could not reserve a worktree folder: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return 1;
+  }
+
   // Mechanical base-branch guard: install the env-gated pre-commit hook on the
   // main repo (best-effort, idempotent) so a future supervisor bug cannot land
   // pipeline work directly on the base branch. The hook is inert outside a flow
@@ -951,6 +982,7 @@ function runFresh(
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     if (options.skillsFrom) {
+      releaseReservedWorktree(worktree);
       console.error(
         `flow feature create: could not build the private skill copy: ${reason} — nothing was started; fix that and re-run.`,
       );
@@ -964,14 +996,23 @@ function runFresh(
     overlay = null;
   }
 
-  const worktree = deriveWorktreePath(repo, slug);
-  const settingsPath = launchSettingsPathFor(options);
-  const seed = flowPipelineSeed(slug, description, options.stateDir);
-  // Write the request file BEFORE the launcher dispatch below, so BOTH
-  // backends (plain, the default, dispatches a few lines down; tmux inside
-  // the `launch` closure further below) find it in place — the seed only
-  // carries a REQUEST_FILE pointer, never the verbatim text.
-  writeRequestFile(slug, description, options.stateDir);
+  // No state file records the reservation until the launch writes `starting`,
+  // so a throw from here to that write would leak the empty folder (nothing
+  // for `flow done` or the orphan reaper to find) and push a retry to `-2`.
+  let settingsPath: string;
+  let seed: string;
+  try {
+    settingsPath = launchSettingsPathFor(options);
+    seed = flowPipelineSeed(slug, description, options.stateDir);
+    // Write the request file BEFORE the launcher dispatch below, so BOTH
+    // backends (plain, the default, dispatches a few lines down; tmux inside
+    // the `launch` closure further below) find it in place — the seed only
+    // carries a REQUEST_FILE pointer, never the verbatim text.
+    writeRequestFile(slug, description, options.stateDir);
+  } catch (err) {
+    releaseReservedWorktree(worktree);
+    throw err;
+  }
 
   // Read + parse `~/.flow/config.json` at most once for this launch and
   // share it across every reader below (models.default, launch.<key>
@@ -1034,6 +1075,7 @@ function runFresh(
     phase: "starting",
     repo,
     worktree: existing?.worktree,
+    reservedWorktree: worktree,
     autoMerge: resolvedAutoMerge === false ? false : undefined,
     waitForCopilot: resolvedWaitForCopilot === true ? true : undefined,
     forceResearch: resolvedForceResearch === true ? true : undefined,
@@ -1194,6 +1236,7 @@ function runFresh(
     if (!seedCorrupted) {
       deleteState(slug, options.stateDir);
     }
+    releaseReservedWorktree(worktree);
     if (seedCorrupted) {
       console.error(
         "flow feature create: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
@@ -1222,6 +1265,7 @@ function runFresh(
   // up-front file so no orphaned `phase=starting` pipeline survives.
   if (!windowExists(slug)) {
     deleteState(slug, options.stateDir);
+    releaseReservedWorktree(worktree);
     console.error(
       "flow feature create: the tmux window vanished after launch — not writing state.",
     );
@@ -1388,8 +1432,7 @@ function runResume(
   // Reuse the slug's private skill copy when one exists; otherwise launch as today.
   const overlay = resumeOverlay(slug, options.overlaysDir);
   if (backend.id === "plain") {
-    const plainWorktree =
-      state.worktree ?? deriveWorktreePath(state.repo, slug);
+    const plainWorktree = resumeWorktree(state, slug);
     const plainSettings = launchSettingsPathFor(options);
     // Scanned once, same rationale as the create-path fix above.
     const roots =
@@ -1445,11 +1488,11 @@ function runResume(
   // The repo non-null guard above already returned; bind it so the launch
   // closure below keeps the narrowing (TS drops it across the arrow body).
   const repo = state.repo;
-  // Prefer the actual worktree path recorded at create-time; fall back to the
-  // deterministic derivation when state predates the worktree write (or when
-  // the pipeline crashed before step 2). Either way the resumed session
-  // re-pre-authorizes the worktree as an MCP workspace root.
-  const worktree = state.worktree ?? deriveWorktreePath(repo, slug);
+  // Prefer the actual worktree path recorded at step 2, then the folder the
+  // launch reserved; fall back to the deterministic derivation for state that
+  // predates both. Either way the resumed session re-pre-authorizes the
+  // worktree as an MCP workspace root.
+  const worktree = resumeWorktree(state, slug);
   const settingsPath = launchSettingsPathFor(options);
   const seed = flowPipelineResumeSeed(slug);
   const command =
@@ -1679,15 +1722,16 @@ function runResume(
 }
 
 /**
- * Derive the deterministic worktree path the supervisor's step 2 will pass
- * to `flow-new-worktree` for this slug. Mirrors `flow-new-worktree.ts`'s rule
- * (`path.dirname(repo)/<repoName>-<toDirSuffix(branch)>`, with `branch ===
- * slug`); `toDirSuffix` is a no-op for a slash-free slug but is reused here so
- * the two derivations cannot drift. This is the COMMON-CASE path only — when
- * `<repo>-<slug>` already exists (parallel pipelines, stale worktrees),
- * `flow-new-worktree`'s `findAvailableSlot` auto-suffixes (`-2`/`-3`/…), so the
- * actual worktree may diverge from this value. `/flow-pipeline` step 2's
- * best-effort runtime `/add-dir` of the actual path covers that divergence.
+ * Derive the deterministic worktree path for this slug. Mirrors
+ * `flow-new-worktree.ts`'s rule (`path.dirname(repo)/<repoName>-<toDirSuffix(branch)>`,
+ * with `branch === slug`); `toDirSuffix` is a no-op for a slash-free slug but
+ * is reused here so the two derivations cannot drift. This is the COMMON-CASE
+ * path only — when `<repo>-<slug>` already exists (parallel pipelines, stale
+ * worktrees), `findAvailableSlot` auto-suffixes (`-2`/`-3`/…). `flow feature
+ * create` reserves whichever slot wins (`reserveWorktreeSlot`) and
+ * `flow-new-worktree` fills that same folder, so the reserved path may diverge
+ * from this value. Epic launches (`epic.ts`) do NOT reserve: they pass this
+ * derived path straight to `--add-dir`, so the folder may not exist yet.
  */
 export function deriveWorktreePath(repo: string, slug: string): string {
   return path.join(
@@ -1697,19 +1741,40 @@ export function deriveWorktreePath(repo: string, slug: string): string {
 }
 
 /**
+ * The worktree a resumed session pre-authorizes: the path step 2 recorded,
+ * else the folder the launch reserved (best-effort re-created when it has
+ * since vanished, so `--add-dir` keeps it), else the deterministic path.
+ */
+function resumeWorktree(state: PipelineState, slug: string): string {
+  if (state.worktree) return state.worktree;
+  if (state.reservedWorktree) {
+    try {
+      if (!fs.existsSync(state.reservedWorktree)) {
+        fs.mkdirSync(state.reservedWorktree);
+      }
+    } catch {
+      // best-effort: a missing folder only costs the --add-dir pre-authorization
+    }
+    return state.reservedWorktree;
+  }
+  return deriveWorktreePath(state.repo, slug);
+}
+
+/**
  * Prepend `--add-dir <worktree>` so the chrome-devtools MCP treats the
  * per-pipeline worktree as a workspace root, letting `take_screenshot
  * --filePath` write UI evidence into `<worktree>/.flow-tmp/ui-evidence/`
- * instead of falling back to the session cwd (issue #317). The worktree does
- * not exist yet at launch — it is created later by step 2 — and that is fine:
- * `claude --add-dir <nonexistent-path>` does not error at launch (verified
- * against claude 2.1.183), so pre-authorizing the path is safe. The a11y
- * snapshot remains the evidence gate regardless; this only makes the
- * supplementary screenshot artifact land in the documented preferred path.
- * NOTE: `--add-dir` is documented to grant Claude Code's own file-tool access;
- * its propagation to the MCP server's screenshot sandbox is the load-bearing
- * (and externally unverified) assumption behind this fix — confirm via a live
- * dogfood. Best-effort either way: a bad value degrades to today's session-cwd
+ * instead of falling back to the session cwd (issue #317). For feature
+ * launches the folder exists at launch — `flow feature create` reserves it
+ * (empty) before Claude starts, because a non-existent `--add-dir` path is
+ * dropped — and step 2's `flow-new-worktree` fills that same folder. (Epic
+ * launches have their own `launchArgv` in `epic.ts` and do not reserve.) The a11y snapshot remains the
+ * evidence gate regardless; this only makes the supplementary screenshot
+ * artifact land in the documented preferred path. NOTE: `--add-dir` is
+ * documented to grant Claude Code's own file-tool access; its propagation to
+ * the MCP server's screenshot sandbox is the load-bearing (and externally
+ * unverified) assumption behind this fix — confirm via a live dogfood.
+ * Best-effort either way: a bad value degrades to today's session-cwd
  * fallback, never blocking the pipeline.
  */
 function launchArgv(

@@ -6,7 +6,17 @@ import {
   type RowVerdict,
 } from "../scripts/probe-merge-allow-rule";
 
-const [merge, recordOverride, noRuleControl, autoControl, autoMerge] = ROWS;
+const [
+  merge,
+  recordOverride,
+  noRuleControl,
+  autoControl,
+  autoMerge,
+  askBare,
+  askSlug,
+  askMerge,
+  autoOverrideControl,
+] = ROWS;
 const base = { ran: true, markerSeen: false, denied: false, diagnostics: "" };
 
 describe("probe-merge-allow-rule classify", () => {
@@ -93,28 +103,100 @@ describe("probe-merge-allow-rule classify", () => {
   });
 });
 
+describe("probe-merge-allow-rule classify (ask-rule rows)", () => {
+  it("has nine rows, with the ask rows decisive and the override control informational", () => {
+    expect(ROWS).toHaveLength(9);
+    expect([askBare, askSlug, askMerge].map((r) => r.askRules)).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect([askBare, askSlug, askMerge].map((r) => r.informational)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect(autoOverrideControl.askRules).toBeUndefined();
+    expect(autoOverrideControl.informational).toBe(true);
+  });
+
+  it("passes the refusal rows when the override was refused, fails them when the stub ran", () => {
+    for (const row of [askBare, askSlug]) {
+      expect(classify({ ...base, row, denied: true })).toBe("pass");
+      expect(classify({ ...base, row, markerSeen: true })).toBe("fail");
+      expect(
+        classify({ ...base, row, markerSeen: true, controlRan: true }),
+      ).toBe("fail");
+    }
+  });
+
+  it("is inconclusive when the child never tried the override command", () => {
+    expect(classify({ ...base, row: askBare })).toBe("inconclusive");
+    expect(classify({ ...base, row: askBare, ran: false })).toBe(
+      "inconclusive",
+    );
+  });
+
+  it("passes the merge row when the stub ran, even when the no-rule auto control also ran", () => {
+    expect(classify({ ...base, row: askMerge, markerSeen: true })).toBe("pass");
+    expect(
+      classify({ ...base, row: askMerge, markerSeen: true, controlRan: true }),
+    ).toBe("pass");
+    expect(classify({ ...base, row: askMerge, denied: true })).toBe("fail");
+  });
+
+  it("reports auto-unavailable for an ask row, never a rule failure", () => {
+    expect(
+      classify({
+        ...base,
+        row: askBare,
+        diagnostics: "auto mode is not available",
+      }),
+    ).toBe("auto-unavailable");
+  });
+
+  it("reports the no-rules override control as classifier-approves when the stub ran", () => {
+    expect(
+      classify({ ...base, row: autoOverrideControl, markerSeen: true }),
+    ).toBe("classifier-approves");
+  });
+});
+
 describe("probe-merge-allow-rule overallExit", () => {
   const verdicts = (v: RowVerdict[]) =>
     ROWS.map((row, i) => ({ row, verdict: v[i] }));
 
-  it("exits 0 when rows 1-3 pass, whatever the auto rows report", () => {
+  const P: RowVerdict = "pass";
+
+  it("exits 0 when every decisive row passes, whatever the informational auto rows report", () => {
     expect(
       overallExit(
         verdicts([
-          "pass",
-          "pass",
-          "pass",
+          P,
+          P,
+          P,
           "classifier-approves",
+          "classifier-approves",
+          P,
+          P,
+          P,
           "classifier-approves",
         ]),
       ),
     ).toBe(0);
+  });
+
+  it("ignores decisive auto rows whose verdict is auto-unavailable", () => {
     expect(
       overallExit(
         verdicts([
-          "pass",
-          "pass",
-          "pass",
+          P,
+          P,
+          P,
+          "auto-unavailable",
+          "auto-unavailable",
+          "auto-unavailable",
+          "auto-unavailable",
           "auto-unavailable",
           "auto-unavailable",
         ]),
@@ -122,23 +204,26 @@ describe("probe-merge-allow-rule overallExit", () => {
     ).toBe(0);
   });
 
-  it("exits 1 when any of rows 1-3 fails", () => {
-    for (let i = 0; i < 3; i++) {
-      const v: RowVerdict[] = ["pass", "pass", "pass", "pass", "pass"];
+  it("exits 1 when any decisive row fails", () => {
+    for (const i of [0, 1, 2, 5, 6, 7]) {
+      const v: RowVerdict[] = [P, P, P, P, P, P, P, P, P];
       v[i] = "fail";
       expect(overallExit(verdicts(v))).toBe(1);
     }
   });
 
-  it("never fails the probe on an auto row", () => {
+  it("never fails the probe on an informational row", () => {
     expect(
-      overallExit(verdicts(["pass", "pass", "pass", "fail", "fail"])),
+      overallExit(verdicts([P, P, P, "fail", "fail", P, P, P, "fail"])),
     ).toBe(0);
   });
 
-  it("exits 2 when any of rows 1-3 is inconclusive and none failed", () => {
+  it("exits 2 when a decisive row is inconclusive and none failed", () => {
     expect(
-      overallExit(verdicts(["pass", "inconclusive", "pass", "pass", "pass"])),
+      overallExit(verdicts([P, "inconclusive", P, P, P, P, P, P, P])),
+    ).toBe(2);
+    expect(
+      overallExit(verdicts([P, P, P, P, P, "inconclusive", P, P, P])),
     ).toBe(2);
   });
 });

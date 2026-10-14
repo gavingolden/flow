@@ -304,6 +304,55 @@ describe("plainLaunch", () => {
 // driven through the seam.
 const aliveProbes = { isAlive: () => true, pidStartEpoch: () => 123 };
 
+describe("plainLaunch reserved worktree release", () => {
+  const req = (stateDir_: string) => ({
+    slug: "my-feature",
+    repo: "/repo",
+    command: ["claude"],
+    seed: "s",
+    stateDir: stateDir_,
+  });
+  const reserve = () => {
+    const dir = path.join(stateDir, "reserved-wt");
+    fs.mkdirSync(dir);
+    seedState({ phase: "starting", reservedWorktree: dir });
+    return dir;
+  };
+
+  it("removes the empty reserved folder on the non-TTY exit", async () => {
+    const dir = reserve();
+    await plainLaunch(req(stateDir), { isTTY: false });
+    expect(fs.existsSync(dir)).toBe(false);
+  });
+
+  it("removes the empty reserved folder when the spawn throws", async () => {
+    const dir = reserve();
+    const spawn = (): never => {
+      throw new Error("ENOENT: claude");
+    };
+    await plainLaunch(req(stateDir), { spawn, isTTY: true });
+    expect(fs.existsSync(dir)).toBe(false);
+  });
+
+  it("removes the empty reserved folder on the fast-fail exit", async () => {
+    const dir = reserve();
+    const { spawn } = fakeSpawn({ exitCode: 1 });
+    await plainLaunch(req(stateDir), {
+      spawn,
+      isTTY: true,
+      pidStartEpoch: () => 1,
+    });
+    expect(fs.existsSync(dir)).toBe(false);
+  });
+
+  it("keeps a non-empty reserved folder on a failure exit", async () => {
+    const dir = reserve();
+    fs.writeFileSync(path.join(dir, "f"), "x");
+    await plainLaunch(req(stateDir), { isTTY: false });
+    expect(fs.existsSync(path.join(dir, "f"))).toBe(true);
+  });
+});
+
 describe("plainResume", () => {
   it("refuses when the recorded process is alive", async () => {
     seedState({ pid: 555, procStartedAt: 123 });

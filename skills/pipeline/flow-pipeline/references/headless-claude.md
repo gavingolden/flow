@@ -30,7 +30,7 @@ flow-claude-headless (--prompt <text, up to 200 chars> | --prompt-file <path>) \
   --model <alias|id> --effort <low|medium|high|xhigh|max> \
   [--max-budget-usd 5] [--max-turns 25] [--allowed-tools Read,Grep,Glob] \
   [--env KEY]... [--bare] [--timeout-sec 600] [--out <path>] [--task <name>] \
-  [--tools <list>]
+  [--tools <list>] [--ask-tools <rules>]
 ```
 
 - `--effort` is required and explicit: verified live on `claude` 2.1.259
@@ -48,6 +48,14 @@ flow-claude-headless (--prompt <text, up to 200 chars> | --prompt-file <path>) \
   child, for a caller that wants a pure text-completion child with
   no tool surface at all. Omitting the flag leaves the child argv exactly
   as it was before this flag existed.
+- `--ask-tools <rules>` is an optional, tightening-only passthrough: a
+  comma-separated list of permission rules added to the child as
+  `permissions.ask` entries via one inline `--settings` JSON payload built
+  with `JSON.stringify`, so caller text can only become string elements of
+  the `ask` array. It never emits an `allow` or `deny` key and leaves
+  `--setting-sources project` and the fixed `--disallowedTools` list as they
+  were. `scripts/probe-merge-allow-rule.ts` uses it to probe the override
+  ask rules. Omitting the flag leaves the child argv unchanged.
 - The child env is an **allowlist**, not a denylist: only `PATH`, `HOME`,
   `TMPDIR`, `SHELL`, `TERM`, `LANG`, `USER`, `CLAUDE_CONFIG_DIR`, the
   auth/network passthrough (`CLAUDE_CODE_OAUTH_TOKEN`, `HTTP_PROXY`,

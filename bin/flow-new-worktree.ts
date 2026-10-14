@@ -22,6 +22,7 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { git } from "./lib/git";
 import { resolveSlugAmbient } from "./lib/session-identity";
+import { readState } from "./lib/state";
 import { findAvailableSlot, toDirSuffix } from "./lib/worktree-slot";
 import { ensureFlowExcludes, writeBranchMarker } from "./lib/worktree-marker";
 import {
@@ -195,7 +196,10 @@ function preflight(config: WorktreeConfig): void {
  * Creates the worktree, retrying with a fresh slot if `git worktree add`
  * itself fails (a peer won the race between our preflight check and our git
  * call). `gitWorktreeAdd` is injectable for tests — production callers omit
- * it and get the real `git worktree add` invocation.
+ * it and get the real `git worktree add` invocation. `reservedDir` is the
+ * empty folder `flow feature create` reserved at launch; it is adopted as the
+ * slot (never when non-empty), so the worktree lands in the folder Claude was
+ * given via `--add-dir`.
  */
 export function createWorktreeWithRetry(
   initialBranch: string,
@@ -213,11 +217,17 @@ export function createWorktreeWithRetry(
     );
   },
   warn: (msg: string) => void = log.warn,
+  reservedDir?: string,
 ): { branchName: string; worktreeDir: string } {
   const startPoint = `origin/${baseBranch}`;
   let lastErr: unknown = null;
   for (let attempt = 1; attempt <= MAX_RACE_RETRIES; attempt++) {
-    const slot = findAvailableSlot(initialBranch, initialDir, repoDir);
+    const slot = findAvailableSlot(
+      initialBranch,
+      initialDir,
+      repoDir,
+      reservedDir,
+    );
     try {
       console.log(`📂 Creating worktree at: ${slot.worktreeDir}`);
       log.info(`Branch: ${slot.branchName} (from ${startPoint})`);
@@ -304,6 +314,9 @@ function main(): void {
       config.worktreeDir,
       config.baseBranch,
       config.repoDir,
+      undefined,
+      undefined,
+      readState(config.branchName)?.reservedWorktree,
     );
     console.log("📦 Installing dependencies...");
     run(["npm", "install", "--silent"], chosen.worktreeDir);

@@ -152,6 +152,7 @@ import {
   resolveSeedHookCommand,
   type FeatureOptions,
 } from "./feature";
+import { reserveWorktreeSlot } from "./worktree-slot";
 
 // The launcher backend now defaults to PLAIN (flag > state > config >
 // default); this file's specs exercise the tmux path, so the wrappers pin
@@ -166,11 +167,21 @@ import {
 // HOME per paths.ts's own documented caveat, so it is NOT covered by
 // vitest.setup.ts's sandbox). Individual specs override it to exercise the
 // roots-present cases.
+//
+// `reserveWorktree` is stubbed the same way: the real reservation mkdirs a
+// sibling of the repo in the shared os.tmpdir(), outside every per-test temp
+// dir, so the default returns the deterministic slot without creating anything.
+// Reservation specs opt in with `realReserve`.
+const stubReserve: NonNullable<FeatureOptions["reserveWorktree"]> = (
+  slug,
+  repo,
+) => ({ branchName: slug, worktreeDir: deriveWorktreePath(repo, slug) });
 const runNew = (input: string, options: FeatureOptions = {}) =>
   runNewReal(input, {
     launcher: "tmux",
     tmuxOnPath: () => true,
     pluginRootsScan: () => [],
+    reserveWorktree: stubReserve,
     ...options,
   });
 const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
@@ -178,8 +189,13 @@ const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
     launcher: "tmux",
     tmuxOnPath: () => true,
     pluginRootsScan: () => [],
+    reserveWorktree: stubReserve,
     ...options,
   });
+const runFeatureCliStubbedReserve = (
+  args: string[],
+  options: FeatureOptions = {},
+) => runFeatureCliReal(args, { reserveWorktree: stubReserve, ...options });
 import {
   writeState,
   readState,
@@ -194,6 +210,16 @@ let repoDir!: string;
 let semDir!: string;
 let errors!: string[];
 let logs!: string[];
+let reservedToClean: string[] = [];
+
+const realReserve: NonNullable<FeatureOptions["reserveWorktree"]> = (
+  slug,
+  repo,
+) => {
+  const slot = reserveWorktreeSlot(slug, deriveWorktreePath(repo, slug), repo);
+  reservedToClean.push(slot.worktreeDir);
+  return slot;
+};
 
 beforeEach(() => {
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-"));
@@ -276,6 +302,9 @@ afterEach(() => {
   fs.rmSync(stateDir, { recursive: true, force: true });
   fs.rmSync(repoDir, { recursive: true, force: true });
   fs.rmSync(semDir, { recursive: true, force: true });
+  for (const d of reservedToClean)
+    fs.rmSync(d, { recursive: true, force: true });
+  reservedToClean = [];
   delete process.env.FLOW_LAUNCH_SEM_DIR;
   delete process.env.FLOW_LAUNCH_SETTINGS_PATH;
   delete process.env.FLOW_LAUNCH_CONCURRENCY;
@@ -1394,12 +1423,15 @@ describe("kind: 'feature' stamped + @flow-kind published (Task 2 / Task 4)", () 
       );
       return { pid: 777, exited: Promise.resolve(0) };
     };
-    const code = await runFeatureCliReal(["create", "plain", "kind", "thing"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({}),
-      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
-    });
+    const code = await runFeatureCliStubbedReserve(
+      ["create", "plain", "kind", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({}),
+        plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+      },
+    );
     expect(code).toBe(0);
     expect(calls).toHaveLength(1);
     const slug = fs
@@ -2311,6 +2343,59 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(command).not.toContain(deriveWorktreePath(repoDir, "suffixed-slug"));
   });
 
+  it("runNew --resume falls back to the reserved folder (re-creating it) when no worktree is recorded", () => {
+    const reserved = path.join(
+      path.dirname(repoDir),
+      `${path.basename(repoDir)}-reserved-resume`,
+    );
+    reservedToClean.push(reserved);
+    writeState(
+      {
+        slug: "reserved-resume",
+        phase: "starting",
+        repo: repoDir,
+        reservedWorktree: reserved,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const code = runNew("reserved-resume", { resume: true, stateDir });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--add-dir") + 1]).toBe(reserved);
+    expect(fs.statSync(reserved).isDirectory()).toBe(true);
+  });
+
+  it("runNew --resume prefers state.worktree over state.reservedWorktree", () => {
+    const recorded = path.join(
+      path.dirname(repoDir),
+      `${path.basename(repoDir)}-both-2`,
+    );
+    const reserved = path.join(
+      path.dirname(repoDir),
+      `${path.basename(repoDir)}-both`,
+    );
+    writeState(
+      {
+        slug: "both",
+        phase: "verifying",
+        repo: repoDir,
+        worktree: recorded,
+        reservedWorktree: reserved,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    expect(runNew("both", { resume: true, stateDir })).toBe(0);
+    const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--add-dir") + 1]).toBe(recorded);
+    expect(fs.existsSync(reserved)).toBe(false);
+  });
+
   it("treats -h after `--` as part of the description, not a help flag", () => {
     // Regression for the over-eager argsContainHelp scan: a description body
     // that happens to contain `-h` (e.g. `flow feature create -- fix the -h crash`)
@@ -2851,6 +2936,85 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
       stateDir,
     );
     expect(consumedFn!()).toBe(true);
+  });
+
+  it("reserves an existing EMPTY folder before launch, passes it to --add-dir, and records reservedWorktree", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    let seenAtLaunch: { exists: boolean; entries: number } | undefined;
+    tmuxMock.createWindowVerified.mockImplementation((_n, _c, command) => {
+      const dir = command[command.indexOf("--add-dir") + 1]!;
+      seenAtLaunch = {
+        exists: fs.existsSync(dir),
+        entries: fs.existsSync(dir) ? fs.readdirSync(dir).length : -1,
+      };
+      return { status: "started", stderr: "" };
+    });
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      reserveWorktree: realReserve,
+      readConfig: () => ({}),
+    });
+    expect(code).toBe(0);
+    const expected = deriveWorktreePath(fs.realpathSync(repoDir), "csv-export");
+    expect(seenAtLaunch).toEqual({ exists: true, entries: 0 });
+    expect(readState("csv-export", stateDir)?.reservedWorktree).toBe(expected);
+  });
+
+  it("a stale folder at the deterministic path makes the -2 folder the one passed to --add-dir", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const base = deriveWorktreePath(fs.realpathSync(repoDir), "csv-export");
+    fs.mkdirSync(base);
+    reservedToClean.push(base);
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      reserveWorktree: realReserve,
+      readConfig: () => ({}),
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--add-dir") + 1]).toBe(`${base}-2`);
+    expect(fs.existsSync(`${base}-2`)).toBe(true);
+    expect(readState("csv-export", stateDir)?.reservedWorktree).toBe(
+      `${base}-2`,
+    );
+  });
+
+  it("a launch failure releases the still-empty reserved folder", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "failed",
+      stderr: "pane not alive after launch",
+    });
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      retrySleepMs: 0,
+      reserveWorktree: realReserve,
+    });
+    expect(code).not.toBe(0);
+    const base = deriveWorktreePath(fs.realpathSync(repoDir), "csv-export");
+    expect(fs.existsSync(base)).toBe(false);
+  });
+
+  it("a no-slot reservation failure aborts before any state is written", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      reserveWorktree: () => {
+        throw new Error("no available slot");
+      },
+    });
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/could not reserve a worktree folder/);
+    expect(fs.existsSync(path.join(stateDir, "csv-export.json"))).toBe(false);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
   it("fresh launch 'failed' (dead pane) deletes the up-front state (no orphan under the inverted gate)", () => {
@@ -3758,7 +3922,7 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
   }
 
   it("--tmux and --no-tmux are mutually exclusive on create (validate-before-state)", () => {
-    const code = runFeatureCliReal(
+    const code = runFeatureCliStubbedReserve(
       ["create", "--tmux", "--no-tmux", "do", "thing"],
       { stateDir },
     );
@@ -3769,9 +3933,12 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
 
   it("--tmux and --no-tmux are mutually exclusive on resume too", () => {
     seedState("x");
-    const code = runFeatureCliReal(["resume", "x", "--tmux", "--no-tmux"], {
-      stateDir,
-    });
+    const code = runFeatureCliStubbedReserve(
+      ["resume", "x", "--tmux", "--no-tmux"],
+      {
+        stateDir,
+      },
+    );
     expect(code).toBe(1);
     expect(errors.join("\n")).toMatch(/mutually exclusive/);
   });
@@ -3779,12 +3946,15 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
   it("default (no flag, no config) dispatches create to the plain backend, never tmux", async () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const { spawn, calls } = fakePlainSpawn();
-    const code = await runFeatureCliReal(["create", "plain", "thing"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({}),
-      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
-    });
+    const code = await runFeatureCliStubbedReserve(
+      ["create", "plain", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({}),
+        plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+      },
+    );
     expect(code).toBe(0);
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
     expect(calls).toHaveLength(1);
@@ -3809,7 +3979,7 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const { spawn, calls } = fakePlainSpawn();
     const desc = `line one\twith a tab\n${"x".repeat(600)}`;
-    const code = await runFeatureCliReal(["create", desc], {
+    const code = await runFeatureCliStubbedReserve(["create", desc], {
       stateDir,
       cwd: repoDir,
       readConfig: () => ({}),
@@ -3829,7 +3999,7 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
   it("plain create refuses without a TTY (named notice), before spawning", async () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const { spawn, calls } = fakePlainSpawn();
-    const code = await runFeatureCliReal(["create", "no", "tty"], {
+    const code = await runFeatureCliStubbedReserve(["create", "no", "tty"], {
       stateDir,
       cwd: repoDir,
       readConfig: () => ({}),
@@ -3844,12 +4014,15 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
 
   it("collision refusal fires off the state-file signal even with tmux absent", () => {
     seedState("busy-slug");
-    const code = runFeatureCliReal(["create", "--slug", "busy-slug", "desc"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({}),
-      tmuxOnPath: () => false,
-    });
+    const code = runFeatureCliStubbedReserve(
+      ["create", "--slug", "busy-slug", "desc"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({}),
+        tmuxOnPath: () => false,
+      },
+    );
     expect(code).toBe(1);
     expect(errors.join("\n")).toMatch(/already exists/);
   });
@@ -3857,12 +4030,15 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
   it("--tmux on create dispatches to the verified tmux path and persists launcher: tmux", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
-    const code = runFeatureCliReal(["create", "--tmux", "tmux", "thing"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({}),
-      tmuxOnPath: () => true,
-    });
+    const code = runFeatureCliStubbedReserve(
+      ["create", "--tmux", "tmux", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({}),
+        tmuxOnPath: () => true,
+      },
+    );
     expect(code).toBe(0);
     expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
     const state = JSON.parse(
@@ -3874,13 +4050,16 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
   it("a tmux-configured backend degrades to plain with the named notice when tmux is off PATH", async () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const { spawn, calls } = fakePlainSpawn();
-    const code = await runFeatureCliReal(["create", "degrade", "thing"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({ launcher: "tmux" }),
-      tmuxOnPath: () => false,
-      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
-    });
+    const code = await runFeatureCliStubbedReserve(
+      ["create", "degrade", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({ launcher: "tmux" }),
+        tmuxOnPath: () => false,
+        plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+      },
+    );
     expect(code).toBe(0);
     expect(calls).toHaveLength(1);
     expect(errors.join("\n")).toMatch(/falling back to the plain launcher/);
@@ -3899,17 +4078,20 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
       stateDir,
     );
     const { spawn, calls } = fakePlainSpawn();
-    const code = await runFeatureCliReal(["resume", "plain-recorded"], {
-      stateDir,
-      readConfig: () => ({ launcher: "tmux" }),
-      tmuxOnPath: () => true,
-      plainDeps: {
-        spawn,
-        isTTY: true,
-        pidStartEpoch: () => 1,
-        liveness: { isAlive: () => false, pidStartEpoch: () => null },
+    const code = await runFeatureCliStubbedReserve(
+      ["resume", "plain-recorded"],
+      {
+        stateDir,
+        readConfig: () => ({ launcher: "tmux" }),
+        tmuxOnPath: () => true,
+        plainDeps: {
+          spawn,
+          isTTY: true,
+          pidStartEpoch: () => 1,
+          liveness: { isAlive: () => false, pidStartEpoch: () => null },
+        },
       },
-    });
+    );
     expect(code).toBe(0);
     expect(calls).toHaveLength(1);
     expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
@@ -3928,11 +4110,14 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
       stateDir,
     );
     tmuxMock.windowExists.mockReturnValue(true);
-    const code = runFeatureCliReal(["resume", "flag-wins", "--tmux"], {
-      stateDir,
-      readConfig: () => ({}),
-      tmuxOnPath: () => true,
-    });
+    const code = runFeatureCliStubbedReserve(
+      ["resume", "flag-wins", "--tmux"],
+      {
+        stateDir,
+        readConfig: () => ({}),
+        tmuxOnPath: () => true,
+      },
+    );
     expect(code).toBe(0);
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(1);
   });
@@ -3948,13 +4133,16 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
     // plainDeps.scanPluginRoots is DELIBERATELY OMITTED — feature.ts:844's
     // `?? (() => roots)` fallback (fed by feature.ts:827's single scan) is
     // the code under test, not launcher.ts's own default.
-    const code = await runFeatureCliReal(["create", "plugged", "in"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({}),
-      pluginRootsScan: () => [root],
-      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
-    });
+    const code = await runFeatureCliStubbedReserve(
+      ["create", "plugged", "in"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({}),
+        pluginRootsScan: () => [root],
+        plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+      },
+    );
     expect(code).toBe(0);
     expect(calls).toHaveLength(1);
     const { argv, env } = calls[0]!;
@@ -3970,13 +4158,16 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
   it("plain create with no materialized plugin roots emits no --plugin-dir token and leaves PATH untouched", async () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const { spawn, calls } = fakePlainSpawn();
-    const code = await runFeatureCliReal(["create", "unplugged", "thing"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({}),
-      pluginRootsScan: () => [],
-      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
-    });
+    const code = await runFeatureCliStubbedReserve(
+      ["create", "unplugged", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({}),
+        pluginRootsScan: () => [],
+        plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+      },
+    );
     expect(code).toBe(0);
     expect(calls).toHaveLength(1);
     const { argv, env } = calls[0]!;
@@ -4608,6 +4799,23 @@ describe("private skill copy (flow-self and --skills-from launches)", () => {
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
+  it("a --skills-from copy failure releases the reserved folder so a retry lands unsuffixed", () => {
+    const branch = path.join(scratch, "branch-checkout");
+    flowLike(branch);
+    fs.writeFileSync(overlaysDir, "");
+    const code = runFeatureCli(
+      ["create", "--skills-from", branch, "CSV export"],
+      baseOptions({
+        flowCanonicalRoot: path.join(scratch, "some-flow"),
+        reserveWorktree: realReserve,
+      }),
+    );
+    expect(code).toBe(1);
+    const base = deriveWorktreePath(fs.realpathSync(repoDir), "csv-export");
+    expect(fs.existsSync(base)).toBe(false);
+    expect(fs.existsSync(`${base}-2`)).toBe(false);
+  });
+
   it("an automatic flow-self copy that cannot be built warns and launches on the shared skills", () => {
     flowLike(repoDir);
     fs.writeFileSync(overlaysDir, "");
@@ -4655,7 +4863,7 @@ describe("private skill copy (flow-self and --skills-from launches)", () => {
       );
       return { pid: 777, exited: Promise.resolve(0) };
     };
-    const code = await runFeatureCliReal(
+    const code = await runFeatureCliStubbedReserve(
       ["create", "plain", "copy"],
       baseOptions({
         flowCanonicalRoot: fs.realpathSync(repoDir),

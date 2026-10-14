@@ -92,6 +92,12 @@ export type PipelineState = {
   repo: string;
   worktree?: string;
   /**
+   * The empty folder `flow feature create` reserved at launch and passed to
+   * Claude via `--add-dir`; `flow-new-worktree` fills it in step 2. Distinct
+   * from `worktree`, which keeps meaning "step 2 created it".
+   */
+  reservedWorktree?: string;
+  /**
    * When false, `/flow-pipeline` step 9 routes every OPEN PR to gated
    * regardless of the Test Steps rubric. Absent ≡ true (the
    * documented happy-path default).
@@ -960,6 +966,11 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.pr !== undefined && typeof o.pr !== "number") return false;
   if (o.prUrl !== undefined && typeof o.prUrl !== "string") return false;
   if (o.worktree !== undefined && typeof o.worktree !== "string") return false;
+  if (
+    o.reservedWorktree !== undefined &&
+    typeof o.reservedWorktree !== "string"
+  )
+    return false;
   if (o.autoMerge !== undefined && typeof o.autoMerge !== "boolean")
     return false;
   if (o.waitForCopilot !== undefined && typeof o.waitForCopilot !== "boolean")

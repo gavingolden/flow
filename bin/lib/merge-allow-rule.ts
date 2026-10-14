@@ -8,8 +8,10 @@
  * (Test Steps clear or a fresh override token, no pending or failed CI,
  * `autoMerge` not false, the PR is this pipeline's own) are the only guard.
  * The sibling `flow-merge-guard <PR> --record-override` is deliberately NOT
- * covered, so recording a gate override still needs the classifier and a
- * fresh owner confirmation. The owner keeps the rule in their user-global
+ * covered by that allow rule; it is covered by the owner's two
+ * `permissions.ask` rules ({@link FLOW_OVERRIDE_ASK_RULES}), so it always
+ * prompts, even in auto mode. Without them the classifier decides. The owner
+ * keeps the rules in their user-global
  * settings (one source of truth): flow reads that file, never writes it —
  * not into user settings, not into a consumer repo, not into launch settings.
  *
@@ -77,4 +79,61 @@ export function broaderRuleFix(
   return exactPresent
     ? `remove the broader Bash(flow-merge-guard …) entry from permissions.allow in ${resolvedPath}; keep "${FLOW_MERGE_ALLOW_RULE}"`
     : `replace the broader Bash(flow-merge-guard …) entry in permissions.allow in ${resolvedPath} with "${FLOW_MERGE_ALLOW_RULE}"`;
+}
+
+export const FLOW_OVERRIDE_ASK_RULES = [
+  "Bash(flow-merge-guard * --record-override)",
+  "Bash(flow-merge-guard * --record-override *)",
+] as const;
+
+export type OverrideAskStatus =
+  | "present"
+  | "partial"
+  | "absent"
+  | "merge-covered"
+  | "missing-file"
+  | "malformed";
+
+/**
+ * Read-only, never throws. Checks that both override ask rules sit in
+ * `permissions.ask`. An ask entry in the `Bash(flow-merge-guard` family that
+ * does not name `--record-override` also covers `flow-merge-guard merge`, so
+ * every unattended merge would prompt: reported first as `merge-covered`.
+ */
+export function readOverrideAskRule(settingsPath: string): {
+  status: OverrideAskStatus;
+  resolvedPath: string;
+  /** The rules absent from `permissions.ask` (set with `partial` / `absent`). */
+  missing: string[];
+  /** The ask entry that would make every merge prompt (set with `merge-covered`). */
+  mergeCovering?: string;
+} {
+  const read = readUserSettings(settingsPath);
+  if (read.status !== "ok") {
+    return { status: read.status, resolvedPath: read.path, missing: [] };
+  }
+  const resolvedPath = read.path;
+  const ask = (read.settings.permissions as { ask?: unknown } | undefined)?.ask;
+  const entries = Array.isArray(ask)
+    ? ask.filter((e): e is string => typeof e === "string")
+    : [];
+  const mergeCovering = entries.find(
+    (e) => e.startsWith(RULE_FAMILY_PREFIX) && !e.includes("--record-override"),
+  );
+  if (mergeCovering !== undefined) {
+    return {
+      status: "merge-covered",
+      resolvedPath,
+      missing: [],
+      mergeCovering,
+    };
+  }
+  const missing = FLOW_OVERRIDE_ASK_RULES.filter((r) => !entries.includes(r));
+  if (missing.length === 0) return { status: "present", resolvedPath, missing };
+  return {
+    status:
+      missing.length === FLOW_OVERRIDE_ASK_RULES.length ? "absent" : "partial",
+    resolvedPath,
+    missing,
+  };
 }

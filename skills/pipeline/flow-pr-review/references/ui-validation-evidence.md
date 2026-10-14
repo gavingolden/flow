@@ -441,10 +441,10 @@ of scope here.
 ## Screenshot save-path cascade
 
 `flow feature create` now pre-authorizes the per-pipeline worktree as an MCP workspace
-root at launch (`claude --add-dir <repo-parent>/<repo>-<slug>`), and
-`/flow-pipeline` step 2 best-effort runtime-`/add-dir`s the actual worktree
-path to cover the auto-suffix-collision case where the launch-time path
-diverges (issue #317). So the PREFERRED branch below is now expected to
+root at launch (`claude --add-dir <repo-parent>/<repo>-<slug>`, where the reserved
+folder may carry a `-2`/`-3` suffix after a collision): the launch reserves that
+folder itself and step 2's `flow-new-worktree` fills it, so the launch passes the
+reserved worktree folder itself (issue #317). So the PREFERRED branch below is now expected to
 succeed for pipeline-launched sessions. The cascade stays as defense-in-depth
 — a session launched without the flag (or an MCP server that does not honor
 `--add-dir`'s workspace root for its screenshot sandbox) still degrades

@@ -16,6 +16,7 @@
 import { livenessOf } from "./liveness";
 import { deleteState, type PipelineState } from "./state";
 import { findWindowBySlug, type TmuxWindow } from "./tmux";
+import { releaseReservedWorktree } from "./worktree-slot";
 
 /**
  * Grace window for the never-started orphan sweep: a phase=`starting` state
@@ -75,8 +76,9 @@ export function reapableStartingOrphans(
 }
 
 /**
- * Side-effect wrapper: deletes the state file of each reapable orphan and
- * returns the reaped slugs. The `stateDir` arg threads through to `deleteState`
+ * Side-effect wrapper: deletes the state file of each reapable orphan,
+ * releases its still-empty launch-reserved worktree folder, and returns the
+ * reaped slugs. The `stateDir` arg threads through to `deleteState`
  * (defaults to the global state dir) for testability.
  */
 export function reapStartingOrphans(
@@ -87,6 +89,11 @@ export function reapStartingOrphans(
   stateDir?: string,
 ): string[] {
   const slugs = reapableStartingOrphans(states, windows, nowMs, graceMs);
-  for (const slug of slugs) deleteState(slug, stateDir);
+  for (const slug of slugs) {
+    deleteState(slug, stateDir);
+    releaseReservedWorktree(
+      states.find((s) => s.slug === slug)?.reservedWorktree,
+    );
+  }
   return slugs;
 }

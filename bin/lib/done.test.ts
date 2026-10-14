@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock node:fs's readSync so the prompt path is fully controllable from
 // tests. The real fs.readSync property isn't reconfigurable, so vi.spyOn
@@ -120,8 +123,10 @@ const state = (overrides: {
   pr?: number;
   pid?: number;
   procStartedAt?: number;
+  reservedWorktree?: string;
 }) => ({
   slug: overrides.slug,
+  reservedWorktree: overrides.reservedWorktree,
   phase: overrides.phase,
   pr: overrides.pr,
   pid: overrides.pid,
@@ -620,6 +625,53 @@ describe("runDone(name) single-pipeline", () => {
     expect(turnTrackingMock.deleteTurnTracking).not.toHaveBeenCalled();
     log.mockRestore();
     warn.mockRestore();
+  });
+});
+
+describe("reserved worktree folder release", () => {
+  let root: string;
+  let emptyDir: string;
+  let fullDir: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "flow-done-reserved-"));
+    emptyDir = path.join(root, "empty");
+    fullDir = path.join(root, "full");
+    fs.mkdirSync(emptyDir);
+    fs.mkdirSync(fullDir);
+    fs.writeFileSync(path.join(fullDir, "f"), "x");
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it("single slug: removes an empty reserved folder", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "r1", phase: "starting", reservedWorktree: emptyDir }),
+    );
+    expect(runDone("r1", { yes: true })).toBe(0);
+    expect(fs.existsSync(emptyDir)).toBe(false);
+    log.mockRestore();
+  });
+
+  it("single slug: keeps a non-empty reserved folder", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "r2", phase: "starting", reservedWorktree: fullDir }),
+    );
+    expect(runDone("r2", { yes: true })).toBe(0);
+    expect(fs.existsSync(path.join(fullDir, "f"))).toBe(true);
+    log.mockRestore();
+  });
+
+  it("sweep: removes an empty reserved folder and keeps a non-empty one", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    stateMock.listStates.mockReturnValue([
+      state({ slug: "s1", phase: "merged", reservedWorktree: emptyDir }),
+      state({ slug: "s2", phase: "merged", reservedWorktree: fullDir }),
+    ]);
+    expect(runDone(undefined, { merged: true, yes: true })).toBe(0);
+    expect(fs.existsSync(emptyDir)).toBe(false);
+    expect(fs.existsSync(path.join(fullDir, "f"))).toBe(true);
+    log.mockRestore();
   });
 });
 
