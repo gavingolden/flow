@@ -81,3 +81,10 @@ docs/eval/turn-folding/
 # wrote them (same precedent as docs/eval/discovery-payload/before|after/).
 docs/eval/skill-split/before/
 docs/eval/skill-split/after/
+
+# flow-pipeline phase docs and hard-rules detail: text moved verbatim out of
+# SKILL.md (itself ignored above for a non-idempotent nested fence). Running
+# prettier --write would break the byte-exact moves that
+# docs/eval/skill-split-fidelity.ts proves and the byte-exact test pins.
+skills/pipeline/flow-pipeline/references/phases/
+skills/pipeline/flow-pipeline/references/hard-rules-detail.md

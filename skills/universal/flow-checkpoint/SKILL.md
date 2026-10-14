@@ -185,7 +185,7 @@ here only ever takes `ready` or `needs`.
 On **both** the `ready` and `needs` verdicts, extract step 2's helper's
 `checkpointed: ` line from its stderr and echo it **verbatim** as the last
 line of the turn — per the pipeline SKILL.md's [Checkpoint arm signal
-(echo-verbatim)](../../pipeline/flow-pipeline/SKILL.md#checkpoint-arm-signal-echo-verbatim)
+(echo-verbatim)](../../pipeline/flow-pipeline/references/phases/shared-gate-contracts.md#checkpoint-arm-signal-echo-verbatim)
 subsection: never restate it from memory, paraphrase it, reorder it, or
 drop it. Every branch in `flow-checkpoint.ts` prints this line on stderr,
 including the `needs` failure branches — scoping the echo to `ready` only

@@ -134,7 +134,7 @@ No `npm run build` — flow ships `bin/flow` via Bun, no compile step.
 - Don't leave spawned resources running: (1) point-of-use teardown first;
   (2) `flow-browser-teardown --reap --record` as the guaranteed
   registry-driven backstop, never `|| true`-swallowed; (3) `flow reap` as
-  the crash-path net, never primary. See `skills/pipeline/flow-pipeline/SKILL.md` "Resource cleanup".
+  the crash-path net, never primary. See `skills/pipeline/flow-pipeline/references/phases/resource-cleanup.md`.
 - Don't auto-commit/push outside explicit instruction on `main`; on a
   feature/PR branch, invoking a code-editing skill IS the instruction to
   commit that branch's edits. Named exemptions are enumerated in

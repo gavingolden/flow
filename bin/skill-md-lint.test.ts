@@ -16,7 +16,10 @@ import {
 } from "./lib/phase-advance";
 import { SURVEY_VERDICTS, VETTING_VERDICTS } from "./flow-step3-route";
 import { UI_EXTENSIONS } from "./flow-ui-validate";
-import { readPipelineSkillCorpus } from "./lib/pipeline-skill-corpus";
+import {
+  readPipelineSkillCore,
+  readPipelineSkillCorpus,
+} from "./lib/pipeline-skill-corpus";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -2926,18 +2929,21 @@ describe("/flow-coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
   }
 
   /**
-   * Slice the Task-tool exemption #6 block from flow-pipeline/SKILL.md,
-   * bounded by the next `**Task-tool exemption` marker. Strip blockquote
+   * Slice the Task-tool exemption #6 detail from the flow-pipeline corpus,
+   * bounded by the next `## ` heading. Strip blockquote
    * `> ` prefixes so cross-line regexes match contiguous prose.
    */
   function slicePipelineCoderSection(): string {
+    // Skill split (flow-pipeline core + phase docs): the core keeps only the
+    // exemption #6 heading; the callers moved verbatim into
+    // references/hard-rules-detail.md under "Detail of exemption 6", so the
+    // slice now runs over that chunk, bounded by the next "## " heading.
     const stripped = stripBlockquoteMarkers(content);
-    const startMarker =
-      "**Task-tool exemption #6: `/flow-coder` Independent Edit-Applier Subagent.**";
+    const startMarker = "## Detail of exemption 6";
     const startIdx = stripped.indexOf(startMarker);
     if (startIdx === -1) return "";
     const rest = stripped.slice(startIdx + startMarker.length);
-    const nextMarkerIdx = rest.indexOf("**Task-tool exemption");
+    const nextMarkerIdx = rest.indexOf("\n## ");
     return nextMarkerIdx === -1 ? rest : rest.slice(0, nextMarkerIdx);
   }
 
@@ -5580,7 +5586,9 @@ describe("pr-review include-by-reference structure", () => {
   });
 
   it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
-    const content = readPipelineSkillCorpus();
+    // Skill split: the corpus is core + phase docs and is deliberately larger
+    // than this ceiling; the ceiling now measures the core file alone.
+    const content = readPipelineSkillCore();
     const lineCount = content.split("\n").length;
     // Clickable-targets PR: raised 3080 -> 3090. `main` had already climbed
     // to 3078 (2 lines of headroom) before this branch, so the +5 net lines
@@ -6376,10 +6384,10 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
     expect(
       content.includes(
-        "per the [Checkpoint arm signal\n(echo-verbatim)](#checkpoint-arm-signal-echo-verbatim)",
+        "per the [Checkpoint arm signal\n(echo-verbatim)](shared-gate-contracts.md#checkpoint-arm-signal-echo-verbatim)",
       ) ||
         content.includes(
-          "per the [Checkpoint arm signal (echo-verbatim)](#checkpoint-arm-signal-echo-verbatim)",
+          "per the [Checkpoint arm signal (echo-verbatim)](shared-gate-contracts.md#checkpoint-arm-signal-echo-verbatim)",
         ),
       "the step 9 gate auto-checkpoint sub-step must point at the " +
         "'Checkpoint arm signal (echo-verbatim)' subsection instead of " +
@@ -6470,7 +6478,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
     expect(
       content.includes(
-        "then echo its `checkpointed: ` stderr line verbatim as the last line of the turn, per the [Checkpoint arm signal (echo-verbatim)](#checkpoint-arm-signal-echo-verbatim) subsection.",
+        "then echo its `checkpointed: ` stderr line verbatim as the last line of the turn, per the [Checkpoint arm signal (echo-verbatim)](shared-gate-contracts.md#checkpoint-arm-signal-echo-verbatim) subsection.",
       ),
       "the step 3 plan-review clear point must point at the 'Checkpoint " +
         "arm signal (echo-verbatim)' subsection instead of authoring its " +
@@ -7434,17 +7442,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
   });
 
   it("pipeline Step 9 carries a non-terminal browser-retry row: auto-redrive marker, pending phase, no browser reap", () => {
-    const pipelineContent = fs.readFileSync(
-      path.resolve(
-        HERE,
-        "..",
-        "skills",
-        "pipeline",
-        "flow-pipeline",
-        "SKILL.md",
-      ),
-      "utf8",
-    );
+    const pipelineContent = readPipelineSkillCorpus();
     const row = pipelineContent
       .split("\n")
       .find((l) => l.startsWith("| `browser-retry` | **Non-terminal**"));
@@ -9816,14 +9814,7 @@ describe("N-port sentinel doc wiring (AGENTS.md ↔ UI references ↔ SKILL.md r
   });
 
   it("flow-pipeline/SKILL.md resource-cleanup list carries the agent-written-file class", () => {
-    const skillMdPath = path.join(
-      REPO_ROOT,
-      "skills",
-      "pipeline",
-      "flow-pipeline",
-      "SKILL.md",
-    );
-    const content = fs.readFileSync(skillMdPath, "utf8");
+    const content = readPipelineSkillCorpus();
     expect(content).toContain("**Agent-written env/config files**");
   });
 });
@@ -9943,10 +9934,7 @@ describe("pause-output contract wiring lint", () => {
   });
 
   it("flow-pipeline/SKILL.md references pause-output-contract.md at ≥9 pause sites", () => {
-    const c = fs.readFileSync(
-      path.join(REPO_ROOT, "skills", "pipeline", "flow-pipeline", "SKILL.md"),
-      "utf8",
-    );
+    const c = readPipelineSkillCorpus();
     // Strip HTML comments first so the extend-on-add sentinel comments
     // (`<!-- any new pause site below must reference
     // pause-output-contract.md -->`) don't inflate the count — only the
@@ -9966,10 +9954,7 @@ describe("pause-output contract wiring lint", () => {
   });
 
   it("the 'At most one question-gate fire per pipeline' paragraph documents the per-source method-pause carve-out", () => {
-    const c = fs.readFileSync(
-      path.join(REPO_ROOT, "skills", "pipeline", "flow-pipeline", "SKILL.md"),
-      "utf8",
-    );
+    const c = readPipelineSkillCorpus();
     const m = c.match(
       /\*\*At most one question-gate fire per pipeline\.\*\*[\s\S]*?(?=\n\n)/,
     );
@@ -12185,10 +12170,7 @@ describe("flow-doc read forms", () => {
       : [];
 
   it("the flow-pipeline supervisor carries the Read-tool-not-awk hard rule", () => {
-    const skill = fs.readFileSync(
-      path.resolve(ROOT, "skills", "pipeline", "flow-pipeline", "SKILL.md"),
-      "utf8",
-    );
+    const skill = readPipelineSkillCorpus();
     expect(skill).toContain("never awk or pattern-range sed");
   });
 
