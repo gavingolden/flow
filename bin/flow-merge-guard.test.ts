@@ -534,7 +534,12 @@ describe("run() — merge mode", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     let exit: number;
     try {
-      exit = run(argv, { stateDir, now: () => NOW, ...deps });
+      exit = run(argv, {
+        stateDir,
+        now: () => NOW,
+        resolveSlug: () => null,
+        ...deps,
+      });
     } finally {
       cap.restore();
       errSpy.mockRestore();
@@ -782,6 +787,145 @@ describe("run() — merge mode", () => {
     expect(exit).toBe(2);
     expect(out.decision).toBe("error");
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("merges with autoMerge:false when a fresh override token exists", () => {
+    seedMerge("m6b", {
+      autoMerge: false,
+      gateOverride: freshOverride(5, 1000),
+    });
+    const spy = vi.fn(okMerge);
+    const { exit, out } = runMerge(["merge", "5", "--slug", "m6b"], {
+      gh: ghFor({}),
+      runMerge: spy,
+    });
+    expect(exit).toBe(0);
+    expect(out.decision).toBe("merged");
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a check state outside the pending/failed/passing sets (fail-closed)", () => {
+    seedMerge("m13");
+    const spy = vi.fn(okMerge);
+    for (const state of [
+      "ERROR",
+      "ACTION_REQUIRED",
+      "WAITING",
+      "REQUESTED",
+      "EXPECTED",
+      "SOMETHING_NEW",
+    ]) {
+      const { exit, out } = runMerge(["merge", "5", "--slug", "m13"], {
+        gh: ghFor({
+          checks: {
+            stdout: JSON.stringify([
+              { name: "ok", state: "SUCCESS" },
+              { name: "odd", state },
+            ]),
+          },
+        }),
+        runMerge: spy,
+      });
+      expect(exit).toBe(1);
+      expect(out.reason).toBe(`checks-unrecognised: odd=${state}`);
+    }
+    const malformed = runMerge(["merge", "5", "--slug", "m13"], {
+      gh: ghFor({
+        checks: { stdout: JSON.stringify([{ name: "no-state" }]) },
+      }),
+      runMerge: spy,
+    });
+    expect(malformed.exit).toBe(1);
+    expect(malformed.out.reason).toContain("checks-unrecognised");
+    expect(spy).not.toHaveBeenCalled();
+    expect(phaseOf("m13")).toBe("gating");
+  });
+
+  it("passes SUCCESS, NEUTRAL and SKIPPED checks", () => {
+    seedMerge("m14");
+    const { exit } = runMerge(["merge", "5", "--slug", "m14"], {
+      gh: ghFor({
+        checks: {
+          stdout: JSON.stringify([
+            { name: "a", state: "SUCCESS" },
+            { name: "b", state: "NEUTRAL" },
+            { name: "c", state: "SKIPPED" },
+          ]),
+        },
+      }),
+      runMerge: okMerge,
+    });
+    expect(exit).toBe(0);
+  });
+
+  it("reads gate inputs with cwd = state.repo, the same repo the merge targets", () => {
+    seedMerge("m15");
+    const gh = ghFor({});
+    const ghInRepo = vi.fn((_cwd: string) => gh);
+    const { exit } = runMerge(["merge", "5", "--slug", "m15"], {
+      ghInRepo,
+      runMerge: okMerge,
+    });
+    expect(exit).toBe(0);
+    expect(ghInRepo).toHaveBeenCalledWith("/base/checkout");
+  });
+
+  it("refuses a forged --slug (path traversal or wrong shape) before reading any state", () => {
+    const forged = path.join(stateDir, "forged.json");
+    fs.writeFileSync(
+      forged,
+      JSON.stringify({
+        slug: "x",
+        phase: "gating",
+        repo: "/base/checkout",
+        updatedAt: "2026-05-22T11:00:00Z",
+        pr: 5,
+        gateOverride: freshOverride(5),
+      }),
+    );
+    const spy = vi.fn(okMerge);
+    const gh = ghFor({ body: HAS_UNCHECKED });
+    for (const slug of [
+      `../${path.basename(stateDir)}/forged`,
+      "../forged",
+      "/abs/forged",
+      "A_B",
+      "a/b",
+    ]) {
+      const { exit } = runMerge(["merge", "5", "--slug", slug], {
+        gh,
+        runMerge: spy,
+      });
+      expect(exit).toBe(2);
+    }
+    expect(spy).not.toHaveBeenCalled();
+    expect(gh).not.toHaveBeenCalled();
+    expect(JSON.parse(fs.readFileSync(forged, "utf8")).phase).toBe("gating");
+  });
+
+  it("refuses a malformed ambient slug and a --slug that differs from the pipeline's own FLOW_SLUG", () => {
+    seedMerge("own");
+    seedMerge("other");
+    const spy = vi.fn(okMerge);
+    const bad = runMerge(["merge", "5"], {
+      gh: ghFor({}),
+      resolveSlug: () => "../own",
+      runMerge: spy,
+    });
+    expect(bad.exit).toBe(2);
+    const mismatch = runMerge(["merge", "5", "--slug", "other"], {
+      gh: ghFor({}),
+      resolveSlug: () => "own",
+      runMerge: spy,
+    });
+    expect(mismatch.exit).toBe(2);
+    expect(spy).not.toHaveBeenCalled();
+    const same = runMerge(["merge", "5", "--slug", "own"], {
+      gh: ghFor({}),
+      resolveSlug: () => "own",
+      runMerge: spy,
+    });
+    expect(same.exit).toBe(0);
   });
 
   it("existing parseArgs shape is untouched by merge mode", () => {

@@ -93,9 +93,16 @@ export type Deps = {
   /**
    * Records the bounded `needs-human` pause (test seam; production:
    * `finalizePhase`, so its epic/finished/pr/branch guards apply). Runs
-   * inside the hook, so no permission check can refuse it.
+   * inside the hook, so no permission check can refuse it. Returns whether
+   * the pause actually landed (an `epic-*` phase or a failed write does not).
    */
-  writePause: (state: PipelineState, outcome: string) => void;
+  writePause: (state: PipelineState, outcome: string) => boolean;
+  /**
+   * Stdout channel for the Stop hook's JSON output (`systemMessage`); the
+   * owner sees it even though the exit-0 stderr is not shown. Optional so
+   * tests that do not assert on it need not supply it.
+   */
+  writeOut?: (s: string) => void;
 };
 
 function dedupe(items: string[]): string[] {
@@ -359,10 +366,17 @@ export async function run(deps: Deps): Promise<number> {
     }
     if (tracking.blockCount + 1 >= TURN_BLOCK_LIMIT + STAGNATION_PAUSE_LIMIT) {
       const outcome = `stalled at ${state.phase} after ${tracking.blockCount} blocked stops — reply ${pauseReply(state)}`;
-      deps.writePause(state, outcome);
+      const recorded = deps.writePause(state, outcome);
       deps.writeErr(
-        `flow-stop-guard: phase=${state.phase} has not advanced after ${tracking.blockCount} blocked stops; recorded a needs-human pause (${outcome}). Ending the turn.\n`,
+        `flow-stop-guard: phase=${state.phase} has not advanced after ${tracking.blockCount} blocked stops; ${recorded ? "recorded" : "could not record"} a needs-human pause (${outcome}). Ending the turn.\n`,
       );
+      if (recorded) {
+        deps.writeOut?.(
+          JSON.stringify({
+            systemMessage: `flow paused this pipeline (needs-human): ${outcome}.`,
+          }) + "\n",
+        );
+      }
       tracking = { ...tracking, lastStopAt: now };
       deps.writeTurn(tracking);
       return 0;
@@ -396,12 +410,12 @@ export async function run(deps: Deps): Promise<number> {
   return 2;
 }
 
-/** The single reply that continues a paused run: the merge reply where a merge was in play, `continue` elsewhere. */
+/** The single reply that continues a paused run: the merge reply where a merge was in play, the usual needs-human `done` elsewhere. */
 function pauseReply(state: PipelineState): string {
   const mergePhase = state.phase === "gating" || state.phase === "merging";
   return mergePhase && typeof state.pr === "number"
     ? `merge #${state.pr}`
-    : "continue";
+    : "done";
 }
 
 /**
@@ -500,10 +514,13 @@ if (import.meta.main) {
     guardCapability: (repoRoot) => installedGuardCapability(repoRoot),
     writePause: (state, outcome) => {
       try {
-        finalizePhase("needs-human", { slug: state.slug, outcome });
+        return finalizePhase("needs-human", { slug: state.slug, outcome })
+          .advanced;
       } catch {
         // The bound must hold even when the pause cannot be recorded.
+        return false;
       }
     },
+    writeOut: (s) => process.stdout.write(s),
   }).then((code) => process.exit(code));
 }

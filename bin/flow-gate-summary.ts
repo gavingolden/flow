@@ -77,6 +77,7 @@ import {
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { finalizePhase } from "./lib/phase-advance";
 import {
+  broaderRuleFix,
   FLOW_MERGE_ALLOW_RULE,
   readMergeAllowRule,
   userSettingsPath,
@@ -1083,10 +1084,13 @@ function mergeRuleHintFor(
   if (!reason || reason.split(":")[0].trim() !== "merge-permission-denied") {
     return undefined;
   }
-  const { status, resolvedPath } = readMergeAllowRule(
+  const { status, resolvedPath, exactPresent } = readMergeAllowRule(
     userSettingsPath(env, homeDir),
   );
   if (status === "present") return undefined;
+  if (status === "broader") {
+    return `Your settings carry a broader flow-merge-guard rule that also pre-approves recording a gate override: ${broaderRuleFix(resolvedPath, exactPresent === true)} (\`flow doctor\` checks it).`;
+  }
   return `Future merges will be refused the same way until you add \`${FLOW_MERGE_ALLOW_RULE}\` to permissions.allow in ${resolvedPath} (\`flow doctor\` checks it).`;
 }
 

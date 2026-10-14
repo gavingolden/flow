@@ -477,6 +477,19 @@ describe("advancePhase / finalizePhase — phase.transition telemetry", () => {
     });
   });
 
+  it("finalizePhase forwards its outcome into the phase.transition event", () => {
+    seedState("tele-3b", "gating");
+    finalizePhase("needs-human", {
+      slug: "tele-3b",
+      dir: stateDir,
+      outcome: "stalled at gating after 3 blocked stops — reply merge #7",
+    });
+    expect(readTransitions()[0]?.attrs).toMatchObject({
+      to: "needs-human",
+      outcome: "stalled at gating after 3 blocked stops — reply merge #7",
+    });
+  });
+
   it("finalizePhase does not record an event on an already-terminal no-op", () => {
     seedState("tele-4", "merged");
     const result = finalizePhase("merged", { slug: "tele-4", dir: stateDir });

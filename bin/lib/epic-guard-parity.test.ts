@@ -162,7 +162,7 @@ async function driveRun(repoRoot: string, rel: string): Promise<number> {
     dirtyEpicPaths: () => [rel],
     repoCommitState: () => "clean",
     guardCapability: (root) => installedGuardCapability(root),
-    writePause: () => {},
+    writePause: () => true,
   };
   return run(deps);
 }

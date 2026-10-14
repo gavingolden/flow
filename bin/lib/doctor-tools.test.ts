@@ -320,8 +320,25 @@ describe("checkMergeAllowRule", () => {
     expect(c.details.join(" ")).toContain(
       "also pre-approves recording a gate override",
     );
+    expect(c.summary).not.toContain("refused");
     expect(c.fix).toBe(
-      `add "Bash(flow-merge-guard merge *)" to permissions.allow in ${file}`,
+      `replace the broader Bash(flow-merge-guard …) entry in permissions.allow in ${file} with "Bash(flow-merge-guard merge *)"`,
+    );
+  });
+
+  it("warns for a broader rule even when the exact rule is also present, telling the owner to remove it", () => {
+    const file = settingsAt(
+      path.join(root, "home", ".claude"),
+      JSON.stringify({
+        permissions: {
+          allow: ["Bash(flow-merge-guard merge *)", "Bash(flow-merge-guard *)"],
+        },
+      }),
+    );
+    const [c] = checkMergeAllowRule(makeDeps(root));
+    expect(c.status).toBe("warn");
+    expect(c.fix).toBe(
+      `remove the broader Bash(flow-merge-guard …) entry from permissions.allow in ${file}; keep "Bash(flow-merge-guard merge *)"`,
     );
   });
 

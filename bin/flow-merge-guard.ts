@@ -58,12 +58,15 @@
  *         2 usage, gh error, no slug.
  *
  * `--slug` is optional when a pipeline is live: it auto-resolves from
- * `$FLOW_SLUG`, same as `flow-gate-decide`.
+ * `$FLOW_SLUG`, same as `flow-gate-decide`. Merge mode additionally requires
+ * a valid slug shape and, when `$FLOW_SLUG` is set, that `--slug` equals it:
+ * the pre-approved shape must act only on the calling pipeline's own state.
  *
  * Exit codes:
- *   0 — clear (check mode) / token recorded (record mode)
- *   1 — blocked (check mode only)
+ *   0 — clear (check mode) / token recorded (record mode) / merged (merge mode)
+ *   1 — blocked (check mode) / refused (merge mode)
  *   2 — bad CLI args, gh failure, or unresolvable slug
+ *   3 — merge mode only: the squash merge itself failed
  */
 
 import { spawnSync } from "node:child_process";
@@ -78,8 +81,10 @@ import { readState, writeState, type PipelineState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { advancePhase } from "./lib/phase-advance";
+import { isValidSlug } from "./lib/slug";
 import {
   deriveCheckState,
+  PASSED_CHECK_STATES,
   type Check,
   type CheckState,
 } from "./lib/ci-decision";
@@ -192,6 +197,17 @@ const defaultGh: GhRunner = (argv) => {
   };
 };
 
+const defaultGhInRepo =
+  (cwd: string): GhRunner =>
+  (argv) => {
+    const r = spawnSync("gh", argv, { cwd, encoding: "utf8" });
+    return {
+      stdout: r.stdout ?? "",
+      stderr: r.stderr ?? "",
+      exitCode: r.status ?? -1,
+    };
+  };
+
 // --- CLI -------------------------------------------------------------------
 
 type Args = { pr: number; slug?: string; recordOverride: boolean };
@@ -228,6 +244,8 @@ export function parseArgs(argv: string[]): Args | { error: string } {
 
 export type Deps = {
   gh?: GhRunner;
+  /** Merge mode's gh factory, rooted at `state.repo` so gate inputs and the merge target are one repo. Ignored when `gh` is given. */
+  ghInRepo?: (cwd: string) => GhRunner;
   stateDir?: string;
   resolveSlug?: () => string | null;
   now?: () => number;
@@ -296,17 +314,26 @@ export function evaluateMergePreconditions(input: {
   return { ok: true };
 }
 
+/** Check states that let a merge through; anything outside this set and the pending/failed sets refuses. */
+export const MERGE_PASSING_CHECK_STATES: ReadonlySet<string> = new Set([
+  ...PASSED_CHECK_STATES,
+  "NEUTRAL",
+]);
+
 /**
  * Error-aware CI read. Unlike `observeChecks` (which fails open to `[]` on any
  * gh error), a failed read refuses the merge — except gh's literal
- * "no checks reported", which is a legitimate empty CI.
+ * "no checks reported", which is a legitimate empty CI. An entry without a
+ * string name/state, or a state outside the pending/failed/passing sets
+ * (ERROR, ACTION_REQUIRED, WAITING, ...), also refuses rather than passing.
  */
 function readChecks(
   pr: number,
   gh: GhRunner,
 ):
   | { kind: "ok"; checks: CheckState }
-  | { kind: "unreadable"; message: string } {
+  | { kind: "unreadable"; message: string }
+  | { kind: "unrecognised"; message: string } {
   const r = gh(["pr", "checks", String(pr), "--json", "name,state"]);
   let parsed: unknown;
   try {
@@ -321,7 +348,25 @@ function readChecks(
       (c): c is Check =>
         typeof c?.name === "string" && typeof c?.state === "string",
     );
-    return { kind: "ok", checks: deriveCheckState(checks) };
+    if (checks.length !== parsed.length) {
+      return {
+        kind: "unrecognised",
+        message: "a check entry has no name/state",
+      };
+    }
+    const derived = deriveCheckState(checks);
+    if (derived.kind === "all-passed") {
+      const odd = checks.filter(
+        (c) => !MERGE_PASSING_CHECK_STATES.has(c.state),
+      );
+      if (odd.length > 0) {
+        return {
+          kind: "unrecognised",
+          message: odd.map((c) => `${c.name}=${c.state}`).join(", "),
+        };
+      }
+    }
+    return { kind: "ok", checks: derived };
   }
   if (r.exitCode !== 0 && /no checks reported/i.test(r.stderr)) {
     return { kind: "ok", checks: deriveCheckState([]) };
@@ -381,6 +426,7 @@ export function parseMergeArgs(
     if (rest[i] === "--slug") {
       const v = rest[i + 1];
       if (!v || v.startsWith("--")) return { error: "--slug requires a value" };
+      if (!isValidSlug(v)) return { error: `invalid slug '${v}'` };
       slug = v;
       i++;
       continue;
@@ -394,7 +440,7 @@ function mergePr(
   pr: number,
   slug: string,
   stateDir: string,
-  gh: GhRunner,
+  deps: Deps,
   now: () => number,
   runMerge: NonNullable<Deps["runMerge"]>,
 ): number {
@@ -423,6 +469,7 @@ function mergePr(
       null,
     );
   }
+  const gh = deps.gh ?? (deps.ghInRepo ?? defaultGhInRepo)(state.repo);
   const fetched = fetchPrInputs(pr, gh);
   if (fetched.kind === "error") {
     return emitMergeOutcome(
@@ -443,6 +490,9 @@ function mergePr(
   const read = fetched.state === "OPEN" ? readChecks(pr, gh) : null;
   if (read?.kind === "unreadable") {
     return refuse(`checks-unreadable: ${read.message}`);
+  }
+  if (read?.kind === "unrecognised") {
+    return refuse(`checks-unrecognised: ${read.message}`);
   }
   const pre = evaluateMergePreconditions({
     body: fetched.body,
@@ -535,13 +585,12 @@ function checkGuard(
     return 0;
   }
   const state = readState(slug, stateDir);
-  // Side effect: advances `state.phase` to `merging` as part of the guard
-  // check itself, so Step 10's phase write rides the pass/block verdict
-  // the supervisor cannot proceed without (plan.md Task 3). Deliberately
-  // NOT wired into `recordOverrideToken` below — that function serves the
-  // `--record-override` fresh-confirmation path, not a pipeline
-  // transition, and its own `writeState` at the end of this file would
-  // clobber an advance recorded there.
+  // Side effect: advances `state.phase` to `merging` when the guard clears.
+  // Step 10 now calls merge mode, which writes `merging` itself, so this
+  // check mode is only reachable by hand. Deliberately NOT wired into
+  // `recordOverrideToken` — that function serves the `--record-override`
+  // fresh-confirmation path, not a pipeline transition, and its own
+  // `writeState` would clobber an advance recorded there.
   const result = evaluateMergeGuard(fetched.body, state, pr, now());
   // Out of `gated` (the gate-override path), `merging` lands only when the
   // guard clears — a blocked override must leave the pipeline visibly gated,
@@ -573,16 +622,27 @@ export function run(argv: string[], deps: Deps = {}): number {
       console.error(usage);
       return 2;
     }
-    const mergeSlug = m.slug ?? resolveSlug();
+    const ambient = resolveSlug();
+    const mergeSlug = m.slug ?? ambient;
     if (!mergeSlug) {
       console.error(noSlug);
+      return 2;
+    }
+    if (!isValidSlug(mergeSlug)) {
+      console.error(`flow-merge-guard: invalid slug '${mergeSlug}'`);
+      return 2;
+    }
+    if (ambient && mergeSlug !== ambient) {
+      console.error(
+        `flow-merge-guard: --slug '${mergeSlug}' is not this pipeline's slug ('${ambient}'); merge mode acts only on its own pipeline.`,
+      );
       return 2;
     }
     return mergePr(
       m.pr,
       mergeSlug,
       stateDir,
-      gh,
+      deps,
       now,
       deps.runMerge ?? defaultRunMerge,
     );

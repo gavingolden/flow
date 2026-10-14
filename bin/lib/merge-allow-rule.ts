@@ -23,6 +23,7 @@ import * as path from "node:path";
 export const FLOW_MERGE_ALLOW_RULE = "Bash(flow-merge-guard merge *)";
 
 const RULE_FAMILY_PREFIX = "Bash(flow-merge-guard";
+const NARROWER_PREFIX = "Bash(flow-merge-guard merge";
 const MAX_LINK_HOPS = 16;
 
 export type MergeRuleStatus =
@@ -65,6 +66,8 @@ function followLinks(start: string): string {
 export function readMergeAllowRule(settingsPath: string): {
   status: MergeRuleStatus;
   resolvedPath: string;
+  /** Set with `broader` when the exact rule is also present, so the fix is "remove", not "replace". */
+  exactPresent?: true;
 } {
   let resolvedPath: string;
   try {
@@ -84,11 +87,29 @@ export function readMergeAllowRule(settingsPath: string): {
   const entries = Array.isArray(allow)
     ? allow.filter((e): e is string => typeof e === "string")
     : [];
-  if (entries.includes(FLOW_MERGE_ALLOW_RULE)) {
-    return { status: "present", resolvedPath };
+  const exact = entries.includes(FLOW_MERGE_ALLOW_RULE);
+  // A broader entry wins even beside the exact rule: it still pre-approves
+  // `--record-override`. Entries starting `merge` match only the merge shape.
+  const broader = entries.some(
+    (e) => e.startsWith(RULE_FAMILY_PREFIX) && !e.startsWith(NARROWER_PREFIX),
+  );
+  if (broader) {
+    return {
+      status: "broader",
+      resolvedPath,
+      ...(exact ? { exactPresent: true as const } : {}),
+    };
   }
-  if (entries.some((e) => e.startsWith(RULE_FAMILY_PREFIX))) {
-    return { status: "broader", resolvedPath };
-  }
+  if (exact) return { status: "present", resolvedPath };
   return { status: "absent", resolvedPath };
+}
+
+/** The owner-facing fix for a `broader` status: what to do with the over-wide line. */
+export function broaderRuleFix(
+  resolvedPath: string,
+  exactPresent: boolean,
+): string {
+  return exactPresent
+    ? `remove the broader Bash(flow-merge-guard …) entry from permissions.allow in ${resolvedPath}; keep "${FLOW_MERGE_ALLOW_RULE}"`
+    : `replace the broader Bash(flow-merge-guard …) entry in permissions.allow in ${resolvedPath} with "${FLOW_MERGE_ALLOW_RULE}"`;
 }

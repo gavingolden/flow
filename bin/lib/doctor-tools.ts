@@ -8,6 +8,7 @@
 import type { DoctorCheck, DoctorDeps } from "./doctor";
 import { installCommand } from "./doctor-util";
 import {
+  broaderRuleFix,
   FLOW_MERGE_ALLOW_RULE,
   readMergeAllowRule,
   userSettingsPath,
@@ -48,7 +49,7 @@ export const TOOLS_MERGE_RULE_META = {
 
 const MERGE_RULE_REASON: Record<Exclude<MergeRuleStatus, "present">, string> = {
   broader:
-    "the broader rule also pre-approves recording a gate override — replace it with the exact rule",
+    "the broader rule also pre-approves recording a gate override, which should still need your confirmation",
   absent: "the file has no matching entry in permissions.allow",
   "missing-file": "the settings file does not exist",
   malformed: "the settings file is not valid JSON",
@@ -56,9 +57,21 @@ const MERGE_RULE_REASON: Record<Exclude<MergeRuleStatus, "present">, string> = {
 
 export function checkMergeAllowRule(deps: DoctorDeps): DoctorCheck[] {
   const base = TOOLS_MERGE_RULE_META;
-  const { status, resolvedPath } = readMergeAllowRule(
+  const { status, resolvedPath, exactPresent } = readMergeAllowRule(
     userSettingsPath(deps.env, deps.homeDir),
   );
+  if (status === "broader") {
+    return [
+      {
+        ...base,
+        status: "warn",
+        summary:
+          "your Claude settings carry a broader flow-merge-guard rule than unattended merges need",
+        details: [MERGE_RULE_REASON.broader],
+        fix: broaderRuleFix(resolvedPath, exactPresent === true),
+      },
+    ];
+  }
   if (status === "present") {
     return [
       {

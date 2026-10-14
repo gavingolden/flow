@@ -63,7 +63,7 @@ function makeDeps(opts: {
   const loadCalls: string[] = [];
   const writeTurn = vi.fn();
   const readTurn = vi.fn(() => opts.turnTracking ?? null);
-  const writePause = vi.fn();
+  const writePause = vi.fn(() => true);
   const repoCommitStateSpy = vi.fn(
     opts.repoCommitState ?? (() => "clean" as RepoState),
   );
@@ -834,16 +834,20 @@ async function replayStops(opts: {
   stops: number;
   state: PipelineState;
   stdin: string | ((stop: number) => string);
+  /** `landed`: the pause write moves state to needs-human (production); `failed`: it never lands. */
+  pause?: "landed" | "failed";
 }) {
   let turn: TurnTracking | null = null;
+  let current = opts.state;
   const exits: number[] = [];
   const pauses: Array<{ state: PipelineState; outcome: string }> = [];
   const errs: string[] = [];
+  const outs: string[] = [];
   for (let i = 1; i <= opts.stops; i++) {
     const { deps } = makeDeps({
       stdin: typeof opts.stdin === "function" ? opts.stdin(i) : opts.stdin,
       slug: "demo",
-      state: opts.state,
+      state: current,
     });
     deps.readTurn = () => turn;
     deps.writeTurn = (t) => {
@@ -852,31 +856,66 @@ async function replayStops(opts: {
     deps.writeErr = (s) => {
       errs.push(s);
     };
+    deps.writeOut = (s) => {
+      outs.push(s);
+    };
     deps.writePause = (state, outcome) => {
       pauses.push({ state, outcome });
+      if (opts.pause === "failed") return false;
+      current = { ...state, phase: "needs-human" };
+      return true;
     };
     exits.push(await run(deps));
   }
-  return { exits, pauses, errs, turn: turn as TurnTracking | null };
+  return { exits, pauses, errs, outs, turn: turn as TurnTracking | null };
 }
 
 describe("bounded stagnation pause", () => {
-  it("432-stop incident replay: blocks stops 1-3, then pauses needs-human on stop 4 naming the stalled phase and merge #<pr>", async () => {
-    const { exits, pauses } = await replayStops({
-      stops: 432,
-      state: fakeState("gating", { pr: 950 }),
-      stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
-    });
-    expect(exits.slice(0, 3)).toEqual([2, 2, 2]);
-    expect(exits[3]).toBe(0);
-    expect(pauses.length).toBeGreaterThanOrEqual(1);
-    expect(pauses[0]!.outcome).toBe(
-      "stalled at gating after 3 blocked stops — reply merge #950",
-    );
+  it("432-stop incident replay: blocks stops 1-3, pauses needs-human on stop 4 naming the stalled phase and merge #<pr>, then every later stop exits 0", async () => {
+    for (const pause of ["landed", "failed"] as const) {
+      const { exits, pauses } = await replayStops({
+        stops: 432,
+        state: fakeState("gating", { pr: 950 }),
+        stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
+        pause,
+      });
+      expect(exits.slice(0, 3)).toEqual([2, 2, 2]);
+      // Stops 4-432 never block again, whether or not the pause write landed.
+      expect(exits.slice(3)).toEqual(Array(429).fill(0));
+      expect(pauses.length).toBeGreaterThanOrEqual(1);
+      expect(pauses[0]!.outcome).toBe(
+        "stalled at gating after 3 blocked stops — reply merge #950",
+      );
+      // A landed pause is written once (later stops see needs-human); a failed one is retried but never blocks.
+      if (pause === "landed") expect(pauses).toHaveLength(1);
+    }
     expect(TURN_BLOCK_LIMIT + STAGNATION_PAUSE_LIMIT).toBe(4);
   });
 
-  it("names `continue` as the one reply at a non-merge phase", async () => {
+  it("surfaces the one reply to the owner as a Stop-hook systemMessage only when the pause landed", async () => {
+    const landed = await replayStops({
+      stops: 4,
+      state: fakeState("gating", { pr: 950 }),
+      stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
+    });
+    expect(landed.outs).toHaveLength(1);
+    expect(JSON.parse(landed.outs[0]!)).toEqual({
+      systemMessage:
+        "flow paused this pipeline (needs-human): stalled at gating after 3 blocked stops — reply merge #950.",
+    });
+    const failed = await replayStops({
+      stops: 4,
+      state: fakeState("gating", { pr: 950 }),
+      stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
+      pause: "failed",
+    });
+    expect(failed.outs).toEqual([]);
+    expect(failed.errs.join("")).toContain(
+      "could not record a needs-human pause",
+    );
+  });
+
+  it("names `done` (the needs-human confirming reply) as the one reply at a non-merge phase", async () => {
     const { exits, pauses } = await replayStops({
       stops: 4,
       state: fakeState("verifying", { pr: 12 }),
@@ -885,20 +924,20 @@ describe("bounded stagnation pause", () => {
     expect(exits).toEqual([2, 2, 2, 0]);
     expect(pauses).toHaveLength(1);
     expect(pauses[0]!.outcome).toBe(
-      "stalled at verifying after 3 blocked stops — reply continue",
+      "stalled at verifying after 3 blocked stops — reply done",
     );
   });
 
-  it("falls back to `continue` at gating when state has no PR number", async () => {
+  it("falls back to `done` at merging when state has no PR number", async () => {
     const { pauses } = await replayStops({
       stops: 4,
       state: fakeState("merging"),
       stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
     });
-    expect(pauses[0]!.outcome).toContain("reply continue");
+    expect(pauses[0]!.outcome).toContain("reply done");
   });
 
-  it("a stop with a running subagent or shell exits 0 uncounted and never pauses", async () => {
+  it("after the first nudge, stops with a running subagent or shell exit 0 uncounted and never pause", async () => {
     for (const type of ["subagent", "shell", "monitor", "workflow"]) {
       const { exits, pauses, turn } = await replayStops({
         stops: 12,
@@ -976,7 +1015,7 @@ describe("bounded stagnation pause", () => {
     expect(turn!.exemptCount).toBe(8);
   });
 
-  it("a phase change resets the exempt and block counts", async () => {
+  it("a phase change resets the exempt count and re-baselines lastPhase (blockCount is kept)", async () => {
     const { deps, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: true }),
       slug: "demo",

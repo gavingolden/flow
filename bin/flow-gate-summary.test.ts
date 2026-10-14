@@ -425,6 +425,18 @@ describe("render — needs-human (per-reason mapping)", () => {
       );
     });
 
+    it("for a broader rule, says it also pre-approves a gate override instead of claiming merges will be refused", () => {
+      const home = homeWithSettings(
+        JSON.stringify({
+          permissions: { allow: ["Bash(flow-merge-guard *)"] },
+        }),
+      );
+      const out = renderViaRun(home, "merge-permission-denied");
+      expect(out).toContain("also pre-approves recording a gate override");
+      expect(out).toContain('with "Bash(flow-merge-guard merge *)"');
+      expect(out).not.toContain("Future merges will be refused");
+    });
+
     it("adds no line for any other reason", () => {
       const home = homeWithSettings(null);
       expect(renderViaRun(home, "merge-failed")).not.toContain(

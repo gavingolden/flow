@@ -533,7 +533,7 @@ export function finalizePhase(
     recordEvent("phase.transition", {
       from: state.phase,
       to: target,
-      outcome: null,
+      outcome: opts.outcome ?? null,
       since_prev_ms: sincePrevMs,
       forced: false,
     });

@@ -101,6 +101,25 @@ describe("readMergeAllowRule", () => {
     ).toBe("broader");
   });
 
+  it("reports broader when a broader entry sits beside the exact rule, in either order", () => {
+    for (const [i, allow] of [
+      ["Bash(flow-merge-guard merge *)", "Bash(flow-merge-guard *)"],
+      ["Bash(flow-merge-guard *)", "Bash(flow-merge-guard merge *)"],
+    ].entries()) {
+      expect(
+        readMergeAllowRule(write(`both${i}.json`, settings(allow))),
+      ).toMatchObject({ status: "broader", exactPresent: true });
+    }
+  });
+
+  it("does not call a narrower merge-shaped entry broader", () => {
+    expect(
+      readMergeAllowRule(
+        write("narrow.json", settings(["Bash(flow-merge-guard merge 5)"])),
+      ).status,
+    ).toBe("absent");
+  });
+
   it("reports malformed JSON and a missing file without throwing", () => {
     expect(readMergeAllowRule(write("e.json", "{not json")).status).toBe(
       "malformed",
