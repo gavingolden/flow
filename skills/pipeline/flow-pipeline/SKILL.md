@@ -192,7 +192,34 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > is not in this set. See "Harness-level enforcement (Stop hook)"
 > below for the contract.
 
-> The rest of each rule above, and the full contract of each Task-tool exemption, is in `references/hard-rules-detail.md`.
+> Each rule's elaboration and each exemption's full contract: `references/hard-rules-detail.md`.
+
+# Harness-level enforcement (Stop hook)
+
+`flow-stop-guard`, a Claude Code Stop hook that `flow install` registers (`flow install --no-hooks` opts out), blocks a turn end while the pipeline is mid-flight and treats `stop_hook_active` as advisory. Pause only through a pending phase or the pause renderer (`flow-gate-summary` with `--reason <tag>`); a phase value is never a command.
+
+# Notifications
+
+At a terminal end-state (`MERGED`, `GATED`, `NEEDS HUMAN`), call `flow-notify` just before printing the end-state line; it is a no-op unless `FLOW_NOTIFY=1`.
+
+```bash
+flow-notify --status <merged|gated|needs-human> \
+            [--reason "<one-line summary>"] \
+            [--url "<pr-url>"] [--tag "<reason-tag>"]
+```
+
+`--slug` is omitted because every slug-taking flow helper (`flow-notify`,
+`flow-state-update`, `flow-rename-window`, `flow-open-pr`,
+`flow-resume-decide`, `flow-gate-decide`, `flow-remove-worktree`,
+`flow-gate-summary`)
+auto-resolves it from the `FLOW_SLUG` env var (set in the
+launch env by both launcher backends; the per-Bash-call shell loses any
+`SLUG=…` between calls, so `FLOW_SLUG` is the load-bearing carrier).
+Pass `--slug <slug>` explicitly only when
+invoking from outside the pipeline session — space-separated; the
+`--slug=<slug>` equals form is not accepted by any flow helper.
+`bin/slug-flag-contract-lint.test.ts` enforces this list: every helper
+named above is asserted to parse `--slug` into the slug it names.
 
 # State: `~/.flow/state/<slug>.json`
 
@@ -259,27 +286,27 @@ state.json, and the PR are the state.
 
 ## Phase dispatch
 
-Each step's procedure lives in its own doc, not in this file. On entering a step, Read the doc named in the table below with the Read tool before acting on it; the one-liner is the floor that holds even if you have not yet read the doc, not the procedure. The phase values come from `STEP_PHASES` and `PENDING_PHASES` in `bin/lib/state.ts`; `PIPELINE_PHASES` is their union with the terminal phases.
+Each step's procedure lives in its own doc. On entering a step, Read its doc with the Read tool before acting; the one-liner here is only the floor if you have not. Phase values come from `STEP_PHASES` and `PENDING_PHASES` in `bin/lib/state.ts`; `PIPELINE_PHASES` also holds the terminals.
 
-| Step | Phases written | Non-negotiable | Doc (read with) |
+| Step | Phases written | Non-negotiable | Doc |
 |---|---|---|---|
 | 0 — Echo | none | echo the request verbatim as the first output | `references/phases/step-00-echo.md` |
 | 1 — Triage | `triaging`, `triage-pending-clarification`, `triage-pending-interview`, `triaged-no-change` | classify before any worktree; a question-only request ends in `triaged-no-change` | `references/phases/step-01-triage.md` |
 | 2 — Worktree | `worktree-create` | `flow-new-worktree` creates it, never raw git | `references/phases/step-02-worktree.md` |
-| 3 — Plan | `planning`, `plan-pending-review`, `plan-pending-interview`, `plan-review-pending` | the discovery agent authors the plan; helpers route and back-stop it | `references/phases/step-03-plan.md`, `references/phases/shared-gate-contracts.md` |
-| 4 — Approval | `approval-pending-clarification`, `checkpoint-pending-clear` | only a feature plan waits for approval | `references/phases/step-04-approval.md`, `references/phases/shared-gate-contracts.md` |
+| 3 — Plan | `planning`, `plan-pending-review`, `plan-pending-interview`, `plan-review-pending` | the discovery agent authors the plan; helpers route and back-stop it | `references/phases/step-03-plan.md` + `shared-gate-contracts.md` |
+| 4 — Approval | `approval-pending-clarification`, `checkpoint-pending-clear` | only a feature plan waits for approval | `references/phases/step-04-approval.md` + `shared-gate-contracts.md` |
 | 5 — Implement | `implementing` | `flow-open-pr` opens the PR and records it | `references/phases/step-05-implement.md` |
 | 5.5 — Install skills | `installing-skills` | runs only when the worktree adds skills or agents | `references/phases/step-05.5-install-skills.md` |
 | 6 — Verify | `verifying` | three outer attempts, then `NEEDS HUMAN` | `references/phases/step-06-verify.md` |
-| 7 — CI wait | `ci-wait`, `ci-wait-pending` | `flow-ci-check` decides; never hand-poll CI | `references/phases/step-07-ci-wait.md`, `references/phases/shared-gate-contracts.md` |
+| 7 — CI wait | `ci-wait`, `ci-wait-pending` | `flow-ci-check` decides; never hand-poll CI | `references/phases/step-07-ci-wait.md` + `shared-gate-contracts.md` |
 | 8 — Review | `reviewing` | the `/flow-pr-review` result artifact's status decides the branch | `references/phases/step-08-review.md` |
-| 9 — Gate | `gating`, `browser-retry-pending` | `flow-gate-decide` decides; never merge on prose judgment | `references/phases/step-09-gate.md`, `references/phases/shared-gate-contracts.md` |
-| 10 — Merge | `merging`, `merged` | merge only through `flow-merge-guard`, which re-checks the gate | `references/phases/step-10-merge.md`, `references/phases/shared-gate-contracts.md` |
-| 11 — Follow-ups | none | run only allowlisted follow-ups, then print the end-state line | `references/phases/step-11-follow-ups.md`, `references/phases/shared-gate-contracts.md` |
+| 9 — Gate | `gating`, `browser-retry-pending` | `flow-gate-decide` decides; never merge on prose judgment | `references/phases/step-09-gate.md` + `shared-gate-contracts.md` |
+| 10 — Merge | `merging`, `merged` | merge only through `flow-merge-guard`, which re-checks the gate | `references/phases/step-10-merge.md` + `shared-gate-contracts.md` |
+| 11 — Follow-ups | none | run only allowlisted follow-ups, then print the end-state line | `references/phases/step-11-follow-ups.md` + `shared-gate-contracts.md` |
 
 ## On-demand references
 
-Open one only when its situation arises; the step docs link to the detail ones themselves.
+Open one only when its situation arises.
 
 | Doc | Read when |
 |---|---|
@@ -308,7 +335,7 @@ Open one only when its situation arises; the step docs link to the detail ones t
 
 ## After a compaction or resume
 
-A compaction keeps only the first ~20,000 characters of this skill, so this core is sized to survive it whole while the step docs are not. If this skill is not in your context, invoke it again. Then read `phase` from `~/.flow/state/<slug>.json`, look it up in the table above, and Read that step's doc before you act on anything. Never continue a step from a summary alone.
+A compaction keeps only the first ~20,000 characters of this skill: this core is sized to survive it whole, the step docs are not. If this skill is not in your context, invoke it again. Then read `phase` from `~/.flow/state/<slug>.json`, find it in the table above, and Read that step's doc before you act. Never continue a step from a summary alone.
 
 # End conditions
 

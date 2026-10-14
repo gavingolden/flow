@@ -122,3 +122,119 @@ owner: link target re-pathed for references/phases/mid-flight-redirects.md (move
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 owner: link target re-pathed for references/hard-rules-detail.md (moved text; target file unchanged)
 ```
+
+## Deleted: Stop-hook internals
+
+Prose describing what `flow-stop-guard` does internally (what it reads, exit codes, loop-break budget, stagnation, background-task allowance). The supervisor cannot act on it; the imperative (the hook blocks a mid-pipeline turn end; pause only via a pending phase or the pause renderer) and the tokens `flow install`, `--no-hooks`, `stop_hook_active` and `flow-stop-guard` stay in SKILL.md `# Harness-level enforcement (Stop hook)`.
+
+```
+`flow-stop-guard` is a Claude Code Stop hook installed by
+`flow install` into `~/.claude/settings.json`. It is the structural
+defence behind the "never end the turn between sub-skills" Hard
+rule above — text-only reminders in this SKILL.md cannot intercept
+a model that has already chosen to stop, but a Stop hook fires
+*at* the model's turn-end signal.
+Contract:
+- Reads `~/.flow/state/<slug>.json` (slug resolved from the
+  `FLOW_SLUG` env var — set in the launch env by both launcher
+  backends).
+- Exits 2 with a stderr `DO NOT END THE TURN` reminder when phase
+  is non-terminal-non-pending — the supervisor is mid-pipeline and
+  must continue.
+- Exits 0 (allows the stop) when phase is in the legitimate-end
+  set: any of the four terminals (`merged`, `gated`, `needs-human`,
+  `cancelled`) or the pending-end phases (`PENDING_PHASES` in
+  `bin/lib/state.ts`: `plan-pending-review`, `triaged-no-change`,
+  `triage-pending-clarification`, `approval-pending-clarification`,
+  `ci-wait-pending`, `browser-retry-pending`, `checkpoint-pending-clear`,
+  and the interview/review-wait phases).
+- Self-detects: exits 0 (no-op) when no flow slug resolves (no
+  `FLOW_SLUG`), or when state.json is
+  missing. Safe to install in a global Stop hook list.
+- Loop-break budget: a per-turn block counter persisted at
+  `~/.flow/state/turns/<slug>.json` (a sibling subdirectory so `flow ls`
+  ignores it). Legitimate pending exits do NOT consume it.
+- `stop_hook_active` is treated as advisory (turn-boundary detection via
+  `false`-on-first-stop), not an authoritative budget.
+- Stagnation detection: once the budget is exhausted (blockCount ≥
+  TURN_BLOCK_LIMIT), subsequent stops exit 0 only when phase has advanced
+  since the last block; otherwise it re-engages and exits 2. The loop-break
+  exit writes a stderr breadcrumb Claude Code surfaces the next turn-start.
+- Bounded: on the 4th consecutive same-phase stop the guard records
+  `phase: needs-human` itself (outcome `stalled at <phase> after <n>
+  blocked stops — reply merge #<pr>` at `gating`/`merging`, else `reply
+  continue`) and exits 0 — a hook write no permission check can refuse.
+  A stop made while any background task is in flight (agent, monitor,
+  workflow, or a backgrounded shell such as the CI waiter) is allowed
+  uncounted, capped at 30 consecutive such stops per phase. Its reminders
+  name phase values (`merged`, `gated`, `needs-human`) and the pause
+  renderer (`flow-gate-summary` with `--reason <tag>`) — a phase value is
+Opt out: `flow install --no-hooks` skips the merge entirely and
+leaves `~/.claude/settings.json` untouched. The supervisor's
+contract still holds — the hook is the mechanical guardrail, not
+the contract itself.
+owner: bin/flow-stop-guard.test.ts
+```
+
+## Deleted: notifier internals
+
+Prose describing the notifier's backends, darwin-only behaviour and fire-and-forget semantics. The call fence, the `FLOW_NOTIFY=1` no-op rule and the `every slug-taking flow helper (...)` sentence (parsed by `bin/slug-flag-contract-lint.test.ts`) stay in SKILL.md `# Notifications`.
+
+```
+When the pipeline reaches a terminal end-state (`MERGED`, `GATED`,
+or `NEEDS HUMAN`), call `flow-notify` immediately *before* printing
+the end-state line. The helper is opt-in (`FLOW_NOTIFY=1` in the
+environment that started the supervisor's tmux session) and a no-op
+otherwise — so calling it unconditionally is safe; the user
+controls firing via the env var, not the skill prompt.
+- darwin-only; non-mac hosts and unset `FLOW_NOTIFY` both no-op.
+- Backend: `terminal-notifier` preferred (click-through to
+  `--url`), `osascript display notification` fallback.
+- Detached + fire-and-forget. The helper exits 0 even if the
+  notifier fails — it must never break the supervisor's terminal
+  print.
+- `cancelled` is **not** a notify status. Cancellation is
+  user-initiated; they already know.
+The exact call sites are listed inline at steps 9, 10, and at every
+escalation site documented under `# Failure paths`.
+owner: bin/flow-notify.test.ts
+```
+
+## Deleted: phase-value quick reference
+
+The happy-path and pending phase lists. The phase set is owned by `STEP_PHASES`, `PENDING_PHASES` and `PIPELINE_PHASES` in `bin/lib/state.ts`; the step-to-phase map is SKILL.md's `## Phase dispatch` table, which names `PIPELINE_PHASES`.
+
+```
+# Quick reference: phase values
+In write-order on the happy path:
+triaging
+worktree-create
+planning
+plan-pending-review     (feature only; ends turn — pending phase)
+checkpoint-pending-clear (feature only; ends turn — pending phase; step 4 auto-checkpoint before implement)
+implementing
+installing-skills       (only if worktree adds skills/agents; otherwise skipped)
+verifying
+ci-wait
+reviewing
+gating
+merging
+merged                  (terminal)
+Off-path terminals: `gated`, `needs-human`, `cancelled`.
+Pending phases (legitimate turn-ends mid-pipeline; recognised by
+`flow-stop-guard`):
+plan-pending-review                (step 3 → 4 handoff for feature intent)
+triaged-no-change                  (step 1 no-change branch)
+triage-pending-clarification       (step 1 single clarifying question)
+triage-pending-interview           (step 1 intent interview (adaptive) round)
+approval-pending-clarification     (step 4 single clarifying question)
+plan-pending-interview             (step 3 post-discovery question-gate round)
+ci-wait-pending                    (step 7 yield while flow-ci-wait is backgrounded)
+browser-retry-pending              (step 9 pause: open browser checks still env-blocked after the automatic re-drive)
+checkpoint-pending-clear           (step 4 auto-checkpoint at the approval → implement hand-off)
+The canonical phase set is exported from `bin/lib/state.ts` as
+`PIPELINE_PHASES`; `flow-state-update --phase` rejects values
+outside that set so a typo can't silently land in state.json and
+defeat the Stop hook.
+owner: bin/lib/state.ts (phase arrays), pinned by bin/lib/state.test.ts
+```

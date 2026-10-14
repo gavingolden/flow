@@ -17,6 +17,7 @@ import {
 import { SURVEY_VERDICTS, VETTING_VERDICTS } from "./flow-step3-route";
 import { UI_EXTENSIONS } from "./flow-ui-validate";
 import {
+  parseDispatchTable,
   readPipelineSkillCore,
   readPipelineSkillCorpus,
 } from "./lib/pipeline-skill-corpus";
@@ -7451,9 +7452,14 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     expect(row).toContain("--browser-items");
     expect(row).toContain("browser-retry-pending");
     expect(row).not.toContain("flow-browser-teardown --reap");
-    expect(pipelineContent).toContain(
-      "browser-retry-pending              (step 9 pause",
+    // Skill split (Task 5): the quick-reference phase list this used to pin
+    // was deleted — the pending-phase set is owned by PENDING_PHASES in
+    // bin/lib/state.ts (bin/lib/state.test.ts), and the dispatch row for
+    // step 9 now names the pause phase.
+    const step9 = parseDispatchTable(readPipelineSkillCore()).find((r) =>
+      r.step.startsWith("9 "),
     );
+    expect(step9?.phases).toContain("browser-retry-pending");
     expect(pipelineContent).toContain(
       "Never decide a Step 8c outcome before Step 8c",
     );
