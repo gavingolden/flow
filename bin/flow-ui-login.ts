@@ -381,8 +381,7 @@ export async function main(
       return runServeChild(rest, deps);
     default:
       process.stderr.write(
-        "usage: flow-ui-login <check|serve> ...\n" +
-          SERVE_HANDOFF_HINT,
+        "usage: flow-ui-login <check|serve> ...\n" + SERVE_HANDOFF_HINT,
       );
       return 2;
   }
