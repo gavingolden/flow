@@ -291,7 +291,7 @@ by a `.` in its recipe.
 > Before:
 >
 > ```
-> Recover manually: cd <worktree> && git fetch origin <base> && git merge origin/<base>; then STOP and resolve every conflict marker in your editor before committing. Once resolved: git add <resolved-files>, git commit, git push. If the push is rejected non-fast-forward, that means origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force. Then (cd <repo> && gh pr merge --squash <pr>)
+> Recover manually: cd <worktree> && git fetch origin <base> && git merge origin/<base>; then STOP and resolve every conflict marker in your editor before committing. Once resolved: git add <resolved-files>, git commit, git push. If the push is rejected non-fast-forward, that means origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force. Then flow-merge-guard merge <pr> --slug <slug>
 > ```
 >
 > After:
@@ -301,7 +301,7 @@ by a `.` in its recipe.
 >   2. STOP and resolve every conflict marker in your editor before committing.
 >   3. Once resolved, run git add <resolved-files>, git commit, git push
 >   4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
->   5. Then run (cd <repo> && gh pr merge --squash <pr>).
+>   5. Then run flow-merge-guard merge <pr> --slug <slug> in your own terminal (or reply merge in the pipeline window).
 > ```
 
 ## Applicability

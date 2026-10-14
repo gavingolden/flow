@@ -131,6 +131,12 @@ export type CleanupInput =
 export type GateSummaryInputs = {
   status: Status;
   prUrl?: string;
+  /**
+   * The pipeline slug, rendered into the GATED manual-merge command
+   * (`flow-merge-guard merge <pr> --slug <slug>`). Absent or invalid renders
+   * the literal `<slug>` placeholder.
+   */
+  slug?: string;
   why?: string;
   reason?: string;
   validationItems?: string[];
@@ -301,16 +307,16 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   3. ${CONTINUE_OR_RESUME_STEP}`,
   "merge-failed": `Resolve the conflicts yourself, or let the pipeline retry the merge.
   1. Inspect <worktree>/.flow-tmp/merge-resolver-result.json (if present).
-  2. Resolve conflicts manually, then run (cd <repo> && gh pr merge --squash <pr>) yourself, OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
+  2. Resolve conflicts manually, then run flow-merge-guard merge <pr> --slug <slug> in your own terminal (or reply merge in the pipeline window), OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
   "merge-resolver-missing-artifact": `Resolve the conflicts yourself, or let the pipeline retry the merge.
   1. Inspect <worktree>/.flow-tmp/ for partial resolver state.
-  2. Resolve conflicts manually, then run (cd <repo> && gh pr merge --squash <pr>) yourself, OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
+  2. Resolve conflicts manually, then run flow-merge-guard merge <pr> --slug <slug> in your own terminal (or reply merge in the pipeline window), OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
   "merge-resolver-spawn-denied": `Merge the base branch in by hand, then merge the PR.
   1. Run cd <worktree> && git fetch origin <base> && git merge origin/<base>
   2. STOP and resolve every conflict marker in your editor before committing.
   3. Once resolved, run git add <resolved-files>, git commit, git push
   4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
-  5. Then run (cd <repo> && gh pr merge --squash <pr>) yourself, OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
+  5. Then run flow-merge-guard merge <pr> --slug <slug> in your own terminal (or reply merge in the pipeline window), OR ${CONTINUE_OR_RESUME_STEP} — either route re-runs the step 9 gate before any merge, never straight to one.`,
   "verify-loop-missing-artifact": `Run the checks yourself, fix what fails, then reply done in the pipeline window.
   1. Inspect <worktree>/.flow-tmp/ for partial verify-loop state.
   2. Run (cd <worktree> && flow-pre-commit --json) and fix any failures manually.
@@ -400,15 +406,17 @@ export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
     "flow feature resume <slug>",
   ],
   "merge-refused": ["flow attach <slug>", "flow feature resume <slug>"],
-  "merge-failed": ["cd <repo> && gh pr merge --squash <pr>"],
-  "merge-resolver-missing-artifact": ["cd <repo> && gh pr merge --squash <pr>"],
+  "merge-failed": ["flow-merge-guard merge <pr> --slug <slug>"],
+  "merge-resolver-missing-artifact": [
+    "flow-merge-guard merge <pr> --slug <slug>",
+  ],
   "merge-resolver-spawn-denied": [
     "cd <worktree> && git fetch origin <base> && git merge origin/<base>",
     "git add <resolved-files>",
     "git commit",
     "git push",
     "git fetch origin <pr-branch> && git merge origin/<pr-branch>",
-    "cd <repo> && gh pr merge --squash <pr>",
+    "flow-merge-guard merge <pr> --slug <slug>",
   ],
   "verify-loop-missing-artifact": ["flow feature resume <slug>"],
   "branch-mismatch": ["git reflog", "git worktree list"],
@@ -783,6 +791,19 @@ function renderMerged(inputs: GateSummaryInputs): string {
   return lines.join("\n");
 }
 
+// One standalone, gate-checked command: a cd/subshell/&& prefix would skip the
+// Test Steps and CI gate that `flow-merge-guard merge` enforces.
+const MERGE_REPLY_ALTERNATIVE = " (or reply `merge` in the pipeline window)";
+
+function manualMergeCommand(inputs: GateSummaryInputs): string {
+  const pr = (inputs.prUrl && extractPrNumber(inputs.prUrl)) || "<pr>";
+  const slug =
+    inputs.slug !== undefined && isValidSlug(inputs.slug)
+      ? inputs.slug
+      : "<slug>";
+  return `flow-merge-guard merge ${pr} --slug ${slug}`;
+}
+
 function renderGated(inputs: GateSummaryInputs): string {
   const mode = effectiveLinkMode(inputs);
   const lines: string[] = ["STATUS: GATED"];
@@ -795,17 +816,15 @@ function renderGated(inputs: GateSummaryInputs): string {
     lines.push(...buildUntracked(inputs.untrackedBlock));
     if (inputs.countsLine) lines.push(oneLine(inputs.countsLine));
     pushCleanup(lines, inputs.cleanup, pm);
-    const mergeVerb = inputs.prUrl
-      ? `gh pr merge --squash ${extractPrNumber(inputs.prUrl) ?? "<pr>"}`
-      : "gh pr merge --squash <pr>";
-    lines.push(`NEXT ACTION: tick the items above, then: ${mergeVerb}`);
+    lines.push(
+      `NEXT ACTION: tick the items above, then: ${manualMergeCommand(inputs)}${MERGE_REPLY_ALTERNATIVE}`,
+    );
   } else {
     const why = oneLine(inputs.why);
     if (why) lines.push(`WHY: ${why}`);
-    const mergeVerb = inputs.prUrl
-      ? `validate then run: gh pr merge --squash ${extractPrNumber(inputs.prUrl) ?? "<pr>"}`
-      : "validate then run: gh pr merge --squash <pr>";
-    lines.push(`NEXT ACTION: ${mergeVerb}`);
+    lines.push(
+      `NEXT ACTION: tick each step once validated, then run: ${manualMergeCommand(inputs)}${MERGE_REPLY_ALTERNATIVE}`,
+    );
     for (const item of items) {
       const trimmed = item.trim();
       if (!trimmed) continue;
@@ -1152,6 +1171,7 @@ export function run(
   const block = render({
     status: parsed.status,
     prUrl: parsed.prUrl,
+    slug: resolvedSlug ?? undefined,
     why: parsed.why,
     reason: parsed.reason,
     tldr,
