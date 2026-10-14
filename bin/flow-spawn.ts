@@ -8,8 +8,8 @@
  * child it spawned (a launch-lifetime concern, not a reap).
  *
  * Usage:
- *   flow-spawn [--slug <s>] [--class default|mcp-server] [--stdin inherit|ignore] -- <cmd> [args...]
- *   flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] -- <cmd> [args...]
+ *   flow-spawn [--slug <s>] [--class default|mcp-server] [--stdin inherit|ignore] [--cwd <dir>] -- <cmd> [args...]
+ *   flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] [--cwd <dir>] -- <cmd> [args...]
  *   flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] [--cwd <dir>] --from-envelope <path>
  *   flow-spawn --list <slug> [--json]
  *
@@ -617,8 +617,8 @@ export function runList(
 
 export function usage(): string {
   return [
-    "usage: flow-spawn [--slug <s>] [--class default|mcp-server] [--stdin inherit|ignore] -- <cmd> [args...]",
-    "       flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] -- <cmd> [args...]",
+    "usage: flow-spawn [--slug <s>] [--class default|mcp-server] [--stdin inherit|ignore] [--cwd <dir>] -- <cmd> [args...]",
+    "       flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] [--cwd <dir>] -- <cmd> [args...]",
     "       flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] [--cwd <dir>] --from-envelope <path>",
     "       flow-spawn --list <slug> [--json]",
     "",
