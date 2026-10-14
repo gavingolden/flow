@@ -1730,8 +1730,9 @@ function runResume(
  * worktrees), `findAvailableSlot` auto-suffixes (`-2`/`-3`/…). `flow feature
  * create` reserves whichever slot wins (`reserveWorktreeSlot`) and
  * `flow-new-worktree` fills that same folder, so the reserved path may diverge
- * from this value. Epic launches (`epic.ts`) do NOT reserve: they pass this
- * derived path straight to `--add-dir`, so the folder may not exist yet.
+ * from this value. Epic launches (`epic.ts`) reserve through the same seam,
+ * so their `--add-dir` folder exists too (the one exception: `epic run` with
+ * no state file keeps this derived path and creates no folder).
  */
 export function deriveWorktreePath(repo: string, slug: string): string {
   return path.join(
@@ -1745,7 +1746,7 @@ export function deriveWorktreePath(repo: string, slug: string): string {
  * else the folder the launch reserved (best-effort re-created when it has
  * since vanished, so `--add-dir` keeps it), else the deterministic path.
  */
-function resumeWorktree(state: PipelineState, slug: string): string {
+export function resumeWorktree(state: PipelineState, slug: string): string {
   if (state.worktree) return state.worktree;
   if (state.reservedWorktree) {
     try {
@@ -1768,7 +1769,7 @@ function resumeWorktree(state: PipelineState, slug: string): string {
  * launches the folder exists at launch — `flow feature create` reserves it
  * (empty) before Claude starts, because a non-existent `--add-dir` path is
  * dropped — and step 2's `flow-new-worktree` fills that same folder. (Epic
- * launches have their own `launchArgv` in `epic.ts` and do not reserve.) The a11y snapshot remains the
+ * launches have their own `launchArgv` in `epic.ts` and reserve through the same seam.) The a11y snapshot remains the
  * evidence gate regardless; this only makes the supplementary screenshot
  * artifact land in the documented preferred path. NOTE: `--add-dir` is
  * documented to grant Claude Code's own file-tool access; its propagation to

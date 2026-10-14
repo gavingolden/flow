@@ -81,9 +81,11 @@ import {
 import { validateDag } from "../flow-epic-dag";
 import {
   deriveWorktreePath,
+  resumeWorktree,
   backoffMsForAttempt,
   ensureLaunchSettings,
 } from "./feature";
+import { releaseReservedWorktree, reserveWorktreeSlot } from "./worktree-slot";
 import {
   createWindowVerified,
   respawnWindowVerified,
@@ -208,9 +210,29 @@ function launchWithRetry(
   return last;
 }
 
+function reserveEpicWorktree(
+  slug: string,
+  repo: string,
+  options: EpicOptions,
+): string {
+  return (
+    options.reserveWorktree ??
+    ((s, r) => reserveWorktreeSlot(s, deriveWorktreePath(r, s), r))
+  )(slug, repo).worktreeDir;
+}
+
 export type EpicOptions = {
   /** Override the cwd for the new window (default: process.cwd()). */
   cwd?: string;
+  /**
+   * Reserves the worktree folder at launch (test seam). Production uses
+   * `reserveWorktreeSlot(slug, deriveWorktreePath(repo, slug), repo)`, which
+   * creates the empty folder so it exists when Claude starts.
+   */
+  reserveWorktree?: (
+    slug: string,
+    repo: string,
+  ) => { branchName: string; worktreeDir: string };
   /** Override the command launched in the window (test seam). */
   command?: string[];
   /** Resume a crashed epic session rather than start a new one. */
@@ -551,7 +573,18 @@ PR → review checkpoint), and writes initial epic state under
     return 2;
   }
 
-  const worktree = deriveWorktreePath(repo, slug);
+  // Reserve the worktree folder BEFORE anything is written (mirrors feature.ts
+  // runFresh): a no-slot failure aborts cleanly and the folder exists when
+  // Claude starts (a non-existent --add-dir path is dropped at launch).
+  let worktree: string;
+  try {
+    worktree = reserveEpicWorktree(slug, repo, options);
+  } catch (err) {
+    console.error(
+      `flow epic create: could not reserve a worktree folder: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return 2;
+  }
   // R1: the CLI is the SOLE evaluator of the epic path contract; embed the
   // resolved LITERAL EPIC_DIR in the seed prompt so the spawned window (cwd'd
   // in a consumer worktree without bin/lib) consumes the literal, never an import.
@@ -566,8 +599,16 @@ PR → review checkpoint), and writes initial epic state under
   // feature.ts's hoist. Epic orchestration is tmux-only (refused above), but
   // this keeps the same "write before dispatch" invariant rather than tying
   // it to a specific backend.
-  writeRequestFile(slug, prompt, options.stateDir);
-  const settingsPath = launchSettingsPathFor(options);
+  // No state file records the reservation until the launch writes `starting`,
+  // so a throw before that write would leak the empty folder.
+  let settingsPath: string;
+  try {
+    writeRequestFile(slug, prompt, options.stateDir);
+    settingsPath = launchSettingsPathFor(options);
+  } catch (err) {
+    releaseReservedWorktree(worktree);
+    throw err;
+  }
 
   // Read + parse `~/.flow/config.json` at most once and share it across the
   // models.* and launch.* readers below (mirrors feature.ts's launch path).
@@ -630,6 +671,7 @@ PR → review checkpoint), and writes initial epic state under
         phase: "starting",
         repo,
         worktree: existing?.worktree,
+        reservedWorktree: worktree,
         effort: sessionEffort,
         model: sessionModel,
         modelPlanning,
@@ -678,6 +720,7 @@ PR → review checkpoint), and writes initial epic state under
     if (!seedCorrupted) {
       deleteState(slug, options.stateDir);
     }
+    releaseReservedWorktree(worktree);
     if (seedCorrupted) {
       console.error(
         "flow epic create: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
@@ -707,6 +750,7 @@ PR → review checkpoint), and writes initial epic state under
   // state survives.
   if (!windowExists(slug)) {
     deleteState(slug, options.stateDir);
+    releaseReservedWorktree(worktree);
     console.error(
       "flow epic create: the tmux window vanished after launch — not writing state.",
     );
@@ -793,7 +837,23 @@ function runEpicResume(name: string, options: EpicOptions): number {
   }
 
   const repo = state.repo;
-  const worktree = state.worktree ?? deriveWorktreePath(repo, slug);
+  // Prefer the recorded worktree, then the reserved folder (re-created if it
+  // vanished); a state with neither reserves one so --add-dir has a folder.
+  let newlyReserved: string | undefined;
+  let worktree: string;
+  if (state.worktree || state.reservedWorktree) {
+    worktree = resumeWorktree(state, slug);
+  } else {
+    try {
+      newlyReserved = reserveEpicWorktree(slug, repo, options);
+    } catch (err) {
+      console.error(
+        `flow epic create --resume: could not reserve a worktree folder: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return 2;
+    }
+    worktree = newlyReserved;
+  }
   // R1: recompute the literal EPIC_DIR CLI-side on resume too, so the resumed
   // window never re-derives the path nor imports bin/lib.
   const epicDir = epicDirRelative(slug);
@@ -836,6 +896,7 @@ function runEpicResume(name: string, options: EpicOptions): number {
       writeState(
         {
           ...preClear,
+          ...(newlyReserved ? { reservedWorktree: newlyReserved } : {}),
           seed,
           seedIngest: undefined,
           kind: "epic-design",
@@ -890,6 +951,7 @@ function runEpicResume(name: string, options: EpicOptions): number {
     options,
   );
   if (result.status === "failed") {
+    releaseReservedWorktree(newlyReserved);
     if (result.stderr === SEED_CORRUPTED_STDERR) {
       console.error(
         "flow epic create --resume: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
@@ -1130,7 +1192,30 @@ function spawnEpicRunSupervisor(
     return 2;
   }
 
-  const worktree = deriveWorktreePath(repo, slug);
+  // With a state file, pre-authorize a folder that exists: the recorded
+  // worktree, else the reserved one (re-created if vanished), else a fresh
+  // reservation recorded below. With no state file nothing records a
+  // reservation, so keep the derived path and create no folder.
+  const priorState = readState(slug, options.stateDir);
+  let newlyReserved: string | undefined;
+  let worktree: string;
+  if (priorState == null) {
+    worktree = deriveWorktreePath(repo, slug);
+  } else if (priorState.worktree && fs.existsSync(priorState.worktree)) {
+    worktree = priorState.worktree;
+  } else if (priorState.reservedWorktree) {
+    worktree = resumeWorktree({ ...priorState, worktree: undefined }, slug);
+  } else {
+    try {
+      newlyReserved = reserveEpicWorktree(slug, repo, options);
+    } catch (err) {
+      console.error(
+        `flow epic run: could not reserve a worktree folder: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return 2;
+    }
+    worktree = newlyReserved;
+  }
   const epicDir = epicDirRelative(slug);
   const seed = epicRunSeed(slug, epicDir);
   // Record THIS run's own seed and clear any earlier hook markers, mirroring
@@ -1155,6 +1240,7 @@ function spawnEpicRunSupervisor(
       writeState(
         {
           ...current,
+          ...(newlyReserved ? { reservedWorktree: newlyReserved } : {}),
           seed,
           seedIngest: undefined,
           kind: "epic-run",
@@ -1199,6 +1285,7 @@ function spawnEpicRunSupervisor(
   const launch = () => createWindowVerified(slug, repo, command, seed);
   const result = launchWithRetry(launch, options.retrySleepMs);
   if (result.status === "failed") {
+    releaseReservedWorktree(newlyReserved);
     console.error(
       "flow epic run: claude exited immediately after launch — the tmux window did not stay up.",
     );
@@ -1212,6 +1299,7 @@ function spawnEpicRunSupervisor(
   // Mode-2 backstop (mirrors runCreate): never report a started supervisor for
   // a window that vanished between the verified launch and now.
   if (!windowExists(slug)) {
+    releaseReservedWorktree(newlyReserved);
     console.error(
       "flow epic run: the tmux window vanished after launch — the supervisor did not start.",
     );
