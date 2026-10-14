@@ -39,10 +39,6 @@ vi.mock("./paths", async (orig) => ({
 }));
 
 import { runDoctorCli } from "./doctor-cli";
-import {
-  FLOW_MERGE_ALLOW_RULE,
-  FLOW_OVERRIDE_ASK_RULES,
-} from "./merge-allow-rule";
 import type { DoctorDeps, DoctorReport } from "./doctor";
 import { makeDeps, scriptedRun } from "./doctor-test-deps";
 import { appendRow } from "./proc-registry";
@@ -117,16 +113,6 @@ function healthyDeps(): DoctorDeps {
       updatedAt: "2026-01-01T00:00:00.000Z",
     } as PipelineState,
     deps.stateDir,
-  );
-  fs.mkdirSync(path.join(deps.homeDir, ".claude"), { recursive: true });
-  fs.writeFileSync(
-    path.join(deps.homeDir, ".claude", "settings.json"),
-    JSON.stringify({
-      permissions: {
-        allow: [FLOW_MERGE_ALLOW_RULE],
-        ask: [...FLOW_OVERRIDE_ASK_RULES],
-      },
-    }),
   );
   fs.mkdirSync(deps.targets.binDir, { recursive: true });
   const symlinks = [
@@ -249,8 +235,7 @@ describe("runDoctorCli full probe run in a sandbox", () => {
         "tools-gh",
         "tools-tmux",
         "tools-claude",
-        "tools-merge-rule",
-        "tools-override-ask",
+        "tools-pipeline-permissions",
         "tools-agy",
         "leftovers-worktrees",
         "leftovers-processes",
@@ -259,27 +244,12 @@ describe("runDoctorCli full probe run in a sandbox", () => {
     const procs = r.checks.find((c) => c.id === "leftovers-processes")!;
     expect(procs.status).toBe("pass");
     expect(procs.details.join(" ")).toContain("1 stale registry entry");
-    expect(r.checks.find((c) => c.id === "tools-merge-rule")?.status).toBe(
-      "pass",
-    );
-    expect(r.checks.find((c) => c.id === "tools-override-ask")?.status).toBe(
-      "pass",
-    );
+    expect(
+      r.checks.find((c) => c.id === "tools-pipeline-permissions")?.status,
+    ).toBe("pass");
+    expect(r.counts.warn).toBe(0);
     expect(r.checks.find((c) => c.id === "tools-tmux")?.status).toBe("skip");
     expect(r.checks.find((c) => c.id === "tools-agy")?.status).toBe("skip");
-  });
-
-  it("a settings file without the merge rule warns with the exact rule text and the file to edit, and exits 0", async () => {
-    const deps = healthyDeps();
-    const settings = path.join(deps.homeDir, ".claude", "settings.json");
-    fs.writeFileSync(settings, JSON.stringify({ permissions: { allow: [] } }));
-    expect(await runDoctorCli(["--json"], { deps })).toBe(0);
-    const c = jsonReport().checks.find((x) => x.id === "tools-merge-rule")!;
-    expect(c.status).toBe("warn");
-    expect(c.summary).toContain("auto mode will be refused");
-    expect(c.fix).toBe(
-      `add "Bash(flow-merge-guard merge *)" to permissions.allow in ${fs.realpathSync(settings)}`,
-    );
   });
 
   it("a registered helper with no link and no record fails the run with the fix", async () => {

@@ -21,7 +21,7 @@ and lost; see [references/git-workflow.md](../../../../../references/git-workflo
 checkout <base>` would collide with the primary checkout.
 
 Run it as its **own standalone Bash call** — never inside `$(...)`, a pipe,
-or a `cd ... &&` prefix. The user-global allow rule
+or a `cd ... &&` prefix. flow's launch-settings allow rule
 `Bash(flow-merge-guard merge *)` ([docs/configuration.md](../../../../../docs/configuration.md),
 "Unattended merges under auto mode") only matches that shape; a wrapped
 call falls back to the permission classifier, which can refuse a merge.
@@ -89,7 +89,7 @@ call). Read that file, never a stdout capture, and branch on `.decision`:
   `TLDR="The permission system refused the merge; nothing was merged and
   nothing is lost."`, render via `flow-gate-summary --status needs-human
   --reason merge-permission-denied --pr-url "$PR_URL" --cleanup --tldr
-  "$TLDR" --lens "$LENS"` (it adds the missing-rule line itself), then
+  "$TLDR" --lens "$LENS"` (it adds a conflicting-rule or relaunch line itself), then
   `flow-notify --status needs-human --url "$PR_URL" --reason "$TLDR" --tag
   merge-permission-denied`. End. The reply `merge #<pr>` re-runs the gate and
   this step (`awaiting-human` row, Resume mode).

@@ -50,8 +50,8 @@
  *       bare `gh pr merge --squash <PR>` from the base checkout
  *       (`state.repo`). Prints one JSON line and writes the same JSON to
  *       `<worktree>/.flow-tmp/merge-result.json`. `merge` MUST stay the first
- *       argv token: the owner's user-global allow rule
- *       `Bash(flow-merge-guard merge *)` only matches that shape, and
+ *       argv token: flow's launch-settings allow rule
+ *       (flow-launched sessions only) `Bash(flow-merge-guard merge *)` only matches that shape, and
  *       `--record-override` is deliberately a usage error here so recording
  *       an override stays outside the pre-approval.
  *         exit 0 merged (or already MERGED) / 1 refused / 3 merge failed /
