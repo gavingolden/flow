@@ -1497,8 +1497,13 @@ describe("flow install", () => {
         await runUpgrade(seam);
         expect(calls).toBe(0);
 
-        // skipped(dirty): an uncommitted change blocks the fast-forward.
-        fs.writeFileSync(path.join(flowSource, "DIRTY.txt"), "uncommitted\n");
+        // skipped(dirty): origin is now ahead (a ready update), but an
+        // uncommitted tracked edit blocks the fast-forward.
+        addSkillToOriginMain(flowSource, "epsilon");
+        fs.appendFileSync(
+          path.join(flowSource, "agents", "core", "reviewer.md"),
+          "uncommitted\n",
+        );
         await runUpgrade(seam);
         expect(calls).toBe(0);
       } finally {
@@ -1811,12 +1816,49 @@ describe("flow install", () => {
     it("Story 3: skipped(dirty) → prominent 'NOT refreshed', no false up-to-date", async () => {
       buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
       // Make the canonical tree dirty so the fast-forward skips.
-      fs.writeFileSync(path.join(flowSource, "DIRTY.txt"), "uncommitted\n");
+      fs.appendFileSync(
+        path.join(flowSource, "agents", "core", "reviewer.md"),
+        "uncommitted\n",
+      );
 
       const { logs } = await setupLogged({ upgrade: true });
       const joined = logs.join("\n");
       expect(joined).toMatch(/NOT refreshed \(dirty\)/);
       expect(joined).not.toMatch(/up to date/);
+    });
+
+    it("untracked-only checkout fast-forwards", async () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      const note = path.join(flowSource, "docs", "triage", "note.md");
+      fs.mkdirSync(path.dirname(note), { recursive: true });
+      fs.writeFileSync(note, "scratch\n");
+      addSkillToOriginMain(flowSource, "epsilon");
+
+      const { logs } = await setupLogged({ upgrade: true });
+      expect(logs.join("\n")).toMatch(/flow updated/);
+      expect(fs.existsSync(note)).toBe(true);
+    });
+
+    it("untracked collision refuses and reports merge-failed", async () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      // addSkillToOriginMain builds in a sibling clone, so the local working
+      // tree is untouched and the untracked file can be written before or after.
+      addSkillToOriginMain(flowSource, "epsilon");
+      const collide = path.join(
+        flowSource,
+        "skills",
+        "pipeline",
+        "epsilon",
+        "SKILL.md",
+      );
+      fs.mkdirSync(path.dirname(collide), { recursive: true });
+      fs.writeFileSync(collide, "mine\n");
+
+      const { logs } = await setupLogged({ upgrade: true });
+      const joined = logs.join("\n");
+      expect(joined).toMatch(/NOT refreshed \(merge-failed\)/);
+      expect(joined).not.toMatch(/flow updated/);
+      expect(fs.readFileSync(collide, "utf8")).toBe("mine\n");
     });
 
     it("Story 3: skipped(non-default-branch) → quieter informational caveat", async () => {
