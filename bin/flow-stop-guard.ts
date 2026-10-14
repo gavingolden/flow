@@ -418,6 +418,10 @@ function pauseReply(state: PipelineState): string {
     : "done";
 }
 
+// Qualified with the skill name: a bare `references/phases/...` is ambiguous
+// inside the flow repo, which has its own repo-root `references/` directory.
+const OPEN = "open the flow-pipeline skill's references/phases/";
+
 /**
  * Phase → the step the supervisor must continue to.
  *
@@ -430,27 +434,22 @@ function pauseReply(state: PipelineState): string {
  * `reviewing` already has a PR open, so telling it to open one is wrong).
  */
 export const NEXT_STEP_BY_PHASE: Record<string, string> = {
-  starting:
-    "step 1 (triage) — first action should be flow-state-update --phase triaging",
-  triaging: "step 2 (worktree-create)",
-  "worktree-create": "step 3 (plan)",
-  planning: "step 4 (approval) for feature intent, else step 5 (implement)",
-  implementing: "step 5 (implement)",
-  "installing-skills": "step 6 (verify)",
-  verifying: "step 7 (ci-wait)",
-  "ci-wait": "step 7 (ci-wait)",
-  "ci-wait-pending":
-    "step 7 (ci-wait) — run flow-ci-check and branch on .status/.decision",
-  "browser-retry-pending":
-    "step 9 (gate) — re-drive the open browser items via /flow-pr-review --resume-from 8c --browser-items, then flow-gate-decide",
-  "plan-review-pending":
-    "step 3 (plan) — run flow-plan-review --check and branch on .status",
+  starting: `step 1 (triage) — ${OPEN}step-01-triage.md; first action should be flow-state-update --phase triaging`,
+  triaging: `step 2 (worktree-create) — ${OPEN}step-02-worktree.md`,
+  "worktree-create": `step 3 (plan) — ${OPEN}step-03-plan.md`,
+  planning: `step 4 (approval) for feature intent, else step 5 (implement) — ${OPEN}step-04-approval.md or step-05-implement.md`,
+  implementing: `step 5 (implement) — ${OPEN}step-05-implement.md`,
+  "installing-skills": `step 6 (verify) — ${OPEN}step-06-verify.md`,
+  verifying: `step 7 (ci-wait) — ${OPEN}step-07-ci-wait.md`,
+  "ci-wait": `step 7 (ci-wait) — ${OPEN}step-07-ci-wait.md`,
+  "ci-wait-pending": `step 7 (ci-wait) — ${OPEN}step-07-ci-wait.md, run flow-ci-check and branch on .status/.decision`,
+  "browser-retry-pending": `step 9 (gate) — ${OPEN}step-09-gate.md, re-drive the open browser items via /flow-pr-review --resume-from 8c --browser-items, then flow-gate-decide`,
+  "plan-review-pending": `step 3 (plan) — ${OPEN}step-03-plan.md, run flow-plan-review --check and branch on .status`,
   "epic-plan-review-pending":
     "/flow-epic-create step 4.5 — run flow-plan-review --check and branch on .status",
-  reviewing: "step 8 (review)",
-  gating: "step 10 (merge)",
-  merging:
-    "step 10 → step 11 (finalize merge, run local follow-ups, then MERGED)",
+  reviewing: `step 8 (review) — ${OPEN}step-08-review.md`,
+  gating: `step 10 (merge) — ${OPEN}step-10-merge.md`,
+  merging: `step 10 → step 11 (finalize merge, run local follow-ups, then MERGED) — ${OPEN}step-10-merge.md, then step-11-follow-ups.md`,
 };
 
 export function nextStepLabel(phase: string): string {

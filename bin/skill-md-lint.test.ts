@@ -5709,6 +5709,12 @@ describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-do
           fs.existsSync(path.join(PIPELINE_SKILL_DIR, row!.doc)),
           `the dispatch row for step ${n} names '${row!.doc}', which does not exist.`,
         ).toBe(true);
+        expect(
+          label.includes(path.basename(row!.doc)),
+          `NEXT_STEP_BY_PHASE['${phase}'] = ${JSON.stringify(label)} must name ` +
+            `the step doc '${path.basename(row!.doc)}' its dispatch row points at, ` +
+            "so a stalled or compacted supervisor is told which file to open.",
+        ).toBe(true);
       }
     },
   );

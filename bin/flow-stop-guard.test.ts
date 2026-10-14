@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildEpicMetadataReminder,
@@ -5,6 +7,7 @@ import {
   buildStagnationReminder,
   epicMetadataBlockIsSatisfiable,
   hasWakingBackgroundWork,
+  NEXT_STEP_BY_PHASE,
   nextStepLabel,
   run,
   type Deps,
@@ -305,8 +308,42 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
 
   it("NEXT_STEP_BY_PHASE names the browser re-drive for browser-retry-pending", () => {
     expect(nextStepLabel("browser-retry-pending")).toBe(
-      "step 9 (gate) — re-drive the open browser items via /flow-pr-review --resume-from 8c --browser-items, then flow-gate-decide",
+      "step 9 (gate) — open the flow-pipeline skill's references/phases/step-09-gate.md, re-drive the open browser items via /flow-pr-review --resume-from 8c --browser-items, then flow-gate-decide",
     );
+  });
+
+  it("compound labels name both step docs, qualified with the skill name", () => {
+    expect(nextStepLabel("planning")).toBe(
+      "step 4 (approval) for feature intent, else step 5 (implement) — open the flow-pipeline skill's references/phases/step-04-approval.md or step-05-implement.md",
+    );
+    expect(nextStepLabel("merging")).toBe(
+      "step 10 → step 11 (finalize merge, run local follow-ups, then MERGED) — open the flow-pipeline skill's references/phases/step-10-merge.md, then step-11-follow-ups.md",
+    );
+  });
+
+  it("every /flow-pipeline label names existing step docs; the epic label names none", () => {
+    const phasesDir = path.resolve(
+      __dirname,
+      "..",
+      "skills/pipeline/flow-pipeline/references/phases",
+    );
+    for (const [phase, label] of Object.entries(NEXT_STEP_BY_PHASE)) {
+      if (phase.startsWith("epic-")) {
+        expect(label, phase).not.toContain("references/phases/");
+        continue;
+      }
+      expect(label, phase).toContain(
+        "the flow-pipeline skill's references/phases/",
+      );
+      const docs = [...label.matchAll(/step-\d\d(?:\.\d)?-[\w-]+\.md/g)].map(
+        (m) => m[0],
+      );
+      expect(docs.length, phase).toBeGreaterThan(0);
+      for (const d of docs)
+        expect(fs.existsSync(path.join(phasesDir, d)), `${phase}: ${d}`).toBe(
+          true,
+        );
+    }
   });
 
   it("NEXT_STEP_BY_PHASE points ci-wait-pending back at step 7 (the yielded CI-wait phase)", () => {
@@ -314,7 +351,7 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
     // reminder — assert the breadcrumb directly via nextStepLabel rather than
     // via the exit-2 reminder loop above.
     expect(nextStepLabel("ci-wait-pending")).toBe(
-      "step 7 (ci-wait) — run flow-ci-check and branch on .status/.decision",
+      "step 7 (ci-wait) — open the flow-pipeline skill's references/phases/step-07-ci-wait.md, run flow-ci-check and branch on .status/.decision",
     );
   });
 
@@ -324,9 +361,15 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
     // at that same step. A label naming a later step would misdirect a
     // review-fix re-entry (re-entering step 5 from `reviewing` with a PR
     // already open must not be told to open the PR).
-    expect(nextStepLabel("implementing")).toBe("step 5 (implement)");
-    expect(nextStepLabel("ci-wait")).toBe("step 7 (ci-wait)");
-    expect(nextStepLabel("reviewing")).toBe("step 8 (review)");
+    expect(nextStepLabel("implementing")).toBe(
+      "step 5 (implement) — open the flow-pipeline skill's references/phases/step-05-implement.md",
+    );
+    expect(nextStepLabel("ci-wait")).toBe(
+      "step 7 (ci-wait) — open the flow-pipeline skill's references/phases/step-07-ci-wait.md",
+    );
+    expect(nextStepLabel("reviewing")).toBe(
+      "step 8 (review) — open the flow-pipeline skill's references/phases/step-08-review.md",
+    );
   });
 
   it("exits 0 at the yielded ci-wait-pending phase but still exits 2 at the active ci-wait phase", async () => {
@@ -352,7 +395,7 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
 
   it("NEXT_STEP_BY_PHASE points plan-review-pending back at step 3 (the async plan review wake ladder)", () => {
     expect(nextStepLabel("plan-review-pending")).toBe(
-      "step 3 (plan) — run flow-plan-review --check and branch on .status",
+      "step 3 (plan) — open the flow-pipeline skill's references/phases/step-03-plan.md, run flow-plan-review --check and branch on .status",
     );
   });
 
