@@ -136,6 +136,29 @@ structure-only (it does not bound issue content), so a flow-launched session
 can publish arbitrary text to the current repo's issue tracker without an
 auto-mode review.
 
+## Auto-mode UI login
+
+The browser UI check logs in through `flow-ui-login serve`, which starts a
+token-free, fixed-path loopback endpoint (`/flow-ui-login`) that answers once:
+it checks the request origin, requires `Sec-Fetch-Mode: cors`, serves a single
+use (410 afterwards) and expires after 90 seconds. Its residual risk is a
+same-machine process racing the page within that window; a lost race is a
+visible `credentials-unavailable` stop, never a silent leak.
+
+The driver runs `serve` as its own foreground call, reads its one output line
+once, and passes the printed `fillScript` verbatim to `evaluate_script` —
+never saved, piped, truncated or re-read. Auto mode can still refuse that call
+unless the owner's user-scope `autoMode.allow` carries a `flow-ui-login` entry
+(keep `"$defaults"`, or the built-in allow exceptions are replaced). `flow
+doctor`'s Auto-mode UI login line prints the exact entry and the file to edit.
+Claude Code reads `autoMode` only from user, managed and `--settings` scope,
+never from a repo's `.claude/settings*.json`, so nothing goes in a consumer
+repo; `CLAUDE_CONFIG_DIR` relocates the user file. flow never writes the entry.
+
+After a credential denial the driver stops: no further browser, MCP or
+teardown calls, a `credentials-unavailable` artifact, and the caller's
+`flow-browser-teardown --reap --record` closes the page, browser and servers.
+
 ## Flow-doc read guard
 
 flow-launched sessions (`flow feature create`/`resume` and epic launches)
