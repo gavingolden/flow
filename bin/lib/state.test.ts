@@ -153,6 +153,27 @@ describe("state", () => {
     expect(readState("bad-worktree", dir)).toBeNull();
   });
 
+  it("readState round-trips reservedWorktree and rejects a non-string one", () => {
+    writeState(
+      fixture("reserved", { reservedWorktree: "/tmp/repo-reserved" }),
+      dir,
+    );
+    expect(readState("reserved", dir)?.reservedWorktree).toBe(
+      "/tmp/repo-reserved",
+    );
+    fs.writeFileSync(
+      path.join(dir, "bad-reserved.json"),
+      JSON.stringify({
+        slug: "bad-reserved",
+        phase: "starting",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        reservedWorktree: 42,
+      }),
+    );
+    expect(readState("bad-reserved", dir)).toBeNull();
+  });
+
   it("readState returns null when state JSON has wrong-type waitForCopilot (string instead of boolean)", () => {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(

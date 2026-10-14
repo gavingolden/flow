@@ -214,6 +214,29 @@ describe(reapStartingOrphans, () => {
     expect(fs.existsSync(statePath("stale-start", stateDir))).toBe(false);
     expect(fs.existsSync(statePath("keep", stateDir))).toBe(true);
   });
+
+  it("releases a reaped orphan's empty reserved folder but keeps a non-empty one", () => {
+    const emptyDir = path.join(stateDir, "reserved-empty");
+    const fullDir = path.join(stateDir, "reserved-full");
+    fs.mkdirSync(emptyDir);
+    fs.mkdirSync(fullDir);
+    fs.writeFileSync(path.join(fullDir, "f"), "x");
+    const stale = (slug: string, dir: string) =>
+      state({
+        slug,
+        reservedWorktree: dir,
+        updatedAt: new Date(NOW - 2 * GRACE_MS).toISOString(),
+      });
+    const a = stale("a-empty", emptyDir);
+    const b = stale("b-full", fullDir);
+    writeState(a, stateDir);
+    writeState(b, stateDir);
+
+    reapStartingOrphans([a, b], [], NOW, GRACE_MS, stateDir);
+
+    expect(fs.existsSync(emptyDir)).toBe(false);
+    expect(fs.existsSync(path.join(fullDir, "f"))).toBe(true);
+  });
 });
 
 describe("corrupt seedIngest skip", () => {

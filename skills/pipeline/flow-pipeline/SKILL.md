@@ -779,16 +779,9 @@ Now record the worktree path in state.json (the only step where
 flow-state-update --phase worktree-create --worktree "$WORKTREE"
 ```
 
-**Runtime `/add-dir` fallback (best-effort, never-blocking).** `flow feature
-create` pre-authorized the *deterministic* worktree path as a
-chrome-devtools MCP workspace root at launch, but a collision auto-suffix
-(`-2`/`-3`/…) makes the **actual** `$WORKTREE` diverge from it. Issue a
-runtime `/add-dir "$WORKTREE"` now so step 8c screenshot evidence can write
-to `<worktree>/.flow-tmp/ui-evidence/` (issue #317). Purely a reliability
-nicety — the a11y snapshot remains the evidence gate, and the screenshot
-save-path cascade's session-cwd fallback covers an unavailable `/add-dir`
-(see `/flow-pr-review` `references/ui-validation-evidence.md`). Never block or
-escalate on it.
+`flow feature create` reserved this folder and passed it to Claude as a
+working directory, so `cd "$WORKTREE"` persists; `flow-new-worktree` creates
+the worktree inside it.
 
 **End condition:** the worktree directory exists, is on a fresh
 branch, and `pwd` matches `$WORKTREE`.
@@ -2423,8 +2416,8 @@ MERGE_RESOLVER_MODEL=$(jq -r '.modelMergeResolver // empty' ~/.flow/state/"$SLUG
 # merge itself in Step 2). `git diff --name-only --diff-filter=U`
 # catches every U-class status (UU/AU/UA/DU/UD), unlike a porcelain
 # prefix grep which misses the AU/DU pair where U is in column 2.
-(cd "$WORKTREE" && git fetch origin "$BASE_BRANCH") || echo "warn: git fetch origin $BASE_BRANCH failed; resolver will retry the fetch in Step 2" >&2
-CONFLICTING_FILES=$(cd "$WORKTREE" && git diff --name-only --diff-filter=U)
+git -C "$WORKTREE" fetch origin "$BASE_BRANCH" || echo "warn: git fetch origin $BASE_BRANCH failed; resolver will retry the fetch in Step 2" >&2
+CONFLICTING_FILES=$(git -C "$WORKTREE" diff --name-only --diff-filter=U)
 PR_DESCRIPTION=$(gh pr view "$PR" --json body -q .body)
 MERGE_STDERR=$(jq -r '.stderr // empty' "$WORKTREE/.flow-tmp/merge-result.json")  # the stderr that triggered this resolver
 # Guarded agent resolution — contract in references/exemption-contracts.md (exemption #5).
