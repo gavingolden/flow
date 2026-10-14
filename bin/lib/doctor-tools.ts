@@ -123,7 +123,7 @@ export function checkOverrideAskRule(deps: DoctorDeps): DoctorCheck[] {
       {
         ...base,
         status: "pass",
-        summary: `recording a gate override always asks you first (${resolvedPath})`,
+        summary: `recording a gate override raises a Claude Code permission prompt the agent can't answer for you (${resolvedPath})`,
         details: [],
       },
     ];
@@ -141,14 +141,31 @@ export function checkOverrideAskRule(deps: DoctorDeps): DoctorCheck[] {
     ];
   }
   const lines = status === "partial" ? missing : [...FLOW_OVERRIDE_ASK_RULES];
+  const fix = `add ${lines.map((r) => `"${r}"`).join(" and ")} to permissions.ask in ${resolvedPath}`;
+  if (status === "absent" || status === "missing-file") {
+    // An opt-in that was never set up is not a misconfiguration: the pipeline
+    // still confirms every override itself, and only auto mode's own review
+    // decides whether the recording step runs. `skip` renders no fix line, so
+    // the opt-in line lives in details.
+    return [
+      {
+        ...base,
+        status: "skip",
+        summary:
+          "the override rules are not set; gate overrides still go through the pipeline's own confirmation, but auto mode decides whether the recording step runs",
+        details: [OVERRIDE_ASK_REASON[status], `to opt in: ${fix}`],
+        fix,
+      },
+    ];
+  }
   return [
     {
       ...base,
       status: "warn",
       summary:
-        "recording a gate override will not ask you first until the override rules are in your Claude settings",
+        "the override rules are only partly set, so recording a gate override may not raise the Claude Code prompt you expect",
       details: [OVERRIDE_ASK_REASON[status]],
-      fix: `add ${lines.map((r) => `"${r}"`).join(" and ")} to permissions.ask in ${resolvedPath}`,
+      fix,
     },
   ];
 }

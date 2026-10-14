@@ -372,6 +372,7 @@ describe("checkOverrideAskRule", () => {
     const [c] = checkOverrideAskRule(makeDeps(root));
     expect(c).toMatchObject({ id: "tools-override-ask", status: "pass" });
     expect(c.summary).toContain(file);
+    expect(c.summary).not.toContain("always asks");
   });
 
   it("warns for a partial pair, naming only the missing line and the file", () => {
@@ -381,13 +382,15 @@ describe("checkOverrideAskRule", () => {
     expect(c.fix).toBe(`add "${ARGS}" to permissions.ask in ${file}`);
   });
 
-  it("warns for an absent pair, naming both lines", () => {
+  it("skips (opt-in not set up) for an absent pair, naming both lines and not overstating the risk", () => {
     const file = settingsAt(home(), askBody([]));
     const [c] = checkOverrideAskRule(makeDeps(root));
-    expect(c.status).toBe("warn");
-    expect(c.fix).toBe(
-      `add "${BARE}" and "${ARGS}" to permissions.ask in ${file}`,
-    );
+    expect(c.status).toBe("skip");
+    const line = `add "${BARE}" and "${ARGS}" to permissions.ask in ${file}`;
+    expect(c.fix).toBe(line);
+    expect(c.details).toContain(`to opt in: ${line}`);
+    expect(c.summary).toContain("pipeline's own confirmation");
+    expect(c.summary).not.toContain("will not ask you first");
   });
 
   it("warns for a merge-covering ask entry, naming it as the one to narrow", () => {
@@ -402,9 +405,9 @@ describe("checkOverrideAskRule", () => {
     expect(c.fix).toContain(file);
   });
 
-  it("warns on a missing file and on malformed JSON, naming the path", () => {
+  it("skips on a missing file and warns on malformed JSON, naming the path", () => {
     const [missingFile] = checkOverrideAskRule(makeDeps(root));
-    expect(missingFile.status).toBe("warn");
+    expect(missingFile.status).toBe("skip");
     expect(missingFile.details.join(" ")).toContain("does not exist");
     expect(missingFile.fix).toContain("settings.json");
     settingsAt(home(), "{ nope");

@@ -848,6 +848,39 @@ describe("flow-new-worktree (integration)", () => {
     ).toBe(true);
   });
 
+  it("main() adopts the folder recorded in state.reservedWorktree instead of suffixing to -2", async () => {
+    // The child resolves ~/.flow/state under the suite's sandboxed $HOME
+    // (vitest.setup.ts), so the real state file the launch writes can be
+    // faked here and read back by the spawned helper's main().
+    const reserved = path.join(path.dirname(fx.repoDir), "repo-resv-foo");
+    fs.mkdirSync(reserved);
+    const stateDir = path.join(process.env.HOME!, ".flow", "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+    const stateFile = path.join(stateDir, "resv-foo.json");
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        slug: "resv-foo",
+        phase: "starting",
+        repo: fx.repoDir,
+        reservedWorktree: reserved,
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+    try {
+      const r = await spawnHelper(["resv-foo"], fx.repoDir);
+      expect(r.exitCode, `stderr: ${r.stderr}`).toBe(0);
+      expect(fs.existsSync(path.join(reserved, ".git"))).toBe(true);
+      expect(fs.existsSync(`${reserved}-2`)).toBe(false);
+      expect(mustGit(["branch", "--list"], fx.repoDir)).toMatch(/\bresv-foo\b/);
+      expect(mustGit(["branch", "--list"], fx.repoDir)).not.toContain(
+        "resv-foo-2",
+      );
+    } finally {
+      fs.rmSync(stateFile, { force: true });
+    }
+  });
+
   it("two parallel calls with the same slug return distinct paths and branches", async () => {
     const [a, b] = await Promise.all([
       spawnHelper(["pr-4-cleanup"], fx.repoDir),
