@@ -436,6 +436,76 @@ function extractLabelValueWithWrap(body: string, label: string): string | null {
   return [labelMatch[0], ...continuation].join("\n");
 }
 
+export const EXISTING_CODE_VERDICTS = ["keep", "simplify", "rewrite"] as const;
+
+function checkExistingCodeAssessment(planText: string, misses: string[]): void {
+  const headingMatch = planText.match(/^## Existing-code assessment\s*$/m);
+  if (!headingMatch) {
+    misses.push(
+      "missing '## Existing-code assessment' heading — every plan must assess the existing surfaces it touches (keep | simplify | rewrite, or 'none — <why>')",
+    );
+    return;
+  }
+  const headingIdx = headingMatch.index ?? 0;
+  const vettingMatch = planText.match(/^## Request vetting\s*$/m);
+  if (vettingMatch && (vettingMatch.index ?? 0) > headingIdx) {
+    misses.push(
+      "'## Request vetting' must precede '## Existing-code assessment' — the argument against the request comes first",
+    );
+  }
+  const body = sliceToNextHeading(
+    planText,
+    headingIdx + headingMatch[0].length,
+  );
+  const lines = body
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split("\n")
+    .map((l) => l.trim());
+  const blocks: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("- ")) blocks.push(line);
+    else if (line.length > 0 && blocks.length > 0)
+      blocks[blocks.length - 1] += ` ${line}`;
+  }
+  if (blocks.length === 0 && lines.some((l) => l.startsWith("none — "))) return;
+  const enumList = EXISTING_CODE_VERDICTS.join(" | ");
+  let valid = 0;
+  for (const block of blocks) {
+    const m = block.match(/^- \*\*(.+?):\*\* (\S+) — /);
+    if (!m) {
+      misses.push(
+        `'## Existing-code assessment' bullet '${block.slice(0, 40)}' is malformed — expected '- **<surface>:** keep|simplify|rewrite — <why>'`,
+      );
+      continue;
+    }
+    const verdict = m[2];
+    if (!(EXISTING_CODE_VERDICTS as readonly string[]).includes(verdict)) {
+      misses.push(
+        `'## Existing-code assessment' bullet '${m[1]}' has verdict '${verdict}' — the closed enum is ${enumList}`,
+      );
+      continue;
+    }
+    valid++;
+    if (/\[anchor:\s*\.flow-tmp\//.test(block)) {
+      misses.push(
+        `'## Existing-code assessment' bullet '${m[1]}' cites a '.flow-tmp/' anchor — that directory is deleted on worktree teardown; cite a committed path`,
+      );
+    } else if (verdict !== "keep" && !/\[anchor:\s*\S/.test(block)) {
+      misses.push(
+        `'## Existing-code assessment' bullet '${m[1]}' is '${verdict}' but has no [anchor: …] — a non-keep verdict must be grounded`,
+      );
+    }
+  }
+  if (
+    valid === 0 &&
+    !misses.some((x) => x.startsWith("'## Existing-code assessment' bullet"))
+  ) {
+    misses.push(
+      "'## Existing-code assessment' has neither a 'none — <why>' line nor a '- **<surface>:** keep|simplify|rewrite — <why>' bullet",
+    );
+  }
+}
+
 /**
  * Advisory check for the ALWAYS-PRESENT `## Request vetting` section every
  * plan.md and design.md must carry (discovery-instructions.md "Request
@@ -1081,6 +1151,7 @@ export function lintPlan(
     checkPromptInterpretation(planText, misses);
     checkMethodSelection(planText, misses, { surveyRan: opts.surveyRan });
     checkRequestVetting(planText, misses, "plan.md");
+    checkExistingCodeAssessment(planText, misses);
     checkOpenQuestions(planText, misses);
     checkConfidenceMarkers(planText, misses, opts.planMdFile);
     checkStakesLines(planText, misses);

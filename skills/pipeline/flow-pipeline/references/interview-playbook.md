@@ -68,6 +68,12 @@ this file's interview machinery — the two pauses serve different
 purposes (vetting a request's premise vs. resolving a design ambiguity)
 and must not be conflated into one trigger.
 
+**Solution-fit override.** A confident solution-fit case
+([solution-fit.md](solution-fit.md)) fires the interview even under the
+expert-specified carve-out, seeding Q1 with the alternative as the
+`Recommended:` option. Under `interviewMode: "skip"` it degrades to the
+`SOLUTION-FIT:` thread line instead.
+
 **Safe-by-default tie-breaker.** When you cannot confidently place the
 request in a carve-out bucket, default to firing the interview. The
 failure modes are asymmetric here in the OPPOSITE direction from the

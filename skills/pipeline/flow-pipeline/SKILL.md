@@ -612,6 +612,13 @@ wants fixed, unblocked, or sped up — using the Ladder Up technique in
 (reference it; don't duplicate it here). Infer the **ultimate goal** and
 state it in **one line** in chat, then carry it in your context to step 3.
 
+**Solution fit.** When (and only when) the request's named mechanism may not serve that goal, add one chat line
+`Solution fit: <mechanism> may not serve <ultimate goal> — <what the user would gain or lose>`, worded in user
+terms with no path:line in it; omit when there is no case. A confident case (cites a path:line or zero-hit grep AND
+names a concrete alternative) seeds the intent interview's Q1 and overrides the expert-specified carve-out;
+otherwise append `SOLUTION-FIT: <case>` to the ultimate-goal line threaded to step 3. Body:
+`references/solution-fit.md`.
+
 Laddering up is the default; the same playbook carries a broader set of
 **framing lenses** (internal-only Five Whys, Jobs-to-be-Done,
 first-principles, inversion, pre-mortem, second-order effects) for a
@@ -621,9 +628,9 @@ interrogation or an emitted section).
 
 This is the triage-side entry point for the AGENTS.md `## Output style`
 rule **Understand the ultimate goal behind the request, not just the
-literal ask.**, and it is **conditional**: skip the whole sub-step —
-laddering and lenses alike — on expert-specified / trivial /
-time-critical requests. Infer-and-proceed is the default: flow PRs are
+literal ask.**, and it is **conditional**: skip the whole sub-step on
+trivial / time-critical requests; expert-specified ones still run the
+one-line goal and Solution fit, never the lenses. Infer-and-proceed is the default: flow PRs are
 gated and revertible, so proceed on the most-likely goal and surface the
 considered alternative in the PRD and the PR `## Why` (gated at
 `plan-pending-review` for feature intent) rather than stopping to ask.
@@ -692,7 +699,7 @@ either of these two named mechanisms.
 
 #### Prompt sanity gate
 
-Bounded pass verifying the prompt's concrete claims against the worktree/attached files (bounded excerpt reads only), reaching **sound** (proceed) / **suspect** (proceed, thread note to step 3) / **contradicted** (ask one question quoting both sides; unresolved ⇒ `NEEDS HUMAN: prompt-contradiction`). Checklist: `references/prompt-sanity.md`.
+Bounded pass verifying the prompt's concrete claims against the worktree/attached files (bounded excerpt reads only), reaching **sound** (proceed) / **suspect** (proceed, thread note to step 3) / **contradicted** (ask one question quoting both sides; unresolved ⇒ `NEEDS HUMAN: prompt-contradiction` — or `NEEDS HUMAN: wrong-repo` when the repo-fit sub-check found none of the request's surfaces or domain terms in this repo). Checklist: `references/prompt-sanity.md`.
 
 Then classify:
 
@@ -896,6 +903,8 @@ has no `**Recommended:**` line by contract, so it is never rendered as
 `## Method selection` is present, plus one `Vetting: <verdict>` line (the
 `## Request vetting` `- **Verdict:**` value, verbatim) whenever the
 verdict is not `adopt`, plus one
+`Existing code: <gain or loss in product terms> — simplify|rewrite <the surface, described, anchors omitted>` line
+(from `## Existing-code assessment`) whenever any verdict is not `keep`, plus one
 `Scope: N tasks, M files` line, plus any material risk from
 `## Plan risks`>` / `**Untracked:** <the candidate list, one line
 each>` / `**Next action:** approve / redirect: … / cancel — plan:
@@ -1255,11 +1264,13 @@ only and the helper exact-matches against them. The blind survey's
     USER_METHOD=$(sed -n "s/^- \*\*User's method:\*\* *//p" "$WORKTREE/.flow-tmp/plan.md" | head -1)
     CHOSEN_METHOD=$(sed -n 's/^- \*\*Chosen method:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)
     VETTING_VERDICT=$(sed -n 's/^- \*\*Verdict:\*\* *//p' "$WORKTREE/.flow-tmp/plan.md" | head -1)
+    EXISTING_CODE=$(sed -E -n 's/^- \*\*[^:]*:\*\* (simplify|rewrite) — (.*)/\1 — \2/p' "$WORKTREE/.flow-tmp/plan.md" | sed -E 's/ *\[anchor:[^]]*\]//g' | head -1)
     if [ "$VETTING_VERDICT" = "push back" ]; then
       WHY="plan ready for review (intent=$INTENT, ## Request vetting verdict: push back)"
     else
       WHY="plan ready for review (intent=$INTENT, prompt-interpretation tension)"
     fi
+    [ -n "$EXISTING_CODE" ] && WHY="$WHY; Existing code: $EXISTING_CODE"
     [ -n "$SURVEY_VERDICT" ] && WHY="$WHY; Method: $USER_METHOD -> $CHOSEN_METHOD (survey: $SURVEY_VERDICT)"
     [ "$SPEC_RC" != "0" ] && WHY="$WHY; design spec INVALID: $DESIGN_SPEC_REASON"
     LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)

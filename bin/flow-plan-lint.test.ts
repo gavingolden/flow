@@ -32,6 +32,10 @@ Users cannot export widgets today.
 - **Sources:** no outside source: fixture plan, no research pass ran.
 - **Verdict:** adopt
 
+## Existing-code assessment
+
+none — no existing surface touched
+
 ## Scope Boundary
 
 **In scope:** CSV export.
@@ -597,6 +601,82 @@ function buildVettingBody(totalLines: number): string {
   return "## Request vetting\n\n" + lines.join("\n");
 }
 
+const ASSESSMENT_BLOCK = `## Existing-code assessment
+
+none — no existing surface touched`;
+
+function withAssessment(body: string): string {
+  return CONFORMING_PLAN.replace(
+    ASSESSMENT_BLOCK,
+    `## Existing-code assessment\n\n${body}`,
+  );
+}
+
+const assessmentMisses = (plan: string) =>
+  lintPlan(plan).misses.filter((m) => m.includes("Existing-code assessment"));
+
+describe("lintPlan — Existing-code assessment", () => {
+  it("is clean on the conforming fixture", () => {
+    expect(assessmentMisses(CONFORMING_PLAN)).toEqual([]);
+  });
+
+  it("names a miss when the heading is absent", () => {
+    const plan = withoutSection(CONFORMING_PLAN, "## Existing-code assessment");
+    expect(assessmentMisses(plan)).toHaveLength(1);
+    expect(assessmentMisses(plan)[0]).toContain(
+      "missing '## Existing-code assessment' heading",
+    );
+  });
+
+  it("passes a keep-only body", () => {
+    const plan = withAssessment(
+      "- **bin/foo.ts:** keep — shape fits, extend in place.",
+    );
+    expect(assessmentMisses(plan)).toEqual([]);
+  });
+
+  it("passes an anchored rewrite", () => {
+    const plan = withAssessment(
+      "- **bin/foo.ts:** rewrite — stacked workarounds. [anchor: bin/flow-plan-lint.ts]",
+    );
+    expect(assessmentMisses(plan)).toEqual([]);
+  });
+
+  it("names a miss for an unanchored rewrite", () => {
+    const plan = withAssessment(
+      "- **bin/foo.ts:** rewrite — stacked workarounds.",
+    );
+    expect(assessmentMisses(plan)[0]).toContain("has no [anchor:");
+  });
+
+  it("names a miss for a verdict outside the closed enum", () => {
+    const plan = withAssessment("- **bin/foo.ts:** refactor — messy.");
+    expect(assessmentMisses(plan)[0]).toContain("keep | simplify | rewrite");
+  });
+
+  it("names a miss for a .flow-tmp anchor", () => {
+    const plan = withAssessment(
+      "- **bin/foo.ts:** simplify — cleanup. [anchor: .flow-tmp/scout.md]",
+    );
+    expect(assessmentMisses(plan)[0]).toContain(".flow-tmp/");
+  });
+
+  it("names a miss when the body has neither none nor a bullet", () => {
+    expect(assessmentMisses(withAssessment("Some prose."))).toHaveLength(1);
+  });
+
+  it("names a miss when the section precedes '## Request vetting'", () => {
+    const moved = withoutSection(
+      CONFORMING_PLAN,
+      "## Existing-code assessment",
+    ).replace(
+      "## Request vetting",
+      `${ASSESSMENT_BLOCK}\n\n## Request vetting`,
+    );
+    expect(assessmentMisses(moved)[0]).toContain("must precede");
+  });
+});
+
 describe("lintPlan — Request vetting", () => {
   it("returns zero misses for the conforming fixture section", () => {
     const { misses } = lintPlan(CONFORMING_PLAN);
@@ -1008,6 +1088,27 @@ describe("lintPlan — confidence + stakes markers", () => {
     expect(misses.some((m) => m.startsWith("verdict-confidence-missing"))).toBe(
       false,
     );
+  });
+
+  it("the shipped example-prd.md's '## Existing-code assessment' passes its own check (drift pin)", () => {
+    const { misses } = lintPlan(readFileSync(EXAMPLE_PRD_PATH, "utf8"), {
+      planMdFile: EXAMPLE_PRD_PATH,
+    });
+    expect(
+      misses.filter((m) => m.includes("Existing-code assessment")),
+    ).toEqual([]);
+  });
+
+  it("a malformed bullet next to a valid one is reported, not skipped", () => {
+    const base = readFileSync(EXAMPLE_PRD_PATH, "utf8");
+    const start = base.indexOf("## Existing-code assessment");
+    const end = base.indexOf("\n## ", start + 5);
+    const plan =
+      base.slice(0, start) +
+      "## Existing-code assessment\n\n- **bin/foo.ts:** keep — fits.\n- **bin/bar.ts**: keep — bad colon.\n" +
+      base.slice(end);
+    const { misses } = lintPlan(plan, { planMdFile: EXAMPLE_PRD_PATH });
+    expect(misses.some((m) => m.includes("is malformed"))).toBe(true);
   });
 
   it("the shipped example-prd.md's '## Open Questions' and '## Recommendation' sections never trip the soft-wrap checks (drift pin)", () => {

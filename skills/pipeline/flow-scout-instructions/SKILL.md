@@ -73,6 +73,15 @@ shared types, related tests). Collect:
 Be specific: a path, not "the auth module". A function name, not "some
 helpers".
 
+**Existing-code assessment.** For every surface the feature would extend,
+decide: **keep** (the shape fits; extend in place), **simplify** (extend
+after a small local cleanup — name it), or **rewrite** (extending compounds
+debt — name the smell: stacked workarounds, god-module, obsolete
+abstraction, dead branches). Write the verdict on the `## affected_modules`
+bullet as `— assessment: <verdict> — <why, path:line>`, and mirror every
+non-keep verdict as `EXISTING-CODE: <path> — <verdict> — <why>` under
+`## anti_patterns`.
+
 ## 2b. Verify-not-rederive (plan-supplied runs only)
 
 When `PLAN_PATH` is not `absent`, an approved plan has already made the
@@ -138,6 +147,8 @@ under `## anti_patterns`:
   this feature's call site.
 - **Foreclosed shortcuts.** "It would be tempting to do X here, but X
   breaks Y." Note the temptation and the why.
+- **Existing code that should not be extended as-is.** Mirrored from a
+  non-keep assessment, prefixed `EXISTING-CODE:`.
 
 A scout report that returns only positive findings has done half the job.
 The negative findings are what stops the Critical Analysis from walking
@@ -194,8 +205,8 @@ this order:
 
 ## affected_modules
 
-- <path/to/file.ts> — <one-line role + what changes>
-- <path/to/component.svelte> — <one-line role + what changes>
+- <path/to/file.ts> — <one-line role + what changes> — assessment: keep|simplify|rewrite — <why, path:line>
+- <path/to/component.svelte> — <one-line role + what changes> — assessment: keep|simplify|rewrite — <why, path:line>
 - <...>
 
 ## relevant_tests
@@ -243,7 +254,8 @@ sentences max). It must surface **both sides** of what you learned:
 - At least one positive finding (what to do — top affected module, the
   recommended strategy, the most consequential assumption).
 - At least one negative finding (what NOT to do — top anti-pattern,
-  off-limits surface, or rejected approach).
+  off-limits surface, or rejected approach; a non-keep existing-code
+  verdict counts).
 
 A summary that names only the positive side fails the contract. The user
 specifically asked (2026-05-05 feedback) that subagent return values

@@ -30,6 +30,14 @@ the URL.
 - **Sources:** no outside source: this is a bundled worked example with no live research pass.
 - **Verdict:** adopt
 
+## Existing-code assessment
+
+- **Dashboard view route:** keep — it already renders a dashboard from an id, so the shared view
+  reuses it behind a token check instead of a second route.
+- **Dashboard permissions check:** simplify — it is inlined in three handlers, so extract one
+  helper first and let the share-token path call it. [anchor:
+  skills/pipeline/flow-product-planning/references/example-prd.md]
+
 ## Scope Boundary
 
 **In scope:** Share via secret link (anyone with the URL can view). One link per dashboard.

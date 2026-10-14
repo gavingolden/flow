@@ -32,6 +32,17 @@
 - **Sources:** [a URL, or the literal `no outside source: <reason>`]
 - **Verdict:** [`adopt` | `adopt-with-conditions: <condition>` | `push back: <alternative>`]
 
+## Existing-code assessment
+
+<!-- Always present — one bullet per existing surface the plan touches, each
+     `- **<repo path or surface>:** keep | simplify | rewrite — <why> [anchor: path[:line]]`
+     (simplify/rewrite require an anchor; never a .flow-tmp/ path). When no
+     existing surface is touched, write the literal line
+     `none — no existing surface touched`. Full contract:
+     discovery-instructions.md "Existing-code assessment". -->
+
+- **[repo path or surface]:** [keep | simplify | rewrite] — [why] [anchor: path[:line]]
+
 ## Epic context
 
 <!-- Omit-when-empty: include ONLY when discovery's step 1.7 detects epic

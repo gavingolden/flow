@@ -750,6 +750,22 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(out).toContain(`NEXT ACTION: ${recipe.split("\n")[0]}`);
     expect(finalLine(out)).toBe("NEEDS HUMAN: worktree-create-failed");
   });
+
+  it("wrong-repo renders the relaunch recipe and its default WHY", () => {
+    const out = render({ status: "needs-human", reason: "wrong-repo" });
+    expect(out).toContain("flow done <slug>");
+    expect(out).toContain(WHY_BY_REASON["wrong-repo"]);
+    expect(finalLine(out)).toBe("NEEDS HUMAN: wrong-repo");
+  });
+
+  it("prompt-contradiction renders the restate recipe", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "prompt-contradiction",
+    });
+    expect(out).toContain("flow attach <slug>");
+    expect(finalLine(out)).toBe("NEEDS HUMAN: prompt-contradiction");
+  });
 });
 
 describe("render — awaiting-approval", () => {
