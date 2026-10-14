@@ -146,11 +146,9 @@ yourself:
 The hand-off rule: `serve` runs as one standalone foreground call, its
 single output line is read once, and `fillScript` goes verbatim into
 `evaluate_script`'s `function` — never saved to a file, printed, sliced,
-piped through `jq`/`head`/`tail`, or re-read.
-7. `wait_for` the post-login redirect.
-8. `evaluate_script () => location.pathname` **only**, and set `loginOk`
-   from whether the pathname no longer equals `loginUrl`'s path (still
-   recorded in the captures JSON, as before).
+piped through `jq`/`head`/`tail`, or re-read. 7. `wait_for` the post-login redirect. 8. `evaluate_script () => location.pathname` **only**, and set `loginOk`
+from whether the pathname no longer equals `loginUrl`'s path (still
+recorded in the captures JSON, as before).
 
 A `fillScript` result of `reason: "fetch-blocked"` means the browser's own
 `fetch` threw before a response ever came back — almost always the app's

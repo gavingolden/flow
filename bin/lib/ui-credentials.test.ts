@@ -130,7 +130,9 @@ describe("resolveCredentials — precedence", () => {
 
 describe("buildFillScript", () => {
   it("never contains the sentinel values", () => {
-    const script = buildFillScript({ url: "http://127.0.0.1:12345/flow-ui-login" });
+    const script = buildFillScript({
+      url: "http://127.0.0.1:12345/flow-ui-login",
+    });
     expect(script).not.toContain(SENTINEL_USER);
     expect(script).not.toContain(SENTINEL_PASS);
   });
@@ -263,14 +265,11 @@ describe("buildFillScript — every branch returns exactly the documented keys",
           ? selectors[sel]
           : null,
     };
-    const fn = new Function(
-      "document",
-      "fetch",
-      "Event",
-      `return (${script})`,
-    )(document, fetchImpl, FakeEvent) as () => Promise<
-      Record<string, unknown>
-    >;
+    const fn = new Function("document", "fetch", "Event", `return (${script})`)(
+      document,
+      fetchImpl,
+      FakeEvent,
+    ) as () => Promise<Record<string, unknown>>;
     return fn();
   }
 

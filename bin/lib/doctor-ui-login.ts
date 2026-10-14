@@ -72,7 +72,7 @@ export function checkUiLoginAutoMode(deps: DoctorDeps): DoctorCheck[] {
         ...base,
         status: "warn",
         summary:
-          "autoMode.allow lacks \"$defaults\", so Claude Code's built-in allow exceptions are replaced",
+          'autoMode.allow lacks "$defaults", so Claude Code\'s built-in allow exceptions are replaced',
         details: [
           `the flow-ui-login entry is present in ${file}, but without "${DEFAULTS_TOKEN}" the built-in allow exceptions are replaced rather than extended`,
           SCOPE_NOTE,

@@ -62,9 +62,7 @@ export const DOCTOR_PROBES: DoctorProbe[] = [
   guarded(TOOLS_CLAUDE_META, (deps) => checkClaude(deps)),
   guarded(TOOLS_MERGE_RULE_META, (deps) => checkMergeAllowRule(deps)),
   guarded(TOOLS_AGY_META, (deps) => checkAgy(deps)),
-  guarded(TOOLS_UI_LOGIN_AUTOMODE_META, (deps) =>
-    checkUiLoginAutoMode(deps),
-  ),
+  guarded(TOOLS_UI_LOGIN_AUTOMODE_META, (deps) => checkUiLoginAutoMode(deps)),
   guarded(STALE_WORKTREES_META, (deps) => checkStaleWorktrees(deps)),
   guarded(PIPELINE_RECORDS_META, (deps) => checkPipelineState(deps)),
   guarded(LEAKED_PROCESSES_META, (deps) => checkLeakedProcesses(deps)),

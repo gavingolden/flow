@@ -39,7 +39,10 @@ describe("userSettingsPath", () => {
 
 describe("readUserSettings", () => {
   it("returns the parsed settings and the file path when ok", () => {
-    const file = write("a.json", JSON.stringify({ autoMode: { allow: ["x"] } }));
+    const file = write(
+      "a.json",
+      JSON.stringify({ autoMode: { allow: ["x"] } }),
+    );
     expect(readUserSettings(file)).toEqual({
       status: "ok",
       path: file,
@@ -86,7 +89,10 @@ describe("readUserSettings", () => {
   });
 
   it("never writes: bytes and mtime of the settings file are unchanged by a read", () => {
-    const file = write("f.json", JSON.stringify({ permissions: { allow: [] } }));
+    const file = write(
+      "f.json",
+      JSON.stringify({ permissions: { allow: [] } }),
+    );
     const stat = () => {
       const st = fs.statSync(file);
       return `${createHash("sha1").update(fs.readFileSync(file)).digest("hex")}@${st.mtimeMs}`;

@@ -118,9 +118,9 @@ describe("credential-denial lint — old phrases removed", () => {
   it("[negative] the old phrase would be caught if reintroduced", () => {
     const text = `fill the located fields with the resolved user/pass VALUES`;
     expect(text.includes(OLD_FILL_PHRASE)).toBe(true);
-    expect(`the ${OLD_TOKEN_PHRASE}, the origin`.includes(OLD_TOKEN_PHRASE)).toBe(
-      true,
-    );
+    expect(
+      `the ${OLD_TOKEN_PHRASE}, the origin`.includes(OLD_TOKEN_PHRASE),
+    ).toBe(true);
   });
 });
 
@@ -195,9 +195,12 @@ describe("credential-denial lint — login hand-off", () => {
     "cd /w && jq -r .fillScript .flow-tmp/ui-login-serve.out | tail -n +28",
     "flow-ui-login serve --manifest m --worktree w > .flow-tmp/ui-login-serve.out 2>&1 &",
     "nohup flow-ui-login serve --manifest m --worktree w",
-  ])("[negative] the forbidden patterns catch the incident command: %s", (cmd) => {
-    expect(FORBIDDEN_HANDOFF_PATTERNS.some((p) => p.test(cmd))).toBe(true);
-  });
+  ])(
+    "[negative] the forbidden patterns catch the incident command: %s",
+    (cmd) => {
+      expect(FORBIDDEN_HANDOFF_PATTERNS.some((p) => p.test(cmd))).toBe(true);
+    },
+  );
 
   it("[negative] a clean standalone serve call is not flagged", () => {
     const clean =
@@ -213,11 +216,14 @@ describe("credential-denial lint — after-denial teardown", () => {
     "skills/pipeline/flow-pr-review/references/ui-validation-evidence.md",
   ];
 
-  it.each(TEARDOWN_SITES)("%s carries the denial-teardown anchor", (relPath) => {
-    expect(read(relPath), `${relPath} missing teardown anchor`).toContain(
-      DENIAL_TEARDOWN_ANCHOR,
-    );
-  });
+  it.each(TEARDOWN_SITES)(
+    "%s carries the denial-teardown anchor",
+    (relPath) => {
+      expect(read(relPath), `${relPath} missing teardown anchor`).toContain(
+        DENIAL_TEARDOWN_ANCHOR,
+      );
+    },
+  );
 
   it("flow-verify's carve-out reaps with flow-browser-teardown before escalating smoketest-needs-creds", () => {
     const text = read("skills/pipeline/flow-verify/SKILL.md");

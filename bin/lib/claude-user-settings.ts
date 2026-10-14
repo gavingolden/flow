@@ -57,7 +57,10 @@ export function readUserSettings(settingsPath: string): UserSettingsRead {
     parsed = JSON.parse(fs.readFileSync(resolvedPath, "utf8"));
   } catch (e) {
     const missing = (e as NodeJS.ErrnoException).code === "ENOENT";
-    return { status: missing ? "missing-file" : "malformed", path: resolvedPath };
+    return {
+      status: missing ? "missing-file" : "malformed",
+      path: resolvedPath,
+    };
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     return { status: "malformed", path: resolvedPath };

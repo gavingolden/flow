@@ -28,8 +28,7 @@ function settingsAt(dir: string, body: string): string {
 }
 
 const homeClaude = () => path.join(root, "home", ".claude");
-const allowOf = (allow: unknown) =>
-  JSON.stringify({ autoMode: { allow } });
+const allowOf = (allow: unknown) => JSON.stringify({ autoMode: { allow } });
 
 describe("checkUiLoginAutoMode", () => {
   it("passes when autoMode.allow holds $defaults and a flow-ui-login entry, naming the file", () => {
@@ -75,7 +74,9 @@ describe("checkUiLoginAutoMode", () => {
     );
     const [c] = checkUiLoginAutoMode(makeDeps(root));
     expect(c.status).toBe("warn");
-    expect(c.details.join(" ")).toContain("built-in allow exceptions are replaced");
+    expect(c.details.join(" ")).toContain(
+      "built-in allow exceptions are replaced",
+    );
     expect(c.fix).toBe(`add "$defaults" to autoMode.allow in ${file}`);
   });
 
@@ -103,7 +104,9 @@ describe("checkUiLoginAutoMode", () => {
       if (body !== null) settingsAt(homeClaude(), body);
       const [c] = checkUiLoginAutoMode(makeDeps(root));
       const details = c.details.join(" ");
-      expect(details).toContain("managed or --settings autoMode entries are not read");
+      expect(details).toContain(
+        "managed or --settings autoMode entries are not read",
+      );
       expect(details).toContain(".claude/settings*.json");
     }
   });

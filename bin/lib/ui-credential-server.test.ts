@@ -52,10 +52,13 @@ describe("startCredentialServer OPTIONS preflight", () => {
       origin: "http://localhost:5173",
     });
     try {
-      const res = await get(`http://127.0.0.1:${handle.port}${CREDENTIAL_LOGIN_PATH}`, {
-        method: "OPTIONS",
-        headers: { Origin: "http://localhost:5173" },
-      });
+      const res = await get(
+        `http://127.0.0.1:${handle.port}${CREDENTIAL_LOGIN_PATH}`,
+        {
+          method: "OPTIONS",
+          headers: { Origin: "http://localhost:5173" },
+        },
+      );
       expect(res.status).toBe(204);
       expect(res.headers["access-control-allow-origin"]).toBe(
         "http://localhost:5173",
@@ -71,10 +74,13 @@ describe("startCredentialServer OPTIONS preflight", () => {
       origin: "http://localhost:5173",
     });
     try {
-      const res = await get(`http://127.0.0.1:${handle.port}${CREDENTIAL_LOGIN_PATH}`, {
-        method: "OPTIONS",
-        headers: { Origin: "http://evil.example" },
-      });
+      const res = await get(
+        `http://127.0.0.1:${handle.port}${CREDENTIAL_LOGIN_PATH}`,
+        {
+          method: "OPTIONS",
+          headers: { Origin: "http://evil.example" },
+        },
+      );
       expect(res.status).toBe(403);
     } finally {
       handle.stop();
@@ -109,10 +115,12 @@ describe("startCredentialServer fixed path", () => {
     });
     try {
       const base = `http://127.0.0.1:${handle.port}`;
-      expect((await get(`${base}/other`, { headers: corsHeaders })).status).toBe(
+      expect(
+        (await get(`${base}/other`, { headers: corsHeaders })).status,
+      ).toBe(404);
+      expect((await get(`${base}/`, { headers: corsHeaders })).status).toBe(
         404,
       );
-      expect((await get(`${base}/`, { headers: corsHeaders })).status).toBe(404);
       expect(
         (
           await get(`${base}/other`, {
@@ -133,11 +141,16 @@ describe("startCredentialServer fixed path", () => {
     });
     try {
       const url = `http://127.0.0.1:${handle.port}${CREDENTIAL_LOGIN_PATH}`;
-      expect((await get(url, { headers: { Origin: ORIGIN } })).status).toBe(403);
+      expect((await get(url, { headers: { Origin: ORIGIN } })).status).toBe(
+        403,
+      );
       expect(
         (
           await get(url, {
-            headers: { Origin: "http://evil.example", "Sec-Fetch-Mode": "cors" },
+            headers: {
+              Origin: "http://evil.example",
+              "Sec-Fetch-Mode": "cors",
+            },
           })
         ).status,
       ).toBe(403);

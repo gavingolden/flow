@@ -277,9 +277,7 @@ describe("runDoctorCli full probe run in a sandbox", () => {
       (x) => x.id === "tools-ui-login-automode",
     )!;
     expect(c.status).toBe("warn");
-    expect(c.details.join("\n")).toContain(
-      FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY,
-    );
+    expect(c.details.join("\n")).toContain(FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY);
     expect(c.fix).toContain(fs.realpathSync(settings));
   });
 

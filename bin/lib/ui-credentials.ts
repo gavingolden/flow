@@ -153,14 +153,14 @@ export function buildFillScript(opts: { url: string }): string {
     "if(!p)return f('pass-field-not-found');" +
     "let r;try{r=await fetch(" +
     url +
-    ",{mode:\"cors\",credentials:\"omit\"})}catch{return f('fetch-blocked')}" +
+    ',{mode:"cors",credentials:"omit"})}catch{return f(\'fetch-blocked\')}' +
     "if(!r.ok)return f('endpoint-refused');" +
     "const c=await r.json()," +
     "s=(e,v)=>{Object.getOwnPropertyDescriptor(Object.getPrototypeOf(e),'value').set.call(e,v);" +
     "e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))};" +
     "s(u,c.user);s(p,c.pass);" +
     "const m=p.closest('form')||u.closest('form')," +
-    "b=m&&m.querySelector('button[type=\"submit\"],input[type=\"submit\"]');" +
+    'b=m&&m.querySelector(\'button[type="submit"],input[type="submit"]\');' +
     "let d=false;" +
     "if(b){b.click();d=true}else if(m&&typeof m.requestSubmit=='function'){m.requestSubmit();d=true}" +
     "return{fetched:true,userFilled:true,passFilled:true,submitted:d,reason:null}}"
