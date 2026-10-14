@@ -7,8 +7,8 @@ import { parseMergeArgs } from "../flow-merge-guard";
 import {
   FLOW_MERGE_ALLOW_RULE,
   FLOW_OVERRIDE_ASK_RULES,
-  readMergeAllowRule,
-  readOverrideAskRule,
+  classifyAllShellOn,
+  findMergeCoveringAskEntry,
 } from "./merge-allow-rule";
 
 let root: string;
@@ -23,8 +23,6 @@ afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-const settings = (allow: unknown) => JSON.stringify({ permissions: { allow } });
-
 function write(name: string, body: string): string {
   const file = path.join(root, name);
   fs.writeFileSync(file, body);
@@ -32,7 +30,7 @@ function write(name: string, body: string): string {
 }
 
 describe("FLOW_MERGE_ALLOW_RULE", () => {
-  it("equals the text the owner keeps in their dotfiles, exactly", () => {
+  it("is the exact rule text flow ships", () => {
     expect(FLOW_MERGE_ALLOW_RULE).toBe("Bash(flow-merge-guard merge *)");
   });
 
@@ -56,173 +54,98 @@ describe("FLOW_MERGE_ALLOW_RULE", () => {
   });
 });
 
-describe("readMergeAllowRule", () => {
-  it("reports present for the exact rule, reading through a symlinked settings file", () => {
-    const real = write(
-      "dotfiles-settings.json",
-      settings([FLOW_MERGE_ALLOW_RULE]),
-    );
-    const link = path.join(root, "settings.json");
-    fs.symlinkSync(real, link);
-    expect(readMergeAllowRule(link)).toEqual({
-      status: "present",
-      resolvedPath: real,
-    });
-  });
-
-  it("reports absent when permissions.allow lacks the rule or is not a list", () => {
-    expect(
-      readMergeAllowRule(write("a.json", settings(["Bash(ls)"]))).status,
-    ).toBe("absent");
-    expect(readMergeAllowRule(write("b.json", "{}")).status).toBe("absent");
-    expect(readMergeAllowRule(write("c.json", settings("nope"))).status).toBe(
-      "absent",
-    );
-  });
-
-  it("reports broader for any other Bash(flow-merge-guard entry, which would also approve --record-override", () => {
-    expect(
-      readMergeAllowRule(
-        write("d.json", settings(["Bash(flow-merge-guard *)"])),
-      ).status,
-    ).toBe("broader");
-  });
-
-  it("reports broader when a broader entry sits beside the exact rule, in either order", () => {
-    for (const [i, allow] of [
-      ["Bash(flow-merge-guard merge *)", "Bash(flow-merge-guard *)"],
-      ["Bash(flow-merge-guard *)", "Bash(flow-merge-guard merge *)"],
-    ].entries()) {
-      expect(
-        readMergeAllowRule(write(`both${i}.json`, settings(allow))),
-      ).toMatchObject({ status: "broader", exactPresent: true });
-    }
-  });
-
-  it("does not call a narrower merge-shaped entry broader", () => {
-    expect(
-      readMergeAllowRule(
-        write("narrow.json", settings(["Bash(flow-merge-guard merge 5)"])),
-      ).status,
-    ).toBe("absent");
-  });
-
-  it("reports malformed JSON and a missing file without throwing", () => {
-    expect(readMergeAllowRule(write("e.json", "{not json")).status).toBe(
-      "malformed",
-    );
-    const missing = path.join(root, "nope.json");
-    expect(readMergeAllowRule(missing)).toEqual({
-      status: "missing-file",
-      resolvedPath: missing,
-    });
-  });
-
-  it("reports a dangling symlink as missing-file naming the link target", () => {
-    const target = path.join(root, "dotfiles", "settings.json");
-    const link = path.join(root, "settings.json");
-    fs.symlinkSync(target, link);
-    expect(readMergeAllowRule(link)).toEqual({
-      status: "missing-file",
-      resolvedPath: target,
-    });
-  });
-
-  it("never writes: bytes and mtime of the settings file are unchanged by a read", () => {
-    const file = write("f.json", settings([FLOW_MERGE_ALLOW_RULE]));
-    const stat = () => {
-      const st = fs.statSync(file);
-      return `${createHash("sha1").update(fs.readFileSync(file)).digest("hex")}@${st.mtimeMs}`;
-    };
-    const before = stat();
-    readMergeAllowRule(file);
-    expect(stat()).toBe(before);
-  });
-});
-
 const askSettings = (ask: unknown) => JSON.stringify({ permissions: { ask } });
 const [ASK_BARE, ASK_ARGS] = FLOW_OVERRIDE_ASK_RULES;
 
-describe("readOverrideAskRule", () => {
-  it("names the owner's two rules exactly", () => {
+describe("FLOW_OVERRIDE_ASK_RULES", () => {
+  it("names the two override rules exactly", () => {
     expect([...FLOW_OVERRIDE_ASK_RULES]).toEqual([
       "Bash(flow-merge-guard * --record-override)",
       "Bash(flow-merge-guard * --record-override *)",
     ]);
   });
+});
 
-  it("reports present when both rules sit in permissions.ask", () => {
-    const file = write("p.json", askSettings([ASK_BARE, ASK_ARGS]));
-    expect(readOverrideAskRule(file)).toEqual({
-      status: "present",
-      resolvedPath: file,
-      missing: [],
+describe("findMergeCoveringAskEntry", () => {
+  it("returns no entry for a missing file, naming the path", () => {
+    const missing = path.join(root, "nope.json");
+    expect(findMergeCoveringAskEntry(missing)).toEqual({
+      resolvedPath: missing,
     });
   });
 
-  it("reports partial and names the absent rule", () => {
-    const file = write("pa.json", askSettings([ASK_BARE]));
-    expect(readOverrideAskRule(file)).toEqual({
-      status: "partial",
-      resolvedPath: file,
-      missing: [ASK_ARGS],
-    });
+  it("returns no entry for malformed JSON without throwing", () => {
+    const file = write("bad.json", "{not json");
+    expect(findMergeCoveringAskEntry(file)).toEqual({ resolvedPath: file });
   });
 
-  it("reports absent with both rules missing (allow entries do not count)", () => {
-    const file = write(
-      "a.json",
-      JSON.stringify({ permissions: { allow: [ASK_BARE, ASK_ARGS] } }),
-    );
-    expect(readOverrideAskRule(file)).toEqual({
-      status: "absent",
-      resolvedPath: file,
-      missing: [ASK_BARE, ASK_ARGS],
-    });
+  it("returns no entry when only the two override ask rules are present", () => {
+    const file = write("ok.json", askSettings([ASK_BARE, ASK_ARGS]));
+    expect(findMergeCoveringAskEntry(file)).toEqual({ resolvedPath: file });
   });
 
-  it("reports merge-covered, first, for an ask entry that would make every merge prompt", () => {
+  it("returns no entry when permissions.ask is not a list", () => {
+    const file = write("nl.json", askSettings("nope"));
+    expect(findMergeCoveringAskEntry(file).entry).toBeUndefined();
+  });
+
+  it("returns the ask entry that would make every merge prompt", () => {
     const file = write(
       "m.json",
-      askSettings([ASK_BARE, ASK_ARGS, "Bash(flow-merge-guard *)"]),
+      askSettings([ASK_BARE, "Bash(flow-merge-guard *)", ASK_ARGS]),
     );
-    expect(readOverrideAskRule(file)).toEqual({
-      status: "merge-covered",
+    expect(findMergeCoveringAskEntry(file)).toEqual({
+      entry: "Bash(flow-merge-guard *)",
       resolvedPath: file,
-      missing: [],
-      mergeCovering: "Bash(flow-merge-guard *)",
     });
   });
 
-  it("reports missing-file and malformed without throwing", () => {
-    expect(readOverrideAskRule(write("e.json", "{not json")).status).toBe(
-      "malformed",
+  it("ignores allow entries", () => {
+    const file = write(
+      "a.json",
+      JSON.stringify({ permissions: { allow: ["Bash(flow-merge-guard *)"] } }),
     );
-    const missing = path.join(root, "nope.json");
-    expect(readOverrideAskRule(missing)).toEqual({
-      status: "missing-file",
-      resolvedPath: missing,
-      missing: [],
-    });
+    expect(findMergeCoveringAskEntry(file).entry).toBeUndefined();
   });
 
-  it("reports the resolved path for a symlinked settings file", () => {
-    const real = write("dotfiles.json", askSettings([ASK_BARE, ASK_ARGS]));
+  it("reports the real file for a symlinked settings file", () => {
+    const real = write(
+      "dotfiles.json",
+      askSettings(["Bash(flow-merge-guard *)"]),
+    );
     const link = path.join(root, "settings.json");
     fs.symlinkSync(real, link);
-    const result = readOverrideAskRule(link);
-    expect(result.status).toBe("present");
-    expect(result.resolvedPath).toBe(real);
+    expect(findMergeCoveringAskEntry(link)).toEqual({
+      entry: "Bash(flow-merge-guard *)",
+      resolvedPath: real,
+    });
   });
 
   it("never writes: bytes and mtime of the settings file are unchanged by a read", () => {
-    const file = write("f.json", askSettings([ASK_BARE]));
+    const file = write("f.json", askSettings(["Bash(flow-merge-guard *)"]));
     const stat = () => {
       const st = fs.statSync(file);
       return `${createHash("sha1").update(fs.readFileSync(file)).digest("hex")}@${st.mtimeMs}`;
     };
     const before = stat();
-    readOverrideAskRule(file);
+    findMergeCoveringAskEntry(file);
     expect(stat()).toBe(before);
+  });
+});
+
+describe("classifyAllShellOn", () => {
+  const auto = (v: unknown) =>
+    JSON.stringify({ autoMode: { classifyAllShell: v } });
+
+  it("is true only when autoMode.classifyAllShell is exactly true", () => {
+    expect(classifyAllShellOn(write("t.json", auto(true)))).toBe(true);
+    expect(classifyAllShellOn(write("f.json", auto(false)))).toBe(false);
+    expect(classifyAllShellOn(write("s.json", auto("true")))).toBe(false);
+    expect(classifyAllShellOn(write("n.json", "{}"))).toBe(false);
+  });
+
+  it("is false for a missing or malformed file without throwing", () => {
+    expect(classifyAllShellOn(path.join(root, "nope.json"))).toBe(false);
+    expect(classifyAllShellOn(write("bad.json", "{not json"))).toBe(false);
   });
 });

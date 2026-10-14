@@ -427,7 +427,7 @@ describe("render — needs-human (per-reason mapping)", () => {
 
   it("renders the injected mergeRuleHint under the pause, and no hint line when none is injected", () => {
     const hint =
-      "Future merges will be refused the same way until you add `Bash(flow-merge-guard merge *)` to permissions.allow in /x/settings.json (`flow doctor` checks it).";
+      "If this pipeline was launched before flow shipped its own merge rule, `flow feature resume <slug>` relaunches it with the rule; replying `merge #<pr>` also finishes it.";
     const withHint = render({
       status: "needs-human",
       reason: "merge-permission-denied",
@@ -437,9 +437,9 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(finalLine(withHint)).toBe("NEEDS HUMAN: merge-permission-denied");
     expect(
       render({ status: "needs-human", reason: "merge-permission-denied" }),
-    ).not.toContain("Future merges will be refused");
+    ).not.toContain("launched before flow shipped its own merge rule");
     expect(render({ status: "gated", mergeRuleHint: hint })).not.toContain(
-      "Future merges will be refused",
+      "launched before flow shipped its own merge rule",
     );
   });
 
@@ -480,42 +480,30 @@ describe("render — needs-human (per-reason mapping)", () => {
       return home;
     }
 
-    it("adds the rule line, naming the resolved file, when the settings lack the rule", () => {
+    it("with no personal rules, points at flow feature resume and never says to edit permissions.allow", () => {
       const home = homeWithSettings(null);
       const out = renderViaRun(home, "merge-permission-denied");
-      expect(out).toContain(
-        "until you add `Bash(flow-merge-guard merge *)` to permissions.allow in",
-      );
-      expect(out).toContain(path.join(home, ".claude", "settings.json"));
+      expect(out).toContain("flow feature resume");
+      expect(out).not.toContain("permissions.allow");
     });
 
-    it("adds no line when the rule is already present", () => {
+    it("names a merge-covering personal ask entry and the real file", () => {
       const home = homeWithSettings(
         JSON.stringify({
-          permissions: { allow: ["Bash(flow-merge-guard merge *)"] },
-        }),
-      );
-      expect(renderViaRun(home, "merge-permission-denied")).not.toContain(
-        "Future merges will be refused",
-      );
-    });
-
-    it("for a broader rule, says it also pre-approves a gate override instead of claiming merges will be refused", () => {
-      const home = homeWithSettings(
-        JSON.stringify({
-          permissions: { allow: ["Bash(flow-merge-guard *)"] },
+          permissions: { ask: ["Bash(flow-merge-guard *)"] },
         }),
       );
       const out = renderViaRun(home, "merge-permission-denied");
-      expect(out).toContain("also pre-approves recording a gate override");
-      expect(out).toContain('with "Bash(flow-merge-guard merge *)"');
-      expect(out).not.toContain("Future merges will be refused");
+      expect(out).toContain("Bash(flow-merge-guard *)");
+      expect(out).toContain(path.join(home, ".claude", "settings.json"));
+      expect(out).toContain("makes every merge prompt");
+      expect(out).not.toContain("permissions.allow");
     });
 
     it("adds no line for any other reason", () => {
       const home = homeWithSettings(null);
       expect(renderViaRun(home, "merge-failed")).not.toContain(
-        "Future merges will be refused",
+        "launched before flow shipped its own merge rule",
       );
     });
   });

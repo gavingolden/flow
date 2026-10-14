@@ -9,13 +9,9 @@ import { userSettingsPath } from "./claude-user-settings";
 import type { DoctorCheck, DoctorDeps } from "./doctor";
 import { installCommand } from "./doctor-util";
 import {
-  broaderRuleFix,
-  FLOW_MERGE_ALLOW_RULE,
+  classifyAllShellOn,
+  findMergeCoveringAskEntry,
   FLOW_OVERRIDE_ASK_RULES,
-  readMergeAllowRule,
-  readOverrideAskRule,
-  type MergeRuleStatus,
-  type OverrideAskStatus,
 } from "./merge-allow-rule";
 import { readConfigFileAt } from "./modules-config";
 import { readLauncherConfig } from "./launcher-config";
@@ -44,128 +40,39 @@ export const TOOLS_CLAUDE_META = {
   title: "claude",
 } as const;
 
-export const TOOLS_MERGE_RULE_META = {
-  id: "tools-merge-rule",
+export const TOOLS_PIPELINE_PERMISSIONS_META = {
+  id: "tools-pipeline-permissions",
   section: "tools",
-  title: "merge permission",
+  title: "pipeline permissions",
 } as const;
 
-const MERGE_RULE_REASON: Record<Exclude<MergeRuleStatus, "present">, string> = {
-  broader:
-    "the broader rule also pre-approves recording a gate override, which should still need your confirmation",
-  absent: "the file has no matching entry in permissions.allow",
-  "missing-file": "the settings file does not exist",
-  malformed: "the settings file is not a valid JSON object",
-};
-
-export function checkMergeAllowRule(deps: DoctorDeps): DoctorCheck[] {
-  const base = TOOLS_MERGE_RULE_META;
-  const { status, resolvedPath, exactPresent } = readMergeAllowRule(
-    userSettingsPath(deps.env, deps.homeDir),
-  );
-  if (status === "broader") {
+export function checkPipelinePermissions(deps: DoctorDeps): DoctorCheck[] {
+  const base = TOOLS_PIPELINE_PERMISSIONS_META;
+  const settingsPath = userSettingsPath(deps.env, deps.homeDir);
+  const { entry, resolvedPath } = findMergeCoveringAskEntry(settingsPath);
+  if (entry !== undefined) {
     return [
       {
         ...base,
         status: "warn",
-        summary:
-          "your Claude settings carry a broader flow-merge-guard rule than unattended merges need",
-        details: [MERGE_RULE_REASON.broader],
-        fix: broaderRuleFix(resolvedPath, exactPresent === true),
+        summary: `your Claude settings ask before every flow-merge-guard call (${entry}), so every unattended merge would prompt`,
+        details: [`the ask entry ${entry} also matches the merge call`],
+        fix: `narrow "${entry}" in permissions.ask in ${resolvedPath} to the two override rules: ${FLOW_OVERRIDE_ASK_RULES.map((r) => `"${r}"`).join(" and ")}, or delete it`,
       },
     ];
   }
-  if (status === "present") {
-    return [
-      {
-        ...base,
-        status: "pass",
-        summary: `unattended merges are pre-approved (${resolvedPath})`,
-        details: [],
-      },
-    ];
-  }
+  const details = classifyAllShellOn(settingsPath)
+    ? [
+        "autoMode.classifyAllShell in your Claude settings makes auto mode ignore Bash allow rules, so unattended merges will pause for `merge #<pr>`",
+      ]
+    : [];
   return [
     {
       ...base,
-      status: "warn",
+      status: "pass",
       summary:
-        "unattended merges under auto mode will be refused until the merge rule is in your Claude settings",
-      details: [MERGE_RULE_REASON[status]],
-      fix: `add "${FLOW_MERGE_ALLOW_RULE}" to permissions.allow in ${resolvedPath}`,
-    },
-  ];
-}
-
-export const TOOLS_OVERRIDE_ASK_META = {
-  id: "tools-override-ask",
-  section: "tools",
-  title: "override confirmation",
-} as const;
-
-const OVERRIDE_ASK_REASON: Record<
-  Exclude<OverrideAskStatus, "present" | "merge-covered">,
-  string
-> = {
-  partial: "one of the two override rules is missing from permissions.ask",
-  absent: "the file has neither override rule in permissions.ask",
-  "missing-file": "the settings file does not exist",
-  malformed: "the settings file is not a valid JSON object",
-};
-
-export function checkOverrideAskRule(deps: DoctorDeps): DoctorCheck[] {
-  const base = TOOLS_OVERRIDE_ASK_META;
-  const { status, resolvedPath, missing, mergeCovering } = readOverrideAskRule(
-    userSettingsPath(deps.env, deps.homeDir),
-  );
-  if (status === "present") {
-    return [
-      {
-        ...base,
-        status: "pass",
-        summary: `recording a gate override raises a Claude Code permission prompt the agent can't answer for you (${resolvedPath})`,
-        details: [],
-      },
-    ];
-  }
-  if (status === "merge-covered") {
-    return [
-      {
-        ...base,
-        status: "warn",
-        summary:
-          "your Claude settings ask before every flow-merge-guard call, so unattended merges would prompt",
-        details: [`the ask entry ${mergeCovering} also matches the merge call`],
-        fix: `narrow "${mergeCovering}" in permissions.ask in ${resolvedPath} to the two override rules: ${FLOW_OVERRIDE_ASK_RULES.map((r) => `"${r}"`).join(" and ")}`,
-      },
-    ];
-  }
-  const lines = status === "partial" ? missing : [...FLOW_OVERRIDE_ASK_RULES];
-  const fix = `add ${lines.map((r) => `"${r}"`).join(" and ")} to permissions.ask in ${resolvedPath}`;
-  if (status === "absent" || status === "missing-file") {
-    // An opt-in that was never set up is not a misconfiguration: the pipeline
-    // still confirms every override itself, and only auto mode's own review
-    // decides whether the recording step runs. `skip` renders no fix line, so
-    // the opt-in line lives in details.
-    return [
-      {
-        ...base,
-        status: "skip",
-        summary:
-          "the override rules are not set; gate overrides still go through the pipeline's own confirmation, but auto mode decides whether the recording step runs",
-        details: [OVERRIDE_ASK_REASON[status], `to opt in: ${fix}`],
-        fix,
-      },
-    ];
-  }
-  return [
-    {
-      ...base,
-      status: "warn",
-      summary:
-        "the override rules are only partly set, so recording a gate override may not raise the Claude Code prompt you expect",
-      details: [OVERRIDE_ASK_REASON[status]],
-      fix,
+        "pipelines carry flow's merge and override rules in flow's own launch settings",
+      details,
     },
   ];
 }

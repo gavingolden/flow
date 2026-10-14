@@ -1,8 +1,17 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { ensureLaunchSettings } from "./lib/feature";
+import {
+  FLOW_MERGE_ALLOW_RULE,
+  FLOW_OVERRIDE_ASK_RULES,
+} from "./lib/merge-allow-rule";
 import {
   classify,
   overallExit,
   ROWS,
+  rulesFromLaunchSettings,
   type RowVerdict,
 } from "../scripts/probe-merge-allow-rule";
 
@@ -225,5 +234,38 @@ describe("probe-merge-allow-rule overallExit", () => {
     expect(
       overallExit(verdicts([P, P, P, P, P, "inconclusive", P, P, P])),
     ).toBe(2);
+  });
+});
+
+describe("rulesFromLaunchSettings", () => {
+  function tmp(): string {
+    return fs.mkdtempSync(path.join(os.tmpdir(), "probe-rules-"));
+  }
+
+  it("yields the merge rule and both ask rules from a file ensureLaunchSettings generated", () => {
+    const dir = tmp();
+    try {
+      const file = path.join(dir, "launch-settings.json");
+      ensureLaunchSettings(file);
+      expect(rulesFromLaunchSettings(file)).toEqual({
+        mergeAllow: FLOW_MERGE_ALLOW_RULE,
+        overrideAsk: [...FLOW_OVERRIDE_ASK_RULES],
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws a named error when the file lacks the rules", () => {
+    const dir = tmp();
+    try {
+      const file = path.join(dir, "bare.json");
+      fs.writeFileSync(file, JSON.stringify({ permissions: { allow: [] } }));
+      expect(() => rulesFromLaunchSettings(file)).toThrow(
+        /lack the shipped flow-merge-guard rules/,
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
