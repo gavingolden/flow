@@ -163,6 +163,7 @@ can publish arbitrary text to the current repo's issue tracker without an
 auto-mode review. That text can include the two seeded local test-account
 values `flow-ui-login test-account` printed (only the committed manifest's two
 named variables, localhost targets only).
+Flow-launched sessions also pre-approve `Bash(flow-merge-guard merge *)` and carry the ask rules `Bash(flow-merge-guard * --record-override)` and `Bash(flow-merge-guard * --record-override *)`, so recording a gate override always prompts.
 
 After a credential denial the driver stops: no further browser, MCP or
 teardown calls, a `credentials-unavailable` artifact, and the pipeline's
