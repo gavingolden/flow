@@ -8,8 +8,9 @@
  * child it spawned (a launch-lifetime concern, not a reap).
  *
  * Usage:
- *   flow-spawn [--slug <s>] [--class default|mcp-server] [--stdin inherit|ignore] -- <cmd> [args...]
- *   flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] -- <cmd> [args...]
+ *   flow-spawn [--slug <s>] [--class default|mcp-server] [--stdin inherit|ignore] [--cwd <dir>] -- <cmd> [args...]
+ *   flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] [--cwd <dir>] -- <cmd> [args...]
+ *   flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] [--cwd <dir>] --from-envelope <path>
  *   flow-spawn --list <slug> [--json]
  *
  * Fail-open discipline: a registry-write failure (unwritable ~/.flow, `ps`
@@ -36,6 +37,7 @@ import {
 } from "./lib/proc-registry";
 import { pidStartEpoch } from "./lib/liveness";
 import { resolveSlugFromEnv } from "./lib/session-identity";
+import { launchSpecFromEnvelope } from "./lib/launch-envelope";
 import { isValidSlug } from "./lib/slug";
 
 export type SpawnCliArgs = {
@@ -49,6 +51,9 @@ export type SpawnCliArgs = {
   detach: boolean;
   stdoutPath?: string;
   stderrPath?: string;
+  fromEnvelope?: string;
+  cwd?: string;
+  env?: Record<string, string>;
 };
 
 export function parseCliArgs(argv: string[]): SpawnCliArgs {
@@ -89,6 +94,20 @@ export function parseCliArgs(argv: string[]): SpawnCliArgs {
         return out;
       }
       out.stderrPath = v;
+    } else if (a === "--from-envelope") {
+      const v = argv[++i];
+      if (v === undefined || v.startsWith("--")) {
+        out.usageError = "--from-envelope requires a value";
+        return out;
+      }
+      out.fromEnvelope = v;
+    } else if (a === "--cwd") {
+      const v = argv[++i];
+      if (v === undefined || v.startsWith("--")) {
+        out.usageError = "--cwd requires a value";
+        return out;
+      }
+      out.cwd = v;
     } else if (a === "--slug") {
       const v = argv[++i];
       if (v === undefined) {
@@ -123,9 +142,23 @@ export function parseCliArgs(argv: string[]): SpawnCliArgs {
       return out;
     }
   }
-  if (out.list === undefined && out.command.length === 0) {
+  if (out.fromEnvelope !== undefined) {
+    if (out.command.length > 0) {
+      out.usageError = "--from-envelope cannot be combined with -- <cmd>";
+      return out;
+    }
+    if (out.list !== undefined) {
+      out.usageError = "--from-envelope cannot be combined with --list";
+      return out;
+    }
+  }
+  if (
+    out.list === undefined &&
+    out.fromEnvelope === undefined &&
+    out.command.length === 0
+  ) {
     out.usageError =
-      "no command given — pass `-- <cmd> [args...]` or `--list <slug>`";
+      "no command given — pass `-- <cmd> [args...]`, `--from-envelope <path>` or `--list <slug>`";
     return out;
   }
   // An inherited pipe would keep the launching Bash tool call open until
@@ -144,7 +177,11 @@ export function parseCliArgs(argv: string[]): SpawnCliArgs {
 export type SpawnDeps = {
   spawn?: (
     argv: string[],
-    opts: { stdin: "inherit" | "ignore" },
+    opts: {
+      stdin: "inherit" | "ignore";
+      env?: Record<string, string>;
+      cwd?: string;
+    },
   ) => {
     pid: number;
     exited: Promise<number>;
@@ -156,7 +193,12 @@ export type SpawnDeps = {
   // waiting on the child.
   spawnDetached?: (
     argv: string[],
-    opts: { stdoutFd: number; stderrFd: number },
+    opts: {
+      stdoutFd: number;
+      stderrFd: number;
+      env?: Record<string, string>;
+      cwd?: string;
+    },
   ) => { pid: number; unref: () => void };
   // Opens a file for the detached child's stdout/stderr redirect, append
   // mode, 0o600. Injectable so tests never touch the real filesystem.
@@ -172,9 +214,25 @@ export type SpawnDeps = {
   baseDir?: string;
 };
 
+// env/cwd reach Bun.spawn only when the caller set them, so a plain
+// `-- <cmd>` launch inherits exactly what it did before --from-envelope.
+function launchOptions(opts: { env?: Record<string, string>; cwd?: string }): {
+  env?: Record<string, string | undefined>;
+  cwd?: string;
+} {
+  return {
+    ...(opts.env !== undefined && { env: { ...process.env, ...opts.env } }),
+    ...(opts.cwd !== undefined && { cwd: opts.cwd }),
+  };
+}
+
 function defaultSpawn(
   argv: string[],
-  opts: { stdin: "inherit" | "ignore" },
+  opts: {
+    stdin: "inherit" | "ignore";
+    env?: Record<string, string>;
+    cwd?: string;
+  },
 ): {
   pid: number;
   exited: Promise<number>;
@@ -185,6 +243,7 @@ function defaultSpawn(
     stdin: opts.stdin,
     stdout: "inherit",
     stderr: "inherit",
+    ...launchOptions(opts),
   });
   return {
     pid: child.pid,
@@ -202,13 +261,19 @@ function defaultSpawn(
 // waiting on the child.
 function defaultSpawnDetached(
   argv: string[],
-  opts: { stdoutFd: number; stderrFd: number },
+  opts: {
+    stdoutFd: number;
+    stderrFd: number;
+    env?: Record<string, string>;
+    cwd?: string;
+  },
 ): { pid: number; unref: () => void } {
   const child = Bun.spawn(argv, {
     detached: true,
     stdin: "ignore",
     stdout: opts.stdoutFd,
     stderr: opts.stderrFd,
+    ...launchOptions(opts),
   });
   child.unref();
   return {
@@ -312,6 +377,16 @@ export function forwardSignal(
   }
 }
 
+function passthrough(args: SpawnCliArgs): {
+  env?: Record<string, string>;
+  cwd?: string;
+} {
+  return {
+    ...(args.env !== undefined && { env: args.env }),
+    ...(args.cwd !== undefined && { cwd: args.cwd }),
+  };
+}
+
 /**
  * ORDER IS LOAD-BEARING: the procs dir is created BEFORE spawning (so the
  * post-spawn append is a bare write(2) with no path resolution in the
@@ -362,7 +437,7 @@ export async function runLaunch(
 
   let child: ReturnType<typeof spawn>;
   try {
-    child = spawn(args.command, { stdin: args.stdin });
+    child = spawn(args.command, { stdin: args.stdin, ...passthrough(args) });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     process.stderr.write(
@@ -470,7 +545,11 @@ async function runDetachedLaunch(
 
   let child: ReturnType<typeof spawnDetached>;
   try {
-    child = spawnDetached(args.command, { stdoutFd, stderrFd });
+    child = spawnDetached(args.command, {
+      stdoutFd,
+      stderrFd,
+      ...passthrough(args),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     process.stderr.write(
@@ -538,8 +617,9 @@ export function runList(
 
 export function usage(): string {
   return [
-    "usage: flow-spawn [--slug <s>] [--class default|mcp-server] [--stdin inherit|ignore] -- <cmd> [args...]",
-    "       flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] -- <cmd> [args...]",
+    "usage: flow-spawn [--slug <s>] [--class default|mcp-server] [--stdin inherit|ignore] [--cwd <dir>] -- <cmd> [args...]",
+    "       flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] [--cwd <dir>] -- <cmd> [args...]",
+    "       flow-spawn --detach --stdout <path> --stderr <path> [--slug <s>] [--class default|mcp-server] [--cwd <dir>] --from-envelope <path>",
     "       flow-spawn --list <slug> [--json]",
     "",
     "Launches <cmd> in its own process group, records one row to",
@@ -547,21 +627,58 @@ export function usage(): string {
     "--detach launches without awaiting the child: stdio is redirected to",
     "--stdout/--stderr files (never inherited), the pid is printed, and the",
     "wrapper exits 0 immediately once the registry row is recorded.",
+    "--from-envelope reads meta.launch and meta.env from a flow-ui-validate",
+    "verdict file and runs `sh -c <meta.launch>` with meta.env merged over the",
+    "inherited env (never recorded in the registry); --cwd sets its directory.",
     "--list prints the rows recorded for <slug> (an unknown slug reports zero",
     "rows at exit 0, never an error).",
   ].join("\n");
 }
 
-export async function main(argv: string[]): Promise<number> {
+function applyEnvelope(args: SpawnCliArgs): string | null {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(args.fromEnvelope as string, "utf8");
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return `flow-spawn: cannot read --from-envelope file: ${msg}`;
+  }
+  const parsed = launchSpecFromEnvelope(raw);
+  if (!parsed.ok) return `flow-spawn: --from-envelope: ${parsed.error}`;
+  args.command = parsed.spec.command;
+  args.env = parsed.spec.env;
+  return null;
+}
+
+function checkCwd(cwd: string): string | null {
+  try {
+    if (fs.statSync(cwd).isDirectory()) return null;
+  } catch {
+    // falls through to the same not-a-directory message
+  }
+  return `flow-spawn: --cwd is not a directory: ${cwd}`;
+}
+
+export async function main(
+  argv: string[],
+  deps: SpawnDeps = {},
+): Promise<number> {
   const args = parseCliArgs(argv);
   if (args.usageError) {
     process.stderr.write(`flow-spawn: ${args.usageError}\n${usage()}\n`);
     return 2;
   }
   if (args.list !== undefined) {
-    return runList(args.list, args.json);
+    return runList(args.list, args.json, deps);
   }
-  return runLaunch(args);
+  const failure =
+    (args.fromEnvelope !== undefined ? applyEnvelope(args) : null) ??
+    (args.cwd !== undefined ? checkCwd(args.cwd) : null);
+  if (failure !== null) {
+    process.stderr.write(`${failure}\n`);
+    return 2;
+  }
+  return runLaunch(args, deps);
 }
 
 if (import.meta.main) {

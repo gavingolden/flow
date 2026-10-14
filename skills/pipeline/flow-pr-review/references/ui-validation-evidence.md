@@ -52,8 +52,15 @@ and the PR holds. With the MCP
 present, branch on the `flow-ui-validate` verdict: on `action: "bootstrap"` (no
 manifest yet, meaningful UI diff), the helper has inferred
 `launch`/`baseUrl`/`routes`/`loginUrl` + credential env-var NAMES plus a
-`needs[]` — allocate a free port, resolve the `{{PORT}}` placeholder,
-empirically verify the inference (launch starts, routes render, login succeeds
+`needs[]` — the bootstrap verdict already carries a resolved
+`meta.launch`/`meta.baseUrl` (`{{PORT}}` replaced by a freshly allocated port),
+so bring it up with the Step 0 `--from-envelope` call below. If the inferred
+launch needs adapting (e.g. the dev server ignores `PORT`), write the adapted
+launch (still with `{{PORT}}`) into `.flow/ui-validation.json`, re-run
+`flow-ui-validate --manifest …`, save its verdict to the envelope path, and
+repeat the same call; when the verdict carries no `meta` (port allocation
+failed), record `app-launch-failed` rather than substituting a port by hand.
+Empirically verify the inference (launch starts, routes render, login succeeds
 via `flow-ui-login` and the "Login step (auth-gated apps)" section below —
 the agent never resolves or reads a credential VALUE itself), and write the
 verified NAMES/config back into `.flow/ui-validation.json` — storing names and
@@ -69,9 +76,12 @@ sentinel by hand on that path. Then, per visual item:
 
 **Port and URL overrides are passed INLINE to the launch subprocess (env vars / CLI flags) and are NEVER written to `.env.local`, `.env`, or any other file.** A file-based override is gitignored, outlives this run, and silently re-points a later manual `npm run dev` at a stale port. If the manifest can't express a need, extend the manifest itself (an `env` entry, a new `{{PORT_<NAME>}}` sentinel) — never write a config file to work around a gap.
 
-0. Before driving any route, read `meta.env` from the `flow-ui-validate` ready
-   envelope and inject it into the launch subprocess's environment, then bring
-   up the launch. A consumer whose app needs a separate backend can have its
+0. Before driving any route, bring up the launch with the one-call
+   `flow-spawn --detach … --from-envelope <ENVELOPE_PATH>` recipe in
+   [../../flow-pipeline/references/ui-smoke-pass.md](../../flow-pipeline/references/ui-smoke-pass.md)
+   "Launch and drive" — the helper reads `meta.launch` and `meta.env` from the
+   `flow-ui-validate` ready envelope itself and applies `meta.env` to the launch
+   process. A consumer whose app needs a separate backend can have its
    single `launch` command start both the frontend and the backend (e.g. via
    `concurrently`). `meta.env` is injected **once** into the parent launch
    environment, so it carries only overrides that are the same across processes
@@ -345,8 +355,13 @@ are cached, write that file with `ran: false` and
 
 After GATED the browser was reaped at the terminal state, so a "run the
 remaining tests" re-drive (`/flow-pr-review --resume-from 8c --browser-items`)
-normally takes this path: bring the stack up from the manifest (`launch`, plus
-each `dependsOn[].start`), log in through `flow-ui-login`, and drive. When
+normally takes this path: bring the stack up from the manifest — each
+`dependsOn[].start` still goes through `flow-ui-preflight`; for the app launch,
+first run `flow-ui-validate --manifest <abs>/.flow/ui-validation.json` and save
+its ready verdict to `<WORKTREE>/.flow-tmp/ui-driver-envelope.json` (the raw
+manifest `launch` carries unresolved `{{PORT}}` sentinels the launcher refuses),
+then make the same `--from-envelope` call from `ui-smoke-pass.md` "Launch and
+drive" — log in through `flow-ui-login`, and drive. When
 such a re-drive finds no `chrome-devtools` tools, the turn-ending reply
 carries `**Manual action:** run /mcp and reconnect chrome-devtools to use the
 in-session browser again (optional — these checks ran headless)`; when the

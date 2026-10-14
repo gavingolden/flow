@@ -8146,13 +8146,15 @@ describe("browser-driven UI-validation structural anchors", () => {
       .find(
         (line) =>
           line.includes("flow-spawn") &&
+          line.includes("--detach") &&
           /--class\s+default/.test(line) &&
-          line.includes("sh -c"),
+          line.includes("--from-envelope"),
       );
     expect(
       uiSmokeLaunchLine,
       "ui-smoke-pass.md's launch line must carry `flow-spawn`, " +
-        "`--class default`, and `sh -c` together on one line.",
+        "`--detach`, `--class default`, and `--from-envelope` together on " +
+        "one line.",
     ).toBeDefined();
 
     expect(
