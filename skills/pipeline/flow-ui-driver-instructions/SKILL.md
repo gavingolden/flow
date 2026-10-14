@@ -91,10 +91,14 @@ launch up with one standalone call, `flow-spawn --detach --class default
 --from-envelope <ENVELOPE_PATH>`, every placeholder written as a literal
 absolute path or the slug (the helper reads `meta.launch`/`meta.env` from the
 verdict file and applies `meta.env` to the launch process only — never a
-`.env.local`/`.env`/config file); a `flow-spawn` usage error on
-`--from-envelope` (an older install) means `skipped_reason:
-"app-launch-failed"` with "flow-spawn too old — run flow install --upgrade"
-in the summary, never another launch form. Then open a per-pipeline isolated page keyed on `SLUG`, run the Login step when the
+`.env.local`/`.env`/config file); the literal stderr
+`flow-spawn: unknown flag: --cwd` or `unknown flag: --from-envelope` (an older
+install) means `skipped_reason: "app-launch-failed"` with "flow-spawn too old —
+run flow install --upgrade" in the summary; any other `flow-spawn:
+--from-envelope: …` refusal (e.g. no meta object, an unresolved `{{PORT}}`)
+means `app-launch-failed` quoting that message as the cause — never another
+launch form, and always put the cause in the summary (the supervisor relays it
+as the skip reason). Then open a per-pipeline isolated page keyed on `SLUG`, run the Login step when the
 manifest declares a login wall — credential presence is checked with
 `flow-ui-login check` (names only) and login goes through `flow-ui-login
 serve`, never by the agent resolving a VALUE itself — then drive each

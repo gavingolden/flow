@@ -52,8 +52,15 @@ and the PR holds. With the MCP
 present, branch on the `flow-ui-validate` verdict: on `action: "bootstrap"` (no
 manifest yet, meaningful UI diff), the helper has inferred
 `launch`/`baseUrl`/`routes`/`loginUrl` + credential env-var NAMES plus a
-`needs[]` — allocate a free port, resolve the `{{PORT}}` placeholder,
-empirically verify the inference (launch starts, routes render, login succeeds
+`needs[]` — the bootstrap verdict already carries a resolved
+`meta.launch`/`meta.baseUrl` (`{{PORT}}` replaced by a freshly allocated port),
+so bring it up with the Step 0 `--from-envelope` call below. If the inferred
+launch needs adapting (e.g. the dev server ignores `PORT`), write the adapted
+launch (still with `{{PORT}}`) into `.flow/ui-validation.json`, re-run
+`flow-ui-validate --manifest …`, save its verdict to the envelope path, and
+repeat the same call; when the verdict carries no `meta` (port allocation
+failed), record `app-launch-failed` rather than substituting a port by hand.
+Empirically verify the inference (launch starts, routes render, login succeeds
 via `flow-ui-login` and the "Login step (auth-gated apps)" section below —
 the agent never resolves or reads a credential VALUE itself), and write the
 verified NAMES/config back into `.flow/ui-validation.json` — storing names and
