@@ -44,6 +44,9 @@ describe("checkUiLoginAutoMode", () => {
       status: "pass",
     });
     expect(c.summary).toContain(file);
+    expect(c.summary).toContain("sanctioned");
+    expect(c.summary).not.toContain("pre-approved");
+    expect(c.details).toEqual([]);
   });
 
   it("warns when the entry is missing, naming the entry, the file and $defaults", () => {
@@ -51,19 +54,23 @@ describe("checkUiLoginAutoMode", () => {
     const [c] = checkUiLoginAutoMode(makeDeps(root));
     expect(c.status).toBe("warn");
     expect(c.summary).toBe("auto mode may refuse the UI-check login");
-    const details = c.details.join("\n");
-    expect(details).toContain(FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY);
-    expect(details).toContain(
-      `add it to autoMode.allow in ${file}, keeping "$defaults"`,
+    expect(c.details).toContain(
+      JSON.stringify(FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY),
+    );
+    expect(c.details).toContain(
+      `add this line to autoMode.allow in ${file}, keeping "$defaults":`,
     );
     expect(c.fix).toContain(file);
+    expect(c.fix).not.toContain(FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY);
   });
 
   it("warns with the same text when the settings file does not exist", () => {
     const [c] = checkUiLoginAutoMode(makeDeps(root));
     expect(c.status).toBe("warn");
     expect(c.summary).toBe("auto mode may refuse the UI-check login");
-    expect(c.details.join("\n")).toContain(FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY);
+    expect(c.details).toContain(
+      JSON.stringify(FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY),
+    );
     expect(c.fix).toContain(path.join(homeClaude(), "settings.json"));
   });
 
@@ -85,7 +92,19 @@ describe("checkUiLoginAutoMode", () => {
     const [c] = checkUiLoginAutoMode(makeDeps(root));
     expect(c.status).toBe("warn");
     expect(c.summary).toContain("cannot tell");
-    expect(c.details.join(" ")).toContain("not valid JSON");
+    expect(c.summary).toContain("not a valid JSON object");
+    expect(c.details.join(" ")).toContain("not a valid JSON object");
+    expect(c.details).toContain(
+      JSON.stringify(FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY),
+    );
+    expect(c.fix).not.toContain(FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY);
+  });
+
+  it("treats a non-object top level as malformed", () => {
+    settingsAt(homeClaude(), "[]");
+    const [c] = checkUiLoginAutoMode(makeDeps(root));
+    expect(c.summary).toContain("not a valid JSON object");
+    expect(c.details.join(" ")).toContain("not a valid JSON object");
   });
 
   it("treats a non-array autoMode.allow as an absent entry", () => {
@@ -95,20 +114,29 @@ describe("checkUiLoginAutoMode", () => {
     expect(c.summary).toBe("auto mode may refuse the UI-check login");
   });
 
-  it("always notes that managed, --settings and repo-scope autoMode are not read", () => {
-    settingsAt(
-      homeClaude(),
-      allowOf(["$defaults", FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY]),
-    );
-    for (const body of [null, "{ nope", allowOf(["$defaults"])]) {
+  it("notes the settings scope on every warn outcome but not on a pass", () => {
+    const warnBodies = [null, "{ nope", allowOf(["$defaults"])];
+    for (const body of warnBodies) {
+      fs.rmSync(homeClaude(), { recursive: true, force: true });
       if (body !== null) settingsAt(homeClaude(), body);
       const [c] = checkUiLoginAutoMode(makeDeps(root));
+      expect(c.status).toBe("warn");
       const details = c.details.join(" ");
       expect(details).toContain(
         "managed or --settings autoMode entries are not read",
       );
       expect(details).toContain(".claude/settings*.json");
     }
+    settingsAt(homeClaude(), allowOf([FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY]));
+    const [noDefaults] = checkUiLoginAutoMode(makeDeps(root));
+    expect(noDefaults.details.join(" ")).toContain(".claude/settings*.json");
+    settingsAt(
+      homeClaude(),
+      allowOf(["$defaults", FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY]),
+    );
+    const [pass] = checkUiLoginAutoMode(makeDeps(root));
+    expect(pass.status).toBe("pass");
+    expect(pass.details.join(" ")).not.toContain("settings*.json");
   });
 
   it("follows CLAUDE_CONFIG_DIR: the warning names a path under the config dir", () => {

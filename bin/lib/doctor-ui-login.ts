@@ -23,6 +23,8 @@ export const FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY: string =
 const DEFAULTS_TOKEN = "$defaults";
 const ENTRY_MARKER = "flow-ui-login";
 
+const PASTE_ENTRY = JSON.stringify(FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY);
+
 const SCOPE_NOTE =
   "managed or --settings autoMode entries are not read here; autoMode is never read from a repo's .claude/settings*.json";
 
@@ -37,8 +39,13 @@ export function checkUiLoginAutoMode(deps: DoctorDeps): DoctorCheck[] {
         ...base,
         status: "warn",
         summary: `cannot tell whether auto mode will accept the UI-check login — ${file} is not a valid JSON object`,
-        details: ["the settings file is not valid JSON", SCOPE_NOTE],
-        fix: `repair the JSON in ${file}, then add the entry below to autoMode.allow, keeping "${DEFAULTS_TOKEN}": ${FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY}`,
+        details: [
+          "the settings file is not a valid JSON object",
+          `once repaired, add this line to autoMode.allow in ${file}, keeping "${DEFAULTS_TOKEN}":`,
+          PASTE_ENTRY,
+          SCOPE_NOTE,
+        ],
+        fix: `repair the JSON in ${file}, then add the entry above to autoMode.allow, keeping "${DEFAULTS_TOKEN}"`,
       },
     ];
   }
@@ -60,8 +67,8 @@ export function checkUiLoginAutoMode(deps: DoctorDeps): DoctorCheck[] {
       {
         ...base,
         status: "pass",
-        summary: `the UI-check login is pre-approved for auto mode (${file})`,
-        details: [SCOPE_NOTE],
+        summary: `your Claude settings tell auto mode the UI-check login is sanctioned (${file})`,
+        details: [],
       },
     ];
   }
@@ -71,8 +78,7 @@ export function checkUiLoginAutoMode(deps: DoctorDeps): DoctorCheck[] {
       {
         ...base,
         status: "warn",
-        summary:
-          'autoMode.allow lacks "$defaults", so Claude Code\'s built-in allow exceptions are replaced',
+        summary: `autoMode.allow lacks "${DEFAULTS_TOKEN}", so Claude Code's built-in allow exceptions are replaced`,
         details: [
           `the flow-ui-login entry is present in ${file}, but without "${DEFAULTS_TOKEN}" the built-in allow exceptions are replaced rather than extended`,
           SCOPE_NOTE,
@@ -91,7 +97,8 @@ export function checkUiLoginAutoMode(deps: DoctorDeps): DoctorCheck[] {
         read.status === "missing-file"
           ? "the settings file does not exist"
           : "autoMode.allow has no flow-ui-login entry",
-        `add it to autoMode.allow in ${file}, keeping "${DEFAULTS_TOKEN}": ${FLOW_UI_LOGIN_AUTOMODE_ALLOW_ENTRY}`,
+        `add this line to autoMode.allow in ${file}, keeping "${DEFAULTS_TOKEN}":`,
+        PASTE_ENTRY,
         SCOPE_NOTE,
       ],
       fix: `add the entry above to autoMode.allow in ${file}, keeping "${DEFAULTS_TOKEN}"`,

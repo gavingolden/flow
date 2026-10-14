@@ -382,9 +382,10 @@ and you run that yourself.
 
 Checks, grouped in the report: Install (links, helpers an upgrade never
 installed, runtime packages), Shell (a stale FLOW_SLUG, PATH), Tools (gh,
-tmux, claude, agy, the merge permission, the auto-mode UI login), Leftovers (stale worktrees,
-pipeline records that can no longer resume, leaked processes). A live
-pipeline is never reported as dead for lacking a tmux window.
+tmux, claude, agy, the merge permission, the auto-mode UI login),
+Leftovers (stale worktrees, pipeline records that can no longer resume,
+leaked processes). A live pipeline is never reported as dead for lacking
+a tmux window.
 
 Options:
   --json                emit {version, ok, counts, checks[]} instead of text
