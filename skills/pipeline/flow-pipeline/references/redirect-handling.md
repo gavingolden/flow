@@ -39,8 +39,7 @@ different scope`; `stop and rebuild against the new schema`;
   `**Needs user input:**` items / `## Decision analysis` forks. It
   batches into ONE `/flow-product-planning` revision-pass re-invocation,
   same as `defer task #N`. All three re-enter
-  `plan-pending-review`; see `skills/pipeline/flow-pipeline/SKILL.md`
-  step 4.
+  `plan-pending-review`; see `skills/pipeline/flow-pipeline/references/phases/step-04-approval.md`.
 - **Candidate curation reply** (`plan-pending-review` only). `drop
 candidate #N`, `drop all candidates`, `file candidate #N`. **NOT** an
   Imperative redirect and never a revision pass — a mechanical edit to
@@ -86,7 +85,7 @@ the per-edit diff). A trivial
 edit (≤1 file AND ≤30 LOC AND every file named in the redirect) stays
 inline. This does NOT replace the scope/plan re-run path — that path
 still re-runs `/flow-product-planning` or re-prompts the sub-skill for
-scope/plan redirects. `skills/pipeline/flow-pipeline/SKILL.md` (its
+scope/plan redirects. `skills/pipeline/flow-pipeline/references/phases/mid-flight-redirects.md` (its
 "Mid-flight code-change redirects" section) is the source of truth.
 
 **Bug callout at `gated` (terminal) — explicit carve-out.** `gated` is a
@@ -150,7 +149,7 @@ of misclassifying is a wasted phase.
 
 A `gated` verdict from step 9 is **terminal** (see
 `auto-merge-rubric.md` "A `gated` verdict is terminal, not advisory"
-and SKILL.md step 9). The supervisor renders the GATED block and ends.
+and `references/phases/step-09-gate.md`). The supervisor renders the GATED block and ends.
 The tmux window stays open, so the user can still act — but a `gated`
 PR is merged by `/flow-pipeline` only through a **gate override**, and a
 gate override has a deliberately high bar.

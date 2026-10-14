@@ -702,7 +702,7 @@ block to scrollback only — escalation can fire before a PR exists, so the
 PR body is not edited and the JSONL log is left on disk for a later resume
 to consume. Do **not** execute the follow-up directly — that's the
 supervisor's job, gated by the allowlist. See
-`skills/pipeline/flow-pipeline/SKILL.md` step 11 for the contract.
+`skills/pipeline/flow-pipeline/references/phases/step-11-follow-ups.md` for the contract.
 
 Skip this step when the change has no user-visible local-machine side-effect
 (pure code edits, doc-only changes, internal refactors).

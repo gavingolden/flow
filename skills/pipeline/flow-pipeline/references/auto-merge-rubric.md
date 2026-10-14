@@ -7,7 +7,7 @@ section of the PR body.
 This file is the **single source of truth for the heading contract**:
 which heading the gate keys on, what counts as "needs a human" vs.
 "clear to ship", what the gate does on missing vs. empty vs. populated.
-The supervisor's SKILL.md step 9 holds only the operational decision
+The supervisor's `references/phases/step-09-gate.md` holds only the operational decision
 matrix (PR state × autoMerge opt-out × section verdict → action) and
 points back here for the parse contract. `/flow-product-planning` and
 `/flow-new-feature` PR-description templates also defer to this file for
@@ -317,8 +317,8 @@ optional `FOLLOW-UPS:`); it does not replace the sentinel.
 
 For the full template per status, see the worked example above (for
 GATED) and the inline tables in
-`skills/pipeline/flow-pipeline/SKILL.md` step 9, step 10, step 11,
-and the `# Failure paths` block, plus the branch-mismatch escalation,
+`skills/pipeline/flow-pipeline/references/phases/` `step-09-gate.md`, `step-10-merge.md`,
+`step-11-follow-ups.md` and `failure-paths.md`, plus the branch-mismatch escalation,
 the terminal-regression escalation, and the task-tool-unavailable
 escalation now living in
 `skills/pipeline/flow-pipeline/references/failure-recovery.md` § (c)

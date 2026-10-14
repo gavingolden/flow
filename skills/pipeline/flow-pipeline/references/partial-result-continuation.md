@@ -86,7 +86,7 @@ once: a red tree with never-started entries escalates
 
 This file is referenced by every exemption whose agent carries a
 `maxTurns` pin (Fix-Applier, Merge-Conflict Resolver, Edit-Applier) and
-by the pause-points in `flow-pipeline/SKILL.md` step 6 and step 10,
+by the pause-points in `flow-pipeline/references/phases/step-06-verify.md` and `step-10-merge.md`,
 `flow-pr-review/SKILL.md` Step 8, and
 `flow-coder/SKILL.md` step 4. It documents one bounded behavior inside
 each owning exemption — it does not create a new spawn site. The

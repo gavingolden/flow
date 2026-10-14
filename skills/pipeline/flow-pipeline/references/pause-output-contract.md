@@ -353,7 +353,7 @@ one-line `checkpointed: true|false — …` stderr banner is exempt from
 arm runs at the same site as a pause block. The banner is not open
 prose and not a slot inside the block — it's a fixed, mirror-only
 trailer line the supervisor echoes verbatim immediately below the
-completed block. See `flow-pipeline/SKILL.md`'s "Checkpoint arm signal
+completed block. See `flow-pipeline/references/phases/shared-gate-contracts.md`'s "Checkpoint arm signal
 (echo-verbatim)" subsection for the full mirror-only discipline that
 bounds it (anchor on `^checkpointed: (true|false)`, never restate from
 memory, never fold it into `**Next action:**`).

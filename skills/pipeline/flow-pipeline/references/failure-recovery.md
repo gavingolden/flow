@@ -10,7 +10,7 @@ Three sections:
 - **(c) No-retry escalation variants** — the full procedures for the
   three no-retry escalations (`branch-mismatch`, `terminal-regression`,
   `task-tool-unavailable`), read on demand from the trigger table in
-  SKILL.md's `# Failure paths` section rather than kept inline there.
+  `references/phases/failure-paths.md` rather than kept inline there.
 
 ## (a) Per-step failure recovery
 
@@ -72,8 +72,8 @@ ci-fix loops _and_ 2 review-fix loops before escalating.
 Both counts live in `state.json` as `state.loops.ciFix` and
 `state.loops.reviewFix` (bumped by `flow-state-update --increment-loop
 ciFix|reviewFix`), not in the supervisor's context, so they survive a
-compaction or a resume — see SKILL.md steps 7 and 8 for the read-back
-and the gate.
+compaction or a resume — see `references/phases/step-07-ci-wait.md` and
+`references/phases/step-08-review.md` for the read-back and the gate.
 
 ### What "escalate" means
 
@@ -123,7 +123,7 @@ back in. So is replying `done` in the pipeline window itself (after a
 `/clear` if you like, or with none at all): a `needs-human` pipeline
 with a live worktree resolves the `awaiting-human` resume verdict (see
 `## (b)` below, and the `awaiting-human` row in
-`skills/pipeline/flow-pipeline/SKILL.md`'s Resume mode table), not a
+`skills/pipeline/flow-pipeline/references/phases/resume.md`'s Resume mode table), not a
 terminal re-render, and continues once you confirm the human step is
 done. `flow feature resume` refuses while that same window's session
 is still running — close the window first, then run it.
@@ -166,8 +166,8 @@ always resolve `terminal` rather than drifting through the tree.
 `needs-human` is decided before the row walk too, but resolves
 differently depending on the worktree: with a live worktree and no PR
 or an open PR it resolves the `awaiting-human` verdict (mirrors the
-`gated` branch — see the `awaiting-human` row in SKILL.md's Resume mode
-table), pausing on the pending human step and continuing once the user
+`gated` branch — see the `awaiting-human` row in
+`references/phases/resume.md`'s Resume mode table), pausing on the pending human step and continuing once the user
 confirms it is done; only when the worktree is gone does it resolve
 `terminal` like the others. The tree also short-circuits the two
 no-in-flight-work pending phases — `triaged-no-change` and
@@ -243,7 +243,7 @@ inner retry layer.
 ## (c) No-retry escalation variants
 
 Three escalations take a no-retry path with their own procedure, moved
-here from SKILL.md's `# Failure paths` section behind a trigger table.
+here from `references/phases/failure-paths.md` behind a trigger table.
 Read the relevant block below and execute it rather than acting from
 memory.
 
