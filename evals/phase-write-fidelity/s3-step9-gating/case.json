@@ -33,6 +33,12 @@
       "withOnly": true
     },
     {
+      "id": "step-doc-opened",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "## Step 9 — Auto-merge gate"
+    },
+    {
       "id": "transcript.finalContextTokens",
       "kind": "metric",
       "gate": false,

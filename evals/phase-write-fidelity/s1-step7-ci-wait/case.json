@@ -36,6 +36,12 @@
       "withOnly": true
     },
     {
+      "id": "step-doc-opened",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "## Step 7 — CI + Copilot wait"
+    },
+    {
       "id": "transcript.finalContextTokens",
       "kind": "metric",
       "gate": false,

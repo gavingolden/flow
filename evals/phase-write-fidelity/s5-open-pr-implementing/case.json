@@ -46,6 +46,12 @@
       "withOnly": true
     },
     {
+      "id": "step-doc-opened",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "## Step 5 — Implement"
+    },
+    {
       "id": "transcript.finalContextTokens",
       "kind": "metric",
       "gate": false,

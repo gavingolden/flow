@@ -2,13 +2,14 @@
   "schemaVersion": 1,
   "id": "phase-write-fidelity",
   "candidate": "phase-write-side-effect",
-  "description": "Measures whether /flow-pipeline's Steps 5 and 7-10 leave state.phase at the value that step's contract requires, each scenario bounding the supervisor to one step's entry so the write is what's under test, not the whole step. Two classes: implementing, ci-wait and reviewing are written at their step's HEAD by an explicit `flow-state-update --phase <p>` fence AND re-emitted by their helper at the step's tail as an idempotent backstop (advancePhase returns already-at-or-past, so no duplicate phaseLog row); gating and merging stay helper-only side-effect writes.",
+  "description": "Measures whether /flow-pipeline's Steps 5 and 7-10 leave state.phase at the value that step's contract requires, each scenario bounding the supervisor to one step's entry so the write is what's under test, not the whole step. Two classes: implementing, ci-wait and reviewing are written at their step's HEAD by an explicit `flow-state-update --phase <p>` fence AND re-emitted by their helper at the step's tail as an idempotent backstop (advancePhase returns already-at-or-past, so no duplicate phaseLog row); gating and merging stay helper-only side-effect writes. A sixth scenario, s6-question-intent-terminal, is the cold-start question-intent dry run: it loads the skill with an inline question-only request and checks the run ends at triaged-no-change. Each scenario also carries a step-doc-opened grader (the step's exact heading must reach the stream) so the split-skill after arm measures doc opens.",
   "scenarios": [
     "s1-step7-ci-wait",
     "s2-step8-reviewing",
     "s3-step9-gating",
     "s4-step10-merging",
-    "s5-open-pr-implementing"
+    "s5-open-pr-implementing",
+    "s6-question-intent-terminal"
   ],
   "defaults": {
     "model": "sonnet",

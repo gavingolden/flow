@@ -37,6 +37,12 @@
       "withOnly": true
     },
     {
+      "id": "step-doc-opened",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "## Step 10 — Merge"
+    },
+    {
       "id": "transcript.finalContextTokens",
       "kind": "metric",
       "gate": false,

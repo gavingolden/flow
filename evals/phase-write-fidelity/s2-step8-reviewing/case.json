@@ -62,6 +62,12 @@
       "withOnly": true
     },
     {
+      "id": "step-doc-opened",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "## Step 8 — Review"
+    },
+    {
       "id": "transcript.finalContextTokens",
       "kind": "metric",
       "gate": false,
