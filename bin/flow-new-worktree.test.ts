@@ -804,6 +804,37 @@ describe("flow-new-worktree hook repair (integration)", () => {
     ).toEqual(["repo-old"]);
   });
 
+  it("--repair-hooks outside a repository prints one error line and exits 1", async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "flow-no-repo-"));
+    try {
+      const r = await spawnHelper(["--repair-hooks"], outside);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("--repair-hooks");
+      expect(r.stderr).not.toContain("    at ");
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.getuid?.() === 0)(
+    "--repair-hooks exits 1 and warns when a worktree could not be repaired",
+    async () => {
+      const first = await spawnHelper(["old"], fx.repoDir);
+      expect(first.exitCode, `stderr: ${first.stderr}`).toBe(0);
+      const oldDir = path.join(path.dirname(fx.repoDir), "repo-old");
+      const hooksDir = makeStale(oldDir);
+      fs.chmodSync(hooksDir, 0o555);
+      try {
+        const r = await spawnHelper(["--repair-hooks"], fx.repoDir);
+        expect(r.exitCode).toBe(1);
+        expect(r.stderr).toContain("could not repair hooks in");
+        expect(r.stdout).toContain("repaired 0 flow worktree(s)");
+      } finally {
+        fs.chmodSync(hooksDir, 0o755);
+      }
+    },
+  );
+
   it("creating a new worktree heals the stale one too", async () => {
     const first = await spawnHelper(["old"], fx.repoDir);
     expect(first.exitCode, `stderr: ${first.stderr}`).toBe(0);

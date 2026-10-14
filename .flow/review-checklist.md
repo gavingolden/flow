@@ -45,3 +45,13 @@ names WHAT to look for; entries never suppress findings.
   (`references/task-tool-exemption-preamble.md`, exemption ledgers, agent-site tables)
   go stale in BOTH directions: the port removed a consumer and the revert brings it
   back. Grep the repo for backlinks to the file and compare against its own list.
+
+## Failure routes that re-enter an earlier step must return control (PR #933)
+
+- **A "re-enter step N" / "loop back" route needs a retry-the-original-action
+  clause.** When a PR adds a failure route that sends control back to an
+  earlier pipeline step (e.g. a refused push in Step 5 re-entering the Step 6
+  verify loop), the prose must also say how control returns to the step that
+  failed, so the failed action (push, PR open) is retried before later steps
+  that need its output (`$PR`) run. What to look for: added "re-enter step N" /
+  "loop back" prose without a retry-the-original-action clause.

@@ -1019,6 +1019,14 @@ describe("flow-open-pr run()", () => {
     ).toBe(false);
     expect(isHookRefusal("fatal: unable to access 'x'")).toBe(false);
     expect(isHookRefusal("")).toBe(false);
+    for (const transport of [
+      "fatal: the remote end hung up unexpectedly\nerror: failed to push some refs to 'x'",
+      "error: RPC failed; HTTP 502 curl 22\nerror: failed to push some refs to 'x'",
+      "client_loop: send disconnect: Broken pipe\nerror: failed to push some refs to 'x'",
+      "! [remote failure] a -> b (remote failed to report status)\nerror: failed to push some refs",
+    ]) {
+      expect(isHookRefusal(transport), transport).toBe(false);
+    }
   });
 
   it("skips the push (no ls-remote, no push) on a detached HEAD and still creates the PR", () => {

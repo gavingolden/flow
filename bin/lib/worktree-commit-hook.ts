@@ -103,6 +103,25 @@ function absGitDirOf(dir: string): string {
   return path.isAbsolute(gitDir) ? gitDir : path.join(dir, gitDir);
 }
 
+function readConfig(args: string[], cwd: string): string | null {
+  try {
+    return git(["config", ...args], cwd);
+  } catch {
+    return null;
+  }
+}
+
+function shimIsCurrent(hookPath: string): boolean {
+  try {
+    return (
+      fs.readFileSync(hookPath, "utf8") === CHAIN_HOOK_SHIM &&
+      (fs.statSync(hookPath).mode & 0o777) === 0o755
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Installs the chaining shims into a single flow worktree, scoped so they
  * never fire for the user's primary repo or other worktrees. Idempotent —
@@ -126,15 +145,27 @@ function absGitDirOf(dir: string): string {
  * pins this worktree-scoped behaviour; it must NOT start resolving the
  * main worktree.
  */
-export function installCommitHook(worktreeDir: string): void {
+export function installWorktreeHooks(worktreeDir: string): void {
   const hooksDir = path.join(absGitDirOf(worktreeDir), FLOW_HOOKS_DIRNAME);
 
-  git(["config", "extensions.worktreeConfig", "true"], worktreeDir);
-  git(["config", "--worktree", "core.hooksPath", hooksDir], worktreeDir);
+  // Each config write takes the SHARED config lock that live parallel
+  // pipelines also need, so write only when the value is not already current.
+  if (
+    readConfig(["--get", "extensions.worktreeConfig"], worktreeDir) !== "true"
+  ) {
+    git(["config", "extensions.worktreeConfig", "true"], worktreeDir);
+  }
+  if (
+    readConfig(["--worktree", "--get", "core.hooksPath"], worktreeDir) !==
+    hooksDir
+  ) {
+    git(["config", "--worktree", "core.hooksPath", hooksDir], worktreeDir);
+  }
 
   fs.mkdirSync(hooksDir, { recursive: true });
   for (const name of FLOW_HOOK_NAMES) {
     const hookPath = path.join(hooksDir, name);
+    if (shimIsCurrent(hookPath)) continue;
     const tmpPath = path.join(hooksDir, `.${name}.${process.pid}.tmp`);
     fs.writeFileSync(tmpPath, CHAIN_HOOK_SHIM, {
       encoding: "utf8",
@@ -173,7 +204,7 @@ export function repairFlowWorktreeHooks(repoDir: string): {
     try {
       const flowDir = path.join(absGitDirOf(dir), FLOW_HOOKS_DIRNAME);
       if (!fs.existsSync(flowDir)) continue;
-      installCommitHook(dir);
+      installWorktreeHooks(dir);
       repaired.push(dir);
     } catch (err) {
       failed.push({

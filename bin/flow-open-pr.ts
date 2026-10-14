@@ -135,15 +135,25 @@ export function sessionMarker(id: string): string {
 
 /**
  * True when a failed `git push` was refused by a local hook rather than the
- * remote: git prints `failed to push some refs` for any failed push, but only
- * a remote-side refusal also carries a `[rejected]` / `[remote rejected]`
- * ref line.
+ * remote or the network: git prints `failed to push some refs` for any failed
+ * push, but a remote-side refusal also carries a `[rejected]` /
+ * `[remote rejected]` / `[remote failure]` ref line, and a dropped connection
+ * carries a transport marker instead.
  */
+const REMOTE_SIDE_MARKERS = [
+  "[rejected]",
+  "[remote rejected]",
+  "[remote failure]",
+  "the remote end hung up",
+  "RPC failed",
+  "unexpected disconnect",
+  "Broken pipe",
+];
+
 export function isHookRefusal(stderr: string): boolean {
   return (
     stderr.includes("failed to push some refs") &&
-    !stderr.includes("[rejected]") &&
-    !stderr.includes("[remote rejected]")
+    !REMOTE_SIDE_MARKERS.some((m) => stderr.includes(m))
   );
 }
 

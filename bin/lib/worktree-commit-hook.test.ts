@@ -1,7 +1,7 @@
 /**
  * Tests for worktree-commit-hook.ts.
  *
- * Exercises installCommitHook against a real temp git repo + secondary
+ * Exercises installWorktreeHooks against a real temp git repo + secondary
  * worktree fixture. Commit-time behaviour is verified by spawning real
  * `git commit` with CLAUDE_CODE_SESSION_ID explicitly set/unset per case —
  * the suite never depends on an ambient session id.
@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CHAIN_HOOK_SHIM,
   FLOW_HOOK_NAMES,
-  installCommitHook,
+  installWorktreeHooks,
   repairFlowWorktreeHooks,
 } from "./worktree-commit-hook";
 
@@ -90,7 +90,7 @@ function commitAndReadMessage(
   return mustGit(["log", "-1", "--format=%B"], dir, env);
 }
 
-describe(installCommitHook, () => {
+describe(installWorktreeHooks, () => {
   let fx: Fixture;
   beforeEach(() => {
     fx = makeFixture();
@@ -103,7 +103,7 @@ describe(installCommitHook, () => {
   }
 
   it("creates an executable shim per hook name and sets worktree-scoped core.hooksPath + extensions.worktreeConfig", () => {
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
 
     const hooksDir = path.join(gitDirOf(fx.worktreeDir), "flow-hooks");
     for (const name of FLOW_HOOK_NAMES) {
@@ -124,7 +124,7 @@ describe(installCommitHook, () => {
   });
 
   it("stamps a Claude-Code-Session-Id trailer on a commit when the env var is set", () => {
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     const message = commitAndReadMessage(
       fx.worktreeDir,
       "a.txt",
@@ -136,13 +136,13 @@ describe(installCommitHook, () => {
   });
 
   it("adds no trailer when CLAUDE_CODE_SESSION_ID is unset", () => {
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     const message = commitAndReadMessage(fx.worktreeDir, "b.txt", undefined);
     expect(message).not.toContain("Claude-Code-Session-Id");
   });
 
   it("does not double-stamp a message that already carries the trailer", () => {
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     const message = commitAndReadMessage(fx.worktreeDir, "c.txt", "sess-dup");
     const occurrences = (message.match(/Claude-Code-Session-Id:/g) ?? [])
       .length;
@@ -150,7 +150,7 @@ describe(installCommitHook, () => {
   });
 
   it("is idempotent — a second install does not duplicate config or corrupt the hook", () => {
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     const hookPath = path.join(
       gitDirOf(fx.worktreeDir),
       "flow-hooks",
@@ -158,7 +158,7 @@ describe(installCommitHook, () => {
     );
     const after1 = fs.readFileSync(hookPath, "utf8");
 
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     const after2 = fs.readFileSync(hookPath, "utf8");
     expect(after2).toBe(after1);
     expect(after2).toBe(CHAIN_HOOK_SHIM);
@@ -176,8 +176,28 @@ describe(installCommitHook, () => {
     expect(message.trimEnd()).toMatch(/\nClaude-Code-Session-Id: sess-idem$/);
   });
 
+  it("a second install leaves current shim files untouched, and a stale one is rewritten", () => {
+    installWorktreeHooks(fx.worktreeDir);
+    const hooksDir = path.join(gitDirOf(fx.worktreeDir), "flow-hooks");
+    const inodes = () =>
+      FLOW_HOOK_NAMES.map((n) => fs.statSync(path.join(hooksDir, n)).ino);
+    const before = inodes();
+
+    installWorktreeHooks(fx.worktreeDir);
+    expect(inodes()).toEqual(before);
+
+    // A stale shim is still rewritten.
+    fs.writeFileSync(path.join(hooksDir, "pre-push"), "#!/bin/sh\nexit 1\n", {
+      mode: 0o755,
+    });
+    installWorktreeHooks(fx.worktreeDir);
+    expect(fs.readFileSync(path.join(hooksDir, "pre-push"), "utf8")).toBe(
+      CHAIN_HOOK_SHIM,
+    );
+  });
+
   it("does not affect the primary repo — a primary-repo commit gets no trailer", () => {
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     // Commit in the primary repo with the env var set: the worktree-scoped
     // core.hooksPath must not leak to the primary.
     const message = commitAndReadMessage(
@@ -188,9 +208,9 @@ describe(installCommitHook, () => {
     expect(message).not.toContain("Claude-Code-Session-Id");
   });
 
-  it("does not affect a sibling worktree that never had installCommitHook run", () => {
-    installCommitHook(fx.worktreeDir);
-    // A second plain `git worktree add` sibling — no installCommitHook call.
+  it("does not affect a sibling worktree that never had installWorktreeHooks run", () => {
+    installWorktreeHooks(fx.worktreeDir);
+    // A second plain `git worktree add` sibling — no installWorktreeHooks call.
     // Both worktrees share the same common git-dir and `extensions.worktreeConfig`
     // is a repo-global flag once set by the first install; this proves the
     // `--worktree`-scoped `core.hooksPath` truly isolates per-worktree and does
@@ -251,7 +271,7 @@ describe("chaining to the consumer's hooks", () => {
       "pre-push",
       `cat > "${stdinFile}"; pwd -P > "${cwdFile}"; exit 3`,
     );
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
 
     const pushed = pushAttempt(fx.worktreeDir);
     expect(pushed.status).not.toBe(0);
@@ -269,7 +289,7 @@ describe("chaining to the consumer's hooks", () => {
 
   it("a push succeeds when the consumer has no pre-push hook", () => {
     addRemote();
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     const pushed = pushAttempt(fx.worktreeDir);
     expect(pushed.status, pushed.stderr).toBe(0);
   });
@@ -281,14 +301,14 @@ describe("chaining to the consumer's hooks", () => {
       "pre-commit",
       `echo ran > "${marker}"`,
     );
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     commitAndReadMessage(fx.worktreeDir, "p.txt", undefined);
     expect(fs.existsSync(marker)).toBe(true);
   });
 
   it("a failing consumer pre-commit blocks the commit", () => {
     writeHook(path.join(fx.repoDir, ".git", "hooks"), "pre-commit", "exit 1");
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     fs.writeFileSync(path.join(fx.worktreeDir, "blocked.txt"), "x\n");
     mustGit(["add", "blocked.txt"], fx.worktreeDir);
     const r = spawnSync("git", ["commit", "-m", "blocked"], {
@@ -305,7 +325,7 @@ describe("chaining to the consumer's hooks", () => {
       "prepare-commit-msg",
       `printf 'consumer-edit\\n' >> "$1"`,
     );
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     const message = commitAndReadMessage(fx.worktreeDir, "m.txt", "sess-chain");
     expect(message).toContain("consumer-edit");
     expect(message.trimEnd()).toMatch(/\nClaude-Code-Session-Id: sess-chain$/);
@@ -317,7 +337,7 @@ describe("chaining to the consumer's hooks", () => {
       "prepare-commit-msg",
       "exit 7",
     );
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     fs.writeFileSync(path.join(fx.worktreeDir, "f.txt"), "x\n");
     mustGit(["add", "f.txt"], fx.worktreeDir);
     const r = spawnSync("git", ["commit", "-m", "x"], {
@@ -329,7 +349,7 @@ describe("chaining to the consumer's hooks", () => {
   });
 
   it("does not loop when core.hooksPath at a non-worktree scope names the flow folder itself", () => {
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     const flowDir = path.join(
       mustGit(
         ["rev-parse", "--path-format=absolute", "--git-dir"],
@@ -362,7 +382,7 @@ describe(repairFlowWorktreeHooks, () => {
   }
 
   it("upgrades a stale single-hook worktree to the full shim set", () => {
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     const hooksDir = flowHooksOf(fx.worktreeDir);
     for (const name of fs.readdirSync(hooksDir)) {
       fs.rmSync(path.join(hooksDir, name));
@@ -395,10 +415,10 @@ describe(repairFlowWorktreeHooks, () => {
   });
 
   it("skips a prunable worktree whose directory is gone", () => {
-    installCommitHook(fx.worktreeDir);
+    installWorktreeHooks(fx.worktreeDir);
     const gone = path.join(path.dirname(fx.worktreeDir), "repo-gone");
     mustGit(["worktree", "add", "-b", "gone", gone], fx.repoDir);
-    installCommitHook(gone);
+    installWorktreeHooks(gone);
     fs.rmSync(gone, { recursive: true, force: true });
     expect(mustGit(["worktree", "list", "--porcelain"], fx.repoDir)).toContain(
       "prunable",

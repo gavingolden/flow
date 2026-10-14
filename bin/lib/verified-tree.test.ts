@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { withoutGitLocalEnv } from "./git-local-env";
 import {
   readVerifiedTree,
   recordVerifiedTree,
@@ -10,13 +11,10 @@ import {
 } from "./verified-tree";
 
 const ENV: NodeJS.ProcessEnv = {
-  ...process.env,
+  ...withoutGitLocalEnv(process.env),
   GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_CONFIG_NOSYSTEM: "1",
 };
-delete ENV.GIT_DIR;
-delete ENV.GIT_INDEX_FILE;
-delete ENV.GIT_WORK_TREE;
 
 function git(cwd: string, ...args: string[]): string {
   const r = spawnSync("git", args, { cwd, encoding: "utf8", env: ENV });
@@ -67,6 +65,14 @@ describe("verified-tree", () => {
       const two = workingTreeId(repo);
       expect(one).not.toBe(head);
       expect(two).not.toBe(one);
+    });
+
+    it("counts an untracked file even when status.showUntrackedFiles=no", () => {
+      git(repo, "config", "status.showUntrackedFiles", "no");
+      fs.writeFileSync(path.join(repo, "hidden.txt"), "x\n");
+      expect(workingTreeId(repo)).not.toBe(
+        git(repo, "rev-parse", "HEAD^{tree}"),
+      );
     });
 
     it("ignores an ignored file", () => {

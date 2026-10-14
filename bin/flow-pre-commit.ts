@@ -1686,12 +1686,6 @@ function seedFromVerifiedTree(
 }
 
 /**
- * Remembers this run's passes against the tree it ran on, but only when every
- * planned check was a read-only verifier — a mutating check may have changed
- * what later checks saw. Rows reused from this or an earlier run carry no
- * fresh timing and are left to the run that executed them.
- */
-/**
  * runDeduped credits a seeded duration once per reusing row (`rowMs`), but
  * without the memo each distinct check would still have run only once, so the
  * reported saving (`savedMs`) counts distinct check keys.
@@ -1717,6 +1711,12 @@ export function earlierRunSavings(
   return { reusedChecks, rowMs, savedMs };
 }
 
+/**
+ * Remembers this run's passes against the tree it ran on, but only when every
+ * planned check was a read-only verifier — a mutating check may have changed
+ * what later checks saw. Rows reused from this or an earlier run carry no
+ * fresh timing and are left to the run that executed them.
+ */
 function recordPassesForTree(
   tree: string | null,
   planned: Array<{ argv: string[] }>,

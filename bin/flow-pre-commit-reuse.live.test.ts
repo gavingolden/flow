@@ -161,4 +161,62 @@ describeOnPosix("flow-pre-commit same-tree reuse (live)", () => {
     },
     120_000,
   );
+
+  it.skipIf(!bunOnPath)(
+    "does not reuse when the pushed sha is not HEAD",
+    () => {
+      fs.writeFileSync(path.join(repo, "probe", "a.txt"), "second\n");
+      git(repo, ["commit", "-q", "-am", "second"]);
+      const first = runPreCommit(["--json"]);
+      expect(first.status, first.stdout + first.stderr).toBe(0);
+      expect(count()).toBe(1);
+
+      const older = git(repo, ["rev-parse", "HEAD~1"]);
+      const stale = runPreCommit(
+        ["--pre-push"],
+        `refs/heads/feature ${older} refs/heads/feature ${ZERO_SHA}\n`,
+      );
+      expect(stale.status, stale.stdout + stale.stderr).toBe(0);
+      expect(count()).toBe(2);
+      expect(stale.stdout).not.toContain("an earlier run on this exact tree");
+    },
+    120_000,
+  );
+
+  it.skipIf(!bunOnPath)(
+    "records nothing when any planned check mutates, and records when all are read-only",
+    () => {
+      const memo = git(repo, [
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        "flow-verified-tree.json",
+      ]);
+      const readOnly = runPreCommit(["--json"]);
+      expect(readOnly.status, readOnly.stdout + readOnly.stderr).toBe(0);
+      expect(fs.existsSync(memo)).toBe(true);
+      fs.rmSync(memo);
+
+      const pkgPath = path.join(repo, "package.json");
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+      pkg.scripts.build = "true";
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg));
+      fs.writeFileSync(
+        path.join(repo, ".flow", "pre-commit.json"),
+        JSON.stringify([
+          {
+            name: "probe",
+            prefixes: ["probe/"],
+            checks: ["npm run build", "npm run test"],
+          },
+        ]),
+      );
+      git(repo, ["commit", "-q", "-am", "add mutating build check"]);
+
+      const mutating = runPreCommit(["--json"]);
+      expect(mutating.status, mutating.stdout + mutating.stderr).toBe(0);
+      expect(fs.existsSync(memo)).toBe(false);
+    },
+    120_000,
+  );
 });

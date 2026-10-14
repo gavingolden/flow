@@ -44,7 +44,15 @@ function gitOut(
 export function workingTreeId(cwd?: string): string | null {
   const headTree = gitOut(["rev-parse", "--verify", "HEAD^{tree}"], cwd);
   if (!headTree) return null;
-  const status = gitOut(["status", "--porcelain"], cwd);
+  const status = gitOut(
+    [
+      "status",
+      "--porcelain",
+      "--untracked-files=normal",
+      "--ignore-submodules=none",
+    ],
+    cwd,
+  );
   if (status === null) return null;
   if (status === "") return headTree;
 

@@ -35,7 +35,7 @@ in the worktree when `CLAUDE_CODE_SESSION_ID` is set. gh's default squash
 concatenation of the branch's commit messages then carries the trailer into
 the squash-merge commit — `/flow-pipeline` step 10 runs a bare
 `gh pr merge --squash` with zero `--body` manipulation. Worktrees created
-before the shims existed are healed by `flow-new-worktree --repair-hooks`,
+before the shims existed are healed by `flow-new-worktree --repair-hooks` (exit 1 when any repair failed),
 or automatically on the next `flow-new-worktree` launch in the same repo.
 The optional `sessionId` field in `~/.flow/state/<slug>.json` is still
 written by `flow-open-pr` for the HTML-comment marker path, but step 10
@@ -60,6 +60,12 @@ a full check run), every pipeline push site follows four rules:
      `merge-failed` with it.
    - `flow-open-pr` prints a named refusal line for the first push, but
      this rule applies to every push.
+   - After step 6 fixes a refusal on the first push, `flow-pipeline` Step 5
+     re-runs `flow-open-pr` (Bash `timeout: 600000`) before advancing to
+     step 7, since the PR does not exist until that push succeeds.
+   - A dropped connection (`the remote end hung up`, `RPC failed`,
+     `unexpected disconnect`, `[remote failure]`) is not a hook refusal;
+     `flow-open-pr` does not print the refusal line for it.
 4. **A push killed at the ceiling is a hook timeout.** Report it as such
    with its duration and escalate like a refusal.
 

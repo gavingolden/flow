@@ -63,7 +63,10 @@ passes instead of re-running them, printing
 `reused from an earlier run on this exact tree` per check; a dirty tree, a
 different tree, or any non-read-only planned check runs everything. Only
 `--pre-push` reuses — `/flow-verify` and every other mode always observe
-the worktree fresh.
+the worktree fresh. The record is advisory: it is a plain file in the
+worktree's git folder, so an agent working in that worktree could forge it —
+the same trust level as `--no-verify`, which is forbidden only by
+instruction, not by enforcement.
 
 ## Host-wide test-concurrency cap
 

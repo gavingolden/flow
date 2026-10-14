@@ -8,7 +8,9 @@
  *
  * - `--repair-hooks` re-installs the git-hook chaining shims into every
  *   existing flow worktree of the current repo and exits; it creates nothing.
- *   Every normal launch heals the same worktrees automatically.
+ *   Exits 1 outside a repo or when any worktree failed to repair (the
+ *   per-failure warnings still print). Every normal launch heals the same
+ *   worktrees automatically.
  * - The branch name is optional when a pipeline is live: it auto-resolves
  *   from `$FLOW_SLUG`. The supervisor pattern relies on the auto-resolve
  *   path; the explicit positional stays for callers with no live
@@ -23,7 +25,7 @@ import { resolveSlugAmbient } from "./lib/session-identity";
 import { findAvailableSlot, toDirSuffix } from "./lib/worktree-slot";
 import { ensureFlowExcludes, writeBranchMarker } from "./lib/worktree-marker";
 import {
-  installCommitHook,
+  installWorktreeHooks,
   repairFlowWorktreeHooks,
 } from "./lib/worktree-commit-hook";
 import {
@@ -126,7 +128,8 @@ ambient slug, otherwise the helper exits 2 (slug-mismatch).
 
 --repair-hooks re-installs the git-hook chaining shims into every existing
 flow worktree of this repo (so consumer hooks run there) and exits without
-creating a worktree. Every normal launch does the same automatically.
+creating a worktree; exits 1 outside a repo or when any worktree failed to
+repair. Every normal launch does the same automatically.
 
 Examples:
   flow-new-worktree feature/new-chart
@@ -250,12 +253,15 @@ export function createWorktreeWithRetry(
 }
 
 /** Heals every existing flow worktree of `repoDir`; warns once per failure. */
-function healFlowWorktrees(repoDir: string): number {
+function healFlowWorktrees(repoDir: string): {
+  repaired: number;
+  failed: number;
+} {
   const { repaired, failed } = repairFlowWorktreeHooks(repoDir);
   for (const f of failed) {
     log.warn(`could not repair hooks in ${f.dir}: ${f.error}`);
   }
-  return repaired.length;
+  return { repaired: repaired.length, failed: failed.length };
 }
 
 function main(): void {
@@ -265,9 +271,17 @@ function main(): void {
     process.exit(0);
   }
   if (parsed.kind === "repair-hooks") {
-    const count = healFlowWorktrees(git(["rev-parse", "--show-toplevel"]));
-    console.log(`repaired ${count} flow worktree(s)`);
-    process.exit(0);
+    let result: { repaired: number; failed: number };
+    try {
+      result = healFlowWorktrees(git(["rev-parse", "--show-toplevel"]));
+    } catch (err) {
+      log.error(
+        `--repair-hooks: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
+    console.log(`repaired ${result.repaired} flow worktree(s)`);
+    process.exit(result.failed > 0 ? 1 : 0);
   }
   if (parsed.kind === "error") {
     log.error(parsed.message);
@@ -311,7 +325,7 @@ function main(): void {
     );
   }
   try {
-    installCommitHook(chosen.worktreeDir);
+    installWorktreeHooks(chosen.worktreeDir);
   } catch (e: unknown) {
     log.warn(
       `could not install git hooks: ${e instanceof Error ? e.message : String(e)}`,
