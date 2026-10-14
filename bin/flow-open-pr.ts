@@ -133,6 +133,20 @@ export function sessionMarker(id: string): string {
   return `<!-- flow: this PR was created by Claude Code session ${id} - transcript at ~/.claude/projects/<encoded-cwd>/${id}.jsonl on the originating machine -->`;
 }
 
+/**
+ * True when a failed `git push` was refused by a local hook rather than the
+ * remote: git prints `failed to push some refs` for any failed push, but only
+ * a remote-side refusal also carries a `[rejected]` / `[remote rejected]`
+ * ref line.
+ */
+export function isHookRefusal(stderr: string): boolean {
+  return (
+    stderr.includes("failed to push some refs") &&
+    !stderr.includes("[rejected]") &&
+    !stderr.includes("[remote rejected]")
+  );
+}
+
 function buildCreateArgv(args: Args): string[] {
   const out = ["pr", "create", "--body-file", args.bodyFile];
   if (args.title) out.push("--title", args.title);
@@ -306,6 +320,11 @@ export function run(argv: string[], deps: Deps = {}): number {
         const pushed = git(["push", "-u", "origin", "HEAD"], process.cwd());
         if (pushed.exitCode !== 0) {
           if (pushed.stderr) process.stderr.write(pushed.stderr);
+          if (isHookRefusal(pushed.stderr)) {
+            process.stderr.write(
+              "flow-open-pr: a git hook refused this push — its output above is a failing check; fix it and re-run, never --no-verify\n",
+            );
+          }
           return pushed.exitCode === -1 ? 1 : pushed.exitCode;
         }
       }
