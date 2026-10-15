@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readPipelineSkillCorpus } from "./lib/pipeline-skill-corpus";
 
 /**
  * Structural lint pinning the explanation judge's advisory ceiling: the
@@ -14,10 +15,6 @@ const REPO_ROOT = path.resolve(HERE, "..");
 
 const GATE_DECIDE_PATH = path.join(REPO_ROOT, "bin/flow-gate-decide.ts");
 const GATE_SUMMARY_PATH = path.join(REPO_ROOT, "bin/flow-gate-summary.ts");
-const SKILL_MD_PATH = path.join(
-  REPO_ROOT,
-  "skills/pipeline/flow-pipeline/SKILL.md",
-);
 const EXPLAIN_JUDGE_LIB_PATH = path.join(REPO_ROOT, "bin/lib/explain-judge.ts");
 
 function readStep5(content: string): string {
@@ -49,7 +46,7 @@ describe("explain-judge advisory ceiling lint", () => {
   });
 
   it("Step 5's SKILL.md section wires the judge with the documented rewrite/re-judge/proceed contract", () => {
-    const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
+    const content = readPipelineSkillCorpus();
     const step5 = readStep5(content);
     for (const token of [
       "flow-explain-judge",
@@ -74,7 +71,7 @@ describe("explain-judge advisory ceiling lint", () => {
   });
 
   it("SKILL.md's product-brief authoring subsection keeps its pinned heading", () => {
-    const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
+    const content = readPipelineSkillCorpus();
     expect(
       content.includes("### TLDR and WHY authoring (product brief)"),
       "SKILL.md must keep the exact heading text '### TLDR and WHY authoring (product brief)' — seven links depend on its slug.",

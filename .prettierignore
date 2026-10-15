@@ -76,3 +76,15 @@ templates/references/
 # compact one-line JSON (lossless `jq -c` of flow-eval's output) so a PR that
 # commits several arms stays under GitHub's 20,000-line diff limit.
 docs/eval/turn-folding/
+
+# Recorded flow-skill-split eval arms: report.json/summary.md as flow-eval
+# wrote them (same precedent as docs/eval/discovery-payload/before|after/).
+docs/eval/skill-split/before/
+docs/eval/skill-split/after/
+
+# flow-pipeline phase docs and hard-rules detail: text moved verbatim out of
+# SKILL.md (itself ignored above for a non-idempotent nested fence). Running
+# prettier --write would break the byte-exact moves that
+# docs/eval/skill-split-fidelity.ts proves and the byte-exact test pins.
+skills/pipeline/flow-pipeline/references/phases/
+skills/pipeline/flow-pipeline/references/hard-rules-detail.md

@@ -1,5 +1,3 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseArgs as parseGateDecide } from "./flow-gate-decide";
 import { parseArgs as parseGateSummary } from "./flow-gate-summary";
@@ -9,6 +7,7 @@ import { parseArgs as parseRemoveWorktree } from "./flow-remove-worktree";
 import { parseArgs as parseRenameWindow } from "./flow-rename-window";
 import { parseArgs as parseResumeDecide } from "./flow-resume-decide";
 import { parseArgs as parseStateUpdate } from "./flow-state-update";
+import { readPipelineSkillCorpus } from "./lib/pipeline-skill-corpus";
 
 /**
  * Doc/code drift guard for the slug-taking-helper contract.
@@ -26,15 +25,6 @@ import { parseArgs as parseStateUpdate } from "./flow-state-update";
  * `gate-summary-recipe-lint.test.ts` — read the doc, extract the contract,
  * assert the code honours it.
  */
-
-const SKILL_MD_PATH = path.resolve(
-  __dirname,
-  "..",
-  "skills",
-  "pipeline",
-  "flow-pipeline",
-  "SKILL.md",
-);
 
 const PROBE_SLUG = "probe-slug";
 
@@ -115,7 +105,7 @@ export function extractHelperNames(skillMd: string): string[] {
 }
 
 describe("slug-flag contract lint", () => {
-  const skillMd = fs.readFileSync(SKILL_MD_PATH, "utf8");
+  const skillMd = readPipelineSkillCorpus();
   const names = extractHelperNames(skillMd);
 
   it("extracts a non-empty helper list from SKILL.md", () => {

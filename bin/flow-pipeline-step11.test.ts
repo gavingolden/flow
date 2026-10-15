@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readPipelineSkillCorpus } from "./lib/pipeline-skill-corpus";
 
 /**
  * Doc-lint regression for `/flow-pipeline` step 11's MERGED-cleanup contract.
@@ -16,14 +17,6 @@ import { fileURLToPath } from "node:url";
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SKILL_MD_PATH = path.resolve(
-  HERE,
-  "..",
-  "skills",
-  "pipeline",
-  "flow-pipeline",
-  "SKILL.md",
-);
 const RUBRIC_MD_PATH = path.resolve(
   HERE,
   "..",
@@ -34,7 +27,7 @@ const RUBRIC_MD_PATH = path.resolve(
   "auto-merge-rubric.md",
 );
 
-const skillContent = readFileSync(SKILL_MD_PATH, "utf8");
+const skillContent = readPipelineSkillCorpus();
 const rubricContent = readFileSync(RUBRIC_MD_PATH, "utf8");
 
 function extractStepSection(content: string, headingPrefix: string): string {

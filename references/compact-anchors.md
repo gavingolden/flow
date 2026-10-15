@@ -30,6 +30,8 @@ not just its output.
 from disk after a crash. A compaction is the same problem without the
 process restart, so it takes the same answer.
 
+After re-invoking `/flow-pipeline`, Read the step doc its dispatch table names for `state.phase` before acting: the re-attached core carries the rules and the table, not the step procedures.
+
 ## KEEP — the review phase's resume anchors
 
 During `/flow-pr-review` (supervisor step 8), the phase's state lives in

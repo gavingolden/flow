@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { readPipelineSkillCorpus } from "./lib/pipeline-skill-corpus";
 
 /**
  * Doc-lint regression for `/flow-pipeline` step 10's merge invocation.
@@ -18,14 +19,6 @@ import { fileURLToPath } from "node:url";
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SKILL_MD_PATH = path.resolve(
-  HERE,
-  "..",
-  "skills",
-  "pipeline",
-  "flow-pipeline",
-  "SKILL.md",
-);
 const RUBRIC_MD_PATH = path.resolve(
   HERE,
   "..",
@@ -36,7 +29,7 @@ const RUBRIC_MD_PATH = path.resolve(
   "auto-merge-rubric.md",
 );
 
-const skillContent = fs.readFileSync(SKILL_MD_PATH, "utf8");
+const skillContent = readPipelineSkillCorpus();
 const rubricContent = fs.readFileSync(RUBRIC_MD_PATH, "utf8");
 
 function extractStep10(content: string): string {

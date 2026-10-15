@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readPipelineSkillCorpus } from "./lib/pipeline-skill-corpus";
 
 /**
  * Structural lint for the `flow feature create --research` / `forceResearch` wiring.
@@ -32,14 +33,6 @@ const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "discovery-instructions.md",
 );
-const PIPELINE_SKILL_PATH = path.resolve(
-  HERE,
-  "..",
-  "skills",
-  "pipeline",
-  "flow-pipeline",
-  "SKILL.md",
-);
 const PLANNING_SKILL_PATH = path.resolve(
   HERE,
   "..",
@@ -53,7 +46,7 @@ const state = fs.readFileSync(STATE_TS_PATH, "utf8");
 const featureTs = fs.readFileSync(FEATURE_TS_PATH, "utf8");
 const help = fs.readFileSync(HELP_TS_PATH, "utf8");
 const discovery = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
-const pipelineSkill = fs.readFileSync(PIPELINE_SKILL_PATH, "utf8");
+const pipelineSkill = readPipelineSkillCorpus();
 const planningSkill = fs.readFileSync(PLANNING_SKILL_PATH, "utf8");
 
 describe("forceResearch wiring lint", () => {

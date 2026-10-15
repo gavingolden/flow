@@ -1,0 +1,7 @@
+{
+  "type": "object",
+  "properties": {
+    "phase": { "type": "string" }
+  },
+  "required": []
+}

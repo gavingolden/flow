@@ -41,7 +41,8 @@ the wrapper's brief return summary and reads the artifact once.
   invokes `/flow-coder` rather than editing inline (bare triples — a free-form
   redirect has no plan contract to source the optional fields from). See
   `skills/pipeline/flow-pipeline/references/redirect-handling.md` and the
-  "Mid-flight code-change redirects" section of flow-pipeline/SKILL.md.
+  "Mid-flight code-change redirects" section of
+  `skills/pipeline/flow-pipeline/references/phases/mid-flight-redirects.md`.
 
 Every caller composes the required `{file, intent, expected_outcome}`
 triple. Two **optional** per-entry fields extend it: `contract` — the

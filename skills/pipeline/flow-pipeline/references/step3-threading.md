@@ -2,8 +2,8 @@
 
 Full contract bodies for the `/flow-product-planning` invocation-threading
 markers and the deterministic advisory backstops that
-`skills/pipeline/flow-pipeline/SKILL.md` Step 3 points at. Each heading
-below matches the one-line opener left in SKILL.md; read the matching
+`skills/pipeline/flow-pipeline/references/phases/step-03-plan.md` points at. Each heading
+below matches the one-line opener left in that step doc; read the matching
 section here before executing that sub-step. Every marker rides the
 **same append channel** — the block of `MODEL_PLANNING:` / `RESEARCH:` /
 `REVISION:` / `EPIC:` lines appended after the verbatim user request (and
@@ -436,7 +436,7 @@ process's own age, so a suspended `--check` can never fabricate a false
 `review-timed-out`). `flow-plan-review-wait` is the dumb bounded waiter —
 zero state, zero decisions, it only polls for the worker's result file.
 The pattern mirrors step 7's `flow-ci-check`/`flow-ci-wait` ladder exactly
-(see "Cross-model plan review" in `flow-pipeline/SKILL.md`'s Step 3), and
+(see "Cross-model plan review" in `flow-pipeline/references/phases/step-03-plan.md`), and
 both `/flow-pipeline` and `/flow-epic-create` migrate to it together.
 
 **Why `--print-hash`, not the envelope hash.** `flow-plan-review

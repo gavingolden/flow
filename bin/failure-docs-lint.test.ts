@@ -10,6 +10,7 @@ import {
   shellcheckOk,
   substitutePlaceholders,
 } from "./lib/command-lint";
+import { readPipelineSkillCorpus } from "./lib/pipeline-skill-corpus";
 
 /**
  * Coherence lint over the failure docs: subset tag parity between
@@ -29,17 +30,9 @@ const FAILURE_RECOVERY_PATH = path.resolve(
   "references",
   "failure-recovery.md",
 );
-const SKILL_MD_PATH = path.resolve(
-  __dirname,
-  "..",
-  "skills",
-  "pipeline",
-  "flow-pipeline",
-  "SKILL.md",
-);
 
 const failureRecoveryMd = fs.readFileSync(FAILURE_RECOVERY_PATH, "utf8");
-const skillMd = fs.readFileSync(SKILL_MD_PATH, "utf8");
+const skillMd = readPipelineSkillCorpus();
 
 /**
  * Extract every `NEEDS HUMAN: <tag>` occurrence from cap-table rows only

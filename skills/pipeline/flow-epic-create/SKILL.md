@@ -276,7 +276,7 @@ nothing to cross-review. When **either** half fails, skip this step and proceed
 to Step 5 unchanged.
 
 When both fire, run the review through the SAME async wake ladder
-`/flow-pipeline` Step 3 uses (see `skills/pipeline/flow-pipeline/SKILL.md`'s
+`/flow-pipeline` Step 3 uses (see `skills/pipeline/flow-pipeline/references/phases/step-03-plan.md`'s
 "Cross-model plan review" sub-step), with `--task epic-design-review --depth
 deep` on the `--start` call and `epic-plan-review-pending` at the yield
 rung:
