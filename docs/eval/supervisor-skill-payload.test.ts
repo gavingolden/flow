@@ -4,6 +4,7 @@ import { join } from "path";
 import { describe, expect, it } from "vitest";
 import {
   analyzeSession,
+  phaseDocs,
   renderSessions,
   staticSizes,
   summarizeSessions,
@@ -130,6 +131,31 @@ describe("summarizeSessions", () => {
       "| Median context added by a skill load (tokens) | 90,000 |",
     );
     expect(md).toContain("| SKILL.md | 1 | 1 | 1 |");
+  });
+  it("counts sessions that reached a phase without opening its step doc", () => {
+    const opened = analyzeSession(fixture);
+    const skipped = analyzeSession(
+      fixture.filter((l) => !l.includes("step-01-triage")),
+    );
+    const docs = { triaged: "references/phases/step-01-triage.md" };
+    const md = renderSessions(summarizeSessions([opened, skipped], docs));
+    expect(md).toContain(
+      "| triaged | references/phases/step-01-triage.md | 2 | 1 |",
+    );
+  });
+});
+
+describe("phaseDocs", () => {
+  it("maps every phase value in a dispatch row to that row's step doc", () => {
+    const dir = mkdtempSync(join(tmpdir(), "phase-docs-"));
+    writeFileSync(
+      join(dir, "SKILL.md"),
+      "| 7 — CI wait | `ci-wait`, `ci-wait-pending` | x | `references/phases/step-07-ci-wait.md` + `shared-gate-contracts.md` |\n| 0 — Echo | none | x | `references/phases/step-00-echo.md` |\n",
+    );
+    expect(phaseDocs(dir)).toEqual({
+      "ci-wait": "references/phases/step-07-ci-wait.md",
+      "ci-wait-pending": "references/phases/step-07-ci-wait.md",
+    });
   });
 });
 

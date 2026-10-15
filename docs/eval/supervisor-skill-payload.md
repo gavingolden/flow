@@ -66,6 +66,6 @@ Static, from `bun docs/eval/supervisor-skill-payload.ts --static`. This is the s
 
 **Outcome:** scheduled
 
-On or after 2026-11-14, re-run `bun docs/eval/supervisor-skill-payload.ts --since 2026-10-15` and compare step-doc `Read`s against the phases reached in real runs. Owner: the repo owner.
+On or after 2026-11-14, re-run `bun docs/eval/supervisor-skill-payload.ts --since 2026-10-15`. Its "Phase reached" table counts, per phase, the sessions that wrote it and how many of them opened that phase's step doc. A row whose opened count trails its sessions count is a step run without its procedure; `implementing` (step 5) is the row this eval could not measure. Every row reads 0 opened on pre-split sessions, which is the baseline. Owner: the repo owner.
 
 Known limit: Claude Code restores at most 25,000 tokens across all re-attached skills. A review-phase run with 5–6 flow skills loaded can drop the earliest-invoked skill, the pipeline core, entirely. Two mitigations do not depend on the core surviving: AGENTS.md's Compact Instructions reload rule, and the stop-hook reminder naming the step doc.

@@ -149,3 +149,19 @@ export function staticSizes(skillDir: string): StaticSizes {
   }
   return { coreChars: core.length, docs, residentAtStep: byStep(resident) };
 }
+
+// Phase value -> the step doc its dispatch row names first, so a run that
+// wrote a phase can be checked for a Read of that step's doc.
+export function phaseDocs(skillDir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const r of readFileSync(join(skillDir, "SKILL.md"), "utf8").split(
+    "\n",
+  )) {
+    const cells = r.split("|");
+    const doc = /references\/phases\/[\w.-]+\.md/.exec(cells[4] ?? "")?.[0];
+    if (!r.startsWith("|") || !doc) continue;
+    for (const m of (cells[2] ?? "").matchAll(/`([a-z0-9.-]+)`/g))
+      out[m[1]] = doc;
+  }
+  return out;
+}

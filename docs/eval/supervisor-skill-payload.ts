@@ -14,12 +14,13 @@ import { referenceOpenRates } from "./discovery-payload-parse";
 import { isSupervisorSession } from "./supervisor-turns";
 import {
   analyzeSession,
+  phaseDocs,
   staticSizes,
   type SessionStats,
 } from "./supervisor-skill-payload-parse";
 import { resolveRepo } from "./token-spend-audit";
 
-export { analyzeSession, staticSizes };
+export { analyzeSession, phaseDocs, staticSizes };
 
 const median = (a: number[]) => {
   const b = [...a].sort((x, y) => x - y);
@@ -55,7 +56,26 @@ function collect(root: string, repos: string[], since: number) {
   return out;
 }
 
-export function summarizeSessions(ss: SessionStats[]) {
+// Sessions that wrote each phase, and how many of them opened that phase's
+// step doc at any point. A session-level proxy: it cannot see a doc read
+// before a compaction and not re-read after it.
+function stepDocCoverage(ss: SessionStats[], docs: Record<string, string>) {
+  const out: Record<string, { doc: string; reached: number; opened: number }> =
+    {};
+  for (const s of ss)
+    for (const p of s.phasesReached) {
+      if (!docs[p]) continue;
+      const c = (out[p] ??= { doc: docs[p], reached: 0, opened: 0 });
+      c.reached++;
+      if (s.docReads[docs[p]]) c.opened++;
+    }
+  return out;
+}
+
+export function summarizeSessions(
+  ss: SessionStats[],
+  docs: Record<string, string> = {},
+) {
   const reads = referenceOpenRates(
     ss.map((s) => ({ referencesRead: Object.keys(s.docReads) })),
     [...new Set(ss.flatMap((s) => Object.keys(s.docReads)))],
@@ -76,6 +96,7 @@ export function summarizeSessions(ss: SessionStats[]) {
         acc[d] = (acc[d] ?? 0) + n;
       return acc;
     }, {}),
+    stepDocCoverage: stepDocCoverage(ss, docs),
   };
 }
 
@@ -110,6 +131,10 @@ export function renderSessions(sum: ReturnType<typeof summarizeSessions>) {
     ...doc.map(
       ([d, v]) => `| ${d} | ${sum.docReads[d]} | ${v.opened} | ${v.total} |`,
     ),
+    "\n| Phase reached | Step doc | Sessions | Opened the doc |\n|---|---|---|---|",
+    ...Object.entries(sum.stepDocCoverage).map(
+      ([p, c]) => `| ${p} | ${c.doc} | ${c.reached} | ${c.opened} |`,
+    ),
   ].join("\n");
 }
 
@@ -130,13 +155,13 @@ function run(argv: string[]) {
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const json = flag("--format") === "json";
+  const dir =
+    flag("--skill-dir") ??
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../skills/pipeline/flow-pipeline",
+    );
   if (argv.includes("--static")) {
-    const dir =
-      flag("--skill-dir") ??
-      join(
-        dirname(fileURLToPath(import.meta.url)),
-        "../../skills/pipeline/flow-pipeline",
-      );
     const s = staticSizes(dir);
     console.log(json ? JSON.stringify(s, null, 2) : renderStatic(s));
     return;
@@ -150,7 +175,7 @@ function run(argv: string[]) {
   const repos = (flag("--repos") ?? "flow,pokemon,econ-data")
     .split(",")
     .filter(Boolean);
-  const sum = summarizeSessions(collect(root, repos, since));
+  const sum = summarizeSessions(collect(root, repos, since), phaseDocs(dir));
   console.log(json ? JSON.stringify(sum, null, 2) : renderSessions(sum));
 }
 
