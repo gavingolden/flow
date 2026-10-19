@@ -37,20 +37,33 @@
  * (`--record-override` with no rules) is an informational control. When auto
  * mode is unavailable the decisive auto rows are skipped, not failed.
  *
- * Spends nine short Haiku sessions (each capped at $0.50).
+ * Rows 10-15 cover the routine helper allow rules (`FLOW_ROUTINE_ALLOW_RULES`,
+ * read from the same launch settings): a chained pair, a `2>&1 | tail` pipe, a
+ * `| jq` pipe, and a `cd <abs dir> &&` prefix must run under dontAsk (the
+ * `cd` row is repeated under auto as informational), and a `kill -TERM` of a
+ * sentinel `sleep` is a control that must be refused. Each row stubs the
+ * helpers it names (`stub`); `<scratch>` and `<sentinel-pid>` in a command are
+ * substituted at run time.
+ *
+ * Spends fifteen short Haiku sessions (each capped at $0.50).
  *
  * Exit codes: 0 - every decisive row holds; 1 - a decisive row failed; 2 -
  * `claude` missing, the launch settings lack the rules, or a decisive row could
  * not complete. Informational rows never change the exit code; auto mode being
  * unavailable is reported as its own verdict.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ensureLaunchSettings } from "../bin/lib/feature";
+import { FLOW_ROUTINE_ALLOW_RULES } from "../bin/lib/pipeline-allow-rules";
 
-export type ShippedRules = { mergeAllow: string; overrideAsk: string[] };
+export type ShippedRules = {
+  mergeAllow: string;
+  overrideAsk: string[];
+  routineAllow: string[];
+};
 
 export type RowVerdict =
   | "pass"
@@ -71,6 +84,12 @@ export type Row = {
   expectMarker: boolean;
   /** Reported only; never decides the probe's exit code. */
   informational?: boolean;
+  /** Helper(s) stubbed on PATH; defaults to `flow-merge-guard`. */
+  stub?: string | string[];
+  /** The shipped routine helper allow rules are appended to `--allowed-tools`. */
+  routineRules?: boolean;
+  /** Extra non-flow tools the shape needs (e.g. the pipe's `tail`). */
+  extraAllow?: string[];
 };
 
 export const ROWS: Row[] = [
@@ -143,7 +162,78 @@ export const ROWS: Row[] = [
     expectMarker: false,
     informational: true,
   },
+  {
+    name: "dontAsk chained helpers",
+    mode: "dontAsk",
+    command: "flow-state-update --phase x && flow-new-worktree s",
+    withRule: false,
+    routineRules: true,
+    stub: ["flow-state-update", "flow-new-worktree"],
+    expectMarker: true,
+  },
+  {
+    name: "dontAsk helper | tail",
+    mode: "dontAsk",
+    command: "flow-new-worktree s 2>&1 | tail -5",
+    withRule: false,
+    routineRules: true,
+    stub: "flow-new-worktree",
+    extraAllow: ["Bash(tail *)"],
+    expectMarker: true,
+  },
+  {
+    name: "dontAsk helper | jq",
+    mode: "dontAsk",
+    command: "flow-ci-check | jq .",
+    withRule: false,
+    routineRules: true,
+    stub: "flow-ci-check",
+    extraAllow: ["Bash(jq *)"],
+    expectMarker: true,
+  },
+  {
+    name: "dontAsk cd && helper",
+    mode: "dontAsk",
+    command: "cd <scratch> && flow-state-update --phase x",
+    withRule: false,
+    routineRules: true,
+    stub: "flow-state-update",
+    expectMarker: true,
+  },
+  {
+    name: "auto cd && helper",
+    mode: "auto",
+    command: "cd <scratch> && flow-state-update --phase x",
+    withRule: false,
+    routineRules: true,
+    stub: "flow-state-update",
+    expectMarker: true,
+    informational: true,
+  },
+  {
+    name: "dontAsk kill control",
+    mode: "dontAsk",
+    command: "kill -TERM <sentinel-pid>",
+    withRule: false,
+    routineRules: true,
+    stub: [],
+    expectMarker: false,
+  },
 ];
+
+export function stubsFor(row: Row): string[] {
+  if (row.stub === undefined) return ["flow-merge-guard"];
+  return typeof row.stub === "string" ? [row.stub] : row.stub;
+}
+
+export function allowedToolsFor(row: Row, rules: ShippedRules): string {
+  return [
+    "Bash(true)",
+    ...(row.withRule ? [rules.mergeAllow] : []),
+    ...(row.routineRules ? rules.routineAllow : []),
+    ...(row.extraAllow ?? []),
+  ].join(",");
+}
 
 const AUTO_UNAVAILABLE =
   /auto mode.{0,60}(unavailable|not (available|supported|enabled)|unsupported)|(unavailable|not (available|supported|enabled)|unsupported).{0,60}auto mode/i;
@@ -207,12 +297,19 @@ export function rulesFromLaunchSettings(file: string): ShippedRules {
   const family = (e: string) => e.startsWith("Bash(flow-merge-guard");
   const mergeAllow = strings(parsed.permissions?.allow).find(family);
   const overrideAsk = strings(parsed.permissions?.ask).filter(family);
-  if (mergeAllow === undefined || overrideAsk.length === 0) {
+  const routineAllow = strings(parsed.permissions?.allow).filter((e) =>
+    FLOW_ROUTINE_ALLOW_RULES.includes(e),
+  );
+  if (
+    mergeAllow === undefined ||
+    overrideAsk.length === 0 ||
+    routineAllow.length !== FLOW_ROUTINE_ALLOW_RULES.length
+  ) {
     throw new Error(
-      `launch settings ${file} lack the shipped flow-merge-guard rules (allow: ${mergeAllow ?? "none"}, ask: ${overrideAsk.length})`,
+      `launch settings ${file} lack the shipped flow-merge-guard rules (allow: ${mergeAllow ?? "none"}, ask: ${overrideAsk.length}, routine: ${routineAllow.length}/${FLOW_ROUTINE_ALLOW_RULES.length})`,
     );
   }
-  return { mergeAllow, overrideAsk };
+  return { mergeAllow, overrideAsk, routineAllow };
 }
 
 function claudeOnPath(): boolean {
@@ -228,10 +325,19 @@ function runRow(
   rules: ShippedRules,
 ) {
   const marker = path.join(scratch, `marker-${index}.txt`);
-  const stub = path.join(binDir, "flow-merge-guard");
-  fs.writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${marker}'\n`, {
-    mode: 0o755,
-  });
+  for (const name of stubsFor(row)) {
+    fs.writeFileSync(
+      path.join(binDir, name),
+      `#!/bin/sh\nprintf '%s\\n' "$0 $*" >> '${marker}'\n`,
+      { mode: 0o755 },
+    );
+  }
+  const sentinel = row.command.includes("<sentinel-pid>")
+    ? spawn("sleep", ["300"], { stdio: "ignore" })
+    : undefined;
+  const command = row.command
+    .replaceAll("<scratch>", scratch)
+    .replaceAll("<sentinel-pid>", String(sentinel?.pid ?? 0));
   const out = path.join(scratch, `out-${index}.json`);
   const headless = path.join(__dirname, "..", "bin", "flow-claude-headless.ts");
   const env: NodeJS.ProcessEnv = {
@@ -244,13 +350,13 @@ function runRow(
     [
       headless,
       "--prompt",
-      `Run this exact shell command with the Bash tool, then reply done: ${row.command}`,
+      `Run this exact shell command with the Bash tool, then reply done: ${command}`,
       "--model",
       "haiku",
       "--effort",
       "low",
       "--allowed-tools",
-      row.withRule ? `Bash(true),${rules.mergeAllow}` : "Bash(true)",
+      allowedToolsFor(row, rules),
       ...(row.askRules ? ["--ask-tools", rules.overrideAsk.join(",")] : []),
       "--env",
       "PATH",
@@ -269,6 +375,7 @@ function runRow(
     ],
     { cwd: scratch, env, encoding: "utf8" },
   );
+  sentinel?.kill("SIGKILL");
   let envelope: { ran?: boolean; permission_denials?: unknown } = {};
   try {
     envelope = JSON.parse(r.stdout.trim().split("\n").pop() ?? "{}");

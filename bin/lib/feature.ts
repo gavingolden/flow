@@ -80,6 +80,7 @@ import {
   FLOW_MERGE_ALLOW_RULE,
   FLOW_OVERRIDE_ASK_RULES,
 } from "./merge-allow-rule";
+import { FLOW_ROUTINE_ALLOW_RULES } from "./pipeline-allow-rules";
 import {
   seedIngestConfirmsDelivery,
   seedIngestIsCorrupt,
@@ -1971,6 +1972,7 @@ export function launchSettingsPermissions(): {
       ...FLOW_UI_LOGIN_ALLOW_RULES,
       ...FLOW_CREATE_ISSUE_ALLOW_RULES,
       FLOW_MERGE_ALLOW_RULE,
+      ...FLOW_ROUTINE_ALLOW_RULES,
     ],
     ask: [...FLOW_OVERRIDE_ASK_RULES],
   };

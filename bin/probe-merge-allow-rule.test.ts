@@ -7,11 +7,14 @@ import {
   FLOW_MERGE_ALLOW_RULE,
   FLOW_OVERRIDE_ASK_RULES,
 } from "./lib/merge-allow-rule";
+import { FLOW_ROUTINE_ALLOW_RULES } from "./lib/pipeline-allow-rules";
 import {
   classify,
   overallExit,
+  allowedToolsFor,
   ROWS,
   rulesFromLaunchSettings,
+  stubsFor,
   type RowVerdict,
 } from "../scripts/probe-merge-allow-rule";
 
@@ -25,6 +28,12 @@ const [
   askSlug,
   askMerge,
   autoOverrideControl,
+  chained,
+  pipeTail,
+  pipeJq,
+  cdPrefix,
+  autoCdPrefix,
+  killControl,
 ] = ROWS;
 const base = { ran: true, markerSeen: false, denied: false, diagnostics: "" };
 
@@ -113,8 +122,8 @@ describe("probe-merge-allow-rule classify", () => {
 });
 
 describe("probe-merge-allow-rule classify (ask-rule rows)", () => {
-  it("has nine rows, with the ask rows decisive and the override control informational", () => {
-    expect(ROWS).toHaveLength(9);
+  it("has fifteen rows, with the ask rows decisive and the override control informational", () => {
+    expect(ROWS).toHaveLength(15);
     expect([askBare, askSlug, askMerge].map((r) => r.askRules)).toEqual([
       true,
       true,
@@ -173,7 +182,7 @@ describe("probe-merge-allow-rule classify (ask-rule rows)", () => {
 
 describe("probe-merge-allow-rule overallExit", () => {
   const verdicts = (v: RowVerdict[]) =>
-    ROWS.map((row, i) => ({ row, verdict: v[i] }));
+    ROWS.map((row, i) => ({ row, verdict: v[i] ?? "pass" }));
 
   const P: RowVerdict = "pass";
 
@@ -250,6 +259,7 @@ describe("rulesFromLaunchSettings", () => {
       expect(rulesFromLaunchSettings(file)).toEqual({
         mergeAllow: FLOW_MERGE_ALLOW_RULE,
         overrideAsk: [...FLOW_OVERRIDE_ASK_RULES],
+        routineAllow: [...FLOW_ROUTINE_ALLOW_RULES],
       });
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -267,5 +277,62 @@ describe("rulesFromLaunchSettings", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("probe-merge-allow-rule routine-helper rows", () => {
+  const rules = {
+    mergeAllow: FLOW_MERGE_ALLOW_RULE,
+    overrideAsk: [...FLOW_OVERRIDE_ASK_RULES],
+    routineAllow: [...FLOW_ROUTINE_ALLOW_RULES],
+  };
+
+  it("leaves the merge rows stubbing flow-merge-guard with the original allowed tools", () => {
+    expect(stubsFor(merge)).toEqual(["flow-merge-guard"]);
+    expect(allowedToolsFor(merge, rules)).toBe(
+      `Bash(true),${FLOW_MERGE_ALLOW_RULE}`,
+    );
+    expect(allowedToolsFor(noRuleControl, rules)).toBe("Bash(true)");
+  });
+
+  it("stubs every helper a routine row names and passes the routine rules", () => {
+    expect(stubsFor(chained)).toEqual([
+      "flow-state-update",
+      "flow-new-worktree",
+    ]);
+    expect(stubsFor(pipeJq)).toEqual(["flow-ci-check"]);
+    expect(stubsFor(killControl)).toEqual([]);
+    for (const row of [
+      chained,
+      pipeTail,
+      pipeJq,
+      cdPrefix,
+      autoCdPrefix,
+      killControl,
+    ]) {
+      expect(row.routineRules).toBe(true);
+      expect(row.withRule).toBe(false);
+      for (const rule of FLOW_ROUTINE_ALLOW_RULES) {
+        expect(allowedToolsFor(row, rules)).toContain(rule);
+      }
+      expect(allowedToolsFor(row, rules)).not.toContain(FLOW_MERGE_ALLOW_RULE);
+    }
+    expect(allowedToolsFor(pipeTail, rules)).toContain("Bash(tail *)");
+    expect(allowedToolsFor(pipeJq, rules)).toContain("Bash(jq *)");
+  });
+
+  it("expects the shapes to run, the auto cd row informational, and the kill control refused", () => {
+    expect(
+      [chained, pipeTail, pipeJq, cdPrefix].map((r) => r.expectMarker),
+    ).toEqual([true, true, true, true]);
+    expect(cdPrefix.mode).toBe("dontAsk");
+    expect(autoCdPrefix.mode).toBe("auto");
+    expect(autoCdPrefix.informational).toBe(true);
+    expect(killControl.command).toContain("<sentinel-pid>");
+    expect(killControl.expectMarker).toBe(false);
+    expect(classify({ ...base, row: killControl, denied: true })).toBe("pass");
+    expect(classify({ ...base, row: killControl })).toBe("inconclusive");
+    expect(classify({ ...base, row: chained, markerSeen: true })).toBe("pass");
+    expect(classify({ ...base, row: chained, denied: true })).toBe("fail");
   });
 });
