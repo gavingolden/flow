@@ -55,6 +55,7 @@ import {
   type PipelineState,
 } from "./state";
 import { recoveryCommandFor } from "./recovery-command";
+import { collectEffortConfigWarnings } from "./efforts-config";
 import {
   readDefaultModel,
   collectModelConfigWarnings,
@@ -1034,6 +1035,9 @@ function runFresh(
   // config value, then fall back — mirrors ensureLaunchSettings' non-fatal
   // warn pattern.
   for (const w of collectModelConfigWarnings(readConfig)) {
+    console.error(dim(`flow feature create: ${w}`));
+  }
+  for (const w of collectEffortConfigWarnings(readConfig)) {
     console.error(dim(`flow feature create: ${w}`));
   }
   const sessionModel = options.model ?? readDefaultModel(readConfig);

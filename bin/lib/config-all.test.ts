@@ -9,6 +9,14 @@ describe("runConfigAllCli", () => {
   let err: string[];
 
   beforeEach(() => {
+    // Hermetic: the host's real Claude Code build / effort env must not leak.
+    for (const name of [
+      "CLAUDE_CODE_EFFORT_LEVEL",
+      "AI_AGENT",
+      "CLAUDE_CODE_EXECPATH",
+    ]) {
+      vi.stubEnv(name, "");
+    }
     out = [];
     err = [];
     logSpy = vi.spyOn(console, "log").mockImplementation((m?: unknown) => {
@@ -20,6 +28,7 @@ describe("runConfigAllCli", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     logSpy.mockRestore();
     errSpy.mockRestore();
   });
@@ -46,7 +55,7 @@ describe("runConfigAllCli", () => {
     expect(code).toBe(0);
     const table = out.join("\n");
     expect(table).toContain(
-      "MODEL resolves at each sub-agent spawn, so a config edit changes the next spawn",
+      "MODEL and EFFORT resolve at each sub-agent spawn, so a config edit changes the next spawn",
     );
     expect(table).toContain(
       "fixed when a pipeline launches — a config edit changes only the next launch",
@@ -64,14 +73,30 @@ describe("runConfigAllCli", () => {
     expect(code).toBe(0);
     const table = out.join("\n");
     expect(table).toContain(
-      "effort is fixed when the pipeline launches; MODEL resolves at each spawn",
+      "MODEL and EFFORT both resolve at each spawn; set a row's effort with efforts.<key> (same key as models.*) — needs Claude Code 2.1.292+",
     );
-    expect(table).toContain(
-      "the Task tool has no per-spawn effort argument, so every sub-agent follows the session — except the product reviewer, which always runs at medium effort (--effort does not change it)",
-    );
+    expect(table).not.toContain("no per-spawn effort argument");
     expect(table).toContain(
       "model is shown for reference — set it with models.default (there is no launch.model)",
     );
+  });
+
+  it("renders the EFFORT column through the shared effort cell", () => {
+    const code = runConfigAllCli([], {
+      read: () => ({
+        launch: { effort: "high" },
+        efforts: { fixApplier: "xhigh" },
+      }),
+    });
+    expect(code).toBe(0);
+    const fixApplier = out.find((l) =>
+      l.trimStart().startsWith("fix-applier "),
+    );
+    expect(fixApplier).toMatch(/xhigh · config\s*$/);
+    const consolidator = out.find((l) =>
+      l.trimStart().startsWith("consolidator "),
+    );
+    expect(consolidator).toMatch(/= session\s*$/);
   });
 
   it("previously invisible settings (e.g. epic.maxParallel) appear in the settings section", () => {

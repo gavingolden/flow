@@ -152,6 +152,12 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
    Discovery Subagent inherits the session model. This rides the existing
    single discovery Task call — **no** new fan-out site, **no** new exemption.
 
+   **Per-phase effort (planning).** Resolve
+   `PLANNING_EFFORT=$(command -v flow-spawn-effort >/dev/null 2>&1 && flow-spawn-effort planning)`
+   (`config.efforts.planning`, else follow the session — see
+   `flow-pipeline/references/model-routing.md`) and pass the non-empty result
+   as the discovery Task call's per-spawn `effort:` argument (empty ⇒ omit).
+
 4. When the subagent returns, treat its labeled-bullet summary
    (3–5 bullets: `Problem:`, `Tasks:`, `Candidates:`,
    `Top assumptions:`, `Research:`, `Vetting verdict:` — the

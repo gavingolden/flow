@@ -64,11 +64,25 @@ function asModelAlias(v: unknown): ModelAlias | undefined {
     : undefined;
 }
 
-function extractModelsKey(raw: unknown, key: string): ModelAlias | undefined {
+/**
+ * Flat read of `raw[table][key]` through `validate`. Parameterised on the
+ * table name so the `efforts` reader reuses the same tolerant walk instead of
+ * cloning it; `validate` returns `undefined` for anything out of enum.
+ */
+export function extractTableKey<T>(
+  raw: unknown,
+  table: string,
+  key: string,
+  validate: (v: unknown) => T | undefined,
+): T | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
-  const models = (raw as Record<string, unknown>).models;
-  if (typeof models !== "object" || models === null) return undefined;
-  return asModelAlias((models as Record<string, unknown>)[key]);
+  const tbl = (raw as Record<string, unknown>)[table];
+  if (typeof tbl !== "object" || tbl === null) return undefined;
+  return validate((tbl as Record<string, unknown>)[key]);
+}
+
+function extractModelsKey(raw: unknown, key: string): ModelAlias | undefined {
+  return extractTableKey(raw, "models", key, asModelAlias);
 }
 
 /**
@@ -89,17 +103,20 @@ export const REVIEW_LENS_NAMES = [
 ] as const;
 export type ReviewLensName = (typeof REVIEW_LENS_NAMES)[number];
 
-function extractNestedModelsKey(
+/** Nested read of `raw[table][outerKey][innerKey]` through `validate`. */
+export function extractNestedTableKey<T>(
   raw: unknown,
+  table: string,
   outerKey: string,
   innerKey: string,
-): ModelAlias | undefined {
+  validate: (v: unknown) => T | undefined,
+): T | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
-  const models = (raw as Record<string, unknown>).models;
-  if (typeof models !== "object" || models === null) return undefined;
-  const outer = (models as Record<string, unknown>)[outerKey];
+  const tbl = (raw as Record<string, unknown>)[table];
+  if (typeof tbl !== "object" || tbl === null) return undefined;
+  const outer = (tbl as Record<string, unknown>)[outerKey];
   if (typeof outer !== "object" || outer === null) return undefined;
-  return asModelAlias((outer as Record<string, unknown>)[innerKey]);
+  return validate((outer as Record<string, unknown>)[innerKey]);
 }
 
 /**
@@ -113,7 +130,13 @@ export function readReviewLensModel(
   lens: string,
   read: ReadConfigFile = defaultReadConfigFile,
 ): ModelAlias | undefined {
-  return extractNestedModelsKey(read(), "reviewLenses", lens);
+  return extractNestedTableKey(
+    read(),
+    "models",
+    "reviewLenses",
+    lens,
+    asModelAlias,
+  );
 }
 
 /**
@@ -169,22 +192,42 @@ export function collectModelConfigWarnings(
       );
     }
   }
-  warnings.push(...collectReviewLensWarnings(modelsObj.reviewLenses));
+  warnings.push(
+    ...collectReviewLensWarnings(
+      "models",
+      modelsObj.reviewLenses,
+      (v) => asModelAlias(v) !== undefined,
+      "model alias",
+      MODEL_ALIASES,
+    ),
+  );
   return warnings;
 }
 
 /**
- * Warnings for `models.reviewLenses`: a non-object value warns naming the
+ * Warnings for `<table>.reviewLenses`: a non-object value warns naming the
  * expected shape; a key outside `REVIEW_LENS_NAMES` warns as an unknown
- * lens; a recognised lens with a non-alias value warns naming the full
- * dotted key. Absent `reviewLenses` yields no warnings.
+ * lens; a recognised lens with an invalid value warns naming the full dotted
+ * key. Absent `reviewLenses` yields no warnings. Parameterised on the table
+ * name, the value validator, the `noun` in the message ("model alias" /
+ * "effort level") and the `expected` enum so the `efforts` reader shares it.
  */
-function collectReviewLensWarnings(reviewLenses: unknown): string[] {
+export function collectReviewLensWarnings(
+  table: string,
+  reviewLenses: unknown,
+  isValid: (v: unknown) => boolean,
+  noun: string,
+  expected: readonly string[],
+): string[] {
   if (reviewLenses === undefined) return [];
-  if (typeof reviewLenses !== "object" || reviewLenses === null) {
+  if (
+    typeof reviewLenses !== "object" ||
+    reviewLenses === null ||
+    Array.isArray(reviewLenses)
+  ) {
     return [
-      "models.reviewLenses: expected an object mapping lens name to model " +
-        "alias; ignoring.",
+      `${table}.reviewLenses: expected an object mapping lens name to ` +
+        `${noun}; ignoring.`,
     ];
   }
   const warnings: string[] = [];
@@ -194,15 +237,15 @@ function collectReviewLensWarnings(reviewLenses: unknown): string[] {
     if (value === undefined) continue;
     if (!(REVIEW_LENS_NAMES as readonly string[]).includes(lens)) {
       warnings.push(
-        `models.reviewLenses.${lens}: unknown review lens ` +
+        `${table}.reviewLenses.${lens}: unknown review lens ` +
           `(expected one of: ${REVIEW_LENS_NAMES.join(", ")}).`,
       );
       continue;
     }
-    if (asModelAlias(value) === undefined) {
+    if (!isValid(value)) {
       warnings.push(
-        `models.reviewLenses.${lens}: '${String(value)}' is not a valid ` +
-          `model alias (expected one of: ${MODEL_ALIASES.join(", ")}); ignoring.`,
+        `${table}.reviewLenses.${lens}: '${String(value)}' is not a valid ` +
+          `${noun} (expected one of: ${expected.join(", ")}); ignoring.`,
       );
     }
   }

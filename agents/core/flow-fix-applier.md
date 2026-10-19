@@ -3,6 +3,7 @@ name: flow-fix-applier
 description: Mechanical fix-applier for /flow-pr-review step 8. Applies each review finding, runs pre-commit, commits, and pushes to the PR's own branch. The findings are already diagnosed; applying them never needs deliberation.
 tools: Bash, Edit, Write, Read, ToolSearch, Skill, mcp__chrome-devtools__*
 maxTurns: 200
+effort: medium
 skills:
   - flow-fix-applier-instructions
 ---
@@ -27,13 +28,13 @@ Three invariants:
   both-sides summary; the artifact on disk is the durable record.
 - **Read flow's own docs with the Read tool** — never `awk` or pattern-range `sed` on flow skill paths; Claude Code can flag it as a protected-file edit and stall the run.
 
-This definition does not pin `effort`: the Task tool has no per-spawn effort
-argument, so a frontmatter pin would be unoverridable even though this row's
-`model` is only a configurable default (`config.models.fixApplier`, falling
-back to a literal sonnet). Effort instead follows the session's `state.effort`
-like every other routed site. The per-spawn `model:` argument the caller
-passes still wins over this definition's model, so per-phase model flags keep
-working unchanged.
+The frontmatter `effort: medium` is the fallback: it applies on
+Claude Code builds before 2.1.292 or if a spawn site forgets the argument. On
+2.1.292+ the per-spawn `effort` from `flow-spawn-effort fix-applier`
+(`min(session, medium)` by default; `efforts.fixApplier` changes it) overrides
+this fallback. The per-spawn `model:` argument the caller passes still wins over
+this definition's model (`config.models.fixApplier`, falling back to a literal
+sonnet), so per-phase model flags keep working unchanged.
 
 `maxTurns: 200` (sized from the measured uncapped distribution — median
 54, max 211 — for the per-finding apply loop) bounds this agent. Write

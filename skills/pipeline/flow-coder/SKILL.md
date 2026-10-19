@@ -232,7 +232,13 @@ config.models.implement > inherited` (see
    [ -z "$CODER_MODEL" ] && CODER_MODEL=$(jq -r '.modelImplement // empty' ~/.flow/state/"$SLUG".json)
    [ -z "$CODER_MODEL" ] && CODER_MODEL=$(jq -r '.models.implement // empty' ~/.flow/config.json 2>/dev/null)
    # Non-empty ⇒ pass model: "$CODER_MODEL" on the Task call; empty ⇒ omit.
+   CODER_EFFORT=$(command -v flow-spawn-effort >/dev/null 2>&1 && flow-spawn-effort coder)
+   # Non-empty ⇒ pass effort: "$CODER_EFFORT" on the Task call; empty ⇒ omit.
    ```
+
+   `CODER_EFFORT` (`config.efforts.coder`, else follow the session — see
+   `../flow-pipeline/references/model-routing.md`) rides the same Task call as
+   its per-spawn `effort:` argument.
 
 4. When the subagent returns, treat its 3–5 sentence summary as the chat
    output. Do **not** read the artifact body in the wrapper — the caller

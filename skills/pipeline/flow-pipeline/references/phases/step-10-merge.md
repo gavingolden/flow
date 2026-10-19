@@ -120,6 +120,8 @@ rm -f "$ARTIFACT_PATH"   # clear any stale artifact from a prior re-entry (step 
 SLUG="$FLOW_SLUG"
 MERGE_RESOLVER_MODEL=$(jq -r '.modelMergeResolver // empty' ~/.flow/state/"$SLUG".json)
 [ -z "$MERGE_RESOLVER_MODEL" ] && MERGE_RESOLVER_MODEL=$(jq -r '.models.mergeResolver // empty' ~/.flow/config.json 2>/dev/null)
+# Per-spawn effort: non-empty ⇒ pass effort: "$MERGE_RESOLVER_EFFORT"; empty ⇒ omit.
+MERGE_RESOLVER_EFFORT=$(command -v flow-spawn-effort >/dev/null 2>&1 && flow-spawn-effort merge-resolver)
 # Best-effort conflicting-file list — only non-empty when an outer
 # process already left the worktree mid-merge (the resolver runs the
 # merge itself in Step 2). `git diff --name-only --diff-filter=U`
@@ -150,7 +152,8 @@ above — `flow-module-core:flow-merge-resolver` on a plugin-root install, else
 `--model-merge-resolver > config.models.mergeResolver > inherited`; when
 `$MERGE_RESOLVER_MODEL` is empty, omit `model:` so the resolver inherits the
 session model — see [references/model-routing.md](../model-routing.md)),
-and the filled prompt. After it returns:
+the per-spawn `effort: "$MERGE_RESOLVER_EFFORT"` argument resolved above (omit
+`effort:` when it is empty), and the filled prompt. After it returns:
 
 1. Spawn-denial check: if the Task call itself returns a permission
    denial / refusal (not a subagent result) AND no artifact was

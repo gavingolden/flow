@@ -230,6 +230,7 @@ config.models.implement > inherited` (see
    [ -z "$SCOUT_MODEL" ] && SCOUT_MODEL=$(jq -r '.modelImplement // empty' ~/.flow/state/"$SLUG".json)
    [ -z "$SCOUT_MODEL" ] && SCOUT_MODEL=$(jq -r '.models.implement // empty' ~/.flow/config.json 2>/dev/null)
    # Non-empty ⇒ pass model: "$SCOUT_MODEL" on the Task call; empty ⇒ omit.
+   SCOUT_EFFORT=$(command -v flow-spawn-effort >/dev/null 2>&1 && flow-spawn-effort scout)  # non-empty ⇒ pass effort: "$SCOUT_EFFORT"; empty ⇒ omit
    ```
 
 4. When the subagent returns, treat its 3–5-sentence both-sides summary

@@ -2273,6 +2273,20 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(raw).not.toHaveProperty("model");
   });
 
+  it("runFeatureCli warns when config efforts.fixApplier is present-but-invalid", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ efforts: { fixApplier: "hgh" } }),
+    });
+    expect(code).toBe(0);
+    expect(errors.join("\n")).toMatch(
+      /efforts\.fixApplier.*not a valid effort level/,
+    );
+  });
+
   it("runNew --resume re-applies the saved model into the respawn argv", () => {
     // LOAD-BEARING: omit `command` so buildLaunchCommand runs.
     writeState(
