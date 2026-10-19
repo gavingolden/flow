@@ -14,6 +14,7 @@ import { join } from "node:path";
 import {
   validateResults,
   validateTruth,
+  type BenchResult,
   type BenchSurface,
 } from "./model-bench-schema";
 import { loadCases } from "./model-bench-manifest";
@@ -25,6 +26,7 @@ import {
   renderReport,
   type CaseScore,
 } from "./model-bench-score";
+import { timeoutFit } from "./model-bench-timeout-fit";
 
 export type ReportDeps = {
   readFile: (p: string) => string;
@@ -44,6 +46,14 @@ export type ReportArgs = {
   judgedFile?: string;
   incumbent: string;
   schemaTaxThreshold: number;
+  // Off for runs whose latency evidence is single-shot fixture time.
+  latencyGate?: boolean;
+  // See model-bench-ground-truth.ts.
+  groundTruthFloor?: number;
+  // A committed results.json whose rows for the incumbent are merged in at
+  // report time, so a candidate can be compared against a run that is not in
+  // this output directory.
+  baselineResults?: string;
 };
 
 function safeCall<T>(fn: () => T, fallback: T): T {
@@ -108,6 +118,46 @@ function translateJudged(
   }
 }
 
+// Merges the baseline file's rows for the incumbent into `results` (only for a
+// case/arm the run itself has no incumbent row on), and returns every model the
+// baseline file measured — the set a "no baseline" case is judged against.
+function readBaseline(
+  args: ReportArgs,
+  deps: ReportDeps,
+  results: BenchResult[],
+): { results: BenchResult[]; baselineModels: string[] } | { error: string } {
+  const path = args.baselineResults!;
+  if (!deps.fileExists(path)) {
+    return { error: `--baseline-results ${path}: file not found` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(deps.readFile(path));
+  } catch (err) {
+    return {
+      error: `--baseline-results ${path}: not valid JSON: ${(err as Error).message}`,
+    };
+  }
+  const validated = validateResults(parsed);
+  if (!validated.ok) {
+    return { error: `--baseline-results ${path}: ${validated.reason}` };
+  }
+  const have = new Set(
+    results
+      .filter((r) => r.model === args.incumbent)
+      .map((r) => `${r.caseId}::${r.arm}`),
+  );
+  const merged = validated.value.filter(
+    (r) => r.model === args.incumbent && !have.has(`${r.caseId}::${r.arm}`),
+  );
+  return {
+    results: [...results, ...merged],
+    baselineModels: [
+      ...new Set([args.incumbent, ...validated.value.map((r) => r.model)]),
+    ],
+  };
+}
+
 export function runReport(args: ReportArgs, deps: ReportDeps): number {
   const resultsPath = join(args.out, "results.json");
   if (!deps.fileExists(resultsPath)) {
@@ -130,7 +180,17 @@ export function runReport(args: ReportArgs, deps: ReportDeps): number {
     deps.progress(`flow-model-bench: ${resultsPath}: ${validated.reason}\n`);
     return 2;
   }
-  const results = validated.value;
+  let results = validated.value;
+  let baselineModels = [args.incumbent];
+  if (args.baselineResults) {
+    const baseline = readBaseline(args, deps, results);
+    if ("error" in baseline) {
+      deps.progress(`flow-model-bench: ${baseline.error}\n`);
+      return 2;
+    }
+    results = baseline.results;
+    baselineModels = baseline.baselineModels;
+  }
 
   const cases = loadCases(args.fixturesDir, deps);
   if ("error" in cases) {
@@ -173,12 +233,21 @@ export function runReport(args: ReportArgs, deps: ReportDeps): number {
   }
 
   const tax = schemaTax(scores, args.schemaTaxThreshold);
-  const matrix = verdict(scores, {
-    incumbent: args.incumbent,
-    candidates,
-    judged,
-    caseSurfaces,
-  });
+  let matrix: ReturnType<typeof verdict>;
+  try {
+    matrix = verdict(scores, {
+      incumbent: args.incumbent,
+      candidates,
+      judged,
+      caseSurfaces,
+      latencyGate: args.latencyGate,
+      groundTruthFloor: args.groundTruthFloor,
+      baselineModels,
+    });
+  } catch (err) {
+    deps.progress(`flow-model-bench: ${(err as Error).message}\n`);
+    return 2;
+  }
   const recommendation = recommend(matrix, scores, caseSurfaces);
 
   const meta = {
@@ -191,6 +260,7 @@ export function runReport(args: ReportArgs, deps: ReportDeps): number {
       () => deps.runDate(resultsPath),
       new Date().toISOString().slice(0, 10),
     ),
+    timeoutFit: timeoutFit(results, cases),
   };
 
   const report = renderReport(scores, matrix, tax, meta);

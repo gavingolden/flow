@@ -56,15 +56,26 @@ import {
   type FanoutResult,
   type ManifestEntry as FanoutManifestEntry,
 } from "./flow-delegate-fanout";
-import { parseStructured } from "./lib/structured-response";
-import type { BenchArm, BenchResult } from "./lib/model-bench-schema";
+import { toBenchResult, withFailureClass } from "./lib/model-bench-result";
+import {
+  validateResults,
+  type BenchArm,
+  type BenchCase,
+  type BenchResult,
+} from "./lib/model-bench-schema";
+import {
+  chunked,
+  mergeResults,
+  pendingSlots,
+  quotaHalt,
+} from "./lib/model-bench-resume";
 import {
   buildManifest,
   filterArms,
   blind,
   classifyPreflight,
-  isTransportSkip,
   resolveMaxCalls,
+  shouldRetry,
   toFanoutEntries,
   loadCases,
   type ManifestEntry,
@@ -80,12 +91,13 @@ import { runReport, type ReportDeps } from "./lib/model-bench-report";
 // modules directly instead of through this facade.
 export { buildManifest, blind, classifyPreflight, toFanoutEntries };
 
+const EXIT_QUOTA_HALT = 3;
+
 const DEFAULT_FIXTURES_DIR = join("bin", "fixtures", "model-bench");
-const DEFAULT_MODELS = [
-  "gemini-3.6-flash-high",
-  "gemini-3.1-pro-high",
-  "claude-sonnet-4-6",
-];
+// Today's agy roster. The incumbent (below) is no longer served — its rows are
+// merged from a committed results file at report time (--baseline-results).
+export const DEFAULT_MODELS = ["gemini-4-argon-high", "gemini-4-argon-medium"];
+const DEFAULT_CHUNK_SIZE = 16;
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_INCUMBENT = "claude-sonnet-4-6";
 const DEFAULT_SCHEMA_TAX_THRESHOLD = 0.05;
@@ -107,6 +119,12 @@ export type Args = {
   judgedFile?: string;
   incumbent: string;
   schemaTaxThreshold: number;
+  resume: boolean;
+  chunkSize: number;
+  noWarmup: boolean;
+  noLatencyGate: boolean;
+  groundTruthFloor?: number;
+  baselineResults?: string;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
@@ -115,6 +133,18 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     const flag = argv[i]!;
     if (flag === "--report") {
       out.report = true;
+      continue;
+    }
+    if (flag === "--resume") {
+      out.resume = true;
+      continue;
+    }
+    if (flag === "--no-warmup") {
+      out.noWarmup = true;
+      continue;
+    }
+    if (flag === "--no-latency-gate") {
+      out.noLatencyGate = true;
       continue;
     }
     const value = argv[i + 1];
@@ -188,6 +218,25 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--incumbent":
         out.incumbent = value;
         break;
+      case "--chunk-size": {
+        const n = Number(value);
+        if (!Number.isInteger(n) || n < 1) {
+          return { error: "--chunk-size must be a positive integer" };
+        }
+        out.chunkSize = n;
+        break;
+      }
+      case "--ground-truth-floor": {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 0 || n > 1) {
+          return { error: "--ground-truth-floor must be a number in 0..1" };
+        }
+        out.groundTruthFloor = n;
+        break;
+      }
+      case "--baseline-results":
+        out.baselineResults = value;
+        break;
       case "--schema-tax-threshold": {
         const n = Number(value);
         if (!Number.isFinite(n)) {
@@ -219,6 +268,12 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     judgedFile: out.judgedFile,
     incumbent: out.incumbent ?? DEFAULT_INCUMBENT,
     schemaTaxThreshold: out.schemaTaxThreshold ?? DEFAULT_SCHEMA_TAX_THRESHOLD,
+    resume: out.resume ?? false,
+    chunkSize: out.chunkSize ?? DEFAULT_CHUNK_SIZE,
+    noWarmup: out.noWarmup ?? false,
+    noLatencyGate: out.noLatencyGate ?? false,
+    groundTruthFloor: out.groundTruthFloor,
+    baselineResults: out.baselineResults,
   };
 }
 
@@ -325,12 +380,13 @@ async function defaultRunFanout(
   return JSON.parse(captured) as FanoutResult;
 }
 
-// Dispatches the full manifest once, then retries only the transport-class
-// skips (up to MAX_TRANSPORT_RETRIES rounds) — a genuine refusal or
-// malformed-output skip is recorded immediately, never retried.
+// Dispatches the manifest once, then retries only the transport-class skips
+// shouldRetry() allows (up to MAX_TRANSPORT_RETRIES rounds) — a genuine
+// refusal or malformed-output skip is recorded immediately, never retried, and
+// a quota refusal ends the retry rounds outright.
 export async function dispatchWithRetries(
   deps: Deps,
-  manifest: FanoutManifestEntry[],
+  manifest: Array<FanoutManifestEntry & { productionTimeout?: string }>,
   opts: {
     concurrency: number;
     maxCalls: number;
@@ -339,10 +395,11 @@ export async function dispatchWithRetries(
   },
 ): Promise<EntryResult[]> {
   const first = await deps.runFanout(manifest, opts);
-  const envelopes = first.entries.slice();
+  const envelopes = first.entries.map(withFailureClass);
   for (let attempt = 0; attempt < MAX_TRANSPORT_RETRIES; attempt++) {
+    if (envelopes.some((e) => e.failureClass === "quota-exhausted")) break;
     const retryIdx = envelopes
-      .map((e, i) => (!e.ran && isTransportSkip(e.skipReason) ? i : -1))
+      .map((e, i) => (!e.ran && shouldRetry(e, manifest[i]!) ? i : -1))
       .filter((i) => i >= 0);
     if (retryIdx.length === 0) break;
     const retryManifest = retryIdx.map((i) => manifest[i]!);
@@ -354,7 +411,7 @@ export async function dispatchWithRetries(
       maxCalls: retryManifest.length,
     });
     retryIdx.forEach((origIdx, k) => {
-      envelopes[origIdx] = retryResult.entries[k]!;
+      envelopes[origIdx] = withFailureClass(retryResult.entries[k]!);
     });
   }
   return envelopes;
@@ -369,8 +426,9 @@ export async function runBench(
   if ("error" in args) {
     deps.progress(`flow-model-bench: ${args.error}\n`);
     deps.progress(
-      "usage: flow-model-bench [--fixtures <dir>] [--models <csv>] [--repeats <n>] [--concurrency <k>] [--cases <csv>] [--arms <csv>] [--max-calls <n>] [--delegate-bin <path>] --out <dir>\n" +
-        "       flow-model-bench --report --out <dir> [--fixtures <dir>] [--judged <file>] [--incumbent <model>] [--schema-tax-threshold <n>]\n",
+      "usage: flow-model-bench [--fixtures <dir>] [--models <csv>] [--repeats <n>] [--concurrency <k>] [--cases <csv>] [--arms <csv>] [--max-calls <n>] [--chunk-size <n>] [--resume] [--no-warmup] [--delegate-bin <path>] --out <dir>\n" +
+        "       flow-model-bench --report --out <dir> [--fixtures <dir>] [--judged <file>] [--incumbent <model>] [--schema-tax-threshold <n>] [--no-latency-gate] [--ground-truth-floor <0..1>] [--baseline-results <path>]\n" +
+        "       exit 3: stopped at a quota refusal — re-run with --resume after the reset\n",
     );
     return 2;
   }
@@ -397,6 +455,9 @@ export async function runBench(
         judgedFile: args.judgedFile,
         incumbent: args.incumbent,
         schemaTaxThreshold: args.schemaTaxThreshold,
+        latencyGate: !args.noLatencyGate,
+        groundTruthFloor: args.groundTruthFloor,
+        baselineResults: args.baselineResults,
       },
       reportDeps,
     );
@@ -425,17 +486,46 @@ export async function runBench(
     return 2;
   }
 
-  let manifest = buildManifest(cases, args.models, args.repeats);
-  manifest = filterArms(manifest, args.arms);
+  const manifest = filterArms(
+    buildManifest(cases, args.models, args.repeats, {
+      warmup: !args.noWarmup,
+    }),
+    args.arms,
+  );
+  const resultsPath = join(args.out, "results.json");
+  let merged: BenchResult[] = [];
+  if (args.resume && deps.fileExists(resultsPath)) {
+    let prior: unknown;
+    try {
+      prior = JSON.parse(deps.readFile(resultsPath));
+    } catch (err) {
+      deps.progress(
+        `flow-model-bench: ${resultsPath}: not valid JSON: ${(err as Error).message}\n`,
+      );
+      return 2;
+    }
+    const validated = validateResults(prior);
+    if (!validated.ok) {
+      deps.progress(`flow-model-bench: ${resultsPath}: ${validated.reason}\n`);
+      return 2;
+    }
+    merged = validated.value;
+  }
+
+  // Pending slots are selected BEFORE --max-calls is applied (see
+  // pendingSlots), then dispatched in chunks with results.json rewritten after
+  // each, so a crash or quota stop loses at most one chunk.
+  const pending = pendingSlots(manifest, merged);
   const maxCalls = resolveMaxCalls(
-    manifest.length,
+    pending.length,
     args.maxCalls,
     deps.progress,
   );
+  const slots = pending.slice(0, maxCalls);
 
   deps.mkdirp(args.out);
-  const fanoutEntries = toFanoutEntries(
-    manifest,
+  const entries = toFanoutEntries(
+    slots,
     cases,
     args.fixturesDir,
     args.out,
@@ -443,94 +533,45 @@ export async function runBench(
     args.timeout,
   );
 
-  const envelopes = await dispatchWithRetries(deps, fanoutEntries, {
-    concurrency: args.concurrency,
-    maxCalls,
-    outDir: args.out,
-    delegateBin,
-  });
-
   const schemaCache = new Map<string, unknown>();
-  const results: BenchResult[] = manifest.map((e, i) => {
-    const env = envelopes[i]!;
-    const ran = env.ran === true;
-    let response: string | undefined;
-    let structuredOutput: unknown;
-    if (ran) {
-      try {
-        response = deps.readFile(fanoutEntries[i]!.out ?? "");
-      } catch {
-        response = undefined;
-      }
-      // Every bench entry runs --output-format json, so the artifact is the
-      // AGY ENVELOPE, not model prose (the documented JSON-mode contract:
-      // callers must go through .response / .structured_output). Unwrap it;
-      // an unparseable artifact falls through with the raw text as response.
-      if (response !== undefined) {
-        try {
-          const envelope = JSON.parse(response) as Record<string, unknown>;
-          if (typeof envelope.response === "string") {
-            response = envelope.response;
-            if (
-              envelope.structured_output !== undefined &&
-              envelope.structured_output !== null
-            ) {
-              structuredOutput = envelope.structured_output;
-            }
-          }
-        } catch {
-          // not an envelope (text mode / partial write) — keep raw text
-        }
-      }
-      const c = cases.find((cc) => cc.id === e.caseId);
-      if (
-        structuredOutput === undefined &&
-        response !== undefined &&
-        e.arm !== "n/a" &&
-        c?.jsonSchemaFile
-      ) {
-        const schemaPath = join(args.fixturesDir, c.id, c.jsonSchemaFile);
-        if (!schemaCache.has(schemaPath)) {
-          try {
-            schemaCache.set(schemaPath, JSON.parse(deps.readFile(schemaPath)));
-          } catch {
-            schemaCache.set(schemaPath, undefined);
-          }
-        }
-        const attempt = parseStructured(response, schemaCache.get(schemaPath));
-        if (attempt.ok) structuredOutput = attempt.value;
-      }
+  let halted: { resetsIn?: string } | undefined;
+  for (const idxs of chunked(
+    slots.map((_, i) => i),
+    args.chunkSize,
+  )) {
+    const chunkEntries = idxs.map((i) => entries[i]!);
+    const envelopes = await dispatchWithRetries(deps, chunkEntries, {
+      concurrency: args.concurrency,
+      maxCalls: chunkEntries.length,
+      outDir: args.out,
+      delegateBin,
+    });
+    const fresh = idxs.map((slotIdx, k) =>
+      toBenchResult({
+        readFile: deps.readFile,
+        fixturesDir: args.fixturesDir,
+        cases,
+        slot: slots[slotIdx]!,
+        entry: chunkEntries[k]!,
+        env: envelopes[k]!,
+        schemaCache,
+      }),
+    );
+    merged = mergeResults(merged, fresh);
+    deps.writeFile(resultsPath, JSON.stringify(merged, null, 2));
+    const halt = quotaHalt(fresh);
+    if (halt.halted) {
+      halted = halt;
+      break;
     }
-    const result: BenchResult = {
-      caseId: e.caseId,
-      arm: e.arm,
-      model: e.model,
-      repeat: e.repeat,
-      warmup: e.warmup,
-      ran,
-    };
-    if (env.skipReason) result.skipReason = env.skipReason;
-    if (env.durationSeconds !== undefined)
-      result.durationSeconds = env.durationSeconds;
-    if (env.usage) result.usage = env.usage;
-    if (response !== undefined) result.response = response;
-    if (structuredOutput !== undefined)
-      result.structuredOutput = structuredOutput;
-    if (env.parseRetries !== undefined) result.parseRetries = env.parseRetries;
-    if (e.size !== undefined) result.size = e.size;
-    return result;
-  });
+  }
 
-  deps.writeFile(
-    join(args.out, "results.json"),
-    JSON.stringify(results, null, 2),
-  );
   // The scorer discards warmups and translateJudged collapses verdicts to
   // surface::model anyway — warmup and ran:false (empty-text) entries add
   // dead weight to the one artifact a context-bounded Claude judge session
-  // must read in full. Filter before blinding; ids stay self-consistent
-  // because `key` is derived from this same filtered array.
-  const { packet, key } = blind(results.filter((r) => !r.warmup && r.ran));
+  // must read in full. Built ONCE, from the final merged file, so a resume
+  // never re-blinds earlier rows (mergeResults keeps their ids stable).
+  const { packet, key } = blind(merged.filter((r) => !r.warmup && r.ran));
   deps.writeFile(
     join(args.out, "judge-packet.json"),
     JSON.stringify(packet, null, 2),
@@ -540,8 +581,17 @@ export async function runBench(
     JSON.stringify(key, null, 2),
   );
   deps.progress(
-    `flow-model-bench: wrote ${results.length} results to ${args.out}\n`,
+    `flow-model-bench: wrote ${merged.length} results to ${args.out}\n`,
   );
+  if (halted) {
+    const remaining = pendingSlots(manifest, merged).length;
+    deps.progress(
+      `flow-model-bench: quota refused — stopped; ${remaining} slot(s) remain` +
+        `${halted.resetsIn ? `, quota resets in ${halted.resetsIn}` : ""}. ` +
+        "Re-run with --resume after the reset.\n",
+    );
+    return EXIT_QUOTA_HALT;
+  }
   return 0;
 }
 

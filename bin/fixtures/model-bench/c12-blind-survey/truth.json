@@ -1,0 +1,35 @@
+{
+  "caseId": "c12-blind-survey",
+  "required": [
+    "### 1. Goal as understood",
+    "### 2. Recommended method",
+    "### 3. Alternatives considered and why not",
+    "### 4. Risks and what would change your mind",
+    {
+      "desc": "The recommended method makes the research step a deterministic, code-enforced step run by the supervisor (a helper script it calls directly), not something the sub-agent decides to do",
+      "anyOf": [
+        "deterministic",
+        "code-enforced",
+        "enforced in code",
+        "helper script",
+        "supervisor runs",
+        "supervisor-run",
+        "supervisor itself runs",
+        "run by the supervisor",
+        "called by the supervisor"
+      ]
+    }
+  ],
+  "forbidden": [
+    {
+      "desc": "Recommending that the research step be made reliable by strengthening the prompt wording — the failure was observed under prose instructions, so more emphatic prose is not a fix",
+      "anyOf": [
+        "recommended method is to strengthen the prompt",
+        "strengthen the prompt wording",
+        "make the instruction more emphatic",
+        "add stronger wording",
+        "reword the instruction to be more forceful"
+      ]
+    }
+  ]
+}

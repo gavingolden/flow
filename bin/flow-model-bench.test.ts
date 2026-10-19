@@ -1,16 +1,34 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildManifest,
   toFanoutEntries,
   blind,
   classifyPreflight,
+  DEFAULT_MODELS,
   dispatchWithRetries,
+  parseArgs,
   runBench,
   type Deps,
 } from "./flow-model-bench";
 import type { BenchCase, BenchResult } from "./lib/model-bench-schema";
-import { isTransportSkip } from "./lib/model-bench-manifest";
+import {
+  ADD_DIR_TOKEN,
+  isTransportSkip,
+  loadCases,
+  shouldRetry,
+} from "./lib/model-bench-manifest";
 import type { EntryResult, FanoutResult } from "./flow-delegate-fanout";
+import { BLIND_FRAMING } from "./lib/blind-survey-prompt";
+import { JUDGE_A_TIMEOUT } from "./flow-blind-survey";
+import { REVIEWER_1_TIMEOUT } from "./flow-plan-review";
+import {
+  buildManifest as buildGatherManifest,
+  DEFAULT_TIMEOUT as RESEARCH_TIMEOUT,
+} from "./flow-research-run";
+import { DELEGATED_SCOUT_TIMEOUT } from "./lib/delegate-models";
+import { DELEGATE_TIMEOUT_DEFAULTS } from "./lib/delegate-timeouts";
 
 // No test in this file ever spawns a real process or calls the real agy
 // binary — every Deps hook (preflight, runFanout) is stubbed.
@@ -814,5 +832,673 @@ describe("runBench --report", () => {
     expect(code).toBe(0);
     expect(deps.preflight).not.toHaveBeenCalled();
     expect(deps.runFanout).not.toHaveBeenCalled();
+  });
+
+  const baselineRows = (model: string) =>
+    JSON.stringify([
+      {
+        caseId: "c1",
+        arm: "n/a",
+        model,
+        repeat: 0,
+        warmup: false,
+        ran: true,
+        response: "alpha beta",
+        durationSeconds: 10,
+      },
+    ]);
+  // results.json holds only the candidate; the incumbent's rows come from a
+  // committed baseline file merged at report time.
+  const candidateOnly = JSON.stringify([
+    {
+      caseId: "c1",
+      arm: "n/a",
+      model: CANDIDATE,
+      repeat: 0,
+      warmup: false,
+      ran: true,
+      response: "alpha beta",
+      durationSeconds: 1,
+    },
+  ]);
+
+  it("--baseline-results merges the incumbent's committed rows so a candidate-only run can be scored", async () => {
+    const deps = reportDeps({
+      "out/results.json": candidateOnly,
+      "base.json": baselineRows(INCUMBENT),
+    });
+    const code = await runBench(
+      [
+        "--report",
+        "--out",
+        "out",
+        "--fixtures",
+        "fixtures",
+        "--baseline-results",
+        "base.json",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    const verdicts = JSON.parse(deps.readFile("out/verdicts.json"));
+    expect(verdicts.matrix.scout[CANDIDATE]).toBeDefined();
+    expect(verdicts.matrix.scout[INCUMBENT]).toBeUndefined(); // baseline is not a candidate
+  });
+
+  it("fails with a named error when the incumbent has no rows anywhere, instead of clearing on ground truth", async () => {
+    const deps = reportDeps({ "out/results.json": candidateOnly });
+    const code = await runBench(
+      [
+        "--report",
+        "--out",
+        "out",
+        "--fixtures",
+        "fixtures",
+        "--ground-truth-floor",
+        "0.8",
+      ],
+      deps,
+    );
+    expect(code).toBe(2);
+    const said = (deps.progress as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => String(c[0]))
+      .join("");
+    expect(said).toMatch(/incumbent "claude-sonnet-4-6" has no rows/);
+    expect(() => deps.readFile("out/report.md")).toThrow();
+  });
+
+  it("without a ground-truth floor, a case the baseline has no rows for is inconclusive, never clear", async () => {
+    const newCase = JSON.stringify({
+      id: "c2",
+      surface: "scout",
+      kind: "free-text",
+      promptFile: "prompt.md",
+      inputFiles: [],
+      repeats: 1,
+      authoredAtCommit: "abc1234",
+      routable: true,
+    });
+    const row = (caseId: string, model: string) => ({
+      caseId,
+      arm: "n/a",
+      model,
+      repeat: 0,
+      warmup: false,
+      ran: true,
+      response: "alpha beta",
+      durationSeconds: 1,
+    });
+    // The baseline measured the incumbent on c1 only; c2 is a new case.
+    const deps = {
+      ...reportDeps({
+        "out/results.json": JSON.stringify([
+          row("c1", CANDIDATE),
+          row("c2", CANDIDATE),
+        ]),
+        "base.json": JSON.stringify([row("c1", INCUMBENT)]),
+        "fixtures/c2/case.json": newCase,
+        "fixtures/c2/truth.json": JSON.stringify({
+          caseId: "c2",
+          required: ["alpha"],
+        }),
+      }),
+      readdir: () => ["c1", "c2"],
+    } as Deps;
+    const argv = [
+      "--report",
+      "--out",
+      "out",
+      "--fixtures",
+      "fixtures",
+      "--baseline-results",
+      "base.json",
+    ];
+    await runBench(argv, deps);
+    const cell = JSON.parse(deps.readFile("out/verdicts.json")).matrix.scout[
+      CANDIDATE
+    ];
+    expect(cell.status).toBe("inconclusive");
+    expect(cell.reason).toMatch(/no baseline rows for claude-sonnet-4-6 on c2/);
+
+    // With a floor, c2 is judged on ground truth instead ("ground truth only").
+    await runBench([...argv, "--ground-truth-floor", "0.8"], deps);
+    const gated = JSON.parse(deps.readFile("out/verdicts.json")).matrix.scout[
+      CANDIDATE
+    ];
+    expect(gated.reason).toContain("c2 (ground truth only)");
+  });
+
+  it("exits 2 when --baseline-results names a missing file", async () => {
+    const deps = reportDeps();
+    const code = await runBench(
+      [
+        "--report",
+        "--out",
+        "out",
+        "--fixtures",
+        "fixtures",
+        "--baseline-results",
+        "nope.json",
+      ],
+      deps,
+    );
+    expect(code).toBe(2);
+  });
+
+  it("renders the production timeout fit section when a case carries a productionTimeout", async () => {
+    const caseJson = JSON.stringify({
+      id: "c1",
+      surface: "scout",
+      kind: "multi-file",
+      promptFile: "prompt.md",
+      inputFiles: ["a.ts"],
+      repeats: 1,
+      productionTimeout: "8m",
+      authoredAtCommit: "abc1234",
+      routable: true,
+    });
+    const deps = reportDeps({ "fixtures/c1/case.json": caseJson });
+    expect(
+      await runBench(
+        ["--report", "--out", "out", "--fixtures", "fixtures"],
+        deps,
+      ),
+    ).toBe(0);
+    const report = deps.readFile("out/report.md");
+    expect(report).toContain("## Production timeout fit");
+    expect(report).toContain(
+      "**scout** / candidate-model: 0/1 timed out at the 8m production limit",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Roster, quota halt, resume, production posture and drift (Tasks 9-14)
+// ---------------------------------------------------------------------------
+
+describe("default roster", () => {
+  it("benches today's agy roster, Argon High and Medium, when --models is omitted", () => {
+    const parsed = parseArgs(["--out", "out"]);
+    expect("error" in parsed).toBe(false);
+    if ("error" in parsed) return;
+    expect(parsed.models).toEqual([
+      "gemini-4-argon-high",
+      "gemini-4-argon-medium",
+    ]);
+    expect(DEFAULT_MODELS).toEqual(parsed.models);
+    expect(parsed.incumbent).toBe("claude-sonnet-4-6");
+  });
+
+  it("parses the resume, chunking, warm-up and report-gate flags", () => {
+    const parsed = parseArgs([
+      "--out",
+      "out",
+      "--resume",
+      "--no-warmup",
+      "--chunk-size",
+      "4",
+      "--no-latency-gate",
+      "--ground-truth-floor",
+      "0.8",
+      "--baseline-results",
+      "base.json",
+    ]);
+    expect(parsed).toMatchObject({
+      resume: true,
+      noWarmup: true,
+      chunkSize: 4,
+      noLatencyGate: true,
+      groundTruthFloor: 0.8,
+      baselineResults: "base.json",
+    });
+    expect(parseArgs(["--out", "o"])).toMatchObject({
+      resume: false,
+      chunkSize: 16,
+      noWarmup: false,
+      noLatencyGate: false,
+    });
+    expect(parseArgs(["--out", "o", "--ground-truth-floor", "2"])).toEqual({
+      error: "--ground-truth-floor must be a number in 0..1",
+    });
+  });
+});
+
+describe("buildManifest — model-major order and --no-warmup", () => {
+  it("orders every case for the first model before the second model", () => {
+    const entries = buildManifest(
+      [
+        baseCase({ id: "c-a", repeats: 1 }),
+        baseCase({ id: "c-b", repeats: 1 }),
+      ],
+      ["m1", "m2"],
+      undefined,
+      { warmup: false },
+    );
+    expect(entries.map((e) => `${e.model}:${e.caseId}`)).toEqual([
+      "m1:c-a",
+      "m1:c-b",
+      "m2:c-a",
+      "m2:c-b",
+    ]);
+  });
+
+  it("--no-warmup yields no warm-up slots", () => {
+    const entries = buildManifest(
+      [baseCase({ repeats: 2 })],
+      ["m"],
+      undefined,
+      {
+        warmup: false,
+      },
+    );
+    expect(entries.some((e) => e.warmup)).toBe(false);
+    expect(entries).toHaveLength(2);
+  });
+});
+
+describe("shouldRetry — no re-fire of slots that stand as outcomes", () => {
+  const entry = { task: "t", model: "m", promptFile: "p" };
+  it("retries a plain transport skip", () => {
+    expect(
+      shouldRetry(
+        makeEntryResult({ skipReason: "agy-not-authenticated" }),
+        entry,
+      ),
+    ).toBe(true);
+    expect(
+      shouldRetry(makeEntryResult({ skipReason: "agy-timeout" }), entry),
+    ).toBe(true);
+  });
+
+  it("never retries a quota refusal, even when its skip reason looks transport-class", () => {
+    expect(
+      shouldRetry(
+        makeEntryResult({
+          skipReason: "rate limit",
+          failureClass: "quota-exhausted",
+        }),
+        entry,
+      ),
+    ).toBe(false);
+  });
+
+  it("never retries an agy-timeout on a case with a productionTimeout", () => {
+    expect(
+      shouldRetry(makeEntryResult({ skipReason: "agy-timeout" }), {
+        ...entry,
+        productionTimeout: "10m",
+      }),
+    ).toBe(false);
+    // ...but other transport skips on that case still retry.
+    expect(
+      shouldRetry(makeEntryResult({ skipReason: "agy-not-authenticated" }), {
+        ...entry,
+        productionTimeout: "10m",
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("dispatchWithRetries — production-limit and quota slots are not re-fired", () => {
+  const dispatchOpts = {
+    concurrency: 1,
+    maxCalls: 1,
+    outDir: "out",
+    delegateBin: "/b",
+  };
+  const countingFanout = (entry: EntryResult) => {
+    const runFanout = vi.fn(
+      async (): Promise<FanoutResult> => ({
+        entries: [entry],
+        anyRan: false,
+        allSkipped: true,
+        calls: { attempted: 1, ran: 0, skipped: 1, budget: 1 },
+      }),
+    );
+    return {
+      runFanout,
+      deps: { runFanout, progress: vi.fn() } as unknown as Deps,
+    };
+  };
+
+  it("dispatches an agy-timeout on a productionTimeout case exactly once", async () => {
+    const { runFanout, deps } = countingFanout(
+      makeEntryResult({ task: "t", skipReason: "agy-timeout" }),
+    );
+    const out = await dispatchWithRetries(
+      deps,
+      [{ task: "t", model: "m", promptFile: "p", productionTimeout: "10m" }],
+      dispatchOpts,
+    );
+    expect(runFanout).toHaveBeenCalledTimes(1);
+    expect(out[0]!.skipReason).toBe("agy-timeout");
+  });
+
+  it("dispatches a quota-refused slot exactly once and classifies it from its error text", async () => {
+    const { runFanout, deps } = countingFanout(
+      makeEntryResult({
+        task: "t",
+        skipReason: "agy-error",
+        agyError: "Individual quota reached. Resets in 4h10m",
+      }),
+    );
+    const out = await dispatchWithRetries(
+      deps,
+      [{ task: "t", model: "m", promptFile: "p" }],
+      dispatchOpts,
+    );
+    expect(runFanout).toHaveBeenCalledTimes(1);
+    expect(out[0]!.failureClass).toBe("quota-exhausted");
+  });
+});
+
+describe("runBench — chunked, resumable dispatch with a quota halt", () => {
+  const CASE = {
+    id: "c1",
+    surface: "scout",
+    kind: "multi-file",
+    promptFile: "prompt.md",
+    inputFiles: ["a.ts"],
+    repeats: 4,
+    authoredAtCommit: "abc1234",
+    routable: true,
+  };
+
+  function benchDeps(
+    files: Map<string, string>,
+    runFanout: Deps["runFanout"],
+  ): Deps & { progress: ReturnType<typeof vi.fn> } {
+    files.set("fixtures/c1/case.json", JSON.stringify(CASE));
+    files.set("fixtures/c1/prompt.md", "prompt");
+    files.set("fixtures/c1/a.ts", "input");
+    return {
+      readFile: (p: string) => {
+        const v = files.get(p);
+        if (v === undefined) throw new Error(`ENOENT: ${p}`);
+        return v;
+      },
+      writeFile: (p: string, data: string) => void files.set(p, data),
+      fileExists: (p: string) => files.has(p),
+      mkdirp: () => {},
+      readdir: () => ["c1"],
+      progress: vi.fn(),
+      preflight: () => ({ ok: true, message: "" }),
+      gitHead: () => "deadbeef",
+      agyVersion: () => "1.0.0",
+      fileMtime: () => new Date("2026-01-01T00:00:00Z"),
+      runFanout,
+    } as Deps & { progress: ReturnType<typeof vi.fn> };
+  }
+
+  const ARGV = [
+    "--fixtures",
+    "fixtures",
+    "--models",
+    "m",
+    "--no-warmup",
+    "--delegate-bin",
+    "/bin/flow-delegate.ts",
+    "--out",
+    "out",
+  ];
+
+  const okFanout =
+    (log: string[][]): Deps["runFanout"] =>
+    async (manifest): Promise<FanoutResult> => {
+      log.push(manifest.map((m) => m.task));
+      return {
+        entries: manifest.map((m) =>
+          makeEntryResult({ task: m.task, ran: true, artifactPath: m.out }),
+        ),
+        anyRan: true,
+        allSkipped: false,
+        calls: {
+          attempted: manifest.length,
+          ran: manifest.length,
+          skipped: 0,
+          budget: manifest.length,
+        },
+      };
+    };
+
+  it("stops after the first quota refusal, stores its class and reset, and exits 3", async () => {
+    const files = new Map<string, string>();
+    let chunks = 0;
+    const deps = benchDeps(files, async (manifest): Promise<FanoutResult> => {
+      chunks++;
+      return {
+        entries: manifest.map((m) =>
+          chunks === 1
+            ? makeEntryResult({
+                task: m.task,
+                ran: false,
+                skipReason: "agy-error",
+                agyError: "Individual quota reached. Resets in 92h31m22s",
+              })
+            : makeEntryResult({ task: m.task, ran: true }),
+        ),
+        anyRan: false,
+        allSkipped: true,
+        calls: {
+          attempted: manifest.length,
+          ran: 0,
+          skipped: manifest.length,
+          budget: manifest.length,
+        },
+      };
+    });
+    const code = await runBench([...ARGV, "--chunk-size", "2"], deps);
+    expect(code).toBe(3);
+    expect(chunks).toBe(1); // no further chunk after the refusal
+    const rows = JSON.parse(files.get("out/results.json")!);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      ran: false,
+      failureClass: "quota-exhausted",
+      resetsIn: "92h31m22s",
+    });
+    const said = deps.progress.mock.calls.map((c) => String(c[0])).join("");
+    // 2 refused slots (no successful row) + 2 never dispatched.
+    expect(said).toMatch(/4 slot\(s\) remain/);
+    expect(said).toContain("92h31m22s");
+  });
+
+  it("writes results.json after every chunk so a crash loses at most one chunk", async () => {
+    const files = new Map<string, string>();
+    const writes: number[] = [];
+    const deps = benchDeps(files, okFanout([]));
+    const baseWrite = deps.writeFile;
+    deps.writeFile = (p, data) => {
+      if (p === "out/results.json") writes.push(JSON.parse(data).length);
+      baseWrite(p, data);
+    };
+    expect(await runBench([...ARGV, "--chunk-size", "3"], deps)).toBe(0);
+    expect(writes).toEqual([3, 4]);
+  });
+
+  it("--resume selects pending slots before --max-calls, so a second tranche dispatches new slots", async () => {
+    const files = new Map<string, string>();
+    const log1: string[][] = [];
+    const first = benchDeps(files, okFanout(log1));
+    expect(await runBench([...ARGV, "--max-calls", "2"], first)).toBe(0);
+    expect(log1.flat()).toHaveLength(2);
+
+    const log2: string[][] = [];
+    const second = benchDeps(files, okFanout(log2));
+    expect(
+      await runBench([...ARGV, "--max-calls", "2", "--resume"], second),
+    ).toBe(0);
+    const firstTasks = new Set(log1.flat());
+    expect(log2.flat()).toHaveLength(2);
+    expect(log2.flat().some((t) => firstTasks.has(t))).toBe(false);
+    expect(JSON.parse(files.get("out/results.json")!)).toHaveLength(4);
+  });
+
+  it("a missing results file reads as no prior rows under --resume", async () => {
+    const files = new Map<string, string>();
+    const log: string[][] = [];
+    const deps = benchDeps(files, okFanout(log));
+    expect(await runBench([...ARGV, "--resume"], deps)).toBe(0);
+    expect(log.flat()).toHaveLength(4);
+  });
+
+  it("a resume keeps every earlier row's blinded id and rebuilds the packet from the merged file", async () => {
+    const files = new Map<string, string>();
+    const withText = (n: number): Deps => {
+      const deps = benchDeps(files, okFanout([]));
+      const read = deps.readFile;
+      deps.readFile = (p) =>
+        p.includes("/raw/") ? `answer ${p.split("--").pop()} #${n}` : read(p);
+      return deps;
+    };
+    await runBench([...ARGV, "--max-calls", "2"], withText(1));
+    const packet1 = JSON.parse(files.get("out/judge-packet.json")!);
+    await runBench([...ARGV, "--max-calls", "2", "--resume"], withText(2));
+    const packet2 = JSON.parse(files.get("out/judge-packet.json")!);
+    expect(packet2).toHaveLength(4);
+    expect(packet2.slice(0, 2)).toEqual(packet1);
+  });
+
+  it("a failed slot is re-dispatched on resume and its fresh success replaces it", async () => {
+    const files = new Map<string, string>();
+    let first = true;
+    const flaky: Deps["runFanout"] = async (manifest) => ({
+      entries: manifest.map((m, i) =>
+        first && i === 0
+          ? makeEntryResult({
+              task: m.task,
+              ran: false,
+              skipReason: "agy-error",
+            })
+          : makeEntryResult({ task: m.task, ran: true }),
+      ),
+      anyRan: true,
+      allSkipped: false,
+      calls: {
+        attempted: manifest.length,
+        ran: manifest.length,
+        skipped: 0,
+        budget: manifest.length,
+      },
+    });
+    await runBench(ARGV, benchDeps(files, flaky));
+    first = false;
+    const log: string[][] = [];
+    await runBench([...ARGV, "--resume"], benchDeps(files, okFanout(log)));
+    expect(log.flat()).toHaveLength(1);
+    const rows = JSON.parse(files.get("out/results.json")!);
+    expect(rows).toHaveLength(4);
+    expect(rows.every((r: BenchResult) => r.ran)).toBe(true);
+  });
+});
+
+describe("toFanoutEntries — production posture and limit", () => {
+  const files = (c: BenchCase) =>
+    fakeFs({
+      [`fixtures/${c.id}/prompt.md`]: `read ${ADD_DIR_TOKEN} now`,
+    });
+  const entriesFor = (c: BenchCase, timeout?: string) => {
+    const manifest = buildManifest([c], ["m"], 1, { warmup: false });
+    return toFanoutEntries(manifest, [c], "fixtures", "out", files(c), timeout);
+  };
+
+  it("dispatches a case at exactly its productionTimeout, ahead of --timeout", () => {
+    const c = baseCase({ id: "c-p", inputFiles: [], productionTimeout: "7m" });
+    const [e] = entriesFor(c, "3m");
+    expect(e!.timeout).toBe("7m");
+    expect(e!.productionTimeout).toBe("7m");
+  });
+
+  it("falls back to --timeout, then to 15m, for a case with no productionTimeout", () => {
+    const c = baseCase({ id: "c-p", inputFiles: [] });
+    expect(entriesFor(c, "3m")[0]!.timeout).toBe("3m");
+    expect(entriesFor(c)[0]!.timeout).toBe("15m");
+    expect(entriesFor(c)[0]!.productionTimeout).toBeUndefined();
+  });
+
+  it("passes skipPermissions through and never adds addDirs to a skipPermissions entry", () => {
+    const c = baseCase({ id: "c-p", inputFiles: [], skipPermissions: true });
+    const [e] = entriesFor(c);
+    expect(e!.skipPermissions).toBe(true);
+    expect(e!.addDirs).toBeUndefined();
+  });
+
+  it("grants read access to the fixture-relative addDir and resolves the prompt placeholder to it", () => {
+    const c = baseCase({ id: "c-p", inputFiles: [], addDir: "context" });
+    const fs = files(c);
+    const manifest = buildManifest([c], ["m"], 1, { warmup: false });
+    const [e] = toFanoutEntries(manifest, [c], "fixtures", "out", fs);
+    const abs = path.resolve("fixtures", "c-p", "context");
+    expect(e!.addDirs).toEqual([abs]);
+    expect(e!.skipPermissions).toBeUndefined();
+    expect(fs.store.get(e!.promptFile!)).toBe(`read ${abs} now`);
+  });
+});
+
+describe("committed fixtures — production limit and prompt drift", () => {
+  const FIXTURES = path.resolve(__dirname, "fixtures", "model-bench");
+  const loaded = loadCases(FIXTURES, {
+    readdir: (d) => readdirSync(d),
+    readFile: (p) => readFileSync(p, "utf8"),
+    fileExists: (p) => existsSync(p),
+  });
+  if ("error" in loaded) throw new Error(loaded.error);
+  const byId = new Map(loaded.map((c) => [c.id, c]));
+  const caseOf = (id: string): BenchCase => {
+    const c = byId.get(id);
+    if (!c) throw new Error(`missing fixture ${id}`);
+    return c;
+  };
+  const text = (id: string, file: string) =>
+    readFileSync(path.join(FIXTURES, id, file), "utf8");
+
+  it.each([
+    ["c1-multifile-contract", DELEGATED_SCOUT_TIMEOUT],
+    ["c2-planted-defects", DELEGATED_SCOUT_TIMEOUT],
+    ["c2b-real-defect", DELEGATED_SCOUT_TIMEOUT],
+    ["c4-intent-json", DELEGATE_TIMEOUT_DEFAULTS.intentGuess],
+    ["c6-plan-review", REVIEWER_1_TIMEOUT],
+    ["c7-review-lens", DELEGATE_TIMEOUT_DEFAULTS.reviewLens],
+    ["c8-research-refute", RESEARCH_TIMEOUT],
+    ["c11-research-gather", RESEARCH_TIMEOUT],
+    ["c12-blind-survey", JUDGE_A_TIMEOUT],
+  ])("%s carries its step's production limit", (id, limit) => {
+    expect(caseOf(id).productionTimeout).toBe(limit);
+  });
+
+  it("carries the production web-search posture on c8 and c11, and read access on c12", () => {
+    for (const id of ["c8-research-refute", "c11-research-gather"]) {
+      expect(caseOf(id).skipPermissions).toBe(true);
+      expect(caseOf(id).addDir).toBeUndefined();
+    }
+    expect(caseOf("c12-blind-survey").addDir).toBe("context");
+    expect(caseOf("c12-blind-survey").skipPermissions).toBeUndefined();
+    expect(existsSync(path.join(FIXTURES, "c12-blind-survey", "context"))).toBe(
+      true,
+    );
+  });
+
+  it("c11's prompt.md contains the gather prompt flow-research-run builds for the fixture task", () => {
+    const task =
+      "add CSV export that follows RFC 4180 for field quoting, quote escaping and line terminators";
+    const [gather] = buildGatherManifest(task, {
+      gatherModel: "g",
+      refuteModel: "r",
+      timeout: RESEARCH_TIMEOUT,
+    });
+    expect(text("c11-research-gather", "prompt.md")).toContain(gather!.prompt);
+  });
+
+  it("c12's prompt.md contains BLIND_FRAMING and each output heading of the survey prompt", () => {
+    const prompt = text("c12-blind-survey", "prompt.md");
+    expect(prompt).toContain(BLIND_FRAMING);
+    const source = readFileSync(
+      path.resolve(__dirname, "lib", "blind-survey-prompt.ts"),
+      "utf8",
+    );
+    const headings = [...source.matchAll(/^### \d\. .+$/gm)].map((m) => m[0]);
+    expect(headings).toHaveLength(4);
+    for (const h of headings) expect(prompt).toContain(h);
+    expect(prompt).toContain(ADD_DIR_TOKEN);
   });
 });
