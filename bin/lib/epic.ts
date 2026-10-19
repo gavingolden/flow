@@ -109,6 +109,7 @@ import {
   MODEL_ALIASES,
   type ModelAlias,
 } from "./state";
+import { collectEffortConfigWarnings } from "./efforts-config";
 import {
   readDefaultModel,
   collectModelConfigWarnings,
@@ -620,6 +621,9 @@ PR → review checkpoint), and writes initial epic state under
   // models.default; absent both, no --model reaches claude. Best-effort-warn
   // on any present-but-invalid models.* config value, then fall back.
   for (const w of collectModelConfigWarnings(readConfig)) {
+    console.error(dim(`flow epic create: ${w}`));
+  }
+  for (const w of collectEffortConfigWarnings(readConfig)) {
     console.error(dim(`flow epic create: ${w}`));
   }
   const sessionModel = model ?? readDefaultModel(readConfig);
@@ -1269,6 +1273,9 @@ function spawnEpicRunSupervisor(
     options.readConfig ?? defaultReadConfigFile,
   );
   for (const w of collectModelConfigWarnings(readConfig)) {
+    console.error(dim(`flow epic run: ${w}`));
+  }
+  for (const w of collectEffortConfigWarnings(readConfig)) {
     console.error(dim(`flow epic run: ${w}`));
   }
   const runSessionModel = runModel ?? readDefaultModel(readConfig);

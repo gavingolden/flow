@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runConfigModelsCli } from "./config-models";
+import { formatEffortCell, runConfigModelsCli } from "./config-models";
+import type { ResolvedRow } from "./model-routing-table";
 import type { ReadConfigFile } from "./models-config";
 import type { PipelineState } from "./state";
 
@@ -26,6 +27,14 @@ describe("runConfigModelsCli", () => {
   let err: string[];
 
   beforeEach(() => {
+    // Hermetic: the host's real Claude Code build / effort env must not leak.
+    for (const name of [
+      "CLAUDE_CODE_EFFORT_LEVEL",
+      "AI_AGENT",
+      "CLAUDE_CODE_EXECPATH",
+    ]) {
+      vi.stubEnv(name, "");
+    }
     out = [];
     err = [];
     logSpy = vi.spyOn(console, "log").mockImplementation((m?: unknown) => {
@@ -37,6 +46,7 @@ describe("runConfigModelsCli", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     logSpy.mockRestore();
     errSpy.mockRestore();
   });
@@ -70,11 +80,11 @@ describe("runConfigModelsCli", () => {
     ]) {
       expect(table).toContain(phase);
     }
-    // built-in model fallback is visible; effort is never pinned — every
-    // sub-agent row follows the (resolved) session effort.
+    // built-in model fallback is visible; with no session effort known the
+    // fix-applier's capped built-in reads `≤ medium`.
     expect(table).toContain("built-in (sonnet)");
     expect(table).toMatch(
-      /fix-applier\s+sonnet\s+built-in \(sonnet\)\s+= session/,
+      /fix-applier\s+sonnet\s+built-in \(sonnet\)\s+≤ medium · built-in/,
     );
     // the fixture config value resolves
     expect(table).toMatch(/review\s+opus\s+config \(models\.review\)/);
@@ -94,7 +104,7 @@ describe("runConfigModelsCli", () => {
     }
   });
 
-  it("every sub-agent EFFORT cell reads `= session` regardless of the resolved value", () => {
+  it("every sub-agent EFFORT cell without a built-in or configured effort reads `= session`", () => {
     const code = runConfigModelsCli([], {
       read: reader({ launch: { effort: "high" } }),
     });
@@ -106,8 +116,6 @@ describe("runConfigModelsCli", () => {
       "scout",
       "coder",
       "review",
-      "fix-applier",
-      "ui-driver",
       "consolidator",
       "merge-resolver",
     ]) {
@@ -115,6 +123,85 @@ describe("runConfigModelsCli", () => {
       expect(line, `no row for ${phase}`).toBeDefined();
       expect(line).toMatch(/=\s*session\s*$/);
     }
+    // The cheap-model fan-outs and the product reviewer carry a medium
+    // built-in, capped at the session for the first two.
+    for (const phase of ["fix-applier", "ui-driver"]) {
+      const line = out.find((l) => l.trimStart().startsWith(phase + " "));
+      expect(line).toMatch(/medium · built-in\s*$/);
+    }
+  });
+
+  it("renders configured efforts with a `· config` cell and lens config on its own row", () => {
+    const code = runConfigModelsCli([], {
+      read: reader({
+        launch: { effort: "high" },
+        efforts: { coder: "xhigh", reviewLenses: { product: "max" } },
+      }),
+    });
+    expect(code).toBe(0);
+    const coder = out.find((l) => l.trimStart().startsWith("coder "));
+    expect(coder).toMatch(/xhigh · config\s*$/);
+    const product = out.find((l) =>
+      l.trimStart().startsWith("review-lens:product "),
+    );
+    expect(product).toMatch(/max · config\s*$/);
+  });
+
+  it("formatEffortCell: capped built-in reads `≤ level` only while the session effort is unknown", () => {
+    const capped = {
+      phase: "fix-applier",
+      effort: "medium",
+      effortSource: "built-in (fix-applier, ≤ session)",
+    } as ResolvedRow;
+    expect(formatEffortCell(capped, false)).toBe("≤ medium · built-in");
+    expect(formatEffortCell(capped, true)).toBe("medium · built-in");
+    const uncapped = {
+      phase: "review-lens:product",
+      effort: "medium",
+      effortSource: "built-in (review-lens:product)",
+    } as ResolvedRow;
+    expect(formatEffortCell(uncapped, false)).toBe("medium · built-in");
+  });
+
+  it("CLAUDE_CODE_EFFORT_LEVEL overrides every row and prints a banner", () => {
+    const code = runConfigModelsCli(["--json"], {
+      read: reader({ efforts: { coder: "low" } }),
+      env: { CLAUDE_CODE_EFFORT_LEVEL: "max" },
+    });
+    expect(code).toBe(0);
+    for (const r of JSON.parse(out[0])) {
+      expect(r.effort).toBe("max");
+      expect(r.effortSource).toBe("env (CLAUDE_CODE_EFFORT_LEVEL)");
+    }
+    out.length = 0;
+    runConfigModelsCli([], {
+      read: reader(undefined),
+      env: { CLAUDE_CODE_EFFORT_LEVEL: "max" },
+    });
+    const text = out.join("\n");
+    expect(text).toContain(
+      "CLAUDE_CODE_EFFORT_LEVEL=max overrides the effort of every sub-agent",
+    );
+    expect(text).toMatch(
+      /fix-applier\s+sonnet\s+built-in \(sonnet\)\s+max · env/,
+    );
+  });
+
+  it("prints a banner when the running build predates per-spawn effort, and none otherwise", () => {
+    runConfigModelsCli([], {
+      read: reader(undefined),
+      env: { AI_AGENT: "claude-code_2-1-291_agent" },
+    });
+    expect(out.join("\n")).toContain("predates per-spawn sub-agent effort");
+    out.length = 0;
+    runConfigModelsCli([], {
+      read: reader(undefined),
+      env: { AI_AGENT: "claude-code_2-1-303_agent" },
+    });
+    expect(out.join("\n")).not.toContain("predates per-spawn");
+    out.length = 0;
+    runConfigModelsCli([], { read: reader(undefined), env: {} });
+    expect(out.join("\n")).not.toContain("predates per-spawn");
   });
 
   it("--slug renders the frozen run effort with source `this run (fixed at launch)`, ignoring a differing launch.effort in config", () => {
@@ -150,16 +237,14 @@ describe("runConfigModelsCli", () => {
     expect(cols).toEqual(["PHASE", "MODEL", "SOURCE", "EFFORT"]);
   });
 
-  it("the footer names the launch-time timing and the no-per-spawn-effort-argument reason", () => {
+  it("the footer explains per-spawn effort and no longer claims the Task tool lacks the argument", () => {
     const code = runConfigModelsCli([], { read: reader(undefined) });
     expect(code).toBe(0);
     const table = out.join("\n");
     expect(table).toContain(
-      "effort is fixed when the pipeline launches; MODEL resolves at each spawn",
+      "MODEL and EFFORT both resolve at each spawn; set a row's effort with efforts.<key> (same key as models.*) — needs Claude Code 2.1.292+",
     );
-    expect(table).toContain(
-      "the Task tool has no per-spawn effort argument, so every sub-agent follows the session — except the product reviewer, which always runs at medium effort (--effort does not change it)",
-    );
+    expect(table).not.toContain("no per-spawn effort argument");
   });
 
   // Story 1b — review-lens rows: default inherited, an explicit
@@ -233,8 +318,8 @@ describe("runConfigModelsCli", () => {
     expect(fixApplier).toMatchObject({
       model: "sonnet",
       source: "built-in (sonnet)",
-      effort: "= session",
-      effortSource: "follows session",
+      effort: "medium",
+      effortSource: "built-in (fix-applier, ≤ session)",
     });
     const product = parsed.find(
       (r: { phase: string }) => r.phase === "review-lens:product",
@@ -243,7 +328,7 @@ describe("runConfigModelsCli", () => {
       model: "opus",
       source: "pinned (opus)",
       effort: "medium",
-      effortSource: "pinned (agents/core/flow-review-product.md)",
+      effortSource: "built-in (review-lens:product)",
     });
     const session = parsed.find(
       (r: { phase: string }) => r.phase === "session",

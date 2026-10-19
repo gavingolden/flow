@@ -29,19 +29,14 @@
 import * as fs from "node:fs";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import {
-  readPhaseModel,
-  readReviewLensModel,
   defaultReadConfigFile,
   REVIEW_LENS_NAMES,
   type ReadConfigFile,
   type ReviewLensName,
 } from "./lib/models-config";
-import {
-  CONFIG_KEYS,
-  resolveRouting,
-  type ConfigModels,
-} from "./lib/model-routing-table";
-import { readState, type ModelAlias, type PipelineState } from "./lib/state";
+import { resolveRouting } from "./lib/model-routing-table";
+import { readConfigModels } from "./lib/read-config-models";
+import { readState, type PipelineState } from "./lib/state";
 
 const USAGE =
   "usage: flow-review-model <lens> [--slug <slug>] [--config <path>] [--state <path>] [--json]\n" +
@@ -68,7 +63,7 @@ function isConsolidator(v: string): boolean {
   return v === "consolidator";
 }
 
-function fileReader(path: string): ReadConfigFile {
+export function fileReader(path: string): ReadConfigFile {
   return () => {
     try {
       return JSON.parse(fs.readFileSync(path, "utf8"));
@@ -78,7 +73,9 @@ function fileReader(path: string): ReadConfigFile {
   };
 }
 
-function fileStateLoader(path: string): (slug: string) => PipelineState | null {
+export function fileStateLoader(
+  path: string,
+): (slug: string) => PipelineState | null {
   return () => {
     try {
       const raw: unknown = JSON.parse(fs.readFileSync(path, "utf8"));
@@ -164,16 +161,7 @@ export function run(argv: string[], deps: FlowReviewModelDeps = {}): number {
   // Reuse `resolveRouting`'s precedence chain rather than reimplementing it —
   // build the same `ConfigModels` shape `flow config models` builds, then
   // pick out the one `review-lens:<lens>` row.
-  const config: ConfigModels = {};
-  for (const key of CONFIG_KEYS) {
-    config[key] = readPhaseModel(key, read);
-  }
-  const reviewLenses: Partial<Record<string, ModelAlias>> = {};
-  for (const l of REVIEW_LENS_NAMES) {
-    const v = readReviewLensModel(l, read);
-    if (v) reviewLenses[l] = v;
-  }
-  config.reviewLenses = reviewLenses;
+  const config = readConfigModels(read);
 
   const rows = resolveRouting({ state, config });
   const row = rows.find((r) =>

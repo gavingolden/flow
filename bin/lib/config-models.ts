@@ -11,40 +11,83 @@
 
 import { argsContainHelp, printVerbHelp } from "./help";
 import {
-  readPhaseModel,
-  readReviewLensModel,
   defaultReadConfigFile,
   cachedConfigRead,
-  REVIEW_LENS_NAMES,
   type ReadConfigFile,
 } from "./models-config";
+import { resolveRouting, type ResolvedRow } from "./model-routing-table";
+import { readConfigModels } from "./read-config-models";
+import { readEffortsConfig } from "./efforts-config";
 import {
-  CONFIG_KEYS,
-  resolveRouting,
-  type ConfigModels,
-  type ResolvedRow,
-} from "./model-routing-table";
+  detectClaudeBuild,
+  MIN_SUBAGENT_EFFORT_VERSION,
+  supportsSubagentEffort,
+} from "./claude-build";
 import { readLaunchDefaults } from "./launch-config";
-import { readState, type ModelAlias, type PipelineState } from "./state";
+import { readState, EFFORT_LEVELS, type PipelineState } from "./state";
 import { friendlyName } from "./cost-pricing";
 import { dim } from "./color";
 
 /**
  * The two dim footer lines that explain the models table's `= session`
- * vocabulary and why EFFORT follows the session on every row but the product
- * reviewer. Exported so `config-all.ts`'s aggregate view prints the identical
- * text under its own models section rather than letting the two views drift.
+ * vocabulary and how EFFORT resolves per row. Exported so `config-all.ts`'s
+ * aggregate view prints the identical text under its own models section
+ * rather than letting the two views drift.
  */
 export const MODEL_FOOTERS: readonly string[] = [
-  "effort is fixed when the pipeline launches; MODEL resolves at each spawn",
-  "the Task tool has no per-spawn effort argument, so every sub-agent follows the session — except the product reviewer, which always runs at medium effort (--effort does not change it)",
+  "MODEL and EFFORT both resolve at each spawn; set a row's effort with efforts.<key> (same key as models.*) — needs Claude Code 2.1.292+",
+  "EFFORT `= session` follows the session; fix-applier and UI driver default to medium (never above the session), the product reviewer to medium; CLAUDE_CODE_EFFORT_LEVEL overrides every row",
 ];
+
+/**
+ * One EFFORT-cell string per row, shared by `flow config models` and
+ * `flow config all` so the two views cannot drift. `sessionKnown` is whether
+ * the session's effort is known: a capped built-in row then reads
+ * `≤ medium` rather than claiming the level it would only reach on a
+ * high-enough session.
+ */
+export function formatEffortCell(
+  row: ResolvedRow,
+  sessionKnown: boolean = true,
+): string {
+  if (row.phase === "session" || row.effort === "= session") return row.effort;
+  if (row.effortSource.startsWith("env")) return `${row.effort} · env`;
+  if (row.effortSource.startsWith("config")) return `${row.effort} · config`;
+  if (row.effortSource.startsWith("built-in")) {
+    const capped = row.effortSource.includes("≤ session");
+    return `${capped && !sessionKnown ? "≤ " : ""}${row.effort} · built-in`;
+  }
+  return row.effort;
+}
+
+/** Whether the session's effort is a concrete level (vs. the `(none)` display value). */
+export function isSessionEffortKnown(models: ModelRows): boolean {
+  return (EFFORT_LEVELS as readonly string[]).includes(models.effort.value);
+}
+
+/** Banner lines printed above the models table (empty when nothing to warn about). */
+export function effortBanners(models: ModelRows): string[] {
+  const banners: string[] = [];
+  if (models.envEffort) {
+    banners.push(
+      `CLAUDE_CODE_EFFORT_LEVEL=${models.envEffort} overrides the effort of every sub-agent (settings-file env entries count too), so the per-row efforts below are not in effect.`,
+    );
+  }
+  if (models.buildTooOld) {
+    banners.push(
+      `This Claude Code build predates per-spawn sub-agent effort (needs ${MIN_SUBAGENT_EFFORT_VERSION}+): only agent-file values apply — fix-applier, UI driver and the product reviewer run at medium, the rest follow the session.`,
+    );
+  }
+  return banners;
+}
 
 export type ConfigModelsOptions = {
   /** Injectable config reader (test seam); defaults to the real flowConfigPath() read. */
   read?: ReadConfigFile;
   /** Injectable feature-state reader (test seam); defaults to `readState`. */
   loadState?: (slug: string) => PipelineState | null;
+  /** Injectable environment (test seam); defaults to `process.env`. */
+  env?: NodeJS.ProcessEnv;
 };
 
 /**
@@ -101,52 +144,54 @@ export function runConfigModelsCli(
     options.read ?? defaultReadConfigFile,
   );
 
-  const { rows, effort } = buildModelRows(read, state);
+  const modelRows = buildModelRows(read, state, options.env);
+  const { rows, effort } = modelRows;
 
   if (json) {
     console.log(JSON.stringify(rows));
     return 0;
   }
 
+  for (const banner of effortBanners(modelRows)) console.log(banner);
   console.log(`effort: ${effort.value} — ${effort.source}`);
   console.log("");
-  printTable(rows);
+  printTable(rows, isSessionEffortKnown(modelRows));
   return 0;
 }
 
 export type ModelRows = {
   rows: ResolvedRow[];
   effort: { value: string; source: string };
+  /** `CLAUDE_CODE_EFFORT_LEVEL` when set to a valid level: it overrides every sub-agent. */
+  envEffort?: string;
+  /** The running build is detectably older than the per-spawn effort floor. */
+  buildTooOld?: boolean;
 };
 
 /**
  * Pure(ish) row-builder over an already-resolved `read` + `state`: resolves
  * the session effort (state > `launch.effort` > built-in), reads every
- * `CONFIG_KEYS` grain plus the nested `reviewLenses` object, and feeds both
- * into `resolveRouting`. Extracted so `flow config all` can compose this
- * section without re-parsing `~/.flow/config.json`.
+ * `models.*` and `efforts.*` grain, and feeds them into `resolveRouting`.
+ * Extracted so `flow config all` can compose this section without
+ * re-parsing `~/.flow/config.json`.
  */
 export function buildModelRows(
   read: ReadConfigFile,
   state: PipelineState | null,
+  env: NodeJS.ProcessEnv = process.env,
 ): ModelRows {
-  const config: ConfigModels = {};
-  for (const key of CONFIG_KEYS) {
-    config[key] = readPhaseModel(key, read);
-  }
-  // Nested grain, kept out of CONFIG_KEYS (see model-routing-table.ts's
-  // `fineGrainAbove` doc comment) — read one lens at a time and fold into a
-  // `reviewLenses` object `resolveRouting`'s `resolveFineGrain` walks.
-  const reviewLenses: Partial<Record<string, ModelAlias>> = {};
-  for (const lens of REVIEW_LENS_NAMES) {
-    const v = readReviewLensModel(lens, read);
-    if (v) reviewLenses[lens] = v;
-  }
-  config.reviewLenses = reviewLenses;
-
+  const config = readConfigModels(read);
+  const efforts = readEffortsConfig(read);
+  const rawEnv = env.CLAUDE_CODE_EFFORT_LEVEL;
+  const envEffort =
+    rawEnv && (EFFORT_LEVELS as readonly string[]).includes(rawEnv)
+      ? rawEnv
+      : undefined;
   const effort = resolveSessionEffort(state, read);
-  const rows = resolveRouting({ state, config, effort });
-  return { rows, effort };
+  const rows = resolveRouting({ state, config, effort, efforts, envEffort });
+  const buildTooOld =
+    detectClaudeBuild(env) !== null && !supportsSubagentEffort(env);
+  return { rows, effort, envEffort, buildTooOld };
 }
 
 /**
@@ -182,22 +227,20 @@ function resolveSessionEffort(
   return { value: "(none)", source: "built-in (no --effort passed)" };
 }
 
-function printTable(rows: ResolvedRow[]): void {
+function printTable(rows: ResolvedRow[], sessionKnown: boolean): void {
   type Col = { header: string; get: (r: ResolvedRow) => string };
   const cols: Col[] = [
     { header: "PHASE", get: (r) => r.phase },
     {
       header: "MODEL",
-      // Deliberately NOT the EFFORT column's `= session`. The two columns
-      // describe different relationships: a model is resolved per spawn and
-      // may be overridden per row, so an unset one INHERITS; effort is fixed
-      // once at launch and no row can vary it, so every sub-agent row ECHOES
-      // the session value. Collapsing both to one word would re-lose the
-      // spawn-time/launch-time distinction this view exists to make legible.
+      // Deliberately NOT the EFFORT column's `= session`: an unset model
+      // INHERITS the session model, an unset effort FOLLOWS the session's
+      // effort. Both resolve per spawn, but they are independent axes with
+      // independent overrides; one word for both would blur that.
       get: (r) => (r.model ? friendlyName(r.model) : "inherited"),
     },
     { header: "SOURCE", get: (r) => r.source },
-    { header: "EFFORT", get: (r) => r.effort },
+    { header: "EFFORT", get: (r) => formatEffortCell(r, sessionKnown) },
   ];
   const widths = cols.map((c) =>
     Math.max(c.header.length, ...rows.map((r) => c.get(r).length)),

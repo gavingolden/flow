@@ -1187,6 +1187,20 @@ describe("runEpicCli create — --effort / --model flags", () => {
     expect(command).not.toContain("--model");
   });
 
+  it("warns when config efforts.fixApplier is present-but-invalid at epic create", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ efforts: { fixApplier: "hgh" } }),
+    });
+    expect(code).toBe(0);
+    expect(errors.join("\n")).toMatch(
+      /efforts\.fixApplier.*not a valid effort level/,
+    );
+  });
+
   // --- config launch.effort at epic-create launch --------------------------
 
   it("threads config launch.effort into the created session argv when no --effort", () => {

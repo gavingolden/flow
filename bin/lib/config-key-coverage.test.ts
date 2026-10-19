@@ -12,6 +12,7 @@ import { resolveFlowSource } from "./paths";
 import { SETTINGS_KEYS } from "./config-settings";
 import { CONFIG_KEYS } from "./model-routing-table";
 import { LAUNCH_CONFIG_KEYS } from "./launch-config";
+import { EFFORT_CONFIG_KEYS } from "./efforts-config";
 
 function parseDocKeys(md: string): Set<string> {
   const inRefSection = md
@@ -49,6 +50,9 @@ function renderedKeys(): Set<string> {
   // LAUNCH_CONFIG_KEYS holds bare effort/autoMerge/... against FIVE
   // separate `launch.<key>` doc rows — one entry each.
   for (const entry of LAUNCH_CONFIG_KEYS) keys.add(`launch.${entry.key}`);
+  // EFFORT_CONFIG_KEYS holds bare role keys against the SINGLE doc row
+  // `efforts.*` (the nested `reviewLenses.<lens>` grain is described in it).
+  if (EFFORT_CONFIG_KEYS.length > 0) keys.add("efforts.*");
   keys.add("launcher");
   return keys;
 }

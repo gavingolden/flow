@@ -3,6 +3,7 @@ name: flow-ui-driver
 description: Browser-drive sub-agent for /flow-verify's UI-smoke pass. Launches the app, drives chrome-devtools per route and viewport, writes the captures JSON + result artifact. The manifest already says what to do, so this agent does not deliberate.
 tools: Bash, Read, Write, ToolSearch, mcp__chrome-devtools__*
 maxTurns: 120
+effort: medium
 skills:
   - flow-ui-driver-instructions
 ---
@@ -26,13 +27,13 @@ Three invariants:
   both-sides summary; the artifact on disk is the durable record.
 - **Read flow's own docs with the Read tool** — never `awk` or pattern-range `sed` on flow skill paths; Claude Code can flag it as a protected-file edit and stall the run.
 
-This definition does not pin `effort`: the Task tool has no per-spawn effort
-argument, so a frontmatter pin would be unoverridable even though this row's
-`model` is only a configurable default (`config.models.uiDriver`, falling
-back to a literal sonnet). Effort instead follows the session's `state.effort`
-like every other routed site. The per-spawn `model:` argument the caller
-passes still wins over this definition's model, so per-phase model flags keep
-working unchanged.
+The frontmatter `effort: medium` is a deterministic floor: it applies on
+Claude Code builds before 2.1.292 or if a spawn site forgets the argument. On
+2.1.292+ the per-spawn `effort` from `flow-spawn-effort ui-driver`
+(`min(session, medium)` by default; `efforts.uiDriver` changes it) overrides
+this floor. The per-spawn `model:` argument the caller passes still wins over
+this definition's model (`config.models.uiDriver`, falling back to a literal
+sonnet), so per-phase model flags keep working unchanged.
 
 `maxTurns: 120` bounds the per-route drive loop. If you reach it, write the
 artifact FIRST as soon as you sense you're near the budget — a missing or

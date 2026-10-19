@@ -18,11 +18,13 @@ import {
   PHASE_MODEL_FLAGS,
   MODEL_PRICE_RANK,
   INHERITANCE_CAP_ALIAS,
+  EFFORT_LEVELS,
   type EffortLevel,
   type ModelAlias,
   type PipelineState,
 } from "./state";
 import { REVIEW_LENS_NAMES, type ReviewLensName } from "./models-config";
+import { EFFORT_CONFIG_KEYS, type ConfigEfforts } from "./efforts-config";
 
 /** Terminal fallback kind when neither a state override nor config resolves. */
 export type Fallback =
@@ -56,11 +58,13 @@ export type SpawnSite = {
   fineGrainAbove?: string;
   fallback: Fallback;
   /**
-   * An `effort:` pinned in this site's agent definition. The ONE exception to
-   * "effort follows the session" (see `SPAWN_SITES`): resolved as a fixed
-   * value regardless of the session's effort.
+   * The built-in per-spawn effort for this site when `efforts.<key>` is
+   * unset. `capAtSession` caps it at the session's effort (a `low` session
+   * never gets a higher-effort mechanical sub-agent); without it the level
+   * applies regardless of the session. Sites without a default follow the
+   * session. Mirrored as the `effort:` floor in the site's agent definition.
    */
-  effortPin?: EffortLevel;
+  effortDefault?: { level: EffortLevel; capAtSession: boolean };
 };
 
 const LENS_FALLBACK: Partial<Record<ReviewLensName, Fallback>> = {
@@ -73,12 +77,13 @@ const LENS_FALLBACK: Partial<Record<ReviewLensName, Fallback>> = {
  * prose-only in `model-routing.md` (not a precedence-table row); the drift
  * lint treats it as table-exempt.
  *
- * One row pins `effort`: `review-lens:product` (`effortPin`, mirrored from
- * `agents/core/flow-review-product.md`). The Task tool has no per-spawn effort
- * argument, so that pin is unoverridable even though the row's `model` is a
- * configurable default. Every other row's effort follows the session's effort,
- * resolved by the caller on `state.effort > launch.effort config > built-in`
- * and injected as `resolveRouting`'s `effort` argument.
+ * Effort resolves per spawn like the model (`resolveSpawnEffort`):
+ * `efforts.<key>` config > the site's built-in `effortDefault` > the
+ * session's effort. Three rows carry a built-in default: `fix-applier` and
+ * `ui-driver` (mechanical work, `medium` capped at the session) and
+ * `review-lens:product` (`medium`, uncapped). Every other row follows the
+ * session. `flow-spawn-effort` is the spawn-time entry point; it needs
+ * Claude Code 2.1.292+ and otherwise the agent files' `effort:` floor applies.
  */
 export const SPAWN_SITES: readonly SpawnSite[] = [
   {
@@ -118,7 +123,7 @@ export const SPAWN_SITES: readonly SpawnSite[] = [
   // Each inherits the session model, capped: a session model priced above
   // `INHERITANCE_CAP_ALIAS` falls back to opus rather than reaching seven
   // expensive review spawns at once. Two exceptions. `product` is a literal opus on
-  // every session (a Sonnet session is NOT passed through) and a pinned medium
+  // every session (a Sonnet session is NOT passed through) and a built-in medium
   // effort. `bug-detection` inherits uncapped: the recall check in
   // docs/eval/fable-vs-opus-subagents.md found Fable re-found 8.7% vs 3.9%
   // (p = 0.0065) at $2.50 vs $0.71 a review.
@@ -129,7 +134,9 @@ export const SPAWN_SITES: readonly SpawnSite[] = [
       configKey: "review",
       fineGrainAbove: `reviewLenses.${lens}`,
       fallback: LENS_FALLBACK[lens] ?? "session-capped-opus",
-      ...(lens === "product" ? { effortPin: "medium" as const } : {}),
+      ...(lens === "product"
+        ? { effortDefault: { level: "medium" as const, capAtSession: false } }
+        : {}),
     }),
   ),
   // fix-applier falls back to a LITERAL sonnet, not the session model:
@@ -139,6 +146,7 @@ export const SPAWN_SITES: readonly SpawnSite[] = [
     stateField: "modelFixApplier",
     configKey: "fixApplier",
     fallback: "builtin-sonnet",
+    effortDefault: { level: "medium", capAtSession: true },
   },
   // ui-driver falls back to a LITERAL sonnet like fix-applier: a manifest-driven
   // browser drive is template execution that must not silently inherit Opus/Fable.
@@ -148,6 +156,7 @@ export const SPAWN_SITES: readonly SpawnSite[] = [
     phase: "ui-driver",
     configKey: "uiDriver",
     fallback: "builtin-sonnet",
+    effortDefault: { level: "medium", capAtSession: true },
   },
   {
     phase: "consolidator",
@@ -239,45 +248,136 @@ function fallbackRow(
   }
 }
 
+function asEffortLevel(v: unknown): EffortLevel | "" {
+  return typeof v === "string" &&
+    (EFFORT_LEVELS as readonly string[]).includes(v)
+    ? (v as EffortLevel)
+    : "";
+}
+
+/**
+ * The `efforts.<key>` a site reads: its per-role key (the fine-grain key when
+ * it has one — `scout` / `coder` / `reviewLenses.<lens>` — else its config
+ * key). The `review` / `implement` group grains and the `session` row's
+ * `default` have no effort key, so they return `undefined`.
+ */
+function effortKeyFor(site: SpawnSite): string | undefined {
+  const key = site.fineGrainAbove ?? site.configKey;
+  if (!key) return undefined;
+  return EFFORT_CONFIG_KEYS.includes(key) || key.startsWith("reviewLenses.")
+    ? key
+    : undefined;
+}
+
+function lookupEffort(
+  efforts: ConfigEfforts,
+  key: string,
+): EffortLevel | undefined {
+  const dot = key.indexOf(".");
+  if (dot === -1) {
+    const v = efforts[key];
+    return typeof v === "string" ? v : undefined;
+  }
+  const outer = efforts[key.slice(0, dot)];
+  if (typeof outer !== "object" || outer === null) return undefined;
+  return outer[key.slice(dot + 1)];
+}
+
+/**
+ * Pure per-spawn effort resolver: `efforts.<key>` config (never capped by the
+ * session) > the site's built-in `effortDefault` (capped at the session's
+ * effort when `capAtSession`; an unknown session `""` keeps the level) > `""`,
+ * meaning "omit the argument and follow the session".
+ */
+export function resolveSpawnEffort(
+  site: SpawnSite,
+  efforts: ConfigEfforts,
+  sessionEffort: EffortLevel | "",
+): { effort: EffortLevel | ""; source: string } {
+  const key = effortKeyFor(site);
+  if (key) {
+    const configured = lookupEffort(efforts, key);
+    if (configured) {
+      return { effort: configured, source: `config (efforts.${key})` };
+    }
+  }
+  const def = site.effortDefault;
+  if (def) {
+    if (!def.capAtSession) {
+      return { effort: def.level, source: `built-in (${site.phase})` };
+    }
+    const capped =
+      sessionEffort &&
+      EFFORT_LEVELS.indexOf(sessionEffort) < EFFORT_LEVELS.indexOf(def.level)
+        ? sessionEffort
+        : def.level;
+    return { effort: capped, source: `built-in (${site.phase}, ≤ session)` };
+  }
+  return { effort: "", source: "follows session" };
+}
+
 /**
  * Pure resolver: walk each site's precedence chain against the injected
  * `state` (a feature `state.json`, or null/undefined for the global view) and
  * `config` (the validated `config.models` table). No I/O — the CLI shim does
  * the tolerant reads and passes the results in.
  *
- * `effort` is likewise injected rather than derived here (keeping this
- * module I/O-free): when the caller supplies `input.effort`, the `session`
- * row carries it verbatim and every other row follows the session
- * (`= session` / `follows session`) — the Task tool exposes no per-spawn
- * effort argument, so a row's effort can only be fixed by its agent
- * definition: the one row that does (`effortPin`, `review-lens:product`)
- * reports that pinned value whether or not session effort is injected. When
- * `input.effort` is omitted, behaviour is unchanged from before this field
- * existed: `state?.effort ?? "inherited"` on every unpinned row.
+ * Effort is resolved per spawn through `resolveSpawnEffort` against the
+ * injected `efforts` (the validated `config.efforts` table). `input.effort`
+ * carries the session's effort: the `session` row reports it verbatim and a
+ * row with nothing to say follows it (`= session` / `follows session`). When
+ * `input.effort` is omitted, a row with nothing to say reports
+ * `state?.effort ?? "inherited"`. `envEffort` (`CLAUDE_CODE_EFFORT_LEVEL`)
+ * overrides every sub-agent — and the session — so when set every row reports
+ * it. All effort inputs are optional: model-only callers
+ * (`flow-review-model`, `flow-agy-lenses`) pass none.
  */
 export function resolveRouting(input: {
   state: PipelineState | null | undefined;
   config: ConfigModels;
   effort?: { value: string; source: string };
+  efforts?: ConfigEfforts;
+  envEffort?: string;
 }): ResolvedRow[] {
-  const { state, config, effort } = input;
+  const { state, config, effort, efforts = {}, envEffort } = input;
+  // The session-effort display value `(none)` means "no --effort passed".
+  const sessionEffort = asEffortLevel(effort ? effort.value : state?.effort);
   return SPAWN_SITES.map((site) => {
     const resolved = resolveModel(site, state, config);
-    if (site.effortPin) {
+    if (envEffort) {
       return {
         phase: site.phase,
         ...resolved,
-        effort: site.effortPin,
-        effortSource: "pinned (agents/core/flow-review-product.md)",
+        effort: envEffort,
+        effortSource: "env (CLAUDE_CODE_EFFORT_LEVEL)",
+      };
+    }
+    const isSession = site.phase === "session";
+    if (isSession && effort) {
+      return {
+        phase: site.phase,
+        ...resolved,
+        effort: effort.value,
+        effortSource: effort.source,
+      };
+    }
+    const spawn = isSession
+      ? { effort: "" as const, source: "follows session" }
+      : resolveSpawnEffort(site, efforts, sessionEffort);
+    if (spawn.effort) {
+      return {
+        phase: site.phase,
+        ...resolved,
+        effort: spawn.effort,
+        effortSource: spawn.source,
       };
     }
     if (effort) {
-      const isSession = site.phase === "session";
       return {
         phase: site.phase,
         ...resolved,
-        effort: isSession ? effort.value : "= session",
-        effortSource: isSession ? effort.source : "follows session",
+        effort: "= session",
+        effortSource: "follows session",
       };
     }
     return {

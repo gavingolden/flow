@@ -69,18 +69,12 @@ import { planLensRoutes, type LensRoute } from "./lib/delegated-lens-plan";
 import { buildDelegatedLensPrompt } from "./lib/lens-prompt";
 import {
   defaultReadConfigFile,
-  readPhaseModel,
-  readReviewLensModel,
-  REVIEW_LENS_NAMES,
   type ReadConfigFile,
 } from "./lib/models-config";
-import {
-  CONFIG_KEYS,
-  resolveRouting,
-  type ConfigModels,
-} from "./lib/model-routing-table";
+import { resolveRouting } from "./lib/model-routing-table";
+import { readConfigModels } from "./lib/read-config-models";
 import { resolveSlugAmbient } from "./lib/session-identity";
-import { readState, type ModelAlias, type PipelineState } from "./lib/state";
+import { readState, type PipelineState } from "./lib/state";
 import {
   run as runFanoutCli,
   type EntryResult,
@@ -206,14 +200,7 @@ function taskModelResolver(
   read: ReadConfigFile,
   state: PipelineState | null,
 ): (lens: DelegatableLens) => string | null {
-  const config: ConfigModels = {};
-  for (const key of CONFIG_KEYS) config[key] = readPhaseModel(key, read);
-  const reviewLenses: Partial<Record<string, ModelAlias>> = {};
-  for (const l of REVIEW_LENS_NAMES) {
-    const v = readReviewLensModel(l, read);
-    if (v) reviewLenses[l] = v;
-  }
-  config.reviewLenses = reviewLenses;
+  const config = readConfigModels(read);
   const rows = resolveRouting({ state, config });
   return (lens) => {
     const row = rows.find((r) => r.phase === `review-lens:${lens}`);

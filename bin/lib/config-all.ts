@@ -14,7 +14,14 @@ import {
   type ReadConfigFile,
 } from "./models-config";
 import { friendlyName } from "./cost-pricing";
-import { buildModelRows, MODEL_FOOTERS, type ModelRows } from "./config-models";
+import {
+  buildModelRows,
+  effortBanners,
+  formatEffortCell,
+  isSessionEffortKnown,
+  MODEL_FOOTERS,
+  type ModelRows,
+} from "./config-models";
 import { collectLaunchConfigWarnings } from "./launch-config";
 import {
   buildLaunchRows,
@@ -27,7 +34,7 @@ import { dim } from "./color";
 import type { ConfigModelsOptions } from "./config-models";
 
 const MODELS_TIMING =
-  "MODEL resolves at each sub-agent spawn, so a config edit changes the next spawn — EFFORT is fixed when the pipeline launches (see the effort line above)";
+  "MODEL and EFFORT resolve at each sub-agent spawn, so a config edit changes the next spawn — the session's own effort is fixed when the pipeline launches (see the effort line above)";
 const LAUNCH_TIMING =
   "fixed when a pipeline launches — a config edit changes only the next launch";
 const SETTINGS_TIMING =
@@ -87,7 +94,7 @@ export function runConfigAllCli(
     console.error(dim(`flow config all: ${w}`));
   }
 
-  const models: ModelRows = buildModelRows(read, state);
+  const models: ModelRows = buildModelRows(read, state, options.env);
   const launchRows: LaunchRow[] = buildLaunchRows(read, state);
   const settingsRows: SettingRow[] = buildSettingsRows(read);
 
@@ -103,6 +110,7 @@ export function runConfigAllCli(
   }
 
   console.log(`models — ${MODELS_TIMING}`);
+  for (const banner of effortBanners(models)) console.log(banner);
   console.log(`effort: ${models.effort.value} — ${models.effort.source}`);
   console.log("");
   printRows(
@@ -116,7 +124,11 @@ export function runConfigAllCli(
           r.model ? friendlyName(r.model) : "= session",
       },
       { header: "SOURCE", get: (r: (typeof models.rows)[number]) => r.source },
-      { header: "EFFORT", get: (r: (typeof models.rows)[number]) => r.effort },
+      {
+        header: "EFFORT",
+        get: (r: (typeof models.rows)[number]) =>
+          formatEffortCell(r, isSessionEffortKnown(models)),
+      },
     ],
     models.rows,
   );
