@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  INFRA_FAILURE_CLASSES,
   chunked,
   mergeResults,
   parseResetsIn,
@@ -54,6 +55,56 @@ describe("pendingSlots", () => {
     expect(pendingSlots(manifest, prior)).toEqual(manifest.slice(1));
   });
 
+  it("treats a production-limit timeout as a standing result, not a pending slot", () => {
+    const prior = [
+      row(manifest[0]!, {
+        ran: false,
+        skipReason: "agy-timeout",
+        failureClass: "timeout",
+        response: undefined,
+      }),
+    ];
+    expect(pendingSlots(manifest, prior)).toEqual(manifest.slice(1));
+  });
+
+  it("treats an empty-artifact or tool-denied-empty answer as standing", () => {
+    const prior = [
+      row(manifest[0]!, { ran: false, failureClass: "empty-artifact" }),
+      row(manifest[1]!, { ran: false, failureClass: "tool-denied-empty" }),
+    ];
+    expect(pendingSlots(manifest, prior)).toEqual(manifest.slice(2));
+  });
+
+  it("re-fires every infrastructure failure class and a failure with no class", () => {
+    for (const failureClass of INFRA_FAILURE_CLASSES) {
+      const prior = [
+        row(manifest[0]!, {
+          ran: false,
+          failureClass: failureClass as BenchResult["failureClass"],
+        }),
+      ];
+      expect(pendingSlots(manifest, prior)).toEqual(manifest);
+    }
+    expect([...INFRA_FAILURE_CLASSES].sort()).toEqual([
+      "auth",
+      "canceled",
+      "quota-exhausted",
+      "rate-limited",
+      "spawn-failed",
+    ]);
+    expect(pendingSlots(manifest, [row(manifest[0]!, { ran: false })])).toEqual(
+      manifest,
+    );
+  });
+
+  it("keeps a slot done when an infrastructure failure sits beside a standing row", () => {
+    const prior = [
+      row(manifest[0]!, { ran: false, failureClass: "quota-exhausted" }),
+      row(manifest[0]!, { ran: false, failureClass: "timeout" }),
+    ];
+    expect(pendingSlots(manifest, prior)).toEqual(manifest.slice(1));
+  });
+
   it("selects pending slots BEFORE a cap, so a second tranche reaches new slots", () => {
     const tranche1 = pendingSlots(manifest, []).slice(0, 2);
     const prior = tranche1.map((e) => row(e));
@@ -100,6 +151,17 @@ describe("mergeResults", () => {
     const prior = [row(a!, { response: "first" })];
     const merged = mergeResults(prior, [row(a!, { response: "dup" })]);
     expect(merged).toEqual(prior);
+  });
+
+  it("does not append a fresh row over a standing model failure", () => {
+    const timedOut = row(a!, {
+      ran: false,
+      skipReason: "agy-timeout",
+      failureClass: "timeout",
+      response: undefined,
+    });
+    const prior = [timedOut, row(b!)];
+    expect(mergeResults(prior, [row(a!, { response: "late" })])).toEqual(prior);
   });
 
   it("a fresh failure replaces a prior failure for the same key", () => {

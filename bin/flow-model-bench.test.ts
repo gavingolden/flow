@@ -1359,7 +1359,7 @@ describe("runBench — chunked, resumable dispatch with a quota halt", () => {
     expect(packet2.slice(0, 2)).toEqual(packet1);
   });
 
-  it("a failed slot is re-dispatched on resume and its fresh success replaces it", async () => {
+  it("an infrastructure-failed slot is re-dispatched on resume and its fresh success replaces it", async () => {
     const files = new Map<string, string>();
     let first = true;
     const flaky: Deps["runFanout"] = async (manifest) => ({
@@ -1368,7 +1368,7 @@ describe("runBench — chunked, resumable dispatch with a quota halt", () => {
           ? makeEntryResult({
               task: m.task,
               ran: false,
-              skipReason: "agy-error",
+              skipReason: "spawn-failed",
             })
           : makeEntryResult({ task: m.task, ran: true }),
       ),
@@ -1389,6 +1389,37 @@ describe("runBench — chunked, resumable dispatch with a quota halt", () => {
     const rows = JSON.parse(files.get("out/results.json")!);
     expect(rows).toHaveLength(4);
     expect(rows.every((r: BenchResult) => r.ran)).toBe(true);
+  });
+
+  it("does not re-dispatch a slot that timed out", async () => {
+    const files = new Map<string, string>();
+    let first = true;
+    const timesOut: Deps["runFanout"] = async (manifest) => ({
+      entries: manifest.map((m, i) =>
+        first && i === 0
+          ? makeEntryResult({
+              task: m.task,
+              ran: false,
+              skipReason: "agy-timeout",
+            })
+          : makeEntryResult({ task: m.task, ran: true }),
+      ),
+      anyRan: true,
+      allSkipped: false,
+      calls: {
+        attempted: manifest.length,
+        ran: manifest.length,
+        skipped: 0,
+        budget: manifest.length,
+      },
+    });
+    await runBench(ARGV, benchDeps(files, timesOut));
+    first = false;
+    const log: string[][] = [];
+    await runBench([...ARGV, "--resume"], benchDeps(files, okFanout(log)));
+    expect(log.flat()).toHaveLength(0);
+    const rows = JSON.parse(files.get("out/results.json")!);
+    expect(rows.filter((r: BenchResult) => !r.ran)).toHaveLength(1);
   });
 });
 
