@@ -17,11 +17,12 @@ const MIN = 60_000;
 const flowAgy = (timeout = "12m"): string =>
   `agy --sandbox --print-timeout ${timeout} -p ## Operating constraints \\012\\012${FLOW_DELEGATE_PROMPT_MARKER} (research). Reply with...`;
 
-const row = (pid: number, ppid: number, command: string): AgyProcRow => ({
-  pid,
-  ppid,
-  command,
-});
+const row = (
+  pid: number,
+  ppid: number,
+  command: string,
+  pgid = pid,
+): AgyProcRow => ({ pid, ppid, pgid, command });
 
 const startsAgo = (ms: number) => NOW - ms;
 
@@ -33,20 +34,23 @@ describe("marker", () => {
 
 describe("listAgyProcs", () => {
   it("passes exactly AGY_PS_ARGS (with -ww) to ps", () => {
-    const spawnPs = vi.fn(() => "  PID  PPID COMMAND\n  5     1 agy -p x\n");
+    const spawnPs = vi.fn(
+      () => "  PID  PPID  PGID COMMAND\n  5     1     5 agy -p x\n",
+    );
     const procs = listAgyProcs(spawnPs);
     expect(spawnPs).toHaveBeenCalledWith(AGY_PS_ARGS);
     expect(AGY_PS_ARGS).toContain("-ww");
-    expect(procs).toEqual([{ pid: 5, ppid: 1, command: "agy -p x" }]);
+    expect(procs).toEqual([{ pid: 5, ppid: 1, pgid: 5, command: "agy -p x" }]);
   });
 
   it("folds a continuation line into the previous row's command", () => {
     const procs = listAgyProcs(
-      () => "PID PPID COMMAND\n 7 1 agy -p first\nsecond line\n 8 2 vim\n",
+      () =>
+        "PID PPID PGID COMMAND\n 7 1 7 agy -p first\nsecond line\n 8 2 3 vim\n",
     );
     expect(procs).toEqual([
-      { pid: 7, ppid: 1, command: "agy -p first\nsecond line" },
-      { pid: 8, ppid: 2, command: "vim" },
+      { pid: 7, ppid: 1, pgid: 7, command: "agy -p first\nsecond line" },
+      { pid: 8, ppid: 2, pgid: 3, command: "vim" },
     ]);
   });
 
@@ -88,6 +92,7 @@ describe("selectAgyStrays", () => {
     expect(out.map((s) => s.pid)).toEqual([10, 11, 24]);
     expect(out[0]).toEqual({
       pid: 10,
+      pgid: 10,
       startEpochMs: startsAgo(60 * MIN),
       ageMs: 60 * MIN,
       timeLimitSec: 720,
@@ -154,7 +159,7 @@ function sweepRig(opts: {
       if (phase === "start") return true;
       return (
         (phase === "termed" ? opts.aliveAfterTerm : opts.aliveAfterKill)?.has(
-          pid,
+          Math.abs(pid),
         ) ?? false
       );
     },
@@ -194,8 +199,8 @@ describe("sweepAgyStrays", () => {
   it("never signals a stray still within its own time limit", () => {
     const { deps, events } = sweepRig({ starts });
     sweepAgyStrays(deps, { yes: true });
-    expect(events.filter((e) => e.endsWith(":11"))).toEqual([]);
-    expect(events).toContain("SIGTERM:10");
+    expect(events.filter((e) => e.endsWith("11"))).toEqual([]);
+    expect(events).toContain("SIGTERM:-10");
   });
 
   it("stops at SIGTERM when the polite stop works (no SIGKILL)", () => {
@@ -203,7 +208,7 @@ describe("sweepAgyStrays", () => {
     const r = sweepAgyStrays(deps, { yes: true });
     expect(r.signalled).toEqual([10]);
     expect(r.killed).toEqual([]);
-    expect(events).not.toContain("SIGKILL:10");
+    expect(events).not.toContain("SIGKILL:-10");
   });
 
   it("escalates TERM -> grace -> KILL for a survivor, in that order", () => {
@@ -214,8 +219,8 @@ describe("sweepAgyStrays", () => {
     const r = sweepAgyStrays(deps, { yes: true });
     expect(r.signalled).toEqual([10]);
     expect(r.killed).toEqual([10]);
-    const t = events.indexOf("SIGTERM:10");
-    const k = events.indexOf("SIGKILL:10");
+    const t = events.indexOf("SIGTERM:-10");
+    const k = events.indexOf("SIGKILL:-10");
     expect(t).toBeGreaterThanOrEqual(0);
     expect(events.slice(t + 1, k)).toContain("sleep");
     expect(k).toBeGreaterThan(t);
@@ -262,8 +267,72 @@ describe("sweepAgyStrays", () => {
       aliveAfterTerm: new Set([10]),
     });
     const r = sweepAgyStrays(deps, { yes: true });
-    expect(events).toContain("SIGTERM:10");
-    expect(events).not.toContain("SIGKILL:10");
+    expect(events).toContain("SIGTERM:-10");
+    expect(events).not.toContain("SIGKILL:-10");
+    expect(r.killed).toEqual([]);
+  });
+});
+
+describe("sweepAgyStrays process-group targeting", () => {
+  const base: Record<number, number> = { 10: startsAgo(60 * MIN) };
+
+  it("signals the whole group (negative pid) for a group leader", () => {
+    const { deps, events } = sweepRig({
+      procs: [row(10, 1, flowAgy("12m"), 10)],
+      starts: (pid) => base[pid],
+      aliveAfterTerm: new Set([10]),
+    });
+    const r = sweepAgyStrays(deps, { yes: true });
+    expect(events.filter((e) => e.startsWith("SIG"))).toEqual([
+      "SIGTERM:-10",
+      "SIGKILL:-10",
+    ]);
+    expect(r.signalled).toEqual([10]);
+    expect(r.killed).toEqual([10]);
+  });
+
+  it("falls back to the single pid when the stray is not a group leader", () => {
+    const { deps, events } = sweepRig({
+      procs: [row(10, 1, flowAgy("12m"), 77)],
+      starts: (pid) => base[pid],
+      aliveAfterTerm: new Set([10]),
+    });
+    sweepAgyStrays(deps, { yes: true });
+    expect(events.filter((e) => e.startsWith("SIG"))).toEqual([
+      "SIGTERM:10",
+      "SIGKILL:10",
+    ]);
+  });
+
+  it("still SIGKILLs the group when the leader died on SIGTERM but helpers live", () => {
+    const reads = new Map<number, number>();
+    const { deps, events } = sweepRig({
+      procs: [row(10, 1, flowAgy("12m"), 10)],
+      // reads 1-2 = selection + pre-TERM; the leader is gone afterwards.
+      starts: (pid) => {
+        const n = (reads.get(pid) ?? 0) + 1;
+        reads.set(pid, n);
+        return n <= 2 ? base[pid] : undefined;
+      },
+      aliveAfterTerm: new Set([10]),
+    });
+    const r = sweepAgyStrays(deps, { yes: true });
+    expect(events).toContain("SIGKILL:-10");
+    expect(r.killed).toEqual([10]);
+  });
+
+  it("does not SIGKILL when the leader is gone and no group member remains", () => {
+    const reads = new Map<number, number>();
+    const { deps, events } = sweepRig({
+      procs: [row(10, 1, flowAgy("12m"), 10)],
+      starts: (pid) => {
+        const n = (reads.get(pid) ?? 0) + 1;
+        reads.set(pid, n);
+        return n <= 2 ? base[pid] : undefined;
+      },
+    });
+    const r = sweepAgyStrays(deps, { yes: true });
+    expect(events).not.toContain("SIGKILL:-10");
     expect(r.killed).toEqual([]);
   });
 });
@@ -274,9 +343,17 @@ describe("renderAgyStrayLine", () => {
       renderAgyStrayLine({
         ran: true,
         found: [
-          { pid: 1, startEpochMs: 1, ageMs: 9, timeLimitSec: 1, overdue: true },
+          {
+            pid: 1,
+            pgid: 1,
+            startEpochMs: 1,
+            ageMs: 9,
+            timeLimitSec: 1,
+            overdue: true,
+          },
           {
             pid: 2,
+            pgid: 2,
             startEpochMs: 1,
             ageMs: 9,
             timeLimitSec: 1,
