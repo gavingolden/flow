@@ -292,11 +292,16 @@ function deferredRunner(envelopeFor: (e: ManifestEntry) => DelegateEnvelope) {
 }
 
 function makeDeps(overrides: Partial<FanoutDeps> = {}): FanoutDeps & {
-  calls: { out: string[]; written: Array<{ path: string; data: string }> };
+  calls: {
+    out: string[];
+    written: Array<{ path: string; data: string }>;
+    renamed: Array<{ from: string; to: string }>;
+  };
 } {
   const calls = {
     out: [] as string[],
     written: [] as Array<{ path: string; data: string }>,
+    renamed: [] as Array<{ from: string; to: string }>,
   };
   return {
     runDelegate: async (entry) => ({
@@ -309,6 +314,9 @@ function makeDeps(overrides: Partial<FanoutDeps> = {}): FanoutDeps & {
     mkdirp: () => {},
     writeFile: (p, data) => {
       calls.written.push({ path: p, data });
+    },
+    rename: (from, to) => {
+      calls.renamed.push({ from, to });
     },
     writeOut: (line) => {
       calls.out.push(line);
@@ -403,9 +411,10 @@ describe("run — aggregation + concurrency", () => {
     // Same serialized string to both sinks (emitResult contract).
     expect(deps.calls.written).toHaveLength(1);
     expect(deps.calls.written[0]!.data).toBe(deps.calls.out[0]);
-    expect(deps.calls.written[0]!.path).toBe(
+    expect(deps.calls.renamed[0]!.to).toBe(
       path.resolve("/work", "/o/agg.json"),
     );
+    expect(deps.calls.written[0]!.path).toBe(`${deps.calls.renamed[0]!.to}.tmp`);
   });
 
   it("never exceeds K concurrent dispatches (async deferred runner)", async () => {
@@ -838,6 +847,47 @@ describe("run — skip handling", () => {
       ran: false,
       skipReason: "agy-error",
     });
+  });
+});
+
+describe("run — atomic --out write and failureClass projection", () => {
+  it("writes ${outPath}.tmp then renames, so no partial file is observable", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+    });
+    await run(["--manifest", "m.json", "--out", "/o/result.json"], deps);
+    expect(deps.calls.written.map((w) => w.path)).toEqual([
+      "/o/result.json.tmp",
+    ]);
+    expect(deps.calls.renamed).toEqual([
+      { from: "/o/result.json.tmp", to: "/o/result.json" },
+    ]);
+    expect(deps.calls.written[0]!.data).toBe(deps.calls.out[0]);
+  });
+
+  it("copies a failed envelope's failureClass onto its entry", async () => {
+    const deps = makeDeps({
+      readFile: () =>
+        manifestOf([
+          { task: "quota", prompt: "x" },
+          { task: "fine", prompt: "y" },
+        ]),
+      runDelegate: async (entry) =>
+        entry.task === "quota"
+          ? {
+              ran: false,
+              task: entry.task,
+              skipReason: "agy-error",
+              failureClass: "quota-exhausted",
+            }
+          : { ran: true, task: entry.task, artifactPath: "/x.md" },
+    });
+    await run(["--manifest", "m.json"], deps);
+    const agg = aggregate(deps);
+    const byTask = (t: string) =>
+      agg.entries.find((e: { task: string }) => e.task === t);
+    expect(byTask("quota").failureClass).toBe("quota-exhausted");
+    expect(byTask("fine")).not.toHaveProperty("failureClass");
   });
 });
 

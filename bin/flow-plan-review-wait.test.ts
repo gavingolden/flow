@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseArgs, run, type Deps } from "./flow-plan-review-wait";
 
 function makeFakeClock() {
@@ -11,6 +11,10 @@ function makeFakeClock() {
     },
   };
 }
+
+beforeEach(() => {
+  vi.spyOn(console, "log").mockImplementation(() => {});
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -43,6 +47,7 @@ describe(parseArgs, () => {
       resultPath: "/p.json",
       maxSec: 540,
       intervalSec: 5,
+      completeLine: false,
     });
     expect(parsed).not.toHaveProperty("minSec");
   });
@@ -50,7 +55,28 @@ describe(parseArgs, () => {
   it("accepts explicit --max-sec / --interval overrides", () => {
     expect(
       parseArgs(["/p.json", "--max-sec", "30", "--interval", "2"]),
-    ).toEqual({ resultPath: "/p.json", maxSec: 30, intervalSec: 2 });
+    ).toEqual({
+      resultPath: "/p.json",
+      maxSec: 30,
+      intervalSec: 2,
+      completeLine: false,
+    });
+  });
+
+  it("parses --complete-line and --pid", () => {
+    expect(parseArgs(["/p.json", "--complete-line", "--pid", "4242"])).toEqual({
+      resultPath: "/p.json",
+      maxSec: 540,
+      intervalSec: 5,
+      completeLine: true,
+      pid: 4242,
+    });
+  });
+
+  it("errors when --pid is not a positive integer", () => {
+    expect(parseArgs(["/p.json", "--pid", "0"])).toEqual({
+      error: "--pid must be a positive integer, got '0'",
+    });
   });
 
   it("errors when --max-sec is missing its value", () => {
@@ -149,6 +175,19 @@ describe(run, () => {
     void depsShape;
   });
 
+  it("prints a JSON outcome line the caller can branch on", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const clock = makeFakeClock();
+    await run(["/p.json", "--max-sec", "2", "--interval", "1"], {
+      exists: () => false,
+      sleep: clock.sleep,
+      now: clock.now,
+    });
+    expect(logSpy).toHaveBeenCalledWith('{"outcome":"timeout"}');
+    await run(["/p.json"], { exists: () => true });
+    expect(logSpy).toHaveBeenCalledWith('{"outcome":"complete"}');
+  });
+
   it("prints usage and exits 0 on --help", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const exit = await run(["--help"]);
@@ -157,5 +196,92 @@ describe(run, () => {
       expect.stringContaining("flow-plan-review-wait"),
     );
     logSpy.mockRestore();
+  });
+});
+
+describe("--complete-line and --pid", () => {
+  const esrch = () => {
+    throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+  };
+
+  it("keeps waiting on an empty file under --complete-line", async () => {
+    const clock = makeFakeClock();
+    await run(["/p.json", "--complete-line", "--interval", "1", "--max-sec", "3"], {
+      exists: () => true,
+      statSize: () => 0,
+      lastByte: () => "",
+      sleep: clock.sleep,
+      now: clock.now,
+    });
+    expect(clock.now()).toBeGreaterThanOrEqual(3000);
+  });
+
+  it("keeps waiting on a file that ends mid-line", async () => {
+    const clock = makeFakeClock();
+    await run(["/p.json", "--complete-line", "--interval", "1", "--max-sec", "3"], {
+      exists: () => true,
+      statSize: () => 12,
+      lastByte: () => "}",
+      sleep: clock.sleep,
+      now: clock.now,
+    });
+    expect(clock.now()).toBeGreaterThanOrEqual(3000);
+  });
+
+  it("completes on a newline-terminated file", async () => {
+    const clock = makeFakeClock();
+    let polls = 0;
+    await run(["/p.json", "--complete-line", "--interval", "1", "--max-sec", "10"], {
+      exists: () => true,
+      statSize: () => (++polls > 2 ? 12 : 0),
+      lastByte: () => "\n",
+      sleep: clock.sleep,
+      now: clock.now,
+    });
+    expect(clock.now()).toBe(2000);
+  });
+
+  it("returns at once when --pid names an exited process and the file is empty", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const clock = makeFakeClock();
+    await run(["/p.json", "--complete-line", "--pid", "999999", "--max-sec", "540"], {
+      exists: () => true,
+      statSize: () => 0,
+      lastByte: () => "",
+      kill: esrch,
+      sleep: clock.sleep,
+      now: clock.now,
+    });
+    expect(clock.now()).toBe(0);
+    expect(logSpy).toHaveBeenCalledWith(
+      '{"outcome":"process-exited-without-result"}',
+    );
+  });
+
+  it("race: a file that completes between exit detection and the re-check is complete", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let sizeCalls = 0;
+    await run(["/p.json", "--complete-line", "--pid", "999999"], {
+      exists: () => true,
+      // first check (before the exit check) sees an empty file; the re-check
+      // after ESRCH sees the helper's final atomic rename
+      statSize: () => (++sizeCalls === 1 ? 0 : 20),
+      lastByte: () => "\n",
+      kill: esrch,
+    });
+    expect(logSpy).toHaveBeenCalledWith('{"outcome":"complete"}');
+  });
+
+  it("treats EPERM as still alive and keeps waiting", async () => {
+    const clock = makeFakeClock();
+    await run(["/p.json", "--pid", "1", "--interval", "1", "--max-sec", "2"], {
+      exists: () => false,
+      kill: () => {
+        throw Object.assign(new Error("not permitted"), { code: "EPERM" });
+      },
+      sleep: clock.sleep,
+      now: clock.now,
+    });
+    expect(clock.now()).toBeGreaterThanOrEqual(2000);
   });
 });

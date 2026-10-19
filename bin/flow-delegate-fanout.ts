@@ -53,9 +53,16 @@
  *       --concurrency/--max-calls).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Args } from "./flow-delegate";
+import type { AgyFailureClass } from "./lib/agy-failure-class";
 
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_MAX_CALLS = 40;
@@ -119,6 +126,10 @@ export type EntryResult = {
   exitCode?: number;
   agyStatus?: string;
   agyError?: string;
+  // Projected straight from the child envelope's own `failureClass`
+  // (flow-delegate classifies every skip) so a consumer can tell a quota
+  // refusal from any other skip without re-deriving it from stderr.
+  failureClass?: AgyFailureClass;
   // Projected straight from the child envelope's own `deniedActions`.
   deniedActions?: string[];
   // Set when this entry combines --skip-permissions with --add-dir — the
@@ -155,6 +166,7 @@ export type DelegateEnvelope = {
   stderrTail?: string;
   agyStatus?: string;
   agyError?: string;
+  failureClass?: AgyFailureClass;
   deniedActions?: string[];
 };
 
@@ -172,6 +184,7 @@ export type FanoutDeps = {
   fileExists: (path: string) => boolean;
   mkdirp: (dir: string) => void;
   writeFile: (path: string, data: string) => void;
+  rename: (from: string, to: string) => void;
   writeOut: (line: string) => void;
   progress: (line: string) => void;
   cwd: () => string;
@@ -306,7 +319,9 @@ function parseManifest(raw: string): ManifestEntry[] | { error: string } {
 // the SAME serialized string goes to BOTH stdout and the --out file; the
 // file write is mkdir-recursive then wrapped in try/catch so a failure
 // writes a one-line stderr notice and is SWALLOWED — it never changes the
-// exit code or suppresses the stdout result.
+// exit code or suppresses the stdout result. The --out file is written to
+// `${outPath}.tmp` then renamed, so a waiter in another process (the
+// detach-and-wait recipe) never observes a half-written aggregate.
 function emitResult(
   deps: FanoutDeps,
   result: FanoutResult,
@@ -316,7 +331,8 @@ function emitResult(
   deps.writeOut(serialized);
   try {
     deps.mkdirp(dirname(outPath));
-    deps.writeFile(outPath, serialized);
+    deps.writeFile(`${outPath}.tmp`, serialized);
+    deps.rename(`${outPath}.tmp`, outPath);
   } catch (err) {
     deps.progress(
       `flow-delegate-fanout: failed to persist result to ${outPath}: ${(err as Error).message}\n`,
@@ -382,6 +398,8 @@ async function runPool(
           record.agyStatus = envelope.agyStatus;
         if (envelope.agyError !== undefined)
           record.agyError = envelope.agyError;
+        if (envelope.failureClass !== undefined)
+          record.failureClass = envelope.failureClass;
         if (envelope.deniedActions)
           record.deniedActions = envelope.deniedActions;
         if (coGrantWarning) record.coGrantWarning = coGrantWarning;
@@ -566,6 +584,7 @@ function resolveDeps(o?: Partial<FanoutDeps>): FanoutDeps {
     fileExists: o?.fileExists ?? ((p) => existsSync(p)),
     mkdirp: o?.mkdirp ?? ((d) => void mkdirSync(d, { recursive: true })),
     writeFile: o?.writeFile ?? ((p, data) => writeFileSync(p, data)),
+    rename: o?.rename ?? ((from, to) => renameSync(from, to)),
     writeOut: o?.writeOut ?? ((line) => process.stdout.write(line)),
     progress: o?.progress ?? ((line) => process.stderr.write(line)),
     cwd: o?.cwd ?? (() => process.cwd()),

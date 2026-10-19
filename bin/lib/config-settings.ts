@@ -33,6 +33,7 @@ import {
   resolveDelegatedLenses,
   type DelegateSurface,
 } from "./delegate-models";
+import { DEFAULT_TIMEOUT as RESEARCH_DEFAULT_TIMEOUT } from "../flow-research-run";
 import {
   DELEGATE_TIMEOUT_DEFAULTS,
   SYNC_DELEGATE_CEILING,
@@ -297,7 +298,10 @@ const DESCRIPTORS: Descriptor[] = [
       if (typeof v === "string" && v.trim()) {
         return { value: v, source: "config (research.timeout)" };
       }
-      return { value: "3m", source: 'built-in ("3m")' };
+      return {
+        value: RESEARCH_DEFAULT_TIMEOUT,
+        source: `built-in ("${RESEARCH_DEFAULT_TIMEOUT}")`,
+      };
     },
   },
   {
