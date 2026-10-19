@@ -103,4 +103,13 @@ describe("pidExists", () => {
     expect(pidExists(process.pid)).toBe(true);
     expect(pidExists(2 ** 22 + 12345678)).toBe(false);
   });
+
+  // Deliberately unlike liveness.ts (EPERM = alive): a same-user parent never
+  // yields EPERM, so EPERM means the pid was recycled by another user's process.
+  it.skipIf(process.getuid?.() === 0)(
+    "treats EPERM (another user's pid) as gone",
+    () => {
+      expect(pidExists(1)).toBe(false);
+    },
+  );
 });

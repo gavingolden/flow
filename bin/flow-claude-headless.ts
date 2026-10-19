@@ -56,12 +56,16 @@ for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
 }
 
 let stopParentWatch: (() => void) | undefined;
+// Once the caller is gone, onParentGone owns the exit: the child's close/error
+// must not resolve run() (which would exit 0 and cancel the SIGKILL sweep).
+let parentGone = false;
 
 // The caller is gone, so nobody will read this run's result: stop the live
 // child's group (polite, then forced) instead of letting it run to its own
 // time limit. Limit: a force-kill of the caller's WHOLE process group takes
 // this wrapper (and its watch) down too.
 function onParentGone(): void {
+  parentGone = true;
   const pid = currentChildPid;
   if (pid === undefined) process.exit(1);
   try {
@@ -122,6 +126,7 @@ function runClaude(
     }, timeoutSec * 1000);
 
     child.on("close", (code) => {
+      if (parentGone) return;
       stopParentWatch?.();
       clearTimeout(timeoutTimer);
       if (killTimer) clearTimeout(killTimer);
@@ -135,6 +140,7 @@ function runClaude(
     });
 
     child.on("error", (e) => {
+      if (parentGone) return;
       stopParentWatch?.();
       clearTimeout(timeoutTimer);
       if (killTimer) clearTimeout(killTimer);

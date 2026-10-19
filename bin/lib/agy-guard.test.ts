@@ -148,8 +148,13 @@ describe("runGuard", () => {
     const p = runGuard(ARGV, r.deps);
     r.exit(0);
     expect(await p).toBe(0);
-    expect(r.events).toContain(`kill:${PGID}:SIGKILL`);
-    expect(r.events).toContain(`err:${GUARD_LEFTOVER_MARKER}`);
+    // The kill must precede the marker so a stalled stderr reader can never
+    // delay the sweep.
+    const kill = r.events.indexOf(`kill:${PGID}:SIGKILL`);
+    const marker = r.events.indexOf(`err:${GUARD_LEFTOVER_MARKER}`);
+    expect(kill).toBeGreaterThanOrEqual(0);
+    expect(marker).toBeGreaterThanOrEqual(0);
+    expect(kill).toBeLessThan(marker);
   });
 
   it("(a) agy dying by signal exits 128+signal", async () => {
