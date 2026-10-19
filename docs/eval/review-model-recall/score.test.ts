@@ -135,6 +135,52 @@ describe("aggregateArms", () => {
   });
 });
 
+describe("aggregateArms — recall at the production limit", () => {
+  const EIGHT_MIN_MS = 8 * 60 * 1000;
+  const at = (
+    arm: string,
+    run: number,
+    duration: number | null,
+    recallAll: number,
+  ) => cell({ arm, run, duration, recallAll });
+
+  it("counts a cell slower than the production limit as zero recall, leaving full-length recall untouched", () => {
+    const { arms } = aggregateArms(
+      [
+        at("slow", 1, EIGHT_MIN_MS + 1, 0.8), // cut at the 8-minute limit
+        at("slow", 2, EIGHT_MIN_MS - 1000, 0.4),
+        at("fast", 1, 60_000, 0.6),
+        at("fast", 2, 90_000, 0.4),
+      ],
+      { productionLimitMs: EIGHT_MIN_MS },
+    );
+    expect(arms.slow!.recall_all).toBe(0.6); // full length: (0.8 + 0.4) / 2
+    expect(arms.slow!.recall_at_production_limit).toBe(0.2); // (0 + 0.4) / 2
+    expect(arms.fast!.recall_all).toBe(0.5);
+    expect(arms.fast!.recall_at_production_limit).toBe(0.5); // none over the limit
+  });
+
+  it("a cell exactly at the limit is not cut", () => {
+    const { arms } = aggregateArms([at("a", 1, EIGHT_MIN_MS, 1)], {
+      productionLimitMs: EIGHT_MIN_MS,
+    });
+    expect(arms.a!.recall_at_production_limit).toBe(1);
+  });
+
+  it("a cell with no recorded duration keeps its recall", () => {
+    const { arms } = aggregateArms([at("a", 1, null, 0.5)], {
+      productionLimitMs: EIGHT_MIN_MS,
+    });
+    expect(arms.a!.recall_at_production_limit).toBe(0.5);
+  });
+
+  it("emits no production-limit column without a limit", () => {
+    const { arms } = aggregateArms([at("a", 1, 1000, 0.5)]);
+    expect(arms.a).not.toHaveProperty("recall_at_production_limit");
+    expect(arms.a!.recall_all).toBe(0.5);
+  });
+});
+
 const armCell = (
   arm: string,
   pr: string,

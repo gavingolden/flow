@@ -111,7 +111,7 @@ result (`is_error` true, a non-`success` `subtype`, or unparseable).
 
 ### The agy arm and `--effort`
 
-`--arms agy-opus-5-5-high` runs a cell through `flow-delegate` (the user's
+`--arms agy-opus-5-5-high` (or `agy-argon-high` / `agy-argon-medium`, below) runs a cell through `flow-delegate` (the user's
 Google AI Ultra quota) instead of `claude -p`. It uses the SAME base prompt
 `prompt-<lens>-<pr>.txt` as the model-alias arms, led by the headless
 no-shell preamble (`AGY_HEADLESS_PREAMBLE`) and followed by the
@@ -135,6 +135,37 @@ re-run retries it, and is counted in `runs/<cell>.agy.json`
 first attempt" is `unusable_attempts == 0`. Agy cells carry no
 `total_cost_usd`; wall-clock comes from `duration_ms`. Cell file names allow
 hyphenated, digit-bearing arm names (`score.ts`'s `CELL_FILE`).
+
+**Argon arms.** `agy-argon-high` and `agy-argon-medium` map to `Gemini 4 Argon
+(High)` and `Gemini 4 Argon (Medium)` in `AGY_ARMS`. They run the same
+delegated-lens contract as the Opus arm: this harness measures the delegated
+**Claude** lens (`claudeLenses`, run through `flow-agy-lenses`), not the Gemini
+review lens (`reviewLens`, `flow-gemini-lens`) — the Gemini review lens is
+measured by bench case c7 in `bin/flow-model-bench.ts`.
+
+**Quota halt.** A failed agy cell is classified (`failureClass` on the delegate
+envelope, else derived from its skip reason and error text, and recorded as
+`last_failure_class` in `runs/<cell>.agy.json`). A quota or rate-limit refusal
+says nothing about the model, so it is kept out of `unusable_attempts` (counted
+as `refused_attempts` instead). After the first quota refusal (`quota-exhausted`)
+the agy pool stops starting cells, prints how many were not started, and
+`matrix` exits 3. A quota-halted cell writes NO final output file, and
+`isCompletedCellOutput` is false for a `ran: false` delegate envelope, so a
+re-run after the quota window resets re-runs the refused cells instead of
+skipping them.
+
+**Concurrency.** agy cells run in their own pool with a default of 2 workers
+(`AGY_DEFAULT_CONCURRENCY`; `--agy-concurrency <n>`, or an explicit
+`--concurrency` when given), beside the Claude cells' pool of 6, so a
+single Google-plan quota window is not hit by six parallel agy sessions.
+
+**Production-limit column.** Cells keep the 15-minute cap, so recall is
+measured at full length (`recall_all`). `score.ts aggregate` also reports
+`recall_at_production_limit` per arm: the same recall with every cell slower
+than `DELEGATED_LENS_TIMEOUT` (8 minutes, the production limit of the
+`claudeLenses` surface) counted as zero. Read the two columns together: a model
+that is accurate but slower than the limit is cut in production. This column is
+the delegated Claude-lens limit, not the Gemini `reviewLens` limit.
 
 `--effort <level>` sets the Claude arms' `--effort` (default `medium`, so
 the committed runs reproduce unchanged); use `--effort high` to run the

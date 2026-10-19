@@ -31,6 +31,7 @@ import {
   projectLensFindings,
 } from "../../../bin/lib/agy-lens-core";
 import type { AgentFindings } from "../../../bin/lib/agent-finding-schema";
+import { classifyAgyFailure } from "../../../bin/lib/agy-failure-class";
 import {
   AGY_HEADLESS_PREAMBLE,
   agyLensOutputContract,
@@ -53,10 +54,18 @@ const REPO_ROOT = join(HERE, "../../..");
 // alphanumerics joined by hyphens.
 export const AGY_ARMS: Record<string, string> = {
   "agy-opus-5-5-high": "Claude Opus 5.5 (High)",
+  "agy-argon-high": "Gemini 4 Argon (High)",
+  "agy-argon-medium": "Gemini 4 Argon (Medium)",
 };
+// Cells keep the 15m cap so recall is measured at full length; the aggregate's
+// `recall_at_production_limit` view (score-arms.ts) applies the production
+// delegated-lens limit afterwards.
 const AGY_CELL_TIMEOUT = "15m";
 
 const DEFAULT_CONCURRENCY = 6;
+// agy cells share one Google-plan quota window, so they run narrower than the
+// Claude cells.
+export const AGY_DEFAULT_CONCURRENCY = 2;
 const CELL_BUDGET_USD: Record<string, number> = { fable: 20, opus: 14 };
 
 function usage(): string {
@@ -67,7 +76,8 @@ function usage(): string {
     "",
     "Options:",
     "  --data-dir <dir>     inputs/outputs (default: ./data)",
-    "  --concurrency <n>    parallel cells (default: 6)",
+    "  --concurrency <n>    parallel cells (default: 6; agy arms default to 2)",
+    "  --agy-concurrency <n>  parallel agy cells (default: 2, or --concurrency when given)",
     "  --arms <csv>         arms to run (default: sonnet,opus). sonnet/opus/fable",
     "                       run that model; any other arm name runs --model",
     "  --lenses <csv>       lenses (default: bug-detection,pattern-consistency,test-coverage)",
@@ -91,8 +101,10 @@ export function isCompletedCellOutput(text: string): boolean {
     return false;
   }
   if (typeof j !== "object" || j === null || Array.isArray(j)) return false;
-  const r = j as { is_error?: unknown; subtype?: unknown };
+  const r = j as { is_error?: unknown; subtype?: unknown; ran?: unknown };
   if (r.is_error === true) return false;
+  // A delegate envelope that did not run is a refusal, not a finished cell.
+  if (r.ran === false) return false;
   return r.subtype === undefined || r.subtype === "success";
 }
 
@@ -142,6 +154,29 @@ async function pool<T>(
   await Promise.all(
     Array.from({ length: Math.min(concurrency, items.length) }, worker),
   );
+}
+
+// Like `pool`, but stops dequeuing once any cell reports a quota halt: a refused
+// call burns nothing it can get back, and firing the remaining cells into an
+// exhausted quota window only produces more refusals. Returns how many cells
+// were never started.
+export async function agyPool<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<{ quotaHalt: boolean }>,
+): Promise<{ halted: boolean; notRun: number }> {
+  let idx = 0;
+  let halted = false;
+  async function worker() {
+    while (!halted && idx < items.length) {
+      const item = items[idx++]!;
+      if ((await fn(item)).quotaHalt) halted = true;
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, worker),
+  );
+  return { halted, notRun: Math.max(0, items.length - idx) };
 }
 
 type Cell = { lens: string; pr: string; arm: string; run: number };
@@ -228,14 +263,73 @@ function lastJsonLine(path: string): Record<string, unknown> {
   }
 }
 
-async function runAgyMatrixCell(dataDir: string, cell: Cell): Promise<void> {
+const str = (v: unknown): string | undefined =>
+  typeof v === "string" ? v : undefined;
+
+// Why a ran:false delegate envelope failed: the helper's own class, else
+// derived from its skip reason and error text.
+export function envelopeFailureClass(
+  env: Record<string, unknown>,
+): string | undefined {
+  if (env.ran === true) return undefined;
+  return (
+    str(env.failureClass) ??
+    classifyAgyFailure({
+      skipReason: str(env.skipReason) ?? "",
+      stderrTail: str(env.stderrTail),
+      agyError: str(env.agyError),
+      agyStatus: str(env.agyStatus),
+    })
+  );
+}
+
+// A quota or rate-limit refusal says nothing about the model's output, so it
+// is not an unusable attempt (it would poison the "schema-valid on the first
+// attempt" clear criterion).
+const REFUSAL_CLASSES = new Set(["quota-exhausted", "rate-limited"]);
+
+export type AgySidecar = {
+  attempts?: number;
+  unusable_attempts?: number;
+  refused_attempts?: number;
+};
+
+// The per-cell attempt counters carried across resumes. A quota / rate-limit
+// refusal counts as an attempt and as a refusal, never as an unusable attempt.
+export function nextAgySidecar(
+  prior: AgySidecar,
+  outcome: {
+    decodedOk: boolean;
+    ran: boolean;
+    skipReason: unknown;
+    failureClass: string | undefined;
+  },
+) {
+  const refused =
+    outcome.failureClass !== undefined &&
+    REFUSAL_CLASSES.has(outcome.failureClass);
+  return {
+    attempts: (prior.attempts ?? 0) + 1,
+    unusable_attempts:
+      (prior.unusable_attempts ?? 0) + (outcome.decodedOk || refused ? 0 : 1),
+    refused_attempts: (prior.refused_attempts ?? 0) + (refused ? 1 : 0),
+    last_ran: outcome.ran,
+    last_skip_reason: outcome.skipReason ?? null,
+    last_failure_class: outcome.failureClass ?? null,
+  };
+}
+
+async function runAgyMatrixCell(
+  dataDir: string,
+  cell: Cell,
+): Promise<{ quotaHalt: boolean }> {
   const { lens: L, pr: P, arm: ARM, run: R } = cell;
   const base = `${L}-${P}-${ARM}-r${R}`;
   const runsDir = join(dataDir, "runs");
   const out = join(runsDir, `${base}.json`);
   if (completed(out)) {
     console.log(`skip ${L} ${P} ${ARM} r${R} (exists)`);
-    return;
+    return { quotaHalt: false };
   }
   mkdirSync(runsDir, { recursive: true });
   const diffPath = join(dataDir, `diff-${P}.patch`);
@@ -273,35 +367,40 @@ async function runAgyMatrixCell(dataDir: string, cell: Cell): Promise<void> {
     env.ran === true && existsSync(artifact)
       ? decodeLensArtifact(readFileSync(artifact, "utf8"))
       : ({ ok: false } as const);
-  const cellJson = wrapAgyCell(decoded, {
-    durationMs: Date.now() - started,
-    usage:
-      typeof env.usage === "object" && env.usage !== null
-        ? (env.usage as Record<string, number>)
-        : undefined,
-  });
-  writeFileSync(out, JSON.stringify(cellJson));
+  const failureClass = envelopeFailureClass(env);
+  const quotaHalt = failureClass === "quota-exhausted";
+  // A quota-halted cell writes NO final output, so a resume re-runs it instead
+  // of skipping it as done (and the judge never scores a refusal as zero recall).
+  if (!quotaHalt) {
+    const cellJson = wrapAgyCell(decoded, {
+      durationMs: Date.now() - started,
+      usage:
+        typeof env.usage === "object" && env.usage !== null
+          ? (env.usage as Record<string, number>)
+          : undefined,
+    });
+    writeFileSync(out, JSON.stringify(cellJson));
+  }
 
   // Count unusable attempts across resumes: "schema-valid on the first
   // attempt" is a recorded clear criterion, and an overwritten out file
   // would otherwise lose the failed attempts that preceded a retry success.
   const sidecar = join(runsDir, `${base}.agy.json`);
-  const prior = lastJsonLine(sidecar) as {
-    attempts?: number;
-    unusable_attempts?: number;
-  };
   writeFileSync(
     sidecar,
-    JSON.stringify({
-      attempts: (prior.attempts ?? 0) + 1,
-      unusable_attempts: (prior.unusable_attempts ?? 0) + (decoded.ok ? 0 : 1),
-      last_ran: env.ran === true,
-      last_skip_reason: env.skipReason ?? null,
-    }),
+    JSON.stringify(
+      nextAgySidecar(lastJsonLine(sidecar), {
+        decodedOk: decoded.ok,
+        ran: env.ran === true,
+        skipReason: env.skipReason,
+        failureClass,
+      }),
+    ),
   );
   console.log(
-    `done ${L} ${P} ${ARM} r${R} rc=${rc} ${decoded.ok ? "decoded" : "unusable"}`,
+    `done ${L} ${P} ${ARM} r${R} rc=${rc} ${decoded.ok ? "decoded" : quotaHalt ? "quota-refused" : "unusable"}`,
   );
+  return { quotaHalt };
 }
 
 async function runMatrixCell(
@@ -310,7 +409,6 @@ async function runMatrixCell(
   effort: string,
   cell: Cell,
 ): Promise<void> {
-  if (cell.arm in AGY_ARMS) return runAgyMatrixCell(dataDir, cell);
   const { lens: L, pr: P, arm: ARM, run: R } = cell;
   const out = join(dataDir, "runs", `${L}-${P}-${ARM}-r${R}.json`);
   const envelope = join(
@@ -439,6 +537,7 @@ function csv(argv: string[], flag: string, fallback: string[]): string[] {
 function parseArgs(argv: string[]): {
   dataDir: string;
   concurrency: number;
+  agyConcurrency: number;
   lenses: string[];
   prs: string[];
   arms: string[];
@@ -450,6 +549,11 @@ function parseArgs(argv: string[]): {
     dataDir: flagValue(argv, "--data-dir") ?? join(HERE, "data"),
     concurrency: Number(
       flagValue(argv, "--concurrency") ?? DEFAULT_CONCURRENCY,
+    ),
+    agyConcurrency: Number(
+      flagValue(argv, "--agy-concurrency") ??
+        flagValue(argv, "--concurrency") ??
+        AGY_DEFAULT_CONCURRENCY,
     ),
     lenses: csv(argv, "--lenses", LENSES),
     prs: csv(argv, "--prs", PRS),
@@ -471,9 +575,22 @@ async function main(argv: string[]): Promise<number> {
 
   if (sub === "matrix") {
     const cells = allCells(args);
-    await pool(cells, concurrency, (c) =>
-      runMatrixCell(dataDir, args.model, args.effort, c),
-    );
+    const agyCells = cells.filter((c) => c.arm in AGY_ARMS);
+    const [, agy] = await Promise.all([
+      pool(
+        cells.filter((c) => !(c.arm in AGY_ARMS)),
+        concurrency,
+        (c) => runMatrixCell(dataDir, args.model, args.effort, c),
+      ),
+      agyPool(agyCells, args.agyConcurrency, (c) =>
+        runAgyMatrixCell(dataDir, c),
+      ),
+    ]);
+    if (agy.halted) {
+      console.log(
+        `QUOTA HALT: ${agy.notRun} agy cell(s) not started, plus the refused cell(s); re-run matrix after the quota window resets (refused cells wrote no output, so a resume re-runs them)`,
+      );
+    }
     const runsDir = join(dataDir, "runs");
     const n = existsSync(runsDir)
       ? readdirSync(runsDir).filter(
@@ -484,7 +601,7 @@ async function main(argv: string[]): Promise<number> {
         ).length
       : 0;
     console.log(`MATRIX COMPLETE: ${n} result files`);
-    return 0;
+    return agy.halted ? 3 : 0;
   }
 
   if (sub === "judge") {
