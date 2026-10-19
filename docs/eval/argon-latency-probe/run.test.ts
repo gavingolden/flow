@@ -5,7 +5,10 @@ import {
   AGENT_FINDINGS_JSON_SCHEMA,
   buildPrompt as buildLensPrompt,
 } from "../../../bin/flow-gemini-lens";
-import { buildPrompt as buildIntentPrompt } from "../../../bin/flow-gemini-intent-guess";
+import {
+  buildPrompt as buildIntentPrompt,
+  changedFileList,
+} from "../../../bin/flow-gemini-intent-guess";
 import {
   buildBatteryPrompt,
   extractGoalLine,
@@ -107,15 +110,9 @@ describe("buildProbeManifest — production builders and posture", () => {
     const { first, prompt, written } = manifest();
     const diff = read("pr-941.diff");
     const intent = first("intent-guess");
-    const files = Array.from(
-      new Set(
-        diff
-          .split("\n")
-          .filter((l) => l.startsWith("+++ b/"))
-          .map((l) => l.slice(6)),
-      ),
-    ).join("\n");
-    expect(prompt(intent)).toBe(buildIntentPrompt(diff, files, WORKTREE));
+    expect(prompt(intent)).toBe(
+      buildIntentPrompt(diff, changedFileList(diff), WORKTREE),
+    );
     const lens = first("review-lens");
     expect(prompt(lens)).toBe(buildLensPrompt(diff, WORKTREE));
     for (const e of [intent, lens]) {

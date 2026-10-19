@@ -13,6 +13,7 @@ import {
 } from "../../../bin/flow-gemini-lens";
 import {
   buildPrompt as buildIntentPrompt,
+  changedFileList,
   INTENT_GUESS_JSON_SCHEMA,
 } from "../../../bin/flow-gemini-intent-guess";
 import {
@@ -71,16 +72,6 @@ export type ProbeManifestOpts = {
 
 const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
-function changedFiles(diff: string): string {
-  const files = new Set<string>();
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("+++ b/")) files.add(line.slice("+++ b/".length));
-  }
-  return (
-    Array.from(files).join("\n") || "(unable to derive file list from diff)"
-  );
-}
-
 export function buildProbeManifest(
   opts: ProbeManifestOpts,
 ): FanoutManifestEntry[] {
@@ -135,7 +126,7 @@ export function buildProbeManifest(
       addDirs: [worktree],
     }),
     "intent-guess": () => ({
-      prompt: buildIntentPrompt(diff, changedFiles(diff), worktree),
+      prompt: buildIntentPrompt(diff, changedFileList(diff), worktree),
       addDirs: [worktree],
       outputFormat: "json",
       jsonSchema: intentSchema,
