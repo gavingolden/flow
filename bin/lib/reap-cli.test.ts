@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const procSweepRunMock = vi.hoisted(() => ({
   runProcSweep: vi.fn(() => ({
@@ -51,6 +54,7 @@ vi.mock("./agy-strays", async (importOriginal) => ({
 }));
 
 import { collectReapReport, runReapCli } from "./reap-cli";
+import { writeState, type PipelineState } from "./state";
 
 const emptyAgy = () => ({
   ran: true,
@@ -610,6 +614,7 @@ describe("collectReapReport report-only mode", () => {
 describe("agy stray sweep", () => {
   const strayRow = {
     pid: 4242,
+    pgid: 4242,
     startEpochMs: 1_000,
     ageMs: 3_600_000,
     timeLimitSec: 720,
@@ -701,7 +706,7 @@ describe("registry row wording (session state vs. process state)", () => {
 
   it("says how many processes are still running and no longer prints 'N alive'", () => {
     const out = rowsReport();
-    expect(out).toContain("0 of 137 processes still running");
+    expect(out).toContain("137 recorded processes, 0 still running");
     expect(out).toContain("whose session is still open");
     expect(out).not.toContain(", 137 alive,");
     expect(out).not.toContain("still running pipeline");
@@ -709,5 +714,87 @@ describe("registry row wording (session state vs. process state)", () => {
 
   it("prints the pipeline's recorded phase when state is unreadable as 'phase unrecorded'", () => {
     expect(rowsReport()).toContain("phase unrecorded, left alone");
+  });
+
+  describe("recorded phase lookup", () => {
+    let stateDir: string;
+    beforeEach(() => {
+      stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-cli-phase-"));
+    });
+    afterEach(() => fs.rmSync(stateDir, { recursive: true, force: true }));
+
+    const sweepFor = (
+      slug: string,
+      classified: Array<{ verdict: string; ownPidAlive?: boolean }>,
+    ) =>
+      ({
+        mode: "sweep" as const,
+        yes: false,
+        slugs: [
+          {
+            slug,
+            reap: { ran: false, skipReason: "no-rows" },
+            reported: {},
+            classified,
+          },
+        ],
+        totals: {},
+        unknownRows: 0,
+        aliveRows: classified.filter((c) => c.verdict === "alive").length,
+      }) as never;
+
+    it("collectReapReport reads the recorded phase from the state file", () => {
+      writeState(
+        {
+          slug: "phase-recorded-pipe",
+          phase: "needs-human",
+          repo: stateDir,
+          pid: 999_997,
+          procStartedAt: 1,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        } as PipelineState,
+        stateDir,
+      );
+      procSweepRunMock.runProcSweep.mockReturnValue(
+        sweepFor("phase-recorded-pipe", [
+          { verdict: "alive", ownPidAlive: false },
+        ]),
+      );
+      const result = collectReapReport({ stateDir });
+      expect(result.phases?.["phase-recorded-pipe"]).toBe("needs-human");
+    });
+
+    it("never prints a phase clause for a slug with only ended-pipeline rows", () => {
+      procSweepRunMock.runProcSweep.mockReturnValue(
+        sweepFor("ended-only-pipe", [
+          { verdict: "dead", ownPidAlive: false },
+          { verdict: "dead", ownPidAlive: false },
+        ]),
+      );
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      runReapCli([]);
+      const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+      log.mockRestore();
+      expect(out).toContain(
+        "ended-only-pipe: 2 recorded processes, 0 still running — 2 from an ended pipeline (held, report-only)",
+      );
+      expect(out).not.toContain("phase unrecorded");
+      expect(out).not.toContain("session is still open");
+    });
+
+    it("renders the clean Summary with the running-process count", () => {
+      procSweepRunMock.runProcSweep.mockReturnValue(
+        sweepFor("wording-test-no-such-slug", [
+          { verdict: "alive", ownPidAlive: false },
+        ]),
+      );
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      runReapCli([]);
+      const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+      log.mockRestore();
+      expect(out).toContain(
+        "Summary: no leaked processes recorded — 0 of 1 recorded processes still running",
+      );
+    });
   });
 });

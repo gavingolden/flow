@@ -256,12 +256,25 @@ function renderTextReport(result: ReapCliResult): string {
     const dead = s.classified.filter((c) => c.verdict === "dead");
     const alive = s.classified.filter((c) => c.verdict === "alive");
     const unknown = s.classified.filter((c) => c.verdict === "unknown");
-    const action = result.yes ? "acted on" : "held (report-only)";
     printedCounts = true;
     const running = s.classified.filter((c) => c.ownPidAlive).length;
+    // Phase is only collected for slugs with an open-session row, so it is
+    // only ever printed in that clause.
     const phase = result.phases?.[s.slug] ?? "phase unrecorded";
+    const clauses: string[] = [];
+    if (dead.length > 0) {
+      clauses.push(
+        `${dead.length} from an ended pipeline (${result.yes ? "acted on" : "held, report-only"})`,
+      );
+    }
+    if (alive.length > 0) {
+      clauses.push(
+        `${alive.length} from a pipeline whose session is still open (${phase}, left alone)`,
+      );
+    }
+    if (unknown.length > 0) clauses.push(`${unknown.length} unknown (held)`);
     lines.push(
-      `  ${s.slug}: ${dead.length} from an ended pipeline (${action}), ${alive.length} from a pipeline whose session is still open (${phase}, left alone), ${unknown.length} unknown — ${running} of ${s.classified.length} processes still running`,
+      `  ${s.slug}: ${s.classified.length} recorded processes, ${running} still running — ${clauses.join("; ")}`,
     );
     if (unknown.length > 0) {
       const byReason = new Map<string, number>();
@@ -302,8 +315,8 @@ function renderTextReport(result: ReapCliResult): string {
   lines.push("");
   lines.push(
     result.includeStrays
-      ? "Shape-heuristic strays (--include-strays: acted on with --yes; no startEpoch re-verification, no session check):"
-      : "Shape-heuristic strays (report-only — pass --include-strays to act; no startEpoch re-verification, no session check):",
+      ? "Shape-heuristic strays (--include-strays: acted on with --yes; browsers/MCP servers: no startEpoch re-verification, no session check; agy runs: start time re-checked, SIGKILL after grace):"
+      : "Shape-heuristic strays (report-only — pass --include-strays to act; browsers/MCP servers: no startEpoch re-verification, no session check; agy runs: start time re-checked, SIGKILL after grace):",
   );
   if (result.heuristic.skipReason === "ps-unavailable") {
     lines.push("  (ps unavailable — stray sweep did not run)");
@@ -327,7 +340,8 @@ function renderTextReport(result: ReapCliResult): string {
               // per-slug identity to scope by. Naming it here without that
               // caveat would read as "still scoped to --slug", which is
               // false: following this exact suggestion on a --slug run
-              // SIGTERMs strays across the whole host.
+              // signals strays (SIGTERM; SIGKILL for overdue agy runs)
+              // across the whole host.
               ` (add --include-strays to also act on shape-heuristic strays — always host-wide, not scoped by --slug)`),
   );
   return lines.join("\n");

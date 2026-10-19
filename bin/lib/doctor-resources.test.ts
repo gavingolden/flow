@@ -423,6 +423,7 @@ describe("checkLeakedProcesses", () => {
 
   const agyStray = {
     pid: 9,
+    pgid: 9,
     startEpochMs: 1,
     ageMs: 99,
     timeLimitSec: 720,
@@ -446,6 +447,23 @@ describe("checkLeakedProcesses", () => {
     expect(c.title).toBe("Stray browsers, servers, and agy runs");
     expect(c.summary).toBe("2 agy run(s) look orphaned");
     expect(c.fix).toBe("flow reap --yes --include-strays");
+  });
+
+  it("says which agy runs reap will not stop yet (still within their time limit)", () => {
+    const out = checkLeakedProcesses(makeDeps(root), () =>
+      report({
+        agy: {
+          ran: true,
+          found: [agyStray, { ...agyStray, pid: 10, overdue: false }],
+          signalled: [],
+          killed: [],
+          stillAlive: [],
+        },
+      }),
+    );
+    expect(out.find((x) => x.id === "leftovers-strays")?.summary).toBe(
+      "2 agy run(s) look orphaned (1 still within their time limit; reap stops them once past it)",
+    );
   });
 
   it("appends the agy count to the browser and server summary", () => {

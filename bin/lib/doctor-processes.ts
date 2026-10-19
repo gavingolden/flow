@@ -116,7 +116,13 @@ export function checkLeakedProcesses(
     });
   } else if (browserServers + agyRuns.length > 0) {
     const browsersAndServers = `${h.found.length} browser(s) and ${h.foundServers.length} MCP server(s) look orphaned`;
-    const agy = `${agyRuns.length} agy run(s) look orphaned`;
+    // The fix only stops runs past their own limit, so say so for the rest.
+    const withinLimit = agyRuns.filter((r) => !r.overdue).length;
+    const agy =
+      `${agyRuns.length} agy run(s) look orphaned` +
+      (withinLimit > 0
+        ? ` (${withinLimit} still within their time limit; reap stops them once past it)`
+        : "");
     checks.push({
       ...strays,
       status: "warn",
