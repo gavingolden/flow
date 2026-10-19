@@ -157,11 +157,18 @@ persists across resume. The host reports `AI_AGENT=claude-code_2-1-303_agent`;
 the 2.1.292 floor the docs state was not separately bisected (no older build
 was available on this host).
 
+`CLAUDE_EFFORT` (the session's live effort, which `readSessionEffort` reads
+first) was observed exported in the Bash tool env of a Claude Code session on
+2026-10-19, alongside `AI_AGENT` and `CLAUDE_CODE_EXECPATH`. Outside a flow
+pipeline, where there is no `state.effort` to fall back on, the "never above
+the session" cap rests on that variable; if a host does not export it the
+session reads as unknown and the capped roles get `medium`.
+
 **Decision this drives:** a per-invocation `effort` on the Task call beats the
 agent file's `effort:` and the session effort, which is what makes
 `flow-spawn-effort` a real knob (`efforts.*` in `~/.flow/config.json`) rather
 than a display value. The agent-file `effort: medium` on the fix-applier, UI
-driver and product reviewer stays as the floor for builds below 2.1.292 or a
+driver and product reviewer stays as the fallback for builds below 2.1.292 or a
 spawn site that omits the argument. Not covered by this probe: how a level
 the sub-agent's model does not offer (`xhigh` / `max` on a smaller model) is
 handled — the config docs warn that Claude Code may reject it.
