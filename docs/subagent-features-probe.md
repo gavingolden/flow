@@ -138,3 +138,30 @@ was cheaper at list price for all four, so those pins were removed; see
 `agent-invocation-name` `inconclusive` (pre-existing, unrelated to this
 change — see the file's own probe for detail); the four new ids report
 `skipped` with evidence `"requires --live"`.
+
+## subagent-effort-param
+
+Run 2026-10-19 on Claude Code 2.1.303 (`env -u FLOW_SLUG -u TMUX_PANE bun
+bin/flow-plugin-probe.ts --live --probe subagent-effort-param --json`; one
+Sonnet spawn, session launched with `--effort high`). The fixture is an
+`--agents` definition `probe-effort-<nonce>` with `effort: medium` in its
+definition, spawned through the Task tool with the per-invocation parameter
+`effort: low`, then messaged once more through `SendMessage`.
+
+**Verdict: confirmed.** The sub-agent's transcript carried effort fields on
+3 assistant turns, counts `{"low":3}` — no turn ran at the definition's
+`medium` or the session's `high` — and the agent's `.meta.json` recorded
+`"effort":"low"`. The resumed `SendMessage` turn (`reply OK <nonce> again`)
+is present in the same transcript and ran at `low` too, so the override
+persists across resume. The host reports `AI_AGENT=claude-code_2-1-303_agent`;
+the 2.1.292 floor the docs state was not separately bisected (no older build
+was available on this host).
+
+**Decision this drives:** a per-invocation `effort` on the Task call beats the
+agent file's `effort:` and the session effort, which is what makes
+`flow-spawn-effort` a real knob (`efforts.*` in `~/.flow/config.json`) rather
+than a display value. The agent-file `effort: medium` on the fix-applier, UI
+driver and product reviewer stays as the floor for builds below 2.1.292 or a
+spawn site that omits the argument. Not covered by this probe: how a level
+the sub-agent's model does not offer (`xhigh` / `max` on a smaller model) is
+handled — the config docs warn that Claude Code may reject it.
