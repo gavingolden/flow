@@ -414,7 +414,9 @@ describe("run — aggregation + concurrency", () => {
     expect(deps.calls.renamed[0]!.to).toBe(
       path.resolve("/work", "/o/agg.json"),
     );
-    expect(deps.calls.written[0]!.path).toBe(`${deps.calls.renamed[0]!.to}.tmp`);
+    expect(deps.calls.written[0]!.path).toBe(
+      `${deps.calls.renamed[0]!.to}.tmp`,
+    );
   });
 
   it("never exceeds K concurrent dispatches (async deferred runner)", async () => {

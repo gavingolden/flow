@@ -180,7 +180,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const fileDone = (): boolean =>
     exists(parsed.resultPath) &&
     (!parsed.completeLine ||
-      (statSize(parsed.resultPath) > 0 && lastByte(parsed.resultPath) === "\n"));
+      (statSize(parsed.resultPath) > 0 &&
+        lastByte(parsed.resultPath) === "\n"));
 
   const processGone = (): boolean => {
     if (parsed.pid === undefined) return false;

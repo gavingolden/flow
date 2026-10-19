@@ -206,52 +206,64 @@ describe("--complete-line and --pid", () => {
 
   it("keeps waiting on an empty file under --complete-line", async () => {
     const clock = makeFakeClock();
-    await run(["/p.json", "--complete-line", "--interval", "1", "--max-sec", "3"], {
-      exists: () => true,
-      statSize: () => 0,
-      lastByte: () => "",
-      sleep: clock.sleep,
-      now: clock.now,
-    });
+    await run(
+      ["/p.json", "--complete-line", "--interval", "1", "--max-sec", "3"],
+      {
+        exists: () => true,
+        statSize: () => 0,
+        lastByte: () => "",
+        sleep: clock.sleep,
+        now: clock.now,
+      },
+    );
     expect(clock.now()).toBeGreaterThanOrEqual(3000);
   });
 
   it("keeps waiting on a file that ends mid-line", async () => {
     const clock = makeFakeClock();
-    await run(["/p.json", "--complete-line", "--interval", "1", "--max-sec", "3"], {
-      exists: () => true,
-      statSize: () => 12,
-      lastByte: () => "}",
-      sleep: clock.sleep,
-      now: clock.now,
-    });
+    await run(
+      ["/p.json", "--complete-line", "--interval", "1", "--max-sec", "3"],
+      {
+        exists: () => true,
+        statSize: () => 12,
+        lastByte: () => "}",
+        sleep: clock.sleep,
+        now: clock.now,
+      },
+    );
     expect(clock.now()).toBeGreaterThanOrEqual(3000);
   });
 
   it("completes on a newline-terminated file", async () => {
     const clock = makeFakeClock();
     let polls = 0;
-    await run(["/p.json", "--complete-line", "--interval", "1", "--max-sec", "10"], {
-      exists: () => true,
-      statSize: () => (++polls > 2 ? 12 : 0),
-      lastByte: () => "\n",
-      sleep: clock.sleep,
-      now: clock.now,
-    });
+    await run(
+      ["/p.json", "--complete-line", "--interval", "1", "--max-sec", "10"],
+      {
+        exists: () => true,
+        statSize: () => (++polls > 2 ? 12 : 0),
+        lastByte: () => "\n",
+        sleep: clock.sleep,
+        now: clock.now,
+      },
+    );
     expect(clock.now()).toBe(2000);
   });
 
   it("returns at once when --pid names an exited process and the file is empty", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const clock = makeFakeClock();
-    await run(["/p.json", "--complete-line", "--pid", "999999", "--max-sec", "540"], {
-      exists: () => true,
-      statSize: () => 0,
-      lastByte: () => "",
-      kill: esrch,
-      sleep: clock.sleep,
-      now: clock.now,
-    });
+    await run(
+      ["/p.json", "--complete-line", "--pid", "999999", "--max-sec", "540"],
+      {
+        exists: () => true,
+        statSize: () => 0,
+        lastByte: () => "",
+        kill: esrch,
+        sleep: clock.sleep,
+        now: clock.now,
+      },
+    );
     expect(clock.now()).toBe(0);
     expect(logSpy).toHaveBeenCalledWith(
       '{"outcome":"process-exited-without-result"}',
