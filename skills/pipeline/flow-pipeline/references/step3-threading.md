@@ -185,13 +185,47 @@ When `$RESEARCH_MODULE_INACTIVE` is set, the helper already emitted the
 named notice to stderr — note the skip in the chat summary and proceed
 straight to invoking `/flow-product-planning` (append nothing for
 research findings; same "graceful skip never blocks planning" invariant
-as the agy-unavailable path). Otherwise, run the fan-out:
+as the agy-unavailable path). Otherwise, run the fan-out detached — the run
+can last the whole research limit (10 minutes by default), longer than one
+tool call. Forced research watches its `--status-file`, not its stdout: every
+exit path writes the status file (atomically, newline-terminated), while
+stdout stays empty on every skip path. Shell variables do not survive
+between Bash calls, so persist the pid and start time under `.flow-tmp/`.
+
+Launch (one Bash call). The `rm -f` is load-bearing: a stale status file
+from an earlier pass would satisfy the waiter instantly.
 
 ```bash
-flow-research-run --task "<verbatim user description>" \
+STATUS="$WORKTREE/.flow-tmp/research-status.json"
+rm -f "$STATUS"
+date +%s > "$WORKTREE/.flow-tmp/research-run.start"
+PID=$(flow-spawn --detach --stdout "$WORKTREE/.flow-tmp/research-run.log" \
+  --stderr "$WORKTREE/.flow-tmp/research-run.err" -- \
+  flow-research-run --task "<verbatim user description>" \
   --out "$WORKTREE/.flow-tmp/research-findings.md" \
-  --status-file "$WORKTREE/.flow-tmp/research-status.json"
+  --status-file "$STATUS")
+echo "$PID" > "$WORKTREE/.flow-tmp/research-run.pid"
 ```
+
+Wait (re-run this Bash call, with the Bash tool's `timeout` set to
+`600000`, until it ends the wait):
+
+```bash
+STATUS="$WORKTREE/.flow-tmp/research-status.json"
+PID=$(cat "$WORKTREE/.flow-tmp/research-run.pid")
+flow-plan-review-wait "$STATUS" --complete-line --pid "$PID" --max-sec 540
+echo "elapsed: $(( $(date +%s) - $(cat "$WORKTREE/.flow-tmp/research-run.start") ))s"
+```
+
+The waiter prints one `{"outcome": …}` line. On `complete`, branch on the
+status file exactly as below (`ran` / `reason`). On
+`process-exited-without-result` the runner died without a status: note the
+skip and proceed to planning appending nothing. On `timeout`, re-run the wait
+until the **give-up time** — the resolved research limit (`research.timeout`,
+default `10m`) + 5 minutes since the start time. Past it, kill the runner's
+process group (`kill -- -"$PID"`), print the skip line
+`research skipped — research-timeout`, and proceed to planning appending
+nothing.
 
 This bounded gather+refute agy fan-out self-degrades to a graceful skip
 when agy is unavailable and NEVER blocks planning. Then, when

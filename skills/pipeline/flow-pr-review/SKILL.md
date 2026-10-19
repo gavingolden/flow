@@ -702,7 +702,7 @@ hard-fails the review.
    strict-boolean-`true` rule, so the jq read is the human-readable gate, not
    the runtime authority.
 
-2. **Run the lens** via the PATH helper (write `$WORKTREE/.flow-tmp/diff.txt` with `flow-pr-diff "$PR_NUMBER"` if Step 3 prep hasn't; Step 3.5 reuses it — the Bash tool call MUST pass an explicit `timeout: 600000`, since its own 120000 ms default undercuts the helper's own agy call, whose `--print-timeout` is clamped to a 9m sync ceiling precisely so it never exceeds this 10-minute Bash cap):
+2. **Run the lens** via the PATH helper, launched detached before the Task lens fan-out message and awaited before Step 3.5 (recipe: [references/gemini-lens-run.md](references/gemini-lens-run.md); write `$WORKTREE/.flow-tmp/diff.txt` with `flow-pr-diff "$PR_NUMBER"` if Step 3 prep hasn't; Step 3.5 reuses it) — the helper call the recipe wraps in `flow-spawn --detach`:
 
    ```bash
    flow-gemini-lens --worktree "$WORKTREE" \
@@ -710,7 +710,7 @@ hard-fails the review.
      --out "$WORKTREE/.flow-tmp/agent-output-gemini.json"
    ```
 
-   The helper re-gates, runs a primary bounded `flow-delegate --model "Gemini 4 Argon (High)"` call (`delegate.timeouts.reviewLens`, default 8m, ceiling 9m; worktree as `--add-dir`, `--output-format json` + `--json-schema` pinning the wire-level `AGENT_FINDINGS_JSON_SCHEMA`), decodes the response through the `structured_output` → `parseStructured` → naive-salvage ladder in `bin/lib/structured-response.ts`, validates it against the shared agent-finding schema, and finalizes `agent-output-gemini.json` **only on success**. On a `gemini-tools-denied` or `gemini-token-exhausted` skip, it makes exactly ONE bounded fallback retry with a diff-only prompt (no `--add-dir`, no filesystem access, a short fixed timeout so primary+retry never approaches the ceiling) before giving up — `fallbackAttempted: true` in the envelope marks that this second call was made, and `degraded: "diff-only"` on a successful retry marks that the surviving result came from the weaker no-filesystem-access call.
+   The helper re-gates, runs a primary bounded `flow-delegate --model "Gemini 4 Argon (High)"` call (`delegate.timeouts.reviewLens`, default 10m, 20m bound; worktree as `--add-dir`, `--output-format json` + `--json-schema` pinning the wire-level `AGENT_FINDINGS_JSON_SCHEMA`), decodes the response through the `structured_output` → `parseStructured` → naive-salvage ladder in `bin/lib/structured-response.ts`, validates it against the shared agent-finding schema, and finalizes `agent-output-gemini.json` **only on success**. On a `gemini-tools-denied` or `gemini-token-exhausted` skip, it makes exactly ONE bounded fallback retry with a diff-only prompt (no `--add-dir`, no filesystem access, a fixed 2-minute timeout) before giving up — `fallbackAttempted: true` in the envelope marks that this second call was made, and `degraded: "diff-only"` on a successful retry marks that the surviving result came from the weaker no-filesystem-access call.
 
 3. **Branch on the helper's `{ran}` JSON** (the one-line stdout envelope),
    NEVER on the exit code (the helper exits 0 on every graceful path):
