@@ -21,7 +21,7 @@
  * envelope's `ran`/`allSkipped` field NEVER the exit code -> write artifact ->
  * graceful skip on any failure -> exit 0 on every operational path):
  *  1. Read budget/model overrides from ~/.flow/config.json tolerantly, reusing
- *     discovery's frozen defaults (maxCalls 12, timeout "10m", gather
+ *     discovery's frozen defaults (maxCalls 12, timeout "20m", gather
  *     "Gemini 4 Argon (High)", refute "Claude Opus 5.5 (Medium)" with the
  *     cross-model diversity guard).
  *  2. Build a deterministic 2-entry manifest (gather + adversarial refute).
@@ -67,13 +67,17 @@ import { redactSecrets } from "./lib/redact-secrets";
 // `read_budget` block). Keep these byte-identical to that source of truth.
 const DEFAULT_MAX_CALLS = 12;
 // The research limit: gather and fact-check share it (buildManifest applies one
-// timeout to both). 10 minutes is the floor of the Argon latency sizing rule
-// (docs/eval/argon-latency-probe/README.md): the 3-minute limit cut a gather
-// that had spent 163 s searching with no answer. Callers no longer hold the
+// timeout to both). 20 minutes is the sizing rule's cap
+// (docs/eval/argon-latency-probe/README.md): Stage 0 measured Argon High's
+// gather median at 415 s (docs/eval/argon-latency-probe-2026-10.md), so 3x is
+// 21 minutes, over the cap — a limit mismatch, shipped at the cap (Argon Medium
+// fits at 20m). A capped-search variant was 1.35x faster (median 308 s), below
+// the 2x bar, so the gather prompt is unchanged. The 3-minute limit it replaces
+// cut a gather that had spent 163 s searching with no answer. Callers no longer hold the
 // run inside one 10-minute tool call — they launch it with `flow-spawn
 // --detach` and wait on the status file (flow-plan-review-wait --pid) — so the
 // limit is not bounded by a tool call.
-export const DEFAULT_TIMEOUT = "10m";
+export const DEFAULT_TIMEOUT = "20m";
 const FALLBACK_REFUTE_MODEL = "GPT-OSS 120B (Medium)";
 
 const GATHER_TASK = "research-gather";

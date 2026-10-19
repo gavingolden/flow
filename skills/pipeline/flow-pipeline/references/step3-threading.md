@@ -186,7 +186,7 @@ named notice to stderr — note the skip in the chat summary and proceed
 straight to invoking `/flow-product-planning` (append nothing for
 research findings; same "graceful skip never blocks planning" invariant
 as the agy-unavailable path). Otherwise, run the fan-out detached — the run
-can last the whole research limit (10 minutes by default), longer than one
+can last the whole research limit (20 minutes by default), longer than one
 tool call. Forced research watches its `--status-file`, not its stdout: every
 exit path writes the status file (atomically, newline-terminated), while
 stdout stays empty on every skip path. Shell variables do not survive
@@ -222,7 +222,7 @@ status file exactly as below (`ran` / `reason`). On
 `process-exited-without-result` the runner died without a status: note the
 skip and proceed to planning appending nothing. On `timeout`, re-run the wait
 until the **give-up time** — the resolved research limit (`research.timeout`,
-default `10m`) + 5 minutes since the start time. Past it, kill the runner's
+default `20m`) + 5 minutes (25 minutes by default) since the start time. Past it, kill the runner's
 process group (`kill -- -"$PID"`), print the skip line
 `research skipped — research-timeout`, and proceed to planning appending
 nothing.

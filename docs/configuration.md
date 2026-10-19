@@ -203,7 +203,7 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 | `research.model`                | the agy model variant for the forced-research gather pass; unset falls through to `delegate.models.researchGather`, then the built-in default                                                                                                                                                                                                                                                |
 | `research.refuteModel`          | the agy model variant for the forced-research adversarial refute pass; unset falls through to `delegate.models.researchRefute`, then the built-in default — a cross-model diversity guard silently substitutes a fallback when this collides with the resolved gather model                                                                                                                  |
 | `research.maxCalls`             | the maximum number of agy calls the forced-research runner may spend (default `12`)                                                                                                                                                                                                                                                                                                          |
-| `research.timeout`              | how long the forced-research runner waits for the gather/refute fan-out (default `"10m"`)                                                                                                                                                                                                                                                                                                    |
+| `research.timeout`              | how long the forced-research runner waits for the gather/refute fan-out (default `"20m"`)                                                                                                                                                                                                                                                                                                    |
 | `research.deepResearchFallback` | whether a stalled forced-research run retries on paid Claude credits instead of the cheaper delegated path (default `true`, slower, and spends credits); strict `false` disables                                                                                                                                                                                                             |
 | `bots.copilot`                  | a bare login string, or `{ login?, globs?: { alwaysReview?, neverAlone? } }` — custom Copilot reviewer login and/or path-glob overrides layered over flow's built-in glob sets                                                                                                                                                                                                               |
 | `bots.copilot.login`            | derived view, not settable — the effective reviewer login `bots.copilot` resolves to (default `copilot-pull-request-reviewer`); set via `bots.copilot`, not this path                                                                                                                                                                                                                        |
@@ -459,9 +459,12 @@ never throws.
 
 **20-minute sanity bound.** Both surfaces are launched detached
 (`flow-spawn --detach`) and awaited with `flow-plan-review-wait`, so no
-Bash tool call's 600000ms (10-minute) timeout bounds them — the default is
-the 10-minute floor of the Argon latency sizing rule
-([`eval/argon-latency-probe/README.md`](eval/argon-latency-probe/README.md)).
+Bash tool call's 600000ms (10-minute) timeout holds them. The defaults come
+from the Stage 0 latency probe
+([`eval/argon-latency-probe-2026-10.md`](eval/argon-latency-probe-2026-10.md)):
+10m is the sizing floor, which both fit, and the research step takes the 20m
+cap. The sizing rule is in
+[`eval/argon-latency-probe/README.md`](eval/argon-latency-probe/README.md).
 `resolveDelegateTimeout` still clamps an override strictly above `20m`
 down to `20m`, warning once per surface on stderr, so a typo like `"200m"`
 cannot hold a pipeline for hours. An override between `9m` and `20m` now

@@ -32,8 +32,8 @@ this skill's procedure and runs the fan-out itself. That F2 use is a **Bash fan-
 (`flow-delegate-fanout`), **not a nested Task** — the discovery sub-agent
 itself is this pipeline's orchestrating "Claude", so the no-nested-LLM
 invariant and the eight-exemption count are preserved (no new exemption). The
-F2 caller runs a **tightened budget** (`--max-calls 12` plus a 10-minute
-per-entry `timeout: "10m"`, the research default) per the "Tighten for the #338
+F2 caller runs a **tightened budget** (`--max-calls 12` plus a 20-minute
+per-entry `timeout: "20m"`, the research default) per the "Tighten for the #338
 supervisor context" guidance in Constraints below. Because a one-shot sub-agent
 has no yield/resume and no wake-up notifications, it launches the fan-out
 detached (`flow-spawn --detach`) and waits on its `--out` file in the

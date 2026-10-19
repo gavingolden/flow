@@ -144,19 +144,21 @@ const DEFAULT_TASK = "plan-review";
 // REVIEWER_2_TIMEOUT is `15m`: ~3x the measured engaged Opus run (~4m30-4m50)
 // and ~2.5x the observed unbounded-verification burn, so a bounded reviewer
 // has real writing headroom well past the point that killed the unbounded one.
-// REVIEWER_1_TIMEOUT is `10m`, the floor of the Argon latency sizing rule
-// (docs/eval/argon-latency-probe/README.md): the 3-minute limit it replaces cut
-// an Argon 4 High reviewer that had already written 24 KB of findings.
+// REVIEWER_1_TIMEOUT is `13m`, sized by the Stage 0 probe
+// (docs/eval/argon-latency-probe-2026-10.md): Argon High's median plan-review
+// answer is 256 s and 3x that is 769 s, above the 10-minute floor of the sizing
+// rule (docs/eval/argon-latency-probe/README.md). The 3-minute limit it
+// replaces cut a reviewer that had already written 24 KB of findings.
 //
 // The deep tier still runs its two reviewers SERIALLY (see the fanout
 // call's `concurrency: 1` and the comment there), so reviewer 1 + reviewer 2
 // is the wall-clock SUM a live deep run can take. The give-up cap `--check`
 // must accommodate before declaring a still-alive worker `review-timed-out` is
 // DERIVED via `maxElapsedSec()` below (reviewer 1 + reviewer 2 + 300 s slack —
-// 15m standard / 30m deep at a 10m reviewer 1), never restated as a number
+// 18m standard / 33m deep at a 13m reviewer 1), never restated as a number
 // here, so it can never drift from the constants it guards. The standard tier
 // runs only reviewer 1 (MODEL, i.e. Gemini), so it uses REVIEWER_1_TIMEOUT.
-export const REVIEWER_1_TIMEOUT = "10m";
+export const REVIEWER_1_TIMEOUT = "13m";
 export const REVIEWER_2_TIMEOUT = "15m";
 
 // godurToSec now lives in ./lib/delegate-timeouts.ts (the single owner of
@@ -176,8 +178,8 @@ const WORKER_SLACK_SEC = 300;
  * The derived wall-clock cap `--check` gives a detached worker before
  * declaring it `review-timed-out` and killing it. NEVER a hardcoded number
  * — always re-derived from the live REVIEWER_*_TIMEOUT constants so it can
- * never silently drift from the caps it is meant to guard (1800s / 30m
- * deep, 900s / 15m standard, at today's `10m`/`15m` split).
+ * never silently drift from the caps it is meant to guard (1980s / 33m
+ * deep, 1080s / 18m standard, at today's `13m`/`15m` split).
  */
 export function maxElapsedSec(depth: "standard" | "deep"): number {
   return (
