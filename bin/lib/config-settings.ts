@@ -36,7 +36,7 @@ import {
 import { DEFAULT_TIMEOUT as RESEARCH_DEFAULT_TIMEOUT } from "../flow-research-run";
 import {
   DELEGATE_TIMEOUT_DEFAULTS,
-  SYNC_DELEGATE_CEILING,
+  DELEGATE_TIMEOUT_CEILING,
   isGoDuration,
   godurToSec,
   type DelegateTimeoutSurface,
@@ -213,9 +213,9 @@ function delegateTimeoutRow(surface: DelegateTimeoutSurface): Descriptor {
       const v = getPath(safeRead(read), ["delegate", "timeouts", surface]);
       if (typeof v === "string" && isGoDuration(v)) {
         const trimmed = v.trim();
-        return godurToSec(trimmed) > godurToSec(SYNC_DELEGATE_CEILING)
+        return godurToSec(trimmed) > godurToSec(DELEGATE_TIMEOUT_CEILING)
           ? {
-              value: SYNC_DELEGATE_CEILING,
+              value: DELEGATE_TIMEOUT_CEILING,
               source: `config (${key}, clamped from ${trimmed})`,
             }
           : { value: trimmed, source: `config (${key})` };

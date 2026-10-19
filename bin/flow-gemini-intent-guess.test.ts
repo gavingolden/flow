@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  DELEGATE_TIMEOUT_CEILING,
+  DELEGATE_TIMEOUT_DEFAULTS,
+} from "./lib/delegate-timeouts";
+import {
   INTENT_GUESS_JSON_SCHEMA,
   buildPrompt,
   isGeminiIntentGuessEnabled,
@@ -529,12 +533,14 @@ describe("run — conformant output", () => {
     expect(argv[argv.indexOf("--json-schema") + 1]).toBe(`${OUT}.schema.json`);
   });
 
-  it("passes --timeout resolveDelegateTimeout('intentGuess') default (5m) to flow-delegate", () => {
+  it("passes --timeout resolveDelegateTimeout('intentGuess') default to flow-delegate", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
     const argv = deps.calls.delegate[0]!;
     expect(argv).toContain("--timeout");
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("5m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(
+      DELEGATE_TIMEOUT_DEFAULTS.intentGuess,
+    );
   });
 
   it("passes an explicit --timeout flag through to flow-delegate", () => {
@@ -544,18 +550,20 @@ describe("run — conformant output", () => {
     expect(argv[argv.indexOf("--timeout") + 1]).toBe("3m");
   });
 
-  it("clamps an explicit --timeout flag above the 9m sync ceiling", () => {
+  it("clamps an explicit --timeout flag above the 20m sanity bound", () => {
     const deps = makeDeps();
-    run([...BASE_ARGV, "--timeout", "15m"], deps);
+    run([...BASE_ARGV, "--timeout", "30m"], deps);
     const argv = deps.calls.delegate[0]!;
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("9m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(DELEGATE_TIMEOUT_CEILING);
   });
 
   it("falls back to the default when an explicit --timeout flag is not a valid Go duration", () => {
     const deps = makeDeps();
     run([...BASE_ARGV, "--timeout", "not-a-duration"], deps);
     const argv = deps.calls.delegate[0]!;
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("5m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(
+      DELEGATE_TIMEOUT_DEFAULTS.intentGuess,
+    );
   });
 
   it("writes INTENT_GUESS_JSON_SCHEMA to the --json-schema scratch path before dispatch", () => {

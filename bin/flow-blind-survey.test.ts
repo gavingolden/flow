@@ -11,6 +11,13 @@ import {
   type FanoutAggregate,
 } from "./flow-blind-survey";
 import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
+import { godurToSec } from "./lib/delegate-timeouts";
+
+describe("judge limits", () => {
+  it("keeps judge A at or above the 10-minute floor", () => {
+    expect(godurToSec(JUDGE_A_TIMEOUT)).toBeGreaterThanOrEqual(600);
+  });
+});
 
 const MODEL_A = "Gemini 4 Argon (High)";
 const MODEL_B = DELEGATE_MODEL_DEFAULTS.blindSurveySecond!;

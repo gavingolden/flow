@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
+import { DEFAULT_TIMEOUT } from "./flow-research-run";
 
 /**
  * Structural lint for the F2 research pre-check budget wiring in
@@ -83,14 +84,15 @@ describe("F2 research budget config lint", () => {
   });
 
   it("keeps the byte-exact v1 budget defaults", () => {
-    // maxCalls default 12 (as the type-guarded read default), timeout default 3m.
+    // maxCalls default 12 (as the type-guarded read default), timeout default
+    // the exported research limit (DEFAULT_TIMEOUT).
     expect(
       content.includes("read_budget maxCalls number 12"),
       `${FILE_LABEL} must default research.maxCalls to 12 in the tolerant read.`,
     ).toBe(true);
     expect(
-      content.includes('read_budget timeout string "3m"'),
-      `${FILE_LABEL} must default research.timeout to "3m" in the tolerant read.`,
+      content.includes(`read_budget timeout string "${DEFAULT_TIMEOUT}"`),
+      `${FILE_LABEL} must default research.timeout to "${DEFAULT_TIMEOUT}" in the tolerant read.`,
     ).toBe(true);
     expect(
       content.includes(

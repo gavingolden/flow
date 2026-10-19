@@ -12,6 +12,8 @@ import {
   normalizeDecisionBody,
   parseArgs,
   readPriorHash,
+  REVIEWER_1_TIMEOUT,
+  REVIEWER_2_TIMEOUT,
   run,
   type DelegateEnvelope,
   type Deps,
@@ -452,14 +454,14 @@ describe("run — happy path", () => {
     expect(deps.files.has(`${OUT}.agy-raw`)).toBe(false);
   });
 
-  it("passes the hardcoded Gemini model and the worktree as --add-dir, with a 3m --timeout, to the delegate", () => {
+  it("passes the hardcoded Gemini model and the worktree as --add-dir, with the reviewer-1 --timeout, to the delegate", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
     const argv = deps.calls.delegate[0]!;
     expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 4 Argon (High)");
     expect(argv[argv.indexOf("--add-dir") + 1]).toBe(WORKTREE);
     expect(argv[argv.indexOf("--task") + 1]).toBe("plan-review");
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("3m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(REVIEWER_1_TIMEOUT);
   });
 });
 
@@ -1009,7 +1011,7 @@ describe("run — deep tier happy path", () => {
     expect(out).toContain("Convergence rule");
   });
 
-  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's, with the asymmetric 3m/15m per-reviewer timeouts and addDirs threading the worktree", () => {
+  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's, with the asymmetric per-reviewer timeouts and addDirs threading the worktree", () => {
     // Reviewer 2 (SECOND_MODEL) is the same model family as the PRD's
     // author, so it must not receive the byte-identical "different model
     // family" prompt handed to reviewer 1.
@@ -1027,11 +1029,11 @@ describe("run — deep tier happy path", () => {
     expect(manifest[1].model).toBe(MODEL_2);
     expect(manifest[0].out).toBe(`${OUT}.r1.md`);
     expect(manifest[1].out).toBe(`${OUT}.r2.md`);
-    // Asymmetric split: reviewer 1 (fast, Gemini) 3m, reviewer 2 (slow,
-    // Opus) 15m — no sum constraint anymore (the async spine detaches the
-    // worker), so reviewer 2 gets the literal budget the user asked for.
-    expect(manifest[0].timeout).toBe("3m");
-    expect(manifest[1].timeout).toBe("15m");
+    // Asymmetric split: reviewer 1 (Gemini) and reviewer 2 (Opus) each get
+    // their own exported limit — no sum constraint (the async spine detaches
+    // the worker).
+    expect(manifest[0].timeout).toBe(REVIEWER_1_TIMEOUT);
+    expect(manifest[1].timeout).toBe(REVIEWER_2_TIMEOUT);
     // addDirs = [parsed.worktree] on BOTH manifest entries — this is the
     // exact line this PR exists to fix (the reviewer must be granted repo
     // access, not left to review in a vacuum).
@@ -1673,14 +1675,20 @@ describe("godurToSec", () => {
 });
 
 describe("maxElapsedSec", () => {
+  it("keeps reviewer #1 at or above the 10-minute floor", () => {
+    expect(godurToSec(REVIEWER_1_TIMEOUT)).toBeGreaterThanOrEqual(600);
+  });
+
   it("derives the deep-tier cap from REVIEWER_1_TIMEOUT + REVIEWER_2_TIMEOUT + slack", () => {
-    // 3m (180) + 15m (900) + 300s slack = 1380s (23m).
-    expect(maxElapsedSec("deep")).toBe(1380);
+    expect(maxElapsedSec("deep")).toBe(
+      godurToSec(REVIEWER_1_TIMEOUT) + godurToSec(REVIEWER_2_TIMEOUT) + 300,
+    );
   });
 
   it("derives the standard-tier cap from REVIEWER_1_TIMEOUT + slack only", () => {
-    // 3m (180) + 300s slack = 480s (8m).
-    expect(maxElapsedSec("standard")).toBe(480);
+    expect(maxElapsedSec("standard")).toBe(
+      godurToSec(REVIEWER_1_TIMEOUT) + 300,
+    );
   });
 });
 

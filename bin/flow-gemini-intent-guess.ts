@@ -19,7 +19,7 @@
  *     blindness contract) and delegate ONE bounded agy call via
  *     `flow-delegate` (model "Gemini 4 Argon (High)", `--timeout` from
  *     `resolveDelegateTimeout("intentGuess")` — `delegate.timeouts.intentGuess`,
- *     default 5m, clamped to a 9m sync ceiling).
+ *     default 10m, 20m sanity bound).
  *  3. Branch on the flow-delegate envelope's `ran` field (NEVER the exit
  *     code): `ran:false` → propagate the skipReason, finalize nothing.
  *  4. `ran:true` → read the raw agy artifact and decode it through the

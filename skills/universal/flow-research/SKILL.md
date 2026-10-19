@@ -32,11 +32,14 @@ this skill's procedure and runs the fan-out itself. That F2 use is a **Bash fan-
 (`flow-delegate-fanout`), **not a nested Task** — the discovery sub-agent
 itself is this pipeline's orchestrating "Claude", so the no-nested-LLM
 invariant and the eight-exemption count are preserved (no new exemption). The
-F2 caller runs a **tightened budget** (`--max-calls 12` plus a 3-minute
-per-entry `timeout: "3m"`) per the "Tighten for the #338 supervisor context"
-guidance in Constraints below, because a one-shot sub-agent has no
-yield/resume and its synchronous run must stay under the observed-safe
-~10-min ceiling. This skill's own research procedure (Instructions, report
+F2 caller runs a **tightened budget** (`--max-calls 12` plus a 10-minute
+per-entry `timeout: "10m"`, the research default) per the "Tighten for the #338
+supervisor context" guidance in Constraints below. Because a one-shot sub-agent
+has no yield/resume and no wake-up notifications, it launches the fan-out
+detached (`flow-spawn --detach`) and waits on its `--out` file in the
+foreground, in re-armed ≤9-minute steps (`flow-plan-review-wait --complete-line
+--pid`), so the limit is bounded by one wave × the research limit rather than
+by one tool call. This skill's own research procedure (Instructions, report
 template, fan-out logic) is unchanged by that wiring.
 
 The F2 discovery pre-check's synthesis is cached host-wide at `~/.flow/research-cache/` keyed on the normalized sharp question (see `flow-research-cache` / `discovery-research.md` Step 1.5), so an identical same-scope redirect or crash-resume reuses it instead of re-running the fan-out.

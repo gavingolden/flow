@@ -208,8 +208,9 @@ export const DELEGATABLE_LENSES: readonly DelegatableLens[] =
 // `delegate.lenses`.
 export const DEFAULT_DELEGATED_LENSES: readonly DelegatableLens[] = [];
 
-// Fixed per-run agy budgets (see delegate-timeouts.ts for the configurable
-// surfaces and the 9m sync ceiling these must stay under).
+// Fixed per-run agy budgets for the delegated Claude lenses and scout (not
+// configurable; see delegate-timeouts.ts for the configurable surfaces and
+// their 20m sanity bound).
 export const DELEGATED_LENS_TIMEOUT = "8m";
 export const DELEGATED_SCOUT_TIMEOUT = "8m";
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DELEGATE_TIMEOUT_DEFAULTS,
-  SYNC_DELEGATE_CEILING,
+  DELEGATE_TIMEOUT_CEILING,
   godurToSec,
   isGoDuration,
   resolveDelegateTimeout,
@@ -107,6 +107,26 @@ describe("resolveDelegateTimeout", () => {
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 
+  it("defaults sit at the 10-minute floor, under the ceiling", () => {
+    for (const surface of ALL_SURFACES) {
+      const sec = godurToSec(DELEGATE_TIMEOUT_DEFAULTS[surface]);
+      expect(sec).toBeGreaterThanOrEqual(600);
+      expect(sec).toBeLessThanOrEqual(godurToSec(DELEGATE_TIMEOUT_CEILING));
+    }
+  });
+
+  it("an override between the old 9m clamp and the new bound passes through", async () => {
+    // Fresh module: the warn-once sets are process singletons.
+    vi.resetModules();
+    const fresh = await import("./delegate-timeouts");
+    expect(
+      fresh.resolveDelegateTimeout(
+        "intentGuess",
+        reader({ delegate: { timeouts: { intentGuess: "15m" } } }),
+      ),
+    ).toBe("15m");
+  });
+
   it("a present well-typed override under the ceiling wins", () => {
     expect(
       resolveDelegateTimeout(
@@ -141,15 +161,16 @@ describe("resolveDelegateTimeout", () => {
     expect(stderrSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("warns and clamps to the sync ceiling when the override exceeds it", () => {
+  it("warns and clamps to the 20-minute bound when the override exceeds it", () => {
     expect(
       resolveDelegateTimeout(
         "reviewLens",
-        reader({ delegate: { timeouts: { reviewLens: "20m" } } }),
+        reader({ delegate: { timeouts: { reviewLens: "30m" } } }),
       ),
-    ).toBe(SYNC_DELEGATE_CEILING);
+    ).toBe(DELEGATE_TIMEOUT_CEILING);
+    expect(DELEGATE_TIMEOUT_CEILING).toBe("20m");
     expect(stderrSpy).toHaveBeenCalledTimes(1);
-    expect(stderrSpy.mock.calls[0]![0]).toContain("sync ceiling");
+    expect(stderrSpy.mock.calls[0]![0]).toContain("sanity bound");
   });
 
   // The remaining specs need a fresh module instance per test: only two
@@ -166,10 +187,10 @@ describe("resolveDelegateTimeout", () => {
       fresh.resolveDelegateTimeout(
         "reviewLens",
         reader({
-          delegate: { timeouts: { reviewLens: SYNC_DELEGATE_CEILING } },
+          delegate: { timeouts: { reviewLens: DELEGATE_TIMEOUT_CEILING } },
         }),
       ),
-    ).toBe(SYNC_DELEGATE_CEILING);
+    ).toBe(DELEGATE_TIMEOUT_CEILING);
     expect(stderrSpy).toHaveBeenCalledTimes(1);
     expect(stderrSpy.mock.calls[0]![0]).toContain("config override active");
   });
@@ -190,11 +211,11 @@ describe("resolveDelegateTimeout", () => {
   it("the clamp notice fires once per surface per process, even across repeated calls", async () => {
     vi.resetModules();
     const fresh = await import("./delegate-timeouts");
-    const cfg = reader({ delegate: { timeouts: { intentGuess: "20m" } } });
+    const cfg = reader({ delegate: { timeouts: { intentGuess: "30m" } } });
     fresh.resolveDelegateTimeout("intentGuess", cfg);
     fresh.resolveDelegateTimeout("intentGuess", cfg);
     const clampCalls = stderrSpy.mock.calls.filter((c) =>
-      String(c[0]).includes("sync ceiling"),
+      String(c[0]).includes("sanity bound"),
     );
     expect(clampCalls.length).toBe(1);
   });
