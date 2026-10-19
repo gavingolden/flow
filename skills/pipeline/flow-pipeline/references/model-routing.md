@@ -35,25 +35,25 @@ so the sub-agent inherits the session model (the default Claude behaviour).
 
 ## Precedence table (highest wins)
 
-| Spawn site                                              | state field          | precedence                                                                                                                                    |
-| ------------------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Step 3 Discovery (planning)                             | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                                                                                  |
-| `/flow-new-feature` Scout (implement)                   | `modelImplement`     | `config.models.scout // state.modelImplement // config.models.implement // inherited`                                                         |
-| `/flow-coder` Edit-Applier (implement)                  | `modelImplement`     | `config.models.coder // state.modelImplement // config.models.implement // inherited`                                                         |
-| `/flow-pr-review` Multi-Agent Review (review)           | `modelReview`        | `state.modelReview // config.models.review // inherited`                                                                                      |
-| `/flow-pr-review` Bug-Detection Lens (review)           | `modelReview`        | `config.models.reviewLenses.bug-detection // state.modelReview // config.models.review // inherited` **(uncapped — Fable on Fable sessions)** |
-| `/flow-pr-review` Security Lens (review)                | `modelReview`        | `config.models.reviewLenses.security // state.modelReview // config.models.review // session model capped at opus`                            |
-| `/flow-pr-review` Pattern-Consistency Lens (review)     | `modelReview`        | `config.models.reviewLenses.pattern-consistency // state.modelReview // config.models.review // session model capped at opus`                 |
-| `/flow-pr-review` Performance Lens (review)             | `modelReview`        | `config.models.reviewLenses.performance // state.modelReview // config.models.review // session model capped at opus`                         |
-| `/flow-pr-review` Supply-Chain Lens (review)            | `modelReview`        | `config.models.reviewLenses.supply-chain // state.modelReview // config.models.review // session model capped at opus`                        |
-| `/flow-pr-review` Test-Coverage Lens (review)           | `modelReview`        | `config.models.reviewLenses.test-coverage // state.modelReview // config.models.review // session model capped at opus`                       |
-| `/flow-pr-review` Product Lens (review)                 | `modelReview`        | `config.models.reviewLenses.product // state.modelReview // config.models.review // "opus"` **(pinned; NOT inherited)**                       |
-| `/flow-pr-review` Intent-Guess Lens (review)            | `modelReview`        | `config.models.reviewLenses.intent-guess // state.modelReview // config.models.review // session model capped at opus`                        |
-| `/flow-pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`    | `state.modelFixApplier // config.models.fixApplier // "sonnet"` **(NOT inherited)**                                                           |
-| `/flow-verify` UI-driver (uiDriver)                     | —                    | `config.models.uiDriver // "sonnet"` **(NOT inherited; config-only, no CLI flag)**                                                            |
-| `/flow-pr-review` Consolidator-Validator (consolidator) | `modelConsolidator`  | `state.modelConsolidator // config.models.consolidator // session model capped at opus`                                                       |
-| Step 10 Merge-Conflict Resolver (mergeResolver)         | `modelMergeResolver` | `state.modelMergeResolver // config.models.mergeResolver // inherited`                                                                        |
-| `/flow-epic-create` designer (planning)                 | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                                                                                  |
+| Spawn site                                              | state field          | precedence                                                                                                                                    | effort default |
+| ------------------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| Step 3 Discovery (planning)                             | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                                                                                  | `session`      |
+| `/flow-new-feature` Scout (implement)                   | `modelImplement`     | `config.models.scout // state.modelImplement // config.models.implement // inherited`                                                         | `session`      |
+| `/flow-coder` Edit-Applier (implement)                  | `modelImplement`     | `config.models.coder // state.modelImplement // config.models.implement // inherited`                                                         | `session`      |
+| `/flow-pr-review` Multi-Agent Review (review)           | `modelReview`        | `state.modelReview // config.models.review // inherited`                                                                                      | `session`      |
+| `/flow-pr-review` Bug-Detection Lens (review)           | `modelReview`        | `config.models.reviewLenses.bug-detection // state.modelReview // config.models.review // inherited` **(uncapped — Fable on Fable sessions)** | `session`      |
+| `/flow-pr-review` Security Lens (review)                | `modelReview`        | `config.models.reviewLenses.security // state.modelReview // config.models.review // session model capped at opus`                            | `session`      |
+| `/flow-pr-review` Pattern-Consistency Lens (review)     | `modelReview`        | `config.models.reviewLenses.pattern-consistency // state.modelReview // config.models.review // session model capped at opus`                 | `session`      |
+| `/flow-pr-review` Performance Lens (review)             | `modelReview`        | `config.models.reviewLenses.performance // state.modelReview // config.models.review // session model capped at opus`                         | `session`      |
+| `/flow-pr-review` Supply-Chain Lens (review)            | `modelReview`        | `config.models.reviewLenses.supply-chain // state.modelReview // config.models.review // session model capped at opus`                        | `session`      |
+| `/flow-pr-review` Test-Coverage Lens (review)           | `modelReview`        | `config.models.reviewLenses.test-coverage // state.modelReview // config.models.review // session model capped at opus`                       | `session`      |
+| `/flow-pr-review` Product Lens (review)                 | `modelReview`        | `config.models.reviewLenses.product // state.modelReview // config.models.review // "opus"` **(pinned; NOT inherited)**                       | `medium`       |
+| `/flow-pr-review` Intent-Guess Lens (review)            | `modelReview`        | `config.models.reviewLenses.intent-guess // state.modelReview // config.models.review // session model capped at opus`                        | `session`      |
+| `/flow-pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`    | `state.modelFixApplier // config.models.fixApplier // "sonnet"` **(NOT inherited)**                                                           | `≤ medium`     |
+| `/flow-verify` UI-driver (uiDriver)                     | —                    | `config.models.uiDriver // "sonnet"` **(NOT inherited; config-only, no CLI flag)**                                                            | `≤ medium`     |
+| `/flow-pr-review` Consolidator-Validator (consolidator) | `modelConsolidator`  | `state.modelConsolidator // config.models.consolidator // session model capped at opus`                                                       | `session`      |
+| Step 10 Merge-Conflict Resolver (mergeResolver)         | `modelMergeResolver` | `state.modelMergeResolver // config.models.mergeResolver // inherited`                                                                        | `session`      |
+| `/flow-epic-create` designer (planning)                 | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                                                                                  | `session`      |
 
 ## Five deliberate asymmetries
 
@@ -61,12 +61,10 @@ so the sub-agent inherits the session model (the default Claude behaviour).
   applies already-diagnosed findings — mechanical apply-commit-push work.
   Letting the model inherit would silently spend the session model
   (e.g. Opus/Fable) on gate-run-and-commit work, so its final fallback is the
-  literal `sonnet`. Its `agents/flow-fix-applier.md` definition does NOT pin
-  `effort`, though — the Task tool has no per-spawn effort argument, so a
-  frontmatter effort pin would be unoverridable even though `model` here is
-  only a configurable default; effort follows the session's `state.effort`
-  like every routed site except the product lens. Documented at the `/flow-pr-review`
-  Fix-Applier spawn site.
+  literal `sonnet`. Its effort follows the same logic: a built-in `medium`
+  capped at the session's effort, overridable with `efforts.fixApplier` (see
+  "Per-spawn effort" below). Documented at the `/flow-pr-review` Fix-Applier
+  spawn site.
 - **scout / coder are config-only fine-grain (no flags).** `--model-implement`
   is the one primary grain over implementation; `config.models.scout` /
   `config.models.coder` are optional finer overrides that layer **above**
@@ -87,8 +85,9 @@ so the sub-agent inherits the session model (the default Claude behaviour).
   rather than passed through, and a Fable session gets opus too. Any explicit
   `config.models.reviewLenses.product`, `--model-review`, or `config.models.review`
   still wins. It is also the one routed site whose `agents/*.md` definition
-  pins `effort` (see "One spawn site pins effort" below). The Opus move was
-  not quality-benchmarked; see `docs/configuration.md` for the trade-off.
+  carries a built-in `medium` effort that is not session-capped (see
+  "Per-spawn effort" below). The Opus move was not quality-benchmarked; see
+  `docs/configuration.md` for the trade-off.
 - **uiDriver falls back to a literal sonnet AND is the only routed site with
   no CLI flag at all.** `config.models.uiDriver` is the sole knob — no
   `--model-ui-driver` flag, no `state.json` field. A manifest-driven browser
@@ -97,35 +96,54 @@ so the sub-agent inherits the session model (the default Claude behaviour).
   (which still has a `--model-fix-applier` flag and a `state.modelFixApplier`
   field above its config grain), uiDriver has neither —
   `config.models.uiDriver // "sonnet"` is the entire chain. Like fixApplier,
-  its `agents/flow-ui-driver.md` definition does NOT pin `effort` — same
-  unoverridable-pin reasoning; effort follows the session's `state.effort`.
+  its effort defaults to `medium` capped at the session's effort and is
+  overridable with `efforts.uiDriver`.
 
-## One spawn site pins effort
+## Per-spawn effort
 
-Exactly one row in the precedence table above — the `/flow-pr-review`
-Product Lens — pins `effort` in its `agents/*.md` definition
-(`effort: medium` in `agents/core/flow-review-product.md`). Every other row,
-including fixApplier and uiDriver, whose `model` defaults to a literal
-`sonnet` rather than inheriting, does not. The Task tool exposes no
-per-spawn effort argument, so a frontmatter effort pin is unoverridable,
-even though the same row's `model` is only a configurable default the caller
-can already override: no `--effort` value or config setting moves the product
-lens's effort, and a `general-purpose` fallback spawn (definition not
-installed) loses the pin. That is the accepted trade-off for this one lens.
-Every other row's effort follows the session's effort, resolved on the
-precedence chain this run's frozen state > `launch.effort` config >
-built-in — the model-default axis and the effort axis are independent.
-`bin/lib/model-routing-table.test.ts` pins this directly: only the
-`review-lens:product` `SPAWN_SITES` row declares an `effortPin`, and it equals
-the agent definition's `effort:` line.
+Effort resolves at each spawn, like the model, through the `flow-spawn-effort`
+PATH helper (`bin/flow-spawn-effort.ts`; the same `resolveSpawnEffort` the
+audit table renders). The chain, highest wins:
 
-`flow config models` renders this directly: a line above the table shows
-the resolved session effort and its source, and every sub-agent row's
-EFFORT cell reads `= session` rather than repeating the value (the product
-lens row alone reads `medium`, sourced `pinned`) — the model column can
-differ spawn-to-spawn (a config edit changes the NEXT spawn), but effort is
-frozen for the whole run at launch, so every unpinned row's effort is by
-definition identical to the session's.
+1. `CLAUDE_CODE_EFFORT_LEVEL` — Claude Code's own override. When set it wins
+   over every per-spawn value and the agent-file floor; flow only reports it
+   (`flow config models` banner) and never sets it.
+2. `config.efforts.<key>` — per-role keys named like `models.*`
+   (`planning`, `scout`, `coder`, `fixApplier`, `uiDriver`, `consolidator`,
+   `mergeResolver`, and `reviewLenses.<lens>`). There are no group keys:
+   `efforts.review` and `efforts.implement` are not read. Not capped by the
+   session.
+3. The built-in default (the table's `effort default` column): fix-applier and
+   UI driver `medium` **capped at the session's effort** (a `low` session stays
+   `low`; `max` becomes `medium`; an unknown session keeps `medium`), product
+   lens `medium`.
+4. Otherwise the helper prints nothing and the spawn follows the session.
+
+The helper owns the build gate: the per-spawn `effort` argument needs Claude
+Code 2.1.292+, so on an older or undetectable build it prints nothing and the
+site omits the argument — no spawn site carries version prose. On those
+builds, or if a site forgets the argument, the `effort: medium` floor in the
+fix-applier, UI-driver and product-reviewer agent files still applies (fixed,
+so it can exceed a `low` session); every other role follows the session.
+
+The canonical recipe at a spawn site — non-empty ⇒ pass `effort:` on the Task
+call, empty ⇒ omit it, no further condition at the site:
+
+```bash
+X_EFFORT=$(command -v flow-spawn-effort >/dev/null 2>&1 && flow-spawn-effort <phase>)
+```
+
+`<phase>` is the table's spawn-site slug (`planning`, `scout`, `coder`,
+`fix-applier`, `ui-driver`, `consolidator`, `merge-resolver`,
+`review-lens:<lens>`). The model-default axis and the effort axis are
+independent. `bin/lib/model-routing-table.test.ts` pins the table's
+`effort default` column to the `SPAWN_SITES` `effortDefault` fields, and each
+default's level to its agent file's `effort:` line.
+
+`flow config models` renders this directly: a line above the table shows the
+resolved session effort and its source, and each sub-agent row's EFFORT cell
+reads `= session`, or the resolved level with its source (`· built-in`,
+`· config`, `· env`).
 
 ## In-process skills pin effort, not model
 
@@ -136,7 +154,7 @@ is no Task call for a `model:` argument to attach to.
 
 A `SKILL.md` may still carry `effort:` in its frontmatter to bound that
 turn's reasoning depth — a lever that, among Task-spawn definitions, only the
-product lens's `agents/*.md` may use (see "One spawn site pins effort"
+product lens's `agents/*.md` may use as a floor (see "Per-spawn effort"
 above), because an in-process skill runs on the supervisor's own turn rather
 than through the Task tool, so there is no per-spawn argument for the pin to
 conflict with. It should

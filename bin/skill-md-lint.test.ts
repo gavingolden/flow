@@ -1854,10 +1854,9 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
   // per-spawn model: override so the per-phase model flags keep working. A
   // future edit that reverts either site to a bare `subagent_type:
   // general-purpose` (dropping the sonnet-default model routing) goes red
-  // here. Neither definition pins `effort:` — the Task tool has no
-  // per-spawn effort argument, so a frontmatter effort pin would be
-  // unoverridable even though the row's `model` is only a configurable
-  // default; effort always follows the session's `state.effort`.
+  // here. Both definitions carry `effort: medium` as a floor beneath the
+  // per-spawn `effort:` argument `flow-spawn-effort` resolves on Claude Code
+  // 2.1.292+ (the floor applies on older builds or when a site omits it).
 
   // Shared negation vocabulary + clause-splitting helper for the two
   // "never mandates an X" prose-detector lints below (force-push,
@@ -1931,7 +1930,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     ).toBe(true);
   });
 
-  it("the cheap-model fan-out agent definition does not pin a model or an effort (per-spawn overrides must win)", () => {
+  it("the cheap-model fan-out agent definition does not pin a model; its `effort: medium` is only a floor (per-spawn overrides must win)", () => {
     for (const name of ["flow-fix-applier.md"] as const) {
       const agentPath = path.resolve(HERE, "..", "agents", "core", name);
       expect(
@@ -1946,21 +1945,22 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
           "override must win so the per-phase model flags keep working.",
       ).toBe(false);
       expect(
-        /^effort:/m.test(frontmatter),
-        `agents/${name} frontmatter must NOT pin an 'effort:' — the Task tool has ` +
-          "no per-spawn effort argument, so a frontmatter effort pin would be " +
-          "unoverridable even though this row's model is only a configurable " +
-          "default; effort must follow the session's state.effort instead.",
-      ).toBe(false);
+        /^effort:\s*medium\s*$/m.test(frontmatter),
+        `agents/${name} frontmatter must carry 'effort: medium' — the ` +
+          "deterministic floor beneath the per-spawn effort: argument, " +
+          "for builds before 2.1.292 or a spawn site that omits it.",
+      ).toBe(true);
     }
   });
 
   // Frontmatter policy for the full thirteen-definition set
   // (p4-review-agents + p4-pipeline-agents): mechanical roles pin a cheap
   // sonnet-default model and the subagent_type wiring (checked above and
-  // re-checked here), and NO row pins `effort:` except the product review
-  // lens (`wantEffort: "medium"`, mirrored by `effortPin` in
-  // `model-routing-table.ts`), so session effort and the spawn site's
+  // re-checked here), and NO row carries `effort:` except the three with a
+  // built-in per-spawn default — fix-applier, ui-driver and the product
+  // review lens (`wantEffort: "medium"`, mirrored by `effortDefault` in
+  // `model-routing-table.ts`) — where it is a floor beneath the per-spawn
+  // `effort:` argument; session effort and the spawn site's
   // per-spawn/config-threaded model win everywhere else. flow-discovery
   // is the one row with `inheritsAllTools: true` — plan Decision
   // analysis 2 deliberately leaves it with no `tools:` allowlist
@@ -1983,6 +1983,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
         "Bash, Edit, Write, Read, ToolSearch, Skill, mcp__chrome-devtools__\\*",
       wantMaxTurns: 200,
       wantSkills: "flow-fix-applier-instructions",
+      wantEffort: "medium",
     },
     {
       file: "flow-consolidator.md",
@@ -2051,6 +2052,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
       wantMaxTurns: 120,
       wantSkills: "flow-ui-driver-instructions",
       wantTools: "Bash, Read, Write, ToolSearch, mcp__chrome-devtools__\\*",
+      wantEffort: "medium",
     },
   ];
 
@@ -2121,23 +2123,22 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
             "model: override / config threading must win.",
         ).toBe(false);
       }
-      // Only the row naming `wantEffort` (the product review lens) pins
-      // effort: the Task tool has no per-spawn effort argument, so a
-      // frontmatter pin is unoverridable even though the row's model is only
-      // a configurable default — every other role scales with the session.
+      // Only the rows naming `wantEffort` (fix-applier, ui-driver, the
+      // product review lens) carry `effort:` — the floor beneath the
+      // per-spawn `effort:` argument `flow-spawn-effort` resolves. Every
+      // other role omits it and follows the session.
       if (wantEffort) {
         expect(
           new RegExp(`^effort:\\s*${wantEffort}\\s*$`, "m").test(frontmatter),
-          `agents/${file} frontmatter must pin 'effort: ${wantEffort}' — the ` +
-            "one named exception to effort-follows-session.",
+          `agents/${file} frontmatter must declare 'effort: ${wantEffort}' — ` +
+            "the floor beneath the per-spawn effort: argument.",
         ).toBe(true);
       } else {
         expect(
           /^effort:/m.test(frontmatter),
-          `agents/${file} frontmatter must NOT pin 'effort:' — the Task tool ` +
-            "has no per-spawn effort argument, so a pinned effort would be " +
-            "unoverridable while this row's model is only a configurable " +
-            "default; effort must follow the session's state.effort.",
+          `agents/${file} frontmatter must NOT declare 'effort:' — only ` +
+            "flow-fix-applier, flow-ui-driver and flow-review-product carry " +
+            "a floor; every other role follows the session's effort.",
         ).toBe(false);
       }
       if (wantMemory) {
@@ -5548,12 +5549,18 @@ describe("pr-review include-by-reference structure", () => {
     // The login hand-off anchor folds inline into the headless-fallback
     // paragraph (no new lines beyond one rewrap): the file now lands at 1904
     // lines as this test counts them; 1905 leaves 1 line of headroom.
+    //
+    // Raised 1905 -> 1920 (per-spawn effort): the lens resolver gains
+    // LENS_EFFORT and its echo line, and the fix-applier and consolidator
+    // sites each gain a FIX_APPLIER_EFFORT / CONSOLIDATOR_EFFORT resolve
+    // paragraph — the `flow-spawn-effort` recipe, one per effort-threaded
+    // site. The file lands at 1916 lines as this test counts them.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1905 lines. Material regrowth past this ceiling would ` +
+        `budget of 1920 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1905);
+    ).toBeLessThan(1920);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md routes Step 8c's runnable items through flow-run-test-steps with an explicit Bash timeout", () => {
@@ -5598,7 +5605,7 @@ describe("pr-review include-by-reference structure", () => {
   // is a core plus per-step docs and the structural cases in "flow-pipeline
   // skill split structure" below guard it. The core budget there comes from the
   // compaction re-attach window (docs/eval/supervisor-skill-payload-baseline-2026-10.md).
-  // flow-pr-review (1905) and flow-new-feature (810) keep their ceilings until
+  // flow-pr-review (1920) and flow-new-feature (810) keep their ceilings until
   // their own splits, the follow-up candidates in this change's plan.
 
   // Ceiling kept until flow-new-feature gets the core-plus-step-docs split (follow-up candidate).
@@ -12220,6 +12227,104 @@ describe("flow-doc read forms", () => {
       "these lines show an awk / in-place / pattern-range sed form aimed at " +
         "flow's installed docs, which Claude Code can flag as a protected-file " +
         "edit; teach the Read tool (or sed -n 'N,Mp') instead.",
+    ).toEqual([]);
+  });
+});
+
+describe("per-spawn effort wiring lint", () => {
+  const root = path.resolve(HERE, "..");
+  const read = (rel: string) =>
+    fs.readFileSync(path.join(root, rel), "utf8").replace(/\s+/g, " ");
+
+  // The six files holding the eight effort-threaded Task spawn sites.
+  const SITES: Array<{ file: string; vars: string[] }> = [
+    {
+      file: "skills/pipeline/flow-pr-review/SKILL.md",
+      vars: ["LENS_EFFORT", "FIX_APPLIER_EFFORT", "CONSOLIDATOR_EFFORT"],
+    },
+    {
+      file: "skills/pipeline/flow-verify/SKILL.md",
+      vars: ["UI_DRIVER_EFFORT"],
+    },
+    {
+      file: "skills/pipeline/flow-product-planning/SKILL.md",
+      vars: ["PLANNING_EFFORT"],
+    },
+    {
+      file: "skills/pipeline/flow-new-feature/SKILL.md",
+      vars: ["SCOUT_EFFORT"],
+    },
+    { file: "skills/pipeline/flow-coder/SKILL.md", vars: ["CODER_EFFORT"] },
+    {
+      file: "skills/pipeline/flow-pipeline/references/phases/step-10-merge.md",
+      vars: ["MERGE_RESOLVER_EFFORT"],
+    },
+  ];
+
+  it("every spawn-site file resolves effort through flow-spawn-effort and passes each variable as an `effort:` argument", () => {
+    for (const { file, vars } of SITES) {
+      const text = read(file);
+      expect(text, `${file} must name flow-spawn-effort`).toContain(
+        "flow-spawn-effort",
+      );
+      for (const v of vars) {
+        const passed = new RegExp(
+          `${v}[\\s\\S]{0,400}?\`?effort:|\`?effort:[\\s\\S]{0,80}?${v}`,
+        ).test(text);
+        expect(
+          passed,
+          `${file} must resolve ${v} and pass it next to an \`effort:\` argument`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("no spawn site carries schema-gate or version prose — the helper's build gate is the single gate", () => {
+    for (const { file } of SITES) {
+      expect(
+        read(file).toLowerCase(),
+        `${file} must not gate effort on the loaded schema`,
+      ).not.toContain("only if the loaded schema lists");
+    }
+  });
+
+  it("no shipped doc, agent, skill, reference or bin/lib source still claims the Task tool has no per-spawn effort argument", () => {
+    const STALE = [
+      /no per-spawn effort argument/i,
+      /no per-invocation `effort` parameter/i,
+    ];
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === "node_modules" || entry.name === ".git") continue;
+          if (path.relative(root, full) === path.join("docs", "eval")) continue;
+          walk(full);
+        } else if (
+          /\.(md|ts)$/.test(entry.name) &&
+          !/\.test\.ts$/.test(entry.name)
+        ) {
+          files.push(full);
+        }
+      }
+    };
+    for (const dir of ["agents", "skills", "references", "docs"]) {
+      walk(path.join(root, dir));
+    }
+    for (const entry of fs.readdirSync(path.join(root, "bin", "lib"))) {
+      if (/\.ts$/.test(entry) && !/\.test\.ts$/.test(entry)) {
+        files.push(path.join(root, "bin", "lib", entry));
+      }
+    }
+    const offenders = files.filter((f) => {
+      const text = fs.readFileSync(f, "utf8").replace(/\s+/g, " ");
+      return STALE.some((re) => re.test(text));
+    });
+    expect(
+      offenders.map((f) => path.relative(root, f)),
+      "the Task tool takes a per-invocation `effort` parameter on Claude Code " +
+        "2.1.292+; rewrite these stale claims (docs/eval/** fixtures are exempt)",
     ).toEqual([]);
   });
 });

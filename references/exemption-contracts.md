@@ -274,10 +274,10 @@ line (no bare-name legacy-install tier). Artifact:
 session model or any `state.json` field (`bin/lib/model-routing-table.ts`'s
 `ui-driver` row: `fallback: "builtin-sonnet"`). A manifest-driven browser
 drive is template execution that must not silently inherit Opus/Fable.
-Effort is a separate axis: this row does NOT pin `effort` — the Task tool
-has no per-spawn effort argument, so a frontmatter effort pin would be
-unoverridable even though `model` here is only a configurable default;
-effort follows the session's `state.effort` like every other routed site.
+Effort is a separate axis, resolved per spawn: `flow-spawn-effort ui-driver`
+(`config.efforts.uiDriver`, else a built-in `medium` capped at the session's
+effort) is passed as the Task call's `effort:` on Claude Code 2.1.292+, and the
+agent file's `effort: medium` is the floor beneath it on older builds.
 
 **The `UI_SMOKE_DRIVER: inline` marker.** Two callers of the shared
 `ui-smoke-pass.md` procedure exist: `/flow-verify`'s own Step 6/Optional
