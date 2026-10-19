@@ -2,7 +2,12 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { GUARD_DEADLINE_EXIT, GUARD_DEADLINE_MARKER } from "./lib/agy-guard";
+import {
+  GUARD_DEADLINE_EXIT,
+  GUARD_DEADLINE_MARKER,
+  GUARD_SPAWN_FAILED_EXIT,
+  GUARD_SPAWN_FAILED_MARKER,
+} from "./lib/agy-guard";
 import {
   AGY_GUARD_PATH,
   AGY_SAFETY_PREAMBLE,
@@ -20,6 +25,7 @@ import {
   type AgyJsonOutcome,
   type Args,
   type Deps,
+  translateGuardResult,
 } from "./flow-delegate";
 
 describe("parseArgs", () => {
@@ -708,6 +714,47 @@ describe("run", () => {
     expect(agyDeadlineMs("10m")).toBe(630_000);
     expect(agyDeadlineMs("not-a-duration")).toBe(330_000);
     expect(agyBackstopMs(agyDeadlineMs("9m"))).toBe(580_000);
+  });
+
+  it("rounds a fractional timeout to an integer deadline the guard accepts", () => {
+    for (const t of ["1.33m", "4.4h", "1.1m", "2.5s"]) {
+      expect(Number.isInteger(agyDeadlineMs(t))).toBe(true);
+    }
+    expect(agyDeadlineMs("1.33m")).toBe(79_800 + 30_000);
+  });
+
+  it("translateGuardResult throws the guard's stderr on a spawn failure (-> spawn-failed)", () => {
+    const stderr = `${GUARD_SPAWN_FAILED_MARKER}: ENOENT\n`;
+    expect(() =>
+      translateGuardResult({
+        exitCode: GUARD_SPAWN_FAILED_EXIT,
+        stderr,
+        exitedDueToTimeout: false,
+      }),
+    ).toThrow(GUARD_SPAWN_FAILED_MARKER);
+  });
+
+  it("translateGuardResult does not treat exit 127 without the marker as a spawn failure", () => {
+    expect(
+      translateGuardResult({
+        exitCode: GUARD_SPAWN_FAILED_EXIT,
+        stderr: "agy: not found\n",
+        exitedDueToTimeout: false,
+      }),
+    ).toEqual({
+      exitCode: GUARD_SPAWN_FAILED_EXIT,
+      stderr: "agy: not found\n",
+    });
+  });
+
+  it("translateGuardResult appends the deadline marker after a backstop kill", () => {
+    const out = translateGuardResult({
+      exitCode: null,
+      stderr: "partial",
+      exitedDueToTimeout: true,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(`partial\n${GUARD_DEADLINE_MARKER}\n`);
   });
 
   it("points AGY_GUARD_PATH at the real guard script", () => {

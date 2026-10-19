@@ -133,11 +133,14 @@ export const AGY_GUARD_PATH = join(
   "agy-guard.ts",
 );
 
-// The guard force-stops agy 30 s after its own --print-timeout.
+// The guard force-stops agy 30 s after its own --print-timeout. Rounded:
+// a fractional duration ("1.33m") would otherwise yield a non-integer value
+// the guard's --deadline-ms parser rejects.
 export function agyDeadlineMs(timeout: string): number {
   return (
-    godurToSec(isGoDuration(timeout) ? timeout : DEFAULT_TIMEOUT) * 1000 +
-    DEADLINE_GRACE_MS
+    Math.round(
+      godurToSec(isGoDuration(timeout) ? timeout : DEFAULT_TIMEOUT) * 1000,
+    ) + DEADLINE_GRACE_MS
   );
 }
 
@@ -921,6 +924,28 @@ export function agyRunCwd(
   return mkdtempSync(join(tmpdir(), "flow-delegate-cwd-"));
 }
 
+// Maps the guard's exit into the AgyResult run() classifies. A guard that
+// could not start agy throws (-> skipReason "spawn-failed", as a bare spawn
+// failure did before the guard); a backstop kill gets the deadline marker so
+// it classifies as agy-timeout.
+export function translateGuardResult(g: {
+  exitCode: number | null;
+  stderr: string;
+  exitedDueToTimeout: boolean;
+}): AgyResult {
+  let { stderr } = g;
+  if (
+    g.exitCode === GUARD_SPAWN_FAILED_EXIT &&
+    stderr.includes(GUARD_SPAWN_FAILED_MARKER)
+  ) {
+    throw new Error(stderr);
+  }
+  if (g.exitedDueToTimeout) {
+    stderr = `${stderr}${stderr && !stderr.endsWith("\n") ? "\n" : ""}${GUARD_DEADLINE_MARKER}\n`;
+  }
+  return { exitCode: g.exitCode ?? 1, stderr };
+}
+
 function defaultRunAgy(
   argv: string[],
   outPath: string,
@@ -953,17 +978,11 @@ function defaultRunAgy(
         killSignal: "SIGKILL",
       },
     );
-    let stderr = r.stderr ? new TextDecoder().decode(r.stderr) : "";
-    if (
-      r.exitCode === GUARD_SPAWN_FAILED_EXIT &&
-      stderr.includes(GUARD_SPAWN_FAILED_MARKER)
-    ) {
-      throw new Error(stderr);
-    }
-    if (r.exitedDueToTimeout) {
-      stderr = `${stderr}${stderr && !stderr.endsWith("\n") ? "\n" : ""}${GUARD_DEADLINE_MARKER}\n`;
-    }
-    return { exitCode: r.exitCode ?? 1, stderr };
+    return translateGuardResult({
+      exitCode: r.exitCode,
+      stderr: r.stderr ? new TextDecoder().decode(r.stderr) : "",
+      exitedDueToTimeout: r.exitedDueToTimeout === true,
+    });
   } finally {
     closeSync(fd);
   }

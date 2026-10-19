@@ -127,6 +127,24 @@ describeLive("flow-delegate leaves nothing running", () => {
     expect(await waitFor(() => !isAlive(helper), 2000)).toBe(true);
   }, 40_000);
 
+  it("reports spawn-failed when the guard cannot start agy", () => {
+    fs.writeFileSync(
+      path.join(dir, "bin", "agy"),
+      "#!/nonexistent/interpreter\n",
+      { mode: 0o755 },
+    );
+    const r = spawnSync("bun", ARGS(path.join(dir, "c.md")), {
+      env: env(),
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    const lines = r.stdout.trim().split("\n");
+    const envelope = JSON.parse(lines[lines.length - 1] as string);
+    expect(envelope.ran).toBe(false);
+    expect(envelope.skipReason).toBe("spawn-failed");
+    expect(envelope.stderrTail).toContain("could not start agy");
+  }, 40_000);
+
   it("stops fake agy and its helper after the caller's whole process group is SIGKILLed", async () => {
     writeFakeAgy(
       `echo $$ > ${dir}/agy.pid\nsleep 300 >/dev/null 2>&1 &\necho $! > ${dir}/helper.pid\nwhile :; do sleep 1; done`,
