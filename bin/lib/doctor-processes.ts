@@ -100,22 +100,38 @@ export function checkLeakedProcesses(
     });
   }
   const h = report.heuristic;
-  if (h.skipReason === "ps-unavailable") {
+  const agyRuns = report.agy?.found ?? [];
+  const strays = {
+    id: "leftovers-strays",
+    section: SECTION,
+    title: "Stray browsers, servers, and agy runs",
+  };
+  const browserServers = h.found.length + h.foundServers.length;
+  if (h.skipReason === "ps-unavailable" && agyRuns.length === 0) {
     checks.push({
-      id: "leftovers-strays",
-      section: SECTION,
-      title: "Stray browsers and servers",
+      ...strays,
       status: "skip",
       summary: "ps is unavailable, so strays were not scanned",
       details: [],
     });
-  } else if (h.found.length + h.foundServers.length > 0) {
+  } else if (browserServers + agyRuns.length > 0) {
+    const browsersAndServers = `${h.found.length} browser(s) and ${h.foundServers.length} MCP server(s) look orphaned`;
+    // The fix only stops runs past their own limit, so say so for the rest.
+    const withinLimit = agyRuns.filter((r) => !r.overdue).length;
+    const agy =
+      `${agyRuns.length} agy run(s) look orphaned` +
+      (withinLimit > 0
+        ? ` (${withinLimit} still within their time limit; reap stops them once past it)`
+        : "");
     checks.push({
-      id: "leftovers-strays",
-      section: SECTION,
-      title: "Stray browsers and servers",
+      ...strays,
       status: "warn",
-      summary: `${h.found.length} browser(s) and ${h.foundServers.length} MCP server(s) look orphaned`,
+      summary:
+        agyRuns.length === 0
+          ? browsersAndServers
+          : browserServers === 0
+            ? agy
+            : `${browsersAndServers} and ${agy}`,
       details: [
         "matched by shape, not identity; the sweep signals them host-wide",
       ],
@@ -123,11 +139,9 @@ export function checkLeakedProcesses(
     });
   } else {
     checks.push({
-      id: "leftovers-strays",
-      section: SECTION,
-      title: "Stray browsers and servers",
+      ...strays,
       status: "pass",
-      summary: "no orphaned browsers or MCP servers",
+      summary: "no orphaned browsers, MCP servers, or agy runs",
       details: [],
     });
   }

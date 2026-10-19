@@ -35,6 +35,11 @@
  * - agy's stdout is redirected to a real FILE (never a pipe — a non-TTY
  *   pipe can silently drop agy's output) and the file is the artifact.
  *   stdin is closed; agy needs no TTY on stdin.
+ * - agy forks helper processes that can outlive it (13 of 14 orphans found
+ *   2026-10-19 were helpers left spinning after agy's main process exited),
+ *   so every run goes through a guard (bin/lib/agy-guard.ts) that flow-delegate
+ *   starts in its own session, outside the caller's process group. The guard
+ *   runs agy in a second group and stops that whole group on every exit path.
  * - `--print-timeout <godur>` bounds the run and backstops the case where a
  *   logged-out agy blocks instead of failing fast.
  * - No `--model` is passed unless requested, deferring to the user's agy
@@ -99,10 +104,19 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { redactSecrets } from "./lib/redact-secrets";
 import { parseStructured } from "./lib/structured-response";
 import { recordEvent } from "./lib/telemetry";
 import { classifyAgyFailure } from "./lib/agy-failure-class";
+import {
+  DEADLINE_GRACE_MS,
+  GUARD_DEADLINE_MARKER,
+  GUARD_SPAWN_FAILED_EXIT,
+  GUARD_SPAWN_FAILED_MARKER,
+  KILL_GRACE_MS,
+} from "./lib/agy-guard";
+import { godurToSec, isGoDuration } from "./lib/delegate-timeouts";
 import {
   looksModelUnavailable,
   looksTimedOut,
@@ -110,6 +124,30 @@ import {
 } from "./lib/agy-output";
 
 const DEFAULT_TIMEOUT = "5m";
+
+// Built from import.meta.url, not import.meta.dir: this is a top-level
+// const, and `import.meta.dir` is undefined under vitest's Node runtime.
+export const AGY_GUARD_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "lib",
+  "agy-guard.ts",
+);
+
+// The guard force-stops agy 30 s after its own --print-timeout. Rounded:
+// a fractional duration ("1.33m") would otherwise yield a non-integer value
+// the guard's --deadline-ms parser rejects.
+export function agyDeadlineMs(timeout: string): number {
+  return (
+    Math.round(
+      godurToSec(isGoDuration(timeout) ? timeout : DEFAULT_TIMEOUT) * 1000,
+    ) + DEADLINE_GRACE_MS
+  );
+}
+
+// Outer backstop so run() can never block forever if the guard itself wedges.
+export function agyBackstopMs(deadlineMs: number): number {
+  return deadlineMs + KILL_GRACE_MS + 5_000;
+}
 const DEFAULT_TASK = "default";
 const STDERR_TAIL_CAP = 2000;
 
@@ -362,7 +400,12 @@ export type Deps = {
   // `agyRunCwd`: an auto-approving run with no `--add-dir` grant is pinned
   // to an empty scratch dir so the "no directory is granted" header claim
   // matches what the child can actually reach.
-  runAgy: (argv: string[], outPath: string, cwd?: string) => AgyResult;
+  runAgy: (
+    argv: string[],
+    outPath: string,
+    cwd?: string,
+    deadlineMs?: number,
+  ) => AgyResult;
   readFile: (path: string) => string;
   fileExists: (path: string) => boolean;
   mkdirp: (dir: string) => void;
@@ -705,6 +748,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       buildAgyArgv(parsed, prompt),
       outPath,
       agyRunCwd(parsed),
+      agyDeadlineMs(parsed.timeout),
     );
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -804,7 +848,12 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     if (!attempt.ok) {
       parseRetries = 1;
       try {
-        deps.runAgy(buildAgyArgv(parsed, prompt), outPath, agyRunCwd(parsed));
+        deps.runAgy(
+          buildAgyArgv(parsed, prompt),
+          outPath,
+          agyRunCwd(parsed),
+          agyDeadlineMs(parsed.timeout),
+        );
       } catch {
         // fall through — attempt below re-reads the stale (or absent)
         // artifact and stays a failed parse, never a throw.
@@ -875,23 +924,65 @@ export function agyRunCwd(
   return mkdtempSync(join(tmpdir(), "flow-delegate-cwd-"));
 }
 
+// Maps the guard's exit into the AgyResult run() classifies. A guard that
+// could not start agy throws (-> skipReason "spawn-failed", as a bare spawn
+// failure did before the guard); a backstop kill gets the deadline marker so
+// it classifies as agy-timeout.
+export function translateGuardResult(g: {
+  exitCode: number | null;
+  stderr: string;
+  exitedDueToTimeout: boolean;
+}): AgyResult {
+  let { stderr } = g;
+  if (
+    g.exitCode === GUARD_SPAWN_FAILED_EXIT &&
+    stderr.includes(GUARD_SPAWN_FAILED_MARKER)
+  ) {
+    throw new Error(stderr);
+  }
+  if (g.exitedDueToTimeout) {
+    stderr = `${stderr}${stderr && !stderr.endsWith("\n") ? "\n" : ""}${GUARD_DEADLINE_MARKER}\n`;
+  }
+  return { exitCode: g.exitCode ?? 1, stderr };
+}
+
 function defaultRunAgy(
   argv: string[],
   outPath: string,
   cwd?: string,
+  deadlineMs: number = agyDeadlineMs(DEFAULT_TIMEOUT),
 ): AgyResult {
   // Redirect stdout to a real FILE descriptor (never "pipe" — agy can
   // silently drop output to a non-TTY pipe). stdin closed: agy needs no TTY.
+  // `detached: true` (setsid) puts the guard outside the caller's process
+  // group, so a force-kill of that group cannot take the guard down.
   const fd = openSync(outPath, "w");
   try {
-    const r = Bun.spawnSync(["agy", ...argv], {
-      stdin: "ignore",
-      stdout: fd,
-      stderr: "pipe",
-      ...(cwd ? { cwd } : {}),
+    const r = Bun.spawnSync(
+      [
+        process.execPath,
+        AGY_GUARD_PATH,
+        "--deadline-ms",
+        String(deadlineMs),
+        "--",
+        "agy",
+        ...argv,
+      ],
+      {
+        stdin: "ignore",
+        stdout: fd,
+        stderr: "pipe",
+        ...(cwd ? { cwd } : {}),
+        detached: true,
+        timeout: agyBackstopMs(deadlineMs),
+        killSignal: "SIGKILL",
+      },
+    );
+    return translateGuardResult({
+      exitCode: r.exitCode,
+      stderr: r.stderr ? new TextDecoder().decode(r.stderr) : "",
+      exitedDueToTimeout: r.exitedDueToTimeout === true,
     });
-    const stderr = r.stderr ? new TextDecoder().decode(r.stderr) : "";
-    return { exitCode: r.exitCode ?? 1, stderr };
   } finally {
     closeSync(fd);
   }
