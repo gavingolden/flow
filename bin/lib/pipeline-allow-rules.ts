@@ -10,7 +10,16 @@
  * list is named helper-by-helper (never a `Bash(flow-*)` wildcard), and
  * {@link FLOW_NEVER_ALLOW_HELPERS} stay classifier-reviewed: `flow-merge-guard`
  * carries its own narrower rules, `flow-spawn` wraps arbitrary argv (an allow
- * rule would launder any command), and the publishing helpers post to GitHub.
+ * rule would launder any command), and the helpers that post review comments,
+ * replies, or annotations to GitHub. Opening the PR and updating its
+ * description (`flow-open-pr`, `flow-review-finalize`, `flow-followups`' gh
+ * path) are routine steps and stay pre-approved.
+ *
+ * Also accepted: `flow-pre-commit` and `flow-new-worktree` run repo-defined
+ * scripts (`npm run <check>`, `npm install` lifecycle scripts). An agent that
+ * edits a package.json script and then calls either helper runs that shell
+ * without classifier review; they are core routine steps, so the risk is
+ * taken knowingly.
  *
  * A rule only matches a standalone call; a `cd … &&` prefix or a chain of
  * helpers may still reach the classifier, so the supervisor calls helpers one

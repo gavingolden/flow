@@ -30,7 +30,8 @@ The resolved selection persists to `~/.flow/config.json`'s `modules` array, so `
 Routine pipeline helpers are pre-approved the same way, so auto mode does not stall an unattended run on them:
 
 - **What is allowed:** each routine helper the pipeline calls (`flow-state-update`, `flow-new-worktree`, `flow-ci-check`, `flow-remove-worktree`, and the rest listed in `bin/lib/pipeline-allow-rules.ts`) gets a `Bash(<helper>)` and a `Bash(<helper> *)` allow rule, named one by one — never a `Bash(flow-*)` wildcard.
-- **What stays gated:** `flow-spawn` (it runs any wrapped command), the helpers that publish to GitHub (`flow-post-findings`, `flow-reply-pr-comments`, `flow-annotate-pr`), `flow reap --yes`, gate overrides, and `kill`/`rm` all still go through Claude Code's normal review.
+- **What stays gated:** `flow-spawn` (it runs any wrapped command), the helpers that post review comments, replies, or annotations to GitHub (`flow-post-findings`, `flow-reply-pr-comments`, `flow-annotate-pr`), `flow reap --yes`, gate overrides, and `kill`/`rm` all still go through Claude Code's normal review.
+- **Accepted risk:** opening the PR and updating its description (`flow-open-pr`, `flow-review-finalize`, `flow-followups`' `gh` path) are pre-approved routine steps. `flow-pre-commit` and `flow-new-worktree` run repo-defined scripts (`npm run <check>`, `npm install` lifecycle scripts), so a `package.json` script an agent has edited runs without classifier review.
 - **Call shape:** a rule matches a standalone helper call; a `cd <dir> &&` prefix or an `&&` chain of helpers may still reach the auto-mode classifier, so the pipeline calls one helper per Bash call.
 - **Existing sessions:** a pipeline launched before the upgrade picks up the new rules when `flow feature resume <slug>` relaunches it.
 

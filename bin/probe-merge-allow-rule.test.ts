@@ -10,6 +10,7 @@ import {
 import { FLOW_ROUTINE_ALLOW_RULES } from "./lib/pipeline-allow-rules";
 import {
   classify,
+  markerSatisfied,
   overallExit,
   allowedToolsFor,
   ROWS,
@@ -272,7 +273,7 @@ describe("rulesFromLaunchSettings", () => {
       const file = path.join(dir, "bare.json");
       fs.writeFileSync(file, JSON.stringify({ permissions: { allow: [] } }));
       expect(() => rulesFromLaunchSettings(file)).toThrow(
-        /lack the shipped flow-merge-guard rules/,
+        /lack the shipped flow permission rules/,
       );
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -332,7 +333,31 @@ describe("probe-merge-allow-rule routine-helper rows", () => {
     expect(killControl.expectMarker).toBe(false);
     expect(classify({ ...base, row: killControl, denied: true })).toBe("pass");
     expect(classify({ ...base, row: killControl })).toBe("inconclusive");
+    expect(classify({ ...base, row: killControl, markerSeen: true })).toBe(
+      "fail",
+    );
     expect(classify({ ...base, row: chained, markerSeen: true })).toBe("pass");
     expect(classify({ ...base, row: chained, denied: true })).toBe("fail");
+  });
+});
+
+describe("probe-merge-allow-rule markerSatisfied", () => {
+  it("requires every stubbed helper on a multi-stub expect-marker row", () => {
+    expect(markerSatisfied(chained, "")).toBe(false);
+    expect(markerSatisfied(chained, "/bin/flow-state-update --phase x\n")).toBe(
+      false,
+    );
+    expect(
+      markerSatisfied(
+        chained,
+        "/bin/flow-state-update --phase x\n/bin/flow-new-worktree s\n",
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts any non-empty marker for single-stub and sentinel rows", () => {
+    expect(markerSatisfied(pipeTail, "/bin/flow-new-worktree s\n")).toBe(true);
+    expect(markerSatisfied(killControl, "killed\n")).toBe(true);
+    expect(markerSatisfied(killControl, "")).toBe(false);
   });
 });

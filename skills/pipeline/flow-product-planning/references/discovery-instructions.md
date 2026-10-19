@@ -184,12 +184,11 @@ authored).
 
 **Gate: run on every discovery pass — but pay for it only when a brief exists.**
 
-**(a) Existence check FIRST, in one Bash call.** A repo with no brief must pay
-zero extra subprocesses per discovery pass, so probe the two paths before
-invoking anything:
+**(a) Run the helper directly, in one Bash call.** It resolves the brief
+itself and is cheap on a repo without one:
 
 ```bash
-{ test -f .flow/product.md || test -f ~/.flow/product.md; } && flow-product-brief || echo '{"found":false}'
+flow-product-brief
 ```
 
 Run `flow-product-brief` by **bare PATH name** — never an `import` from
@@ -197,12 +196,7 @@ Run `flow-product-brief` by **bare PATH name** — never an `import` from
 source tree does not exist (the same constraint step 1.5's research note and
 step 1.8's survey read rely on). The helper prints one JSON line —
 `{"found":true,"scope":"repo"|"user","path":"<abs>","text":"<contents>"}` or
-`{"found":false}` — and always exits 0 on its own, so the shell line above
-must too: on the common no-brief path the last command executed is a bare
-`test`, which exits 1 — the `|| echo '{"found":false}'` normalises that to
-an always-parseable envelope on exit 0, matching this same file's existing
-`|| raw="__ABSENT__"` (line 93) and `&& CACHE_HIT=true || CACHE_HIT=false`
-(line 153) probes.
+`{"found":false}` — and always exits 0, so no shell guard is needed.
 
 **(b) A resolved brief is REQUIRED context for the whole PRD.** When `found`
 is `true`, read the envelope's `text` as REQUIRED context — the standing

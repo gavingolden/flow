@@ -11777,14 +11777,18 @@ describe("product-brief threading site (discovery read-obligation)", () => {
     ).toBe(true);
   });
 
-  it("gates the subprocess behind an existence check, so a brief-less repo pays nothing", () => {
+  it("runs the helper bare, with no shell-chain guard around it", () => {
     const section = briefSection();
     expect(
-      section.includes("test -f"),
-      "the section must probe `.flow/product.md` / `~/.flow/product.md` " +
-        "with `test -f` BEFORE invoking the helper — a brief-less repo " +
-        "must pay zero extra subprocesses per discovery pass.",
+      /^flow-product-brief$/m.test(section),
+      "the section must run `flow-product-brief` as a bare command — the " +
+        "helper resolves the brief itself and always exits 0, so a " +
+        "`test -f … && … || echo` chain only adds classifier-visible shell.",
     ).toBe(true);
+    expect(
+      section.includes("test -f"),
+      "the section must not wrap the helper in a `test -f` existence chain.",
+    ).toBe(false);
   });
 });
 

@@ -235,6 +235,15 @@ export function allowedToolsFor(row: Row, rules: ShippedRules): string {
   ].join(",");
 }
 
+/** A multi-stub row needs every stubbed helper's invocation, not just the first. */
+export function markerSatisfied(row: Row, markerText: string): boolean {
+  const text = markerText.trim();
+  if (text.length === 0) return false;
+  const stubs = stubsFor(row);
+  if (!row.expectMarker || stubs.length < 2) return true;
+  return stubs.every((name) => text.includes(name));
+}
+
 const AUTO_UNAVAILABLE =
   /auto mode.{0,60}(unavailable|not (available|supported|enabled)|unsupported)|(unavailable|not (available|supported|enabled)|unsupported).{0,60}auto mode/i;
 
@@ -306,7 +315,7 @@ export function rulesFromLaunchSettings(file: string): ShippedRules {
     routineAllow.length !== FLOW_ROUTINE_ALLOW_RULES.length
   ) {
     throw new Error(
-      `launch settings ${file} lack the shipped flow-merge-guard rules (allow: ${mergeAllow ?? "none"}, ask: ${overrideAsk.length}, routine: ${routineAllow.length}/${FLOW_ROUTINE_ALLOW_RULES.length})`,
+      `launch settings ${file} lack the shipped flow permission rules (allow: ${mergeAllow ?? "none"}, ask: ${overrideAsk.length}, routine: ${routineAllow.length}/${FLOW_ROUTINE_ALLOW_RULES.length})`,
     );
   }
   return { mergeAllow, overrideAsk, routineAllow };
@@ -333,7 +342,14 @@ function runRow(
     );
   }
   const sentinel = row.command.includes("<sentinel-pid>")
-    ? spawn("sleep", ["300"], { stdio: "ignore" })
+    ? spawn(
+        "bun",
+        [
+          "-e",
+          `process.on("SIGTERM", () => { require("node:fs").writeFileSync(${JSON.stringify(marker)}, "killed\\n"); process.exit(0); }); setInterval(() => {}, 60_000);`,
+        ],
+        { stdio: "ignore" },
+      )
     : undefined;
   const command = row.command
     .replaceAll("<scratch>", scratch)
@@ -383,8 +399,10 @@ function runRow(
     // inconclusive below
   }
   const artifact = fs.existsSync(out) ? fs.readFileSync(out, "utf8") : "";
-  const markerSeen =
-    fs.existsSync(marker) && fs.readFileSync(marker, "utf8").trim().length > 0;
+  const markerSeen = markerSatisfied(
+    row,
+    fs.existsSync(marker) ? fs.readFileSync(marker, "utf8") : "",
+  );
   return classify({
     row,
     ran: envelope.ran === true,
