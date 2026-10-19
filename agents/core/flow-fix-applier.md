@@ -28,11 +28,11 @@ Three invariants:
   both-sides summary; the artifact on disk is the durable record.
 - **Read flow's own docs with the Read tool** — never `awk` or pattern-range `sed` on flow skill paths; Claude Code can flag it as a protected-file edit and stall the run.
 
-The frontmatter `effort: medium` is a deterministic floor: it applies on
+The frontmatter `effort: medium` is the fallback: it applies on
 Claude Code builds before 2.1.292 or if a spawn site forgets the argument. On
 2.1.292+ the per-spawn `effort` from `flow-spawn-effort fix-applier`
 (`min(session, medium)` by default; `efforts.fixApplier` changes it) overrides
-this floor. The per-spawn `model:` argument the caller passes still wins over
+this fallback. The per-spawn `model:` argument the caller passes still wins over
 this definition's model (`config.models.fixApplier`, falling back to a literal
 sonnet), so per-phase model flags keep working unchanged.
 

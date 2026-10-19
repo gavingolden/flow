@@ -137,7 +137,7 @@ verified Claude Code routing semantics (live Agent tool schema +
 code.claude.com/docs/en/sub-agents, 2026-07-05):
 
 - **Only three agents carry `effort`, all `medium`: the product review lens,
-  the fix-applier and the UI driver.** There it is a floor; every other role
+  the fix-applier and the UI driver.** There it is a fallback; every other role
   omits `effort` and inherits the session effort. The Task/Agent tool takes a
   per-invocation `effort` parameter on Claude Code 2.1.292+ (it overrides the
   frontmatter value and is itself overridden by `CLAUDE_CODE_EFFORT_LEVEL`), so
@@ -305,22 +305,24 @@ the PATH-bound schema validators. Always installed.
 
 **Agents**
 
-| Current                                     | Role                               | Frontmatter pin                      |
-| ------------------------------------------- | ---------------------------------- | ------------------------------------ |
-| `agents/flow-fix-applier.md`                | pr-review fix-applier              | `tools:` allowlist, `effort: medium` |
-| `agents/flow-review-bug-detection.md`       | pr-review lens                     | `tools: Read, Grep, Glob, Write`     |
-| `agents/flow-review-security.md`            | pr-review lens                     | `tools: Read, Grep, Glob, Write`     |
-| `agents/flow-review-pattern-consistency.md` | pr-review lens                     | `tools: Read, Grep, Glob, Write`     |
-| `agents/flow-review-performance.md`         | pr-review lens                     | `tools: Read, Grep, Glob, Write`     |
-| `agents/flow-review-supply-chain.md`        | pr-review lens                     | `tools: Read, Grep, Glob, Write`     |
-| `agents/flow-review-test-coverage.md`       | pr-review lens                     | `tools: Read, Grep, Glob, Write`     |
-| `agents/flow-consolidator.md`               | pr-review consolidator-validator   | `tools:` allowlist                   |
-| `agents/flow-review-intent-guess.md`        | pr-review cross-model intent guess | `tools: Read, Grep, Glob, Write`     |
-| `agents/flow-scout.md`                      | new-feature scout                  | `tools:` allowlist                   |
-| `agents/flow-discovery.md`                  | product-planning discovery         | no `tools:` (inherits all)           |
-| `agents/flow-merge-resolver.md`             | pipeline merge-conflict resolver   | `tools:` allowlist                   |
-| `agents/flow-edit-applier.md`               | coder edit-applier                 | `tools:` allowlist                   |
-| `agents/flow-backlog-verifier.md`           | backlog-triage Phase-1 verifier    | `tools: Bash, Read, Grep, Glob`      |
+| Current                                     | Role                               | Frontmatter pin                                    |
+| ------------------------------------------- | ---------------------------------- | -------------------------------------------------- |
+| `agents/flow-fix-applier.md`                | pr-review fix-applier              | `tools:` allowlist, `effort: medium`               |
+| `agents/flow-review-bug-detection.md`       | pr-review lens                     | `tools: Read, Grep, Glob, Write`                   |
+| `agents/flow-review-security.md`            | pr-review lens                     | `tools: Read, Grep, Glob, Write`                   |
+| `agents/flow-review-pattern-consistency.md` | pr-review lens                     | `tools: Read, Grep, Glob, Write`                   |
+| `agents/flow-review-performance.md`         | pr-review lens                     | `tools: Read, Grep, Glob, Write`                   |
+| `agents/flow-review-supply-chain.md`        | pr-review lens                     | `tools: Read, Grep, Glob, Write`                   |
+| `agents/flow-review-test-coverage.md`       | pr-review lens                     | `tools: Read, Grep, Glob, Write`                   |
+| `agents/flow-consolidator.md`               | pr-review consolidator-validator   | `tools:` allowlist                                 |
+| `agents/flow-review-intent-guess.md`        | pr-review cross-model intent guess | `tools: Read, Grep, Glob, Write`                   |
+| `agents/flow-scout.md`                      | new-feature scout                  | `tools:` allowlist                                 |
+| `agents/flow-discovery.md`                  | product-planning discovery         | no `tools:` (inherits all)                         |
+| `agents/flow-merge-resolver.md`             | pipeline merge-conflict resolver   | `tools:` allowlist                                 |
+| `agents/flow-edit-applier.md`               | coder edit-applier                 | `tools:` allowlist                                 |
+| `agents/flow-backlog-verifier.md`           | backlog-triage Phase-1 verifier    | `tools: Bash, Read, Grep, Glob`                    |
+| `agents/flow-ui-driver.md`                  | pr-review / verify UI driver       | `tools:` allowlist, `effort: medium`               |
+| `agents/flow-review-product.md`             | pr-review product lens             | `tools: Read, Grep, Glob, Write`, `effort: medium` |
 
 Phase 4 is complete: the scout, discovery, merge-resolver, and
 edit-applier fan-outs are now promoted `agents/*.md` definitions —

@@ -122,14 +122,14 @@ describe("resolveRouting — fallback branches (empty config + state)", () => {
 });
 
 describe("built-in effort invariant", () => {
-  it("only fix-applier, ui-driver and review-lens:product declare an effortDefault, and each level equals its agent definition's `effort:` floor", () => {
+  it("only fix-applier, ui-driver and review-lens:product declare an effortDefault, and each level equals its agent definition's `effort:` fallback", () => {
     const withDefault = SPAWN_SITES.filter((s) =>
       Object.prototype.hasOwnProperty.call(s, "effortDefault"),
     );
     expect(
       withDefault.map((s) => s.phase),
-      "a built-in per-spawn effort is mirrored as the `effort:` floor in the " +
-        "site's agent definition (the floor applies on Claude Code < 2.1.292 " +
+      "a built-in per-spawn effort is mirrored as the `effort:` fallback in the " +
+        "site's agent definition (the fallback applies on Claude Code < 2.1.292 " +
         "or when a spawn site omits the argument); every other row follows " +
         "the session.",
     ).toEqual(["review-lens:product", "fix-applier", "ui-driver"]);

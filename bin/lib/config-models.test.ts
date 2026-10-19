@@ -127,7 +127,8 @@ describe("runConfigModelsCli", () => {
     // built-in, capped at the session for the first two.
     for (const phase of ["fix-applier", "ui-driver"]) {
       const line = out.find((l) => l.trimStart().startsWith(phase + " "));
-      expect(line).toMatch(/medium · built-in\s*$/);
+      expect(line).toMatch(/\s{2,}medium · built-in\s*$/);
+      expect(line).not.toContain("≤");
     }
   });
 
@@ -187,21 +188,45 @@ describe("runConfigModelsCli", () => {
     );
   });
 
+  it("ignores an invalid CLAUDE_CODE_EFFORT_LEVEL: no env source on any row, no banner", () => {
+    runConfigModelsCli(["--json"], {
+      read: reader(undefined),
+      env: { CLAUDE_CODE_EFFORT_LEVEL: "bogus" },
+    });
+    for (const r of JSON.parse(out[0])) {
+      expect(r.effortSource).not.toContain("env (CLAUDE_CODE_EFFORT_LEVEL)");
+    }
+    out.length = 0;
+    runConfigModelsCli([], {
+      read: reader(undefined),
+      env: { CLAUDE_CODE_EFFORT_LEVEL: "bogus" },
+    });
+    expect(out.join("\n")).not.toContain("overrides the effort of every");
+  });
+
   it("prints a banner when the running build predates per-spawn effort, and none otherwise", () => {
     runConfigModelsCli([], {
       read: reader(undefined),
       env: { AI_AGENT: "claude-code_2-1-291_agent" },
     });
-    expect(out.join("\n")).toContain("predates per-spawn sub-agent effort");
+    expect(out.join("\n")).toContain(
+      "Your Claude Code is older than 2.1.292, so efforts.* settings below are ignored",
+    );
     out.length = 0;
     runConfigModelsCli([], {
       read: reader(undefined),
       env: { AI_AGENT: "claude-code_2-1-303_agent" },
     });
-    expect(out.join("\n")).not.toContain("predates per-spawn");
-    out.length = 0;
+    expect(out.join("\n")).not.toContain("older than 2.1.292");
+    expect(out.join("\n")).not.toContain("Can't tell which Claude Code");
+  });
+
+  it("prints a note when the build is undetectable (plain terminal) instead of staying silent", () => {
     runConfigModelsCli([], { read: reader(undefined), env: {} });
-    expect(out.join("\n")).not.toContain("predates per-spawn");
+    const text = out.join("\n");
+    expect(text).toContain("Can't tell which Claude Code version");
+    expect(text).toContain("needs 2.1.292+");
+    expect(text).not.toContain("older than 2.1.292");
   });
 
   it("--slug renders the frozen run effort with source `this run (fixed at launch)`, ignoring a differing launch.effort in config", () => {

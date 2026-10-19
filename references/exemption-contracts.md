@@ -277,7 +277,7 @@ drive is template execution that must not silently inherit Opus/Fable.
 Effort is a separate axis, resolved per spawn: `flow-spawn-effort ui-driver`
 (`config.efforts.uiDriver`, else a built-in `medium` capped at the session's
 effort) is passed as the Task call's `effort:` on Claude Code 2.1.292+, and the
-agent file's `effort: medium` is the floor beneath it on older builds.
+agent file's `effort: medium` is the fallback beneath it on older builds.
 
 **The `UI_SMOKE_DRIVER: inline` marker.** Two callers of the shared
 `ui-smoke-pass.md` procedure exist: `/flow-verify`'s own Step 6/Optional

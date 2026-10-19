@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import {
   detectClaudeBuild,
   MIN_SUBAGENT_EFFORT_VERSION,
@@ -176,6 +179,78 @@ describe("flow-spawn-effort", () => {
       resolveSlug: () => "s",
     });
     expect(out).toEqual(["medium"]);
+  });
+
+  it("rejects an extra positional argument with exit 2", () => {
+    const { code, err, out } = runWith(["fix-applier", "extra"]);
+    expect(code).toBe(2);
+    expect(out).toEqual([]);
+    expect(err.join("\n")).toContain("unexpected extra argument 'extra'");
+  });
+
+  describe("real --config / --state / --slug file paths (no injected readers)", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "flow-spawn-effort-"));
+    const cfg = path.join(tmp, "config.json");
+    const emptyCfg = path.join(tmp, "empty-config.json");
+    const stateFile = path.join(tmp, "state.json");
+    afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+    fs.writeFileSync(cfg, JSON.stringify({ efforts: { fixApplier: "high" } }));
+    fs.writeFileSync(emptyCfg, "{}");
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        slug: "s",
+        phase: "planning",
+        repo: "/r",
+        effort: "low",
+      }),
+    );
+
+    const runReal = (argv: string[], deps: FlowSpawnEffortDeps = {}) => {
+      const out: string[] = [];
+      const code = run(argv, {
+        stdout: (s) => out.push(s),
+        stderr: () => {},
+        env: { ...NEW_BUILD },
+        ...deps,
+      });
+      return { code, out };
+    };
+
+    it("--config reads the file: configured effort wins", () => {
+      const { code, out } = runReal([
+        "fix-applier",
+        "--config",
+        cfg,
+        "--state",
+        stateFile,
+      ]);
+      expect(code).toBe(0);
+      expect(out).toEqual(["high"]);
+    });
+
+    it("--state reads the file: the state effort caps the built-in default", () => {
+      const { out } = runReal([
+        "fix-applier",
+        "--config",
+        emptyCfg,
+        "--state",
+        stateFile,
+      ]);
+      expect(out).toEqual(["low"]);
+    });
+
+    it("an explicit --slug looks that slug up and skips ambient resolution", () => {
+      const loadState = vi.fn(() => st({ effort: "low" }));
+      const resolveSlug = vi.fn(() => "ambient");
+      const { out } = runReal(
+        ["fix-applier", "--config", emptyCfg, "--slug", "explicit"],
+        { loadState, resolveSlug },
+      );
+      expect(out).toEqual(["low"]);
+      expect(loadState).toHaveBeenCalledWith("explicit");
+      expect(resolveSlug).not.toHaveBeenCalled();
+    });
   });
 
   it("only ever prints an effort enum value", () => {

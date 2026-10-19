@@ -62,7 +62,7 @@ export type SpawnSite = {
    * unset. `capAtSession` caps it at the session's effort (a `low` session
    * never gets a higher-effort mechanical sub-agent); without it the level
    * applies regardless of the session. Sites without a default follow the
-   * session. Mirrored as the `effort:` floor in the site's agent definition.
+   * session. Mirrored as the `effort:` fallback in the site's agent definition.
    */
   effortDefault?: { level: EffortLevel; capAtSession: boolean };
 };
@@ -83,7 +83,7 @@ const LENS_FALLBACK: Partial<Record<ReviewLensName, Fallback>> = {
  * `ui-driver` (mechanical work, `medium` capped at the session) and
  * `review-lens:product` (`medium`, uncapped). Every other row follows the
  * session. `flow-spawn-effort` is the spawn-time entry point; it needs
- * Claude Code 2.1.292+ and otherwise the agent files' `effort:` floor applies.
+ * Claude Code 2.1.292+ and otherwise the agent files' `effort:` fallback applies.
  */
 export const SPAWN_SITES: readonly SpawnSite[] = [
   {

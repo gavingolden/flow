@@ -70,12 +70,16 @@ export function effortBanners(models: ModelRows): string[] {
   const banners: string[] = [];
   if (models.envEffort) {
     banners.push(
-      `CLAUDE_CODE_EFFORT_LEVEL=${models.envEffort} overrides the effort of every sub-agent (settings-file env entries count too), so the per-row efforts below are not in effect.`,
+      `CLAUDE_CODE_EFFORT_LEVEL=${models.envEffort} overrides the effort of every sub-agent, so the per-row efforts below are not in effect.`,
     );
   }
   if (models.buildTooOld) {
     banners.push(
-      `This Claude Code build predates per-spawn sub-agent effort (needs ${MIN_SUBAGENT_EFFORT_VERSION}+): only agent-file values apply — fix-applier, UI driver and the product reviewer run at medium, the rest follow the session.`,
+      `Your Claude Code is older than ${MIN_SUBAGENT_EFFORT_VERSION}, so efforts.* settings below are ignored: fix-applier, UI driver and the product reviewer run at medium, everything else follows the session. Upgrade Claude Code to use them.`,
+    );
+  } else if (models.buildUndetected) {
+    banners.push(
+      `Can't tell which Claude Code version runs your pipelines; per-sub-agent effort needs ${MIN_SUBAGENT_EFFORT_VERSION}+, so on an older version the efforts.* settings below are ignored.`,
     );
   }
   return banners;
@@ -166,6 +170,8 @@ export type ModelRows = {
   envEffort?: string;
   /** The running build is detectably older than the per-spawn effort floor. */
   buildTooOld?: boolean;
+  /** The build can't be detected (e.g. run from a plain terminal, outside a Claude Code session). */
+  buildUndetected?: boolean;
 };
 
 /**
@@ -189,9 +195,15 @@ export function buildModelRows(
       : undefined;
   const effort = resolveSessionEffort(state, read);
   const rows = resolveRouting({ state, config, effort, efforts, envEffort });
-  const buildTooOld =
-    detectClaudeBuild(env) !== null && !supportsSubagentEffort(env);
-  return { rows, effort, envEffort, buildTooOld };
+  const buildDetected = detectClaudeBuild(env) !== null;
+  const buildTooOld = buildDetected && !supportsSubagentEffort(env);
+  return {
+    rows,
+    effort,
+    envEffort,
+    buildTooOld,
+    buildUndetected: !buildDetected,
+  };
 }
 
 /**

@@ -1078,7 +1078,7 @@ async function probeSubagentEffortParam(
         ? `subagent-effort-param live probe timed out after ${LIVE_TIMEOUT_MS}ms`
         : `subagent-effort-param live probe ${notRun}`,
       fallback:
-        "keep the agent-file effort: medium floor; omit effort: below 2.1.292",
+        "keep the agent-file effort: medium fallback; omit effort: below 2.1.292",
     };
   }
   // Real HOME (no `home:` override for live probes): the sub-agent transcript
@@ -1087,17 +1087,14 @@ async function probeSubagentEffortParam(
   // agents — so match either form, then read the sibling .jsonl.
   const projectsRoot = path.join(os.homedir(), ".claude", "projects");
   const found = spawnSync(
-    "sh",
-    [
-      "-c",
-      `find '${projectsRoot}' -path '*/subagents/agent-*.meta.json' -mmin -10 2>/dev/null || true`,
-    ],
-    { encoding: "utf8" },
+    "find",
+    [projectsRoot, "-path", "*/subagents/agent-*.meta.json", "-mmin", "-10"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
   );
   const agentTypeRe = new RegExp(`(^|:)${agentName}$`);
   let transcript = "";
   let metaNote = "";
-  for (const metaPath of found.stdout.split("\n").filter(Boolean)) {
+  for (const metaPath of (found.stdout ?? "").split("\n").filter(Boolean)) {
     try {
       const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as {
         agentType?: string;
@@ -1122,7 +1119,7 @@ async function probeSubagentEffortParam(
       verdict: "inconclusive",
       evidence: `no sub-agent transcript for ${agentName} found under ${projectsRoot} (claude exit ${result.exitCode}): ${result.stdout.trim().slice(0, 300)}`,
       fallback:
-        "keep the agent-file effort: medium floor; omit effort: below 2.1.292",
+        "keep the agent-file effort: medium fallback; omit effort: below 2.1.292",
     };
   }
   const { verdict, turns, counts } = effortVerdictFromTranscript(transcript);
@@ -1131,7 +1128,7 @@ async function probeSubagentEffortParam(
     verdict,
     evidence: `per-invocation effort: low over an agent-file effort: medium, session --effort high (exit ${result.exitCode}); ${turns} assistant turn(s) carried effort fields, counts ${JSON.stringify(counts)}${metaNote}`,
     fallback:
-      "keep the agent-file effort: medium floor; omit effort: below 2.1.292",
+      "keep the agent-file effort: medium fallback; omit effort: below 2.1.292",
   };
 }
 

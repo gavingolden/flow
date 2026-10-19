@@ -108,6 +108,14 @@ describe("collectEffortConfigWarnings", () => {
     expect(collectEffortConfigWarnings(reader({ efforts: "high" }))).toEqual([
       "efforts: expected an object mapping role to effort level; ignoring.",
     ]);
+    expect(collectEffortConfigWarnings(reader({ efforts: [] }))).toEqual([
+      "efforts: expected an object mapping role to effort level; ignoring.",
+    ]);
+    expect(
+      collectEffortConfigWarnings(reader({ efforts: { reviewLenses: [] } })),
+    ).toEqual([
+      "efforts.reviewLenses: expected an object mapping lens name to effort level; ignoring.",
+    ]);
     expect(
       collectEffortConfigWarnings(
         reader({ efforts: { reviewLenses: "high" } }),

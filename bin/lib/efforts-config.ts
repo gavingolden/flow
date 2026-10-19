@@ -87,7 +87,11 @@ export function collectEffortConfigWarnings(
   if (typeof raw !== "object" || raw === null) return [];
   const efforts = (raw as Record<string, unknown>).efforts;
   if (efforts === undefined) return [];
-  if (typeof efforts !== "object" || efforts === null) {
+  if (
+    typeof efforts !== "object" ||
+    efforts === null ||
+    Array.isArray(efforts)
+  ) {
     return [
       "efforts: expected an object mapping role to effort level; ignoring.",
     ];

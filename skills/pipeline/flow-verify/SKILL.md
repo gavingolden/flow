@@ -76,7 +76,12 @@ On a `bootstrap` or `ran:true` (ready) envelope, this is the eighth Task-tool ex
 
 **Model.** Resolve `config.models.uiDriver` via `jq -r '.models.uiDriver // empty' ~/.flow/config.json 2>/dev/null` and fall back to the literal `sonnet` when empty — config-only, no CLI flag, no `state.json` read at all (unlike every other spawn site's precedence chain).
 
-**Effort.** Resolve `UI_DRIVER_EFFORT=$(command -v flow-spawn-effort >/dev/null 2>&1 && flow-spawn-effort ui-driver)` (built-in `medium` capped at the session's effort; `config.efforts.uiDriver` overrides — `../flow-pipeline/references/model-routing.md`) and pass the non-empty result as the Task call's per-spawn `effort:` (empty ⇒ omit).
+**Effort.** Resolve `UI_DRIVER_EFFORT` as below (built-in `medium` capped at the session's effort; `config.efforts.uiDriver` overrides — `../flow-pipeline/references/model-routing.md`) and pass the non-empty result as the Task call's per-spawn `effort:` (empty ⇒ omit).
+
+```bash
+UI_DRIVER_EFFORT=$(command -v flow-spawn-effort >/dev/null 2>&1 && flow-spawn-effort ui-driver)
+# Non-empty ⇒ pass effort: "$UI_DRIVER_EFFORT" as the Task call's per-spawn effort; empty ⇒ omit.
+```
 
 **Agent resolution (two-tier guard).** `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-ui-driver.md ]`: when present, `subagent_type: flow-module-core:flow-ui-driver` (a bare `flow-ui-driver` name fails Task-tool resolution outright on a plugin-root install); else `general-purpose` with the loud `NOTICE — agent-fallback:` line.
 

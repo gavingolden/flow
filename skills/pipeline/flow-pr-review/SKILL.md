@@ -189,7 +189,7 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
    prompt:        <the prompt template below, with variables filled in>
    ```
 
-   **Subagent type.** The `flow-fix-applier` definition (`agents/core/flow-fix-applier.md`) falls back to a literal `sonnet` default (via `config.models.fixApplier`) so this mechanical apply-commit-push loop doesn't silently spend an expensive session model; its `effort:` floor is `medium` (per-spawn `effort:` below overrides it). Plugin-hosted agents are addressable ONLY by the plugin-qualified name `<pluginRootName>:<agentBasename>` — a bare `flow-fix-applier` subagent_type fails Task-tool resolution outright (measured: "Agent type 'flow-scout' not found"). Resolve in two tiers: `FIX_APPLIER_SUBAGENT=general-purpose; if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-fix-applier.md ]; then FIX_APPLIER_SUBAGENT=flow-module-core:flow-fix-applier; else echo "NOTICE — agent-fallback: flow-fix-applier → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; fi` so an un-upgraded consumer (definition not symlinked) falls back to `general-purpose` — loudly — and the spawn never fails on an unknown agent type. The per-spawn `model:` below overrides the definition's model, so the model precedence is unchanged either way.
+   **Subagent type.** The `flow-fix-applier` definition (`agents/core/flow-fix-applier.md`) falls back to a literal `sonnet` default (via `config.models.fixApplier`) so this mechanical apply-commit-push loop doesn't silently spend an expensive session model; its `effort:` fallback is `medium` (per-spawn `effort:` below overrides it). Plugin-hosted agents are addressable ONLY by the plugin-qualified name `<pluginRootName>:<agentBasename>` — a bare `flow-fix-applier` subagent_type fails Task-tool resolution outright (measured: "Agent type 'flow-scout' not found"). Resolve in two tiers: `FIX_APPLIER_SUBAGENT=general-purpose; if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-fix-applier.md ]; then FIX_APPLIER_SUBAGENT=flow-module-core:flow-fix-applier; else echo "NOTICE — agent-fallback: flow-fix-applier → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; fi` so an un-upgraded consumer (definition not symlinked) falls back to `general-purpose` — loudly — and the spawn never fails on an unknown agent type. The per-spawn `model:` below overrides the definition's model, so the model precedence is unchanged either way.
 
    **Per-phase model (fixApplier) resolution.** Field `state.modelFixApplier`; precedence `--model-fix-applier > config.models.fixApplier > "sonnet"` — fixApplier does **NOT** inherit the session model (a mechanical apply-commit-push loop over already-diagnosed findings rarely earns an expensive model — the same asymmetry as verify; see `../flow-pipeline/references/model-routing.md`). Resolve via `jq` (`SLUG="$FLOW_SLUG"; FIX_APPLIER_MODEL=$(jq -r '.modelFixApplier // empty' ~/.flow/state/"$SLUG".json); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL=$(jq -r '.models.fixApplier // empty' ~/.flow/config.json 2>/dev/null); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL="sonnet"`) and pass FIX_APPLIER_MODEL as the Task call's per-spawn `model:` (never empty — the `sonnet` fallback always resolves).
 
@@ -568,7 +568,7 @@ empty stdout ⇒ omit `effort:`.
 **Per-lens subagent-type resolution.** Each lens has a named definition at
 `agents/flow-review-<lens>.md` (Definition column below) whose `tools:`
 allowlist (Read, Grep, Glob, Write) contains the review to read-and-report;
-none pins `model:`; `effort:` appears only as the `medium` floor on `product`
+none pins `model:`; `effort:` appears only as the `medium` fallback on `product`
 (the per-spawn `model: "$LENS_MODEL"` and `effort: "$LENS_EFFORT"` always win,
 when non-empty). Plugin-hosted agents are
 addressable ONLY by the plugin-qualified name
@@ -787,13 +787,13 @@ if [ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-consolid
 else
   echo "NOTICE — agent-fallback: flow-consolidator → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."
 fi
+# Per-spawn effort (config.efforts.consolidator, else follow the session): non-empty ⇒ pass effort: "$CONSOLIDATOR_EFFORT" on the Task call; empty ⇒ omit.
+CONSOLIDATOR_EFFORT=$(command -v flow-spawn-effort >/dev/null 2>&1 && flow-spawn-effort consolidator)
 ```
 
 The `agents/flow-consolidator.md` definition carries a `tools:` allowlist
 (Bash, Read, Grep, Write) and no `effort:`/`model:` frontmatter — a judgment
 role, so the CONSOLIDATOR_MODEL threading above always wins.
-
-Resolve `CONSOLIDATOR_EFFORT=$(command -v flow-spawn-effort >/dev/null 2>&1 && flow-spawn-effort consolidator)` (`config.efforts.consolidator`, else follow the session) and pass the non-empty result as the Task call's per-spawn `effort:` (empty ⇒ omit).
 
 Then make exactly one Task-tool call with `subagent_type: $CONSOLIDATOR_SUBAGENT`
 (plus the resolved `model:` and `effort:` above when non-empty). The composed prompt must include, load-bearing for the general-purpose fallback branch above (no definition file to preload from): "If the line `flow-instructions-sentinel: flow-consolidator-instructions` is NOT in your context, read the instructions at: $SKILL_DIR/../flow-consolidator-instructions/SKILL.md". The prompt may pass pointers and verification asks (a shared line range, a claim to grep) but must never assert that lenses agree or that findings should be deduped — the wrapper never reads the per-lens artifacts, so convergence is the consolidator's to derive. The prompt cites

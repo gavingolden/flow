@@ -1854,9 +1854,9 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
   // per-spawn model: override so the per-phase model flags keep working. A
   // future edit that reverts either site to a bare `subagent_type:
   // general-purpose` (dropping the sonnet-default model routing) goes red
-  // here. Both definitions carry `effort: medium` as a floor beneath the
+  // here. Both definitions carry `effort: medium` as a fallback beneath the
   // per-spawn `effort:` argument `flow-spawn-effort` resolves on Claude Code
-  // 2.1.292+ (the floor applies on older builds or when a site omits it).
+  // 2.1.292+ (the fallback applies on older builds or when a site omits it).
 
   // Shared negation vocabulary + clause-splitting helper for the two
   // "never mandates an X" prose-detector lints below (force-push,
@@ -1930,7 +1930,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     ).toBe(true);
   });
 
-  it("the cheap-model fan-out agent definition does not pin a model; its `effort: medium` is only a floor (per-spawn overrides must win)", () => {
+  it("the cheap-model fan-out agent definition does not pin a model; its `effort: medium` is only a fallback (per-spawn overrides must win)", () => {
     for (const name of ["flow-fix-applier.md"] as const) {
       const agentPath = path.resolve(HERE, "..", "agents", "core", name);
       expect(
@@ -1947,7 +1947,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
       expect(
         /^effort:\s*medium\s*$/m.test(frontmatter),
         `agents/${name} frontmatter must carry 'effort: medium' — the ` +
-          "deterministic floor beneath the per-spawn effort: argument, " +
+          "deterministic fallback beneath the per-spawn effort: argument, " +
           "for builds before 2.1.292 or a spawn site that omits it.",
       ).toBe(true);
     }
@@ -2124,21 +2124,21 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
         ).toBe(false);
       }
       // Only the rows naming `wantEffort` (fix-applier, ui-driver, the
-      // product review lens) carry `effort:` — the floor beneath the
+      // product review lens) carry `effort:` — the fallback beneath the
       // per-spawn `effort:` argument `flow-spawn-effort` resolves. Every
       // other role omits it and follows the session.
       if (wantEffort) {
         expect(
           new RegExp(`^effort:\\s*${wantEffort}\\s*$`, "m").test(frontmatter),
           `agents/${file} frontmatter must declare 'effort: ${wantEffort}' — ` +
-            "the floor beneath the per-spawn effort: argument.",
+            "the fallback beneath the per-spawn effort: argument.",
         ).toBe(true);
       } else {
         expect(
           /^effort:/m.test(frontmatter),
           `agents/${file} frontmatter must NOT declare 'effort:' — only ` +
             "flow-fix-applier, flow-ui-driver and flow-review-product carry " +
-            "a floor; every other role follows the session's effort.",
+            "a fallback; every other role follows the session's effort.",
         ).toBe(false);
       }
       if (wantMemory) {
@@ -12236,28 +12236,62 @@ describe("per-spawn effort wiring lint", () => {
   const read = (rel: string) =>
     fs.readFileSync(path.join(root, rel), "utf8").replace(/\s+/g, " ");
 
-  // The six files holding the eight effort-threaded Task spawn sites.
-  const SITES: Array<{ file: string; vars: string[] }> = [
+  // The six files holding the eight effort-threaded Task spawn sites. Each
+  // variable pairs with the site-specific wording that hands it to the Task
+  // call — the resolve line and surrounding frontmatter/echo notes also name
+  // the variable next to `effort:`, so only this instruction proves the
+  // value is actually passed.
+  const PASS_TASK =
+    "pass the non-empty result as the Task call's per-spawn `effort:`";
+  const SITES: Array<{ file: string; vars: Array<[string, string]> }> = [
     {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
-      vars: ["LENS_EFFORT", "FIX_APPLIER_EFFORT", "CONSOLIDATOR_EFFORT"],
+      vars: [
+        [
+          "LENS_EFFORT",
+          "`effort:` set to that lens's printed `resolve_lens` effort",
+        ],
+        ["FIX_APPLIER_EFFORT", PASS_TASK],
+        [
+          "CONSOLIDATOR_EFFORT",
+          "(plus the resolved `model:` and `effort:` above when non-empty)",
+        ],
+      ],
     },
     {
       file: "skills/pipeline/flow-verify/SKILL.md",
-      vars: ["UI_DRIVER_EFFORT"],
+      vars: [["UI_DRIVER_EFFORT", PASS_TASK]],
     },
     {
       file: "skills/pipeline/flow-product-planning/SKILL.md",
-      vars: ["PLANNING_EFFORT"],
+      vars: [
+        [
+          "PLANNING_EFFORT",
+          "as the discovery Task call's per-spawn `effort:` argument",
+        ],
+      ],
     },
     {
       file: "skills/pipeline/flow-new-feature/SKILL.md",
-      vars: ["SCOUT_EFFORT"],
+      vars: [["SCOUT_EFFORT", 'pass effort: "$SCOUT_EFFORT"']],
     },
-    { file: "skills/pipeline/flow-coder/SKILL.md", vars: ["CODER_EFFORT"] },
+    {
+      file: "skills/pipeline/flow-coder/SKILL.md",
+      vars: [
+        [
+          "CODER_EFFORT",
+          "rides the same Task call as its per-spawn `effort:` argument",
+        ],
+      ],
+    },
     {
       file: "skills/pipeline/flow-pipeline/references/phases/step-10-merge.md",
-      vars: ["MERGE_RESOLVER_EFFORT"],
+      vars: [
+        [
+          "MERGE_RESOLVER_EFFORT",
+          'the per-spawn `effort: "$MERGE_RESOLVER_EFFORT"` argument resolved above',
+        ],
+      ],
     },
   ];
 
@@ -12267,14 +12301,15 @@ describe("per-spawn effort wiring lint", () => {
       expect(text, `${file} must name flow-spawn-effort`).toContain(
         "flow-spawn-effort",
       );
-      for (const v of vars) {
-        const passed = new RegExp(
-          `${v}[\\s\\S]{0,400}?\`?effort:|\`?effort:[\\s\\S]{0,80}?${v}`,
-        ).test(text);
+      for (const [v, passInstruction] of vars) {
         expect(
-          passed,
-          `${file} must resolve ${v} and pass it next to an \`effort:\` argument`,
+          text.includes(`${v}=$(command -v flow-spawn-effort`),
+          `${file} must resolve ${v} through flow-spawn-effort`,
         ).toBe(true);
+        expect(
+          text,
+          `${file} must keep the instruction that hands ${v} to the Task call`,
+        ).toContain(passInstruction);
       }
     }
   });

@@ -220,7 +220,11 @@ export function collectReviewLensWarnings(
   expected: readonly string[],
 ): string[] {
   if (reviewLenses === undefined) return [];
-  if (typeof reviewLenses !== "object" || reviewLenses === null) {
+  if (
+    typeof reviewLenses !== "object" ||
+    reviewLenses === null ||
+    Array.isArray(reviewLenses)
+  ) {
     return [
       `${table}.reviewLenses: expected an object mapping lens name to ` +
         `${noun}; ignoring.`,

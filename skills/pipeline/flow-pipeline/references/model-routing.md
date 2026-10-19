@@ -106,7 +106,7 @@ PATH helper (`bin/flow-spawn-effort.ts`; the same `resolveSpawnEffort` the
 audit table renders). The chain, highest wins:
 
 1. `CLAUDE_CODE_EFFORT_LEVEL` — Claude Code's own override. When set it wins
-   over every per-spawn value and the agent-file floor; flow only reports it
+   over every per-spawn value and the agent-file fallback; flow only reports it
    (`flow config models` banner) and never sets it.
 2. `config.efforts.<key>` — per-role keys named like `models.*`
    (`planning`, `scout`, `coder`, `fixApplier`, `uiDriver`, `consolidator`,
@@ -122,7 +122,7 @@ audit table renders). The chain, highest wins:
 The helper owns the build gate: the per-spawn `effort` argument needs Claude
 Code 2.1.292+, so on an older or undetectable build it prints nothing and the
 site omits the argument — no spawn site carries version prose. On those
-builds, or if a site forgets the argument, the `effort: medium` floor in the
+builds, or if a site forgets the argument, the `effort: medium` fallback in the
 fix-applier, UI-driver and product-reviewer agent files still applies (fixed,
 so it can exceed a `low` session); every other role follows the session.
 
@@ -153,11 +153,12 @@ runs on the supervisor's own turn, never in a spawned subagent, so there
 is no Task call for a `model:` argument to attach to.
 
 A `SKILL.md` may still carry `effort:` in its frontmatter to bound that
-turn's reasoning depth — a lever that, among Task-spawn definitions, only the
-product lens's `agents/*.md` may use as a floor (see "Per-spawn effort"
-above), because an in-process skill runs on the supervisor's own turn rather
-than through the Task tool, so there is no per-spawn argument for the pin to
-conflict with. It should
+turn's reasoning depth — unlike Task-spawn `agents/*.md` definitions (where
+frontmatter `effort: medium` on the fix-applier, UI-driver and product-lens
+agents is only a fallback beneath `flow-spawn-effort`'s per-spawn `effort:`
+argument; see "Per-spawn effort" above), an in-process skill runs on the
+supervisor's own turn rather than through the Task tool, so there is no
+per-spawn argument for the pin to interact with. It should
 **NOT** carry `model:`. Prompt caches are model-scoped, so a mid-turn
 model switch discards the supervisor's warm cache and forces a full
 re-read of the transcript at full input rate — the opposite of the

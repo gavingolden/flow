@@ -101,6 +101,11 @@ export function run(argv: string[], deps: FlowSpawnEffortDeps = {}): number {
     }
   }
 
+  if (positionals.length > 1) {
+    stderr(`flow-spawn-effort: unexpected extra argument '${positionals[1]}'`);
+    stderr(USAGE);
+    return 2;
+  }
   const phase = positionals[0];
   if (phase === "session") {
     stderr("flow-spawn-effort: 'session' is not a spawn site");
