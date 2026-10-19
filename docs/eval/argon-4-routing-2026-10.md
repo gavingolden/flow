@@ -119,7 +119,19 @@ truth alone.
 
 ## Time limits (Stage 0)
 
-_Filled after Stage 0 runs._
+Sized from 29 timed calls on 2026-10-19; every step runs on `Gemini 4 Argon
+(High)` today, except the research fact-check, which is Claude. Method, medians
+and the capped-search variant are in
+[`argon-latency-probe-2026-10.md`](argon-latency-probe-2026-10.md). No step
+stalls on High, so no step is raised as a `DECISION:` item.
+
+| Step                                                                   | Model today                                       | Old limit | New limit | Argon High                                              | Argon Medium | Evidence                                |
+| ---------------------------------------------------------------------- | ------------------------------------------------- | --------- | --------- | ------------------------------------------------------- | ------------ | --------------------------------------- |
+| Research gather and fact-check (`researchGather`; the limit is shared) | Argon High (gather), Claude Opus 5.5 (fact-check) | 3m        | 20m       | limit-mismatch (3x median over the cap, shipped at 20m) | fits         | [probe](argon-latency-probe-2026-10.md) |
+| Plan reviewer #1 (`planReview`)                                        | Argon High                                        | 3m        | 13m       | fits                                                    | fits (10m)   | [probe](argon-latency-probe-2026-10.md) |
+| Method-survey judge A (`blindSurvey`)                                  | Argon High                                        | 3m        | 10m       | fits                                                    | fits         | [probe](argon-latency-probe-2026-10.md) |
+| PR intent guess (`intentGuess`)                                        | Argon High                                        | 5m        | 10m       | fits                                                    | fits         | [probe](argon-latency-probe-2026-10.md) |
+| Gemini review lens (`reviewLens`)                                      | Argon High                                        | 8m        | 10m       | fits                                                    | fits         | [probe](argon-latency-probe-2026-10.md) |
 
 ## Results
 
