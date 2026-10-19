@@ -2,8 +2,12 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { GUARD_DEADLINE_EXIT, GUARD_DEADLINE_MARKER } from "./lib/agy-guard";
 import {
+  AGY_GUARD_PATH,
   AGY_SAFETY_PREAMBLE,
+  agyBackstopMs,
+  agyDeadlineMs,
   agyRunCwd,
   artifactPathFor,
   buildAgyArgv,
@@ -663,6 +667,51 @@ describe("run", () => {
       exitCode: 1,
       stderrTail: "Error: timeout waiting for response",
     });
+  });
+
+  it("classifies the guard's deadline result (exit 124 + marker) as agy-timeout", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: GUARD_DEADLINE_EXIT,
+        stderr: GUARD_DEADLINE_MARKER,
+        outcome: {},
+      }),
+    ).toBe("agy-timeout");
+    const deps = makeDeps({
+      runAgy: () => ({
+        exitCode: GUARD_DEADLINE_EXIT,
+        stderr: GUARD_DEADLINE_MARKER,
+      }),
+    });
+    expect(run(["--prompt", "hi"], deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "agy-timeout",
+      failureClass: "timeout",
+      exitCode: GUARD_DEADLINE_EXIT,
+    });
+  });
+
+  it("passes the guard deadline (timeout + 30 s) to runAgy as the 4th argument", () => {
+    const seen: Array<number | undefined> = [];
+    const deps = makeDeps({
+      runAgy: (_argv, _out, _cwd, deadlineMs) => {
+        seen.push(deadlineMs);
+        return { exitCode: 0, stderr: "" };
+      },
+    });
+    run(["--prompt", "hi", "--timeout", "10m"], deps);
+    expect(seen).toEqual([630_000]);
+  });
+
+  it("computes the deadline and the outer backstop", () => {
+    expect(agyDeadlineMs("10m")).toBe(630_000);
+    expect(agyDeadlineMs("not-a-duration")).toBe(330_000);
+    expect(agyBackstopMs(agyDeadlineMs("9m"))).toBe(580_000);
+  });
+
+  it("points AGY_GUARD_PATH at the real guard script", () => {
+    expect(existsSync(AGY_GUARD_PATH)).toBe(true);
   });
 
   it("omits stderrTail entirely when agy's stderr is empty", () => {
@@ -1354,16 +1403,19 @@ describe("guard: exactly one prompt-bearing agy spawn site in bin/", () => {
       .map((name) => path.relative(binDir, path.join(dir, name))),
   );
   // A regex, not an exact-string literal: it must match both the sync
-  // `Bun.spawnSync(` and the async `Bun.spawn(` forms (bin/flow-delegate-fanout.ts:465
-  // already uses the async form in this same delegation subsystem, so the
-  // async spelling is not hypothetical), any spread identifier
-  // (`...argv`, `...agyArgv`, ...), and tolerate prettier-style
-  // whitespace/newline reflow inside the call — while still EXCLUDING
-  // flow-model-bench.ts's promptless `Bun.spawnSync(["agy", "--version"]`
-  // version probe (a string literal, not a spread, in second position) and
-  // flow-delegate.ts's own `Bun.spawnSync(["which", "agy"]` PATH check
-  // (first arg is "which", not "agy").
+  // `Bun.spawnSync(` and the async `Bun.spawn(` forms and tolerate
+  // prettier-style whitespace/newline reflow inside the call. The agy
+  // spawn is routed through the guard (bin/lib/agy-guard.ts), so the one
+  // prompt-bearing site is now the call whose argv starts
+  // `[process.execPath, AGY_GUARD_PATH`. The guard itself spawns
+  // `command[0]` generically (no "agy" literal), so it never counts.
+  // Promptless probes (flow-model-bench.ts's `["agy", "--version"]`,
+  // flow-delegate.ts's `["which", "agy"]`) match neither pattern.
   const AGY_SPAWN_PATTERN =
+    /Bun\.spawn(?:Sync)?\(\s*\[\s*process\.execPath\s*,\s*AGY_GUARD_PATH\b/;
+  // The pre-guard shape: a bare prompt-bearing `agy` spawn that would
+  // bypass both the guard and the single-site invariant.
+  const UNGUARDED_AGY_SPAWN_PATTERN =
     /Bun\.spawn(?:Sync)?\(\s*\[\s*"agy"\s*,\s*\.\.\.\w+/;
   const promptBearingAgySpawnSites = sourceFiles.filter((name) =>
     AGY_SPAWN_PATTERN.test(readFileSync(path.join(binDir, name), "utf8")),
@@ -1391,7 +1443,16 @@ describe("guard: exactly one prompt-bearing agy spawn site in bin/", () => {
     ).toBeGreaterThanOrEqual(4);
   });
 
-  it("matches the prompt-bearing agy spawn pattern exactly once, in flow-delegate.ts", () => {
+  it("matches the guarded prompt-bearing agy spawn pattern exactly once, in flow-delegate.ts", () => {
     expect(promptBearingAgySpawnSites).toEqual(["flow-delegate.ts"]);
+  });
+
+  it("has no unguarded prompt-bearing agy spawn anywhere in bin/", () => {
+    const unguarded = sourceFiles.filter((name) =>
+      UNGUARDED_AGY_SPAWN_PATTERN.test(
+        readFileSync(path.join(binDir, name), "utf8"),
+      ),
+    );
+    expect(unguarded).toEqual([]);
   });
 });

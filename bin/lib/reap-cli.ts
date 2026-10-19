@@ -1,6 +1,6 @@
 /**
  * `flow reap` — the user-facing verb backing a host-wide (or `--slug`
- * scoped) cleanup of processes left by dead pipelines. Composes TWO
+ * scoped) cleanup of processes left by dead pipelines. Composes THREE
  * independently-authored sweeps behind one report:
  *
  *   - the registry sweep (`bin/lib/proc-sweep-run.ts`, verified pid+pgid+
@@ -9,7 +9,10 @@
  *   - the shape-heuristic stray sweep (`runOrphanSweep` in
  *     `bin/flow-browser-teardown.ts`, no startEpoch re-verification and no
  *     session check) — gated behind the SEPARATE `--include-strays` flag,
- *     never widened by a bare `--yes` alone.
+ *     never widened by a bare `--yes` alone;
+ *   - the agy stray sweep (`bin/lib/agy-strays.ts`, orphaned flow-launched
+ *     agy runs, SIGTERM then SIGKILL with a start-time re-check before each
+ *     signal) — behind the same `--include-strays` gate.
  *
  * Report-only unless `--yes`. Never passes `--record` and never writes to
  * `~/.flow/state/<slug>.json` — a host-wide sweep touches OTHER pipelines'
@@ -23,6 +26,12 @@ import { readState } from "./state";
 import { pidStartEpoch } from "./liveness";
 import type { ReapDeps } from "./reap";
 import { runProcSweep, type ProcSweepResult } from "./proc-sweep-run";
+import {
+  defaultAgySweepDeps,
+  renderAgyStrayLine,
+  sweepAgyStrays,
+  type AgyStraySweepResult,
+} from "./agy-strays";
 import {
   buildDefaultDeps,
   runOrphanSweep,
@@ -95,6 +104,9 @@ export type ReapCliResult = {
   slug?: string;
   registry: ProcSweepResult;
   heuristic: OrphanSweepResult;
+  agy: AgyStraySweepResult;
+  /** Recorded phase of each pipeline whose session is still open. */
+  phases: Record<string, string>;
 };
 
 const INVESTIGATE_OUTCOMES = [
@@ -120,6 +132,8 @@ function summarizeRegistry(result: ReapCliResult) {
   let hidden = 0;
   let removed = 0;
   let investigate = 0;
+  let running = 0;
+  let totalRows = 0;
   for (const s of result.registry.slugs) {
     if (s.compacted?.removed === true) removed++;
     for (const o of INVESTIGATE_OUTCOMES) {
@@ -133,6 +147,8 @@ function summarizeRegistry(result: ReapCliResult) {
         if (c.verdict === "dead") dead++;
         else if (c.verdict === "alive") alive++;
         else unknown++;
+        totalRows++;
+        if (c.ownPidAlive) running++;
       }
     } else if ((s.reap?.malformed ?? 0) > 0) {
       unreadable++;
@@ -154,6 +170,9 @@ function summarizeRegistry(result: ReapCliResult) {
     alreadyDead: result.registry.totals?.["already-dead"] ?? 0,
     browsers: result.heuristic.found?.length ?? 0,
     servers: result.heuristic.foundServers?.length ?? 0,
+    agyStrays: result.agy?.found?.length ?? 0,
+    running,
+    totalRows,
   };
 }
 
@@ -193,12 +212,14 @@ function summaryLine(
     parts.push(plural(m.browsers, "stray browser", "stray browsers"));
   if (m.servers > 0)
     parts.push(plural(m.servers, "stray mcp server", "stray mcp servers"));
+  if (m.agyStrays > 0)
+    parts.push(plural(m.agyStrays, "stray agy run", "stray agy runs"));
   if (m.investigate > 0)
     parts.push(
       `${m.investigate} ${m.investigate === 1 ? "needs" : "need"} investigation`,
     );
   if (parts.length === 0) {
-    return `Summary: no leaked processes recorded — ${m.alive} alive across ${m.withRows} pipelines with recorded processes`;
+    return `Summary: no leaked processes recorded — ${m.running} of ${m.totalRows} recorded processes still running, across ${m.withRows} pipelines with recorded processes`;
   }
   return `Summary: ${parts.join(", ")}`;
 }
@@ -237,8 +258,10 @@ function renderTextReport(result: ReapCliResult): string {
     const unknown = s.classified.filter((c) => c.verdict === "unknown");
     const action = result.yes ? "acted on" : "held (report-only)";
     printedCounts = true;
+    const running = s.classified.filter((c) => c.ownPidAlive).length;
+    const phase = result.phases?.[s.slug] ?? "phase unrecorded";
     lines.push(
-      `  ${s.slug}: ${dead.length} dead (${action}), ${alive.length} alive, ${unknown.length} unknown`,
+      `  ${s.slug}: ${dead.length} from an ended pipeline (${action}), ${alive.length} from a pipeline whose session is still open (${phase}, left alone), ${unknown.length} unknown — ${running} of ${s.classified.length} processes still running`,
     );
     if (unknown.length > 0) {
       const byReason = new Map<string, number>();
@@ -272,7 +295,7 @@ function renderTextReport(result: ReapCliResult): string {
   }
   if (printedCounts) {
     lines.push(
-      `  dead = ${result.yes ? "acted on (verified before any signal)" : "held (report-only) until --yes"}; alive = never signalled; unknown = held — absence of evidence is never evidence of death`,
+      `  ended pipeline = ${result.yes ? "acted on (verified before any signal)" : "held (report-only) until --yes"}; session still open = never signalled (it says nothing about the processes themselves); unknown = held — absence of evidence is never evidence of death`,
     );
   }
 
@@ -290,6 +313,7 @@ function renderTextReport(result: ReapCliResult): string {
     );
     lines.push(`  mcp servers: ${result.heuristic.foundServers.length} found`);
   }
+  if (result.agy) lines.push(renderAgyStrayLine(result.agy));
 
   lines.push("");
   lines.push(
@@ -352,6 +376,18 @@ export function collectReapReport(opts: {
     tmpDir: browserDeps.tmpDir,
   });
 
+  // Same gate as the browser/MCP strays: a bare --yes never reaches this.
+  const agy = sweepAgyStrays(defaultAgySweepDeps(), {
+    yes: yes && includeStrays,
+  });
+
+  const phases: Record<string, string> = {};
+  for (const s of registry.slugs) {
+    if (!s.classified.some((c) => c.verdict === "alive")) continue;
+    const state = isValidSlug(s.slug) ? readState(s.slug, stateDir) : null;
+    phases[s.slug] = state?.phase ?? "phase unrecorded";
+  }
+
   return {
     mode: "reap",
     yes,
@@ -359,6 +395,8 @@ export function collectReapReport(opts: {
     slug: opts.slug,
     registry,
     heuristic,
+    agy,
+    phases,
   };
 }
 

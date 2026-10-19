@@ -22,6 +22,8 @@ import {
   existsSync,
 } from "node:fs";
 import { run, type Deps, type RunClaudeResult } from "./lib/claude-headless";
+import { pidStartEpoch } from "./lib/liveness";
+import { startParentWatch } from "./lib/parent-watch";
 
 function claudeOnPath(): boolean {
   return Bun.which("claude") !== null;
@@ -51,6 +53,30 @@ function forwardSignal(signal: NodeJS.Signals): void {
 
 for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
   process.on(signal, () => forwardSignal(signal));
+}
+
+let stopParentWatch: (() => void) | undefined;
+
+// The caller is gone, so nobody will read this run's result: stop the live
+// child's group (polite, then forced) instead of letting it run to its own
+// time limit. Limit: a force-kill of the caller's WHOLE process group takes
+// this wrapper (and its watch) down too.
+function onParentGone(): void {
+  const pid = currentChildPid;
+  if (pid === undefined) process.exit(1);
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    // process group already gone
+  }
+  setTimeout(() => {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      // already dead
+    }
+    process.exit(1);
+  }, KILL_GRACE_MS);
 }
 
 function runClaude(
@@ -96,6 +122,7 @@ function runClaude(
     }, timeoutSec * 1000);
 
     child.on("close", (code) => {
+      stopParentWatch?.();
       clearTimeout(timeoutTimer);
       if (killTimer) clearTimeout(killTimer);
       currentChildPid = undefined;
@@ -108,6 +135,7 @@ function runClaude(
     });
 
     child.on("error", (e) => {
+      stopParentWatch?.();
       clearTimeout(timeoutTimer);
       if (killTimer) clearTimeout(killTimer);
       currentChildPid = undefined;
@@ -132,6 +160,13 @@ function defaultDeps(): Partial<Deps> {
 }
 
 if (import.meta.main) {
+  // `process.ppid` is cached by Bun and keeps returning the dead parent's
+  // pid after re-parenting, so capture the caller once here and poll it.
+  stopParentWatch = startParentWatch({
+    parentPid: process.ppid,
+    parentStartEpoch: pidStartEpoch(process.ppid),
+    onGone: onParentGone,
+  });
   // `run()` (bin/lib/claude-headless.ts) already wraps every internal
   // throw so it always resolves with an envelope + exit code — this
   // `.catch` is defense-in-depth against a throw from `defaultDeps()`

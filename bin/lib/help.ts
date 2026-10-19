@@ -419,6 +419,10 @@ shape) rather than a recorded registry row — no startEpoch
 re-verification and no session check, materially weaker discipline than
 the registry path. This is a SEPARATE gate from --yes: a bare --yes never
 signals a stray on its own; both --yes and --include-strays are required.
+The same gate covers orphaned flow-launched agy runs (parent is the system,
+carrying flow's agy prompt preamble, past their own time limit): stopped
+with SIGTERM, then SIGKILL after a 5s grace, with the process's start time
+re-checked before each signal.
 
 The report opens with a Summary: line (no leaked processes recorded, or
 what needs attention). Pipelines with no recorded processes are hidden
@@ -435,7 +439,7 @@ Options:
   --include-strays      also act on shape-heuristic strays (requires --yes
                         to actually signal anything; report-only alone;
                         always host-wide, never scoped by --slug)
-  --json                emit machine-readable output ({registry, heuristic})
+  --json                emit machine-readable output ({registry, heuristic, agy})
 
 Never passes --record and never writes to ~/.flow/state/<slug>.json — a
 host-wide sweep touches OTHER pipelines' slugs, and recording into a
