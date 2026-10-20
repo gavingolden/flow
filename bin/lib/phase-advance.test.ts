@@ -402,6 +402,44 @@ describe("advancePhase", () => {
     }).not.toThrow();
     expect(result?.advanced).toBe(true);
   });
+
+  it("does not invoke publishBadges on a refused write (pr-mismatch)", () => {
+    seedState("s16", "reviewing", { pr: 42 });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const published: unknown[] = [];
+    const result = advancePhase("gating", {
+      slug: "s16",
+      dir: stateDir,
+      expectPr: 99,
+      publishBadges: (s) => published.push(s),
+    });
+    expect(result.reason).toBe("pr-mismatch");
+    expect(published).toEqual([]);
+    errorSpy.mockRestore();
+  });
+
+  it("does not invoke publishBadges on a refused write (no-state)", () => {
+    const published: unknown[] = [];
+    const result = advancePhase("gating", {
+      slug: "s17",
+      dir: stateDir,
+      publishBadges: (s) => published.push(s),
+    });
+    expect(result.reason).toBe("no-state");
+    expect(published).toEqual([]);
+  });
+
+  it("does not invoke publishBadges on a refused write (epic-phase)", () => {
+    seedState("s18", "epic-designing");
+    const published: unknown[] = [];
+    const result = advancePhase("gating", {
+      slug: "s18",
+      dir: stateDir,
+      publishBadges: (s) => published.push(s),
+    });
+    expect(result.reason).toBe("epic-phase");
+    expect(published).toEqual([]);
+  });
 });
 
 describe("advancePhase / finalizePhase — phase.transition telemetry", () => {
@@ -689,6 +727,19 @@ describe("advancePhase — fix-loop re-entry (backward allowance)", () => {
     const code = runUpdate(["r8", "--phase", "implementing"], stateDir);
     expect(code).toBe(0);
     expect(readState("r8", stateDir)?.phase).toBe("implementing");
+  });
+
+  it("publishes badges on a reentered edge (ci-wait -> implementing)", () => {
+    seedState("r9", "ci-wait", { pr: 5 });
+    const published: Array<[string, string]> = [];
+    const result = advancePhase("implementing", {
+      slug: "r9",
+      dir: stateDir,
+      expectPr: 5,
+      publishBadges: (st) => published.push([st.slug, st.phase]),
+    });
+    expect(result.reason).toBe("reentered");
+    expect(published).toEqual([["r9", "implementing"]]);
   });
 });
 
@@ -989,62 +1040,5 @@ describe("TERMINAL_PHASE_EMITTERS", () => {
       "needs-human": "flow-gate-summary",
       cancelled: "flow-gate-summary",
     });
-  });
-});
-
-describe("phase publish — refusal paths and the fix-loop re-entry edge not covered by the publishBadges seam tests above", () => {
-  // These four cases fill gaps left by the publishBadges seam tests above:
-  // the `reentered` backward edge (a real phase change the badge must
-  // track) plus the pr-mismatch / no-state / epic-phase refusals (writes
-  // that must publish nothing).
-  it("publishes on a `reentered` fix-loop backward edge (ci-wait -> implementing)", () => {
-    seedState("pub-3", "ci-wait", { pr: 5 });
-    const published: Array<[string, string]> = [];
-    const result = advancePhase("implementing", {
-      slug: "pub-3",
-      dir: stateDir,
-      expectPr: 5,
-      publishBadges: (st) => published.push([st.slug, st.phase]),
-    });
-    expect(result.reason).toBe("reentered");
-    expect(published).toEqual([["pub-3", "implementing"]]);
-  });
-
-  it("does not publish on pr-mismatch (refused write)", () => {
-    seedState("pub-neg-3", "reviewing", { pr: 42 });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const published: Array<[string, string]> = [];
-    const result = advancePhase("gating", {
-      slug: "pub-neg-3",
-      dir: stateDir,
-      expectPr: 99,
-      publishBadges: (st) => published.push([st.slug, st.phase]),
-    });
-    expect(result.reason).toBe("pr-mismatch");
-    expect(published).toEqual([]);
-    errorSpy.mockRestore();
-  });
-
-  it("does not publish on no-state (no state file to advance)", () => {
-    const published: Array<[string, string]> = [];
-    const result = advancePhase("gating", {
-      slug: "pub-neg-4",
-      dir: stateDir,
-      publishBadges: (st) => published.push([st.slug, st.phase]),
-    });
-    expect(result.reason).toBe("no-state");
-    expect(published).toEqual([]);
-  });
-
-  it("does not publish on epic-phase (refused write)", () => {
-    seedState("pub-neg-5", "epic-designing");
-    const published: Array<[string, string]> = [];
-    const result = advancePhase("gating", {
-      slug: "pub-neg-5",
-      dir: stateDir,
-      publishBadges: (st) => published.push([st.slug, st.phase]),
-    });
-    expect(result.reason).toBe("epic-phase");
-    expect(published).toEqual([]);
   });
 });
