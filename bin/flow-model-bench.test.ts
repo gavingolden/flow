@@ -968,6 +968,70 @@ describe("runBench --report", () => {
     expect(gated.reason).toContain("c2 (ground truth only)");
   });
 
+  it("a candidate that also appears in the baseline file does not turn a no-baseline case into a missing-baseline one", async () => {
+    const newCase = JSON.stringify({
+      id: "c2",
+      surface: "scout",
+      kind: "free-text",
+      promptFile: "prompt.md",
+      inputFiles: [],
+      repeats: 1,
+      authoredAtCommit: "abc1234",
+      routable: true,
+    });
+    const row = (caseId: string, model: string, warmup = false) => ({
+      caseId,
+      arm: "n/a",
+      model,
+      repeat: 0,
+      warmup,
+      ran: true,
+      response: "alpha beta",
+      durationSeconds: 1,
+    });
+    // The baseline measured the candidate on c1 too, but only the incumbent's
+    // rows are merged, so c2 still has no baseline.
+    const deps = {
+      ...reportDeps({
+        "out/results.json": JSON.stringify([
+          row("c1", CANDIDATE),
+          row("c2", CANDIDATE),
+          row("c2", CANDIDATE, true),
+        ]),
+        "base.json": JSON.stringify([
+          row("c1", INCUMBENT),
+          row("c1", CANDIDATE),
+        ]),
+        "fixtures/c2/case.json": newCase,
+        "fixtures/c2/truth.json": JSON.stringify({
+          caseId: "c2",
+          required: ["alpha"],
+        }),
+      }),
+      readdir: () => ["c1", "c2"],
+    } as Deps;
+    await runBench(
+      [
+        "--report",
+        "--out",
+        "out",
+        "--fixtures",
+        "fixtures",
+        "--baseline-results",
+        "base.json",
+        "--ground-truth-floor",
+        "0.8",
+      ],
+      deps,
+    );
+    const cell = JSON.parse(deps.readFile("out/verdicts.json")).matrix.scout[
+      CANDIDATE
+    ];
+    expect(cell.reason).toContain("c2 (ground truth only)");
+    const report = deps.readFile("out/report.md");
+    expect(report).toContain('"c2":{"candidate-model":{"n/a":1}}');
+  });
+
   it("exits 2 when --baseline-results names a missing file", async () => {
     const deps = reportDeps();
     const code = await runBench(

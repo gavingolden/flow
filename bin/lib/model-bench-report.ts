@@ -25,6 +25,7 @@ import {
   recommend,
   renderReport,
   type CaseScore,
+  type ExecutedRepeats,
 } from "./model-bench-score";
 import { timeoutFit } from "./model-bench-timeout-fit";
 
@@ -119,13 +120,14 @@ function translateJudged(
 }
 
 // Merges the baseline file's rows for the incumbent into `results` (only for a
-// case/arm the run itself has no incumbent row on), and returns every model the
-// baseline file measured — the set a "no baseline" case is judged against.
+// case/arm the run itself has no incumbent row on). Only the incumbent's rows
+// are merged, so the incumbent is the only model a "no baseline" case can be
+// judged against: another model named in the file contributes no rows.
 function readBaseline(
   args: ReportArgs,
   deps: ReportDeps,
   results: BenchResult[],
-): { results: BenchResult[]; baselineModels: string[] } | { error: string } {
+): { results: BenchResult[] } | { error: string } {
   const path = args.baselineResults!;
   if (!deps.fileExists(path)) {
     return { error: `--baseline-results ${path}: file not found` };
@@ -150,12 +152,19 @@ function readBaseline(
   const merged = validated.value.filter(
     (r) => r.model === args.incumbent && !have.has(`${r.caseId}::${r.arm}`),
   );
-  return {
-    results: [...results, ...merged],
-    baselineModels: [
-      ...new Set([args.incumbent, ...validated.value.map((r) => r.model)]),
-    ],
-  };
+  return { results: [...results, ...merged] };
+}
+
+// What actually ran, not what a fixture's repeat tier asked for: a screen at
+// fewer repeats than the tier would otherwise read as the full tier.
+export function executedRepeats(results: BenchResult[]): ExecutedRepeats {
+  const out: ExecutedRepeats = {};
+  for (const r of results) {
+    if (r.warmup) continue;
+    const byArm = ((out[r.caseId] ??= {})[r.model] ??= {});
+    byArm[r.arm] = (byArm[r.arm] ?? 0) + 1;
+  }
+  return out;
 }
 
 export function runReport(args: ReportArgs, deps: ReportDeps): number {
@@ -181,7 +190,6 @@ export function runReport(args: ReportArgs, deps: ReportDeps): number {
     return 2;
   }
   let results = validated.value;
-  let baselineModels = [args.incumbent];
   if (args.baselineResults) {
     const baseline = readBaseline(args, deps, results);
     if ("error" in baseline) {
@@ -189,7 +197,6 @@ export function runReport(args: ReportArgs, deps: ReportDeps): number {
       return 2;
     }
     results = baseline.results;
-    baselineModels = baseline.baselineModels;
   }
 
   const cases = loadCases(args.fixturesDir, deps);
@@ -199,11 +206,9 @@ export function runReport(args: ReportArgs, deps: ReportDeps): number {
   }
 
   const caseSurfaces: Record<string, BenchSurface> = {};
-  const repeatTiers: Record<string, number> = {};
   const scores: CaseScore[] = [];
   for (const c of cases) {
     caseSurfaces[c.id] = c.surface;
-    repeatTiers[c.id] = c.repeats ?? 1;
     const truthPath = join(args.fixturesDir, c.id, "truth.json");
     if (!deps.fileExists(truthPath)) continue;
     let truthParsed: unknown;
@@ -242,7 +247,6 @@ export function runReport(args: ReportArgs, deps: ReportDeps): number {
       caseSurfaces,
       latencyGate: args.latencyGate,
       groundTruthFloor: args.groundTruthFloor,
-      baselineModels,
     });
   } catch (err) {
     deps.progress(`flow-model-bench: ${(err as Error).message}\n`);
@@ -252,7 +256,7 @@ export function runReport(args: ReportArgs, deps: ReportDeps): number {
 
   const meta = {
     commit: safeCall(deps.gitHead, "unknown"),
-    repeatTiers,
+    executedRepeats: executedRepeats(results),
     models,
     incumbent: args.incumbent,
     agyVersion: safeCall(deps.agyVersion, "unknown"),

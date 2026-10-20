@@ -485,9 +485,6 @@ export type GateOpts = {
   // Gate a no-baseline or at-ceiling case on fixture ground truth instead of
   // the incumbent comparison (see model-bench-ground-truth.ts).
   groundTruthFloor?: number;
-  // Models whose rows count as "a baseline" for the no-baseline test; defaults
-  // to the incumbent alone.
-  baselineModels?: string[];
 };
 
 // Gates evaluated IN THIS ORDER (quality first, latency LAST — a latency
@@ -503,8 +500,9 @@ function evaluateCandidate(
   candidate: string,
   opts: GateOpts,
 ): VerdictCell {
-  const baselineModels = opts.baselineModels ?? [incumbent];
-  const groundTruth = new Map<string, GroundTruthKind>();
+  // Keyed per CaseScore, not caseId: a schemaAb case scores two arms under one
+  // caseId, and each arm is gated or compared on its own.
+  const groundTruth = new Map<CaseScore, GroundTruthKind>();
   const missingBaseline: string[] = [];
 
   if (
@@ -528,7 +526,7 @@ function evaluateCandidate(
     }
     const kind =
       opts.groundTruthFloor !== undefined
-        ? groundTruthKind(cs, baselineModels)
+        ? groundTruthKind(cs, [incumbent])
         : null;
     if (kind !== null && opts.groundTruthFloor !== undefined) {
       const failure = groundTruthFailure(cand, opts.groundTruthFloor);
@@ -538,7 +536,7 @@ function evaluateCandidate(
           reason: `mechanical parity failed on ${cs.caseId} (${kind}): ${failure}`,
         };
       }
-      groundTruth.set(cs.caseId, kind);
+      groundTruth.set(cs, kind);
     } else if (!cs.perModel[incumbent]) {
       missingBaseline.push(cs.caseId);
     }
@@ -546,9 +544,7 @@ function evaluateCandidate(
 
   const comparable = caseScores.filter(
     (cs) =>
-      cs.perModel[candidate] &&
-      cs.perModel[incumbent] &&
-      !groundTruth.has(cs.caseId),
+      cs.perModel[candidate] && cs.perModel[incumbent] && !groundTruth.has(cs),
   );
 
   for (const cs of comparable) {
@@ -642,7 +638,9 @@ function evaluateCandidate(
     }
   }
 
-  const gated = [...groundTruth].map(([id, kind]) => `${id} (${kind})`);
+  const gated = [
+    ...new Set([...groundTruth].map(([cs, kind]) => `${cs.caseId} (${kind})`)),
+  ];
   return {
     status: "clear",
     reason:
@@ -675,14 +673,12 @@ export function verdict(
     caseSurfaces: Record<string, BenchSurface>;
     latencyGate?: boolean;
     groundTruthFloor?: number;
-    baselineModels?: string[];
   },
 ): Record<string, Record<string, VerdictCell>> {
   assertIncumbentHasRows(scores, opts.incumbent);
   const gateOpts: GateOpts = {
     latencyGate: opts.latencyGate ?? true,
     groundTruthFloor: opts.groundTruthFloor,
-    baselineModels: opts.baselineModels,
   };
   const bySurface = new Map<string, CaseScore[]>();
   for (const s of scores) {
@@ -842,9 +838,15 @@ function sectionSchemaTax(tax: Record<string, SchemaTaxResult>): string {
   return lines.join("\n");
 }
 
+// case -> model -> arm -> executed (non-warm-up) result rows.
+export type ExecutedRepeats = Record<
+  string,
+  Record<string, Record<string, number>>
+>;
+
 function sectionProvenance(meta: {
   commit: string;
-  repeatTiers: Record<string, number>;
+  executedRepeats: ExecutedRepeats;
   models: string[];
   incumbent: string;
   agyVersion: string;
@@ -858,18 +860,35 @@ function sectionProvenance(meta: {
     `- models: ${meta.models.join(", ")}`,
     `- incumbent: ${meta.incumbent}`,
     `- run date: ${meta.runDate}`,
-    `- repeat tiers: ${JSON.stringify(meta.repeatTiers)}`,
+    `- executed repeats (non-warm-up rows per case, model and arm): ${JSON.stringify(meta.executedRepeats)}`,
   ].join("\n");
 }
 
-function sectionLimitations(scores: CaseScore[], incumbent: string): string {
+function repeatsLimitation(executed: ExecutedRepeats): string {
+  const counts = Object.values(executed).flatMap((byModel) =>
+    Object.values(byModel).flatMap((byArm) => Object.values(byArm)),
+  );
+  const span =
+    counts.length === 0
+      ? "no executed rows"
+      : Math.min(...counts) === Math.max(...counts)
+        ? `N=${counts[0]} per case, model and arm`
+        : `N=${Math.min(...counts)} to N=${Math.max(...counts)} per case, model and arm`;
+  return `- Executed repeats (${span}; exact counts in Run provenance) are far below the N>=30 that stable latency percentiles call for; medians are reported but underpowered.`;
+}
+
+function sectionLimitations(
+  scores: CaseScore[],
+  incumbent: string,
+  executed: ExecutedRepeats,
+): string {
   const nonDisc = scores
     .filter((s) => !s.discriminating)
     .map((s) => `${s.caseId} (${s.arm})`);
   return [
     "## Limitations",
     "",
-    "- Repeat tiers (N=10 on decision-bearing surfaces, N=3 elsewhere) are far below the N>=30 that stable latency percentiles call for; medians are reported but underpowered.",
+    repeatsLimitation(executed),
     "- Planted-defect detection rates are selection-biased toward authorable defects and do not generalise to natural defects; the c2b real-defect control narrows but does not close that gap.",
     `- The incumbent baseline (${incumbent}) ran under agy's scaffold, not necessarily the scaffold production uses; rows merged from a committed --baseline-results file were measured earlier, on that run's agy version and roster.`,
     "- Tokens/usage are descriptive only and never gate a verdict.",
@@ -887,7 +906,7 @@ export function renderReport(
   tax: Record<string, SchemaTaxResult>,
   meta: {
     commit: string;
-    repeatTiers: Record<string, number>;
+    executedRepeats: ExecutedRepeats;
     models: string[];
     incumbent: string;
     agyVersion: string;
@@ -906,6 +925,6 @@ export function renderReport(
       ? [renderTimeoutFit(meta.timeoutFit)]
       : []),
     sectionProvenance(meta),
-    sectionLimitations(scores, meta.incumbent),
+    sectionLimitations(scores, meta.incumbent, meta.executedRepeats),
   ].join("\n\n");
 }

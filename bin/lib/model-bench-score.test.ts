@@ -6,6 +6,7 @@ import {
   recommend,
   renderReport,
   type CaseScore,
+  type ExecutedRepeats,
 } from "./model-bench-score";
 import type { BenchCase, BenchResult, BenchTruth } from "./model-bench-schema";
 import { timeoutFit } from "./model-bench-timeout-fit";
@@ -744,7 +745,7 @@ describe("schemaTax", () => {
 describe("renderReport", () => {
   const meta = {
     commit: "abc1234",
-    repeatTiers: { c1: 3 },
+    executedRepeats: { c1: { m1: { schema: 3 } } },
     models: ["m1", "m2"],
     incumbent: "m1",
     agyVersion: "1.0.0",
@@ -897,6 +898,25 @@ describe("verdict — a baseline-less or tied case can never clear silently", ()
     expect(failing.reason).toMatch(/at ceiling/);
   });
 
+  it("gates the two arms of a schemaAb case independently: an at-ceiling schema arm cannot hide a regressed free-form arm", () => {
+    const arm = (a: "schema" | "free-form", perModel: PerModel): CaseScore => ({
+      ...cs("c-ab", perModel, false),
+      arm: a,
+    });
+    const cell = run(
+      [
+        arm("schema", { inc: model(), cand: model() }),
+        arm("free-form", {
+          inc: model({ recall: 0.9 }),
+          cand: model({ recall: 0.5 }),
+        }),
+      ],
+      { groundTruthFloor: 0.8, latencyGate: false },
+    );
+    expect(cell.status).toBe("reject");
+    expect(cell.reason).toMatch(/mechanical parity failed on c-ab/);
+  });
+
   it("--no-latency-gate: no verdict cites latency, even for a much slower candidate", () => {
     const slow = cs("c1", {
       inc: model({ latency: { median: 1, min: 1, max: 1 } }),
@@ -986,10 +1006,45 @@ describe("scoreCase — failure classes", () => {
   });
 });
 
+describe("renderReport — executed repeats", () => {
+  const meta = (executedRepeats: ExecutedRepeats) => ({
+    commit: "abc1234",
+    executedRepeats,
+    models: ["m1"],
+    incumbent: "m1",
+    agyVersion: "1.0.0",
+    runDate: "2026-10-19",
+  });
+
+  it("states the executed repeat count, not a fixed repeat tier", () => {
+    const report = renderReport(
+      [],
+      {},
+      {},
+      meta({ c1: { m1: { schema: 3 } }, c2: { m1: { "n/a": 3 } } }),
+    );
+    expect(report).toContain("N=3 per case, model and arm");
+    expect(report).not.toContain("N=10");
+    expect(report).toContain(
+      '{"c1":{"m1":{"schema":3}},"c2":{"m1":{"n/a":3}}}',
+    );
+  });
+
+  it("states the range when cases ran different counts", () => {
+    const report = renderReport(
+      [],
+      {},
+      {},
+      meta({ c1: { m1: { "n/a": 10 } }, c2: { m1: { "n/a": 3 } } }),
+    );
+    expect(report).toContain("N=3 to N=10 per case, model and arm");
+  });
+});
+
 describe("renderReport — incumbent and production timeout fit", () => {
   const meta = {
     commit: "abc1234",
-    repeatTiers: {},
+    executedRepeats: {},
     models: ["m1"],
     incumbent: "gemini-4-argon-high",
     agyVersion: "1.0.0",
