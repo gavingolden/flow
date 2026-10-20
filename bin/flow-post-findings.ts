@@ -19,6 +19,11 @@
  *   echo '<json>' | flow-post-findings <pr-number-or-url>
  *   flow-post-findings <pr-number-or-url> --file findings.json
  *   flow-post-findings <pr> --head-sha <sha>     # skip the gh pr view lookup
+ *   flow-post-findings dedupe <pr>               # delete this user's duplicate finding comments
+ *
+ * Posting is idempotent: findings already on the PR (same file, side, line
+ * range and body) and repeats within one batch are skipped. Inside a live
+ * pipeline (FLOW_SLUG resolves) the PR must be that pipeline's own.
  *
  * Input format (each entry):
  *   {
@@ -31,6 +36,12 @@
  */
 
 import { parsePrNumber } from "./flow-fetch-pr-review";
+import { checkOwnPipelinePr } from "./lib/pipeline-pr-ownership";
+import {
+  fetchExistingComments,
+  filterNewFindings,
+  runDedupe,
+} from "./lib/review-comment-dedupe";
 
 export type Finding = {
   file: string;
@@ -51,6 +62,8 @@ export type PostSummary = {
   total: number;
   succeeded: number;
   failed: number;
+  skipped: number;
+  skippedAt: string[];
   results: PostResult[];
 };
 
@@ -213,6 +226,8 @@ export function postAll(
     total: results.length,
     succeeded,
     failed: results.length - succeeded,
+    skipped: 0,
+    skippedAt: [],
     results,
   };
 }
@@ -222,7 +237,13 @@ export function formatSummary(summary: PostSummary): string {
   lines.push(
     `Findings: ${summary.succeeded}/${summary.total} posted successfully`,
   );
+  if (summary.skipped > 0) {
+    lines.push(`Skipped ${summary.skipped} already on the PR`);
+  }
   lines.push("");
+  for (const where of summary.skippedAt) {
+    lines.push(`  SKIP  ${where} (already on PR)`);
+  }
   for (const r of summary.results) {
     const where = `${r.file}:${r.line}`;
     if (r.success) lines.push(`  OK    ${where}`);
@@ -234,6 +255,11 @@ export function formatSummary(summary: PostSummary): string {
 function printHelp(): void {
   console.log(`
 Usage: flow-post-findings <pr-number-or-url> [options]
+       flow-post-findings dedupe <pr-number-or-url>
+
+dedupe deletes the current gh user's exact-duplicate top-level finding
+comments on the PR, keeping the oldest and skipping any with replies. It
+takes no other input.
 
 Posts pr-review findings as individual inline review comments. Reads a
 JSON array from stdin or a file. Each finding is posted to the GitHub
@@ -266,11 +292,22 @@ Examples:
 
 type ParsedArgs =
   | { kind: "ok"; prArg: string; file?: string; headSha?: string }
+  | { kind: "dedupe"; prArg: string }
   | { kind: "help" }
   | { kind: "error"; message: string };
 
 export function parseArgs(argv: string[]): ParsedArgs {
   if (argv.includes("--help") || argv.includes("-h")) return { kind: "help" };
+  if (argv[0] === "dedupe") {
+    const rest = argv.slice(1);
+    if (rest.length !== 1 || rest[0].startsWith("--")) {
+      return {
+        kind: "error",
+        message: "usage: flow-post-findings dedupe <pr-number-or-url>",
+      };
+    }
+    return { kind: "dedupe", prArg: rest[0] };
+  }
   let prArg: string | undefined;
   let file: string | undefined;
   let headSha: string | undefined;
@@ -294,6 +331,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
     if (a.startsWith("--"))
       return { kind: "error", message: `unknown flag: ${a}` };
+    if (a === "dedupe")
+      return {
+        kind: "error",
+        message: "dedupe must be the first argument and takes only a PR",
+      };
     if (prArg)
       return { kind: "error", message: `unexpected positional argument: ${a}` };
     prArg = a;
@@ -306,6 +348,8 @@ export type Deps = {
   gh?: GhRunner;
   readStdin?: () => Promise<string>;
   readFile?: (path: string) => Promise<string>;
+  env?: NodeJS.ProcessEnv;
+  stateDir?: string;
 };
 
 export async function run(argv: string[], deps: Deps = {}): Promise<number> {
@@ -325,6 +369,13 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   }
 
   const prNumber = parsePrNumber(parsed.prArg);
+
+  const owned = checkOwnPipelinePr(prNumber, deps);
+  if (!owned.ok) {
+    console.error(`flow-post-findings: ${owned.reason}`);
+    return 2;
+  }
+  if (parsed.kind === "dedupe") return runDedupe(prNumber, gh);
 
   let input: string;
   if (parsed.file) {
@@ -360,10 +411,25 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     return 1;
   }
 
+  let toPost: Finding[];
+  let skipped: Finding[];
+  try {
+    ({ toPost, skipped } = filterNewFindings(
+      findings,
+      fetchExistingComments(prNumber, gh),
+    ));
+  } catch (e) {
+    console.error(`flow-post-findings: ${(e as Error).message}`);
+    console.error("nothing was posted");
+    return 1;
+  }
+
   console.log(
-    `Posting ${findings.length} findings to PR #${prNumber} @ ${headSha.slice(0, 7)}...`,
+    `Posting ${toPost.length} findings to PR #${prNumber} @ ${headSha.slice(0, 7)}...`,
   );
-  const summary = postAll(prNumber, headSha, findings, gh);
+  const summary = postAll(prNumber, headSha, toPost, gh);
+  summary.skipped = skipped.length;
+  summary.skippedAt = skipped.map((f) => `${f.file}:${f.line}`);
   console.log(formatSummary(summary));
   return summary.failed > 0 ? 1 : 0;
 }

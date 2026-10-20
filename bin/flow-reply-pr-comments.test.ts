@@ -2,10 +2,14 @@
  * Tests for flow-reply-pr-comments.ts
  */
 
-import { describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import {
   formatSummary,
   parseReplies,
+  run,
   type ReplySummary,
 } from "./flow-reply-pr-comments";
 
@@ -166,5 +170,83 @@ describe("formatSummary", () => {
     const output = formatSummary(summary);
     expect(output).toContain("1/1 posted successfully");
     expect(output).toContain("OK    comment #42");
+  });
+});
+
+describe("run() own-PR check", () => {
+  function stateDirWithPr(pr: number): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "frc-own-"));
+    fs.writeFileSync(
+      path.join(dir, "slug-a.json"),
+      JSON.stringify({
+        slug: "slug-a",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-22T11:00:00Z",
+        pr,
+      }),
+    );
+    return dir;
+  }
+  const input = JSON.stringify([{ comment_id: 7, body: "Done" }]);
+
+  async function call(
+    argv: string[],
+    deps: Parameters<typeof run>[1],
+  ): Promise<number> {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      return await run(argv, { readStdin: async () => input, ...deps });
+    } finally {
+      log.mockRestore();
+      err.mockRestore();
+    }
+  }
+
+  it("refuses another PR (exit 2, nothing posted)", async () => {
+    const dir = stateDirWithPr(5);
+    const gh = vi.fn(() => "");
+    const code = await call(["6"], {
+      gh,
+      env: { FLOW_SLUG: "slug-a" },
+      stateDir: dir,
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(code).toBe(2);
+    expect(gh).not.toHaveBeenCalled();
+  });
+
+  it("posts to the pipeline's own PR", async () => {
+    const dir = stateDirWithPr(5);
+    const gh = vi.fn(() => "");
+    const code = await call(["5"], {
+      gh,
+      env: { FLOW_SLUG: "slug-a" },
+      stateDir: dir,
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(code).toBe(0);
+    expect(gh).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses when the slug has no state file", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "frc-none-"));
+    const gh = vi.fn(() => "");
+    const code = await call(["5"], {
+      gh,
+      env: { FLOW_SLUG: "slug-a" },
+      stateDir: dir,
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(code).toBe(2);
+    expect(gh).not.toHaveBeenCalled();
+  });
+
+  it("does not check when no slug resolves", async () => {
+    const gh = vi.fn(() => "");
+    const code = await call(["6"], { gh, env: {} });
+    expect(code).toBe(0);
+    expect(gh).toHaveBeenCalledTimes(1);
   });
 });

@@ -15,6 +15,7 @@
  */
 
 import { parsePrNumber } from "./flow-fetch-pr-review";
+import { checkOwnPipelinePr } from "./lib/pipeline-pr-ownership";
 
 // --- Types ---
 
@@ -38,7 +39,9 @@ export type ReplySummary = {
 
 // --- Helpers ---
 
-function gh(args: string[]): string {
+type Gh = (args: string[]) => string;
+
+const defaultGh: Gh = (args) => {
   const result = Bun.spawnSync(["gh", ...args], {
     stdout: "pipe",
     stderr: "pipe",
@@ -52,7 +55,7 @@ function gh(args: string[]): string {
   }
 
   return result.stdout.toString().trim();
-}
+};
 
 // --- Parsing ---
 
@@ -96,7 +99,7 @@ export function parseReplies(input: string): CommentReply[] {
 
 // --- Reply Logic ---
 
-function postReply(prNumber: number, reply: CommentReply): ReplyResult {
+function postReply(prNumber: number, reply: CommentReply, gh: Gh): ReplyResult {
   try {
     gh([
       "api",
@@ -114,11 +117,12 @@ function postReply(prNumber: number, reply: CommentReply): ReplyResult {
 function postAllReplies(
   prNumber: number,
   replies: CommentReply[],
+  gh: Gh,
 ): ReplySummary {
   const results: ReplyResult[] = [];
 
   for (const reply of replies) {
-    const result = postReply(prNumber, reply);
+    const result = postReply(prNumber, reply, gh);
     results.push(result);
   }
 
@@ -181,12 +185,28 @@ Examples:
   `);
 }
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+export type Deps = {
+  gh?: Gh;
+  env?: NodeJS.ProcessEnv;
+  stateDir?: string;
+  readStdin?: () => Promise<string>;
+  readFile?: (path: string) => Promise<string | null>;
+};
+
+export async function run(argv: string[], deps: Deps = {}): Promise<number> {
+  const args = argv;
+  const gh = deps.gh ?? defaultGh;
+  const readStdin = deps.readStdin ?? (() => Bun.stdin.text());
+  const readFile =
+    deps.readFile ??
+    (async (p: string) => {
+      const f = Bun.file(p);
+      return (await f.exists()) ? f.text() : null;
+    });
 
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
-    process.exit(0);
+    return 0;
   }
 
   // First positional argument is the PR number/URL.
@@ -204,10 +224,16 @@ async function main(): Promise<void> {
   if (!prArg) {
     console.error("Error: PR number or URL is required as the first argument.");
     console.error("Run with --help for usage.");
-    process.exit(1);
+    return 1;
   }
 
   const prNumber = parsePrNumber(prArg);
+
+  const owned = checkOwnPipelinePr(prNumber, deps);
+  if (!owned.ok) {
+    console.error(`flow-reply-pr-comments: ${owned.reason}`);
+    return 2;
+  }
 
   // Read input
   let input: string;
@@ -216,22 +242,22 @@ async function main(): Promise<void> {
     const filePath = args[fileIdx + 1];
     if (!filePath) {
       console.error("Error: --file requires a file path");
-      process.exit(1);
+      return 1;
     }
-    const file = Bun.file(filePath);
-    if (!(await file.exists())) {
+    const text = await readFile(filePath);
+    if (text === null) {
       console.error(`Error: File not found: ${filePath}`);
-      process.exit(1);
+      return 1;
     }
-    input = await file.text();
+    input = text;
   } else {
-    input = await Bun.stdin.text();
+    input = await readStdin();
     if (!input.trim()) {
       console.error(
         "Error: No input received on stdin. Pipe JSON or use --file.",
       );
       console.error("Run with --help for usage.");
-      process.exit(1);
+      return 1;
     }
   }
 
@@ -239,17 +265,17 @@ async function main(): Promise<void> {
 
   if (replies.length === 0) {
     console.log("No replies to post.");
-    process.exit(0);
+    return 0;
   }
 
   console.log(`Posting ${replies.length} replies to PR #${prNumber}...\n`);
 
-  const summary = postAllReplies(prNumber, replies);
+  const summary = postAllReplies(prNumber, replies, gh);
   console.log(formatSummary(summary));
 
-  process.exit(summary.failed > 0 ? 1 : 0);
+  return summary.failed > 0 ? 1 : 0;
 }
 
 if (import.meta.main) {
-  main();
+  run(process.argv.slice(2)).then((code) => process.exit(code));
 }
