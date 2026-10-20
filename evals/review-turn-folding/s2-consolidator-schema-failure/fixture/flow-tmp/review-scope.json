@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "started_at": "2026-01-01T00:41:00.000Z",
+  "scope": "full",
+  "reason": "first review of this head",
+  "base_sha": null,
+  "head_sha": "sha-head-1",
+  "pr_files": [
+    "src/pricing.ts",
+    "src/pricing.test.ts"
+  ],
+  "delta_files": [],
+  "delta_ratio": null,
+  "gates": {
+    "bug-detection": {
+      "run": true,
+      "reason": "source files changed"
+    },
+    "pattern-consistency": {
+      "run": true,
+      "reason": "source files changed"
+    },
+    "test-coverage": {
+      "run": true,
+      "reason": "test files changed"
+    },
+    "security": {
+      "run": false,
+      "reason": "no security-sensitive paths changed"
+    },
+    "performance": {
+      "run": false,
+      "reason": "no hot-path files changed"
+    },
+    "supply-chain": {
+      "run": false,
+      "reason": "no dependency manifests changed"
+    },
+    "product": {
+      "run": false,
+      "reason": "no product brief resolved"
+    }
+  },
+  "gates_enabled": true,
+  "delta_enabled": true,
+  "forced_full": false,
+  "product_brief": {
+    "found": false
+  },
+  "tier": "standard",
+  "tier_reasons": [
+    "small diff"
+  ]
+}

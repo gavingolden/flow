@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  isHookRefusal,
   isValidSessionId,
   parseArgs,
   readCurrentPr,
@@ -321,6 +322,46 @@ describe("flow-open-pr run()", () => {
       "feat: x",
     ]);
     expect(readState("alpha").pr).toBe(142);
+    expect(readState("alpha").prUrl).toBe("https://github.com/x/y/pull/142");
+  });
+
+  it("stdout stays exactly the bare PR URL, even though prUrl is now persisted", () => {
+    seedState("alpha-stdout");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({
+        number: 142,
+        url: "https://github.com/x/y/pull/142",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      {
+        matches: isCreate,
+        response: {
+          stdout: "https://github.com/x/y/pull/142\n",
+          stderr: "",
+          exitCode: 0,
+        },
+      },
+      { matches: isView, response: prJson },
+    ]);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const exit = run(
+        ["alpha-stdout", "--body-file", bodyFile, "--title", "feat: x"],
+        { gh, updater, git: branchOnRemoteGit(), sessionId: "" },
+      );
+      expect(exit).toBe(0);
+      // The entire stdout contract: exactly one bare-URL console.log call,
+      // never linkified — /flow-pipeline step 5 reads this line verbatim.
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(logSpy).toHaveBeenCalledWith("https://github.com/x/y/pull/142");
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   it("skips gh pr create when the branch already has a PR (resume case, no stderr parsing)", () => {
@@ -638,6 +679,8 @@ describe("flow-open-pr run()", () => {
       "forward-create",
       "--pr",
       "34",
+      "--pr-url",
+      "https://github.com/x/y/pull/34",
       "--session-id",
       VALID_SESSION,
     ]);
@@ -670,6 +713,8 @@ describe("flow-open-pr run()", () => {
       "forward-resume",
       "--pr",
       "35",
+      "--pr-url",
+      "https://github.com/x/y/pull/35",
       "--session-id",
       VALID_SESSION,
     ]);
@@ -894,6 +939,94 @@ describe("flow-open-pr run()", () => {
     expect(exit).toBe(128);
     expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(false);
     expect(readState("pushfail").pr).toBeUndefined();
+  });
+
+  describe("hook refusal on the first push", () => {
+    const HOOK_REFUSAL_LINE =
+      "flow-open-pr: a git hook refused this push — its output above is a failing check; fix it and re-run, never --no-verify";
+
+    function pushWithStderr(slug: string, stderr: string): string {
+      seedState(slug);
+      const { updater } = makeUpdater();
+      const { gh } = makeGhSequence([{ matches: isView, response: NO_PR }]);
+      const { git } = makeGitSequence([
+        {
+          matches: isBranchName,
+          response: { stdout: "feature\n", stderr: "", exitCode: 0 },
+        },
+        {
+          matches: isLsRemote,
+          response: { stdout: "", stderr: "", exitCode: 2 },
+        },
+        { matches: isPush, response: { stdout: "", stderr, exitCode: 1 } },
+      ]);
+      const written: string[] = [];
+      const spy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation((chunk: string | Uint8Array) => {
+          written.push(String(chunk));
+          return true;
+        });
+      try {
+        const exit = run([slug, "--body-file", bodyFile], {
+          gh,
+          updater,
+          git,
+          sessionId: "",
+        });
+        expect(exit).toBe(1);
+      } finally {
+        spy.mockRestore();
+      }
+      return written.join("");
+    }
+
+    it("names the refusal when the push fails with no rejected ref line", () => {
+      const out = pushWithStderr(
+        "hookrefused",
+        "pre-push: checks failed\nerror: failed to push some refs to 'origin'\n",
+      );
+      expect(out).toContain("pre-push: checks failed");
+      expect(out).toContain(HOOK_REFUSAL_LINE);
+    });
+
+    it("stays silent on a non-fast-forward [rejected] push", () => {
+      const out = pushWithStderr(
+        "nonff",
+        " ! [rejected]        HEAD -> feature (non-fast-forward)\nerror: failed to push some refs to 'origin'\n",
+      );
+      expect(out).not.toContain(HOOK_REFUSAL_LINE);
+    });
+
+    it("stays silent on a [remote rejected] push", () => {
+      const out = pushWithStderr(
+        "remoterej",
+        " ! [remote rejected] HEAD -> feature (protected branch)\nerror: failed to push some refs to 'origin'\n",
+      );
+      expect(out).not.toContain(HOOK_REFUSAL_LINE);
+    });
+  });
+
+  it("isHookRefusal classifies git push stderr", () => {
+    expect(isHookRefusal("error: failed to push some refs to 'x'")).toBe(true);
+    expect(
+      isHookRefusal("! [rejected] a -> b\nerror: failed to push some refs"),
+    ).toBe(false);
+    expect(
+      isHookRefusal(
+        "! [remote rejected] a -> b\nerror: failed to push some refs",
+      ),
+    ).toBe(false);
+    expect(isHookRefusal("fatal: unable to access 'x'")).toBe(false);
+    expect(isHookRefusal("")).toBe(false);
+    for (const transport of [
+      "fatal: the remote end hung up unexpectedly\nerror: failed to push some refs to 'x'",
+      "error: RPC failed; HTTP 502 curl 22\nerror: failed to push some refs to 'x'",
+      "client_loop: send disconnect: Broken pipe\nerror: failed to push some refs to 'x'",
+      "! [remote failure] a -> b (remote failed to report status)\nerror: failed to push some refs",
+    ]) {
+      expect(isHookRefusal(transport), transport).toBe(false);
+    }
   });
 
   it("skips the push (no ls-remote, no push) on a detached HEAD and still creates the PR", () => {

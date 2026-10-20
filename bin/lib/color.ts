@@ -5,7 +5,7 @@
  * terminal and the user has not opted out via NO_COLOR. FORCE_COLOR
  * force-enables it (for deterministic tests and CI demos). In every other
  * context — piped, redirected, parsed by another process, NO_COLOR set, or
- * any non-TTY — `dim`/`green`/`red` return their input byte-for-byte
+ * any non-TTY — `dim`/`green`/`yellow`/`red` return their input byte-for-byte
  * unchanged, so captured output is identical to the no-color path.
  *
  * Because of that, machine-read contract lines (e.g. `flow feature create`'s first
@@ -32,8 +32,13 @@ export function colorEnabledStderr(): boolean {
   return process.stderr.isTTY === true && !("NO_COLOR" in process.env);
 }
 
+/** Unconditional SGR wrap, for a caller that resolves the gate itself. */
+export function sgr(code: number, s: string): string {
+  return `\x1b[${code}m${s}\x1b[0m`;
+}
+
 function wrap(code: number, s: string): string {
-  return colorEnabled() ? `\x1b[${code}m${s}\x1b[0m` : s;
+  return colorEnabled() ? sgr(code, s) : s;
 }
 
 export function dim(s: string): string {
@@ -51,4 +56,8 @@ export function green(s: string): string {
 
 export function red(s: string): string {
   return wrap(31, s);
+}
+
+export function yellow(s: string): string {
+  return wrap(33, s);
 }

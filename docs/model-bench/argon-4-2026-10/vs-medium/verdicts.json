@@ -1,0 +1,128 @@
+{
+  "matrix": {
+    "intent-guess": {
+      "gemini-4-argon-medium": {
+        "status": "clear",
+        "reason": "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable; gated on fixture ground truth: c4-intent-json (at ceiling)"
+      }
+    },
+    "research-gather": {
+      "gemini-4-argon-medium": {
+        "status": "inconclusive",
+        "reason": "test too easy — every backing case is non-discriminating"
+      }
+    },
+    "scout": {
+      "gemini-4-argon-medium": {
+        "status": "reject",
+        "reason": "defect regression on c2b-real-defect: gemini-4-argon-medium missed \"src/foreclosed-paths-format.ts.txt:113:real-defect\", which gemini-4-argon-high caught"
+      }
+    },
+    "plan-review": {
+      "gemini-4-argon-medium": {
+        "status": "clear",
+        "reason": "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable; gated on fixture ground truth: c6-plan-review (at ceiling)"
+      }
+    },
+    "log-triage": {
+      "gemini-4-argon-medium": {
+        "status": "inconclusive",
+        "reason": "no gemini-4-argon-medium rows on this surface — nothing to evaluate"
+      }
+    },
+    "commit-msg": {
+      "gemini-4-argon-medium": {
+        "status": "inconclusive",
+        "reason": "no gemini-4-argon-medium rows on this surface — nothing to evaluate"
+      }
+    },
+    "critique": {
+      "gemini-4-argon-medium": {
+        "status": "inconclusive",
+        "reason": "no gemini-4-argon-medium rows on this surface — nothing to evaluate"
+      }
+    },
+    "blind-survey": {
+      "gemini-4-argon-medium": {
+        "status": "clear",
+        "reason": "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable; gated on fixture ground truth: c12-blind-survey (at ceiling)"
+      }
+    },
+    "gatekeeper": {
+      "gemini-4-argon-medium": {
+        "status": "inconclusive",
+        "reason": "no gemini-4-argon-medium rows on this surface — nothing to evaluate"
+      }
+    },
+    "review-lens": {
+      "gemini-4-argon-medium": {
+        "status": "clear",
+        "reason": "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable; gated on fixture ground truth: c7-review-lens (at ceiling)"
+      }
+    },
+    "research-refute": {
+      "gemini-4-argon-medium": {
+        "status": "clear",
+        "reason": "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable"
+      }
+    }
+  },
+  "recommendation": {
+    "intent-guess": {
+      "candidate": "gemini-4-argon-medium",
+      "reason": "cleared every gate; quality-gated tie-break selected gemini-4-argon-medium"
+    },
+    "research-gather": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    },
+    "scout": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    },
+    "plan-review": {
+      "candidate": "gemini-4-argon-medium",
+      "reason": "cleared every gate; quality-gated tie-break selected gemini-4-argon-medium"
+    },
+    "log-triage": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    },
+    "commit-msg": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    },
+    "critique": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    },
+    "blind-survey": {
+      "candidate": "gemini-4-argon-medium",
+      "reason": "cleared every gate; quality-gated tie-break selected gemini-4-argon-medium"
+    },
+    "gatekeeper": {
+      "candidate": null,
+      "reason": "no candidate cleared every gate"
+    },
+    "review-lens": {
+      "candidate": "gemini-4-argon-medium",
+      "reason": "cleared every gate; quality-gated tie-break selected gemini-4-argon-medium"
+    },
+    "research-refute": {
+      "candidate": "gemini-4-argon-medium",
+      "reason": "cleared every gate; quality-gated tie-break selected gemini-4-argon-medium"
+    }
+  },
+  "tax": {
+    "gemini-4-argon-high": {
+      "perCase": {},
+      "overall": 0,
+      "recommendedArm": "schema"
+    },
+    "gemini-4-argon-medium": {
+      "perCase": {},
+      "overall": 0,
+      "recommendedArm": "schema"
+    }
+  }
+}

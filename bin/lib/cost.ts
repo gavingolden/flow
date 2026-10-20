@@ -131,6 +131,7 @@ async function parseAndPrice(jsonl: string): Promise<CostBreakdown> {
   const rl = readline.createInterface({ input: stream });
   const byModel: Record<string, number> = {};
   const unknown = new Set<string>();
+  const messages = new Map<string, { usage: unknown; model: string }>();
   let total = 0;
   for await (const line of rl) {
     if (!line) continue;
@@ -138,7 +139,12 @@ async function parseAndPrice(jsonl: string): Promise<CostBreakdown> {
     if (!event || event.type !== "assistant") continue;
     const usage = event.message?.usage;
     if (!usage) continue;
-    const model: string = event.message?.model ?? "";
+    recordLastLine(messages, event.message?.id, {
+      usage,
+      model: event.message?.model ?? "",
+    });
+  }
+  for (const { usage, model } of messages.values()) {
     const pricing = MODEL_PRICING[model];
     if (!pricing) {
       if (model) unknown.add(model);
@@ -192,9 +198,12 @@ export type TranscriptUsage = {
  * assistant event's `message.usage` fields and tracks the last-seen
  * `message.model`. Never throws — malformed lines are skipped, a missing
  * file yields all-zero counts with `model: null`. Kept separate from
- * `parseAndPrice` (module-private, priced in dollars) rather than
- * refactored into it, so a review-telemetry consumer gets raw token
- * counts without perturbing `computeCost`'s existing $ output.
+ * `parseAndPrice` (module-private, priced in dollars) so a review-telemetry
+ * consumer gets raw token counts. Both summers share the same dedupe: a
+ * message the transcript repeats (one line per content block) counts once,
+ * and the LAST occurrence wins by `message.id` — only the last line of a
+ * message carries its final `output_tokens`; earlier lines hold a streaming
+ * placeholder (input and cache fields never differ between repeats).
  */
 export async function sumTranscriptUsage(
   jsonlPath: string,
@@ -214,6 +223,7 @@ export async function sumTranscriptUsage(
     return out;
   }
   const rl = readline.createInterface({ input: stream });
+  const messages = new Map<string, Record<string, unknown>>();
   try {
     for await (const line of rl) {
       if (!line) continue;
@@ -221,16 +231,11 @@ export async function sumTranscriptUsage(
       if (!event || event.type !== "assistant") continue;
       const usage = event.message?.usage;
       if (!usage || typeof usage !== "object") continue;
-      const u = usage as Record<string, unknown>;
-      const input = num(u.input_tokens);
-      const cacheCreation = num(u.cache_creation_input_tokens);
-      const cacheRead = num(u.cache_read_input_tokens);
-      const output = num(u.output_tokens);
-      out.input += input;
-      out.cache_creation += cacheCreation;
-      out.cache_read += cacheRead;
-      out.output += output;
-      out.total += input + cacheCreation + cacheRead + output;
+      recordLastLine(
+        messages,
+        event.message?.id,
+        usage as Record<string, unknown>,
+      );
       const model = event.message?.model;
       if (typeof model === "string" && model) out.model = model;
     }
@@ -239,6 +244,17 @@ export async function sumTranscriptUsage(
   } finally {
     rl.close();
     stream.destroy();
+  }
+  for (const u of messages.values()) {
+    const input = num(u.input_tokens);
+    const cacheCreation = num(u.cache_creation_input_tokens);
+    const cacheRead = num(u.cache_read_input_tokens);
+    const output = num(u.output_tokens);
+    out.input += input;
+    out.cache_creation += cacheCreation;
+    out.cache_read += cacheRead;
+    out.output += output;
+    out.total += input + cacheCreation + cacheRead + output;
   }
   return out;
 }
@@ -259,6 +275,22 @@ function priceUsage(usage: unknown, p: ModelPricing): number {
   );
 }
 
+/**
+ * Records `value` as the line for message `id`, replacing any earlier line
+ * with the same id (the last one carries the final usage) while keeping the
+ * message's first-seen position. Id-less lines each count individually.
+ * Callers pass only usage-bearing lines, so a usage-less last line never
+ * erases an earlier one's usage.
+ */
+export function recordLastLine<T>(
+  messages: Map<string, T>,
+  id: unknown,
+  value: T,
+): void {
+  const key = typeof id === "string" && id ? id : `\0line${messages.size}`;
+  messages.set(key, value);
+}
+
 function num(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
@@ -266,6 +298,7 @@ function num(v: unknown): number {
 type JsonlEvent = {
   type?: string;
   message?: {
+    id?: string;
     role?: string;
     model?: string;
     content?: unknown;

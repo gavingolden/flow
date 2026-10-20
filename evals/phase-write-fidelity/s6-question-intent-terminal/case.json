@@ -1,0 +1,83 @@
+{
+  "id": "s6-question-intent-terminal",
+  "title": "A cold-start question-only request ends at triaged-no-change",
+  "provenance": "Cold-start dry run for the flow-pipeline skill split (docs/eval/supervisor-skill-payload.md): the first five scenarios each start mid-pipeline, so none exercises a fresh skill load that must open Step 1's text before acting. This one loads the skill with an inline question-only request and checks the terminal phase and that Step 1's text was read.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture",
+    "state": "state.json"
+  },
+  "env": {
+    "flowSlug": true
+  },
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "state-phase-triaged-no-change",
+      "kind": "json-file",
+      "file": "$STATE",
+      "path": "phase",
+      "equals": "triaged-no-change"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "step-doc-opened",
+      "kind": "command",
+      "gate": false,
+      "argv": [
+        "jq",
+        "-e",
+        "-s",
+        "any(.[]; .type==\"assistant\" and any(.message.content[]?; .type==\"tool_use\" and .name==\"Read\" and ((.input.file_path // \"\") | test(\"references/phases/step-01-triage\\\\.md\"))))",
+        "$STREAM"
+      ]
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.subagentsSpawned",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.subagentsSpawned",
+      "direction": "lower"
+    }
+  ]
+}

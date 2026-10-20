@@ -26,6 +26,7 @@
  * refusing out of `FINISHED_PHASE_SET`.
  */
 
+import * as fs from "node:fs";
 import {
   readState,
   writeState,
@@ -33,6 +34,8 @@ import {
   STEP_PHASES,
   TERMINAL_PHASE_SET,
   FINISHED_PHASE_SET,
+  WORKTREE_REMOVED_PHASE_SET,
+  isAllowedTerminalExit,
   nowIso,
   type PipelinePhase,
   type PipelineState,
@@ -41,6 +44,7 @@ import { resolveSlugAmbient } from "./session-identity";
 import { FLOW_STATE_DIR } from "./paths";
 import { checkWorktreeBranch } from "./worktree-marker";
 import { publishStateBadges } from "./tmux";
+import { recordEvent } from "./telemetry";
 
 export type PhaseAdvanceReason =
   | "advanced"
@@ -76,6 +80,28 @@ export type AdvancePhaseOpts = {
    * alter `advanced`/`reason`/the exit code. Tests inject a stub.
    */
   publishBadges?: (state: PipelineState) => void;
+  /**
+   * Explicit opt-in required to let `advancePhase` exit `needs-human`
+   * (the `gated` terminal-exit allowlist entries need no opt-in — only
+   * the gate-override merge and the gated-feedback loop write those, and
+   * both are already narrowly scoped call sites). Without this flag, a
+   * `PHASE_EMITTERS` helper re-run during a `needs-human` pause (e.g. a
+   * stray `flow-ci-check`, or a late-finishing backgrounded waiter) can
+   * no longer silently write the pipeline out of its pause with no
+   * confirming reply. No shipped call site sets this today: the
+   * confirming-reply continuation writes `flow-state-update --phase
+   * <continuePhase>` itself (SKILL.md's `awaiting-human` row) BEFORE
+   * re-entering the resumed step, so by the time a `PHASE_EMITTERS`
+   * helper runs, `state.phase` already equals its target and this branch
+   * is never reached on that path — the opt-in costs the continuation
+   * nothing.
+   */
+  allowHumanPauseExit?: boolean;
+  /**
+   * Phase-log outcome text for a `finalizePhase` write (e.g. the stop
+   * guard's "stalled at <phase> ..." pause). Absent → no outcome recorded.
+   */
+  outcome?: string;
 };
 
 /**
@@ -84,15 +110,21 @@ export type AdvancePhaseOpts = {
  * pipeline sits in that pending phase is a safe equal-phase no-op rather
  * than a backward move.
  *
- * Deliberately anchors `ci-wait-pending` ONLY, not all nine
- * `PENDING_PHASES` entries — the cut-list form (plan.md "## Cut list" +
- * the cross-model review's accepted point) wins over Task 1's original
- * nine-entry enumeration: helper emissions only ever advance from forward
- * step phases, and `ci-wait-pending` (the Step-7 yield) is the only
- * pending phase one of the six helpers can observe live.
+ * Deliberately anchors only the pending phases a helper can observe live
+ * (not all `PENDING_PHASES`) — the cut-list form (plan.md "## Cut list" +
+ * the cross-model review's accepted point) wins over an every-entry
+ * enumeration, since helper emissions only ever advance from forward step
+ * phases. Two anchors:
+ *  - `ci-wait-pending` (the Step-7 yield) -> `ci-wait`.
+ *  - `browser-retry-pending` (Step 9's pause on un-run Browser items) ->
+ *    `reviewing`, the step it re-enters: the gate's `gating` write after
+ *    the re-drive is then a forward move, and a `reviewing` write is an
+ *    equal-phase no-op. An unanchored pending phase would resolve to index
+ *    -1 and let ANY target through, including a backward write.
  */
 export const PENDING_PHASE_ANCHOR: Readonly<Record<string, string>> = {
   "ci-wait-pending": "ci-wait",
+  "browser-retry-pending": "reviewing",
 };
 
 /**
@@ -126,28 +158,77 @@ export function isFixLoopReentry(from: string, to: string): boolean {
 /**
  * Phase → emitting-helper map. Consumed by `bin/skill-md-lint.test.ts` to
  * assert SKILL.md names the right helper at each site and carries no
- * standalone `flow-state-update --phase <phase>` fence for these six
- * (was five; `verifying` was missing here despite being emitted below).
+ * standalone `flow-state-update --phase <phase>` fence for these five.
+ * `verifying` is deliberately absent — step 6 now writes it via an
+ * explicit `flow-state-update --phase verifying` call (no subagent
+ * side-effect helper resolves it anymore).
  * Must not contradict `bin/flow-stop-guard.ts`'s `NEXT_STEP_BY_PHASE`.
+ *
+ * The five split into two classes:
+ *  - **written at the step head, helper is the idempotent backstop** —
+ *    `implementing`, `ci-wait`, `reviewing`; see `EARLY_PHASE_WRITES`.
+ *  - **written by the helper only** — `gating` and `merging`, which
+ *    already write at their step's first command, so a step-head fence
+ *    would name the same instant twice.
  */
 export const PHASE_EMITTERS: Readonly<
   Record<
-    | "implementing"
-    | "verifying"
-    | "ci-wait"
-    | "reviewing"
-    | "gating"
-    | "merging",
+    "implementing" | "ci-wait" | "reviewing" | "gating" | "merging",
     string
   >
 > = {
   implementing: "flow-open-pr",
-  verifying: "flow-verify-prep",
   "ci-wait": "flow-ci-check",
   reviewing: "flow-fetch-pr-review",
   gating: "flow-gate-decide",
   merging: "flow-merge-guard",
 };
+
+/**
+ * The `PHASE_EMITTERS` subset that is ALSO written at its step's head.
+ *
+ * Each of these three phases carries a step-head `flow-state-update
+ * --phase <phase>` fence in `skills/pipeline/flow-pipeline/SKILL.md` AND
+ * keeps its `PHASE_EMITTERS` helper emission as an idempotent backstop.
+ * No duplicate `phaseLog[]` row is appended regardless of which write
+ * lands first, because `bin/lib/state.ts`'s `appendPhaseLog` carries a
+ * same-phase-tail guard: it returns the existing log unchanged whenever
+ * the last entry's `phase` already equals the phase being appended. The
+ * forward case (step-head fence first, helper backstop second) additionally
+ * has `advancePhase` refuse the equal-phase write before ever reaching
+ * `appendPhaseLog` — but the reversed-order case matters too: on a ci-red
+ * fix-loop reentry, `bin/flow-ci-check.ts`'s `advancePhase("implementing",
+ * ...)` fires FIRST (the `ci-wait -> implementing`
+ * `FIX_LOOP_REENTRY_TRANSITIONS` edge), then step 5's head fence calls
+ * `flow-state-update --phase implementing` SECOND through `applyUpdate`,
+ * which has no `STEP_PHASES` ordering guard of its own — the
+ * `appendPhaseLog` guard is what stops that second call from appending a
+ * duplicate row. The same shape is what makes step 7's repeated `ci-wait`
+ * head-fence writes across a multi-turn CI-wait yield/resume cycle
+ * idempotent too.
+ *
+ * Why: the helper emission alone records the phase when the step ENDS, so
+ * the tmux badge named the PREVIOUS step for the whole of the current one
+ * (measured median 30.6 min across 23 recorded runs, measured from
+ * `~/.flow/state/*.json` phaseLog timestamps in PR #782). The step-head
+ * fence makes the badge describe what the run is doing now.
+ *
+ * Deliberate asymmetry, not an oversight: the step-head fences write
+ * through `flow-state-update`, which has no `STEP_PHASES` ordering guard,
+ * so a review-fix loop re-entering step 5 from `reviewing` legitimately
+ * records `implementing` backward. That is intended — the run really is
+ * implementing — and it is NOT mirrored into
+ * `FIX_LOOP_REENTRY_TRANSITIONS`: `advancePhase`'s backward branch also
+ * needs a matching `expectPr`, and `bin/flow-open-pr.ts`'s
+ * `advancePhase("implementing")` call (today :375) deliberately passes
+ * none, so such an edge would be unreachable dead data. Whether
+ * `flow-state-update` should grow a forward-only guard of its own is
+ * tracked as a separate follow-up.
+ *
+ * Consumed by `bin/skill-md-lint.test.ts`.
+ */
+export const EARLY_PHASE_WRITES: ReadonlySet<keyof typeof PHASE_EMITTERS> =
+  new Set(["implementing", "ci-wait", "reviewing"] as const);
 
 function resolveIndex(phase: string): number {
   const anchored = PENDING_PHASE_ANCHOR[phase] ?? phase;
@@ -170,7 +251,23 @@ export function advancePhase(
     return { advanced: false, reason: "no-state", to: target };
   }
 
-  if (TERMINAL_PHASE_SET.has(state.phase)) {
+  // `gated` and `needs-human` are the two terminal phases with sanctioned
+  // exits (`TERMINAL_EXIT_TRANSITIONS`): the gate-override merge writes
+  // `merging` out of `gated` via flow-merge-guard, and the gated-feedback
+  // loop re-enters `verifying`/`gating`. Without this carve-out the
+  // override merge left `merging` out of phaseLog entirely (gated ->
+  // merged), observed on the f6 live fixture run. `needs-human`'s entry
+  // additionally requires `opts.allowHumanPauseExit === true` — see the
+  // option's docblock above for why. Without that gate, the step helpers
+  // this function drives (`flow-open-pr`, `flow-ci-check`,
+  // `flow-fetch-pr-review`, `flow-gate-decide`) could write a paused
+  // pipeline out of `needs-human` with no confirming reply, since each
+  // one calls `advancePhase` unconditionally on every run, not only on a
+  // genuine continuation.
+  const allowedExit =
+    isAllowedTerminalExit(state.phase, target) &&
+    (state.phase !== "needs-human" || opts.allowHumanPauseExit === true);
+  if (TERMINAL_PHASE_SET.has(state.phase) && !allowedExit) {
     return {
       advanced: false,
       reason: "terminal",
@@ -272,6 +369,29 @@ export function advancePhase(
   } catch {
     // swallowed — see comment above.
   }
+  // Durable phase-trace telemetry, same best-effort idiom as the
+  // publishBadges block above — advancePhase bypasses flow-state-update
+  // entirely for the six PHASE_EMITTERS phases, so this is the only place
+  // those transitions would otherwise go unrecorded.
+  try {
+    const priorLog = state.phaseLog;
+    const lastEntry =
+      priorLog && priorLog.length > 0
+        ? priorLog[priorLog.length - 1]
+        : undefined;
+    const sincePrevMs = lastEntry
+      ? Date.now() - Date.parse(lastEntry.at)
+      : null;
+    recordEvent("phase.transition", {
+      from: state.phase,
+      to: target,
+      outcome: null,
+      since_prev_ms: sincePrevMs,
+      forced: false,
+    });
+  } catch {
+    // swallowed — see comment above.
+  }
   return {
     advanced: true,
     reason: isReentry ? "reentered" : "advanced",
@@ -293,6 +413,15 @@ export function advancePhase(
  * `FINISHED_PHASE_SET` (`merged`, `cancelled`, `epic-approved`) so
  * `merged -> gated` does not. No-ops when `state.phase === target`
  * (idempotent re-render), appending no second `phaseLog[]` entry.
+ *
+ * A write to a `WORKTREE_REMOVED_PHASE_SET` phase (`merged` / `cancelled`)
+ * whose recorded worktree no longer exists on disk drops the `worktree`
+ * field: every feature cancel path removes the worktree BEFORE writing
+ * `cancelled`, so this is where that record stops naming a deleted dir
+ * (issue #632). A still-present directory keeps its record — the merge
+ * paths write the phase first and `flow-remove-worktree` clears it on removal.
+ * A live pipeline never reaches here with a vanished directory, so the
+ * missing-worktree escalation on resume is unchanged.
  */
 export function finalizePhase(
   target: PipelinePhase,
@@ -369,10 +498,15 @@ export function finalizePhase(
     };
   }
 
+  const { worktree: recordedWorktree, ...rest } = state;
+  const dropWorktree =
+    WORKTREE_REMOVED_PHASE_SET.has(target) &&
+    recordedWorktree !== undefined &&
+    !fs.existsSync(recordedWorktree);
   const written = {
-    ...state,
+    ...(dropWorktree ? rest : state),
     phase: target,
-    phaseLog: appendPhaseLog(state, target),
+    phaseLog: appendPhaseLog(state, target, opts.outcome),
     updatedAt: nowIso(),
   };
   writeState(written, dir);
@@ -382,6 +516,27 @@ export function finalizePhase(
   // write. state.json is already durable at this point.
   try {
     publishBadges(written);
+  } catch {
+    // swallowed — see comment above.
+  }
+  // Durable phase-trace telemetry, same best-effort idiom as the
+  // publishBadges block above.
+  try {
+    const priorLog = state.phaseLog;
+    const lastEntry =
+      priorLog && priorLog.length > 0
+        ? priorLog[priorLog.length - 1]
+        : undefined;
+    const sincePrevMs = lastEntry
+      ? Date.now() - Date.parse(lastEntry.at)
+      : null;
+    recordEvent("phase.transition", {
+      from: state.phase,
+      to: target,
+      outcome: opts.outcome ?? null,
+      since_prev_ms: sincePrevMs,
+      forced: false,
+    });
   } catch {
     // swallowed — see comment above.
   }

@@ -1,8 +1,13 @@
 import * as fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_DELEGATED_LENSES,
+  DELEGATABLE_LENSES,
   DELEGATE_MODEL_DEFAULTS,
+  DELEGATED_LENS_TIMEOUT,
+  DELEGATED_SCOUT_TIMEOUT,
   resolveDelegateModel,
+  resolveDelegatedLenses,
   type DelegateSurface,
 } from "./delegate-models";
 import type { ReadConfigFile } from "./models-config";
@@ -136,6 +141,18 @@ describe("resolveDelegateModel", () => {
     );
     expect(lensSrc).toContain('resolveDelegateModel("reviewLens")');
 
+    const agyLensesSrc = fs.readFileSync(
+      new URL("../flow-agy-lenses.ts", import.meta.url),
+      "utf8",
+    );
+    expect(agyLensesSrc).toContain('resolveDelegateModel("claudeLenses"');
+
+    const agyScoutSrc = fs.readFileSync(
+      new URL("../flow-agy-scout.ts", import.meta.url),
+      "utf8",
+    );
+    expect(agyScoutSrc).toContain('resolveDelegateModel("scout"');
+
     const researchRunSrc = fs.readFileSync(
       new URL("../flow-research-run.ts", import.meta.url),
       "utf8",
@@ -168,6 +185,20 @@ describe("resolveDelegateModel", () => {
     );
   });
 
+  it("planReview/planReviewSecond stay on DIFFERENT vendor families, with no runtime guard to fall back on", () => {
+    // Verified asymmetry (2026-09-05): flow-research-run.ts and
+    // flow-blind-survey.ts each carry a runtime equality guard for their
+    // pairs (see the two distinctness tests above), but flow-plan-review.ts
+    // resolves MODEL and SECOND_MODEL and never compares them at runtime —
+    // planReview/planReviewSecond is the one adversarial pair with NO
+    // runtime protection, so this static default-level guard is the only
+    // thing standing between it and a same-family collapse.
+    const planFamily = DELEGATE_MODEL_DEFAULTS.planReview!.split(/\s+/)[0];
+    const secondFamily =
+      DELEGATE_MODEL_DEFAULTS.planReviewSecond!.split(/\s+/)[0];
+    expect(planFamily).not.toBe(secondFamily);
+  });
+
   it("every non-null default is a display-name form (ends in a parenthesised tier)", () => {
     // Pins the convention that production helpers pass agy DISPLAY NAMES,
     // while the benchmark harness pins SLUGS (a different namespace, since
@@ -191,6 +222,210 @@ describe("resolveDelegateModel", () => {
   it("blind-survey defaults stay distinct (flow-blind-survey diversity guard would silently downgrade an equal pair)", () => {
     expect(DELEGATE_MODEL_DEFAULTS.blindSurvey).not.toBe(
       DELEGATE_MODEL_DEFAULTS.blindSurveySecond,
+    );
+  });
+
+  it("adversarial pairs stay on DIFFERENT product-line prefixes, not merely different strings", () => {
+    // The two distinctness guards above test string inequality, which is all
+    // flow-research-run.ts' resolveModels and flow-blind-survey enforce at
+    // runtime. That is too weak for the property those pairs actually exist
+    // to hold: gather-vs-refute and survey-vs-second are ADVERSARIAL, so two
+    // different models from the SAME product line (e.g. "Gemini 3.1 Pro
+    // (High)" refuting "Gemini 3.8 Flash (High)") would pass both string
+    // checks while collapsing the cross-line tension into intra-line
+    // confirmation, with nothing warning. Scope is defaults only; a config
+    // override stays deliberately unguarded (see the researchRefute comment
+    // block in delegate-models.ts). NOTE: `family()` here derives a
+    // product-line PREFIX (first whitespace token, e.g. "Claude" / "Gemini"
+    // / "GPT-OSS"), not a vendor — "Claude Opus" and "Claude Sonnet" both
+    // reduce to "Claude" and would NOT be caught by this guard; that's a
+    // known narrower-than-the-name gap, not a bug in this assertion.
+    const family = (value: string) => value.split(/\s+/)[0]!;
+    for (const [a, b] of [
+      ["researchGather", "researchRefute"],
+      ["blindSurvey", "blindSurveySecond"],
+    ] as const) {
+      const va = DELEGATE_MODEL_DEFAULTS[a];
+      const vb = DELEGATE_MODEL_DEFAULTS[b];
+      expect(va).not.toBeNull();
+      expect(vb).not.toBeNull();
+      const famA = family(va as string);
+      const famB = family(vb as string);
+      expect(famA.length).toBeGreaterThan(0);
+      expect(famB.length).toBeGreaterThan(0);
+      expect(famA).not.toBe(famB);
+    }
+  });
+
+  it("docs/configuration.md's delegate-models table cannot drift from the code defaults", () => {
+    // PR #644 shipped a code flip whose docs/configuration.md "default today"
+    // row went stale, and only a human reviewer caught it. This makes that
+    // class of drift mechanical for this file (the prose copies in the
+    // research docs are covered by the sibling test below). Reads the doc module-relative, the same way
+    // the consumer-routing test above does (NOT cwd-relative — a cwd-relative
+    // read here would ENOENT under any invocation whose cwd isn't the repo
+    // root, e.g. a single-file vitest run from an editor).
+    const doc = fs
+      .readFileSync(
+        new URL("../../docs/configuration.md", import.meta.url),
+        "utf8",
+      )
+      .split("\n");
+    // Anchor the search to the "## Delegate models" table specifically: the
+    // doc also has a "## Delegate timeouts" table AND a namespace-distinct
+    // `models.scout` row under "## Per-phase models" that both match a bare
+    // `` `scout` `` substring search, so scanning the whole document would
+    // silently pick the wrong row the moment `scout`'s default flips non-null.
+    const tableStart = doc.findIndex((line) =>
+      line.startsWith("## Delegate models"),
+    );
+    expect(
+      tableStart,
+      "docs/configuration.md is missing the Delegate models heading",
+    ).toBeGreaterThanOrEqual(0);
+    const nextHeadingOffset = doc
+      .slice(tableStart + 1)
+      .findIndex((line) => line.startsWith("## "));
+    const tableEnd =
+      nextHeadingOffset === -1
+        ? doc.length
+        : tableStart + 1 + nextHeadingOffset;
+    const tableLines = doc.slice(tableStart, tableEnd);
+    for (const surface of ALL_SURFACES) {
+      const value = DELEGATE_MODEL_DEFAULTS[surface];
+      if (value === null) continue;
+      const row = tableLines.find(
+        (line) =>
+          line.trimStart().startsWith("|") && line.includes(`\`${surface}\``),
+      );
+      expect(
+        row,
+        `no docs/configuration.md Delegate models table row for ${surface}`,
+      ).toBeDefined();
+      expect(row, `stale doc row for ${surface}: expected ${value}`).toContain(
+        value,
+      );
+    }
+  });
+
+  it("every Opus pin in the research prose and shell copies equals the code default", () => {
+    const files = [
+      "skills/pipeline/flow-product-planning/references/discovery-research.md",
+      "skills/universal/flow-research/SKILL.md",
+      "templates/references/delegation.md",
+    ];
+    const refute = DELEGATE_MODEL_DEFAULTS.researchRefute!;
+    for (const rel of files) {
+      const text = fs.readFileSync(
+        new URL(`../../${rel}`, import.meta.url),
+        "utf8",
+      );
+      expect(text, `${rel} lost the gather pin`).toContain(
+        DELEGATE_MODEL_DEFAULTS.researchGather!,
+      );
+      const opus = text.match(/Claude Opus [\d.]+ \([^)]+\)/g) ?? [];
+      expect(
+        opus.length,
+        `${rel} no longer names the refute model`,
+      ).toBeGreaterThan(0);
+      for (const m of opus) {
+        expect(m, `stale refute pin in ${rel}: expected ${refute}`).toBe(
+          refute,
+        );
+      }
+    }
+  });
+});
+
+describe("claudeLenses surface", () => {
+  it("defaults to null (delegation off) until a recall check records a clear", () => {
+    expect(DELEGATE_MODEL_DEFAULTS.claudeLenses).toBeNull();
+    expect(resolveDelegateModel("claudeLenses", reader(undefined))).toBeNull();
+  });
+
+  it("resolves a configured agy variant", () => {
+    expect(
+      resolveDelegateModel(
+        "claudeLenses",
+        reader({
+          delegate: { models: { claudeLenses: "Claude Opus 5.5 (High)" } },
+        }),
+      ),
+    ).toBe("Claude Opus 5.5 (High)");
+  });
+
+  it("keeps the fixed delegated budgets at 8m", () => {
+    expect(DELEGATED_LENS_TIMEOUT).toBe("8m");
+    expect(DELEGATED_SCOUT_TIMEOUT).toBe("8m");
+  });
+});
+
+describe("resolveDelegatedLenses", () => {
+  const cfg = (lenses: unknown) => reader({ delegate: { lenses } });
+
+  it("defaults to the empty set when config is absent", () => {
+    expect(DEFAULT_DELEGATED_LENSES).toEqual([]);
+    expect(resolveDelegatedLenses(reader(undefined))).toEqual([]);
+    expect(resolveDelegatedLenses(reader({ delegate: {} }))).toEqual([]);
+  });
+
+  it("lists exactly the seven real lenses as delegatable", () => {
+    expect(DELEGATABLE_LENSES).toHaveLength(7);
+    expect(DELEGATABLE_LENSES).not.toContain("intent-guess");
+  });
+
+  it("returns a valid configured list", () => {
+    expect(
+      resolveDelegatedLenses(cfg(["bug-detection", "test-coverage"])),
+    ).toEqual(["bug-detection", "test-coverage"]);
+  });
+
+  it("drops unknown entries (including intent-guess) with a warning", () => {
+    const out = resolveDelegatedLenses(
+      cfg(["security", "intent-guess", "not-a-lens-xyz", 7]),
+    );
+    expect(out).toEqual(["security"]);
+    const messages = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(messages.some((m: string) => m.includes("intent-guess"))).toBe(true);
+    expect(messages.some((m: string) => m.includes("not-a-lens-xyz"))).toBe(
+      true,
+    );
+  });
+
+  it("de-duplicates repeated entries", () => {
+    expect(resolveDelegatedLenses(cfg(["security", "security"]))).toEqual([
+      "security",
+    ]);
+  });
+
+  it("returns the default for a wrong-typed value", () => {
+    expect(resolveDelegatedLenses(cfg("security"))).toEqual([]);
+    expect(resolveDelegatedLenses(cfg({ a: 1 }))).toEqual([]);
+  });
+});
+
+describe("delegation defaults match the recorded recall verdicts", () => {
+  const record = JSON.parse(
+    fs.readFileSync("docs/eval/agy-delegation-recall-2026-10.json", "utf8"),
+  ) as {
+    lenses: Record<string, { verdict: string }>;
+    scout: { verdict: string } | null;
+  };
+
+  it("delegates by default exactly the lenses whose verdict is delegate", () => {
+    const cleared = Object.entries(record.lenses)
+      .filter(([, v]) => v.verdict === "delegate")
+      .map(([l]) => l)
+      .sort();
+    expect([...DEFAULT_DELEGATED_LENSES].sort()).toEqual(cleared);
+    expect(DELEGATE_MODEL_DEFAULTS.claudeLenses !== null).toBe(
+      cleared.length > 0,
+    );
+  });
+
+  it("sets the scout default iff the scout verdict is delegate", () => {
+    expect(DELEGATE_MODEL_DEFAULTS.scout !== null).toBe(
+      record.scout?.verdict === "delegate",
     );
   });
 });

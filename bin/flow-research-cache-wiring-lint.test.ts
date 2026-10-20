@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
  * future edit that drops the prefix, reorders the get/put, or weakens the
  * graceful-miss / opt-out contract goes red on `npm run verify`.
  *
- * It ALSO asserts isolation by construction — discovery-instructions.md must NOT
+ * It ALSO asserts isolation by construction — discovery-instructions.md and discovery-research.md must NOT
  * carry the direct-invocation prefix — so the two keyspaces can never be wired to
  * collide by a copy-paste between the two docs.
  */
@@ -46,7 +46,17 @@ const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   "discovery-instructions.md",
 );
 const content = fs.readFileSync(FLOW_RESEARCH_SKILL_MD_PATH, "utf8");
-const discovery = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+const DISCOVERY_RESEARCH_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-product-planning",
+  "references",
+  "discovery-research.md",
+);
+const discoveryCore = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+const discoveryResearch = fs.readFileSync(DISCOVERY_RESEARCH_PATH, "utf8");
 
 const FILE_LABEL = "skills/universal/flow-research/SKILL.md";
 
@@ -168,11 +178,16 @@ describe("flow-research cache-wiring lint", () => {
   });
 
   it("keeps the keyspaces isolated by construction — discovery never carries the direct prefix", () => {
-    expect(
-      discovery.includes(NAMESPACE_PREFIX),
-      `discovery-instructions.md must NOT contain the direct-invocation prefix ` +
-        `'${NAMESPACE_PREFIX}' — discovery keys on the BARE question. Its presence ` +
-        `there would mean the two keyspaces had been wired to collide.`,
-    ).toBe(false);
+    for (const [name, text] of [
+      ["discovery-instructions.md", discoveryCore],
+      ["discovery-research.md", discoveryResearch],
+    ] as const) {
+      expect(
+        text.includes(NAMESPACE_PREFIX),
+        `${name} must NOT contain the direct-invocation prefix ` +
+          `'${NAMESPACE_PREFIX}' — discovery keys on the BARE question. Its presence ` +
+          `there would mean the two keyspaces had been wired to collide.`,
+      ).toBe(false);
+    }
   });
 });

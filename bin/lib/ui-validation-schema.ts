@@ -8,7 +8,7 @@
  * Unlike `.flow/pre-commit.json` (a top-level ARRAY of scopes), this
  * manifest is a single OBJECT: `{ launch, baseUrl, loginUrl?,
  * credentialEnvVars?, routes, disableAnimations?, ignoreConsolePatterns?,
- * ignoreRequestPatterns? }`. The validator mirrors
+ * ignoreRequestPatterns?, viewports?, dependsOn? }`. The validator mirrors
  * `bin/lib/pr-review-result-schema.ts`'s `validate*()` / `ValidationResult<T>`
  * / `--validate` CLI shape and borrows `bin/lib/agent-finding-schema.ts`'s
  * nested-array idiom for the `routes[]` array of `{ path, expectSelectors? }`.
@@ -23,6 +23,15 @@
  * CLI mode: `bun bin/lib/ui-validation-schema.ts --validate <path>` —
  * reads the file, parses JSON, runs the validator, prints `{ok: true}` to
  * stdout (exit 0) or `{ok: false, reason, path}` to stderr (exit 1).
+ *
+ * `dependsOn` declares fixed local services (a database, an API, a container
+ * runtime) the app needs before it can be driven: `[{ name, url | probe,
+ * start?, requires? }]`. EXACTLY ONE of `url` (a plain `http(s)://` probe
+ * target, no `{{PORT...}}` sentinel — these are fixed ports) or `probe` (a
+ * shell command, ready on exit 0); `start` an optional command that must
+ * RETURN once the service is up; `requires` the names of EARLIER entries that
+ * must be ready first (earlier-only keeps the order topological and rules out
+ * cycles). `bin/flow-ui-preflight.ts` is the only consumer.
  *
  * SECRET-VALUE GUARDRAIL: whether hand-authored or bootstrapped by
  * `flow-ui-validate`, this manifest stores env-var names and non-secret
@@ -64,6 +73,14 @@ export type Viewport = {
   height?: number;
 };
 
+export type UiValidationDependency = {
+  name: string;
+  url?: string;
+  probe?: string;
+  start?: string;
+  requires?: string[];
+};
+
 export type UiValidationManifest = {
   launch: string;
   baseUrl: string;
@@ -75,6 +92,7 @@ export type UiValidationManifest = {
   ignoreConsolePatterns?: string[];
   ignoreRequestPatterns?: string[];
   viewports?: Viewport[];
+  dependsOn?: UiValidationDependency[];
 };
 
 export type ValidationOk<T> = { ok: true; value: T };
@@ -139,6 +157,59 @@ function validateViewport(v: unknown, idx: number): ValidationResult<Viewport> {
     );
   }
   return { ok: true, value: v as unknown as Viewport };
+}
+
+function validateDependency(
+  d: unknown,
+  idx: number,
+  names: readonly unknown[],
+): ValidationResult<UiValidationDependency> {
+  if (!isPlainObject(d)) {
+    return err(`dependsOn[${idx}] must be an object`);
+  }
+  if (!isNonEmptyString(d.name)) {
+    return err(`dependsOn[${idx}].name must be a non-empty string`);
+  }
+  if (d.url !== undefined && d.probe !== undefined) {
+    return err(
+      `dependsOn[${idx}] must have exactly one of 'url' or 'probe', not both`,
+    );
+  }
+  if (d.probe !== undefined) {
+    if (!isNonEmptyString(d.probe)) {
+      return err(`dependsOn[${idx}].probe must be a non-empty string`);
+    }
+  } else {
+    if (!isNonEmptyString(d.url) || !/^https?:\/\/\S+$/.test(d.url)) {
+      return err(
+        `dependsOn[${idx}].url must be an http(s):// URL (or give 'probe' instead)`,
+      );
+    }
+    if (d.url.includes("{{PORT")) {
+      return err(
+        `dependsOn[${idx}].url must not contain a {{PORT}} sentinel — a dependency is a fixed local service`,
+      );
+    }
+  }
+  if (d.start !== undefined && !isNonEmptyString(d.start)) {
+    return err(
+      `dependsOn[${idx}].start must be a non-empty string when present`,
+    );
+  }
+  if (d.requires !== undefined) {
+    if (!isStringArray(d.requires)) {
+      return err(`dependsOn[${idx}].requires must be an array of names`);
+    }
+    for (let j = 0; j < d.requires.length; j++) {
+      const ref = d.requires[j];
+      if (names.slice(0, idx).includes(ref)) continue;
+      const kind = names.slice(idx).includes(ref)
+        ? "a later (or the same) entry — requires may only name EARLIER entries"
+        : "no dependsOn entry";
+      return err(`dependsOn[${idx}].requires[${j}] '${ref}' names ${kind}`);
+    }
+  }
+  return { ok: true, value: d as unknown as UiValidationDependency };
 }
 
 export function validateUiValidationManifest(
@@ -239,6 +310,19 @@ export function validateUiValidationManifest(
     for (let i = 0; i < parsed.viewports.length; i++) {
       const v = validateViewport(parsed.viewports[i], i);
       if (!v.ok) return v;
+    }
+  }
+
+  if (parsed.dependsOn !== undefined) {
+    if (!Array.isArray(parsed.dependsOn)) {
+      return err("'dependsOn' must be an array when present");
+    }
+    const dependencyNames = parsed.dependsOn.map((e: unknown) =>
+      isPlainObject(e) ? e.name : undefined,
+    );
+    for (let i = 0; i < parsed.dependsOn.length; i++) {
+      const d = validateDependency(parsed.dependsOn[i], i, dependencyNames);
+      if (!d.ok) return d;
     }
   }
 

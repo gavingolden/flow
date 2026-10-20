@@ -30,6 +30,8 @@ import {
   checkConflictMarkers,
   checkHelperExecutableModes,
   checksForScope,
+  EARLIER_RUN_SCOPE,
+  earlierRunSavings,
   computeAllPassedAndReason,
   computeUnmatchedAfterDynamic,
   computeUnmatchedFiles,
@@ -615,20 +617,31 @@ describe("checksForScope with tiered selection", () => {
     ]);
   });
 
-  it("runs only the always-run set for the docs scope under tiered selection", () => {
-    const checks = checksForScope("docs", selectedPlan);
-    const testCheck = checks.find((c) => isTestCheck(c.argv))!;
-    expect(testCheck.argv).toEqual([
-      "npm",
-      "run",
-      "test",
-      "--",
-      ...selectedPlan.explicitFiles,
-      "--no-isolate",
+  it("gives the docs scope the same test checks as scripts under tiered selection", () => {
+    const plan = {
+      ...selectedPlan,
+      isolatedFiles: ["bin/lib/spawner.test.ts"],
+    };
+    const testChecksOf = (scope: "docs" | "scripts") =>
+      checksForScope(scope, plan).filter((c) => isTestCheck(c.argv));
+    const docsChecks = testChecksOf("docs");
+    expect(docsChecks).toEqual(testChecksOf("scripts"));
+    // explicit + isolated + test:related
+    expect(docsChecks).toHaveLength(3);
+  });
+
+  it("yields a single explicit-files check for a .md-only plan with no related or isolated inputs", () => {
+    const mdOnlyPlan = {
+      ...selectedPlan,
+      relatedInputs: [],
+      isolatedFiles: [],
+    };
+    const testChecks = checksForScope("docs", mdOnlyPlan).filter((c) =>
+      isTestCheck(c.argv),
+    );
+    expect(testChecks.map((c) => c.argv)).toEqual([
+      ["npm", "run", "test", "--", ...mdOnlyPlan.explicitFiles, "--no-isolate"],
     ]);
-    // docs stays narrower than src/scripts/root-fallback: no test:related
-    // check, since a .md-only diff has no .ts relatedInputs by construction.
-    expect(checks.filter((c) => isTestCheck(c.argv)).length).toBe(1);
   });
 
   it("renders a pre-built mode:'full' plan as the plain 'npm run test' argv (does not itself exercise the fail-closed rot guard — see bin/lib/test-tiers.test.ts:95 for that)", () => {
@@ -2370,6 +2383,240 @@ describe(formatJsonReport, () => {
   });
 });
 
+describe("dedupe reporting", () => {
+  const reusedFail = (overrides: Partial<CheckResult> = {}) =>
+    createResult({
+      name: "npm run test",
+      scope: "scripts",
+      passed: false,
+      durationMs: 0,
+      output: "Error: boom\nstack line",
+      dedupedFrom: "src",
+      ...overrides,
+    });
+  const executedFail = createResult({
+    name: "npm run test",
+    scope: "src",
+    passed: false,
+    durationMs: 2500,
+    output: "Error: boom\nstack line",
+  });
+
+  it("labels a reused row with the executing scope instead of a duration", () => {
+    const output = formatReport(
+      createReport({
+        allPassed: true,
+        results: [
+          createResult({ name: "npm run lint", scope: "src" }),
+          createResult({
+            name: "npm run lint",
+            scope: "scripts",
+            durationMs: 0,
+            dedupedFrom: "src",
+          }),
+        ],
+        savedMs: 1234,
+      }),
+    );
+    expect(output).toContain("  PASS  npm run lint (reused from src)");
+    expect(output).not.toContain("(0ms)");
+  });
+
+  it("counts only executed rows in the totals and reports the saved figure", () => {
+    const output = formatReport(
+      createReport({
+        allPassed: true,
+        results: [
+          createResult({ name: "npm run lint" }),
+          createResult({
+            name: "npm run lint",
+            scope: "scripts",
+            durationMs: 0,
+            dedupedFrom: "src",
+          }),
+          createResult({
+            name: "npm run lint",
+            scope: "root-fallback",
+            durationMs: 0,
+            dedupedFrom: "src",
+          }),
+        ],
+        savedMs: 2500,
+      }),
+    );
+    expect(output).toContain("All 1 checks passed.");
+    expect(output).toContain(
+      "Reused 2 identical check run(s) across scopes (saved ~2.5s).",
+    );
+  });
+
+  it("labels a row reused from an earlier run with the exact-tree wording", () => {
+    const output = formatReport(
+      createReport({
+        allPassed: true,
+        results: [
+          createResult({
+            name: "npm run test",
+            scope: "src",
+            durationMs: 0,
+            dedupedFrom: EARLIER_RUN_SCOPE,
+          }),
+        ],
+        earlierRunSavedMs: 166000,
+      }),
+    );
+    expect(output).toContain(
+      "  PASS  npm run test (reused from an earlier run on this exact tree)",
+    );
+    expect(output).toContain("All 1 checks passed (reused).");
+    expect(output).toContain(
+      "Reused 1 check result(s) from an earlier run on this exact tree (saved ~",
+    );
+    expect(output).not.toContain("across scopes");
+  });
+
+  it("counts an earlier-run saving once per distinct check when several scopes reuse it", () => {
+    const testArgv = ["npm", "run", "test"];
+    const lintArgv = ["npm", "run", "lint"];
+    const seeded = (name: string, durationMs: number) =>
+      createResult({ name, durationMs, dedupedFrom: EARLIER_RUN_SCOPE });
+    const prior = new Map<string, CheckResult>([
+      [JSON.stringify(testArgv), createResult({ durationMs: 45000 })],
+      [JSON.stringify(lintArgv), createResult({ durationMs: 20000 })],
+    ]);
+    const planned = [
+      { argv: testArgv },
+      { argv: lintArgv },
+      { argv: testArgv },
+      { argv: lintArgv },
+    ];
+    const results = [
+      seeded("npm run test", 45000),
+      seeded("npm run lint", 20000),
+      seeded("npm run test", 45000),
+      seeded("npm run lint", 20000),
+    ];
+    expect(earlierRunSavings(planned, results, prior)).toEqual({
+      reusedChecks: 4,
+      rowMs: 130000,
+      savedMs: 65000,
+    });
+  });
+
+  it("emits dedupedFrom 'earlier-run' in JSON for an earlier-run row", () => {
+    const parsed = JSON.parse(
+      formatJsonReport(
+        createReport({
+          allPassed: true,
+          results: [
+            createResult({ durationMs: 0, dedupedFrom: EARLIER_RUN_SCOPE }),
+          ],
+        }),
+      ),
+    );
+    expect(parsed.results[0].dedupedFrom).toBe("earlier-run");
+  });
+
+  it("does not dump the failure output twice for a reused failing row", () => {
+    const output = formatReport(
+      createReport({
+        allPassed: false,
+        results: [executedFail, reusedFail()],
+        savedMs: 2500,
+      }),
+    );
+    expect(output.split("stack line")).toHaveLength(2);
+    expect(output).toContain("FAIL  npm run test (reused from src)");
+    expect(output).toContain("(same output as the src run above)");
+    expect(output).toContain("0/1 checks passed.");
+  });
+
+  it("keeps the inherited isolated-retry suffix before the reuse label", () => {
+    const output = formatReport(
+      createReport({
+        allPassed: false,
+        results: [
+          reusedFail({ name: "npm run test -- a.ts (isolated retry)" }),
+        ],
+      }),
+    );
+    expect(output).toContain(
+      "FAIL  npm run test -- a.ts (isolated retry) (reused from src)",
+    );
+  });
+
+  it("emits dedupedFrom in JSON only on reused rows", () => {
+    const parsed = JSON.parse(
+      formatJsonReport(
+        createReport({
+          allPassed: false,
+          results: [executedFail, reusedFail()],
+        }),
+      ),
+    );
+    expect(parsed.results[0]).not.toHaveProperty("dedupedFrom");
+    expect(parsed.results[1].dedupedFrom).toBe("src");
+    expect(parsed).not.toHaveProperty("savedMs");
+  });
+
+  it("keeps firstErrorText on a reused failing JSON row but empties the excerpts", () => {
+    const parsed = JSON.parse(
+      formatJsonReport(
+        createReport({
+          allPassed: false,
+          results: [executedFail, reusedFail()],
+        }),
+      ),
+    );
+    expect(parsed.results[0].failure.headExcerpt).toContain("stack line");
+    expect(parsed.results[1].failure).toMatchObject({
+      firstErrorText: "Error: boom",
+      firstErrorLine: 1,
+      totalLines: 2,
+      headExcerpt: "",
+      tailExcerpt: "",
+    });
+  });
+
+  it("renders a zero-reuse report byte-identically to the pre-dedupe format", () => {
+    const output = formatReport(
+      createReport({
+        scopes: ["src"],
+        changedFiles: ["src/a.ts"],
+        allPassed: false,
+        results: [
+          createResult({ name: "npm run typecheck", durationMs: 1234 }),
+          createResult({
+            name: "npm run test",
+            passed: false,
+            durationMs: 80,
+            output: "Error: boom",
+          }),
+        ],
+      }),
+    );
+    expect(output).toBe(
+      [
+        "flow-pre-commit: 1 changed file; checking scopes…",
+        "  src      → matched (src/)",
+        "  scripts  — no changes under scripts/, templates/scripts/, bin/, .github/workflows/",
+        "  docs     — no changes under *.md, *.template",
+        "  actions  — no changes under .github/workflows/, *.yml, *.yaml",
+        "  backend  — no changes under backend/",
+        "",
+        "Scopes: src",
+        "",
+        "  PASS  npm run typecheck (1.2s)",
+        "  FAIL  npm run test (80ms)",
+        "        Error: boom",
+        "",
+        "",
+        "1/2 checks passed.",
+      ].join("\n"),
+    );
+  });
+});
+
 describe("integration: root-fallback + no-checks-defined silent-pass hole", () => {
   // End-to-end regression test against the silent-pass hole closed in
   // computeAllPassedAndReason: a non-empty diff that produces zero checks
@@ -3178,4 +3425,249 @@ describe("guard: shipped bin/lib executable modules are tracked 100755", () => {
     const mode = result.stdout.slice(0, result.stdout.indexOf(" "));
     expect(mode).toBe("100755");
   });
+});
+
+describe("integration: verify.attempt telemetry", () => {
+  // Covers the shared verify.attempt emit site in main() (both --json and
+  // human modes share it) through the existing spawned-CLI pattern used
+  // above — a .md-only diff routes to the docs scope's `npm run test`
+  // check. Each fixture gets its own sandboxed $HOME (never the real
+  // ~/.flow/telemetry/) so the spawned child's recordEvent() call writes
+  // to a throwaway events.jsonl this test reads back and cleans up.
+  const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
+
+  function makeFixture(testScript: string): string {
+    const tmpDir = mkdtempSync(join(tmpdir(), "flow-pre-commit-telemetry-"));
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify(
+        { name: "fixture", version: "0.0.1", scripts: { test: testScript } },
+        null,
+        2,
+      ),
+    );
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: tmpDir });
+    spawnSync(
+      "git",
+      [
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "--allow-empty",
+        "-q",
+        "-m",
+        "init",
+      ],
+      { cwd: tmpDir },
+    );
+    // Stage a file that matches NO scope, so detection lands on
+    // `root-fallback` (`npm run test` + the in-process conflict-marker
+    // check) rather than `docs`. The `docs` scope shells out to
+    // `flow-md-validate`, a PATH helper only present once `flow install`
+    // has run — present on a developer box, absent on CI, which made this
+    // fixture exit 0 locally and 1 in Actions.
+    writeFileSync(join(tmpDir, "data.txt"), "fixture\n");
+    spawnSync("git", ["add", "data.txt"], { cwd: tmpDir });
+    return tmpDir;
+  }
+
+  function readTelemetryEvents(home: string): Array<Record<string, any>> {
+    const p = join(home, ".flow", "telemetry", "events.jsonl");
+    try {
+      return readFileSync(p, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0)
+        .map((l) => JSON.parse(l));
+    } catch {
+      return [];
+    }
+  }
+
+  it.skipIf(!bunOnPath)(
+    "a passing run records one verify.attempt event with ok:true and empty failing_checks",
+    () => {
+      const tmpDir = makeFixture("true");
+      const telemetryHome = mkdtempSync(
+        join(tmpdir(), "flow-pre-commit-telemetry-home-"),
+      );
+      try {
+        const here =
+          import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+        const scriptPath = resolve(here, "flow-pre-commit.ts");
+        const result = spawnSync("bun", [scriptPath, "--json"], {
+          cwd: tmpDir,
+          encoding: "utf8",
+          env: { ...process.env, HOME: telemetryHome },
+        });
+        expect(result.status).toBe(0);
+        const events = readTelemetryEvents(telemetryHome);
+        const attempts = events.filter((e) => e.event === "verify.attempt");
+        expect(attempts).toHaveLength(1);
+        expect(attempts[0].attrs.ok).toBe(true);
+        expect(attempts[0].attrs.failing_checks).toEqual([]);
+        expect(attempts[0].attrs.json_mode).toBe(true);
+        expect(typeof attempts[0].attrs.duration_ms).toBe("number");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+        rmSync(telemetryHome, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(!bunOnPath)(
+    "a failing run records one verify.attempt event with ok:false and the failing check's NAME only, no output text",
+    () => {
+      const tmpDir = makeFixture("false");
+      const telemetryHome = mkdtempSync(
+        join(tmpdir(), "flow-pre-commit-telemetry-home-"),
+      );
+      try {
+        const here =
+          import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+        const scriptPath = resolve(here, "flow-pre-commit.ts");
+        const result = spawnSync("bun", [scriptPath, "--json"], {
+          cwd: tmpDir,
+          encoding: "utf8",
+          env: { ...process.env, HOME: telemetryHome },
+        });
+        expect(result.status).toBe(1);
+        const events = readTelemetryEvents(telemetryHome);
+        const attempts = events.filter((e) => e.event === "verify.attempt");
+        expect(attempts).toHaveLength(1);
+        expect(attempts[0].attrs.ok).toBe(false);
+        expect(attempts[0].attrs.failing_checks).toContain("npm run test");
+        expect(JSON.stringify(attempts[0])).not.toContain("npm ERR");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+        rmSync(telemetryHome, { recursive: true, force: true });
+      }
+    },
+  );
+});
+
+describe("cross-scope dedupe", () => {
+  const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
+
+  function makeFixture(testScript: string): string {
+    const tmpDir = mkdtempSync(join(tmpdir(), "flow-pre-commit-dedupe-"));
+    const logged = (name: string, tail = "") =>
+      `echo ${name} >> runs.log${tail}`;
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "fixture",
+          version: "0.0.1",
+          scripts: {
+            typecheck: logged("typecheck"),
+            "typecheck:scripts": logged("typecheck:scripts"),
+            test: testScript,
+            lint: logged("lint"),
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: tmpDir });
+    spawnSync(
+      "git",
+      [
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "--allow-empty",
+        "-q",
+        "-m",
+        "init",
+      ],
+      { cwd: tmpDir },
+    );
+    mkdirSync(join(tmpDir, "src"));
+    mkdirSync(join(tmpDir, "scripts"));
+    writeFileSync(join(tmpDir, "src", "a.ts"), "export {};\n");
+    writeFileSync(join(tmpDir, "scripts", "b.ts"), "export {};\n");
+    writeFileSync(join(tmpDir, "data.txt"), "fixture\n");
+    spawnSync("git", ["add", "src/a.ts", "scripts/b.ts", "data.txt"], {
+      cwd: tmpDir,
+    });
+    return tmpDir;
+  }
+
+  function runFixture(tmpDir: string, home: string) {
+    const here =
+      import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+    return spawnSync("bun", [resolve(here, "flow-pre-commit.ts"), "--json"], {
+      cwd: tmpDir,
+      encoding: "utf8",
+      env: { ...process.env, HOME: home },
+    });
+  }
+
+  function readAttempts(home: string): Array<Record<string, any>> {
+    const p = join(home, ".flow", "telemetry", "events.jsonl");
+    return readFileSync(p, "utf8")
+      .split("\n")
+      .filter((l) => l.length > 0)
+      .map((l) => JSON.parse(l))
+      .filter((e) => e.event === "verify.attempt");
+  }
+
+  it.skipIf(!bunOnPath)(
+    "physically executes each identical read-only check once across src, scripts and root-fallback",
+    () => {
+      const tmpDir = makeFixture("echo test >> runs.log");
+      const home = mkdtempSync(join(tmpdir(), "flow-pre-commit-dedupe-home-"));
+      try {
+        const result = runFixture(tmpDir, home);
+        expect(result.status).toBe(0);
+        const runs = readFileSync(join(tmpDir, "runs.log"), "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .sort();
+        expect(runs).toEqual([
+          "lint",
+          "test",
+          "typecheck",
+          "typecheck:scripts",
+        ]);
+        const report = JSON.parse(result.stdout);
+        const testRows = report.results.filter(
+          (r: { name: string }) => r.name === "npm run test",
+        );
+        expect(testRows).toHaveLength(3);
+        expect(
+          testRows.filter(
+            (r: { dedupedFrom?: string }) => r.dedupedFrom === "src",
+          ),
+        ).toHaveLength(2);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(!bunOnPath)(
+    "a failing reused check exits 1 and is listed once in verify.attempt failing_checks",
+    () => {
+      const tmpDir = makeFixture("echo test >> runs.log; exit 1");
+      const home = mkdtempSync(join(tmpdir(), "flow-pre-commit-dedupe-home-"));
+      try {
+        const result = runFixture(tmpDir, home);
+        expect(result.status).toBe(1);
+        const attempts = readAttempts(home);
+        expect(attempts).toHaveLength(1);
+        const failing: string[] = attempts[0].attrs.failing_checks;
+        expect(failing.filter((n) => n === "npm run test")).toHaveLength(1);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  );
 });

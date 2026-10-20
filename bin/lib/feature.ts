@@ -14,13 +14,19 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
 import { resolveRepoRoot } from "./repo-root";
 import { slugify, isValidSlug } from "./slug";
 import { confirmStdin } from "./confirm";
-import { toDirSuffix, MAX_SUFFIX_ATTEMPTS } from "./worktree-slot";
+import {
+  toDirSuffix,
+  MAX_SUFFIX_ATTEMPTS,
+  releaseReservedWorktree,
+  reserveWorktreeSlot,
+} from "./worktree-slot";
 import {
   createWindowVerified,
   respawnWindowVerified,
@@ -46,17 +52,41 @@ import {
   MODEL_ALIASES,
   type ModelAlias,
   PHASE_MODEL_FLAGS,
+  resolveStateKind,
   type PipelineState,
 } from "./state";
+import { recoveryCommandFor } from "./recovery-command";
+import { collectEffortConfigWarnings } from "./efforts-config";
 import {
   readDefaultModel,
   collectModelConfigWarnings,
+  defaultReadConfigFile,
+  cachedConfigRead,
   type ReadConfigFile,
 } from "./models-config";
+import {
+  readLaunchDefaults,
+  collectLaunchConfigWarnings,
+  LAUNCH_CONFIG_KEYS,
+} from "./launch-config";
 import { sleepSync } from "./sleep";
 import { sanitizeSeedLine } from "./seed-delivery";
 import { appendLaunchRecord } from "./launch-log";
 import { dim } from "./color";
+import {
+  FLOW_CREATE_ISSUE_ALLOW_RULES,
+  FLOW_UI_LOGIN_ALLOW_RULES,
+  SECRET_FILE_DENY_RULES,
+} from "./secret-deny-rules";
+import {
+  FLOW_MERGE_ALLOW_RULE,
+  FLOW_OVERRIDE_ALLOW_RULES,
+  warnOnPersonalAskEntry,
+} from "./merge-allow-rule";
+import {
+  FLOW_NARROW_ALLOW_RULES,
+  FLOW_ROUTINE_ALLOW_RULES,
+} from "./pipeline-allow-rules";
 import {
   seedIngestConfirmsDelivery,
   seedIngestIsCorrupt,
@@ -70,6 +100,13 @@ import {
   installedHelperPath,
 } from "./paths";
 import { installBaseBranchGuard } from "./base-branch-guard";
+import {
+  createOverlay,
+  parseSkillsFrom,
+  resumeOverlay,
+  type OverlayLaunch,
+} from "./feature-overlay";
+import { pruneStaleOverlays } from "./skill-overlay";
 import { resolveLauncherBackend, type LauncherId } from "./launcher-config";
 import { plainLaunch, plainResume, type PlainLaunchDeps } from "./launcher";
 import type { LivenessDeps } from "./liveness";
@@ -144,6 +181,15 @@ function launchWithRetry(
 export type FeatureOptions = {
   /** Override the cwd for the new window (default: process.cwd()). */
   cwd?: string;
+  /**
+   * Reserves the worktree folder at launch (test seam). Production uses
+   * `reserveWorktreeSlot(slug, deriveWorktreePath(repo, slug), repo)`, which
+   * creates the empty folder so it exists when Claude starts.
+   */
+  reserveWorktree?: (
+    slug: string,
+    repo: string,
+  ) => { branchName: string; worktreeDir: string };
   /** Override the command launched in the window. */
   command?: string[];
   /** Resume a crashed pipeline rather than start a new one. */
@@ -183,17 +229,31 @@ export type FeatureOptions = {
    * config. Production uses the module default (reads via flowConfigPath()).
    */
   readConfig?: ReadConfigFile;
-  /** Persist `autoMerge: false` so the supervisor stops at gated. */
-  noAutoMerge?: boolean;
   /**
-   * Persist `waitForCopilot: true` so flow-ci-wait waits the full
-   * 10-min Copilot timeout (suppresses the auto-detect skips).
+   * Tri-state: `false` persists `autoMerge: false` so the supervisor stops
+   * at gated (set via `--no-auto-merge`); `true` forces `autoMerge` on (set
+   * via `--auto-merge`, overriding a `launch.autoMerge: false` config
+   * default); absent lets `launch.autoMerge` config or the built-in default
+   * (auto-detect ON) supply it.
+   */
+  autoMerge?: boolean;
+  /**
+   * Tri-state: `true` persists `waitForCopilot: true` so flow-ci-wait waits
+   * the full 10-min Copilot timeout (set via `--wait-for-copilot`); `false`
+   * forces it off (set via `--no-wait-for-copilot`, overriding a
+   * `launch.waitForCopilot: true` config default); absent lets
+   * `launch.waitForCopilot` config or the built-in default (auto-detect
+   * skips) supply it.
    */
   waitForCopilot?: boolean;
   /**
-   * Persist `forceResearch: true` so discovery Step 1.5 forces the
-   * web-grounded research pre-check on, bypassing the relevance gate and the
-   * research.discovery config opt-in.
+   * Tri-state: `true` persists `forceResearch: true` so discovery Step 1.5
+   * forces the web-grounded research pre-check on, bypassing the relevance
+   * gate and the research.discovery config opt-in (set via `--research`);
+   * `false` forces it off (set via `--no-research`, overriding a
+   * `launch.forceResearch: true` config default); absent lets
+   * `launch.forceResearch` config or the built-in default (not forced)
+   * supply it.
    */
   forceResearch?: boolean;
   /**
@@ -201,7 +261,7 @@ export type FeatureOptions = {
    * via `flow feature create --interview` / `--no-interview`. Mutually
    * exclusive; absent when neither flag was passed, in which case the
    * trigger falls back to the `interview-playbook.md` judgment gate and
-   * `config.json`'s `interview.enabled`.
+   * `config.json`'s `launch.interviewMode`.
    */
   interviewMode?: "force" | "skip";
   /**
@@ -227,12 +287,11 @@ export type FeatureOptions = {
    * and consumed by the supervisor at its named Task-spawn site — NOT threaded
    * into the launch argv (only the session `--model` reaches claude at launch).
    * Omitted when absent (absent ≡ the phase inherits the session model, with the
-   * verify-`sonnet` and scout/coder exceptions documented at their spawn sites).
+   * scout/coder exceptions documented at their spawn sites).
    */
   modelPlanning?: ModelAlias;
   modelImplement?: ModelAlias;
   modelReview?: ModelAlias;
-  modelVerify?: ModelAlias;
   modelFixApplier?: ModelAlias;
   modelConsolidator?: ModelAlias;
   modelMergeResolver?: ModelAlias;
@@ -285,6 +344,17 @@ export type FeatureOptions = {
    * `~/.flow/claude-home`.
    */
   pluginRootsScan?: () => string[];
+  /**
+   * `--skills-from <checkout>`: run this pipeline's supervisor on a private
+   * real-file copy of that checkout's skills and agents (already validated by
+   * `runCreateCli`). Absent ⇒ a flow-self launch copies the canonical checkout
+   * automatically; any other repo launches on the shared install.
+   */
+  skillsFrom?: string;
+  /** Private-copy root (test seam). Defaults to `flowOverlaysDir()`. */
+  overlaysDir?: string;
+  /** Canonical flow checkout for the flow-self predicate (test seam). */
+  flowCanonicalRoot?: string;
 };
 
 export function runNew(
@@ -427,9 +497,54 @@ function runCreateCli(
     printVerbHelp("feature");
     return 0;
   }
-  const noAutoMerge = args.includes("--no-auto-merge");
-  const waitForCopilot = args.includes("--wait-for-copilot");
-  const forceResearch = args.includes("--research");
+  // --auto-merge / --no-auto-merge: tri-state per-run override, mutually
+  // exclusive, mirroring --interview / --no-interview below. `flag > config
+  // > built-in` — the config fallback is resolved later, in runFresh.
+  const wantAutoMerge = args.includes("--auto-merge");
+  const wantNoAutoMerge = args.includes("--no-auto-merge");
+  if (wantAutoMerge && wantNoAutoMerge) {
+    console.error(
+      "flow feature create: --auto-merge and --no-auto-merge are mutually exclusive.",
+    );
+    return 1;
+  }
+  const autoMerge: boolean | undefined = wantAutoMerge
+    ? true
+    : wantNoAutoMerge
+      ? false
+      : options.autoMerge;
+
+  // --wait-for-copilot / --no-wait-for-copilot: tri-state per-run override,
+  // mutually exclusive.
+  const wantWaitForCopilot = args.includes("--wait-for-copilot");
+  const wantNoWaitForCopilot = args.includes("--no-wait-for-copilot");
+  if (wantWaitForCopilot && wantNoWaitForCopilot) {
+    console.error(
+      "flow feature create: --wait-for-copilot and --no-wait-for-copilot are mutually exclusive.",
+    );
+    return 1;
+  }
+  const waitForCopilot: boolean | undefined = wantWaitForCopilot
+    ? true
+    : wantNoWaitForCopilot
+      ? false
+      : options.waitForCopilot;
+
+  // --research / --no-research: tri-state per-run override, mutually
+  // exclusive.
+  const wantResearch = args.includes("--research");
+  const wantNoResearch = args.includes("--no-research");
+  if (wantResearch && wantNoResearch) {
+    console.error(
+      "flow feature create: --research and --no-research are mutually exclusive.",
+    );
+    return 1;
+  }
+  const forceResearch: boolean | undefined = wantResearch
+    ? true
+    : wantNoResearch
+      ? false
+      : options.forceResearch;
 
   // --interview / --no-interview: per-run intent-interview override,
   // mutually exclusive, mirroring --tmux / --no-tmux below.
@@ -602,6 +717,16 @@ function runCreateCli(
   }
   const epicValueToken = epicIdx >= 0 ? args[epicIdx + 1] : undefined;
 
+  // --skills-from <checkout> is a VALUE flag: validate before any side-effect
+  // (invalid ⇒ exit 1, no state write) and strip flag+value from the description.
+  const skills = parseSkillsFrom(args, options.cwd ?? process.cwd());
+  if (skills.error) {
+    console.error(`flow feature create: ${skills.error}`);
+    return 1;
+  }
+  const skillsIdx = args.indexOf("--skills-from");
+  const skillsValueToken = skillsIdx >= 0 ? args[skillsIdx + 1] : undefined;
+
   // --model-<phase> value flags (planning / implement / review / verify /
   // fix-applier / consolidator / merge-resolver), each mirroring --model:
   // enum-validate here before any side-effect (invalid ⇒ exit 1, no state
@@ -672,6 +797,11 @@ function runCreateCli(
           epicValueToken !== undefined && !epicValueToken.startsWith("--");
         return false;
       }
+      if (a === "--skills-from") {
+        skipNext =
+          skillsValueToken !== undefined && !skillsValueToken.startsWith("--");
+        return false;
+      }
       if (phaseModelValueTokens.has(a)) {
         // A --model-<phase> flag: strip it and its value token.
         const vt = phaseModelValueTokens.get(a);
@@ -679,9 +809,12 @@ function runCreateCli(
         return false;
       }
       return (
+        a !== "--auto-merge" &&
         a !== "--no-auto-merge" &&
         a !== "--wait-for-copilot" &&
+        a !== "--no-wait-for-copilot" &&
         a !== "--research" &&
+        a !== "--no-research" &&
         a !== "--tmux" &&
         a !== "--no-tmux" &&
         a !== "--interview" &&
@@ -692,7 +825,7 @@ function runCreateCli(
   return runNew(description, {
     ...options,
     launcher,
-    noAutoMerge,
+    autoMerge,
     waitForCopilot,
     forceResearch,
     interviewMode,
@@ -701,6 +834,7 @@ function runCreateCli(
     model,
     slug,
     epic,
+    skillsFrom: skills.skillsFrom ?? options.skillsFrom,
     ...phaseModels,
   });
 }
@@ -712,7 +846,7 @@ function runFresh(
   if (!description || description.trim() === "") {
     console.error("flow feature create: description is required.");
     console.error(
-      "usage: flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--interview | --no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning|--model-implement|--model-review|--model-verify|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>] [--slug <slug>] [--epic <epic-slug>/<feature-id>] <description>",
+      "usage: flow feature create [--auto-merge | --no-auto-merge] [--wait-for-copilot | --no-wait-for-copilot] [--research | --no-research] [--interview | --no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning|--model-implement|--model-review|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>] [--slug <slug>] [--epic <epic-slug>/<feature-id>] [--skills-from <checkout>] <description>",
     );
     return 1;
   }
@@ -799,6 +933,23 @@ function runFresh(
     return 1;
   }
 
+  // Reserve the worktree folder BEFORE anything is written, so a no-slot
+  // failure aborts cleanly and the folder exists when Claude starts (a
+  // non-existent --add-dir path is dropped at launch). Step 2's
+  // flow-new-worktree fills this folder via state.reservedWorktree.
+  let worktree: string;
+  try {
+    worktree = (
+      options.reserveWorktree ??
+      ((s, r) => reserveWorktreeSlot(s, deriveWorktreePath(r, s), r))
+    )(slug, repo).worktreeDir;
+  } catch (err) {
+    console.error(
+      `flow feature create: could not reserve a worktree folder: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return 1;
+  }
+
   // Mechanical base-branch guard: install the env-gated pre-commit hook on the
   // main repo (best-effort, idempotent) so a future supervisor bug cannot land
   // pipeline work directly on the base branch. The hook is inert outside a flow
@@ -813,41 +964,142 @@ function runFresh(
     );
   }
 
-  const worktree = deriveWorktreePath(repo, slug);
-  const settingsPath = launchSettingsPathFor(options);
-  const seed = flowPipelineSeed(slug, description, options.stateDir);
-  // Write the request file BEFORE the launcher dispatch below, so BOTH
-  // backends (plain, the default, dispatches a few lines down; tmux inside
-  // the `launch` closure further below) find it in place — the seed only
-  // carries a REQUEST_FILE pointer, never the verbatim text.
-  writeRequestFile(slug, description, options.stateDir);
+  // Lazy prune of dead pipelines' private skill copies (cheap no-op when the
+  // overlays dir is absent), with the SAME stateDir this launch reads.
+  try {
+    pruneStaleOverlays({
+      overlaysDir: options.overlaysDir,
+      stateDir: options.stateDir,
+    });
+  } catch (err) {
+    console.error(
+      dim(
+        `flow feature create: could not prune stale skill copies: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
+  }
+  // A flow-self repo or an explicit --skills-from runs its supervisor on a
+  // private copy; every other launch keeps the shared roots byte-for-byte.
+  let overlay: OverlayLaunch | null;
+  try {
+    overlay = createOverlay({
+      slug,
+      repo,
+      skillsFrom: options.skillsFrom,
+      overlaysDir: options.overlaysDir,
+      flowCanonicalRoot: options.flowCanonicalRoot,
+      sharedRoots: (options.pluginRootsScan ?? scanPluginRoots)(),
+    });
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    if (options.skillsFrom) {
+      releaseReservedWorktree(worktree);
+      console.error(
+        `flow feature create: could not build the private skill copy: ${reason} — nothing was started; fix that and re-run.`,
+      );
+      return 1;
+    }
+    // The automatic flow-self copy holds main's skills anyway, so launching on
+    // the shared install hides nothing; only resume/reload isolation is lost.
+    console.error(
+      `flow feature create: WARNING: private skill copy unavailable (${reason}) — launching on the shared skills; resuming will not pick up this branch's skill edits.`,
+    );
+    overlay = null;
+  }
+
+  // No state file records the reservation until the launch writes `starting`,
+  // so a throw from here to that write would leak the empty folder (nothing
+  // for `flow done` or the orphan reaper to find) and push a retry to `-2`.
+  let settingsPath: string;
+  let seed: string;
+  try {
+    settingsPath = launchSettingsPathFor(options);
+    seed = flowPipelineSeed(slug, description, options.stateDir);
+    // Write the request file BEFORE the launcher dispatch below, so BOTH
+    // backends (plain, the default, dispatches a few lines down; tmux inside
+    // the `launch` closure further below) find it in place — the seed only
+    // carries a REQUEST_FILE pointer, never the verbatim text.
+    writeRequestFile(slug, description, options.stateDir);
+  } catch (err) {
+    releaseReservedWorktree(worktree);
+    throw err;
+  }
+
+  // Read + parse `~/.flow/config.json` at most once for this launch and
+  // share it across every reader below (models.default, launch.<key>
+  // warnings/defaults, and the launcher-backend config fallback) —
+  // otherwise each of `defaultReadConfigFile`'s callers re-reads/re-parses
+  // the same file independently.
+  const readConfig: ReadConfigFile = cachedConfigRead(
+    options.readConfig ?? defaultReadConfigFile,
+  );
 
   // Whole-session model, resolved at launch: the --model flag wins over the
   // config `models.default`; absent both, no --model reaches claude (its
   // default applies). Best-effort-warn on any present-but-invalid models.*
   // config value, then fall back — mirrors ensureLaunchSettings' non-fatal
   // warn pattern.
-  for (const w of collectModelConfigWarnings(options.readConfig)) {
+  for (const w of collectModelConfigWarnings(readConfig)) {
     console.error(dim(`flow feature create: ${w}`));
   }
-  const sessionModel = options.model ?? readDefaultModel(options.readConfig);
+  for (const w of collectEffortConfigWarnings(readConfig)) {
+    console.error(dim(`flow feature create: ${w}`));
+  }
+  const sessionModel = options.model ?? readDefaultModel(readConfig);
+
+  // Launch-time behaviour defaults, resolved ONCE here (never at a
+  // consumer's point-of-use): explicit CLI flag > `launch.<key>` config >
+  // built-in default. Resolving once and persisting onto state means a
+  // config edit made after this pipeline launches can never change its
+  // already-running behaviour (excluded-alternatives: use-time reads).
+  for (const w of collectLaunchConfigWarnings(readConfig)) {
+    console.error(dim(`flow feature create: ${w}`));
+  }
+  const launchDefaults = readLaunchDefaults(readConfig);
+  const resolvedEffort = options.effort ?? launchDefaults.effort;
+  const resolvedAutoMerge = options.autoMerge ?? launchDefaults.autoMerge;
+  const resolvedWaitForCopilot =
+    options.waitForCopilot ?? launchDefaults.waitForCopilot;
+  const resolvedForceResearch =
+    options.forceResearch ?? launchDefaults.forceResearch;
+  const resolvedInterviewMode =
+    options.interviewMode ?? launchDefaults.interviewMode;
+
+  // Provenance: print ONLY the keys where config actually supplied the
+  // resolved value (i.e. the flag was absent) — a launch where every flag
+  // was typed explicitly grows no output. Folded over LAUNCH_CONFIG_KEYS
+  // (rather than hand-restating the five keys) so a sixth key added there
+  // is read/validated/warned/rendered AND reaches provenance, with no
+  // silent-drop step left to forget.
+  const provenance = LAUNCH_CONFIG_KEYS.filter(
+    (e) =>
+      (options as Record<string, unknown>)[e.key] === undefined &&
+      launchDefaults[e.key] !== undefined,
+  ).map((e) => `${e.key}=${launchDefaults[e.key]}`);
+  if (provenance.length > 0) {
+    console.error(
+      dim(
+        `flow: launch defaults from ~/.flow/config.json — ${provenance.join(", ")}`,
+      ),
+    );
+  }
 
   const makeBaseState = (launcher: LauncherId): PipelineState => ({
     slug,
     phase: "starting",
     repo,
     worktree: existing?.worktree,
-    autoMerge: options.noAutoMerge ? false : undefined,
-    waitForCopilot: options.waitForCopilot ? true : undefined,
-    forceResearch: options.forceResearch ? true : undefined,
-    interviewMode: options.interviewMode,
+    reservedWorktree: worktree,
+    autoMerge: resolvedAutoMerge === false ? false : undefined,
+    waitForCopilot: resolvedWaitForCopilot === true ? true : undefined,
+    forceResearch: resolvedForceResearch === true ? true : undefined,
+    interviewMode: resolvedInterviewMode,
     copilotReview: options.copilotReview,
-    effort: options.effort,
+    effort: resolvedEffort,
     model: sessionModel,
     modelPlanning: options.modelPlanning,
     modelImplement: options.modelImplement,
     modelReview: options.modelReview,
-    modelVerify: options.modelVerify,
     modelFixApplier: options.modelFixApplier,
     modelConsolidator: options.modelConsolidator,
     modelMergeResolver: options.modelMergeResolver,
@@ -863,7 +1115,7 @@ function runFresh(
   // either backend touched anything.
   const backend = resolveLauncherBackend({
     flag: options.launcher,
-    read: options.readConfig,
+    read: readConfig,
     tmuxOnPath: options.tmuxOnPath,
   });
   if (backend.notice) console.error(dim(backend.notice));
@@ -874,15 +1126,17 @@ function runFresh(
     // extract `roots` once for the same reason (argv and PATH must never
     // disagree about which roots are live); the plain path previously
     // scanned twice, independently, whenever no seam was injected.
-    const roots = (options.pluginRootsScan ?? scanPluginRoots)();
+    const roots =
+      overlay?.roots ?? (options.pluginRootsScan ?? scanPluginRoots)();
     const plainCommand =
       options.command ??
       buildPlainCommand(
         worktree,
-        options.effort,
+        resolvedEffort,
         settingsPath,
         sessionModel,
         () => roots,
+        overlay?.addDir,
       );
     writeState(makeBaseState("plain"), options.stateDir);
     // plainLaunch owns the TTY guard, the flow:<slug> contract line, the
@@ -901,10 +1155,11 @@ function runFresh(
     buildLaunchCommand(
       slug,
       worktree,
-      options.effort,
+      resolvedEffort,
       settingsPath,
       sessionModel,
-      options.pluginRootsScan,
+      overlay ? () => overlay.roots : options.pluginRootsScan,
+      overlay?.addDir,
     );
 
   // Persist-then-verify-then-delete-on-failure: write state(phase=starting)
@@ -989,12 +1244,13 @@ function runFresh(
     // file written above (before the launcher dispatch) is the recovery
     // artifact. reapableStartingOrphans (reap-orphans.ts) now skips any slug
     // with a `corrupt` seedIngest record, so — unlike before — `flow ls`'s lazy
-    // reap (REAP_GRACE_MS, ~60s) does NOT delete this state (or its sibling
+    // reap (STARTING_ORPHAN_GRACE_MS, ~60s) does NOT delete this state (or its sibling
     // request file) shortly after; both survive until the operator recovers
     // or explicitly `flow done`s the slug.
     if (!seedCorrupted) {
       deleteState(slug, options.stateDir);
     }
+    releaseReservedWorktree(worktree);
     if (seedCorrupted) {
       console.error(
         "flow feature create: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
@@ -1023,6 +1279,7 @@ function runFresh(
   // up-front file so no orphaned `phase=starting` pipeline survives.
   if (!windowExists(slug)) {
     deleteState(slug, options.stateDir);
+    releaseReservedWorktree(worktree);
     console.error(
       "flow feature create: the tmux window vanished after launch — not writing state.",
     );
@@ -1148,6 +1405,19 @@ function runResume(
     return 1;
   }
 
+  // An epic window shares this resume verb's slug namespace but not its
+  // supervisor: relaunching it here would open the epic as a feature
+  // pipeline. Refuse before anything launches. An epic's own feature
+  // pipelines carry kind `feature` and are unaffected.
+  const kind = resolveStateKind(state);
+  if (kind !== "feature") {
+    console.error(
+      `flow feature resume: '${slug}' is an ${kind} window, not a feature pipeline.`,
+    );
+    console.error(`  run \`${recoveryCommandFor(slug, kind)}\` instead.`);
+    return 1;
+  }
+
   if (!state.repo || !fs.existsSync(state.repo)) {
     // The repo path recorded at `flow feature create` time has moved or been deleted.
     // tmux would surface this as an opaque "-c: no such directory" — give
@@ -1173,12 +1443,14 @@ function runResume(
     tmuxOnPath: options.tmuxOnPath,
   });
   if (backend.notice) console.error(dim(backend.notice));
+  // Reuse the slug's private skill copy when one exists; otherwise launch as today.
+  const overlay = resumeOverlay(slug, options.overlaysDir);
   if (backend.id === "plain") {
-    const plainWorktree =
-      state.worktree ?? deriveWorktreePath(state.repo, slug);
+    const plainWorktree = resumeWorktree(state, slug);
     const plainSettings = launchSettingsPathFor(options);
     // Scanned once, same rationale as the create-path fix above.
-    const roots = (options.pluginRootsScan ?? scanPluginRoots)();
+    const roots =
+      overlay?.roots ?? (options.pluginRootsScan ?? scanPluginRoots)();
     const plainCommand =
       options.command ??
       buildPlainCommand(
@@ -1187,6 +1459,7 @@ function runResume(
         plainSettings,
         state.model,
         () => roots,
+        overlay?.addDir,
       );
     // plainResume owns the alive-refusal (a plain terminal cannot be
     // reclaimed, --force included), the TTY guard, and the contract line.
@@ -1229,11 +1502,11 @@ function runResume(
   // The repo non-null guard above already returned; bind it so the launch
   // closure below keeps the narrowing (TS drops it across the arrow body).
   const repo = state.repo;
-  // Prefer the actual worktree path recorded at create-time; fall back to the
-  // deterministic derivation when state predates the worktree write (or when
-  // the pipeline crashed before step 2). Either way the resumed session
-  // re-pre-authorizes the worktree as an MCP workspace root.
-  const worktree = state.worktree ?? deriveWorktreePath(repo, slug);
+  // Prefer the actual worktree path recorded at step 2, then the folder the
+  // launch reserved; fall back to the deterministic derivation for state that
+  // predates both. Either way the resumed session re-pre-authorizes the
+  // worktree as an MCP workspace root.
+  const worktree = resumeWorktree(state, slug);
   const settingsPath = launchSettingsPathFor(options);
   const seed = flowPipelineResumeSeed(slug);
   const command =
@@ -1244,7 +1517,8 @@ function runResume(
       state.effort,
       settingsPath,
       state.model,
-      options.pluginRootsScan,
+      overlay ? () => overlay.roots : options.pluginRootsScan,
+      overlay?.addDir,
     );
   // Verify the relaunched process stays up AND consumes the resume seed, same as
   // the fresh path — a bare respawn/create exit code only proves tmux forked the
@@ -1389,11 +1663,9 @@ function runResume(
   // @flow-kind gets (re)set. Failures are ignored and never change this
   // command's exit code, but @flow-kind IS load-bearing state — see
   // AGENTS.md "Two sanctioned reads" and session-identity.ts's
-  // resolveKindAmbient. Guarded against overwriting an epic-design/epic-run
-  // window's kind on resume: `preResume?.kind` (read above at readState) carries the
-  // pipeline's real kind, so a slug that is actually an epic-design window
-  // republishes "epic-design" here instead of being clobbered to "feature".
-  setPaneKind(slug, preResume?.kind ?? "feature");
+  // resolveKindAmbient. Always "feature": an epic-design / epic-run slug never
+  // reaches here (refused above).
+  setPaneKind(slug, "feature");
 
   // Best-effort epic tree-view badge (OQ-1), mirroring runFresh: publish
   // @flow-epic once the (re)launch is confirmed live. respawnWindowVerified
@@ -1464,15 +1736,17 @@ function runResume(
 }
 
 /**
- * Derive the deterministic worktree path the supervisor's step 2 will pass
- * to `flow-new-worktree` for this slug. Mirrors `flow-new-worktree.ts`'s rule
- * (`path.dirname(repo)/<repoName>-<toDirSuffix(branch)>`, with `branch ===
- * slug`); `toDirSuffix` is a no-op for a slash-free slug but is reused here so
- * the two derivations cannot drift. This is the COMMON-CASE path only — when
- * `<repo>-<slug>` already exists (parallel pipelines, stale worktrees),
- * `flow-new-worktree`'s `findAvailableSlot` auto-suffixes (`-2`/`-3`/…), so the
- * actual worktree may diverge from this value. `/flow-pipeline` step 2's
- * best-effort runtime `/add-dir` of the actual path covers that divergence.
+ * Derive the deterministic worktree path for this slug. Mirrors
+ * `flow-new-worktree.ts`'s rule (`path.dirname(repo)/<repoName>-<toDirSuffix(branch)>`,
+ * with `branch === slug`); `toDirSuffix` is a no-op for a slash-free slug but
+ * is reused here so the two derivations cannot drift. This is the COMMON-CASE
+ * path only — when `<repo>-<slug>` already exists (parallel pipelines, stale
+ * worktrees), `findAvailableSlot` auto-suffixes (`-2`/`-3`/…). `flow feature
+ * create` reserves whichever slot wins (`reserveWorktreeSlot`) and
+ * `flow-new-worktree` fills that same folder, so the reserved path may diverge
+ * from this value. Epic launches (`epic.ts`) reserve through the same seam,
+ * so their `--add-dir` folder exists too (the one exception: `epic run` with
+ * no state file keeps this derived path and creates no folder).
  */
 export function deriveWorktreePath(repo: string, slug: string): string {
   return path.join(
@@ -1482,19 +1756,40 @@ export function deriveWorktreePath(repo: string, slug: string): string {
 }
 
 /**
+ * The worktree a resumed session pre-authorizes: the path step 2 recorded,
+ * else the folder the launch reserved (best-effort re-created when it has
+ * since vanished, so `--add-dir` keeps it), else the deterministic path.
+ */
+export function resumeWorktree(state: PipelineState, slug: string): string {
+  if (state.worktree) return state.worktree;
+  if (state.reservedWorktree) {
+    try {
+      if (!fs.existsSync(state.reservedWorktree)) {
+        fs.mkdirSync(state.reservedWorktree);
+      }
+    } catch {
+      // best-effort: a missing folder only costs the --add-dir pre-authorization
+    }
+    return state.reservedWorktree;
+  }
+  return deriveWorktreePath(state.repo, slug);
+}
+
+/**
  * Prepend `--add-dir <worktree>` so the chrome-devtools MCP treats the
  * per-pipeline worktree as a workspace root, letting `take_screenshot
  * --filePath` write UI evidence into `<worktree>/.flow-tmp/ui-evidence/`
- * instead of falling back to the session cwd (issue #317). The worktree does
- * not exist yet at launch — it is created later by step 2 — and that is fine:
- * `claude --add-dir <nonexistent-path>` does not error at launch (verified
- * against claude 2.1.183), so pre-authorizing the path is safe. The a11y
- * snapshot remains the evidence gate regardless; this only makes the
- * supplementary screenshot artifact land in the documented preferred path.
- * NOTE: `--add-dir` is documented to grant Claude Code's own file-tool access;
- * its propagation to the MCP server's screenshot sandbox is the load-bearing
- * (and externally unverified) assumption behind this fix — confirm via a live
- * dogfood. Best-effort either way: a bad value degrades to today's session-cwd
+ * instead of falling back to the session cwd (issue #317). For feature
+ * launches the folder exists at launch — `flow feature create` reserves it
+ * (empty) before Claude starts, because a non-existent `--add-dir` path is
+ * dropped — and step 2's `flow-new-worktree` fills that same folder. (Epic
+ * launches have their own `launchArgv` in `epic.ts` and reserve through the same seam.) The a11y snapshot remains the
+ * evidence gate regardless; this only makes the supplementary screenshot
+ * artifact land in the documented preferred path. NOTE: `--add-dir` is
+ * documented to grant Claude Code's own file-tool access; its propagation to
+ * the MCP server's screenshot sandbox is the load-bearing (and externally
+ * unverified) assumption behind this fix — confirm via a live dogfood.
+ * Best-effort either way: a bad value degrades to today's session-cwd
  * fallback, never blocking the pipeline.
  */
 function launchArgv(
@@ -1504,6 +1799,7 @@ function launchArgv(
   settingsPath: string,
   model?: ModelAlias,
   pluginRootsScan: () => string[] = scanPluginRoots,
+  overlayDir?: string,
 ): string[] {
   // Extracted once so the --plugin-dir entries below (via claudeArgv) and
   // the PATH= env-prefix entry cannot disagree about which roots are live.
@@ -1536,7 +1832,7 @@ function launchArgv(
     "FLOW_PIPELINE=1",
     `FLOW_SLUG=${slug}`,
     ...(nextPath !== undefined ? [`PATH=${nextPath}`] : []),
-    ...claudeArgv(worktree, effort, settingsPath, model, roots),
+    ...claudeArgv(worktree, effort, settingsPath, model, roots, overlayDir),
   ];
 }
 
@@ -1564,13 +1860,17 @@ function claudeArgv(
   settingsPath: string,
   model?: ModelAlias,
   roots: readonly string[] = scanPluginRoots(),
+  overlayDir?: string,
 ): string[] {
+  // `overlayDir` is one pipeline's private skill copy (`~/.flow/overlays/<slug>`),
+  // never `~/.flow` or the whole overlays dir: sub-skills Read siblings from it.
   const base = [
     "claude",
     "--add-dir",
     worktree,
     "--add-dir",
     FLOW_CLAUDE_HOME,
+    ...(overlayDir ? ["--add-dir", overlayDir] : []),
     ...pluginDirArgs(roots),
   ];
   const withModel = model ? [...base, "--model", model] : base;
@@ -1578,14 +1878,14 @@ function claudeArgv(
   return [...withEffort, "--settings", settingsPath];
 }
 
-/** Absolute path to the seed-ingested hook script, resolved relative to THIS
- * module so it works from a worktree smoke test AND the global install (Bun
- * resolves import.meta through symlinks to the canonical source file). */
-function hookScriptPath(): string {
+/** Absolute path to a flow hook script (`bin/<helper>.ts`), resolved relative
+ * to THIS module so it works from a worktree smoke test AND the global install
+ * (Bun resolves import.meta through symlinks to the canonical source file). */
+function hookScriptPath(helper: string): string {
   const here =
     (import.meta as { dir?: string }).dir ??
     path.dirname(fileURLToPath(import.meta.url));
-  return path.join(here, "..", "flow-seed-ingested-hook.ts");
+  return path.join(here, "..", `${helper}.ts`);
 }
 
 /**
@@ -1604,13 +1904,40 @@ function hookScriptPath(): string {
  * at launch time dangles once that worktree is removed.
  */
 export function resolveSeedHookCommand(): string {
-  const override = process.env.FLOW_SEED_HOOK_COMMAND;
+  return resolveHookCommand(
+    "flow-seed-ingested-hook",
+    "FLOW_SEED_HOOK_COMMAND",
+    true,
+  );
+}
+
+/**
+ * Same resolution order as `resolveSeedHookCommand`, for the PreToolUse
+ * flow-doc read guard (`FLOW_DOC_READ_GUARD_COMMAND` override). Never warns
+ * on divergence — only the seed hook carries that diagnostic, though
+ * `warnOnHookDivergence` itself is helper-agnostic.
+ */
+export function resolveDocReadGuardCommand(): string {
+  return resolveHookCommand(
+    "flow-doc-read-guard",
+    "FLOW_DOC_READ_GUARD_COMMAND",
+    false,
+  );
+}
+
+function resolveHookCommand(
+  helper: string,
+  envVar: string,
+  warnOnDivergence: boolean,
+): string {
+  const override = process.env[envVar];
   if (override && override.trim() !== "") return override;
 
-  const installed = installedHelperPath("flow-seed-ingested-hook");
-  const script = hookScriptPath();
+  const installed = installedHelperPath(helper);
+  const script = hookScriptPath(helper);
   if (fs.existsSync(installed)) {
-    warnOnHookDivergence(installed, script);
+    if (warnOnDivergence)
+      warnOnHookDivergence(helper, envVar, installed, script);
     return installed;
   }
   return script;
@@ -1619,37 +1946,64 @@ export function resolveSeedHookCommand(): string {
 /**
  * Warns once to stderr when the resolver picked the installed hook but the
  * module-relative dev script also exists with DIFFERENT contents — signal
- * that local edits to `bin/flow-seed-ingested-hook.ts` are not being
- * exercised by launched sessions. Diagnostic only — never a failure; silent
+ * that local edits to `bin/<helper>.ts` are not being exercised by launched
+ * sessions. Diagnostic only — never a failure; silent
  * when either file is unreadable or the contents match.
  */
-function warnOnHookDivergence(installedPath: string, scriptPath: string): void {
+function warnOnHookDivergence(
+  helper: string,
+  envVar: string,
+  installedPath: string,
+  scriptPath: string,
+): void {
   try {
     if (!fs.existsSync(scriptPath)) return;
     const installedContent = fs.readFileSync(installedPath, "utf8");
     const scriptContent = fs.readFileSync(scriptPath, "utf8");
     if (installedContent === scriptContent) return;
     process.stderr.write(
-      `warning: running from ${scriptPath}, but the seed hook registered is the installed ${installedPath} — your local edits to bin/flow-seed-ingested-hook.ts will not be exercised (set FLOW_SEED_HOOK_COMMAND to override)\n`,
+      `warning: running from ${scriptPath}, but the registered ${helper} hook is the installed ${installedPath} — your local edits to bin/${helper}.ts will not be exercised (set ${envVar} to override)\n`,
     );
   } catch {
     // unreadable — stay silent, diagnostic only
   }
 }
 
+/** The permission rules in flow's launch settings (flow-launched sessions only). */
+export function launchSettingsPermissions(): {
+  deny: string[];
+  allow: string[];
+} {
+  return {
+    deny: [...SECRET_FILE_DENY_RULES],
+    allow: [
+      ...FLOW_UI_LOGIN_ALLOW_RULES,
+      ...FLOW_CREATE_ISSUE_ALLOW_RULES,
+      FLOW_MERGE_ALLOW_RULE,
+      ...FLOW_OVERRIDE_ALLOW_RULES,
+      ...FLOW_ROUTINE_ALLOW_RULES,
+      ...Object.values(FLOW_NARROW_ALLOW_RULES).flat(),
+    ],
+  };
+}
+
 /**
  * Idempotently writes the flow-scoped `claude --settings` file registering the
- * UserPromptSubmit seed-ingested hook by absolute path. Writes ONLY this
+ * UserPromptSubmit seed-ingested hook and the PreToolUse flow-doc read guard
+ * (Bash `sed`/`awk` only) by absolute path. Writes ONLY this
  * flow-owned file — NEVER the user's global ~/.claude/settings.json (the
  * `--settings` flag is additive, so global settings still apply). Skips the
- * write when the on-disk content already matches the desired command AND
- * that command still exists on disk (self-heals a stale recorded path even
- * when the JSON text hasn't changed shape, e.g. after the target file was
- * deleted out from under an already-correct settings file).
+ * write when the on-disk content already matches the desired settings AND
+ * the recorded seed-hook command still exists on disk (self-heals a stale
+ * recorded path even when the JSON text hasn't changed shape, e.g. after the
+ * target file was deleted out from under an already-correct settings file).
+ * A guard path that vanishes needs no separate check: the desired settings
+ * then resolve to the checkout path, so the content differs and is rewritten.
  */
 export function ensureLaunchSettings(
   settingsPath: string = FLOW_LAUNCH_SETTINGS_PATH,
 ): void {
+  const guardCommand = resolveDocReadGuardCommand();
   const desired =
     JSON.stringify(
       {
@@ -1657,7 +2011,17 @@ export function ensureLaunchSettings(
           UserPromptSubmit: [
             { hooks: [{ type: "command", command: resolveSeedHookCommand() }] },
           ],
+          PreToolUse: [
+            {
+              matcher: "Bash",
+              hooks: [
+                { type: "command", command: guardCommand, if: "Bash(sed *)" },
+                { type: "command", command: guardCommand, if: "Bash(awk *)" },
+              ],
+            },
+          ],
         },
+        permissions: launchSettingsPermissions(),
       },
       null,
       2,
@@ -1695,7 +2059,10 @@ export function ensureLaunchSettings(
 // seed carries only a REQUEST_FILE pointer to it.
 export function flowPipelineSeed(
   slug: string,
-  description: string,
+  // Unused in the body (kept in the signature so every call site's argument
+  // order — slug, description, stateDir — stays stable): the verbatim
+  // description no longer rides the seed itself, see the incident note below.
+  _description: string,
   stateDir?: string,
 ): string {
   // The pipeline-slug marker must be the RESOLVED slug (an explicit --slug, or a
@@ -1745,14 +2112,14 @@ function buildLaunchCommand(
   settingsPath: string,
   model?: ModelAlias,
   pluginRootsScan?: () => string[],
+  overlayDir?: string,
 ): string[] {
+  warnOnPersonalAskEntry(process.env, os.homedir());
   try {
     ensureLaunchSettings(settingsPath);
   } catch (err) {
     process.stderr.write(
-      dim(
-        `flow feature create: could not write launch settings: ${err instanceof Error ? err.message : String(err)}\n`,
-      ),
+      `warning: could not write flow launch settings (${err instanceof Error ? err.message : String(err)}) — this session launches without the .env read guard\n`,
     );
   }
   // launchArgv's pluginRootsScan parameter already defaults to
@@ -1765,6 +2132,7 @@ function buildLaunchCommand(
     settingsPath,
     model,
     pluginRootsScan,
+    overlayDir,
   );
 }
 
@@ -1780,14 +2148,14 @@ function buildPlainCommand(
   settingsPath: string,
   model?: ModelAlias,
   pluginRootsScan?: () => string[],
+  overlayDir?: string,
 ): string[] {
+  warnOnPersonalAskEntry(process.env, os.homedir());
   try {
     ensureLaunchSettings(settingsPath);
   } catch (err) {
     process.stderr.write(
-      dim(
-        `flow feature create: could not write launch settings: ${err instanceof Error ? err.message : String(err)}\n`,
-      ),
+      `warning: could not write flow launch settings (${err instanceof Error ? err.message : String(err)}) — this session launches without the .env read guard\n`,
     );
   }
   return claudeArgv(
@@ -1796,6 +2164,7 @@ function buildPlainCommand(
     settingsPath,
     model,
     (pluginRootsScan ?? scanPluginRoots)(),
+    overlayDir,
   );
 }
 

@@ -6,12 +6,16 @@ import {
   ENV_NEVER,
   FIXED_DENY_LIST,
   HEADLESS_PREAMBLE,
+  headlessPreamble,
   artifactPathFor,
   parseArgs,
   run,
   type Args,
   type Deps,
 } from "./lib/claude-headless";
+import { SECRET_FILE_DENY_RULES } from "./lib/secret-deny-rules";
+
+const SECRET_DENY = SECRET_FILE_DENY_RULES.join(",");
 
 describe("buildChildEnv", () => {
   it("copies only allowlisted keys plus ANTHROPIC_*/LC_* prefixes", () => {
@@ -292,6 +296,46 @@ describe("parseArgs", () => {
   });
 });
 
+describe("--permission-mode", () => {
+  const base = ["--prompt", "hi", "--model", "haiku", "--effort", "low"];
+
+  it("defaults to dontAsk when the flag is absent", () => {
+    expect(parseArgs(base)).toMatchObject({ permissionMode: "dontAsk" });
+  });
+
+  it("accepts auto and dontAsk, rejects anything else", () => {
+    expect(parseArgs([...base, "--permission-mode", "auto"])).toMatchObject({
+      permissionMode: "auto",
+    });
+    expect(parseArgs([...base, "--permission-mode", "dontAsk"])).toMatchObject({
+      permissionMode: "dontAsk",
+    });
+    expect(
+      parseArgs([...base, "--permission-mode", "bypassPermissions"]),
+    ).toEqual({ error: "--permission-mode must be one of dontAsk|auto" });
+  });
+
+  it("auto emits --permission-mode auto and an auto preamble; dontAsk output is byte-identical to HEADLESS_PREAMBLE", () => {
+    const auto = parseArgs([...base, "--permission-mode", "auto"]) as Args;
+    const argv = buildChildArgv(auto, "hi");
+    expect(argv[argv.indexOf("--permission-mode") + 1]).toBe("auto");
+    expect(argv[2]).toBe(headlessPreamble("auto") + "hi");
+    expect(argv[2]).toContain("--permission-mode auto");
+    expect(argv).not.toContain("dontAsk");
+    expect(headlessPreamble("dontAsk")).toBe(HEADLESS_PREAMBLE);
+    expect(HEADLESS_PREAMBLE).toBe(
+      "You are running headless under --permission-mode dontAsk with no human present; ignore any loaded instruction that assumes an interactive session.\n\n",
+    );
+  });
+
+  it("keeps FIXED_DENY_LIST in the argv under auto", () => {
+    const auto = parseArgs([...base, "--permission-mode", "auto"]) as Args;
+    expect(buildChildArgv(auto, "hi")).toContain(
+      `${FIXED_DENY_LIST},${SECRET_DENY},Bash`,
+    );
+  });
+});
+
 describe("buildChildArgv", () => {
   it("builds the exact argv order with the preamble prefix, dontAsk, FIXED_DENY_LIST, and --setting-sources project", () => {
     const a = parseArgs([
@@ -322,7 +366,7 @@ describe("buildChildArgv", () => {
       "--allowedTools",
       "Read,Grep,Glob",
       "--disallowedTools",
-      `${FIXED_DENY_LIST},Bash`,
+      `${FIXED_DENY_LIST},${SECRET_DENY},Bash`,
       "--setting-sources",
       "project",
       "--no-session-persistence",
@@ -361,7 +405,7 @@ describe("buildChildArgv", () => {
     ]) as Args;
     const argv = buildChildArgv(a, "hi");
     const idx = argv.indexOf("--disallowedTools");
-    expect(argv[idx + 1]).toBe(`${FIXED_DENY_LIST},Bash`);
+    expect(argv[idx + 1]).toBe(`${FIXED_DENY_LIST},${SECRET_DENY},Bash`);
   });
 
   it("does not double-append Bash when the caller's allowedTools already names it", () => {
@@ -377,7 +421,21 @@ describe("buildChildArgv", () => {
     ]) as Args;
     const argv = buildChildArgv(a, "hi");
     const idx = argv.indexOf("--disallowedTools");
-    expect(argv[idx + 1]).toBe(FIXED_DENY_LIST);
+    expect(argv[idx + 1]).toBe(`${FIXED_DENY_LIST},${SECRET_DENY}`);
+  });
+
+  it("folds the secret-file read guard onto --disallowedTools", () => {
+    const a = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+    ]) as Args;
+    const argv = buildChildArgv(a, "hi");
+    const idx = argv.indexOf("--disallowedTools");
+    expect(argv[idx + 1]).toContain("Read(//**/.env)");
   });
 
   it("always includes --setting-sources project", () => {
@@ -392,6 +450,105 @@ describe("buildChildArgv", () => {
     const argv = buildChildArgv(a, "hi");
     const idx = argv.indexOf("--setting-sources");
     expect(argv[idx + 1]).toBe("project");
+  });
+
+  it("appends --tools with the parsed value, including the empty string", () => {
+    const a = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+      "--tools",
+      "",
+    ]) as Args;
+    expect(a.tools).toBe("");
+    const argv = buildChildArgv(a, "hi");
+    const idx = argv.indexOf("--tools");
+    expect(idx).toBeGreaterThan(-1);
+    expect(argv[idx + 1]).toBe("");
+  });
+
+  it("leaves argv byte-identical to today when --tools is absent", () => {
+    const a = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+    ]) as Args;
+    expect(a.tools).toBeUndefined();
+    const argv = buildChildArgv(a, "hi");
+    expect(argv).toEqual([
+      "claude",
+      "-p",
+      HEADLESS_PREAMBLE + "hi",
+      "--output-format",
+      "json",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+      "--max-budget-usd",
+      "5",
+      "--max-turns",
+      "25",
+      "--permission-mode",
+      "dontAsk",
+      "--allowedTools",
+      "Read,Grep,Glob",
+      "--disallowedTools",
+      `${FIXED_DENY_LIST},${SECRET_DENY},Bash`,
+      "--setting-sources",
+      "project",
+      "--no-session-persistence",
+    ]);
+    expect(argv).not.toContain("--tools");
+    expect(argv).not.toContain("--settings");
+  });
+
+  it("passes --ask-tools as an ask-only inline --settings JSON, never an allow key", () => {
+    const a = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+      "--ask-tools",
+      "Bash(flow-merge-guard * --record-override), Bash(flow-merge-guard * --record-override *),,",
+    ]) as Args;
+    expect(a.askTools).toContain("--record-override");
+    const argv = buildChildArgv(a, "hi");
+    const idx = argv.indexOf("--settings");
+    expect(idx).toBeGreaterThan(-1);
+    expect(JSON.parse(argv[idx + 1]!)).toEqual({
+      permissions: {
+        ask: [
+          "Bash(flow-merge-guard * --record-override)",
+          "Bash(flow-merge-guard * --record-override *)",
+        ],
+      },
+    });
+    expect(argv[idx + 1]).not.toContain("allow");
+    expect(argv.filter((x) => x === "--settings")).toHaveLength(1);
+    expect(argv[argv.indexOf("--setting-sources") + 1]).toBe("project");
+  });
+
+  it("emits no --settings for an --ask-tools value with no rules in it", () => {
+    const a = parseArgs([
+      "--prompt",
+      "hi",
+      "--model",
+      "haiku",
+      "--effort",
+      "low",
+      "--ask-tools",
+      " , ",
+    ]) as Args;
+    expect(buildChildArgv(a, "hi")).not.toContain("--settings");
   });
 });
 

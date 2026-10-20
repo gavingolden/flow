@@ -63,8 +63,40 @@ describe(renderEchoRecap, () => {
       expect(line.endsWith(",")).toBe(false);
       expect(line.endsWith(" ")).toBe(false);
     }
-    expect(prLine).toBe("- PR URL: https://github.com/org/repo/pull/42");
-    expect(planLine).toBe("- Plan file: /work/.flow-tmp/plan.md");
+    // Default mode is markdown — the click target is the link itself,
+    // whose label is the raw target verbatim.
+    expect(prLine).toBe(
+      "- PR URL: [https://github.com/org/repo/pull/42](https://github.com/org/repo/pull/42)",
+    );
+    expect(planLine).toBe(
+      "- Plan file: [/work/.flow-tmp/plan.md](file:///work/.flow-tmp/plan.md)",
+    );
+  });
+
+  it("renders a `none` value bare, with no link wrapper", () => {
+    const out = renderEchoRecap({});
+    const lines = out.split("\n");
+    expect(lines.find((l) => l.startsWith("- PR URL:"))).toBe("- PR URL: none");
+    expect(lines.find((l) => l.startsWith("- Plan file:"))).toBe(
+      "- Plan file: none",
+    );
+  });
+
+  it("treats a whitespace-only prUrl/planFile as none, not a linkified blank", () => {
+    const out = renderEchoRecap({ prUrl: "   ", planFile: "   " });
+    const lines = out.split("\n");
+    expect(lines.find((l) => l.startsWith("- PR URL:"))).toBe("- PR URL: none");
+    expect(lines.find((l) => l.startsWith("- Plan file:"))).toBe(
+      "- Plan file: none",
+    );
+  });
+
+  it("respects an explicit linkMode override", () => {
+    const out = renderEchoRecap({
+      prUrl: "https://github.com/org/repo/pull/42",
+      linkMode: "plain",
+    });
+    expect(out).toContain("- PR URL: https://github.com/org/repo/pull/42");
   });
 
   it("renders every field when fully populated", () => {
@@ -80,8 +112,12 @@ describe(renderEchoRecap, () => {
       findingCount: 3,
       followupCount: 1,
     });
-    expect(out).toContain("- PR URL: https://github.com/org/repo/pull/42");
-    expect(out).toContain("- Plan file: /work/.flow-tmp/plan.md");
+    expect(out).toContain(
+      "- PR URL: [https://github.com/org/repo/pull/42](https://github.com/org/repo/pull/42)",
+    );
+    expect(out).toContain(
+      "- Plan file: [/work/.flow-tmp/plan.md](file:///work/.flow-tmp/plan.md)",
+    );
     expect(out).toContain("- branch: feat/echo-recap (PR #42)");
     expect(out).toContain("- PR title: Add echo recap");
     expect(out).toContain("- Phase: merged");
@@ -104,7 +140,7 @@ describe("renderEchoRecap suppressNone", () => {
     });
     expect(out.split("\n")).toEqual([
       ECHO_RECAP_START,
-      "- Plan file: /work/.flow-tmp/plan.md",
+      "- Plan file: [/work/.flow-tmp/plan.md](file:///work/.flow-tmp/plan.md)",
       ECHO_RECAP_END,
     ]);
   });

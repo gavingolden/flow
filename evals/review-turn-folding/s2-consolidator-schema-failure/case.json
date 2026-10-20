@@ -1,0 +1,88 @@
+{
+  "id": "s2-consolidator-schema-failure",
+  "title": "Schema-invalid consolidator artifact escalates",
+  "provenance": "Synthetic fixture authored for issue #835's turn-folding measurement: pre-written .flow-tmp artifacts (valid per bin/lib/agent-finding-schema.ts and bin/lib/fix-applier-schema.ts unless the scenario says otherwise) stand in for what the named agent wrote, and the prompt bounds the run to the post-return handling at skills/pipeline/flow-pr-review/SKILL.md. Run against the unchanged skills to record the before arm. The consolidator artifact omits dropped_by_validation and carries an off-enum label, so the schema check must fail.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture",
+    "state": "state.json",
+    "shims": ["../../_shims/gh"]
+  },
+  "env": {
+    "flowSlug": true
+  },
+  "ghCalls": [
+    [
+      "pr",
+      "view",
+      "1",
+      "--json",
+      "number,title,headRefName,baseRefName,headRefOid"
+    ]
+  ],
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "escalation-tag",
+      "kind": "structured",
+      "path": "escalation_tag",
+      "equals": "consolidator-schema-failure"
+    },
+    {
+      "id": "result-status-escalated",
+      "kind": "json-file",
+      "file": "$REPO/.flow-tmp/pr-review-result.json",
+      "path": "status",
+      "equals": "escalated"
+    },
+    {
+      "id": "result-escalation-tag",
+      "kind": "json-file",
+      "file": "$REPO/.flow-tmp/pr-review-result.json",
+      "path": "escalation_tag",
+      "equals": "consolidator-schema-failure"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.toolCalls.Bash",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.toolCalls.Bash",
+      "direction": "lower"
+    },
+    {
+      "id": "transcript.subagentsSpawned",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.subagentsSpawned",
+      "direction": "lower"
+    }
+  ]
+}

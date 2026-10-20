@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "src/pricing.ts",
+      "line": 5,
+      "label": "nitpick",
+      "decoration": "non-blocking",
+      "confidence": 85,
+      "subject": "Constants live in a table elsewhere",
+      "body": "Other modules keep rates in a single constants table."
+    }
+  ],
+  "rejected_alternatives": [],
+  "anti_patterns_found": []
+}

@@ -26,7 +26,7 @@ Run all relevant pre-commit checks, fix any failures, and re-run until every che
 # Context
 
 - `flow-pre-commit` (installed globally by `flow install` and on PATH) auto-detects scope,
-  runs format + checks, and reports pass/fail. The `--json` flag emits a single bounded
+  runs the checks (it never formats), and reports pass/fail. The `--json` flag emits a single bounded
   JSON object — head/tail-capped failure excerpts plus a `firstErrorText` extraction —
   so this skill returns a compact summary to its caller instead of replaying 50–200 KB
   of raw test stack traces.
@@ -53,9 +53,69 @@ available (`flow-pre-commit` with no flag) and that path is unchanged.
 
 ### Optional UI-smoke pass
 
-When the diff touches a meaningful UI surface AND the `chrome-devtools` MCP is available in this session, run the browser-driven UI-smoke pass alongside `flow-pre-commit` — a hand-authored `.flow/ui-validation.json` manifest is no longer a precondition; when none exists the helper returns a mechanical `action: "bootstrap"` verdict you branch on (infer `launch`/`baseUrl`/`routes`/`loginUrl` + credential NAMES → empirically verify → write the verified NAMES/config back into the manifest, names and non-secret config only — never a secret value, and commit it). Follow the shared procedure in [../flow-pipeline/references/ui-smoke-pass.md](../flow-pipeline/references/ui-smoke-pass.md): probe the MCP (`ToolSearch query="select:mcp__chrome-devtools__navigate_page"`) → on missing schema fall back to `flow-ui-validate --mcp-absent` (a quiet `ran:false` skip that never blocks the run) → otherwise `flow-ui-validate --changed-files <diff>` → on `bootstrap` self-complete the manifest, on `ran:true` (ready) `meta.env`-injected launch on dedicated ports through `flow-spawn` → open a per-pipeline isolated page first (`new_page` with an `isolatedContext` named from the pipeline slug — read `FLOW_SLUG` / `~/.flow/state/<slug>.json` / the worktree basename — so two pipelines sharing one chrome-devtools MCP server do not bleed cookies/storage) → drive the MCP per route → assemble a captures JSON → `flow-ui-validate --captures`. A `ran:true` result with `ok:false` (a console error, a failed request, or a missing `expectSelectors` element) is a verify failure routed through the same fix loop as any `flow-pre-commit` check (see Step 3); headless / MCP-absent runs stay green. **Adaptive noise filter:** when an `ok:false` flags a benign console error or failed request unrelated to the diff (a favicon 404, a third-party beacon/analytics request, browser-extension noise), do **not** fix-loop on it — add the substring to the manifest's `ignoreRequestPatterns` / `ignoreConsolePatterns` in `.flow/ui-validation.json` and commit that manifest change (it lands in the reviewable PR diff), then re-run. **Self-completing + self-maintaining manifest (CRITICAL):** the agent completes and maintains EVERYTHING the smoketest needs, not just the launch — when it adapts the launch on the fly, fixes a 404'd route or failed launch field, or records a verified `loginUrl` + credential NAMES, it persists the launch adaptation back into `.flow/ui-validation.json` (env/launch/baseUrl/routes/loginUrl/credentialEnvVars) and commits it into the reviewable PR diff so the next run starts deterministic; runtime credential VALUES resolve from the local `.env`/shell env and are never persisted. The committed manifest and every artifact reference credential env-var NAMES only — reading the manifest-named VALUES at runtime to drive the login form (see the Login step in ui-smoke-pass.md) is sanctioned only for zero-risk seed/test accounts, not a license to hand-type arbitrary or production passwords. When run directly (interactive `/flow-verify`), a genuinely-unresolvable creds gap may prompt via `AskUserQuestion`; the autonomous pipeline path instead escalates `NEEDS HUMAN: smoketest-needs-creds`. See [../flow-pipeline/references/ui-smoke-pass.md](../flow-pipeline/references/ui-smoke-pass.md) for the full probe → bootstrap → launch → drive → assemble → fix-loop body and the LLM-free / no-`claude -p` / no-Task constraint, and `skills/pipeline/flow-pipeline/SKILL.md` Step 6 for the supervisor-side contract.
+When the diff touches a meaningful UI surface AND the `chrome-devtools` MCP is available in this session, run the browser-driven UI-smoke pass alongside `flow-pre-commit` — a hand-authored `.flow/ui-validation.json` manifest is no longer a precondition; when none exists the helper returns a mechanical `action: "bootstrap"` verdict you branch on (infer `launch`/`baseUrl`/`routes`/`loginUrl` + credential NAMES → empirically verify → write the verified NAMES/config back into the manifest, names and non-secret config only — never a secret value, and commit it). Probe the MCP (`ToolSearch query="select:mcp__chrome-devtools__navigate_page"`) → on missing schema fall back to `flow-ui-validate --mcp-absent` (a quiet `ran:false` skip that never blocks the run) → otherwise `flow-ui-validate --changed-files <diff>` and save the resulting envelope to `.flow-tmp/ui-driver-envelope.json`. On an `mcp-not-available` / `browser-profile-busy` skip, relay the loud skip and stop — never spawn.
+
+<!-- flow-credential-denial-rule -->
+
+**Credential denial means stop.** When a permission check, the auto-mode
+classifier, or a deny rule refuses any credential-related action —
+reading a `.env`-family file, printing a credential variable, running
+`flow-ui-login test-account`, or the `fill_form` that types the
+test-account values — STOP the browser check. Never retry through another
+tool (Read, grep, cat, a script, `evaluate_script`, or a different
+fill/type tool): record `skipped_reason: "credentials-unavailable"` and let
+the caller surface `smoketest-needs-creds`, naming only the variable NAMES.
+Values filled and submitted but the page still on `loginUrl` is not a
+refusal: record `login-failed`.
+
+On a `bootstrap` or `ran:true` (ready) envelope, this is the eighth Task-tool exemption's spawn site (`/flow-verify` Independent UI-Driver Subagent — `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules", full contract in `references/exemption-contracts.md`).
+
+**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: ui-driver`, write the existing skip note, and exit.
+
+**The `UI_SMOKE_DRIVER: inline` marker.** When the invocation carries the literal marker `UI_SMOKE_DRIVER: inline` (the `/flow-fix-applier-instructions` re-run path, which has no Task tool of its own), drive the procedure yourself in this session's own context per `../flow-ui-driver-instructions/SKILL.md` — `meta.env`-injected launch on dedicated ports through `flow-spawn`, same as the spawned agent below — and skip the Task call entirely. Absent the marker, spawn as follows.
+
+**Model.** Resolve `config.models.uiDriver` via `jq -r '.models.uiDriver // empty' ~/.flow/config.json 2>/dev/null` and fall back to the literal `sonnet` when empty — config-only, no CLI flag, no `state.json` read at all (unlike every other spawn site's precedence chain).
+
+**Effort.** Resolve `UI_DRIVER_EFFORT` as below (built-in `medium` capped at the session's effort; `config.efforts.uiDriver` overrides — `../flow-pipeline/references/model-routing.md`) and pass the non-empty result as the Task call's per-spawn `effort:` (empty ⇒ omit).
+
+```bash
+UI_DRIVER_EFFORT=$(command -v flow-spawn-effort >/dev/null 2>&1 && flow-spawn-effort ui-driver)
+# Non-empty ⇒ pass effort: "$UI_DRIVER_EFFORT" as the Task call's per-spawn effort; empty ⇒ omit.
+```
+
+**Agent resolution (two-tier guard).** `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-ui-driver.md ]`: when present, `subagent_type: flow-module-core:flow-ui-driver` (a bare `flow-ui-driver` name fails Task-tool resolution outright on a plugin-root install); else `general-purpose` with the loud `NOTICE — agent-fallback:` line.
+
+**Exactly one Task call per outer attempt.** Spawn `flow-ui-driver` (preloading `../flow-ui-driver-instructions/SKILL.md`) passing `ENVELOPE_PATH=$WORKTREE/.flow-tmp/ui-driver-envelope.json`, `MANIFEST_PATH=$WORKTREE/.flow/ui-validation.json`, `WORKTREE` (absolute), `SLUG` (resolved below), `ARTIFACT_PATH=$WORKTREE/.flow-tmp/ui-driver-result.json`, `CAPTURES_PATH=$WORKTREE/.flow-tmp/ui-captures.json`, and `SKILL_DIR` (absolute). Every path is absolute — the driver's own instructions declare `ARTIFACT_PATH`/`CAPTURES_PATH`/`ui_screenshots[]` absolute, and the `Write` tool rejects a relative path outright, so a worktree-relative value here degrades to `driver-no-artifact` on every attempt. Resolve `SLUG` from `$FLOW_SLUG` when set, else fall back to the worktree's basename (`$(basename "$WORKTREE")`) so an interactive run outside a launcher session still keys the isolated page deterministically. Never re-spawn within the same outer `/flow-verify` attempt — the next outer attempt (of the 3-attempt cap) re-spawns naturally.
+
+**Post-return check and degrade (never escalate) — except a credential denial.** After the Task call returns, `test -s "$WORKTREE/.flow-tmp/ui-driver-result.json"` and `flow-ui-driver-schema --validate` it. On success, read it once and reuse the parsed object — never re-derive. On a missing/unwritable/invalid artifact, treat it as `{ran: false, ok: false, skipped_reason: "driver-no-artifact"}` and emit the existing skip note below; do **not** escalate `NEEDS HUMAN`, do **not** re-spawn, and do **not** fail verify. **Named carve-out:** a `credentials-unavailable` `skipped_reason` is the one exception to "never escalate" — when this Task call ran under the `/flow-pipeline` supervisor (no `UI_SMOKE_DRIVER: inline` marker), run `flow-browser-teardown --reap --record` as its own standalone call (never `&&`-joined, never `|| true`) and then escalate `NEEDS HUMAN: smoketest-needs-creds`, naming the `credentialEnvVars` NAMES from the manifest and the `flow feature resume <slug>` command; when it ran on the `UI_SMOKE_DRIVER: inline` fix-applier path, this subagent has no escalation path of its own — record `credentials-unavailable` in the fix-applier artifact summary instead (per `../flow-fix-applier-instructions/SKILL.md` Step 8) — the fix-applier makes no further browser, MCP or teardown calls after the denial, and the supervisor's next escalation/terminal `flow-browser-teardown --reap --record` owns teardown — and leave the affected items unchecked so the pr-review wrapper surfaces the pause.
+
+A `ran:true` result with `ok:false` (a console error, a failed request, or a missing `expectSelectors` element) is a verify failure routed through the same fix loop as any `flow-pre-commit` check (see Step 3), consuming the artifact's `fix_context[]` for what to fix — never re-driving the browser yourself; headless / MCP-absent runs stay green. **Adaptive noise filter:** when an `ok:false` flags a benign console error or failed request unrelated to the diff (a favicon 404, a third-party beacon/analytics request, browser-extension noise), do **not** fix-loop on it — add the substring to the manifest's `ignoreRequestPatterns` / `ignoreConsolePatterns` in `.flow/ui-validation.json` and commit that manifest change (it lands in the reviewable PR diff), then re-run. **Self-completing + self-maintaining manifest (CRITICAL):** the agent completes and maintains EVERYTHING the smoketest needs, not just the launch — when it adapts the launch on the fly, fixes a 404'd route or failed launch field, or records a verified `loginUrl` + credential NAMES, it persists the launch adaptation back into `.flow/ui-validation.json` (env/launch/baseUrl/routes/loginUrl/credentialEnvVars) and commits it into the reviewable PR diff so the next run starts deterministic; runtime credential VALUES are resolved by `flow-ui-login` and are never persisted — the agent never reads them itself. The committed manifest and every artifact reference credential env-var NAMES only — logging in through `flow-ui-login` (see the “## Login step (auth-gated apps)” section in [ui-validation-evidence.md](../flow-pr-review/references/ui-validation-evidence.md)) is sanctioned only for zero-risk seed/test accounts, not a license to hand-type arbitrary or production passwords. When run directly (interactive `/flow-verify`), a genuinely-unresolvable creds gap may prompt via `AskUserQuestion`; the autonomous pipeline path instead escalates `NEEDS HUMAN: smoketest-needs-creds`. See [../flow-pipeline/references/ui-smoke-pass.md](../flow-pipeline/references/ui-smoke-pass.md) for the full probe → bootstrap → launch → drive → assemble → fix-loop body, and `skills/pipeline/flow-pipeline/SKILL.md` Step 6 for the supervisor-side contract.
 
 **Shared-profile lock (parallel pipelines).** chrome-devtools-mcp backs every browser with a single default on-disk Chrome profile (`~/.cache/chrome-devtools-mcp/chrome-profile`), so two flow pipelines that both reach this pass under one un-isolated MCP registration contend for it — the second to launch errors with `The browser is already running for ~/.cache/chrome-devtools-mcp/chrome-profile. Use --isolated to run multiple browser instances`. Recovery: register the chrome-devtools MCP with `--isolated` in `~/.claude.json` (each server process gets its own auto-cleaned throwaway profile), or wait for/close the other pipeline browser. The per-call `isolatedContext` above is same-server defense-in-depth — it isolates pages within one MCP server but does NOT resolve this cross-process on-disk-profile lock; `--isolated` is the remedy for the cross-process on-disk PROFILE LOCK specifically, but it does not prevent a leaked browser process — its temp profile is cleaned only after the browser closes, and the browser itself is reaped separately by `flow-browser-teardown` at the pipeline's terminal state. On detecting the lock, drive `flow-ui-validate --browser-busy`, which emits a loud-but-clean `ran:false` / `skipped_reason: browser-profile-busy` skip — a busy browser degrades exactly like an absent one (never a hard failure) and verify proceeds green on the rest of the diff.
+
+### Layer-3 proactive config-authoring branch
+
+When `flow-pre-commit --json` returns `reason: "unmatched-files"`, the
+orphaned files may belong to a recognizable-but-uncovered layout. Before
+treating it as a verify failure, call the pure
+`draftConfigEntryForOrphans` helper (exported from
+`bin/lib/monorepo-scopes.ts`) over the report's `unmatchedFiles`:
+
+- **If it returns an entry** (a recognizable layout whose owning
+  `package.json` declares verify-class scripts), write/merge it into the
+  repo-relative `.flow/pre-commit.json` (top-level array of
+  `{ name, prefixes, checks }` entries — append, do not clobber existing
+  entries), commit it to the feature branch so it lands in the reviewable
+  PR diff, and **re-run verify** — this does NOT count as a new failed
+  check.
+- **If it returns `null`** (a genuine orphan: no `package.json` owner, no
+  stack marker, no config), fall through to the loud `unmatched-files`
+  failure at Step 3.
+
+The helper is LLM-free and pure (no `claude -p` / Task sub-call). This is
+the **third** of `flow-pre-commit`'s command-resolution layers;
+zero-config auto-detect (layers 1–2) writes nothing — the Layer-3 commit
+above is the only config write this skill makes.
 
 ## 2. Interpret Results
 
@@ -85,8 +145,12 @@ this shape (failed checks only — passing checks omit the `failure` field):
 }
 ```
 
-Parse the JSON — `failure.firstErrorText` and `failure.headExcerpt` are the canonical
-source of failure context. Do not paste the full raw stderr back into chat; the bounded
+A row carrying `dedupedFrom: "<scope>"` repeats that scope's result for the identical
+command, and its `headExcerpt`/`tailExcerpt` are empty — read the excerpt from the
+executed row it names.
+
+Parse the JSON — `failure.firstErrorText` and `failure.headExcerpt` (on the executed
+row, not a `dedupedFrom` copy) are the canonical source of failure context. Do not paste the full raw stderr back into chat; the bounded
 excerpt is intentional. If the supervisor needs more than the excerpt for a non-obvious
 failure, the user can re-run `flow-pre-commit` (without `--json`) to see the full output
 in the terminal — but that detail does not need to flow back through the supervisor's
@@ -107,17 +171,21 @@ threshold**:
   single file, or any failure where the fix requires reading multiple
   files for context) delegates to `/flow-coder` per outer attempt. Log a
   one-line reason ("wider scope: spawning /flow-coder").
+- **Under `UI_SMOKE_DRIVER: inline`:** always take the inline path, whatever
+  the scope. The fix-applier caller cannot spawn `/flow-coder`'s Edit-Applier.
 
 ### Inline fix (trivial path)
 
-For each failed check (`results[].passed === false`), use
+For each distinct failing check `name` (`results[].passed === false`,
+skipping rows that carry `dedupedFrom`), use
 `failure.firstErrorText` to locate the failing file/test, then read the
 relevant source file directly. Fix the issue in the source file.
 
 - **Type errors** (`npm run check`): Resolve type mismatches, missing
   imports, or incorrect generics.
-- **Lint errors** (`npm run lint`): Run `npm run format` first, then
-  fix remaining issues manually.
+- **Lint errors** (`npm run lint`): `flow-pre-commit` only reports the
+  failure; formatting is your fix step, not the helper's.
+  Run `npm run format` yourself, then fix any remaining issues by hand.
 - **Test failures** (`npm run test`): Read the failing test, understand
   the assertion, fix the code (not the test) unless the test itself is
   wrong.
@@ -127,9 +195,9 @@ relevant source file directly. Fix the issue in the source file.
 ### Spawn procedure (wider-scope path only)
 
 1. Compose the **edit-set** from each failed `results[]` entry of the
-   `flow-pre-commit --json` report. One entry per failed check
-   (`results[i].passed === false`), each a JSON-shaped object with three
-   fields:
+   `flow-pre-commit --json` report. One entry per distinct failing check
+   `name` (`results[i].passed === false`), skipping rows that carry
+   `dedupedFrom`, each a JSON-shaped object with three fields:
    - `file` — repo-relative path of the failing source (resolved from
      `results[i].failure.firstErrorText`).
    - `intent` — 1–2 lines naming the issue (typically
@@ -155,10 +223,10 @@ relevant source file directly. Fix the issue in the source file.
    the structured artifact at
    `<worktree>/.flow-tmp/coder-result.json`.
 
-3. After `/flow-coder` returns, do a cheap existence check:
+3. After `/flow-coder` returns, do a cheap completeness check:
 
    ```bash
-   test -s "$WORKTREE/.flow-tmp/coder-result.json" \
+   jq -e '.status == "complete" and .verify_status == "pass"' "$WORKTREE/.flow-tmp/coder-result.json" >/dev/null \
      || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
    ```
 
@@ -179,7 +247,12 @@ relevant source file directly. Fix the issue in the source file.
 ## 4. Re-Run Until Clean
 
 - After fixing, re-run the same checks with the same arguments.
-- Repeat until all checks pass.
+- Repeat until all checks pass, **up to 5 inner re-runs per invocation**.
+  After the fifth failing re-run, stop and return the Step 5 report to the
+  caller — the supervisor's outer 3-attempt cap decides what happens next.
+  This inner cap is the hard ceiling on how much `flow-pre-commit --json`
+  output can accumulate in the calling session (it replaces the `maxTurns`
+  bound the removed verify-loop subagent used to carry).
 - Do not give up after one round — some fixes reveal new errors.
 
 ## 5. Report
@@ -224,7 +297,7 @@ prose); subagent return contracts are out of scope for that contract.
 - The summary returned to the caller does not contain raw uncapped stderr from any
   failed check
 - For wider-scope fixes at Step 3: `/flow-coder` was invoked at most once per
-  outer attempt; `.flow-tmp/coder-result.json` exists with all five
+  outer attempt (never, under `UI_SMOKE_DRIVER: inline`); `.flow-tmp/coder-result.json` exists with all five
   top-level keys; the wrapper's transcript contains no per-edit
   `Edit`/`Write` prose for the wider-scope path.
 - For trivially scoped fixes at Step 3: no `/flow-coder` invocation; the

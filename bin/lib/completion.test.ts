@@ -124,6 +124,36 @@ describe("completion scripts stay in sync with VERBS", () => {
     expect(missing).toEqual([]);
   });
 
+  it("bash script carries an explicit 'prompt' verb entry in its verbs list", () => {
+    // Non-vacuous guard for `prompt` specifically: the generic verbInScript
+    // regex above is enough for bash (no other substring collides), but the
+    // equivalent zsh assertion below exists because the generic guard passes
+    // there even when the verb is absent from the real verbs=( … ) array.
+    const script = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.bash"),
+      "utf8",
+    );
+    const verbsLine = script
+      .split("\n")
+      .find((l) => l.includes('local verbs="'));
+    expect(verbsLine).toBeDefined();
+    expect(verbsLine!.split(/\s+/)).toContain("prompt");
+  });
+
+  it("zsh script carries an explicit 'prompt:…' verbs array element (non-vacuous guard)", () => {
+    // WHY this exists (scout-verified): the generic verbInScript regex
+    // `/(^|[^\w-])prompt([^\w-]|$)/` already matches the UNRELATED
+    // `'*::prompt:'` positional descriptor used by `epic create`'s zsh
+    // completion arm, so "zsh script lists every verb" above passes even if
+    // the verbs=( … ) array never gets a `prompt:` element. This assertion
+    // targets the array element specifically and fails if it's removed.
+    const script = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.zsh"),
+      "utf8",
+    );
+    expect(script).toMatch(/'prompt:[^']*'/);
+  });
+
   it("zsh script lists every verb", () => {
     const script = fs.readFileSync(
       path.join(FLOW_SOURCE, "completions", "flow.zsh"),
@@ -174,7 +204,6 @@ describe("completion scripts stay in sync with VERBS", () => {
         "--model-planning",
         "--model-implement",
         "--model-review",
-        "--model-verify",
         "--model-fix-applier",
         "--model-consolidator",
         "--model-merge-resolver",
@@ -189,7 +218,7 @@ describe("completion scripts stay in sync with VERBS", () => {
     }
   });
 
-  it("both scripts advertise --all and -a scoped to the `epic ls` arm", () => {
+  it("both scripts advertise --all/-a, --done, and --all-repos scoped to the `epic ls` arm", () => {
     for (const shell of ["bash", "zsh"] as const) {
       const script = fs.readFileSync(
         path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
@@ -207,6 +236,39 @@ describe("completion scripts stay in sync with VERBS", () => {
       ).toBeGreaterThan(-1);
       const armEnd = script.indexOf("else", armStart);
       const lsArm = script.slice(armStart, armEnd === -1 ? undefined : armEnd);
+      expect(lsArm).toContain("--all");
+      expect(lsArm).toContain("-a");
+      expect(lsArm).toContain("--done");
+      expect(lsArm).toContain("--all-repos");
+    }
+  });
+
+  it("both scripts advertise --cost, --detail, --all-repos, --all, and -a scoped to the TOP-LEVEL `ls` arm", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      // The top-level `ls)` case label is unique in both scripts (unlike the
+      // `epic ls` arm's `esub`/`line[2]` guard, which is nested one level
+      // deeper) — slice from there. Both scripts close this arm with `;;`,
+      // NOT `else` (that end-marker belongs to the `epic)` arm's if/elif
+      // chain), so an `else`-based slice would over-grab the rest of the
+      // script.
+      const armStart = script.indexOf("ls)");
+      expect(
+        armStart,
+        `flow.${shell} must have a top-level ls arm`,
+      ).toBeGreaterThan(-1);
+      const armEnd = script.indexOf(";;", armStart);
+      expect(
+        armEnd,
+        `flow.${shell}'s top-level ls arm must close with ';;'`,
+      ).toBeGreaterThan(-1);
+      const lsArm = script.slice(armStart, armEnd);
+      expect(lsArm).toContain("--cost");
+      expect(lsArm).toContain("--detail");
+      expect(lsArm).toContain("--all-repos");
       expect(lsArm).toContain("--all");
       expect(lsArm).toContain("-a");
     }
@@ -243,6 +305,58 @@ describe("completion scripts stay in sync with VERBS", () => {
           script.includes(token),
           `flow.${shell} must advertise the config-group ${token} token`,
         ).toBe(true);
+      }
+    }
+  });
+
+  it("both scripts advertise feature create --skills-from with directory completion", () => {
+    const bash = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.bash"),
+      "utf8",
+    );
+    const zsh = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.zsh"),
+      "utf8",
+    );
+    expect(bash).toContain("--model-merge-resolver --skills-from");
+    expect(bash).toMatch(
+      /--skills-from\)\s+# shellcheck disable=SC2207\s+COMPREPLY=\( \$\(compgen -d/,
+    );
+    expect(zsh).toMatch(/'--skills-from\[[^\]]*\]:checkout:_files -\/'/);
+  });
+
+  it("both scripts advertise the new feature-create flags and the config launch/launcher subcommands", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      for (const token of [
+        "--no-wait-for-copilot",
+        "--no-research",
+        "--interview",
+        "--no-interview",
+        "launcher",
+      ]) {
+        expect(
+          script.includes(token),
+          `flow.${shell} must advertise ${token}`,
+        ).toBe(true);
+      }
+      // "--auto-merge" alone is a substring of the pre-existing
+      // "--no-auto-merge"; anchor it to its own delimiter so the assertion
+      // can actually fail if `--auto-merge` itself is dropped.
+      if (shell === "bash") {
+        expect(script).toContain("--auto-merge --no-auto-merge");
+      } else {
+        expect(script).toMatch(/'--auto-merge\[/);
+      }
+      // "launch" alone is a substring of the pre-existing epic "launch"
+      // subcommand; anchor to the config-group entry that this PR added.
+      if (shell === "bash") {
+        expect(script).toContain("models launcher launch");
+      } else {
+        expect(script).toMatch(/'launch:show resolved launch defaults/);
       }
     }
   });

@@ -1,0 +1,65 @@
+{
+  "caseId": "c11-research-gather",
+  "required": [
+    {
+      "desc": "RFC 4180 separates records with a line break of CRLF (carriage return + line feed)",
+      "anyOf": ["CRLF", "carriage return", "0x0D 0x0A", "\\r\\n"]
+    },
+    {
+      "desc": "A field containing a comma, a double quote or a line break must be enclosed in double quotes",
+      "anyOf": [
+        "enclosed in double quotes",
+        "enclosed within double quotes",
+        "surrounded by double quotes",
+        "must be quoted",
+        "should be enclosed in double-quotes",
+        "enclosed in double-quotes"
+      ]
+    },
+    {
+      "desc": "A double quote inside a quoted field is escaped by preceding it with another double quote (doubling it)",
+      "anyOf": [
+        "another double quote",
+        "doubled",
+        "two double quotes",
+        "double-quote character",
+        "preceded by another double"
+      ]
+    },
+    {
+      "desc": "The answer cites an authoritative source URL for the specification (rfc-editor.org or ietf.org)",
+      "anyOf": ["rfc-editor.org", "ietf.org"]
+    },
+    {
+      "desc": "Each claim carries an explicit high / medium / low confidence label",
+      "anyOf": [
+        "confidence: high",
+        "confidence: medium",
+        "confidence: low",
+        "confidence — high",
+        "(high confidence)",
+        "high confidence",
+        "[high]",
+        "[medium]",
+        "(high)",
+        "(medium)",
+        "**high**",
+        "**medium**"
+      ]
+    }
+  ],
+  "forbidden": [
+    {
+      "desc": "RFC 4180 does not use backslash escaping — claiming it escapes quotes with a backslash is wrong",
+      "anyOf": [
+        "escaped with a backslash",
+        "escaped using a backslash",
+        "escape character is a backslash",
+        "backslash is the escape character",
+        "uses backslash escaping",
+        "using backslash escaping",
+        "escape with a backslash"
+      ]
+    }
+  ]
+}

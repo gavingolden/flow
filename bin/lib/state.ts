@@ -37,7 +37,27 @@ export const MODEL_ALIASES = ["opus", "haiku", "sonnet", "fable"] as const;
 export type ModelAlias = (typeof MODEL_ALIASES)[number];
 
 /**
- * The seven per-phase model override fields on `PipelineState`, paired with the
+ * Coarse LIST-PRICE ordering across `MODEL_ALIASES` — NOT a price table (no
+ * currency, no per-token figures; `MODEL_PRICING` in `./cost-pricing.ts` is
+ * the actual per-token table, keyed by concrete model id, and has no `fable`
+ * row). Its only consumer is the capped-inheritance fallback in
+ * `model-routing-table.ts`, which needs "is the session model priced above
+ * the cap alias" without a named-model special case. This is a
+ * rank-ordering rule: any future alias added to `MODEL_ALIASES` must get a
+ * rank here.
+ */
+export const MODEL_PRICE_RANK: Record<ModelAlias, number> = {
+  haiku: 0,
+  sonnet: 1,
+  opus: 2,
+  fable: 3,
+};
+
+/** The alias the capped-inheritance fallback caps session-model inheritance at. */
+export const INHERITANCE_CAP_ALIAS: ModelAlias = "opus";
+
+/**
+ * The six per-phase model override fields on `PipelineState`, paired with the
  * `flow feature create --model-<phase>` flag that sets each. Single source of
  * truth for the parse loop (`feature.ts`), the state validator
  * (`isPipelineState`), and the tests. The gatekeeper is deliberately absent —
@@ -48,7 +68,6 @@ export const PHASE_MODEL_FLAGS = [
   { flag: "--model-planning", field: "modelPlanning" },
   { flag: "--model-implement", field: "modelImplement" },
   { flag: "--model-review", field: "modelReview" },
-  { flag: "--model-verify", field: "modelVerify" },
   { flag: "--model-fix-applier", field: "modelFixApplier" },
   { flag: "--model-consolidator", field: "modelConsolidator" },
   { flag: "--model-merge-resolver", field: "modelMergeResolver" },
@@ -61,8 +80,23 @@ export type PipelineState = {
   slug: string;
   phase: string;
   pr?: number;
+  /**
+   * The PR's full URL, persisted at open time alongside `pr` (the bare
+   * number) — `flow-open-pr` writes both from the same `gh pr view`
+   * result. Lets `flow ls` render a click target without a per-row `gh`
+   * round-trip. Absent on state written before this field existed, or
+   * on a pipeline with no PR yet; a reader falls back to the bare `pr`
+   * number, never warns.
+   */
+  prUrl?: string;
   repo: string;
   worktree?: string;
+  /**
+   * The empty folder `flow feature create` reserved at launch and passed to
+   * Claude via `--add-dir`; `flow-new-worktree` fills it in step 2. Distinct
+   * from `worktree`, which keeps meaning "step 2 created it".
+   */
+  reservedWorktree?: string;
   /**
    * When false, `/flow-pipeline` step 9 routes every OPEN PR to gated
    * regardless of the Test Steps rubric. Absent ≡ true (the
@@ -117,7 +151,6 @@ export type PipelineState = {
   modelPlanning?: ModelAlias;
   modelImplement?: ModelAlias;
   modelReview?: ModelAlias;
-  modelVerify?: ModelAlias;
   modelFixApplier?: ModelAlias;
   modelConsolidator?: ModelAlias;
   modelMergeResolver?: ModelAlias;
@@ -150,7 +183,8 @@ export type PipelineState = {
    * `flow feature create --interview` (force) or `--no-interview` (skip).
    * Mutually exclusive; absent when neither flag was passed, in which case
    * the trigger falls back to the `interview-playbook.md` judgment gate and
-   * `config.json`'s `interview.enabled`.
+   * `config.json`'s `launch.interviewMode` (resolved at launch onto this
+   * field, so the gate reads state only).
    */
   interviewMode?: "force" | "skip";
   /**
@@ -320,6 +354,16 @@ export type PipelineState = {
    * fabricate a false `review-timed-out`.
    */
   planReview?: PlanReviewRecord;
+  /**
+   * Fix-loop counters the supervisor's steps 7 and 8 enforce: how many
+   * CI-fix and review-fix re-entries have run this pipeline, against
+   * budgets of 3 (ciFix) and 2 (reviewFix). A plain state write via
+   * `flow-state-update --increment-loop`, never reset except by a fresh
+   * pipeline — absence means no fix loop has run yet (equivalent to
+   * `{ciFix: 0, reviewFix: 0}`), so the caps survive a compaction or a
+   * resume, and a wiped `.flow-tmp/` (worktree-scoped, unlike this file).
+   */
+  loops?: { ciFix: number; reviewFix: number };
   updatedAt: string;
 };
 
@@ -440,6 +484,11 @@ export const PENDING_PHASES = [
   "triage-pending-interview",
   "approval-pending-clarification",
   "ci-wait-pending",
+  // Step 9's pause when open `Browser:` Test Steps are still env-blocked
+  // after the automatic re-drive (`flow-gate-decide` -> `browser-retry`).
+  // A non-terminal yield — the browser is NOT reaped — that resumes into
+  // `/flow-pr-review --resume-from 8c --browser-items`, then the gate again.
+  "browser-retry-pending",
   // Auto-checkpoint at the approval → implement hand-off (step 4 affirmative
   // branch). The supervisor flushes conversational state to
   // `~/.flow/state/checkpoints/<slug>/checkpoint.md`, nudges "safe to
@@ -518,9 +567,13 @@ export const AWAITING_HUMAN_PHASES = ["gated", "needs-human"] as const;
 export const FINISHED_PHASE_SET: ReadonlySet<string> = new Set(FINISHED_PHASES);
 
 /**
- * The subset of FINISHED_PHASES where `flow-remove-worktree` has already run
- * and `state.worktree` is stale (points at a deleted sibling dir — issue
- * #632). Hand-listed rather than derived (`FINISHED_PHASES` minus
+ * The subset of FINISHED_PHASES where `flow-remove-worktree` has already run.
+ * `state.worktree` is now cleared there (`flow-remove-worktree`'s
+ * `forgetRemovedWorktree` at these phases, and `finalizePhase`'s write of one
+ * of them over a vanished directory — issue #632), but a record written
+ * before that change, or one whose clear was skipped, can still name a
+ * deleted sibling dir — so readers keep classifying "worktree removed" from
+ * the PHASE, never from the field. Hand-listed rather than derived (`FINISHED_PHASES` minus
  * `"epic-approved"`): a derived split would silently reclassify a future
  * `FINISHED_PHASES` entry into "worktree gone" by default, which is the
  * unsafe direction — telling a still-live worktree that it is gone is a
@@ -540,26 +593,64 @@ export const AWAITING_HUMAN_PHASE_SET: ReadonlySet<string> = new Set(
 
 /**
  * Named allowlist of the only terminal -> non-terminal writes
- * flow-state-update accepts without --force. It exists for two legitimate
- * paths out of `gated`: the gated-feedback loop's re-verify (step 6) /
- * re-gate (step 9), and the gate-override merge (step 10). It still blocks
- * everything else, in particular `<any terminal> -> triaging` — the
- * ambient-pane slug race from PR #369 / commit 00a67fa. The table has only
- * one entry because the guard fires only on the FIRST write out of a
- * terminal phase: once an allowlisted write lands the phase is no longer
- * terminal, so downstream phases (implementing, ci-wait, reviewing) are
- * reachable without their own entry. Consequence: that same mechanic means
- * an allowlisted write raced onto the WRONG pipeline's state file (e.g. a
+ * flow-state-update accepts without --force. Two entries:
+ *
+ * - `gated`: the gated-feedback loop's re-verify (step 6) / re-gate
+ *   (step 9), and the gate-override merge (step 10).
+ * - `needs-human`: the eight feature step phases (`planning` through
+ *   `gating`) plus the four epic-design continue phases (`epic-designing`,
+ *   `epic-validating`, `epic-pr-open`, `epic-design-pending-review`) a
+ *   confirming "done" reply can re-enter once `bin/flow-resume-decide.ts` /
+ *   `bin/flow-epic-resume-decide.ts` resolves the paused pipeline's
+ *   `awaiting-human` verdict — see `pausedPhase`, `CONTINUE_PHASE_BY_STEP`
+ *   there and `CONTINUE_PHASE_BY_EPIC_STEP` in the epic decider. The two
+ *   maps' values together equal this list exactly (parity-tested). The
+ *   allowlist is keyed by the phase being left, not the pipeline kind
+ *   (kind is display-only). No merge phase is ever epic-reachable: F5
+ *   never merges.
+ *
+ * Both entries deliberately exclude `merging`: the resume tree never
+ * returns a step-10 target, so a continuation always re-runs the step-9
+ * gate before any merge rather than jumping straight to one. `needs-human`
+ * also excludes `starting`, `triaging`, and `worktree-create` — the
+ * pre-worktree ambient-pane slug race from PR #369 / commit 00a67fa, which
+ * every terminal phase must stay blocked against, not just `gated`.
+ *
+ * It still blocks everything else, in particular `<any terminal> ->
+ * triaging`. The guard fires only on the FIRST write out of a terminal
+ * phase: once an allowlisted write lands the phase is no longer terminal,
+ * so downstream phases (implementing, ci-wait, reviewing) are reachable
+ * without their own entry. Consequence: that same mechanic means an
+ * allowlisted write raced onto the WRONG pipeline's state file (e.g. a
  * leaked FLOW_SLUG mid-flight) permanently disarms this guard for that
  * file — every subsequent write lands unguarded, not just the allowlisted
  * one. `checkWorktreeBranch` still runs on every write but is a no-op in
  * that race: it reads the victim's own worktree marker, which is
  * internally consistent regardless of which pipeline is writing.
+ *
+ * `advancePhase` (`bin/lib/phase-advance.ts`) honors this same table for
+ * its own terminal carve-out, so the step helpers it drives
+ * (`flow-open-pr`, `flow-ci-check`, `flow-fetch-pr-review`,
+ * `flow-gate-decide`) can move a paused `needs-human` pipeline too.
  */
 export const TERMINAL_EXIT_TRANSITIONS: Readonly<
   Record<string, readonly PipelinePhase[]>
 > = {
   gated: ["verifying", "gating", "merging"],
+  "needs-human": [
+    "planning",
+    "plan-pending-review",
+    "implementing",
+    "installing-skills",
+    "verifying",
+    "ci-wait",
+    "reviewing",
+    "gating",
+    "epic-designing",
+    "epic-validating",
+    "epic-pr-open",
+    "epic-design-pending-review",
+  ],
 };
 
 export function isAllowedTerminalExit(from: string, to: string): boolean {
@@ -631,15 +722,49 @@ export function isPipelineKind(value: string): value is PipelineKind {
 }
 
 /**
+ * The phase-derived kind fallback — the one place `isEpicPhase(phase) ?
+ * "epic-design" : "feature"` lives. It can only ever resolve to
+ * "epic-design", never "epic-run" (see `isEpicPhase` above).
+ */
+export function kindFromPhase(phase: string): PipelineKind {
+  return isEpicPhase(phase) ? "epic-design" : "feature";
+}
+
+/**
+ * A state's window kind: the recorded `kind`, else the phase-derived
+ * fallback. At `needs-human` the shared terminal phase is feature-or-epic
+ * ambiguous, so the fallback reads the phase the pause interrupted
+ * (`pausedPhase`) — a kind-less paused epic must not read as a feature.
+ */
+export function resolveStateKind(
+  state: Pick<PipelineState, "kind" | "phase" | "phaseLog">,
+): PipelineKind {
+  return (
+    state.kind ??
+    kindFromPhase(
+      state.phase === "needs-human"
+        ? (pausedPhase(state.phaseLog) ?? state.phase)
+        : state.phase,
+    )
+  );
+}
+
+/**
  * Whether the `SessionStart:clear` hook auto-resumes a window at `phase`
  * for a supervisor of the given `kind`. Encodes
  * `bin/flow-session-start-hook.ts`'s terminal guard: an `epic-run` window
  * resumes regardless of phase (its shared `state.json` describes the
  * *design* lifecycle, not run progress — see `bin/lib/epic.ts`'s "no
  * per-machine phase machine" comment on the run path); every other kind
- * resumes unless `phase` is terminal, with the `gated` carve-out
- * (feedback-resume stays live even though `gated` is terminal). Mirrored
- * by `bin/lib/ls.ts`'s `kind === "epic-run"` annotation carve-out, which
+ * resumes unless `phase` is terminal, with two carve-outs: `gated`
+ * (feedback-resume stays live even though `gated` is terminal, for any
+ * kind) and `needs-human` for `kind === "feature"` or `"epic-design"` — the
+ * `awaiting-human` resume verdicts (`bin/flow-resume-decide.ts`,
+ * `bin/flow-epic-resume-decide.ts`) need the window's kind to be positively
+ * read before it auto-resumes, so a window whose kind cannot be read never
+ * gets driven as the wrong supervisor (see the hook's `kindCertain` guard).
+ * `epic-run` already resumes at every phase above. Mirrored by
+ * `bin/lib/ls.ts`'s `kind === "epic-run"` annotation carve-out, which
  * documents this reciprocal link on its own side.
  */
 export function autoResumesAfterClear(
@@ -649,7 +774,11 @@ export function autoResumesAfterClear(
   if (kind === "epic-run") {
     return true;
   }
-  return !TERMINAL_PHASE_SET.has(phase) || phase === "gated";
+  return (
+    !TERMINAL_PHASE_SET.has(phase) ||
+    phase === "gated" ||
+    (phase === "needs-human" && (kind === "feature" || kind === "epic-design"))
+  );
 }
 
 /**
@@ -681,6 +810,7 @@ export const PHASE_SHORT: Record<PipelinePhase, string> = {
   "triage-pending-interview": "intq?",
   "approval-pending-clarification": "appr?",
   "ci-wait-pending": "ci?",
+  "browser-retry-pending": "brwsr?",
   "checkpoint-pending-clear": "ckpt?",
   merged: "merged",
   gated: "gated",
@@ -834,7 +964,13 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (typeof o.repo !== "string") return false;
   if (typeof o.updatedAt !== "string") return false;
   if (o.pr !== undefined && typeof o.pr !== "number") return false;
+  if (o.prUrl !== undefined && typeof o.prUrl !== "string") return false;
   if (o.worktree !== undefined && typeof o.worktree !== "string") return false;
+  if (
+    o.reservedWorktree !== undefined &&
+    typeof o.reservedWorktree !== "string"
+  )
+    return false;
   if (o.autoMerge !== undefined && typeof o.autoMerge !== "boolean")
     return false;
   if (o.waitForCopilot !== undefined && typeof o.waitForCopilot !== "boolean")
@@ -970,20 +1106,75 @@ export function writeRequestFile(
  * `advancePhase` so the two write paths cannot drift on `phaseLog[]` shape.
  * Omits the `outcome` key entirely when absent — never writes
  * `outcome: undefined`.
+ *
+ * Same-phase-tail guard: when the last existing entry's `phase` already
+ * equals `phase`, return the existing log unchanged instead of appending a
+ * duplicate row. `advancePhase` already refuses an equal-phase write before
+ * ever reaching this function, so the guard here only changes behaviour for
+ * the `flow-state-update` write path (`applyUpdate`) — the path with no
+ * prior refusal check. This is what makes a phase's head-fence write (e.g.
+ * Step 5's `implementing`, Step 7's `ci-wait`) idempotent no matter which of
+ * the two write paths lands first: on a ci-red fix-loop reentry,
+ * `advancePhase("implementing", ...)` fires first (bin/flow-ci-check.ts),
+ * then Step 5's head fence calls `flow-state-update --phase implementing`
+ * second — this guard is what stops that second call from appending a
+ * duplicate row. The same shape makes Step 7's repeated `ci-wait` head-fence
+ * writes across a multi-turn yield/resume cycle idempotent too. Note this
+ * intentionally also suppresses a pre-existing consecutive duplicate (e.g.
+ * two `worktree-create` rows recorded back-to-back with nothing that changed
+ * phase in between) — that is the guard doing its job, not a regression.
  */
 export function appendPhaseLog(
   existing: PipelineState,
   phase: string,
   outcome?: string,
 ): NonNullable<PipelineState["phaseLog"]> {
+  const log = existing.phaseLog ?? [];
+  const last = log[log.length - 1];
+  if (last?.phase === phase) {
+    return log;
+  }
   return [
-    ...(existing.phaseLog ?? []),
+    ...log,
     {
       phase,
       at: nowIso(),
       ...(outcome !== undefined ? { outcome } : {}),
     },
   ];
+}
+
+/**
+ * The last non-terminal `phaseLog` phase before the most recent
+ * `needs-human` entry — the phase a needs-human pause continues at once the
+ * user confirms the paused human step is done. Scans backward from just
+ * before the latest `needs-human` entry (or from the end of the log when no
+ * `needs-human` entry exists) for the first entry whose phase is not in
+ * `TERMINAL_PHASE_SET`. Returns `undefined` when the log is empty/absent or
+ * every entry back to the start is terminal (e.g. a bare `[needs-human]`
+ * log, or a `[..., gated, needs-human]` log with nothing non-terminal
+ * before `gated`). Pure — `bin/flow-resume-decide.ts` re-runs `decide()`
+ * against the phase this returns to compute `continueAt`.
+ */
+export function pausedPhase(
+  phaseLog: ReadonlyArray<{ phase: string }> | undefined,
+): string | undefined {
+  if (!phaseLog || phaseLog.length === 0) return undefined;
+  let lastNeedsHumanIndex = -1;
+  for (let i = phaseLog.length - 1; i >= 0; i--) {
+    if (phaseLog[i].phase === "needs-human") {
+      lastNeedsHumanIndex = i;
+      break;
+    }
+  }
+  const startIndex =
+    lastNeedsHumanIndex === -1 ? phaseLog.length - 1 : lastNeedsHumanIndex - 1;
+  for (let i = startIndex; i >= 0; i--) {
+    if (!TERMINAL_PHASE_SET.has(phaseLog[i].phase)) {
+      return phaseLog[i].phase;
+    }
+  }
+  return undefined;
 }
 
 export function deleteState(slug: string, dir = FLOW_STATE_DIR): boolean {

@@ -2,17 +2,21 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_NEXT_ACTION,
   NEXT_ACTION_BY_REASON,
+  WHY_BY_REASON,
+  nextActionHeadline,
   parseArgs,
   render,
   renderCleanup,
   run,
+  whyForReason,
   type CleanupInput,
 } from "./flow-gate-summary";
 import { readState, writeState, type PipelineState } from "./lib/state";
+import { checkpointBodyPath, checkpointMarkerPath } from "./flow-checkpoint";
 import {
   TLDR_MAX_WORDS,
   buildManualAction,
@@ -159,12 +163,56 @@ describe("render — gated", () => {
     expect(out).toContain("PR: https://github.com/org/repo/pull/142");
     expect(out).toContain("WHY: 2 unchecked test steps remain");
     expect(out).toContain(
-      "NEXT ACTION: validate then run: gh pr merge --squash 142",
+      "NEXT ACTION: tick each step once validated, then run: flow-merge-guard merge 142 --slug <slug> (or reply `merge` in the pipeline window)",
     );
     expect(out).toContain(
       "  - Open /portfolio with the seeded user — chart renders",
     );
     expect(out).toContain("  - Switch time range to 1y — chart updates");
+  });
+
+  it("renders the real slug in the manual-merge command when provided, <slug> otherwise", () => {
+    const withSlug = render({
+      status: "gated",
+      prUrl: "https://github.com/org/repo/pull/142",
+      slug: "csv-export",
+    });
+    expect(withSlug).toContain(
+      "then run: flow-merge-guard merge 142 --slug csv-export (or reply `merge` in the pipeline window)",
+    );
+    const pmWithSlug = render({
+      status: "gated",
+      prUrl: "https://github.com/org/repo/pull/142",
+      slug: "csv-export",
+      lens: "pm",
+    });
+    expect(pmWithSlug).toContain(
+      "NEXT ACTION: tick the items above, then: flow-merge-guard merge 142 --slug csv-export",
+    );
+    const without = render({
+      status: "gated",
+      prUrl: "https://github.com/org/repo/pull/142",
+    });
+    expect(without).toContain("--slug <slug> (or reply");
+    const hostile = render({
+      status: "gated",
+      prUrl: "https://github.com/org/repo/pull/142",
+      slug: "x; rm -rf ~",
+    });
+    expect(hostile).toContain("--slug <slug> (or reply");
+    expect(hostile).not.toContain("rm -rf");
+  });
+
+  it("no gated text puts a cd, subshell or && before the manual merge command", () => {
+    for (const lens of ["pm", "dev"] as const) {
+      const out = render({
+        status: "gated",
+        prUrl: "https://github.com/org/repo/pull/7",
+        slug: "s",
+        lens,
+      });
+      expect(out).not.toMatch(/gh pr merge|cd .*&&.*merge/);
+    }
   });
 
   it("renders gated with empty validation items (no-auto-merge opted out)", () => {
@@ -178,7 +226,7 @@ describe("render — gated", () => {
     // helper does not gate on item presence; absence just means no
     // bulleted items appear.
     expect(out).toContain(
-      "NEXT ACTION: validate then run: gh pr merge --squash 1",
+      "NEXT ACTION: tick each step once validated, then run: flow-merge-guard merge 1 --slug <slug> (or reply `merge` in the pipeline window)",
     );
     expect(out.split("\n").filter((l) => l.startsWith("  - "))).toEqual([]);
     expect(finalLine(out)).toBe("GATED: https://example/pr/1");
@@ -203,7 +251,7 @@ describe("render — gated", () => {
       why: "no URL given",
     });
     expect(out).toContain(
-      "NEXT ACTION: validate then run: gh pr merge --squash <pr>",
+      "NEXT ACTION: tick each step once validated, then run: flow-merge-guard merge <pr> --slug <slug> (or reply `merge` in the pipeline window)",
     );
     expect(finalLine(out)).toBe("GATED:");
   });
@@ -220,6 +268,97 @@ describe("render — gated", () => {
     expect(out).toContain("  LOCAL FOLLOW-UPS (deferred");
     expect(finalLine(out)).toBe("GATED: https://example/pr/1");
   });
+});
+
+describe("render — needs-human WHY row (--why -> per-reason default -> omit)", () => {
+  const whyRows = (out: string) =>
+    out.split("\n").filter((l) => l.startsWith("WHY:"));
+
+  it("dev + no --why + verify-exhausted prints exactly one default WHY row, never the raw tag", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "verify-exhausted",
+      lens: "dev",
+    });
+    expect(whyRows(out)).toEqual([`WHY: ${WHY_BY_REASON["verify-exhausted"]}`]);
+    expect(out).not.toContain("WHY: verify-exhausted");
+    expect(finalLine(out)).toBe("NEEDS HUMAN: verify-exhausted");
+  });
+
+  it("pm + --why gh auth refused + gh-error shows the site's diagnostic, not the default", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "gh-error",
+      why: "gh auth refused",
+      lens: "pm",
+    });
+    expect(whyRows(out)).toEqual(["WHY: gh auth refused"]);
+    expect(out).not.toContain(WHY_BY_REASON["gh-error"]);
+  });
+
+  it("pm + no --why + verify-exhausted prints exactly one default WHY row", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "verify-exhausted",
+      lens: "pm",
+    });
+    expect(whyRows(out)).toEqual([`WHY: ${WHY_BY_REASON["verify-exhausted"]}`]);
+  });
+
+  it("[negative] an unknown tag renders no WHY row in either view and the sentinel stays last", () => {
+    for (const lens of ["dev", "pm"] as const) {
+      const out = render({
+        status: "needs-human",
+        reason: "made-up-tag",
+        lens,
+      });
+      expect(whyRows(out), lens).toEqual([]);
+      expect(finalLine(out)).toBe("NEEDS HUMAN: made-up-tag");
+    }
+  });
+
+  it("[negative] pm gated/merged/cancelled renders stay why-free", () => {
+    for (const status of ["gated", "merged", "cancelled"] as const) {
+      const out = render({
+        status,
+        lens: "pm",
+        prUrl: "https://example/pr/1",
+        validationItems: ["one"],
+      });
+      expect(whyRows(out), status).toEqual([]);
+    }
+  });
+
+  it("dev task-tool-unavailable: pr-review-fix-applier puts the site on WHY and not on NEXT ACTION", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "task-tool-unavailable: pr-review-fix-applier",
+      lens: "dev",
+    });
+    expect(whyRows(out)[0]).toContain("(spawn site: pr-review-fix-applier)");
+    const nextAction = out
+      .split("\n")
+      .find((l) => l.startsWith("NEXT ACTION:"))!;
+    expect(nextAction).not.toContain("(spawn site:");
+  });
+});
+
+describe("NEXT_ACTION_BY_REASON manual merge recipes", () => {
+  it.each([
+    "merge-failed",
+    "merge-resolver-missing-artifact",
+    "merge-resolver-spawn-denied",
+  ])(
+    "%s never points at flow-merge-guard merge (it cannot leave needs-human)",
+    (reason) => {
+      const text = NEXT_ACTION_BY_REASON[reason]!;
+      expect(text).not.toContain("flow-merge-guard merge");
+      expect(text).toContain("reply done in the pipeline window");
+      expect(text).toContain("merge the PR on GitHub yourself");
+      expect(text).not.toContain("gh pr merge");
+      expect(text).not.toContain("cd <repo>");
+    },
+  );
 });
 
 describe("render — needs-human (per-reason mapping)", () => {
@@ -242,12 +381,184 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(out).toContain(
       `NEXT ACTION: ${NEXT_ACTION_BY_REASON["smoketest-needs-creds"]}`,
     );
-    expect(out).toContain("credentialEnvVars");
+    expect(out).toContain(".flow/ui-validation.json");
     expect(out).toContain("flow feature resume");
     expect(finalLine(out)).toBe("NEEDS HUMAN: smoketest-needs-creds");
     // The reason tag must stay colon-free so nextActionForReason (which splits
     // on the first ':') resolves the full mapping.
     expect("smoketest-needs-creds".includes(":")).toBe(false);
+    // The wording covers both "not found" and "access was refused" (a
+    // credential-denial skip, not just an inference miss) and points at the
+    // no-values presence check instead of suggesting a value ever be pasted.
+    // It also names only what flow controls (never claims to know whether an
+    // agent read the file via some other route) and gives the "already
+    // present but still refused" branch its own remedy.
+    expect(out).toContain("refused");
+    expect(out).toContain("flow-ui-login check");
+    expect(out).not.toContain("Nothing was read from your .env");
+    expect(out).toContain("deny or ask rule");
+    expect(out).toContain("Nothing is lost");
+    expect(out).toContain("flow feature resume <slug>");
+    expect(out).not.toContain("flow doctor");
+    expect(out).not.toContain("Auto-mode UI login");
+  });
+
+  it("maps merge-refused to a fix-the-cause recipe that replies done and never offers an override", () => {
+    const out = render({ status: "needs-human", reason: "merge-refused" });
+    expect(out).toContain("Fix what the merge guard named");
+    expect(out).toContain("flow feature resume <slug>");
+    expect(out).not.toContain("confirm the merge override");
+    expect(whyForReason("merge-refused")).toContain("merge guard refused");
+    expect(finalLine(out)).toBe("NEEDS HUMAN: merge-refused");
+  });
+
+  it("maps merge-permission-denied to the one-reply recipe naming merge #<pr> and flow feature resume", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "merge-permission-denied",
+    });
+    expect(out).toContain("merge #<pr>");
+    expect(out).toContain("flow feature resume <slug>");
+    expect(whyForReason("merge-permission-denied")).toContain(
+      "permission system refused the merge",
+    );
+    expect(finalLine(out)).toBe("NEEDS HUMAN: merge-permission-denied");
+  });
+
+  it("renders the injected mergeRuleHint under the pause, and no hint line when none is injected", () => {
+    const hint =
+      "If this pipeline was launched before flow shipped its own merge rule, `flow feature resume <slug>` relaunches it with the rule; replying `merge #<pr>` also finishes it.";
+    const withHint = render({
+      status: "needs-human",
+      reason: "merge-permission-denied",
+      mergeRuleHint: hint,
+    });
+    expect(withHint).toContain(hint);
+    expect(finalLine(withHint)).toBe("NEEDS HUMAN: merge-permission-denied");
+    expect(
+      render({ status: "needs-human", reason: "merge-permission-denied" }),
+    ).not.toContain("launched before flow shipped its own merge rule");
+    expect(render({ status: "gated", mergeRuleHint: hint })).not.toContain(
+      "launched before flow shipped its own merge rule",
+    );
+  });
+
+  describe("run() derives mergeRuleHint from the user's settings (read-only)", () => {
+    function renderViaRun(
+      home: string,
+      reason: string,
+      extra: string[] = [],
+    ): string {
+      const original = process.stdout.write.bind(process.stdout);
+      let captured = "";
+      process.stdout.write = ((chunk: unknown) => {
+        captured += String(chunk);
+        return true;
+      }) as typeof process.stdout.write;
+      try {
+        run(
+          [
+            "--status",
+            "needs-human",
+            "--reason",
+            reason,
+            "--lens",
+            "dev",
+            "--slug",
+            "mrh-test-slug",
+            ...extra,
+          ],
+          { stateDir: tmpRoot, homeDir: home, env: {} },
+        );
+      } finally {
+        process.stdout.write = original;
+      }
+      return captured;
+    }
+
+    function homeWithSettings(body: string | null): string {
+      const home = path.join(tmpRoot, "home");
+      fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+      if (body !== null) {
+        fs.writeFileSync(path.join(home, ".claude", "settings.json"), body);
+      }
+      return home;
+    }
+
+    it("with no personal rules, points at flow feature resume and never says to edit permissions.allow", () => {
+      const home = homeWithSettings(null);
+      const out = renderViaRun(home, "merge-permission-denied");
+      expect(out).toContain("flow feature resume mrh-test-slug");
+      expect(out).not.toContain("permissions.allow");
+    });
+
+    it("names a merge-covering personal ask entry and the real file", () => {
+      const home = homeWithSettings(
+        JSON.stringify({
+          permissions: { ask: ["Bash(flow-merge-guard *)"] },
+        }),
+      );
+      const out = renderViaRun(home, "merge-permission-denied");
+      expect(out).toContain("Bash(flow-merge-guard *)");
+      expect(out).toContain(path.join(home, ".claude", "settings.json"));
+      expect(out).toContain("makes every unattended merge stop for approval");
+      expect(out).not.toContain("permissions.allow");
+    });
+
+    it("does not claim every merge prompts for an override-only ask entry", () => {
+      const home = homeWithSettings(
+        JSON.stringify({
+          permissions: { ask: ["Bash(flow-merge-guard * --record-override)"] },
+        }),
+      );
+      const out = renderViaRun(home, "merge-permission-denied");
+      expect(out).not.toContain("stop for approval");
+      expect(out).toContain("flow feature resume mrh-test-slug");
+    });
+
+    it("names classifyAllShell and says relaunching will not help when no ask entry conflicts", () => {
+      const home = homeWithSettings(
+        JSON.stringify({ autoMode: { classifyAllShell: true } }),
+      );
+      const out = renderViaRun(home, "merge-permission-denied", [
+        "--pr-url",
+        "https://github.com/o/r/pull/77",
+      ]);
+      expect(out).toContain("autoMode.classifyAllShell");
+      expect(out).toContain("relaunching will not help");
+      expect(out).toContain("merge #77");
+      expect(out).not.toContain(
+        "launched before flow shipped its own merge rule",
+      );
+    });
+
+    it("the conflicting-entry line carries the delete remedy and the real PR number", () => {
+      const home = homeWithSettings(
+        JSON.stringify({
+          permissions: { ask: ["Bash(flow-merge-guard *)"] },
+        }),
+      );
+      const out = renderViaRun(home, "merge-permission-denied", [
+        "--pr-url",
+        "https://github.com/o/r/pull/77",
+      ]);
+      expect(out).toContain("— delete it");
+      expect(out).not.toContain("Narrow");
+      expect(out).toContain("merge #77");
+    });
+
+    it("falls back to <pr> when no PR URL is given", () => {
+      const home = homeWithSettings(null);
+      const out = renderViaRun(home, "merge-permission-denied");
+      expect(out).toContain("merge #<pr>");
+    });
+
+    it("adds no line for any other reason", () => {
+      const home = homeWithSettings(null);
+      expect(renderViaRun(home, "merge-failed")).not.toContain(
+        "launched before flow shipped its own merge rule",
+      );
+    });
   });
 
   it("maps merge-resolver-spawn-denied to a manual git-merge recovery recipe", () => {
@@ -300,28 +611,23 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(finalLine(out)).toBe("NEEDS HUMAN: <reason>");
   });
 
-  it("substitutes the site name into task-tool-unavailable mapping", () => {
+  it("puts the task-tool-unavailable spawn site on the WHY row, never on NEXT ACTION", () => {
     const out = render({
       status: "needs-human",
       reason: "task-tool-unavailable: pr-review-fix-applier",
     });
-    // The NEXT ACTION must carry the spawn site as appended context so
-    // the rendered block names the exact remediation for each of the
-    // six exemption sites; without this, all six collapse to the same
-    // generic line. task-tool-unavailable is now a multi-line (header +
-    // numbered steps) recipe, so the suffix must land on the header
-    // line (the `NEXT ACTION:` row) — never on the final step line.
-    const mapped = NEXT_ACTION_BY_REASON["task-tool-unavailable"];
-    const header = mapped.split("\n")[0];
+    // The site is diagnosis, so it rides the WHY default; the NEXT ACTION
+    // recipe is the bare mapped headline + steps, and the sentinel still
+    // carries the full reason byte-exactly.
     expect(out).toContain(
-      `NEXT ACTION: ${header} (spawn site: pr-review-fix-applier)`,
+      `NEXT ACTION: ${NEXT_ACTION_BY_REASON["task-tool-unavailable"]}`,
     );
-    const lastLine = mapped.split("\n").at(-1)!;
-    expect(out).not.toContain(`${lastLine} (spawn site:`);
+    expect(out).toContain(
+      `WHY: ${WHY_BY_REASON["task-tool-unavailable"]} (spawn site: pr-review-fix-applier)`,
+    );
     expect(finalLine(out)).toBe(
       "NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier",
     );
-    expect(out).toContain("WHY: task-tool-unavailable: pr-review-fix-applier");
   });
 
   it("does not append site context when task-tool-unavailable suffix is empty", () => {
@@ -424,20 +730,82 @@ describe("render — needs-human (per-reason mapping)", () => {
     }
   });
 
-  it("places the task-tool-unavailable spawn-site suffix on the NEXT ACTION header, not the final step", () => {
+  it("keeps the task-tool-unavailable spawn-site suffix off every NEXT ACTION line and on the WHY row", () => {
     const out = render({
       status: "needs-human",
       reason: "task-tool-unavailable: pr-review-fix-applier",
     });
-    const nextActionLine = out
-      .split("\n")
-      .find((l) => l.startsWith("NEXT ACTION:"))!;
-    expect(nextActionLine).toContain("(spawn site: pr-review-fix-applier)");
-    const lastLine = out
-      .split("\n")
-      .filter((l) => l !== "")
-      .at(-2)!; // last step, before the sentinel
-    expect(lastLine).not.toContain("(spawn site:");
+    const lines = out.split("\n");
+    const nextActionLine = lines.find((l) => l.startsWith("NEXT ACTION:"))!;
+    expect(nextActionLine).not.toContain("(spawn site:");
+    const lastStep = lines.filter((l) => l !== "").at(-2)!; // before the sentinel
+    expect(lastStep).not.toContain("(spawn site:");
+    const whyLine = lines.find((l) => l.startsWith("WHY:"))!;
+    expect(whyLine).toContain("(spawn site: pr-review-fix-applier)");
+  });
+
+  it("[negative] the spawn-site suffix is absent from whyForReason when the suffix is empty", () => {
+    expect(whyForReason("task-tool-unavailable:")).toBe(
+      WHY_BY_REASON["task-tool-unavailable"],
+    );
+    expect(whyForReason("task-tool-unavailable")).not.toContain("spawn site");
+  });
+
+  it("[negative] a colon-bearing reason with an embedded line break yields no WHY", () => {
+    expect(whyForReason("task-tool-unavailable: site\ninjected")).toBe("");
+    expect(whyForReason("task-tool-unavailable: site\rinjected")).toBe("");
+    expect(whyForReason("ci-hang:\nextra")).toBe("");
+  });
+
+  it("[negative] an inherited object key as a reason resolves as unknown, not a prototype member", () => {
+    for (const reason of ["constructor", "toString", "__proto__"]) {
+      expect(whyForReason(reason), reason).toBe("");
+      expect(nextActionHeadline(reason), reason).toBe(
+        DEFAULT_NEXT_ACTION.split("\n")[0],
+      );
+    }
+  });
+
+  it("Task 5: every reason naming flow feature resume also tells the user to close the window first, and none uses the bare 'Then run flow feature resume' step", () => {
+    for (const [reason, recipe] of Object.entries(NEXT_ACTION_BY_REASON)) {
+      expect(recipe, reason).not.toContain("Then run flow feature resume");
+      if (recipe.includes("flow feature resume")) {
+        expect(
+          recipe.includes("close the window first") ||
+            recipe.includes("close the pipeline window first"),
+          `reason '${reason}' names flow feature resume without a close-first caveat: ${recipe}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("Task 5: worktree-create-failed names no worktree to resume — it points at fixing the cause, flow done, and a fresh flow feature create instead", () => {
+    const recipe = NEXT_ACTION_BY_REASON["worktree-create-failed"];
+    expect(recipe).not.toContain("flow feature resume");
+    expect(recipe).toContain("flow done <slug>");
+    expect(recipe).toContain('flow feature create "<description>"');
+    const out = render({
+      status: "needs-human",
+      reason: "worktree-create-failed",
+    });
+    expect(out).toContain(`NEXT ACTION: ${recipe.split("\n")[0]}`);
+    expect(finalLine(out)).toBe("NEEDS HUMAN: worktree-create-failed");
+  });
+
+  it("wrong-repo renders the relaunch recipe and its default WHY", () => {
+    const out = render({ status: "needs-human", reason: "wrong-repo" });
+    expect(out).toContain("flow done <slug>");
+    expect(out).toContain(WHY_BY_REASON["wrong-repo"]);
+    expect(finalLine(out)).toBe("NEEDS HUMAN: wrong-repo");
+  });
+
+  it("prompt-contradiction renders the restate recipe", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "prompt-contradiction",
+    });
+    expect(out).toContain("flow attach <slug>");
+    expect(finalLine(out)).toBe("NEEDS HUMAN: prompt-contradiction");
   });
 });
 
@@ -497,11 +865,13 @@ describe("render — awaiting-approval", () => {
     expect(startIdx).toBe(0);
     expect(endIdx).toBeGreaterThan(startIdx);
     expect(statusIdx).toBeGreaterThan(endIdx);
-    // The plan-file bullet inside the recap carries no trailing punctuation.
+    // The plan-file bullet inside the recap carries no trailing
+    // punctuation. It's a markdown link (renderEchoRecap's default) —
+    // the recap is copied into assistant prose, not a terminal.
     const recapPlan = out
       .split("\n")
       .find((l) => l.startsWith("- Plan file:"))!;
-    expect(recapPlan).toBe("- Plan file: /a/p.md");
+    expect(recapPlan).toBe("- Plan file: [/a/p.md](file:///a/p.md)");
     expect(recapPlan.endsWith(".")).toBe(false);
     expect(recapPlan.endsWith(":")).toBe(false);
     // The original two path bullets still close the block.
@@ -673,7 +1043,7 @@ describe("render — pm lens", () => {
     expect(out).toContain("16 findings fixed, none changed behavior");
     const nextActionIdx = lines.findIndex((l) => l.startsWith("NEXT ACTION:"));
     expect(lines[nextActionIdx]).toBe(
-      "NEXT ACTION: tick the items above, then: gh pr merge --squash 640",
+      "NEXT ACTION: tick the items above, then: flow-merge-guard merge 640 --slug <slug> (or reply `merge` in the pipeline window)",
     );
     expect(lines[nextActionIdx + 1]).toBe(
       "GATED: https://github.com/org/repo/pull/640",
@@ -829,7 +1199,9 @@ describe("render — pm lens", () => {
       planFile: "/work/.flow-tmp/plan.md",
     });
     expect(out).not.toContain("- PR URL: none");
-    expect(out).toContain("- Plan file: /work/.flow-tmp/plan.md");
+    expect(out).toContain(
+      "- Plan file: [/work/.flow-tmp/plan.md](file:///work/.flow-tmp/plan.md)",
+    );
     expect(out).toContain("TLDR: CI waiting becomes crash-proof.");
   });
 
@@ -1219,6 +1591,10 @@ describe("run (end-to-end CLI)", () => {
     const lines = captured.split("\n").filter((l) => l !== "");
     expect(lines[0]).toBe("STATUS: GATED");
     expect(lines[lines.length - 1]).toBe("GATED: https://example/pr/1");
+    // The resolved --slug reaches the manual-merge command.
+    expect(captured).toContain(
+      "flow-merge-guard merge 1 --slug gate-write-test-slug",
+    );
   });
 
   it("silently suppresses FOLLOW-UPS when deferred file is missing on disk", () => {
@@ -1401,6 +1777,177 @@ describe("run (end-to-end CLI)", () => {
       tmpRoot,
     );
   }
+
+  it("keeps the sentinel line byte-exact and escape-free in EVERY link mode, for every status", () => {
+    const cases: { args: string[]; slug: string; expected: string }[] = [
+      {
+        args: ["--status", "merged", "--pr-url", "https://example/pr/1"],
+        slug: "escape-check-merged",
+        expected: "MERGED",
+      },
+      {
+        args: ["--status", "gated", "--pr-url", "https://example/pr/1"],
+        slug: "escape-check-gated",
+        expected: "GATED: https://example/pr/1",
+      },
+      {
+        args: [
+          "--status",
+          "needs-human",
+          "--pr-url",
+          "https://example/pr/1",
+          "--reason",
+          "some-reason",
+        ],
+        slug: "escape-check-needs-human",
+        expected: "NEEDS HUMAN: some-reason",
+      },
+      {
+        args: ["--status", "cancelled"],
+        slug: "escape-check-cancelled",
+        expected: "cancelled",
+      },
+    ];
+    // Loop BOTH dimensions. Terminal mode alone under-tests the contract:
+    // a markdown-mode regression rendering `GATED: [url](url)` carries no
+    // escape bytes at all, so an escape-only assertion passes it. Asserting
+    // the exact sentinel text is what actually pins "never linkified, in
+    // any mode" — `GATED: <url>` being the trap, a sentinel that CONTAINS
+    // a URL and so looks linkifiable.
+    for (const mode of ["terminal", "markdown", "plain"] as const) {
+      for (const { args, slug, expected } of cases) {
+        const { rc, out } = captureStdout(() =>
+          run([...args, "--link-mode", mode, "--slug", `${slug}-${mode}`], {
+            stateDir: tmpRoot,
+          }),
+        );
+        expect(rc).toBe(0);
+        const lines = out.split("\n").filter((l) => l !== "");
+        const sentinel = lines[lines.length - 1];
+        expect(sentinel).not.toContain("\x1b");
+        expect(sentinel).toBe(expected);
+      }
+    }
+  });
+
+  it("renders the AWAITING-APPROVAL path bullets as links in a non-plain mode", () => {
+    // Regression pin: every other render() call omits linkMode, so under
+    // vitest resolveLinkMode() returns "plain" and linkPath() is a no-op on
+    // these two lines — 2 of Task 2's 5 call sites, and the exact surface
+    // the feature exists for. Reverting them to bare paths, or swapping
+    // linkPath->linkUrl, would otherwise keep the whole suite green.
+    for (const mode of ["terminal", "markdown"] as const) {
+      const { rc, out } = captureStdout(() =>
+        run(
+          [
+            "--status",
+            "awaiting-approval",
+            "--worktree",
+            "/tmp/wt",
+            "--plan-file",
+            "/tmp/wt/.flow-tmp/plan.md",
+            "--link-mode",
+            mode,
+            "--slug",
+            `bullets-${mode}`,
+          ],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      const bullets = out.split("\n").filter((l) => l.startsWith("  - "));
+      expect(bullets).toHaveLength(2);
+      for (const b of bullets) {
+        if (mode === "terminal") {
+          expect(b).toContain("\x1b]8;;file:///");
+        } else {
+          expect(b).toContain("](file:///");
+        }
+      }
+      // The visible label stays the raw path verbatim — the module invariant.
+      expect(bullets[0]).toContain("/tmp/wt");
+      expect(bullets[1]).toContain("/tmp/wt/.flow-tmp/plan.md");
+    }
+  });
+
+  it("--link-mode terminal wraps the PR row in an OSC 8 hyperlink", () => {
+    const { out } = captureStdout(() =>
+      run(
+        [
+          "--status",
+          "gated",
+          "--pr-url",
+          "https://example/pr/1",
+          "--link-mode",
+          "terminal",
+          "--slug",
+          "link-mode-terminal-slug",
+        ],
+        { stateDir: tmpRoot },
+      ),
+    );
+    expect(out).toContain(
+      "PR: \x1b]8;;https://example/pr/1\x1b\\https://example/pr/1\x1b]8;;\x1b\\",
+    );
+    // The sentinel stays bare even though the PR row above it is linkified.
+    expect(out.trimEnd().endsWith("GATED: https://example/pr/1")).toBe(true);
+  });
+
+  it("--link-mode markdown wraps the PR row as a markdown link", () => {
+    const { out } = captureStdout(() =>
+      run(
+        [
+          "--status",
+          "merged",
+          "--pr-url",
+          "https://example/pr/1",
+          "--link-mode",
+          "markdown",
+          "--slug",
+          "link-mode-markdown-slug",
+        ],
+        { stateDir: tmpRoot },
+      ),
+    );
+    expect(out).toContain("PR: [https://example/pr/1](https://example/pr/1)");
+  });
+
+  it("--link-mode plain overrides the autodetect and leaves the PR row bare", () => {
+    const { out } = captureStdout(() =>
+      run(
+        [
+          "--status",
+          "merged",
+          "--pr-url",
+          "https://example/pr/1",
+          "--link-mode",
+          "plain",
+          "--slug",
+          "link-mode-plain-slug",
+        ],
+        { stateDir: tmpRoot },
+      ),
+    );
+    expect(out).toContain("PR: https://example/pr/1");
+    expect(out).not.toContain("\x1b");
+  });
+
+  it("rejects an unrecognised --link-mode value with a usage error", () => {
+    const original = process.stderr.write.bind(process.stderr);
+    let captured = "";
+    process.stderr.write = ((chunk: unknown) => {
+      captured += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const rc = run(["--status", "merged", "--link-mode", "bogus"]);
+      expect(rc).toBe(2);
+    } finally {
+      process.stderr.write = original;
+    }
+    expect(captured).toContain("--link-mode must be one of");
+    expect(captured).toContain("usage:");
+  });
 
   it("omits CLEANUP entirely when --cleanup is not passed, even with a recorded reap", () => {
     seedState("cleanup-flag-off-slug", {
@@ -1789,6 +2336,304 @@ describe("run (end-to-end CLI)", () => {
       } finally {
         fs.rmSync(root, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe("Task 7: a needs-human render arms the terminal checkpoint by construction", () => {
+    function captureBoth(fn: () => number): {
+      rc: number;
+      out: string;
+      err: string;
+    } {
+      const originalOut = process.stdout.write.bind(process.stdout);
+      const originalErr = process.stderr.write.bind(process.stderr);
+      let out = "";
+      let err = "";
+      process.stdout.write = ((chunk: unknown) => {
+        out += String(chunk);
+        return true;
+      }) as typeof process.stdout.write;
+      process.stderr.write = ((chunk: unknown) => {
+        err += String(chunk);
+        return true;
+      }) as typeof process.stderr.write;
+      try {
+        const rc = fn();
+        return { rc, out, err };
+      } finally {
+        process.stdout.write = originalOut;
+        process.stderr.write = originalErr;
+      }
+    }
+
+    it("a render advancing from implementing arms the marker, writes a four-line body naming the reason and the paused phase, records freshness at site terminal, prints the checkpointed banner, and leaves the sentinel unchanged", () => {
+      const slug = "arm-implementing-slug";
+      seedState(slug, {
+        phase: "implementing",
+        phaseLog: [{ phase: "implementing", at: "2026-01-01T00:00:00.000Z" }],
+      });
+      const { rc, out, err } = captureBoth(() =>
+        run(
+          [
+            "--status",
+            "needs-human",
+            "--slug",
+            slug,
+            "--reason",
+            "ci-hang",
+            "--why",
+            "CI appears stalled",
+          ],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      expect(out.trim().split("\n").pop()).toBe("NEEDS HUMAN: ci-hang");
+      expect(fs.existsSync(checkpointMarkerPath(slug, tmpRoot))).toBe(true);
+      const body = fs.readFileSync(checkpointBodyPath(slug, tmpRoot), "utf8");
+      expect(body).toContain("ci-hang");
+      expect(body).toContain("Paused at phase: implementing");
+      const state = readState(slug, tmpRoot);
+      expect(state?.checkpoint?.site).toBe("terminal");
+      expect(err).toContain(
+        "checkpointed: true — site=terminal — safe to /clear",
+      );
+    });
+
+    it("the checkpoint body's Why: uses the per-reason default when --why is absent", () => {
+      const slug = "arm-why-default-slug";
+      seedState(slug, {
+        phase: "implementing",
+        phaseLog: [{ phase: "implementing", at: "2026-01-01T00:00:00.000Z" }],
+      });
+      const { rc } = captureBoth(() =>
+        run(
+          [
+            "--status",
+            "needs-human",
+            "--slug",
+            slug,
+            "--reason",
+            "verify-exhausted",
+          ],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      const body = fs.readFileSync(checkpointBodyPath(slug, tmpRoot), "utf8");
+      expect(body).toContain(`Why: ${WHY_BY_REASON["verify-exhausted"]}`);
+      expect(body).not.toContain("Why: verify-exhausted");
+    });
+
+    it("--reason carrying embedded newlines is one-lined into the checkpoint body, matching --why's sanitization", () => {
+      const slug = "arm-reason-newline-slug";
+      seedState(slug, {
+        phase: "implementing",
+        phaseLog: [{ phase: "implementing", at: "2026-01-01T00:00:00.000Z" }],
+      });
+      const { rc } = captureBoth(() =>
+        run(
+          [
+            "--status",
+            "needs-human",
+            "--slug",
+            slug,
+            "--reason",
+            "ci-hang\ninjected-line",
+          ],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      const body = fs.readFileSync(checkpointBodyPath(slug, tmpRoot), "utf8");
+      expect(body).toContain("ci-hang injected-line");
+      expect(body).not.toContain("ci-hang\ninjected-line");
+      expect(body.split("\n")).toHaveLength(5); // 4 lines + trailing newline
+    });
+
+    it("a throw writing the checkpoint body (arm never reached) still emits a false checkpointed banner to stderr", () => {
+      const slug = "arm-throw-slug";
+      seedState(slug, {
+        phase: "implementing",
+        phaseLog: [{ phase: "implementing", at: "2026-01-01T00:00:00.000Z" }],
+      });
+      // Pre-create the checkpoint directory and strip write permission so
+      // `fs.writeFileSync(bodyPath, ...)` throws EACCES for this non-root
+      // test process — the concrete failure mode the fix handles, without
+      // needing to mock the `fs` module itself (writeFileSync can't be
+      // redefined on this ESM binding).
+      const bodyPath = checkpointBodyPath(slug, tmpRoot);
+      const bodyDir = path.dirname(bodyPath);
+      fs.mkdirSync(bodyDir, { recursive: true });
+      fs.chmodSync(bodyDir, 0o555);
+      try {
+        const { rc, err } = captureBoth(() =>
+          run(
+            ["--status", "needs-human", "--slug", slug, "--reason", "ci-hang"],
+            { stateDir: tmpRoot },
+          ),
+        );
+        expect(rc).toBe(0);
+        expect(err).toContain("checkpointed: false — arm-failed:");
+      } finally {
+        fs.chmodSync(bodyDir, 0o755);
+      }
+    });
+
+    it("a fresh unrecorded body newer than every phaseLog entry is left untouched, and the marker still arms", () => {
+      const slug = "arm-fresh-unrecorded-slug";
+      seedState(slug, {
+        phase: "implementing",
+        phaseLog: [{ phase: "implementing", at: "2020-01-01T00:00:00.000Z" }],
+      });
+      const bodyPath = checkpointBodyPath(slug, tmpRoot);
+      fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
+      const manualNote = "a hand-authored checkpoint note\n";
+      fs.writeFileSync(bodyPath, manualNote);
+      // Pin the body's mtime into the future so it is deterministically
+      // "newer than every phaseLog entry" — including the needs-human
+      // entry this very render's finalizePhase call is about to append,
+      // which would otherwise race the body's real write time.
+      const future = new Date("2030-01-01T00:00:00.000Z");
+      fs.utimesSync(bodyPath, future, future);
+      const { rc } = captureBoth(() =>
+        run(
+          ["--status", "needs-human", "--slug", slug, "--reason", "ci-hang"],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      expect(fs.readFileSync(bodyPath, "utf8")).toBe(manualNote);
+      expect(fs.existsSync(checkpointMarkerPath(slug, tmpRoot))).toBe(true);
+    });
+
+    it("a re-render at an already-needs-human pipeline arms nothing (finalizePhase reports no advance)", () => {
+      const slug = "arm-rerender-slug";
+      seedState(slug, {
+        phase: "needs-human",
+        phaseLog: [{ phase: "needs-human", at: "2026-01-01T00:00:00.000Z" }],
+      });
+      const { rc } = captureBoth(() =>
+        run(
+          ["--status", "needs-human", "--slug", slug, "--reason", "ci-hang"],
+          { stateDir: tmpRoot },
+        ),
+      );
+      expect(rc).toBe(0);
+      expect(fs.existsSync(checkpointMarkerPath(slug, tmpRoot))).toBe(false);
+    });
+
+    it("--status gated arms nothing", () => {
+      const slug = "arm-gated-slug";
+      seedState(slug, { phase: "gating" });
+      const { rc } = captureBoth(() =>
+        run(["--status", "gated", "--slug", slug], { stateDir: tmpRoot }),
+      );
+      expect(rc).toBe(0);
+      expect(fs.existsSync(checkpointMarkerPath(slug, tmpRoot))).toBe(false);
+    });
+
+    it("--status merged arms nothing", () => {
+      const slug = "arm-merged-slug";
+      seedState(slug, { phase: "gating" });
+      const { rc } = captureBoth(() =>
+        run(["--status", "merged", "--slug", slug], { stateDir: tmpRoot }),
+      );
+      expect(rc).toBe(0);
+      expect(fs.existsSync(checkpointMarkerPath(slug, tmpRoot))).toBe(false);
+    });
+
+    it("no resolvable slug arms nothing and still exits 0", () => {
+      const { rc } = captureBoth(() =>
+        run(["--status", "needs-human", "--reason", "ci-hang"], {
+          stateDir: tmpRoot,
+          env: {},
+        }),
+      );
+      expect(rc).toBe(0);
+    });
+  });
+
+  describe("run.terminal telemetry", () => {
+    let telemetryHome: string;
+    let telemetryPath: string;
+
+    beforeEach(() => {
+      telemetryHome = process.env.HOME as string;
+      telemetryPath = path.join(
+        telemetryHome,
+        ".flow",
+        "telemetry",
+        "events.jsonl",
+      );
+      fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    afterEach(() => {
+      fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    it.each(["merged", "gated", "needs-human", "cancelled"] as const)(
+      "records one run.terminal event with status/reason for status: %s",
+      (status) => {
+        const slug = `terminal-telemetry-${status}-slug`;
+        seedState(slug, { phase: "gating" });
+        const { rc } = captureStdout(() =>
+          run(["--status", status, "--slug", slug, "--reason", "ci-hang"], {
+            stateDir: tmpRoot,
+          }),
+        );
+        expect(rc).toBe(0);
+        const lines = fs
+          .readFileSync(telemetryPath, "utf8")
+          .split("\n")
+          .filter((l) => l.length > 0)
+          .map((l) => JSON.parse(l));
+        const terminals = lines.filter((l) => l.event === "run.terminal");
+        expect(terminals).toHaveLength(1);
+        expect(terminals[0].attrs.status).toBe(status);
+        expect(terminals[0].attrs.reason).toBe("ci-hang");
+      },
+    );
+
+    it("awaiting-approval records no run.terminal event (not a terminal status)", () => {
+      const slug = "terminal-telemetry-awaiting-approval-slug";
+      seedState(slug, { phase: "gating" });
+      const { rc } = captureStdout(() =>
+        run(["--status", "awaiting-approval", "--slug", slug], {
+          stateDir: tmpRoot,
+        }),
+      );
+      expect(rc).toBe(0);
+      expect(fs.existsSync(telemetryPath)).toBe(false);
+    });
+
+    it("an injected stdout write failure (broken pipe) records no run.terminal event", () => {
+      const slug = "terminal-telemetry-broken-pipe-slug";
+      seedState(slug, { phase: "gating" });
+      const original = process.stdout.write.bind(process.stdout);
+      process.stdout.write = (() => {
+        throw new Error("EPIPE: broken pipe");
+      }) as typeof process.stdout.write;
+      const originalStderr = process.stderr.write.bind(process.stderr);
+      process.stderr.write = (() => true) as typeof process.stderr.write;
+      let rc: number;
+      try {
+        rc = run(["--status", "merged", "--slug", slug], {
+          stateDir: tmpRoot,
+        });
+      } finally {
+        process.stdout.write = original;
+        process.stderr.write = originalStderr;
+      }
+      expect(rc).toBe(1);
+      expect(fs.existsSync(telemetryPath)).toBe(false);
     });
   });
 });

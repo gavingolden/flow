@@ -459,6 +459,15 @@ describe(validateFile, () => {
     expect(validateFile(a)).toEqual([]);
   });
 
+  it("treats a file:// link as external, never resolving it against the filesystem", () => {
+    // Regression: EXTERNAL_RE previously omitted the `file` scheme, so a
+    // committed `[label](file:///abs/path)` markdown link (e.g. the
+    // clickable-output docs this PR adds) got path.resolve()'d and
+    // reported as a broken-link-target, turning the docs-scope gate red.
+    const a = write("a.md", "[abs](file:///abs/does-not-exist/path)\n");
+    expect(validateFile(a)).toEqual([]);
+  });
+
   it("ignores image links", () => {
     const a = write("a.md", "![pic](./does-not-exist.png)\n");
     expect(validateFile(a)).toEqual([]);

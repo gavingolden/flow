@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "excluded": [
+    {
+      "id": "return-a-result-object-instead-of-throwing",
+      "path": "Return a result object instead of throwing",
+      "reason": "it touches every caller for the same user-visible outcome"
+    }
+  ]
+}

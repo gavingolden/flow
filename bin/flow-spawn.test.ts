@@ -1,5 +1,8 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   buildRow,
   forwardSignal,
@@ -538,6 +541,170 @@ describe("main()", () => {
     expect(logSpy).toHaveBeenCalledWith(
       JSON.stringify({ slug: "never-seen-slug", rows: [], malformed: 0 }),
     );
+  });
+});
+
+describe("parseCliArgs — --from-envelope / --cwd", () => {
+  it("parses --from-envelope and --cwd; --from-envelope alone satisfies the no-command check", () => {
+    const args = parseCliArgs([
+      "--detach",
+      "--stdout",
+      "/tmp/o",
+      "--stderr",
+      "/tmp/e",
+      "--cwd",
+      "/work/tree",
+      "--from-envelope",
+      "/work/tree/.flow-tmp/env.json",
+    ]);
+    expect(args.usageError).toBeUndefined();
+    expect(args.fromEnvelope).toBe("/work/tree/.flow-tmp/env.json");
+    expect(args.cwd).toBe("/work/tree");
+    expect(args.command).toEqual([]);
+  });
+
+  it("rejects each malformed combination with a named usage error", () => {
+    expect(parseCliArgs(["--from-envelope"]).usageError).toBe(
+      "--from-envelope requires a value",
+    );
+    expect(parseCliArgs(["--from-envelope", "--detach"]).usageError).toBe(
+      "--from-envelope requires a value",
+    );
+    expect(parseCliArgs(["--cwd"]).usageError).toBe("--cwd requires a value");
+    expect(
+      parseCliArgs(["--from-envelope", "/x.json", "--", "echo", "hi"])
+        .usageError,
+    ).toBe("--from-envelope cannot be combined with -- <cmd>");
+    expect(
+      parseCliArgs(["--from-envelope", "/x.json", "--list", "s"]).usageError,
+    ).toBe("--from-envelope cannot be combined with --list");
+  });
+});
+
+describe("main() — --from-envelope", () => {
+  const launch = `echo "it's up" > launched.txt`;
+  let dir: string;
+
+  function writeEnvelope(meta: unknown): string {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-spawn-env-"));
+    const file = path.join(dir, "envelope.json");
+    fs.writeFileSync(file, JSON.stringify({ meta }));
+    return file;
+  }
+
+  function detachDeps() {
+    const spawnDetached = vi.fn().mockReturnValue({ pid: 77, unref: vi.fn() });
+    const spawn = vi.fn().mockReturnValue(fakeChild());
+    const deps: SpawnDeps = {
+      spawn,
+      spawnDetached,
+      openAppendFd: vi.fn().mockReturnValue(9),
+      closeFd: vi.fn(),
+      appendRow: vi.fn().mockReturnValue({ written: true }),
+      env: { FLOW_SLUG: "csv-export" },
+      pidStartEpoch: () => 1,
+    };
+    return { deps, spawn, spawnDetached };
+  }
+
+  afterEach(() => {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("exits 2 naming the file when the envelope is unreadable", async () => {
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const { deps, spawn, spawnDetached } = detachDeps();
+    const code = await main(
+      ["--from-envelope", "/nonexistent/envelope.json"],
+      deps,
+    );
+    expect(code).toBe(2);
+    expect(
+      stderrSpy.mock.calls.some((c) =>
+        String(c[0]).includes("cannot read --from-envelope file"),
+      ),
+    ).toBe(true);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(spawnDetached).not.toHaveBeenCalled();
+  });
+
+  it("exits 2 and launches nothing when the envelope has an unresolved {{PORT}}", async () => {
+    const file = writeEnvelope({ launch: "PORT={{PORT}} npm run dev" });
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const { deps, spawn, spawnDetached } = detachDeps();
+    const code = await main(["--from-envelope", file], deps);
+    expect(code).toBe(2);
+    expect(
+      stderrSpy.mock.calls.some((c) =>
+        String(c[0]).includes("flow-spawn: --from-envelope:"),
+      ),
+    ).toBe(true);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(spawnDetached).not.toHaveBeenCalled();
+  });
+
+  it("exits 2 when --cwd is not a directory", async () => {
+    const file = writeEnvelope({ launch });
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const { deps, spawn } = detachDeps();
+    const code = await main(["--cwd", file, "--from-envelope", file], deps);
+    expect(code).toBe(2);
+    expect(
+      stderrSpy.mock.calls.some((c) =>
+        String(c[0]).includes("--cwd is not a directory"),
+      ),
+    ).toBe(true);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("foreground: spawns ['sh','-c',launch] with meta.env and cwd", async () => {
+    const file = writeEnvelope({ launch, env: { GREETING: "hi" } });
+    const { deps, spawn } = detachDeps();
+    const code = await main(["--cwd", dir, "--from-envelope", file], deps);
+    expect(code).toBe(0);
+    expect(spawn).toHaveBeenCalledWith(["sh", "-c", launch], {
+      stdin: "ignore",
+      env: { GREETING: "hi" },
+      cwd: dir,
+    });
+  });
+
+  it("--detach: spawnDetached gets ['sh','-c',launch] with env + cwd; the registry row carries the argv but never the env", async () => {
+    const file = writeEnvelope({ launch, env: { GREETING: "hi" } });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { deps, spawnDetached } = detachDeps();
+    const code = await main(
+      [
+        "--detach",
+        "--stdout",
+        "/tmp/o",
+        "--stderr",
+        "/tmp/e",
+        "--cwd",
+        dir,
+        "--from-envelope",
+        file,
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    expect(spawnDetached).toHaveBeenCalledWith(["sh", "-c", launch], {
+      stdoutFd: 9,
+      stderrFd: 9,
+      env: { GREETING: "hi" },
+      cwd: dir,
+    });
+    const row = (deps.appendRow as ReturnType<typeof vi.fn>).mock
+      .calls[0]?.[0] as ProcRegistryRow;
+    expect(row.argv).toEqual(["sh", "-c", launch]);
+    expect(JSON.stringify(row)).not.toContain("GREETING");
+    expect(row.slug).toBe("csv-export");
   });
 });
 

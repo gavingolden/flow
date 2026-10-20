@@ -58,6 +58,56 @@ describe("validateCase", () => {
     }
   });
 
+  it("accepts the research-gather and blind-survey surfaces", () => {
+    for (const surface of ["research-gather", "blind-survey"]) {
+      expect(validateCase({ ...wellFormed, surface }).ok).toBe(true);
+      expect(BENCH_SURFACES).toContain(surface);
+    }
+  });
+
+  it("accepts skipPermissions, a fixture-relative addDir and a productionTimeout", () => {
+    expect(
+      validateCase({
+        ...wellFormed,
+        skipPermissions: true,
+        productionTimeout: "10m",
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateCase({
+        ...wellFormed,
+        addDir: "context",
+        productionTimeout: "6m",
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("rejects addDir alongside skipPermissions, naming both", () => {
+    const result = validateCase({
+      ...wellFormed,
+      addDir: "context",
+      skipPermissions: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/addDir/);
+      expect(result.reason).toMatch(/skipPermissions/);
+    }
+  });
+
+  it("rejects a productionTimeout that is not a Go duration", () => {
+    for (const productionTimeout of ["ten minutes", "", 600]) {
+      const result = validateCase({ ...wellFormed, productionTimeout });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toMatch(/productionTimeout/);
+    }
+  });
+
+  it("rejects a non-boolean skipPermissions", () => {
+    const result = validateCase({ ...wellFormed, skipPermissions: "yes" });
+    expect(result.ok).toBe(false);
+  });
+
   it("rejects 'fix-applier' and 'verify-loop' as surfaces (pins the deliberate exclusion)", () => {
     for (const surface of ["fix-applier", "verify-loop"]) {
       const result = validateCase({ ...wellFormed, surface });

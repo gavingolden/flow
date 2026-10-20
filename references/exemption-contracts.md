@@ -1,38 +1,47 @@
 # Task-tool exemption contracts
 
-Per-exemption contract bodies offloaded from `AGENTS.md` `## Don'ts` (PR
+Per-exemption contract bodies offloaded from `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` (PR
 addressing #220) to keep that file under its char budget. Each section
-below carries the unique contract for one of the nine named Task-tool
+below carries the unique contract for one of the eight named Task-tool
 exemptions: spawn site / triggering step, artifact path, typed artifact
 fields, and any model override.
 
 This file is one half of a bidirectional contract. The other anchors are:
 
-- `AGENTS.md` `## Don'ts` — the trimmed opener + one-line summary for each
+- `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` — the trimmed opener + one-line summary for each
   exemption, each pointing here.
 - `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" — the canonical
-  `**Task-tool exemption #N: ...**` blocks the AGENTS.md bullets are
+  `**Task-tool exemption #N: ...**` blocks the .claude/rules/flow-supervisor-contracts.md bullets are
   symmetric with (enforced by `bin/skill-md-lint.test.ts`).
 
-The **shared rationale** for all nine (why a top-level supervisor may
-call Task at these sites) stays in `AGENTS.md` `## Don'ts` alongside the
+The **shared rationale** for all eight (why a top-level supervisor may
+call Task at these sites) stays in `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` alongside the
 openers — it is not duplicated here.
 
 ## `/flow-pr-review` Independent Multi-Agent Review
 
 `/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
-Multi-Agent Review" step, up to six review agents — content-gated by
+Multi-Agent Review" step, up to seven review agents — six content-gated by
 `flow-review-scope` against the changed-file set and static-analysis
-signals (see `flow-pr-review` `references/review-scope.md`) — PLUS one
+signals (see `flow-pr-review` `references/review-scope.md`), the seventh
+(`product`) gated on a product brief resolving and tolerated-absent
+downstream — PLUS one
 diff-only intent-guess agent (skipped on a delta re-entry with a prior
 `intent-resolution.json`) are spawned in parallel, in the same fan-out
 message, via the Task tool; the fan-out is re-fanned at most once per
 invocation when the Consolidator-Validator's `scope_verdict.widen`
 requests a widen to the full PR diff, inside this same exemption (no new
-Task-tool exemption; the count stays nine). Each spawned lens names
+Task-tool exemption; the count stays eight). When delegation is on
+(`flow-agy-lenses`, a Bash fan-out), Task is the per-lens fallback: the
+fan-out spawns only the lenses the helper routes to `task` plus the
+lenses it reports as `fallback`, so each wave is at most two Task
+messages (the `task`-routed lenses plus intent-guess up front, then the
+`fallback` lenses once the helper returns) — still inside this one
+exemption. Each spawned lens names
 `subagent_type: $LENS_AGENT` (resolved per-lens against the
 `agents/flow-review-<lens>.md` definitions with a Read/Grep/Glob/Write
-`tools:` allowlist and no `effort:`/`model:` pins), resolved via a
+`tools:` allowlist and no `model:` pin — nor an `effort:` pin, bar the product
+lens's `effort: medium`), resolved via a
 single plugin-root probe using the
 `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-review-<lens>.md ]` file-exists guard:
 the plugin-qualified `flow-module-core:flow-review-<lens>` name when
@@ -44,7 +53,7 @@ flow-module-core:flow-review-intent-guess` (`agents/flow-review-intent-guess.md`
 tools allowlist plus the blindness contract — no PR title/body/plan/
 commit messages in its context, diff + file list only), resolved via
 the same two-tier file-exists-guard-with-fallback pattern. The fan-out itself
-emits no consolidated artifact — each of the six lens agents persists
+emits no consolidated artifact — each lens agent persists
 its own `$WORKTREE/.flow-tmp/agent-output-<lens>.json`, typed fields
 `findings`, `rejected_alternatives`, `anti_patterns_found`, and the
 intent-guess agent persists `$WORKTREE/.flow-tmp/intent-guess.json`
@@ -52,7 +61,7 @@ intent-guess agent persists `$WORKTREE/.flow-tmp/intent-guess.json`
 Consolidator-Validator step (a separate exemption) produces
 `consolidator-result.json` from the six lens outputs plus the optional
 cross-model (Gemini) lens output when `review.gemini` is enabled. All
-seven agents run inside the supervisor's own in-process Skill load
+seven lens/intent-guess agents run inside the supervisor's own in-process Skill load
 (`/flow-pr-review` has no `context: fork` directive).
 
 ## `/flow-product-planning` Independent Discovery Subagent
@@ -77,6 +86,18 @@ design-artifact passes span Bash, `WebFetch`, MCP, and multimodal `Read`
 surfaces a fixed allowlist would silently break — so it inherits every
 tool the session has.
 
+**Blind product critic (brief-gated, same exemption).** When a product
+brief resolves (`flow-product-brief`'s `.found`) and `.flow-tmp/product-critique.md`
+is absent or stale, `/flow-pipeline` step 3's supervisor spawns one
+`agents/flow-product-critic.md` agent via the Task tool AFTER the
+`/flow-product-planning` wrapper returns — not from inside the wrapper, so
+the wrapper's exactly-one-Task-call invariant above is untouched. Tools:
+Read, Write only — it is blind to repository code, arguing the plan
+against the brief alone. Artifact: `.flow-tmp/product-critique.md`,
+reconciled in place by the supervisor into plan.md's `### Product critique
+(blind)` subsection under `## Open Questions`. Same exemption as the
+Discovery Subagent above, no nesting, no new Task-tool exemption.
+
 ## `/flow-new-feature` Independent Scout Subagent
 
 `/flow-pipeline` step 5 loads `/flow-new-feature`, which spawns one scout
@@ -93,7 +114,10 @@ file-exists guard: the plugin-qualified `flow-module-core:flow-scout`
 name when present (a bare `flow-scout` subagent_type fails Task-tool
 resolution outright — measured: "Agent type 'flow-scout' not found"),
 else `general-purpose` fallback emitting the `NOTICE — agent-fallback:` line
-(no bare-name legacy-install tier).
+(no bare-name legacy-install tier). When `delegate.models.scout` is set,
+`flow-agy-scout` (a Bash fan-out) runs first and writes `scout.md` only
+from a complete report; the Task scout above is the fallback whenever it
+does not.
 
 ## `/flow-pr-review` Fix-Applier Subagent
 
@@ -121,23 +145,24 @@ file-exists guard: the plugin-qualified `flow-module-core:flow-fix-applier`
 name when present (a bare `flow-fix-applier` subagent_type fails
 Task-tool resolution outright), else `general-purpose` fallback emitting the
 `NOTICE — agent-fallback:` line (no bare-name legacy-install tier). The
-agent's `maxTurns: 120` budget means a `SendMessage` continuation of its
+agent's `maxTurns: 200` budget means a `SendMessage` continuation of its
 own partial result (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays
-inside this exemption — not a tenth site.
+inside this exemption — not an eighth site.
 
 ## Merge-Conflict Resolver Subagent
 
-When `/flow-pipeline` step 10's `gh pr merge --squash` returns a
-conflict-class failure (stderr matching the detection patterns in
-`skills/pipeline/flow-merge-resolver-instructions/SKILL.md`),
-the supervisor spawns one resolver subagent via the Task tool for the
-base-branch merge + per-file resolution + push. Artifact:
-`.flow-tmp/merge-resolver-result.json` (typed fields `resolved_files`,
-`ambiguous_resolutions`, `rejected_strategies`, `commits`,
-`push_status`, `summary`). After it returns the supervisor retries
-`gh pr merge --squash` exactly once; on second failure it escalates
-`NEEDS HUMAN: merge-failed` with the resolver's summary first sentence
-appended. **No force-push.** The resolver merges the base branch into
+When `/flow-pipeline` step 10's `flow-merge-guard merge` call returns
+`merge-failed` with `failureClass: conflict` (its `.stderr` matching
+`CONFLICT_STDERR_PATTERNS` in `bin/flow-merge-guard.ts`), the supervisor
+spawns one resolver subagent via the Task tool for the base-branch merge +
+per-file resolution + push. Artifact: `.flow-tmp/merge-resolver-result.json`
+(typed fields `resolved_files`, `ambiguous_resolutions`, `rejected_strategies`,
+`commits`, `push_status`, `summary`). After it returns with a successful
+push, CI re-runs on the new head, so the supervisor re-enters step 7 (CI
+wait) and then steps 9 and 10, which call `flow-merge-guard merge` again; a
+second conflict-class failure escalates `NEEDS HUMAN: merge-failed` with the
+resolver's summary first sentence appended. The supervisor never merges with
+a raw `gh pr merge`. **No force-push.** The resolver merges the base branch into
 the pipeline branch and pushes normally, so nothing irreversible is
 delegated to a subagent spawn (an autonomous force-push is gated by the
 permission classifier under auto permission mode, and `AGENTS.md`
@@ -161,7 +186,7 @@ the context-isolation this exemption exists to provide, and would also
 re-spawn beyond the one-Task-call-per-run limit exemption #5 grants. The
 agent's `maxTurns: 80` budget means a `SendMessage` continuation of its
 own partial result (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays
-inside this exemption — not a tenth site.
+inside this exemption — not an eighth site.
 
 ## `/flow-coder` Independent Edit-Applier Subagent
 
@@ -188,41 +213,10 @@ file-exists guard: the plugin-qualified `flow-module-core:flow-edit-applier`
 name when present (a bare `flow-edit-applier` subagent_type fails
 Task-tool resolution outright — measured: "Agent type 'flow-scout' not
 found"), else `general-purpose` fallback emitting the `NOTICE — agent-fallback:` line
-(no bare-name legacy-install tier).
-A second,
-nested spawn site exists — the Verify-Retry-Loop's wider-scope path
-spawns the same definition directly at depth 3 via the same single
-plugin-root probe, writing
-`verify-coder-result.json` with no `general-purpose` fallback (a
-fallbackless site: a miss degrades inline instead); see the
-Verify-Retry-Loop section below. The agent's `maxTurns: 80` budget means
-a `SendMessage` continuation of its own partial result
+(no bare-name legacy-install tier). The agent's `maxTurns: 240` budget
+means a `SendMessage` continuation of its own partial result
 (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays inside this
-exemption at either spawn site — not a tenth site.
-
-## `/flow-pr-review` Independent Gatekeeper Subagent
-
-`/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
-Gatekeeper Subagent" step (Step 1.5), one gatekeeper agent is spawned
-via the Task tool as `subagent_type: $GATEKEEPER_SUBAGENT` (resolved via
-a single plugin-root probe using the file-exists guard: the plugin-qualified
-`flow-module-core:flow-gatekeeper` name when present — a bare
-`flow-gatekeeper` subagent_type fails Task-tool resolution outright —
-else falling back
-to `general-purpose` with the loud
-`NOTICE — agent-fallback:` line (no bare-name legacy-install tier)) with a per-spawn `model: "haiku"`
-override — justified primarily by **cost-routing** rather than context
-isolation. The haiku pin is paired: `agents/flow-gatekeeper.md`
-frontmatter declares `model: haiku` as the declarative record, and the
-spawn site keeps the identical per-spawn `model: "haiku"` so the
-fallback path stays haiku (per-spawn wins; the values never conflict).
-It short-circuits the six-agent Sonnet fan-out on
-closed/merged/trivial/no-new-commits PRs from a single `gh pr view`
-metadata fetch. Artifact: `<worktree>/.flow-tmp/gatekeeper-result.json`
-(typed fields `decision`, `reason`, `skip_kind?`, `summary`). The
-wrapper branches on it: `"skip"` writes a `pr-review-result.json` with
-`status: "clean"` and `completed_steps: ["1", "1.5"]` so Step 8 proceeds
-to the auto-merge gate; `"proceed"` continues to Step 2 unchanged.
+exemption — not an eighth site.
 
 ## `/flow-pr-review` Independent Consolidator-Validator Subagent
 
@@ -236,8 +230,7 @@ plugin-qualified `flow-module-core:flow-consolidator` name when present
 (a bare `flow-consolidator` subagent_type fails Task-tool resolution
 outright), else falling back to
 `general-purpose` with the loud `NOTICE — agent-fallback:` line
-(no bare-name legacy-install tier). Unlike
-the Gatekeeper there is **no** `model: "haiku"` override — default
+(no bare-name legacy-install tier). This spawn carries **no** `model: "haiku"` override — default
 Sonnet is used because the second-opinion pass needs the larger model's
 judgment.
 Artifact: `<worktree>/.flow-tmp/consolidator-result.json` (typed fields
@@ -246,58 +239,72 @@ Artifact: `<worktree>/.flow-tmp/consolidator-result.json` (typed fields
 and reuses the parsed object across Steps 4–7. Also documented in
 `skills/pipeline/flow-consolidator-instructions/SKILL.md`.
 
-## Verify-Retry-Loop Subagent
+## `/flow-verify` Independent UI-Driver Subagent
 
-`/flow-pipeline` step 6 (`Local verify`) spawns one verify-retry-loop agent via
-the Task tool to own the 3-outer-attempt `/flow-verify` loop in an isolated context:
-each retry re-invokes `/flow-verify` and re-pastes the prior attempt's
-`flow-pre-commit --json` `failure` object, and the loop also owns the Layer-3
-`.flow/pre-commit.json` config-authoring branch (which commits to the feature
-branch) and the UI-smoke pass. Artifact:
-`<worktree>/.flow-tmp/verify-loop-result.json` (typed fields `verify_status`
-(`pass` | `exhausted`), `attempts`, `config_authored`, `ui_smoke`,
-`ui_smoke_reason?`, `ui_screenshots?` — optional array of absolute
-screenshot paths captured by the browser pass, for supervisor session
-surfacing — `final_failure_excerpt?`, `rejected_alternatives`, `anti_patterns_found`,
-`summary`). The supervisor reads it once and branches: `pass` continues to step
-7; `exhausted` escalates `verify-exhausted` and writes the `> [!CAUTION]` PR-body
-block from `final_failure_excerpt`. A committing subagent is consistent with the
-Fix-Applier (#4) and Merge-Conflict Resolver (#5) precedents. Spawned as
-the named `agents/flow-verify.md` definition (mechanical role: pins
-`effort: low`, no `model:` pin; per-spawn `model:` threading unchanged),
-resolved via a single plugin-root probe using the `[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-verify.md ]`
-file-exists guard: the plugin-qualified `flow-module-core:flow-verify`
-name when present (a bare `flow-verify` subagent_type fails Task-tool
+**Two callers, one exemption.** Like the Edit-Applier, this exemption is
+shared by more than one spawn site: `/flow-verify`'s UI-smoke pass (the
+`/flow-pipeline` step-6 path described below) and `/flow-pr-review` step
+8c.iii's visual-appearance capture, which passes `MODE: visual-appearance`
+plus the enumerated item list so the driver captures per verification item
+rather than per manifest route. Both write the same
+`.flow-tmp/ui-driver-result.json` artifact and use the same guarded
+subagent-type resolution, so the exemption count stays eight.
+
+`/flow-pipeline` step 6 loads `/flow-verify`'s "Optional UI-smoke pass";
+when the probe (`flow-ui-validate`) returns a `ran:true` ready envelope OR
+a `bootstrap` envelope — never on an `mcp-not-available` or
+`browser-profile-busy` skip, which stay quiet `ran:false` degrades and
+never reach a Task call at all — the wrapper spawns exactly one
+`flow-ui-driver` agent via the Task tool to launch the app, drive
+`chrome-devtools` per route and viewport, and write the result artifact.
+Resolved via a single plugin-root probe using the
+`[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-ui-driver.md ]`
+file-exists guard: the plugin-qualified `flow-module-core:flow-ui-driver`
+name when present (a bare `flow-ui-driver` subagent_type fails Task-tool
 resolution outright — measured: "Agent type 'flow-scout' not found"),
-else `general-purpose` fallback emitting the `NOTICE — agent-fallback:` line
-(no bare-name legacy-install tier). The
-subagent's full instructions are at
-`skills/pipeline/flow-verify-loop-instructions/SKILL.md`.
+else `general-purpose` fallback emitting the `NOTICE — agent-fallback:`
+line (no bare-name legacy-install tier). Artifact:
+`<worktree>/.flow-tmp/ui-driver-result.json` (typed fields per
+`bin/lib/ui-driver-schema.ts`'s `UiDriverResult`: `ran`, `ok`,
+`skipped_reason?`, `captures_path`, `ui_screenshots`, `fix_context`,
+`rejected_alternatives`, `summary`).
 
-**Nested site.** On the wider-scope path, the verify-loop subagent
-spawns ONE flow-edit-applier subagent at depth 3, resolved via a single
-plugin-root probe to the plugin-qualified
-`flow-module-core:flow-edit-applier` name when the plugin-root
-definition is installed, with NO bare-name legacy-install tier and NO
-`general-purpose` fallback (unlike the nine top-level exemptions, this
-site has a known-good inline fallback and does not hand a Task-capable
-toolset to a definition that isn't lint-pinned to exclude `Task`),
-passing a JSON edit-set per
-`skills/pipeline/flow-coder-instructions/SKILL.md` (its
-`INSTRUCTIONS_PATH`, threaded alongside `SKILL_DIR =
-skills/pipeline/flow-coder/`) and the absolute artifact path
-`<worktree>/.flow-tmp/verify-coder-result.json` (distinct from the
-supervisor-path `coder-result.json` so a stale parent artifact can never
-mask a child miss); failure enum recorded in `verify-loop-result.json`'s
-`coder_spawn`: `ok`|`not-attempted`|`task-tool-unavailable`|
-`agent-unavailable`|`artifact-missing`|`invalid`. On any miss the loop
-applies that fix inline once and stays inline for the remainder of the
-run. This is a sanctioned nested site inside this exemption, not a
-tenth top-level exemption; its failure action is inverted from the nine
-top-level sites — record and degrade inline, never escalate. The outer
-agent's `maxTurns: 150` budget and the nested edit-applier's `maxTurns:
-80` budget each mean a `SendMessage` continuation of that agent's own
-partial result (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays
-inside this exemption at either site — not a tenth site; at the nested
-site a still-missing artifact after one continuation feeds the existing
-`coder_spawn: "artifact-missing"` inline fallback, never an escalation.
+**Model.** This spawn site resolves `config.models.uiDriver // "sonnet"`
+— config-only, no CLI flag, and deliberately **not** inherited from the
+session model or any `state.json` field (`bin/lib/model-routing-table.ts`'s
+`ui-driver` row: `fallback: "builtin-sonnet"`). A manifest-driven browser
+drive is template execution that must not silently inherit Opus/Fable.
+Effort is a separate axis, resolved per spawn: `flow-spawn-effort ui-driver`
+(`config.efforts.uiDriver`, else a built-in `medium` capped at the session's
+effort) is passed as the Task call's `effort:` on Claude Code 2.1.292+, and the
+agent file's `effort: medium` is the fallback beneath it on older builds.
+
+**The `UI_SMOKE_DRIVER: inline` marker.** Two callers of the shared
+`ui-smoke-pass.md` procedure exist: `/flow-verify`'s own Step 6/Optional
+UI-smoke pass (spawns this exemption) and `/flow-fix-applier-instructions`'s
+"Re-run /flow-verify" step, which has no Task tool of its own and instead
+invokes `/flow-verify` with the literal marker line `UI_SMOKE_DRIVER:
+inline` in its invocation — that marker tells `/flow-verify` to drive the
+procedure in its OWN context rather than spawning this exemption. Absent
+the marker, `/flow-verify` spawns the exemption as described above. This
+is the one sanctioned inline path; it does not create a second exemption
+because it never calls Task at all.
+
+**Degrade, never escalate (D-o).** When
+`test -s "$WORKTREE/.flow-tmp/ui-driver-result.json"` fails after the one
+permitted Task call returns for this outer `/flow-verify` attempt,
+`/flow-verify` treats it as `{ran: false, ok: false, skipped_reason:
+"driver-no-artifact"}` and emits the existing `> [!NOTE] UI changed;
+browser validation did not run — <reason>` line. It does **not** escalate
+`NEEDS HUMAN`, does **not** re-spawn within the same outer attempt (one
+Task call per outer attempt), and does **not** fail verify — the next
+outer `/flow-verify` attempt re-spawns naturally. The `SendMessage`
+partial-result continuation route
+(`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`)
+stays available in principle but is **deliberately not wired here** —
+unlike the Merge-Conflict Resolver and Edit-Applier exemptions above, a
+missing/partial UI-driver artifact degrades to the named skip reason
+above rather than triggering a continuation message. This omission is
+intentional, not an oversight: the optional, gracefully-degrading nature
+of the UI-smoke pass means a clean degrade is preferable to spending a
+second Task call chasing a partial browser-drive artifact.

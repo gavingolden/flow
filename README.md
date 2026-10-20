@@ -26,11 +26,11 @@ $ flow feature create "add CSV export"
 MERGED
 ```
 
-Every run works in its own git worktree (your checkout is never touched), pauses once for plan approval on feature work, and ends in a clear terminal state: `MERGED`, `GATED: <url>`, `NEEDS HUMAN: <reason>`, or `cancelled`. flow also ships a curated skill library that any Claude Code project can use on its own.
+Every run works in its own git worktree (your checkout is never touched), pauses for plan approval on feature work (and can pause earlier for a short clarifying interview), and ends in a clear terminal state: `MERGED`, `GATED: <url>`, `NEEDS HUMAN: <reason>`, or `cancelled`. flow also ships a curated skill library that any Claude Code project can use on its own.
 
 ## Quickstart
 
-1. **Check the prerequisites.** You need **git**, **node / npm**, **bun**, and an authenticated **gh** (GitHub CLI) — flow opens the PR, polls CI, and merges through it. **tmux is optional**: only needed if you opt into the tmux launcher; the default plain launcher runs in your own terminal. Your target project must be a git repo with a GitHub remote.
+1. **Check the prerequisites.** You need **git**, **node / npm**, **bun**, and an authenticated **gh** (GitHub CLI; 2.99.0+ for PR-page screenshots) — flow opens the PR, polls CI, and merges through it. **tmux is optional**: only needed if you opt into the tmux launcher; the default plain launcher runs in your own terminal. Your target project must be a git repo with a GitHub remote.
 
 2. **Install:**
 
@@ -41,7 +41,7 @@ Every run works in its own git worktree (your checkout is never touched), pauses
    bun bin/flow install
    ```
 
-3. **Verify it worked:** run `flow ls` — it should print an empty pipeline list, not "command not found". The most common failure is `~/.local/bin` not being on your `PATH`; add it and open a fresh shell.
+3. **Verify it worked:** run `flow doctor` — it checks your install, shell, and tools and prints the exact command that fixes each problem it finds (`flow ls` should also print an empty pipeline list, not "command not found"). The most common failure is `~/.local/bin` not being on your `PATH`; add it and open a fresh shell. If `flow` itself is not found, run `bun ~/code/flow/bin/flow doctor` from your checkout instead.
 
 4. **Ship something:** `cd` into any GitHub-backed project and run
 
@@ -56,7 +56,8 @@ Every run works in its own git worktree (your checkout is never touched), pauses
 ```sh
 flow                             # (on a TTY) interactive Claude session with flow skills loaded
 flow feature create "add CSV export"        # start a pipeline (runs in your terminal by default)
-flow ls                          # list active pipelines (add --cost for spend)
+flow doctor                      # check your setup; prints the fix for each problem (--json for scripts)
+flow ls                          # list this repo's pipelines (--all-repos for every repo; --cost for spend)
 flow feature resume add-csv-export  # re-launch a crashed or closed pipeline from saved state
 flow done add-csv-export         # close a finished pipeline
 flow done --merged               # sweep merged/cancelled pipelines
@@ -72,7 +73,7 @@ New here? The full first-run walkthrough — reading a run, resuming, cleaning u
 
 Reach for the tmux launcher when you want to run several pipelines at once from one place, or start a pipeline and walk away, re-attaching from anywhere later. Opt in per run with `flow feature create --tmux "<description>"`, answer "yes" to the tmux question `flow install` asks on an interactive install, or set it as your default with `flow config launcher set tmux`. Agent- or script-driven `flow feature create` (anything without a TTY) must pass `--tmux`: the default plain launcher refuses non-interactive launches by design (since PR #457).
 
-Under the tmux launcher, your first `flow feature create` starts the pipeline in a tmux window but doesn't drop you into it — run `flow attach` (no args) to pop into the flow session, or `flow attach <name>` (alias `flow a <name>`) to jump to a specific one. To step away without stopping the run, detach with `Ctrl-b d` — the pipeline keeps running, and you come back with `flow attach`.
+Under the tmux launcher, your first `flow feature create` starts the pipeline in a tmux window but doesn't drop you into it — run `flow attach` (no args) to pop into the flow session, or `flow attach <name>` (alias `flow a <name>`) to jump to a specific one. To step away without stopping the run, detach with `Ctrl-b d` — the pipeline keeps running, and you come back with `flow attach`. Forgot exactly what you asked for? `flow prompt [<slug>]` prints it back verbatim.
 
 ## Per-phase models
 
@@ -80,20 +81,21 @@ You can route different Claude models to different pipeline phases (an expensive
 
 ## Consumer repos
 
-flow runs the `flow-pre-commit` verify gate before every push. **Single-package repos and monorepos work with zero config** — it auto-detects scope from the diff and runs your declared `npm run` scripts (plus per-package scripts in `apps/<pkg>/` and `packages/<pkg>/`). For a non-conventional layout, drop in a `.flow/pre-commit.json` escape hatch. Full detail is in [`AGENTS.md`](AGENTS.md) under `## Consumer-repo notes`.
+flow runs the `flow-pre-commit` verify gate before every push. **Single-package repos and monorepos work with zero config** — it auto-detects scope from the diff and runs your declared `npm run` scripts (plus per-package scripts in `apps/<pkg>/` and `packages/<pkg>/`). For a non-conventional layout, drop in a `.flow/pre-commit.json` escape hatch. Full detail is in [`references/consumer-repo-contract.md`](references/consumer-repo-contract.md).
 
 [`semgrep`](https://semgrep.dev) is an optional tool: when it is on `PATH`, `/flow-pr-review` runs the static-analysis security lens; without it, that lens is skipped (everything else still runs).
 
 ## Learn more
 
-| You want                                 | Read                                                                               |
-| ---------------------------------------- | ---------------------------------------------------------------------------------- |
-| Your first pipeline, step by step        | [docs/getting-started.md](docs/getting-started.md)                                 |
-| Config, models, install flags, upgrades  | [docs/configuration.md](docs/configuration.md)                                     |
-| Which tests earn their cost, and why     | [docs/test-quality-methodology.md](docs/test-quality-methodology.md)               |
-| Working on flow itself                   | [CONTRIBUTING.md](CONTRIBUTING.md)                                                 |
-| The supervisor skill itself              | [`skills/pipeline/flow-pipeline/SKILL.md`](skills/pipeline/flow-pipeline/SKILL.md) |
-| Project rules for agents working on flow | [`AGENTS.md`](AGENTS.md)                                                           |
+| You want                                                                                                       | Read                                                                               |
+| -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Your first pipeline, step by step                                                                              | [docs/getting-started.md](docs/getting-started.md)                                 |
+| Config, models, install flags, upgrades                                                                        | [docs/configuration.md](docs/configuration.md)                                     |
+| Which tests earn their cost, and why                                                                           | [docs/test-quality-methodology.md](docs/test-quality-methodology.md)               |
+| A blind second opinion on one logical question (`/flow-deliberate "<question>"`, from any Claude Code session) | [docs/deliberation-assessment.md](docs/deliberation-assessment.md)                 |
+| Working on flow itself                                                                                         | [CONTRIBUTING.md](CONTRIBUTING.md)                                                 |
+| The supervisor skill itself                                                                                    | [`skills/pipeline/flow-pipeline/SKILL.md`](skills/pipeline/flow-pipeline/SKILL.md) |
+| Project rules for agents working on flow                                                                       | [`AGENTS.md`](AGENTS.md)                                                           |
 
 ## License
 

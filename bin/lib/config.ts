@@ -1,12 +1,15 @@
 /**
  * `flow config` verb-group dispatch — mirrors `runEpicCli`. Routes the
- * `models` subcommand to `runConfigModelsCli`; a verb-position `--help` prints
- * the group help; an absent/unknown subcommand is a usage error (exit 2).
+ * `models`/`launcher`/`launch`/`all` subcommands; a verb-position `--help`
+ * prints the group help; bare `flow config` renders the `all` aggregate;
+ * an unknown subcommand is a usage error (exit 2).
  */
 
 import { isHelpFlag, printVerbHelp } from "./help";
 import { runConfigModelsCli, type ConfigModelsOptions } from "./config-models";
 import { runConfigLauncherCli } from "./config-launcher";
+import { runConfigLaunchCli } from "./config-launch";
+import { runConfigAllCli } from "./config-all";
 
 export function runConfigCli(
   args: string[],
@@ -22,17 +25,19 @@ export function runConfigCli(
 
   const sub = args[0];
   switch (sub) {
+    case "all":
+      return runConfigAllCli(args.slice(1), options);
     case "models":
       return runConfigModelsCli(args.slice(1), options);
     case "launcher":
       return runConfigLauncherCli(args.slice(1), { read: options.read });
+    case "launch":
+      return runConfigLaunchCli(args.slice(1), options);
     case undefined:
-      console.error("flow config: a subcommand is required.");
-      console.error("usage: flow config <models|launcher>");
-      return 2;
+      return runConfigAllCli([], options);
     default:
       console.error(`flow config: unknown config subcommand: ${sub}`);
-      console.error("usage: flow config <models|launcher>");
+      console.error("usage: flow config <all|models|launcher|launch>");
       return 2;
   }
 }

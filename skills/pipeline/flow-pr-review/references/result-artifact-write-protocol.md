@@ -117,12 +117,13 @@ landing where a reader expects a well-formed JSON object.
 **Every write** to `pr-review-result.json` in `/flow-pr-review`'s wrapper
 — clean-exit AND wrapper-escalation alike:
 
-- **Step 1.5 Gatekeeper "skip" branch** — when the Gatekeeper subagent
-  returns `decision: "skip"`, the wrapper writes
+- **Step 1.5 metadata-triage "skip" branch** — when the inline triage
+  decides `decision: "skip"`, the wrapper writes
   `pr-review-result.json` with `status: "clean"` and
-  `completed_steps: ["1", "1.5"]`. The guard prevents an earlier
-  preamble-failure (`task-tool-unavailable: pr-review-gatekeeper`) from
-  being overwritten if the Gatekeeper bails post-escalation.
+  `completed_steps: ["1", "1.5"]`. Because the triage runs inline
+  (no subagent, no preamble-failure site), there is no earlier
+  escalation to guard against here — the guard still applies for
+  symmetry with the other write sites below.
 - **Step 3.5 Consolidator-Validator wrapper-escalation writes** — the
   wrapper's post-spawn existence check
   (`consolidator-missing-artifact`) and the wrapper's schema-failure

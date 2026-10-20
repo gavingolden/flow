@@ -4,7 +4,13 @@
  *
  * Usage:
  *   flow-new-worktree [<branch-name>] [base-branch] [--reuse]
+ *   flow-new-worktree --repair-hooks
  *
+ * - `--repair-hooks` re-installs the git-hook chaining shims into every
+ *   existing flow worktree of the current repo and exits; it creates nothing.
+ *   Exits 1 outside a repo or when any worktree failed to repair (the
+ *   per-failure warnings still print). Every normal launch heals the same
+ *   worktrees automatically.
  * - The branch name is optional when a pipeline is live: it auto-resolves
  *   from `$FLOW_SLUG`. The supervisor pattern relies on the auto-resolve
  *   path; the explicit positional stays for callers with no live
@@ -16,9 +22,13 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { git } from "./lib/git";
 import { resolveSlugAmbient } from "./lib/session-identity";
+import { readState } from "./lib/state";
 import { findAvailableSlot, toDirSuffix } from "./lib/worktree-slot";
 import { ensureFlowExcludes, writeBranchMarker } from "./lib/worktree-marker";
-import { installCommitHook } from "./lib/worktree-commit-hook";
+import {
+  installWorktreeHooks,
+  repairFlowWorktreeHooks,
+} from "./lib/worktree-commit-hook";
 import {
   detectDefaultBranch,
   getPrimaryDir,
@@ -105,6 +115,7 @@ function run(argv: string[], cwd?: string): void {
 function printHelp(): void {
   console.log(`
 Usage: flow-new-worktree [<branch-name>] [base-branch] [--reuse]
+       flow-new-worktree --repair-hooks
 
 Creates a git worktree for parallel agent development as a sibling
 directory of this repo. Branch name is converted to a directory-safe
@@ -115,6 +126,11 @@ collision so concurrent calls return distinct paths.
 The branch name is optional when a pipeline is live — it auto-resolves
 from $FLOW_SLUG. When the positional is also given it must match the
 ambient slug, otherwise the helper exits 2 (slug-mismatch).
+
+--repair-hooks re-installs the git-hook chaining shims into every existing
+flow worktree of this repo (so consumer hooks run there) and exits without
+creating a worktree; exits 1 outside a repo or when any worktree failed to
+repair. Every normal launch does the same automatically.
 
 Examples:
   flow-new-worktree feature/new-chart
@@ -127,6 +143,7 @@ Examples:
 export type ParseArgsResult =
   | { kind: "ok"; config: WorktreeConfig }
   | { kind: "help" }
+  | { kind: "repair-hooks" }
   | { kind: "error"; message: string; exitCode: number; showHelp?: boolean };
 
 export function parseArgs(
@@ -134,6 +151,7 @@ export function parseArgs(
   deps: RunNewWorktreeDeps = {},
 ): ParseArgsResult {
   if (argv.includes("--help") || argv.includes("-h")) return { kind: "help" };
+  if (argv.includes("--repair-hooks")) return { kind: "repair-hooks" };
   const reuse = argv.includes("--reuse");
   const positional = argv.filter((a) => a !== "--reuse");
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
@@ -178,7 +196,10 @@ function preflight(config: WorktreeConfig): void {
  * Creates the worktree, retrying with a fresh slot if `git worktree add`
  * itself fails (a peer won the race between our preflight check and our git
  * call). `gitWorktreeAdd` is injectable for tests — production callers omit
- * it and get the real `git worktree add` invocation.
+ * it and get the real `git worktree add` invocation. `reservedDir` is the
+ * empty folder `flow feature create` reserved at launch; it is adopted as the
+ * slot (never when non-empty), so the worktree lands in the folder Claude was
+ * given via `--add-dir`.
  */
 export function createWorktreeWithRetry(
   initialBranch: string,
@@ -196,11 +217,17 @@ export function createWorktreeWithRetry(
     );
   },
   warn: (msg: string) => void = log.warn,
+  reservedDir?: string,
 ): { branchName: string; worktreeDir: string } {
   const startPoint = `origin/${baseBranch}`;
   let lastErr: unknown = null;
   for (let attempt = 1; attempt <= MAX_RACE_RETRIES; attempt++) {
-    const slot = findAvailableSlot(initialBranch, initialDir, repoDir);
+    const slot = findAvailableSlot(
+      initialBranch,
+      initialDir,
+      repoDir,
+      reservedDir,
+    );
     try {
       console.log(`📂 Creating worktree at: ${slot.worktreeDir}`);
       log.info(`Branch: ${slot.branchName} (from ${startPoint})`);
@@ -235,11 +262,36 @@ export function createWorktreeWithRetry(
       );
 }
 
+/** Heals every existing flow worktree of `repoDir`; warns once per failure. */
+function healFlowWorktrees(repoDir: string): {
+  repaired: number;
+  failed: number;
+} {
+  const { repaired, failed } = repairFlowWorktreeHooks(repoDir);
+  for (const f of failed) {
+    log.warn(`could not repair hooks in ${f.dir}: ${f.error}`);
+  }
+  return { repaired: repaired.length, failed: failed.length };
+}
+
 function main(): void {
   const parsed = parseArgs();
   if (parsed.kind === "help") {
     printHelp();
     process.exit(0);
+  }
+  if (parsed.kind === "repair-hooks") {
+    let result: { repaired: number; failed: number };
+    try {
+      result = healFlowWorktrees(git(["rev-parse", "--show-toplevel"]));
+    } catch (err) {
+      log.error(
+        `--repair-hooks: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
+    console.log(`repaired ${result.repaired} flow worktree(s)`);
+    process.exit(result.failed > 0 ? 1 : 0);
   }
   if (parsed.kind === "error") {
     log.error(parsed.message);
@@ -262,6 +314,9 @@ function main(): void {
       config.worktreeDir,
       config.baseBranch,
       config.repoDir,
+      undefined,
+      undefined,
+      readState(config.branchName)?.reservedWorktree,
     );
     console.log("📦 Installing dependencies...");
     run(["npm", "install", "--silent"], chosen.worktreeDir);
@@ -283,10 +338,19 @@ function main(): void {
     );
   }
   try {
-    installCommitHook(chosen.worktreeDir);
+    installWorktreeHooks(chosen.worktreeDir);
   } catch (e: unknown) {
     log.warn(
-      `could not install prepare-commit-msg hook: ${e instanceof Error ? e.message : String(e)}`,
+      `could not install git hooks: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  // Older flow worktrees still hold the single-hook layout that switches the
+  // consumer's hooks off; every launch heals them.
+  try {
+    healFlowWorktrees(config.repoDir);
+  } catch (e: unknown) {
+    log.warn(
+      `could not repair existing flow worktree hooks: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
 

@@ -15,9 +15,10 @@
  * Sibling of `flow-plan-review.ts`'s SYNCHRONOUS deep-tier body only — the
  * survey always runs exactly two judges (there is no standard/deep tier
  * distinction here), and it never grows the async `--start`/`--check`
- * spine that file carries: this call is bounded by the supervisor's own
- * Bash-tool timeout (see JUDGE_A_TIMEOUT/JUDGE_B_TIMEOUT below), foreground,
- * one shot.
+ * spine that file carries: the caller launches it detached
+ * (`flow-spawn --detach`) and waits on its stdout envelope (see
+ * `skills/pipeline/flow-pipeline/references/blind-survey.md`), so the call is
+ * bounded by its own limits (JUDGE_A_TIMEOUT/JUDGE_B_TIMEOUT below), one shot.
  *
  * Skip vocabulary: `brief-unreadable` / `description-unreadable` (the two
  * input files), `brief-not-blind` (the blindness guard fired — no fanout
@@ -25,7 +26,7 @@
  * `fanout-error` (the fanout call itself came back empty — binary missing,
  * a usage-error exit, or an unparsable aggregate line — distinct from a
  * per-entry failure because neither judge task even reached the
- * aggregate), `agy-not-found` / `agy-not-authenticated` / `agy-error`
+ * aggregate), `agy-not-found` / `agy-not-authenticated` / `agy-model-unavailable` / `agy-error`
  * (propagated from a `ran:false` fanout entry that IS present in the
  * aggregate), `judge-timeout` (a fanout entry's `agy-timeout`, mapped the
  * way `flow-plan-review`'s `mapReviewerSkipReason` maps its own
@@ -54,19 +55,19 @@ import {
 
 // Both judges read the repository (their sole `--add-dir`), so each call is
 // an AGENTIC run, not a single completion — bounded explicitly rather than
-// relying on flow-delegate's own default. This helper is a SYNCHRONOUS
-// Bash-tool call under the supervisor's 600 000 ms (10 minute) cap, so the
-// two caps' SUM must leave real headroom under that ceiling: 3m + 6m = 9m,
-// vs a 10m cap. Measured live: the dogfood run of this same prompt shape
-// (goal-only brief, repo read access) finished in 12s / 46s on a light
-// brief — well inside 3m. JUDGE_B_TIMEOUT is doubled to 6m rather than
-// matched to JUDGE_A_TIMEOUT because `flow-plan-review`'s own deep-tier
-// second (Opus) reviewer measured 4m30-4m50 engaged with repo reads on a
-// full PRD — a heavier prompt than this survey's goal-only brief, but the
-// same model family and the same "reads the repo" shape, so 6m keeps
-// meaningful margin over that measured ceiling without threatening the
-// 9m-under-10m budget.
-export const JUDGE_A_TIMEOUT = "3m";
+// relying on flow-delegate's own default. The caller detaches this helper, so
+// the caps are not bounded above by any Bash-tool ceiling; they are bounded
+// only below, by what an agentic repo-reading answer needs.
+//
+// JUDGE_A_TIMEOUT is `10m`, the floor of the Argon latency sizing rule
+// (docs/eval/argon-latency-probe/README.md): the 3-minute limit it replaces
+// cut an Argon 4 High judge that returned nothing. JUDGE_B_TIMEOUT stays `6m`:
+// `flow-plan-review`'s own deep-tier second (Opus) reviewer measured 4m30-4m50
+// engaged with repo reads on a full PRD — a heavier prompt than this survey's
+// goal-only brief, but the same "reads the repo" shape, so 6m keeps margin over
+// that measured ceiling. The judges run SERIALLY, so the survey's worst case is
+// judge A's limit + judge B's limit (16m at the floor).
+export const JUDGE_A_TIMEOUT = "10m";
 export const JUDGE_B_TIMEOUT = "6m";
 
 export const SKIP_REASONS = [
@@ -78,6 +79,7 @@ export const SKIP_REASONS = [
   "fanout-error",
   "agy-not-found",
   "agy-not-authenticated",
+  "agy-model-unavailable",
   "agy-error",
   "agy-canceled",
   "judge-timeout",

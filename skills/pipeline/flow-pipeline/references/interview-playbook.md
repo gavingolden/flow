@@ -50,13 +50,29 @@ applies:
   clarification round already resolved the open questions at the epic
   level) — re-interviewing per-feature would re-ask what the epic
   design already settled.
-- **`interviewMode: "skip"` or `interview.enabled: false`.** A
+- **`interviewMode: "skip"` or `launch.interviewMode: "skip"`.** A
   per-run `flow feature create --no-interview` override, or the
-  `~/.flow/config.json` `interview.enabled` key set to `false` (see
+  `~/.flow/config.json` `launch.interviewMode` key set to `"skip"` (see
   `docs/configuration.md`), disables the trigger outright regardless
-  of judgment. The inverse override, `interviewMode: "force"`
+  of judgment. `launch.interviewMode` is resolved AT LAUNCH onto
+  `state.interviewMode` — this gate reads state only and needs no
+  runtime config read. The inverse override, `interviewMode: "force"`
   (`flow feature create --interview`), forces the trigger on even when a
   carve-out above would otherwise skip it.
+
+**Foreclosure: a discovery `push back` verdict is not an interview
+trigger.** A `## Request vetting` `- **Verdict:** push back` from
+`/flow-product-planning` discovery routes to the existing
+`plan-pending-review` pause (D2 of the request-vetting plan), never to
+this file's interview machinery — the two pauses serve different
+purposes (vetting a request's premise vs. resolving a design ambiguity)
+and must not be conflated into one trigger.
+
+**Solution-fit override.** A confident solution-fit case
+([solution-fit.md](solution-fit.md)) fires the interview even under the
+expert-specified carve-out, seeding Q1 with the alternative as the
+`Recommended:` option. Under `interviewMode: "skip"` it degrades to the
+`SOLUTION-FIT:` thread line instead.
 
 **Safe-by-default tie-breaker.** When you cannot confidently place the
 request in a carve-out bucket, default to firing the interview. The

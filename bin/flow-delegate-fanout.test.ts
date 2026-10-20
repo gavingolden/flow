@@ -97,6 +97,36 @@ describe("parseFanoutArgs", () => {
       parseFanoutArgs(["--manifest", "m.json", "--default-entry-timeout", ""]),
     ).toEqual({ error: "--default-entry-timeout requires a value" });
   });
+
+  it("accepts --skip-permissions as a valueless boolean flag", () => {
+    expect(
+      parseFanoutArgs(["--manifest", "m.json", "--skip-permissions"]),
+    ).toMatchObject({ manifest: "m.json", skipPermissions: true });
+  });
+
+  it("accepts --skip-permissions as the last argv element", () => {
+    expect(
+      parseFanoutArgs([
+        "--manifest",
+        "m.json",
+        "--concurrency",
+        "2",
+        "--skip-permissions",
+      ]),
+    ).toMatchObject({ skipPermissions: true, concurrency: 2 });
+  });
+
+  it("does not swallow a following flag after --skip-permissions", () => {
+    expect(
+      parseFanoutArgs([
+        "--manifest",
+        "m.json",
+        "--skip-permissions",
+        "--max-calls",
+        "5",
+      ]),
+    ).toMatchObject({ skipPermissions: true, maxCalls: 5 });
+  });
 });
 
 describe("entryToDelegateArgv", () => {
@@ -160,6 +190,19 @@ describe("entryToDelegateArgv", () => {
     expect(argv).not.toContain("--output-format");
     expect(argv).not.toContain("--json-schema");
     expect(argv).not.toContain("--structured-fallback");
+  });
+
+  it("pushes --skip-permissions when the entry opts in", () => {
+    const argv = entryToDelegateArgv(
+      { task: "t", prompt: "go", skipPermissions: true },
+      "/o/t.md",
+    );
+    expect(argv).toContain("--skip-permissions");
+  });
+
+  it("omits --skip-permissions when the entry does not opt in", () => {
+    const argv = entryToDelegateArgv({ task: "t", prompt: "go" }, "/o/t.md");
+    expect(argv).not.toContain("--skip-permissions");
   });
 });
 
@@ -249,11 +292,16 @@ function deferredRunner(envelopeFor: (e: ManifestEntry) => DelegateEnvelope) {
 }
 
 function makeDeps(overrides: Partial<FanoutDeps> = {}): FanoutDeps & {
-  calls: { out: string[]; written: Array<{ path: string; data: string }> };
+  calls: {
+    out: string[];
+    written: Array<{ path: string; data: string }>;
+    renamed: Array<{ from: string; to: string }>;
+  };
 } {
   const calls = {
     out: [] as string[],
     written: [] as Array<{ path: string; data: string }>,
+    renamed: [] as Array<{ from: string; to: string }>,
   };
   return {
     runDelegate: async (entry) => ({
@@ -266,6 +314,9 @@ function makeDeps(overrides: Partial<FanoutDeps> = {}): FanoutDeps & {
     mkdirp: () => {},
     writeFile: (p, data) => {
       calls.written.push({ path: p, data });
+    },
+    rename: (from, to) => {
+      calls.renamed.push({ from, to });
     },
     writeOut: (line) => {
       calls.out.push(line);
@@ -360,8 +411,11 @@ describe("run — aggregation + concurrency", () => {
     // Same serialized string to both sinks (emitResult contract).
     expect(deps.calls.written).toHaveLength(1);
     expect(deps.calls.written[0]!.data).toBe(deps.calls.out[0]);
-    expect(deps.calls.written[0]!.path).toBe(
+    expect(deps.calls.renamed[0]!.to).toBe(
       path.resolve("/work", "/o/agg.json"),
+    );
+    expect(deps.calls.written[0]!.path).toBe(
+      `${deps.calls.renamed[0]!.to}.tmp`,
     );
   });
 
@@ -614,6 +668,124 @@ describe("run — --default-entry-timeout backstop", () => {
   });
 });
 
+describe("run — --skip-permissions backstop", () => {
+  const captureSkipPermissions = (entries: ManifestEntry[], argv: string[]) => {
+    const seen: Array<boolean | undefined> = [];
+    const deps = makeDeps({
+      readFile: () => manifestOf(entries),
+      runDelegate: async (entry) => {
+        seen.push(entry.skipPermissions);
+        return { ran: true, task: entry.task, artifactPath: "/x.md" };
+      },
+    });
+    return { deps, seen, done: run(["--manifest", "m.json", ...argv], deps) };
+  };
+
+  it("per-entry skipPermissions:true pushes through to the dispatched entry", async () => {
+    const { seen, done } = captureSkipPermissions(
+      [{ task: "a", prompt: "x", skipPermissions: true }],
+      [],
+    );
+    await expect(done).resolves.toBe(0);
+    expect(seen).toEqual([true]);
+  });
+
+  it("a per-entry false overrides a flag-level default", async () => {
+    const { seen, done } = captureSkipPermissions(
+      [{ task: "a", prompt: "x", skipPermissions: false }],
+      ["--skip-permissions"],
+    );
+    await expect(done).resolves.toBe(0);
+    expect(seen).toEqual([false]);
+  });
+
+  it("the flag-level default fills in for an entry that omits the field", async () => {
+    const { seen, done } = captureSkipPermissions(
+      [{ task: "a", prompt: "x" }],
+      ["--skip-permissions"],
+    );
+    await expect(done).resolves.toBe(0);
+    expect(seen).toEqual([true]);
+  });
+
+  it("emits a co-grant warning when an entry combines skipPermissions with addDirs, and still dispatches", async () => {
+    const progressLines: string[] = [];
+    const deps = makeDeps({
+      readFile: () =>
+        manifestOf([
+          {
+            task: "risky",
+            prompt: "x",
+            skipPermissions: true,
+            addDirs: ["/work"],
+          },
+        ]),
+      progress: (line) => progressLines.push(line),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    expect(
+      progressLines.some(
+        (l) => l.includes("risky") && l.includes("--skip-permissions"),
+      ),
+    ).toBe(true);
+    expect(aggregate(deps).anyRan).toBe(true);
+    // Recorded on the entry itself too — not just stderr — so a caller that
+    // discards stderr (e.g. flow-research-run.ts's `stderr: "ignore"` spawn)
+    // still sees the warning.
+    const entry = aggregate(deps).entries.find(
+      (e: { task: string }) => e.task === "risky",
+    );
+    expect(entry.coGrantWarning).toContain("--skip-permissions");
+    expect(entry.coGrantWarning).toContain("--add-dir");
+  });
+
+  it("does NOT emit a co-grant warning when an entry sets skipPermissions with no addDirs, or addDirs with no skipPermissions", async () => {
+    const progressLines: string[] = [];
+    const deps = makeDeps({
+      readFile: () =>
+        manifestOf([
+          { task: "safe-skip", prompt: "x", skipPermissions: true },
+          { task: "safe-dir", prompt: "x", addDirs: ["/work"] },
+        ]),
+      progress: (line) => progressLines.push(line),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    expect(progressLines.some((l) => l.includes("co-grant"))).toBe(false);
+    expect(
+      progressLines.some(
+        (l) => l.includes("--skip-permissions") && l.includes("--add-dir"),
+      ),
+    ).toBe(false);
+    for (const entry of aggregate(deps).entries) {
+      expect(entry.coGrantWarning).toBeUndefined();
+    }
+  });
+
+  it("a child envelope carrying deniedActions yields an entry record carrying the same array", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+      runDelegate: async (entry) => ({
+        ran: true,
+        task: entry.task,
+        artifactPath: "/x.md",
+        deniedActions: ["web_search"],
+      }),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    expect(aggregate(deps).entries[0]).toMatchObject({
+      deniedActions: ["web_search"],
+    });
+  });
+
+  it("omits deniedActions when the child envelope carries none", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+    });
+    await expect(run(["--manifest", "m.json"], deps)).resolves.toBe(0);
+    expect(aggregate(deps).entries[0].deniedActions).toBeUndefined();
+  });
+});
+
 describe("run — skip handling", () => {
   it("mixed run/skip ⇒ anyRan true, allSkipped false, per-entry ran/skipReason intact", async () => {
     const deps = makeDeps({
@@ -677,6 +849,55 @@ describe("run — skip handling", () => {
       ran: false,
       skipReason: "agy-error",
     });
+  });
+});
+
+describe("run — atomic --out write and failureClass projection", () => {
+  it("writes ${outPath}.tmp then renames, so no partial file is observable", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+    });
+    await run(["--manifest", "m.json", "--out", "/o/result.json"], deps);
+    expect(deps.calls.written.map((w) => w.path)).toEqual([
+      "/o/result.json.tmp",
+    ]);
+    expect(deps.calls.renamed).toEqual([
+      { from: "/o/result.json.tmp", to: "/o/result.json" },
+    ]);
+    expect(deps.calls.written[0]!.data).toBe(deps.calls.out[0]);
+  });
+
+  it("ends the --out file with a newline, which a --complete-line waiter requires", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+    });
+    await run(["--manifest", "m.json", "--out", "/o/result.json"], deps);
+    expect(deps.calls.written[0]!.data.endsWith("\n")).toBe(true);
+  });
+
+  it("copies a failed envelope's failureClass onto its entry", async () => {
+    const deps = makeDeps({
+      readFile: () =>
+        manifestOf([
+          { task: "quota", prompt: "x" },
+          { task: "fine", prompt: "y" },
+        ]),
+      runDelegate: async (entry) =>
+        entry.task === "quota"
+          ? {
+              ran: false,
+              task: entry.task,
+              skipReason: "agy-error",
+              failureClass: "quota-exhausted",
+            }
+          : { ran: true, task: entry.task, artifactPath: "/x.md" },
+    });
+    await run(["--manifest", "m.json"], deps);
+    const agg = aggregate(deps);
+    const byTask = (t: string) =>
+      agg.entries.find((e: { task: string }) => e.task === t);
+    expect(byTask("quota").failureClass).toBe("quota-exhausted");
+    expect(byTask("fine")).not.toHaveProperty("failureClass");
   });
 });
 

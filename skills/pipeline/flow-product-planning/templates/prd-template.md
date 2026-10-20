@@ -20,26 +20,54 @@
 
 [What problem does this solve? Why does it matter? Who is affected?]
 
+## Request vetting
+
+<!-- Always present — every plan must argue against the request's chosen approach
+     before adopting it, with a closed verdict. Full contract:
+     discovery-instructions.md "Request vetting". -->
+
+- **Hypothesis:** [the falsifiable claim the chosen approach rests on]
+- **Case against:** [the best evidence AGAINST the chosen approach, citing a
+  committed repo path or URL — e.g. `[anchor: path/to/file.ts]`]
+- **Sources:** [a URL, or the literal `no outside source: <reason>`]
+- **Verdict:** [`adopt` | `adopt-with-conditions: <condition>` | `push back: <alternative>`]
+
+## Existing-code assessment
+
+<!-- Always present — one bullet per existing surface the plan touches, each
+     `- **<repo path or surface>:** keep | simplify | rewrite — <why> [anchor: path[:line]]`
+     (simplify/rewrite require an anchor; never a .flow-tmp/ path). When no
+     existing surface is touched, write the literal line
+     `none — no existing surface touched`. Full contract:
+     discovery-instructions.md "Existing-code assessment". -->
+
+- **[repo path or surface]:** [keep | simplify | rewrite] — [why] [anchor: path[:line]]
+
 ## Epic context
 
 <!-- Omit-when-empty: include ONLY when discovery's step 1.7 detects epic
      membership; otherwise omit the heading entirely (never an empty heading).
      Names the epic slug, this feature's id + rationale, its dependsOn edges
-     (produced/consumed artifacts), and its downstream dependents. Every claim
-     must trace to design.md + manifest.json. Full contract:
-     discovery-instructions.md "Epic context" — the single source of truth. -->
+     (produced/consumed artifacts), its downstream dependents, and a Manifest
+     write-back line. Every claim must trace to design.md + manifest.json.
+     Full contract: discovery-survey-epic.md "Epic context" — the single
+     source of truth. -->
 
 Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.md`.
+(Standalone producer variant: ``Standalone producer of `<artifact>` in epic
+`<slug>` — no feature id``.)
 
 - **Role:** [this feature's rationale within the epic decomposition]
 - **Depends on:** [feature id — produced/consumed artifact] | none
 - **Downstream dependents:** [feature id — interface that must stay stable] | none
+- **Manifest write-back:** [edges to add/remove, each naming its artifact — the
+  manifest edit is a task of this PR] | none
 
 ## Method selection
 
 <!-- Omit-when-no-SURVEY-marker: include ONLY when the invocation carried a `SURVEY:`
      marker (the Step-3 blind method survey ran); otherwise omit the heading entirely
-     (never an empty heading). Full contract: discovery-instructions.md step 1.8 and
+     (never an empty heading). Full contract: discovery-survey-epic.md step 1.8 and
      the "Method selection" step-5 bullet — the single source of truth. -->
 
 - **User's method:** [the method the user's description proposed]
@@ -113,7 +141,7 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      entirely (never an empty heading). Per-surface element-level assertion bullets,
      each tagged with its spec.json assertion id + mechanical/judged tier — every
      mechanical bullet mirrors a spec assertion 1:1. Full contract lives in
-     skills/pipeline/flow-product-planning/references/discovery-instructions.md
+     skills/pipeline/flow-product-planning/references/discovery-ui.md
      "Visual Spec" — the single source of truth. Do NOT inline the contract here;
      this is a thin sketch. -->
 
@@ -124,7 +152,7 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 
 ## Layout Intent
 
-<!-- Omit this whole section for non-UI plans. Authoring contract: discovery-instructions.md "Layout Intent". Do not inline the contract here. -->
+<!-- Omit this whole section for non-UI plans. Authoring contract: discovery-ui.md "Layout Intent". Do not inline the contract here. -->
 
 ### Surface: [name] ([route])
 
@@ -239,7 +267,12 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      Confidence + stakes rubric in discovery-instructions.md. Every unchecked
      `[confidence: low]` entry also carries a stable `Q<n>` id (same numbering
      rule as **Needs user input:** items) — it may be promoted into the
-     supervisor's Q<n> (low) rendering. -->
+     supervisor's Q<n> (low) rendering. Before writing a non-taste,
+     non-credential **Needs user input:** escape or a `[confidence: low]`
+     **Recommended:** line, consult the blind judge per the Deliberation step in
+     discovery-instructions.md "Open Questions (resolution-first)" — at most 3
+     per pass, adopt only re-verified medium/high, prefix an adopted rationale
+     `deliberated (<level>):`. -->
 
 - [ ] [question — what changes on redirect]
   - **Stakes:** [system|user|both] — [what degrades, for whom, if the default is wrong]
@@ -331,14 +364,14 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      section 5 (last section, after Recommendation) — the single source of
      truth for ordering. Full contract — trigger, three required subsections, the
      four-value Recommended-path enum, and the Open-Questions emission rule:
-       skills/pipeline/flow-product-planning/references/discovery-instructions.md
+       skills/pipeline/flow-product-planning/references/discovery-prompt-interpretation.md
        "Prompt interpretation (conditional)"
      Do NOT inline the enum or anti-pattern list here; this template is a thin
      sketch and the upstream reference is the single source of truth. -->
 
 - **Reading of prescribed methods:** [`exhaustive` | `starting points`]
 - **Plausibility estimate:** [your honest read on whether the named methods reach the target, with evidence]
-- **Recommended path:** [one of four enum values; see discovery-instructions.md for the verbatim strings]
+- **Recommended path:** [one of four enum values; see discovery-prompt-interpretation.md for the verbatim strings]
 <!-- Machine-parsed by bin/flow-step3-route.ts: keep this exact one-line form (colon, value on the SAME line). Do not reformat to a label-on-its-own-line shape. -->
 
 ## Candidate follow-up issues

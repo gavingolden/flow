@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readPipelineSkillCorpus } from "./lib/pipeline-skill-corpus";
 
 /**
  * Drift + prose lint for the flow-value-rubric feature: the canonical
@@ -175,7 +176,7 @@ describe("flow-value-rubric: discovery tick-only-when-clears-bar rule", () => {
 
 describe("flow-value-rubric: step-10 sweep carries .details", () => {
   it("flow-pipeline/SKILL.md's Post-merge follow-up sweep folds .details into the filed issue body", () => {
-    const skill = read("skills/pipeline/flow-pipeline/SKILL.md");
+    const skill = readPipelineSkillCorpus();
     const start = skill.indexOf("### Post-merge follow-up sweep");
     expect(
       start,
@@ -252,7 +253,7 @@ describe("flow-value-rubric: below-bar deferrals stay unfiled (fix-applier / pr-
 
 describe("flow-value-rubric: no file-by-default / pre-ticked wording survives", () => {
   it("flow-pipeline/SKILL.md documents 'file candidate #N' at least twice and names --tick", () => {
-    const skill = read("skills/pipeline/flow-pipeline/SKILL.md");
+    const skill = readPipelineSkillCorpus();
     const matches = skill.match(/file candidate #N/g) ?? [];
     expect(
       matches.length,
@@ -281,6 +282,14 @@ describe("flow-value-rubric: no file-by-default / pre-ticked wording survives", 
     { path: "references/git-workflow.md", label: "references/git-workflow.md" },
     { path: "AGENTS.md", label: "AGENTS.md" },
     {
+      path: ".claude/rules/flow-supervisor-contracts.md",
+      label: ".claude/rules/flow-supervisor-contracts.md",
+    },
+    {
+      path: ".claude/rules/flow-bin-conventions.md",
+      label: ".claude/rules/flow-bin-conventions.md",
+    },
+    {
       path: "bin/flow-candidate-issues.ts",
       label: "bin/flow-candidate-issues.ts",
     },
@@ -290,7 +299,10 @@ describe("flow-value-rubric: no file-by-default / pre-ticked wording survives", 
     "$label no longer contains the phrase 'file-by-default'",
     ({ path: relPath, label }) => {
       expect(
-        read(relPath).includes("file-by-default"),
+        (relPath === "skills/pipeline/flow-pipeline/SKILL.md"
+          ? readPipelineSkillCorpus()
+          : read(relPath)
+        ).includes("file-by-default"),
         `${label} must not contain the stale phrase 'file-by-default' — ` +
           "candidates now tick only when their value-prop block clears the bar.",
       ).toBe(false);
@@ -319,6 +331,8 @@ describe("flow-value-rubric: no file-by-default / pre-ticked wording survives", 
     ...mdFilesUnder("references"),
     ...mdFilesUnder("templates"),
     "AGENTS.md",
+    ".claude/rules/flow-supervisor-contracts.md",
+    ".claude/rules/flow-bin-conventions.md",
     "bin/flow-candidate-issues.ts",
   ];
 

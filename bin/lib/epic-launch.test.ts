@@ -72,7 +72,7 @@ describe("buildFeatureCreateArgs", () => {
     ]);
   });
 
-  it("autoMerge:true → no flag (true ≡ default)", () => {
+  it("autoMerge:true → --auto-merge before --epic/--slug (PLAN-DEVIATION fix: an explicit true hint must win over a launch.autoMerge:false config default)", () => {
     expect(
       buildFeatureCreateArgs(
         feat({ flowNewHints: { autoMerge: true } }),
@@ -82,12 +82,33 @@ describe("buildFeatureCreateArgs", () => {
       "feature",
       "create",
       DESCRIPTION_WITH_POINTER,
+      "--auto-merge",
       "--epic",
       "my-epic/schema",
       "--slug",
       "schema",
       "--tmux",
     ]);
+  });
+
+  it("autoMerge:false → --no-auto-merge (still emitted, unaffected by the true-hint fix)", () => {
+    const args = buildFeatureCreateArgs(
+      feat({ flowNewHints: { autoMerge: false } }),
+      EPIC_SLUG,
+    );
+    expect(args).toContain("--no-auto-merge");
+    expect(args).not.toContain("--auto-merge");
+  });
+
+  it("an absent flowNewHints.autoMerge emits NEITHER --auto-merge nor --no-auto-merge", () => {
+    const args = buildFeatureCreateArgs(feat({ flowNewHints: {} }), EPIC_SLUG);
+    expect(args).not.toContain("--auto-merge");
+    expect(args).not.toContain("--no-auto-merge");
+  });
+
+  it("an absent flowNewHints.effort emits no --effort flag (so config can supply downstream)", () => {
+    const args = buildFeatureCreateArgs(feat({ flowNewHints: {} }), EPIC_SLUG);
+    expect(args).not.toContain("--effort");
   });
 
   it("copilotReview:always → --copilot-review always before --epic/--slug", () => {

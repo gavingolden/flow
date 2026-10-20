@@ -45,7 +45,13 @@ fetch calls from the same `pr.json` record's `title`/`html_url`/`body`/
 shim-specific arrays, `apiReviews` and `apiComments` (deliberately
 separate from the `pr view --json reviews` shape — the REST reviews/
 comments endpoints and the GraphQL `reviewRequests`/`reviews` projection
-are different shapes off the same PR). Every other subcommand is
+are different shapes off the same PR). `pr edit <n> --body-file <path>`
+copies the body file to `$FLOW_EVAL_FIXTURE/.flow-tmp/gh-pr-edit-body.md`
+(a grader reads it back from `$REPO/.flow-tmp/`); a missing body file
+exits non-zero with `gh pr edit: body file not found`, and every other
+`pr edit` form stays unsupported. `pr merge --squash <n>` (that bare form
+only — it is `flow-merge-guard merge`'s exact call) succeeds and appends
+its argv to `$FLOW_EVAL_FIXTURE/.flow-tmp/gh-pr-merge.log`. Every other subcommand is
 unsupported and loud (`flow-eval gh shim: unsupported: [...]` on stderr,
 exit 1), never a silent success — a fixture-authoring gap must read as a
 red run, not a green one that proved nothing.
@@ -229,7 +235,11 @@ full flag reference.
 `flow-eval` seeds real pipeline state under an `eval-<suite>-<scenario>-r<n>`
 slug in the real `~/.flow/state/` (not a test-only directory) — the child
 session's own helpers (`flow-state-update`, `flow-checkpoint`,
-`flow-resume-decide`) only ever read the real state dir. This means
-`flow ls` shows `eval-*` rows while a suite is running; teardown removes
-them (state, checkpoints, turn tracking, proc registry) whether the run
-passed, failed, or was interrupted.
+`flow-resume-decide`) only ever read the real state dir. Each seeded
+state record's `repo` field points at that run's hermetic fixture repo,
+not the flow checkout (`bin/lib/eval-fixture.ts` writes `repo: repoDir`)
+— so a bare `flow ls` run from the flow checkout no longer shows
+`eval-*` rows once `flow ls` scopes to the current repo by default; run
+`flow ls --all-repos` to see them while a suite is running. Teardown
+removes the seeded state (state, checkpoints, turn tracking, proc
+registry) whether the run passed, failed, or was interrupted.

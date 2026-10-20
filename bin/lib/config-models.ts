@@ -11,25 +11,87 @@
 
 import { argsContainHelp, printVerbHelp } from "./help";
 import {
-  readPhaseModel,
   defaultReadConfigFile,
+  cachedConfigRead,
   type ReadConfigFile,
 } from "./models-config";
+import { resolveRouting, type ResolvedRow } from "./model-routing-table";
+import { readConfigModels } from "./read-config-models";
+import { readEffortsConfig } from "./efforts-config";
 import {
-  CONFIG_KEYS,
-  resolveRouting,
-  type ConfigModels,
-  type ResolvedRow,
-} from "./model-routing-table";
-import { readState, type PipelineState } from "./state";
+  detectClaudeBuild,
+  MIN_SUBAGENT_EFFORT_VERSION,
+  supportsSubagentEffort,
+} from "./claude-build";
+import { readLaunchDefaults } from "./launch-config";
+import { readState, EFFORT_LEVELS, type PipelineState } from "./state";
 import { friendlyName } from "./cost-pricing";
 import { dim } from "./color";
+
+/**
+ * The two dim footer lines that explain the models table's `= session`
+ * vocabulary and how EFFORT resolves per row. Exported so `config-all.ts`'s
+ * aggregate view prints the identical text under its own models section
+ * rather than letting the two views drift.
+ */
+export const MODEL_FOOTERS: readonly string[] = [
+  "MODEL and EFFORT both resolve at each spawn; set a row's effort with efforts.<key> (same key as models.*) — needs Claude Code 2.1.292+",
+  "EFFORT `= session` follows the session; fix-applier and UI driver default to medium (never above the session), the product reviewer to medium; CLAUDE_CODE_EFFORT_LEVEL overrides every row",
+];
+
+/**
+ * One EFFORT-cell string per row, shared by `flow config models` and
+ * `flow config all` so the two views cannot drift. `sessionKnown` is whether
+ * the session's effort is known: a capped built-in row then reads
+ * `≤ medium` rather than claiming the level it would only reach on a
+ * high-enough session.
+ */
+export function formatEffortCell(
+  row: ResolvedRow,
+  sessionKnown: boolean = true,
+): string {
+  if (row.phase === "session" || row.effort === "= session") return row.effort;
+  if (row.effortSource.startsWith("env")) return `${row.effort} · env`;
+  if (row.effortSource.startsWith("config")) return `${row.effort} · config`;
+  if (row.effortSource.startsWith("built-in")) {
+    const capped = row.effortSource.includes("≤ session");
+    return `${capped && !sessionKnown ? "≤ " : ""}${row.effort} · built-in`;
+  }
+  return row.effort;
+}
+
+/** Whether the session's effort is a concrete level (vs. the `(none)` display value). */
+export function isSessionEffortKnown(models: ModelRows): boolean {
+  return (EFFORT_LEVELS as readonly string[]).includes(models.effort.value);
+}
+
+/** Banner lines printed above the models table (empty when nothing to warn about). */
+export function effortBanners(models: ModelRows): string[] {
+  const banners: string[] = [];
+  if (models.envEffort) {
+    banners.push(
+      `CLAUDE_CODE_EFFORT_LEVEL=${models.envEffort} overrides the effort of every sub-agent, so the per-row efforts below are not in effect.`,
+    );
+  }
+  if (models.buildTooOld) {
+    banners.push(
+      `Your Claude Code is older than ${MIN_SUBAGENT_EFFORT_VERSION}, so efforts.* settings below are ignored: fix-applier, UI driver and the product reviewer run at medium, everything else follows the session. Upgrade Claude Code to use them.`,
+    );
+  } else if (models.buildUndetected) {
+    banners.push(
+      `Can't tell which Claude Code version runs your pipelines; per-sub-agent effort needs ${MIN_SUBAGENT_EFFORT_VERSION}+, so on an older version the efforts.* settings below are ignored.`,
+    );
+  }
+  return banners;
+}
 
 export type ConfigModelsOptions = {
   /** Injectable config reader (test seam); defaults to the real flowConfigPath() read. */
   read?: ReadConfigFile;
   /** Injectable feature-state reader (test seam); defaults to `readState`. */
   loadState?: (slug: string) => PipelineState | null;
+  /** Injectable environment (test seam); defaults to `process.env`. */
+  env?: NodeJS.ProcessEnv;
 };
 
 /**
@@ -82,43 +144,115 @@ export function runConfigModelsCli(
   // Read + parse `~/.flow/config.json` once and reuse across every
   // `CONFIG_KEYS` entry — `readPhaseModel`'s default reader otherwise
   // re-reads/re-parses the file from scratch per phase (~10x per invocation).
-  let cached: unknown;
-  let cachedRead = false;
-  const baseRead = options.read ?? defaultReadConfigFile;
-  const read: ReadConfigFile = () => {
-    if (!cachedRead) {
-      cached = baseRead();
-      cachedRead = true;
-    }
-    return cached;
-  };
+  const read: ReadConfigFile = cachedConfigRead(
+    options.read ?? defaultReadConfigFile,
+  );
 
-  const config: ConfigModels = {};
-  for (const key of CONFIG_KEYS) {
-    config[key] = readPhaseModel(key, read);
-  }
-
-  const rows = resolveRouting({ state, config });
+  const modelRows = buildModelRows(read, state, options.env);
+  const { rows, effort } = modelRows;
 
   if (json) {
     console.log(JSON.stringify(rows));
     return 0;
   }
 
-  printTable(rows);
+  for (const banner of effortBanners(modelRows)) console.log(banner);
+  console.log(`effort: ${effort.value} — ${effort.source}`);
+  console.log("");
+  printTable(rows, isSessionEffortKnown(modelRows));
   return 0;
 }
 
-function printTable(rows: ResolvedRow[]): void {
+export type ModelRows = {
+  rows: ResolvedRow[];
+  effort: { value: string; source: string };
+  /** `CLAUDE_CODE_EFFORT_LEVEL` when set to a valid level: it overrides every sub-agent. */
+  envEffort?: string;
+  /** The running build is detectably older than the per-spawn effort floor. */
+  buildTooOld?: boolean;
+  /** The build can't be detected (e.g. run from a plain terminal, outside a Claude Code session). */
+  buildUndetected?: boolean;
+};
+
+/**
+ * Pure(ish) row-builder over an already-resolved `read` + `state`: resolves
+ * the session effort (state > `launch.effort` > built-in), reads every
+ * `models.*` and `efforts.*` grain, and feeds them into `resolveRouting`.
+ * Extracted so `flow config all` can compose this section without
+ * re-parsing `~/.flow/config.json`.
+ */
+export function buildModelRows(
+  read: ReadConfigFile,
+  state: PipelineState | null,
+  env: NodeJS.ProcessEnv = process.env,
+): ModelRows {
+  const config = readConfigModels(read);
+  const efforts = readEffortsConfig(read);
+  const rawEnv = env.CLAUDE_CODE_EFFORT_LEVEL;
+  const envEffort =
+    rawEnv && (EFFORT_LEVELS as readonly string[]).includes(rawEnv)
+      ? rawEnv
+      : undefined;
+  const effort = resolveSessionEffort(state, read);
+  const rows = resolveRouting({ state, config, effort, efforts, envEffort });
+  const buildDetected = detectClaudeBuild(env) !== null;
+  const buildTooOld = buildDetected && !supportsSubagentEffort(env);
+  return {
+    rows,
+    effort,
+    envEffort,
+    buildTooOld,
+    buildUndetected: !buildDetected,
+  };
+}
+
+/**
+ * Resolves the session's effort on the same precedence ladder
+ * `config-launch.ts` uses for every other `launch.<key>`: this run's frozen
+ * state > `launch.effort` > built-in. Reuses the SAME three source-string
+ * literals so the two audit views never describe identical resolutions in
+ * different words. Once an explicit `--slug` resolved a state file, config
+ * is no longer in the chain (same rule `config-launch.ts` documents) — an
+ * absent `state.effort` there means "resolved to the built-in", never "go
+ * re-read the live config".
+ */
+function resolveSessionEffort(
+  state: PipelineState | null,
+  read: ReadConfigFile,
+): { value: string; source: string } {
+  if (state) {
+    if (state.effort !== undefined) {
+      return {
+        value: String(state.effort),
+        source: "this run (fixed at launch)",
+      };
+    }
+    return { value: "(none)", source: "built-in (no --effort passed)" };
+  }
+  const launchDefaults = readLaunchDefaults(read);
+  if (launchDefaults.effort !== undefined) {
+    return {
+      value: String(launchDefaults.effort),
+      source: "config (launch.effort)",
+    };
+  }
+  return { value: "(none)", source: "built-in (no --effort passed)" };
+}
+
+function printTable(rows: ResolvedRow[], sessionKnown: boolean): void {
   type Col = { header: string; get: (r: ResolvedRow) => string };
   const cols: Col[] = [
     { header: "PHASE", get: (r) => r.phase },
     {
       header: "MODEL",
+      // Deliberately NOT the EFFORT column's `= session`: an unset model
+      // INHERITS the session model, an unset effort FOLLOWS the session's
+      // effort. Both resolve per spawn, but they are independent axes with
+      // independent overrides; one word for both would blur that.
       get: (r) => (r.model ? friendlyName(r.model) : "inherited"),
     },
     { header: "SOURCE", get: (r) => r.source },
-    { header: "EFFORT", get: (r) => r.effort },
+    { header: "EFFORT", get: (r) => formatEffortCell(r, sessionKnown) },
   ];
   const widths = cols.map((c) =>
     Math.max(c.header.length, ...rows.map((r) => c.get(r).length)),
@@ -133,4 +267,5 @@ function printTable(rows: ResolvedRow[]): void {
   for (const r of rows) console.log(line(cols.map((c) => c.get(r))));
   console.log("");
   console.log(dim("routing only — see `flow ls --cost` for realized spend"));
+  for (const footer of MODEL_FOOTERS) console.log(dim(footer));
 }

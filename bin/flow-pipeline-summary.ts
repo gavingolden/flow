@@ -333,7 +333,8 @@ export function render(inputs: RenderInputs): string {
     lines.push(`  ${ln}`);
   }
   lines.push("LENSES:");
-  for (const ln of renderLenses(inputs.reviewTelemetryRaw).dev) {
+  for (const ln of renderLenses(inputs.reviewTelemetryRaw, inputs.prReviewRaw)
+    .dev) {
     lines.push(`  ${ln}`);
   }
   lines.push("FORECLOSED PATHS:");

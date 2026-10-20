@@ -48,6 +48,7 @@ function makeScenario(
     maxBudgetUsd: 4,
     timeoutSec: 60,
     allowedTools: ["Bash", "Read"],
+    mcpServers: [],
     graders: [{ id: "g1", kind: "file", file: "$REPO/x.txt", exists: true }],
     ...overrides,
   };
@@ -228,6 +229,67 @@ describe("buildChildArgv", () => {
     });
     expect(argv).not.toContain("--effort");
   });
+
+  it("adds --autocompact after --effort when opts.autocompact is set", () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const argv = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+      effort: "medium",
+      autocompact: "150k",
+    });
+    expect(argv.slice(-4)).toEqual([
+      "--effort",
+      "medium",
+      "--autocompact",
+      "150k",
+    ]);
+  });
+
+  it("leaves argv unchanged when opts.autocompact is unset", () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const withoutAutocompact = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+    });
+    const explicitUndefined = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+      autocompact: undefined,
+    });
+    expect(withoutAutocompact).not.toContain("--autocompact");
+    expect(explicitUndefined).toEqual(withoutAutocompact);
+  });
+
+  it("adds --mcp-config and --strict-mcp-config when fixture.mcpConfigPath is set", () => {
+    const fixture = makeFixture({
+      mcpConfigPath: "/tmp/fixture-root/mcp-config.json",
+    });
+    const argv = buildChildArgv(makeScenario(), fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+    });
+    const idx = argv.indexOf("--mcp-config");
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(argv[idx + 1]).toBe("/tmp/fixture-root/mcp-config.json");
+    expect(argv).toContain("--strict-mcp-config");
+  });
+
+  it("omits --mcp-config and --strict-mcp-config when fixture.mcpConfigPath is unset", () => {
+    const argv = buildChildArgv(makeScenario(), makeFixture(), {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+    });
+    expect(argv).not.toContain("--mcp-config");
+    expect(argv).not.toContain("--strict-mcp-config");
+  });
 });
 
 describe("childArgvDigest", () => {
@@ -281,6 +343,45 @@ describe("childArgvDigest", () => {
     expect(childArgvDigest(withPlugin)).not.toBe(
       childArgvDigest(withoutPlugin),
     );
+  });
+
+  it("changes when --autocompact is added", () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const withoutAutocompact = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+    });
+    const withAutocompact = buildChildArgv(scenario, fixture, {
+      claudeBin: "claude",
+      sessionId: "sess-1",
+      prompt: "hello",
+      autocompact: "150k",
+    });
+    expect(childArgvDigest(withAutocompact)).not.toBe(
+      childArgvDigest(withoutAutocompact),
+    );
+  });
+
+  it("excludes the per-run --mcp-config fixture path from the digested string", () => {
+    const argv = buildChildArgv(
+      makeScenario(),
+      makeFixture({ mcpConfigPath: "/tmp/fixture-root/mcp-config.json" }),
+      {
+        claudeBin: "claude",
+        sessionId: "sess-1",
+        prompt: "hello",
+      },
+    );
+    // The digest is a hash, so assert on its INPUT indirectly: two argvs
+    // differing only in the fixture path must still hash identically.
+    const argvOtherPath = argv.map((tok) =>
+      tok === "/tmp/fixture-root/mcp-config.json"
+        ? "/tmp/other-fixture-root/mcp-config.json"
+        : tok,
+    );
+    expect(childArgvDigest(argv)).toBe(childArgvDigest(argvOtherPath));
   });
 });
 
@@ -687,5 +788,71 @@ describe("runScenarioOnce", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("resolves a bare claudeBin to an absolute path before composing argv, so the without-arm's LOCAL_BIN_DIR-stripped PATH can't unresolve it", async () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const files: Record<string, string> = {
+      [path.join(scenario.dir, "prompt.md")]: "hi",
+    };
+    const resultLine = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      num_turns: 1,
+      total_cost_usd: 0.01,
+      duration_ms: 10,
+      session_id: "s",
+      usage: { input_tokens: 1, output_tokens: 1 },
+      modelUsage: {},
+      permission_denials: [],
+    });
+
+    let capturedArgv: string[] | undefined;
+    const fakeSpawn: SpawnFn = (argv, _env, _cwd, onStdout) => {
+      capturedArgv = argv;
+      onStdout(resultLine + "\n");
+      return { exited: Promise.resolve(0), kill: () => {} };
+    };
+
+    // "sh" is a bare name guaranteed to resolve on PATH in any POSIX test
+    // environment (unlike "claude", which isn't installed on CI runners).
+    await runScenarioOnce(scenario, fixture, {
+      claudeBin: "sh",
+      outDir,
+      sessionId: "sess-1",
+      spawn: fakeSpawn,
+      readFile: (p) => files[p] ?? "",
+    });
+
+    expect(capturedArgv).toBeDefined();
+    expect(path.isAbsolute(capturedArgv![0])).toBe(true);
+  });
+
+  it("sets a non-empty error naming the missing result event when the child exits without ever emitting one", async () => {
+    const scenario = makeScenario();
+    const fixture = makeFixture();
+    const files: Record<string, string> = {
+      [path.join(scenario.dir, "prompt.md")]: "hi",
+    };
+
+    const fakeSpawn: SpawnFn = (_argv, _env, _cwd, _onStdout) => {
+      // No onStdout call at all — the child dies before any result event.
+      return { exited: Promise.resolve(127), kill: () => {} };
+    };
+
+    const outcome = await runScenarioOnce(scenario, fixture, {
+      claudeBin: "claude",
+      outDir,
+      sessionId: "sess-1",
+      spawn: fakeSpawn,
+      readFile: (p) => files[p] ?? "",
+    });
+
+    expect(outcome.result).toBeNull();
+    expect(outcome.exitCode).toBe(127);
+    expect(outcome.error).toBeTruthy();
+    expect(outcome.error).toContain("no-result-event");
   });
 });

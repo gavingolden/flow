@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readPipelineSkillCorpus } from "./lib/pipeline-skill-corpus";
 
 /**
  * Structural lint for the narrowed "raw `claude -p`" rule, so it cannot
@@ -14,10 +15,6 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..");
 
-const SKILL_MD_PATH = path.join(
-  REPO_ROOT,
-  "skills/pipeline/flow-pipeline/SKILL.md",
-);
 const AGENTS_MD_PATH = path.join(REPO_ROOT, "AGENTS.md");
 const HEADLESS_REFERENCE_PATH = path.join(
   REPO_ROOT,
@@ -30,7 +27,7 @@ const ASSESSMENT_PATH = path.join(
 
 describe("headless-claude rule lint", () => {
   it("SKILL.md's Hard-rules blockquote names flow-claude-headless alongside raw `claude -p`, and drops the old blanket sentence", () => {
-    const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
+    const content = readPipelineSkillCorpus();
     const lines = content.split("\n");
     const headingIdx = lines.findIndex((l) => l.trim() === "# Hard rules");
     let i = headingIdx + 1;

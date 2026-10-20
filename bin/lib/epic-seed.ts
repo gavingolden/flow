@@ -27,9 +27,9 @@ import { sanitizeSeedLine } from "./seed-delivery";
 
 /**
  * Resolved absolute path to the product-planning skill, embedded (R1) in
- * both epic seeds so the spawned `/flow-epic-create` supervisor can pass a
- * concrete `SKILL_DIR` into its Task-spawned `MODE: epic` designer. The
- * supervisor runs cwd'd in a consumer worktree without `bin/lib`, so it
+ * both epic seeds as `SKILL_DIR`. The `/flow-epic-create` supervisor loads
+ * `/flow-product-planning` in-process, so it no longer consumes this field
+ * (the seed shape is kept byte-stable). The supervisor runs cwd'd in a consumer worktree without `bin/lib`, so it
  * cannot resolve this itself — the CLI / hook (flow's own installed code)
  * resolves it symlink-aware via `resolveFlowSource()` and threads it through.
  */

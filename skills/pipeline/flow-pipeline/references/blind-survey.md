@@ -6,7 +6,7 @@ the pipeline's GOAL — never told the user's proposed method — before
 forced research and before `/flow-product-planning` discovery ever runs.
 The survey is a `flow-delegate-fanout` **Bash fan-out**, not a Task-tool
 spawn: no new exemption, same shape as the cross-model plan review and
-the intent guess (see `AGENTS.md` `## Don'ts`, the shared phrase
+the intent guess (see `.claude/rules/flow-supervisor-contracts.md` `## Don'ts`, the shared phrase
 "Bash fan-out, not a tenth exemption"). This file is the full body;
 `SKILL.md` Step 3 carries only a pointer-sized opener.
 
@@ -72,6 +72,16 @@ user's proposed HOW.
 
 ## Run the survey
 
+The survey runs two serial agy judges at up to `JUDGE_A_TIMEOUT` +
+`JUDGE_B_TIMEOUT` (10m + 6m today), longer than one tool call lasts. So
+launch it detached and wait in re-armed steps — never as one blocking Bash
+call. Shell variables do not survive between Bash calls, so the recipe
+persists the pid, the start time and the description-file path under
+`.flow-tmp/`.
+
+**1. Launch (one Bash call).** The `rm -f` of the envelope is load-bearing:
+a stale file from an earlier pass would satisfy the waiter instantly.
+
 ```bash
 BLIND_SURVEY_DESC=$(mktemp -t blind-survey-desc.XXXXXX)
 cat > "$BLIND_SURVEY_DESC" <<'EOF'
@@ -79,18 +89,57 @@ cat > "$BLIND_SURVEY_DESC" <<'EOF'
 <one line per Desired behavior / Constraints & trade-offs digest answer>
 <the user's proposed method>
 EOF
-flow-blind-survey \
+SURVEY_ENV="$WORKTREE/.flow-tmp/blind-survey-envelope.json"
+rm -f "$SURVEY_ENV"
+echo "$BLIND_SURVEY_DESC" > "$WORKTREE/.flow-tmp/blind-survey.desc-path"
+date +%s > "$WORKTREE/.flow-tmp/blind-survey.start"
+PID=$(flow-spawn --detach --stdout "$SURVEY_ENV" \
+  --stderr "$WORKTREE/.flow-tmp/blind-survey.log" -- \
+  flow-blind-survey \
   --brief-file "$WORKTREE/.flow-tmp/blind-survey-brief.md" \
   --description-file "$BLIND_SURVEY_DESC" \
   --out "$WORKTREE/.flow-tmp/blind-survey.md" \
-  --worktree "$WORKTREE"
-rm -f "$BLIND_SURVEY_DESC"
+  --worktree "$WORKTREE")
+echo "$PID" > "$WORKTREE/.flow-tmp/blind-survey.pid"
 ```
 
-Run this as a Bash tool call with `timeout: 600000` (10 minutes — the
-helper's own `JUDGE_A_TIMEOUT`/`JUDGE_B_TIMEOUT` sum to 9 minutes, so
-this leaves real margin). Branch on the stdout envelope's `{ran}` field,
-**never** the exit code (every non-usage path exits 0):
+**2. Wait (re-run this Bash call, with the Bash tool's `timeout` set to
+`600000`, until it ends the wait).** `flow-blind-survey` prints its
+envelope as one JSON line plus a newline, so `--complete-line` means "the
+envelope is whole":
+
+```bash
+SURVEY_ENV="$WORKTREE/.flow-tmp/blind-survey-envelope.json"
+PID=$(cat "$WORKTREE/.flow-tmp/blind-survey.pid")
+flow-plan-review-wait "$SURVEY_ENV" --complete-line --pid "$PID" --max-sec 540
+echo "elapsed: $(( $(date +%s) - $(cat "$WORKTREE/.flow-tmp/blind-survey.start") ))s"
+```
+
+The waiter prints one `{"outcome": …}` line:
+
+- **`complete`** — the envelope is whole. Go to step 3.
+- **`process-exited-without-result`** — the helper exited (or crashed)
+  without printing an envelope. Remove the description temp file
+  (`rm -f "$(cat "$WORKTREE/.flow-tmp/blind-survey.desc-path")"`), print the
+  skip line `blind survey skipped — fanout-error` and proceed with no marker.
+- **`timeout`** (the 540 s step ran out) — re-run the wait, until the
+  **give-up time**: judge A + judge B + 5 minutes since the start time
+  (21 minutes today). Past it, kill the helper's process group
+  (`kill -- -"$(cat "$WORKTREE/.flow-tmp/blind-survey.pid")"`; `$PID`
+  is unset in a later Bash call), remove the description temp file
+  (`rm -f "$(cat "$WORKTREE/.flow-tmp/blind-survey.desc-path")"`), print the
+  skip line `blind survey skipped — survey-timeout`, and proceed with no
+  marker.
+
+**3. Read the envelope and clean up.**
+
+```bash
+rm -f "$(cat "$WORKTREE/.flow-tmp/blind-survey.desc-path")"
+cat "$WORKTREE/.flow-tmp/blind-survey-envelope.json"
+```
+
+Branch on the envelope's `{ran}` field, **never** the exit code (every
+non-usage path exits 0):
 
 - **`skipReason: "brief-not-blind"`.** The mechanical blindness guard
   fired on the brief you authored. Re-author the brief ONCE — read the
@@ -123,7 +172,7 @@ SURVEY: <absolute path to .flow-tmp/blind-survey.md> (judges: A=<model> ran|skip
 
 `/flow-product-planning`'s `{{SURVEY_OVERRIDE}}` spawn-template
 placeholder forwards it to the Discovery Subagent, which runs
-`discovery-instructions.md` step 1.8 and authors `## Method selection`.
+`discovery-survey-epic.md` (step 1.8) and authors `## Method selection`.
 
 On a re-entry where `blind-survey.md` already exists (the Gate part 2
 reuse path above) but no envelope is live in the current turn, derive

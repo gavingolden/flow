@@ -35,6 +35,18 @@ The wrapper passes you these inputs in its spawn prompt:
 
 Follow the steps below in order.
 
+## 0. Write the skeleton artifact first
+
+Before applying any finding's fix, write the artifact straight to
+`$ARTIFACT_PATH` as a `status: "partial"` skeleton: every key from the
+schema in step 9 present, `commits`/`deferred`/`rejected_alternatives`/
+`anti_patterns_found` as empty arrays, and a non-empty placeholder
+`summary` string (so the skeleton itself validates). After every finding
+is processed, refresh that finding's disposition in the artifact with a
+short, targeted `Edit` — never a full rewrite. A finding never attempted
+because the turn budget ran out is recorded in `deferred[]` with
+`reason: "turn-budget — not attempted"` and `tracker_entry_url: ""`.
+
 ## 1. Load context
 
 Before drafting any fix, load the inputs:
@@ -42,7 +54,7 @@ Before drafting any fix, load the inputs:
 - Read the PR fetch output the wrapper passed you. Extract: the filtered
   finding set (each entry has `file`, `line`, `end_line`, `label`,
   `decoration`, `confidence`, `subject`, `body`, and an agent category like
-  `Bug-Detection`/`Security`/`Pattern-Consistency`/`Performance`/`Supply-Chain`/`Test-Coverage`), the
+  `Bug-Detection`/`Security`/`Pattern-Consistency`/`Performance`/`Supply-Chain`/`Test-Coverage`/`Product`), the
   inline review comments to address (each has `comment_id`, `path`, `line`,
   `body`), and the head SHA captured at fetch time.
 - Read `<SKILL_DIR>/references/conventional-comments.md` for the labelling
@@ -51,7 +63,8 @@ Before drafting any fix, load the inputs:
   finding's category is unclear and you need to disambiguate (`Bug-Detection` →
   `bug-detection.md`, `Security` → `security.md`, `Pattern-Consistency` →
   `pattern-consistency.md`, `Performance` → `performance.md`, `Supply-Chain` →
-  `supply-chain.md`, `Test-Coverage` → `test-coverage.md`).
+  `supply-chain.md`, `Test-Coverage` → `test-coverage.md`, `Product` →
+  `product.md`).
 
 This is read-only background — these reads stay in your context.
 
@@ -113,16 +126,16 @@ For each finding, classify it into one of:
 
   Surfaced by `/flow-pr-review` on PR #<n>.
   EOF
-
-  ISSUE_JSON=$(flow-create-issue \
-    --title "<short finding subject>" \
-    --body-file "$WORKTREE/.flow-tmp/deferred-body.md" \
-    --label flow-agent,deferred-review)
-  RC=$?
-  ISSUE_URL=$(printf '%s' "$ISSUE_JSON" | jq -r '.url // empty')
   ```
 
-  Set `tracker_entry_url` to `$ISSUE_URL`. The helper files against the
+  ```bash
+  flow-create-issue --title "<short finding subject>" --body-file "<absolute worktree>/.flow-tmp/deferred-body.md" --label flow-agent,deferred-review
+  ```
+
+  Run it as its own Bash call exactly in this form — flow's launch settings
+  pre-approve only a standalone `flow-create-issue` command.
+
+  Set `tracker_entry_url` to the printed JSON's `.url`. The helper files against the
   **current repo only** (no `--repo` flag); third-party regressions get a
   `flow-agent,deferred-review,third-party` label combo and a body that names
   the upstream project, leaving the user to mirror the issue upstream
@@ -130,16 +143,16 @@ For each finding, classify it into one of:
 
   **Exit 3 — body rejected (fix and retry, never degrade).** `flow-create-issue`
   returns exit 3 when the deferred-body.md heredoc's value-prop block fails the
-  flow-value-rubric contract; `$ISSUE_JSON` is then the rejection envelope
-  (`{"action":"rejected","reason":…,"misses":[…],"expected":[…],"shortFormExample":…}`),
+  flow-value-rubric contract; the printed JSON is then the rejection envelope
+  (`.action` is `"rejected"`: `{"action":"rejected","reason":…,"misses":[…],"expected":[…],"shortFormExample":…}`),
   not an issue URL. Repair the heredoc from `.misses`/`.expected` in that
   envelope and retry once. This is distinct from every other non-zero exit
   below — treating it as "no Issues surface" and setting `tracker_entry_url`
   to an empty string would launder a rejected body and silently lose the
   deferred finding.
 
-  **Fallback path.** If `flow-create-issue` exits non-zero AND `RC` is not
-  `3` (e.g. `gh` unavailable, no GH Issues surface for this repo), do NOT
+  **Fallback path.** If `flow-create-issue` exits non-zero with empty or
+  non-JSON output (not the `.action: "rejected"` envelope; e.g. `gh` unavailable, no GH Issues surface for this repo), do NOT
   append to an in-repo tracker file — most repos have none, and a flat file
   with no status lifecycle is not a durable tracker. Instead, leave
   `tracker_entry_url` as an empty string, put the full deferral context in
@@ -238,9 +251,9 @@ is illegal: it should have been a commit, not a note.
 Fix-now and deferral are two outcomes of one classification: a finding clearing
 the fix-now bar's three conditions is fixed now; a finding clearing the deferral
 bar's three conditions is deferred; the residue is your judgment. The single
-source of truth for the fix-now conditions is the consumer repo's `AGENTS.md`
-`## Anti-Overengineering` / fix-now bar (seeded from
-`templates/AGENTS.md.template`).
+source of truth for the fix-now conditions is the consumer repo's
+`references/agent-conduct.md` `## Anti-Overengineering` / fix-now bar
+(seeded from `templates/references/agent-conduct.md`).
 
 **Push back on inline comments** that are incorrect or would degrade code
 quality. Blindly accepting every suggestion is worse than thoughtfully
@@ -306,6 +319,12 @@ Otherwise, for each inline comment:
    (push-back) or `reason` (deferral) field; surfacing the prose here
    in your return summary is helpful for human-debugging but not
    load-bearing — the artifact is the contract.
+
+A finding whose `subject` starts with `[test-steps]` (the product lens's
+PR-body concerns) is addressed by editing the PR body's `## Test Steps`
+section (`gh pr view --json body` -> edit -> `flow-md-validate
+--fix-pr-body` -> `gh pr edit --body-file`), NEVER by editing source; its
+file/line anchor is for inline-comment placement only.
 
 Push back on incorrect comments. The reply body the wrapper posts at
 step 9 is composed from the `reasoning` field of the matching
@@ -393,6 +412,48 @@ It resolves the epic slug ambiently ($FLOW_SLUG / the launch env) and is a
 no-op for a non-epic PR; it also exits 0 when `gh` is unavailable, so it
 never blocks this step.
 
+**Validate the epic manifests against this PR's diff.** This fires whether
+or not the diff touches a manifest — that is what catches a forgotten
+write-back (`undeclared-producer`: this PR's feature regenerates a
+declared shared artifact it does not itself declare, or a non-epic PR
+touches one without the manifest):
+
+```bash
+BASE_REF=$(gh pr view "$PR_NUMBER" --json baseRefName --jq .baseRefName)
+if ! git rev-parse --verify --quiet "origin/$BASE_REF" > /dev/null; then
+  echo "epic-dag: base ref unavailable — skipped"
+else
+  if ! command -v flow-epic-dag > /dev/null; then
+    echo "epic-dag: flow-epic-dag not installed — skipped"
+  else
+    FAIL=0
+    EPIC_SLUG=$(jq -r '.epic.slug // empty' ~/.flow/state/"${FLOW_SLUG:-}".json 2>/dev/null)
+    FEATURE_ID=$(jq -r '.epic.featureId // empty' ~/.flow/state/"${FLOW_SLUG:-}".json 2>/dev/null)
+    TOUCHED="$WORKTREE/.flow-tmp/epic-dag-touched.z"
+    git diff -z --name-only "origin/$BASE_REF...HEAD" > "$TOUCHED"
+    for m in .flow/epics/*/manifest.json; do
+      [ -f "$m" ] || continue
+      FEAT_ARGS=()
+      if [ -n "$FEATURE_ID" ] && [ "$m" = ".flow/epics/$EPIC_SLUG/manifest.json" ]; then
+        FEAT_ARGS=(--feature "$FEATURE_ID")
+      fi
+      xargs -0 flow-epic-dag --touched-files "$m" "${FEAT_ARGS[@]}" < "$TOUCHED" || FAIL=1
+      if tr '\0' '\n' < "$TOUCHED" | grep -qxF "$m"; then
+        flow-epic-dag --validate "$m" || FAIL=1
+      fi
+    done
+    if [ "${FAIL:-0}" -ne 0 ]; then
+      echo "epic-dag: manifest validation FAILED — fix in this PR (add the producer entry + edge)"
+    fi
+  fi
+fi
+```
+
+A non-zero exit is recorded via the `epic-dag: manifest validation FAILED`
+line above, which the result artifact's summary and the step's return
+summary both surface, and fixed in this PR (add the producer entry + edge to
+the manifest) — never `|| true`-swallowed.
+
 When it modifies `.flow/epics/<epic-slug>/status.json`, bundle the edit
 into the fix commit you are already making (steps 3–4 / 5a–5b). If it is
 the only change this run produced, use commit message `chore(epic): sync
@@ -435,10 +496,14 @@ Run the pre-commit helper with the PR number:
 flow-pre-commit --pr "$PR_NUMBER"
 ```
 
-The helper auto-detects changed areas, runs `npm run format` first, then
-each check separately with structured pass/fail output. A non-zero exit
-means a check failed — investigate, fix, and re-run. Repeat until all
-checks pass.
+The helper auto-detects changed areas and does not format; it runs each
+check separately with structured pass/fail output. A non-zero exit means
+a check failed — investigate, fix, and re-run.
+
+**Verify-fix round cap.** At most 5 verify-fix rounds per run. After the
+fifth failing round, record the failure excerpt in the affected
+`commits[].verify_status`, refresh the artifact as `status: "partial"`,
+and return — never a sixth round.
 
 If a check fails for a reason unrelated to your fix (pre-existing brokenness
 on the branch), record it in `anti_patterns_found` with the verbatim failure
@@ -458,7 +523,8 @@ Don't ask for confirmation; the exemption removes the ambiguity.
   `refactor:`) + `(pr-review #$PR_NUMBER)` suffix in the subject. The body
   explains the _why_ (what the finding was) and references the agent's
   category (e.g. "Bug-Detection", "Pattern-Consistency", "Performance", "Supply-Chain").
-- If the PR is **still open**: commit on the PR's branch and `git push`.
+- If the PR is **still open**: commit on the PR's branch and `git push` (Bash
+  `timeout: 600000` — a consumer pre-push gate can run for minutes).
 - If the PR is **already merged** (reaching this point means it slipped
   past both the Gatekeeper's `closed-or-merged` skip and Step 2's
   `Closed/merged` pre-flight, so this is a PR that merged mid-review):
@@ -470,7 +536,8 @@ Don't ask for confirmation; the exemption removes the ambiguity.
   tree, and this path's fixes are tracked via the filed issue below, not
   left half-applied on disk. Instead, route every unaddressed finding
   through the deferral path documented above (this file's step 2) as
-  EXACTLY ONE consolidated `flow-create-issue` call for the whole PR — not
+  EXACTLY ONE consolidated `flow-create-issue` call (same standalone call form)
+  for the whole PR — not
   one per finding, since this path bypasses the per-finding deferral bar
   above (the trigger is the merge, not any finding's complexity, so a
   per-finding fan-out would be unbounded). Title it exactly
@@ -494,17 +561,52 @@ artifact's `commits[].sha` in step 9.
 
 ## 8. Re-run `/flow-verify` (load-bearing differentiator)
 
-After every commit lands, invoke `/flow-verify` in-process via the Skill tool:
+After all fix commits land (step 7), invoke `/flow-verify` once in-process via the Skill tool (record `verify_status` per commit from that single verdict):
 
 ```
 /flow-verify
+UI_SMOKE_DRIVER: inline
 ```
 
-`/flow-verify` runs the project's full check suite (typecheck, tests, format).
-Capture the verdict per commit:
+The `UI_SMOKE_DRIVER: inline` marker is required here — this subagent has no
+Task tool of its own (fix-now mode is inline by construction), so a UI-touching
+commit's browser-driven UI-smoke pass must run in `/flow-verify`'s own context
+per `../flow-ui-driver-instructions/SKILL.md` rather than spawning the
+`flow-ui-driver` exemption.
 
-- **Pass** → set `commits[].verify_status = "pass"` for every commit
-  produced this run.
+<!-- flow-credential-denial-rule -->
+
+**Credential denial means stop.** When a permission check, the auto-mode
+classifier, or a deny rule refuses any credential-related action —
+reading a `.env`-family file, printing a credential variable, running
+`flow-ui-login test-account`, or the `fill_form` that types the
+test-account values — STOP the browser check. Never retry through another
+tool (Read, grep, cat, a script, `evaluate_script`, or a different
+fill/type tool): record `skipped_reason: "credentials-unavailable"` and let
+the caller surface `smoketest-needs-creds`, naming only the variable NAMES.
+Values filled and submitted but the page still on `loginUrl` is not a
+refusal: record `login-failed`. On this inline path, put
+`credentials-unavailable` in the fix-applier artifact summary and leave the affected signed-in items
+unchecked so the pr-review wrapper surfaces `smoketest-needs-creds`.
+
+<!-- flow-denial-teardown -->
+
+Exception — after a credential denial: make no further browser, MCP or
+teardown calls (the classifier treats them as tunneling the denied action).
+The pipeline's `flow-browser-teardown --reap --record` closes the page, the
+browser and the launched servers.
+
+`/flow-verify` runs the project's full check suite (typecheck, tests, lint). The helper never formats, but `/flow-verify`'s own lint-fix path may run `npm run format`, so expect formatting edits left behind.
+Apply the verdict to every commit produced this run:
+
+- **Pass** → reconcile whatever verify left behind into this one commit
+  path, then set `commits[].verify_status = "pass"` for every commit
+  produced this run:
+  - verify left uncommitted edits on a green run → commit them as one extra
+    fix commit;
+  - verify authored its own commit(s) (e.g. a Layer-3
+    `.flow/pre-commit.json` entry) → include them;
+  - either way, push and record every new SHA in `commits[]` first.
 - **Fail (within `/flow-verify`'s internal cap)** → make a follow-up fix
   commit on the same branch, push, and re-run `/flow-verify`. Repeat until
   clean or until `/flow-verify`'s internal cap exhausts.
@@ -512,7 +614,10 @@ Capture the verdict per commit:
   the affected `commits[].verify_status` to a head-100/tail-50 line
   excerpt of the verify failure (matching `flow-pre-commit --json`'s
   `headExcerpt`/`tailExcerpt` shape — the failure is too large to inline
-  verbatim). Surface the unresolved failure in the return summary so the
+  verbatim; there is no `"fail"` literal). Never commit verify's scratch
+  edits: every fix-applier edit is already committed, so run
+  `git restore --staged --worktree . && git clean -fd` (`.flow-tmp` is
+  excluded, so it survives). Surface the unresolved failure in the return summary so the
   wrapper can escalate `NEEDS HUMAN: review-fix-verify-failed` rather
   than letting CI catch it after you exit.
 
@@ -527,12 +632,17 @@ rebuild intent from scratch.
 Write the artifact at the absolute path the wrapper passed you (typically
 `<worktree>/.flow-tmp/fix-applier-result.json`). The wrapper has already
 created the parent directory; you only need to write the file. Overwrite
-any prior artifact; do not append.
+any prior artifact; do not append. `status` is `"complete"` only once
+every finding has been attempted and every `commits[].verify_status` is
+`"pass"`; otherwise it stays `"partial"`. The atomic `.tmp` → validate →
+`mv` recipe applies to the final `status: "complete"` write only — the
+step-0 skeleton and the per-finding refreshes are plain `Edit` calls.
 
 The artifact MUST conform to this JSON schema:
 
 ```json
 {
+  "status": "partial" | "complete",
   "commits": [
     {
       "sha": "<7-char hex>",
@@ -572,17 +682,22 @@ The artifact MUST conform to this JSON schema:
 }
 ```
 
-`ui_screenshots` is typically **ABSENT** from what this subagent writes: it
-is `/flow-pr-review` Step 8c's post-spawn step that populates it, and Step 8c
-runs AFTER this subagent has already written and returned this artifact and
-exited — the browser capture happens outside this subagent's session. The
-wrapper merges the captured paths into this same artifact file on disk
-before `/flow-pr-review` Step 9's single read (see
+`ui_screenshots` should be **ABSENT** from what this subagent writes: the
+browser capture happens entirely outside this subagent's session, in the
+spawned UI-Driver Subagent's own isolated context (`/flow-pr-review` Step
+8c, which runs AFTER this subagent has already written and returned this
+artifact and exited). The UI-Driver Subagent owns the
+`evidence_paths[] → ui_screenshots[]` mapping itself and writes it directly
+into its OWN `.flow-tmp/ui-driver-result.json` artifact — there is no
+wrapper-side merge-back into THIS artifact (`fix-applier-result.json`); that
+patch step was removed once the driver started writing its own field
+directly (see
 [ui-validation-evidence.md](../flow-pr-review/references/ui-validation-evidence.md)'s "Snapshot-primary,
-screenshot-by-reference" and "Merge-back into `fix-applier-result.json`"
+screenshot-by-reference" and "Merge-back into `ui-driver-result.json`"
 sections for the concrete recipe). Only set `ui_screenshots` yourself if a
 fix you applied in step 3 above itself captured a screenshot (rare);
-otherwise omit the field entirely and let Step 8c populate it later.
+otherwise omit the field entirely — `/flow-pr-review` Step 9 reads
+`ui-driver-result.json` separately for that evidence, never this artifact.
 
 **Negative-findings slots are required.** `rejected_alternatives` and
 `anti_patterns_found` are not optional decorations — they are the slots
@@ -639,16 +754,16 @@ fan-out.
 
 # Troubleshooting
 
-| Problem                                          | Symptom                                              | Fix                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------------------------------------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Edit` tool refuses                              | "string not unique" or read-required error           | Read the file first; expand `old_string` with surrounding context until unique. Don't paraphrase the refusal as "the hook denied edits" — that's a fabrication.                                                                                                                                                                                                 |
-| `flow-pre-commit` fails on pre-existing breakage | A check fails on files you didn't touch              | Record the failure in `anti_patterns_found` with the verbatim excerpt; mark affected commit's `verify_status` as the excerpt. Do not silently abandon the fix. (`verify_status` is the right field here — pre-commit and `/flow-verify` cover the same check semantic; both go in `verify_status`. `tool_error` is reserved for Edit/Write tool failures only.) |
-| `/flow-verify` cap exhausts mid-run              | The skill exits without clean                        | Stop attempting fixes. Record the cap-exhausted failure in `commits[].verify_status` and surface in the return summary so the wrapper can escalate.                                                                                                                                                                                                             |
-| Push fails (branch protection, CI required)      | `git push` exits non-zero                            | Capture the verbatim error, write it into the artifact's `summary`, and exit. Do not retry the push — let the wrapper decide whether to escalate.                                                                                                                                                                                                               |
-| Roadmap row already shipped                      | A row already shows `✅ shipped (#$PR_NUMBER)`       | The edit is idempotent — your `Edit` call produces no diff and that's fine. Don't error.                                                                                                                                                                                                                                                                        |
-| Multiple table rows match `(#$PR_NUMBER)`        | A PR legitimately spans items                        | Flip all matching rows. The diff is visible to the human reviewer / auto-merge gate before merge.                                                                                                                                                                                                                                                               |
-| Inline comment conflicts with a finding          | Same `file:line` covered by both                     | Address once; record `finding_id` for both in the same `commits[]` entry's `reasoning` (e.g. `"agent finding f-7 + reviewer comment c-42 merged into one fix"`).                                                                                                                                                                                                |
-| Repo has no GitHub Issues surface                | `flow-create-issue` exits non-zero / Issues disabled | Set `tracker_entry_url: ""` and put the full context in `reason`. The wrapper surfaces both fields loudly in the Step 12 report. Do not append to an in-repo file or invent a tracker integration.                                                                                                                                                              |
+| Problem                                          | Symptom                                              | Fix                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Edit` tool refuses                              | "string not unique" or read-required error           | Read the file first; expand `old_string` with surrounding context until unique. Don't paraphrase the refusal as "the hook denied edits" — that's a fabrication.                                                                                                                                                                                                                                                                   |
+| `flow-pre-commit` fails on pre-existing breakage | A check fails on files you didn't touch              | Record the failure in `anti_patterns_found` with the verbatim excerpt; mark affected commit's `verify_status` as the excerpt. Do not silently abandon the fix. (`verify_status` is the right field here — pre-commit and `/flow-verify` cover the same check semantic; both go in `verify_status`. `tool_error` is reserved for Edit/Write tool failures only.)                                                                   |
+| `/flow-verify` cap exhausts mid-run              | The skill exits without clean                        | Stop attempting fixes. Record the cap-exhausted failure in `commits[].verify_status` and surface in the return summary so the wrapper can escalate.                                                                                                                                                                                                                                                                               |
+| Push fails (branch protection, CI required)      | `git push` exits non-zero                            | Never bypass hooks with `--no-verify`. Capture the verbatim error, write it into the artifact's `summary`, and exit. Do not retry the push — let the wrapper decide whether to escalate. A hook refusal (no `[rejected]` / `[remote rejected]` line) is recorded verbatim in `summary` as a failing check (see [references/git-workflow.md](../../../references/git-workflow.md) `### Pipeline pushes run the consumer's hooks`). |
+| Roadmap row already shipped                      | A row already shows `✅ shipped (#$PR_NUMBER)`       | The edit is idempotent — your `Edit` call produces no diff and that's fine. Don't error.                                                                                                                                                                                                                                                                                                                                          |
+| Multiple table rows match `(#$PR_NUMBER)`        | A PR legitimately spans items                        | Flip all matching rows. The diff is visible to the human reviewer / auto-merge gate before merge.                                                                                                                                                                                                                                                                                                                                 |
+| Inline comment conflicts with a finding          | Same `file:line` covered by both                     | Address once; record `finding_id` for both in the same `commits[]` entry's `reasoning` (e.g. `"agent finding f-7 + reviewer comment c-42 merged into one fix"`).                                                                                                                                                                                                                                                                  |
+| Repo has no GitHub Issues surface                | `flow-create-issue` exits non-zero / Issues disabled | Set `tracker_entry_url: ""` and put the full context in `reason`. The wrapper surfaces both fields loudly in the Step 12 report. Do not append to an in-repo file or invent a tracker integration.                                                                                                                                                                                                                                |
 
 # Verification
 

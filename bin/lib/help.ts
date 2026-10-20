@@ -47,25 +47,32 @@ Usage:
                                         the three are mutually exclusive; absent any of them, an interactive
                                         terminal is asked once per optional module and a non-interactive run
                                         defaults to core only)
-  flow feature create [--tmux|--no-tmux] [--no-auto-merge] [--wait-for-copilot] [--research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
+  flow feature create [--tmux|--no-tmux] [--auto-merge|--no-auto-merge] [--wait-for-copilot|--no-wait-for-copilot] [--research|--no-research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] [--skills-from <checkout>] <description>
                                         start a new pipeline (plain launcher by default; --tmux opts into a tmux window)
-                                        (--no-auto-merge stops at gated regardless of rubric;
-                                        --wait-for-copilot forces the full 10-min Copilot wait
-                                        even when auto-detect would skip;
-                                        --research forces web-grounded discovery research on,
-                                        bypassing the relevance gate and the research.discovery config opt-in;
+                                        (--no-auto-merge stops at gated regardless of rubric; --auto-merge puts the
+                                        rubric back in charge (cancels launch.autoMerge: false);
+                                        --wait-for-copilot forces the full 10-min Copilot wait; --no-wait-for-copilot
+                                        puts the auto-detect skip back in charge;
+                                        --research forces web-grounded discovery research on, bypassing the relevance
+                                        gate and the research.discovery config opt-in; --no-research only turns that
+                                        force off — research.discovery still applies;
                                         --interview forces the intent interview on, --no-interview skips it
-                                        (mutually exclusive; absent falls back to interview-playbook.md's
-                                        judgment gate and config.json's interview.enabled);
+                                        (mutually exclusive; absent falls back to flow's own per-run judgment gate
+                                        and config.json's launch.interviewMode);
                                         --copilot-review controls Copilot review opt-in, default auto;
                                         --effort sets the Claude Code reasoning-effort level for the claude session;
                                         --model sets the whole-session Claude model alias;
+                                        --skills-from runs the supervisor on a private copy of that checkout's skills;
                                         --model-<phase> overrides just one phase — planning/implement/review/verify/
                                         fix-applier/consolidator/merge-resolver; see 'flow help feature';
                                         --slug uses an explicit slug instead of deriving one from the description;
                                         hard-fails if that slug's window already exists)
   flow feature resume <name> [<name> ...]  resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
   flow epic <create|run|status|bind|launch|ls|done> design and run an epic
+  flow config all [--slug <name>] [--json]
+                                        show every resolved config.json setting across three
+                                        timing-labelled sections (models, launch, settings);
+                                        bare 'flow config' with no subcommand is a synonym for this
   flow config models [--slug <name>] [--json]
                                         show the resolved model + effort + source for every
                                         pipeline phase and fan-out sub-agent (--slug overlays a
@@ -73,13 +80,21 @@ Usage:
   flow config launcher [get | set <plain|tmux>]
                                         get/set the recorded launcher backend (flow install
                                         asks once on interactive installs)
-  flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
+  flow config launch [--slug <name>] [--json]
+                                        show the resolved launch-time behaviour defaults
+                                        (effort/autoMerge/waitForCopilot/forceResearch/interviewMode)
+                                        and where each resolved from
+  flow ls [--cost [--detail]] [--all-repos] [--all|-a]
+                                        list this repo's pipelines (--all-repos/--all/-a for
+                                        every repo; cost adds $ column)
   flow attach [<name>]                  attach to a pipeline window — single window only  (alias: a)
   flow done <name> [<name> ...]         close one or more pipeline windows
   flow done --merged                    close every merged or cancelled window
   flow done --orphans                   close every state file whose tmux window is gone
   flow done --merged --orphans          compose: close terminal-state OR orphaned pipelines
   flow reap [--slug <s>] [--yes]        report (and with --yes, clean up) processes left by dead pipelines
+  flow doctor [--json]                  check your flow setup and print a fix for each problem
+  flow prompt [<slug>]                  print a pipeline's originating request
   flow completion <bash|zsh>            print a shell completion script to stdout
 
   flow --version                        print the installed flow version
@@ -96,7 +111,7 @@ export const HELP_TEXT: Record<string, string> = {
   feature: `flow feature — start or resume a pipeline
 
 Usage:
-  flow feature create [--tmux|--no-tmux] [--no-auto-merge] [--wait-for-copilot] [--research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
+  flow feature create [--tmux|--no-tmux] [--auto-merge|--no-auto-merge] [--wait-for-copilot|--no-wait-for-copilot] [--research|--no-research] [--interview|--no-interview] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] [--skills-from <checkout>] <description>
   flow feature resume <name> [<name> ...] [--yes] [--tmux|--no-tmux]
 
 Subcommands:
@@ -113,28 +128,46 @@ Options (create):
                         flag > recorded state (resume) > config launcher > plain.
                         Without a TTY the plain launcher refuses; non-interactive/scripted
                         launches require --tmux
-  --no-auto-merge       stop at gated regardless of the auto-merge rubric
-  --wait-for-copilot    force the full 10-min Copilot wait even when auto-detect would skip
-  --research            force web-grounded discovery research on, bypassing the relevance gate
-                        and the research.discovery config opt-in
+  --auto-merge / --no-auto-merge
+                        --no-auto-merge stops at gated regardless of rubric; --auto-merge
+                        puts the rubric back in charge, cancelling a launch.autoMerge: false
+                        config default (mutually exclusive); also settable via
+                        ~/.flow/config.json launch.autoMerge
+  --wait-for-copilot / --no-wait-for-copilot
+                        --wait-for-copilot forces the full 10-min Copilot wait;
+                        --no-wait-for-copilot puts the auto-detect skip back in charge
+                        (mutually exclusive); also settable via ~/.flow/config.json
+                        launch.waitForCopilot
+  --research / --no-research
+                        --research forces web-grounded discovery research on, bypassing the
+                        relevance gate and the research.discovery config opt-in;
+                        --no-research only turns that force off — research.discovery still
+                        applies (mutually exclusive); also settable via ~/.flow/config.json
+                        launch.forceResearch
+  --skills-from <checkout>
+                        run this pipeline on the skills from a flow checkout (e.g. a branch's
+                        worktree) instead of the installed ones — use it to test skill changes
+                        end to end. Pipelines started inside flow's own checkout get a private
+                        copy automatically
   --interview / --no-interview
                         force the intent interview on, or skip it (mutually exclusive).
-                        Absent falls back to interview-playbook.md's judgment gate and
-                        ~/.flow/config.json's interview.enabled (default true)
+                        Absent falls back to flow's own per-run judgment gate and
+                        ~/.flow/config.json's launch.interviewMode
   --copilot-review <auto|always|never>
                         opt-in for Copilot review (default auto): 'always' always requests,
                         'never' never requests, 'auto' lets the hybrid classifier decide
   --effort <low|medium|high|xhigh|max>
-                        Claude Code reasoning-effort level for the pipeline's claude session
+                        Claude Code reasoning-effort level for the pipeline's claude session;
+                        also settable via ~/.flow/config.json launch.effort
   --model <opus|haiku|sonnet|fable>
                         whole-session Claude model alias (omit for the default; also settable via
                         ~/.flow/config.json models.default)
-  --model-planning|--model-implement|--model-review|--model-verify|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>
+  --model-planning|--model-implement|--model-review|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>
                         override the model for just that phase (alias one of opus|haiku|sonnet|fable).
                         Precedence: --model-<phase> > config.models.<phase> > inherited session model.
-                        verify is the one exception — it defaults to sonnet, NOT the session model.
-                        scout/coder are finer-grain config-only (config.models.scout|coder, no flag);
-                        the gatekeeper stays pinned to haiku (no flag). See README 'Per-phase models'.
+                        fix-applier is the one exception — it defaults to sonnet, NOT the session model.
+                        scout/coder are finer-grain config-only (config.models.scout|coder, no flag).
+                        See README 'Per-phase models'.
   --slug <slug>         use an explicit slug instead of deriving one from the description;
                         hard-fails if that slug's window already exists
 
@@ -152,7 +185,7 @@ Usage:
   flow epic bind <epic-slug> <feature-id> <feature-slug> [--force]
   flow epic bind <epic-slug> <feature-id> --external "<ref>" [--force]
   flow epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--force]
-  flow epic ls [--all]
+  flow epic ls [--all|-a] [--done] [--all-repos]
   flow epic done <slug> [--yes]
 
 Subcommands:
@@ -176,10 +209,13 @@ Subcommands:
                         \`flow feature create\` → binding recorded)
   ls                    list this repo's committed epics unioned with the
                         per-machine run-state under ~/.flow/epics, with
-                        per-state feature counts and overall status (the
-                        committed half is scoped to the current repo).
-                        Completed epics are hidden by default and counted
-                        in a footer; --all, -a shows them.
+                        per-state feature counts and overall status. By
+                        default the listing is scoped to the current repo
+                        and completed epics are hidden, each counted in its
+                        own footer line; --done widens the done axis,
+                        --all-repos widens the repo axis, and --all/-a drop
+                        both. Outside a git repo, the default listing is
+                        empty with a printed reason.
   done <slug>           remove the recomputable per-machine ~/.flow/epics/<slug>/
                         runtime state (does NOT close the design window or
                         pipeline state — use \`flow done <slug>\` for those)
@@ -219,42 +255,74 @@ Options (done):
   config: `flow config — inspect flow configuration
 
 Usage:
+  flow config                            (same as 'flow config all')
+  flow config all [--slug <name>] [--json]
   flow config models [--slug <name>] [--json]
   flow config launcher [get | set <plain|tmux>]
+  flow config launch [--slug <name>] [--json]
 
 Subcommands:
+  all                   print all three sections below in one view — models,
+                        launch, and every other config.json setting a live
+                        reader covers but no dedicated subcommand shows.
+                        Bare 'flow config' (no subcommand) is a synonym for
+                        this
+
   models                print the effective Claude model + reasoning effort for
                         every pipeline phase and fan-out sub-agent (session,
-                        planning, scout, coder, verify, review, fix-applier,
-                        consolidator, merge-resolver, gatekeeper),
+                        planning, scout, coder, review, fix-applier,
+                        consolidator, merge-resolver),
                         with a SOURCE column showing where each value resolved
                         from (per-run flag/state, global config, built-in
-                        fallback, pinned, or inherited-session)
+                        fallback, pinned, or inherited-session).
+                        A line above the table shows the resolved session
+                        effort and its source (this run's frozen state,
+                        config.json's launch.effort, or the built-in); every
+                        sub-agent row's EFFORT cell reads "= session" — effort
+                        is fixed once at launch, unlike MODEL which resolves
+                        at each spawn
 
   launcher              get/set the recorded launcher backend (plain or tmux).
                         flow install asks once on interactive installs and
                         records the answer here; set changes it later
 
-Options (models):
+  launch                print each launch-time behaviour default (effort,
+                        auto-merge, Copilot wait, forced research, interview
+                        mode), with a SOURCE column showing whether it
+                        resolved from a per-run flag/recorded state, from
+                        ~/.flow/config.json's launch.<key>, or from the
+                        built-in default
+
+Options (all, models, launch):
   --slug <name>         overlay a specific pipeline's ~/.flow/state/<name>.json
                         per-run overrides on top of the global-defaults view;
                         a name with no state file exits non-zero (no table)
-  --json                emit the rows as a machine-readable JSON array
-                        ({phase, model, source, effort}) with no color or footer
+  --json                emit the rows as machine-readable JSON, with no color
+                        or footer:
+                        {phase, model, source, effort, effortSource} for models;
+                        {setting, value, source} for launch;
+                        {groups: [{group, timing, rows}]} for all — an
+                        object, not a bare array, one group per section above
 
 Read-only: reports routing, not spend — see 'flow ls --cost' for realized cost.`,
 
   ls: `flow ls — list active pipelines
 
 Lists each pipeline with its repository, epic (— when not epic-launched),
-phase, PR, and last activity.
+phase, PR, and last activity. Scoped to the current repo by default; a
+footer names how many pipelines from other repos were hidden. Outside a
+git repo, the default listing fails OPEN — this differs from
+'flow epic ls', which fails closed (empty) outside a repo — and shows
+every pipeline with a printed note.
 
 Usage:
-  flow ls [--cost [--detail]]
+  flow ls [--cost [--detail]] [--all-repos] [--all|-a]
 
 Options:
   --cost                add a $ column summing supervisor-session cost
   --detail              break the cost down by model (requires --cost)
+  --all-repos           include every repository's pipelines, not just this one
+  --all, -a             drop every default filter (today that is the repo filter)
 
 Annotations (shown after the pipeline name):
   (done)          finished — close it with 'flow done <name>'
@@ -302,6 +370,35 @@ the leaked Chrome subprocess. A failed/missing teardown never blocks the
 close. NOTE: 'flow done --orphans' sweeps stale pipeline STATE FILES here;
 for processes, see 'flow reap'.`,
 
+  doctor: `flow doctor — check your flow setup and print a fix for each problem
+
+Usage:
+  flow doctor [--json]
+
+Read-only: inspects the install, your shell, the tools flow shells out
+to, and leftovers from ended pipelines. It never changes anything and
+never signals a process — every problem prints the command that fixes it,
+and you run that yourself.
+
+Checks, grouped in the report: Install (links, helpers an upgrade never
+installed, runtime packages), Shell (a stale FLOW_SLUG, PATH), Tools (gh,
+tmux, claude, agy, pipeline permissions),
+Leftovers (stale worktrees, pipeline records that can no longer resume,
+leaked processes). A live pipeline is never reported as dead for lacking a
+tmux window.
+
+Options:
+  --json                emit {version, ok, counts, checks[]} instead of text
+
+Exit codes:
+  0                     nothing failed (warnings do not fail the run)
+  1                     at least one check failed
+  2                     usage error (unknown flag)
+
+If 'flow' itself is not found (its bin directory is missing from PATH),
+run the same check straight from your checkout:
+  bun <flow checkout>/bin/flow doctor`,
+
   reap: `flow reap — report (and clean up) processes left by dead pipelines
 
 Usage:
@@ -322,6 +419,15 @@ shape) rather than a recorded registry row — no startEpoch
 re-verification and no session check, materially weaker discipline than
 the registry path. This is a SEPARATE gate from --yes: a bare --yes never
 signals a stray on its own; both --yes and --include-strays are required.
+The same gate covers orphaned flow-launched agy runs (parent is the system,
+carrying flow's agy prompt preamble, past their own time limit): stopped
+with SIGTERM, then SIGKILL after a 5s grace, with the process's start time
+re-checked before each signal.
+
+The report opens with a Summary: line (no leaked processes recorded, or
+what needs attention). Pipelines with no recorded processes are hidden
+behind one count line, and --yes removes their empty registries; --json
+lists every pipeline.
 
 Options:
   --slug <s>            scope the REGISTRY half of the sweep to one
@@ -333,12 +439,28 @@ Options:
   --include-strays      also act on shape-heuristic strays (requires --yes
                         to actually signal anything; report-only alone;
                         always host-wide, never scoped by --slug)
-  --json                emit machine-readable output ({registry, heuristic})
+  --json                emit machine-readable output ({registry, heuristic, agy})
 
 Never passes --record and never writes to ~/.flow/state/<slug>.json — a
 host-wide sweep touches OTHER pipelines' slugs, and recording into a
 sibling's state file would corrupt that pipeline's own
 'flow-gate-summary --cleanup' CLEANUP row.`,
+
+  prompt: `flow prompt [<slug>] — print a pipeline's originating request
+
+Usage:
+  flow prompt [<slug>]
+
+Prints the verbatim request text a pipeline was launched with, bounded by
+an HTML-comment marker pair, plus a one-line header naming the slug, repo,
+and any non-default run-shaping flags ('flags: none' when every flag is at
+its default).
+
+Slug resolution: the first positional argument, else FLOW_SLUG from the
+launch environment (set by both launcher backends) — call it bare from
+inside a live pipeline's session. Neither available, the state file
+missing/unreadable, or the request file missing/empty all exit non-zero
+with a named reason on stderr and print nothing to stdout.`,
 
   install: `flow install — install skills, agents, helpers globally
 

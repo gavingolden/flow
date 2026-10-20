@@ -21,6 +21,7 @@ import {
 import { FLOW_SESSION } from "./tmux";
 import { livenessOf, pidStartEpoch, type LivenessDeps } from "./liveness";
 import { dim } from "./color";
+import { releaseReservedWorktree } from "./worktree-slot";
 import { pluginBinPath, withPluginPath, scanPluginRoots } from "./plugin-root";
 
 export const PLAIN_IDLE_HINT =
@@ -100,6 +101,7 @@ async function runForeground(
         preSpawnState.seedIngest == null
       ) {
         deleteState(req.slug, req.stateDir);
+        releaseReservedWorktree(preSpawnState.reservedWorktree);
       }
     }
     return { status: "failed", exitCode: 1, stderr: "not a TTY" };
@@ -143,6 +145,7 @@ async function runForeground(
         preSpawnState.seedIngest == null
       ) {
         deleteState(req.slug, req.stateDir);
+        releaseReservedWorktree(preSpawnState.reservedWorktree);
       }
     }
     return { status: "failed", exitCode: 1, stderr: String(e) };
@@ -180,6 +183,7 @@ async function runForeground(
     after.seedIngest == null
   ) {
     deleteState(req.slug, req.stateDir);
+    releaseReservedWorktree(after.reservedWorktree);
     return { status: "failed", exitCode, stderr: "" };
   }
   return { status: "exited", exitCode, stderr: "" };

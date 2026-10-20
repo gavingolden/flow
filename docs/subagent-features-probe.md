@@ -66,6 +66,43 @@ the literal shape `agents/core/flow-verify.md` / `flow-fix-applier.md` /
 `flow-edit-applier.md` / `flow-merge-resolver.md`'s new turn-budget
 paragraphs describe.
 
+## max-turns-accounting
+
+A turn is one assistant API round-trip (a tool-calling assistant
+message); the JSONL transcript's line count over-reads the true turn
+count by roughly 1.6× because a single turn's thinking/text/tool_use
+blocks each land as separate lines (PR #789: 142 lines / 82 ids at a
+cap of 80; 201 lines / 126 ids at a cap of 120). A `SendMessage`
+continuation starts a FRESH budget — capped runs cluster at 160 (2×80),
+and PR #856's fix-applier reached 179 turns (120 + a 59-turn
+continuation). There is no per-spawn `maxTurns` input on the Task tool
+today (its input surface is `subagent_type`/`model`/`description`/
+`prompt`/`isolation`; verified against Claude Code 2.1.269).
+
+Measured table from 239 local transcripts, 2026-08-13 to 2026-09-12:
+
+| population             | n   | median | p90 | p95 | max | artifact rate |
+| ---------------------- | --- | ------ | --- | --- | --- | ------------- |
+| edit-applier, uncapped | 58  | 134    | 309 | 411 | 567 | 78%           |
+| fix-applier, uncapped  | 66  | 54     | 135 | 165 | 211 | 70%           |
+
+Capped runs after 2026-09-04: edit-applier 42/68 hit the cap, 16/68 of
+those exhausted the continuation too, 14/68 finished with no artifact,
+54/68 produced an artifact (79%). Fix-applier: 13/46 hit the cap, 0/46
+exhausted the continuation, 10/46 finished with no artifact, 36/46
+produced an artifact (78%). Turns vs. entry count correlate weakly
+(r=0.53, roughly 5.5 turns per entry on top of a ≈58-turn base), at a
+measured cost of ≈$0.064/turn (sonnet).
+
+Re-measure with `bun ~/.flow/audits/subagent-turns-2026-09-12.ts`
+(host-local script; not committed to the repo).
+
+**Decision this drives:** `flow-edit-applier`'s `maxTurns` moves 80 →
+240 and `flow-fix-applier`'s moves 120 → 200. `flow-merge-resolver`'s
+`maxTurns: 80` and `flow-ui-driver`'s `maxTurns: 120` are unchanged —
+their observed maxima (47 and 37 respectively) sit well inside the
+existing caps.
+
 ## cache-ttl-1h
 
 **Verdict: confirmed.**
@@ -79,12 +116,19 @@ paragraphs describe.
   non-zero `"ephemeral_1h_input_tokens":26782` entry.
 
 **Decision this drives:** the 1h cache TTL is honored on this
-subscription-plan host for a file-based agent definition; `agents/core/flow-discovery.md`,
-`flow-verify.md`, `flow-fix-applier.md`, and `flow-consolidator.md` keep
-`experimental:\n  cacheTtl: 1h` in frontmatter. Billing behaviour across
+subscription-plan host for a file-based agent definition; at probe time
+`agents/core/flow-discovery.md`, `flow-verify.md`, `flow-fix-applier.md`, and
+`flow-consolidator.md` carried `experimental:\n  cacheTtl: 1h` in frontmatter
+(`flow-verify` was later retired and `flow-ui-driver` took a pin). Billing behaviour across
 plan tiers (subscription-on-usage-credits vs. API key) is NOT observable
 from this probe — `docs/configuration.md`'s new section states that as a
 documented, unverified-by-this-probe caveat per the vendor's own docs.
+
+**Later decision (2026-10):** the probe only shows the pin is honored, not
+that it pays. The measured cache-lifetime baseline
+(`docs/eval/cache-lifetime-baseline-2026-10.md`) showed a 5-minute lifetime
+was cheaper at list price for all four, so those pins were removed; see
+[token-spend-analysis.md](token-spend-analysis.md).
 
 ## Non-live baseline (unchanged probes)
 
@@ -94,3 +138,37 @@ documented, unverified-by-this-probe caveat per the vendor's own docs.
 `agent-invocation-name` `inconclusive` (pre-existing, unrelated to this
 change — see the file's own probe for detail); the four new ids report
 `skipped` with evidence `"requires --live"`.
+
+## subagent-effort-param
+
+Run 2026-10-19 on Claude Code 2.1.303 (`env -u FLOW_SLUG -u TMUX_PANE bun
+bin/flow-plugin-probe.ts --live --probe subagent-effort-param --json`; one
+Sonnet spawn, session launched with `--effort high`). The fixture is an
+`--agents` definition `probe-effort-<nonce>` with `effort: medium` in its
+definition, spawned through the Task tool with the per-invocation parameter
+`effort: low`, then messaged once more through `SendMessage`.
+
+**Verdict: confirmed.** The sub-agent's transcript carried effort fields on
+3 assistant turns, counts `{"low":3}` — no turn ran at the definition's
+`medium` or the session's `high` — and the agent's `.meta.json` recorded
+`"effort":"low"`. The resumed `SendMessage` turn (`reply OK <nonce> again`)
+is present in the same transcript and ran at `low` too, so the override
+persists across resume. The host reports `AI_AGENT=claude-code_2-1-303_agent`;
+the 2.1.292 floor the docs state was not separately bisected (no older build
+was available on this host).
+
+`CLAUDE_EFFORT` (the session's live effort, which `readSessionEffort` reads
+first) was observed exported in the Bash tool env of a Claude Code session on
+2026-10-19, alongside `AI_AGENT` and `CLAUDE_CODE_EXECPATH`. Outside a flow
+pipeline, where there is no `state.effort` to fall back on, the "never above
+the session" cap rests on that variable; if a host does not export it the
+session reads as unknown and the capped roles get `medium`.
+
+**Decision this drives:** a per-invocation `effort` on the Task call beats the
+agent file's `effort:` and the session effort, which is what makes
+`flow-spawn-effort` a real knob (`efforts.*` in `~/.flow/config.json`) rather
+than a display value. The agent-file `effort: medium` on the fix-applier, UI
+driver and product reviewer stays as the fallback for builds below 2.1.292 or a
+spawn site that omits the argument. Not covered by this probe: how a level
+the sub-agent's model does not offer (`xhigh` / `max` on a smaller model) is
+handled — the config docs warn that Claude Code may reject it.

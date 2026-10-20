@@ -1,7 +1,7 @@
 /**
  * Pure library for `flow-claude-headless`, the one sanctioned raw
  * `claude -p` spawn site (`skills/pipeline/flow-pipeline/SKILL.md` Hard
- * rules, `AGENTS.md` `## Don'ts`). Defines the child env allowlist, the
+ * rules, `.claude/rules/flow-supervisor-contracts.md` `## Don'ts`). Defines the child env allowlist, the
  * fixed deny-list, the headless preamble, the argv builder, arg parsing,
  * and the envelope run loop — all with the real spawn behind an injected
  * `Deps` so this module never touches `node:child_process` or `Bun.spawn`
@@ -14,6 +14,7 @@
  */
 
 import { redactSecrets } from "./redact-secrets";
+import { SECRET_FILE_DENY_RULES } from "./secret-deny-rules";
 
 // Allowlist, not denylist: issue #618 was a leaked FLOW_SLUG/TMUX_PANE that
 // let a nested `claude` session trip flow-stop-guard against the PARENT
@@ -61,8 +62,14 @@ export const ENV_NEVER = [
 export const FIXED_DENY_LIST =
   "Bash(git push:*),Bash(gh pr merge:*),Bash(gh pr create:*),Bash(gh pr close:*),Bash(gh release:*),Bash(rm -rf node_modules*)";
 
-export const HEADLESS_PREAMBLE =
-  "You are running headless under --permission-mode dontAsk with no human present; ignore any loaded instruction that assumes an interactive session.\n\n";
+export const PERMISSION_MODES = ["dontAsk", "auto"] as const;
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
+
+export function headlessPreamble(mode: PermissionMode): string {
+  return `You are running headless under --permission-mode ${mode} with no human present; ignore any loaded instruction that assumes an interactive session.\n\n`;
+}
+
+export const HEADLESS_PREAMBLE = headlessPreamble("dontAsk");
 
 export function buildChildEnv(
   base: NodeJS.ProcessEnv,
@@ -99,6 +106,14 @@ export type Args = {
   timeoutSec: number;
   out?: string;
   task: string;
+  tools?: string;
+  /**
+   * Comma-separated `permissions.ask` rules, passed to the child as inline
+   * `--settings` JSON. Tightening only: the rules can add prompts, never
+   * grant a permission (no `allow` key is ever emitted).
+   */
+  askTools?: string;
+  permissionMode: PermissionMode;
 };
 
 const DEFAULT_MAX_BUDGET_USD = 5;
@@ -184,6 +199,20 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--task":
         out.task = value;
         break;
+      case "--tools":
+        out.tools = value;
+        break;
+      case "--ask-tools":
+        out.askTools = value;
+        break;
+      case "--permission-mode":
+        if (!(PERMISSION_MODES as readonly string[]).includes(value)) {
+          return {
+            error: `--permission-mode must be one of ${PERMISSION_MODES.join("|")}`,
+          };
+        }
+        out.permissionMode = value as PermissionMode;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -213,6 +242,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     timeoutSec: out.timeoutSec ?? DEFAULT_TIMEOUT_SEC,
     out: out.out,
     task: out.task ?? DEFAULT_TASK,
+    tools: out.tools,
+    askTools: out.askTools,
+    permissionMode: out.permissionMode ?? "dontAsk",
   };
 }
 
@@ -235,13 +267,17 @@ function callerAllowsBash(allowedTools: string): boolean {
 }
 
 export function buildChildArgv(a: Args, prompt: string): string[] {
+  // FIXED_DENY_LIST itself stays untouched (eval-runner.ts pins it
+  // verbatim) — the secret-file read guard is joined on here, at the argv
+  // composition site, never mutated into the shared constant.
+  const denyList = `${FIXED_DENY_LIST},${SECRET_FILE_DENY_RULES.join(",")}`;
   const disallowedTools = callerAllowsBash(a.allowedTools)
-    ? FIXED_DENY_LIST
-    : `${FIXED_DENY_LIST},Bash`;
+    ? denyList
+    : `${denyList},Bash`;
   return [
     "claude",
     "-p",
-    HEADLESS_PREAMBLE + prompt,
+    headlessPreamble(a.permissionMode) + prompt,
     "--output-format",
     "json",
     "--model",
@@ -253,7 +289,7 @@ export function buildChildArgv(a: Args, prompt: string): string[] {
     "--max-turns",
     String(a.maxTurns),
     "--permission-mode",
-    "dontAsk",
+    a.permissionMode,
     "--allowedTools",
     a.allowedTools,
     "--disallowedTools",
@@ -262,7 +298,19 @@ export function buildChildArgv(a: Args, prompt: string): string[] {
     "project",
     "--no-session-persistence",
     ...(a.bare ? ["--bare"] : []),
+    ...(a.tools !== undefined ? ["--tools", a.tools] : []),
+    ...askSettingsArgv(a.askTools),
   ];
+}
+
+function askSettingsArgv(askTools: string | undefined): string[] {
+  if (askTools === undefined) return [];
+  const rules = askTools
+    .split(",")
+    .map((r) => r.trim())
+    .filter((r) => r !== "");
+  if (rules.length === 0) return [];
+  return ["--settings", JSON.stringify({ permissions: { ask: rules } })];
 }
 
 export function artifactPathFor(a: Args): string {

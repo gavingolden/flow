@@ -8,7 +8,9 @@
     "state": "state.json",
     "shims": ["../../_shims/gh"]
   },
-  "env": { "flowSlug": true },
+  "env": {
+    "flowSlug": true
+  },
   "ghCalls": [["pr", "view", "--json", "number,url"]],
   "resultSchema": "result-schema.json",
   "graders": [
@@ -44,6 +46,18 @@
       "file": "$STREAM",
       "contains": "flow-module-core",
       "withOnly": true
+    },
+    {
+      "id": "step-doc-opened",
+      "kind": "command",
+      "gate": false,
+      "argv": [
+        "jq",
+        "-e",
+        "-s",
+        "any(.[]; .type==\"assistant\" and any(.message.content[]?; .type==\"tool_use\" and .name==\"Read\" and ((.input.file_path // \"\") | test(\"references/phases/step-05-implement\\\\.md\"))))",
+        "$STREAM"
+      ]
     },
     {
       "id": "transcript.finalContextTokens",

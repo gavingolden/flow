@@ -4,11 +4,15 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   archiveCheckpointBody,
+  armBannerPath,
   checkpointBodyPath,
   checkpointConsumedPath,
+  checkpointDir,
   checkpointMarkerPath,
+  consumeCheckpoint,
   parseArgs,
   probeCheckpointBody,
+  renderArmBanner,
   run,
   type CheckpointResult,
 } from "./flow-checkpoint";
@@ -66,6 +70,18 @@ function captureStdout(): { writes: string[]; restore: () => void } {
   return { writes, restore: () => spy.mockRestore() };
 }
 
+// Sibling of captureStdout(): no stderr capture existed before this PR, so
+// the pre-existing terminal-warning suite (`run() — ready-path terminal-
+// phase warning`) let the real process.stderr.write through unmocked.
+function captureStderr(): { writes: string[]; restore: () => void } {
+  const writes: string[] = [];
+  const spy = vi.spyOn(process.stderr, "write").mockImplementation((s) => {
+    writes.push(s.toString());
+    return true;
+  });
+  return { writes, restore: () => spy.mockRestore() };
+}
+
 function runCapture(
   argv: string[],
   slug?: string,
@@ -80,6 +96,31 @@ function runCapture(
   restore();
   const result = JSON.parse(writes.join("")) as CheckpointResult;
   return { ...result, exit };
+}
+
+// stdout+stderr twin of runCapture(): the caller wants both the parsed JSON
+// verdict AND the raw stderr lines (the arm banner, the terminal warning).
+function runCaptureBoth(
+  argv: string[],
+  slug?: string,
+  resolveKind: () => PipelineKind | null = () => null,
+): CheckpointResult & {
+  exit: number;
+  stdoutRaw: string;
+  stderrLines: string[];
+} {
+  const out = captureStdout();
+  const err = captureStderr();
+  const exit = run(argv, {
+    stateDir,
+    resolveSlug: () => slug ?? null,
+    resolveKind,
+  });
+  out.restore();
+  err.restore();
+  const stdoutRaw = out.writes.join("");
+  const result = JSON.parse(stdoutRaw) as CheckpointResult;
+  return { ...result, exit, stdoutRaw, stderrLines: err.writes };
 }
 
 describe("probeCheckpointBody", () => {
@@ -165,6 +206,16 @@ describe("parseArgs", () => {
       probe: false,
       path: false,
       site: "terminal",
+    });
+  });
+
+  it("accepts a new pre-review --site value", () => {
+    expect(parseArgs(["--site", "pre-review"])).toEqual({
+      slug: undefined,
+      consume: false,
+      probe: false,
+      path: false,
+      site: "pre-review",
     });
   });
 
@@ -357,6 +408,71 @@ describe("run() — ready-path terminal-phase warning (Task 7)", () => {
     expect(fs.existsSync(markerFile("run-window"))).toBe(true);
     expect(r.warning).toBeUndefined();
   });
+
+  it("(f) needs-human at a positively-read epic-design window: warning ABSENT — the window WILL auto-resume at its pause (the /clear hook dispatches the epic resume seed)", () => {
+    seedState("epic-needs-human", { phase: "needs-human" });
+    writeCheckpoint("epic-needs-human");
+    const r = runCapture(["epic-needs-human"], undefined, () => "epic-design");
+    expect(r.status).toBe("ready");
+    expect(fs.existsSync(markerFile("epic-needs-human"))).toBe(true);
+    expect(r.warning).toBeUndefined();
+  });
+
+  it("(f2) a kind-less epic paused at needs-human with an unreadable pane kind: the warning names the epic command (and the human-step wording, including the close-first route), not flow feature resume", () => {
+    seedState("epic-kind-uncertain", {
+      phase: "needs-human",
+      phaseLog: [
+        { phase: "epic-designing", at: "2026-06-30T11:00:00Z" },
+        { phase: "needs-human", at: "2026-06-30T11:30:00Z" },
+      ],
+    });
+    writeCheckpoint("epic-kind-uncertain");
+    const r = runCapture(["epic-kind-uncertain"], undefined, () => null);
+    expect(r.status).toBe("ready");
+    expect(r.warning).toContain(
+      "flow epic create --resume epic-kind-uncertain",
+    );
+    expect(r.warning).not.toContain("flow feature resume");
+  });
+
+  it("(g) feature needs-human with an unreadable pane kind on tmux still warns — mirrors the hook's kindCertain guard (Task 4)", () => {
+    // No `launcher` override (defaults to a tmux-launched state, matching the
+    // rest of this suite), resolveKind returns null (unreadable @flow-kind),
+    // so kindCertain is false even though `kind` falls back to "feature".
+    seedState("uncertain-kind-needs-human", { phase: "needs-human" });
+    writeCheckpoint("uncertain-kind-needs-human");
+    const r = runCapture(["uncertain-kind-needs-human"], undefined, () => null);
+    expect(r.status).toBe("ready");
+    expect(r.warning).toBeDefined();
+    expect(r.warning).toContain("paused on a human step");
+  });
+
+  it("(h) feature needs-human with a positively-read 'feature' pane kind: warning ABSENT — the window WILL auto-resume (Task 4)", () => {
+    seedState("certain-kind-needs-human", { phase: "needs-human" });
+    writeCheckpoint("certain-kind-needs-human");
+    const r = runCapture(
+      ["certain-kind-needs-human"],
+      undefined,
+      () => "feature",
+    );
+    expect(r.status).toBe("ready");
+    expect(r.warning).toBeUndefined();
+  });
+
+  it("(i) needs-human on a plain launcher with an unreadable pane kind: warning ABSENT — kindCertain via launcher (Task 4)", () => {
+    // A plain launcher has no tmux pane at all, so `state.launcher ===
+    // \"plain\"` alone must make kindCertain true even when resolveKind()
+    // returns null (there is no @flow-kind option to read) — mirrors
+    // bin/flow-session-start-hook.test.ts's plain-launcher needs-human
+    // case, which asserts the OPPOSITE surface (a resume seed IS
+    // delivered). If this disjunct were ever dropped, this warning would
+    // fire for a window that will in fact auto-resume.
+    seedState("plain-needs-human", { phase: "needs-human", launcher: "plain" });
+    writeCheckpoint("plain-needs-human");
+    const r = runCapture(["plain-needs-human"], undefined, () => null);
+    expect(r.status).toBe("ready");
+    expect(r.warning).toBeUndefined();
+  });
 });
 
 describe("run() — --consume", () => {
@@ -460,6 +576,44 @@ describe("run() — --consume archives the body", () => {
     expect(
       fs.readFileSync(checkpointConsumedPath("theta-noop", stateDir), "utf8"),
     ).toBe("orphaned body\n");
+  });
+});
+
+describe("consumeCheckpoint (shared retire function)", () => {
+  it("archives the body, clears the record, removes the banner file and the marker, and reports the marker and archive path", () => {
+    seedState("retire-all");
+    writeCheckpoint("retire-all", "notes\n");
+    runCapture(["retire-all", "--site", "manual"]); // arm: marker + record + banner
+    expect(fs.existsSync(markerFile("retire-all"))).toBe(true);
+    expect(fs.existsSync(armBannerPath("retire-all", stateDir))).toBe(true);
+    const r = consumeCheckpoint("retire-all", stateDir);
+    expect(r).toEqual({
+      marker: checkpointMarkerPath("retire-all", stateDir),
+      markerRemoved: true,
+      archived: checkpointConsumedPath("retire-all", stateDir),
+    });
+    expect(fs.existsSync(markerFile("retire-all"))).toBe(false);
+    expect(fs.existsSync(armBannerPath("retire-all", stateDir))).toBe(false);
+    expect(readState("retire-all", stateDir)?.checkpoint).toBeUndefined();
+  });
+
+  it("is idempotent: a second call reports nothing to retire and does not throw", () => {
+    seedState("retire-twice");
+    writeCheckpoint("retire-twice", "notes\n");
+    runCapture(["retire-twice", "--site", "manual"]);
+    consumeCheckpoint("retire-twice", stateDir);
+    const again = consumeCheckpoint("retire-twice", stateDir);
+    expect(again.markerRemoved).toBe(false);
+    expect(again.archived).toBeNull();
+  });
+
+  it("still archives the body and removes the marker when the state file is missing (only the record clear is skipped)", () => {
+    writeCheckpoint("no-state", "orphan notes\n");
+    fs.writeFileSync(markerFile("no-state"), "no-state\n");
+    const r = consumeCheckpoint("no-state", stateDir);
+    expect(r.markerRemoved).toBe(true);
+    expect(r.archived).toBe(checkpointConsumedPath("no-state", stateDir));
+    expect(fs.existsSync(markerFile("no-state"))).toBe(false);
   });
 });
 
@@ -606,6 +760,17 @@ describe("probeFreshness / --probe", () => {
     const state = readState("rho", stateDir);
     expect(state?.checkpoint?.site).toBe("gate");
   });
+
+  it("accepts --site pre-review and arms the marker like the other non-manual sites", () => {
+    seedState("sigma");
+    writeCheckpoint("sigma", "pre-review body\n");
+    const r = runCapture(["sigma", "--site", "pre-review"]);
+    expect(r.exit).toBe(0);
+    expect(r.status).toBe("ready");
+    expect(fs.existsSync(markerFile("sigma"))).toBe(true);
+    const state = readState("sigma", stateDir);
+    expect(state?.checkpoint?.site).toBe("pre-review");
+  });
 });
 
 describe("run() — CLI errors", () => {
@@ -678,5 +843,308 @@ describe("probeFreshness vs isCheckpointUsable — intentional divergence", () =
 
     expect(probeFreshness(state, "gate", stateDir).verdict).toBe("preserve");
     expect(isCheckpointUsable(state, stateDir)).toBe(true);
+  });
+});
+
+describe("renderArmBanner()", () => {
+  it("true branch renders the exact site-bearing string", () => {
+    expect(renderArmBanner({ armed: true, site: "manual" })).toBe(
+      "checkpointed: true — site=manual — safe to /clear",
+    );
+  });
+
+  it("false branch renders the exact reason-bearing string", () => {
+    expect(
+      renderArmBanner({ armed: false, reason: "checkpoint-missing" }),
+    ).toBe(
+      "checkpointed: false — checkpoint-missing — /clear will lose unsaved in-chat state",
+    );
+  });
+
+  it("never contains 'phase=' or 'armed=' in either branch", () => {
+    const trueLine = renderArmBanner({ armed: true, site: "terminal" });
+    const falseLine = renderArmBanner({ armed: false, reason: "no-slug" });
+    expect(trueLine).not.toContain("phase=");
+    expect(trueLine).not.toContain("armed=");
+    expect(falseLine).not.toContain("phase=");
+    expect(falseLine).not.toContain("armed=");
+  });
+
+  it("never contains emoji in either branch", () => {
+    const trueLine = renderArmBanner({ armed: true, site: "gate" });
+    const falseLine = renderArmBanner({ armed: false, reason: "bad-args" });
+    // Matches any character outside the Basic Multilingual Plane's common
+    // text range — a cheap emoji smell test without a full Unicode
+    // emoji-property regex dependency.
+    const emojiIsh = /[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]/u;
+    expect(emojiIsh.test(trueLine)).toBe(false);
+    expect(emojiIsh.test(falseLine)).toBe(false);
+  });
+
+  it("has no trailing newline in either branch", () => {
+    expect(renderArmBanner({ armed: true, site: "manual" })).not.toMatch(/\n$/);
+    expect(
+      renderArmBanner({ armed: false, reason: "state-missing" }),
+    ).not.toMatch(/\n$/);
+  });
+});
+
+describe("armBannerPath()", () => {
+  it("resolves to last-arm-banner.txt inside the slug's checkpoint dir", () => {
+    expect(armBannerPath("iota", stateDir)).toBe(
+      path.join(checkpointDir("iota", stateDir), "last-arm-banner.txt"),
+    );
+  });
+
+  it("honours an explicit stateDir override", () => {
+    // Pure path.join under the hood — no directory needs to exist on disk,
+    // so a literal placeholder string is enough; this used to pay a real
+    // mkdtemp/rmSync round-trip for a computation that never touches fs.
+    const otherDir = "/does/not/exist/flow-checkpoint-other-state";
+    expect(armBannerPath("iota", otherDir)).toBe(
+      path.join(checkpointDir("iota", otherDir), "last-arm-banner.txt"),
+    );
+    expect(armBannerPath("iota", otherDir)).not.toBe(
+      armBannerPath("iota", stateDir),
+    );
+  });
+});
+
+describe("run() — arm banner on stderr", () => {
+  it("ready arm prints a 'checkpointed: true' banner naming the site", () => {
+    seedState("banner-ready");
+    writeCheckpoint("banner-ready");
+    const r = runCaptureBoth(["banner-ready", "--site", "gate"]);
+    expect(r.status).toBe("ready");
+    const bannerLines = r.stderrLines.filter((l) =>
+      l.startsWith("checkpointed: "),
+    );
+    expect(bannerLines).toHaveLength(1);
+    expect(bannerLines[0]).toBe(
+      "checkpointed: true — site=gate — safe to /clear\n",
+    );
+  });
+
+  it("state-missing needs arm prints a 'checkpointed: false' banner with that reason", () => {
+    const r = runCaptureBoth(["banner-state-missing"]);
+    expect(r.status).toBe("needs");
+    const bannerLines = r.stderrLines.filter((l) =>
+      l.startsWith("checkpointed: "),
+    );
+    expect(bannerLines).toEqual([
+      "checkpointed: false — state-missing — /clear will lose unsaved in-chat state\n",
+    ]);
+  });
+
+  it("checkpoint-missing needs arm prints a 'checkpointed: false' banner with that reason", () => {
+    seedState("banner-checkpoint-missing");
+    const r = runCaptureBoth(["banner-checkpoint-missing"]);
+    expect(r.status).toBe("needs");
+    const bannerLines = r.stderrLines.filter((l) =>
+      l.startsWith("checkpointed: "),
+    );
+    expect(bannerLines).toEqual([
+      "checkpointed: false — checkpoint-missing — /clear will lose unsaved in-chat state\n",
+    ]);
+  });
+
+  it("marker-write-failed needs arm prints a 'checkpointed: false' banner with that reason", () => {
+    seedState("banner-marker-fail");
+    writeCheckpoint("banner-marker-fail");
+    // Force fs.writeFileSync (the marker write) to fail without touching the
+    // banner-file write, by pre-occupying the marker path with a directory.
+    fs.mkdirSync(markerFile("banner-marker-fail"), { recursive: true });
+    const r = runCaptureBoth(["banner-marker-fail"]);
+    expect(r.status).toBe("needs");
+    const bannerLines = r.stderrLines.filter((l) =>
+      l.startsWith("checkpointed: "),
+    );
+    expect(bannerLines).toHaveLength(1);
+    expect(bannerLines[0]).toMatch(
+      /^checkpointed: false — marker-write-failed:.* — \/clear will lose unsaved in-chat state\n$/,
+    );
+  });
+
+  it("no-slug bad-arg path prints a 'checkpointed: false — no-slug' banner as the LAST write, ordered against the preceding console.error usage lines", () => {
+    // Record BOTH streams into one ordered array instead of mocking
+    // console.error away: under Bun/vitest, console.error does not route
+    // through process.stderr.write the way plain Node does, so a
+    // process.stderr.write-only spy silently drops the usage lines and the
+    // previous version of this test could never actually observe them —
+    // it asserted "banner present" against an array that could only ever
+    // contain the banner, which is true regardless of ordering.
+    const order: string[] = [];
+    const errSpy = vi.spyOn(console, "error").mockImplementation((...args) => {
+      order.push(args.join(" "));
+    });
+    const writeSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((s) => {
+        order.push(s.toString());
+        return true;
+      });
+    const exit = run([], { stateDir, resolveSlug: () => null });
+    writeSpy.mockRestore();
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+    expect(order.length).toBeGreaterThanOrEqual(2);
+    const last = order[order.length - 1];
+    expect(last).toBe(
+      "checkpointed: false — no-slug — /clear will lose unsaved in-chat state\n",
+    );
+  });
+
+  it("bad-args parse-error path prints a 'checkpointed: false — bad-args' banner as the LAST write, ordered against the preceding console.error usage lines", () => {
+    const order: string[] = [];
+    const errSpy = vi.spyOn(console, "error").mockImplementation((...args) => {
+      order.push(args.join(" "));
+    });
+    const writeSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((s) => {
+        order.push(s.toString());
+        return true;
+      });
+    const exit = run(["--bogus"], { stateDir, resolveSlug: () => "x" });
+    writeSpy.mockRestore();
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+    expect(order.length).toBeGreaterThanOrEqual(2);
+    const last = order[order.length - 1];
+    expect(last).toBe(
+      "checkpointed: false — bad-args — /clear will lose unsaved in-chat state\n",
+    );
+  });
+
+  it("when the terminal-phase warning also fires, the arm banner is the LAST stderr line", () => {
+    seedState("banner-and-warning", { phase: "merged" });
+    writeCheckpoint("banner-and-warning");
+    const r = runCaptureBoth(["banner-and-warning"], undefined, () => null);
+    expect(r.status).toBe("ready");
+    expect(r.warning).toBeDefined();
+    expect(r.stderrLines.length).toBeGreaterThanOrEqual(2);
+    const last = r.stderrLines[r.stderrLines.length - 1];
+    expect(last.startsWith("checkpointed: true")).toBe(true);
+  });
+
+  // Regression coverage for the confidence-85 finding: the no-slug/bad-args
+  // banners were bundled in ahead of the flag dispatch, so a --probe/
+  // --consume/--path invocation with bad args or no ambient slug leaked a
+  // "checkpointed: false" banner despite renderArmBanner's own documented
+  // "never called from --probe/--consume/--path" invariant. Every prior
+  // no-slug/bad-args test above passed an explicit slug (or none at all,
+  // for a plain arm call), so none of them ever exercised a read-only
+  // invocation through this branch.
+  it("--probe with no ambient slug does NOT leak a 'checkpointed:' banner", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const err = captureStderr();
+    const exit = run(["--probe", "--site", "gate"], {
+      stateDir,
+      resolveSlug: () => null,
+    });
+    err.restore();
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+    expect(err.writes.some((l) => l.startsWith("checkpointed: "))).toBe(false);
+  });
+
+  it("--path with no ambient slug does NOT leak a 'checkpointed:' banner", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const err = captureStderr();
+    const exit = run(["--path"], { stateDir, resolveSlug: () => null });
+    err.restore();
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+    expect(err.writes.some((l) => l.startsWith("checkpointed: "))).toBe(false);
+  });
+
+  it("--consume with a malformed --site value does NOT leak a 'checkpointed:' banner", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const err = captureStderr();
+    const exit = run(["x", "--consume", "--site", "bogus-site"], {
+      stateDir,
+      resolveSlug: () => "x",
+    });
+    err.restore();
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+    expect(err.writes.some((l) => l.startsWith("checkpointed: "))).toBe(false);
+  });
+});
+
+describe("run() — stdout purity (byte-identity regression guard)", () => {
+  it("--site ready arm emits byte-identical stdout with or without the stderr banner change", () => {
+    seedState("purity-ready");
+    writeCheckpoint("purity-ready");
+    const r = runCaptureBoth(["purity-ready", "--site", "manual"]);
+    // runCapture() already JSON.parses stdout (so any stray byte anywhere
+    // red-lines it implicitly); this test pins the raw string shape
+    // explicitly rather than incidentally, per the contract.
+    expect(r.stdoutRaw).toBe(JSON.stringify(JSON.parse(r.stdoutRaw)) + "\n");
+    expect(r.stdoutRaw).not.toContain("checkpointed:");
+  });
+
+  it("needs arms (state-missing / checkpoint-missing) emit stdout with no 'checkpointed:' substring", () => {
+    const stateMissing = runCaptureBoth(["purity-needs-a"]);
+    expect(stateMissing.stdoutRaw).not.toContain("checkpointed:");
+    seedState("purity-needs-b");
+    const checkpointMissing = runCaptureBoth(["purity-needs-b"]);
+    expect(checkpointMissing.stdoutRaw).not.toContain("checkpointed:");
+  });
+
+  it("--probe writes NO 'checkpointed: ' line to stderr", () => {
+    seedState("purity-probe");
+    writeCheckpoint("purity-probe");
+    const r = runCaptureBoth(["purity-probe", "--probe", "--site", "gate"]);
+    expect(r.status).toBe("probe");
+    expect(r.stderrLines.some((l) => l.includes("checkpointed: "))).toBe(false);
+  });
+
+  it("--consume writes NO 'checkpointed: ' line to stderr", () => {
+    seedState("purity-consume");
+    writeCheckpoint("purity-consume");
+    runCaptureBoth(["purity-consume", "--site", "manual"]); // arm first
+    const r = runCaptureBoth(["purity-consume", "--consume"]);
+    expect(r.status).toBe("consumed");
+    expect(r.stderrLines.some((l) => l.includes("checkpointed: "))).toBe(false);
+  });
+
+  it("--path writes NO 'checkpointed: ' line to stderr", () => {
+    const err = captureStderr();
+    const out = captureStdout();
+    run(["purity-path", "--path"], { stateDir, resolveSlug: () => null });
+    out.restore();
+    err.restore();
+    expect(err.writes.some((l) => l.includes("checkpointed: "))).toBe(false);
+  });
+});
+
+describe("run() — durable arm-banner file", () => {
+  it("writes the rendered banner to armBannerPath on a successful arm", () => {
+    seedState("durable-ready");
+    writeCheckpoint("durable-ready");
+    const r = runCapture(["durable-ready", "--site", "plan-review"]);
+    expect(r.status).toBe("ready");
+    const bannerFile = armBannerPath("durable-ready", stateDir);
+    expect(fs.existsSync(bannerFile)).toBe(true);
+    expect(fs.readFileSync(bannerFile, "utf8")).toBe(
+      "checkpointed: true — site=plan-review — safe to /clear\n",
+    );
+  });
+
+  it("a banner-file write failure still exits 0 with normal JSON (best-effort)", () => {
+    seedState("durable-fail");
+    writeCheckpoint("durable-fail");
+    // Pre-occupy the banner file's path with a directory so the write fails.
+    const bannerFile = armBannerPath("durable-fail", stateDir);
+    fs.mkdirSync(bannerFile, { recursive: true });
+    const r = runCaptureBoth(["durable-fail", "--site", "manual"]);
+    expect(r.exit).toBe(0);
+    expect(r.status).toBe("ready");
+    expect(r.marker).toBe(markerFile("durable-fail"));
+    // The stderr banner still fires even though the durable copy failed.
+    expect(r.stderrLines.some((l) => l.startsWith("checkpointed: true"))).toBe(
+      true,
+    );
   });
 });

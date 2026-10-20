@@ -66,6 +66,7 @@ export type FixApplierDeferred = {
 export type { FixApplierRejectedAlternative, FixApplierAntiPattern };
 
 export type FixApplierResult = {
+  status: "partial" | "complete";
   commits: FixApplierCommit[];
   deferred: FixApplierDeferred[];
   rejected_alternatives: FixApplierRejectedAlternative[];
@@ -269,6 +270,43 @@ export function validateFixApplierResult(parsed: unknown): ValidationResult {
       `anti_patterns_found[${i}]`,
     );
     if (e) return e;
+  }
+
+  if (o.status !== "partial" && o.status !== "complete") {
+    return err(`'status' must be "partial" or "complete"`, "status");
+  }
+
+  if (o.status === "complete") {
+    const turnBudgetDeferred = deferred.some((d) => {
+      const dd = d as Record<string, unknown>;
+      return (
+        typeof dd.reason === "string" && dd.reason.startsWith("turn-budget — ")
+      );
+    });
+    if (turnBudgetDeferred) {
+      return err(
+        `status 'complete' contradicts a turn-budget entry`,
+        "deferred",
+      );
+    }
+    for (let i = 0; i < commits.length; i++) {
+      const c = commits[i] as Record<string, unknown>;
+      if (
+        typeof c.tool_error === "string" &&
+        c.tool_error.startsWith("turn-budget — ")
+      ) {
+        return err(
+          `status 'complete' contradicts a turn-budget entry`,
+          `commits[${i}]`,
+        );
+      }
+      if (typeof c.verify_status === "string" && c.verify_status !== "pass") {
+        return err(
+          `status 'complete' contradicts a failing verify_status`,
+          `commits[${i}]`,
+        );
+      }
+    }
   }
 
   return { ok: true, value: parsed as FixApplierResult };

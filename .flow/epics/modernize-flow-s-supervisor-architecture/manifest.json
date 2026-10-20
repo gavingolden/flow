@@ -113,6 +113,44 @@
         "copilotReview": "always",
         "effort": "max"
       }
+    },
+    {
+      "id": "f7-workflow-observability-floor",
+      "title": "Observability floor for the read-only review stage added on the prose base: error grammar, run index, needs-human triage",
+      "description": "Give the supervisor a predictable way to see WHY a fanned-out review agent failed without reading raw transcripts, before any such fan-out ships. Evidence and reasoning are pre-derived in docs/workflow-spike/subagent-design-research.md and docs/eval/f6/README.md (read them first; do not re-derive). Context: PR #789's stage-workflow substrate was reverted on 2026-09-08, so steps 5-10 run inline in the supervisor again and this feature builds the failure-visibility floor on the prose base rather than on stage scripts. Three pieces, all deterministic except the last: (1) a structured, closed-enum error grammar for whatever carries the read-only review stage f8 may add - every log line and every escalation reason uses `<stage>:<phase>:<label>: <tag> - <detail>`, with the enum exported from a helper under bin/lib/ and pinned by a lint so a free-form message fails vitest; (2) a per-run index the supervisor writes after each fanned-out review - `<worktree>/.flow-tmp/review-index.json` mapping agent label -> agentId -> outcome tag -> transcript path (source: the run's journal.jsonl started/result lines and agent-*.meta.json), plus a helper that renders it as a table for the NEEDS HUMAN block; (3) a Haiku-pinned, effort-low triage agent spawned ONLY on a needs-human outcome (never on success), reading the index and the failing agent's transcript tail (bounded, last ~200 lines) and writing a three-line diagnosis into the escalation's WHY - a Bash fan-out through flow-claude-headless, not a new Task exemption. Wire a review-stage completion telemetry event into the index: issue #799's workflow.result is NOT available (its only proposed emitter was reverted with PR #789), so emitting that event from whatever carries the review stage is an explicit deliverable of this feature, not a dependency. Keep issue #795's partial-result registration as a sibling, not a dependency. Part of epic `modernize-flow-s-supervisor-architecture` (feature `f7-workflow-observability-floor`) - design at `.flow/epics/modernize-flow-s-supervisor-architecture/design.md` D6.",
+      "dependsOn": [],
+      "rationale": "D6's precondition: the review-stage decision in f8 needs failure visibility on both arms to be measured honestly, and the live f6 run showed a fanned-out stage failure is diagnosable only from journal.jsonl today.",
+      "acceptanceCriteria": [
+        "WHEN a review-stage agent logs or escalates THE SYSTEM SHALL emit the closed-enum error grammar, and a line outside the enum SHALL fail its vitest lint",
+        "WHEN a fanned-out review completes or fails THE SYSTEM SHALL write .flow-tmp/review-index.json mapping every agent label to its agentId, outcome tag, and transcript path",
+        "WHEN a review stage returns needs-human THE SYSTEM SHALL include a triage diagnosis (Haiku, effort low, bounded transcript read) in the NEEDS HUMAN block's WHY, and SHALL spawn no triage agent on a successful stage",
+        "WHEN the maintainer runs the f1 eval suites THE SYSTEM SHALL show no score regression against the prose-supervisor arm"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "always",
+        "effort": "high",
+        "model": "opus"
+      }
+    },
+    {
+      "id": "f8-write-path-inline",
+      "title": "Add a read-only review stage on the prose base; keep the sequential write path in the supervisor",
+      "description": "Decide whether the read-only review fan-out is worth a workflow substrate at all, and add one only if it is. Evidence, measurements, and the verdict are pre-derived in docs/workflow-spike/subagent-design-research.md, docs/eval/f6/README.md, and design.md D6 - read them first; re-verify only the items the research record's 'NOT settled' section names. Context: the f6 stage-workflow substrate was reverted on 2026-09-08, so steps 5 (implement), 5.5 (re-symlink), 6 (verify), 7 (CI wait), and all of step 10 (guard, squash merge, conflict resolve, post-merge sweep) ALREADY run inline in the supervisor as Bash helper calls + in-process skills (single writer, .flow-tmp scratchpad, state.json anchor). Target shape: lift ONLY the parallel read-only review lenses plus the consolidator, intent-guess, and gate read into a workflow script named flow-review-stage - the one shape D6's external evidence supports - and leave every write step inline. No mechanical helper may run inside a model agent; anything that is one shell command stays a supervisor Bash call. Keep what f6 got right and this repo already carries: loop caps enforced mechanically via flow-state-update --increment-loop rather than prose counting, the advancePhase terminal-exit carve-out, and phase writes as helper side effects; re-derive the typed result envelope and its validator for the review stage if one is added. Gate: extend the f1 eval suites with a cost-per-pipeline metric (total_cost_usd + subagent tokens) and require the review-stage arm to (a) score >= the prose-supervisor arm on every suite and (b) land within 1.5x its cost; record both arms in docs/eval/f8/. A miss is a legitimate outcome - record the no-go and leave the prose supervisor whole. This depends on issue #796 (workflow-entered scenarios measurable under claude -p, in flight as its own pipeline) landing first - if it has not, run the live fixture protocol from docs/eval/f6/live-run.md instead and say so. Pause or cancel issue #800 (unify manual skills on stage workflows): it assumes a substrate that no longer exists. Part of epic `modernize-flow-s-supervisor-architecture` (feature `f8-write-path-inline`) - design at `.flow/epics/modernize-flow-s-supervisor-architecture/design.md` D6.",
+      "dependsOn": ["f7-workflow-observability-floor"],
+      "rationale": "D6's commitment half, with its direction inverted by the 2026-09-08 revert: the write path is already back in the supervisor, so what is left to settle is whether the read-only review fan-out - the part with external evidence behind it - earns a workflow substrate of its own.",
+      "acceptanceCriteria": [
+        "WHEN a feature pipeline reaches step 5 THE SYSTEM SHALL run implement, verify, CI wait, and merge inline in the supervisor (no model agent for a mechanical helper), with at most the read-only review lenses and gate read running as flow-review-stage",
+        "WHEN the maintainer runs the eval suites with the cost-per-pipeline metric THE SYSTEM SHALL score >= the prose-supervisor arm on every suite and cost <= 1.5x that arm, with both arms recorded in docs/eval/f8/, or SHALL record a no-go that leaves the prose supervisor unchanged",
+        "WHEN a review-stage agent dies THE SYSTEM SHALL surface the f7 triage diagnosis and error-grammar tag in the NEEDS HUMAN block",
+        "WHEN the change lands THE SYSTEM SHALL keep the fresh-confirmation gate-override contract, the auto-merge rubric, loop caps (3 CI-fix, 2 review-fix) enforced via flow-state-update --increment-loop, and the resource-teardown discipline byte-equivalent in behavior"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "always",
+        "effort": "high",
+        "model": "opus"
+      }
     }
   ]
 }

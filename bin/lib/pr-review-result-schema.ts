@@ -28,9 +28,20 @@
  * "escalated"` — the prose contract says this, but the validator does
  * not enforce the cross-field rule (mirrors the fix-applier validator's
  * "shape-only validation, NO cross-field rules" stance).
+ *
+ * `tier` / `tier_reasons` are OPTIONAL pass-through fields sourced from
+ * `review-scope.json` (`bin/lib/review-tier.ts`'s `resolveTier`). They stay
+ * optional because this module ships as the installed
+ * `flow-pr-review-result-schema` validator symlink — making either
+ * required would reject every in-flight artifact written before this
+ * field existed. `mergeScopeFields` is the one call site that copies them
+ * from a parsed `review-scope.json` onto a result object, and `--merge-scope`
+ * exposes it on the CLI so Step 12 does the copy via the helper rather than
+ * hand-copying two fields in prose.
  */
 
 export type PrReviewStatus = "clean" | "partial" | "escalated";
+export type PrReviewTier = "light" | "standard" | "deep";
 
 export type PrReviewResult = {
   status: PrReviewStatus;
@@ -38,6 +49,8 @@ export type PrReviewResult = {
   missed_steps: string[];
   escalation_tag: string | null;
   summary: string;
+  tier?: PrReviewTier;
+  tier_reasons?: string[];
 };
 
 export type ValidationOk<T> = { ok: true; value: T };
@@ -65,6 +78,8 @@ const VALID_STATUSES: ReadonlySet<string> = new Set([
   "partial",
   "escalated",
 ]);
+
+const VALID_TIERS: ReadonlySet<string> = new Set(["light", "standard", "deep"]);
 
 export function validatePrReviewResult(
   parsed: unknown,
@@ -119,10 +134,124 @@ export function validatePrReviewResult(
     return err(`'summary' must be a non-empty string`);
   }
 
+  if (o.tier !== undefined) {
+    if (!isString(o.tier) || !VALID_TIERS.has(o.tier)) {
+      return err(
+        `'tier' must be one of "light" | "standard" | "deep" (got ${JSON.stringify(o.tier)})`,
+      );
+    }
+  }
+
+  if (o.tier_reasons !== undefined && !isStringArray(o.tier_reasons)) {
+    return err(`'tier_reasons' must be an array of strings`);
+  }
+
   return { ok: true, value: parsed as PrReviewResult };
 }
 
+/**
+ * Copies `tier` / `tier_reasons` off a parsed `review-scope.json` onto
+ * `result`, tolerating a missing/malformed scope by returning `result`
+ * unchanged — the one call site for this copy, so callers never hand-copy
+ * the two fields in prose. Idempotent: re-running against the same scope
+ * overwrites with the same values.
+ */
+export function mergeScopeFields(
+  result: PrReviewResult,
+  scope: unknown,
+): PrReviewResult {
+  if (typeof scope !== "object" || scope === null) return result;
+  const s = scope as Record<string, unknown>;
+  const merged: PrReviewResult = { ...result };
+  if (isString(s.tier) && VALID_TIERS.has(s.tier)) {
+    merged.tier = s.tier as PrReviewTier;
+  }
+  if (isStringArray(s.tier_reasons)) {
+    merged.tier_reasons = s.tier_reasons;
+  }
+  return merged;
+}
+
+async function readJsonFile(
+  path: string,
+): Promise<{ ok: true; value: unknown } | { ok: false; reason: string }> {
+  let raw: string;
+  try {
+    raw = await Bun.file(path).text();
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    return { ok: false, reason: `read failed: ${reason}` };
+  }
+  try {
+    return { ok: true, value: JSON.parse(raw) };
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    return { ok: false, reason: `JSON parse failed: ${reason}` };
+  }
+}
+
+/**
+ * `--merge-scope <review-scope.json> <result.json>`: copies `tier` /
+ * `tier_reasons` off the scope artifact onto the result artifact and
+ * rewrites the result file in place. Idempotent — re-running against an
+ * already-merged result produces the same bytes. Prints `{ok:true,tier}`
+ * (`tier` omitted when the scope carried none) on success.
+ */
+async function mergeScopeCli(
+  scopePath: string,
+  resultPath: string,
+): Promise<number> {
+  const scopeRead = await readJsonFile(scopePath);
+  const scope = scopeRead.ok ? scopeRead.value : undefined;
+
+  const resultRead = await readJsonFile(resultPath);
+  if (!resultRead.ok) {
+    process.stderr.write(
+      JSON.stringify({
+        ok: false,
+        reason: resultRead.reason,
+        path: resultPath,
+      }) + "\n",
+    );
+    return 1;
+  }
+  const validated = validatePrReviewResult(resultRead.value);
+  if (!validated.ok) {
+    process.stderr.write(
+      JSON.stringify({
+        ok: false,
+        reason: validated.reason,
+        path: resultPath,
+      }) + "\n",
+    );
+    return 1;
+  }
+
+  const merged = mergeScopeFields(validated.value, scope);
+  await Bun.write(resultPath, JSON.stringify(merged));
+  process.stdout.write(
+    JSON.stringify({
+      ok: true,
+      ...(merged.tier ? { tier: merged.tier } : {}),
+    }) + "\n",
+  );
+  return 0;
+}
+
 async function cliMain(argv: string[]): Promise<number> {
+  const mergeIdx = argv.indexOf("--merge-scope");
+  if (mergeIdx !== -1) {
+    const scopePath = argv[mergeIdx + 1];
+    const resultPath = argv[mergeIdx + 2];
+    if (scopePath === undefined || resultPath === undefined) {
+      process.stderr.write(
+        "usage: pr-review-result-schema --merge-scope <review-scope.json> <result.json>\n",
+      );
+      return 2;
+    }
+    return mergeScopeCli(scopePath, resultPath);
+  }
+
   const flagIdx = argv.indexOf("--validate");
   if (flagIdx === -1 || flagIdx === argv.length - 1) {
     process.stderr.write(

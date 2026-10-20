@@ -3,7 +3,7 @@
 Offload target for `AGENTS.md` `## Git workflow` mechanics and several
 `## Don'ts` bullet bodies that need a durable home but must not become a
 new `## ` section in [exemption-contracts.md](exemption-contracts.md) —
-that file's h2 sections are pinned 1:1 to the nine Task-tool exemptions
+that file's h2 sections are pinned 1:1 to the eight Task-tool exemptions
 by `bin/skill-md-lint.test.ts`.
 
 ## Session marker + trailer mechanics
@@ -21,17 +21,57 @@ counts unchecked `- [ ]` items.
 The marker is lost from `git history` on squash-merge, so the same
 session ID also reaches `git log` / `git blame` as a
 `Claude-Code-Session-Id:` trailer — but via a per-commit git hook, not
-step 10. `flow-new-worktree` installs a worktree-scoped
-`prepare-commit-msg` hook (scoped via `extensions.worktreeConfig` + a
-worktree-scoped `core.hooksPath` so it never fires for the user's primary
-repo) that appends `Claude-Code-Session-Id: <id>` to **every individual
-commit** made in the worktree when `CLAUDE_CODE_SESSION_ID` is set. gh's
-default squash concatenation of the branch's commit messages then carries
-the trailer into the squash-merge commit — `/flow-pipeline` step 10 runs
-a bare `gh pr merge --squash` with zero `--body` manipulation. The
-optional `sessionId` field in `~/.flow/state/<slug>.json` is still
+step 10. `flow-new-worktree` installs a worktree-private hooks folder
+(scoped via `extensions.worktreeConfig` + a worktree-scoped
+`core.hooksPath` so it never fires for the user's primary repo) holding
+one identical chaining shim per client-side git hook name. Each shim finds
+the consumer's own hook of that name at run time — the shared
+`core.hooksPath` (a relative value resolves against the worktree root),
+else the repo's default hooks folder — and runs it, so the repo's own
+commit and push gates still run inside a flow worktree; an absent hook is
+a no-op. The `prepare-commit-msg` shim runs the consumer's hook first, then
+appends `Claude-Code-Session-Id: <id>` to **every individual commit** made
+in the worktree when `CLAUDE_CODE_SESSION_ID` is set. gh's default squash
+concatenation of the branch's commit messages then carries the trailer into
+the squash-merge commit — `/flow-pipeline` step 10 runs a bare
+`gh pr merge --squash` with zero `--body` manipulation. Worktrees created
+before the shims existed are healed by `flow-new-worktree --repair-hooks` (exit 1 when any repair failed),
+or automatically on the next `flow-new-worktree` launch in the same repo.
+The optional `sessionId` field in `~/.flow/state/<slug>.json` is still
 written by `flow-open-pr` for the HTML-comment marker path, but step 10
 no longer reads it.
+
+### Pipeline pushes run the consumer's hooks
+
+Because the chaining shims re-enable the consumer's `pre-push` hook (often
+a full check run), every pipeline push site follows four rules:
+
+1. **Never `--no-verify` on a push.** The consumer's push gate is the
+   point; bypassing it is the silent gate-off this section exists to end.
+2. **Run every push with Bash `timeout: 600000`.** The Bash tool defaults
+   to 120000 ms and a consumer gate can run for minutes; the 10-minute
+   ceiling is the most it allows.
+3. **A non-zero push with no `[rejected]` / `[remote rejected]` line was
+   refused by a local hook — its output is a failing check.**
+   - implement / review / fix pushes feed it to `/flow-verify` as the
+     failure excerpt; it counts against the 3-attempt cap, and exhaustion
+     escalates `verify-exhausted` with that output.
+   - merge-resolver pushes record it verbatim and the supervisor escalates
+     `merge-failed` with it.
+   - `flow-open-pr` prints a named refusal line for the first push, but
+     this rule applies to every push.
+   - After step 6 fixes a refusal on the first push, `flow-pipeline` Step 5
+     re-runs `flow-open-pr` (Bash `timeout: 600000`) before advancing to
+     step 7, since the PR does not exist until that push succeeds.
+   - A dropped connection (`the remote end hung up`, `RPC failed`,
+     `unexpected disconnect`, `[remote failure]`) is not a hook refusal;
+     `flow-open-pr` does not print the refusal line for it.
+4. **A push killed at the ceiling is a hook timeout.** Report it as such
+   with its duration and escalate like a refusal.
+
+A push of a tree that `flow-pre-commit` already passed adds seconds, not
+minutes: `flow-pre-commit --pre-push` reuses same-tree passes (see
+[consumer-repo-contract.md](consumer-repo-contract.md)).
 
 ### Why no authored squash body (issue #486)
 
@@ -133,13 +173,15 @@ snippet is printed to stderr so it can be pasted into any pre-commit hook
 doesn't have flow installed.
 
 **Contrast with the session-trailer hook.** This is the deliberate
-opposite polarity of the `prepare-commit-msg` hook described just above:
-that hook resolves the WORKTREE-scoped `core.hooksPath` because the
-session-id trailer must apply only inside one worktree, while the
-base-branch guard resolves the MAIN worktree because it must protect the
-base branch's own checkout regardless of which worktree
-`flow feature create` runs from. The two installers look symmetric on
-purpose — they are not meant to be unified.
+opposite polarity of the worktree hooks folder described above: that
+folder is WORKTREE-scoped because the chaining shims (and the session-id
+trailer) must apply only inside one worktree, while the base-branch guard
+resolves the MAIN worktree because it must protect the base branch's own
+checkout regardless of which worktree `flow feature create` runs from. The
+two installers look symmetric on purpose — they are not meant to be
+unified. Because the shims chain to the consumer's hooks folder, the guard
+now also runs on pipeline commits (it refuses only on the default branch,
+so feature-branch pipeline commits pass).
 
 ### Auto-commit exemption: flow-epic-sync --commit
 
@@ -262,16 +304,15 @@ override in `~/.flow/config.json`, `overflowNote`) and
 `skills/pipeline/flow-pr-review/SKILL.md` Step 3 for `/flow-pr-review`'s
 `{{EXISTING_INTENT_COMMENTS}}` consumption.
 
-## Shared rationale for the nine Task-tool exemptions
+## Shared rationale for the eight Task-tool exemptions
 
 `/flow-pipeline`'s "Hard rules" forbid the supervisor from calling the
-`Task` / `Agent` tool, with nine named exceptions. The same rationale
-covers all nine: (a) the supervisor is itself a top-level Claude Code
+`Task` / `Agent` tool, with eight named exceptions. The same rationale
+covers all eight: (a) the supervisor is itself a top-level Claude Code
 session at depth 1, so its own Task calls are never themselves nested;
 flow chooses flat one-shot
-fan-out even though nesting is now platform-possible — with one
-sanctioned nested site, verify-loop → edit-applier, inside the
-Verify-Retry-Loop exemption; (b) each subagent is one-shot (returns an artifact + brief
+fan-out even though nesting is platform-possible — none of the eight
+sites nests; (b) each subagent is one-shot (returns an artifact + brief
 summary, then exits), so the context-bloat constraint doesn't apply
 either; (c) every exemption is anchored on its step _heading name_, not
 its number, so it survives renumbering; (d) every exemption is documented
@@ -305,9 +346,11 @@ candidates` / `file candidate #N` / `defer task #N` at plan review
 
 ## Auto-merge exemption detail (`/flow-pipeline` step 10)
 
-The exemption covers exactly one operation: `gh pr merge --squash <PR>`
-inside step 10, only when the auto-merge gate fires (`flow-gate-decide`
-returns `auto-merge` — the Test Steps section has zero unchecked items)
+The exemption covers exactly one operation: the squash merge of `<PR>`
+inside step 10 — a bare `gh pr merge --squash <PR>` run by
+`flow-merge-guard merge <PR>`, which re-checks the gate and CI first —
+only when the auto-merge gate fires (`flow-gate-decide` returns
+`auto-merge` — the Test Steps section has zero unchecked items)
 and only on a PR opened by `/flow-pipeline` itself. It does **not**
 extend to a `gated` verdict: a `gated` verdict is terminal, and a `gated`
 PR is merged by `/flow-pipeline` only through the fresh-confirmation
@@ -333,7 +376,7 @@ stops at the gated state regardless of the gate verdict).
 
 `flow-create-issue` may fire only from five named sites: (a)
 `/flow-pr-review`'s Step 6 deferral path (`--label
-flow-agent,deferred-review`), (b) `/flow-pr-review`'s Step 5
+flow-agent,deferred-review`; including the fix-applier's single consolidated issue when a PR merges mid-review — the same deferral path under a mandatory trigger), (b) `/flow-pr-review`'s Step 5
 retrospective generic-gap capture, (c) `/flow-pipeline`'s Step 10
 post-merge sweep (`--label flow-agent,out-of-scope-discovery`, once
 per `- [x]` candidate in plan.md), (d) a user-instructed
@@ -357,12 +400,12 @@ bidirectionally in
 ## `/flow-epic-create` and `/flow-epic-run` detail
 
 `flow epic create` spawns a fresh top-level `/flow-epic-create` session,
-so `/flow-pipeline`'s exactly-9 and one-form rule are unaffected by its
+so `/flow-pipeline`'s exactly-eight and one-form rule are unaffected by its
 two named surfaces (distinct openers, in
 `skills/pipeline/flow-epic-create/SKILL.md`): **Task-tool fan-out:
 `/flow-epic-create` → /flow-product-planning MODE: epic designer.** and
 **AskUserQuestion form: `/flow-epic-create` clarification round.** Its
-cross-model design review is a Bash fan-out, not a tenth exemption —
+cross-model design review is a Bash fan-out, not an eighth exemption —
 `review.gemini`-gated `flow-plan-review` over `design.md`; no Task, no
 form; graceful skip sans agy.
 

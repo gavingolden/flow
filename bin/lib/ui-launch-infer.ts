@@ -103,6 +103,14 @@ export const NAMED_PORT_RE = /\{\{PORT_([A-Z][A-Z0-9_]*)\}\}/g;
  */
 export const MALFORMED_PORT_RE = /\{\{PORT[^{}]*\}\}/g;
 
+/**
+ * Replace every `{{PORT...}}`-shaped token (bare, named, or malformed) with a
+ * dummy port so a templated URL parses; for validation only, never launch.
+ */
+export function stubPortSentinels(str: string, port = "1"): string {
+  return str.replace(MALFORMED_PORT_RE, port);
+}
+
 function isWellFormedPortToken(token: string): boolean {
   if (token === PORT_PLACEHOLDER) return true;
   NAMED_PORT_RE.lastIndex = 0;

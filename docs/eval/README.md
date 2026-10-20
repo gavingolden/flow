@@ -1,11 +1,11 @@
 # flow-eval — maintainer guide
 
 `flow-eval` is a maintainer-only, locally-runnable headless eval harness
-running four committed suites, split by what each measures:
+running eight committed suites, split by what each measures:
 
-- Three **supervisor context-isolation scaffolds** (`verify-loop`,
-  `haiku-gatekeeper`, `checkpoint-pending-clear`) — cost/context/turn
-  footprint, so a future scaffold-removal PR (epic
+- Four **supervisor context-isolation scaffolds** (`verify-loop`,
+  `haiku-gatekeeper`, `checkpoint-pending-clear`, `ui-smoke-isolation`) —
+  cost/context/turn footprint, so a future scaffold-removal PR (epic
   `modernize-flow-s-supervisor-architecture`, feature
   `f2-scaffold-stress-test`) carries a recorded before/after delta
   instead of a prose argument.
@@ -16,6 +16,109 @@ running four committed suites, split by what each measures:
   helper that writes the phase; the helper _writing_ correctly is proved
   separately, by `bin/lib/phase-advance.test.ts` and each helper's own
   unit spec.
+- One **explanation-quality suite** (`pm-explanation-quality`, epic
+  `make-flow-reason-from-explain` f2) — whether the PR-body site's `## Why`
+  and `## User-facing changes` sections read as consequence-first, PM-facing
+  writing rather than mechanism-first, code-centric writing, via the
+  advisory `flow-explain-judge` check.
+- One **turn-count suite** (`review-turn-folding`, issue #835) — five
+  scenarios, each bounded to one `/flow-pr-review` step with pre-written
+  artifacts, measuring how many supervisor turns a helper that folds
+  mechanical steps saves. Its before/after arms and per-fold verdict are in
+  [`turn-folding/README.md`](turn-folding/README.md).
+
+- One **plan-quality suite** (`discovery-plan-quality`, issue #891) — whether
+  `/flow-product-planning`'s discovery sub-agent still writes a conforming
+  plan after its instruction file changes, plus what each run costs. Five
+  scenarios on a small committed `todo-cli` fixture (an internal change, a
+  UI change, a methods-plus-target request, a revision pass and a
+  researchable request) are graded by `flow-plan-lint` and per-branch section
+  checks; cost, turns and duration are non-gating metrics. Both arms pin the
+  parent model as a measurement control only. Run each arm on a clean,
+  committed tree with a fresh research cache, because the child symlinks the
+  evaluating checkout's plugin files and the research synthesis is otherwise
+  cached host-wide:
+  `FLOW_RESEARCH_CACHE_DIR=$(mktemp -d) bun bin/flow-eval.ts run --suite discovery-plan-quality --out <dir> --runs 2 --concurrency 5`.
+  Scenario s5 needs `research.discovery: true` in `~/.flow/config.json`.
+  Instruction-read tokens come from the run's streams with
+  `bun docs/eval/discovery-payload.ts --stream-dir <out>` (the
+  default `--instructions` set is the core plus the five discovery
+  references; repeat `--instructions <path|basename>` to override it); the
+  production baseline is
+  [discovery-payload-baseline-2026-10.md](discovery-payload-baseline-2026-10.md),
+  and the split's go/no-go record is
+  [discovery-payload.md](discovery-payload.md). The suite is paid (about
+  $1.90 per run, $18 to $19 per 10-run arm), and `run --all` now includes it,
+  which adds that much to every `--all` invocation.
+
+Alongside the suites, `docs/eval/review-cost-baseline.md` records the
+measured **review-phase cost before-state** — the supervisor's own turn
+count, per-turn context and API-equivalent spend inside `/flow-pr-review`,
+plus the phase-boundary context floors that decide whether any
+auto-compact window is safe. It is committed because the audit script
+reads a rolling 30-day window, so the "before" arm stops being
+reproducible once a cost change lands.
+
+`docs/eval/supervisor-turns.ts` prints the per-phase supervisor turn
+composition from local transcripts (turns, spend and context per phase, and
+the review phase's clusters); re-run it with
+`bun docs/eval/supervisor-turns.ts --since <YYYY-MM-DD>`. Its committed
+before-state is [`supervisor-turns-baseline-2026-10.md`](supervisor-turns-baseline-2026-10.md).
+
+`docs/eval/review-lens-cost.ts` prints the per-lens counterpart (turns,
+Reads, Greps, distinct files, cache and output tokens, dollars per lens
+run, de-duplicated per `message.id`); its committed before-state table is
+`docs/eval/review-lens-cost-baseline.md`.
+
+The token-spend audit, `docs/eval/token-spend-audit.ts`, measures where the
+whole Claude quota goes: spend by repo, model, sub-agent type and in-process
+skill segment, joined to flow's telemetry for per-pipeline cost, latency and
+outcome. Re-run it with `bun docs/eval/token-spend-audit.ts --since <YYYY-MM-DD>`;
+`--self-test` checks its parsing, pricing, cache-lifetime replay and join logic
+against an in-memory fixture. The dated before-state it produced is
+[`token-spend-baseline-2026-09.md`](token-spend-baseline-2026-09.md). It
+also prints cost per finished sub-agent run by type and model, the
+per-task view that per-turn figures confound. Its last section replays every
+transcript at a 5-minute cache lifetime to show what 1-hour cache writes
+bought; the cache-lifetime measurement is
+[`cache-lifetime-baseline-2026-10.md`](cache-lifetime-baseline-2026-10.md).
+The review-lens cost and findings per run, split by recorded reasoning effort,
+behind issue #832's not-planned verdict, is
+[`review-lens-effort-baseline-2026-10.md`](review-lens-effort-baseline-2026-10.md).
+
+[`lens-cache-prefix-baseline-2026-10.md`](lens-cache-prefix-baseline-2026-10.md)
+records the issue #889 check: which part of the review lenses' first-turn
+prompt the cache shares across spawns, and why a prompt reorder cannot
+reach more.
+
+`docs/eval/applier-turns.ts` attributes the edit-applier's and fix-applier's turns
+to a cause from the local sub-agent transcripts
+(`bun docs/eval/applier-turns.ts --since <YYYY-MM-DD> [--model <id>] [--repo <name>]`);
+its dated before-state is
+[`applier-turn-baseline-2026-10.md`](applier-turn-baseline-2026-10.md).
+`docs/eval/applier-replay.ts` replays recorded edit-sets under a before and an
+after instruction arm (`snapshot`, `run`, `rescore`, `report`) through the eval
+runner's stream-json trace, with a zero-test guard; its record, with the
+pre-registered rule and the verdict (no-ship), is
+[`applier-replay.md`](applier-replay.md).
+`applier-replay.ts` also builds its own cases: `map --since <date>` lists each
+spawn's repo, slug and PR from the local transcripts, `snapshot --repo <name>
+--repo-dir <clone> --out <dir>` snapshots a case from another repo's clone (it
+refuses a drifted tree or a changed lockfile, and refuses an `--out` inside this
+repo for a non-flow repo), and `run` takes `--repo-dir`, `--arm <name>
+--instructions <ref>:<path>|<file>` and `--timeout-sec`. `applier-batching.ts`
+holds the pre-registered two-arm scorer and the replay's checks (arm token,
+reminder injection, artifact check), and `applier-batching.md` records the
+batching and verify-timeout arms' method and rule.
+
+[`fable-vs-opus-subagents.md`](fable-vs-opus-subagents.md) records the
+issue #890 check: bug-detection recall on Fable 5.1 against Opus 5.5 on
+the review-recall harness's three PRs, under a pre-registered verdict rule.
+
+[`discovery-payload-2026-10.md`](discovery-payload-2026-10.md) records the
+issue #891 check: what discovery's instruction file costs each plan on each
+model, which of its sections only some plans need, and the most a split could
+save.
 
 `bin/flow-eval.ts` is never installed onto a user's PATH (see
 `bin/lib/sources.ts`'s `MAINTAINER_ONLY` set) — run it from a flow
@@ -73,12 +176,98 @@ prompt session, so it carries neither flag.
 
 ## Precondition: `flow install`
 
-`flow-eval` spawns a real `claude -p` child that loads the same
-`flow-module-core` plugin root a real pipeline session loads, from the
-global `~/.flow/claude-home/.claude/skills/flow-module-core/agents/`
-location. Run `flow install` once before the first `flow-eval run` — a
-missing install surfaces as the named `flow-not-installed` skip, not a
-crash.
+`flow-eval` spawns a real `claude -p` child against a plugin root it
+materializes itself from the checkout you invoke `bun bin/flow-eval.ts`
+from (`bin/lib/eval-fixture.ts`'s `ownCheckoutRoot()`) — it does not read
+the global `~/.flow/claude-home/` install at run time. The global install
+is only an existence precondition: `flow-eval` checks that
+`~/.flow/claude-home/.claude/skills/flow-module-core/agents/` exists
+before running, and a missing install surfaces as the named
+`flow-not-installed` skip, not a crash. Run `flow install` once to
+satisfy that precondition.
+
+## The ui-smoke-isolation suite
+
+Unlike the other three isolation scaffolds, `ui-smoke-isolation` drives a
+real browser (`chrome-devtools` MCP) through the `flow-ui-driver`
+sub-agent, so it carries extra host preconditions on top of `flow
+install`:
+
+- Chrome must be installed and the `chrome-devtools` MCP server must
+  already be registered, launched with `--isolated` — the same
+  shared-profile-lock precondition
+  [`ui-smoke-pass.md`](../../skills/pipeline/flow-pipeline/references/ui-smoke-pass.md)
+  documents for a live pipeline run.
+- No other pipeline (and no other concurrent `flow-eval` run of this
+  suite) may be driving a browser against the same MCP server at the
+  same time — the isolated page the driver opens is keyed on the eval
+  slug, but the underlying MCP server process is shared.
+
+A suite or scenario declares which MCP servers its child needs via the
+`mcpServers` field (`ScenarioSpec`/`SuiteSpec.defaults`, same
+scenario-over-suite-defaults precedence as `allowedTools`) —
+`ui-smoke-isolation`'s `suite.json` sets `"mcpServers": ["chrome-devtools"]`.
+At fixture materialization time, `eval-fixture.ts` copies only the named
+servers out of the maintainer's `~/.claude.json` `mcpServers` map into a
+per-run `mcp-config.json`, which `eval-runner.ts` passes to the child as
+`--mcp-config <path> --strict-mcp-config`. This exists because
+`--setting-sources project` (load-bearing for settings hermeticity — see
+above) does not reach MCP servers registered at user scope, and a bare
+project-scoped `.mcp.json` requires interactive approval the unattended
+eval child can never give; `--mcp-config`/`--strict-mcp-config` is the
+only channel that reaches a user-scope server. Naming a server the host
+has not registered (e.g. via `claude mcp add`) fails the run loudly at
+setup — a paid suite must not silently produce a grader whose tools were
+never actually reachable.
+
+Run it with `--runs 1` (the suite's own `defaults.runs`): a browser drive
+is materially more expensive per run than the other three suites'
+Bash-only fixtures, so `--runs 2`'s default variance-smoothing is not
+worth the doubled cost here.
+
+`transcript.finalContextTokens` and `transcript.topLevelToolCalls` are
+**top-level-only** — they describe the supervisor's own context and tool
+calls, excluding everything the spawned `flow-ui-driver` sub-agent does
+inside its own isolated context (that is the entire point of the
+isolation measurement: the sub-agent's `mcp__chrome-devtools__*` calls and
+context growth never reach the supervisor). `result.total_cost_usd`, by
+contrast, **includes** the driver — Claude Code bills a spawned sub-agent
+against the same top-level `result` envelope, so the cost delta the
+scaffold is meant to justify is only visible there, not in the top-level
+tool-call/context metrics.
+
+`transcript.mcpToolCalls` and `transcript.topLevelMcpToolCalls` (both
+`bin/lib/eval-transcript.ts`) are ALWAYS-PRESENT aggregate counters of
+every tool call whose name starts with `mcp__` — the former across the
+whole transcript (top-level + every sub-agent), the latter top-level
+only, same scoping as `topLevelToolCalls` above. They exist because a
+per-tool-name key (`transcript.toolCalls.<name>` /
+`transcript.topLevelToolCalls.<name>`) is only present once that exact
+tool name has actually been called; `metricSource` resolves an absent
+path to `undefined`, and a `metric` grader scores `undefined` as a
+FAIL ("metric source unresolved"), never as `0`. **A `max: 0` isolation
+gate must therefore be written against an always-present aggregate, not
+a per-tool-name key** — a per-tool `max: 0` gate fails exactly when the
+behaviour under test is perfect (zero top-level calls of that name),
+because the zero-call case is the one case where the key never gets
+created at all.
+
+Worked example this repo hit for real: `ui-smoke-isolation`'s
+`drive-not-inline` gate originally read
+`transcript.topLevelToolCalls.mcp__chrome-devtools__navigate_page` with
+`max: 0`, and its sibling `mcp-drive-happened` gate read
+`transcript.toolCalls.mcp__chrome-devtools__navigate_page` with `min: 1`
+— both keyed on one hand-picked tool name. The first real before-arm run
+against `main`'s tree made 7 `chrome-devtools` calls
+(`take_snapshot` x2, `new_page`, `list_network_requests`,
+`list_console_messages`, `evaluate_script`, `close_page`) and **none**
+were `navigate_page`: `mcp-drive-happened` could never fire on the
+observed drive shape, and `drive-not-inline` was inverted against its
+own success condition (a perfectly-isolated run resolves the absent key
+to `undefined`, which FAILs, rather than to `0`, which would PASS). Both
+graders were repointed at `transcript.mcpToolCalls` /
+`transcript.topLevelMcpToolCalls`; thresholds, ids, kinds, and gate flags
+were left unchanged.
 
 ## Running a suite
 
@@ -94,7 +283,14 @@ per-run count), `--concurrency <n>` (bounded worker pool across every
 doubles each `(scenario, run)` into a with/without pair, and the pool is
 sized against the flattened job list, not the scenario count; default 1),
 `--threshold <0..1>` (exit 1 when a suite's score misses it),
-`--claude-bin <path>`, `--ablation <none|with-without>` (default `none`).
+`--claude-bin <path>`, `--ablation <none|with-without>` (default `none`),
+`--autocompact <auto|100k..1M>` (sets the child session's auto-compact
+window — use it to measure whether a supervisor still behaves correctly
+after its own instructions get summarised). An arm run with
+`--autocompact` carries a different `childArgvDigest` from a no-flag arm,
+so `compare` will warn that the two reports came from differently-shaped
+children — that warning is correct and expected for an arm comparison,
+not a defect to suppress.
 
 Named skip reasons (exit 0, one-line stderr notice, a `skipped` report
 still written): `claude-not-on-path`, `claude-not-authenticated`,
@@ -236,29 +432,16 @@ the recorded-at table in `docs/eval/baseline/README.md` between the
 `<!-- flow-eval-baseline:start -->` / `<!-- flow-eval-baseline:end -->`
 markers.
 
-**Measuring an unmerged branch.** The eval child loads the plugin root
-from the GLOBAL install (`~/.flow/claude-home/.claude/skills/flow-module-core/`),
-not the worktree you're standing in — a recording taken without first
-pointing the global install at the branch under test measures the _old_
-skills/helpers and is worthless. Before recording:
+**Measuring an unmerged branch.** The eval child materializes its plugin
+root from the checkout you invoke `bun bin/flow-eval.ts` from
+(`bin/lib/eval-fixture.ts`'s `ownCheckoutRoot()`), not from the global
+`~/.flow/claude-home/` install — so measuring a branch under test is just
+running `flow-eval` from that branch's checkout or worktree. No
+repointing the global install and no restore step:
 
 ```sh
-flow install --upgrade --source "$PWD"
-flow install --upgrade --source "$PWD"   # twice — see below
-command -v flow-gate-decide flow-merge-guard   # confirm the symlinks moved
-```
-
-Run the `--source` install **twice**: the first invocation's registry
-fast-forward lands one invocation late, so a single run can leave a
-helper still symlinked to the canonical checkout
-(`project_flow_install_source_stale_registry`). After recording, restore
-the global install from the canonical `main` checkout — never leave it
-pointed at a worktree a merge is about to delete
-(`project_flow_setup_source_dangling_symlinks`):
-
-```sh
-cd <canonical-main-checkout>
-bun bin/flow.ts install --upgrade
+cd <branch-checkout-or-worktree>
+bun bin/flow-eval.ts run --all --out .flow-tmp/eval
 ```
 
 ## The `claude plugin eval` forward check
@@ -315,8 +498,13 @@ it deliberately when running the full `--all` suite set.
 slug in the real `~/.flow/state/` — not an isolated test directory,
 because the child session's own helpers (`flow-state-update`,
 `flow-checkpoint`, `flow-resume-decide`) only ever read the real state
-dir. `flow ls` therefore shows `eval-*` rows while a suite is running;
-teardown removes them (state, checkpoints, turn tracking, proc registry)
-whether the run passed, failed, or was interrupted (a `SIGINT` handler
-in `bin/flow-eval.ts` sweeps every in-flight fixture before exiting).
+dir. Each seeded state record's `repo` field points at that run's
+hermetic fixture repo, not the flow checkout (`bin/lib/eval-fixture.ts`
+writes `repo: repoDir`) — so a bare `flow ls` run from the flow checkout
+no longer shows `eval-*` rows once `flow ls` scopes to the current repo
+by default; run `flow ls --all-repos` to see them while a suite is
+running. Teardown removes the seeded state (state, checkpoints, turn
+tracking, proc registry) whether the run passed, failed, or was
+interrupted (a `SIGINT` handler in `bin/flow-eval.ts` sweeps every
+in-flight fixture before exiting).
 See `evals/README.md` for the suite/scenario file format.

@@ -21,7 +21,7 @@
  *   {
  *     "resumeAt": "step-1"|"step-2"|"step-3"|"step-4"|"step-5"|"step-5.5"
  *               | "step-6"|"step-7"|"step-8"|"step-9"
- *               | "gated-feedback"|"terminal"|"escalate"|"abort",
+ *               | "gated-feedback"|"awaiting-human"|"terminal"|"escalate"|"abort",
  *     "reason": "<one-line summary>",
  *     "context": {
  *       "slug": string,
@@ -32,6 +32,7 @@
  *       "planExists"?: boolean,
  *       "headCommitSubject"?: string,
  *       "hasSkillAdditions"?: boolean,
+ *       "hasOverlay"?: boolean,
  *       "answer"?: string,
  *       "interview"?: string
  *     }
@@ -50,8 +51,14 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { readState, type PipelineState, TERMINAL_PHASES } from "./lib/state";
+import {
+  readState,
+  type PipelineState,
+  TERMINAL_PHASES,
+  pausedPhase,
+} from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
+import { overlayPluginRoots } from "./lib/skill-overlay";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { checkpointBodyPath, checkpointMarkerPath } from "./flow-checkpoint";
 import { isCheckpointUsable } from "./lib/checkpoint-freshness";
@@ -98,9 +105,30 @@ export type ResumeAt =
   | "step-8"
   | "step-9"
   | "gated-feedback"
+  | "browser-retry"
+  | "awaiting-human"
   | "terminal"
   | "escalate"
   | "abort";
+
+/**
+ * Maps each `decide()` step verdict to that step's `**Phase:**` value in
+ * `skills/pipeline/flow-pipeline/SKILL.md` — the phase a needs-human
+ * continuation writes on the way out of its pause. Reused two ways: as the
+ * `continuePhase` lookup below, and as the parity check against
+ * `TERMINAL_EXIT_TRANSITIONS["needs-human"]` in `bin/lib/state.ts` (every
+ * value here must be a member of that allowlist, and vice versa).
+ */
+export const CONTINUE_PHASE_BY_STEP: Readonly<Record<string, string>> = {
+  "step-3": "planning",
+  "step-4": "plan-pending-review",
+  "step-5": "implementing",
+  "step-5.5": "installing-skills",
+  "step-6": "verifying",
+  "step-7": "ci-wait",
+  "step-8": "reviewing",
+  "step-9": "gating",
+};
 
 export type DecisionContext = {
   slug: string;
@@ -111,6 +139,8 @@ export type DecisionContext = {
   planExists?: boolean;
   headCommitSubject?: string;
   hasSkillAdditions?: boolean;
+  /** Present (true) only when the slug has a private skill copy to sync. */
+  hasOverlay?: boolean;
   answer?: string;
   /**
    * The persisted intent-interview digest (`state.interview`), surfaced so
@@ -151,6 +181,23 @@ export type DecisionContext = {
    * are set.
    */
   checkpointPath?: string;
+  /**
+   * The mechanical continue target for a `needs-human` pause — `decide()`'s
+   * own verdict for the last non-terminal `phaseLog` phase before the pause
+   * (see `pausedPhase` in `./lib/state`). Set only on the `awaiting-human`
+   * verdict, and only when that inner verdict is a key of
+   * `CONTINUE_PHASE_BY_STEP` (i.e. `step-3`…`step-9`) — a paused phase whose
+   * own tree answer falls outside that range (e.g. a pre-worktree triage
+   * phase) leaves both `continueAt` and `continuePhase` absent.
+   */
+  continueAt?: ResumeAt;
+  /**
+   * `CONTINUE_PHASE_BY_STEP[continueAt]` — the phase a confirming "done"
+   * reply writes via `flow-state-update --phase` (allowlisted in
+   * `TERMINAL_EXIT_TRANSITIONS["needs-human"]`, no `--force` needed) before
+   * re-entering `continueAt`. Always set together with `continueAt`.
+   */
+  continuePhase?: string;
 };
 
 export type DecisionResult = {
@@ -175,6 +222,8 @@ export type Inputs = {
   checkpointPath: string;
   pr: PrInfo;
   hasSkillAdditions: boolean;
+  /** The slug has a private skill copy (`~/.flow/overlays/<slug>`); step 5.5 must sync it even on an edit-only branch. */
+  hasOverlay?: boolean;
   ciState: CiState;
   headCommit: HeadCommit | null;
 };
@@ -212,8 +261,9 @@ export const TERMINAL_PHASE_SET = new Set<string>(TERMINAL_PHASES);
 // is checked before Row 2.
 //
 // The other PENDING_PHASES (plan-pending-review, approval-pending-clarification,
-// ci-wait-pending, plan-pending-interview) DO have in-flight work and fall
-// through to their correct rows (4 / 4 / 7 / 3) — deliberately excluded here.
+// ci-wait-pending, plan-pending-interview, browser-retry-pending) DO have
+// in-flight work and fall through to their correct rows (4 / 4 / 7 / 3, and
+// the dedicated browser-retry branch) — deliberately excluded here.
 // The subset relationship to the canonical PENDING_PHASES is guarded in
 // flow-resume-decide.test.ts.
 export const NO_INFLIGHT_WORK_PHASES = new Set<string>([
@@ -224,7 +274,10 @@ export const NO_INFLIGHT_WORK_PHASES = new Set<string>([
 // Row 4: approval done — phase advanced past plan-pending-review.
 // `ci-wait-pending` (the step-7 yield-while-backgrounded pending phase)
 // implies every earlier phase is complete, so it belongs in all three
-// "phase advanced past row N" sets below alongside `ci-wait`.
+// "phase advanced past row N" sets below alongside `ci-wait`;
+// `browser-retry-pending` (step 9's pause on un-run Browser items) likewise
+// implies verify and CI are done. It is deliberately NOT in
+// NO_INFLIGHT_WORK_PHASES: resume must re-drive, not terminate.
 const POST_APPROVAL_PHASES = new Set([
   "checkpoint-pending-clear",
   "implementing",
@@ -232,6 +285,7 @@ const POST_APPROVAL_PHASES = new Set([
   "verifying",
   "ci-wait",
   "ci-wait-pending",
+  "browser-retry-pending",
   "reviewing",
   "gating",
   "merging",
@@ -244,6 +298,7 @@ const POST_SYMLINK_PHASES = new Set([
   "verifying",
   "ci-wait",
   "ci-wait-pending",
+  "browser-retry-pending",
   "reviewing",
   "gating",
   "merging",
@@ -258,6 +313,7 @@ const POST_SYMLINK_PHASES = new Set([
 const POST_VERIFY_PHASES = new Set([
   "ci-wait",
   "ci-wait-pending",
+  "browser-retry-pending",
   "reviewing",
   "gating",
   "merging",
@@ -269,6 +325,42 @@ const POST_VERIFY_PHASES = new Set([
 const PENDING_CHECK_STATES = new Set(["PENDING", "QUEUED", "IN_PROGRESS"]);
 
 // --- Pure decision function -----------------------------------------------
+
+/**
+ * Shared by the `gated` and `needs-human` pre-tree branches: an externally
+ * MERGED PR resolves to step-9's MERGED-cleanup (worktree present) or
+ * terminal (worktree gone) — never re-running `gh pr merge` on an
+ * already-merged PR; an externally CLOSED-without-merge PR escalates.
+ * Returns `null` when the PR is absent or still OPEN, so the caller falls
+ * through to its own phase-specific resolution.
+ */
+function resolveMergedOrClosedPr(
+  pr: PrInfo,
+  worktree: WorktreeInfo,
+  ctx: DecisionContext,
+): DecisionResult | null {
+  if (pr.kind === "found" && pr.state === "MERGED") {
+    return worktree.kind === "present"
+      ? {
+          resumeAt: "step-9",
+          reason: "pr-merged-worktree-still-exists",
+          context: ctx,
+        }
+      : {
+          resumeAt: "terminal",
+          reason: "pr-merged-worktree-cleaned-up",
+          context: ctx,
+        };
+  }
+  if (pr.kind === "found" && pr.state === "CLOSED") {
+    return {
+      resumeAt: "escalate",
+      reason: "pr-closed-without-merge",
+      context: ctx,
+    };
+  }
+  return null;
+}
 
 /**
  * Pre-tree edge cases short-circuit the walk; otherwise fall through to the
@@ -331,34 +423,68 @@ export function decide(inputs: Inputs): DecisionResult {
         context: ctx,
       };
     }
-    // Externally merged gated PR: worktree still present → step-9 MERGED-cleanup
-    // (never re-run gh pr merge); worktree gone → terminal. Mirrors the
-    // PR-MERGED precedence below.
-    if (inputs.pr.kind === "found" && inputs.pr.state === "MERGED") {
-      return inputs.worktree.kind === "present"
-        ? {
-            resumeAt: "step-9",
-            reason: "pr-merged-worktree-still-exists",
-            context: ctx,
-          }
-        : {
-            resumeAt: "terminal",
-            reason: "pr-merged-worktree-cleaned-up",
-            context: ctx,
-          };
-    }
-    // Externally closed-without-merge gated PR → escalate. Mirrors the
-    // PR-CLOSED escalation below.
-    if (inputs.pr.kind === "found" && inputs.pr.state === "CLOSED") {
-      return {
-        resumeAt: "escalate",
-        reason: "pr-closed-without-merge",
-        context: ctx,
-      };
-    }
+    // Externally merged/closed gated PR: shared with the needs-human branch
+    // below via resolveMergedOrClosedPr — mirrors the PR-MERGED /
+    // PR-CLOSED precedence used by the mainline tree further down.
+    const resolvedGated = resolveMergedOrClosedPr(
+      inputs.pr,
+      inputs.worktree,
+      ctx,
+    );
+    if (resolvedGated) return resolvedGated;
     return {
       resumeAt: "terminal",
       reason: `phase: ${inputs.state.phase}`,
+      context: ctx,
+    };
+  }
+
+  // Needs-human awaiting-human mode: mirrors the `gated` branch above — a
+  // paused escalation with a live worktree and no PR (or an OPEN PR)
+  // resolves to `awaiting-human` instead of the terminal short-circuit
+  // below, carrying a mechanical continue target computed by re-running
+  // decide() on the same probed inputs with the phase swapped for the last
+  // non-terminal `phaseLog` entry before the pause (`pausedPhase`, ./lib/state).
+  // MUST precede the TERMINAL_PHASE_SET short-circuit (needs-human is a
+  // terminal phase) and self-populate ctx.pr/prState here, because the
+  // general PR-population line below is only reached by non-terminal
+  // phases. Worktree gone (removed, or never recorded) falls through to the
+  // terminal verdict, unchanged — there is nothing live to continue.
+  if (inputs.state.phase === "needs-human") {
+    ctx.checkpointExists = inputs.checkpointExists;
+    ctx.checkpointMarkerExists = inputs.checkpointMarkerExists;
+    ctx.checkpointPath = inputs.checkpointPath;
+    if (inputs.pr.kind === "found") {
+      ctx.pr = inputs.pr.number;
+      ctx.prState = inputs.pr.state;
+    }
+    const resolvedNeedsHuman = resolveMergedOrClosedPr(
+      inputs.pr,
+      inputs.worktree,
+      ctx,
+    );
+    if (resolvedNeedsHuman) return resolvedNeedsHuman;
+    if (inputs.worktree.kind !== "present") {
+      return {
+        resumeAt: "terminal",
+        reason: `phase: ${inputs.state.phase}`,
+        context: ctx,
+      };
+    }
+    const paused = pausedPhase(inputs.state.phaseLog);
+    if (paused !== undefined) {
+      const inner = decide({
+        ...inputs,
+        state: { ...inputs.state, phase: paused },
+      });
+      if (Object.hasOwn(CONTINUE_PHASE_BY_STEP, inner.resumeAt)) {
+        ctx.continueAt = inner.resumeAt;
+        ctx.continuePhase = CONTINUE_PHASE_BY_STEP[inner.resumeAt];
+      }
+    }
+    return {
+      resumeAt: "awaiting-human",
+      reason: "needs-human-awaiting-human-step",
       context: ctx,
     };
   }
@@ -473,6 +599,22 @@ export function decide(inputs: Inputs): DecisionResult {
     };
   }
 
+  // Browser-retry pause: the PR is OPEN (MERGED / CLOSED / missing worktree
+  // were resolved above by the shared handling) and the open Browser items
+  // were never driven to a verdict — re-enter review Step 8c for them, then
+  // re-run the merge gate.
+  if (
+    inputs.state.phase === "browser-retry-pending" &&
+    inputs.pr.kind === "found" &&
+    inputs.pr.state === "OPEN"
+  ) {
+    return {
+      resumeAt: "browser-retry",
+      reason: "browser-retry-pending-open-browser-items",
+      context: ctx,
+    };
+  }
+
   // Row 3 — plan.md exists and is non-empty.
   ctx.planExists = inputs.planExists;
   ctx.checkpointExists = inputs.checkpointExists;
@@ -546,16 +688,20 @@ export function decide(inputs: Inputs): DecisionResult {
     return { resumeAt: "step-5", reason: "no PR for branch", context: ctx };
   }
 
-  // Row 5.5 — re-symlink. Done when phase post-symlink, OR no skill/agent
-  // additions on this branch (nothing to re-symlink).
+  // Row 5.5 — re-symlink + private-copy sync. Done when phase post-symlink, OR
+  // no skill/agent additions on this branch AND no private copy to sync (an
+  // edit-only branch on a flow-self copy still needs its sync).
   ctx.hasSkillAdditions = inputs.hasSkillAdditions;
+  if (inputs.hasOverlay) ctx.hasOverlay = true;
   if (
     !POST_SYMLINK_PHASES.has(inputs.state.phase) &&
-    inputs.hasSkillAdditions
+    (inputs.hasSkillAdditions || inputs.hasOverlay)
   ) {
     return {
       resumeAt: "step-5.5",
-      reason: "skills/agents added but re-symlink not yet run",
+      reason: inputs.hasSkillAdditions
+        ? "skills/agents added but re-symlink not yet run"
+        : "private skill copy exists but its sync has not run",
       context: ctx,
     };
   }
@@ -622,6 +768,8 @@ export type Deps = {
   git?: GitRunner;
   stateDir?: string;
   resolveSlug?: () => string | null;
+  /** Private-skill-copy probe seam (test only). */
+  hasOverlay?: (slug: string) => boolean;
 };
 
 /** Reads <worktree>/.flow-tmp/plan.md and returns true iff present + non-empty. */
@@ -767,6 +915,7 @@ export function gatherInputs(
   gh: GhRunner,
   git: GitRunner,
   stateDir = FLOW_STATE_DIR,
+  hasOverlay: (slug: string) => boolean = (s) => overlayPluginRoots(s) !== null,
 ): Inputs {
   // Terminal phases — and the no-in-flight-work pending phases — short-circuit
   // gh/git I/O: decide() returns terminal from the phase check alone, so
@@ -774,12 +923,17 @@ export function gatherInputs(
   // (and unsafe under a stub gh/git in tests). The checkpoint signals are
   // still probed here — they are worktree-independent filesystem stats after
   // the state-dir storage move, not gh/git calls, so this short-circuit still
-  // performs ZERO gh/git I/O. `gated` is the one terminal phase EXCLUDED from
-  // the short-circuit: its decide() branch resolves to `gated-feedback` when
-  // a checkpoint marker is present, so it must probe worktree + checkpoint +
-  // marker + PR (the feedback session needs PR context) rather than skip I/O.
+  // performs ZERO gh/git I/O. `gated` and `needs-human` are the two terminal
+  // phases EXCLUDED from the short-circuit: `gated`'s decide() branch
+  // resolves to `gated-feedback` when a checkpoint marker is present, and
+  // `needs-human`'s resolves to `awaiting-human` when a live worktree and no
+  // PR (or an OPEN PR) are present — both need worktree + checkpoint +
+  // marker + PR probed (the feedback/continue session needs PR context)
+  // rather than skipping I/O.
   if (
-    (TERMINAL_PHASE_SET.has(state.phase) && state.phase !== "gated") ||
+    (TERMINAL_PHASE_SET.has(state.phase) &&
+      state.phase !== "gated" &&
+      state.phase !== "needs-human") ||
     NO_INFLIGHT_WORK_PHASES.has(state.phase)
   ) {
     return {
@@ -831,6 +985,7 @@ export function gatherInputs(
     checkpointPath,
     pr,
     hasSkillAdditions,
+    hasOverlay: hasOverlay(slug),
     ciState,
     headCommit,
   };
@@ -873,7 +1028,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 0;
   }
 
-  const inputs = gatherInputs(slug, state, gh, git, stateDir);
+  const inputs = gatherInputs(slug, state, gh, git, stateDir, deps.hasOverlay);
   const decision = decide(inputs);
   process.stdout.write(JSON.stringify(decision) + "\n");
   return 0;

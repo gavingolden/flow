@@ -18,10 +18,10 @@ against an issue number fails or surfaces the wrong record. Seeding a
 proactively verified description means `/flow-pr-review` Step 11d's
 post-hoc Accuracy Sync has nothing to fix up later. The canonical rule
 body — full trigger-category list, anti-patterns, per-category
-verification recipes — lives in `AGENTS.md` under the 'Verify factual
-claims before emitting them.' rule (the bolded rule prefix is the stable
-anchor; section structure can differ between flow's own `AGENTS.md` and a
-consumer repo initialised from `templates/AGENTS.md.template`). Line
+verification recipes — lives in `AGENTS.md` (flow's own repo) or
+`references/agent-conduct.md` (a repo seeded from `templates/`) under the
+'Verify factual claims before emitting them.' rule (the bolded rule
+prefix is the stable anchor). Line
 numbers themselves are a trigger category, so anchor by rule name rather
 than by line.
 
@@ -33,38 +33,27 @@ distilled from a full PRD and approved by the user. Skip to Step 5.
 test specs:
 
 ````markdown
-## Why
+## TLDR
 
-<From the Critical Analysis: combine the Customer Value assessment with the user's original
-feature description to explain what problem this solves and why it matters. 1-3 sentences,
-no solution language. On a fix-shaped PR — the pipeline exists to fix an observed defect, or
-the branch's dominant commit type is `fix:` — lead with `**Failing:**` naming the observed
-failure and `**Root cause:**` naming why it happened, before the 1-3-sentence motivation.>
-
-## What
-
-<From the it.todo() specs: convert the top-level describe/it.todo groups into a bulleted list
-of deliverables. Phrase as capabilities, not test names. Example: "should display loading
-skeleton while fetching" becomes "Loading states during data fetches".>
-
-## Key decisions
-
-<From the Critical Analysis: include the Recommendation rationale, any alternatives that were
-considered and rejected (with **why** they were rejected), and scope boundaries defined in
-Step 1. On a fix-shaped PR, the FIRST bullet is `**Fix mechanism:** <why the change eliminates
-the root cause>`. Each bullet: decision + why. During implementation, if a non-obvious choice
-is made or an approach is tried and abandoned, append it here and also capture it in the
-commit body per `AGENTS.md` — so future reviewers and agents don't retrace dead ends.>
+<One sentence, 25 words or fewer, naming the user-visible outcome. Name no file, function, or
+line number — name the surface the reader uses (the command, the flag, the artifact). This is
+the same string the supervisor already authors as `$TLDR` at every terminal gate in
+`skills/pipeline/flow-pipeline/SKILL.md`; reuse it rather than inventing a second one. On a
+fix-shaped PR the sentence itself states the failure and the causal resolution together, so a
+reader meets the fix framing before the now-demoted `## Why`.>
 
 ## User-facing changes
 
 <Concrete user-observable deltas — phrase in user terms ("you can now run `flow ls --cost`"),
-not implementation terms ("added cost column to the ls renderer"). Consider these
+not implementation terms ("added cost column to the ls renderer"). Name no file, function, or
+line number here either — name the surface the reader uses. Consider these
 categories: new CLI commands or subcommands, new flags or changed defaults,
 renamed/removed commands, changed prompts or output formats, new env vars, and changed
 file locations users interact with. Derive each bullet from the matching `it.todo()` spec
 that describes externally observable behaviour — every spec asserting an output, a CLI
-surface, or a side effect users can see should produce a bullet here.
+surface, or a side effect users can see should produce a bullet here, phrased as a capability
+rather than a test name ("should display loading skeleton while fetching" becomes "Loading
+states during data fetches").
 
 Format: freeform bullets. For renames or removals, use a `Before → After` bullet so the
 delta reads at a glance. Example:
@@ -76,13 +65,38 @@ If the change is pure-internal (refactor, infra, no user-observable delta), writ
 word `none` under the heading. Never delete the heading — `none` is an explicit author
 affirmation, while a missing heading is ambiguous between "no change" and "author forgot".>
 
-## System flow changes
+## System changes
 
-<Only on a cross-component change where behavior moved at the system/consumer level —
-derive Before → After bullets from plan.md's `### System flow` subsection when that
-subsection is non-`none`. OMIT THIS HEADING ENTIRELY when nothing moved at that level; unlike
-User-facing changes above, there is no `none` affirmation for this section — an absent
-heading already means "nothing moved here".>
+<Any internal change worth a reviewer's attention: a subsystem boundary that moved, a public
+contract that changed, a performance characteristic, or an ongoing cost. Derive Before → After
+bullets from plan.md's `### System flow` subsection when that subsection is non-`none`, and
+phrase each deliverable as a capability, not a test name or a file path. When the change moves
+an ongoing cost — API calls, CI time, token spend — name the direction and rough size; stay
+silent about cost when the change does not move one.
+
+Do not list file edits, helper refactors, or mechanical cleanups. If the change does not alter
+a subsystem boundary, a public contract, performance, or ongoing spend, write `none`.
+
+Never delete the heading. Exactly like `## User-facing changes` above, `none` is an explicit
+author affirmation, while a missing heading is ambiguous between "no change" and "author
+forgot".>
+
+## Why
+
+<From the Critical Analysis: combine the Customer Value assessment with the user's original
+feature description to explain what problem this solves and why it matters. 1-3 sentences,
+no solution language. On a fix-shaped PR — the pipeline exists to fix an observed defect, or
+the branch's dominant commit type is `fix:` — lead with `**Failing:**` naming the observed
+failure and `**Root cause:**` naming why it happened, before the 1-3-sentence motivation.>
+
+## Key decisions
+
+<From the Critical Analysis: include the Recommendation rationale, any alternatives that were
+considered and rejected (with **why** they were rejected), and scope boundaries defined in
+Step 1. On a fix-shaped PR, the FIRST bullet is `**Fix mechanism:** <why the change eliminates
+the root cause>`. Each bullet: decision + why. During implementation, if a non-obvious choice
+is made or an approach is tried and abandoned, append it here and also capture it in the
+commit body per `AGENTS.md` — so future reviewers and agents don't retrace dead ends.>
 
 ## Deviations from plan
 
@@ -160,7 +174,7 @@ Always emit the heading. Decide the body based on the change:
 
   **Artifact-referencing PRs (the plan carries `## Visual Spec`) scope the two rules above
   differently** — mirroring discovery step 7's authoring rule in
-  `skills/pipeline/flow-product-planning/references/discovery-instructions.md`: emit one enumerated
+  `skills/pipeline/flow-product-planning/references/discovery-ui.md`: emit one enumerated
   `- [ ]` Test Step per Visual Spec assertion, tagged with its assertion id (e.g.
   `- [ ] [nav-active-weight] .nav a.active renders font-weight: 600 — verified by
   flow-design-spec diff`), plus **exactly one** overall `SUBJECTIVE: ` sign-off for the
@@ -183,13 +197,36 @@ Always emit the heading. Decide the body based on the change:
   `skills/pipeline/flow-pr-review/references/manual-test-rubric.md` ("Precondition concreteness")
   for the rule and a before/after example.
 
+  Human-only items use exactly two labels, a browser behaviour check has one shape, and post-merge
+  chores never appear: `SUBJECTIVE: ` is a taste call about rendered UI (review attaches a
+  screenshot under it), `DECISION: ` asks the user to accept a named trade-off, a behaviour check
+  is written `- [ ] Browser: on <route>, <action> — expect <result>` (one action chain, one
+  expected result per box), any clause a second observer would record identically leaves a taste
+  item and becomes its own runnable item, and a step that can only be done after merge or deploy
+  goes to `flow-followups` instead. See
+  `skills/pipeline/flow-pr-review/references/manual-test-rubric.md` ("Decision checks",
+  "Behaviour checks: the Browser: shape", "Split rule: a taste item holds only taste", "Shallow
+  smells") — do not inline the rule bodies.
+
+  After saving the draft, lint it and fix each finding before moving on (a `suggestion` is a
+  judgment call, not a must-fix). Tolerant: when the command is not on PATH, record the named
+  skip `test-steps-lint: helper not installed` and continue — never a hard failure:
+
+  ```bash
+  if command -v flow-test-steps-lint >/dev/null; then
+    flow-test-steps-lint --body-file .flow-tmp/pr-description-draft.md --phase authoring 2>/dev/null | jq -r '.findings[] | "\(.severity) \(.code) L\(.line): \(.hint)"'
+  else
+    echo "test-steps-lint: helper not installed"
+  fi
+  ```
+
 Open the `## Test Steps` section with this HTML comment, copied verbatim, between
 the heading and the first `- [ ]` item. The auto-merge gate strips HTML comments
 before counting so the marker is invisible to the count, and any later editor (an
 agent re-running pr-review, a human pasting in steps) sees the same standard:
 
 ```html
-<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+<!-- flow:authoring-rubric — for each checkbox item below, the three-question
 automation test from manual-test-rubric.md is: (a) named fixture/setup,
 (b) deterministic assertion(s), (c) exit condition. If all three are answerable
 without subjective human judgment, it must be a runnable item. Source of truth:
@@ -210,7 +247,7 @@ Example (auto-merge — empty section):
 
 Example (gated — non-empty section, marker preserved):
 
-<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+<!-- flow:authoring-rubric — for each checkbox item below, the three-question
 automation test from manual-test-rubric.md is: (a) named fixture/setup,
 (b) deterministic assertion(s), (c) exit condition. If all three are answerable
 without subjective human judgment, it must be a runnable item. Source of truth:
@@ -234,11 +271,19 @@ confirmation before proceeding to implementation.
   The `pr-review` skill will catch missing descriptions.
 - "Why" must focus on the user's problem, not the implementation approach.
 - Keep it concise — this is a PR description, not a design doc.
+- "TLDR" is one sentence, 25 words or fewer, naming the user-visible outcome in the surface
+  the reader uses — no file, function, or line number. It is the same string the supervisor
+  authors as `$TLDR` at a terminal gate. On a fix-shaped PR it states the failure and the
+  causal resolution together.
 - "User-facing changes" must be phrased in user terms (what someone running the tool will
-  see or do differently), not implementation terms. If the PR has no user-observable
-  delta, write `none` under the heading — never omit the heading itself.
-- "System flow changes" is conditional — unlike "User-facing changes", omit the heading
-  entirely when nothing moved at the system/consumer level; do not write `none` under it.
+  see or do differently), not implementation terms, and names a surface rather than a file,
+  function, or line number. Deliverables belong here as capabilities, each verifiable
+  against the diff.
+- "System changes" covers any internal change worth a reviewer's attention, and prompts for
+  ongoing cost (API calls, CI time, token spend) only when the change moves one. It does NOT
+  list file edits, helper refactors, or mechanical cleanups.
+- Both "User-facing changes" and "System changes" are mandatory: when the section is empty,
+  write the literal word `none` under the heading — never omit either heading itself.
 - Always emit the `## Test Steps` heading, even for refactors. The auto-merge gate
   treats a missing heading as an upstream regression and escalates `NEEDS HUMAN`. Zero
   unchecked items under the heading is the auto-merge state; one or more unchecked

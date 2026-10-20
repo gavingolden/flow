@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
+import { DEFAULT_TIMEOUT } from "./flow-research-run";
 
 /**
  * Structural lint for the F2 research pre-check budget wiring in
- * `skills/pipeline/flow-product-planning/references/discovery-instructions.md`.
+ * `skills/pipeline/flow-product-planning/references/discovery-research.md`.
  *
  * Step 1.5 of that file reads four OPTIONAL `~/.flow/config.json` budget keys
  * (`research.maxCalls` / `research.timeout` / `research.model` /
@@ -26,19 +28,19 @@ import { fileURLToPath } from "node:url";
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
+const DISCOVERY_RESEARCH_PATH = path.resolve(
   HERE,
   "..",
   "skills",
   "pipeline",
   "flow-product-planning",
   "references",
-  "discovery-instructions.md",
+  "discovery-research.md",
 );
-const content = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+const content = fs.readFileSync(DISCOVERY_RESEARCH_PATH, "utf8");
 
 const FILE_LABEL =
-  "skills/pipeline/flow-product-planning/references/discovery-instructions.md";
+  "skills/pipeline/flow-product-planning/references/discovery-research.md";
 
 // The forced (`flow feature create --research`) path runs bin/flow-research-run.ts, which
 // keeps its OWN copy of the model-variant pins + cross-model diversity-guard
@@ -68,8 +70,8 @@ describe("F2 research budget config lint", () => {
 
   it("preserves the byte-exact agy model-variant pins", () => {
     const pins = [
-      "Gemini 3.1 Pro (High)",
-      "Claude Opus 4.6 (Thinking)",
+      DELEGATE_MODEL_DEFAULTS.researchGather!,
+      DELEGATE_MODEL_DEFAULTS.researchRefute!,
       "GPT-OSS 120B (Medium)",
     ];
     const missing = pins.filter((p) => !content.includes(p));
@@ -82,26 +84,29 @@ describe("F2 research budget config lint", () => {
   });
 
   it("keeps the byte-exact v1 budget defaults", () => {
-    // maxCalls default 12 (as the type-guarded read default), timeout default 3m.
+    // maxCalls default 12 (as the type-guarded read default), timeout default
+    // the exported research limit (DEFAULT_TIMEOUT).
     expect(
       content.includes("read_budget maxCalls number 12"),
       `${FILE_LABEL} must default research.maxCalls to 12 in the tolerant read.`,
     ).toBe(true);
     expect(
-      content.includes('read_budget timeout string "3m"'),
-      `${FILE_LABEL} must default research.timeout to "3m" in the tolerant read.`,
-    ).toBe(true);
-    expect(
-      content.includes('read_budget model string "Gemini 3.1 Pro (High)"'),
-      `${FILE_LABEL} must default research.model (gather) to ` +
-        `"Gemini 3.1 Pro (High)".`,
+      content.includes(`read_budget timeout string "${DEFAULT_TIMEOUT}"`),
+      `${FILE_LABEL} must default research.timeout to "${DEFAULT_TIMEOUT}" in the tolerant read.`,
     ).toBe(true);
     expect(
       content.includes(
-        'read_budget refuteModel string "Claude Opus 4.6 (Thinking)"',
+        `read_budget model string "${DELEGATE_MODEL_DEFAULTS.researchGather}"`,
+      ),
+      `${FILE_LABEL} must default research.model (gather) to ` +
+        `"${DELEGATE_MODEL_DEFAULTS.researchGather}".`,
+    ).toBe(true);
+    expect(
+      content.includes(
+        `read_budget refuteModel string "${DELEGATE_MODEL_DEFAULTS.researchRefute}"`,
       ),
       `${FILE_LABEL} must default research.refuteModel to ` +
-        `"Claude Opus 4.6 (Thinking)".`,
+        `"${DELEGATE_MODEL_DEFAULTS.researchRefute}".`,
     ).toBe(true);
   });
 
@@ -139,8 +144,8 @@ describe("F2 research budget config lint", () => {
     // diversity guard swaps to on an Opus collision — their co-presence in the
     // helper catches a rename of either copy that the doc-only freeze would miss.
     const pins = [
-      "Gemini 3.1 Pro (High)",
-      "Claude Opus 4.6 (Thinking)",
+      DELEGATE_MODEL_DEFAULTS.researchGather!,
+      DELEGATE_MODEL_DEFAULTS.researchRefute!,
       "GPT-OSS 120B (Medium)",
     ];
     const missing = pins.filter((p) => !researchRunContent.includes(p));

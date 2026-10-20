@@ -37,7 +37,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
-import { resolveRepoRoot } from "./repo-root";
+import {
+  resolveRepoRoot,
+  resolveGitCommonDir,
+  makeSameRepository,
+} from "./repo-root";
 import {
   FLOW_CLAUDE_HOME,
   FLOW_LAUNCH_SEM_DIR,
@@ -77,9 +81,11 @@ import {
 import { validateDag } from "../flow-epic-dag";
 import {
   deriveWorktreePath,
+  resumeWorktree,
   backoffMsForAttempt,
   ensureLaunchSettings,
 } from "./feature";
+import { releaseReservedWorktree, reserveWorktreeSlot } from "./worktree-slot";
 import {
   createWindowVerified,
   respawnWindowVerified,
@@ -103,11 +109,18 @@ import {
   MODEL_ALIASES,
   type ModelAlias,
 } from "./state";
+import { collectEffortConfigWarnings } from "./efforts-config";
 import {
   readDefaultModel,
   collectModelConfigWarnings,
+  defaultReadConfigFile,
+  cachedConfigRead,
   type ReadConfigFile,
 } from "./models-config";
+import {
+  readLaunchDefaults,
+  collectLaunchConfigWarnings,
+} from "./launch-config";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
 import {
@@ -161,8 +174,9 @@ const WINDOW_CREATE_MAX_ATTEMPTS = 3;
 
 /**
  * Resolved absolute path to the product-planning skill, embedded (R1) in both
- * epic seeds so the spawned `/flow-epic-create` supervisor can pass a concrete
- * `SKILL_DIR` into its Task-spawned `MODE: epic` designer. The supervisor runs
+ * epic seeds as `SKILL_DIR`. The `/flow-epic-create` supervisor loads
+ * `/flow-product-planning` in-process and no longer consumes it (the seed
+ * shape is kept byte-stable). The supervisor runs
  * cwd'd in a consumer worktree without `bin/lib`, so it cannot resolve this
  * itself — the CLI (flow's own installed code) resolves it symlink-aware via
  * `resolveFlowSource()` and threads it through. The builders themselves live
@@ -197,9 +211,29 @@ function launchWithRetry(
   return last;
 }
 
+function reserveEpicWorktree(
+  slug: string,
+  repo: string,
+  options: EpicOptions,
+): string {
+  return (
+    options.reserveWorktree ??
+    ((s, r) => reserveWorktreeSlot(s, deriveWorktreePath(r, s), r))
+  )(slug, repo).worktreeDir;
+}
+
 export type EpicOptions = {
   /** Override the cwd for the new window (default: process.cwd()). */
   cwd?: string;
+  /**
+   * Reserves the worktree folder at launch (test seam). Production uses
+   * `reserveWorktreeSlot(slug, deriveWorktreePath(repo, slug), repo)`, which
+   * creates the empty folder so it exists when Claude starts.
+   */
+  reserveWorktree?: (
+    slug: string,
+    repo: string,
+  ) => { branchName: string; worktreeDir: string };
   /** Override the command launched in the window (test seam). */
   command?: string[];
   /** Resume a crashed epic session rather than start a new one. */
@@ -274,9 +308,11 @@ export type EpicOptions = {
   readMaxParallel?: () => number;
   /**
    * Injectable `~/.flow/config.json` reader (test seam only). Threaded into
-   * `readDefaultModel` / `collectModelConfigWarnings` at epic-create launch so
-   * the `models.default` resolution can be exercised without touching the real
-   * config. Production uses the module default (reads via flowConfigPath()).
+   * `readDefaultModel` / `collectModelConfigWarnings` AND
+   * `readLaunchDefaults` / `collectLaunchConfigWarnings` at both epic-create
+   * and epic-run launch, so the `models.default` and `launch.effort`
+   * resolutions can be exercised without touching the real config.
+   * Production uses the module default (reads via flowConfigPath()).
    */
   readConfig?: ReadConfigFile;
   /** tmux-on-PATH probe seam for the launcher-backend guard (test only). */
@@ -538,7 +574,18 @@ PR → review checkpoint), and writes initial epic state under
     return 2;
   }
 
-  const worktree = deriveWorktreePath(repo, slug);
+  // Reserve the worktree folder BEFORE anything is written (mirrors feature.ts
+  // runFresh): a no-slot failure aborts cleanly and the folder exists when
+  // Claude starts (a non-existent --add-dir path is dropped at launch).
+  let worktree: string;
+  try {
+    worktree = reserveEpicWorktree(slug, repo, options);
+  } catch (err) {
+    console.error(
+      `flow epic create: could not reserve a worktree folder: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return 2;
+  }
   // R1: the CLI is the SOLE evaluator of the epic path contract; embed the
   // resolved LITERAL EPIC_DIR in the seed prompt so the spawned window (cwd'd
   // in a consumer worktree without bin/lib) consumes the literal, never an import.
@@ -553,23 +600,50 @@ PR → review checkpoint), and writes initial epic state under
   // feature.ts's hoist. Epic orchestration is tmux-only (refused above), but
   // this keeps the same "write before dispatch" invariant rather than tying
   // it to a specific backend.
-  writeRequestFile(slug, prompt, options.stateDir);
-  const settingsPath = launchSettingsPathFor(options);
+  // No state file records the reservation until the launch writes `starting`,
+  // so a throw before that write would leak the empty folder.
+  let settingsPath: string;
+  try {
+    writeRequestFile(slug, prompt, options.stateDir);
+    settingsPath = launchSettingsPathFor(options);
+  } catch (err) {
+    releaseReservedWorktree(worktree);
+    throw err;
+  }
+
+  // Read + parse `~/.flow/config.json` at most once and share it across the
+  // models.* and launch.* readers below (mirrors feature.ts's launch path).
+  const readConfig: ReadConfigFile = cachedConfigRead(
+    options.readConfig ?? defaultReadConfigFile,
+  );
 
   // Whole-session model resolved at launch: --model wins over config
   // models.default; absent both, no --model reaches claude. Best-effort-warn
   // on any present-but-invalid models.* config value, then fall back.
-  for (const w of collectModelConfigWarnings(options.readConfig)) {
+  for (const w of collectModelConfigWarnings(readConfig)) {
     console.error(dim(`flow epic create: ${w}`));
   }
-  const sessionModel = model ?? readDefaultModel(options.readConfig);
+  for (const w of collectEffortConfigWarnings(readConfig)) {
+    console.error(dim(`flow epic create: ${w}`));
+  }
+  const sessionModel = model ?? readDefaultModel(readConfig);
+  // Reasoning-effort precedence (comment applies to both epic-create above
+  // and the epic-run path below): explicit CLI flag > manifest hint
+  // (flowNewHints.effort, applied upstream by epic-launch.ts) > config
+  // (launch.effort) > built-in. Warn on a present-but-invalid launch.* value
+  // the same way `flow feature create` does — without this, `flow epic
+  // create` silently launched at the built-in effort with no signal.
+  for (const w of collectLaunchConfigWarnings(readConfig)) {
+    console.error(dim(`flow epic create: ${w}`));
+  }
+  const sessionEffort = effort ?? readLaunchDefaults(readConfig).effort;
 
   const command =
     options.command ??
     createCommand(
       slug,
       worktree,
-      effort,
+      sessionEffort,
       settingsPath,
       sessionModel,
       options.pluginRootsScan,
@@ -601,7 +675,8 @@ PR → review checkpoint), and writes initial epic state under
         phase: "starting",
         repo,
         worktree: existing?.worktree,
-        effort,
+        reservedWorktree: worktree,
+        effort: sessionEffort,
         model: sessionModel,
         modelPlanning,
         seed,
@@ -644,11 +719,12 @@ PR → review checkpoint), and writes initial epic state under
     // SKIPS the no-orphan delete — the request file written above (before the
     // launcher dispatch) is the recovery artifact. reapableStartingOrphans
     // (reap-orphans.ts) now skips any slug with a `corrupt` seedIngest, so
-    // `flow ls`'s lazy reap (REAP_GRACE_MS, ~60s) does NOT delete this state
+    // `flow ls`'s lazy reap (STARTING_ORPHAN_GRACE_MS, ~60s) does NOT delete this state
     // (or its sibling request file) shortly after.
     if (!seedCorrupted) {
       deleteState(slug, options.stateDir);
     }
+    releaseReservedWorktree(worktree);
     if (seedCorrupted) {
       console.error(
         "flow epic create: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
@@ -678,6 +754,7 @@ PR → review checkpoint), and writes initial epic state under
   // state survives.
   if (!windowExists(slug)) {
     deleteState(slug, options.stateDir);
+    releaseReservedWorktree(worktree);
     console.error(
       "flow epic create: the tmux window vanished after launch — not writing state.",
     );
@@ -764,22 +841,47 @@ function runEpicResume(name: string, options: EpicOptions): number {
   }
 
   const repo = state.repo;
-  const worktree = state.worktree ?? deriveWorktreePath(repo, slug);
+  // Prefer the recorded worktree, then the reserved folder (re-created if it
+  // vanished); a state with neither reserves one so --add-dir has a folder.
+  let newlyReserved: string | undefined;
+  let worktree: string;
+  if (state.worktree || state.reservedWorktree) {
+    worktree = resumeWorktree(state, slug);
+  } else {
+    try {
+      newlyReserved = reserveEpicWorktree(slug, repo, options);
+    } catch (err) {
+      console.error(
+        `flow epic create --resume: could not reserve a worktree folder: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return 2;
+    }
+    worktree = newlyReserved;
+  }
   // R1: recompute the literal EPIC_DIR CLI-side on resume too, so the resumed
   // window never re-derives the path nor imports bin/lib.
   const epicDir = epicDirRelative(slug);
   const seed = epicResumeSeed(slug, epicDir, PRODUCT_PLANNING_SKILL_DIR);
-  const settingsPath = launchSettingsPathFor(options);
-  const command =
-    options.command ??
-    resumeCommand(
-      slug,
-      worktree,
-      state.effort,
-      settingsPath,
-      state.model,
-      options.pluginRootsScan,
-    );
+  // A fresh reservation is not recorded in state until the write below, so a
+  // throw while building the launch argv would leak the empty folder.
+  let settingsPath: string;
+  let command: string[];
+  try {
+    settingsPath = launchSettingsPathFor(options);
+    command =
+      options.command ??
+      resumeCommand(
+        slug,
+        worktree,
+        state.effort,
+        settingsPath,
+        state.model,
+        options.pluginRootsScan,
+      );
+  } catch (err) {
+    releaseReservedWorktree(newlyReserved);
+    throw err;
+  }
   // Record THIS resume's own seed and clear any earlier hook markers before
   // capturing the consumption baseline below (mirrors feature.ts runResume;
   // Task 4b cross-path hazard fix). Two reasons this must happen HERE, before
@@ -807,6 +909,7 @@ function runEpicResume(name: string, options: EpicOptions): number {
       writeState(
         {
           ...preClear,
+          ...(newlyReserved ? { reservedWorktree: newlyReserved } : {}),
           seed,
           seedIngest: undefined,
           kind: "epic-design",
@@ -861,6 +964,7 @@ function runEpicResume(name: string, options: EpicOptions): number {
     options,
   );
   if (result.status === "failed") {
+    releaseReservedWorktree(newlyReserved);
     if (result.stderr === SEED_CORRUPTED_STDERR) {
       console.error(
         "flow epic create --resume: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
@@ -1101,7 +1205,30 @@ function spawnEpicRunSupervisor(
     return 2;
   }
 
-  const worktree = deriveWorktreePath(repo, slug);
+  // With a state file, pre-authorize a folder that exists: the recorded
+  // worktree, else the reserved one (re-created if vanished), else a fresh
+  // reservation recorded below. With no state file nothing records a
+  // reservation, so keep the derived path and create no folder.
+  const priorState = readState(slug, options.stateDir);
+  let newlyReserved: string | undefined;
+  let worktree: string;
+  if (priorState == null) {
+    worktree = deriveWorktreePath(repo, slug);
+  } else if (priorState.worktree && fs.existsSync(priorState.worktree)) {
+    worktree = priorState.worktree;
+  } else if (priorState.reservedWorktree) {
+    worktree = resumeWorktree({ ...priorState, worktree: undefined }, slug);
+  } else {
+    try {
+      newlyReserved = reserveEpicWorktree(slug, repo, options);
+    } catch (err) {
+      console.error(
+        `flow epic run: could not reserve a worktree folder: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return 2;
+    }
+    worktree = newlyReserved;
+  }
   const epicDir = epicDirRelative(slug);
   const seed = epicRunSeed(slug, epicDir);
   // Record THIS run's own seed and clear any earlier hook markers, mirroring
@@ -1126,6 +1253,7 @@ function spawnEpicRunSupervisor(
       writeState(
         {
           ...current,
+          ...(newlyReserved ? { reservedWorktree: newlyReserved } : {}),
           seed,
           seedIngest: undefined,
           kind: "epic-run",
@@ -1138,19 +1266,29 @@ function spawnEpicRunSupervisor(
   // the verified-launch argv through the shared builder. The supervisor session
   // model is `--model > config.models.default > inherited` (parity with
   // `flow feature create` / `flow epic create`); absent both, no --model reaches
-  // claude. `--effort <level>` threads straight from the CLI flag — unlike
-  // model, effort has no `config.models.default`-style config fallback.
+  // claude. `--effort <level>` resolves `explicit CLI flag > launch.effort
+  // config > built-in` (parity with `flow feature create` / epic-create above).
   const settingsPath = launchSettingsPathFor(options);
-  for (const w of collectModelConfigWarnings(options.readConfig)) {
+  const readConfig: ReadConfigFile = cachedConfigRead(
+    options.readConfig ?? defaultReadConfigFile,
+  );
+  for (const w of collectModelConfigWarnings(readConfig)) {
     console.error(dim(`flow epic run: ${w}`));
   }
-  const runSessionModel = runModel ?? readDefaultModel(options.readConfig);
+  for (const w of collectEffortConfigWarnings(readConfig)) {
+    console.error(dim(`flow epic run: ${w}`));
+  }
+  const runSessionModel = runModel ?? readDefaultModel(readConfig);
+  for (const w of collectLaunchConfigWarnings(readConfig)) {
+    console.error(dim(`flow epic run: ${w}`));
+  }
+  const runSessionEffort = runEffort ?? readLaunchDefaults(readConfig).effort;
   const command =
     options.command ??
     createCommand(
       slug,
       worktree,
-      runEffort,
+      runSessionEffort,
       settingsPath,
       runSessionModel,
       options.pluginRootsScan,
@@ -1163,6 +1301,7 @@ function spawnEpicRunSupervisor(
   const launch = () => createWindowVerified(slug, repo, command, seed);
   const result = launchWithRetry(launch, options.retrySleepMs);
   if (result.status === "failed") {
+    releaseReservedWorktree(newlyReserved);
     console.error(
       "flow epic run: claude exited immediately after launch — the tmux window did not stay up.",
     );
@@ -1176,6 +1315,7 @@ function spawnEpicRunSupervisor(
   // Mode-2 backstop (mirrors runCreate): never report a started supervisor for
   // a window that vanished between the verified launch and now.
   if (!windowExists(slug)) {
+    releaseReservedWorktree(newlyReserved);
     console.error(
       "flow epic run: the tmux window vanished after launch — the supervisor did not start.",
     );
@@ -1749,7 +1889,7 @@ function discoverCommittedEpics(
 
 /**
  * `flow epic ls`'s help + unknown-flag guard. Copied in shape from
- * `runLsCli` (bin/lib/ls.ts:106-117) — help first, then an allowlist parse
+ * `runLsCli` (bin/lib/ls.ts:109-129) — help first, then an allowlist parse
  * that exits 2 on anything unrecognised, matching the one other subcommand
  * with a real flag surface rather than the silent-drop shape used by
  * `runEpicBind`/`runEpicDone`.
@@ -1759,29 +1899,56 @@ function runEpicLs(rest: string[], options: EpicOptions): number {
     console.log(`flow epic ls — list epics
 
 Usage:
-  flow epic ls [--all]
+  flow epic ls [--all|-a] [--done] [--all-repos]
 
 Options:
-  --all, -a             Include completed (done) epics in the listing
+  --done                Include completed (done) epics in the listing
+  --all-repos           Include every repo's launched/run-state epics (not
+                        just this one); committed-only epics stay scoped to
+                        this repo regardless
+  --all, -a             Drop every default filter (done epics AND every repo)
 
 Lists every epic with per-state counts + status, combining live run.json
 state under ~/.flow/epics with committed status boards under this repo's
-.flow/epics. Completed epics are hidden by default and counted in a
-footer line; --all shows them.`);
+.flow/epics. By default the listing is scoped to this repo and completed
+epics are hidden, each counted in its own footer line; --done widens the
+done axis, --all-repos widens the repo axis, and --all/-a drop both.
+Outside a git repo, the default listing is empty with a printed reason;
+--all-repos still lists every repo's launched/run-state epics, plus this
+repo's own committed ones.`);
     return 0;
   }
-  const allowed = new Set(["--all", "-a"]);
+  const allowed = new Set(["--all", "-a", "--done", "--all-repos"]);
   for (const arg of rest) {
     if (!allowed.has(arg)) {
       console.error(`flow epic ls: unknown option '${arg}'`);
-      console.error("usage: flow epic ls [--all]");
+      console.error("usage: flow epic ls [--all|-a] [--done] [--all-repos]");
       return 2;
     }
   }
-  const showAll = rest.includes("--all") || rest.includes("-a");
+  const all = rest.includes("--all") || rest.includes("-a");
+  const showDone = all || rest.includes("--done");
+  const allRepos = all || rest.includes("--all-repos");
+
+  const cwd = options.cwd ?? process.cwd();
+  const currentRepo = resolveRepoRoot(cwd);
+
+  if (currentRepo === null && !allRepos) {
+    console.log(
+      "flow epic ls: not in a git repo — no epic scope; show every epic with 'flow epic ls --all-repos'",
+    );
+    return 0;
+  }
+
+  // Only build the predicate (which resolves cwd's own git-common-dir) when
+  // it will actually be consulted — allRepos short-circuits every use below,
+  // so skip the wasted git spawn on that path.
+  const sameRepo = allRepos ? () => true : makeSameRepository(cwd);
+
+  type LsEntry = { row: EpicListRow; repoPath: string };
 
   const states = listEpicRunStates(options.epicsDir);
-  const rows: EpicListRow[] = states.map((rs) => {
+  const entries: LsEntry[] = states.map((rs) => {
     const loaded = loadCommittedManifest(rs.manifestPath);
     if (!loaded.ok) {
       // Degraded row: manifest unreadable (moved/unmerged). Count launched only.
@@ -1790,13 +1957,17 @@ footer line; --all shows them.`);
       );
       const launched = Object.values(rs.features).length;
       return {
-        slug: rs.epicSlug,
-        ready: 0,
-        running: 0,
-        blocked: 0,
-        merged: 0,
-        total: launched,
-        status: "running" as const,
+        row: {
+          slug: rs.epicSlug,
+          repo: path.basename(rs.repo),
+          ready: 0,
+          running: 0,
+          blocked: 0,
+          merged: 0,
+          total: launched,
+          status: "running" as const,
+        },
+        repoPath: rs.repo,
       };
     }
     const result = reconcile({
@@ -1808,22 +1979,36 @@ footer line; --all shows them.`);
       committedStatus: readCommittedStatus(path.dirname(rs.manifestPath)),
     });
     return {
-      slug: rs.epicSlug,
-      ready: result.summary.ready,
-      running: result.summary.running,
-      blocked: result.summary.blocked,
-      merged: result.summary.merged,
-      total: result.summary.total,
-      status: result.epicStatus,
+      row: {
+        slug: rs.epicSlug,
+        repo: path.basename(rs.repo),
+        ready: result.summary.ready,
+        running: result.summary.running,
+        blocked: result.summary.blocked,
+        merged: result.summary.merged,
+        total: result.summary.total,
+        status: result.epicStatus,
+      },
+      repoPath: rs.repo,
     };
   });
 
   // Union in this repo's committed epics. Run-state rows always win on slug —
   // they carry live per-feature bindings the committed manifest cannot.
-  const seen = new Set(rows.map((r) => r.slug));
-  for (const { slug, manifestPath } of discoverCommittedEpics(
-    options.cwd ?? process.cwd(),
-  )) {
+  const seen = new Set(entries.map((e) => e.row.slug));
+  const committedRepoPath = currentRepo ?? "";
+  // Label from the MAIN checkout, not `cwd`'s own worktree: run-state rows
+  // (above) are keyed off `state.repo`, which flow always records as the
+  // main checkout, so labelling committed epics with `path.basename(cwd)`
+  // when `cwd` is a linked worktree (flow creates one per pipeline) shows
+  // the SAME repo under two different REPO values. `--git-common-dir` is
+  // byte-identical across a main checkout and every linked worktree of it,
+  // and its parent directory is the main checkout root.
+  const commonDir = currentRepo ? resolveGitCommonDir(cwd) : null;
+  const committedRepoLabel = path.basename(
+    commonDir ? path.dirname(commonDir) : committedRepoPath,
+  );
+  for (const { slug, manifestPath } of discoverCommittedEpics(cwd)) {
     if (seen.has(slug)) continue;
     const loaded = loadCommittedManifest(manifestPath);
     if (!loaded.ok) {
@@ -1840,21 +2025,41 @@ footer line; --all shows them.`);
       maxParallel: maxParallel(),
       committedStatus: readCommittedStatus(path.dirname(manifestPath)),
     });
-    rows.push({
-      slug,
-      ready: result.summary.ready,
-      running: result.summary.running,
-      blocked: result.summary.blocked,
-      merged: result.summary.merged,
-      total: result.summary.total,
-      status: result.epicStatus,
+    entries.push({
+      row: {
+        slug,
+        repo: committedRepoLabel,
+        ready: result.summary.ready,
+        running: result.summary.running,
+        blocked: result.summary.blocked,
+        merged: result.summary.merged,
+        total: result.summary.total,
+        status: result.epicStatus,
+      },
+      repoPath: committedRepoPath,
     });
   }
 
-  rows.sort((a, b) => a.slug.localeCompare(b.slug));
-  const visible = showAll ? rows : rows.filter((r) => r.status !== "done");
-  const hiddenDone = rows.length - visible.length;
-  console.log(renderEpicList(visible, hiddenDone));
+  entries.sort((a, b) => a.row.slug.localeCompare(b.row.slug));
+
+  const passesRepo = (e: LsEntry) => allRepos || sameRepo(e.repoPath);
+  const passesDone = (e: LsEntry) => showDone || e.row.status !== "done";
+
+  const visible = entries.filter((e) => passesRepo(e) && passesDone(e));
+  const hiddenDone = entries.filter(
+    (e) => passesRepo(e) && !passesDone(e),
+  ).length;
+  const hiddenOtherRepos = entries.filter(
+    (e) => passesDone(e) && !passesRepo(e),
+  ).length;
+
+  console.log(
+    renderEpicList(
+      visible.map((e) => e.row),
+      hiddenDone,
+      hiddenOtherRepos,
+    ),
+  );
   return 0;
 }
 

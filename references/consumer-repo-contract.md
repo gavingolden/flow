@@ -1,8 +1,8 @@
 # Consumer-repo contract
 
-Offload target for `AGENTS.md` `## Consumer-repo notes`. Full detail on
-the surface area a consumer repo wiring `flow-pre-commit` in as its sole
-gate needs to know about.
+Offload target for `AGENTS.md`'s `## Where to look` routing row. Full
+detail on the surface area a consumer repo wiring `flow-pre-commit` in as
+its sole gate needs to know about.
 
 ## Scope detection
 
@@ -26,6 +26,48 @@ scopes for any unclaimed file (never when the diff is fully claimed).
 (`filterDefinedChecks` drops undefined-script checks; a zero-check
 non-empty diff signals `reason: "no-checks-defined"`.)
 
+## Cross-scope dedupe
+
+When several scopes resolve to the same command, an identical read-only
+verifier runs once per invocation: `npm run test`, `test:related`, `lint`,
+`typecheck`, `typecheck:*`, `check`, or `format:check` (any trailing args),
+`flow-md-validate`, `actionlint`, and `go vet` / `go test`. It executes at
+its first position; each later scope still gets a result row, carrying
+`dedupedFrom` (the executing scope), `durationMs: 0`, and — for a failing
+row — empty `headExcerpt`/`tailExcerpt` with `firstErrorText` kept. Reuse
+is decided by the command's shape, not its origin, so a configured command
+spelled like one of these (e.g. `npm run test` in `.flow/pre-commit.json`) is
+reused too. Any command not on that list (build, generate, other configured
+commands) always runs and resets reuse, so a mutating step can never leave a
+stale verdict behind.
+Reuse never spans invocations — the one exception is `--pre-push` on a
+clean tree (see below) — and an npm-workspaces root `npm run test` is not a
+duplicate of `npm run test -w <pkg>`.
+
+## Git environment and same-tree reuse
+
+Every check `flow-pre-commit` launches runs without git's 15 repo-pointing
+environment variables (the names `git rev-parse --local-env-vars` prints:
+`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR`, …), so a
+check started from a git hook can no longer rewrite the repo the hook
+fired in; other `GIT_*` variables (`GIT_SSH_COMMAND`, `GIT_AUTHOR_*`) are
+kept. Consumer hooks themselves still receive git's normal hook
+environment — scrubbing inside the consumer's own non-`flow-pre-commit`
+checks is the consumer's responsibility.
+
+A run whose planned checks are all read-only verifiers records its passes
+against the exact tree they ran on (in the worktree's private git folder,
+never a tracked file). A later `flow-pre-commit --pre-push` run on a clean
+tree whose pushed commit is `HEAD` and whose tree matches reuses those
+passes instead of re-running them, printing
+`reused from an earlier run on this exact tree` per check; a dirty tree, a
+different tree, or any non-read-only planned check runs everything. Only
+`--pre-push` reuses — `/flow-verify` and every other mode always observe
+the worktree fresh. The record is advisory: it is a plain file in the
+worktree's git folder, so an agent working in that worktree could forge it —
+the same trust level as `--no-verify`, which is forbidden only by
+instruction, not by enforcement.
+
 ## Host-wide test-concurrency cap
 
 `flow-pre-commit` caps concurrent local test runs host-wide at
@@ -39,7 +81,7 @@ via `FLOW_TEST_CONCURRENCY`; on acquire timeout the test runs anyway.
 `flow-research-cache` caches synthesis at `~/.flow/research-cache/`, keyed
 on the normalized question; F2 discovery and direct `/flow-research` use
 disjoint keyspaces. 48h TTL; miss/stale/corrupt → exit 3, never errors.
-Opt-in `prune` sweep. Contract in `discovery-instructions.md`.
+Opt-in `prune` sweep. Contract in the `bin/flow-research-cache.ts` header.
 
 ## Zero-config monorepo auto-detect + three-layer command resolution
 
@@ -71,17 +113,135 @@ parses it tolerantly and skips gracefully (exit 0, loud only on a broken
 precondition). Port config uses the `{{PORT}}` bare sentinel or one or
 more `{{PORT_<NAME>}}` named sentinels, resolved inline to the launch
 subprocess (env vars / CLI flags) — never written to a file. Fields +
-onboarding in `templates/AGENTS.md.template`.
+onboarding in `templates/rules/ui-validation.md`.
+
+## Secret-file read guard
+
+flow-launched sessions (`flow feature create`/`resume`, epic launches, and
+`flow-claude-headless`) refuse `Read` on `.env`, `.env.local`,
+`.env.*.local`, `.env.development`, `.env.production`, `.env.test`,
+`.env.staging`, `.env.prod`, `.env.dev`, `.env.stage`, `.env.preview`,
+`.env.ci`, `.env.qa`, `.env.vault`, `.env.keys`, `.dev.vars`, and
+`.envrc` — a named list (`bin/lib/secret-deny-rules.ts`), not an `.env*`
+glob, because a deny rule can't be carved back out and
+`.env.example`/`.env.sample`/`.env.template` must stay readable for
+credential-NAME inference.
+
+This is a `Read`-tool guard, not a filesystem sandbox, but it reaches
+further than only the `Read` tool: per
+[Claude Code's permissions docs](https://code.claude.com/docs/en/permissions),
+a deny rule on a path also matches a recognized Bash file command
+(`cat`, `head`, and similar) invoked on that same path — an **absolute**
+path, which the test below demonstrates directly (`cat $D/.env` is
+stopped). It does **not** reach a `grep -r`/`cat` run from the file's own
+directory with a bare relative filename, or a hand-written script that
+opens the file itself — those are arbitrary Bash the deny rule was never
+told to parse. A session started with plain `claude` (outside a flow
+launcher) carries none of this; the prose stop-rule
+(`<!-- flow-credential-denial-rule -->`) and the `flow-ui-login` helper
+are what protect it there.
+
+The rules ship **only** in flow's own launch-settings file — never into a
+consumer repo's `.claude/settings.json` or the user's global
+`~/.claude/settings.json`, which would silently block a teammate's
+ordinary, non-flow session. A pipeline that needs a new local setting
+registers a manual follow-up naming the variable, rather than editing
+`.env.local` itself. Logging into an app under test goes through
+`flow-ui-login` (`check` for presence, `test-account` for the seeded local
+test account's values, read only from the committed `.flow/ui-validation.json`
+so a bootstrap commits the manifest before logging in), pre-approved in the same launch settings via
+`Bash(flow-ui-login check *)` and `Bash(flow-ui-login test-account *)` (one
+rule per subcommand, never a blanket `Bash(flow-ui-login *)`, so a future
+subcommand is never silently pre-approved) so the guard never blocks the two
+sanctioned paths to a credential value.
+Flow-launched sessions also pre-approve `Bash(flow-create-issue *)` so review
+deferrals are not refused by auto mode; it matches only a standalone
+`flow-create-issue` call and lives only in flow's `--settings` file, never in
+consumer or global settings. Accepted risk: the helper's body check is
+structure-only (it does not bound issue content), so a flow-launched session
+can publish arbitrary text to the current repo's issue tracker without an
+auto-mode review. That text can include the two seeded local test-account
+values `flow-ui-login test-account` printed (only the committed manifest's two
+named variables, localhost targets only).
+Flow-launched sessions also pre-approve `Bash(flow-merge-guard merge *)`,
+`Bash(flow-merge-guard * --record-override)` and
+`Bash(flow-merge-guard * --record-override *)`, so the pipeline's own
+"merge anyway?" confirmation is the only prompt for a gate override, plus
+the comment helpers (`flow-post-findings`, `flow-reply-pr-comments`) and the
+two fixed `flow-spawn` waiter lines. These rules live only in flow's
+`--settings` file, never in consumer or global settings. Accepted risk: auto
+mode no longer reviews the merge, the override recording or the review
+comments; `flow-merge-guard` re-checks the Test Steps, CI and PR ownership
+before it merges and refuses an override unless the PR is the pipeline's own
+and at the gate (`gated`, or `gating` right after the re-check), and the comment helpers refuse any PR but the pipeline's own.
+The full per-rule decision table is in `docs/configuration.md`
+("Permission rule decisions").
+
+After a credential denial the driver stops: no further browser, MCP or
+teardown calls, a `credentials-unavailable` artifact, and the pipeline's
+`flow-browser-teardown --reap --record` closes the page, browser and servers.
+
+## Flow-doc read guard
+
+flow-launched sessions (`flow feature create`/`resume` and epic launches)
+deny a Bash `awk`, or a `sed` whose script is anything other than a
+line-number print, aimed at flow's installed skill, agent, and reference
+directories. Claude Code can classify those forms as an edit of a protected
+`.claude/` file and raise a permission prompt even in auto mode, which
+stalls an unattended pipeline for hours. The sanctioned read forms are the
+`Read` tool (`grep -n` the heading to find its line, then `Read` with
+`offset`/`limit`) and line-number `sed -n 'N,Mp'`, both always allowed.
+
+The guard is a PreToolUse hook (`bin/flow-doc-read-guard.ts`) that only
+ever denies: it never approves, so it adds no trust and cannot widen a
+permission. It fails open, so a malformed payload, a missing command, or
+any internal error lets the command proceed unchanged. It registers only in
+flow's launch-settings file, so it never reaches a consumer repo's
+`.claude/settings.json` or the user's global `~/.claude/settings.json`, and
+`flow-claude-headless` sessions do not carry it.
 
 ## Design foundation
 
 `.flow/design/foundation.md` is a small human-legible contract —
 type/surface/elevation/chrome roles mapped onto the repo's CSS tokens —
 agent-maintained, committed (full convention in
-`templates/AGENTS.md.template`). Extend only on a new recurring rule;
+`templates/rules/ui-validation.md`). Extend only on a new recurring rule;
 never secrets; re-freeze is explicit-only. Deleting it degrades to
 fully-ephemeral. `spec.json` + reference snapshot stay pipeline-ephemeral
 under `.flow-tmp/design/`, never committed.
+
+## Product brief
+
+`.flow/product.md` is a small human-legible statement of what this repo's
+product manager optimizes for — who the PM is, ranked priorities, what
+"good" looks like, non-goals, and vocabulary to use and avoid. Human-
+maintained, committed, in the same register as the design foundation above.
+Precedence is fixed at repo-then-user: the repo's `.flow/product.md` wins,
+then `~/.flow/product.md` (one brief covering every repo you own). There is
+no config key and no environment override.
+
+`flow-product-brief` is the reader: it prints one JSON line —
+`{"found":true,"scope":"repo"|"user","path":"<abs>","text":"<contents>"}` or
+`{"found":false}` — and **always exits 0**, so no caller needs a guard. Its
+`text` is capped at 4000 characters (cut on a newline boundary, dangling code
+fence closed, `… [brief truncated at 4000 chars]` appended) so one bound is
+inherited by every consumer.
+
+Four sites read it today: `/flow-product-planning` discovery cites it in the
+PRD's Problem Statement, its Decision-analysis verdicts and stakes lines, and
+its candidate value-prop blocks; the cross-model plan review quotes it into
+the battery prompt as fenced reference data; `/flow-pipeline` step 3 spawns a
+code-blind product critic that argues the plan against it (reconciled
+point-by-point in the plan); `/flow-pr-review` runs a seventh, product review
+lens over the diff's user-read surfaces and the PR's Test Steps. **Absent is
+a legitimate, common state** — with no brief anywhere, the plan-review
+prompt is byte-identical to its pre-feature output and discovery changes
+nothing, no critic spawns and no seventh lens runs. **No secrets, ever**:
+the file is committed and its full text is sent verbatim to an external
+provider. Deleting it returns flow to that same behaviour. The user-level
+fallback at `~/.flow/product.md` is seeded by `flow install` when absent, so
+a consumer repo with no `.flow/product.md` of its own still resolves a
+brief.
 
 ## Optional test-tier manifest
 

@@ -35,13 +35,23 @@
  * launched), and the run-state lives in the orchestrator (`epic-run-state.ts`).
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { type Feature, validateEpicManifest } from "./lib/epic-manifest-schema";
+import {
+  findUndeclaredProducers,
+  findUnorderedProducers,
+} from "./lib/epic-dag-producers";
+import { resolveRepoRoot } from "./lib/repo-root";
+export { findUndeclaredProducers, findUnorderedProducers };
 
 export type DagViolationKind =
   | "duplicate-id"
   | "self-dependency"
   | "orphan-edge"
-  | "cycle";
+  | "cycle"
+  | "unordered-producers"
+  | "undeclared-producer";
 
 export interface DagViolation {
   kind: DagViolationKind;
@@ -199,6 +209,7 @@ export function validateDag(features: Feature[]): DagResult {
     ...findDuplicateIds(features),
     ...findOrphanEdges(features),
     ...findSelfDependencies(features),
+    ...findUnorderedProducers(features),
   ];
 
   const cycle = detectCycle(features);
@@ -243,7 +254,34 @@ export function computeFrontier(
 
 const USAGE =
   "usage: flow-epic-dag --validate <path-to-manifest.json>\n" +
-  "       flow-epic-dag --frontier <path-to-manifest.json> --completed <id,id,...> [--launched <id,id,...>]\n";
+  "       flow-epic-dag --frontier <path-to-manifest.json> --completed <id,id,...> [--launched <id,id,...>]\n" +
+  "       flow-epic-dag --touched-files <path-to-manifest.json> [--feature <id>] <path> [<path> ...]\n";
+
+/**
+ * Relativizes a manifest path against the repo root (falling back to cwd
+ * when not inside a git repo) so `findUndeclaredProducers`'s touched-path
+ * comparison and its violation message are stable regardless of whether the
+ * caller passed an absolute or repo-relative manifest path — the file is
+ * still read from the original `p`.
+ */
+function relativizeManifestPath(p: string): string {
+  const base = resolveRepoRoot(process.cwd()) ?? process.cwd();
+  const resolved = path.resolve(process.cwd(), p);
+  // macOS resolves /var -> /private/var (and similar symlinked tmp roots);
+  // realpath both sides so a caller-passed non-realpath'd absolute path
+  // still relativizes cleanly instead of producing a spurious ../.. chain.
+  const realBase = realpathIfExists(base);
+  const realResolved = realpathIfExists(resolved);
+  return path.relative(realBase, realResolved);
+}
+
+function realpathIfExists(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
 
 /** Read the value token after `--flag`, or undefined when absent/at end. */
 function flagValue(argv: string[], flag: string): string | undefined {
@@ -268,7 +306,10 @@ function parseIdList(csv: string | undefined): string[] {
  */
 async function loadValidatedFeatures(
   path: string,
-): Promise<{ ok: true; features: Feature[] } | { ok: false; code: number }> {
+): Promise<
+  | { ok: true; features: Feature[]; manifest: Record<string, unknown> }
+  | { ok: false; code: number }
+> {
   let raw: string;
   try {
     raw = await Bun.file(path).text();
@@ -310,7 +351,11 @@ async function loadValidatedFeatures(
     }
     return { ok: false, code: 1 };
   }
-  return { ok: true, features: shape.value.features };
+  return {
+    ok: true,
+    features: shape.value.features,
+    manifest: parsed as Record<string, unknown>,
+  };
 }
 
 async function cliMain(argv: string[]): Promise<number> {
@@ -334,6 +379,50 @@ async function cliMain(argv: string[]): Promise<number> {
     return 0;
   }
 
+  if (argv.includes("--touched-files")) {
+    const i = argv.indexOf("--touched-files");
+    const manifestPath = argv[i + 1];
+    if (manifestPath === undefined) {
+      process.stderr.write(USAGE);
+      return 2;
+    }
+    // `--feature` is located by scanning the whole argv (not a fixed
+    // position) because `xargs` appends the diff's touched paths after
+    // whatever the caller passed, so the flag can land anywhere before
+    // them. This means a committed file literally named `--feature` would
+    // be misread as the flag; not fixed here because a git-tracked path
+    // named `--feature` is not a realistic input (see PR #833 review).
+    const featureFlagIdx = argv.indexOf("--feature");
+    if (featureFlagIdx === argv.length - 1 && featureFlagIdx !== -1) {
+      process.stderr.write(USAGE);
+      return 2;
+    }
+    const rawFeatureId = flagValue(argv, "--feature");
+    const featureId =
+      rawFeatureId === undefined || rawFeatureId.length === 0
+        ? undefined
+        : rawFeatureId;
+    const rest =
+      featureFlagIdx === -1
+        ? argv
+        : [...argv.slice(0, featureFlagIdx), ...argv.slice(featureFlagIdx + 2)];
+    const touched = rest.slice(rest.indexOf("--touched-files") + 2);
+    const loaded = await loadValidatedFeatures(manifestPath);
+    if (!loaded.ok) return loaded.code;
+    const violations = findUndeclaredProducers(
+      loaded.features,
+      relativizeManifestPath(manifestPath),
+      touched,
+      { featureId },
+    );
+    if (violations.length > 0) {
+      for (const v of violations) process.stderr.write(v.message + "\n");
+      return 1;
+    }
+    process.stdout.write(JSON.stringify({ ok: true }) + "\n");
+    return 0;
+  }
+
   const flagIdx = argv.indexOf("--validate");
   if (flagIdx === -1 || flagIdx === argv.length - 1) {
     process.stderr.write(USAGE);
@@ -342,6 +431,11 @@ async function cliMain(argv: string[]): Promise<number> {
   const path = argv[flagIdx + 1];
   const loaded = await loadValidatedFeatures(path);
   if (!loaded.ok) return loaded.code;
+  if (Object.prototype.hasOwnProperty.call(loaded.manifest, "followups")) {
+    process.stderr.write(
+      'warning: manifest carries a "followups" array — it is a ledger entry the runner never schedules; promote items to features[] before they can run\n',
+    );
+  }
   process.stdout.write(JSON.stringify({ ok: true }) + "\n");
   return 0;
 }

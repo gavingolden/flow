@@ -154,6 +154,27 @@ describe("fastForwardCanonical", () => {
     expect(result.advanced).toBe(3);
   });
 
+  it("fast-forwards when only untracked files are present", () => {
+    const { spawn, calls } = makeSpawn(
+      defaultProbes([
+        { match: matchArgs("fetch", "origin"), result: ok() },
+        { match: matchArgs("rev-list", "--count"), result: ok("1\n") },
+        {
+          match: matchArgs("rev-parse", "--short", "HEAD"),
+          result: ok("abc1234\n"),
+        },
+        { match: matchArgs("merge", "--ff-only"), result: ok() },
+      ]),
+    );
+    const result = fastForwardCanonical({ canonicalRoot: "/repo", spawn });
+    expect(result.status).toBe("ahead");
+    expect(
+      calls.some(
+        (c) => c[1] === "status" && c.includes("--untracked-files=no"),
+      ),
+    ).toBe(true);
+  });
+
   it("populates beforeSha/afterSha (short form) on an ahead result", () => {
     let shortCalls = 0;
     const script: Script = [

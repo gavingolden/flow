@@ -12,6 +12,31 @@ where they are far more expensive to unwind. It is a bounded pass, not a
 research task — it verifies concrete, checkable claims, not opinions or
 preferences.
 
+## Repo-fit check (runs first)
+
+Before the claim checks, confirm the request belongs in this repository at
+all. Derive the **named surfaces** (paths, symbols, flags) and 2-3 **domain
+nouns** from the request, then run (pick terms for the existing surface the
+request extends; skip nouns and paths the request asks to create — they
+have zero hits by design):
+
+```bash
+flow-repo-fit --repo "$PWD" --term <t> [--term <t>...] --json
+```
+
+Branch on `.verdict`:
+
+- **fit** — proceed to the claim checks below.
+- **unclear** — proceed to the claim checks, carrying a one-line suspect
+  note (only some terms matched) into step 3.
+- **wrong-repo** — none of the request's surfaces or domain terms exist
+  here. Treat as **contradicted** with sub-tag `wrong-repo`: ask exactly one
+  question quoting the request's terms beside the evidence (the zero-hit
+  `hits` entries and the `repoName` / README title), and offer the reply
+  verbs `cancel` and `proceed: <why this repo>`. If the reply is `cancel`,
+  or does not resolve it, or confirms the wrong repo, escalate via
+  `flow-gate-summary --status needs-human --reason wrong-repo` (`NEEDS HUMAN: wrong-repo`).
+
 ## What counts as a "concrete factual claim"
 
 - A file or directory path the prompt asserts exists (or doesn't).
@@ -77,6 +102,9 @@ not "contradicted").
   4. If the reply doesn't resolve the contradiction (or the user's next
      turn doesn't clarify it), escalate `NEEDS HUMAN: prompt-contradiction`
      rather than asking a second time.
+  - Sub-tag `wrong-repo`: the Repo-fit check found none of the request's
+    surfaces or domain terms in this repo; unresolved escalates
+    `NEEDS HUMAN: wrong-repo` instead.
 
 ## Discipline notes
 

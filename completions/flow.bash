@@ -36,7 +36,7 @@ _flow() {
         cword=$COMP_CWORD
     fi
 
-    local verbs="install feature epic config ls attach a done reap completion version help --version -v --help -h"
+    local verbs="install feature epic config ls attach a done reap doctor prompt completion version help --version -v --help -h"
 
     # Find the verb (first non-flag token after `flow`).
     local verb="" i
@@ -84,7 +84,7 @@ _flow() {
                         COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )
                         return
                         ;;
-                    --model|--model-planning|--model-implement|--model-review|--model-verify|--model-fix-applier|--model-consolidator|--model-merge-resolver)
+                    --model|--model-planning|--model-implement|--model-review|--model-fix-applier|--model-consolidator|--model-merge-resolver)
                         # shellcheck disable=SC2207
                         COMPREPLY=( $(compgen -W "opus haiku sonnet fable" -- "$cur") )
                         return
@@ -94,9 +94,14 @@ _flow() {
                         COMPREPLY=( $(compgen -W "auto always never" -- "$cur") )
                         return
                         ;;
+                    --skills-from)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -d -- "$cur") )
+                        return
+                        ;;
                 esac
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "--no-auto-merge --wait-for-copilot --research --copilot-review --effort --model --model-planning --model-implement --model-review --model-verify --model-fix-applier --model-consolidator --model-merge-resolver" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--auto-merge --no-auto-merge --wait-for-copilot --no-wait-for-copilot --research --no-research --interview --no-interview --copilot-review --effort --model --model-planning --model-implement --model-review --model-fix-applier --model-consolidator --model-merge-resolver --skills-from" -- "$cur") )
             elif [ "$fsub" = "resume" ]; then
                 # Every trailing non-flag token is a slug (`flow feature resume
                 # x y z`); complete slugs cur-based (like `done`) so the SECOND+
@@ -194,7 +199,7 @@ _flow() {
             elif [ "$esub" = "ls" ]; then
                 if [[ "$cur" == -* ]]; then
                     # shellcheck disable=SC2207
-                    COMPREPLY=( $(compgen -W "--all -a" -- "$cur") )
+                    COMPREPLY=( $(compgen -W "--all -a --done --all-repos" -- "$cur") )
                 fi
             else
                 # shellcheck disable=SC2207
@@ -213,7 +218,7 @@ _flow() {
                     *) csub="${words[k]}"; break ;;
                 esac
             done
-            if [ "$csub" = "models" ]; then
+            if [ "$csub" = "all" ] || [ "$csub" = "models" ] || [ "$csub" = "launch" ]; then
                 case "$prev" in
                     --slug)
                         # shellcheck disable=SC2207
@@ -225,12 +230,12 @@ _flow() {
                 COMPREPLY=( $(compgen -W "--slug --json --help" -- "$cur") )
             else
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "models" -- "$cur") )
+                COMPREPLY=( $(compgen -W "all models launcher launch" -- "$cur") )
             fi
             ;;
         ls)
             # shellcheck disable=SC2207
-            COMPREPLY=( $(compgen -W "--cost --detail" -- "$cur") )
+            COMPREPLY=( $(compgen -W "--cost --detail --all-repos --all -a" -- "$cur") )
             ;;
         attach|a)
             # shellcheck disable=SC2207
@@ -259,6 +264,14 @@ _flow() {
             esac
             # shellcheck disable=SC2207
             COMPREPLY=( $(compgen -W "--slug --yes --include-strays --json" -- "$cur") )
+            ;;
+        doctor)
+            # shellcheck disable=SC2207
+            COMPREPLY=( $(compgen -W "--json --help" -- "$cur") )
+            ;;
+        prompt)
+            # shellcheck disable=SC2207
+            COMPREPLY=( $(compgen -W "$(_flow_slugs)" -- "$cur") )
             ;;
         completion)
             # shellcheck disable=SC2207

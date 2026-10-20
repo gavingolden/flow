@@ -4,7 +4,7 @@ Full detail for Step 3's scope/gate resolution and the Step-3.5 widen
 sub-step `SKILL.md` points at — kept out of `SKILL.md` itself to stay
 under the file's line-budget lint ceiling.
 
-Why: every step-8 review entry that clears the Gatekeeper today spawns
+Why: every step-8 review entry that clears the Step 1.5 metadata triage today spawns
 all six lenses over the whole PR diff, even on a one-file fix-loop
 re-entry or a docs-only PR. `flow-review-scope` resolves `full | delta`
 scope and content-gates lenses with nothing in their domain, so cost
@@ -15,23 +15,27 @@ equivalent CLI overrides).
 
 ## Resolve scope and gates (Step 3 preparation)
 
-Run AFTER item 4's static-analysis pre-digest (the gate rules read its
-`dependencies`/`security` signals for the never-skip-on-signal
-overrides). The supply-chain lens stays on for any of three triggers: a
-changed manifest/lockfile, a static-analysis npm-audit `dependencies`
-signal, or a new bare-specifier import added in the reviewed diff.
+`flow-review-prep` already ran `flow-review-scope` for you as part of the
+review phase's single setup call (Step 2) — do NOT run it again here. The
+gate rules it applied read the static-analysis pre-digest's
+`dependencies`/`security` signals for the never-skip-on-signal overrides.
+The supply-chain lens stays on for any of three triggers: a changed
+manifest/lockfile, a static-analysis npm-audit `dependencies` signal, or a
+new bare-specifier import added in the reviewed diff.
+
+Read the results `flow-review-scope` already wrote:
 
 ```bash
-flow-review-scope --pr "$PR_NUMBER" --worktree "$WORKTREE" \
-  --static-analysis "$WORKTREE/.flow-tmp/static-analysis.json" \
-  ${FORCE_FULL:+--force-full}
 SCOPE_KIND=$(jq -r .scope "$WORKTREE/.flow-tmp/review-scope.json")
 GATED_LENSES=$(jq -r '.gates | to_entries[] | select(.value.run==false) | .key' "$WORKTREE/.flow-tmp/review-scope.json")
 DELTA_FILES=$(jq -r '.delta_files[]' "$WORKTREE/.flow-tmp/review-scope.json")
 ```
 
-Echo every `NOTICE — review-scope:` / `NOTICE — lens-gated:` line the
-helper printed to stdout — these are the user-visible cost signals.
+(`SUMMARY`'s `.scope`, `.gated_lenses`, and `.delta_files` fields are the
+same data, already parsed — either source works.) `flow-review-prep`
+already captured every `NOTICE — review-scope:` / `NOTICE — lens-gated:`
+line the helper printed, under `SUMMARY`'s `.notices` — these are the
+user-visible cost signals; echo them from there.
 
 `DIFF_PATH="$WORKTREE/.flow-tmp/diff.txt"` is now the file
 `flow-review-scope` wrote (full or delta, capped). Step 3.5 and the
@@ -41,13 +45,59 @@ the file doesn't already exist", so the invariant is ordering:
 `flow-pr-diff "$PR_NUMBER" > "$DIFF_PATH"` re-generate would silently
 clobber the delta scoping.
 
+## Risk tier
+
+`flow-review-scope` also resolves a `light | standard | deep` risk tier
+(`bin/lib/review-tier.ts`) from diff size, security-sensitive paths, a
+dependency change, and the plan's high-stakes flag, and writes `tier` /
+`tier_reasons` into `review-scope.json` alongside `gates`. The
+conventional-commit-prefix signal is part of `TierSignals`
+(`commitPrefix: string | null`) but is **not yet threaded** through this
+CLI — the only caller (`flow-review-scope.ts`) has no PR-title/branch-commit
+read on hand and hardcodes `commitPrefix: null`, so the signal never fires
+today; it is a real field on a real interface, just not wired to a live
+input. Default is `standard`; any single HIGH signal (a security-sensitive
+path, a dependency change, a plan high-stakes flag, or a large diff) forces
+`deep`; `light` requires EVERY signal to be low at once. `light` is defined by SUBTRACTING the three
+lowest-yield lenses (security, performance, supply-chain) — never by
+`ALWAYS_ON_LENSES`, which is a vacuity classification, not a yield
+ranking. Each lens the tier keeps is still subject to its own content
+gate above. The commit prefix is a weak, asymmetric signal: a low-risk
+prefix (docs/chore/style/test) may lower `standard` to `light`, but may
+never raise a tier, override a path/dependency/high-stakes signal, or by
+itself force `deep`.
+
+The tier and the content gate reconcile at exactly one site,
+`composeSpawnSet`, in this FOUR-LEVEL precedence:
+
+1. A lens named in the static-analysis hit set is forced ON regardless
+   of gate or tier (the "never-skip-on-signal" override, moved here out
+   of `evaluateGates` — see D3's single-site correction).
+2. Otherwise a lens the content gate skips (`gates.<lens>.run == false`)
+   stays skipped, preserving the gate's own reason.
+3. Otherwise a lens the tier drops (`tier === "light"` and the lens is
+   one of the three above) is skipped with a reason naming the tier.
+4. Otherwise the lens runs.
+
+`review-scope.json`'s `gates` field already reflects this composed
+result — `--force-full` bypasses the tier the same way it bypasses
+delta scoping, so a forced-full run's composed gates are never
+tier-dropped.
+
 ## Spawn only the ungated lenses
 
 Loop only over lenses where `gates.<lens>.run == true` (from
-`review-scope.json`). Each Task carries `description: "review lens:
+`review-scope.json`) — the tier's drops are already folded into this
+same field, so no separate tier check is needed at the spawn loop. Each
+Task carries `description: "review lens:
 <lens>"` — the telemetry collector attributes subagent-transcript usage
 by this description string when a lens falls back to `general-purpose`
 (whose `agentType` carries no lens suffix).
+
+When `flow-agy-lenses` is delegating (see
+[delegated-lenses.md](delegated-lenses.md)), subtract the lenses its
+envelope reports as `delegated` from this loop: spawn only the `task`-routed
+lenses up front, then the helper's `fallback` lenses.
 
 Skip the intent-guess spawn when `SCOPE_KIND == delta` AND
 `$WORKTREE/.flow-tmp/intent-resolution.json` already exists from a prior
@@ -68,20 +118,26 @@ Each lens prompt's `## Review scope` section (`{{REVIEW_SCOPE}}` in
 ## Record lens tokens
 
 As each lens's Task completion notification arrives, read its
-`<usage><subagent_tokens>` value and record it:
+`<usage><subagent_tokens>` value and record it. That figure is the lens's
+final context size, not its total spend; the collector records it as
+`context_tokens`, and the lens's token total always comes from its subagent
+transcript:
 
 ```bash
 LENS_TOKENS+=("<lens>=<n>")
 ```
 
-On a widen re-pass (below), ADD the second figure to the same lens's
-running total rather than replacing it — the widen's true cost is the
-delta pass plus the full pass. A lens whose notification carries no
-`subagent_tokens` is simply omitted from `LENS_TOKENS`; the Step-12
-collector falls back to the subagent transcript for that lens.
+If a lens reports twice (a widen re-spawns it), record every notification;
+the collector keeps the last figure per lens, which is its final context
+size.
 
-At Step 12, build the `--lens-tokens` flags as a proper array before
-calling `flow-review-telemetry collect` — quoted
+A widen re-pass (below) keeps the original review window
+(`flow-review-scope --force-full` reuses a same-head delta pass's
+`started_at`), so the transcript total covers both passes. A lens whose
+notification carries no `subagent_tokens` is simply omitted from
+`LENS_TOKENS`; its token total is unaffected.
+
+Build the `--lens-tokens` flags as a proper array — quoted
 `"${LENS_TOKENS[@]/#/--lens-tokens }"` glues each `--lens-tokens
 <lens>=<n>` pair into ONE argv word, which `parseArgs` rejects with
 exit 2:
@@ -89,10 +145,33 @@ exit 2:
 ```bash
 LENS_TOKEN_ARGS=()
 for t in "${LENS_TOKENS[@]}"; do LENS_TOKEN_ARGS+=(--lens-tokens "$t"); done
-flow-review-telemetry collect --worktree "$WORKTREE" --pr "$PR_NUMBER" \
-  --session-id "$CLAUDE_CODE_SESSION_ID" "${LENS_TOKEN_ARGS[@]}" --append \
-  ${WIDEN_REASON:+--widened "$WIDEN_REASON"}
 ```
+
+As each lens is spawned, record its resolved model the same way — only when
+`$LENS_MODEL` is non-empty (bug-detection resolves to an empty model on every
+session: `flow-review-telemetry` rejects a bare `--lens-model <lens>=` with
+exit 2 and the whole telemetry row is lost):
+
+```bash
+[ -n "$LENS_MODEL" ] && LENS_MODELS+=("<lens>=$LENS_MODEL")
+```
+
+At Step 12, build the `--lens-model` flags the same way as
+`LENS_TOKEN_ARGS` — one `--lens-model` flag word per pair, never glued:
+
+```bash
+LENS_MODEL_ARGS=()
+for m in "${LENS_MODELS[@]}"; do LENS_MODEL_ARGS+=(--lens-model "$m"); done
+```
+
+Step 12 no longer calls `flow-review-telemetry collect` directly — that call, the
+body upsert, and the result-artifact write are folded into the single
+`flow-review-finalize` call (`SKILL.md` "The mechanical wrap-up runs once, here"),
+which forwards `LENS_TOKEN_ARGS` and `LENS_MODEL_ARGS` (unquoted-element
+expansion, `"${LENS_TOKEN_ARGS[@]}"` / `"${LENS_MODEL_ARGS[@]}"`)
+and `${WIDEN_REASON:+--widened "$WIDEN_REASON"}` to `flow-review-telemetry collect`
+internally. `LENS_TOKEN_ARGS`, `LENS_MODEL_ARGS`, and `WIDEN_REASON`/`WIDENED` built here are the values
+Step 12 passes straight through to that call.
 
 ## Widen (consolidator authority, once)
 

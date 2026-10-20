@@ -73,7 +73,7 @@ describe("collect", () => {
     expect(Object.keys(telemetry.lenses).length).toBeGreaterThanOrEqual(6);
   });
 
-  it("honours --lens-tokens as the primary source", async () => {
+  it("records --lens-tokens as context_tokens, never as the token total", async () => {
     const dir = makeWorktree();
     const deps = makeDeps();
     const code = await run(
@@ -95,10 +95,187 @@ describe("collect", () => {
         "utf8",
       ),
     );
-    expect(telemetry.lenses["bug-detection"].tokens).toEqual({ total: 999 });
-    expect(telemetry.lenses["bug-detection"].tokens_source).toBe(
-      "task-notification",
+    expect(telemetry.version).toBe(3);
+    expect(telemetry.lenses["bug-detection"].context_tokens).toBe(999);
+    expect(telemetry.lenses["bug-detection"].tokens).toBeNull();
+    expect(telemetry.lenses["bug-detection"].tokens_source).toBe("unavailable");
+  });
+
+  it("records the model from a single --lens-model flag", async () => {
+    const dir = makeWorktree();
+    const deps = makeDeps();
+    const code = await run(
+      [
+        "collect",
+        "--worktree",
+        dir,
+        "--pr",
+        "10",
+        "--lens-tokens",
+        "bug-detection=999",
+        "--lens-model",
+        "bug-detection=opus",
+      ],
+      deps,
     );
+    expect(code).toBe(0);
+    const telemetry: ReviewTelemetry = JSON.parse(
+      fs.readFileSync(
+        path.join(dir, ".flow-tmp", "review-telemetry.json"),
+        "utf8",
+      ),
+    );
+    expect(telemetry.lenses["bug-detection"].model).toBe("opus");
+  });
+
+  it("records a model per lens for repeated --lens-model flags", async () => {
+    const dir = makeWorktree();
+    const deps = makeDeps();
+    const code = await run(
+      [
+        "collect",
+        "--worktree",
+        dir,
+        "--pr",
+        "10",
+        "--lens-tokens",
+        "bug-detection=999",
+        "--lens-tokens",
+        "security=100",
+        "--lens-model",
+        "bug-detection=opus",
+        "--lens-model",
+        "security=sonnet",
+      ],
+      deps,
+    );
+    expect(code).toBe(0);
+    const telemetry: ReviewTelemetry = JSON.parse(
+      fs.readFileSync(
+        path.join(dir, ".flow-tmp", "review-telemetry.json"),
+        "utf8",
+      ),
+    );
+    expect(telemetry.lenses["bug-detection"].model).toBe("opus");
+    expect(telemetry.lenses.security.model).toBe("sonnet");
+  });
+
+  describe("delegated-lens engine (Story 5)", () => {
+    const writeRecord = (dir: string, startedAt: string) =>
+      fs.writeFileSync(
+        path.join(dir, ".flow-tmp", "agy-lenses-result.json"),
+        JSON.stringify({
+          review_started_at: startedAt,
+          model: "Claude Opus 5.5 (High)",
+          routes: [
+            { lens: "bug-detection", route: "agy" },
+            { lens: "security", route: "agy" },
+          ],
+          delegated: [
+            {
+              lens: "bug-detection",
+              findingCount: 1,
+              decodedVia: "structured-output",
+              durationSec: 60,
+            },
+          ],
+          fallback: [{ lens: "security", reason: "agy-output-unparseable" }],
+          cooldownArmed: false,
+        }),
+      );
+    const collectLenses = async (dir: string) => {
+      const out = path.join(dir, "telemetry.json");
+      const code = await run(
+        ["collect", "--pr", "7", "--worktree", dir, "--out", out],
+        makeDeps(),
+      );
+      expect(code).toBe(0);
+      return (JSON.parse(fs.readFileSync(out, "utf8")) as ReviewTelemetry)
+        .lenses;
+    };
+    const writeScope = (dir: string, startedAt: string) =>
+      fs.writeFileSync(
+        path.join(dir, ".flow-tmp", "review-scope.json"),
+        JSON.stringify({
+          scope: "full",
+          base_sha: null,
+          head_sha: "def",
+          delta_files: [],
+          delta_ratio: null,
+          started_at: startedAt,
+        }),
+      );
+
+    it("records engine task + the fallback reason for a fallen-back lens, engine agy + model for a delegated one", async () => {
+      const dir = makeWorktree();
+      writeScope(dir, "2026-10-06T10:00:00Z");
+      writeRecord(dir, "2026-10-06T10:00:00Z");
+      const lenses = await collectLenses(dir);
+      expect(lenses["bug-detection"]).toMatchObject({
+        engine: "agy",
+        agy_model: "Claude Opus 5.5 (High)",
+        model: "Claude Opus 5.5 (High)",
+        fallback_reason: null,
+      });
+      expect(lenses.security).toMatchObject({
+        engine: "task",
+        fallback_reason: "agy-output-unparseable",
+      });
+      expect(lenses.performance).toMatchObject({
+        engine: "task",
+        agy_model: null,
+        fallback_reason: null,
+      });
+    });
+
+    it("ignores a record left over from an earlier review window", async () => {
+      const dir = makeWorktree();
+      writeScope(dir, "2026-10-07T10:00:00Z");
+      writeRecord(dir, "2026-10-06T10:00:00Z");
+      const lenses = await collectLenses(dir);
+      expect(lenses["bug-detection"].engine).toBe("task");
+    });
+
+    it("defaults every lens to engine task when no record exists", async () => {
+      const dir = makeWorktree();
+      const lenses = await collectLenses(dir);
+      expect(
+        Object.values(lenses).every(
+          (l) =>
+            l.engine === "task" &&
+            l.agy_model === null &&
+            l.fallback_reason === null,
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it("rejects a malformed --lens-model value with exit 2", async () => {
+    const dir = makeWorktree();
+    const deps = makeDeps();
+    const code = await run(
+      [
+        "collect",
+        "--worktree",
+        dir,
+        "--pr",
+        "10",
+        "--lens-model",
+        "no-equals-sign",
+      ],
+      deps,
+    );
+    expect(code).toBe(2);
+  });
+
+  it("rejects --lens-model with an empty value after '=' (e.g. security=) with exit 2, not a silent drop", async () => {
+    const dir = makeWorktree();
+    const deps = makeDeps();
+    const code = await run(
+      ["collect", "--worktree", dir, "--pr", "10", "--lens-model", "security="],
+      deps,
+    );
+    expect(code).toBe(2);
   });
 
   it("appends exactly one JSONL line with --append and does not duplicate it on a second run with the same run_id", async () => {
@@ -215,7 +392,7 @@ describe("print", () => {
     overrides: Partial<ReviewTelemetry> = {},
   ): ReviewTelemetry {
     return {
-      version: 1,
+      version: 3,
       run_id: "10:abc:2026",
       ts: "2026-01-01T00:00:00.000Z",
       repo: "flow",
@@ -236,12 +413,16 @@ describe("print", () => {
           skip_reason: null,
           model: null,
           tokens: { total: 100 },
-          tokens_source: "task-notification",
+          tokens_source: "subagent-transcript",
+          context_tokens: null,
           findings_emitted: 1,
           findings_survived: 1,
           findings_dropped: 0,
           findings_acted: 0,
           findings_deferred: 0,
+          engine: "task",
+          agy_model: null,
+          fallback_reason: null,
         },
       },
       ...overrides,
@@ -257,11 +438,15 @@ describe("print", () => {
           model: null,
           tokens: null,
           tokens_source: "unavailable",
+          context_tokens: null,
           findings_emitted: 0,
           findings_survived: 0,
           findings_dropped: 0,
           findings_acted: 0,
           findings_deferred: 0,
+          engine: "task",
+          agy_model: null,
+          fallback_reason: null,
         },
       },
     });
@@ -279,15 +464,61 @@ describe("print", () => {
           model: null,
           tokens: null,
           tokens_source: "unavailable",
+          context_tokens: null,
           findings_emitted: 0,
           findings_survived: 0,
           findings_dropped: 0,
           findings_acted: 0,
           findings_deferred: 0,
+          engine: "task",
+          agy_model: null,
+          fallback_reason: null,
         },
       },
     });
-    expect(renderTable(t)).toContain("| bug-detection | no | n/a |");
+    expect(renderTable(t)).toContain("| bug-detection | no | - | n/a |");
+  });
+
+  it("renders the literal '-' placeholder for a lens with no recorded model, and the model when present", () => {
+    const t = fixtureTelemetry({
+      lenses: {
+        "bug-detection": {
+          ran: true,
+          skip_reason: null,
+          model: "opus",
+          tokens: { total: 100 },
+          tokens_source: "subagent-transcript",
+          context_tokens: null,
+          findings_emitted: 1,
+          findings_survived: 1,
+          findings_dropped: 0,
+          findings_acted: 0,
+          findings_deferred: 0,
+          engine: "task",
+          agy_model: null,
+          fallback_reason: null,
+        },
+        security: {
+          ran: true,
+          skip_reason: null,
+          model: null,
+          tokens: { total: 50 },
+          tokens_source: "subagent-transcript",
+          context_tokens: null,
+          findings_emitted: 0,
+          findings_survived: 0,
+          findings_dropped: 0,
+          findings_acted: 0,
+          findings_deferred: 0,
+          engine: "task",
+          agy_model: null,
+          fallback_reason: null,
+        },
+      },
+    });
+    const table = renderTable(t);
+    expect(table).toContain("| bug-detection | yes | opus | 100 |");
+    expect(table).toContain("| security | yes | - | 50 |");
   });
 
   it("prints via the CLI", async () => {

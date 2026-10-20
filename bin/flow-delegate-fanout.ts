@@ -26,17 +26,24 @@
  * Usage:
  *   flow-delegate-fanout --manifest <json-file>
  *                        [--concurrency <K>] [--max-calls <B>] [--out <path>]
- *                        [--default-entry-timeout <duration>]
+ *                        [--default-entry-timeout <duration>] [--skip-permissions]
  *
  *   Manifest is a JSON array of entries:
- *     { task, model, prompt | promptFile, timeout?, addDirs?, out? }
+ *     { task, model, prompt | promptFile, timeout?, addDirs?, out?, skipPermissions?, outputFormat? }
  *
  *   --default-entry-timeout is a fanout-level backstop: any entry that omits
  *   its own `timeout` is dispatched with this value, so a manifest that forgets
  *   a per-entry cap still gets one. A per-entry `timeout` always wins.
  *
+ *   --skip-permissions is the same kind of backstop for a per-entry
+ *   `skipPermissions`: it fills in for an entry that omits the field, but an
+ *   explicit per-entry `false` always wins over the flag-level default. An
+ *   entry combining `skipPermissions: true` with a non-empty `addDirs` emits
+ *   a stderr co-grant warning naming the task (auto-approval reaches the
+ *   added directories); dispatch still proceeds.
+ *
  * stdout is always the single aggregate JSON envelope:
- *   { entries: [{ task, model, ran, artifactPath?, skipReason?, durationMs? }],
+ *   { entries: [{ task, model, ran, artifactPath?, skipReason?, durationMs?, deniedActions? }],
  *     anyRan, allSkipped, calls: { attempted, ran, skipped, budget } }
  *
  * Exit codes:
@@ -46,9 +53,16 @@
  *       --concurrency/--max-calls).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Args } from "./flow-delegate";
+import type { AgyFailureClass } from "./lib/agy-failure-class";
 
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_MAX_CALLS = 40;
@@ -71,6 +85,11 @@ export type ManifestEntry = {
   jsonSchema?: string;
   // Local parse-and-validate schema file (flow-delegate's --structured-fallback).
   structuredFallback?: string;
+  // Forwarded to flow-delegate's own --skip-permissions. Opt-in per entry;
+  // a flag-level --skip-permissions default (FanoutArgs.skipPermissions)
+  // fills in when the entry omits this field, but an explicit per-entry
+  // `false` always wins over the flag-level default.
+  skipPermissions?: boolean;
 };
 
 export type FanoutArgs = {
@@ -79,6 +98,10 @@ export type FanoutArgs = {
   maxCalls: number;
   out: string;
   defaultEntryTimeout?: string;
+  // Fanout-level backstop mirroring --default-entry-timeout: any entry that
+  // omits its own `skipPermissions` is dispatched with this value. A
+  // per-entry `skipPermissions` (including an explicit `false`) always wins.
+  skipPermissions?: boolean;
 };
 
 export type EntryResult = {
@@ -103,6 +126,18 @@ export type EntryResult = {
   exitCode?: number;
   agyStatus?: string;
   agyError?: string;
+  // Projected straight from the child envelope's own `failureClass`
+  // (flow-delegate classifies every skip) so a consumer can tell a quota
+  // refusal from any other skip without re-deriving it from stderr.
+  failureClass?: AgyFailureClass;
+  // Projected straight from the child envelope's own `deniedActions`.
+  deniedActions?: string[];
+  // Set when this entry combines --skip-permissions with --add-dir — the
+  // same signal the co-grant warning writes to stderr (`deps.progress`),
+  // but recorded on the entry itself so it survives a caller that discards
+  // stderr (e.g. flow-research-run.ts spawns the fan-out with
+  // `stderr: "ignore"`).
+  coGrantWarning?: string;
 };
 
 export type FanoutResult = {
@@ -131,6 +166,8 @@ export type DelegateEnvelope = {
   stderrTail?: string;
   agyStatus?: string;
   agyError?: string;
+  failureClass?: AgyFailureClass;
+  deniedActions?: string[];
 };
 
 export type FanoutDeps = {
@@ -147,6 +184,7 @@ export type FanoutDeps = {
   fileExists: (path: string) => boolean;
   mkdirp: (dir: string) => void;
   writeFile: (path: string, data: string) => void;
+  rename: (from: string, to: string) => void;
   writeOut: (line: string) => void;
   progress: (line: string) => void;
   cwd: () => string;
@@ -158,6 +196,10 @@ export function parseFanoutArgs(
   const out: Partial<FanoutArgs> = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
+    if (flag === "--skip-permissions") {
+      out.skipPermissions = true;
+      continue;
+    }
     const value = argv[i + 1];
     if (value === undefined || value === "" || value.startsWith("--")) {
       return { error: `${flag} requires a value` };
@@ -200,6 +242,7 @@ export function parseFanoutArgs(
     maxCalls,
     out: out.out ?? DEFAULT_OUT,
     defaultEntryTimeout: out.defaultEntryTimeout,
+    skipPermissions: out.skipPermissions,
   };
 }
 
@@ -241,6 +284,7 @@ export function entryToDelegateArgv(
   if (entry.structuredFallback) {
     argv.push("--structured-fallback", entry.structuredFallback);
   }
+  if (entry.skipPermissions === true) argv.push("--skip-permissions");
   return argv;
 }
 
@@ -275,7 +319,9 @@ function parseManifest(raw: string): ManifestEntry[] | { error: string } {
 // the SAME serialized string goes to BOTH stdout and the --out file; the
 // file write is mkdir-recursive then wrapped in try/catch so a failure
 // writes a one-line stderr notice and is SWALLOWED — it never changes the
-// exit code or suppresses the stdout result.
+// exit code or suppresses the stdout result. The --out file is written to
+// `${outPath}.tmp` then renamed, so a waiter in another process (the
+// detach-and-wait recipe) never observes a half-written aggregate.
 function emitResult(
   deps: FanoutDeps,
   result: FanoutResult,
@@ -285,7 +331,8 @@ function emitResult(
   deps.writeOut(serialized);
   try {
     deps.mkdirp(dirname(outPath));
-    deps.writeFile(outPath, serialized);
+    deps.writeFile(`${outPath}.tmp`, serialized);
+    deps.rename(`${outPath}.tmp`, outPath);
   } catch (err) {
     deps.progress(
       `flow-delegate-fanout: failed to persist result to ${outPath}: ${(err as Error).message}\n`,
@@ -306,7 +353,11 @@ function emitResult(
 // entry", durationSeconds answers "how long did the model itself take".
 async function runPool(
   deps: FanoutDeps,
-  jobs: Array<{ entry: ManifestEntry; outPath: string }>,
+  jobs: Array<{
+    entry: ManifestEntry;
+    outPath: string;
+    coGrantWarning?: string;
+  }>,
   concurrency: number,
 ): Promise<EntryResult[]> {
   const results: EntryResult[] = new Array(jobs.length);
@@ -314,7 +365,7 @@ async function runPool(
   const worker = async (): Promise<void> => {
     while (next < jobs.length) {
       const index = next++;
-      const { entry, outPath } = jobs[index]!;
+      const { entry, outPath, coGrantWarning } = jobs[index]!;
       const start = Date.now();
       let record: EntryResult;
       try {
@@ -347,6 +398,11 @@ async function runPool(
           record.agyStatus = envelope.agyStatus;
         if (envelope.agyError !== undefined)
           record.agyError = envelope.agyError;
+        if (envelope.failureClass !== undefined)
+          record.failureClass = envelope.failureClass;
+        if (envelope.deniedActions)
+          record.deniedActions = envelope.deniedActions;
+        if (coGrantWarning) record.coGrantWarning = coGrantWarning;
       } catch (err) {
         // A thrown dispatch is a graceful skip for this entry, mirroring
         // flow-delegate's spawn-throw → agy-error contract.
@@ -356,6 +412,7 @@ async function runPool(
           ran: false,
           skipReason: "agy-error",
           durationMs: Date.now() - start,
+          ...(coGrantWarning ? { coGrantWarning } : {}),
         };
         deps.progress(
           `flow-delegate-fanout: entry "${entry.task}" dispatch failed: ${(err as Error).message}\n`,
@@ -384,7 +441,7 @@ export async function run(
   if ("error" in parsed) {
     deps.progress(`flow-delegate-fanout: ${parsed.error}\n`);
     deps.progress(
-      "usage: flow-delegate-fanout --manifest <json-file> [--concurrency <K>] [--max-calls <B>] [--out <path>] [--default-entry-timeout <duration>]\n",
+      "usage: flow-delegate-fanout --manifest <json-file> [--concurrency <K>] [--max-calls <B>] [--out <path>] [--default-entry-timeout <duration>] [--skip-permissions]\n",
     );
     return 2;
   }
@@ -421,12 +478,32 @@ export async function run(
   // A per-entry `timeout` always wins; the fanout-level --default-entry-timeout
   // is the backstop for an entry that omits one. entryToDelegateArgv is left
   // unchanged — it just sees an entry whose timeout may have been filled in.
+  // skipPermissions mirrors the same backstop pattern: a per-entry value
+  // (including an explicit `false`) always wins over the flag-level default.
   const jobs = dispatched.map((entry, index) => {
     const timeout = entry.timeout ?? parsed.defaultEntryTimeout;
-    const effective = timeout ? { ...entry, timeout } : entry;
+    const skipPermissions = entry.skipPermissions ?? parsed.skipPermissions;
+    const effective = {
+      ...entry,
+      ...(timeout ? { timeout } : {}),
+      ...(skipPermissions !== undefined ? { skipPermissions } : {}),
+    };
+    let coGrantWarning: string | undefined;
+    if (
+      effective.skipPermissions === true &&
+      (effective.addDirs?.length ?? 0) > 0
+    ) {
+      coGrantWarning = `entry "${entry.task}" combines --skip-permissions with --add-dir — auto-approval co-grants access to the added directories`;
+      // stderr (deps.progress) is the live-tail signal; record.coGrantWarning
+      // below is the durable one — a caller that discards stderr (e.g.
+      // flow-research-run.ts spawns the fan-out with `stderr: "ignore"`)
+      // still sees the warning on the entry itself.
+      deps.progress(`flow-delegate-fanout: ${coGrantWarning}\n`);
+    }
     return {
       entry: effective,
       outPath: entryOutPath(effective, outPath, index),
+      coGrantWarning,
     };
   });
   const dispatchedResults = await runPool(deps, jobs, parsed.concurrency);
@@ -507,6 +584,7 @@ function resolveDeps(o?: Partial<FanoutDeps>): FanoutDeps {
     fileExists: o?.fileExists ?? ((p) => existsSync(p)),
     mkdirp: o?.mkdirp ?? ((d) => void mkdirSync(d, { recursive: true })),
     writeFile: o?.writeFile ?? ((p, data) => writeFileSync(p, data)),
+    rename: o?.rename ?? ((from, to) => renameSync(from, to)),
     writeOut: o?.writeOut ?? ((line) => process.stdout.write(line)),
     progress: o?.progress ?? ((line) => process.stderr.write(line)),
     cwd: o?.cwd ?? (() => process.cwd()),

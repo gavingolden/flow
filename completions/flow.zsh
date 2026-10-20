@@ -33,6 +33,8 @@ _flow() {
                 'a:alias for attach'
                 'done:close a pipeline window'
                 'reap:report (and clean up) processes left by dead pipelines'
+                'doctor:check your flow install and print a fix for each problem'
+                'prompt:print a pipeline'\''s originating request'
                 'completion:print a shell completion script'
                 'version:print flow version'
                 'help:show help'
@@ -63,19 +65,24 @@ _flow() {
                     # list. ($line[1] is `feature`; $line[2] is the subcommand.)
                     if [[ "$line[2]" == create ]]; then
                         _arguments \
+                            '--auto-merge[put the auto-merge rubric back in charge]' \
                             '--no-auto-merge[stop at gated regardless of rubric]' \
                             '--wait-for-copilot[force the full 10-min Copilot wait]' \
+                            '--no-wait-for-copilot[put the Copilot auto-detect skip back in charge]' \
                             '--research[force web-grounded discovery research on, bypassing the relevance gate]' \
+                            '--no-research[stop forcing research (research.discovery still applies)]' \
+                            '--interview[force the intent interview on]' \
+                            '--no-interview[skip the intent interview]' \
                             '--copilot-review[Copilot review opt-in]:mode:(auto always never)' \
                             '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
                             '--model[whole-session Claude model alias]:alias:(opus haiku sonnet fable)' \
                             '--model-planning[model for the planning phase]:alias:(opus haiku sonnet fable)' \
                             '--model-implement[model for the implement phase]:alias:(opus haiku sonnet fable)' \
                             '--model-review[model for the review phase]:alias:(opus haiku sonnet fable)' \
-                            '--model-verify[model for the verify phase (defaults to sonnet)]:alias:(opus haiku sonnet fable)' \
                             '--model-fix-applier[model for the fix-applier phase]:alias:(opus haiku sonnet fable)' \
                             '--model-consolidator[model for the consolidator phase]:alias:(opus haiku sonnet fable)' \
                             '--model-merge-resolver[model for the merge-resolver phase]:alias:(opus haiku sonnet fable)' \
+                            '--skills-from[run the pipeline on a private copy of the given flow checkout]:checkout:_files -/' \
                             '*::description:'
                     elif [[ "$line[2]" == resume ]]; then
                         _arguments \
@@ -120,7 +127,9 @@ _flow() {
                             '--effort[per-launch effort override, wins over flowNewHints]:level:(low medium high xhigh max)'
                     elif [[ "$line[2]" == ls ]]; then
                         _arguments \
-                            '(--all -a)'{--all,-a}'[include completed epics]'
+                            '--done[include completed epics]' \
+                            '--all-repos[include epics from every repo]' \
+                            '(--all -a)'{--all,-a}'[drop every default filter: done epics and every repo]'
                     else
                         local -a sub
                         sub=(
@@ -140,14 +149,25 @@ _flow() {
                     # offer its --slug/--json flags; otherwise complete the
                     # subcommand list. ($line[1] is `config`; $line[2] is the
                     # subcommand.)
-                    if [[ "$line[2]" == models ]]; then
+                    if [[ "$line[2]" == all ]]; then
                         _arguments \
                             '--slug[overlay a pipeline'\''s per-run overrides]:pipeline:_flow_slugs' \
+                            '--json[emit machine-readable JSON rows]'
+                    elif [[ "$line[2]" == models ]]; then
+                        _arguments \
+                            '--slug[overlay a pipeline'\''s per-run overrides]:pipeline:_flow_slugs' \
+                            '--json[emit machine-readable JSON rows]'
+                    elif [[ "$line[2]" == launch ]]; then
+                        _arguments \
+                            '--slug[overlay a pipeline'\''s recorded launch defaults]:pipeline:_flow_slugs' \
                             '--json[emit machine-readable JSON rows]'
                     else
                         local -a sub
                         sub=(
+                            'all:show every resolved config setting in one view'
                             'models:show resolved model + effort per phase/agent'
+                            'launch:show resolved launch defaults + source'
+                            'launcher:get/set the recorded launcher backend'
                         )
                         _describe 'subcommand' sub
                     fi
@@ -155,7 +175,9 @@ _flow() {
                 ls)
                     _arguments \
                         '--cost[add a $ column summed across the supervisor session]' \
-                        '--detail[break cost down by model (requires --cost)]'
+                        '--detail[break cost down by model (requires --cost)]' \
+                        '--all-repos[include pipelines from every repo]' \
+                        '(--all -a)'{--all,-a}'[drop every default filter]'
                     ;;
                 attach|a)
                     _flow_slugs
@@ -173,6 +195,14 @@ _flow() {
                         '--yes[act on registered rows instead of only reporting]' \
                         '--include-strays[also act on shape-heuristic strays]' \
                         '--json[emit machine-readable output]'
+                    ;;
+                doctor)
+                    _arguments \
+                        '--json[emit machine-readable output]' \
+                        '--help[show help]'
+                    ;;
+                prompt)
+                    _flow_slugs
                     ;;
                 completion)
                     local -a shells

@@ -10,12 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
-import {
-  autoMemoryDisabled,
-  runSetup,
-  subagentCacheTtlOverride,
-  validateJsonFiles,
-} from "./setup";
+import { autoMemoryDisabled, runSetup, validateJsonFiles } from "./setup";
 import { runSetupCli } from "./setup-args";
 import { readManifest, writeManifest } from "./manifest";
 import type { FlowRootInfo } from "./worktree-source";
@@ -230,39 +225,39 @@ describe("flow install", () => {
     expect(names).toContain("flow-new-worktree");
   });
 
-  it("discovers the core module's agents directory, including flow-verify and flow-fix-applier on disk", () => {
+  it("discovers the core module's agents directory, including flow-fix-applier on disk", () => {
     // Regression guard: discoverAgents ships ONE kind: "agent" SourceEntry
     // per owning module's agents/ subdirectory (a directory-symlink target,
     // <skillsDir>/flow-module-<owner>/agents), not one per `.md` file — see
     // sources.ts's discoverAgents doc comment for why. Run against the real
     // repo's agents/ directory (not the synthetic fixture) so this fires if
-    // a future refactor breaks discovery for the two low-effort agent
-    // definitions that pin the mechanical fan-outs.
+    // a future refactor breaks discovery for the one low-effort agent
+    // definition that pins the one remaining mechanical fan-out.
     const repoRoot = path.resolve(__dirname, "..", "..");
     const agents = discoverAgents(repoRoot);
     const core = agents.find((a) => a.displayName === "agents/core");
     expect(core).toBeDefined();
     expect(core!.kind).toBe("agent");
     const files = fs.readdirSync(core!.source);
-    expect(files).toContain("flow-verify.md");
     expect(files).toContain("flow-fix-applier.md");
     for (const a of agents) {
       expect(a.kind).toBe("agent");
     }
   });
 
-  it("discovers the five schema validators via the discoverValidators allowlist", () => {
-    // Regression guard: discoverValidators ships exactly the five validators
+  it("discovers the six schema validators via the discoverValidators allowlist", () => {
+    // Regression guard: discoverValidators ships exactly the six validators
     // named in the VALIDATOR_MODULES allowlist — pr-review-result-schema,
-    // agent-finding-schema, fix-applier-schema, epic-manifest-schema, and
-    // intent-resolution-schema — sourced from bin/lib/ with a `flow-`
-    // install target prefix. It must NOT pick up coder-schema (not on the
-    // allowlist) or any `*-schema.test.ts` file. Run against the real
-    // repo's bin/lib/ rather than the synthetic fixture so this test fires
-    // if a future refactor regresses the allowlist or the naming.
+    // agent-finding-schema, fix-applier-schema, epic-manifest-schema,
+    // intent-resolution-schema, and ui-driver-schema — sourced from
+    // bin/lib/ with a `flow-` install target prefix. It must NOT pick up
+    // coder-schema (not on the allowlist) or any `*-schema.test.ts` file.
+    // Run against the real repo's bin/lib/ rather than the synthetic
+    // fixture so this test fires if a future refactor regresses the
+    // allowlist or the naming.
     const repoRoot = path.resolve(__dirname, "..", "..");
     const validators = discoverValidators(repoRoot);
-    expect(validators).toHaveLength(5);
+    expect(validators).toHaveLength(6);
     const names = validators.map((v) => path.basename(v.target)).sort();
     expect(names).toEqual([
       "flow-agent-finding-schema",
@@ -270,6 +265,7 @@ describe("flow install", () => {
       "flow-fix-applier-schema",
       "flow-intent-resolution-schema",
       "flow-pr-review-result-schema",
+      "flow-ui-driver-schema",
     ]);
     for (const entry of validators) {
       expect(entry.kind).toBe("bin");
@@ -779,7 +775,7 @@ describe("flow install", () => {
     });
   });
 
-  describe("auto-memory / subagent-cache-TTL install notices", () => {
+  describe("auto-memory install notice", () => {
     function runQuietly(env?: NodeJS.ProcessEnv) {
       return runSetup({
         flowSource,
@@ -834,41 +830,7 @@ describe("flow install", () => {
       }
     });
 
-    it("notices when settings.json sets subagentPromptCacheTtl: '5m'", async () => {
-      fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-      fs.writeFileSync(
-        settingsPath(),
-        JSON.stringify({ subagentPromptCacheTtl: "5m" }),
-      );
-      const logSpy = vi
-        .spyOn(console, "log")
-        .mockImplementation(() => undefined);
-      try {
-        await runQuietly();
-        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
-        expect(allLogs).toMatch(/overrides flow's per-agent 1h cache TTL/);
-      } finally {
-        logSpy.mockRestore();
-      }
-    });
-
-    it("notices when CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL is set", async () => {
-      const logSpy = vi
-        .spyOn(console, "log")
-        .mockImplementation(() => undefined);
-      try {
-        await runQuietly({
-          ...process.env,
-          CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL: "5m",
-        });
-        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
-        expect(allLogs).toMatch(/overrides flow's per-agent 1h cache TTL/);
-      } finally {
-        logSpy.mockRestore();
-      }
-    });
-
-    it("emits neither notice on a clean settings.json / env", async () => {
+    it("emits no notice on a clean settings.json / env", async () => {
       const logSpy = vi
         .spyOn(console, "log")
         .mockImplementation(() => undefined);
@@ -876,15 +838,14 @@ describe("flow install", () => {
         await runQuietly();
         const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
         expect(allLogs).not.toMatch(/auto memory is disabled/);
-        expect(allLogs).not.toMatch(/overrides flow's per-agent 1h cache TTL/);
       } finally {
         logSpy.mockRestore();
       }
     });
 
     // Direct calls (no runQuietly round-trip) — exercises the widened
-    // claudeEnvTruthy() matrix and the malformed-settings tolerance both
-    // helpers document, neither of which the round-trip tests above touch.
+    // claudeEnvTruthy() matrix and the malformed-settings tolerance the
+    // helper documents, neither of which the round-trip tests above touch.
     describe("autoMemoryDisabled (direct call)", () => {
       const truthy = ["true", "TRUE", " yes ", "on"];
       const falsy = ["0", "false", ""];
@@ -926,56 +887,6 @@ describe("flow install", () => {
         delete env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
         expect(() => autoMemoryDisabled(settingsPath(), env)).not.toThrow();
         expect(autoMemoryDisabled(settingsPath(), env)).toBe(false);
-      });
-    });
-
-    describe("subagentCacheTtlOverride (direct call)", () => {
-      const truthy = ["true", "TRUE", " yes ", "on"];
-      const falsy = ["0", "false", ""];
-
-      it.each(truthy)(
-        "FORCE_PROMPT_CACHING_5M=%j returns a non-null override",
-        (value) => {
-          const env: NodeJS.ProcessEnv = {
-            ...process.env,
-            FORCE_PROMPT_CACHING_5M: value,
-          };
-          delete env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL;
-          expect(subagentCacheTtlOverride(settingsPath(), env)).toBe(
-            `FORCE_PROMPT_CACHING_5M=${value}`,
-          );
-        },
-      );
-
-      it.each(falsy)(
-        "FORCE_PROMPT_CACHING_5M=%j returns null (absent any other override)",
-        (value) => {
-          const env: NodeJS.ProcessEnv = {
-            ...process.env,
-            FORCE_PROMPT_CACHING_5M: value,
-          };
-          delete env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL;
-          expect(subagentCacheTtlOverride(settingsPath(), env)).toBeNull();
-        },
-      );
-
-      it("undefined (unset) returns null", () => {
-        const env = { ...process.env };
-        delete env.FORCE_PROMPT_CACHING_5M;
-        delete env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL;
-        expect(subagentCacheTtlOverride(settingsPath(), env)).toBeNull();
-      });
-
-      it("does not throw on a malformed settings.json — returns null", () => {
-        fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-        fs.writeFileSync(settingsPath(), "{not json");
-        const env = { ...process.env };
-        delete env.FORCE_PROMPT_CACHING_5M;
-        delete env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL;
-        expect(() =>
-          subagentCacheTtlOverride(settingsPath(), env),
-        ).not.toThrow();
-        expect(subagentCacheTtlOverride(settingsPath(), env)).toBeNull();
       });
     });
   });
@@ -1586,8 +1497,13 @@ describe("flow install", () => {
         await runUpgrade(seam);
         expect(calls).toBe(0);
 
-        // skipped(dirty): an uncommitted change blocks the fast-forward.
-        fs.writeFileSync(path.join(flowSource, "DIRTY.txt"), "uncommitted\n");
+        // skipped(dirty): origin is now ahead (a ready update), but an
+        // uncommitted tracked edit blocks the fast-forward.
+        addSkillToOriginMain(flowSource, "epsilon");
+        fs.appendFileSync(
+          path.join(flowSource, "agents", "core", "reviewer.md"),
+          "uncommitted\n",
+        );
         await runUpgrade(seam);
         expect(calls).toBe(0);
       } finally {
@@ -1900,12 +1816,49 @@ describe("flow install", () => {
     it("Story 3: skipped(dirty) → prominent 'NOT refreshed', no false up-to-date", async () => {
       buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
       // Make the canonical tree dirty so the fast-forward skips.
-      fs.writeFileSync(path.join(flowSource, "DIRTY.txt"), "uncommitted\n");
+      fs.appendFileSync(
+        path.join(flowSource, "agents", "core", "reviewer.md"),
+        "uncommitted\n",
+      );
 
       const { logs } = await setupLogged({ upgrade: true });
       const joined = logs.join("\n");
       expect(joined).toMatch(/NOT refreshed \(dirty\)/);
       expect(joined).not.toMatch(/up to date/);
+    });
+
+    it("untracked-only checkout fast-forwards", async () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      const note = path.join(flowSource, "docs", "triage", "note.md");
+      fs.mkdirSync(path.dirname(note), { recursive: true });
+      fs.writeFileSync(note, "scratch\n");
+      addSkillToOriginMain(flowSource, "epsilon");
+
+      const { logs } = await setupLogged({ upgrade: true });
+      expect(logs.join("\n")).toMatch(/flow updated/);
+      expect(fs.existsSync(note)).toBe(true);
+    });
+
+    it("untracked collision refuses and reports merge-failed", async () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      // addSkillToOriginMain builds in a sibling clone, so the local working
+      // tree is untouched and the untracked file can be written before or after.
+      addSkillToOriginMain(flowSource, "epsilon");
+      const collide = path.join(
+        flowSource,
+        "skills",
+        "pipeline",
+        "epsilon",
+        "SKILL.md",
+      );
+      fs.mkdirSync(path.dirname(collide), { recursive: true });
+      fs.writeFileSync(collide, "mine\n");
+
+      const { logs } = await setupLogged({ upgrade: true });
+      const joined = logs.join("\n");
+      expect(joined).toMatch(/NOT refreshed \(merge-failed\)/);
+      expect(joined).not.toMatch(/flow updated/);
+      expect(fs.readFileSync(collide, "utf8")).toBe("mine\n");
     });
 
     it("Story 3: skipped(non-default-branch) → quieter informational caveat", async () => {
@@ -3865,6 +3818,77 @@ describe("worktree install root", () => {
       expect(allLogs2).not.toMatch(/repointed-source/);
     } finally {
       logSpy2.mockRestore();
+    }
+  });
+});
+
+describe("product brief seeding (runSetup wiring)", () => {
+  function seedTemplate(): void {
+    fs.mkdirSync(path.join(flowSource, "templates"), { recursive: true });
+    fs.writeFileSync(
+      path.join(flowSource, "templates", "product.md.template"),
+      "# Product brief\n\nseeded\n",
+    );
+  }
+
+  it("creates ~/.flow/product.md when absent and logs the seed line", async () => {
+    seedTemplate();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await runSetup({
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+      });
+      const briefPath = path.join(homeDir, ".flow", "product.md");
+      expect(fs.existsSync(briefPath)).toBe(true);
+      expect(fs.readFileSync(briefPath, "utf8")).toBe(
+        "# Product brief\n\nseeded\n",
+      );
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs).toMatch(/seeded user-level product brief/);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("leaves an existing non-empty brief untouched and logs no seed line", async () => {
+    seedTemplate();
+    const briefPath = path.join(homeDir, ".flow", "product.md");
+    fs.mkdirSync(path.dirname(briefPath), { recursive: true });
+    const existing = "# my own brief\n";
+    fs.writeFileSync(briefPath, existing);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await runSetup({
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+      });
+      expect(fs.readFileSync(briefPath, "utf8")).toBe(existing);
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs).not.toMatch(/seeded user-level product brief/);
+    } finally {
+      logSpy.mockRestore();
     }
   });
 });

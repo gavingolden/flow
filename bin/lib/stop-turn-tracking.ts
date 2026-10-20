@@ -28,6 +28,11 @@ export type TurnTracking = {
   blockCount: number;
   lastPhase: string;
   lastStopAt: string;
+  /**
+   * Consecutive background-work-exempt stops at `lastPhase`. Optional so
+   * turn files written before it existed still pass `isTurnTracking`.
+   */
+  exemptCount?: number;
 };
 
 /**
@@ -36,6 +41,18 @@ export type TurnTracking = {
  * single-block loop-break budget.
  */
 export const TURN_BLOCK_LIMIT = 1;
+
+/**
+ * Stagnation blocks allowed past `TURN_BLOCK_LIMIT` at one phase before the
+ * guard records a `needs-human` pause itself and lets the turn end.
+ */
+export const STAGNATION_PAUSE_LIMIT = 3;
+
+/**
+ * Consecutive stops at one phase the guard lets through uncounted while a
+ * background task is in flight; past it a hung wait counts like any stall.
+ */
+export const BACKGROUND_EXEMPT_LIMIT = 30;
 
 export function turnTrackingPath(slug: string, dir = FLOW_STATE_DIR): string {
   return path.join(dir, "turns", `${slug}.json`);
@@ -49,6 +66,9 @@ function isTurnTracking(x: unknown): x is TurnTracking {
   if (typeof o.blockCount !== "number") return false;
   if (typeof o.lastPhase !== "string") return false;
   if (typeof o.lastStopAt !== "string") return false;
+  if (o.exemptCount !== undefined && typeof o.exemptCount !== "number") {
+    return false;
+  }
   return true;
 }
 

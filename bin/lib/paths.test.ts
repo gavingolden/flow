@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   AGENT_MEMORY_DIRNAME,
   AGENT_MEMORY_RELPATH,
+  flowTelemetryLogPath,
   repoCacheKey,
 } from "./paths";
 
@@ -95,5 +96,29 @@ describe("agent-memory constants (rename tripwire)", () => {
 
   it("AGENT_MEMORY_RELPATH is the literal '.claude/agent-memory-local'", () => {
     expect(AGENT_MEMORY_RELPATH).toBe(".claude/agent-memory-local");
+  });
+});
+
+describe("flowTelemetryLogPath", () => {
+  it("resolves under the passed homeDir, not the real HOME", () => {
+    const tmpHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), "paths-telemetry-home-"),
+    );
+    try {
+      const result = flowTelemetryLogPath(tmpHome);
+      expect(result).toBe(
+        path.join(tmpHome, ".flow", "telemetry", "events.jsonl"),
+      );
+      expect(result.startsWith(tmpHome)).toBe(true);
+      expect(result).not.toContain(os.homedir());
+    } finally {
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  it("defaults to os.homedir() when no homeDir is passed", () => {
+    expect(flowTelemetryLogPath()).toBe(
+      path.join(os.homedir(), ".flow", "telemetry", "events.jsonl"),
+    );
   });
 });

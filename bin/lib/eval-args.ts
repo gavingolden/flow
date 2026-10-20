@@ -13,6 +13,7 @@ export type RunArgs = {
   runs?: number;
   model?: string;
   effort?: string;
+  autocompact?: string;
   dryRun: boolean;
   claudeBin: string;
   evalsDir: string;
@@ -144,6 +145,7 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
   let runs: number | undefined;
   let model: string | undefined;
   let effort: string | undefined;
+  let autocompact: string | undefined;
   let dryRun = false;
   let claudeBin = DEFAULTS.claudeBin;
   let evalsDir = DEFAULTS.evalsDir;
@@ -204,6 +206,9 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
       case "--effort":
         effort = v;
         break;
+      case "--autocompact":
+        autocompact = v;
+        break;
       case "--claude-bin":
         claudeBin = v;
         break;
@@ -251,6 +256,7 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
     runs,
     model,
     effort,
+    autocompact,
     dryRun,
     claudeBin,
     evalsDir,

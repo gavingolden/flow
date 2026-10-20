@@ -25,20 +25,47 @@ The resolved selection persists to `~/.flow/config.json`'s `modules` array, so `
 
 `flow install` also registers a `SessionStart` hook in `~/.claude/settings.json` (used by the checkpoint/auto-resume flow); skip it with `flow install --no-hooks`.
 
+**Unattended merges under auto mode.** A passed pipeline merges itself through `flow-merge-guard merge <pr>`, which re-checks the Test Steps, CI and the PR's ownership before it runs the squash merge. Unattended merges and gate overrides work out of the box in flow-launched sessions: the rules (`Bash(flow-merge-guard merge *)`, `Bash(flow-merge-guard * --record-override)` and `Bash(flow-merge-guard * --record-override *)`, all in `permissions.allow`) live in flow's generated launch settings and apply only to sessions flow launches, so the pipeline's own "merge anyway?" confirmation is the only prompt for a gate override. Recording an override is refused, with nothing written, unless the PR is the pipeline's own and the pipeline is `gated` (or `gating` straight after the gate re-check from `gated`); a merge made on an override posts a comment on the PR saying so. flow never writes permission rules into your personal Claude settings (`flow install` does merge its hooks into that file, as above). Because an "ask" rule beats an "allow" rule, any personal `Bash(flow-merge-guard …)` entry in `permissions.ask` brings a prompt back — a merge-covering one makes every unattended merge stop for approval, a `--record-override` one re-asks after the confirmation; `flow doctor` ("pipeline permissions") and every `flow feature create` / `resume` launch name the entry and the real file, and the fix is to delete it. Setting `autoMode.classifyAllShell` in your personal settings makes auto mode ignore Bash allow rules, so a passed run pauses with `merge-permission-denied` and one reply, `merge #<pr>`, finishes the merge and cleanup (`flow doctor` notes this). A pipeline launched before the upgrade keeps its old settings until `flow feature resume <slug>` relaunches it.
+
+Routine pipeline helpers are pre-approved the same way, so auto mode does not stall an unattended run on them:
+
+- **What is allowed:** each routine helper the pipeline calls (`flow-state-update`, `flow-new-worktree`, `flow-ci-check`, `flow-remove-worktree`, the comment helpers `flow-post-findings` (including `flow-post-findings dedupe <pr>`) and `flow-reply-pr-comments`, `flow-annotate-pr`, `flow-plan-review-wait`, and the rest listed in `bin/lib/pipeline-allow-rules.ts`) gets a `Bash(<helper>)` and a `Bash(<helper> *)` allow rule, named one by one — never a `Bash(flow-*)` wildcard. `flow-spawn` is allowed only for the two fixed waiter lines: `flow-spawn --class default -- flow-ci-wait …` and `flow-spawn --class default -- flow-plan-review-wait …`.
+- **What stays gated:** `flow-spawn`'s other launches — the detached `PID=$(flow-spawn --detach …)` passes (method survey, research, Gemini lens, intent guess) and the UI app launch; a denial skips that optional pass by name instead of stopping the run. Also `flow-merge-guard`'s hand-run check mode, `flow reap --yes`, and `kill`/`rm`.
+- **Accepted risk:** opening the PR and updating its description (`flow-open-pr`, `flow-review-finalize`, `flow-followups`' `gh` path) are pre-approved routine steps. The two comment helpers publish text to GitHub without classifier review; inside a pipeline each refuses any PR that is not the pipeline's own. `flow-pre-commit` and `flow-new-worktree` run repo-defined scripts (`npm run <check>`, `npm install` lifecycle scripts), so a `package.json` script an agent has edited runs without classifier review. Nothing mechanical stops a model that skips the "merge anyway?" form on its own gated PR; the override disclosure comment makes such a merge visible.
+- **Call shape:** a rule matches a standalone helper call; a `$(…)` wrapper never matches, and a `cd <dir> &&` prefix or an `&&` chain of helpers may still reach the auto-mode classifier, so the pipeline calls one helper per Bash call.
+- **Existing sessions:** a pipeline launched before the upgrade picks up the new rules when `flow feature resume <slug>` relaunches it.
+
+**Permission rule decisions.** The canonical record of every rule flow's launch settings carry ("reviewed" means the auto-mode classifier still decides the call):
+
+| Rule                                                                                                                                     | Who calls it                                                | Step                            | Decision             | Rationale                                                                                                                                                                                                      |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Secret-file `Read(…)` deny rules                                                                                                         | none; they block reading secret files                       | every step                      | keep (deny)          | Credential reads are a different concern; a deny returns at once and never prompts                                                                                                                             |
+| `Bash(flow-ui-login check *)`, `Bash(flow-ui-login test-account *)`                                                                      | UI-smoke driver, review UI evidence                         | 6 verify, 8 review              | allow                | One rule per subcommand, never a blanket                                                                                                                                                                       |
+| `Bash(flow-create-issue *)`                                                                                                              | review deferrals, post-merge candidate sweep                | 8 review, 10 merge              | allow                | Files only to the current repo, idempotent on title                                                                                                                                                            |
+| `Bash(flow-merge-guard merge *)`                                                                                                         | supervisor                                                  | 10 merge                        | allow                | The helper re-checks Test Steps, CI, `autoMerge` and PR ownership before merging                                                                                                                               |
+| `Bash(flow-merge-guard * --record-override)` and `… --record-override *)`                                                                | supervisor, after a "yes" on the "merge anyway?" form       | 9 gate override                 | allow (was ask)      | The form is the conscious confirmation; the helper refuses another pipeline's slug, a PR that is not the pipeline's own, and any phase but `gated` (or `gating` straight after the gate re-check from `gated`) |
+| `flow-merge-guard <pr>` check mode                                                                                                       | no documented step                                          | —                               | reviewed             | Not on any designed path                                                                                                                                                                                       |
+| Routine helpers (bare + wildcard pair each)                                                                                              | supervisor and sub-skills                                   | every step                      | allow                | Each helper's own argument validation is the guard                                                                                                                                                             |
+| `flow-post-findings`, `flow-reply-pr-comments`                                                                                           | `/flow-new-feature`, `/flow-pr-review`, supervisor recovery | 5b annotations, 8 review        | allow (routine)      | Inside a pipeline each refuses any PR that is not the pipeline's own; re-posting skips findings already on the PR, `dedupe` removes the caller's own exact duplicates                                          |
+| `flow-annotate-pr`, `flow-plan-review-wait`                                                                                              | `/flow-new-feature`; supervisor, epic designer              | 5b annotations; 3 plan review   | allow (routine)      | Neither writes to GitHub nor spends model quota                                                                                                                                                                |
+| `flow-spawn --class default -- flow-ci-wait *` and `… -- flow-plan-review-wait *`                                                        | supervisor, epic designer                                   | 7 CI wait; 3 plan review        | allow (exact prefix) | The wrapped helper is a fixed literal that is already routine                                                                                                                                                  |
+| Other `flow-spawn` launches (`PID=$(flow-spawn --detach …)`, UI app launch)                                                              | supervisor, discovery, `/flow-pr-review`, UI-smoke driver   | 3 plan, 6 verify, 8 review      | reviewed             | A `$(…)` call never matches a rule, and a wildcard before the wrapped command would approve any command; a denial is a named skip of that optional pass                                                        |
+| Headless children's `--disallowedTools` (`git push`, `gh pr merge/create/close`, `gh release`, `rm -rf node_modules*`) and secret denies | `flow-claude-headless` children                             | leaf reviews and judgment calls | keep (deny)          | Leaf children never push, merge or open PRs; a deny returns at once and never stalls                                                                                                                           |
+| PreToolUse `sed`/`awk` doc-read guard                                                                                                    | every flow-launched session                                 | any                             | keep (deny)          | Turns a would-be protected-file prompt into an instant deny naming the Read tool                                                                                                                               |
+
 ## Subagent memory, preloaded instructions, turn budgets, and cache TTL
 
-flow's core agent definitions (`agents/core/*.md`) use four Claude Code subagent features. Each is opt-out at the Claude Code layer, not the flow layer — flow pins the value; Claude Code's own settings/env-var overrides win.
+flow's core agent definitions (`agents/core/*.md`) use three Claude Code subagent features. Each is opt-out at the Claude Code layer, not the flow layer — flow pins the value; Claude Code's own settings/env-var overrides win.
 
 - **`memory: local`** (flow-discovery, flow-scout) — writes a per-agent `MEMORY.md` note under `.claude/agent-memory-local/<agent>/`, resolved **cwd-relative** to the worktree the agent was spawned in (confirmed by a live probe — see `docs/subagent-features-probe.md`). `flow-new-worktree` symlinks that path to a per-repo cache dir under `~/.flow/cache/` so the note survives worktree removal; `flow-remove-worktree` salvages a real (non-symlinked) directory back into the cache before removal. **Memory is a hint to verify against the live tree, never evidence** — every note ends with `observed: <short sha>`, and a note whose sha isn't an ancestor of the current `HEAD` gets re-verified or deleted before use.
-- **`skills:`** (flow-scout, flow-verify, flow-fix-applier, flow-edit-applier, flow-merge-resolver, flow-consolidator) — preloads that agent's own `flow-<agent>-instructions` skill directly into its context at spawn time, instead of the spawn prompt telling it to `Read` a `references/*.md` file. This keeps the instructions off the supervisor's own transcript (the spawn prompt only carries a short sentinel-check line) while skipping a wasted `Read` round trip in the subagent's own context. Uses the **bare skill directory name** — confirmed by the live probe; the sub-agents page documents no plugin-qualified form.
-- **`maxTurns:`** (flow-verify: 150, flow-fix-applier: 120, flow-edit-applier: 80, flow-merge-resolver: 80) — bounds each agent's own turn budget. Hitting it returns the Task result marked **partial** with a recoverable `agentId`; the owning exemption sends one bounded `SendMessage` continuation (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) asking the agent to write its artifact from where it stopped, never to restart. This is a continuation inside the owning Task-tool exemption, not a new spawn site.
-- **`experimental.cacheTtl: 1h`** (flow-discovery, flow-verify, flow-fix-applier, flow-consolidator) — requests Anthropic's 1-hour prompt cache instead of the default 5 minutes, worthwhile for the longer-running loop/discovery agents. Read only from the agent **file** (never from `--agents` JSON), always nested under `experimental:` (a top-level `cacheTtl:` key is silently ignored).
+- **`skills:`** (flow-scout, flow-fix-applier, flow-edit-applier, flow-merge-resolver, flow-consolidator, flow-ui-driver) — preloads that agent's own `flow-<agent>-instructions` skill directly into its context at spawn time, instead of the spawn prompt telling it to `Read` a `references/*.md` file. This keeps the instructions off the supervisor's own transcript (the spawn prompt only carries a short sentinel-check line) while skipping a wasted `Read` round trip in the subagent's own context. Uses the **bare skill directory name** — confirmed by the live probe; the sub-agents page documents no plugin-qualified form.
+- **`maxTurns:`** (flow-edit-applier: 240, flow-fix-applier: 200, flow-merge-resolver: 80, flow-ui-driver: 120) — bounds each agent's own turn budget. Hitting it returns the Task result marked **partial** with a recoverable `agentId`; the owning exemption sends one bounded `SendMessage` continuation (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) asking the agent to write its artifact from where it stopped, never to restart. This is a continuation inside the owning Task-tool exemption, not a new spawn site.
 
-**Version floors.** `skills:` preload and `memory:` need Claude Code ≥ 2.1.242; `maxTurns:` partial-result markers need ≥ 2.1.246; `experimental.cacheTtl` needs ≥ 2.1.248. On an older install the field is present in the agent file but inert — flow degrades safely (no crash), just without the feature.
+**Version floors.** `skills:` preload and `memory:` need Claude Code ≥ 2.1.242; `maxTurns:` partial-result markers need ≥ 2.1.246. On an older install the `skills:` / `memory:` / `maxTurns:` fields are present in the agent file but inert — flow degrades safely (no crash), just without the feature. The per-spawn sub-agent `effort` argument (`efforts.*`, `flow-spawn-effort`) needs ≥ 2.1.292; on an older build flow omits it and the agent files' `effort: medium` fallback applies instead.
 
-**Billing.** The 1-hour cache TTL's cost depends on your plan: a subscription plan billing within its plan usage honors the 1h TTL at no extra charge; a subscription plan billing on usage credits ignores the per-agent `experimental.cacheTtl` (falls back to the default 5-minute TTL); an API key or Claude Code on a cloud host bills a 1h cache **write** at the platform's higher 1h write rate (see Anthropic's prompt-caching pricing page — no flat multiplier is quoted here since it varies by model and changes over time).
+**Cache lifetime and billing.** flow pins no cache lifetime on any agent: the sub-agents run at Claude Code's own default. Per [Claude Code's prompt-caching page](https://code.claude.com/docs/en/prompt-caching) (verified 2026-10-04), on a Claude subscription within plan usage the main conversation gets a 1-hour TTL and otherwise 5 minutes; sub-agents get 5 minutes unless you choose a TTL; a 1-hour cache write bills at a higher rate than a 5-minute one; and the page publishes no weighting of 1-hour writes against plan usage. flow measured both lifetimes against its own transcripts and dropped its earlier per-agent 1-hour pins because a 5-minute lifetime was cheaper at list price (see [docs/token-spend-analysis.md](token-spend-analysis.md) and `docs/eval/cache-lifetime-baseline-2026-10.md`).
 
-**Overrides that win over flow's values.** Claude Code's own settings/env vars take precedence over every per-agent pin above: a `subagentPromptCacheTtl` value in `~/.claude/settings.json`, the `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` env var, or `FORCE_PROMPT_CACHING_5M=1` all override flow's `experimental.cacheTtl: 1h` pins; `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` (or `autoMemoryEnabled: false` in settings) makes `memory: local` inert. `flow install` prints a one-line notice when it detects either override active in your `~/.claude/settings.json` or environment, so a silently-inert feature doesn't go unnoticed.
+**Overrides that win over flow's values.** Claude Code's own settings/env vars take precedence over flow's per-agent values: `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` (or `autoMemoryEnabled: false` in settings) makes `memory: local` inert. `flow install` prints a one-line notice when it detects that override active in your `~/.claude/settings.json` or environment, so a silently-inert feature doesn't go unnoticed.
 
 **These fields only reach sessions started after `flow install --upgrade`** — run it twice for a newly-registered skill file to actually resolve (a known one-invocation-behind quirk of the registry fast-forward), and note that a pipeline session already running when you upgrade keeps its pre-upgrade agent definitions for the rest of that session.
 
@@ -47,6 +74,10 @@ flow's core agent definitions (`agents/core/*.md`) use four Claude Code subagent
 flow links its skills AND agents into a **standalone skills home** at `~/.flow/claude-home/.claude/skills/`, not the global `~/.claude/skills/`/`~/.claude/agents/`. Both nest inside their owning module's plugin root — `~/.flow/claude-home/.claude/skills/flow-module-<id>/skills/<name>` and `.../flow-module-<id>/agents/<name>.md` — rather than a flat top-level directory. A plain `claude` session anywhere on your machine therefore carries **zero** flow skills or agents — only sessions launched through the flow launcher see them. The launcher's `--plugin-dir` wiring is what actually loads flow's skills-dir plugin roots (bare `--add-dir ~/.flow/claude-home` alone does not — see the limitation below); bare `flow`, and every pipeline/epic seed session, wire this in automatically. If you installed a pre-move version, one `flow install --upgrade` migrates both your skills and your agents to the new home and removes the old `~/.claude/skills/`/`~/.claude/agents/` links; run it **with no active pipelines** — removing a skill or agent from a location a running session already loaded hot-unloads it mid-session (Claude Code live change detection), and the agent migration additionally SKIPS pruning the old `~/.claude/agents/` location outright (a stderr warning, links left in place) whenever any recorded `~/.flow/state/*.json` sits in a non-terminal phase, so the stale links persist there until the next clean install — a cosmetic leftover, not a live resolution path: today's spawn-site guards only probe the plugin-root path, never `~/.claude/agents/`, so a resumed session already on pre-collapse skill text is the only case where those links still get read. Hooks in `~/.claude/settings.json` are unaffected by either move.
 
 **`--add-dir`-only limitation (no `flow` launcher).** Hand-running `claude --add-dir ~/.flow/claude-home` without going through the `flow`/`flow feature create` launcher no longer loads flow's skills or agents — the launcher wires in session setup beyond the bare `--add-dir` flag. The flow launcher (bare `flow`, or a pipeline/epic seed session) is the only supported entry point for a session that needs flow's skills/agents.
+
+### Per-pipeline private skill copies
+
+A pipeline launched inside flow's own checkout runs its supervisor on a private real-file copy of flow's skills and agents at `~/.flow/overlays/<slug>/` instead of the shared skills home above, so its skill edits can be synced in place for a resumed or reloaded session without touching the shared install. `flow feature create --skills-from <checkout> "<description>"` builds the same copy from any flow checkout (for example a worktree, to exercise a branch end to end). The copy is rewritten in place by `/flow-pipeline` step 5.5 (`flow-skill-overlay sync --slug <slug> --from <checkout>`), and stale copies are pruned at the next `flow feature create` launch. A running Claude Code session serves the skill text it started with (verified on 2.1.284), so a sync reaches a resumed session, a session where you type `/reload-plugins`, or a fresh `--skills-from` launch — use `--skills-from` to exercise edited and new skills, and edited agents, end to end. A brand-new agent still runs as a generic agent until it is installed. A `--skills-from` copy stays pinned to the checkout it was built from; only the automatic flow-self copy re-syncs from the pipeline's worktree. A finished pipeline's copy is pruned at the next launch; a gated or needs-human pipeline keeps its copy. The `--slug` state overlays are unrelated.
 
 ## Plugin materialization
 
@@ -76,9 +107,9 @@ cd <flow-checkout> && git checkout <earlier ref> && flow install --upgrade
 
 ## Per-phase models
 
-A pipeline runs many distinct Claude phases — planning, implementation, review, verify, the fix-applier/consolidator tail, merge-conflict resolution — plus the epic-design and epic-run supervisors. You can concentrate an expensive model (e.g. the newly-released **Fable**) on the high-leverage reasoning phases and run cheaper models on the mechanical ones, controlled per-run (flags) or globally (config).
+A pipeline runs many distinct Claude phases — planning, implementation, review, the fix-applier/consolidator tail, merge-conflict resolution — plus the epic-design and epic-run supervisors. You can concentrate an expensive model (e.g. the newly-released **Fable**) on the high-leverage reasoning phases and run cheaper models on the mechanical ones, controlled per-run (flags) or globally (config). Verify has no phase model knob: `/flow-pipeline` step 6 invokes `/flow-verify` in-process on the supervisor's own session model, not a spawned sub-agent. Run `flow config models` to see the resolved model AND reasoning effort for every phase/sub-agent, with the source each one resolved from.
 
-**Per-run flags** — `flow feature create --model-planning fable --model-verify haiku "add X"` routes Fable to planning and Haiku to verify for that pipeline, leaving every other phase on the session default. Epic knobs: `flow epic create --model-planning <alias>` (the epic design phase shares the feature planning knob), and `flow epic run --model <alias> [--effort <level>]` (the /flow-epic-run playbook supervisor session); `flow epic launch <epic> <id> [--model <alias>] [--effort <level>]` applies the same per-launch overrides without mutating the committed manifest.
+**Per-run flags** — `flow feature create --model-planning fable --model-fix-applier haiku "add X"` routes Fable to planning and Haiku to the fix-applier tail for that pipeline, leaving every other phase on the session default. Epic knobs: `flow epic create --model-planning <alias>` (the epic design phase shares the feature planning knob), and `flow epic run --model <alias> [--effort <level>]` (the /flow-epic-run playbook supervisor session); `flow epic launch <epic> <id> [--model <alias>] [--effort <level>]` applies the same per-launch overrides without mutating the committed manifest.
 
 **Global config** — set a house style once in `~/.flow/config.json`:
 
@@ -89,12 +120,12 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
     "planning": "fable",
     "implement": "sonnet",
     "review": "sonnet",
-    "verify": "haiku",
     "fixApplier": "sonnet",
     "consolidator": "sonnet",
     "mergeResolver": "sonnet",
     "scout": "sonnet",
-    "coder": "sonnet"
+    "coder": "sonnet",
+    "uiDriver": "sonnet"
   }
 }
 ```
@@ -105,19 +136,23 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
 | `planning`      | planning / epic design                     | `--model-planning`       |
 | `implement`     | implementation (scout + coder)             | `--model-implement`      |
 | `review`        | multi-agent PR review                      | `--model-review`         |
-| `verify`        | pre-commit verify gate                     | `--model-verify`         |
 | `fixApplier`    | PR-review fix-applier                      | `--model-fix-applier`    |
 | `consolidator`  | PR-review consolidator-validator           | `--model-consolidator`   |
 | `mergeResolver` | merge-conflict resolver                    | `--model-merge-resolver` |
 | `scout`         | implementation scout (finer grain)         | _(config only, no flag)_ |
 | `coder`         | implementation edit-applier (finer grain)  | _(config only, no flag)_ |
+| `uiDriver`      | /flow-verify UI-smoke browser driver       | _(none — config-only)_   |
 
 **Precedence** (highest wins):
 
 - **Session model** — `--model` > `config.models.default` > Claude's default. Read once at launch and passed to `claude --model`.
 - **Per-phase model** — `--model-<phase>` > `config.models.<phase>` > inherited session model.
-- **Two deliberate asymmetries** — (1) **verify** defaults to `sonnet`, **not** the session model (a mechanical gate rarely earns an expensive model): `--model-verify` > `config.models.verify` > `sonnet`. (2) **scout / coder** are config-only fine-grain that layer _above_ `--model-implement`: `config.models.scout|coder` > `--model-implement` > `config.models.implement` > inherited.
+- **Per-review-lens model** — `config.models.reviewLenses.<lens>` > `--model-review` > `config.models.review` > session model capped at opus (`bug-detection` instead inherits the session model uncapped — Fable on Fable sessions — and the `product` lens falls back to a pinned `opus` on every session, Sonnet included). The eight keys are the seven review lenses (`bug-detection`, `security`, `pattern-consistency`, `performance`, `supply-chain`, `test-coverage`, `product`) plus `intent-guess`. Config-only, no CLI flag — the same fine-grain shape `scout`/`coder` use. Every key is absent by default, so a lens's model is unchanged until you set one.
+- **Five deliberate asymmetries** — (1) **fix-applier** defaults to `sonnet`, **not** the session model (mechanical apply-commit-push work that must not silently inherit Opus/Fable): `--model-fix-applier` > `config.models.fixApplier` > `sonnet`. (2) **scout / coder** are config-only fine-grain that layer _above_ `--model-implement`: `config.models.scout|coder` > `--model-implement` > `config.models.implement` > inherited. (3) **review lenses / consolidator** inherit the session model **capped at opus**: a session model at or below opus in list price is inherited unchanged, but an alias priced above it (today only `fable`) falls back to `opus`, so an accidentally-expensive session can never reach seven expensive review spawns at once. It is a rank-ordering rule (`MODEL_PRICE_RANK`), not a named-model special case, so a future expensive alias is covered the day it gets a rank. Bug-detection is the exception: a pre-registered recall check found Fable re-found 8.7% of known review findings against Opus 5.5's 3.9% (p = 0.0065), so it inherits uncapped. Measured at medium effort that is $2.50 against $0.71 a review (+$1.79); real reviews run at the session's effort and ran longer than the test harness's, so the real premium is not measured and may be higher. Set `models.reviewLenses.bug-detection` to `"opus"` to opt back (this also raises Sonnet sessions to Opus). (4) **uiDriver** falls back to a literal `sonnet` AND is the only routed site with no per-run CLI flag at all: `config.models.uiDriver` > `sonnet`, with no per-phase flag and no `state.json` field. (5) **the product lens** falls back to a literal `opus`, not the session-capped rule: a Sonnet session is raised to `opus` and a Fable session is held to it, while `config.models.reviewLenses.product`, `--model-review` and `config.models.review` still win. The trade-off: Opus 5.5 lists at twice Sonnet's price ($4/$20 against $2/$10 per MTok in/out), so a Sonnet session now pays roughly twice per product review (an estimate from list price at equal tokens, not a measurement). The move off Fable on Fable sessions was not quality-benchmarked — the recall check covered bug-detection only — so the product reviewer may now miss findings Fable would catch. The $0.55 a review on Opus 5.5 (against $1.10 on Fable) in `docs/eval/fable-vs-opus-subagents.md` was measured before the medium pin, with each session at its own effort.
+- **Per-sub-agent effort.** Each routed spawn resolves its own effort at spawn time (the `flow-spawn-effort` helper, Claude Code 2.1.292+): `CLAUDE_CODE_EFFORT_LEVEL` > `config.efforts.<key>` > the built-in role default > the session's effort. The per-role keys are the same names as `models.*` — `planning`, `scout`, `coder`, `fixApplier`, `uiDriver`, `consolidator`, `mergeResolver`, and `reviewLenses.<lens>` — with no `review` / `implement` group keys (they warn as unsupported). The built-in defaults: `fixApplier` and `uiDriver` run at `medium` **capped at the session's effort** (a `low` session stays `low`), and the product lens runs at `medium` regardless of the session; every other row follows the session. A configured `efforts.*` value is never capped by the session. `CLAUDE_CODE_EFFORT_LEVEL` (including from the `env` block of a settings file) overrides every sub-agent and beats both the config and the built-ins — `flow config models` shows a banner when it is set in your shell environment (a settings-file value overrides too but is not detected there). Available levels depend on the model: a configured `xhigh` / `max` on a model without it may be rejected by Claude Code. On a Claude Code build before 2.1.292, or if a spawn site omits the argument, the `effort: medium` fallback in the fix-applier, UI-driver and product-reviewer agent files applies instead, and the other roles follow the session. Medium lowers the product reviewer's effort on sessions launched at high or max (it may reason less deeply there) and raises it on low ones; the effect on product-finding quality was not measured.
+- **The blind judge** (`flow-deliberate`, a Bash fan-out over `flow-claude-headless`, so it is reachable from a sub-agent that may not spawn a nested Task) resolves `--model` > `config.models.default` > `opus`, with `--effort high`, `--max-budget-usd 2`, and `--max-turns 15` by default. There is deliberately **no** `models.deliberate` key: a judgment call should run whatever model the user already trusts by default, and a dedicated key earns its place only once someone wants to diverge.
 - **The gatekeeper is pinned** to `haiku` — its whole job is cheap cost-routing. There is no `--model-gatekeeper` flag; a `config.models.gatekeeper` key is reachable but strongly discouraged (overriding it defeats the cost-routing).
+- **The explanation judge is pinned** to `sonnet` / `--effort low` / `--max-budget-usd 0.25` (`flow-explain-judge`) — no config key, no flag.
 
 Aliases are `opus`, `haiku`, `sonnet`, `fable`; flow forwards the alias verbatim to `claude --model`. An invalid alias in a flag exits non-zero writing no state; an invalid value in `config.models.*` emits a best-effort warning at create time and falls back.
 
@@ -152,7 +187,7 @@ npx -y chrome-devtools-mcp@latest --isolated
 
 Add `--headless=new` (not the legacy `--headless`) if you never want a Dock icon for the automation browser. Caveat: headless rendering isn't guaranteed pixel-identical to headful (font rasterisation, animation timing, viewport bounds can all differ), so `/flow-pr-review`'s visual-appearance pass may shift under `--headless=new`.
 
-**Cleaning up an existing backlog.** `flow reap --include-strays` sweeps sessionless browser processes and sessionless chrome-devtools-mcp server processes left behind by crashed/killed sessions (the shape-heuristic selection `flow-browser-teardown --orphans` used to run standalone, now deprecated in favor of this composed command) — the browser rows it recognizes are a positive allowlist of profile shapes (the chrome-devtools-mcp cache profile, its `--isolated` temp profile, and the go-rod temp-profile shape); a row whose profile doesn't match one of those shapes is emitted report-only and is **never** signalled, even with `--yes`. Run it without `--yes` first to preview, then `flow reap --yes --include-strays` to act. It uses SIGTERM only — never a harder signal, which would orphan Chrome instead of closing it.
+**Cleaning up an existing backlog.** `flow reap --include-strays` sweeps sessionless browser processes and sessionless chrome-devtools-mcp server processes left behind by crashed/killed sessions (the shape-heuristic selection `flow-browser-teardown --orphans` used to run standalone, now deprecated in favor of this composed command) — the browser rows it recognizes are a positive allowlist of profile shapes (the chrome-devtools-mcp cache profile, its `--isolated` temp profile, and the go-rod temp-profile shape); a row whose profile doesn't match one of those shapes is emitted report-only and is **never** signalled, even with `--yes`. Run it without `--yes` first to preview, then `flow reap --yes --include-strays` to act. For browsers and MCP servers it uses SIGTERM only — never a harder signal, which would orphan Chrome instead of closing it. The same flags also stop orphaned agy runs (an `agy` process whose parent is the system, carrying flow's delegate prompt preamble in its full command line, and older than its own `--print-timeout` plus 30 s): those escalate to SIGKILL after a 5 s grace because a polite stop alone leaves agy hung, with the process's start time re-checked before each signal.
 
 **Registry-driven reap.** `flow-browser-teardown --reap [--slug <s>] [--dry-run] [--json] [--record]` verifies and signals every row recorded in the [process registry](#process-registry) below (`~/.flow/state/procs/<slug>.jsonl`) — a different surface from `--orphans` above, which selects by process-table shape heuristics rather than by a recorded row. Two class policies apply: a `default`-class row gets SIGTERM to its whole process group, a bounded grace wait, then a force-kill of the group if it's still alive; an `mcp-server`-class row gets SIGTERM to its pid only — never the group, and never escalated (that class's SIGTERM-only rule is the same one the paragraph above states, scoped here explicitly to the `mcp-server` class since `--reap`'s `default` class does escalate). A row whose recorded start time no longer matches the live process is skipped without any signal at all, and a `default`-class row whose leader has died while its group is still alive is reported as `skipped-dead-leader` rather than as a clean `already-dead` — the group is leaking and a human should see it. One `--reap` pass admits no new row after a 30-second aggregate wall-clock budget, but that budget is an admission check, not a hard cap: a row admitted just under the deadline still runs its full class policy (up to ~7s more for a `default`-class row's grace-then-force-kill sequence), so the registry phase's real worst case is ~37s, not 30s. And a `deadline-exceeded` mcp-server row does not count as registry-covered, so a registry pass that exhausts its budget still falls through to the ancestry fallback's ~12s poll — an absolute worst case of ~30s + ~7s + ~12s ≈ 49s for the newly-blocking terminal-state wait, not ~42s. Rows not reached in time report `deadline-exceeded` instead of being silently dropped. Run with `--dry-run` first — it sends no signal and is the recommended first invocation. `--reap` is wired into every `/flow-pipeline` terminal state (`MERGED`, `GATED`, `NEEDS HUMAN`, `cancelled`): the supervisor runs `flow-browser-teardown --reap --record` as a standalone step (never `&&`-chained) immediately before that terminal state's `flow-gate-summary` render.
 
@@ -164,7 +199,7 @@ Add `--headless=new` (not the legacy `--headless`) if you never want a Dock icon
 
 `~/.flow/state/procs/<slug>.jsonl` is an append-only JSONL log of processes launched under a given pipeline slug — one JSON row per launch, each carrying `pgid`, `pid`, `startEpoch`, `slug`, `class` (`default` or `mcp-server`), `argv`, `argvTruncated` (present and `true` only when `argv` was cut to stay under the per-row byte cap — absent otherwise), `recordedAt`, `sessionPid`, and `sessionStartEpoch`. `startEpoch` is nullable: `null` means the pid's start time could not be read at record time, which the design treats as "never signal" — a row that can't prove which process it is describes is never eligible for the liveness match a future reap would require.
 
-Launch a command through the registry with `flow-spawn --slug <slug> -- <cmd> [args...]`; it runs the command in its own process group, records one row, and passes through its stdio and exit code. Inspect a slug's recorded rows with `flow-spawn --list <slug> [--json]`.
+Launch a command through the registry with `flow-spawn --slug <slug> -- <cmd> [args...]`; it runs the command in its own process group, records one row, and passes through its stdio and exit code. Launch a verified UI app with `flow-spawn --detach --stdout <path> --stderr <path> --slug <slug> --cwd <dir> --from-envelope <verdict file>`: it reads `meta.launch` and `meta.env` from a `flow-ui-validate` verdict file, runs the launch detached via `sh -c` in its own process group (with `meta.env` merged over the inherited environment and never recorded in the row), and prints the pid. Inspect a slug's recorded rows with `flow-spawn --list <slug> [--json]`.
 
 Three sites launch through the wrapper today, each recorded with `class: "default"`:
 
@@ -180,27 +215,146 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 
 `~/.flow/config.json` is created by `flow install` and read at launch. The keys in use today:
 
-| key                   | what it controls                                                                                                                                                                                                                                                                                                                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `modules`             | the persisted module selection from `flow install` (see above)                                                                                                                                                                                                                                                                        |
-| `models.*`            | per-phase model routing (see [Per-phase models](#per-phase-models))                                                                                                                                                                                                                                                                   |
-| `delegate.models.*`   | per-surface agy delegate-model routing (see [Delegate models](#delegate-models))                                                                                                                                                                                                                                                      |
-| `delegate.timeouts.*` | per-surface agy `--print-timeout` routing (see [Delegate timeouts](#delegate-timeouts))                                                                                                                                                                                                                                               |
-| `update.checkFor`     | staleness-notice behaviour; set `"off"` to silence (or export `FLOW_UPDATE_CHECK=off`)                                                                                                                                                                                                                                                |
-| `update.autoUpgrade`  | reserved future opt-in for automatic upgrades (default off, parsed but not yet executing)                                                                                                                                                                                                                                             |
-| `research.discovery`  | opt-in for web-grounded discovery research on every pipeline (`flow feature create --research` forces it per run)                                                                                                                                                                                                                     |
-| `interview.enabled`   | opt-in for the adaptive intent interview (default `true`), read by the supervisor via `jq` against `~/.flow/config.json` (never a `bin/lib` import — subagents run in the consumer worktree, where flow's own `bin/lib` isn't present); overridable per run with `flow feature create --interview` (force) or `--no-interview` (skip) |
-| `launcher`            | set with `flow config launcher set tmux` — makes the tmux launcher your default instead of the plain shell                                                                                                                                                                                                                            |
-| `output.lens`         | `"pm"` (default) or `"dev"` — see [Output lens](#output-lens) below                                                                                                                                                                                                                                                                   |
-| `review.gemini`       | opt-in for the cross-model Gemini review lens (default `false`); strict `true` enables                                                                                                                                                                                                                                                |
-| `review.lensGates`    | content-gates `/flow-pr-review`'s six lenses against the changed-file set, static-analysis signals, and a diff-content check for new bare-specifier imports/requires via `flow-review-scope` (default `true`); strict `false` disables — every lens always runs                                                                       |
-| `review.deltaScope`   | scopes a fix-loop re-entry's review to `last-reviewed..HEAD` when the prior run was clean and the marker is an ancestor of HEAD (default `true`); strict `false` disables — every entry reviews the full PR diff                                                                                                                      |
+| key                             | what it controls                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modules`                       | the persisted module selection from `flow install` (see above)                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `models.*`                      | per-phase model routing (see [Per-phase models](#per-phase-models))                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `models.reviewLenses.*`         | per-review-lens model routing for the seven review lenses (incl. `product`, which falls back to a pinned `opus`, and `bug-detection`, which inherits the session model uncapped) plus `intent-guess`, layered above `models.review` (see [Per-phase models](#per-phase-models)); an unknown lens name or non-alias value emits a best-effort warning at create time and is ignored                                                                                                                                                        |
+| `efforts.*`                     | per-sub-agent effort routing: `planning`, `scout`, `coder`, `fixApplier`, `uiDriver`, `consolidator`, `mergeResolver`, plus a nested `efforts.reviewLenses.<lens>` (each one of `low` / `medium` / `high` / `xhigh` / `max`), resolved at each spawn above the built-in role default and below `CLAUDE_CODE_EFFORT_LEVEL` (see [Per-phase models](#per-phase-models)); needs Claude Code 2.1.292+; an invalid level, unknown key or lens, or a `review` / `implement` group key emits a best-effort warning at create time and is ignored |
+| `delegate.models.*`             | per-surface agy delegate-model routing (see [Delegate models](#delegate-models))                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `delegate.lenses`               | which Claude review lenses run on the Google plan (agy) instead of Claude once `delegate.models.claudeLenses` is set; a lens that fails there falls back to Claude (see [Delegate models](#delegate-models))                                                                                                                                                                                                                                                                                                                              |
+| `delegate.timeouts.*`           | per-surface agy `--print-timeout` routing (see [Delegate timeouts](#delegate-timeouts))                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `update.checkFor`               | staleness-notice behaviour; set `"off"` to silence (or export `FLOW_UPDATE_CHECK=off`)                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `update.autoUpgrade`            | reserved future opt-in for automatic upgrades (default off, parsed but not yet executing)                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `research.discovery`            | opt-in for web-grounded discovery research on every pipeline (`flow feature create --research` forces it per run)                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `research.model`                | the agy model variant for the forced-research gather pass; unset falls through to `delegate.models.researchGather`, then the built-in default                                                                                                                                                                                                                                                                                                                                                                                             |
+| `research.refuteModel`          | the agy model variant for the forced-research adversarial refute pass; unset falls through to `delegate.models.researchRefute`, then the built-in default — a cross-model diversity guard silently substitutes a fallback when this collides with the resolved gather model                                                                                                                                                                                                                                                               |
+| `research.maxCalls`             | the maximum number of agy calls the forced-research runner may spend (default `12`)                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `research.timeout`              | how long the forced-research runner waits for the gather/refute fan-out (default `"20m"`)                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `research.deepResearchFallback` | whether a stalled forced-research run retries on paid Claude credits instead of the cheaper delegated path (default `true`, slower, and spends credits); strict `false` disables                                                                                                                                                                                                                                                                                                                                                          |
+| `bots.copilot`                  | a bare login string, or `{ login?, globs?: { alwaysReview?, neverAlone? } }` — custom Copilot reviewer login and/or path-glob overrides layered over flow's built-in glob sets                                                                                                                                                                                                                                                                                                                                                            |
+| `bots.copilot.login`            | derived view, not settable — the effective reviewer login `bots.copilot` resolves to (default `copilot-pull-request-reviewer`); set via `bots.copilot`, not this path                                                                                                                                                                                                                                                                                                                                                                     |
+| `bots.copilotAutoReview`        | tri-state override for "is Copilot review configured on this repo"; unset defers to auto-detect                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `bots.copilotClaimDeadlineSec`  | global override for how long flow waits for Copilot to claim a requested review before giving up                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `bots.copilotSkipWait`          | boolean, default `false` — skip requesting/waiting on Copilot review entirely                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `epic.maxParallel`              | how many epic pipelines may run concurrently (default `3`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `source`                        | the flow checkout this install's helpers were symlinked from (written by `flow install`/`flow setup`)                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `launch.effort`                 | string, default the Claude Code default effort (today's behaviour when absent) — default for `flow feature create --effort`, and for `flow epic create` / `flow epic run`                                                                                                                                                                                                                                                                                                                                                                 |
+| `launch.autoMerge`              | boolean, default unset (today's rubric-driven behaviour when absent) — default for `flow feature create --auto-merge`/`--no-auto-merge`                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `launch.waitForCopilot`         | boolean, default unset (today's auto-detect-skip behaviour when absent) — default for `flow feature create --wait-for-copilot`/`--no-wait-for-copilot`                                                                                                                                                                                                                                                                                                                                                                                    |
+| `launch.forceResearch`          | boolean, default `false` (today's relevance-gated behaviour when absent) — default for `flow feature create --research`/`--no-research`; a DIFFERENT grain than `research.discovery` above — this one bypasses the relevance gate outright rather than opting into it                                                                                                                                                                                                                                                                     |
+| `launch.interviewMode`          | `"force"` \| `"skip"` \| unset, default unset (today's judgment-gate behaviour when absent) — default for `flow feature create --interview`/`--no-interview`                                                                                                                                                                                                                                                                                                                                                                              |
+| `launcher`                      | set with `flow config launcher set tmux` — makes the tmux launcher your default instead of the plain shell                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `output.lens`                   | `"pm"` (default) or `"dev"` — see [Output lens](#output-lens) below                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `review.gemini`                 | opt-in for the cross-model Gemini review lens (default `false`); strict `true` enables                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `review.lensGates`              | content-gates `/flow-pr-review`'s six content lenses against the changed-file set, static-analysis signals, and a diff-content check for new bare-specifier imports/requires via `flow-review-scope` (default `true`); strict `false` disables — every content lens always runs; the seventh `product` lens is gated on a product brief resolving (see Product brief below), not by this key                                                                                                                                              |
+| `review.deltaScope`             | scopes a fix-loop re-entry's review to `last-reviewed..HEAD` when the prior run was clean and the marker is an ancestor of HEAD (default `true`); strict `false` disables — every entry reviews the full PR diff                                                                                                                                                                                                                                                                                                                          |
+| `review.product`                | boolean, default `true` — set `false` to skip both the plan-time product critic and the product review lens while keeping the brief committed                                                                                                                                                                                                                                                                                                                                                                                             |
+| `product.judge`                 | enables the advisory code-blind-reader explanation judge (`flow-explain-judge`) at the PR-body site (default `true`); strict `false` disables — every call skips with `judge-disabled`                                                                                                                                                                                                                                                                                                                                                    |
+
+The five `launch.*` keys above are resolved once, at `flow feature create`
+(and `flow epic create` / `flow epic run` for `launch.effort`) launch time,
+onto the pipeline's `~/.flow/state/<slug>.json` — editing
+`~/.flow/config.json` changes the default for the NEXT pipeline you
+launch, never a pipeline already running. Run `flow config launch` to see
+the value and source of each of these for your next launch; add `--slug
+<name>` to see what a running pipeline started with. Run `flow config all`
+to see every resolved config.json setting — models, launch defaults, and
+every other key above — in one view.
 
 Each `/flow-pr-review` run appends one JSON line to
 `~/.flow/telemetry/review-lenses.jsonl` (per-lens tokens/findings,
-jq-readable, no rotation in v1) — see `flow-review-telemetry`.
+jq-readable, no rotation in v1) — see `flow-review-telemetry`. Rows from
+version 3 (PR #896) take each lens's tokens from its transcript with a
+per-class breakdown and count each message's final output; older rows used a
+different unit and must not be summed with them. The change is a documented
+break in spend history. At the audit's price table, counting final output
+moves all transcripts since 2026-09-04 from $8,692 to $9,131 (+5.0%) and lens
+runs from $789.52 to $930.09 (+17.8%): $140.57, 15.1% of the actual lens
+dollars, was missing.
+
+Separately, a handful of helpers append one JSON line per event to
+`~/.flow/telemetry/events.jsonl` (`bin/lib/telemetry.ts`'s `recordEvent`),
+covering six event names: `delegate.call` (one per `flow-delegate`
+invocation), `deliberate.call` (one per `flow-deliberate` blind
+second-opinion consult — carries the call's `total_cost_usd`, the
+anchor-derived `confidence`, and whether the judge's declared confidence was
+demoted; emitted on skips too, so judge spend and judge silence are both
+visible — the jq recipes deriving the judge's override rate from this event,
+and the kill criterion they feed, are in
+[deliberation-assessment.md](deliberation-assessment.md)), `phase.transition` (one per `flow-state-update` `--phase`
+write, OR per `bin/lib/phase-advance.ts` phase advance — `phase-advance.ts`
+is the SOLE emitter for six phases in the implement→merge half of the
+pipeline, so reading only `flow-state-update` call sites undercounts this
+event), `verify.attempt` (one per `flow-pre-commit` run, scopes/verdict/
+failing-check-names and the `reused_checks` count only, never output
+text), `run.terminal` (one per
+`flow-gate-summary` render that reaches a terminal status), and
+`explain.judge` (one per `flow-explain-judge` invocation; verdict/
+skipReason/model/effort/cost only — NEVER the judged text). Every event
+carries the same `slug` / `pr` / `repo` / `session_id` correlation
+quadruple (`resolveCorrelation` in `bin/lib/telemetry.ts`) so a reader can
+reconstruct one pipeline run by filtering on any one of the four. The log
+rotates by whole-slug-block compaction — `bin/lib/telemetry-rotate.ts`
+drops the oldest complete slug's lines once the file exceeds 32 MiB, and
+separately drops any slug block whose newest line is older than 180 days,
+but only as part of a compaction pass triggered by the 32 MiB size check —
+the age prune never fires on its own on a file that stays under the size
+cap, however old its lines get. Neither prune ever truncates a slug's
+block mid-way. No agent-authored telemetry emission surface exists: every
+event is emitted by a helper at an existing chokepoint, and a signal an
+agent would otherwise have to remember to emit is instead DERIVED from an
+event a helper already writes.
+
+Two worked `jq` one-liners:
+
+```sh
+# Reconstruct one pipeline run's full event timeline.
+jq -c 'select(.slug == "csv-export")' ~/.flow/telemetry/events.jsonl
+
+# Derive the plan-review redirect count (a LOWER BOUND on total revision
+# passes — the step-3 auto-bundle pass re-enters `planning` without ever
+# writing `plan-pending-review`, so it never emits the phase.transition
+# this counts).
+jq -c 'select(.event == "phase.transition" and .attrs.from == "plan-pending-review" and .attrs.to == "planning")' \
+  ~/.flow/telemetry/events.jsonl | wc -l
+```
+
+**Unwired pause sites.** `flow-explain-judge` is wired into exactly one
+site today (the PR-body `## Why`/`## User-facing changes` pair at Step 5's
+PR-open block). Five other candidate sites stay deliberately unwired
+pending a recorded ablation delta: the step-3 plan-summary TLDR block, and
+the AWAITING APPROVAL / GATED / MERGED / NEEDS HUMAN TLDR-and-WHY strings,
+plus the `triaged-no-change` answer written via `flow-state-update
+--answer-stdin`. Wiring any of them is gated on recording that delta first:
+
+```sh
+bun bin/flow-eval.ts run --suite pm-explanation-quality --ablation with-without --out .flow-tmp/eval
+```
 
 The plain shell stays the default launcher unless you opt in: per run with `flow feature create --tmux "<desc>"`, or globally with `flow config launcher set tmux`.
+
+## Clickable output
+
+flow renders absolute file paths, PR URLs, and issue URLs as real click
+targets — an OSC 8 hyperlink on a terminal, a markdown link in assistant
+prose — via `bin/lib/link.ts`, rather than a bare string you have to
+hand-copy.
+
+**tmux users:** tmux strips OSC 8 hyperlink sequences by default, so a
+rendered link shows as plain text (or stray escape bytes) inside a tmux
+pane unless you opt in:
+
+```sh
+set -as terminal-features ",*:hyperlinks"
+```
+
+**Opting out:** set `FLOW_NO_HYPERLINKS` (any value) to disable
+hyperlink rendering and fall back to bare text — `NO_COLOR` already
+suppresses it too, since a no-color terminal is usually also one without
+hyperlink support. Machine-read output (the `flow-gate-summary`
+sentinels, `flow-open-pr`'s bare-URL stdout, `flow-create-issue`'s JSON)
+is never linkified regardless of either setting.
 
 ## Output lens
 
@@ -225,29 +379,63 @@ Per-helper `--lens pm|dev` always wins over the config value. In chat,
 saying "give me the technical version" expands one reply to the `dev`
 shape without touching config.
 
+## Product brief
+
+`~/.flow/product.md` is the **user-level** product brief — a short markdown
+statement of what you optimize for, applied to every repo you own. A repo's
+own `.flow/product.md` wins over it; with neither present, flow behaves
+exactly as it does without a brief.
+
+It is not a `config.json` key: precedence is fixed at repo-then-user, and
+there is no override. Read it with:
+
+```sh
+flow-product-brief
+```
+
+which prints one JSON line — `{"found":true,"scope":"repo"|"user",
+"path":"<abs>","text":"<contents>"}` or `{"found":false}` — and always exits 0. `scope` tells you which of the two files answered. The full field
+vocabulary and the conventions for writing one are in
+`templates/references/delegation.md` ("Product brief") and
+`references/consumer-repo-contract.md` ("Product brief").
+
+`flow install` seeds `~/.flow/product.md` from
+`templates/product.md.template` when no user-level brief exists, so a fresh
+install resolves a working brief in every repo. The seed only ever happens
+when the file is absent and never overwrites an edited one; deleting the
+file re-seeds it on the next install. The supported way to turn the product
+critic and the product review lens off while keeping a brief is
+`"review": { "product": false }`.
+
+**No secrets, ever.** A resolved brief's full text is quoted verbatim into
+the cross-model plan-review prompt and sent to the external provider — and
+the user-level file applies to every repo you run flow in, with no
+per-repo opt-out. Keep it to standing priorities and vocabulary.
+
 ## Delegate models
 
 `delegate.models.<surface>` (`bin/lib/delegate-models.ts`) routes the agy
 (Google AI Ultra, via `flow-delegate`) model used by each cross-model
 delegate surface — distinct from `models.*` above, which routes the
 **Claude Code** model for pipeline phases. Value grammar: an agy variant
-**display-name** string, e.g. `"Gemini 3.1 Pro (High)"` (the form
+**display-name** string, e.g. `"Gemini 4 Argon (High)"` (the form
 `flow-delegate` accepts on `--model`, not the slug form `agy models`
 emits). Absent key = today's default for that surface; a present but
 wrong-typed value warns on stderr and falls back to the default; never
 throws.
 
-| surface             | what it drives                                                                                                                                | default today                             |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `intentGuess`       | `/flow-pr-review` cross-model intent guess                                                                                                    | `Gemini 3.1 Pro (High)`                   |
-| `reviewLens`        | `/flow-pr-review` Gemini review lens                                                                                                          | `Gemini 3.1 Pro (High)`                   |
-| `researchGather`    | forced-research gather pass                                                                                                                   | `Gemini 3.1 Pro (High)`                   |
-| `researchRefute`    | forced-research adversarial refute pass                                                                                                       | `Claude Opus 4.6 (Thinking)`              |
-| `planReview`        | `/flow-pipeline` step 3 plan review, reviewer 1                                                                                               | `Gemini 3.7 Flash (High)`                 |
-| `planReviewSecond`  | `/flow-pipeline` step 3 plan review, deep-tier reviewer 2                                                                                     | `Claude Opus 4.6 (Thinking)`              |
-| `blindSurvey`       | `/flow-pipeline` step 3 blind method survey, judge A                                                                                          | `Gemini 3.1 Pro (High)`                   |
-| `blindSurveySecond` | `/flow-pipeline` step 3 blind method survey, judge B; when equal to `blindSurvey` the helper falls back to the other pinned default and warns | `Claude Opus 4.6 (Thinking)`              |
-| `scout`             | reserved — not yet wired; scouting still spawns the Claude Task subagent                                                                      | `null` (no effect on any code path today) |
+| surface             | what it drives                                                                                                                                                                            | default today              |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `intentGuess`       | `/flow-pr-review` cross-model intent guess                                                                                                                                                | `Gemini 4 Argon (High)`    |
+| `reviewLens`        | `/flow-pr-review` Gemini review lens                                                                                                                                                      | `Gemini 4 Argon (High)`    |
+| `researchGather`    | forced-research gather pass                                                                                                                                                               | `Gemini 4 Argon (High)`    |
+| `researchRefute`    | forced-research adversarial refute pass                                                                                                                                                   | `Claude Opus 5.5 (Medium)` |
+| `planReview`        | `/flow-pipeline` step 3 plan review, reviewer 1                                                                                                                                           | `Gemini 4 Argon (High)`    |
+| `planReviewSecond`  | `/flow-pipeline` step 3 plan review, deep-tier reviewer 2                                                                                                                                 | `Claude Opus 5.5 (High)`   |
+| `blindSurvey`       | `/flow-pipeline` step 3 blind method survey, judge A                                                                                                                                      | `Gemini 4 Argon (High)`    |
+| `blindSurveySecond` | `/flow-pipeline` step 3 blind method survey, judge B; when equal to `blindSurvey` the helper falls back to the other pinned default and warns                                             | `Claude Opus 5.5 (High)`   |
+| `scout`             | `/flow-new-feature` Step 1b scout: tried first on agy when set, with the Claude Task scout as the fallback; `null` keeps the Claude Task scout only                                       | `null` (delegation off)    |
+| `claudeLenses`      | `/flow-pr-review` Claude review lenses run on agy instead of a Task agent (only the lenses in `delegate.lenses`; a failed lens falls back to the Task agent); `null` turns delegation off | `null` (delegation off)    |
 
 **Namespace disambiguation — `models.scout` vs `delegate.models.scout`:**
 these two keys share the `scout` suffix but mean opposite things and use
@@ -255,17 +443,34 @@ disjoint value grammars. `models.scout` (see [Per-phase
 models](#per-phase-models)) is a **Claude Code model alias**
 (`opus`/`haiku`/`sonnet`/`fable`) for the Step-1b scout **Task subagent**,
 and it IS wired. `delegate.models.scout` is an **agy variant display-name
-string** that is meant to eventually mean "delegate scouting to agy instead
-of spawning the Task subagent at all" — but no code reads it yet (the
-default flip is gated on a benchmark clear that has not happened yet), so
-**setting it today is a silent no-op**: scouting keeps using the Claude
-Task subagent regardless of this key's value. Setting
-one has no effect on the other.
+string**: when set, `flow-agy-scout` tries the scout on that agy variant
+first (Google AI Ultra quota), and the Claude Task subagent runs as the
+fallback whenever the agy run does not return a complete report, while
+the Google plan is cooling down after a quota failure, or when the key is
+`null` (the default). Setting one has no effect on the other.
+
+**`delegate.lenses`** lists which review lenses run on agy instead of
+Claude once `delegate.models.claudeLenses` names a variant: an array of
+lens names from `bug-detection`, `security`, `pattern-consistency`,
+`performance`, `supply-chain`, `test-coverage`, `product`. Unknown entries
+(including `intent-guess`, which is never delegated) warn once and are
+dropped; a wrong-typed value warns once and falls back to the default (no
+lens delegated). A delegated lens that returns an unusable result — or any
+lens while the Google plan is cooling down after a quota failure — runs as
+a Claude Task agent instead, so no lens is ever dropped.
+
+Recommended only for `bug-detection` for now: in the October 2026 recall
+check the Ultra plan's Claude allowance ran out after about 23 Opus-High
+lens runs in one five-hour window, and a lens that fails there waits for
+the whole delegated wave before its Claude run starts, up to 8 minutes.
+That limits bursts of reviews, not obviously monthly volume. The other
+lenses and the scout are unmeasured. See [the recall
+record](eval/agy-delegation-recall-2026-10.md).
 
 ## Delegate timeouts
 
 `delegate.timeouts.<surface>` (`bin/lib/delegate-timeouts.ts`) routes the
-`--print-timeout` godur string `flow-delegate` passes to each sync
+`--print-timeout` godur string `flow-delegate` passes to each
 cross-model delegate call — distinct from `delegate.models.*` above, which
 routes the _model_, not the _timeout budget_, for these same surfaces.
 Value grammar: a Go-duration string, one or more `<number><unit>` pairs
@@ -276,21 +481,22 @@ never throws.
 
 | surface       | what it drives                             | default today |
 | ------------- | ------------------------------------------ | ------------- |
-| `reviewLens`  | `/flow-pr-review` Gemini review lens       | `8m`          |
-| `intentGuess` | `/flow-pr-review` cross-model intent guess | `5m`          |
+| `reviewLens`  | `/flow-pr-review` Gemini review lens       | `10m`         |
+| `intentGuess` | `/flow-pr-review` cross-model intent guess | `10m`         |
 
-**9-minute sync ceiling.** Both surfaces run inside a Bash tool call that
-itself pins a 600000ms (10-minute) timeout
-(`skills/pipeline/flow-pr-review/SKILL.md`,
-`skills/pipeline/flow-pr-review/references/intent-mismatch-resolution.md`).
-A configured timeout above that ceiling means the Bash tool kills the
-helper before agy's own `--print-timeout` ever fires, so the caller never
-sees an envelope at all — a worse misclassification than a bare
-`agy-timeout` skip. An exact-`9m` override is accepted as-is, reserving a
-minute of slack under the 10-minute Bash cap; `resolveDelegateTimeout`
-clamps only an override strictly above `9m` down to `9m`, warning once per
-surface on stderr, rather than
-silently passing the unsafe value through.
+**20-minute sanity bound.** Both surfaces are launched detached
+(`flow-spawn --detach`) and awaited with `flow-plan-review-wait`, so no
+Bash tool call's 600000ms (10-minute) timeout holds them. The defaults come
+from the Stage 0 latency probe
+([`eval/argon-latency-probe-2026-10.md`](eval/argon-latency-probe-2026-10.md)):
+10m is the sizing floor, which both fit. The research, plan-review and
+survey limits are not `delegate.timeouts` keys: the research limit is
+`research.timeout` (default `20m`), the other two are fixed defaults. The sizing rule is in
+[`eval/argon-latency-probe/README.md`](eval/argon-latency-probe/README.md).
+`resolveDelegateTimeout` still clamps an override strictly above `20m`
+down to `20m`, warning once per surface on stderr, so a typo like `"200m"`
+cannot hold a pipeline for hours. An override between `9m` and `20m` now
+passes through as written; before, it was clamped to `9m`.
 
 ## tmux status-bar bindings (opt-in)
 
@@ -305,6 +511,14 @@ set -g window-status-format '#{@flow-repo} #{@flow-phase-short}'
 
 `@flow-pr` carries the pipeline's PR number as bare digits (no leading
 `#`), and is empty until the pipeline has opened a PR.
+
+After publishing these options flow issues a best-effort `tmux
+refresh-client -S`, so a phase change repaints your status bar
+immediately rather than waiting for the session's `status-interval` to
+come round. It is fire-and-forget: a detached or headless run has no
+client to refresh, and that failure is discarded — the options are still
+published either way, and the publish-only/additive contract above is
+unchanged.
 
 `@flow-kind` is published on every flow window too, with one of three
 values (`feature` / `epic-design` / `epic-run`), and you're welcome to

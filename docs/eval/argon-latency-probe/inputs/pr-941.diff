@@ -1,0 +1,1574 @@
+diff --git a/bin/flow-gate-summary.test.ts b/bin/flow-gate-summary.test.ts
+index 21027f21..318de35f 100644
+--- a/bin/flow-gate-summary.test.ts
++++ b/bin/flow-gate-summary.test.ts
+@@ -427,7 +427,7 @@ describe("render — needs-human (per-reason mapping)", () => {
+ 
+   it("renders the injected mergeRuleHint under the pause, and no hint line when none is injected", () => {
+     const hint =
+-      "Future merges will be refused the same way until you add `Bash(flow-merge-guard merge *)` to permissions.allow in /x/settings.json (`flow doctor` checks it).";
++      "If this pipeline was launched before flow shipped its own merge rule, `flow feature resume <slug>` relaunches it with the rule; replying `merge #<pr>` also finishes it.";
+     const withHint = render({
+       status: "needs-human",
+       reason: "merge-permission-denied",
+@@ -437,14 +437,18 @@ describe("render — needs-human (per-reason mapping)", () => {
+     expect(finalLine(withHint)).toBe("NEEDS HUMAN: merge-permission-denied");
+     expect(
+       render({ status: "needs-human", reason: "merge-permission-denied" }),
+-    ).not.toContain("Future merges will be refused");
++    ).not.toContain("launched before flow shipped its own merge rule");
+     expect(render({ status: "gated", mergeRuleHint: hint })).not.toContain(
+-      "Future merges will be refused",
++      "launched before flow shipped its own merge rule",
+     );
+   });
+ 
+   describe("run() derives mergeRuleHint from the user's settings (read-only)", () => {
+-    function renderViaRun(home: string, reason: string): string {
++    function renderViaRun(
++      home: string,
++      reason: string,
++      extra: string[] = [],
++    ): string {
+       const original = process.stdout.write.bind(process.stdout);
+       let captured = "";
+       process.stdout.write = ((chunk: unknown) => {
+@@ -462,6 +466,7 @@ describe("render — needs-human (per-reason mapping)", () => {
+             "dev",
+             "--slug",
+             "mrh-test-slug",
++            ...extra,
+           ],
+           { stateDir: tmpRoot, homeDir: home, env: {} },
+         );
+@@ -480,42 +485,66 @@ describe("render — needs-human (per-reason mapping)", () => {
+       return home;
+     }
+ 
+-    it("adds the rule line, naming the resolved file, when the settings lack the rule", () => {
++    it("with no personal rules, points at flow feature resume and never says to edit permissions.allow", () => {
+       const home = homeWithSettings(null);
+       const out = renderViaRun(home, "merge-permission-denied");
+-      expect(out).toContain(
+-        "until you add `Bash(flow-merge-guard merge *)` to permissions.allow in",
+-      );
+-      expect(out).toContain(path.join(home, ".claude", "settings.json"));
++      expect(out).toContain("flow feature resume mrh-test-slug");
++      expect(out).not.toContain("permissions.allow");
+     });
+ 
+-    it("adds no line when the rule is already present", () => {
++    it("names a merge-covering personal ask entry and the real file", () => {
+       const home = homeWithSettings(
+         JSON.stringify({
+-          permissions: { allow: ["Bash(flow-merge-guard merge *)"] },
++          permissions: { ask: ["Bash(flow-merge-guard *)"] },
+         }),
+       );
+-      expect(renderViaRun(home, "merge-permission-denied")).not.toContain(
+-        "Future merges will be refused",
++      const out = renderViaRun(home, "merge-permission-denied");
++      expect(out).toContain("Bash(flow-merge-guard *)");
++      expect(out).toContain(path.join(home, ".claude", "settings.json"));
++      expect(out).toContain("makes every merge prompt");
++      expect(out).not.toContain("permissions.allow");
++    });
++
++    it("names classifyAllShell and says relaunching will not help when no ask entry conflicts", () => {
++      const home = homeWithSettings(
++        JSON.stringify({ autoMode: { classifyAllShell: true } }),
++      );
++      const out = renderViaRun(home, "merge-permission-denied", [
++        "--pr-url",
++        "https://github.com/o/r/pull/77",
++      ]);
++      expect(out).toContain("autoMode.classifyAllShell");
++      expect(out).toContain("relaunching will not help");
++      expect(out).toContain("merge #77");
++      expect(out).not.toContain(
++        "launched before flow shipped its own merge rule",
+       );
+     });
+ 
+-    it("for a broader rule, says it also pre-approves a gate override instead of claiming merges will be refused", () => {
++    it("the conflicting-entry line carries the narrow-or-delete remedy and the real PR number", () => {
+       const home = homeWithSettings(
+         JSON.stringify({
+-          permissions: { allow: ["Bash(flow-merge-guard *)"] },
++          permissions: { ask: ["Bash(flow-merge-guard *)"] },
+         }),
+       );
++      const out = renderViaRun(home, "merge-permission-denied", [
++        "--pr-url",
++        "https://github.com/o/r/pull/77",
++      ]);
++      expect(out).toContain("Narrow or delete that entry");
++      expect(out).toContain("merge #77");
++    });
++
++    it("falls back to <pr> when no PR URL is given", () => {
++      const home = homeWithSettings(null);
+       const out = renderViaRun(home, "merge-permission-denied");
+-      expect(out).toContain("also pre-approves recording a gate override");
+-      expect(out).toContain('with "Bash(flow-merge-guard merge *)"');
+-      expect(out).not.toContain("Future merges will be refused");
++      expect(out).toContain("merge #<pr>");
+     });
+ 
+     it("adds no line for any other reason", () => {
+       const home = homeWithSettings(null);
+       expect(renderViaRun(home, "merge-failed")).not.toContain(
+-        "Future merges will be refused",
++        "launched before flow shipped its own merge rule",
+       );
+     });
+   });
+diff --git a/bin/flow-gate-summary.ts b/bin/flow-gate-summary.ts
+index aac8f84a..18eea25d 100755
+--- a/bin/flow-gate-summary.ts
++++ b/bin/flow-gate-summary.ts
+@@ -77,9 +77,8 @@ import {
+ import { resolveSlugFromEnv } from "./lib/session-identity";
+ import { finalizePhase } from "./lib/phase-advance";
+ import {
+-  broaderRuleFix,
+-  FLOW_MERGE_ALLOW_RULE,
+-  readMergeAllowRule,
++  classifyAllShellOn,
++  findMergeCoveringAskEntry,
+ } from "./lib/merge-allow-rule";
+ import { userSettingsPath } from "./lib/claude-user-settings";
+ import { recordEvent } from "./lib/telemetry";
+@@ -1109,26 +1108,32 @@ function resolveCleanupInput(
+ }
+ 
+ /**
+- * The conditional rule line for a `merge-permission-denied` pause: present
+- * only when the user's settings lack the exact merge allow rule (when it is
+- * present the refusal came from elsewhere, e.g. a wrapped call). Read-only.
++ * The conditional line for a `merge-permission-denied` pause. flow's launch
++ * settings already carry the merge rule, so the cause is either a personal
++ * `permissions.ask` entry that makes every merge prompt, or a pipeline
++ * launched before flow shipped the rule. Read-only; never tells the owner to
++ * paste a rule.
+  */
+ function mergeRuleHintFor(
+   reason: string | undefined,
+   env: NodeJS.ProcessEnv,
+   homeDir: string,
++  slug?: string | null,
++  prUrl?: string,
+ ): string | undefined {
+   if (!reason || reason.split(":")[0].trim() !== "merge-permission-denied") {
+     return undefined;
+   }
+-  const { status, resolvedPath, exactPresent } = readMergeAllowRule(
+-    userSettingsPath(env, homeDir),
+-  );
+-  if (status === "present") return undefined;
+-  if (status === "broader") {
+-    return `Your settings carry a broader flow-merge-guard rule that also pre-approves recording a gate override: ${broaderRuleFix(resolvedPath, exactPresent === true)} (\`flow doctor\` checks it).`;
++  const pr = (prUrl && extractPrNumber(prUrl)) || "<pr>";
++  const settingsPath = userSettingsPath(env, homeDir);
++  const { entry, resolvedPath } = findMergeCoveringAskEntry(settingsPath);
++  if (entry !== undefined) {
++    return `Your Claude settings ask before every flow-merge-guard call (\`${entry}\` in ${resolvedPath}), which makes every merge prompt. Narrow or delete that entry (\`flow doctor\` checks it), or reply \`merge #${pr}\` to finish this one.`;
+   }
+-  return `Future merges will be refused the same way until you add \`${FLOW_MERGE_ALLOW_RULE}\` to permissions.allow in ${resolvedPath} (\`flow doctor\` checks it).`;
++  if (classifyAllShellOn(settingsPath)) {
++    return `Your Claude settings turn on \`autoMode.classifyAllShell\` (${settingsPath}), which makes auto mode ignore every Bash allow rule, so relaunching will not help; reply \`merge #${pr}\` to finish this one.`;
++  }
++  return `If this pipeline was launched before flow shipped its own merge rule, \`flow feature resume ${slug || "<slug>"}\` relaunches it with the rule; replying \`merge #${pr}\` also finishes it.`;
+ }
+ 
+ export function run(
+@@ -1199,6 +1204,8 @@ export function run(
+       parsed.reason,
+       opts?.env ?? process.env,
+       opts?.homeDir ?? os.homedir(),
++      resolvedSlug,
++      parsed.prUrl,
+     ),
+   });
+   try {
+diff --git a/bin/flow-merge-guard.ts b/bin/flow-merge-guard.ts
+index b39e56ec..8422a615 100755
+--- a/bin/flow-merge-guard.ts
++++ b/bin/flow-merge-guard.ts
+@@ -50,8 +50,8 @@
+  *       bare `gh pr merge --squash <PR>` from the base checkout
+  *       (`state.repo`). Prints one JSON line and writes the same JSON to
+  *       `<worktree>/.flow-tmp/merge-result.json`. `merge` MUST stay the first
+- *       argv token: the owner's user-global allow rule
+- *       `Bash(flow-merge-guard merge *)` only matches that shape, and
++ *       argv token: flow's launch-settings allow rule
++ *       (flow-launched sessions only) `Bash(flow-merge-guard merge *)` only matches that shape, and
+  *       `--record-override` is deliberately a usage error here so recording
+  *       an override stays outside the pre-approval.
+  *         exit 0 merged (or already MERGED) / 1 refused / 3 merge failed /
+diff --git a/bin/flow-pipeline-step10.test.ts b/bin/flow-pipeline-step10.test.ts
+index 160bbb49..0a48e96a 100644
+--- a/bin/flow-pipeline-step10.test.ts
++++ b/bin/flow-pipeline-step10.test.ts
+@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
+  * Doc-lint regression for `/flow-pipeline` step 10's merge invocation.
+  *
+  * Step 10 runs `flow-merge-guard merge "$PR"` as a standalone Bash call so
+- * the owner's user-global allow rule `Bash(flow-merge-guard merge *)` matches
++ * flow's launch-settings allow rule `Bash(flow-merge-guard merge *)` matches
+  * it (a `$(...)` wrapper, pipe or `cd ... &&` prefix never would). The bare
+  * `gh pr merge --squash` and its base-checkout cwd (gh's post-merge `git
+  * checkout <base>` collides with a feature worktree) live in the helper and
+@@ -60,7 +60,7 @@ const STEP_10 = extractStep10(skillContent);
+ 
+ describe("flow-pipeline SKILL.md step 10 — standalone gate-checked merge", () => {
+   it('invokes `flow-merge-guard merge "$PR"` as its own standalone Bash call', () => {
+-    // The owner's user-global allow rule `Bash(flow-merge-guard merge *)`
++    // flow's launch-settings allow rule `Bash(flow-merge-guard merge *)`
+     // only matches a standalone call: a `$(...)` wrapper, a pipe or a
+     // `cd ... &&` prefix falls back to the permission classifier.
+     const needle = 'flow-merge-guard merge "$PR"';
+@@ -349,3 +349,18 @@ describe("manual-merge instructions are one standalone gate-checked command", ()
+     ).toEqual([]);
+   });
+ });
++
++describe("flow-owned merge and override rules replace the paste-a-rule docs", () => {
++  const read = (...p: string[]) =>
++    fs.readFileSync(path.join(REPO_ROOT, ...p), "utf8");
++
++  it("docs, SKILL.md and the contract no longer tell the owner to paste a rule", () => {
++    expect(read("docs", "configuration.md")).not.toContain(
++      "Confirming a gate override",
++    );
++    expect(skillContent).not.toContain("user-global allow rule");
++    expect(read("references", "consumer-repo-contract.md")).toContain(
++      "flow-merge-guard * --record-override",
++    );
++  });
++});
+diff --git a/bin/lib/doctor-cli.test.ts b/bin/lib/doctor-cli.test.ts
+index 8764e02b..e5009f00 100644
+--- a/bin/lib/doctor-cli.test.ts
++++ b/bin/lib/doctor-cli.test.ts
+@@ -39,10 +39,6 @@ vi.mock("./paths", async (orig) => ({
+ }));
+ 
+ import { runDoctorCli } from "./doctor-cli";
+-import {
+-  FLOW_MERGE_ALLOW_RULE,
+-  FLOW_OVERRIDE_ASK_RULES,
+-} from "./merge-allow-rule";
+ import type { DoctorDeps, DoctorReport } from "./doctor";
+ import { makeDeps, scriptedRun } from "./doctor-test-deps";
+ import { appendRow } from "./proc-registry";
+@@ -118,16 +114,6 @@ function healthyDeps(): DoctorDeps {
+     } as PipelineState,
+     deps.stateDir,
+   );
+-  fs.mkdirSync(path.join(deps.homeDir, ".claude"), { recursive: true });
+-  fs.writeFileSync(
+-    path.join(deps.homeDir, ".claude", "settings.json"),
+-    JSON.stringify({
+-      permissions: {
+-        allow: [FLOW_MERGE_ALLOW_RULE],
+-        ask: [...FLOW_OVERRIDE_ASK_RULES],
+-      },
+-    }),
+-  );
+   fs.mkdirSync(deps.targets.binDir, { recursive: true });
+   const symlinks = [
+     ["flow", "flow"],
+@@ -249,8 +235,7 @@ describe("runDoctorCli full probe run in a sandbox", () => {
+         "tools-gh",
+         "tools-tmux",
+         "tools-claude",
+-        "tools-merge-rule",
+-        "tools-override-ask",
++        "tools-pipeline-permissions",
+         "tools-agy",
+         "leftovers-worktrees",
+         "leftovers-processes",
+@@ -259,29 +244,14 @@ describe("runDoctorCli full probe run in a sandbox", () => {
+     const procs = r.checks.find((c) => c.id === "leftovers-processes")!;
+     expect(procs.status).toBe("pass");
+     expect(procs.details.join(" ")).toContain("1 stale registry entry");
+-    expect(r.checks.find((c) => c.id === "tools-merge-rule")?.status).toBe(
+-      "pass",
+-    );
+-    expect(r.checks.find((c) => c.id === "tools-override-ask")?.status).toBe(
+-      "pass",
+-    );
++    expect(
++      r.checks.find((c) => c.id === "tools-pipeline-permissions")?.status,
++    ).toBe("pass");
++    expect(r.counts.warn).toBe(0);
+     expect(r.checks.find((c) => c.id === "tools-tmux")?.status).toBe("skip");
+     expect(r.checks.find((c) => c.id === "tools-agy")?.status).toBe("skip");
+   });
+ 
+-  it("a settings file without the merge rule warns with the exact rule text and the file to edit, and exits 0", async () => {
+-    const deps = healthyDeps();
+-    const settings = path.join(deps.homeDir, ".claude", "settings.json");
+-    fs.writeFileSync(settings, JSON.stringify({ permissions: { allow: [] } }));
+-    expect(await runDoctorCli(["--json"], { deps })).toBe(0);
+-    const c = jsonReport().checks.find((x) => x.id === "tools-merge-rule")!;
+-    expect(c.status).toBe("warn");
+-    expect(c.summary).toContain("auto mode will be refused");
+-    expect(c.fix).toBe(
+-      `add "Bash(flow-merge-guard merge *)" to permissions.allow in ${fs.realpathSync(settings)}`,
+-    );
+-  });
+-
+   it("a registered helper with no link and no record fails the run with the fix", async () => {
+     const deps = healthyDeps();
+     fs.writeFileSync(
+diff --git a/bin/lib/doctor-cli.ts b/bin/lib/doctor-cli.ts
+index 3b47ddb8..82f34a99 100644
+--- a/bin/lib/doctor-cli.ts
++++ b/bin/lib/doctor-cli.ts
+@@ -16,13 +16,11 @@ import { checkStaleWorktrees, STALE_WORKTREES_META } from "./doctor-resources";
+ import {
+   checkClaude,
+   checkGh,
+-  checkMergeAllowRule,
+-  checkOverrideAskRule,
++  checkPipelinePermissions,
+   checkTmux,
+   TOOLS_CLAUDE_META,
+   TOOLS_GH_META,
+-  TOOLS_MERGE_RULE_META,
+-  TOOLS_OVERRIDE_ASK_META,
++  TOOLS_PIPELINE_PERMISSIONS_META,
+   TOOLS_TMUX_META,
+ } from "./doctor-tools";
+ import {
+@@ -58,8 +56,9 @@ export const DOCTOR_PROBES: DoctorProbe[] = [
+   guarded(TOOLS_GH_META, (deps) => checkGh(deps)),
+   guarded(TOOLS_TMUX_META, (deps) => checkTmux(deps)),
+   guarded(TOOLS_CLAUDE_META, (deps) => checkClaude(deps)),
+-  guarded(TOOLS_MERGE_RULE_META, (deps) => checkMergeAllowRule(deps)),
+-  guarded(TOOLS_OVERRIDE_ASK_META, (deps) => checkOverrideAskRule(deps)),
++  guarded(TOOLS_PIPELINE_PERMISSIONS_META, (deps) =>
++    checkPipelinePermissions(deps),
++  ),
+   guarded(TOOLS_AGY_META, (deps) => checkAgy(deps)),
+   guarded(STALE_WORKTREES_META, (deps) => checkStaleWorktrees(deps)),
+   guarded(PIPELINE_RECORDS_META, (deps) => checkPipelineState(deps)),
+diff --git a/bin/lib/doctor-tools.test.ts b/bin/lib/doctor-tools.test.ts
+index f907cc79..69bed1e3 100644
+--- a/bin/lib/doctor-tools.test.ts
++++ b/bin/lib/doctor-tools.test.ts
+@@ -6,8 +6,7 @@ import { checkAgy } from "./doctor-agy";
+ import {
+   checkClaude,
+   checkGh,
+-  checkMergeAllowRule,
+-  checkOverrideAskRule,
++  checkPipelinePermissions,
+   checkTmux,
+ } from "./doctor-tools";
+ import { makeDeps, scriptedRun, type RunCall } from "./doctor-test-deps";
+@@ -288,75 +287,10 @@ describe("checkAgy", () => {
+   });
+ });
+ 
+-describe("checkMergeAllowRule", () => {
+-  function settingsAt(dir: string, body: string): string {
+-    fs.mkdirSync(dir, { recursive: true });
+-    const file = path.join(dir, "settings.json");
+-    fs.writeFileSync(file, body);
+-    return fs.realpathSync(file);
+-  }
+-
+-  it("passes when the rule is in CLAUDE_CONFIG_DIR/settings.json, naming the resolved file", () => {
+-    const cfg = path.join(root, "cfg");
+-    const file = settingsAt(
+-      cfg,
+-      JSON.stringify({
+-        permissions: { allow: ["Bash(flow-merge-guard merge *)"] },
+-      }),
+-    );
+-    const [c] = checkMergeAllowRule(
+-      makeDeps(root, { env: { CLAUDE_CONFIG_DIR: cfg } }),
+-    );
+-    expect(c).toMatchObject({ id: "tools-merge-rule", status: "pass" });
+-    expect(c.summary).toContain(file);
+-  });
+-
+-  it("warns for a broader rule, saying it also pre-approves recording a gate override", () => {
+-    const file = settingsAt(
+-      path.join(root, "home", ".claude"),
+-      JSON.stringify({ permissions: { allow: ["Bash(flow-merge-guard *)"] } }),
+-    );
+-    const [c] = checkMergeAllowRule(makeDeps(root));
+-    expect(c.status).toBe("warn");
+-    expect(c.details.join(" ")).toContain(
+-      "also pre-approves recording a gate override",
+-    );
+-    expect(c.summary).not.toContain("refused");
+-    expect(c.fix).toBe(
+-      `replace the broader Bash(flow-merge-guard …) entry in permissions.allow in ${file} with "Bash(flow-merge-guard merge *)"`,
+-    );
+-  });
+-
+-  it("warns for a broader rule even when the exact rule is also present, telling the owner to remove it", () => {
+-    const file = settingsAt(
+-      path.join(root, "home", ".claude"),
+-      JSON.stringify({
+-        permissions: {
+-          allow: ["Bash(flow-merge-guard merge *)", "Bash(flow-merge-guard *)"],
+-        },
+-      }),
+-    );
+-    const [c] = checkMergeAllowRule(makeDeps(root));
+-    expect(c.status).toBe("warn");
+-    expect(c.fix).toBe(
+-      `remove the broader Bash(flow-merge-guard …) entry from permissions.allow in ${file}; keep "Bash(flow-merge-guard merge *)"`,
+-    );
+-  });
+-
+-  it("warns on a missing file and on malformed JSON", () => {
+-    const [missingFile] = checkMergeAllowRule(makeDeps(root));
+-    expect(missingFile.status).toBe("warn");
+-    expect(missingFile.details.join(" ")).toContain("does not exist");
+-    settingsAt(path.join(root, "home", ".claude"), "{ nope");
+-    const [bad] = checkMergeAllowRule(makeDeps(root));
+-    expect(bad.status).toBe("warn");
+-    expect(bad.details.join(" ")).toContain("not a valid JSON object");
+-  });
+-});
+-
+-describe("checkOverrideAskRule", () => {
++describe("checkPipelinePermissions", () => {
+   const BARE = "Bash(flow-merge-guard * --record-override)";
+   const ARGS = "Bash(flow-merge-guard * --record-override *)";
++  const home = () => path.join(root, "home", ".claude");
+ 
+   function settingsAt(dir: string, body: string): string {
+     fs.mkdirSync(dir, { recursive: true });
+@@ -365,61 +299,60 @@ describe("checkOverrideAskRule", () => {
+     return fs.realpathSync(file);
+   }
+   const askBody = (ask: string[]) => JSON.stringify({ permissions: { ask } });
+-  const home = () => path.join(root, "home", ".claude");
+ 
+-  it("passes when both rules are in permissions.ask, naming the resolved file", () => {
+-    const file = settingsAt(home(), askBody([BARE, ARGS]));
+-    const [c] = checkOverrideAskRule(makeDeps(root));
+-    expect(c).toMatchObject({ id: "tools-override-ask", status: "pass" });
+-    expect(c.summary).toContain(file);
+-    expect(c.summary).not.toContain("always asks");
++  it("passes with no personal settings file", () => {
++    const [c] = checkPipelinePermissions(makeDeps(root));
++    expect(c).toMatchObject({
++      id: "tools-pipeline-permissions",
++      status: "pass",
++    });
++    expect(c.summary).toContain("launch settings");
++    expect(c.details).toEqual([]);
+   });
+ 
+-  it("warns for a partial pair, naming only the missing line and the file", () => {
+-    const file = settingsAt(home(), askBody([BARE]));
+-    const [c] = checkOverrideAskRule(makeDeps(root));
+-    expect(c.status).toBe("warn");
+-    expect(c.fix).toBe(`add "${ARGS}" to permissions.ask in ${file}`);
++  it("passes with a malformed settings file", () => {
++    settingsAt(home(), "{ nope");
++    const [c] = checkPipelinePermissions(makeDeps(root));
++    expect(c.status).toBe("pass");
+   });
+ 
+-  it("skips (opt-in not set up) for an absent pair, naming both lines and not overstating the risk", () => {
+-    const file = settingsAt(home(), askBody([]));
+-    const [c] = checkOverrideAskRule(makeDeps(root));
+-    expect(c.status).toBe("skip");
+-    const line = `add "${BARE}" and "${ARGS}" to permissions.ask in ${file}`;
+-    expect(c.fix).toBe(line);
+-    expect(c.details).toContain(`to opt in: ${line}`);
+-    expect(c.summary).toContain("pipeline's own confirmation");
+-    expect(c.summary).not.toContain("will not ask you first");
++  it("passes with only the two override rules in personal ask", () => {
++    settingsAt(home(), askBody([BARE, ARGS]));
++    const [c] = checkPipelinePermissions(makeDeps(root));
++    expect(c.status).toBe("pass");
+   });
+ 
+-  it("warns for a merge-covering ask entry, naming it as the one to narrow", () => {
++  it("passes with an informational detail when autoMode.classifyAllShell is on", () => {
++    settingsAt(
++      home(),
++      JSON.stringify({ autoMode: { classifyAllShell: true } }),
++    );
++    const [c] = checkPipelinePermissions(makeDeps(root));
++    expect(c.status).toBe("pass");
++    expect(c.details.join(" ")).toContain("autoMode.classifyAllShell");
++    expect(c.details.join(" ")).toContain("merge #<pr>");
++  });
++
++  it("warns for a merge-covering personal ask entry, naming it and the real file", () => {
+     const file = settingsAt(
+       home(),
+       askBody([BARE, ARGS, "Bash(flow-merge-guard *)"]),
+     );
+-    const [c] = checkOverrideAskRule(makeDeps(root));
++    const [c] = checkPipelinePermissions(makeDeps(root));
+     expect(c.status).toBe("warn");
+-    expect(c.details.join(" ")).toContain("Bash(flow-merge-guard *)");
++    expect(c.summary).toContain("Bash(flow-merge-guard *)");
+     expect(c.fix).toContain('narrow "Bash(flow-merge-guard *)"');
+     expect(c.fix).toContain(file);
+   });
+ 
+-  it("skips on a missing file and warns on malformed JSON, naming the path", () => {
+-    const [missingFile] = checkOverrideAskRule(makeDeps(root));
+-    expect(missingFile.status).toBe("skip");
+-    expect(missingFile.details.join(" ")).toContain("does not exist");
+-    expect(missingFile.fix).toContain("settings.json");
+-    settingsAt(home(), "{ nope");
+-    const [bad] = checkOverrideAskRule(makeDeps(root));
+-    expect(bad.status).toBe("warn");
+-    expect(bad.details.join(" ")).toContain("not a valid JSON object");
+-  });
+-
+-  it("never rewrites the settings file", () => {
+-    const file = settingsAt(home(), askBody([BARE]));
++  it("reads CLAUDE_CONFIG_DIR/settings.json and never rewrites the file", () => {
++    const cfg = path.join(root, "cfg");
++    const file = settingsAt(cfg, askBody(["Bash(flow-merge-guard *)"]));
+     const before = fs.readFileSync(file, "utf8");
+-    checkOverrideAskRule(makeDeps(root));
++    const [c] = checkPipelinePermissions(
++      makeDeps(root, { env: { CLAUDE_CONFIG_DIR: cfg } }),
++    );
++    expect(c.status).toBe("warn");
+     expect(fs.readFileSync(file, "utf8")).toBe(before);
+   });
+ });
+diff --git a/bin/lib/doctor-tools.ts b/bin/lib/doctor-tools.ts
+index d8a42fe6..33bb9437 100644
+--- a/bin/lib/doctor-tools.ts
++++ b/bin/lib/doctor-tools.ts
+@@ -9,13 +9,9 @@ import { userSettingsPath } from "./claude-user-settings";
+ import type { DoctorCheck, DoctorDeps } from "./doctor";
+ import { installCommand } from "./doctor-util";
+ import {
+-  broaderRuleFix,
+-  FLOW_MERGE_ALLOW_RULE,
++  classifyAllShellOn,
++  findMergeCoveringAskEntry,
+   FLOW_OVERRIDE_ASK_RULES,
+-  readMergeAllowRule,
+-  readOverrideAskRule,
+-  type MergeRuleStatus,
+-  type OverrideAskStatus,
+ } from "./merge-allow-rule";
+ import { readConfigFileAt } from "./modules-config";
+ import { readLauncherConfig } from "./launcher-config";
+@@ -44,128 +40,39 @@ export const TOOLS_CLAUDE_META = {
+   title: "claude",
+ } as const;
+ 
+-export const TOOLS_MERGE_RULE_META = {
+-  id: "tools-merge-rule",
++export const TOOLS_PIPELINE_PERMISSIONS_META = {
++  id: "tools-pipeline-permissions",
+   section: "tools",
+-  title: "merge permission",
++  title: "pipeline permissions",
+ } as const;
+ 
+-const MERGE_RULE_REASON: Record<Exclude<MergeRuleStatus, "present">, string> = {
+-  broader:
+-    "the broader rule also pre-approves recording a gate override, which should still need your confirmation",
+-  absent: "the file has no matching entry in permissions.allow",
+-  "missing-file": "the settings file does not exist",
+-  malformed: "the settings file is not a valid JSON object",
+-};
+-
+-export function checkMergeAllowRule(deps: DoctorDeps): DoctorCheck[] {
+-  const base = TOOLS_MERGE_RULE_META;
+-  const { status, resolvedPath, exactPresent } = readMergeAllowRule(
+-    userSettingsPath(deps.env, deps.homeDir),
+-  );
+-  if (status === "broader") {
+-    return [
+-      {
+-        ...base,
+-        status: "warn",
+-        summary:
+-          "your Claude settings carry a broader flow-merge-guard rule than unattended merges need",
+-        details: [MERGE_RULE_REASON.broader],
+-        fix: broaderRuleFix(resolvedPath, exactPresent === true),
+-      },
+-    ];
+-  }
+-  if (status === "present") {
+-    return [
+-      {
+-        ...base,
+-        status: "pass",
+-        summary: `unattended merges are pre-approved (${resolvedPath})`,
+-        details: [],
+-      },
+-    ];
+-  }
+-  return [
+-    {
+-      ...base,
+-      status: "warn",
+-      summary:
+-        "unattended merges under auto mode will be refused until the merge rule is in your Claude settings",
+-      details: [MERGE_RULE_REASON[status]],
+-      fix: `add "${FLOW_MERGE_ALLOW_RULE}" to permissions.allow in ${resolvedPath}`,
+-    },
+-  ];
+-}
+-
+-export const TOOLS_OVERRIDE_ASK_META = {
+-  id: "tools-override-ask",
+-  section: "tools",
+-  title: "override confirmation",
+-} as const;
+-
+-const OVERRIDE_ASK_REASON: Record<
+-  Exclude<OverrideAskStatus, "present" | "merge-covered">,
+-  string
+-> = {
+-  partial: "one of the two override rules is missing from permissions.ask",
+-  absent: "the file has neither override rule in permissions.ask",
+-  "missing-file": "the settings file does not exist",
+-  malformed: "the settings file is not a valid JSON object",
+-};
+-
+-export function checkOverrideAskRule(deps: DoctorDeps): DoctorCheck[] {
+-  const base = TOOLS_OVERRIDE_ASK_META;
+-  const { status, resolvedPath, missing, mergeCovering } = readOverrideAskRule(
+-    userSettingsPath(deps.env, deps.homeDir),
+-  );
+-  if (status === "present") {
+-    return [
+-      {
+-        ...base,
+-        status: "pass",
+-        summary: `recording a gate override raises a Claude Code permission prompt the agent can't answer for you (${resolvedPath})`,
+-        details: [],
+-      },
+-    ];
+-  }
+-  if (status === "merge-covered") {
++export function checkPipelinePermissions(deps: DoctorDeps): DoctorCheck[] {
++  const base = TOOLS_PIPELINE_PERMISSIONS_META;
++  const settingsPath = userSettingsPath(deps.env, deps.homeDir);
++  const { entry, resolvedPath } = findMergeCoveringAskEntry(settingsPath);
++  if (entry !== undefined) {
+     return [
+       {
+         ...base,
+         status: "warn",
+-        summary:
+-          "your Claude settings ask before every flow-merge-guard call, so unattended merges would prompt",
+-        details: [`the ask entry ${mergeCovering} also matches the merge call`],
+-        fix: `narrow "${mergeCovering}" in permissions.ask in ${resolvedPath} to the two override rules: ${FLOW_OVERRIDE_ASK_RULES.map((r) => `"${r}"`).join(" and ")}`,
+-      },
+-    ];
+-  }
+-  const lines = status === "partial" ? missing : [...FLOW_OVERRIDE_ASK_RULES];
+-  const fix = `add ${lines.map((r) => `"${r}"`).join(" and ")} to permissions.ask in ${resolvedPath}`;
+-  if (status === "absent" || status === "missing-file") {
+-    // An opt-in that was never set up is not a misconfiguration: the pipeline
+-    // still confirms every override itself, and only auto mode's own review
+-    // decides whether the recording step runs. `skip` renders no fix line, so
+-    // the opt-in line lives in details.
+-    return [
+-      {
+-        ...base,
+-        status: "skip",
+-        summary:
+-          "the override rules are not set; gate overrides still go through the pipeline's own confirmation, but auto mode decides whether the recording step runs",
+-        details: [OVERRIDE_ASK_REASON[status], `to opt in: ${fix}`],
+-        fix,
++        summary: `your Claude settings ask before every flow-merge-guard call (${entry}), so every unattended merge would prompt`,
++        details: [`the ask entry ${entry} also matches the merge call`],
++        fix: `narrow "${entry}" in permissions.ask in ${resolvedPath} to the two override rules: ${FLOW_OVERRIDE_ASK_RULES.map((r) => `"${r}"`).join(" and ")}, or delete it`,
+       },
+     ];
+   }
++  const details = classifyAllShellOn(settingsPath)
++    ? [
++        "autoMode.classifyAllShell in your Claude settings makes auto mode ignore Bash allow rules, so unattended merges will pause for `merge #<pr>`",
++      ]
++    : [];
+   return [
+     {
+       ...base,
+-      status: "warn",
++      status: "pass",
+       summary:
+-        "the override rules are only partly set, so recording a gate override may not raise the Claude Code prompt you expect",
+-      details: [OVERRIDE_ASK_REASON[status]],
+-      fix,
++        "pipelines carry flow's merge and override rules in flow's own launch settings",
++      details,
+     },
+   ];
+ }
+diff --git a/bin/lib/feature.test.ts b/bin/lib/feature.test.ts
+index 4cca72a2..c3ad48ff 100644
+--- a/bin/lib/feature.test.ts
++++ b/bin/lib/feature.test.ts
+@@ -143,11 +143,16 @@ vi.mock("./liveness", async () => {
+ });
+ 
+ import { FLOW_CLAUDE_HOME, installedHelperPath } from "./paths";
++import {
++  FLOW_MERGE_ALLOW_RULE,
++  FLOW_OVERRIDE_ASK_RULES,
++} from "./merge-allow-rule";
+ import {
+   runNew as runNewReal,
+   runFeatureCli as runFeatureCliReal,
+   deriveWorktreePath,
+   ensureLaunchSettings,
++  launchSettingsPermissions,
+   flowPipelineResumeSeed,
+   resolveSeedHookCommand,
+   type FeatureOptions,
+@@ -4306,9 +4311,13 @@ describe("ensureLaunchSettings hook-command resolution", () => {
+     expect(fs.statSync(settingsPath).mtimeMs).toBe(firstMtime);
+   });
+ 
+-  function readPermissions(): { deny: string[]; allow: string[] } {
++  function readPermissions(): {
++    deny: string[];
++    allow: string[];
++    ask: string[];
++  } {
+     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+-      permissions: { deny: string[]; allow: string[] };
++      permissions: { deny: string[]; allow: string[]; ask: string[] };
+     };
+     return settings.permissions;
+   }
+@@ -4360,6 +4369,33 @@ describe("ensureLaunchSettings hook-command resolution", () => {
+     expect(allow).toContain("Bash(flow-ui-login test-account *)");
+   });
+ 
++  it("pre-approves exactly the merge call and no other flow-merge-guard allow entry", () => {
++    ensureLaunchSettings(settingsPath);
++    const { allow } = readPermissions();
++    expect(allow).toContain(FLOW_MERGE_ALLOW_RULE);
++    expect(allow.filter((r) => r.startsWith("Bash(flow-merge-guard"))).toEqual([
++      FLOW_MERGE_ALLOW_RULE,
++    ]);
++  });
++
++  it("asks on exactly the two --record-override rules, never a merge-covering ask", () => {
++    ensureLaunchSettings(settingsPath);
++    const { ask } = readPermissions();
++    expect(ask).toEqual([...FLOW_OVERRIDE_ASK_RULES]);
++    expect(
++      ask.filter(
++        (r) =>
++          r.startsWith("Bash(flow-merge-guard") &&
++          !r.includes("--record-override"),
++      ),
++    ).toEqual([]);
++  });
++
++  it("launchSettingsPermissions() matches the written file", () => {
++    ensureLaunchSettings(settingsPath);
++    expect(readPermissions()).toEqual(launchSettingsPermissions());
++  });
++
+   it("a second call with permissions already present leaves the file unchanged", () => {
+     ensureLaunchSettings(settingsPath);
+     const firstContent = fs.readFileSync(settingsPath, "utf8");
+diff --git a/bin/lib/feature.ts b/bin/lib/feature.ts
+index 5649a99e..16d07dd3 100644
+--- a/bin/lib/feature.ts
++++ b/bin/lib/feature.ts
+@@ -76,6 +76,10 @@ import {
+   FLOW_UI_LOGIN_ALLOW_RULES,
+   SECRET_FILE_DENY_RULES,
+ } from "./secret-deny-rules";
++import {
++  FLOW_MERGE_ALLOW_RULE,
++  FLOW_OVERRIDE_ASK_RULES,
++} from "./merge-allow-rule";
+ import {
+   seedIngestConfirmsDelivery,
+   seedIngestIsCorrupt,
+@@ -1954,6 +1958,23 @@ function warnOnHookDivergence(
+   }
+ }
+ 
++/** The permission rules in flow's launch settings (flow-launched sessions only). */
++export function launchSettingsPermissions(): {
++  deny: string[];
++  allow: string[];
++  ask: string[];
++} {
++  return {
++    deny: [...SECRET_FILE_DENY_RULES],
++    allow: [
++      ...FLOW_UI_LOGIN_ALLOW_RULES,
++      ...FLOW_CREATE_ISSUE_ALLOW_RULES,
++      FLOW_MERGE_ALLOW_RULE,
++    ],
++    ask: [...FLOW_OVERRIDE_ASK_RULES],
++  };
++}
++
+ /**
+  * Idempotently writes the flow-scoped `claude --settings` file registering the
+  * UserPromptSubmit seed-ingested hook and the PreToolUse flow-doc read guard
+@@ -1988,13 +2009,7 @@ export function ensureLaunchSettings(
+             },
+           ],
+         },
+-        permissions: {
+-          deny: [...SECRET_FILE_DENY_RULES],
+-          allow: [
+-            ...FLOW_UI_LOGIN_ALLOW_RULES,
+-            ...FLOW_CREATE_ISSUE_ALLOW_RULES,
+-          ],
+-        },
++        permissions: launchSettingsPermissions(),
+       },
+       null,
+       2,
+diff --git a/bin/lib/help.ts b/bin/lib/help.ts
+index 10777c39..001c52c0 100644
+--- a/bin/lib/help.ts
++++ b/bin/lib/help.ts
+@@ -382,7 +382,7 @@ and you run that yourself.
+ 
+ Checks, grouped in the report: Install (links, helpers an upgrade never
+ installed, runtime packages), Shell (a stale FLOW_SLUG, PATH), Tools (gh,
+-tmux, claude, agy, the merge permission, the override confirmation),
++tmux, claude, agy, pipeline permissions),
+ Leftovers (stale worktrees, pipeline records that can no longer resume,
+ leaked processes). A live pipeline is never reported as dead for lacking a
+ tmux window.
+diff --git a/bin/lib/merge-allow-rule.test.ts b/bin/lib/merge-allow-rule.test.ts
+index eeca963c..e4d38cd6 100644
+--- a/bin/lib/merge-allow-rule.test.ts
++++ b/bin/lib/merge-allow-rule.test.ts
+@@ -7,8 +7,8 @@ import { parseMergeArgs } from "../flow-merge-guard";
+ import {
+   FLOW_MERGE_ALLOW_RULE,
+   FLOW_OVERRIDE_ASK_RULES,
+-  readMergeAllowRule,
+-  readOverrideAskRule,
++  classifyAllShellOn,
++  findMergeCoveringAskEntry,
+ } from "./merge-allow-rule";
+ 
+ let root: string;
+@@ -23,8 +23,6 @@ afterEach(() => {
+   fs.rmSync(root, { recursive: true, force: true });
+ });
+ 
+-const settings = (allow: unknown) => JSON.stringify({ permissions: { allow } });
+-
+ function write(name: string, body: string): string {
+   const file = path.join(root, name);
+   fs.writeFileSync(file, body);
+@@ -32,7 +30,7 @@ function write(name: string, body: string): string {
+ }
+ 
+ describe("FLOW_MERGE_ALLOW_RULE", () => {
+-  it("equals the text the owner keeps in their dotfiles, exactly", () => {
++  it("is the exact rule text flow ships", () => {
+     expect(FLOW_MERGE_ALLOW_RULE).toBe("Bash(flow-merge-guard merge *)");
+   });
+ 
+@@ -56,173 +54,98 @@ describe("FLOW_MERGE_ALLOW_RULE", () => {
+   });
+ });
+ 
+-describe("readMergeAllowRule", () => {
+-  it("reports present for the exact rule, reading through a symlinked settings file", () => {
+-    const real = write(
+-      "dotfiles-settings.json",
+-      settings([FLOW_MERGE_ALLOW_RULE]),
+-    );
+-    const link = path.join(root, "settings.json");
+-    fs.symlinkSync(real, link);
+-    expect(readMergeAllowRule(link)).toEqual({
+-      status: "present",
+-      resolvedPath: real,
+-    });
+-  });
+-
+-  it("reports absent when permissions.allow lacks the rule or is not a list", () => {
+-    expect(
+-      readMergeAllowRule(write("a.json", settings(["Bash(ls)"]))).status,
+-    ).toBe("absent");
+-    expect(readMergeAllowRule(write("b.json", "{}")).status).toBe("absent");
+-    expect(readMergeAllowRule(write("c.json", settings("nope"))).status).toBe(
+-      "absent",
+-    );
+-  });
+-
+-  it("reports broader for any other Bash(flow-merge-guard entry, which would also approve --record-override", () => {
+-    expect(
+-      readMergeAllowRule(
+-        write("d.json", settings(["Bash(flow-merge-guard *)"])),
+-      ).status,
+-    ).toBe("broader");
+-  });
+-
+-  it("reports broader when a broader entry sits beside the exact rule, in either order", () => {
+-    for (const [i, allow] of [
+-      ["Bash(flow-merge-guard merge *)", "Bash(flow-merge-guard *)"],
+-      ["Bash(flow-merge-guard *)", "Bash(flow-merge-guard merge *)"],
+-    ].entries()) {
+-      expect(
+-        readMergeAllowRule(write(`both${i}.json`, settings(allow))),
+-      ).toMatchObject({ status: "broader", exactPresent: true });
+-    }
+-  });
+-
+-  it("does not call a narrower merge-shaped entry broader", () => {
+-    expect(
+-      readMergeAllowRule(
+-        write("narrow.json", settings(["Bash(flow-merge-guard merge 5)"])),
+-      ).status,
+-    ).toBe("absent");
+-  });
+-
+-  it("reports malformed JSON and a missing file without throwing", () => {
+-    expect(readMergeAllowRule(write("e.json", "{not json")).status).toBe(
+-      "malformed",
+-    );
+-    const missing = path.join(root, "nope.json");
+-    expect(readMergeAllowRule(missing)).toEqual({
+-      status: "missing-file",
+-      resolvedPath: missing,
+-    });
+-  });
+-
+-  it("reports a dangling symlink as missing-file naming the link target", () => {
+-    const target = path.join(root, "dotfiles", "settings.json");
+-    const link = path.join(root, "settings.json");
+-    fs.symlinkSync(target, link);
+-    expect(readMergeAllowRule(link)).toEqual({
+-      status: "missing-file",
+-      resolvedPath: target,
+-    });
+-  });
+-
+-  it("never writes: bytes and mtime of the settings file are unchanged by a read", () => {
+-    const file = write("f.json", settings([FLOW_MERGE_ALLOW_RULE]));
+-    const stat = () => {
+-      const st = fs.statSync(file);
+-      return `${createHash("sha1").update(fs.readFileSync(file)).digest("hex")}@${st.mtimeMs}`;
+-    };
+-    const before = stat();
+-    readMergeAllowRule(file);
+-    expect(stat()).toBe(before);
+-  });
+-});
+-
+ const askSettings = (ask: unknown) => JSON.stringify({ permissions: { ask } });
+ const [ASK_BARE, ASK_ARGS] = FLOW_OVERRIDE_ASK_RULES;
+ 
+-describe("readOverrideAskRule", () => {
+-  it("names the owner's two rules exactly", () => {
++describe("FLOW_OVERRIDE_ASK_RULES", () => {
++  it("names the two override rules exactly", () => {
+     expect([...FLOW_OVERRIDE_ASK_RULES]).toEqual([
+       "Bash(flow-merge-guard * --record-override)",
+       "Bash(flow-merge-guard * --record-override *)",
+     ]);
+   });
++});
+ 
+-  it("reports present when both rules sit in permissions.ask", () => {
+-    const file = write("p.json", askSettings([ASK_BARE, ASK_ARGS]));
+-    expect(readOverrideAskRule(file)).toEqual({
+-      status: "present",
+-      resolvedPath: file,
+-      missing: [],
++describe("findMergeCoveringAskEntry", () => {
++  it("returns no entry for a missing file, naming the path", () => {
++    const missing = path.join(root, "nope.json");
++    expect(findMergeCoveringAskEntry(missing)).toEqual({
++      resolvedPath: missing,
+     });
+   });
+ 
+-  it("reports partial and names the absent rule", () => {
+-    const file = write("pa.json", askSettings([ASK_BARE]));
+-    expect(readOverrideAskRule(file)).toEqual({
+-      status: "partial",
+-      resolvedPath: file,
+-      missing: [ASK_ARGS],
+-    });
++  it("returns no entry for malformed JSON without throwing", () => {
++    const file = write("bad.json", "{not json");
++    expect(findMergeCoveringAskEntry(file)).toEqual({ resolvedPath: file });
+   });
+ 
+-  it("reports absent with both rules missing (allow entries do not count)", () => {
+-    const file = write(
+-      "a.json",
+-      JSON.stringify({ permissions: { allow: [ASK_BARE, ASK_ARGS] } }),
+-    );
+-    expect(readOverrideAskRule(file)).toEqual({
+-      status: "absent",
+-      resolvedPath: file,
+-      missing: [ASK_BARE, ASK_ARGS],
+-    });
++  it("returns no entry when only the two override ask rules are present", () => {
++    const file = write("ok.json", askSettings([ASK_BARE, ASK_ARGS]));
++    expect(findMergeCoveringAskEntry(file)).toEqual({ resolvedPath: file });
+   });
+ 
+-  it("reports merge-covered, first, for an ask entry that would make every merge prompt", () => {
++  it("returns no entry when permissions.ask is not a list", () => {
++    const file = write("nl.json", askSettings("nope"));
++    expect(findMergeCoveringAskEntry(file).entry).toBeUndefined();
++  });
++
++  it("returns the ask entry that would make every merge prompt", () => {
+     const file = write(
+       "m.json",
+-      askSettings([ASK_BARE, ASK_ARGS, "Bash(flow-merge-guard *)"]),
++      askSettings([ASK_BARE, "Bash(flow-merge-guard *)", ASK_ARGS]),
+     );
+-    expect(readOverrideAskRule(file)).toEqual({
+-      status: "merge-covered",
++    expect(findMergeCoveringAskEntry(file)).toEqual({
++      entry: "Bash(flow-merge-guard *)",
+       resolvedPath: file,
+-      missing: [],
+-      mergeCovering: "Bash(flow-merge-guard *)",
+     });
+   });
+ 
+-  it("reports missing-file and malformed without throwing", () => {
+-    expect(readOverrideAskRule(write("e.json", "{not json")).status).toBe(
+-      "malformed",
++  it("ignores allow entries", () => {
++    const file = write(
++      "a.json",
++      JSON.stringify({ permissions: { allow: ["Bash(flow-merge-guard *)"] } }),
+     );
+-    const missing = path.join(root, "nope.json");
+-    expect(readOverrideAskRule(missing)).toEqual({
+-      status: "missing-file",
+-      resolvedPath: missing,
+-      missing: [],
+-    });
++    expect(findMergeCoveringAskEntry(file).entry).toBeUndefined();
+   });
+ 
+-  it("reports the resolved path for a symlinked settings file", () => {
+-    const real = write("dotfiles.json", askSettings([ASK_BARE, ASK_ARGS]));
++  it("reports the real file for a symlinked settings file", () => {
++    const real = write(
++      "dotfiles.json",
++      askSettings(["Bash(flow-merge-guard *)"]),
++    );
+     const link = path.join(root, "settings.json");
+     fs.symlinkSync(real, link);
+-    const result = readOverrideAskRule(link);
+-    expect(result.status).toBe("present");
+-    expect(result.resolvedPath).toBe(real);
++    expect(findMergeCoveringAskEntry(link)).toEqual({
++      entry: "Bash(flow-merge-guard *)",
++      resolvedPath: real,
++    });
+   });
+ 
+   it("never writes: bytes and mtime of the settings file are unchanged by a read", () => {
+-    const file = write("f.json", askSettings([ASK_BARE]));
++    const file = write("f.json", askSettings(["Bash(flow-merge-guard *)"]));
+     const stat = () => {
+       const st = fs.statSync(file);
+       return `${createHash("sha1").update(fs.readFileSync(file)).digest("hex")}@${st.mtimeMs}`;
+     };
+     const before = stat();
+-    readOverrideAskRule(file);
++    findMergeCoveringAskEntry(file);
+     expect(stat()).toBe(before);
+   });
+ });
++
++describe("classifyAllShellOn", () => {
++  const auto = (v: unknown) =>
++    JSON.stringify({ autoMode: { classifyAllShell: v } });
++
++  it("is true only when autoMode.classifyAllShell is exactly true", () => {
++    expect(classifyAllShellOn(write("t.json", auto(true)))).toBe(true);
++    expect(classifyAllShellOn(write("f.json", auto(false)))).toBe(false);
++    expect(classifyAllShellOn(write("s.json", auto("true")))).toBe(false);
++    expect(classifyAllShellOn(write("n.json", "{}"))).toBe(false);
++  });
++
++  it("is false for a missing or malformed file without throwing", () => {
++    expect(classifyAllShellOn(path.join(root, "nope.json"))).toBe(false);
++    expect(classifyAllShellOn(write("bad.json", "{not json"))).toBe(false);
++  });
++});
+diff --git a/bin/lib/merge-allow-rule.ts b/bin/lib/merge-allow-rule.ts
+index 16a23993..88ca3c6b 100644
+--- a/bin/lib/merge-allow-rule.ts
++++ b/bin/lib/merge-allow-rule.ts
+@@ -1,22 +1,23 @@
+ /**
+- * The one permission rule that lets an unattended `/flow-pipeline` run merge
+- * under Claude Code's auto mode, plus a read-only check for it in the user's
+- * settings file (read via `./claude-user-settings`).
++ * The permission rules that let an unattended `/flow-pipeline` run merge under
++ * Claude Code's auto mode while a gate override still prompts. They ship in
++ * flow's generated launch settings (`ensureLaunchSettings`) and so apply to
++ * flow-launched sessions only — never written into the owner's personal
++ * settings or a consumer repo.
+  *
+- * ACCEPTED RISK: once this rule is in `permissions.allow`, the auto-mode
+- * classifier no longer reviews the merge — flow-merge-guard's own checks
+- * (Test Steps clear or a fresh override token, no pending or failed CI,
+- * `autoMerge` not false, the PR is this pipeline's own) are the only guard.
+- * The sibling `flow-merge-guard <PR> --record-override` is deliberately NOT
+- * covered by that allow rule; it is covered by the owner's two
+- * `permissions.ask` rules ({@link FLOW_OVERRIDE_ASK_RULES}), so it always
+- * prompts, even in auto mode. Without them the classifier decides. The owner
+- * keeps the rules in their user-global
+- * settings (one source of truth): flow reads that file, never writes it —
+- * not into user settings, not into a consumer repo, not into launch settings.
++ * ACCEPTED RISK: once the allow rule applies, the auto-mode classifier no
++ * longer reviews the merge — flow-merge-guard's own checks (Test Steps clear
++ * or a fresh override token, no pending or failed CI, `autoMerge` not false,
++ * the PR is this pipeline's own) are the only guard. The sibling
++ * `flow-merge-guard <PR> --record-override` is deliberately NOT covered by the
++ * allow rule; the two `permissions.ask` rules ({@link FLOW_OVERRIDE_ASK_RULES})
++ * make it always prompt, even in auto mode.
+  *
+- * The rule only matches a standalone `flow-merge-guard merge …` Bash call;
+- * a `$(…)` wrapper, a pipe, or a `cd … &&` prefix never matches.
++ * The allow rule only matches a standalone `flow-merge-guard merge …` Bash
++ * call; a `$(…)` wrapper, a pipe, or a `cd … &&` prefix never matches.
++ *
++ * This module also holds the read-only conflict detectors over the owner's
++ * personal settings (read via `./claude-user-settings`).
+  */
+ 
+ import { readUserSettings } from "./claude-user-settings";
+@@ -24,116 +25,46 @@ import { readUserSettings } from "./claude-user-settings";
+ export const FLOW_MERGE_ALLOW_RULE = "Bash(flow-merge-guard merge *)";
+ 
+ const RULE_FAMILY_PREFIX = "Bash(flow-merge-guard";
+-const NARROWER_PREFIX = "Bash(flow-merge-guard merge";
+-
+-export type MergeRuleStatus =
+-  | "present"
+-  | "broader"
+-  | "absent"
+-  | "missing-file"
+-  | "malformed";
+-
+-/**
+- * Read-only, never throws. Reads through {@link readUserSettings}, which
+- * follows symlinks (the owner's file is typically a dotfiles link) and
+- * reports the resolved path so a warning names the real file to edit.
+- */
+-export function readMergeAllowRule(settingsPath: string): {
+-  status: MergeRuleStatus;
+-  resolvedPath: string;
+-  /** Set with `broader` when the exact rule is also present, so the fix is "remove", not "replace". */
+-  exactPresent?: true;
+-} {
+-  const read = readUserSettings(settingsPath);
+-  if (read.status !== "ok") {
+-    return { status: read.status, resolvedPath: read.path };
+-  }
+-  const resolvedPath = read.path;
+-  const allow = (read.settings.permissions as { allow?: unknown } | undefined)
+-    ?.allow;
+-  const entries = Array.isArray(allow)
+-    ? allow.filter((e): e is string => typeof e === "string")
+-    : [];
+-  const exact = entries.includes(FLOW_MERGE_ALLOW_RULE);
+-  // A broader entry wins even beside the exact rule: it still pre-approves
+-  // `--record-override`. Entries starting `merge` match only the merge shape.
+-  const broader = entries.some(
+-    (e) => e.startsWith(RULE_FAMILY_PREFIX) && !e.startsWith(NARROWER_PREFIX),
+-  );
+-  if (broader) {
+-    return {
+-      status: "broader",
+-      resolvedPath,
+-      ...(exact ? { exactPresent: true as const } : {}),
+-    };
+-  }
+-  if (exact) return { status: "present", resolvedPath };
+-  return { status: "absent", resolvedPath };
+-}
+-
+-/** The owner-facing fix for a `broader` status: what to do with the over-wide line. */
+-export function broaderRuleFix(
+-  resolvedPath: string,
+-  exactPresent: boolean,
+-): string {
+-  return exactPresent
+-    ? `remove the broader Bash(flow-merge-guard …) entry from permissions.allow in ${resolvedPath}; keep "${FLOW_MERGE_ALLOW_RULE}"`
+-    : `replace the broader Bash(flow-merge-guard …) entry in permissions.allow in ${resolvedPath} with "${FLOW_MERGE_ALLOW_RULE}"`;
+-}
+ 
+ export const FLOW_OVERRIDE_ASK_RULES = [
+   "Bash(flow-merge-guard * --record-override)",
+   "Bash(flow-merge-guard * --record-override *)",
+ ] as const;
+ 
+-export type OverrideAskStatus =
+-  | "present"
+-  | "partial"
+-  | "absent"
+-  | "merge-covered"
+-  | "missing-file"
+-  | "malformed";
+-
+ /**
+- * Read-only, never throws. Checks that both override ask rules sit in
+- * `permissions.ask`. An ask entry in the `Bash(flow-merge-guard` family that
+- * does not name `--record-override` also covers `flow-merge-guard merge`, so
+- * every unattended merge would prompt: reported first as `merge-covered`.
++ * Read-only, never throws. Returns the first personal `permissions.ask` entry
++ * in the `Bash(flow-merge-guard` family that does not name `--record-override`:
++ * it also matches `flow-merge-guard merge`, so every unattended merge would
++ * prompt. Reads through {@link readUserSettings}, which follows symlinks and
++ * reports the resolved path so a warning names the real file to edit.
+  */
+-export function readOverrideAskRule(settingsPath: string): {
+-  status: OverrideAskStatus;
++export function findMergeCoveringAskEntry(settingsPath: string): {
++  entry?: string;
+   resolvedPath: string;
+-  /** The rules absent from `permissions.ask` (set with `partial` / `absent`). */
+-  missing: string[];
+-  /** The ask entry that would make every merge prompt (set with `merge-covered`). */
+-  mergeCovering?: string;
+ } {
+   const read = readUserSettings(settingsPath);
+-  if (read.status !== "ok") {
+-    return { status: read.status, resolvedPath: read.path, missing: [] };
+-  }
+-  const resolvedPath = read.path;
++  if (read.status !== "ok") return { resolvedPath: read.path };
+   const ask = (read.settings.permissions as { ask?: unknown } | undefined)?.ask;
+   const entries = Array.isArray(ask)
+     ? ask.filter((e): e is string => typeof e === "string")
+     : [];
+-  const mergeCovering = entries.find(
++  const entry = entries.find(
+     (e) => e.startsWith(RULE_FAMILY_PREFIX) && !e.includes("--record-override"),
+   );
+-  if (mergeCovering !== undefined) {
+-    return {
+-      status: "merge-covered",
+-      resolvedPath,
+-      missing: [],
+-      mergeCovering,
+-    };
+-  }
+-  const missing = FLOW_OVERRIDE_ASK_RULES.filter((r) => !entries.includes(r));
+-  if (missing.length === 0) return { status: "present", resolvedPath, missing };
+-  return {
+-    status:
+-      missing.length === FLOW_OVERRIDE_ASK_RULES.length ? "absent" : "partial",
+-    resolvedPath,
+-    missing,
+-  };
++  return entry === undefined
++    ? { resolvedPath: read.path }
++    : { entry, resolvedPath: read.path };
++}
++
++/**
++ * Read-only, never throws. `autoMode.classifyAllShell` makes auto mode ignore
++ * every Bash allow rule, so the merge pre-approval cannot apply.
++ */
++export function classifyAllShellOn(settingsPath: string): boolean {
++  const read = readUserSettings(settingsPath);
++  if (read.status !== "ok") return false;
++  const autoMode = read.settings.autoMode as
++    | { classifyAllShell?: unknown }
++    | undefined;
++  return autoMode?.classifyAllShell === true;
+ }
+diff --git a/bin/probe-merge-allow-rule.test.ts b/bin/probe-merge-allow-rule.test.ts
+index 3303a8e7..6f897577 100644
+--- a/bin/probe-merge-allow-rule.test.ts
++++ b/bin/probe-merge-allow-rule.test.ts
+@@ -1,8 +1,17 @@
++import * as fs from "node:fs";
++import * as os from "node:os";
++import * as path from "node:path";
+ import { describe, expect, it } from "vitest";
++import { ensureLaunchSettings } from "./lib/feature";
++import {
++  FLOW_MERGE_ALLOW_RULE,
++  FLOW_OVERRIDE_ASK_RULES,
++} from "./lib/merge-allow-rule";
+ import {
+   classify,
+   overallExit,
+   ROWS,
++  rulesFromLaunchSettings,
+   type RowVerdict,
+ } from "../scripts/probe-merge-allow-rule";
+ 
+@@ -227,3 +236,36 @@ describe("probe-merge-allow-rule overallExit", () => {
+     ).toBe(2);
+   });
+ });
++
++describe("rulesFromLaunchSettings", () => {
++  function tmp(): string {
++    return fs.mkdtempSync(path.join(os.tmpdir(), "probe-rules-"));
++  }
++
++  it("yields the merge rule and both ask rules from a file ensureLaunchSettings generated", () => {
++    const dir = tmp();
++    try {
++      const file = path.join(dir, "launch-settings.json");
++      ensureLaunchSettings(file);
++      expect(rulesFromLaunchSettings(file)).toEqual({
++        mergeAllow: FLOW_MERGE_ALLOW_RULE,
++        overrideAsk: [...FLOW_OVERRIDE_ASK_RULES],
++      });
++    } finally {
++      fs.rmSync(dir, { recursive: true, force: true });
++    }
++  });
++
++  it("throws a named error when the file lacks the rules", () => {
++    const dir = tmp();
++    try {
++      const file = path.join(dir, "bare.json");
++      fs.writeFileSync(file, JSON.stringify({ permissions: { allow: [] } }));
++      expect(() => rulesFromLaunchSettings(file)).toThrow(
++        /lack the shipped flow-merge-guard rules/,
++      );
++    } finally {
++      fs.rmSync(dir, { recursive: true, force: true });
++    }
++  });
++});
+diff --git a/docs/configuration.md b/docs/configuration.md
+index 0cca3459..4a546a04 100644
+--- a/docs/configuration.md
++++ b/docs/configuration.md
+@@ -25,9 +25,7 @@ The resolved selection persists to `~/.flow/config.json`'s `modules` array, so `
+ 
+ `flow install` also registers a `SessionStart` hook in `~/.claude/settings.json` (used by the checkpoint/auto-resume flow); skip it with `flow install --no-hooks`.
+ 
+-**Unattended merges under auto mode.** A passed pipeline merges itself through `flow-merge-guard merge <pr>`, which re-checks the Test Steps, CI and the PR's ownership before it runs the squash merge. Under Claude Code's auto mode the permission classifier still reviews every Bash call, so unattended merging needs one line in your own user-global settings: add `Bash(flow-merge-guard merge *)` to `permissions.allow` in `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json` when that variable is set). flow never writes this rule — not into your settings, not into a repo, not into its launch settings; `flow doctor` reads the file (read-only, following a symlink) and warns with the exact line and the real file to edit when it is missing, and warns separately about a broader `Bash(flow-merge-guard *)` rule, which would also pre-approve recording a gate override. `flow doctor` reads `CLAUDE_CONFIG_DIR` from the shell it runs in, which can differ from the one your pipelines inherit. Without the rule, a passed run pauses with `merge-permission-denied` and one reply, `merge #<pr>`, finishes the merge and cleanup.
+-
+-**Confirming a gate override.** To have Claude Code ask you before a gate override is recorded, add `Bash(flow-merge-guard * --record-override)` and `Bash(flow-merge-guard * --record-override *)` to `permissions.ask` in the same user settings file as the merge rule. Recording an override then raises a Claude Code permission prompt after the pipeline's own override confirmation, even in auto mode; declining the prompt leaves the PR gated. Do not add a broader `Bash(flow-merge-guard *)` entry to `permissions.ask`: it would also make every unattended merge prompt. flow never writes these rules; `flow doctor` reports their state as "override confirmation" (read-only; shown as skipped while they are not set up, since the pipeline confirms every override itself) and names the exact line to add or the entry to narrow. The rules cover the documented `flow-merge-guard <pr> --record-override` command shape; a reshaped call falls back to auto mode's own review.
++**Unattended merges under auto mode.** A passed pipeline merges itself through `flow-merge-guard merge <pr>`, which re-checks the Test Steps, CI and the PR's ownership before it runs the squash merge. Unattended merges and gate-override confirmation work out of the box in flow-launched sessions: the rules (`Bash(flow-merge-guard merge *)` in `permissions.allow`, plus `Bash(flow-merge-guard * --record-override)` and `Bash(flow-merge-guard * --record-override *)` in `permissions.ask`) live in flow's generated launch settings and apply only to sessions flow launches, so recording an override still raises a Claude Code permission prompt after the pipeline's own confirmation, even in auto mode. flow never writes permission rules into your personal Claude settings (`flow install` does merge its hooks into that file, as above). An older personal copy of these rules is redundant and safe to delete. A personal `Bash(flow-merge-guard *)` entry in `permissions.ask` would make every merge prompt; `flow doctor` warns about it ("pipeline permissions") and names the entry and the real file to narrow. Setting `autoMode.classifyAllShell` in your personal settings makes auto mode ignore Bash allow rules, so a passed run pauses with `merge-permission-denied` and one reply, `merge #<pr>`, finishes the merge and cleanup (`flow doctor` notes this). A pipeline launched before the upgrade keeps its old settings until `flow feature resume <slug>` relaunches it.
+ 
+ ## Subagent memory, preloaded instructions, turn budgets, and cache TTL
+ 
+diff --git a/references/consumer-repo-contract.md b/references/consumer-repo-contract.md
+index a4ccff7c..86af7f8d 100644
+--- a/references/consumer-repo-contract.md
++++ b/references/consumer-repo-contract.md
+@@ -163,6 +163,14 @@ can publish arbitrary text to the current repo's issue tracker without an
+ auto-mode review. That text can include the two seeded local test-account
+ values `flow-ui-login test-account` printed (only the committed manifest's two
+ named variables, localhost targets only).
++Flow-launched sessions also pre-approve `Bash(flow-merge-guard merge *)` and
++carry the ask rules `Bash(flow-merge-guard * --record-override)` and
++`Bash(flow-merge-guard * --record-override *)`, so recording a gate override
++always prompts. The merge allow rule matches only a standalone
++`flow-merge-guard merge` call and lives only in flow's `--settings` file,
++never in consumer or global settings. Accepted risk: auto mode no longer
++reviews the merge itself, because `flow-merge-guard` re-checks the Test Steps,
++CI and PR ownership before it merges.
+ 
+ After a credential denial the driver stops: no further browser, MCP or
+ teardown calls, a `credentials-unavailable` artifact, and the pipeline's
+diff --git a/scripts/probe-merge-allow-rule.ts b/scripts/probe-merge-allow-rule.ts
+index 71d989ef..74f3de7c 100755
+--- a/scripts/probe-merge-allow-rule.ts
++++ b/scripts/probe-merge-allow-rule.ts
+@@ -1,24 +1,27 @@
+ #!/usr/bin/env bun
+ /**
+- * No-merge empirical probe of the user-global merge allow rule.
++ * No-merge empirical probe of the merge rules flow ships in its launch settings.
+  *
+- * Proves, against a real headless Claude session, that the rule text flow
+- * documents (`FLOW_MERGE_ALLOW_RULE`) pre-approves `flow-merge-guard merge …`
+- * and does NOT pre-approve its sibling `flow-merge-guard <PR> --record-override`,
+- * and that the owner's two `permissions.ask` rules (`FLOW_OVERRIDE_ASK_RULES`)
+- * make `--record-override` prompt (refused headless) without touching the
+- * merge. Nothing can merge: `flow-merge-guard` on PATH is a stub that only appends
+- * its argv to a marker file.
++ * The rules under test are read out of a launch-settings file generated by
++ * `ensureLaunchSettings` (the merge allow rule in `permissions.allow`, the two
++ * `--record-override` rules in `permissions.ask`), so the probe exercises
++ * exactly the rule text flow ships. Against a real headless Claude session it
++ * proves the merge rule pre-approves `flow-merge-guard merge …` and does NOT
++ * pre-approve its sibling `flow-merge-guard <PR> --record-override`, and that
++ * the ask rules make `--record-override` prompt (refused headless) without
++ * touching the merge. Nothing can merge: `flow-merge-guard` on PATH is a stub
++ * that only appends its argv to a marker file.
+  *
+- * The rule is supplied by appending it to `--allowed-tools`, which goes
+- * through the same permission-rule matching engine as `permissions.allow`.
+- * It is NOT written to a scratch repo's `.claude/settings.json`: the headless
+- * child does not load an untrusted scratch project's settings (empirically,
+- * dontAsk denied the merge with the rule only in that file). That user-scope
+- * `permissions.allow` loads the same way rests on Claude Code's documented
+- * settings merge semantics, not on this probe. It never reads or writes any
+- * real settings file, and removes its temp dir on exit. `Bash(true)` is always
+- * passed so the blanket Bash deny is not appended.
++ * Delivery caveat: the merge allow rule reaches the child via `--allowed-tools`
++ * (same permission-rule matching engine as `permissions.allow`), so the probe
++ * proves the shipped rule text and auto-mode behaviour, not that a
++ * `--settings`-file allow rule is honoured; that rests on Claude Code's
++ * documented settings merge semantics. The ask rules ride a `--settings`
++ * payload (`--ask-tools`), so that half is proven by source. It is NOT
++ * written to a scratch repo's `.claude/settings.json`: the headless child does
++ * not load an untrusted scratch project's settings. The probe never reads or
++ * writes any real settings file, and removes its temp dir on exit.
++ * `Bash(true)` is always passed so the blanket Bash deny is not appended.
+  *
+  * Rows 1-3 are the verdict: (1) dontAsk merge WITH the rule runs; (2) dontAsk
+  * record-override WITH the rule is refused; (3) dontAsk merge WITHOUT the rule
+@@ -37,18 +40,17 @@
+  * Spends nine short Haiku sessions (each capped at $0.50).
+  *
+  * Exit codes: 0 - every decisive row holds; 1 - a decisive row failed; 2 -
+- * `claude` missing or a decisive row could not complete. Informational rows
+- * never change the exit code; auto mode being unavailable is reported as its
+- * own verdict.
++ * `claude` missing, the launch settings lack the rules, or a decisive row could
++ * not complete. Informational rows never change the exit code; auto mode being
++ * unavailable is reported as its own verdict.
+  */
+ import { spawnSync } from "node:child_process";
+ import * as fs from "node:fs";
+ import * as os from "node:os";
+ import * as path from "node:path";
+-import {
+-  FLOW_MERGE_ALLOW_RULE,
+-  FLOW_OVERRIDE_ASK_RULES,
+-} from "../bin/lib/merge-allow-rule";
++import { ensureLaunchSettings } from "../bin/lib/feature";
++
++export type ShippedRules = { mergeAllow: string; overrideAsk: string[] };
+ 
+ export type RowVerdict =
+   | "pass"
+@@ -63,7 +65,7 @@ export type Row = {
+   command: string;
+   /** The merge allow rule is appended to `--allowed-tools` for this row. */
+   withRule: boolean;
+-  /** `FLOW_OVERRIDE_ASK_RULES` are passed to the child via `--ask-tools`. */
++  /** the shipped override ask rules are passed to the child via `--ask-tools`. */
+   askRules?: boolean;
+   /** The marker (stub invocation) is expected to appear. */
+   expectMarker: boolean;
+@@ -196,6 +198,23 @@ export function overallExit(
+   return 2;
+ }
+ 
++export function rulesFromLaunchSettings(file: string): ShippedRules {
++  const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as {
++    permissions?: { allow?: unknown; ask?: unknown };
++  };
++  const strings = (v: unknown): string[] =>
++    Array.isArray(v) ? v.filter((e): e is string => typeof e === "string") : [];
++  const family = (e: string) => e.startsWith("Bash(flow-merge-guard");
++  const mergeAllow = strings(parsed.permissions?.allow).find(family);
++  const overrideAsk = strings(parsed.permissions?.ask).filter(family);
++  if (mergeAllow === undefined || overrideAsk.length === 0) {
++    throw new Error(
++      `launch settings ${file} lack the shipped flow-merge-guard rules (allow: ${mergeAllow ?? "none"}, ask: ${overrideAsk.length})`,
++    );
++  }
++  return { mergeAllow, overrideAsk };
++}
++
+ function claudeOnPath(): boolean {
+   return spawnSync("claude", ["--version"], { stdio: "ignore" }).status === 0;
+ }
+@@ -206,6 +225,7 @@ function runRow(
+   binDir: string,
+   index: number,
+   controlRan: boolean,
++  rules: ShippedRules,
+ ) {
+   const marker = path.join(scratch, `marker-${index}.txt`);
+   const stub = path.join(binDir, "flow-merge-guard");
+@@ -230,10 +250,8 @@ function runRow(
+       "--effort",
+       "low",
+       "--allowed-tools",
+-      row.withRule ? `Bash(true),${FLOW_MERGE_ALLOW_RULE}` : "Bash(true)",
+-      ...(row.askRules
+-        ? ["--ask-tools", FLOW_OVERRIDE_ASK_RULES.join(",")]
+-        : []),
++      row.withRule ? `Bash(true),${rules.mergeAllow}` : "Bash(true)",
++      ...(row.askRules ? ["--ask-tools", rules.overrideAsk.join(",")] : []),
+       "--env",
+       "PATH",
+       "--max-budget-usd",
+@@ -282,10 +300,26 @@ function main(): number {
+     const binDir = path.join(scratch, "bin");
+     fs.mkdirSync(binDir);
+     spawnSync("git", ["init", "-q"], { cwd: scratch });
++    const launchFile = path.join(scratch, "launch-settings.json");
++    ensureLaunchSettings(launchFile);
++    let rules: ShippedRules;
++    try {
++      rules = rulesFromLaunchSettings(launchFile);
++    } catch (e) {
++      process.stderr.write(`probe-merge-allow-rule: ${(e as Error).message}\n`);
++      return 2;
++    }
+     const verdicts: { row: Row; verdict: RowVerdict }[] = [];
+     let autoControlRan = false;
+     ROWS.forEach((row, i) => {
+-      const verdict = runRow(row, scratch, binDir, i + 1, autoControlRan);
++      const verdict = runRow(
++        row,
++        scratch,
++        binDir,
++        i + 1,
++        autoControlRan,
++        rules,
++      );
+       if (row.command.startsWith("flow-merge-guard merge") && !row.withRule) {
+         autoControlRan = verdict === "classifier-approves";
+       }
+diff --git a/skills/pipeline/flow-pipeline/SKILL.md b/skills/pipeline/flow-pipeline/SKILL.md
+index 73e25436..282b0237 100644
+--- a/skills/pipeline/flow-pipeline/SKILL.md
++++ b/skills/pipeline/flow-pipeline/SKILL.md
+@@ -2323,7 +2323,7 @@ and lost; see [references/git-workflow.md](../../../references/git-workflow.md))
+ checkout <base>` would collide with the primary checkout.
+ 
+ Run it as its **own standalone Bash call** — never inside `$(...)`, a pipe,
+-or a `cd ... &&` prefix. The user-global allow rule
++or a `cd ... &&` prefix. flow's launch-settings allow rule
+ `Bash(flow-merge-guard merge *)` ([docs/configuration.md](../../../docs/configuration.md),
+ "Unattended merges under auto mode") only matches that shape; a wrapped
+ call falls back to the permission classifier, which can refuse a merge.
+@@ -2391,7 +2391,7 @@ call). Read that file, never a stdout capture, and branch on `.decision`:
+   `TLDR="The permission system refused the merge; nothing was merged and
+   nothing is lost."`, render via `flow-gate-summary --status needs-human
+   --reason merge-permission-denied --pr-url "$PR_URL" --cleanup --tldr
+-  "$TLDR" --lens "$LENS"` (it adds the missing-rule line itself), then
++  "$TLDR" --lens "$LENS"` (it adds a conflicting-rule or relaunch line itself), then
+   `flow-notify --status needs-human --url "$PR_URL" --reason "$TLDR" --tag
+   merge-permission-denied`. End. The reply `merge #<pr>` re-runs the gate and
+   this step (`awaiting-human` row, Resume mode).

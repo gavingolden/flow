@@ -204,6 +204,7 @@ describe("proc-registry", () => {
   it("cleans up its temp file instead of leaking it when the rename fails (A2 regression)", () => {
     appendRow(makeRow(), baseDir);
     compact("csv-export", baseDir, {
+      isLive: () => true,
       rename: () => {
         throw new Error("simulated rename failure");
       },
@@ -212,6 +213,115 @@ describe("proc-registry", () => {
       .readdirSync(path.join(baseDir, "procs"))
       .filter((f) => f.includes(".tmp."));
     expect(leftovers).toEqual([]);
+  });
+
+  describe("removal when no row survives", () => {
+    const dead = { isLive: () => false };
+    const procsLeftovers = () =>
+      fs
+        .readdirSync(path.join(baseDir, "procs"))
+        .filter((f) => f.includes(".tmp.") || f.includes(".gone."));
+
+    it("removes the registry when every row is dropped", () => {
+      appendRow(makeRow(), baseDir);
+      const result = compact("csv-export", baseDir, dead);
+      expect(result).toEqual({ kept: 0, dropped: 1, removed: true });
+      expect(fs.existsSync(registryPath("csv-export", baseDir))).toBe(false);
+      expect(readRows("csv-export", baseDir).rows).toEqual([]);
+    });
+
+    it("keeps a row appended during the move-aside window", () => {
+      appendRow(makeRow({ pid: 1 }), baseDir);
+      const target = registryPath("csv-export", baseDir);
+      const raced = makeRow({ pid: 2 });
+      compact("csv-export", baseDir, {
+        ...dead,
+        rename: (src, dest) => {
+          if (src === target) {
+            fs.appendFileSync(target, `${JSON.stringify(raced)}\n`);
+          }
+          fs.renameSync(src, dest);
+        },
+      });
+      expect(readRows("csv-export", baseDir).rows.map((r) => r.pid)).toEqual([
+        2,
+      ]);
+      expect(procsLeftovers()).toEqual([]);
+    });
+
+    it("re-homes the whole moved-aside file when the inode changed under it (ABA)", () => {
+      appendRow(makeRow({ pid: 1, argv: ["bun", "x".repeat(300)] }), baseDir);
+      const target = registryPath("csv-export", baseDir);
+      const fresh = makeRow({ pid: 3, argv: ["b"] });
+      const result = compact("csv-export", baseDir, {
+        ...dead,
+        afterSnapshot: () => {
+          fs.unlinkSync(target);
+          fs.appendFileSync(target, `${JSON.stringify(fresh)}\n`);
+        },
+      });
+      expect(result.removed).toBe(true);
+      expect(readRows("csv-export", baseDir).rows.map((r) => r.pid)).toEqual([
+        3,
+      ]);
+      expect(procsLeftovers()).toEqual([]);
+    });
+
+    it("lets a later append recreate the file with mode 0o600", () => {
+      appendRow(makeRow(), baseDir);
+      compact("csv-export", baseDir, dead);
+      appendRow(makeRow({ pid: 9 }), baseDir);
+      const target = registryPath("csv-export", baseDir);
+      expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+      expect(readRows("csv-export", baseDir).rows.map((r) => r.pid)).toEqual([
+        9,
+      ]);
+    });
+
+    it("removes a whitespace-only file", () => {
+      const target = registryPath("csv-export", baseDir);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, "\n  \n");
+      const result = compact("csv-export", baseDir, dead);
+      expect(result.removed).toBe(true);
+      expect(fs.existsSync(target)).toBe(false);
+    });
+
+    it("leaves no .tmp. or .gone. files behind", () => {
+      appendRow(makeRow(), baseDir);
+      compact("csv-export", baseDir, dead);
+      expect(procsLeftovers()).toEqual([]);
+    });
+
+    it("leaves the original bytes intact when the move-aside fails with a non-ENOENT error", () => {
+      appendRow(makeRow(), baseDir);
+      const target = registryPath("csv-export", baseDir);
+      const before = fs.readFileSync(target, "utf8");
+      const result = compact("csv-export", baseDir, {
+        ...dead,
+        rename: (src) => {
+          if (src === target) {
+            throw Object.assign(new Error("denied"), { code: "EACCES" });
+          }
+        },
+      });
+      expect(result).toEqual({ kept: 0, dropped: 0 });
+      expect(fs.readFileSync(target, "utf8")).toBe(before);
+    });
+
+    it("reports removed when the move-aside hits ENOENT (concurrent cleanup)", () => {
+      appendRow(makeRow(), baseDir);
+      const target = registryPath("csv-export", baseDir);
+      const result = compact("csv-export", baseDir, {
+        ...dead,
+        rename: (src) => {
+          if (src === target) {
+            throw Object.assign(new Error("gone"), { code: "ENOENT" });
+          }
+        },
+      });
+      expect(result).toEqual({ kept: 0, dropped: 1, removed: true });
+    });
   });
 
   it("bails out without rewriting when the registry exists but fails to read (C regression)", () => {

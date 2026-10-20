@@ -73,7 +73,7 @@ renumbering). Outside the supervisor context (e.g. invoked directly from a
 user session), the Task tool is unrestricted, so the spawn runs identically.
 Either path: one subagent, returns artifacts on disk + a brief summary.
 
-**Optional web-grounded research pre-check (config-gated).** When `~/.flow/config.json` has `research.discovery: true` and `agy` is available, the discovery subagent may OPTIONALLY run a relevance-gated, web-grounded research pass before planning — see `references/discovery-instructions.md` "Step 1.5". That research is a **subagent-driven Bash fan-out** (the subagent drives `flow-delegate-fanout` directly via Bash — a spawned sub-agent has no `Skill` tool, so it cannot load `/flow-research` in-process; it follows that skill's procedure, which it reads), **NOT a Task spawn**. The single discovery Task call below and the nine-exemption invariant in `flow-pipeline/SKILL.md` are therefore unchanged — no new exemption is added.
+**Optional web-grounded research pre-check (config-gated).** When `~/.flow/config.json` has `research.discovery: true` and `agy` is available, the discovery subagent may OPTIONALLY run a relevance-gated, web-grounded research pass before planning — see `references/discovery-instructions.md` "Step 1.5". That research is a **subagent-driven Bash fan-out** (the subagent drives `flow-delegate-fanout` directly via Bash — discovery deliberately does not load `/flow-research` via the `Skill` tool — that skill's default budget and report shape suit an interactive caller, and discovery needs a tightened budget — so it follows that skill's procedure, which it reads), **NOT a Task spawn**. The single discovery Task call below and the nine-exemption invariant in `flow-pipeline/SKILL.md` are therefore unchanged — no new exemption is added.
 
 # Spawn procedure
 
@@ -152,9 +152,16 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
    Discovery Subagent inherits the session model. This rides the existing
    single discovery Task call — **no** new fan-out site, **no** new exemption.
 
+   **Per-phase effort (planning).** Resolve
+   `PLANNING_EFFORT=$(command -v flow-spawn-effort >/dev/null 2>&1 && flow-spawn-effort planning)`
+   (`config.efforts.planning`, else follow the session — see
+   `flow-pipeline/references/model-routing.md`) and pass the non-empty result
+   as the discovery Task call's per-spawn `effort:` argument (empty ⇒ omit).
+
 4. When the subagent returns, treat its labeled-bullet summary
    (3–5 bullets: `Problem:`, `Tasks:`, `Candidates:`,
-   `Top assumptions:`, `Research:`) as the
+   `Top assumptions:`, `Research:`, `Vetting verdict:` — the
+   `## Request vetting` verdict line, verbatim) as the
    chat output. Do **not** read `.flow-tmp/plan.md` from disk in the
    wrapper — the supervisor (or downstream caller) reads that file
    directly when it needs the full plan, and reading it twice in the
@@ -226,12 +233,13 @@ each `**Recommended:**` line carrying `[confidence: high|medium|low] [anchor: �
 and each unchecked entry a `**Stakes:** system|user|both` line per the discovery
 contract's confidence + stakes rubric).
 
-Return a summary of 3–5 labeled bullets — `Problem:` (the problem
+Return a summary of 4–6 labeled bullets — `Problem:` (the problem
 statement in one line), `Tasks:` (the task count), `Candidates:` (the
 candidate follow-up issue count, omit when zero), `Top assumptions:` (the
-top one or two assumptions the user should pay attention to), and
+top one or two assumptions the user should pay attention to),
 `Research:` (the one-line research skip note, omit when research ran or
-the path was dormant). Do not paste the PRD or task list back; the
+the path was dormant), and `Vetting verdict:` (the `## Request vetting`
+verdict line, verbatim). Do not paste the PRD or task list back; the
 artifacts on disk are the record.
 ```
 
@@ -277,6 +285,7 @@ RESEARCH: force-on
   Discovery Step 1.5's web-grounded research pre-check is FORCED ON for this
   run — bypass the relevance gate and the research.discovery config opt-in
   (the agy-availability graceful no-op still applies). See discovery-instructions.md (a0).
+  Read {{SKILL_DIR}}/references/discovery-research.md before step 1.
 ```
 
 When the caller passed **no** marker, substitute the **empty string** —
@@ -296,12 +305,14 @@ substitute this block verbatim for `{{REVISION_OVERRIDE}}`:
 ```
 REVISION: <n>
   This is a REVISION pass on an existing plan.md, not a fresh draft. Run
-  discovery-instructions.md "Revision pass mode": read the existing plan.md
+  discovery-revision.md "Revision pass mode": read the existing plan.md
   first, update in place, preserve untouched sections and the embedded
   `### Cross-model review (AGY)` subsection + `<!-- flow-plan-review-hash: <sha> -->`
-  marker verbatim, do NOT re-run Step 1.5 research when findings already exist,
-  and extend `## Open Questions` with the redirect's questions (marking prior
-  ones resolved with a decision note).
+  marker verbatim, keep the `### Product critique (blind)` subsection under
+  `## Open Questions` verbatim, do NOT re-run Step 1.5 research when findings
+  already exist, and extend `## Open Questions` with the redirect's questions
+  (marking prior ones resolved with a decision note).
+  Read {{SKILL_DIR}}/references/discovery-revision.md before step 1.
 ```
 
 When the caller passed **no** marker, substitute the **empty string** — omit
@@ -325,6 +336,7 @@ EPIC: <slug>/<id> (design at .flow/epics/<slug>/design.md)
   signal (the description pointer and manifest scan are fallbacks), read the
   named `design.md` and `manifest.json`, and author the `## Epic context` PRD
   section with every claim traceable to those two files.
+  Read {{SKILL_DIR}}/references/discovery-survey-epic.md before step 1.
 ```
 
 When the caller passed **no** marker, substitute the **empty string** — omit
@@ -414,10 +426,11 @@ block is the only way the survey result reaches it. When the survey ran
 
 ```
 SURVEY: <absolute path> (judges: A=<model> ran|skipped:<reason>, B=<model> ran|skipped:<reason>)
-  Run discovery-instructions.md step 1.8: read the file at this absolute
+  Run discovery-survey-epic.md step 1.8: read the file at this absolute
   path with the Read tool, weigh each judge's top recommendation against
   the user's proposed method with cited codebase evidence, decide the
   verdict, and author `## Method selection` per the step-5 section list.
+  Read {{SKILL_DIR}}/references/discovery-survey-epic.md before step 1.
 ```
 
 When the survey did not run (gate closed, or `ran:false`), substitute the
@@ -458,7 +471,8 @@ new Task-tool spawn and **no** new exemption.
   the resolved epic-output directory (no `plan.md` / `pr-description-draft.md`
   is produced); the existence check targets those two files instead.
 - The wrapper's chat output is the subagent's labeled-bullet summary
-  (`Problem:`, `Tasks:`, `Candidates:`, `Top assumptions:`, `Research:`)
+  (`Problem:`, `Tasks:`, `Candidates:`, `Top assumptions:`, `Research:`,
+  `Vetting verdict:`)
   plus a next-handoff suggestion — never the full PRD and never the
   result of a fresh `Read` on `.flow-tmp/plan.md`. On a standalone run,
   format this relay message per the cross-skill

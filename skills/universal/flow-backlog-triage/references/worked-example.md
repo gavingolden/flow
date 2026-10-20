@@ -37,6 +37,13 @@ table must carry exactly 6 rows.
 - `H7` / `M2`: **CONFLICT** — one note asks to remove the status chips,
   the other asks to give them a dedicated column. Surfaced as a single
   decision point (see Phase 2 below), not silently picked.
+- A hypothetical `#433` ("deploy runbook still names the pre-rotation
+  secret names") is not part of the six-item inventory above — like
+  `#399` in Phase 4, it is introduced later, at Phase 3, purely to
+  illustrate chunking. **CONFIRMED** against the deploy runbook file.
+  It is treated as inventoried for root-cause-leverage purposes only —
+  the tie-break a rider's ref can decide per Chunking above — without
+  adding a seventh row to the six-item inventory table.
 
 ## Phase 2 — Adjudicate
 
@@ -54,6 +61,9 @@ table must carry exactly 6 rows.
   scans for, removing them (H7) loses that signal entirely; a dedicated
   column keeps the information without the current inline crowding H7
   is actually complaining about.
+- Rider `#433` — verdict: **DO** — small, correctness-adjacent docs fix
+  (the runbook still names pre-rotation secrets) riding on Bundle B's
+  surface; too small to earn its own bundle-sized review.
 - A seventh, illustrative note not in the six above — "revisit the retry
   backoff constants" — is **DO-LATER**, with a concrete promotion
   trigger: "revisit when the next incident review touches the retry
@@ -68,9 +78,15 @@ table must carry exactly 6 rows.
   cause (the rotated secrets), same fix, one reviewable PR restoring the
   secrets and re-verifying both signals go green.
 - `#420` needs no bundle — it closes on evidence, not a PR.
+- **Rider** `#433` — same surface as Bundle B (the deploy environment);
+  its own Small docs PR, sequenced after B.
 - The `H7`/`M2` conflict is NOT bundled into anything until the user
   answers the escalation question — bundling ahead of a NEEDS-DECISION
   would smuggle a judgment call into a DO bundle.
+
+**Chunking + ranking (`top: 1`)**: chunk #1 = Bundle B + rider #433
+(Value rank 4, closes 3 refs); Bundle A is next-chunk candidate #2
+(Value rank 4, closes 1 ref) — decided on root-cause leverage.
 
 ## Phase 4 — Act
 
@@ -109,6 +125,11 @@ for no incremental user value.`
   ```
   flow feature create --tmux --model opus --effort low --slug audit-log-retention 'implement bundle issue #441 — configurable audit-log retention window (default retention: <value required>)'
   ```
+
+  Bundle C is introduced here solely to illustrate the fire-time
+  `<value required>` placeholder — like `#399` above, it sits outside
+  the six-item inventory and the ranked chunk set below, so it does not
+  appear in `Shown` or the Next-chunk candidates ledger.
 
 ## Verbatim note attachment
 
@@ -172,35 +193,16 @@ GitHub issue to attach to yet.
 
 ## Decision Brief excerpt
 
-The same run's Decision Brief renders the two DO bundles as outcome-first
-cards, grouped into a recommendation tier, rather than restating the
-Phase 3 bundle mechanics above:
+The same run's Decision Brief renders the top-ranked chunk as an
+outcome-first card, cut to `top: 1`, rather than restating the Phase 3
+bundle mechanics above:
 
-### Fix now (active problems)
+**Shown:** top 1 of 2 DO chunks (1 next-chunk candidate in the Audit
+Appendix)
+**Ranking bias:** grooming mode — observed failures rank ahead of
+absent features; name a milestone for feature-led chunks
 
-- **Outcome:** Users stop getting logged out at random during a normal
-  session.
-- **What changes / who notices:** Anyone who leaves a tab open and
-  comes back after a short idle period; the session now survives it
-  instead of silently dropping.
-- **Why it's worth it:**
-  - **UX:** any user who leaves a tab idle past ~10 minutes gets force-
-    logged-out mid-session [anchor: bin/lib/session.ts:88]
-  - **Problem:** the session-refresh timer clears on tab-blur instead of
-    surviving it, reintroducing the auth race PR #519 was meant to fix
-    [anchor: bin/lib/session.ts:88]
-  - **Stability/efficiency:** none
-  - **Value rank:** 4 — a user-visible failure recurring whenever a tab
-    sits idle past ~10 minutes [anchor: bin/lib/session.ts:88]
-  - **Complexity:** Small — one file, one function (Bundle A)
-  - **Risk:** Low — a contained, reviewable fix
-  - **If never done:** users keep hitting an unexplained forced logout
-    and read it as a whole-product bug, not one code path
-  - **Verdict:** clears bar — a reproducible forced logout is an
-    outsized trust cost for a small, contained fix
-- **Size:** S
-
----
+### #1
 
 - **Outcome:** The nightly deploy-health checks go green again and
   stay green.
@@ -208,34 +210,51 @@ Phase 3 bundle mechanics above:
   reliability fix. The team stops getting paged for a false-positive
   drift alert and a failing smoketest that were actually the same
   root cause.
-- **Why it's worth it:** Two red signals every night erodes trust in
-  CI faster than one; restoring the rotated secrets closes both at
-  once.
+- **Why it's worth it:**
+  - **UX:** none
+  - **Problem:** the deploy environment's secrets rotation landed with
+    an incomplete rollout, breaking both the nightly Terraform-drift
+    check and the prod smoketest [anchor: gh run list → both nightly
+    checks red since the rotation commit]
+  - **Stability/efficiency:** two red CI/deploy-health signals every
+    night, collapsing to one root cause [anchor: gh run list → both
+    nightly checks red since the rotation commit]
+  - **Value rank:** 4 [anchor: gh run list → both nightly checks red
+    since the rotation commit]
+  - **Complexity:** Medium — one bundle restoring the rotated secrets,
+    re-verifying both signals go green
+  - **Risk:** Low — a contained, reviewable fix with an obvious
+    rollback (re-apply the prior secret values)
+  - **If never done:** both signals stay red indefinitely and the team
+    keeps getting paged for what looks like two unrelated incidents
+  - **Verdict:** clears bar — two red signals every night erodes trust
+    in CI faster than one; restoring the rotated secrets closes both
+    at once
+- **Refs:** #431, H3
+- **Riders:** #433 — deploy runbook still names the pre-rotation
+  secret names
+- **Why it beat the next one down:** root-cause leverage — closes
+  #431, H3, #433 vs one ref for the session-drop fix [anchor: the ref
+  list itself — #431, H3, #433 vs #412]
+- **In-chunk PR order:** restore secrets → runbook update
+- **File-overlap warnings:** none
+- **Tier:** Fix now (active problems)
 - **Size:** M
 
 Launch queue (Fix now tier):
 
 ```
 flow feature create --tmux --model opus --effort high --slug restore-deploy-secrets 'implement bundle issue #440 — restore rotated deploy secrets (fixes #431, H3)'
+flow feature create --tmux --model opus --effort low --slug deploy-runbook-secret-names 'implement bundle issue #433 — update deploy runbook to drop pre-rotation secret names (rider on #440)'
 ```
 
-### When you schedule it
+## Next-chunk candidates excerpt
 
-- **Outcome:** Audit logs stop growing without bound.
-- **What changes / who notices:** Nobody until storage or compliance
-  asks — this trades an unbounded log for a configurable retention
-  window.
-- **Why it's worth it:** Cheap to add now, expensive to retrofit once
-  logs are large; retention length is a product call, not an
-  engineering one.
-- **Size:** S
+| Rank | Ref(s) | Bundle issue | Verdict | Why it missed the cut                                                 |
+| ---- | ------ | ------------ | ------- | --------------------------------------------------------------------- |
+| 2    | #412   | —            | DO      | Value rank 4 ties chunk #1; loses on root-cause leverage (1 ref vs 3) |
 
-Launch queue (When you schedule it tier) — carries a fire-time decision
-parameter, not runnable until the user supplies the value:
-
-```
-flow feature create --tmux --model opus --effort low --slug audit-log-retention 'implement bundle issue #441 — configurable audit-log retention window (default retention: <value required>)'
-```
+Re-run after acting on chunk #1 to surface it.
 
 ## What this example demonstrates
 
@@ -253,10 +272,22 @@ won't-do — ..."` command shown verbatim, never run by the skill.
   with an explicit `<value required>` placeholder rather than silently
   assuming a default retention window.
 - **Outcome-first bundle cards** — the Decision Brief excerpt above
-  renders both DO bundles by user-facing outcome rather than mechanism,
-  and keeps the jargon ban in the card prose itself: no issue mechanics
-  outside the value-prop block's `[anchor: …]` tails, the one sanctioned
-  checkable exception.
+  renders the one shown chunk by user-facing outcome rather than
+  mechanism, and keeps the jargon ban in the card prose itself: no
+  issue mechanics outside the value-prop block's `[anchor: …]` tails,
+  the card's `**Refs:**` line, and the rider's ref prefix — the
+  sanctioned checkable exceptions.
+- **Chunk with a rider** — chunk #1 is Bundle B (`#431` + `H3`) plus
+  rider `#433`, which shares Bundle B's surface (the deploy
+  environment) but never inflates the chunk's Value rank.
+- **Top-n cut with the beat-the-next line** — `top: 1` shows only chunk
+  #1; the card states which key beat the next chunk down (root-cause
+  leverage: 3 refs closed vs 1), so the ranking stays falsifiable from
+  the card alone.
+- **Next-chunk candidates ledger** — Bundle A (`#412`), which ties chunk
+  #1 on Value rank and loses on root-cause leverage, lands in the
+  `## Next-chunk candidates excerpt` above rather than getting its own
+  card.
 - **Verbatim note attachment** — `H3`'s adhoc note, captured
   byte-for-byte at Phase 0, is posted onto its bundle issue (`#440`) at
   Phase 4 via `flow-verbatim-notes attach`, and the run reports it

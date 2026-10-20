@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "resumed_step": { "type": ["integer", "null"] },
+    "action": { "type": "string", "enum": ["resume", "orient"] },
+    "addenda": { "type": "array", "items": { "type": "string" } },
+    "cleared_items": { "type": "array", "items": { "type": "string" } }
+  },
+  "required": ["resumed_step", "action", "addenda", "cleared_items"]
+}

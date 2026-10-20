@@ -71,6 +71,7 @@ describe("renderEpicList", () => {
   const rows: EpicListRow[] = [
     {
       slug: "watchlist",
+      repo: "flow",
       ready: 0,
       running: 2,
       blocked: 1,
@@ -80,6 +81,7 @@ describe("renderEpicList", () => {
     },
     {
       slug: "billing",
+      repo: "flow",
       ready: 0,
       running: 0,
       blocked: 0,
@@ -101,13 +103,45 @@ describe("renderEpicList", () => {
     expect(out.split("\n")).toHaveLength(3); // header + 2 epics
   });
 
+  it("renders a REPO column immediately after EPIC with the repo value", () => {
+    const out = renderEpicList(rows);
+    const header = out.split("\n")[0];
+    expect(header.indexOf("EPIC")).toBeLessThan(header.indexOf("REPO"));
+    const epicIdx = header.indexOf("REPO");
+    const runningIdx = header.indexOf("READY");
+    expect(epicIdx).toBeLessThan(runningIdx);
+    const watchlistLine = out
+      .split("\n")
+      .find((l) => l.startsWith("watchlist"))!;
+    expect(watchlistLine).toContain("flow");
+  });
+
+  it("renders an em-dash in the REPO cell when repo is empty", () => {
+    const rowsWithEmpty: EpicListRow[] = [{ ...rows[0], repo: "" }];
+    const out = renderEpicList(rowsWithEmpty);
+    const dataLine = out.split("\n")[1];
+    expect(dataLine).toContain("—");
+  });
+
   it("renders an empty-state line when there are no epics", () => {
     expect(renderEpicList([])).toBe("no epics");
   });
 
   it("renders an all-hidden empty state naming the hidden-done count", () => {
     expect(renderEpicList([], 3)).toBe(
-      "no active epics (3 done — show them with 'flow epic ls --all')",
+      "no active epics (3 done — show them with 'flow epic ls --done')",
+    );
+  });
+
+  it("renders an all-hidden empty state naming the hidden-other-repos count", () => {
+    expect(renderEpicList([], 0, 2)).toBe(
+      "no active epics (2 in other repos — show them with 'flow epic ls --all-repos')",
+    );
+  });
+
+  it("renders an all-hidden empty state with both counts semicolon-joined", () => {
+    expect(renderEpicList([], 3, 2)).toBe(
+      "no active epics (3 done — show them with 'flow epic ls --done'; 2 in other repos — show them with 'flow epic ls --all-repos')",
     );
   });
 
@@ -115,7 +149,7 @@ describe("renderEpicList", () => {
     const out = renderEpicList(rows, 1);
     expect(out).toContain("EPIC");
     expect(out).toContain(
-      "1 done epic hidden — show them with 'flow epic ls --all'",
+      "1 done epic hidden — show them with 'flow epic ls --done'",
     );
     expect(out).not.toContain("1 done epics");
   });
@@ -123,12 +157,32 @@ describe("renderEpicList", () => {
   it("appends a hidden-done footer after the table, plural for more than one", () => {
     const out = renderEpicList(rows, 2);
     expect(out).toContain(
-      "2 done epics hidden — show them with 'flow epic ls --all'",
+      "2 done epics hidden — show them with 'flow epic ls --done'",
     );
+  });
+
+  it("renders the other-repos footer alone when only that count is nonzero", () => {
+    const out = renderEpicList(rows, 0, 1);
+    expect(out).toContain(
+      "1 epic in other repos hidden — show them with 'flow epic ls --all-repos'",
+    );
+    expect(out).not.toContain("done epic");
+  });
+
+  it("renders both footers together, done first then other-repos", () => {
+    const out = renderEpicList(rows, 1, 2);
+    const doneIdx = out.indexOf("1 done epic hidden");
+    const otherIdx = out.indexOf("2 epics in other repos hidden");
+    expect(doneIdx).toBeGreaterThan(-1);
+    expect(otherIdx).toBeGreaterThan(doneIdx);
   });
 
   it("is byte-identical to the no-footer table when hiddenDone is 0", () => {
     expect(renderEpicList(rows, 0)).toBe(renderEpicList(rows));
+  });
+
+  it("is byte-identical to the no-footer table when both hidden counts are 0", () => {
+    expect(renderEpicList(rows, 0, 0)).toBe(renderEpicList(rows));
   });
 });
 

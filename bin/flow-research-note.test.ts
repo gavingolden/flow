@@ -77,6 +77,43 @@ describe(decideNote, () => {
     expect(d!.noteLine).toContain("agy unavailable on this host");
   });
 
+  it("emits a plain-language note for status {ran:true, reason:ran-degraded}", () => {
+    const d = decideNote({
+      active: true,
+      forced: false,
+      status: { ran: true, reason: "ran-degraded" },
+      planText: "# PRD\n",
+    });
+    expect(d).not.toBeNull();
+    expect(d!.insertedText).toContain("> [!NOTE]");
+    // Plain language, no internal identifiers.
+    expect(d!.noteLine).not.toMatch(
+      /skipReason|deniedActions|agy-empty-artifact/,
+    );
+    // Asserts the SPECIFIC ran-degraded wording, not just "some note was
+    // produced" — mutation-resistant against the ran-degraded arm of
+    // computeReason silently regressing to the generic did-not-run text
+    // (deleting that arm would still satisfy the looser assertions above).
+    expect(d!.noteLine).toContain(
+      "ran, but part of it did not return anything",
+    );
+    expect(d!.noteLine).not.toContain("did not run");
+    // "force with `flow feature create --research`" is a no-op suggestion
+    // for a run that already ran — it must be suppressed on this path.
+    expect(d!.noteLine).not.toContain("force with");
+  });
+
+  it("stays silent (null) for status {ran:true, reason:ran}", () => {
+    expect(
+      decideNote({
+        active: true,
+        forced: false,
+        status: { ran: true, reason: "ran" },
+        planText: "# PRD\n",
+      }),
+    ).toBeNull();
+  });
+
   it("(d) emits the generic 'did not run' note when no status file (forced=false)", () => {
     const d = decideNote({
       active: true,

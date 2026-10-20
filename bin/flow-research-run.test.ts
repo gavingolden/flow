@@ -2,13 +2,37 @@ import { describe, expect, it, vi } from "vitest";
 import {
   boundFindings,
   buildManifest,
+  DEFAULT_TIMEOUT,
   type Deps,
+  type EntryOutcome,
   type FanoutAggregate,
   interpretFanout,
   parseArgs,
   resolveModels,
   run,
 } from "./flow-research-run";
+import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
+import { godurToSec } from "./lib/delegate-timeouts";
+
+const ran = (text: string): EntryOutcome => ({ text, ran: true });
+const skipped = (
+  skipReason: string,
+  deniedActions?: string[],
+): EntryOutcome => ({
+  text: "",
+  ran: false,
+  skipReason,
+  ...(deniedActions ? { deniedActions } : {}),
+});
+// The B1 regression shape: agy ran (ran:true, no skipReason) but a tool was
+// denied and the run came back empty — the exact combination that used to
+// print "No web-grounded findings were returned." indistinguishably from a
+// genuinely clean empty result.
+const ranDenied = (deniedActions: string[]): EntryOutcome => ({
+  text: "",
+  ran: true,
+  deniedActions,
+});
 
 describe("parseArgs", () => {
   it("requires --task, --out, --status-file", () => {
@@ -49,25 +73,38 @@ describe("buildManifest", () => {
   it("produces exactly 2 entries (gather + refute) carrying model and resolved timeout", () => {
     const m = buildManifest("add CSV export", {
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
-      timeout: "3m",
+      refuteModel: "Claude Opus 5.5 (Medium)",
+      timeout: DEFAULT_TIMEOUT,
     });
     expect(m).toHaveLength(2);
     for (const entry of m) {
       expect(typeof entry.model).toBe("string");
       expect(entry.model.length).toBeGreaterThan(0);
-      expect(entry.timeout).toBe("3m");
+      expect(entry.timeout).toBe(DEFAULT_TIMEOUT);
       expect(entry.prompt).toContain("add CSV export");
     }
     expect(m[0]!.model).toBe("Gemini 3.1 Pro (High)");
-    expect(m[1]!.model).toBe("Claude Opus 4.6 (Thinking)");
+    expect(m[1]!.model).toBe("Claude Opus 5.5 (Medium)");
+  });
+
+  it("opts both entries into skipPermissions:true and outputFormat:json, with no addDirs", () => {
+    const m = buildManifest("add CSV export", {
+      gatherModel: "Gemini 3.1 Pro (High)",
+      refuteModel: "Claude Opus 5.5 (Medium)",
+      timeout: DEFAULT_TIMEOUT,
+    });
+    for (const entry of m) {
+      expect(entry.skipPermissions).toBe(true);
+      expect(entry.outputFormat).toBe("json");
+      expect((entry as { addDirs?: string[] }).addDirs).toBeUndefined();
+    }
   });
 
   it("frames the gather prompt around web search + cited URLs + confidence", () => {
     const [gather] = buildManifest("X", {
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
-      timeout: "3m",
+      refuteModel: "Claude Opus 5.5 (Medium)",
+      timeout: DEFAULT_TIMEOUT,
     });
     expect(gather!.prompt).toMatch(/web search/i);
     expect(gather!.prompt).toMatch(/cited source URLs/i);
@@ -77,8 +114,8 @@ describe("buildManifest", () => {
   it("frames the refute prompt adversarially (refute / critically assess)", () => {
     const [, refute] = buildManifest("X", {
       gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
-      timeout: "3m",
+      refuteModel: "Claude Opus 5.5 (Medium)",
+      timeout: DEFAULT_TIMEOUT,
     });
     expect(refute!.prompt).toMatch(/refute/i);
     expect(refute!.prompt).toMatch(/critically assess/i);
@@ -87,21 +124,15 @@ describe("buildManifest", () => {
 
 describe("resolveModels (cross-model diversity guard)", () => {
   it("applies the frozen defaults when config is empty/garbage", () => {
-    // 2026-08-05 (PR #543): researchRefute's DELEGATE_MODEL_DEFAULTS entry
-    // stayed "Claude Opus 4.6 (Thinking)" — the bench run did NOT flip this
-    // default (see delegate-models.ts's inline comment for why) — so the
-    // default path still collides with researchGather's "Gemini 3.1 Pro
-    // (High)" default only when gather itself resolves to Opus; on an
-    // empty/garbage config gather resolves to Gemini 3.1 Pro, so no
-    // collision and the guard never fires here.
-    expect(resolveModels({})).toEqual({
-      gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
-    });
-    expect(resolveModels(null)).toEqual({
-      gatherModel: "Gemini 3.1 Pro (High)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
-    });
+    // The default refute model collides with the default gather model only
+    // when gather itself resolves to the refute default; on an empty/garbage
+    // config the two defaults differ, so the guard never fires here.
+    const defaults = {
+      gatherModel: DELEGATE_MODEL_DEFAULTS.researchGather,
+      refuteModel: DELEGATE_MODEL_DEFAULTS.researchRefute,
+    };
+    expect(resolveModels({})).toEqual(defaults);
+    expect(resolveModels(null)).toEqual(defaults);
   });
 
   it("honours explicit overrides when they differ", () => {
@@ -109,29 +140,21 @@ describe("resolveModels (cross-model diversity guard)", () => {
       resolveModels({
         research: {
           model: "GPT-OSS 120B (Medium)",
-          refuteModel: "Claude Opus 4.6 (Thinking)",
+          refuteModel: DELEGATE_MODEL_DEFAULTS.researchRefute,
         },
       }),
     ).toEqual({
       gatherModel: "GPT-OSS 120B (Medium)",
-      refuteModel: "Claude Opus 4.6 (Thinking)",
+      refuteModel: DELEGATE_MODEL_DEFAULTS.researchRefute,
     });
   });
 
   it("falls back to FALLBACK_REFUTE_MODEL when both resolve to Opus", () => {
-    // PR #543 (2026-08-05) did NOT flip researchRefute's default — it
-    // remains "Claude Opus 4.6 (Thinking)", identical to defaultRefuteModel
-    // — so a gather===Opus collision still takes the FALLBACK_REFUTE_MODEL
-    // branch, unchanged from pre-PR behaviour. Only the resolution path
-    // changed: defaultRefuteModel now flows through resolveDelegateModel
-    // rather than a module-level constant.
-    const r = resolveModels({
-      research: {
-        model: "Claude Opus 4.6 (Thinking)",
-        refuteModel: "Claude Opus 4.6 (Thinking)",
-      },
-    });
-    expect(r.gatherModel).toBe("Claude Opus 4.6 (Thinking)");
+    // A gather===refute collision on the current refute default takes the
+    // FALLBACK_REFUTE_MODEL branch.
+    const d = DELEGATE_MODEL_DEFAULTS.researchRefute!;
+    const r = resolveModels({ research: { model: d, refuteModel: d } });
+    expect(r.gatherModel).toBe(d);
     expect(r.refuteModel).toBe("GPT-OSS 120B (Medium)");
     expect(r.refuteModel).not.toBe(r.gatherModel);
   });
@@ -143,7 +166,7 @@ describe("resolveModels (cross-model diversity guard)", () => {
         refuteModel: "GPT-OSS 120B (Medium)",
       },
     });
-    expect(r.refuteModel).toBe("Claude Opus 4.6 (Thinking)");
+    expect(r.refuteModel).toBe(DELEGATE_MODEL_DEFAULTS.researchRefute);
     expect(r.refuteModel).not.toBe(r.gatherModel);
   });
 });
@@ -189,8 +212,8 @@ describe("interpretFanout", () => {
 describe("boundFindings", () => {
   it("includes the heading and a refute caveat", () => {
     const out = boundFindings(
-      "some grounded claim [high]",
-      "this is uncertain",
+      ran("some grounded claim [high]"),
+      ran("this is uncertain"),
     );
     expect(out).toContain("## Research findings (web-grounded, forced)");
     expect(out).toContain("some grounded claim");
@@ -200,15 +223,71 @@ describe("boundFindings", () => {
 
   it("caps long gather text with a truncation marker", () => {
     const long = Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n");
-    const out = boundFindings(long, "");
+    const out = boundFindings(ran(long), ran(""));
     expect(out).toContain("_[research findings truncated for brevity]_");
     expect(out).not.toContain("line 150");
   });
 
-  it("handles empty gather text gracefully", () => {
-    const out = boundFindings("", "");
+  it("handles empty gather text gracefully (genuinely ran but empty)", () => {
+    const out = boundFindings(ran(""), ran(""));
     expect(out).toContain("## Research findings (web-grounded, forced)");
     expect(out).toContain("No web-grounded findings were returned");
+  });
+
+  it("emits a plain-language skip line for a ran:false gather with no old affirmations", () => {
+    const out = boundFindings(skipped("agy-empty-artifact"), ran("caveat"));
+    expect(out).toContain(
+      "The web-search step did not return anything — it produced no output",
+    );
+    expect(out).not.toContain("No web-grounded findings were returned");
+    expect(out).not.toContain("Adversarial cross-check produced no caveats");
+  });
+
+  it("reads a retired agy model in plain language, not as a raw token", () => {
+    const gatherOut = boundFindings(
+      skipped("agy-model-unavailable"),
+      ran("caveat"),
+    );
+    expect(gatherOut).toContain("no longer offered by agy");
+    expect(gatherOut).not.toContain("agy-model-unavailable");
+    const refuteOut = boundFindings(
+      ran("claim"),
+      skipped("agy-model-unavailable"),
+    );
+    expect(refuteOut).toContain("no longer offered by agy");
+    expect(refuteOut).not.toContain("agy-model-unavailable");
+  });
+
+  it("emits a plain-language skip line for a ran:false refute", () => {
+    const out = boundFindings(ran("claim"), skipped("entry-missing"));
+    expect(out).toContain(
+      "The fact-checking step did not return anything — it never started",
+    );
+  });
+
+  it("names the tool when deniedActions is present", () => {
+    const out = boundFindings(
+      skipped("agy-empty-artifact", ["web_search"]),
+      ran("caveat"),
+    );
+    expect(out).toContain("it was not allowed to use web_search");
+  });
+
+  it("B1 regression: a ran:true, empty-text gather with deniedActions reads as a named refusal, never the old affirmation", () => {
+    const out = boundFindings(ranDenied(["web_search"]), ran("caveat"));
+    // The old affirmation only ever appeared as this bare, underscore- and
+    // period-terminated sentence; once a denial is present it must always
+    // be followed by an em-dash + reason instead.
+    expect(out).not.toContain("No web-grounded findings were returned._");
+    expect(out).toContain("No web-grounded findings were returned —");
+    expect(out).toContain("it was not allowed to use web_search");
+  });
+
+  it("B1 regression: a ran:true, empty-text refute with deniedActions reads as a named refusal, never the silent 'no caveats' line", () => {
+    const out = boundFindings(ran("some claim"), ranDenied(["run_command"]));
+    expect(out).not.toMatch(/Adversarial cross-check produced no caveats\._/);
+    expect(out).toContain("Adversarial cross-check produced no caveats —");
+    expect(out).toContain("it was not allowed to use run_command");
   });
 });
 
@@ -216,6 +295,7 @@ type Recorder = Deps & {
   files: Map<string, string>;
   out: string[];
   err: string[];
+  renames: Array<{ from: string; to: string }>;
 };
 
 function makeDeps(
@@ -225,6 +305,7 @@ function makeDeps(
   const files = new Map<string, string>();
   const out: string[] = [];
   const err: string[] = [];
+  const renames: Array<{ from: string; to: string }> = [];
   const base: Deps = {
     readConfig: () => "{}",
     runFanout,
@@ -235,6 +316,11 @@ function makeDeps(
     writeFile: (p, c) => {
       files.set(p, c);
     },
+    rename: (from, to) => {
+      files.set(to, files.get(from)!);
+      files.delete(from);
+      renames.push({ from, to });
+    },
     removeFile: (p) => {
       files.delete(p);
     },
@@ -242,7 +328,7 @@ function makeDeps(
     writeOut: (line) => out.push(line),
     writeErr: (line) => err.push(line),
   };
-  return Object.assign(base, overrides, { files, out, err });
+  return Object.assign(base, overrides, { files, out, err, renames });
 }
 
 const ARGV = [
@@ -255,6 +341,22 @@ const ARGV = [
 ];
 const OUT = "/wt/.flow-tmp/research-findings.md";
 const STATUS = "/wt/.flow-tmp/research-status.json";
+
+describe("run — status file write", () => {
+  it("writes the status file newline-terminated via a tmp file then rename", () => {
+    const deps = makeDeps(() => ({ allSkipped: true, anyRan: false }));
+    expect(run(ARGV, deps)).toBe(0);
+    expect(deps.renames).toEqual([{ from: `${STATUS}.tmp`, to: STATUS }]);
+    expect(deps.files.has(`${STATUS}.tmp`)).toBe(false);
+    const raw = deps.files.get(STATUS)!;
+    expect(raw.endsWith("\n")).toBe(true);
+    expect(JSON.parse(raw)).toMatchObject({ ran: false });
+  });
+
+  it("lifts the research limit to at least the 10-minute floor", () => {
+    expect(godurToSec(DEFAULT_TIMEOUT)).toBeGreaterThanOrEqual(600);
+  });
+});
 
 describe("run — injected fanout stub", () => {
   it("writes status {ran:false,reason:agy-unavailable} and exits 0 when agy is down", () => {
@@ -302,6 +404,136 @@ describe("run — injected fanout stub", () => {
     expect(findings).toContain("## Research findings (web-grounded, forced)");
     expect(findings).toContain("RFC 4180 requires quoting");
     expect(findings).toContain("line terminators vary");
+  });
+
+  it("unwraps a json-envelope artifact (structured_output/response) to its response text", () => {
+    const aggregate: FanoutAggregate = {
+      allSkipped: false,
+      anyRan: true,
+      entries: [
+        {
+          task: "research-gather",
+          ran: true,
+          artifactPath: "/wt/.flow-tmp/g.md",
+        },
+        {
+          task: "research-refute",
+          ran: true,
+          artifactPath: "/wt/.flow-tmp/r.md",
+        },
+      ],
+    };
+    const deps = makeDeps(() => aggregate);
+    deps.files.set(
+      "/wt/.flow-tmp/g.md",
+      JSON.stringify({ response: "RFC 4180 requires quoting [high]" }),
+    );
+    deps.files.set(
+      "/wt/.flow-tmp/r.md",
+      JSON.stringify({ response: "line terminators vary by importer" }),
+    );
+    expect(run(ARGV, deps)).toBe(0);
+    const findings = deps.files.get(OUT)!;
+    expect(findings).toContain("RFC 4180 requires quoting");
+    expect(findings).toContain("line terminators vary");
+    expect(JSON.parse(deps.files.get(STATUS)!)).toMatchObject({
+      reason: "ran",
+    });
+  });
+
+  it("prefers structured_output over response when both are present in the json envelope", () => {
+    const aggregate: FanoutAggregate = {
+      allSkipped: false,
+      anyRan: true,
+      entries: [
+        {
+          task: "research-gather",
+          ran: true,
+          artifactPath: "/wt/.flow-tmp/g.md",
+        },
+        {
+          task: "research-refute",
+          ran: true,
+          artifactPath: "/wt/.flow-tmp/r.md",
+        },
+      ],
+    };
+    const deps = makeDeps(() => aggregate);
+    deps.files.set(
+      "/wt/.flow-tmp/g.md",
+      JSON.stringify({
+        structured_output: "structured claim wins [high]",
+        response: "should be ignored",
+      }),
+    );
+    deps.files.set(
+      "/wt/.flow-tmp/r.md",
+      JSON.stringify({ response: "line terminators vary by importer" }),
+    );
+    expect(run(ARGV, deps)).toBe(0);
+    const findings = deps.files.get(OUT)!;
+    expect(findings).toContain("structured claim wins");
+    expect(findings).not.toContain("should be ignored");
+  });
+
+  it("B1 regression: end-to-end, a ran:true gather entry whose json envelope has an empty response and non-empty denied_actions degrades status and names the tool, never the old affirmation", () => {
+    const aggregate: FanoutAggregate = {
+      allSkipped: false,
+      anyRan: true,
+      entries: [
+        {
+          task: "research-gather",
+          ran: true,
+          artifactPath: "/wt/.flow-tmp/g.md",
+          deniedActions: ["web_search"],
+        },
+        {
+          task: "research-refute",
+          ran: true,
+          artifactPath: "/wt/.flow-tmp/r.md",
+        },
+      ],
+    };
+    const deps = makeDeps(() => aggregate);
+    // The exact envelope shape a tool-denied agy run leaves behind: a
+    // non-empty artifact (so artifactHasContent is true upstream in
+    // flow-delegate) with an empty response.
+    deps.files.set(
+      "/wt/.flow-tmp/g.md",
+      JSON.stringify({ status: "SUCCESS", response: "" }),
+    );
+    deps.files.set("/wt/.flow-tmp/r.md", "no caveats to add");
+    expect(run(ARGV, deps)).toBe(0);
+    const findings = deps.files.get(OUT)!;
+    expect(findings).not.toMatch(/No web-grounded findings were returned\./);
+    expect(findings).toContain("it was not allowed to use web_search");
+    expect(JSON.parse(deps.files.get(STATUS)!)).toMatchObject({
+      ran: true,
+      reason: "ran-degraded",
+    });
+  });
+
+  it("writes ran-degraded status when one entry did not genuinely run, even without a skipReason", () => {
+    const aggregate: FanoutAggregate = {
+      allSkipped: false,
+      anyRan: true,
+      entries: [
+        {
+          task: "research-gather",
+          ran: true,
+          artifactPath: "/wt/.flow-tmp/g.md",
+        },
+        // no skipReason on the refute entry at all
+        { task: "research-refute", ran: false },
+      ],
+    };
+    const deps = makeDeps(() => aggregate);
+    deps.files.set("/wt/.flow-tmp/g.md", "some claim");
+    expect(run(ARGV, deps)).toBe(0);
+    expect(JSON.parse(deps.files.get(STATUS)!)).toMatchObject({
+      ran: true,
+      reason: "ran-degraded",
+    });
   });
 
   it("degrades to a graceful skip (exit 0) when the fanout runner throws", () => {

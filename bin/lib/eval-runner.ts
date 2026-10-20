@@ -188,6 +188,7 @@ export function buildChildArgv(
     resultSchema?: unknown;
     model?: string;
     effort?: string;
+    autocompact?: string;
     keepSessions?: boolean;
     /** `"with"` (default) is byte-identical to today's argv. `"without"`
      * omits every `--plugin-dir` and points `--add-dir` at the fixture's
@@ -212,6 +213,15 @@ export function buildChildArgv(
     ...(arm === "without" ? [] : pluginDirArgs(fixture.pluginRoots)),
     "--setting-sources",
     "project",
+    // User-scope MCP servers (registered in the maintainer's ~/.claude.json)
+    // are unreachable under `--setting-sources project`, and a project
+    // `.mcp.json` needs interactive approval the unattended child can never
+    // give — `--mcp-config`/`--strict-mcp-config` is the only channel that
+    // reaches them. Present only when the scenario declared `mcpServers`
+    // (see `eval-fixture.ts`'s `mcpConfigPath`).
+    ...(fixture.mcpConfigPath
+      ? ["--mcp-config", fixture.mcpConfigPath, "--strict-mcp-config"]
+      : []),
     "--permission-mode",
     "dontAsk",
     "--permission-prompts",
@@ -245,6 +255,7 @@ export function buildChildArgv(
       : []),
     ...(opts.model ? ["--model", opts.model] : []),
     ...(opts.effort ? ["--effort", opts.effort] : []),
+    ...(opts.autocompact ? ["--autocompact", opts.autocompact] : []),
   ];
 }
 
@@ -259,6 +270,15 @@ export function buildChildArgv(
  * defeating its one job: letting `compareReports` warn when two reports
  * were produced by argv-shape-different children (e.g. one predates a
  * `--permission-prompts` addition) rather than just different trees.
+ *
+ * `--mcp-config <path>` falls out of this exclusion for free: the loop
+ * below only ever pushes a token that starts with `-`, so the per-run
+ * `mcpConfigPath` value (never dash-prefixed) is skipped as an ordinary
+ * flag value like `--session-id`'s or `--model`'s, with no special-case
+ * needed. `--strict-mcp-config` (a bare boolean flag, no value) IS
+ * digested via that same generic push — its presence/absence is a real
+ * shape difference (MCP-declaring vs non-declaring suites), same
+ * treatment as `--model`/`--effort`'s presence.
  */
 const DIGESTED_VALUE_FLAGS: ReadonlySet<string> = new Set([
   "--permission-mode",
@@ -400,6 +420,25 @@ export type RunOutcome = {
   childArgvDigest: string;
 };
 
+/** Resolves a bare binary name to its absolute PATH location. Returns the
+ * input unchanged when it is already absolute, or when the lookup fails
+ * (the caller then gets the same bare-name-spawn behaviour as before this
+ * function existed, rather than a hard failure here). `node:child_process`
+ * spawnSync, not `Bun.which` — this module must also run correctly inside
+ * `npm run test`'s Node-hosted vitest process, where the global `Bun`
+ * object does not exist (see this file's top-of-file doc comment). */
+export function resolveClaudeBinPath(claudeBin: string): string {
+  if (path.isAbsolute(claudeBin)) return claudeBin;
+  // The name is passed as a positional arg, never interpolated into the
+  // script text — `--claude-bin` is maintainer-supplied, but a value
+  // carrying shell metacharacters must not reach `sh -c` as code.
+  const result = spawnSync("sh", ["-c", 'command -v "$1"', "sh", claudeBin], {
+    encoding: "utf8",
+  });
+  const resolved = result.stdout?.trim();
+  return result.status === 0 && resolved ? resolved : claudeBin;
+}
+
 export async function runScenarioOnce(
   scenario: ResolvedScenario,
   fixture: MaterializedFixture,
@@ -410,6 +449,7 @@ export async function runScenarioOnce(
     resultSchema?: unknown;
     model?: string;
     effort?: string;
+    autocompact?: string;
     keepSessions?: boolean;
     spawn?: SpawnFn;
     readFile?: (p: string) => string;
@@ -425,13 +465,22 @@ export async function runScenarioOnce(
   const prompt = renderPrompt(scenario, fixture, readFile);
   fs.writeFileSync(path.join(opts.outDir, "prompt.txt"), prompt);
 
+  // The "without" arm strips `LOCAL_BIN_DIR` (`~/.local/bin`) from PATH
+  // below (buildChildEnv) to ablate flow helper discovery — but `claude`
+  // itself also lives in `~/.local/bin` on a typical install. A bare
+  // `"claude"` argv[0] would silently fail to spawn (ENOENT/exit 127)
+  // under that stripped PATH, so resolve it to an absolute path once,
+  // here, before composing argv — never inside buildChildArgv itself.
+  const resolvedClaudeBin = resolveClaudeBinPath(opts.claudeBin);
+
   const argv = buildChildArgv(scenario, fixture, {
-    claudeBin: opts.claudeBin,
+    claudeBin: resolvedClaudeBin,
     sessionId: opts.sessionId,
     prompt,
     resultSchema: opts.resultSchema,
     model: opts.model,
     effort: opts.effort,
+    autocompact: opts.autocompact,
     keepSessions: opts.keepSessions,
     arm: opts.arm,
   });
@@ -469,7 +518,18 @@ export async function runScenarioOnce(
   const { events, result } = parseStream(out);
   const assistantTextPath = path.join(opts.outDir, "assistant-text.txt");
   fs.writeFileSync(assistantTextPath, assistantText(events));
-  const error = result?.is_error ? (result.subtype ?? "error") : undefined;
+  // A child that dies before emitting any result event (e.g. spawn failed
+  // to resolve the binary, or was killed mid-stream) yields `result ===
+  // null` here. Left undistinguished from a legitimate run, that reads as
+  // "no error" to callers, which is how an empty bare-arm transcript could
+  // get folded into an ablation baseline as though it were a real score.
+  // The already-classified timeout path is excluded — callers handle
+  // `timedOut` separately.
+  const error = result?.is_error
+    ? (result.subtype ?? "error")
+    : !result && !timedOut
+      ? `no-result-event${exitCode !== 0 ? ` (exit ${exitCode})` : ""}`
+      : undefined;
 
   return {
     exitCode,

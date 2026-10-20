@@ -1,6 +1,13 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  DELEGATE_TIMEOUT_CEILING,
+  DELEGATE_TIMEOUT_DEFAULTS,
+} from "./lib/delegate-timeouts";
+import {
   INTENT_GUESS_JSON_SCHEMA,
+  buildPrompt,
   isGeminiIntentGuessEnabled,
   parseArgs,
   run,
@@ -9,6 +16,11 @@ import {
   type Deps,
 } from "./flow-gemini-intent-guess";
 import { parseStructured } from "./lib/structured-response";
+
+const DENIED_FIXTURE = readFileSync(
+  path.join(__dirname, "fixtures", "agy", "denied-tools-envelope.json"),
+  "utf8",
+);
 
 const VALID_GUESS = {
   guessed_purpose: "Adds a diff-only intent-guess check to catch scope drift.",
@@ -521,12 +533,14 @@ describe("run — conformant output", () => {
     expect(argv[argv.indexOf("--json-schema") + 1]).toBe(`${OUT}.schema.json`);
   });
 
-  it("passes --timeout resolveDelegateTimeout('intentGuess') default (5m) to flow-delegate", () => {
+  it("passes --timeout resolveDelegateTimeout('intentGuess') default to flow-delegate", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
     const argv = deps.calls.delegate[0]!;
     expect(argv).toContain("--timeout");
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("5m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(
+      DELEGATE_TIMEOUT_DEFAULTS.intentGuess,
+    );
   });
 
   it("passes an explicit --timeout flag through to flow-delegate", () => {
@@ -536,18 +550,20 @@ describe("run — conformant output", () => {
     expect(argv[argv.indexOf("--timeout") + 1]).toBe("3m");
   });
 
-  it("clamps an explicit --timeout flag above the 9m sync ceiling", () => {
+  it("clamps an explicit --timeout flag above the 20m sanity bound", () => {
     const deps = makeDeps();
-    run([...BASE_ARGV, "--timeout", "15m"], deps);
+    run([...BASE_ARGV, "--timeout", "30m"], deps);
     const argv = deps.calls.delegate[0]!;
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("9m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(DELEGATE_TIMEOUT_CEILING);
   });
 
   it("falls back to the default when an explicit --timeout flag is not a valid Go duration", () => {
     const deps = makeDeps();
     run([...BASE_ARGV, "--timeout", "not-a-duration"], deps);
     const argv = deps.calls.delegate[0]!;
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("5m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(
+      DELEGATE_TIMEOUT_DEFAULTS.intentGuess,
+    );
   });
 
   it("writes INTENT_GUESS_JSON_SCHEMA to the --json-schema scratch path before dispatch", () => {
@@ -721,5 +737,120 @@ describe("run — usage errors", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(run(["--worktree", "/wt"], makeDeps())).toBe(2);
     errSpy.mockRestore();
+  });
+});
+
+describe("buildPrompt", () => {
+  const diff = "diff --git a/x.ts b/x.ts\n+1\n";
+
+  it("composes the shared read-rules block and drops the bare read-access invitation", () => {
+    const prompt = buildPrompt(diff, "x.ts\n", "/repo");
+    expect(prompt).toContain("Reach for it with your file-reading tools ONLY");
+    expect(prompt).not.toContain(
+      "You have read access to the working directory for surrounding source context",
+    );
+  });
+
+  it("still carries the unblinding exclusion list", () => {
+    const prompt = buildPrompt(diff, "x.ts\n", "/repo");
+    expect(prompt).toContain("`.flow-tmp/pr-body.md`");
+    expect(prompt).toContain("`.flow-tmp/plan.md`");
+    expect(prompt).toContain("or the git log — doing so unblinds you");
+  });
+
+  it("derives fileCap from the fileList's line count, capped at 10 with a floor of 1", () => {
+    const manyFiles = Array.from({ length: 15 }, (_, i) => `f${i}.ts`).join(
+      "\n",
+    );
+    expect(buildPrompt(diff, manyFiles, "/repo")).toContain(
+      "Spot-check AT MOST 10 files",
+    );
+    expect(buildPrompt(diff, "f.ts", "/repo")).toContain(
+      "Spot-check AT MOST 1 files",
+    );
+    expect(
+      buildPrompt(diff, "(unable to derive file list from diff)", "/repo"),
+    ).toContain("Spot-check AT MOST 1 files");
+  });
+});
+
+describe("run — self-diagnosing skip reasons (denied tools / token exhaustion), no fallback retry", () => {
+  it("classifies a denied tool call as gemini-tools-denied via the decode-failure ladder, with exactly one delegate call", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(rawPath, DENIED_FIXTURE);
+        return {
+          ran: true,
+          artifactPath: rawPath,
+          deniedActions: ["RunCommand"],
+          usage: { thinking_tokens: 3601, output_tokens: 3704 },
+        } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "gemini-tools-denied",
+    });
+    expect(deps.calls.delegate).toHaveLength(1);
+  });
+
+  it("classifies a thinking-dominated empty response with NO denials as gemini-token-exhausted", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(
+          rawPath,
+          JSON.stringify({ status: "SUCCESS", response: "" }),
+        );
+        return {
+          ran: true,
+          artifactPath: rawPath,
+          usage: { thinking_tokens: 5000, output_tokens: 100 },
+        } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "gemini-token-exhausted",
+    });
+    expect(deps.calls.delegate).toHaveLength(1);
+  });
+
+  it("still yields gemini-intent-guess-output-unparseable when neither signal is present", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(rawPath, "not json at all");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "gemini-intent-guess-output-unparseable",
+    });
+    expect(deps.calls.delegate).toHaveLength(1);
+  });
+
+  it("promotes a ran:false envelope carrying deniedActions to gemini-tools-denied, even under a raw skipReason of agy-canceled", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        return {
+          ran: false,
+          skipReason: "agy-canceled",
+          deniedActions: ["RunCommand"],
+        } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({ skipReason: "gemini-tools-denied" });
+    expect(deps.calls.delegate).toHaveLength(1);
   });
 });

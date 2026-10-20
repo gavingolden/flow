@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "haiku-gatekeeper",
   "candidate": "haiku-gatekeeper",
-  "description": "Measures /flow-pr-review Step 1.5's haiku-pinned Gatekeeper Subagent's cost-routing accuracy and cost/context footprint against six PR-metadata scenarios covering every documented skip rule and first-match-wins ordering.",
+  "description": "Measures /flow-pr-review Step 1.5's haiku-pinned Gatekeeper Subagent's cost-routing accuracy and cost/context footprint against six PR-metadata scenarios covering every documented skip rule and first-match-wins ordering. As pinned, every scenario's child session is haiku, so this pass measures fan-out overhead and triage accuracy only; the cost-routing saving is measured by a second pass per arm run with `--model sonnet` (the CLI override wins over the per-case pin).",
   "scenarios": [
     "s1-merged-skip",
     "s2-trivial-skip",

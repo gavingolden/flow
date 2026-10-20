@@ -12,14 +12,17 @@ import {
   normalizeDecisionBody,
   parseArgs,
   readPriorHash,
+  REVIEWER_1_TIMEOUT,
+  REVIEWER_2_TIMEOUT,
   run,
   type DelegateEnvelope,
   type Deps,
   type FanoutAggregate,
 } from "./flow-plan-review";
+import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
 
-const MODEL_1 = "Gemini 3.7 Flash (High)";
-const MODEL_2 = "Claude Opus 4.6 (Thinking)";
+const MODEL_1 = "Gemini 4 Argon (High)";
+const MODEL_2 = DELEGATE_MODEL_DEFAULTS.planReviewSecond!;
 
 // Must clear BOTH the engagement bars in bin/lib/plan-review-engagement.ts:
 // >=40 chars AND >=2 lens tokens (case-insensitive, from the lens-matcher
@@ -231,6 +234,10 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     writeOut: (line) => calls.out.push(line),
     dirExists: () => true,
     fileExists: (p) => files.has(p),
+    // Default: no brief resolves. Never the real resolver — flow's own repo
+    // now ships a committed `.flow/product.md`, so an uninjected default
+    // would make every prompt assertion depend on that file's contents.
+    readProductBrief: () => null,
 
     spawnDetached: (argv) => {
       calls.spawnDetached.push(argv);
@@ -433,7 +440,7 @@ describe("run — happy path", () => {
       depth: "standard",
       reviewers: [
         {
-          model: "Gemini 3.7 Flash (High)",
+          model: "Gemini 4 Argon (High)",
           ran: true,
           skipReason: null,
           lensesEngaged: 4,
@@ -447,14 +454,14 @@ describe("run — happy path", () => {
     expect(deps.files.has(`${OUT}.agy-raw`)).toBe(false);
   });
 
-  it("passes the hardcoded Gemini model and the worktree as --add-dir, with a 3m --timeout, to the delegate", () => {
+  it("passes the hardcoded Gemini model and the worktree as --add-dir, with the reviewer-1 --timeout, to the delegate", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
     const argv = deps.calls.delegate[0]!;
-    expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 3.7 Flash (High)");
+    expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 4 Argon (High)");
     expect(argv[argv.indexOf("--add-dir") + 1]).toBe(WORKTREE);
     expect(argv[argv.indexOf("--task") + 1]).toBe("plan-review");
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("3m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(REVIEWER_1_TIMEOUT);
   });
 });
 
@@ -787,7 +794,7 @@ describe("run — battery prompt content", () => {
     );
   });
 
-  it("contains all six battery lenses", () => {
+  it("contains all seven battery lenses", () => {
     const deps = makeDeps();
     deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
     run(BASE_ARGV, deps);
@@ -800,6 +807,7 @@ describe("run — battery prompt content", () => {
     expect(prompt).toContain("Failure-modes battery");
     expect(prompt).toContain("prompt-free mitigation");
     expect(prompt).toContain("Independent cut list");
+    expect(prompt).toContain("Adversarial premise");
   });
 
   it("instructs the reviewer to form its own cut-list BEFORE reading the plan's Cut list", () => {
@@ -1003,7 +1011,7 @@ describe("run — deep tier happy path", () => {
     expect(out).toContain("Convergence rule");
   });
 
-  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's, with the asymmetric 3m/15m per-reviewer timeouts and addDirs threading the worktree", () => {
+  it("hands reviewer 2 its OWN same-family-aware prompt file, distinct from reviewer 1's, with the asymmetric per-reviewer timeouts and addDirs threading the worktree", () => {
     // Reviewer 2 (SECOND_MODEL) is the same model family as the PRD's
     // author, so it must not receive the byte-identical "different model
     // family" prompt handed to reviewer 1.
@@ -1021,11 +1029,11 @@ describe("run — deep tier happy path", () => {
     expect(manifest[1].model).toBe(MODEL_2);
     expect(manifest[0].out).toBe(`${OUT}.r1.md`);
     expect(manifest[1].out).toBe(`${OUT}.r2.md`);
-    // Asymmetric split: reviewer 1 (fast, Gemini) 3m, reviewer 2 (slow,
-    // Opus) 15m — no sum constraint anymore (the async spine detaches the
-    // worker), so reviewer 2 gets the literal budget the user asked for.
-    expect(manifest[0].timeout).toBe("3m");
-    expect(manifest[1].timeout).toBe("15m");
+    // Asymmetric split: reviewer 1 (Gemini) and reviewer 2 (Opus) each get
+    // their own exported limit — no sum constraint (the async spine detaches
+    // the worker).
+    expect(manifest[0].timeout).toBe(REVIEWER_1_TIMEOUT);
+    expect(manifest[1].timeout).toBe(REVIEWER_2_TIMEOUT);
     // addDirs = [parsed.worktree] on BOTH manifest entries — this is the
     // exact line this PR exists to fix (the reviewer must be granted repo
     // access, not left to review in a vacuum).
@@ -1102,6 +1110,50 @@ describe("run — deep tier partial failure", () => {
     ]);
     expect(deps.files.get(OUT)).toBe(
       "Reviewer one prose, verbatim: judged against the stated goal, this structurally different alternative holds up well.",
+    );
+  });
+});
+
+describe("run — deep tier retired model", () => {
+  it("passes a reviewer's agy-model-unavailable skipReason through unchanged in reviewers[]", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        const artifactPath = `${input.outPath}.artifact.0.md`;
+        deps.files.set(
+          artifactPath,
+          "Reviewer one prose, verbatim: judged against the stated goal, this structurally different alternative holds up well.",
+        );
+        return {
+          entries: [
+            {
+              task: manifest[0].task,
+              model: manifest[0].model,
+              ran: true,
+              artifactPath,
+            },
+            {
+              task: manifest[1].task,
+              model: manifest[1].model,
+              ran: false,
+              skipReason: "agy-model-unavailable",
+            },
+          ],
+          anyRan: true,
+          allSkipped: false,
+        } as FanoutAggregate;
+      },
+    });
+    expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
+    expect(envelope(deps).reviewers).toEqual([
+      { model: MODEL_1, ran: true, lensesEngaged: 2 },
+      { model: MODEL_2, ran: false, skipReason: "agy-model-unavailable" },
+    ]);
+  });
+
+  it("mapReviewerSkipReason leaves agy-model-unavailable untouched", () => {
+    expect(mapReviewerSkipReason("agy-model-unavailable")).toBe(
+      "agy-model-unavailable",
     );
   });
 });
@@ -1479,6 +1531,78 @@ describe("computeDecisionHash — widened content key", () => {
     );
   });
 
+  // --- Task 7: `## Request vetting` is a fourth hashed input --------------
+
+  const BASE_HASH_PLAN_WITH_VETTING = [
+    BASE_HASH_PLAN,
+    "## Request vetting",
+    "- **Verdict:** adopt",
+  ].join("\n");
+
+  it("a plan with no '## Request vetting' section hashes the same as one with an empty section (both fourth-input-empty)", () => {
+    // Real regression guard, not a tautology: BASE_HASH_PLAN carries no
+    // '## Request vetting' heading at all, while this variant carries the
+    // heading with an empty body. Both must normalize the fourth hashed
+    // input to "" and therefore hash equal — proving the heading's mere
+    // presence isn't itself hashed, only its (normalized) body.
+    const withEmptyVettingSection = BASE_HASH_PLAN + "\n\n## Request vetting\n";
+    expect(computeDecisionHash(withEmptyVettingSection)).toBe(
+      computeDecisionHash(BASE_HASH_PLAN),
+    );
+  });
+
+  it("two plans differing only in their '## Request vetting' body hash differently", () => {
+    const changed = BASE_HASH_PLAN_WITH_VETTING.replace(
+      "- **Verdict:** adopt",
+      "- **Verdict:** push back: do nothing",
+    );
+    expect(computeDecisionHash(changed)).not.toBe(
+      computeDecisionHash(BASE_HASH_PLAN_WITH_VETTING),
+    );
+  });
+
+  it("whitespace-only edits (trailing spaces, extra blank lines) to the '## Request vetting' body hash equal", () => {
+    const changed = BASE_HASH_PLAN_WITH_VETTING.replace(
+      "- **Verdict:** adopt",
+      "- **Verdict:** adopt   \n\n",
+    );
+    expect(computeDecisionHash(changed)).toBe(
+      computeDecisionHash(BASE_HASH_PLAN_WITH_VETTING),
+    );
+  });
+
+  it("appending a '- **Cross-model case against:**' line does NOT change the hash", () => {
+    const changed =
+      BASE_HASH_PLAN_WITH_VETTING +
+      "\n- **Cross-model case against:** a reviewer's finding appended post-hoc.";
+    expect(computeDecisionHash(changed)).toBe(
+      computeDecisionHash(BASE_HASH_PLAN_WITH_VETTING),
+    );
+  });
+
+  it("adding a '## Request vetting' section to an otherwise-unchanged plan changes the hash", () => {
+    expect(computeDecisionHash(BASE_HASH_PLAN_WITH_VETTING)).not.toBe(
+      computeDecisionHash(BASE_HASH_PLAN),
+    );
+  });
+
+  it("a '## Request vetting' section followed by a further section stops at the boundary (trailing-section fixture)", () => {
+    // Every other vetting fixture above puts '## Request vetting' LAST, so
+    // the extractor's section-end boundary (stopping at the next heading)
+    // is never exercised. This fixture appends a trailing section and
+    // asserts the hash is insensitive to THAT section's content, proving
+    // the vetting body was correctly bounded rather than accidentally
+    // swallowing everything to end-of-file.
+    const withTrailingSection =
+      BASE_HASH_PLAN_WITH_VETTING + "\n\n## Trailing section\nunrelated text.";
+    const withDifferentTrailingSection =
+      BASE_HASH_PLAN_WITH_VETTING +
+      "\n\n## Trailing section\ncompletely different unrelated text.";
+    expect(computeDecisionHash(withTrailingSection)).toBe(
+      computeDecisionHash(withDifferentTrailingSection),
+    );
+  });
+
   // Deliberately lint-violating fixture: `## Decision analysis` is
   // IMMEDIATELY followed by the h1 `# Task breakdown` with no intervening
   // `## ` heading. BASE_HASH_PLAN can't exercise the widened `/^#{1,2} /`
@@ -1551,14 +1675,29 @@ describe("godurToSec", () => {
 });
 
 describe("maxElapsedSec", () => {
+  it("keeps reviewer #1 at or above the 10-minute floor", () => {
+    expect(godurToSec(REVIEWER_1_TIMEOUT)).toBeGreaterThanOrEqual(600);
+  });
+
   it("derives the deep-tier cap from REVIEWER_1_TIMEOUT + REVIEWER_2_TIMEOUT + slack", () => {
-    // 3m (180) + 15m (900) + 300s slack = 1380s (23m).
-    expect(maxElapsedSec("deep")).toBe(1380);
+    expect(maxElapsedSec("deep")).toBe(
+      godurToSec(REVIEWER_1_TIMEOUT) + godurToSec(REVIEWER_2_TIMEOUT) + 300,
+    );
   });
 
   it("derives the standard-tier cap from REVIEWER_1_TIMEOUT + slack only", () => {
-    // 3m (180) + 300s slack = 480s (8m).
-    expect(maxElapsedSec("standard")).toBe(480);
+    expect(maxElapsedSec("standard")).toBe(
+      godurToSec(REVIEWER_1_TIMEOUT) + 300,
+    );
+  });
+});
+
+describe("maxElapsedSec — the minutes written in the docs", () => {
+  // The source comment, the PR description and the docs state "18 minutes
+  // standard, 33 deep"; re-sizing a reviewer limit must update them together.
+  it("is 18 minutes on the standard tier and 33 on the deep tier", () => {
+    expect(maxElapsedSec("standard")).toBe(18 * 60);
+    expect(maxElapsedSec("deep")).toBe(33 * 60);
   });
 });
 
@@ -1907,5 +2046,56 @@ describe("run --check", () => {
       ran: false,
       skipReason: "plan-review-not-started",
     });
+  });
+});
+
+describe("run — product brief threading", () => {
+  const BRIEF = "# Brief\n\n## Ranked priorities\n\n1. cost and token spend\n";
+
+  it("threads the resolved brief verbatim into the reviewer-1 prompt", () => {
+    const deps = makeDeps({ readProductBrief: () => BRIEF });
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    const prompt = promptFor(deps);
+    expect(prompt).toContain("## Product brief");
+    expect(prompt).toContain("1. cost and token spend");
+  });
+
+  it("resolves the brief for the --worktree path, not the process cwd", () => {
+    const seen: string[] = [];
+    const deps = makeDeps({
+      readProductBrief: (w) => {
+        seen.push(w);
+        return null;
+      },
+    });
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, deps);
+    expect(seen).toContain(WORKTREE);
+  });
+
+  it("threads the brief into the deep tier's reviewer-2 prompt too", () => {
+    const deps = makeDeps({ readProductBrief: () => BRIEF });
+    deps.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run([...BASE_ARGV, "--depth", "deep"], deps);
+    const r2 = deps.calls.writes.find((w) =>
+      w.path.endsWith(".prompt.r2"),
+    )?.contents;
+    expect(r2).toBeDefined();
+    expect(r2).toContain("## Product brief");
+    expect(r2).toContain("1. cost and token spend");
+  });
+
+  it("leaves the prompt byte-identical when no brief resolves", () => {
+    const withNull = makeDeps({ readProductBrief: () => null });
+    withNull.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, withNull);
+
+    const withEmpty = makeDeps({ readProductBrief: () => "" });
+    withEmpty.files.set(PLAN_FILE, PLAN_WITH_GOAL);
+    run(BASE_ARGV, withEmpty);
+
+    expect(promptFor(withEmpty)).toBe(promptFor(withNull));
+    expect(promptFor(withNull)).not.toContain("## Product brief");
   });
 });

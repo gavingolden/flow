@@ -1,0 +1,52 @@
+{
+  "status": "complete",
+  "commits": [
+    {
+      "sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      "files": [
+        "src/pricing.ts"
+      ],
+      "finding_id": "bug-detection:src/pricing.ts:12:issue",
+      "reasoning": "Changed the comparison to >= 100 so a cart of exactly 100 qualifies.",
+      "verify_status": "pass",
+      "comment_ids": [
+        "1001"
+      ]
+    },
+    {
+      "sha": "b2c3d4e5f60718293a4b5c6d7e8f901234567890",
+      "files": [
+        "src/pricing.ts"
+      ],
+      "finding_id": "pattern-consistency:src/pricing.ts:5:nitpick",
+      "reasoning": "Moved the rate into the shared constants table.",
+      "verify_status": "pass",
+      "comment_ids": [
+        "1002"
+      ]
+    }
+  ],
+  "deferred": [
+    {
+      "finding_id": "test-coverage:src/pricing.test.ts:8:suggestion",
+      "tracker_entry_url": "https://github.com/example-org/example-repo/issues/42",
+      "reason": "The boundary test needs a shared fixture that does not exist yet."
+    }
+  ],
+  "rejected_alternatives": [
+    {
+      "finding_id": "bug-detection:src/pricing.ts:12:issue",
+      "considered_approach": "Special-case 100 with a second branch.",
+      "why_rejected": "A single >= comparison is simpler and covers the same input."
+    }
+  ],
+  "anti_patterns_found": [
+    {
+      "location": "src/pricing.ts",
+      "pattern": "Magic number 100 in the tier check.",
+      "recommendation": "Name the threshold next to TIER_RATE.",
+      "introduced_by_this_pr": true
+    }
+  ],
+  "summary": "2 findings fixed and pushed, 1 deferred to a tracker issue."
+}

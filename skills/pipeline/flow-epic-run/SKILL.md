@@ -113,7 +113,7 @@ session, and this one has zero named fan-out surfaces.
 | `flow epic bind <epic> <id> <slug> [--force]`                              | Repoint or adopt a run.json binding safely (the #1 drift tool).                                                                                                                                                                                                                                                                                                 |
 | `flow epic bind <epic> <id> --external "<ref>" [--force]`                  | Record a completed out-of-band feature (a PR/issue, no live slug).                                                                                                                                                                                                                                                                                              |
 | `flow epic launch <epic> <id> [--force]`                                   | Atomic manifest-read → `flow feature create` → binding recorded.                                                                                                                                                                                                                                                                                                |
-| `flow epic ls` / `flow epic done <slug>`                                   | List epics (completed hidden by default; `--all` shows them) / remove the per-machine run.json cache.                                                                                                                                                                                                                                                           |
+| `flow epic ls` / `flow epic done <slug>`                                   | List epics (scoped to this repo, completed hidden by default; `--done`/`--all-repos` widen one axis each, `--all`/`-a` widen both) / remove the per-machine run.json cache.                                                                                                                                                                                     |
 | `flow feature create "<desc>"` / `flow feature resume <slug> --force`      | Launch a fresh pipeline / clean-respawn a stalled one (the sanctioned retry actuator).                                                                                                                                                                                                                                                                          |
 | `flow-epic-sync --epic-slug <epic> [--check] [--commit] [--push]`          | Derive the whole epic's committed status board from GitHub; `--check` exits non-zero on drift. `--epic-slug` is required here — this session's `$FLOW_SLUG` is the epic-run window's own slug, not the epic's, so a bare invocation resolves nothing. Add `--rederive` to rebuild the board from GitHub ignoring committed rows, when a committed row is wrong. |
 | `gh`, `git`, `jq`                                                          | The truth probes + JSON extraction.                                                                                                                                                                                                                                                                                                                             |
@@ -141,7 +141,11 @@ Reconcile the cache (run.json) against the truth (GitHub/git) BEFORE any launch.
      `priorSlugs`).
    - **Merged out of band** (a PR merged with no flow pipeline) →
      `flow epic bind <epic> <id> --external "PR #<n>"`.
-4. If the manifest itself drifted from what shipped, run **amend-manifest**.
+4. If the manifest itself drifted from what shipped, run
+   **amend-manifest** — this routes three drift kinds: a newly discovered,
+   created, or invalidated `dependsOn` edge; a new producer of a shared
+   generated artifact (`sharedArtifacts`); or an item sitting in a manifest
+   `followups` array.
 5. Check the committed status board:
    `flow-epic-sync --epic-slug <slug> --check`. On a non-zero exit, run
    `flow-epic-sync --epic-slug <slug> --commit --push`. The commit lands on
@@ -194,6 +198,10 @@ duplicate-check.
 
 ## amend-manifest
 
+A feature pipeline that discovers an edge owns its own write-back in its own
+PR (`Manifest write-back` in its plan); this recipe amends only drift no PR
+owns.
+
 When scope changed and the committed manifest must change:
 
 1. Edit `.flow/epics/<slug>/manifest.json`.
@@ -205,6 +213,14 @@ When scope changed and the committed manifest must change:
    commit the change there with a small, focused commit, then
    `git switch -` to return the checkout to the base branch, then open a
    PR by hand.
+4. **Follow-ups are a ledger, not a queue.** A manifest `followups` array is
+   a ledger entry the runner never reads; promote by moving it into
+   `features[]` with an id, a description ending in the pointer sentence,
+   and `dependsOn`, then `flow-epic-dag --validate`.
+5. **Confirm the epic is runner-driven before filing into it.** `flow epic
+ls` lists it (a `run.json` exists) or the manifest `note` says so;
+   absent both, promote-and-`flow epic run`, or `flow-create-issue` — else
+   the item is a dead letter.
 
 ## delete-when-done
 
@@ -223,24 +239,26 @@ and proceed.
 
 **Checkpoint re-injection (persisted conversational state).** A fresh
 process reconstructs the board from disk but drops any instruction held
-only in chat. Resolve the checkpoint body **read-only** —
-`CHECKPOINT_PATH=$(flow-checkpoint --path)`, which derives the
-slug-keyed, worktree-independent location and only prints it. Do **not**
-resolve it by running bare `flow-checkpoint <slug>`: that form re-arms the
-one-shot `checkpoint.pending` marker on every resume, which is exactly
-what the `--consume` below exists to retire. Then probe
-`$CHECKPOINT_PATH`.
-When it exists, read it and fold its addenda into the reconcile step —
-honor the persisted decision as if just given — **before** taking the one
-deliberate step. Then run:
+only in chat. This playbook never calls a resume-decision helper, so it
+retires and reads the notes in ONE step — the only path to the notes runs
+through the command that retires them:
 
 ```bash
-flow-checkpoint --consume
+ARCHIVED=$(flow-checkpoint --consume | jq -r '.archived // empty')
 ```
 
-which deletes the one-shot `checkpoint.pending` marker so a later
-unrelated `/clear` in this window does not re-fire the auto-resume hook.
-Skipping the consume leaves the marker armed.
+`--consume` archives the note (recoverable, never silently deleted) and
+deletes the one-shot `checkpoint.pending` marker so a later unrelated
+`/clear` in this window does not re-fire the auto-resume hook; it prints
+the archived path. When `$ARCHIVED` is non-empty, read it and fold its
+addenda into the reconcile step — honor the persisted decision as if just
+given — **before** taking the one deliberate step. Empty means no note was
+saved. Do **not** resolve the notes by running bare `flow-checkpoint
+<slug>`: that form re-arms the one-shot marker on every resume, the exact
+thing this step retires. This playbook arms nothing itself, but
+`/flow-checkpoint` in this window prints the same `checkpointed: …` banner —
+a `checkpointed: false` line means a `/clear` will lose unsaved in-chat
+state.
 
 # What this playbook does NOT do
 
@@ -252,8 +270,8 @@ launch`.
 - It does **not author feature code**, run a tick loop, poll, or spawn a
   judgment sub-agent.
 - It does **not replay a checkpoint twice** — the `checkpoint.pending`
-  marker is one-shot, consumed (`flow-checkpoint --consume`) on the same
-  re-entry that re-injects `checkpoint.md`.
+  marker is one-shot, retired by the same `flow-checkpoint --consume` that
+  hands over the archived note on the re-entry that reads it.
 
 # Resource cleanup
 

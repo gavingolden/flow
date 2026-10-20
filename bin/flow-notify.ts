@@ -25,8 +25,13 @@
  * block's one-sentence, user-visible outcome — not the first validation
  * item or a raw escalation tag. The escalation reason *tag* (e.g.
  * `verify-exhausted`) travels separately via `--tag`, folded into the
- * subtitle (`<slug> · <tag>`) so it isn't lost now that `--reason` carries
- * the TLDR instead.
+ * subtitle (`<slug> · <tag>`) and also the source of the notification's
+ * action: a needs-human message reads `Next: <headline> — <TLDR>`, where the
+ * headline is the first line of that tag's `NEXT_ACTION_BY_REASON` recipe
+ * (`nextActionHeadline`, `<slug>` / `<pr>` filled in from `--slug` /
+ * `--url`). A gated message leads with `GATED_NEXT_ACTION`; a merged message
+ * stays the bare TLDR. The whole message is capped at 180 chars, so only the
+ * TLDR tail is ever cut.
  *
  * `--slug` is optional: when omitted, the helper auto-resolves the
  * supervisor's slug from `$FLOW_SLUG`.
@@ -42,10 +47,15 @@
  */
 
 import { spawn } from "node:child_process";
+import { extractPrNumber, nextActionHeadline } from "./flow-gate-summary";
 import { resolveSlugAmbient } from "./lib/session-identity";
 
 const VALID_STATUSES = new Set(["merged", "gated", "needs-human"]);
 const MESSAGE_MAX_CHARS = 180;
+
+// Terminal counterpart: renderGated's `NEXT ACTION:` row in bin/flow-gate-summary.ts.
+export const GATED_NEXT_ACTION =
+  "Validate the open Test Steps on the PR, then merge it";
 
 type Args = {
   status: string;
@@ -103,9 +113,24 @@ export function buildPayload(args: Args): Payload {
   const tag = args.tag?.trim();
   const subtitle = tag ? (slug.length > 0 ? `${slug} · ${tag}` : tag) : slug;
   const reason = args.reason?.trim();
-  const message =
-    reason && reason.length > 0 ? collapseAndTruncate(reason) : "(no reason)";
+  const action = notificationAction(args, slug);
+  const tldr = reason && reason.length > 0 ? reason : "";
+  const message = action
+    ? collapseAndTruncate(`Next: ${action}${tldr ? ` — ${tldr}` : ""}`)
+    : tldr
+      ? collapseAndTruncate(tldr)
+      : "(no reason)";
   return { title, subtitle, message };
+}
+
+function notificationAction(args: Args, slug: string): string {
+  if (args.status === "gated") return GATED_NEXT_ACTION;
+  if (args.status !== "needs-human") return "";
+  let action = nextActionHeadline(args.tag?.trim());
+  if (slug.length > 0) action = action.replaceAll("<slug>", slug);
+  const pr = args.url ? extractPrNumber(args.url) : null;
+  if (pr) action = action.replaceAll("<pr>", pr);
+  return action;
 }
 
 function collapseAndTruncate(s: string): string {

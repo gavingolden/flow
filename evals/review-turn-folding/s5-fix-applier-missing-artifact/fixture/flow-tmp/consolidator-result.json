@@ -1,0 +1,58 @@
+{
+  "consolidated_findings": [
+    {
+      "finding_id": "bug-detection:src/pricing.ts:12:issue",
+      "agent_source": "bug-detection",
+      "file": "src/pricing.ts",
+      "line": 12,
+      "label": "issue",
+      "decoration": "blocking",
+      "confidence": 90,
+      "subject": "Threshold excludes a cart of exactly 100",
+      "body": "`total > 100` skips a cart of exactly 100, which the PR description says qualifies."
+    },
+    {
+      "finding_id": "pattern-consistency:src/pricing.ts:5:nitpick",
+      "agent_source": "pattern-consistency",
+      "file": "src/pricing.ts",
+      "line": 5,
+      "label": "nitpick",
+      "decoration": "non-blocking",
+      "confidence": 85,
+      "subject": "Constants live in a table elsewhere",
+      "body": "Other modules keep rates in a single constants table."
+    },
+    {
+      "finding_id": "test-coverage:src/pricing.test.ts:8:suggestion",
+      "agent_source": "test-coverage",
+      "file": "src/pricing.test.ts",
+      "line": 8,
+      "label": "suggestion",
+      "decoration": "non-blocking",
+      "confidence": 82,
+      "subject": "Add a boundary test at 100",
+      "body": "No test pins the exact-100 boundary behaviour."
+    }
+  ],
+  "dropped_by_validation": [
+    {
+      "finding_id": "bug-detection:src/pricing.ts:20:suggestion",
+      "original_finding": {
+        "agent_source": "bug-detection",
+        "file": "src/pricing.ts",
+        "line": 20,
+        "label": "suggestion",
+        "decoration": "non-blocking",
+        "confidence": 82,
+        "subject": "Guard against negative totals",
+        "body": "A negative total would pass through the discount unchanged."
+      },
+      "reason": "second-opinion pass: the negative-total path is unreachable from any caller in the diff"
+    }
+  ],
+  "rejected_alternatives": [
+    "Merging the boundary test finding into the threshold issue: they touch different files."
+  ],
+  "anti_patterns_found": [],
+  "summary": "3 findings survive (1 blocking); 1 dropped by validation."
+}

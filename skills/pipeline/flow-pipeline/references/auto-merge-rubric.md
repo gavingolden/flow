@@ -7,7 +7,7 @@ section of the PR body.
 This file is the **single source of truth for the heading contract**:
 which heading the gate keys on, what counts as "needs a human" vs.
 "clear to ship", what the gate does on missing vs. empty vs. populated.
-The supervisor's SKILL.md step 9 holds only the operational decision
+The supervisor's `references/phases/step-09-gate.md` holds only the operational decision
 matrix (PR state × autoMerge opt-out × section verdict → action) and
 points back here for the parse contract. `/flow-product-planning` and
 `/flow-new-feature` PR-description templates also defer to this file for
@@ -38,6 +38,17 @@ The gate decides:
 
 - **No unchecked items** → auto-merge.
 - **Has unchecked items** → gated; surface the checklist to the user.
+- **Has unchecked items, all of them un-run `Browser:` checks** (plus any
+  `SUBJECTIVE:` / `DECISION:` judgment items) → `browser-retry`, which is
+  **non-terminal**, unlike `gated`. "Un-run" means environment-blocked,
+  never attempted, or passed but left unticked, judged from head-fresh
+  evidence (`.flow-tmp/ui-driver-result.json` from review Step 8c,
+  `.flow-tmp/ui-preflight.json`) matched by checklist index. Those items get
+  one automatic re-drive; if any stay environment-blocked the run pauses at
+  `browser-retry-pending` for a typed `retry`, and the gate re-reads the live
+  body afterwards. `gated` stays terminal for judgment items, any open
+  command or prose item, and a `Browser:` check that genuinely failed or the
+  driver could not drive.
 - **Heading missing entirely** → escalate
   `NEEDS HUMAN: test-steps-section-missing`. A missing heading
   signals an upstream regression (template drift, hand-edited PR), not
@@ -187,12 +198,12 @@ auto-merge path.
 `gh pr view <pr> --json state` returns one of `OPEN`, `MERGED`,
 `CLOSED`. Combine with the unchecked-count result:
 
-| PR state | Unchecked count | Decision                 | Action                                                                                                                                                                                                                                                                                                                                                                             |
-| -------- | --------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPEN`   | `0`             | **auto-merge**           | `(cd "$PRIMARY" && gh pr merge --squash <pr>)` (where `$PRIMARY` is the primary worktree path, so gh's post-merge `git checkout <base>` is a no-op there), then step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (which records `phase: merged` itself, only after the block reaches stdout), then `flow-remove-worktree --delete-branch`, end. |
-| `OPEN`   | `> 0`           | **gated**                | Render the GATED block via `flow-gate-summary` (which records `phase: gated` itself). Print the validation checklist, the PR URL, and the manual-merge verb (`gh pr merge --squash <pr>`). End.                                                                                                                                                                                    |
-| `MERGED` | (any)           | **already-merged**       | The user merged externally (gated → merged path). Run step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (which records `phase: merged` itself, only after the block reaches stdout), then `flow-remove-worktree --delete-branch`, end.                                                                                                           |
-| `CLOSED` | (any)           | **closed-without-merge** | Escalate: `NEEDS HUMAN: pr-closed-without-merge <url>`. Leave worktree intact (the user may want to reopen). End.                                                                                                                                                                                                                                                                  |
+| PR state | Unchecked count | Decision                 | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------- | --------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPEN`   | `0`             | **auto-merge**           | the standalone `flow-merge-guard merge <pr>` call (the gate-checked merge: it re-checks the gate and CI, then runs the bare `gh pr merge --squash` from the base checkout so gh's post-merge `git checkout <base>` is a no-op there), then step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (which records `phase: merged` itself, only after the block reaches stdout), then `flow-remove-worktree --delete-branch`, end. |
+| `OPEN`   | `> 0`           | **gated**                | Render the GATED block via `flow-gate-summary` (which records `phase: gated` itself). Print the validation checklist, the PR URL, and the manual-merge verb (`flow-merge-guard merge <pr> --slug <slug>`). End.                                                                                                                                                                                                                                               |
+| `MERGED` | (any)           | **already-merged**       | The user merged externally (gated → merged path). Run step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (which records `phase: merged` itself, only after the block reaches stdout), then `flow-remove-worktree --delete-branch`, end.                                                                                                                                                                                      |
+| `CLOSED` | (any)           | **closed-without-merge** | Escalate: `NEEDS HUMAN: pr-closed-without-merge <url>`. Leave worktree intact (the user may want to reopen). End.                                                                                                                                                                                                                                                                                                                                             |
 
 ## Defensive cases
 
@@ -261,7 +272,7 @@ the gate summary renders" below); stdout reads:
 STATUS: GATED
 PR: https://github.com/org/repo/pull/142
 WHY: 2 unchecked test steps remain
-NEXT ACTION: validate then run: gh pr merge --squash 142
+NEXT ACTION: tick each step once validated, then run: flow-merge-guard merge 142 --slug <slug> (or reply `merge` in the pipeline window)
   - Open `/portfolio` with the seeded user — allocation chart renders
   - Switch the time range to 1y — chart updates without a full reload
 CLEANUP: reap ok — no live processes (recorded 2026-01-01T00:00:00.000Z)
@@ -306,8 +317,8 @@ optional `FOLLOW-UPS:`); it does not replace the sentinel.
 
 For the full template per status, see the worked example above (for
 GATED) and the inline tables in
-`skills/pipeline/flow-pipeline/SKILL.md` step 9, step 10, step 11,
-and the `# Failure paths` block, plus the branch-mismatch escalation,
+`skills/pipeline/flow-pipeline/references/phases/` `step-09-gate.md`, `step-10-merge.md`,
+`step-11-follow-ups.md` and `failure-paths.md`, plus the branch-mismatch escalation,
 the terminal-regression escalation, and the task-tool-unavailable
 escalation now living in
 `skills/pipeline/flow-pipeline/references/failure-recovery.md` § (c)

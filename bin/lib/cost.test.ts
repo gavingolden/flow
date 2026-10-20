@@ -39,8 +39,11 @@ function seedEvent(content = SEED): object {
   return { type: "user", message: { role: "user", content } };
 }
 
-function assistant(model: string, usage: object): object {
-  return { type: "assistant", message: { model, usage } };
+function assistant(model: string, usage: object, id?: string): object {
+  return {
+    type: "assistant",
+    message: { ...(id ? { id } : {}), model, usage },
+  };
 }
 
 function state(overrides: Partial<PipelineState> = {}): PipelineState {
@@ -354,6 +357,82 @@ describe(computeCost, () => {
     expect(cost.byModel["claude-sonnet-4-6"]).toBeCloseTo(3, 6);
     expect(cost.unknownModels).toEqual(["claude-experimental-future"]);
     expect(cost.hasData).toBe(true);
+  });
+});
+
+describe("repeated message.id de-duplication", () => {
+  const usage = {
+    input_tokens: 1_000_000,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  };
+  const repeated = () => [
+    assistant("claude-sonnet-4-6", usage, "msg_1"),
+    assistant("claude-sonnet-4-6", usage, "msg_1"),
+    assistant("claude-sonnet-4-6", usage, "msg_1"),
+    assistant("claude-sonnet-4-6", usage, "msg_2"),
+    assistant("claude-sonnet-4-6", usage, "msg_2"),
+  ];
+
+  it("computeCost counts each distinct id once", async () => {
+    writeJsonl("session.jsonl", [seedEvent(), ...repeated()]);
+    const cost = await computeCost(state(), tmpRoot);
+    expect(cost.total).toBeCloseTo(6, 6);
+  });
+
+  it("sumTranscriptUsage counts a 3x-repeated message once and agrees with computeCost", async () => {
+    writeJsonl("session.jsonl", [seedEvent(), ...repeated()]);
+    const usageSum = await sumTranscriptUsage(
+      path.join(projectDir, "session.jsonl"),
+    );
+    expect(usageSum.input).toBe(2_000_000);
+    expect(usageSum.total).toBe(2_000_000);
+  });
+
+  it("keeps the LAST line per message.id so output is the final value, in both summers", async () => {
+    const mk = (output: number) => ({
+      input_tokens: 1_000_000,
+      output_tokens: output,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    });
+    writeJsonl("session.jsonl", [
+      seedEvent(),
+      assistant("claude-sonnet-4-6", mk(3), "msg_1"),
+      assistant("claude-sonnet-4-6", mk(333), "msg_1"),
+    ]);
+    const usageSum = await sumTranscriptUsage(
+      path.join(projectDir, "session.jsonl"),
+    );
+    expect(usageSum.output).toBe(333);
+    expect(usageSum.input).toBe(1_000_000);
+    const cost = await computeCost(state(), tmpRoot);
+    // Sonnet: $3 input + 333 output tokens at $15/M.
+    expect(cost.total).toBeCloseTo(3 + (333 * 15) / 1_000_000, 9);
+  });
+
+  it("counts id-less lines individually and ignores a last line without usage", async () => {
+    const u = {
+      input_tokens: 10,
+      output_tokens: 5,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    };
+    const noUsage = assistant("claude-sonnet-4-6", u, "msg_1");
+    delete (noUsage as { message: { usage?: unknown } }).message.usage;
+    writeJsonl("session.jsonl", [
+      seedEvent(),
+      assistant("claude-sonnet-4-6", u),
+      assistant("claude-sonnet-4-6", u),
+      assistant("claude-sonnet-4-6", u, "msg_1"),
+      noUsage,
+    ]);
+    const usageSum = await sumTranscriptUsage(
+      path.join(projectDir, "session.jsonl"),
+    );
+    expect(usageSum.input).toBe(30);
+    expect(usageSum.output).toBe(15);
   });
 });
 

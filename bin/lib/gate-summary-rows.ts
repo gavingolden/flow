@@ -5,6 +5,8 @@
  * never reads files or config.
  */
 
+import { linkUrl, type LinkMode } from "./link";
+
 export const TLDR_MAX_WORDS = 25;
 
 export type ClampedTldr = { text: string; truncated: boolean; words: number };
@@ -38,6 +40,7 @@ export function clampTldr(s: string): ClampedTldr {
 export function buildNeedsAttention(
   validationItems: string[],
   prUrl: string | undefined,
+  mode: LinkMode = "plain",
 ): string[] {
   const items = validationItems
     .map((i) => i.trim())
@@ -46,7 +49,7 @@ export function buildNeedsAttention(
   const lines = ["NEEDS ATTENTION:"];
   for (const item of items) {
     const stripped = item.replace(/^[-*]\s+/, "");
-    const suffix = prUrl ? ` → ${prUrl}` : "";
+    const suffix = prUrl ? ` → ${linkUrl(prUrl, mode)}` : "";
     lines.push(`  - ${stripped}${suffix}`);
   }
   return lines;

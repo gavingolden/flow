@@ -15,6 +15,7 @@ import { validateCoderResult } from "./coder-schema";
  */
 
 const VALID_FULL: unknown = {
+  status: "complete",
   edits: [
     {
       file: "src/foo.ts",
@@ -46,6 +47,7 @@ const VALID_FULL: unknown = {
 };
 
 const VALID_EMPTY_NEGATIVES: unknown = {
+  status: "complete",
   edits: [
     {
       file: "src/x.ts",
@@ -91,6 +93,7 @@ describe("validateCoderResult — happy paths", () => {
 
   it("accepts a verify_status containing a failure excerpt rather than 'pass'", () => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.status = "partial";
     fixture.verify_status =
       "FAIL src/foo.test.ts > should bar\nExpected: 1\nReceived: 0";
     const result = validateCoderResult(fixture);
@@ -100,6 +103,7 @@ describe("validateCoderResult — happy paths", () => {
 
 describe("validateCoderResult — required-key omissions", () => {
   it.each([
+    "status",
     "edits",
     "verify_status",
     "rejected_alternatives",
@@ -306,6 +310,52 @@ describe("validateCoderResult — wrong-type rejections", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toContain("introduced_by_this_pr");
+    }
+  });
+});
+
+describe("validateCoderResult — status rules", () => {
+  it("rejects a status value other than 'partial' or 'complete'", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.status = "done";
+    const result = validateCoderResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("status");
+      expect(result.path).toBe("status");
+    }
+  });
+
+  it("accepts status 'partial' with a turn-budget tool_error and non-pass verify_status", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.status = "partial";
+    (fixture.edits as Array<Record<string, unknown>>)[0].tool_error =
+      "turn-budget — not attempted";
+    fixture.verify_status = "FAIL src/foo.test.ts";
+    const result = validateCoderResult(fixture);
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects status 'complete' when an edits[] entry carries a turn-budget tool_error", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.status = "complete";
+    (fixture.edits as Array<Record<string, unknown>>)[0].tool_error =
+      "turn-budget — not attempted";
+    const result = validateCoderResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("turn-budget");
+    }
+  });
+
+  it("rejects status 'complete' when verify_status is not 'pass'", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.status = "complete";
+    fixture.verify_status = "FAIL src/foo.test.ts";
+    const result = validateCoderResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("verify_status");
     }
   });
 });

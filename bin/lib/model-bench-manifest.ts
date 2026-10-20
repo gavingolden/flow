@@ -7,8 +7,11 @@
  * since discoverHelpers never globs into bin/lib/ in the first place).
  */
 
-import { join } from "node:path";
-import type { ManifestEntry as FanoutManifestEntry } from "../flow-delegate-fanout";
+import { join, resolve } from "node:path";
+import type {
+  EntryResult,
+  ManifestEntry as FanoutManifestEntry,
+} from "../flow-delegate-fanout";
 import {
   validateCase,
   type BenchArm,
@@ -17,6 +20,8 @@ import {
 } from "./model-bench-schema";
 
 const DEFAULT_REPEATS = 1;
+const DEFAULT_ENTRY_TIMEOUT = "15m";
+export const ADD_DIR_TOKEN = "{{ADD_DIR}}";
 
 export type ManifestEntry = {
   caseId: string;
@@ -28,33 +33,38 @@ export type ManifestEntry = {
 };
 
 // One entry per (case, arm, model, repeat), PLUS one warm-up entry per
-// (case, arm, model[, size]) flagged warmup:true — the scorer discards
-// every warmup:true attempt. A schemaAb:false case yields a single 'n/a'
-// arm; schemaAb:true yields both 'schema' and 'free-form'. A case carrying
-// `sizes` yields one slot per size.
+// (case, arm, model[, size]) flagged warmup:true (unless opts.warmup is false)
+// — the scorer discards every warmup:true attempt. A schemaAb:false case yields
+// a single 'n/a' arm; schemaAb:true yields both 'schema' and 'free-form'. A
+// case carrying `sizes` yields one slot per size. MODEL-MAJOR: every case for
+// the first model, then the second — so a run cut short by a quota window has
+// one model's complete evidence rather than every model's first few cases.
 export function buildManifest(
   cases: BenchCase[],
   models: string[],
   repeatsOverride?: number,
+  opts: { warmup: boolean } = { warmup: true },
 ): ManifestEntry[] {
   const entries: ManifestEntry[] = [];
-  for (const c of cases) {
-    const arms: BenchArm[] =
-      c.schemaAb === true ? ["schema", "free-form"] : ["n/a"];
-    const sizes: Array<number | undefined> =
-      c.sizes && c.sizes.length > 0 ? c.sizes : [undefined];
-    const repeats = repeatsOverride ?? c.repeats ?? DEFAULT_REPEATS;
-    for (const model of models) {
+  for (const model of models) {
+    for (const c of cases) {
+      const arms: BenchArm[] =
+        c.schemaAb === true ? ["schema", "free-form"] : ["n/a"];
+      const sizes: Array<number | undefined> =
+        c.sizes && c.sizes.length > 0 ? c.sizes : [undefined];
+      const repeats = repeatsOverride ?? c.repeats ?? DEFAULT_REPEATS;
       for (const arm of arms) {
         for (const size of sizes) {
-          entries.push({
-            caseId: c.id,
-            arm,
-            model,
-            repeat: -1,
-            warmup: true,
-            size,
-          });
+          if (opts.warmup) {
+            entries.push({
+              caseId: c.id,
+              arm,
+              model,
+              repeat: -1,
+              warmup: true,
+              size,
+            });
+          }
           for (let repeat = 0; repeat < repeats; repeat++) {
             entries.push({
               caseId: c.id,
@@ -150,6 +160,22 @@ export function isTransportSkip(skipReason: string | undefined): boolean {
   return /timeout|5\d\d|rate.?limit|not.?authenticated/i.test(skipReason);
 }
 
+// The transport retry's predicate: a transport-class skip, minus the two that
+// must stand as outcomes — a quota refusal (retrying burns nothing it can get
+// back and the run halts instead) and an `agy-timeout` on a case dispatched at
+// its production limit (the timeout IS the production outcome the
+// timeout-fit section counts).
+export function shouldRetry(
+  e: EntryResult,
+  entry: FanoutManifestEntry & { productionTimeout?: string },
+): boolean {
+  return (
+    isTransportSkip(e.skipReason) &&
+    e.failureClass !== "quota-exhausted" &&
+    !(e.skipReason === "agy-timeout" && entry.productionTimeout)
+  );
+}
+
 export function resolveMaxCalls(
   manifestLength: number,
   requested: number | undefined,
@@ -221,11 +247,12 @@ export function toFanoutEntries(
     writeFile: (p: string, data: string) => void;
     mkdirp: (d: string) => void;
   },
-  // Per-call agy timeout (flow-delegate --timeout grammar, e.g. "15m").
-  // The 5m default proved too short for the incumbent's long-thinking
-  // attempts on the large c2b prompt (observed: 7/10 timeouts at ~280s).
+  // Fallback per-call agy timeout (flow-delegate --timeout grammar) for a
+  // case with no `productionTimeout`; the 5m agy default proved too short for
+  // the incumbent's long-thinking attempts on the large c2b prompt (observed:
+  // 7/10 timeouts at ~280s), so the last resort is 15m.
   timeout?: string,
-): FanoutManifestEntry[] {
+): Array<FanoutManifestEntry & { productionTimeout?: string }> {
   const byId = new Map(cases.map((c) => [c.id, c]));
   const promptsDir = join(outDir, "prompts");
   deps.mkdirp(promptsDir);
@@ -237,18 +264,40 @@ export function toFanoutEntries(
       throw new Error(`buildManifest referenced unknown case "${e.caseId}"`);
     const id = entryId(e);
     const promptFile = join(promptsDir, `${id}.md`);
+    const addDir =
+      c.addDir && c.skipPermissions !== true
+        ? resolve(join(fixturesDir, c.id), c.addDir)
+        : undefined;
+    const composed = composePrompt(
+      c,
+      fixturesDir,
+      e.size,
+      deps.readFile,
+      promptCache,
+    );
+    // A case granting read access names its directory in the prompt through
+    // the ADD_DIR_TOKEN placeholder (an absolute path cannot be committed).
     deps.writeFile(
       promptFile,
-      composePrompt(c, fixturesDir, e.size, deps.readFile, promptCache),
+      addDir ? composed.replaceAll(ADD_DIR_TOKEN, addDir) : composed,
     );
-    const entry: FanoutManifestEntry = {
+    const entry: FanoutManifestEntry & { productionTimeout?: string } = {
       task: id,
       model: e.model,
       promptFile,
       outputFormat: "json",
       out: join(outDir, "raw", `${id}.md`),
+      // Each case runs at exactly its step's production limit (a
+      // production-identical cut); --timeout stays the override for cases
+      // that carry none.
+      timeout: c.productionTimeout ?? timeout ?? DEFAULT_ENTRY_TIMEOUT,
     };
-    if (timeout) entry.timeout = timeout;
+    if (c.productionTimeout) entry.productionTimeout = c.productionTimeout;
+    if (c.skipPermissions === true) {
+      entry.skipPermissions = true;
+    } else if (addDir) {
+      entry.addDirs = [addDir];
+    }
     if (e.arm === "schema" && c.jsonSchemaFile) {
       entry.jsonSchema = join(fixturesDir, c.id, c.jsonSchemaFile);
     } else if (e.arm === "free-form" && c.jsonSchemaFile) {

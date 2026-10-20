@@ -30,6 +30,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn as spawnAsync, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { AGENT_MEMORY_DIRNAME, resolveFlowSource } from "./lib/paths";
 import { ensurePluginRoot } from "./lib/plugin-root";
 
@@ -44,7 +45,10 @@ export type ProbeId =
   | "skills-preload-name"
   | "max-turns-partial"
   | "cache-ttl-1h"
-  | "plugin-eval-availability";
+  | "subagent-effort-param"
+  | "plugin-eval-availability"
+  | "workflow-headless-await"
+  | "workflow-plugin-command";
 
 export type ProbeVerdict = {
   id: ProbeId;
@@ -64,7 +68,10 @@ const PROBE_IDS: ProbeId[] = [
   "skills-preload-name",
   "max-turns-partial",
   "cache-ttl-1h",
+  "subagent-effort-param",
   "plugin-eval-availability",
+  "workflow-headless-await",
+  "workflow-plugin-command",
 ];
 
 /** Probes that touch the REAL logged-in HOME and spawn real Task-tool
@@ -76,6 +83,9 @@ const LIVE_ONLY_IDS: ProbeId[] = [
   "skills-preload-name",
   "max-turns-partial",
   "cache-ttl-1h",
+  "subagent-effort-param",
+  "workflow-headless-await",
+  "workflow-plugin-command",
 ];
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -1002,6 +1012,218 @@ async function probeCacheTtl1h(fixtureHome: string): Promise<ProbeVerdict> {
   };
 }
 
+/**
+ * Pure verdict over one sub-agent transcript: every assistant turn carries
+ * its effort in `"effort":"<level>"` / `"perTurnEffort":"<level>"` fields.
+ * All turns `low` ⇒ the per-invocation `effort: low` beat the agent file's
+ * `medium` (confirmed); any other level ⇒ refuted; no effort field at all ⇒
+ * inconclusive. Exported for the unit suite.
+ */
+export function effortVerdictFromTranscript(jsonl: string): {
+  verdict: "confirmed" | "refuted" | "inconclusive";
+  turns: number;
+  counts: Record<string, number>;
+} {
+  const counts: Record<string, number> = {};
+  let turns = 0;
+  for (const line of jsonl.split("\n")) {
+    if (!/"(?:type|role)":"assistant"/.test(line)) continue;
+    const levels = new Set(
+      [...line.matchAll(/"(?:effort|perTurnEffort)":"(\w+)"/g)].map(
+        (m) => m[1],
+      ),
+    );
+    if (levels.size === 0) continue;
+    turns++;
+    for (const level of levels) counts[level] = (counts[level] ?? 0) + 1;
+  }
+  if (turns === 0) return { verdict: "inconclusive", turns, counts };
+  const allLow = Object.keys(counts).every((level) => level === "low");
+  return { verdict: allLow ? "confirmed" : "refuted", turns, counts };
+}
+
+async function probeSubagentEffortParam(
+  fixtureHome: string,
+): Promise<ProbeVerdict> {
+  const id: ProbeId = "subagent-effort-param";
+  const nonce = randomBytes(4).toString("hex");
+  const agentName = `probe-effort-${nonce}`;
+  const agentsJson = JSON.stringify({
+    [agentName]: {
+      description:
+        "probe fixture agent for the per-invocation effort parameter",
+      prompt: `Reply with exactly: OK ${nonce}`,
+      effort: "medium",
+    },
+  });
+  const result = await runClaude(
+    [
+      "--model",
+      "sonnet",
+      "--effort",
+      "high",
+      "--agents",
+      agentsJson,
+      "-p",
+      `Use the Task tool with subagent_type ${agentName}, effort: low, description: probe, prompt: 'reply OK ${nonce}'; then use SendMessage to message that same sub-agent once more with 'reply OK ${nonce} again'.`,
+    ],
+    { timeoutMs: LIVE_TIMEOUT_MS },
+  );
+  const notRun = unrunnable(result, LIVE_TIMEOUT_MS);
+  if (notRun) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: result.timedOut
+        ? `subagent-effort-param live probe timed out after ${LIVE_TIMEOUT_MS}ms`
+        : `subagent-effort-param live probe ${notRun}`,
+      fallback:
+        "keep the agent-file effort: medium fallback; omit effort: below 2.1.292",
+    };
+  }
+  // Real HOME (no `home:` override for live probes): the sub-agent transcript
+  // lands under the real ~/.claude/projects. The agent's .meta.json names its
+  // agentType — bare for an --agents fixture, plugin-qualified for plugin
+  // agents — so match either form, then read the sibling .jsonl.
+  const projectsRoot = path.join(os.homedir(), ".claude", "projects");
+  const found = spawnSync(
+    "find",
+    [projectsRoot, "-path", "*/subagents/agent-*.meta.json", "-mmin", "-10"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+  );
+  const agentTypeRe = new RegExp(`(^|:)${agentName}$`);
+  let transcript = "";
+  let metaNote = "";
+  for (const metaPath of (found.stdout ?? "").split("\n").filter(Boolean)) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as {
+        agentType?: string;
+        effort?: string;
+      };
+      if (!meta.agentType || !agentTypeRe.test(meta.agentType)) continue;
+      const jsonl = fs.readFileSync(
+        metaPath.replace(/\.meta\.json$/, ".jsonl"),
+        "utf8",
+      );
+      if (!jsonl.includes(nonce)) continue;
+      transcript = jsonl;
+      if (meta.effort) metaNote = `; meta.effort=${meta.effort}`;
+      break;
+    } catch {
+      // unreadable / non-JSON candidate: try the next one
+    }
+  }
+  if (!transcript) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `no sub-agent transcript for ${agentName} found under ${projectsRoot} (claude exit ${result.exitCode}): ${result.stdout.trim().slice(0, 300)}`,
+      fallback:
+        "keep the agent-file effort: medium fallback; omit effort: below 2.1.292",
+    };
+  }
+  const { verdict, turns, counts } = effortVerdictFromTranscript(transcript);
+  return {
+    id,
+    verdict,
+    evidence: `per-invocation effort: low over an agent-file effort: medium, session --effort high (exit ${result.exitCode}); ${turns} assistant turn(s) carried effort fields, counts ${JSON.stringify(counts)}${metaNote}`,
+    fallback:
+      "keep the agent-file effort: medium fallback; omit effort: below 2.1.292",
+  };
+}
+
+/** Settles whether the Workflow tool can run an inline one-agent script and
+ * surface its return value to the top-level `-p` session, mirroring
+ * `probeMaxTurnsPartial`'s Task-tool live-probe shape. */
+async function probeWorkflowHeadlessAwait(
+  fixtureHome: string,
+): Promise<ProbeVerdict> {
+  const id: ProbeId = "workflow-headless-await";
+  const nonce = `wf-nonce-${Math.random().toString(36).slice(2, 10)}`;
+  const result = await runClaude(
+    [
+      "--allowedTools",
+      "Workflow",
+      "--permission-mode",
+      "dontAsk",
+      "-p",
+      `Call the Workflow tool with an inline script whose single agent() call returns the fixed string "${nonce}" and nothing else. Print the workflow's return value verbatim.`,
+    ],
+    { timeoutMs: LIVE_TIMEOUT_MS },
+  );
+  const notRun = unrunnable(result, LIVE_TIMEOUT_MS);
+  if (notRun) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `workflow-headless-await live probe ${notRun}`,
+      fallback:
+        "assume the Workflow tool return value surfaces to -p output, unverified",
+    };
+  }
+  const confirmed = result.stdout.includes(nonce);
+  return {
+    id,
+    verdict: confirmed ? "confirmed" : "refuted",
+    evidence: `Workflow tool inline one-agent script (exit ${result.exitCode}, nonce ${confirmed ? "found" : "absent"} in stdout): ${result.stdout.trim().slice(0, 500)}`,
+  };
+}
+
+/** Settles whether a plugin-supplied Workflow script is dispatchable by its
+ * plugin-qualified command name, mirroring `probeSkillInvocationName`'s
+ * bare-vs-qualified materialization shape but for `workflows:` manifest
+ * entries. */
+async function probeWorkflowPluginCommand(
+  fixtureHome: string,
+): Promise<ProbeVerdict> {
+  const id: ProbeId = "workflow-plugin-command";
+  const nonce = `wf-plugin-nonce-${Math.random().toString(36).slice(2, 10)}`;
+  const root = materializeRoot(fixtureHome);
+  const workflowsDir = path.join(root, "workflows");
+  fs.mkdirSync(workflowsDir, { recursive: true });
+  // The shape Claude Code's plugin loader expects of a workflow script: an
+  // `export const meta` literal, then a bare body using the agent() primitive.
+  fs.writeFileSync(
+    path.join(workflowsDir, "probe.workflow.js"),
+    `export const meta = {\n  name: "flow-probe-wf",\n  description: "flow plugin workflow dispatch probe",\n};\nconst result = await agent("Reply with exactly: ${nonce}", { label: "probe" });\nreturn result;\n`,
+  );
+  const manifestPath = path.join(root, ".claude-plugin", "plugin.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  manifest.workflows = ["./workflows"];
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+  const result = await runClaude(
+    [
+      "--plugin-dir",
+      root,
+      "--allowedTools",
+      "Workflow",
+      "--permission-mode",
+      "dontAsk",
+      "-p",
+      `Call the Workflow tool with name "flow-module-core:flow-probe-wf" (a plugin-supplied workflow; if that name is unknown, retry once with name "flow-probe-wf"). Print the workflow's return value verbatim.`,
+    ],
+    { timeoutMs: LIVE_TIMEOUT_MS },
+  );
+  const notRun = unrunnable(result, LIVE_TIMEOUT_MS);
+  if (notRun) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `workflow-plugin-command live probe ${notRun}`,
+      fallback: "assume plugin-qualified workflow dispatch works, unverified",
+    };
+  }
+  // The prompt itself names the workflow, so a stdout mention of it proves
+  // nothing — only the nonce (which lives solely in the fixture file) does.
+  const confirmed = result.stdout.includes(nonce);
+  return {
+    id,
+    verdict: confirmed ? "confirmed" : "refuted",
+    evidence: `plugin-dir workflows: ["./workflows"] manifest entry, dispatched by plugin-qualified name (exit ${result.exitCode}, nonce found=${confirmed}): ${result.stdout.trim().slice(0, 500)}`,
+  };
+}
+
 const PROBE_FNS: Record<
   ProbeId,
   (fixtureHome: string) => Promise<ProbeVerdict>
@@ -1016,7 +1238,10 @@ const PROBE_FNS: Record<
   "skills-preload-name": probeSkillsPreloadName,
   "max-turns-partial": probeMaxTurnsPartial,
   "cache-ttl-1h": probeCacheTtl1h,
+  "subagent-effort-param": probeSubagentEffortParam,
   "plugin-eval-availability": probePluginEvalAvailability,
+  "workflow-headless-await": probeWorkflowHeadlessAwait,
+  "workflow-plugin-command": probeWorkflowPluginCommand,
 };
 
 export function runProbes(
@@ -1092,22 +1317,26 @@ export async function runProbesFiltered(
 
 export function parseArgs(argv: string[]): {
   json: boolean;
-  probe?: ProbeId;
+  probes: ProbeId[];
   live: boolean;
 } {
   const json = argv.includes("--json");
   const live = argv.includes("--live");
-  const probeIdx = argv.indexOf("--probe");
-  const probeRaw = probeIdx >= 0 ? argv[probeIdx + 1] : undefined;
-  const probe = PROBE_IDS.includes(probeRaw as ProbeId)
-    ? (probeRaw as ProbeId)
-    : undefined;
-  return { json, probe, live };
+  // Every `--probe <id>` is honored (the maintainer runbooks pass several);
+  // unrecognized ids are dropped, and zero recognized ids means every probe.
+  const probes: ProbeId[] = [];
+  argv.forEach((tok, i) => {
+    if (tok !== "--probe") return;
+    const raw = argv[i + 1];
+    if (PROBE_IDS.includes(raw as ProbeId) && !probes.includes(raw as ProbeId))
+      probes.push(raw as ProbeId);
+  });
+  return { json, probes, live };
 }
 
 async function main(): Promise<void> {
-  const { json, probe, live } = parseArgs(process.argv.slice(2));
-  const ids = probe ? [probe] : PROBE_IDS;
+  const { json, probes, live } = parseArgs(process.argv.slice(2));
+  const ids = probes.length > 0 ? probes : PROBE_IDS;
   const verdicts = await runProbesFiltered(ids, { live });
   if (json) {
     console.log(JSON.stringify(verdicts, null, 2));

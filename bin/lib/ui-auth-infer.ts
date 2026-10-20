@@ -25,6 +25,13 @@ export type AuthInference = {
 };
 
 /**
+ * Shared dotenv key-line regex. Exported so `bin/lib/ui-credentials.ts` can
+ * parse the same line shape without widening `parseEnvKeys` below to return
+ * VALUES — its whole guarantee is that values never enter this module.
+ */
+export const DOTENV_KEY_RE = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/;
+
+/**
  * Parse the KEYS out of a dotenv-format file. Values are deliberately
  * discarded here at the boundary — nothing downstream can leak a VALUE it
  * never received.
@@ -34,7 +41,7 @@ function parseEnvKeys(text: string): string[] {
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
     if (line.length === 0 || line.startsWith("#")) continue;
-    const m = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/);
+    const m = line.match(DOTENV_KEY_RE);
     if (m) keys.push(m[1]);
   }
   return keys;

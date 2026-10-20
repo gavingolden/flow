@@ -100,6 +100,29 @@ vi.mock("./models-config", async () => {
   };
 });
 
+// Mock ./launch-config for the IDENTICAL reason as ./models-config above: the
+// host's real ~/.flow/config.json can carry a populated `launch` block, which
+// must never leak into the ~3900 lines of exact-argv/exact-state assertions
+// below. Tests that DO pass readConfig still exercise the real logic through
+// the explicit argument.
+vi.mock("./launch-config", async () => {
+  const actual =
+    await vi.importActual<typeof import("./launch-config")>("./launch-config");
+  type ReadConfigFile = typeof actual.readLaunchDefaults extends (
+    read?: infer R,
+  ) => unknown
+    ? R
+    : never;
+  const noConfig: ReadConfigFile = () => undefined;
+  return {
+    ...actual,
+    readLaunchDefaults: (read: ReadConfigFile = noConfig) =>
+      actual.readLaunchDefaults(read),
+    collectLaunchConfigWarnings: (read: ReadConfigFile = noConfig) =>
+      actual.collectLaunchConfigWarnings(read),
+  };
+});
+
 // feature.ts pairs panePid with liveness.pidStartEpoch to persist
 // pid/procStartedAt on a successful launch, and calls livenessOf for the
 // collision-message branch. Stub pidStartEpoch to a deterministic fake epoch
@@ -121,14 +144,25 @@ vi.mock("./liveness", async () => {
 
 import { FLOW_CLAUDE_HOME, installedHelperPath } from "./paths";
 import {
+  FLOW_MERGE_ALLOW_RULE,
+  FLOW_OVERRIDE_ALLOW_RULES,
+} from "./merge-allow-rule";
+import {
+  FLOW_NARROW_ALLOW_RULES,
+  FLOW_NEVER_ALLOW_HELPERS,
+  FLOW_ROUTINE_ALLOW_RULES,
+} from "./pipeline-allow-rules";
+import {
   runNew as runNewReal,
   runFeatureCli as runFeatureCliReal,
   deriveWorktreePath,
   ensureLaunchSettings,
+  launchSettingsPermissions,
   flowPipelineResumeSeed,
   resolveSeedHookCommand,
   type FeatureOptions,
 } from "./feature";
+import { reserveWorktreeSlot } from "./worktree-slot";
 
 // The launcher backend now defaults to PLAIN (flag > state > config >
 // default); this file's specs exercise the tmux path, so the wrappers pin
@@ -143,11 +177,21 @@ import {
 // HOME per paths.ts's own documented caveat, so it is NOT covered by
 // vitest.setup.ts's sandbox). Individual specs override it to exercise the
 // roots-present cases.
+//
+// `reserveWorktree` is stubbed the same way: the real reservation mkdirs a
+// sibling of the repo in the shared os.tmpdir(), outside every per-test temp
+// dir, so the default returns the deterministic slot without creating anything.
+// Reservation specs opt in with `realReserve`.
+const stubReserve: NonNullable<FeatureOptions["reserveWorktree"]> = (
+  slug,
+  repo,
+) => ({ branchName: slug, worktreeDir: deriveWorktreePath(repo, slug) });
 const runNew = (input: string, options: FeatureOptions = {}) =>
   runNewReal(input, {
     launcher: "tmux",
     tmuxOnPath: () => true,
     pluginRootsScan: () => [],
+    reserveWorktree: stubReserve,
     ...options,
   });
 const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
@@ -155,8 +199,13 @@ const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
     launcher: "tmux",
     tmuxOnPath: () => true,
     pluginRootsScan: () => [],
+    reserveWorktree: stubReserve,
     ...options,
   });
+const runFeatureCliStubbedReserve = (
+  args: string[],
+  options: FeatureOptions = {},
+) => runFeatureCliReal(args, { reserveWorktree: stubReserve, ...options });
 import {
   writeState,
   readState,
@@ -164,12 +213,23 @@ import {
   PHASE_MODEL_FLAGS,
   type PipelineState,
 } from "./state";
+import { materializeSkillOverlay } from "./skill-overlay";
 
 let stateDir!: string;
 let repoDir!: string;
 let semDir!: string;
 let errors!: string[];
 let logs!: string[];
+let reservedToClean: string[] = [];
+
+const realReserve: NonNullable<FeatureOptions["reserveWorktree"]> = (
+  slug,
+  repo,
+) => {
+  const slot = reserveWorktreeSlot(slug, deriveWorktreePath(repo, slug), repo);
+  reservedToClean.push(slot.worktreeDir);
+  return slot;
+};
 
 beforeEach(() => {
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-"));
@@ -252,6 +312,9 @@ afterEach(() => {
   fs.rmSync(stateDir, { recursive: true, force: true });
   fs.rmSync(repoDir, { recursive: true, force: true });
   fs.rmSync(semDir, { recursive: true, force: true });
+  for (const d of reservedToClean)
+    fs.rmSync(d, { recursive: true, force: true });
+  reservedToClean = [];
   delete process.env.FLOW_LAUNCH_SEM_DIR;
   delete process.env.FLOW_LAUNCH_SETTINGS_PATH;
   delete process.env.FLOW_LAUNCH_CONCURRENCY;
@@ -295,6 +358,64 @@ describe("runNew --resume", () => {
     expect(code).toBe(1);
     expect(errors[0]).toMatch(/no pipeline state for 'ghost'/);
     expect(errors[1]).toMatch(/run `flow feature create <description>`/);
+  });
+
+  it.each([
+    ["epic-design", "flow epic create --resume"],
+    ["epic-run", "flow epic run"],
+  ] as const)(
+    "refuses a %s slug, names the epic command, and launches nothing",
+    (kind, command) => {
+      writeState(
+        {
+          slug: "epic-slug",
+          phase: "epic-designing",
+          kind,
+          repo: repoDir,
+          updatedAt: new Date().toISOString(),
+        },
+        stateDir,
+      );
+      const code = runNew("epic-slug", { resume: true, stateDir });
+      expect(code).toBe(1);
+      expect(errors.join("\n")).toContain(
+        `'epic-slug' is an ${kind} window, not a feature pipeline`,
+      );
+      expect(errors.join("\n")).toContain(`run \`${command} epic-slug\``);
+      expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+      expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses a kind-less epic (phase-derived fallback) too, but not a kind-less feature", () => {
+    writeState(
+      {
+        slug: "old-epic",
+        phase: "epic-pr-open",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    expect(runNew("old-epic", { resume: true, stateDir })).toBe(1);
+    expect(errors.join("\n")).toContain("flow epic create --resume old-epic");
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("does not refuse a feature pipeline that belongs to an epic (kind feature)", () => {
+    writeState(
+      {
+        slug: "epic-child",
+        phase: "verifying",
+        kind: "feature",
+        epic: { slug: "some-epic", featureId: "epic-child" },
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    runNew("epic-child", { resume: true, stateDir });
+    expect(errors.join("\n")).not.toMatch(/window, not a feature pipeline/);
   });
 
   it("does not write state on a refusal path", () => {
@@ -918,14 +1039,14 @@ describe("runNew (fresh)", () => {
     expect(raw).not.toHaveProperty("autoMerge");
   });
 
-  it("persists autoMerge: false when noAutoMerge: true is passed", () => {
+  it("persists autoMerge: false when autoMerge: false is passed", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
     const code = runNew("CSV export", {
       stateDir,
       cwd: repoDir,
       command: ["true"],
-      noAutoMerge: true,
+      autoMerge: false,
     });
     expect(code).toBe(0);
     const raw = JSON.parse(
@@ -1262,10 +1383,9 @@ describe("kind: 'feature' stamped + @flow-kind published (Task 2 / Task 4)", () 
     );
   });
 
-  it("republishes the persisted non-feature kind on resume instead of clobbering it to 'feature'", () => {
-    // Same shape as the case above, but seeded as an epic-design window —
-    // guards the resume path against overwriting an epic-member window's
-    // @flow-kind badge with the "feature" default.
+  it("never republishes @flow-kind for an epic-design window: the resume refuses before any launch or publish", () => {
+    // Formerly guarded the resume path against clobbering an epic window's
+    // @flow-kind badge with "feature"; the refusal now stops it earlier.
     writeState(
       {
         slug: "resumed-epic-design",
@@ -1283,11 +1403,9 @@ describe("kind: 'feature' stamped + @flow-kind published (Task 2 / Task 4)", () 
       stateDir,
       launchSettingsPath: path.join(stateDir, "launch-settings.json"),
     });
-    expect(code).toBe(0);
-    expect(tmuxMock.setPaneKind).toHaveBeenCalledWith(
-      "resumed-epic-design",
-      "epic-design",
-    );
+    expect(code).toBe(1);
+    expect(tmuxMock.setPaneKind).not.toHaveBeenCalled();
+    expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
   });
 
   it("stamps kind: 'feature' but issues NO @flow-kind publish on the plain launcher path", async () => {
@@ -1315,12 +1433,15 @@ describe("kind: 'feature' stamped + @flow-kind published (Task 2 / Task 4)", () 
       );
       return { pid: 777, exited: Promise.resolve(0) };
     };
-    const code = await runFeatureCliReal(["create", "plain", "kind", "thing"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({}),
-      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
-    });
+    const code = await runFeatureCliStubbedReserve(
+      ["create", "plain", "kind", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({}),
+        plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+      },
+    );
     expect(code).toBe(0);
     expect(calls).toHaveLength(1);
     const slug = fs
@@ -2040,7 +2161,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
         "create",
         "--model-planning",
         "fable",
-        "--model-verify",
+        "--model-fix-applier",
         "haiku",
         "--model",
         "sonnet",
@@ -2054,13 +2175,13 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       fs.readFileSync(path.join(stateDir, "add-feature.json"), "utf8"),
     );
     expect(raw.modelPlanning).toBe("fable");
-    expect(raw.modelVerify).toBe("haiku");
+    expect(raw.modelFixApplier).toBe("haiku");
     // The session --model DOES reach the launch argv; the per-phase ones do not.
     expect(raw.model).toBe("sonnet");
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(command).toContain("--model");
     expect(command).not.toContain("--model-planning");
-    expect(command).not.toContain("--model-verify");
+    expect(command).not.toContain("--model-fix-applier");
   });
 
   it("runFeatureCli without any --model-<phase> flag leaves every per-phase field undefined", () => {
@@ -2153,6 +2274,20 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(raw).not.toHaveProperty("model");
   });
 
+  it("runFeatureCli warns when config efforts.fixApplier is present-but-invalid", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ efforts: { fixApplier: "hgh" } }),
+    });
+    expect(code).toBe(0);
+    expect(errors.join("\n")).toMatch(
+      /efforts\.fixApplier.*not a valid effort level/,
+    );
+  });
+
   it("runNew --resume re-applies the saved model into the respawn argv", () => {
     // LOAD-BEARING: omit `command` so buildLaunchCommand runs.
     writeState(
@@ -2232,6 +2367,59 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(command).not.toContain(deriveWorktreePath(repoDir, "suffixed-slug"));
   });
 
+  it("runNew --resume falls back to the reserved folder (re-creating it) when no worktree is recorded", () => {
+    const reserved = path.join(
+      path.dirname(repoDir),
+      `${path.basename(repoDir)}-reserved-resume`,
+    );
+    reservedToClean.push(reserved);
+    writeState(
+      {
+        slug: "reserved-resume",
+        phase: "starting",
+        repo: repoDir,
+        reservedWorktree: reserved,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const code = runNew("reserved-resume", { resume: true, stateDir });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--add-dir") + 1]).toBe(reserved);
+    expect(fs.statSync(reserved).isDirectory()).toBe(true);
+  });
+
+  it("runNew --resume prefers state.worktree over state.reservedWorktree", () => {
+    const recorded = path.join(
+      path.dirname(repoDir),
+      `${path.basename(repoDir)}-both-2`,
+    );
+    const reserved = path.join(
+      path.dirname(repoDir),
+      `${path.basename(repoDir)}-both`,
+    );
+    writeState(
+      {
+        slug: "both",
+        phase: "verifying",
+        repo: repoDir,
+        worktree: recorded,
+        reservedWorktree: reserved,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    expect(runNew("both", { resume: true, stateDir })).toBe(0);
+    const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--add-dir") + 1]).toBe(recorded);
+    expect(fs.existsSync(reserved)).toBe(false);
+  });
+
   it("treats -h after `--` as part of the description, not a help flag", () => {
     // Regression for the over-eager argsContainHelp scan: a description body
     // that happens to contain `-h` (e.g. `flow feature create -- fix the -h crash`)
@@ -2258,6 +2446,349 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(logs.join("\n")).not.toMatch(
       /^flow feature — start or resume a pipeline/m,
     );
+  });
+});
+
+describe("runFeatureCli — launch.<key> config defaults (flag > config > built-in)", () => {
+  it("flag > config > built-in: --effort wins over launch.effort", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "--effort", "low", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.effort).toBe("low");
+  });
+
+  it("flag > config > built-in: --auto-merge wins over launch.autoMerge: false", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "--auto-merge", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { autoMerge: false } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("autoMerge");
+  });
+
+  it("flag > config > built-in: --no-wait-for-copilot wins over launch.waitForCopilot: true", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(
+      ["create", "--no-wait-for-copilot", "do", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        command: ["true"],
+        readConfig: () => ({ launch: { waitForCopilot: true } }),
+      },
+    );
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("waitForCopilot");
+  });
+
+  it("flag > config > built-in: --no-research wins over launch.forceResearch: true", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "--no-research", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { forceResearch: true } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("forceResearch");
+  });
+
+  it("flag > config > built-in: --no-interview wins over launch.interviewMode: 'force'", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "--no-interview", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { interviewMode: "force" } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.interviewMode).toBe("skip");
+  });
+
+  it("a config-supplied launch.effort reaches the claude argv AND state.effort", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).toContain("--effort");
+    expect(command[command.indexOf("--effort") + 1]).toBe("high");
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.effort).toBe("high");
+  });
+
+  it("--effort low with launch.effort: 'high' yields state.effort === 'low'", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "--effort", "low", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.effort).toBe("low");
+  });
+
+  it("launch.autoMerge: false with no flag persists autoMerge: false (?? not ||: an explicit false must survive)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { autoMerge: false } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.autoMerge).toBe(false);
+  });
+
+  it("launch.waitForCopilot: true with no flag persists waitForCopilot: true", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { waitForCopilot: true } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.waitForCopilot).toBe(true);
+  });
+
+  it("launch.forceResearch: true with no flag persists forceResearch: true", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { forceResearch: true } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.forceResearch).toBe(true);
+  });
+
+  it("launch.interviewMode: 'force' with no flag persists interviewMode: 'force'", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { interviewMode: "force" } }),
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.interviewMode).toBe("force");
+  });
+
+  it("warns and falls back to the built-in when launch.effort is present-but-invalid", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { effort: "extreme" } }),
+    });
+    expect(code).toBe(0);
+    expect(errors.join("\n")).toMatch(/launch\.effort.*not valid/);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("effort");
+  });
+
+  it("--auto-merge and --no-auto-merge are mutually exclusive: exit 1, no state written", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runFeatureCli(
+      ["create", "--auto-merge", "--no-auto-merge", "do", "thing"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "--auto-merge and --no-auto-merge are mutually exclusive",
+      ),
+    );
+    errSpy.mockRestore();
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(false);
+  });
+
+  it("--wait-for-copilot and --no-wait-for-copilot are mutually exclusive: exit 1, no state written", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runFeatureCli(
+      ["create", "--wait-for-copilot", "--no-wait-for-copilot", "do", "thing"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "--wait-for-copilot and --no-wait-for-copilot are mutually exclusive",
+      ),
+    );
+    errSpy.mockRestore();
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(false);
+  });
+
+  it("--research and --no-research are mutually exclusive: exit 1, no state written", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runFeatureCli(
+      ["create", "--research", "--no-research", "do", "thing"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "--research and --no-research are mutually exclusive",
+      ),
+    );
+    errSpy.mockRestore();
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(false);
+  });
+
+  it("--interview and --no-interview still exit 1 with no state written, regardless of launch.interviewMode", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runFeatureCli(
+      ["create", "--interview", "--no-interview", "do", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        command: ["true"],
+        readConfig: () => ({ launch: { interviewMode: "skip" } }),
+      },
+    );
+    expect(code).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "--interview and --no-interview are mutually exclusive",
+      ),
+    );
+    errSpy.mockRestore();
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(false);
+  });
+
+  it("an invalid --effort still exits 1 with no state written even when launch.effort is valid", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runFeatureCli(["create", "--effort", "bogus", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { effort: "high" } }),
+    });
+    expect(code).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("invalid --effort value 'bogus'"),
+    );
+    errSpy.mockRestore();
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(false);
+  });
+
+  it("prints the provenance line only when config supplied a value that took effect", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      readConfig: () => ({ launch: { effort: "high", autoMerge: false } }),
+    });
+    expect(code).toBe(0);
+    expect(errors.join("\n")).toMatch(
+      /flow: launch defaults from ~\/\.flow\/config\.json — .*effort=high.*autoMerge=false/,
+    );
+  });
+
+  it("omits the provenance line when every flag was typed explicitly", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(
+      [
+        "create",
+        "--effort",
+        "low",
+        "--auto-merge",
+        "--wait-for-copilot",
+        "--research",
+        "--interview",
+        "do",
+        "thing",
+      ],
+      {
+        stateDir,
+        cwd: repoDir,
+        command: ["true"],
+        readConfig: () => ({
+          launch: {
+            effort: "high",
+            autoMerge: false,
+            waitForCopilot: false,
+            forceResearch: false,
+            interviewMode: "skip",
+          },
+        }),
+      },
+    );
+    expect(code).toBe(0);
+    expect(errors.join("\n")).not.toMatch(/flow: launch defaults from/);
   });
 });
 
@@ -2429,6 +2960,85 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
       stateDir,
     );
     expect(consumedFn!()).toBe(true);
+  });
+
+  it("reserves an existing EMPTY folder before launch, passes it to --add-dir, and records reservedWorktree", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    let seenAtLaunch: { exists: boolean; entries: number } | undefined;
+    tmuxMock.createWindowVerified.mockImplementation((_n, _c, command) => {
+      const dir = command[command.indexOf("--add-dir") + 1]!;
+      seenAtLaunch = {
+        exists: fs.existsSync(dir),
+        entries: fs.existsSync(dir) ? fs.readdirSync(dir).length : -1,
+      };
+      return { status: "started", stderr: "" };
+    });
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      reserveWorktree: realReserve,
+      readConfig: () => ({}),
+    });
+    expect(code).toBe(0);
+    const expected = deriveWorktreePath(fs.realpathSync(repoDir), "csv-export");
+    expect(seenAtLaunch).toEqual({ exists: true, entries: 0 });
+    expect(readState("csv-export", stateDir)?.reservedWorktree).toBe(expected);
+  });
+
+  it("a stale folder at the deterministic path makes the -2 folder the one passed to --add-dir", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const base = deriveWorktreePath(fs.realpathSync(repoDir), "csv-export");
+    fs.mkdirSync(base);
+    reservedToClean.push(base);
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      reserveWorktree: realReserve,
+      readConfig: () => ({}),
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--add-dir") + 1]).toBe(`${base}-2`);
+    expect(fs.existsSync(`${base}-2`)).toBe(true);
+    expect(readState("csv-export", stateDir)?.reservedWorktree).toBe(
+      `${base}-2`,
+    );
+  });
+
+  it("a launch failure releases the still-empty reserved folder", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "failed",
+      stderr: "pane not alive after launch",
+    });
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      retrySleepMs: 0,
+      reserveWorktree: realReserve,
+    });
+    expect(code).not.toBe(0);
+    const base = deriveWorktreePath(fs.realpathSync(repoDir), "csv-export");
+    expect(fs.existsSync(base)).toBe(false);
+  });
+
+  it("a no-slot reservation failure aborts before any state is written", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      reserveWorktree: () => {
+        throw new Error("no available slot");
+      },
+    });
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/could not reserve a worktree folder/);
+    expect(fs.existsSync(path.join(stateDir, "csv-export.json"))).toBe(false);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
   it("fresh launch 'failed' (dead pane) deletes the up-front state (no orphan under the inverted gate)", () => {
@@ -3336,7 +3946,7 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
   }
 
   it("--tmux and --no-tmux are mutually exclusive on create (validate-before-state)", () => {
-    const code = runFeatureCliReal(
+    const code = runFeatureCliStubbedReserve(
       ["create", "--tmux", "--no-tmux", "do", "thing"],
       { stateDir },
     );
@@ -3347,9 +3957,12 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
 
   it("--tmux and --no-tmux are mutually exclusive on resume too", () => {
     seedState("x");
-    const code = runFeatureCliReal(["resume", "x", "--tmux", "--no-tmux"], {
-      stateDir,
-    });
+    const code = runFeatureCliStubbedReserve(
+      ["resume", "x", "--tmux", "--no-tmux"],
+      {
+        stateDir,
+      },
+    );
     expect(code).toBe(1);
     expect(errors.join("\n")).toMatch(/mutually exclusive/);
   });
@@ -3357,12 +3970,15 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
   it("default (no flag, no config) dispatches create to the plain backend, never tmux", async () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const { spawn, calls } = fakePlainSpawn();
-    const code = await runFeatureCliReal(["create", "plain", "thing"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({}),
-      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
-    });
+    const code = await runFeatureCliStubbedReserve(
+      ["create", "plain", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({}),
+        plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+      },
+    );
     expect(code).toBe(0);
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
     expect(calls).toHaveLength(1);
@@ -3387,7 +4003,7 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const { spawn, calls } = fakePlainSpawn();
     const desc = `line one\twith a tab\n${"x".repeat(600)}`;
-    const code = await runFeatureCliReal(["create", desc], {
+    const code = await runFeatureCliStubbedReserve(["create", desc], {
       stateDir,
       cwd: repoDir,
       readConfig: () => ({}),
@@ -3407,7 +4023,7 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
   it("plain create refuses without a TTY (named notice), before spawning", async () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const { spawn, calls } = fakePlainSpawn();
-    const code = await runFeatureCliReal(["create", "no", "tty"], {
+    const code = await runFeatureCliStubbedReserve(["create", "no", "tty"], {
       stateDir,
       cwd: repoDir,
       readConfig: () => ({}),
@@ -3422,12 +4038,15 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
 
   it("collision refusal fires off the state-file signal even with tmux absent", () => {
     seedState("busy-slug");
-    const code = runFeatureCliReal(["create", "--slug", "busy-slug", "desc"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({}),
-      tmuxOnPath: () => false,
-    });
+    const code = runFeatureCliStubbedReserve(
+      ["create", "--slug", "busy-slug", "desc"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({}),
+        tmuxOnPath: () => false,
+      },
+    );
     expect(code).toBe(1);
     expect(errors.join("\n")).toMatch(/already exists/);
   });
@@ -3435,12 +4054,15 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
   it("--tmux on create dispatches to the verified tmux path and persists launcher: tmux", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
-    const code = runFeatureCliReal(["create", "--tmux", "tmux", "thing"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({}),
-      tmuxOnPath: () => true,
-    });
+    const code = runFeatureCliStubbedReserve(
+      ["create", "--tmux", "tmux", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({}),
+        tmuxOnPath: () => true,
+      },
+    );
     expect(code).toBe(0);
     expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
     const state = JSON.parse(
@@ -3452,13 +4074,16 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
   it("a tmux-configured backend degrades to plain with the named notice when tmux is off PATH", async () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const { spawn, calls } = fakePlainSpawn();
-    const code = await runFeatureCliReal(["create", "degrade", "thing"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({ launcher: "tmux" }),
-      tmuxOnPath: () => false,
-      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
-    });
+    const code = await runFeatureCliStubbedReserve(
+      ["create", "degrade", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({ launcher: "tmux" }),
+        tmuxOnPath: () => false,
+        plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+      },
+    );
     expect(code).toBe(0);
     expect(calls).toHaveLength(1);
     expect(errors.join("\n")).toMatch(/falling back to the plain launcher/);
@@ -3477,17 +4102,20 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
       stateDir,
     );
     const { spawn, calls } = fakePlainSpawn();
-    const code = await runFeatureCliReal(["resume", "plain-recorded"], {
-      stateDir,
-      readConfig: () => ({ launcher: "tmux" }),
-      tmuxOnPath: () => true,
-      plainDeps: {
-        spawn,
-        isTTY: true,
-        pidStartEpoch: () => 1,
-        liveness: { isAlive: () => false, pidStartEpoch: () => null },
+    const code = await runFeatureCliStubbedReserve(
+      ["resume", "plain-recorded"],
+      {
+        stateDir,
+        readConfig: () => ({ launcher: "tmux" }),
+        tmuxOnPath: () => true,
+        plainDeps: {
+          spawn,
+          isTTY: true,
+          pidStartEpoch: () => 1,
+          liveness: { isAlive: () => false, pidStartEpoch: () => null },
+        },
       },
-    });
+    );
     expect(code).toBe(0);
     expect(calls).toHaveLength(1);
     expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
@@ -3506,11 +4134,14 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
       stateDir,
     );
     tmuxMock.windowExists.mockReturnValue(true);
-    const code = runFeatureCliReal(["resume", "flag-wins", "--tmux"], {
-      stateDir,
-      readConfig: () => ({}),
-      tmuxOnPath: () => true,
-    });
+    const code = runFeatureCliStubbedReserve(
+      ["resume", "flag-wins", "--tmux"],
+      {
+        stateDir,
+        readConfig: () => ({}),
+        tmuxOnPath: () => true,
+      },
+    );
     expect(code).toBe(0);
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(1);
   });
@@ -3526,13 +4157,16 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
     // plainDeps.scanPluginRoots is DELIBERATELY OMITTED — feature.ts:844's
     // `?? (() => roots)` fallback (fed by feature.ts:827's single scan) is
     // the code under test, not launcher.ts's own default.
-    const code = await runFeatureCliReal(["create", "plugged", "in"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({}),
-      pluginRootsScan: () => [root],
-      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
-    });
+    const code = await runFeatureCliStubbedReserve(
+      ["create", "plugged", "in"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({}),
+        pluginRootsScan: () => [root],
+        plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+      },
+    );
     expect(code).toBe(0);
     expect(calls).toHaveLength(1);
     const { argv, env } = calls[0]!;
@@ -3548,13 +4182,16 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
   it("plain create with no materialized plugin roots emits no --plugin-dir token and leaves PATH untouched", async () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const { spawn, calls } = fakePlainSpawn();
-    const code = await runFeatureCliReal(["create", "unplugged", "thing"], {
-      stateDir,
-      cwd: repoDir,
-      readConfig: () => ({}),
-      pluginRootsScan: () => [],
-      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
-    });
+    const code = await runFeatureCliStubbedReserve(
+      ["create", "unplugged", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        readConfig: () => ({}),
+        pluginRootsScan: () => [],
+        plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+      },
+    );
     expect(code).toBe(0);
     expect(calls).toHaveLength(1);
     const { argv, env } = calls[0]!;
@@ -3573,6 +4210,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   let installedHookPath!: string;
   let settingsPath!: string;
   let moduleRelativeHookPath!: string;
+  let installedGuardPath!: string;
 
   beforeEach(() => {
     installedHookPath = installedHelperPath("flow-seed-ingested-hook");
@@ -3586,6 +4224,8 @@ describe("ensureLaunchSettings hook-command resolution", () => {
       "flow-seed-ingested-hook.ts",
     );
     delete process.env.FLOW_SEED_HOOK_COMMAND;
+    delete process.env.FLOW_DOC_READ_GUARD_COMMAND;
+    installedGuardPath = installedHelperPath("flow-doc-read-guard");
     // Default-silence the divergence warning's stderr write across this
     // block's fixtures that happen to diverge (installHook()'s default
     // content differs from the real checked-out script); the two divergence
@@ -3595,8 +4235,22 @@ describe("ensureLaunchSettings hook-command resolution", () => {
 
   afterEach(() => {
     fs.rmSync(installedHookPath, { force: true });
+    fs.rmSync(installedGuardPath, { force: true });
     delete process.env.FLOW_SEED_HOOK_COMMAND;
+    delete process.env.FLOW_DOC_READ_GUARD_COMMAND;
   });
+
+  type PreToolUseEntry = {
+    matcher: string;
+    hooks: Array<{ type: string; command: string; if: string }>;
+  };
+
+  function readPreToolUse(): PreToolUseEntry[] {
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+      hooks: { PreToolUse: PreToolUseEntry[] };
+    };
+    return settings.hooks.PreToolUse;
+  }
 
   function readRecordedCommand(): string {
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
@@ -3676,6 +4330,100 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(fs.statSync(settingsPath).mtimeMs).toBe(firstMtime);
   });
 
+  function readPermissions(): {
+    deny: string[];
+    allow: string[];
+  } {
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+      permissions: { deny: string[]; allow: string[] };
+    };
+    return settings.permissions;
+  }
+
+  it("writes the secret-file deny rules, with no rule mentioning .env.example", () => {
+    ensureLaunchSettings(settingsPath);
+    const { deny } = readPermissions();
+    expect(deny).toContain("Read(//**/.env)");
+    expect(deny.some((rule) => rule.includes(".env.example"))).toBe(false);
+  });
+
+  it("covers common secret-bearing dotenv variants beyond the Next/Vite canonical names", () => {
+    ensureLaunchSettings(settingsPath);
+    const { deny } = readPermissions();
+    for (const variant of [
+      ".env.prod",
+      ".env.dev",
+      ".env.stage",
+      ".env.preview",
+      ".env.ci",
+      ".env.qa",
+      ".env.vault",
+      ".env.keys",
+    ]) {
+      expect(deny).toContain(`Read(//**/${variant})`);
+    }
+    for (const stillReadable of [
+      ".env.example",
+      ".env.sample",
+      ".env.template",
+    ]) {
+      expect(deny.some((rule) => rule.includes(stillReadable))).toBe(false);
+    }
+  });
+
+  it("pre-approves only flow-ui-login check/test-account in permissions.allow, never a blanket flow-ui-login *", () => {
+    ensureLaunchSettings(settingsPath);
+    const { allow } = readPermissions();
+    expect(allow).toContain("Bash(flow-ui-login check *)");
+    expect(allow).toContain("Bash(flow-ui-login test-account *)");
+    expect(allow).not.toContain("Bash(flow-ui-login *)");
+  });
+
+  it("also pre-approves the standalone flow-create-issue call alongside the flow-ui-login rules", () => {
+    ensureLaunchSettings(settingsPath);
+    const { allow } = readPermissions();
+    expect(allow).toContain("Bash(flow-create-issue *)");
+    expect(allow).toContain("Bash(flow-ui-login check *)");
+    expect(allow).toContain("Bash(flow-ui-login test-account *)");
+  });
+
+  it("allows exactly the merge and two override rules in the flow-merge-guard family, and writes no ask list", () => {
+    ensureLaunchSettings(settingsPath);
+    const permissions = readPermissions();
+    expect(
+      permissions.allow.filter((r) => r.startsWith("Bash(flow-merge-guard")),
+    ).toEqual([FLOW_MERGE_ALLOW_RULE, ...FLOW_OVERRIDE_ALLOW_RULES]);
+    expect(permissions).not.toHaveProperty("ask");
+  });
+
+  it("pre-approves every routine helper by name, never a flow-* wildcard or a never-allow helper", () => {
+    ensureLaunchSettings(settingsPath);
+    const { allow } = readPermissions();
+    for (const rule of FLOW_ROUTINE_ALLOW_RULES) expect(allow).toContain(rule);
+    expect(allow).not.toContain("Bash(flow-*)");
+    expect(allow.filter((r) => /^Bash\(flow-\*/.test(r))).toEqual([]);
+    for (const h of FLOW_NEVER_ALLOW_HELPERS) {
+      if (h === "flow-merge-guard") continue;
+      expect(allow.filter((r) => r.startsWith(`Bash(${h}`))).toEqual([
+        ...(FLOW_NARROW_ALLOW_RULES[h] ?? []),
+      ]);
+    }
+  });
+
+  it("launchSettingsPermissions() matches the written file", () => {
+    ensureLaunchSettings(settingsPath);
+    expect(readPermissions()).toEqual(launchSettingsPermissions());
+  });
+
+  it("a second call with permissions already present leaves the file unchanged", () => {
+    ensureLaunchSettings(settingsPath);
+    const firstContent = fs.readFileSync(settingsPath, "utf8");
+    const firstMtime = fs.statSync(settingsPath).mtimeMs;
+    ensureLaunchSettings(settingsPath);
+    expect(fs.readFileSync(settingsPath, "utf8")).toBe(firstContent);
+    expect(fs.statSync(settingsPath).mtimeMs).toBe(firstMtime);
+  });
+
   it("warns to stderr when the installed helper diverges from the module-relative script", () => {
     installHook("this differs from the checked-out script\n");
     const writeSpy = vi
@@ -3710,6 +4458,42 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(readRecordedCommand()).toBe("/custom/override/hook.sh");
     expect(writeSpy).not.toHaveBeenCalled();
     writeSpy.mockRestore();
+  });
+
+  it("registers the flow-doc read guard as a Bash PreToolUse hook gated on sed and awk", () => {
+    ensureLaunchSettings(settingsPath);
+    const preToolUse = readPreToolUse();
+    expect(preToolUse).toHaveLength(1);
+    expect(preToolUse[0]!.matcher).toBe("Bash");
+    const hooks = preToolUse[0]!.hooks;
+    expect(hooks.map((h) => h.if)).toEqual(["Bash(sed *)", "Bash(awk *)"]);
+    for (const h of hooks) {
+      expect(h.type).toBe("command");
+      expect(h.command).toContain("flow-doc-read-guard");
+    }
+    expect(readRecordedCommand()).toContain("flow-seed-ingested-hook");
+  });
+
+  it("honors FLOW_DOC_READ_GUARD_COMMAND verbatim", () => {
+    process.env.FLOW_DOC_READ_GUARD_COMMAND = "/custom/override/guard.sh";
+    ensureLaunchSettings(settingsPath);
+    expect(readPreToolUse()[0]!.hooks.map((h) => h.command)).toEqual([
+      "/custom/override/guard.sh",
+      "/custom/override/guard.sh",
+    ]);
+  });
+
+  it("re-resolves the guard to the checkout path once the installed guard disappears", () => {
+    fs.mkdirSync(path.dirname(installedGuardPath), { recursive: true });
+    fs.writeFileSync(installedGuardPath, "installed-guard\n");
+    fs.chmodSync(installedGuardPath, 0o755);
+    ensureLaunchSettings(settingsPath);
+    expect(readPreToolUse()[0]!.hooks[0]!.command).toBe(installedGuardPath);
+    fs.rmSync(installedGuardPath, { force: true });
+    ensureLaunchSettings(settingsPath);
+    const recorded = readPreToolUse()[0]!.hooks[0]!.command;
+    expect(recorded).not.toBe(installedGuardPath);
+    expect(fs.existsSync(recorded)).toBe(true);
   });
 
   it("ignores an empty-string FLOW_SEED_HOOK_COMMAND override", () => {
@@ -3910,5 +4694,290 @@ describe("seedIngest — corrupt guard, seedCorrupted wiring, unverified warning
     });
     expect(runNew("resume-quiet", { resume: true, stateDir })).toBe(0);
     expect(errors.join("\n")).not.toContain("seed integrity NOT verified");
+  });
+});
+
+describe("private skill copy (flow-self and --skills-from launches)", () => {
+  let overlaysDir!: string;
+  let scratch!: string;
+  let settingsPath!: string;
+  let sharedRoot!: string;
+
+  function put(root: string, rel: string, body: string): void {
+    const p = path.join(root, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, body);
+  }
+
+  /** A flow-like checkout: bin/flow + skills/ (what inspectFlowRoot accepts). */
+  function flowLike(root: string, skillBody = "skill v1\n"): void {
+    put(root, "bin/flow", "#!/usr/bin/env bun\n");
+    put(root, "bin/lib/modules.ts", "export {};\n");
+    put(root, "skills/pipeline/probe/SKILL.md", skillBody);
+  }
+
+  function baseOptions(extra: Partial<FeatureOptions> = {}): FeatureOptions {
+    return {
+      stateDir,
+      cwd: repoDir,
+      launchSettingsPath: settingsPath,
+      readConfig: () => ({}),
+      overlaysDir,
+      pluginRootsScan: () => [sharedRoot],
+      ...extra,
+    };
+  }
+
+  beforeEach(() => {
+    scratch = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-overlay-"));
+    overlaysDir = path.join(scratch, "overlays");
+    settingsPath = path.join(scratch, "launch-settings.json");
+    sharedRoot = path.join(scratch, "shared", "flow-module-core");
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+  });
+
+  afterEach(() => {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  });
+
+  const copyRoot = (slug: string) =>
+    path.join(overlaysDir, slug, ".claude", "skills", "flow-module-core");
+
+  it("a flow-self repo launches on the private copy: overlay --plugin-dir root plus a per-slug --add-dir", () => {
+    flowLike(repoDir);
+    freshWindowOk();
+    const code = runNew(
+      "CSV export",
+      baseOptions({ flowCanonicalRoot: fs.realpathSync(repoDir) }),
+    );
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    const slugDir = path.join(overlaysDir, "csv-export");
+    expect(command).toContain("--plugin-dir");
+    expect(command[command.indexOf("--plugin-dir") + 1]).toBe(
+      copyRoot("csv-export"),
+    );
+    expect(command).not.toContain(sharedRoot);
+    const addDirs = command.flatMap((t: string, i: number) =>
+      t === "--add-dir" ? [command[i + 1]] : [],
+    );
+    expect(addDirs).toContain(slugDir);
+    // Per-slug only: never ~/.flow nor the whole overlays dir.
+    expect(addDirs).not.toContain(overlaysDir);
+    expect(
+      fs.readFileSync(
+        path.join(copyRoot("csv-export"), "skills", "probe", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("skill v1\n");
+  });
+
+  it("a consumer repo without the flag keeps the shared roots and builds no copy", () => {
+    freshWindowOk();
+    const code = runNew(
+      "CSV export",
+      baseOptions({ flowCanonicalRoot: path.join(scratch, "some-flow") }),
+    );
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
+      "FLOW_SLUG=csv-export",
+      "claude",
+      "--add-dir",
+      deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
+      "--plugin-dir",
+      sharedRoot,
+      "--settings",
+      settingsPath,
+    ]);
+    expect(fs.existsSync(overlaysDir)).toBe(false);
+  });
+
+  it("a consumer repo with --skills-from launches on a copy of that checkout", () => {
+    const branch = path.join(scratch, "branch-checkout");
+    flowLike(branch, "branch skill\n");
+    freshWindowOk();
+    const code = runFeatureCli(
+      ["create", "--skills-from", branch, "CSV", "export"],
+      baseOptions({ flowCanonicalRoot: path.join(scratch, "some-flow") }),
+    );
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--plugin-dir") + 1]).toBe(
+      copyRoot("csv-export"),
+    );
+    expect(command).toContain(path.join(overlaysDir, "csv-export"));
+    expect(
+      fs.readFileSync(
+        path.join(copyRoot("csv-export"), "skills", "probe", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("branch skill\n");
+    // The flag and its value are stripped from the description.
+    expect(readState("csv-export", stateDir)).not.toBeNull();
+    expect(
+      fs.readFileSync(requestFilePath("csv-export", stateDir), "utf8"),
+    ).toBe("CSV export");
+  });
+
+  it("an invalid --skills-from exits 1 before any state or copy is written", () => {
+    const bogus = path.join(scratch, "not-flow");
+    fs.mkdirSync(bogus);
+    const code = runFeatureCli(
+      ["create", "--skills-from", bogus, "CSV export"],
+      baseOptions(),
+    );
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/invalid --skills-from/);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(fs.existsSync(overlaysDir)).toBe(false);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("an explicit --skills-from whose copy cannot be built exits 1 with no state and no window", () => {
+    const branch = path.join(scratch, "branch-checkout");
+    flowLike(branch);
+    fs.writeFileSync(overlaysDir, ""); // a file where the dir must go -> mkdirSync throws
+    const code = runFeatureCli(
+      ["create", "--skills-from", branch, "CSV export"],
+      baseOptions({ flowCanonicalRoot: path.join(scratch, "some-flow") }),
+    );
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(
+      /could not build the private skill copy.*nothing was started/,
+    );
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("a --skills-from copy failure releases the reserved folder so a retry lands unsuffixed", () => {
+    const branch = path.join(scratch, "branch-checkout");
+    flowLike(branch);
+    fs.writeFileSync(overlaysDir, "");
+    const code = runFeatureCli(
+      ["create", "--skills-from", branch, "CSV export"],
+      baseOptions({
+        flowCanonicalRoot: path.join(scratch, "some-flow"),
+        reserveWorktree: realReserve,
+      }),
+    );
+    expect(code).toBe(1);
+    const base = deriveWorktreePath(fs.realpathSync(repoDir), "csv-export");
+    expect(fs.existsSync(base)).toBe(false);
+    expect(fs.existsSync(`${base}-2`)).toBe(false);
+  });
+
+  it("an automatic flow-self copy that cannot be built warns and launches on the shared skills", () => {
+    flowLike(repoDir);
+    fs.writeFileSync(overlaysDir, "");
+    freshWindowOk();
+    const code = runNew(
+      "CSV export",
+      baseOptions({ flowCanonicalRoot: fs.realpathSync(repoDir) }),
+    );
+    expect(code).toBe(0);
+    expect(errors.join("\n")).toMatch(
+      /WARNING: private skill copy unavailable.*shared skills/,
+    );
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--plugin-dir") + 1]).toBe(sharedRoot);
+  });
+
+  it("a --skills-from with no value exits 1", () => {
+    const code = runFeatureCli(["create", "--skills-from"], baseOptions());
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/--skills-from requires/);
+  });
+
+  it("the plain backend also launches on the copy", async () => {
+    flowLike(repoDir);
+    const calls: Array<{ argv: string[]; env: NodeJS.ProcessEnv }> = [];
+    const spawn = (
+      argv: string[],
+      o: { cwd: string; env: NodeJS.ProcessEnv },
+    ) => {
+      calls.push({ argv, env: o.env });
+      const slug = o.env.FLOW_SLUG!;
+      const raw = JSON.parse(
+        fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"),
+      );
+      writeState(
+        {
+          ...raw,
+          seedIngest: {
+            at: new Date().toISOString(),
+            outcome: "not-applicable",
+            reason: "no-seed-recorded",
+          },
+        },
+        stateDir,
+      );
+      return { pid: 777, exited: Promise.resolve(0) };
+    };
+    const code = await runFeatureCliStubbedReserve(
+      ["create", "plain", "copy"],
+      baseOptions({
+        flowCanonicalRoot: fs.realpathSync(repoDir),
+        plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+      }),
+    );
+    expect(code).toBe(0);
+    const { argv } = calls[0]!;
+    expect(argv[argv.indexOf("--plugin-dir") + 1]).toBe(copyRoot("plain-copy"));
+    expect(argv).toContain(path.join(overlaysDir, "plain-copy"));
+  });
+
+  it("resume reuses an existing copy, and launches as today when there is none", () => {
+    seedState("has-copy");
+    seedState("no-copy");
+    const src = path.join(scratch, "src");
+    flowLike(src);
+    materializeSkillOverlay({
+      slug: "has-copy",
+      contentSource: src,
+      installRoot: src,
+      moduleIds: ["core"],
+      overlaysDir,
+    });
+    tmuxMock.windowExists.mockReturnValue(true);
+    const opts = baseOptions({ resume: true });
+    expect(runNew("has-copy", opts)).toBe(0);
+    expect(runNew("no-copy", opts)).toBe(0);
+    const [withCopy, without] = tmuxMock.respawnWindowVerified.mock.calls.map(
+      (c) => c[2] as string[],
+    );
+    expect(withCopy![withCopy!.indexOf("--plugin-dir") + 1]).toBe(
+      copyRoot("has-copy"),
+    );
+    expect(withCopy).toContain(path.join(overlaysDir, "has-copy"));
+    expect(without![without!.indexOf("--plugin-dir") + 1]).toBe(sharedRoot);
+    expect(without).not.toContain(path.join(overlaysDir, "no-copy"));
+  });
+
+  it("every create launch prunes dead pipelines' copies from the injected overlays dir only", () => {
+    const src = path.join(scratch, "src");
+    flowLike(src);
+    for (const slug of ["dead-one", "fresh-one"]) {
+      materializeSkillOverlay({
+        slug,
+        contentSource: src,
+        installRoot: src,
+        moduleIds: ["core"],
+        overlaysDir,
+      });
+    }
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    fs.utimesSync(path.join(overlaysDir, "dead-one"), old, old);
+    freshWindowOk();
+    const code = runNew(
+      "CSV export",
+      baseOptions({ flowCanonicalRoot: path.join(scratch, "some-flow") }),
+    );
+    expect(code).toBe(0);
+    expect(fs.readdirSync(overlaysDir)).toEqual(["fresh-one"]);
   });
 });

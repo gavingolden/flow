@@ -89,6 +89,17 @@ export function epicStatusLockDir(): string {
 }
 
 /**
+ * Per-pipeline private skill copies root (`~/.flow/overlays/<slug>/`),
+ * resolved at call time — same rationale as `flowConfigPath()` above: an
+ * eager const would resolve against the developer's real `~/.flow` under
+ * vitest, and pruning it against a test's tmp state dir would delete live
+ * pipelines' copies.
+ */
+export function flowOverlaysDir(): string {
+  return path.join(os.homedir(), ".flow", "overlays");
+}
+
+/**
  * Resolves `~/.local/bin/<name>` at call time, same rationale as
  * `flowConfigPath()` above: `HOME` is captured at import time, before
  * vitest's setup file swaps `$HOME` for a sandbox, so an eager
@@ -111,6 +122,17 @@ export function configuredFlowSource(
 ): string | null {
   const config = readConfig(homeDir);
   return config.source ?? null;
+}
+
+/**
+ * Resolves `~/.flow/telemetry/events.jsonl` at call time, same rationale as
+ * `flowConfigPath()` above: `HOME` is captured at import time, before
+ * vitest's setup file swaps `$HOME` for a sandbox, so an eager
+ * `path.join(FLOW_DIR, "telemetry", "events.jsonl")` constant would leak the
+ * developer's real `~/.flow` into every test that records a telemetry event.
+ */
+export function flowTelemetryLogPath(homeDir: string = os.homedir()): string {
+  return path.join(homeDir, ".flow", "telemetry", "events.jsonl");
 }
 
 export const FLOW_UPDATE_CACHE = path.join(FLOW_DIR, "update-check.json");

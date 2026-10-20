@@ -1,0 +1,2375 @@
+{
+  "schemaVersion": 1,
+  "runner": {
+    "name": "flow-eval-headless",
+    "autocompact": "150k",
+    "claudeVersion": "2.1.266",
+    "childArgvDigest": "9bd16e36fce7063f"
+  },
+  "tree": {
+    "gitHead": "11093f491d346cf002d4184dad51fb34db20d232",
+    "dirty": false
+  },
+  "suite": "phase-write-fidelity",
+  "candidate": "phase-write-side-effect",
+  "startedAt": "2026-09-09T03:50:19.397Z",
+  "finishedAt": "2026-09-09T04:16:23.578Z",
+  "scenarios": [
+    {
+      "id": "s1-step7-ci-wait",
+      "title": "Step 7 entry advances state.phase to ci-wait",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-ci-wait",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 42126,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7393187999999999,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 8,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 63652,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "e8288a3f-851c-458d-963e-b796d0baa5e9",
+          "costUsd": 0.7393187999999999,
+          "durationMs": 63652,
+          "numTurns": 8,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-ci-wait",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 44557,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7670226,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 9,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 73160,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "3bcbca4d-ac2c-4783-90af-d51a35992711",
+          "costUsd": 0.7670226,
+          "durationMs": 73160,
+          "numTurns": 9,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-ci-wait",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 42978,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.75566,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 9,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 74389,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "38046390-30e4-416c-b8aa-cbed65644ed4",
+          "costUsd": 0.75566,
+          "durationMs": 74389,
+          "numTurns": 9,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-ci-wait",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 44775,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7487632000000001,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 8,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 56665,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "6aa3d998-41ba-4603-8b63-1269674104ff",
+          "costUsd": 0.7487632000000001,
+          "durationMs": 56665,
+          "numTurns": 8,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-ci-wait",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 43398,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7509366,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 9,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 69334,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "a723ddfd-d1b0-4cec-aa54-6799b7beac3e",
+          "costUsd": 0.7509366,
+          "durationMs": 69334,
+          "numTurns": 9,
+          "childArgvDigest": "af9a0f128406cab6"
+        }
+      ],
+      "metrics": {
+        "transcript.finalContextTokens": {
+          "median": 43398,
+          "min": 42126,
+          "max": 44775,
+          "direction": "lower",
+          "values": [42126, 44557, 42978, 44775, 43398]
+        },
+        "result.total_cost_usd": {
+          "median": 0.7509366,
+          "min": 0.7393187999999999,
+          "max": 0.7670226,
+          "direction": "lower",
+          "values": [
+            0.7393187999999999, 0.7670226, 0.75566, 0.7487632000000001,
+            0.7509366
+          ]
+        },
+        "result.num_turns": {
+          "median": 9,
+          "min": 8,
+          "max": 9,
+          "direction": "lower",
+          "values": [8, 9, 9, 8, 9]
+        },
+        "result.duration_ms": {
+          "median": 69334,
+          "min": 56665,
+          "max": 74389,
+          "direction": "lower",
+          "values": [63652, 73160, 74389, 56665, 69334]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "direction": "lower",
+          "values": [0, 0, 0, 0, 0]
+        }
+      }
+    },
+    {
+      "id": "s2-step8-reviewing",
+      "title": "Step 8 entry advances state.phase to reviewing",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-reviewing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 95935,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.0057338,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 11,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 71636,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "45ca8b78-6f97-4217-867f-f2c1e049e551",
+          "costUsd": 1.0057338,
+          "durationMs": 71636,
+          "numTurns": 11,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-reviewing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 97285,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.0350918,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 11,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 82981,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "7a2d876c-de22-4bf1-9093-4fc3bb0f70e6",
+          "costUsd": 1.0350918,
+          "durationMs": 82981,
+          "numTurns": 11,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-reviewing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 97955,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.0414948,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 11,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 77894,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "427fd02d-58d5-453c-a021-0167a585bb4e",
+          "costUsd": 1.0414948,
+          "durationMs": 77894,
+          "numTurns": 11,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-reviewing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 98833,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.0498022,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 12,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 95568,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "c80a6f29-c016-43ba-b642-d64d439526e0",
+          "costUsd": 1.0498022,
+          "durationMs": 95568,
+          "numTurns": 12,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-reviewing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 97407,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 1.0609199999999999,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 13,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 85711,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "34af1678-4a3a-421e-ab53-1c67f19600e7",
+          "costUsd": 1.0609199999999999,
+          "durationMs": 85711,
+          "numTurns": 13,
+          "childArgvDigest": "af9a0f128406cab6"
+        }
+      ],
+      "metrics": {
+        "transcript.finalContextTokens": {
+          "median": 97407,
+          "min": 95935,
+          "max": 98833,
+          "direction": "lower",
+          "values": [95935, 97285, 97955, 98833, 97407]
+        },
+        "result.total_cost_usd": {
+          "median": 1.0414948,
+          "min": 1.0057338,
+          "max": 1.0609199999999999,
+          "direction": "lower",
+          "values": [
+            1.0057338, 1.0350918, 1.0414948, 1.0498022, 1.0609199999999999
+          ]
+        },
+        "result.num_turns": {
+          "median": 11,
+          "min": 11,
+          "max": 13,
+          "direction": "lower",
+          "values": [11, 11, 11, 12, 13]
+        },
+        "result.duration_ms": {
+          "median": 82981,
+          "min": 71636,
+          "max": 95568,
+          "direction": "lower",
+          "values": [71636, 82981, 77894, 95568, 85711]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "direction": "lower",
+          "values": [0, 0, 0, 0, 0]
+        }
+      }
+    },
+    {
+      "id": "s3-step9-gating",
+      "title": "Step 9 entry advances state.phase to gating",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-gating",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 40576,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7044883999999999,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 44463,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "a9c49cdd-3b50-4e4f-94e6-ca88606cc71d",
+          "costUsd": 0.7044883999999999,
+          "durationMs": 44463,
+          "numTurns": 7,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-gating",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 40787,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7080794000000001,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 52332,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "df07859b-c42f-4785-8dc0-3693928dfdef",
+          "costUsd": 0.7080794000000001,
+          "durationMs": 52332,
+          "numTurns": 7,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-gating",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 40438,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7028456000000001,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 43032,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "784e9e5c-4d85-4574-8213-95690f2fab49",
+          "costUsd": 0.7028456000000001,
+          "durationMs": 43032,
+          "numTurns": 7,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-gating",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 40700,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.70361,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 48252,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "7a2d24ab-999d-4688-b04d-8fd039732c3f",
+          "costUsd": 0.70361,
+          "durationMs": 48252,
+          "numTurns": 7,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-gating",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 40476,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7119517999999999,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 51220,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "8f158aef-8ea5-464b-b4e6-3bf3ff05bf37",
+          "costUsd": 0.7119517999999999,
+          "durationMs": 51220,
+          "numTurns": 7,
+          "childArgvDigest": "af9a0f128406cab6"
+        }
+      ],
+      "metrics": {
+        "transcript.finalContextTokens": {
+          "median": 40576,
+          "min": 40438,
+          "max": 40787,
+          "direction": "lower",
+          "values": [40576, 40787, 40438, 40700, 40476]
+        },
+        "result.total_cost_usd": {
+          "median": 0.7044883999999999,
+          "min": 0.7028456000000001,
+          "max": 0.7119517999999999,
+          "direction": "lower",
+          "values": [
+            0.7044883999999999, 0.7080794000000001, 0.7028456000000001, 0.70361,
+            0.7119517999999999
+          ]
+        },
+        "result.num_turns": {
+          "median": 7,
+          "min": 7,
+          "max": 7,
+          "direction": "lower",
+          "values": [7, 7, 7, 7, 7]
+        },
+        "result.duration_ms": {
+          "median": 48252,
+          "min": 43032,
+          "max": 52332,
+          "direction": "lower",
+          "values": [44463, 52332, 43032, 48252, 51220]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "direction": "lower",
+          "values": [0, 0, 0, 0, 0]
+        }
+      }
+    },
+    {
+      "id": "s4-step10-merging",
+      "title": "Step 10 entry advances state.phase to merging",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-merging",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 40583,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.6996091999999999,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 45637,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "da327b95-1562-4426-8fe1-3c72e711ad88",
+          "costUsd": 0.6996091999999999,
+          "durationMs": 45637,
+          "numTurns": 6,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-merging",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 41103,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7096553999999999,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 51110,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "01778dc0-d18d-4174-8c54-6e1c48b36eee",
+          "costUsd": 0.7096553999999999,
+          "durationMs": 51110,
+          "numTurns": 6,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-merging",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 41034,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7247319999999999,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 65479,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "717e3309-7c94-41c8-a0fc-65366d9d6338",
+          "costUsd": 0.7247319999999999,
+          "durationMs": 65479,
+          "numTurns": 7,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-merging",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 41021,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7184383999999999,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 61775,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "5d6a7a36-4788-448d-8675-79ffeaa59988",
+          "costUsd": 0.7184383999999999,
+          "durationMs": 61775,
+          "numTurns": 7,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-merging",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 41029,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7074765999999999,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 43023,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "9dd71d09-9c39-4fb4-8613-972afb1a1eae",
+          "costUsd": 0.7074765999999999,
+          "durationMs": 43023,
+          "numTurns": 7,
+          "childArgvDigest": "af9a0f128406cab6"
+        }
+      ],
+      "metrics": {
+        "transcript.finalContextTokens": {
+          "median": 41029,
+          "min": 40583,
+          "max": 41103,
+          "direction": "lower",
+          "values": [40583, 41103, 41034, 41021, 41029]
+        },
+        "result.total_cost_usd": {
+          "median": 0.7096553999999999,
+          "min": 0.6996091999999999,
+          "max": 0.7247319999999999,
+          "direction": "lower",
+          "values": [
+            0.6996091999999999, 0.7096553999999999, 0.7247319999999999,
+            0.7184383999999999, 0.7074765999999999
+          ]
+        },
+        "result.num_turns": {
+          "median": 7,
+          "min": 6,
+          "max": 7,
+          "direction": "lower",
+          "values": [6, 6, 7, 7, 7]
+        },
+        "result.duration_ms": {
+          "median": 51110,
+          "min": 43023,
+          "max": 65479,
+          "direction": "lower",
+          "values": [45637, 51110, 65479, 61775, 43023]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "direction": "lower",
+          "values": [0, 0, 0, 0, 0]
+        }
+      }
+    },
+    {
+      "id": "s5-open-pr-implementing",
+      "title": "Step 5's PR-open tail advances state.phase to implementing",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-implementing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-pr-recorded",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-manual-phase-write",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 42361,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7522062,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 82329,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "4fd8fa8f-95fc-40bb-9fbf-2def4fe0ecee",
+          "costUsd": 0.7522062,
+          "durationMs": 82329,
+          "numTurns": 7,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-implementing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-pr-recorded",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-manual-phase-write",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 42080,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7305024000000001,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 8,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 53927,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "4f6055d4-c81d-4661-9d63-ab7cfcb6e7d4",
+          "costUsd": 0.7305024000000001,
+          "durationMs": 53927,
+          "numTurns": 8,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-implementing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-pr-recorded",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-manual-phase-write",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 36337,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.0908,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 4,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 12172,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "e7e56d35-846c-40f2-aea2-f8bf0668cf3f",
+          "costUsd": 0.0908,
+          "durationMs": 12172,
+          "numTurns": 4,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-implementing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-pr-recorded",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-manual-phase-write",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 42348,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7317736,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 55360,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "f990a1e7-35f1-49f3-8ee4-90281f18001f",
+          "costUsd": 0.7317736,
+          "durationMs": 55360,
+          "numTurns": 7,
+          "childArgvDigest": "af9a0f128406cab6"
+        },
+        {
+          "run": 5,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "state-phase-implementing",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "state-pr-recorded",
+              "kind": "json-file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-manual-phase-write",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "transcript.finalContextTokens",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "transcript.subagentsSpawned",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "transcript.finalContextTokens": {
+              "value": 41666,
+              "direction": "lower"
+            },
+            "result.total_cost_usd": {
+              "value": 0.7422002,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 77417,
+              "direction": "lower"
+            },
+            "transcript.subagentsSpawned": {
+              "value": 0,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "c6ef59db-bc03-4bad-bb4b-103347144447",
+          "costUsd": 0.7422002,
+          "durationMs": 77417,
+          "numTurns": 7,
+          "childArgvDigest": "af9a0f128406cab6"
+        }
+      ],
+      "metrics": {
+        "transcript.finalContextTokens": {
+          "median": 42080,
+          "min": 36337,
+          "max": 42361,
+          "direction": "lower",
+          "values": [42361, 42080, 36337, 42348, 41666]
+        },
+        "result.total_cost_usd": {
+          "median": 0.7317736,
+          "min": 0.0908,
+          "max": 0.7522062,
+          "direction": "lower",
+          "values": [
+            0.7522062, 0.7305024000000001, 0.0908, 0.7317736, 0.7422002
+          ]
+        },
+        "result.num_turns": {
+          "median": 7,
+          "min": 4,
+          "max": 8,
+          "direction": "lower",
+          "values": [7, 8, 4, 7, 7]
+        },
+        "result.duration_ms": {
+          "median": 55360,
+          "min": 12172,
+          "max": 82329,
+          "direction": "lower",
+          "values": [82329, 53927, 12172, 55360, 77417]
+        },
+        "transcript.subagentsSpawned": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "direction": "lower",
+          "values": [0, 0, 0, 0, 0]
+        }
+      }
+    }
+  ],
+  "summary": {
+    "score": 1,
+    "scenarios": 5,
+    "passed": 5,
+    "failed": 0,
+    "errored": 0,
+    "costUsd": 19.093113
+  }
+}

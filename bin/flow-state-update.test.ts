@@ -56,7 +56,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag (empty argv)", () => {
     expect(parseArgs([])).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin, --increment-loop is required",
     });
   });
 
@@ -72,7 +72,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag", () => {
     expect(parseArgs(["foo"])).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin, --increment-loop is required",
     });
   });
 
@@ -233,6 +233,23 @@ describe("parseArgs", () => {
     expect(result.error).toContain("implementing");
   });
 
+  it("parses --increment-loop ciFix into Args", () => {
+    const result = parseArgs(["csv-export", "--increment-loop", "ciFix"]);
+    expect(result).toEqual({ slug: "csv-export", incrementLoop: "ciFix" });
+  });
+
+  it("rejects an unknown --increment-loop key", () => {
+    const result = parseArgs(["csv-export", "--increment-loop", "typoFix"]);
+    expect(result).toEqual({
+      error: "--increment-loop must be 'ciFix' or 'reviewFix', got 'typoFix'",
+    });
+  });
+
+  it("--increment-loop alone satisfies the at-least-one-of guard", () => {
+    const result = parseArgs(["--increment-loop", "reviewFix"]);
+    expect("error" in result).toBe(false);
+  });
+
   it("parses --force as force: true alongside --phase", () => {
     expect(parseArgs(["foo", "--phase", "triaging", "--force"])).toEqual({
       slug: "foo",
@@ -353,6 +370,57 @@ describe("applyUpdate", () => {
   });
 });
 
+describe("applyUpdate + --increment-loop", () => {
+  it("bumps an absent loops field to 1", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "implementing",
+      repo: "/tmp/repo",
+      updatedAt: "2026-04-30T12:00:00Z",
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      incrementLoop: "ciFix",
+    });
+    expect(updated.loops).toEqual({ ciFix: 1, reviewFix: 0 });
+  });
+
+  it("bumps an existing counter from 1 to 2, leaving the other counter untouched", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "implementing",
+      repo: "/tmp/repo",
+      loops: { ciFix: 1, reviewFix: 1 },
+      updatedAt: "2026-04-30T12:00:00Z",
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      incrementLoop: "ciFix",
+    });
+    expect(updated.loops).toEqual({ ciFix: 2, reviewFix: 1 });
+  });
+
+  it("preserves every other field on an --increment-loop-only update", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "implementing",
+      repo: "/tmp/repo",
+      worktree: "/tmp/wt",
+      pr: 142,
+      loops: { ciFix: 0, reviewFix: 0 },
+      updatedAt: "2026-04-30T12:00:00Z",
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      incrementLoop: "reviewFix",
+    });
+    expect(updated.worktree).toBe("/tmp/wt");
+    expect(updated.pr).toBe(142);
+    expect(updated.phase).toBe("implementing");
+    expect(updated.loops).toEqual({ ciFix: 0, reviewFix: 1 });
+  });
+});
+
 describe("runUpdate", () => {
   it("returns 1 with a clear error when no state file exists", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -372,6 +440,26 @@ describe("runUpdate", () => {
       "at least one of --phase",
     );
     errSpy.mockRestore();
+  });
+
+  it("rejects an unknown --increment-loop key at the CLI boundary", () => {
+    seed("csv-export");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--increment-loop", "notAKey"], dir);
+    expect(code).toBe(2);
+    expect(errSpy.mock.calls.flat().join("\n")).toContain(
+      "--increment-loop must be 'ciFix' or 'reviewFix'",
+    );
+    errSpy.mockRestore();
+  });
+
+  it("--increment-loop standalone (no --phase) writes the bumped counter", () => {
+    seed("csv-export");
+    const code = runUpdate(["csv-export", "--increment-loop", "ciFix"], dir);
+    expect(code).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.loops).toEqual({ ciFix: 1, reviewFix: 0 });
+    expect(got?.phase).toBe("starting"); // untouched — no --phase passed
   });
 
   it("merges fields and refreshes updatedAt", () => {
@@ -394,6 +482,69 @@ describe("runUpdate", () => {
     expect(runUpdate(["csv-export", "--phase", "implementing"], dir)).toBe(0);
     const got = readState("csv-export", dir);
     expect(got?.phase).toBe("implementing");
+  });
+
+  describe("phase.transition telemetry", () => {
+    let telemetryHome: string;
+    let telemetryPath: string;
+
+    beforeEach(() => {
+      telemetryHome = process.env.HOME as string;
+      telemetryPath = path.join(
+        telemetryHome,
+        ".flow",
+        "telemetry",
+        "events.jsonl",
+      );
+      fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    afterEach(() => {
+      fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    it("records one phase.transition event with the correct from/to on a --phase write", () => {
+      seed("csv-export", { phase: "triaged" });
+      expect(runUpdate(["csv-export", "--phase", "implementing"], dir)).toBe(0);
+      const lines = fs
+        .readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0)
+        .map((l) => JSON.parse(l));
+      const transitions = lines.filter((l) => l.event === "phase.transition");
+      expect(transitions).toHaveLength(1);
+      expect(transitions[0].attrs.from).toBe("triaged");
+      expect(transitions[0].attrs.to).toBe("implementing");
+      expect(transitions[0].attrs.since_prev_ms).toBeNull();
+      expect(transitions[0].attrs.forced).toBe(false);
+    });
+
+    it("does not record a phase.transition event on a --pr-only write", () => {
+      seed("csv-export");
+      expect(runUpdate(["csv-export", "--pr", "142"], dir)).toBe(0);
+      expect(fs.existsSync(telemetryPath)).toBe(false);
+    });
+
+    it("a telemetry failure never changes the exit code", () => {
+      // recordEvent is best-effort and never throws by contract; this
+      // asserts the write path stays fully functional even though the
+      // telemetry log directory is unwritable (occupied by a plain file).
+      fs.mkdirSync(path.join(telemetryHome, ".flow"), { recursive: true });
+      fs.writeFileSync(path.join(telemetryHome, ".flow", "telemetry"), "");
+      seed("csv-export");
+      expect(runUpdate(["csv-export", "--phase", "implementing"], dir)).toBe(0);
+      const got = readState("csv-export", dir);
+      expect(got?.phase).toBe("implementing");
+      fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+        force: true,
+      });
+    });
   });
 
   it("clears a stale reap record when resumed past a terminal phase", () => {
@@ -435,6 +586,39 @@ describe("runUpdate", () => {
     expect(got?.pr).toBe(142);
     expect(got?.worktree).toBe("/tmp/wt");
     expect(got?.autoMerge).toBe(false);
+  });
+
+  it("records prUrl when --pr-url is supplied", () => {
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "implementing",
+      repo: "/tmp/repo",
+      updatedAt: "2026-04-30T12:00:00Z",
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      prUrl: "https://github.com/org/repo/pull/7",
+    });
+    expect(updated.prUrl).toBe("https://github.com/org/repo/pull/7");
+  });
+
+  it("preserves prUrl across phase-only updates", () => {
+    // A dropped `?? existing.prUrl` here silently un-links every `flow ls`
+    // row: the PR cell falls back to the bare number with no error path, so
+    // nothing else in the suite would catch the regression.
+    const existing: PipelineState = {
+      slug: "csv-export",
+      phase: "implementing",
+      repo: "/tmp/repo",
+      updatedAt: "2026-04-30T12:00:00Z",
+      prUrl: "https://github.com/org/repo/pull/7",
+    };
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      phase: "verifying",
+    });
+    expect(updated.phase).toBe("verifying");
+    expect(updated.prUrl).toBe("https://github.com/org/repo/pull/7");
   });
 
   it("preserves sessionId across phase-only updates", () => {
@@ -577,6 +761,22 @@ describe("runUpdate", () => {
   it("auto-resolves the slug from $FLOW_SLUG when omitted", () => {
     seed("csv-export");
     const code = runUpdate(["--phase", "implementing"], dir, {
+      resolveSlug: () => "csv-export",
+    });
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("implementing");
+  });
+
+  it("an empty --slug '' still falls back to the ambient resolveSlug and writes state (end-to-end proof of the shell-expansion fix)", () => {
+    // The motivating bug: `--slug "$SLUG"` in a fresh per-Bash-call shell
+    // expands to `--slug ""` when $SLUG is unset. parseArgs-level tests only
+    // prove `slug` parses to `undefined`; this drives the full runUpdate path
+    // with an ambient FLOW_SLUG present (injected via the same resolveSlug
+    // dep seam the file already uses) and asserts the fallback actually
+    // resolves and the state file is written to that slug, not left
+    // unwritten or misrouted.
+    seed("csv-export");
+    const code = runUpdate(["--slug", "", "--phase", "implementing"], dir, {
       resolveSlug: () => "csv-export",
     });
     expect(code).toBe(0);
@@ -1014,8 +1214,8 @@ describe("terminal-regression guard", () => {
     expect(readState("csv-export", dir)?.phase).toBe("merged");
   });
 
-  it.each(["needs-human", "cancelled", "epic-approved"])(
-    "returns 4 for %s→verifying — no allowlist entry outside gated",
+  it.each(["cancelled", "epic-approved"])(
+    "returns 4 for %s→verifying — no allowlist entry outside gated/needs-human",
     (fromPhase) => {
       seed("csv-export", { phase: fromPhase });
       const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1023,6 +1223,41 @@ describe("terminal-regression guard", () => {
       errSpy.mockRestore();
       expect(code).toBe(4);
       expect(readState("csv-export", dir)?.phase).toBe(fromPhase);
+    },
+  );
+
+  it.each([
+    "planning",
+    "plan-pending-review",
+    "implementing",
+    "installing-skills",
+    "verifying",
+    "ci-wait",
+    "reviewing",
+    "gating",
+    "epic-designing",
+    "epic-validating",
+    "epic-pr-open",
+    "epic-design-pending-review",
+  ])(
+    "allows the allowlisted needs-human→%s continue exit and writes the phase",
+    (toPhase) => {
+      seed("csv-export", { phase: "needs-human" });
+      const code = runUpdate(["csv-export", "--phase", toPhase], dir);
+      expect(code).toBe(0);
+      expect(readState("csv-export", dir)?.phase).toBe(toPhase);
+    },
+  );
+
+  it.each(["triaging", "starting", "worktree-create", "merging"])(
+    "returns 4 for needs-human→%s (not in the allowlist) and leaves state unchanged",
+    (toPhase) => {
+      seed("csv-export", { phase: "needs-human" });
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const code = runUpdate(["csv-export", "--phase", toPhase], dir);
+      errSpy.mockRestore();
+      expect(code).toBe(4);
+      expect(readState("csv-export", dir)?.phase).toBe("needs-human");
     },
   );
 
@@ -1071,7 +1306,7 @@ describe("parseArgs --slug flag", () => {
     const result = parseArgs(["--slug", "csv-export"]);
     expect(result).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin, --increment-loop is required",
     });
   });
 
@@ -1079,6 +1314,22 @@ describe("parseArgs --slug flag", () => {
     expect(
       parseArgs(["csv-export", "--slug", "other", "--phase", "triaging"]),
     ).toEqual({ error: "cannot combine positional <slug> with --slug" });
+  });
+
+  it("an EMPTY --slug reads as not-supplied so the ambient FLOW_SLUG fallback still fires", () => {
+    // `--slug "$SLUG"` in a fresh per-Bash-call shell expands to `--slug ""`
+    // whenever SLUG is unset. Binding "" would defeat the
+    // `parsed.slug ?? resolveSlug()` fallback (an empty string is not nullish)
+    // and exit 2 naming FLOW_SLUG as missing when it was in fact set.
+    const result = parseArgs(["--slug", "", "--phase", "triaging"]);
+    expect("error" in result).toBe(false);
+    expect((result as { slug?: string }).slug).toBeUndefined();
+  });
+
+  it("a whitespace-only --slug reads as not-supplied too", () => {
+    const result = parseArgs(["--slug", "   ", "--phase", "triaging"]);
+    expect("error" in result).toBe(false);
+    expect((result as { slug?: string }).slug).toBeUndefined();
   });
 
   it("--slug without a value returns an error", () => {
@@ -1091,6 +1342,23 @@ describe("parseArgs --slug flag", () => {
     expect(parseArgs(["--slug", "--phase"])).toEqual({
       error: "--slug requires a value",
     });
+  });
+
+  it("an EMPTY positional <slug> reads as not-supplied too (parity with --slug)", () => {
+    // `flow-state-update "$SLUG" --phase ...` with an unset $SLUG expands to
+    // a positional empty string the same way `--slug "$SLUG"` does. Without
+    // the parity guard this would bind out.slug = "" and defeat the
+    // `parsed.slug ?? resolveSlug()` ambient fallback identically to the
+    // --slug case above.
+    const result = parseArgs(["", "--phase", "triaging"]);
+    expect("error" in result).toBe(false);
+    expect((result as { slug?: string }).slug).toBeUndefined();
+  });
+
+  it("a whitespace-only positional <slug> reads as not-supplied too", () => {
+    const result = parseArgs(["   ", "--phase", "triaging"]);
+    expect("error" in result).toBe(false);
+    expect((result as { slug?: string }).slug).toBeUndefined();
   });
 });
 

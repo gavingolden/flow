@@ -114,6 +114,7 @@ export type EvalReport = {
     claudeVersion?: string;
     model?: string;
     effort?: string;
+    autocompact?: string;
     notes?: string[];
     /**
      * A hash of the composed child argv's flag NAMES plus the fixed
@@ -695,11 +696,12 @@ export function compareReports(
   const environmentMismatch =
     base.runner.model !== cand.runner.model ||
     base.runner.effort !== cand.runner.effort ||
+    base.runner.autocompact !== cand.runner.autocompact ||
     base.runner.claudeVersion !== cand.runner.claudeVersion ||
     childArgvDigestDrift;
   if (environmentMismatch) {
     warnings.push(
-      `runner mismatch: model ${base.runner.model ?? "n/a"} -> ${cand.runner.model ?? "n/a"}, effort ${base.runner.effort ?? "n/a"} -> ${cand.runner.effort ?? "n/a"}, claudeVersion ${base.runner.claudeVersion ?? "n/a"} -> ${cand.runner.claudeVersion ?? "n/a"}${childArgvDigestDrift ? `, childArgvDigest ${base.runner.childArgvDigest} -> ${cand.runner.childArgvDigest} (the composed child argv/env shape itself differs)` : ""}`,
+      `runner mismatch: model ${base.runner.model ?? "n/a"} -> ${cand.runner.model ?? "n/a"}, effort ${base.runner.effort ?? "n/a"} -> ${cand.runner.effort ?? "n/a"}, autocompact ${base.runner.autocompact ?? "n/a"} -> ${cand.runner.autocompact ?? "n/a"}, claudeVersion ${base.runner.claudeVersion ?? "n/a"} -> ${cand.runner.claudeVersion ?? "n/a"}${childArgvDigestDrift ? `, childArgvDigest ${base.runner.childArgvDigest} -> ${cand.runner.childArgvDigest} (the composed child argv/env shape itself differs)` : ""}`,
     );
   }
 

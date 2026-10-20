@@ -178,6 +178,54 @@ describe(parseTestStepsSection, () => {
   });
 });
 
+describe("parseTestStepsSection — fenced content", () => {
+  const unchecked = (body: string): string[] => {
+    const r = parseTestStepsSection(body);
+    return r.kind === "has-unchecked" ? r.uncheckedItems : [];
+  };
+
+  it("counts an unchecked item after an evidence block with a fenced unclosed '<!--'", () => {
+    const body = [
+      "## Test Steps",
+      "",
+      "- [x] Run `npm test`",
+      "<!-- flow:evidence -->",
+      "<details><summary>evidence</summary>",
+      "",
+      "```",
+      "output <!-- never closed",
+      "```",
+      "",
+      "</details>",
+      "",
+      "- [ ] SUBJECTIVE: looks right",
+      "",
+    ].join("\n");
+    expect(unchecked(body)).toEqual(["SUBJECTIVE: looks right"]);
+  });
+
+  it("does not count a fenced '- [ ] fake' item", () => {
+    const body = "## Test Steps\n\n```\n- [ ] fake\n```\n\n- [x] real\n";
+    expect(parseTestStepsSection(body)).toEqual({ kind: "no-unchecked" });
+  });
+
+  it("still counts items after an unclosed fence opener", () => {
+    const body = "## Test Steps\n\n```\n- [ ] after opener\n";
+    expect(unchecked(body)).toEqual(["after opener"]);
+  });
+
+  it("does not end the section at a fenced '## Other' line", () => {
+    const body = "## Test Steps\n\n```\n## Other\n```\n\n- [ ] still inside\n";
+    expect(unchecked(body)).toEqual(["still inside"]);
+  });
+
+  it("does not take a fenced '## Test Steps' earlier in the body as the heading", () => {
+    const body =
+      "## Why\n\n```\n## Test Steps\n- [ ] fake\n```\n\n## Test Steps\n\n- [ ] real\n";
+    expect(unchecked(body)).toEqual(["real"]);
+  });
+});
+
 describe(findTrappedTestSteps, () => {
   it("names the trapped items excluded from parseTestStepsSection", () => {
     const body =
@@ -413,6 +461,239 @@ describe(parseArgs, () => {
       pr: 142,
       slug: "csv-export",
     });
+  });
+});
+
+// --- browser-retry ---------------------------------------------------------
+
+describe("decide() — browser-retry", () => {
+  const WT = "/wt";
+  const HEAD = "abc123";
+  const DRIVER = "/wt/.flow-tmp/ui-driver-result.json";
+  const PREFLIGHT = "/wt/.flow-tmp/ui-preflight.json";
+  const ticked = (n: number) =>
+    Array.from({ length: n }, (_, i) => `- [x] Run \`cmd ${i + 1}\` — ok`);
+  const body = (...lines: string[]) => `## Test Steps\n\n${lines.join("\n")}\n`;
+  const BROWSER = [
+    '- [ ] Browser: on /a, click A — expect "A"',
+    '- [ ] Browser: on /b, click B — expect "B"',
+    '- [ ] Browser: on /c, click C — expect "C"',
+  ];
+  const files = (map: Record<string, unknown>) => ({
+    readFile: (p: string): string | null =>
+      p in map
+        ? typeof map[p] === "string"
+          ? (map[p] as string)
+          : JSON.stringify(map[p])
+        : null,
+  });
+  const MARKER = "/wt/.flow-tmp/browser-auto-redrive";
+  const gate = (
+    b: string,
+    map: Record<string, unknown> = {},
+    over: Record<string, unknown> = {},
+  ) =>
+    decide(
+      {
+        body: b,
+        state: "OPEN",
+        url: "https://x/y/pull/950",
+        autoMerge: true,
+        worktree: WT,
+        headSha: HEAD,
+        ...over,
+      },
+      files(map),
+    );
+  const driver = (item_results: unknown[]) => ({
+    [DRIVER]: {
+      headSha: HEAD,
+      caller: "review-8c",
+      ran: true,
+      ok: false,
+      item_results,
+    },
+  });
+  const verdict = (index: number, v: string) => ({
+    index,
+    item: "x",
+    kind: "behavior",
+    verdict: v,
+    screenshots: [],
+  });
+
+  it("PR #950 replay: 9 ticked command items + 3 open Browser items, no driver file => browser-retry (items 10-12 not-attempted)", () => {
+    const r = gate(body(...ticked(9), ...BROWSER));
+    expect(r.decision).toBe("browser-retry");
+    expect(r.browserItems?.map((b) => [b.index, b.status])).toEqual([
+      [10, "not-attempted"],
+      [11, "not-attempted"],
+      [12, "not-attempted"],
+    ]);
+    expect(r.validationItems).toHaveLength(3);
+    // Without worktree evidence plumbing the same body is today's gated.
+    expect(
+      gate(body(...ticked(9), ...BROWSER), {}, { worktree: undefined })
+        .decision,
+    ).toBe("gated");
+  });
+
+  it("stays gated when a driver verdict is fail", () => {
+    const r = gate(
+      body(...ticked(9), ...BROWSER),
+      driver([verdict(11, "fail")]),
+    );
+    expect(r.decision).toBe("gated");
+  });
+
+  it("stays gated when a driver verdict is not-drivable", () => {
+    const r = gate(
+      body(...ticked(9), ...BROWSER),
+      driver([verdict(12, "not-drivable")]),
+    );
+    expect(r.decision).toBe("gated");
+  });
+
+  it("counts a passed-but-unticked item as re-drivable", () => {
+    const r = gate(
+      body(...ticked(1), BROWSER[0]),
+      driver([verdict(2, "pass")]),
+    );
+    expect(r.decision).toBe("browser-retry");
+    expect(r.browserItems?.[0].status).toBe("passed-unticked");
+  });
+
+  it("returns browser-retry with SUBJECTIVE items still listed in validationItems", () => {
+    const r = gate(
+      body(...ticked(2), "- [ ] SUBJECTIVE: it feels calm", ...BROWSER),
+      { [PREFLIGHT]: { headSha: HEAD, ready: false } },
+    );
+    expect(r.decision).toBe("browser-retry");
+    expect(r.validationItems).toContain("SUBJECTIVE: it feels calm");
+    expect(r.browserItems?.every((b) => b.status === "env-blocked")).toBe(true);
+  });
+
+  it("stays gated when an open command or prose item sits next to a Browser item", () => {
+    expect(
+      gate(body("- [ ] Run `npm test` — passes", BROWSER[0])).decision,
+    ).toBe("gated");
+    expect(
+      gate(body("- [ ] Check the thing by eye", BROWSER[0])).decision,
+    ).toBe("gated");
+  });
+
+  it("stays gated when only SUBJECTIVE/DECISION items are open (nothing to re-drive)", () => {
+    expect(
+      gate(
+        body(
+          ...ticked(2),
+          "- [ ] SUBJECTIVE: it feels calm",
+          "- [ ] DECISION: accept X",
+        ),
+      ).decision,
+    ).toBe("gated");
+    expect(
+      gate(body("- [x] " + BROWSER[0].slice(6), "- [ ] SUBJECTIVE: ok"))
+        .decision,
+    ).toBe("gated");
+  });
+
+  it("stays gated when an item is trapped in an unterminated <details>", () => {
+    expect(
+      gate(body(BROWSER[0], "<details>", "- [ ] Run `x` — ok")).decision,
+    ).toBe("gated");
+  });
+
+  it("reports autoRedriven false until the marker carries the current head", () => {
+    const b = body(...ticked(1), BROWSER[0]);
+    expect(gate(b).autoRedriven).toBe(false);
+    expect(gate(b, { [MARKER]: "old999\n" }).autoRedriven).toBe(false);
+    expect(
+      gate(b, {
+        [MARKER]: `${HEAD}\n`,
+        [PREFLIGHT]: { headSha: HEAD, ready: false },
+      }).autoRedriven,
+    ).toBe(true);
+  });
+
+  it("after the automatic re-drive, pauses only while an item is env-blocked", () => {
+    const b = body(...ticked(1), BROWSER[0]);
+    const redriven = { [MARKER]: HEAD };
+    const blocked = gate(b, {
+      ...redriven,
+      [PREFLIGHT]: { headSha: HEAD, ready: false },
+    });
+    expect(blocked.decision).toBe("browser-retry");
+    expect(blocked.autoRedriven).toBe(true);
+    // The driver ran but returned nothing for the item: retrying cannot help.
+    expect(gate(b, { ...redriven, ...driver([]) }).decision).toBe("gated");
+    expect(
+      gate(b, { ...redriven, ...driver([verdict(2, "pass")]) }).decision,
+    ).toBe("gated");
+  });
+
+  it("a fix commit re-arms the automatic re-drive (marker names an older head)", () => {
+    const r = gate(body(...ticked(1), BROWSER[0]), { [MARKER]: "old999" });
+    expect(r.decision).toBe("browser-retry");
+    expect(r.autoRedriven).toBe(false);
+  });
+
+  it("still returns browser-retry with autoMerge false (it re-runs, then gates)", () => {
+    expect(gate(body(BROWSER[0]), {}, { autoMerge: false }).decision).toBe(
+      "browser-retry",
+    );
+  });
+
+  it("falls back to gated without a head sha, ignores stale evidence, and never fires for non-OPEN PRs", () => {
+    expect(gate(body(BROWSER[0]), {}, { headSha: null }).decision).toBe(
+      "gated",
+    );
+    const stale = gate(body(BROWSER[0]), {
+      [DRIVER]: {
+        headSha: "old",
+        caller: "review-8c",
+        ran: true,
+        item_results: [verdict(1, "fail")],
+      },
+    });
+    expect(stale.decision).toBe("browser-retry");
+    expect(gate(body(BROWSER[0]), {}, { state: "MERGED" }).decision).toBe(
+      "merged-externally",
+    );
+  });
+
+  it("run() feeds state.worktree and the local head into the gate", () => {
+    seedState("browser", true, 950);
+    const sp = path.join(stateDir, "browser.json");
+    const st = JSON.parse(fs.readFileSync(sp, "utf8"));
+    fs.writeFileSync(sp, JSON.stringify({ ...st, worktree: WT }) + "\n");
+    const gh = vi.fn(() => ({
+      stdout: JSON.stringify({
+        body: body(...ticked(1), BROWSER[0]),
+        state: "OPEN",
+        url: "https://x/y/pull/950",
+      }),
+      stderr: "",
+      exitCode: 0,
+    }));
+    const localHead = vi.fn(() => HEAD);
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((c) => {
+      writes.push(c.toString());
+      return true;
+    });
+    const exit = run(["950", "--slug", "browser"], {
+      gh,
+      stateDir,
+      localHead,
+      readFile: () => null,
+    });
+    spy.mockRestore();
+    expect(exit).toBe(0);
+    expect(localHead).toHaveBeenCalledWith(WT);
+    expect((JSON.parse(writes.join("")) as DecisionResult).decision).toBe(
+      "browser-retry",
+    );
   });
 });
 

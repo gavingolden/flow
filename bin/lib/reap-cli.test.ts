@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const procSweepRunMock = vi.hoisted(() => ({
   runProcSweep: vi.fn(() => ({
@@ -40,7 +43,26 @@ const livenessMock = vi.hoisted(() => ({
 }));
 vi.mock("./liveness", () => livenessMock);
 
-import { runReapCli } from "./reap-cli";
+// Hermetic: no test may run a real `ps` or signal a host process.
+const agyStraysMock = vi.hoisted(() => ({
+  sweepAgyStrays: vi.fn(),
+  defaultAgySweepDeps: vi.fn(() => ({})),
+}));
+vi.mock("./agy-strays", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./agy-strays")>()),
+  ...agyStraysMock,
+}));
+
+import { collectReapReport, runReapCli } from "./reap-cli";
+import { writeState, type PipelineState } from "./state";
+
+const emptyAgy = () => ({
+  ran: true,
+  found: [] as unknown[],
+  signalled: [] as number[],
+  killed: [] as number[],
+  stillAlive: [] as number[],
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -58,6 +80,7 @@ beforeEach(() => {
     foundServers: [],
     signalled: [],
   });
+  agyStraysMock.sweepAgyStrays.mockReturnValue(emptyAgy());
 });
 
 describe("runReapCli --help / -h short-circuit", () => {
@@ -307,7 +330,7 @@ describe("runReapCli text report", () => {
     expect(out).toContain("unknown/no-state-file: 1");
     expect(out).toContain("unknown/state-unknown: 1");
     expect(out).toContain("held (report-only)");
-    expect(out).toContain("alive (never signalled)");
+    expect(out).toContain("session still open = never signalled");
     // The B4 rationale must stay in front of the user, not just in the source.
     expect(out).toContain("absence of evidence is never evidence of death");
     // `ran: false` is the COMMON case for a report-only sweep (reap.ts returns
@@ -337,5 +360,441 @@ describe("runReapCli text report", () => {
     const out = captureReport([]);
     expect(out).toContain("late-slug: skipped (sweep deadline exceeded)");
     expect(out).toContain("flow reap --slug late-slug");
+  });
+
+  describe("summary, hidden empties, legend", () => {
+    const emptySlug = (slug: string, extra: Record<string, unknown> = {}) => ({
+      slug,
+      reap: { ran: false, skipReason: "no-rows" },
+      reported: { dead: 0, alive: 0, unknown: 0 },
+      classified: [],
+      ...extra,
+    });
+    const rowSlug = (slug: string, verdicts: Array<[string, string?]>) => ({
+      slug,
+      reap: { ran: false, skipReason: "no-rows" },
+      reported: { dead: 0, alive: 0, unknown: 0 },
+      classified: verdicts.map(([verdict, reason]) => ({ verdict, reason })),
+    });
+    const mockSlugs = (
+      slugs: unknown[],
+      yes = false,
+      totals: Record<string, number> = {},
+    ) =>
+      procSweepRunMock.runProcSweep.mockReturnValue({
+        mode: "sweep" as const,
+        yes,
+        slugs,
+        totals,
+        unknownRows: 0,
+        aliveRows: 0,
+      } as never);
+
+    it("leads a clean sweep with a no-leak verdict", () => {
+      mockSlugs([rowSlug("live-one", [["alive"]])]);
+      const out = captureReport([]);
+      expect(out.split("\n")[0]).toMatch(
+        /^Summary: no leaked processes recorded/,
+      );
+    });
+
+    it("names dead and unknown counts in the verdict", () => {
+      mockSlugs([rowSlug("a", [["dead"], ["unknown", "no-state-file"]])]);
+      const first = captureReport([]).split("\n")[0];
+      expect(first).toMatch(/^Summary:/);
+      expect(first).toContain("1 dead (reapable with --yes)");
+      expect(first).toContain("1 unknown (held)");
+    });
+
+    it("hides zero-row pipelines behind one count", () => {
+      mockSlugs([
+        emptySlug("empty-one"),
+        emptySlug("empty-two"),
+        emptySlug("empty-three"),
+        rowSlug("busy", [["alive"]]),
+      ]);
+      const out = captureReport([]);
+      expect(out).not.toContain("empty-one");
+      expect(out).toContain("3 empty registries hidden");
+      expect(out).not.toContain("also reaps");
+    });
+
+    it("mentions reaping dead rows in the count line when dead > 0", () => {
+      mockSlugs([emptySlug("empty-one"), rowSlug("busy", [["dead"]])]);
+      expect(captureReport([])).toContain("also reaps the 1 dead rows above");
+    });
+
+    it("prints the legend exactly once", () => {
+      mockSlugs([
+        rowSlug("a", [["unknown", "no-state-file"]]),
+        rowSlug("b", [["unknown", "no-state-file"]]),
+      ]);
+      const out = captureReport([]);
+      expect(
+        out.split("absence of evidence is never evidence of death"),
+      ).toHaveLength(2);
+    });
+
+    it("still lists deadline-skipped and unreadable-line pipelines by name", () => {
+      mockSlugs([
+        emptySlug("late", { skipped: "deadline-exceeded" }),
+        emptySlug("garbled", {
+          reap: { ran: false, skipReason: "no-rows", malformed: 2 },
+        }),
+      ]);
+      const out = captureReport([]);
+      expect(out).toContain("late: skipped (sweep deadline exceeded)");
+      expect(out).toContain(
+        "garbled: no readable rows (2 unreadable lines — left untouched)",
+      );
+    });
+
+    it("lists a --slug zero-row slug by name with no hidden-count line", () => {
+      mockSlugs([emptySlug("solo")]);
+      const out = captureReport(["--slug", "solo"]);
+      expect(out).toContain("solo: no recorded processes");
+      expect(out).not.toContain("hidden");
+    });
+
+    it("reports removed empty registries on --yes", () => {
+      mockSlugs(
+        [
+          emptySlug("e1", {
+            compacted: { kept: 0, dropped: 0, removed: true },
+          }),
+          emptySlug("e2", {
+            compacted: { kept: 0, dropped: 0, removed: true },
+          }),
+        ],
+        true,
+      );
+      expect(captureReport(["--yes"])).toContain("removed 2 empty registries");
+    });
+
+    it("never reads clean on --yes when a dead row was not reaped", () => {
+      mockSlugs([rowSlug("stuck", [["dead"]])], true);
+      const first = captureReport(["--yes"]).split("\n")[0];
+      expect(first).toContain("1 dead not reaped");
+      expect(first).not.toContain("no leaked processes recorded");
+    });
+
+    it("--yes reads clean when every dead row was reaped", () => {
+      mockSlugs([rowSlug("a", [["dead"], ["dead"]])], true, { reaped: 2 });
+      const first = captureReport(["--yes"]).split("\n")[0];
+      expect(first).toContain("reaped 2");
+      expect(first).not.toContain("dead not reaped");
+    });
+
+    it("--yes routes a leaked-group row to need investigation, not dead not reaped", () => {
+      mockSlugs(
+        [
+          {
+            ...rowSlug("a", [["dead"]]),
+            reap: { ran: true, counts: { "skipped-dead-leader": 1 } },
+          },
+        ],
+        true,
+      );
+      const first = captureReport(["--yes"]).split("\n")[0];
+      expect(first).toContain("1 needs investigation");
+      expect(first).not.toContain("dead not reaped");
+    });
+
+    it("--yes counts an already-dead row as resolved, not a leak", () => {
+      mockSlugs([rowSlug("a", [["dead"]])], true, { "already-dead": 1 });
+      const first = captureReport(["--yes"]).split("\n")[0];
+      expect(first).not.toContain("dead not reaped");
+      expect(first).toMatch(/^Summary: no leaked processes recorded/);
+    });
+
+    it("--yes surfaces an empty registry that could not be removed", () => {
+      mockSlugs(
+        [
+          emptySlug("stuck", { compacted: { kept: 0, dropped: 0 } }),
+          emptySlug("gone", {
+            compacted: { kept: 0, dropped: 0, removed: true },
+          }),
+        ],
+        true,
+      );
+      const out = captureReport(["--yes"]);
+      expect(out.split("\n")[0]).toContain("1 empty registry not removed");
+      expect(out).toContain("1 empty registry could not be removed");
+      expect(out).toContain("removed 1 empty registry");
+    });
+
+    it("the legend's dead clause follows --yes", () => {
+      mockSlugs([rowSlug("a", [["dead"]])], true, { reaped: 1 });
+      const out = captureReport(["--yes"]);
+      expect(out).toContain("ended pipeline = acted on");
+      expect(out).not.toContain("held (report-only) until --yes");
+    });
+
+    it("stray browsers and mcp servers keep the Summary from reading clean", () => {
+      browserTeardownMock.runOrphanSweep.mockReturnValueOnce({
+        ran: true,
+        found: [{}],
+        foundServers: [{}, {}],
+        signalled: [],
+      } as never);
+      mockSlugs([rowSlug("a", [["alive"]])]);
+      const first = captureReport([]).split("\n")[0];
+      expect(first).toContain("1 stray browser,");
+      expect(first).toContain("2 stray mcp servers");
+      expect(first).not.toContain("no leaked processes recorded");
+    });
+
+    it("--json keeps zero-row pipelines and redacts argv to argv[0]", () => {
+      const row = {
+        pid: 1,
+        pgid: 1,
+        startEpoch: 1,
+        slug: "busy",
+        class: "default",
+        argv: ["bun", "--token", "secret"],
+        recordedAt: 0,
+        sessionPid: null,
+        sessionStartEpoch: null,
+      };
+      mockSlugs([
+        emptySlug("empty-one"),
+        {
+          ...rowSlug("busy", []),
+          classified: [{ verdict: "alive", row }],
+        },
+      ]);
+      const out = captureReport(["--json"]);
+      const parsed = JSON.parse(out);
+      expect(
+        parsed.registry.slugs.map((x: { slug: string }) => x.slug),
+      ).toEqual(["empty-one", "busy"]);
+      expect(parsed.registry.slugs[1].classified[0].row.argv).toEqual(["bun"]);
+      expect(out).not.toContain("secret");
+    });
+  });
+});
+
+describe("collectReapReport report-only mode", () => {
+  it("yes:false never signals: both sweeps run with yes:false and no kill is issued", () => {
+    const result = collectReapReport({ yes: false, includeStrays: true });
+    expect(procSweepRunMock.runProcSweep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ yes: false }),
+    );
+    expect(browserTeardownMock.runOrphanSweep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ yes: false }),
+    );
+    const deps = browserTeardownMock.buildDefaultDeps.mock.results[0]?.value;
+    expect(deps.kill).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      mode: "reap",
+      yes: false,
+      includeStrays: true,
+    });
+    expect(result.registry.slugs).toEqual([]);
+    expect(result.heuristic.found).toEqual([]);
+  });
+
+  it("threads baseDir and deadlineMs to the registry sweep", () => {
+    collectReapReport({ baseDir: "/x/reg", deadlineMs: 5000 });
+    expect(procSweepRunMock.runProcSweep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ baseDir: "/x/reg", deadlineMs: 5000 }),
+    );
+  });
+
+  it("defaults to report-only with no options", () => {
+    const result = collectReapReport({});
+    expect(result.yes).toBe(false);
+    expect(result.includeStrays).toBe(false);
+  });
+});
+
+describe("agy stray sweep", () => {
+  const strayRow = {
+    pid: 4242,
+    pgid: 4242,
+    startEpochMs: 1_000,
+    ageMs: 3_600_000,
+    timeLimitSec: 720,
+    overdue: true,
+  };
+
+  function captureReport(args: string[]): string {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    runReapCli(args);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    log.mockRestore();
+    return out;
+  }
+
+  const agyYesArg = () =>
+    (agyStraysMock.sweepAgyStrays.mock.calls[0] as unknown[])[1];
+
+  it("a bare --yes passes yes:false to the agy sweep (SAFETY gate)", () => {
+    captureReport(["--yes"]);
+    expect(agyYesArg()).toEqual({ yes: false });
+  });
+
+  it("--include-strays alone passes yes:false", () => {
+    captureReport(["--include-strays"]);
+    expect(agyYesArg()).toEqual({ yes: false });
+  });
+
+  it("--yes with --include-strays passes yes:true", () => {
+    captureReport(["--yes", "--include-strays"]);
+    expect(agyYesArg()).toEqual({ yes: true });
+  });
+
+  it("renders the agy line and names the strays in the Summary", () => {
+    agyStraysMock.sweepAgyStrays.mockReturnValue({
+      ...emptyAgy(),
+      found: [strayRow, { ...strayRow, pid: 4243, overdue: false }],
+    });
+    const out = captureReport([]);
+    expect(out).toContain(
+      "agy runs: 2 found (1 past their own time limit), 0 stopped",
+    );
+    expect(out).toContain("Summary: 2 stray agy runs");
+  });
+
+  it("--json carries agy rows with no command text", () => {
+    agyStraysMock.sweepAgyStrays.mockReturnValue({
+      ...emptyAgy(),
+      found: [strayRow],
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    runReapCli(["--json"]);
+    const parsed = JSON.parse(String(log.mock.calls[0][0]));
+    log.mockRestore();
+    expect(parsed.agy.found).toEqual([strayRow]);
+    expect(parsed.agy.found.every((r: object) => !("command" in r))).toBe(true);
+  });
+
+  it("collectReapReport returns the agy result", () => {
+    expect(collectReapReport({}).agy).toEqual(emptyAgy());
+  });
+});
+
+describe("registry row wording (session state vs. process state)", () => {
+  function rowsReport(): string {
+    procSweepRunMock.runProcSweep.mockReturnValue({
+      mode: "sweep" as const,
+      yes: false,
+      slugs: [
+        {
+          slug: "wording-test-no-such-slug",
+          reap: { ran: false, skipReason: "no-rows" },
+          reported: { dead: 0, alive: 137, unknown: 0 },
+          classified: Array.from({ length: 137 }, () => ({
+            verdict: "alive",
+            ownPidAlive: false,
+          })),
+        },
+      ],
+      totals: {},
+      unknownRows: 0,
+      aliveRows: 137,
+    } as never);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    runReapCli([]);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    log.mockRestore();
+    return out;
+  }
+
+  it("says how many processes are still running and no longer prints 'N alive'", () => {
+    const out = rowsReport();
+    expect(out).toContain("137 recorded processes, 0 still running");
+    expect(out).toContain("whose session is still open");
+    expect(out).not.toContain(", 137 alive,");
+    expect(out).not.toContain("still running pipeline");
+  });
+
+  it("prints the pipeline's recorded phase when state is unreadable as 'phase unrecorded'", () => {
+    expect(rowsReport()).toContain("phase unrecorded, left alone");
+  });
+
+  describe("recorded phase lookup", () => {
+    let stateDir: string;
+    beforeEach(() => {
+      stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-cli-phase-"));
+    });
+    afterEach(() => fs.rmSync(stateDir, { recursive: true, force: true }));
+
+    const sweepFor = (
+      slug: string,
+      classified: Array<{ verdict: string; ownPidAlive?: boolean }>,
+    ) =>
+      ({
+        mode: "sweep" as const,
+        yes: false,
+        slugs: [
+          {
+            slug,
+            reap: { ran: false, skipReason: "no-rows" },
+            reported: {},
+            classified,
+          },
+        ],
+        totals: {},
+        unknownRows: 0,
+        aliveRows: classified.filter((c) => c.verdict === "alive").length,
+      }) as never;
+
+    it("collectReapReport reads the recorded phase from the state file", () => {
+      writeState(
+        {
+          slug: "phase-recorded-pipe",
+          phase: "needs-human",
+          repo: stateDir,
+          pid: 999_997,
+          procStartedAt: 1,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        } as PipelineState,
+        stateDir,
+      );
+      procSweepRunMock.runProcSweep.mockReturnValue(
+        sweepFor("phase-recorded-pipe", [
+          { verdict: "alive", ownPidAlive: false },
+        ]),
+      );
+      const result = collectReapReport({ stateDir });
+      expect(result.phases?.["phase-recorded-pipe"]).toBe("needs-human");
+    });
+
+    it("never prints a phase clause for a slug with only ended-pipeline rows", () => {
+      procSweepRunMock.runProcSweep.mockReturnValue(
+        sweepFor("ended-only-pipe", [
+          { verdict: "dead", ownPidAlive: false },
+          { verdict: "dead", ownPidAlive: false },
+        ]),
+      );
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      runReapCli([]);
+      const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+      log.mockRestore();
+      expect(out).toContain(
+        "ended-only-pipe: 2 recorded processes, 0 still running — 2 from an ended pipeline (held, report-only)",
+      );
+      expect(out).not.toContain("phase unrecorded");
+      expect(out).not.toContain("session is still open");
+    });
+
+    it("renders the clean Summary with the running-process count", () => {
+      procSweepRunMock.runProcSweep.mockReturnValue(
+        sweepFor("wording-test-no-such-slug", [
+          { verdict: "alive", ownPidAlive: false },
+        ]),
+      );
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      runReapCli([]);
+      const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+      log.mockRestore();
+      expect(out).toContain(
+        "Summary: no leaked processes recorded — 0 of 1 recorded processes still running",
+      );
+    });
   });
 });

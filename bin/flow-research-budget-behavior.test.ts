@@ -4,6 +4,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
+import { DEFAULT_TIMEOUT } from "./flow-research-run";
 
 /**
  * Behavioral companion to `flow-research-budget-lint.test.ts`.
@@ -18,7 +20,7 @@ import { fileURLToPath } from "node:url";
  *
  * This suite closes the gap WITHOUT duplicating the jq: it EXTRACTS the
  * `read_budget` helper + `RESEARCH_*` assignments + cross-model diversity guard
- * from the fenced ```bash block in discovery-instructions.md (the single source
+ * from the fenced ```bash block in discovery-research.md (the single source
  * of truth — the jq is inline-in-markdown by design because the discovery
  * subagent runs in a consumer worktree where flow's bin/lib is NOT on PATH, so
  * a committed shell-script copy would drift). It rewrites only the `CFG=` line to
@@ -30,14 +32,14 @@ import { fileURLToPath } from "node:url";
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
+const DISCOVERY_RESEARCH_PATH = path.resolve(
   HERE,
   "..",
   "skills",
   "pipeline",
   "flow-product-planning",
   "references",
-  "discovery-instructions.md",
+  "discovery-research.md",
 );
 
 const hasJq = spawnSync("jq", ["--version"], { encoding: "utf8" }).status === 0;
@@ -56,7 +58,7 @@ function extractBudgetBlock(md: string): string {
   }
   throw new Error(
     "could not locate the fenced ```bash block containing `read_budget() {` " +
-      `in ${DISCOVERY_INSTRUCTIONS_PATH}`,
+      `in ${DISCOVERY_RESEARCH_PATH}`,
   );
 }
 
@@ -66,7 +68,7 @@ let tmpDir: string;
 beforeAll(() => {
   if (!hasJq) return;
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-budget-behavior-"));
-  const md = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+  const md = fs.readFileSync(DISCOVERY_RESEARCH_PATH, "utf8");
   const block = extractBudgetBlock(md);
 
   // Repoint the hardcoded CFG at the fixture passed as $1, and echo the
@@ -122,9 +124,9 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
     const r = runBudget({});
     expect(r.status).toBe(0);
     expect(r.vars.MAX).toBe("12");
-    expect(r.vars.TIMEOUT).toBe("3m");
-    expect(r.vars.MODEL).toBe("Gemini 3.1 Pro (High)");
-    expect(r.vars.REFUTE).toBe("Claude Opus 4.6 (Thinking)");
+    expect(r.vars.TIMEOUT).toBe(DEFAULT_TIMEOUT);
+    expect(r.vars.MODEL).toBe("Gemini 4 Argon (High)");
+    expect(r.vars.REFUTE).toBe(DELEGATE_MODEL_DEFAULTS.researchRefute);
   });
 
   it("a present-but-wrong-type maxCalls warns and falls back to the default (never the bad value)", () => {
@@ -138,7 +140,7 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
   it("a present-but-wrong-type model (number) warns and falls back to the default string", () => {
     const r = runBudget({ research: { model: 7 } });
     expect(r.status).toBe(0);
-    expect(r.vars.MODEL).toBe("Gemini 3.1 Pro (High)");
+    expect(r.vars.MODEL).toBe("Gemini 4 Argon (High)");
     expect(r.stderr).toContain("research.model is present but not a string");
   });
 
@@ -148,14 +150,14 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
         maxCalls: 25,
         timeout: "5m",
         model: "GPT-OSS 120B (Medium)",
-        refuteModel: "Claude Opus 4.6 (Thinking)",
+        refuteModel: "Claude Opus 5.5 (Medium)",
       },
     });
     expect(r.status).toBe(0);
     expect(r.vars.MAX).toBe("25");
     expect(r.vars.TIMEOUT).toBe("5m");
     expect(r.vars.MODEL).toBe("GPT-OSS 120B (Medium)");
-    expect(r.vars.REFUTE).toBe("Claude Opus 4.6 (Thinking)");
+    expect(r.vars.REFUTE).toBe("Claude Opus 5.5 (Medium)");
   });
 
   it("a malformed config file degrades to defaults without throwing", () => {
@@ -164,18 +166,18 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
     const res = spawnSync("bash", [scriptPath, cfgPath], { encoding: "utf8" });
     expect(res.status).toBe(0);
     expect(res.stdout).toContain("MAX=12");
-    expect(res.stdout).toContain("MODEL=Gemini 3.1 Pro (High)");
+    expect(res.stdout).toContain("MODEL=Gemini 4 Argon (High)");
   });
 
   it("a refuteModel colliding with the gather model falls back to a different variant (diversity guard)", () => {
     const r = runBudget({
       research: {
-        model: "Claude Opus 4.6 (Thinking)",
-        refuteModel: "Claude Opus 4.6 (Thinking)",
+        model: "Claude Opus 5.5 (Medium)",
+        refuteModel: "Claude Opus 5.5 (Medium)",
       },
     });
     expect(r.status).toBe(0);
-    expect(r.vars.MODEL).toBe("Claude Opus 4.6 (Thinking)");
+    expect(r.vars.MODEL).toBe("Claude Opus 5.5 (Medium)");
     expect(r.vars.REFUTE).not.toBe(r.vars.MODEL);
     expect(r.vars.REFUTE).toBe("GPT-OSS 120B (Medium)");
     expect(r.stderr).toContain("preserve adversarial diversity");
@@ -183,11 +185,11 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
 
   it("the diversity guard also fires for the default gather model when refute is forced equal", () => {
     const r = runBudget({
-      research: { refuteModel: "Gemini 3.1 Pro (High)" },
+      research: { refuteModel: "Gemini 4 Argon (High)" },
     });
     expect(r.status).toBe(0);
-    expect(r.vars.MODEL).toBe("Gemini 3.1 Pro (High)");
+    expect(r.vars.MODEL).toBe("Gemini 4 Argon (High)");
     expect(r.vars.REFUTE).not.toBe(r.vars.MODEL);
-    expect(r.vars.REFUTE).toBe("Claude Opus 4.6 (Thinking)");
+    expect(r.vars.REFUTE).toBe(DELEGATE_MODEL_DEFAULTS.researchRefute);
   });
 });

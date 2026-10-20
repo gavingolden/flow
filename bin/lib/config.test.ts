@@ -31,16 +31,39 @@ describe("runConfigCli", () => {
     errSpy.mockRestore();
   });
 
-  it("exits 2 when the subcommand is missing", () => {
-    const code = runConfigCli([]);
-    expect(code).toBe(2);
-    expect(err.join("\n")).toMatch(/subcommand is required/);
+  it("bare `flow config` renders the aggregate view and exits 0", () => {
+    const code = runConfigCli([], { read: reader(undefined) });
+    expect(code).toBe(0);
+    expect(err).toEqual([]);
+    expect(out.length).toBeGreaterThan(0);
+    expect(out.join("\n")).toContain(
+      "MODEL and EFFORT resolve at each sub-agent spawn, so a config edit changes the next spawn",
+    );
   });
 
-  it("exits 2 on an unknown subcommand", () => {
+  it("exits 2 on an unknown subcommand, naming the four subcommands", () => {
     const code = runConfigCli(["bogus"]);
     expect(code).toBe(2);
     expect(err.join("\n")).toMatch(/unknown config subcommand: bogus/);
+    // "launch" alone is a substring of the pre-existing "launcher"; anchor
+    // to the whole usage string so this can actually fail if `launch` is
+    // dropped from it.
+    expect(err.join("\n")).toContain(
+      "usage: flow config <all|models|launcher|launch>",
+    );
+  });
+
+  it("routes `all` to runConfigAllCli", () => {
+    const code = runConfigCli(["all", "--json"], {
+      read: reader(undefined),
+    });
+    expect(code).toBe(0);
+    const parsed = JSON.parse(out.join(""));
+    expect(parsed.groups.map((g: { group: string }) => g.group)).toEqual([
+      "models",
+      "launch",
+      "settings",
+    ]);
   });
 
   it("exits 0 and prints help for --help at verb position", () => {
@@ -63,5 +86,13 @@ describe("runConfigCli", () => {
     });
     expect(code).toBe(0);
     expect(out.join("\n")).toMatch(/tmux/);
+  });
+
+  it("routes `launch` to runConfigLaunchCli", () => {
+    const code = runConfigCli(["launch"], {
+      read: reader({}),
+    });
+    expect(code).toBe(0);
+    expect(out.join("\n")).toMatch(/SETTING\s+VALUE\s+SOURCE/);
   });
 });

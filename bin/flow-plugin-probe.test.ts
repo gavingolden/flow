@@ -15,6 +15,7 @@ import * as path from "node:path";
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
+  effortVerdictFromTranscript,
   parseArgs,
   runClaude,
   runProbes,
@@ -33,7 +34,10 @@ const ALL_IDS: ProbeId[] = [
   "skills-preload-name",
   "max-turns-partial",
   "cache-ttl-1h",
+  "subagent-effort-param",
   "plugin-eval-availability",
+  "workflow-headless-await",
+  "workflow-plugin-command",
 ];
 
 const LIVE_ONLY_IDS: ProbeId[] = [
@@ -41,6 +45,9 @@ const LIVE_ONLY_IDS: ProbeId[] = [
   "skills-preload-name",
   "max-turns-partial",
   "cache-ttl-1h",
+  "subagent-effort-param",
+  "workflow-headless-await",
+  "workflow-plugin-command",
 ];
 
 // A dedicated mocked `spawn` (never `spawnSync`) so the new
@@ -426,7 +433,7 @@ describe(parseArgs, () => {
   it("--probe <id> narrows the CLI to that single id", () => {
     expect(parseArgs(["--probe", "enabled-plugins"])).toEqual({
       json: false,
-      probe: "enabled-plugins",
+      probes: ["enabled-plugins"],
       live: false,
     });
   });
@@ -434,7 +441,7 @@ describe(parseArgs, () => {
   it("--json sets json:true independent of --probe", () => {
     expect(parseArgs(["--json", "--probe", "bin-path-injection"])).toEqual({
       json: true,
-      probe: "bin-path-injection",
+      probes: ["bin-path-injection"],
       live: false,
     });
   });
@@ -442,7 +449,7 @@ describe(parseArgs, () => {
   it("an unrecognized --probe value leaves probe undefined (falls through to running every id)", () => {
     expect(parseArgs(["--probe", "not-a-real-probe"])).toEqual({
       json: false,
-      probe: undefined,
+      probes: [],
       live: false,
     });
   });
@@ -450,7 +457,24 @@ describe(parseArgs, () => {
   it("no flags at all: json:false, probe:undefined, live:false", () => {
     expect(parseArgs([])).toEqual({
       json: false,
-      probe: undefined,
+      probes: [],
+      live: false,
+    });
+  });
+
+  it("repeated --probe flags accumulate in order, deduped", () => {
+    expect(
+      parseArgs([
+        "--probe",
+        "workflow-headless-await",
+        "--probe",
+        "workflow-plugin-command",
+        "--probe",
+        "workflow-headless-await",
+      ]),
+    ).toEqual({
+      json: false,
+      probes: ["workflow-headless-await", "workflow-plugin-command"],
       live: false,
     });
   });
@@ -458,8 +482,42 @@ describe(parseArgs, () => {
   it("--live sets live:true independent of other flags", () => {
     expect(parseArgs(["--live"])).toEqual({
       json: false,
-      probe: undefined,
+      probes: [],
       live: true,
     });
+  });
+});
+
+describe("subagent-effort-param verdict", () => {
+  const turn = (effort: string, role = "assistant") =>
+    JSON.stringify({
+      type: role,
+      effort,
+      message: { role, output_config: { effort } },
+    });
+
+  it("is confirmed when every assistant turn (incl. the resumed one) ran at low", () => {
+    const r = effortVerdictFromTranscript(
+      [turn("low"), turn("low", "user"), turn("low")].join("\n"),
+    );
+    expect(r).toEqual({ verdict: "confirmed", turns: 2, counts: { low: 2 } });
+  });
+
+  it("is refuted when any assistant turn ran above low", () => {
+    const r = effortVerdictFromTranscript(
+      [turn("low"), turn("medium")].join("\n"),
+    );
+    expect(r.verdict).toBe("refuted");
+    expect(r.counts).toEqual({ low: 1, medium: 1 });
+  });
+
+  it("is inconclusive when no assistant turn carries an effort field", () => {
+    const r = effortVerdictFromTranscript(
+      [
+        JSON.stringify({ type: "assistant", message: { role: "assistant" } }),
+        "",
+      ].join("\n"),
+    );
+    expect(r).toEqual({ verdict: "inconclusive", turns: 0, counts: {} });
   });
 });

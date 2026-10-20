@@ -20,15 +20,33 @@
  *
  * Output: a single JSON object on stdout.
  *   {
- *     "decision": "auto-merge" | "gated" | "merged-externally"
- *               | "closed-no-merge" | "escalate-heading-missing"
- *               | "escalate-gh-error",
+ *     "decision": "auto-merge" | "gated" | "browser-retry"
+ *               | "merged-externally" | "closed-no-merge"
+ *               | "escalate-heading-missing" | "escalate-gh-error",
  *     "prState": "OPEN" | "MERGED" | "CLOSED",
  *     "prUrl": "https://github.com/.../pull/<n>",
- *     "validationItems": ["..."],   // present when decision == "gated"
+ *     "validationItems": ["..."],   // present when decision == "gated" | "browser-retry"
+ *     "browserItems": [{index,text,status,reason?}], // present when "browser-retry"
+ *     "autoRedriven": true | false, // present when "browser-retry"
  *     "reason": "<one-line summary>",
  *     "autoMerge": true | false
  *   }
+ *
+ * `browser-retry`: every open item is either a `Browser:` item nobody ran
+ * (env-blocked, not-attempted, or passed-but-unticked per `bin/lib/
+ * browser-items.ts`, from head-fresh evidence under the pipeline's worktree)
+ * or human-only (`SUBJECTIVE:` / `DECISION:`). It is NON-terminal — unlike
+ * `gated`: the supervisor re-drives those browser items once, then pauses at
+ * `browser-retry-pending` if they are still blocked. Any open command/prose
+ * item, or a `failed` / `not-drivable` browser item, keeps `gated`.
+ *
+ * "Once" is read from `<worktree>/.flow-tmp/browser-auto-redrive`, which the
+ * supervisor writes with the head sha it re-drove (so a new commit re-arms
+ * the re-drive). When that sha equals the current head, `autoRedriven` is
+ * true and `browser-retry` is returned only while an item is still
+ * `env-blocked` (an outage a retry can outlast); any other leftover status
+ * means the re-drive itself could not reach a verdict, which retrying again
+ * will not change, so the gate returns `gated`.
  *
  * Exit codes:
  *   0 — decision computed (any kind, including escalations — caller branches on `decision`)
@@ -36,15 +54,26 @@
  */
 
 import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { readState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
-import { findUnterminatedHtmlBlockLines } from "./lib/md-block-structure";
+import {
+  fencedLineMask,
+  findUnterminatedHtmlBlockLines,
+} from "./lib/md-block-structure";
 import { advancePhase } from "./lib/phase-advance";
+import {
+  classifyOpenBrowserItems,
+  type BrowserItemStatus,
+  type OpenBrowserItem,
+} from "./lib/browser-items";
 
 export type Decision =
   | "auto-merge"
   | "gated"
+  | "browser-retry"
   | "merged-externally"
   | "closed-no-merge"
   | "escalate-heading-missing"
@@ -55,6 +84,8 @@ export type DecisionResult = {
   prState?: "OPEN" | "MERGED" | "CLOSED";
   prUrl?: string;
   validationItems?: string[];
+  browserItems?: OpenBrowserItem[];
+  autoRedriven?: boolean;
   reason: string;
   autoMerge: boolean;
 };
@@ -64,31 +95,58 @@ export type GateInputs = {
   state: "OPEN" | "MERGED" | "CLOSED";
   url: string;
   autoMerge: boolean;
+  worktree?: string | null;
+  headSha?: string | null;
 };
 
 const HEADING_RE = /^## Test Steps[ \t]*$/m;
 
 /**
- * Extract the `## Test Steps` section text (heading line to the next
- * `## ` heading at column 0, or end-of-input) with HTML comments
- * stripped. Shared by `parseTestStepsSection` and `findTrappedTestSteps`
- * so the two agree on exactly what text they're scanning.
+ * Bounds of the `## Test Steps` section as `{start, end}` line indices
+ * (`start` is the heading line, `end` is exclusive: the next `## ` heading
+ * or end-of-input). Fenced lines are skipped for BOTH the heading search
+ * and the section-end scan, so captured output echoing `## ...` never
+ * moves either bound. Shared with `parseTestSteps` so the lint and the
+ * gate read the same section.
  */
-function extractStrippedSection(body: string): string | null {
-  if (!HEADING_RE.test(body)) return null;
-
-  // Extract from the heading line to the next `## ` heading at column 0
-  // (or end-of-input). awk-equivalent: flag-loop bounded by another H2.
-  const lines = body.split("\n");
-  const startIdx = lines.findIndex((l) => HEADING_RE.test(l));
-  let endIdx = lines.length;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    if (/^## /.test(lines[i])) {
-      endIdx = i;
+export function testStepsSectionBounds(
+  lines: string[],
+): { start: number; end: number } | null {
+  const fenced = fencedLineMask(lines);
+  const start = lines.findIndex((l, i) => !fenced[i] && HEADING_RE.test(l));
+  if (start < 0) return null;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (!fenced[i] && /^## /.test(lines[i])) {
+      end = i;
       break;
     }
   }
-  let section = lines.slice(startIdx + 1, endIdx).join("\n");
+  return { start, end };
+}
+
+const FENCED_PLACEHOLDER = "\u0000fenced";
+
+/**
+ * Extract the `## Test Steps` section text (heading line to the next
+ * `## ` heading at column 0, or end-of-input) with HTML comments
+ * stripped. Fenced lines are replaced 1:1 by a non-blank inert
+ * placeholder BEFORE the comment strip, so a `<!--` or `- [ ]` inside
+ * captured output can neither hide later items nor be counted. Shared by
+ * `parseTestStepsSection` and `findTrappedTestSteps` so the two agree on
+ * exactly what text they're scanning.
+ */
+export function extractStrippedSection(body: string): string | null {
+  const lines = body.split("\n");
+  const bounds = testStepsSectionBounds(lines);
+  if (bounds === null) return null;
+  const fenced = fencedLineMask(lines);
+  const startIdx = bounds.start;
+  const endIdx = bounds.end;
+  let section = lines
+    .slice(startIdx + 1, endIdx)
+    .map((l, i) => (fenced[startIdx + 1 + i] ? FENCED_PLACEHOLDER : l))
+    .join("\n");
 
   // Strip HTML comments (multi-line, non-greedy). Same as `perl -0pe 's/<!--.*?-->//gs'`.
   // The strip is essential: the PR template's instructional comment carries no
@@ -168,7 +226,29 @@ export function findTrappedTestSteps(body: string): string[] {
   return items;
 }
 
-export function decide(inputs: GateInputs): DecisionResult {
+export const AUTO_REDRIVE_MARKER = ".flow-tmp/browser-auto-redrive";
+
+const RETRYABLE: readonly BrowserItemStatus[] = [
+  "env-blocked",
+  "not-attempted",
+  "passed-unticked",
+];
+
+function defaultReadFile(p: string): string | null {
+  try {
+    return fs.readFileSync(p, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+const isHumanOnly = (text: string): boolean =>
+  text.startsWith("SUBJECTIVE: ") || text.startsWith("DECISION: ");
+
+export function decide(
+  inputs: GateInputs,
+  deps: { readFile?: (p: string) => string | null } = {},
+): DecisionResult {
   const { body, state, url, autoMerge } = inputs;
 
   if (state === "MERGED") {
@@ -244,6 +324,41 @@ export function decide(inputs: GateInputs): DecisionResult {
       reason: "no unchecked test steps; auto-merge" + trappedSuffix,
       autoMerge,
     };
+  }
+  // Browser items nobody ran (plus judgment items) are a pause, not a
+  // dead end. Needs a worktree to read evidence from and a local head to
+  // judge its freshness; without both, today's `gated` stands.
+  if (inputs.worktree && inputs.headSha && trappedItems.length === 0) {
+    const browserItems = classifyOpenBrowserItems(
+      body,
+      inputs.worktree,
+      inputs.headSha,
+      deps,
+    );
+    const others = section.uncheckedItems.filter(
+      (t) => !t.startsWith("Browser: "),
+    );
+    const markerRaw = (deps.readFile ?? defaultReadFile)(
+      path.join(inputs.worktree, AUTO_REDRIVE_MARKER),
+    );
+    const autoRedriven = markerRaw?.trim() === inputs.headSha;
+    if (
+      browserItems.length > 0 &&
+      browserItems.every((b) => RETRYABLE.includes(b.status)) &&
+      others.every(isHumanOnly) &&
+      (!autoRedriven || browserItems.some((b) => b.status === "env-blocked"))
+    ) {
+      return {
+        decision: "browser-retry",
+        prState: state,
+        prUrl: url,
+        validationItems: section.uncheckedItems,
+        browserItems,
+        autoRedriven,
+        reason: `${browserItems.length} open Browser item(s) not run to a verdict (${browserItems.map((b) => b.index).join(", ")}); re-drive them before gating`,
+        autoMerge,
+      };
+    }
   }
   // has-unchecked → gated
   return {
@@ -351,7 +466,20 @@ export type Deps = {
   gh?: GhRunner;
   stateDir?: string;
   resolveSlug?: () => string | null;
+  readFile?: (p: string) => string | null;
+  localHead?: (cwd: string) => string | null;
 };
+
+// LOCAL HEAD only, never `gh pr view` (head-sync stall: the PR object can
+// hold a stale head SHA for hours).
+function defaultLocalHead(cwd: string): string | null {
+  const r = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+  });
+  const sha = (r.stdout ?? "").trim();
+  return r.status === 0 && sha ? sha : null;
+}
 
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
@@ -395,12 +523,21 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 0;
   }
 
-  const result = decide({
-    body: fetched.body,
-    state: fetched.state,
-    url: fetched.url,
-    autoMerge,
-  });
+  const worktree = state?.worktree ?? null;
+  const headSha = worktree
+    ? (deps.localHead ?? defaultLocalHead)(worktree)
+    : null;
+  const result = decide(
+    {
+      body: fetched.body,
+      state: fetched.state,
+      url: fetched.url,
+      autoMerge,
+      worktree,
+      headSha,
+    },
+    { readFile: deps.readFile },
+  );
   process.stdout.write(JSON.stringify(result) + "\n");
   return 0;
 }

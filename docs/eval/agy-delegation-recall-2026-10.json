@@ -1,0 +1,109 @@
+{
+  "schema": "flow/agy-delegation-recall@1",
+  "measured_at": "2026-10-06",
+  "rule": {
+    "lenses": {
+      "arms": {
+        "baseline": "opus",
+        "candidate": "agy-opus-5-5-high"
+      },
+      "baseline_effort": "high",
+      "candidate_model": "Claude Opus 5.5 (High)",
+      "prs": [812, 756, 802],
+      "runs_per_cell": 2,
+      "delegate_if_all": [
+        "agy mean recall >= opus mean recall - pooled within-arm sd",
+        "one-sided exact permutation p (opus exceeds agy) >= 0.05",
+        "all six agy cells schema-valid on the first attempt",
+        "agy candidate findings >= 0.5 x opus candidate findings"
+      ]
+    },
+    "scout": {
+      "candidate": "claude-opus-5-5-high",
+      "incumbent": "claude-sonnet-4-6 (committed 2026-09-05 rows)",
+      "cases": [
+        "c1-multifile-contract",
+        "c2-planted-defects",
+        "c2b-real-defect"
+      ],
+      "delegate_if_all": [
+        "c2b real defect caught in at least the incumbent's share of repeats",
+        "mechanical recall >= incumbent - 0.05 on each case"
+      ]
+    }
+  },
+  "lenses": {
+    "bug-detection": {
+      "verdict": "keep Task",
+      "reason": "rule 3 failed: not every agy cell was schema-valid on the first attempt"
+    },
+    "pattern-consistency": {
+      "verdict": "keep Task",
+      "reason": "rule 3 failed: not every agy cell was schema-valid on the first attempt"
+    },
+    "test-coverage": {
+      "verdict": "keep Task",
+      "reason": "rule 3 failed: not every agy cell was schema-valid on the first attempt"
+    }
+  },
+  "scout": {
+    "verdict": "keep Task",
+    "reason": "not run: the Ultra Claude quota was exhausted by the lens check",
+    "cases": {}
+  },
+  "runs": [
+    {
+      "run": 1,
+      "prompt_commit": "4a2019b",
+      "agy_cells_unusable": {
+        "bug-detection": 2,
+        "pattern-consistency": 3,
+        "test-coverage": 2
+      },
+      "unusable_cause": "denied RunCommand (shell attempt) ending in an empty SUCCESS",
+      "opus_cost_usd": 17.9,
+      "separation_completed_cells_only": {
+        "bug-detection": {
+          "delta_mean_recall": 0.0071,
+          "pooled_within_arm_sd": 0.0388,
+          "p_opus_exceeds_agy": 0.6476
+        },
+        "pattern-consistency": {
+          "delta_mean_recall": 0.0669,
+          "pooled_within_arm_sd": 0.0367,
+          "p_opus_exceeds_agy": 0.9881
+        },
+        "test-coverage": {
+          "delta_mean_recall": -0.0533,
+          "pooled_within_arm_sd": 0.063,
+          "p_opus_exceeds_agy": 0.1524
+        }
+      }
+    },
+    {
+      "run": 2,
+      "prompt_commit": "195d8a3",
+      "opus_cells": "reused from run 1",
+      "agy_cells_unusable": {
+        "bug-detection": 1,
+        "pattern-consistency": 6,
+        "test-coverage": 6
+      },
+      "unusable_cause": "RESOURCE_EXHAUSTED (code 429): Individual quota reached, resets in 4h44m12s",
+      "shell_denials": 0,
+      "separation_completed_cells_only": {
+        "bug-detection": {
+          "delta_mean_recall": 0.0361,
+          "pooled_within_arm_sd": 0.0387,
+          "p_opus_exceeds_agy": 0.9113
+        }
+      }
+    }
+  ],
+  "quota_observation": {
+    "agy_model": "Claude Opus 5.5 (High)",
+    "lens_runs_before_exhaustion": 23,
+    "elapsed": "about one hour",
+    "reset_window": "five hours"
+  }
+}

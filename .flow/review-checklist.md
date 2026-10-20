@@ -26,3 +26,32 @@ names WHAT to look for; entries never suppress findings.
   any other variable set in an EARLIER block silently expands it to empty at runtime —
   the supervisor runs each block as a separate Bash tool call. Flag any new or edited
   block that references a variable without (re)deriving it in the same block.
+
+## Sibling-file term domains (PR #769)
+
+- **A term's domain must match across sibling reference files.** When a skill defines a term in one file (a rider "shares root cause, surface/files, or review context"; an "invalid" argument value) and constrains it in a sibling (`SKILL.md`: riders share root cause, surface, or files; the fallback fires on "invalid"), flag any definition wider than, or left undefined by, its constraint — the run follows whichever file it read last.
+
+## Revert PRs leave hand-written cross-references stale (PR #807)
+
+- **Forward-looking plan docs must be re-derived against what the revert deletes.**
+  When a PR reverts a feature, grep `.flow/epics/*/design.md` and `manifest.json`
+  (and `docs/roadmap.md`) for acceptance criteria or dependencies naming an artifact,
+  event, or helper the same PR removes (`workflow.result`, a deleted validator, a
+  closed-unmerged PR's deliverable). A re-scoped downstream feature that still depends
+  on a now-deleted producer is a defect in the plan, not a docs nit — the manifest
+  validates fine because the schema does not know the producer is gone.
+- **A doc that claims an exhaustive consumer list must be re-derived when a revert
+  restores a call site.** Reference files enumerating "the N sites that link here"
+  (`references/task-tool-exemption-preamble.md`, exemption ledgers, agent-site tables)
+  go stale in BOTH directions: the port removed a consumer and the revert brings it
+  back. Grep the repo for backlinks to the file and compare against its own list.
+
+## Failure routes that re-enter an earlier step must return control (PR #933)
+
+- **A "re-enter step N" / "loop back" route needs a retry-the-original-action
+  clause.** When a PR adds a failure route that sends control back to an
+  earlier pipeline step (e.g. a refused push in Step 5 re-entering the Step 6
+  verify loop), the prose must also say how control returns to the step that
+  failed, so the failed action (push, PR open) is retried before later steps
+  that need its output (`$PR`) run. What to look for: added "re-enter step N" /
+  "loop back" prose without a retry-the-original-action clause.

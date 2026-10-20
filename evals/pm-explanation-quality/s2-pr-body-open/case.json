@@ -1,0 +1,68 @@
+{
+  "id": "s2-pr-body-open",
+  "title": "Step 5's PR-open block judges the PR body's Why/User-facing-changes sections before opening the PR",
+  "provenance": "Epic make-flow-reason-from-explain f2: ablation scenario measuring whether the plugin-loaded arm writes a PM-readable PR body more often than the bare arm via flow-explain-judge.",
+  "prompt": "prompt.md",
+  "fixture": { "repo": "fixture", "state": "state.json" },
+  "env": { "flowSlug": true },
+  "graders": [
+    {
+      "id": "pm-readable",
+      "kind": "command",
+      "argv": [
+        "flow-explain-judge",
+        "--text-file",
+        "$ASSISTANT_TEXT",
+        "--sections",
+        "## Why,## User-facing changes",
+        "--site",
+        "pr-body",
+        "--expect",
+        "pass",
+        "--max-budget-usd",
+        "0.25"
+      ]
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

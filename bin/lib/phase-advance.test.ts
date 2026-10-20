@@ -6,6 +6,7 @@ import {
   advancePhase,
   finalizePhase,
   isFixLoopReentry,
+  EARLY_PHASE_WRITES,
   FIX_LOOP_REENTRY_TRANSITIONS,
   PENDING_PHASE_ANCHOR,
   PHASE_EMITTERS,
@@ -13,6 +14,7 @@ import {
 } from "./phase-advance";
 import { spawnSync } from "node:child_process";
 import { readState } from "./state";
+import { runUpdate } from "../flow-state-update";
 
 // Mock ./tmux so no test in this file can reach the real tmux backend — the
 // upcoming `publishBadges` seam (Task 2) calls `publishStateBadges` on every
@@ -94,15 +96,66 @@ describe("advancePhase", () => {
   });
 
   it("is a no-op on a terminal phase", () => {
-    seedState("s4", "gated");
+    seedState("s4", "needs-human");
     const result = advancePhase("merging", { slug: "s4", dir: stateDir });
     expect(result).toEqual({
       advanced: false,
       reason: "terminal",
-      from: "gated",
+      from: "needs-human",
       to: "merging",
     });
-    expect(readState("s4", stateDir)?.phase).toBe("gated");
+    expect(readState("s4", stateDir)?.phase).toBe("needs-human");
+  });
+
+  it("refuses the needs-human -> implementing continue exit with no explicit opt-in (security: a stray PHASE_EMITTERS re-run must never clear a human pause on its own)", () => {
+    seedState("s4d", "needs-human");
+    const result = advancePhase("implementing", {
+      slug: "s4d",
+      dir: stateDir,
+    });
+    expect(result).toEqual({
+      advanced: false,
+      reason: "terminal",
+      from: "needs-human",
+      to: "implementing",
+    });
+    expect(readState("s4d", stateDir)?.phase).toBe("needs-human");
+  });
+
+  it("permits the allowlisted needs-human -> implementing continue exit when allowHumanPauseExit is explicitly set", () => {
+    seedState("s4d2", "needs-human");
+    const result = advancePhase("implementing", {
+      slug: "s4d2",
+      dir: stateDir,
+      allowHumanPauseExit: true,
+    });
+    expect(result).toEqual({
+      advanced: true,
+      reason: "advanced",
+      from: "needs-human",
+      to: "implementing",
+    });
+    expect(readState("s4d2", stateDir)?.phase).toBe("implementing");
+  });
+
+  it("permits the allowlisted gated -> merging exit (gate-override merge path)", () => {
+    seedState("s4b", "gated", { pr: 7 });
+    const result = advancePhase("merging", {
+      slug: "s4b",
+      dir: stateDir,
+      expectPr: 7,
+    });
+    expect(result.advanced).toBe(true);
+    const state = readState("s4b", stateDir);
+    expect(state?.phase).toBe("merging");
+    expect(state?.phaseLog?.map((e) => e.phase)).toEqual(["merging"]);
+  });
+
+  it("still refuses a non-allowlisted exit out of a terminal phase (merged -> merging)", () => {
+    seedState("s4c", "merged");
+    const result = advancePhase("merging", { slug: "s4c", dir: stateDir });
+    expect(result.reason).toBe("terminal");
+    expect(readState("s4c", stateDir)?.phase).toBe("merged");
   });
 
   it("is a no-op on an epic-* phase", () => {
@@ -125,6 +178,26 @@ describe("advancePhase", () => {
     const result = advancePhase("reviewing", { slug: "s6b", dir: stateDir });
     expect(result.advanced).toBe(true);
     expect(readState("s6b", stateDir)?.phase).toBe("reviewing");
+  });
+
+  it("anchors browser-retry-pending at reviewing: gating is forward, a backward write is refused", () => {
+    expect(PENDING_PHASE_ANCHOR["browser-retry-pending"]).toBe("reviewing");
+    seedState("s6c", "browser-retry-pending");
+    const forward = advancePhase("gating", { slug: "s6c", dir: stateDir });
+    expect(forward.advanced).toBe(true);
+    expect(readState("s6c", stateDir)?.phase).toBe("gating");
+
+    seedState("s6d", "browser-retry-pending");
+    const backward = advancePhase("implementing", {
+      slug: "s6d",
+      dir: stateDir,
+    });
+    expect(backward.advanced).toBe(false);
+    expect(readState("s6d", stateDir)?.phase).toBe("browser-retry-pending");
+
+    seedState("s6e", "browser-retry-pending");
+    const same = advancePhase("reviewing", { slug: "s6e", dir: stateDir });
+    expect(same.reason).toBe("already-at-or-past");
   });
 
   it("returns no-slug and writes nothing when no slug resolves", () => {
@@ -331,16 +404,149 @@ describe("advancePhase", () => {
   });
 });
 
+describe("advancePhase / finalizePhase — phase.transition telemetry", () => {
+  let telemetryHome: string;
+  let telemetryPath: string;
+
+  beforeEach(() => {
+    telemetryHome = process.env.HOME as string;
+    telemetryPath = path.join(
+      telemetryHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  afterEach(() => {
+    fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  function readTransitions(): Array<Record<string, unknown>> {
+    if (!fs.existsSync(telemetryPath)) return [];
+    return fs
+      .readFileSync(telemetryPath, "utf8")
+      .split("\n")
+      .filter((l) => l.length > 0)
+      .map((l) => JSON.parse(l))
+      .filter((l) => l.event === "phase.transition");
+  }
+
+  it("advancePhase records one phase.transition event with the correct from/to", () => {
+    seedState("tele-1", "reviewing");
+    const result = advancePhase("gating", { slug: "tele-1", dir: stateDir });
+    expect(result.advanced).toBe(true);
+    const transitions = readTransitions();
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]?.attrs).toMatchObject({
+      from: "reviewing",
+      to: "gating",
+      outcome: null,
+      forced: false,
+    });
+  });
+
+  it("advancePhase does not record an event on a no-op (already-at-or-past)", () => {
+    seedState("tele-2", "gating");
+    const result = advancePhase("reviewing", {
+      slug: "tele-2",
+      dir: stateDir,
+    });
+    expect(result.advanced).toBe(false);
+    expect(readTransitions()).toHaveLength(0);
+  });
+
+  it("finalizePhase records one phase.transition event with the correct from/to", () => {
+    seedState("tele-3", "gated");
+    const result = finalizePhase("merged", { slug: "tele-3", dir: stateDir });
+    expect(result.advanced).toBe(true);
+    const transitions = readTransitions();
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]?.attrs).toMatchObject({
+      from: "gated",
+      to: "merged",
+      outcome: null,
+      forced: false,
+    });
+  });
+
+  it("finalizePhase forwards its outcome into the phase.transition event", () => {
+    seedState("tele-3b", "gating");
+    finalizePhase("needs-human", {
+      slug: "tele-3b",
+      dir: stateDir,
+      outcome: "stalled at gating after 3 blocked stops — reply merge #7",
+    });
+    expect(readTransitions()[0]?.attrs).toMatchObject({
+      to: "needs-human",
+      outcome: "stalled at gating after 3 blocked stops — reply merge #7",
+    });
+  });
+
+  it("finalizePhase does not record an event on an already-terminal no-op", () => {
+    seedState("tele-4", "merged");
+    const result = finalizePhase("merged", { slug: "tele-4", dir: stateDir });
+    expect(result.advanced).toBe(false);
+    expect(readTransitions()).toHaveLength(0);
+  });
+
+  it("a throwing telemetry write never fails the phase write (best-effort, same idiom as publishBadges)", () => {
+    fs.mkdirSync(path.join(telemetryHome, ".flow"), { recursive: true });
+    fs.writeFileSync(path.join(telemetryHome, ".flow", "telemetry"), "");
+    seedState("tele-5", "reviewing");
+    let result: ReturnType<typeof advancePhase> | undefined;
+    expect(() => {
+      result = advancePhase("gating", { slug: "tele-5", dir: stateDir });
+    }).not.toThrow();
+    expect(result?.advanced).toBe(true);
+    fs.rmSync(path.join(telemetryHome, ".flow", "telemetry"), {
+      force: true,
+    });
+  });
+});
+
 describe("PHASE_EMITTERS", () => {
   it("maps every emitted phase to its owning helper and does not contradict flow-stop-guard's phase set", () => {
     expect(PHASE_EMITTERS).toEqual({
       implementing: "flow-open-pr",
-      verifying: "flow-verify-prep",
       "ci-wait": "flow-ci-check",
       reviewing: "flow-fetch-pr-review",
       gating: "flow-gate-decide",
       merging: "flow-merge-guard",
     });
+  });
+});
+
+describe("EARLY_PHASE_WRITES", () => {
+  it("is exactly the three step-head-written phases", () => {
+    expect([...EARLY_PHASE_WRITES].sort()).toEqual([
+      "ci-wait",
+      "implementing",
+      "reviewing",
+    ]);
+  });
+
+  it("every member is a PHASE_EMITTERS key — the helper stays the backstop", () => {
+    for (const phase of EARLY_PHASE_WRITES) {
+      expect(
+        Object.hasOwn(PHASE_EMITTERS, phase),
+        `EARLY_PHASE_WRITES member '${phase}' must also be a PHASE_EMITTERS ` +
+          "key; the step-head fence supplements the helper emission, it does " +
+          "not replace it.",
+      ).toBe(true);
+    }
+  });
+
+  it("excludes gating and merging, which already write at their step's first command", () => {
+    expect(EARLY_PHASE_WRITES.has("gating")).toBe(false);
+    expect(EARLY_PHASE_WRITES.has("merging")).toBe(false);
   });
 });
 
@@ -461,6 +667,29 @@ describe("advancePhase — fix-loop re-entry (backward allowance)", () => {
     expect(result.reason).toBe("already-at-or-past");
     expect(readState("r7", stateDir)?.phase).toBe("reviewing");
   });
+
+  it("pins the documented backward-write asymmetry: advancePhase refuses reviewing -> implementing, flow-state-update's runUpdate accepts it", () => {
+    // Half 1: advancePhase's own STEP_PHASES ordering guard refuses the
+    // backward move (it is not a FIX_LOOP_REENTRY_TRANSITIONS-listed edge).
+    seedState("r8", "reviewing", { pr: 5 });
+    const advanceResult = advancePhase("implementing", {
+      slug: "r8",
+      dir: stateDir,
+      expectPr: 5,
+    });
+    expect(advanceResult.reason).toBe("already-at-or-past");
+    expect(advanceResult.advanced).toBe(false);
+    expect(readState("r8", stateDir)?.phase).toBe("reviewing");
+
+    // Half 2: the same backward transition, written through
+    // flow-state-update's runUpdate (the step-5 head-fence path), has no
+    // STEP_PHASES ordering guard and succeeds — this is the documented,
+    // intentional asymmetry (a review-fix loop re-entering step 5 really is
+    // implementing again).
+    const code = runUpdate(["r8", "--phase", "implementing"], stateDir);
+    expect(code).toBe(0);
+    expect(readState("r8", stateDir)?.phase).toBe("implementing");
+  });
 });
 
 describe("finalizePhase", () => {
@@ -481,6 +710,66 @@ describe("finalizePhase", () => {
       const state = readState(`f-${target}`, stateDir);
       expect(state?.phase).toBe(target);
       expect(state?.phaseLog).toHaveLength(1);
+    },
+  );
+
+  it("records the optional outcome on the phase-log row, and none when absent", () => {
+    seedState("f-outcome", "gating");
+    finalizePhase("needs-human", {
+      slug: "f-outcome",
+      dir: stateDir,
+      outcome: "stalled at gating after 3 blocked stops — reply merge #7",
+    });
+    expect(readState("f-outcome", stateDir)?.phaseLog?.at(-1)).toMatchObject({
+      phase: "needs-human",
+      outcome: "stalled at gating after 3 blocked stops — reply merge #7",
+    });
+    seedState("f-no-outcome", "gating");
+    finalizePhase("needs-human", { slug: "f-no-outcome", dir: stateDir });
+    expect(
+      readState("f-no-outcome", stateDir)?.phaseLog?.at(-1),
+    ).not.toHaveProperty("outcome");
+  });
+
+  it.each(["cancelled", "merged"] as const)(
+    "%s write over a vanished recorded worktree drops the worktree field (cancel paths remove the dir BEFORE the write)",
+    (target) => {
+      const gone = path.join(os.tmpdir(), `flow-pa-gone-${target}-wt`);
+      fs.rmSync(gone, { recursive: true, force: true });
+      seedState(`f-gone-${target}`, "gating", { worktree: gone });
+      const result = finalizePhase(target, {
+        slug: `f-gone-${target}`,
+        dir: stateDir,
+      });
+      expect(result.advanced).toBe(true);
+      const state = readState(`f-gone-${target}`, stateDir);
+      expect(state?.phase).toBe(target);
+      expect(state?.worktree).toBeUndefined();
+      expect("worktree" in (state ?? {})).toBe(false);
+    },
+  );
+
+  it("keeps the recorded worktree when the directory still exists (merge paths write the phase first; flow-remove-worktree clears it on removal)", () => {
+    const live = fs.mkdtempSync(path.join(os.tmpdir(), "flow-pa-live-wt-"));
+    try {
+      seedState("f-live", "gating", { worktree: live });
+      expect(
+        finalizePhase("cancelled", { slug: "f-live", dir: stateDir }).advanced,
+      ).toBe(true);
+      expect(readState("f-live", stateDir)?.worktree).toBe(live);
+    } finally {
+      fs.rmSync(live, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["gated", "needs-human"] as const)(
+    "a %s write keeps a vanished recorded worktree (only finished phases forget it, so a live pipeline still escalates worktree-missing on resume)",
+    (target) => {
+      const gone = path.join(os.tmpdir(), `flow-pa-gone-${target}-wt`);
+      fs.rmSync(gone, { recursive: true, force: true });
+      seedState(`f-keep-${target}`, "gating", { worktree: gone });
+      finalizePhase(target, { slug: `f-keep-${target}`, dir: stateDir });
+      expect(readState(`f-keep-${target}`, stateDir)?.worktree).toBe(gone);
     },
   );
 

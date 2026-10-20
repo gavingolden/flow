@@ -138,6 +138,76 @@ describe("analyzeTranscripts — synthetic fixture", () => {
   });
 });
 
+describe("analyzeTranscripts — repeated message.id", () => {
+  it("counts a repeated message once with its last line's usage; id-less lines count individually", async () => {
+    const tmpFile = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), "flow-ta-test-")),
+      "repeated.jsonl",
+    );
+    const line = (output: number, id?: string) =>
+      JSON.stringify({
+        type: "assistant",
+        attributionSkill: "flow-pipeline",
+        message: {
+          ...(id ? { id } : {}),
+          model: "claude-sonnet-4-6",
+          usage: {
+            input_tokens: 10,
+            output_tokens: output,
+            cache_creation_input_tokens: 4,
+            cache_read_input_tokens: 6,
+          },
+        },
+      });
+    fs.writeFileSync(
+      tmpFile,
+      [line(3, "msg_1"), line(333, "msg_1"), line(7), line(7)].join("\n"),
+    );
+    const result = await analyzeTranscripts([tmpFile]);
+    if (result.status !== "ok")
+      throw new Error(`expected ok, got ${result.status}`);
+    expect(result.phaseTotals.supervisor).toEqual({
+      input: 30,
+      output: 347,
+      cacheCreation: 12,
+      cacheRead: 18,
+    });
+  });
+});
+
+describe("analyzeTranscripts — usage-less last line", () => {
+  it("keeps the earlier usage when a message's last line carries none", async () => {
+    const tmpFile = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), "flow-ta-test-")),
+      "usageless.jsonl",
+    );
+    const withUsage = JSON.stringify({
+      type: "assistant",
+      attributionSkill: "flow-pipeline",
+      message: {
+        id: "msg_1",
+        model: "claude-sonnet-4-6",
+        usage: {
+          input_tokens: 10,
+          output_tokens: 3,
+          cache_creation_input_tokens: 4,
+          cache_read_input_tokens: 6,
+        },
+      },
+    });
+    const noUsage = JSON.stringify({
+      type: "assistant",
+      attributionSkill: "flow-pipeline",
+      message: { id: "msg_1", model: "claude-sonnet-4-6" },
+    });
+    fs.writeFileSync(tmpFile, [withUsage, noUsage].join("\n"));
+    const result = await analyzeTranscripts([tmpFile]);
+    if (result.status !== "ok")
+      throw new Error(`expected ok, got ${result.status}`);
+    expect(result.phaseTotals.supervisor.output).toBe(3);
+  });
+});
+
 describe("analyzeTranscripts — graceful schema-break degradation", () => {
   it("returns status:schema-break (not a throw, not a silently-zeroed aggregate) when message.usage has none of the expected fields", async () => {
     const result = await analyzeTranscripts([SCHEMA_BREAK_FIXTURE]);

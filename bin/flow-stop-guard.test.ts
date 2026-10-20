@@ -1,9 +1,13 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildEpicMetadataReminder,
   buildReminder,
   buildStagnationReminder,
   epicMetadataBlockIsSatisfiable,
+  hasWakingBackgroundWork,
+  NEXT_STEP_BY_PHASE,
   nextStepLabel,
   run,
   type Deps,
@@ -14,7 +18,12 @@ import {
   TERMINAL_PHASES,
   type PipelineState,
 } from "./lib/state";
-import { TURN_BLOCK_LIMIT, type TurnTracking } from "./lib/stop-turn-tracking";
+import {
+  BACKGROUND_EXEMPT_LIMIT,
+  STAGNATION_PAUSE_LIMIT,
+  TURN_BLOCK_LIMIT,
+  type TurnTracking,
+} from "./lib/stop-turn-tracking";
 import type { RepoState } from "./lib/epic-metadata-commit";
 import type { GuardCapability } from "./lib/base-branch-guard";
 
@@ -38,6 +47,7 @@ type Stub = {
   writeTurn: ReturnType<typeof vi.fn>;
   readTurn: ReturnType<typeof vi.fn>;
   repoCommitStateSpy: ReturnType<typeof vi.fn>;
+  writePause: ReturnType<typeof vi.fn>;
 };
 
 function makeDeps(opts: {
@@ -56,6 +66,7 @@ function makeDeps(opts: {
   const loadCalls: string[] = [];
   const writeTurn = vi.fn();
   const readTurn = vi.fn(() => opts.turnTracking ?? null);
+  const writePause = vi.fn(() => true);
   const repoCommitStateSpy = vi.fn(
     opts.repoCommitState ?? (() => "clean" as RepoState),
   );
@@ -75,8 +86,17 @@ function makeDeps(opts: {
     dirtyEpicPaths: opts.dirtyEpicPaths ?? (() => []),
     repoCommitState: repoCommitStateSpy,
     guardCapability: opts.guardCapability ?? (() => ALWAYS_ALLOWS_CAPABILITY),
+    writePause,
   };
-  return { deps, errLines, loadCalls, writeTurn, readTurn, repoCommitStateSpy };
+  return {
+    deps,
+    errLines,
+    loadCalls,
+    writeTurn,
+    readTurn,
+    repoCommitStateSpy,
+    writePause,
+  };
 }
 
 function fakeState(
@@ -262,11 +282,13 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
       ["triaging", "step 2 (worktree-create)"],
       ["worktree-create", "step 3 (plan)"],
       ["planning", "step 4 (approval)"],
-      ["implementing", "step 5.5 (installing-skills)"],
+      // The three EARLY_PHASE_WRITES phases are written at their step's
+      // HEAD, so each names the step still IN PROGRESS, not the next one.
+      ["implementing", "step 5 (implement)"],
       ["installing-skills", "step 6 (verify)"],
       ["verifying", "step 7 (ci-wait)"],
-      ["ci-wait", "step 8 (review)"],
-      ["reviewing", "step 9 (gate)"],
+      ["ci-wait", "step 7 (ci-wait)"],
+      ["reviewing", "step 8 (review)"],
       ["gating", "step 10 (merge)"],
       [
         "merging",
@@ -284,12 +306,69 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
     }
   });
 
+  it("NEXT_STEP_BY_PHASE names the browser re-drive for browser-retry-pending", () => {
+    expect(nextStepLabel("browser-retry-pending")).toBe(
+      "step 9 (gate) — open the flow-pipeline skill's references/phases/step-09-gate.md, re-drive the open browser items via /flow-pr-review --resume-from 8c --browser-items, then flow-gate-decide",
+    );
+  });
+
+  it("compound labels name both step docs, qualified with the skill name", () => {
+    expect(nextStepLabel("planning")).toBe(
+      "step 4 (approval) for feature intent, else step 5 (implement) — open the flow-pipeline skill's references/phases/step-04-approval.md or step-05-implement.md",
+    );
+    expect(nextStepLabel("merging")).toBe(
+      "step 10 → step 11 (finalize merge, run local follow-ups, then MERGED) — open the flow-pipeline skill's references/phases/step-10-merge.md, then step-11-follow-ups.md",
+    );
+  });
+
+  it("every /flow-pipeline label names existing step docs; the epic label names none", () => {
+    const phasesDir = path.resolve(
+      __dirname,
+      "..",
+      "skills/pipeline/flow-pipeline/references/phases",
+    );
+    for (const [phase, label] of Object.entries(NEXT_STEP_BY_PHASE)) {
+      if (phase.startsWith("epic-")) {
+        expect(label, phase).not.toContain("references/phases/");
+        continue;
+      }
+      expect(label, phase).toContain(
+        "the flow-pipeline skill's references/phases/",
+      );
+      const docs = [...label.matchAll(/step-\d\d(?:\.\d)?-[\w-]+\.md/g)].map(
+        (m) => m[0],
+      );
+      expect(docs.length, phase).toBeGreaterThan(0);
+      for (const d of docs)
+        expect(fs.existsSync(path.join(phasesDir, d)), `${phase}: ${d}`).toBe(
+          true,
+        );
+    }
+  });
+
   it("NEXT_STEP_BY_PHASE points ci-wait-pending back at step 7 (the yielded CI-wait phase)", () => {
     // ci-wait-pending is a pending phase, so run() exits 0 before building a
     // reminder — assert the breadcrumb directly via nextStepLabel rather than
     // via the exit-2 reminder loop above.
     expect(nextStepLabel("ci-wait-pending")).toBe(
-      "step 7 (ci-wait) — run flow-ci-check and branch on .status/.decision",
+      "step 7 (ci-wait) — open the flow-pipeline skill's references/phases/step-07-ci-wait.md, run flow-ci-check and branch on .status/.decision",
+    );
+  });
+
+  it("NEXT_STEP_BY_PHASE names the IN-PROGRESS step for each EARLY_PHASE_WRITES phase", () => {
+    // These three phases are written at their step's HEAD, so the phase
+    // means "inside step N", not "step N is done" — the label must point
+    // at that same step. A label naming a later step would misdirect a
+    // review-fix re-entry (re-entering step 5 from `reviewing` with a PR
+    // already open must not be told to open the PR).
+    expect(nextStepLabel("implementing")).toBe(
+      "step 5 (implement) — open the flow-pipeline skill's references/phases/step-05-implement.md",
+    );
+    expect(nextStepLabel("ci-wait")).toBe(
+      "step 7 (ci-wait) — open the flow-pipeline skill's references/phases/step-07-ci-wait.md",
+    );
+    expect(nextStepLabel("reviewing")).toBe(
+      "step 8 (review) — open the flow-pipeline skill's references/phases/step-08-review.md",
     );
   });
 
@@ -316,7 +395,7 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
 
   it("NEXT_STEP_BY_PHASE points plan-review-pending back at step 3 (the async plan review wake ladder)", () => {
     expect(nextStepLabel("plan-review-pending")).toBe(
-      "step 3 (plan) — run flow-plan-review --check and branch on .status",
+      "step 3 (plan) — open the flow-pipeline skill's references/phases/step-03-plan.md, run flow-plan-review --check and branch on .status",
     );
   });
 
@@ -786,5 +865,233 @@ describe("epicMetadataBlockIsSatisfiable", () => {
         () => false,
       ),
     ).toBe(true);
+  });
+});
+
+/**
+ * Drives `run` repeatedly the way the harness does: each call reads back the
+ * turn record the previous call wrote, so counts accumulate exactly as in a
+ * real stuck session.
+ */
+async function replayStops(opts: {
+  stops: number;
+  state: PipelineState;
+  stdin: string | ((stop: number) => string);
+  /** `landed`: the pause write moves state to needs-human (production); `failed`: it never lands. */
+  pause?: "landed" | "failed";
+}) {
+  let turn: TurnTracking | null = null;
+  let current = opts.state;
+  const exits: number[] = [];
+  const pauses: Array<{ state: PipelineState; outcome: string }> = [];
+  const errs: string[] = [];
+  const outs: string[] = [];
+  for (let i = 1; i <= opts.stops; i++) {
+    const { deps } = makeDeps({
+      stdin: typeof opts.stdin === "function" ? opts.stdin(i) : opts.stdin,
+      slug: "demo",
+      state: current,
+    });
+    deps.readTurn = () => turn;
+    deps.writeTurn = (t) => {
+      turn = t;
+    };
+    deps.writeErr = (s) => {
+      errs.push(s);
+    };
+    deps.writeOut = (s) => {
+      outs.push(s);
+    };
+    deps.writePause = (state, outcome) => {
+      pauses.push({ state, outcome });
+      if (opts.pause === "failed") return false;
+      current = { ...state, phase: "needs-human" };
+      return true;
+    };
+    exits.push(await run(deps));
+  }
+  return { exits, pauses, errs, outs, turn: turn as TurnTracking | null };
+}
+
+describe("bounded stagnation pause", () => {
+  it("432-stop incident replay: blocks stops 1-3, pauses needs-human on stop 4 naming the stalled phase and merge #<pr>, then every later stop exits 0", async () => {
+    for (const pause of ["landed", "failed"] as const) {
+      const { exits, pauses } = await replayStops({
+        stops: 432,
+        state: fakeState("gating", { pr: 950 }),
+        stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
+        pause,
+      });
+      expect(exits.slice(0, 3)).toEqual([2, 2, 2]);
+      // Stops 4-432 never block again, whether or not the pause write landed.
+      expect(exits.slice(3)).toEqual(Array(429).fill(0));
+      expect(pauses.length).toBeGreaterThanOrEqual(1);
+      expect(pauses[0]!.outcome).toBe(
+        "stalled at gating after 3 blocked stops — reply merge #950",
+      );
+      // A landed pause is written once (later stops see needs-human); a failed one is retried but never blocks.
+      if (pause === "landed") expect(pauses).toHaveLength(1);
+    }
+    expect(TURN_BLOCK_LIMIT + STAGNATION_PAUSE_LIMIT).toBe(4);
+  });
+
+  it("surfaces the one reply to the owner as a Stop-hook systemMessage only when the pause landed", async () => {
+    const landed = await replayStops({
+      stops: 4,
+      state: fakeState("gating", { pr: 950 }),
+      stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
+    });
+    expect(landed.outs).toHaveLength(1);
+    expect(JSON.parse(landed.outs[0]!)).toEqual({
+      systemMessage:
+        "flow paused this pipeline (needs-human): stalled at gating after 3 blocked stops — reply merge #950.",
+    });
+    const failed = await replayStops({
+      stops: 4,
+      state: fakeState("gating", { pr: 950 }),
+      stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
+      pause: "failed",
+    });
+    expect(failed.outs).toEqual([]);
+    expect(failed.errs.join("")).toContain(
+      "could not record a needs-human pause",
+    );
+  });
+
+  it("names `done` (the needs-human confirming reply) as the one reply at a non-merge phase", async () => {
+    const { exits, pauses } = await replayStops({
+      stops: 4,
+      state: fakeState("verifying", { pr: 12 }),
+      stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
+    });
+    expect(exits).toEqual([2, 2, 2, 0]);
+    expect(pauses).toHaveLength(1);
+    expect(pauses[0]!.outcome).toBe(
+      "stalled at verifying after 3 blocked stops — reply done",
+    );
+  });
+
+  it("falls back to `done` at merging when state has no PR number", async () => {
+    const { pauses } = await replayStops({
+      stops: 4,
+      state: fakeState("merging"),
+      stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
+    });
+    expect(pauses[0]!.outcome).toContain("reply done");
+  });
+
+  it("after the first nudge, stops with a running subagent or shell exit 0 uncounted and never pause", async () => {
+    for (const type of ["subagent", "shell", "monitor", "workflow"]) {
+      const { exits, pauses, turn } = await replayStops({
+        stops: 12,
+        state: fakeState("gating", { pr: 5 }),
+        stdin: (i) =>
+          JSON.stringify({
+            stop_hook_active: i > 1,
+            background_tasks:
+              i > 1 ? [{ id: "t1", type, status: "running" }] : [],
+          }),
+      });
+      expect(exits[0]).toBe(2);
+      expect(exits.slice(1)).toEqual(Array(11).fill(0));
+      expect(pauses).toEqual([]);
+      expect(turn!.blockCount).toBe(TURN_BLOCK_LIMIT);
+      expect(turn!.exemptCount).toBe(11);
+    }
+  });
+
+  it("after BACKGROUND_EXEMPT_LIMIT exempt stops at one phase, stops count again and the run pauses", async () => {
+    const stops = 1 + BACKGROUND_EXEMPT_LIMIT + 3;
+    const { exits, pauses } = await replayStops({
+      stops,
+      state: fakeState("gating", { pr: 5 }),
+      stdin: (i) =>
+        JSON.stringify({
+          stop_hook_active: i > 1,
+          background_tasks: i > 1 ? [{ type: "shell" }] : [],
+        }),
+    });
+    expect(exits.slice(1, 1 + BACKGROUND_EXEMPT_LIMIT)).toEqual(
+      Array(BACKGROUND_EXEMPT_LIMIT).fill(0),
+    );
+    // Stops past the cap count: stagnation blocks, then the bounded pause.
+    expect(exits.slice(1 + BACKGROUND_EXEMPT_LIMIT)).toEqual([2, 2, 0]);
+    expect(pauses).toHaveLength(1);
+  });
+
+  it("exemptCount survives a stop_hook_active:false turn boundary at the same phase", async () => {
+    const state = fakeState("gating", { pr: 5 });
+    let turn: TurnTracking | null = fakeTracking({
+      blockCount: TURN_BLOCK_LIMIT,
+      lastPhase: "gating",
+      exemptCount: 7,
+    });
+    const { deps } = makeDeps({
+      stdin: JSON.stringify({
+        stop_hook_active: false,
+        background_tasks: [{ type: "shell" }],
+      }),
+      slug: "demo",
+      state,
+    });
+    deps.readTurn = () => turn;
+    deps.writeTurn = (t) => {
+      turn = t;
+    };
+    // New turn: blockCount rebuilds at 0, so the first stop gets the nudge...
+    expect(await run(deps)).toBe(2);
+    expect(turn!.exemptCount).toBe(7);
+    // ...and the following same-turn stop is exempt, continuing the count.
+    const second = makeDeps({
+      stdin: JSON.stringify({
+        stop_hook_active: true,
+        background_tasks: [{ type: "shell" }],
+      }),
+      slug: "demo",
+      state,
+    });
+    second.deps.readTurn = () => turn;
+    second.deps.writeTurn = (t) => {
+      turn = t;
+    };
+    expect(await run(second.deps)).toBe(0);
+    expect(turn!.exemptCount).toBe(8);
+  });
+
+  it("a phase change resets the exempt count and re-baselines lastPhase (blockCount is kept)", async () => {
+    const { deps, writeTurn } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: true }),
+      slug: "demo",
+      state: fakeState("merging"),
+      turnTracking: fakeTracking({
+        blockCount: TURN_BLOCK_LIMIT + 1,
+        lastPhase: "gating",
+        exemptCount: 20,
+      }),
+    });
+    expect(await run(deps)).toBe(0);
+    const written = writeTurn.mock.calls.at(-1)![0] as TurnTracking;
+    expect(written.lastPhase).toBe("merging");
+    expect(written.exemptCount).toBeUndefined();
+  });
+
+  it("an empty background_tasks array exempts nothing", () => {
+    expect(hasWakingBackgroundWork([])).toBe(false);
+    expect(hasWakingBackgroundWork(undefined)).toBe(false);
+    expect(hasWakingBackgroundWork([{ status: "pending" }])).toBe(true);
+  });
+});
+
+describe("reminders name commands, not display labels", () => {
+  it("buildReminder and buildStagnationReminder name needs-human and the pause command, with no uppercase end-state labels", () => {
+    const joined = [
+      ...buildReminder("gating", "step 10 (merge)"),
+      ...buildStagnationReminder("gating", 2),
+    ].join("\n");
+    expect(joined).toContain("needs-human");
+    expect(joined).toContain("flow-gate-summary --status needs-human");
+    expect(joined).not.toMatch(/NEEDS HUMAN|MERGED|GATED/);
+    expect(joined).toContain("DO NOT END THE TURN");
+    expect(joined).toContain("phase has not advanced");
   });
 });

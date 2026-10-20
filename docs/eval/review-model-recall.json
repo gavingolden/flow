@@ -1,0 +1,627 @@
+{
+  "schema": "flow/review-model-recall@1",
+  "measured_at": "2026-09-09",
+  "repo": "flow",
+  "harness": "docs/eval/review-model-recall/ (one-off; each cell is a single review lens re-run over a merged PR's diff via flow-claude-headless, scored by a blinded fixed-model judge)",
+  "prs": [
+    {
+      "pr": 812,
+      "reference_findings": 23
+    },
+    {
+      "pr": 756,
+      "reference_findings": 26
+    },
+    {
+      "pr": 802,
+      "reference_findings": 18
+    }
+  ],
+  "runs_per_cell": 2,
+  "cost_usd": {
+    "review_runs": 43.37,
+    "judging": 4.9,
+    "total": 48.27
+  },
+  "arms": [
+    {
+      "model": "sonnet",
+      "effort": "medium",
+      "lenses": {
+        "bug-detection": {
+          "pr-812": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 23,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 1,
+                "new_findings": 1
+              },
+              {
+                "run": 2,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 23,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 1,
+                "new_findings": 1
+              }
+            ],
+            "mean_recall": 0.0,
+            "variance": 0.0
+          },
+          "pr-756": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0385,
+                "matched": 1,
+                "reference_findings": 26,
+                "same_text": 0,
+                "semantically_equivalent": 1,
+                "candidate_findings": 1,
+                "new_findings": 0
+              },
+              {
+                "run": 2,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 26,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 0,
+                "new_findings": 0
+              }
+            ],
+            "mean_recall": 0.0192,
+            "variance": 0.000371
+          },
+          "pr-802": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 18,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 1,
+                "new_findings": 1
+              },
+              {
+                "run": 2,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 18,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 1,
+                "new_findings": 1
+              }
+            ],
+            "mean_recall": 0.0,
+            "variance": 0.0
+          }
+        },
+        "pattern-consistency": {
+          "pr-812": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 23,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 1,
+                "new_findings": 1
+              },
+              {
+                "run": 2,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 23,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 5,
+                "new_findings": 5
+              }
+            ],
+            "mean_recall": 0.0,
+            "variance": 0.0
+          },
+          "pr-756": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 26,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 1,
+                "new_findings": 1
+              },
+              {
+                "run": 2,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 26,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 1,
+                "new_findings": 1
+              }
+            ],
+            "mean_recall": 0.0,
+            "variance": 0.0
+          },
+          "pr-802": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 18,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 1,
+                "new_findings": 1
+              },
+              {
+                "run": 2,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 18,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 2,
+                "new_findings": 2
+              }
+            ],
+            "mean_recall": 0.0,
+            "variance": 0.0
+          }
+        },
+        "test-coverage": {
+          "pr-812": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 23,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 2,
+                "new_findings": 2
+              },
+              {
+                "run": 2,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 23,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 2,
+                "new_findings": 2
+              }
+            ],
+            "mean_recall": 0.0,
+            "variance": 0.0
+          },
+          "pr-756": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 26,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 3,
+                "new_findings": 3
+              },
+              {
+                "run": 2,
+                "recall": 0.0385,
+                "matched": 1,
+                "reference_findings": 26,
+                "same_text": 0,
+                "semantically_equivalent": 1,
+                "candidate_findings": 2,
+                "new_findings": 1
+              }
+            ],
+            "mean_recall": 0.0192,
+            "variance": 0.000371
+          },
+          "pr-802": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 18,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 1,
+                "new_findings": 1
+              },
+              {
+                "run": 2,
+                "recall": 0.0556,
+                "matched": 1,
+                "reference_findings": 18,
+                "same_text": 0,
+                "semantically_equivalent": 1,
+                "candidate_findings": 2,
+                "new_findings": 1
+              }
+            ],
+            "mean_recall": 0.0278,
+            "variance": 0.000773
+          }
+        }
+      },
+      "lens_aggregates": {
+        "bug-detection": {
+          "mean_recall": 0.0064,
+          "sd_recall": 0.0143,
+          "matched_total": 1,
+          "reference_total": 134,
+          "candidate_findings_total": 5,
+          "new_findings_total": 4,
+          "same_text_total": 0,
+          "semantically_equivalent_total": 1
+        },
+        "pattern-consistency": {
+          "mean_recall": 0.0,
+          "sd_recall": 0.0,
+          "matched_total": 0,
+          "reference_total": 134,
+          "candidate_findings_total": 11,
+          "new_findings_total": 11,
+          "same_text_total": 0,
+          "semantically_equivalent_total": 0
+        },
+        "test-coverage": {
+          "mean_recall": 0.0157,
+          "sd_recall": 0.0227,
+          "matched_total": 2,
+          "reference_total": 134,
+          "candidate_findings_total": 12,
+          "new_findings_total": 10,
+          "same_text_total": 0,
+          "semantically_equivalent_total": 2
+        }
+      }
+    },
+    {
+      "model": "opus",
+      "effort": "medium",
+      "lenses": {
+        "bug-detection": {
+          "pr-812": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 23,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 4,
+                "new_findings": 4
+              },
+              {
+                "run": 2,
+                "recall": 0.0435,
+                "matched": 1,
+                "reference_findings": 23,
+                "same_text": 0,
+                "semantically_equivalent": 1,
+                "candidate_findings": 10,
+                "new_findings": 9
+              }
+            ],
+            "mean_recall": 0.0217,
+            "variance": 0.000473
+          },
+          "pr-756": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 26,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 3,
+                "new_findings": 3
+              },
+              {
+                "run": 2,
+                "recall": 0.0769,
+                "matched": 2,
+                "reference_findings": 26,
+                "same_text": 0,
+                "semantically_equivalent": 2,
+                "candidate_findings": 8,
+                "new_findings": 6
+              }
+            ],
+            "mean_recall": 0.0384,
+            "variance": 0.001478
+          },
+          "pr-802": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0556,
+                "matched": 1,
+                "reference_findings": 18,
+                "same_text": 0,
+                "semantically_equivalent": 1,
+                "candidate_findings": 8,
+                "new_findings": 7
+              },
+              {
+                "run": 2,
+                "recall": 0.1111,
+                "matched": 2,
+                "reference_findings": 18,
+                "same_text": 0,
+                "semantically_equivalent": 2,
+                "candidate_findings": 5,
+                "new_findings": 3
+              }
+            ],
+            "mean_recall": 0.0834,
+            "variance": 0.00077
+          }
+        },
+        "pattern-consistency": {
+          "pr-812": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.087,
+                "matched": 2,
+                "reference_findings": 23,
+                "same_text": 0,
+                "semantically_equivalent": 2,
+                "candidate_findings": 3,
+                "new_findings": 1
+              },
+              {
+                "run": 2,
+                "recall": 0.087,
+                "matched": 2,
+                "reference_findings": 23,
+                "same_text": 0,
+                "semantically_equivalent": 2,
+                "candidate_findings": 6,
+                "new_findings": 4
+              }
+            ],
+            "mean_recall": 0.087,
+            "variance": 0.0
+          },
+          "pr-756": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0385,
+                "matched": 1,
+                "reference_findings": 26,
+                "same_text": 0,
+                "semantically_equivalent": 1,
+                "candidate_findings": 4,
+                "new_findings": 3
+              },
+              {
+                "run": 2,
+                "recall": 0.0385,
+                "matched": 1,
+                "reference_findings": 26,
+                "same_text": 0,
+                "semantically_equivalent": 1,
+                "candidate_findings": 5,
+                "new_findings": 4
+              }
+            ],
+            "mean_recall": 0.0385,
+            "variance": 0.0
+          },
+          "pr-802": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.1111,
+                "matched": 2,
+                "reference_findings": 18,
+                "same_text": 0,
+                "semantically_equivalent": 2,
+                "candidate_findings": 6,
+                "new_findings": 4
+              },
+              {
+                "run": 2,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 18,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 3,
+                "new_findings": 3
+              }
+            ],
+            "mean_recall": 0.0556,
+            "variance": 0.003086
+          }
+        },
+        "test-coverage": {
+          "pr-812": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0435,
+                "matched": 1,
+                "reference_findings": 23,
+                "same_text": 0,
+                "semantically_equivalent": 1,
+                "candidate_findings": 7,
+                "new_findings": 6
+              },
+              {
+                "run": 2,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 23,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 6,
+                "new_findings": 6
+              }
+            ],
+            "mean_recall": 0.0217,
+            "variance": 0.000473
+          },
+          "pr-756": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.0385,
+                "matched": 1,
+                "reference_findings": 26,
+                "same_text": 0,
+                "semantically_equivalent": 1,
+                "candidate_findings": 5,
+                "new_findings": 4
+              },
+              {
+                "run": 2,
+                "recall": 0.0,
+                "matched": 0,
+                "reference_findings": 26,
+                "same_text": 0,
+                "semantically_equivalent": 0,
+                "candidate_findings": 4,
+                "new_findings": 4
+              }
+            ],
+            "mean_recall": 0.0192,
+            "variance": 0.000371
+          },
+          "pr-802": {
+            "runs": [
+              {
+                "run": 1,
+                "recall": 0.1667,
+                "matched": 3,
+                "reference_findings": 18,
+                "same_text": 0,
+                "semantically_equivalent": 3,
+                "candidate_findings": 11,
+                "new_findings": 8
+              },
+              {
+                "run": 2,
+                "recall": 0.1111,
+                "matched": 2,
+                "reference_findings": 18,
+                "same_text": 0,
+                "semantically_equivalent": 2,
+                "candidate_findings": 4,
+                "new_findings": 2
+              }
+            ],
+            "mean_recall": 0.1389,
+            "variance": 0.000773
+          }
+        }
+      },
+      "lens_aggregates": {
+        "bug-detection": {
+          "mean_recall": 0.0478,
+          "sd_recall": 0.0398,
+          "matched_total": 6,
+          "reference_total": 134,
+          "candidate_findings_total": 38,
+          "new_findings_total": 32,
+          "same_text_total": 0,
+          "semantically_equivalent_total": 6
+        },
+        "pattern-consistency": {
+          "mean_recall": 0.0603,
+          "sd_recall": 0.0378,
+          "matched_total": 8,
+          "reference_total": 134,
+          "candidate_findings_total": 27,
+          "new_findings_total": 19,
+          "same_text_total": 0,
+          "semantically_equivalent_total": 8
+        },
+        "test-coverage": {
+          "mean_recall": 0.06,
+          "sd_recall": 0.0605,
+          "matched_total": 7,
+          "reference_total": 134,
+          "candidate_findings_total": 37,
+          "new_findings_total": 30,
+          "same_text_total": 0,
+          "semantically_equivalent_total": 7
+        }
+      }
+    }
+  ],
+  "separation": {
+    "bug-detection": {
+      "delta_mean_recall": 0.0414,
+      "pooled_within_arm_sd": 0.0299,
+      "exact_permutation_p_one_sided": 0.0303,
+      "separates": true,
+      "decision": "pin opus"
+    },
+    "pattern-consistency": {
+      "delta_mean_recall": 0.0603,
+      "pooled_within_arm_sd": 0.0268,
+      "exact_permutation_p_one_sided": 0.0076,
+      "separates": true,
+      "decision": "pin opus"
+    },
+    "test-coverage": {
+      "delta_mean_recall": 0.0443,
+      "pooled_within_arm_sd": 0.0457,
+      "exact_permutation_p_one_sided": 0.1082,
+      "separates": false,
+      "decision": "inconclusive \u2014 keep current model"
+    }
+  },
+  "unmeasurable": [
+    {
+      "lens": "security",
+      "reason": "3 acted findings across the 9 comparable reviews in ~/.flow/telemetry/review-lenses.jsonl \u2014 too few to separate two models across three PRs",
+      "decision": "keep current model (no pin)"
+    },
+    {
+      "lens": "performance",
+      "reason": "4 acted findings across the 9 comparable reviews \u2014 too few to separate two models across three PRs",
+      "decision": "keep current model (no pin)"
+    },
+    {
+      "lens": "supply-chain",
+      "reason": "0 acted findings across the 9 comparable reviews \u2014 nothing to measure recall against",
+      "decision": "keep current model (no pin)"
+    }
+  ],
+  "shipped_pins": {
+    "note": "none. Every models.reviewLenses.<lens> key ships absent; see review-model-recall.md 'What was and was not changed'."
+  }
+}

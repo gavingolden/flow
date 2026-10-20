@@ -1,14 +1,22 @@
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  GUARD_DEADLINE_EXIT,
+  GUARD_DEADLINE_MARKER,
+  GUARD_SPAWN_FAILED_EXIT,
+  GUARD_SPAWN_FAILED_MARKER,
+} from "./lib/agy-guard";
+import {
+  AGY_GUARD_PATH,
   AGY_SAFETY_PREAMBLE,
+  agyBackstopMs,
+  agyDeadlineMs,
+  agyRunCwd,
   artifactPathFor,
   buildAgyArgv,
   classifyAgyOutcome,
-  looksTimedOut,
-  looksUnauthenticated,
   parseArgs,
   readAgyJsonOutcome,
   run,
@@ -17,6 +25,7 @@ import {
   type AgyJsonOutcome,
   type Args,
   type Deps,
+  translateGuardResult,
 } from "./flow-delegate";
 
 describe("parseArgs", () => {
@@ -271,6 +280,29 @@ describe("buildAgyArgv", () => {
   });
 });
 
+describe("agyRunCwd", () => {
+  it("is undefined when --skip-permissions is not set, regardless of --add-dir", () => {
+    expect(agyRunCwd({ skipPermissions: false, addDirs: [] })).toBeUndefined();
+    expect(
+      agyRunCwd({ skipPermissions: false, addDirs: ["/a"] }),
+    ).toBeUndefined();
+  });
+
+  it("is undefined when --skip-permissions is set but an --add-dir grant is present", () => {
+    expect(
+      agyRunCwd({ skipPermissions: true, addDirs: ["/a"] }),
+    ).toBeUndefined();
+  });
+
+  it("pins a freshly-created, empty scratch directory when --skip-permissions is set with no --add-dir", () => {
+    const cwd = agyRunCwd({ skipPermissions: true, addDirs: [] });
+    expect(cwd).toBeDefined();
+    expect(existsSync(cwd as string)).toBe(true);
+    expect(readdirSync(cwd as string)).toEqual([]);
+    rmSync(cwd as string, { recursive: true, force: true });
+  });
+});
+
 describe("artifactPathFor", () => {
   it("defaults to .flow-tmp/delegate-<task>.md", () => {
     expect(artifactPathFor(parseArgs(["--prompt", "x"]) as Args)).toBe(
@@ -287,50 +319,6 @@ describe("artifactPathFor", () => {
         parseArgs(["--prompt", "x", "--out", "/tmp/r.md"]) as Args,
       ),
     ).toBe("/tmp/r.md");
-  });
-});
-
-describe("looksUnauthenticated", () => {
-  it.each([
-    "Error: not authenticated",
-    "Please log in to continue",
-    "unauthenticated request",
-    "authentication required",
-    "Error: not logged in",
-    "please sign in to Google",
-    "authentication failed",
-    "session expired, please reauthenticate",
-  ])("flags auth-error text: %s", (text) => {
-    expect(looksUnauthenticated(text)).toBe(true);
-  });
-
-  it("does not flag a generic runtime error", () => {
-    expect(looksUnauthenticated("model run timed out after 5m")).toBe(false);
-  });
-});
-
-describe("looksTimedOut", () => {
-  it("flags agy's verified --print-timeout stderr signature", () => {
-    expect(looksTimedOut("Error: timeout waiting for response")).toBe(true);
-  });
-
-  it("flags related timeout phrasing", () => {
-    expect(looksTimedOut("deadline exceeded")).toBe(true);
-    expect(looksTimedOut("context deadline exceeded")).toBe(true);
-  });
-
-  it("does not flag an auth-flavored error", () => {
-    expect(looksTimedOut("Please log in to continue")).toBe(false);
-  });
-
-  it("does not flag a generic error", () => {
-    expect(looksTimedOut("something went wrong")).toBe(false);
-  });
-
-  it("flags the log-file-only 'Print mode: timed out after N polls' literal (never reaches stdout/stderr today)", () => {
-    expect(
-      looksTimedOut("Print mode: timed out after 1491 polls (printed=17)"),
-    ).toBe(true);
   });
 });
 
@@ -416,6 +404,70 @@ describe("classifyAgyOutcome", () => {
       }),
     ).toBe("agy-not-authenticated");
   });
+
+  const RETIRED_MODEL_TEXT =
+    "error: invalid model selection: model Claude Opus 4.6 (Thinking) is not recognized as a known model or custom model in settings";
+
+  it("classifies agy's retired-model stderr as agy-model-unavailable", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 1,
+        stderr: RETIRED_MODEL_TEXT,
+        outcome: {},
+      }),
+    ).toBe("agy-model-unavailable");
+  });
+
+  it("classifies the retired-model text in the json envelope error field as agy-model-unavailable", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 1,
+        stderr: "",
+        outcome: { status: "ERROR", error: RETIRED_MODEL_TEXT },
+      }),
+    ).toBe("agy-model-unavailable");
+  });
+
+  it("checks timeout before model-unavailable so a timeout signature still wins", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 1,
+        stderr: `${RETIRED_MODEL_TEXT}\nError: timeout waiting for response`,
+        outcome: {},
+      }),
+    ).toBe("agy-timeout");
+  });
+
+  it("leaves an unrelated 'model ... not found' error as agy-error", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 1,
+        stderr: "error: model weights file not found",
+        outcome: {},
+      }),
+    ).toBe("agy-error");
+  });
+
+  it("classifies an otherwise-clean run with an empty artifact as agy-empty-artifact, not ran (#627/#712)", () => {
+    expect(
+      classifyAgyOutcome({ exitCode: 0, stderr: "", outcome: {} }, false),
+    ).toBe("agy-empty-artifact");
+  });
+
+  it("defaults artifactHasContent to true when omitted, so every pre-existing call site keeps classifying as ran", () => {
+    expect(classifyAgyOutcome({ exitCode: 0, stderr: "", outcome: {} })).toBe(
+      "ran",
+    );
+  });
+
+  it("never reaches the empty-artifact check when an earlier failure signal already matched", () => {
+    // exitCode 1 alone is enough to classify as agy-error, regardless of
+    // artifactHasContent — the flag is consulted ONLY on the otherwise-ran
+    // path.
+    expect(
+      classifyAgyOutcome({ exitCode: 1, stderr: "boom", outcome: {} }, false),
+    ).toBe("agy-error");
+  });
 });
 
 describe("readAgyJsonOutcome", () => {
@@ -428,6 +480,7 @@ describe("readAgyJsonOutcome", () => {
       mkdirp: () => {},
       now: () => 0,
       writeOut: () => {},
+      artifactHasContent: () => true,
     }) as Deps;
 
   it("lifts status/error from a well-formed envelope", () => {
@@ -454,6 +507,7 @@ describe("readAgyJsonOutcome", () => {
       mkdirp: () => {},
       now: () => 0,
       writeOut: () => {},
+      artifactHasContent: () => true,
     };
     expect(readAgyJsonOutcome(d, "/out.json")).toEqual({});
   });
@@ -503,20 +557,20 @@ describe("stderrTail", () => {
 
 function makeDeps(overrides: Partial<Deps> = {}): Deps & {
   calls: {
-    agy: Array<{ argv: string[]; outPath: string }>;
+    agy: Array<{ argv: string[]; outPath: string; cwd?: string }>;
     out: string[];
     mkdirp: string[];
   };
 } {
   const calls = {
-    agy: [] as Array<{ argv: string[]; outPath: string }>,
+    agy: [] as Array<{ argv: string[]; outPath: string; cwd?: string }>,
     out: [] as string[],
     mkdirp: [] as string[],
   };
   return {
     agyOnPath: () => true,
-    runAgy: (argv, outPath) => {
-      calls.agy.push({ argv, outPath });
+    runAgy: (argv, outPath, cwd) => {
+      calls.agy.push({ argv, outPath, cwd });
       return { exitCode: 0, stderr: "" };
     },
     readFile: (p) => `FILE_CONTENT_OF:${p}`,
@@ -528,6 +582,7 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     writeOut: (line) => {
       calls.out.push(line);
     },
+    artifactHasContent: () => true,
     calls,
     ...overrides,
   };
@@ -564,12 +619,38 @@ describe("run", () => {
     expect(deps.calls.agy).toHaveLength(0);
   });
 
+  it("pins runAgy's cwd to a scratch dir when --skip-permissions is passed with no --add-dir", () => {
+    const deps = makeDeps();
+    run(["--prompt", "hi", "--skip-permissions"], deps);
+    expect(deps.calls.agy).toHaveLength(1);
+    expect(deps.calls.agy[0]?.cwd).toBeDefined();
+    expect(deps.calls.agy[0]?.cwd).not.toBe(process.cwd());
+  });
+
+  it("does not pin runAgy's cwd when --skip-permissions is passed WITH --add-dir", () => {
+    const deps = makeDeps();
+    run(
+      ["--prompt", "hi", "--skip-permissions", "--add-dir", "/some/dir"],
+      deps,
+    );
+    expect(deps.calls.agy).toHaveLength(1);
+    expect(deps.calls.agy[0]?.cwd).toBeUndefined();
+  });
+
+  it("does not pin runAgy's cwd when --skip-permissions is absent", () => {
+    const deps = makeDeps();
+    run(["--prompt", "hi"], deps);
+    expect(deps.calls.agy).toHaveLength(1);
+    expect(deps.calls.agy[0]?.cwd).toBeUndefined();
+  });
+
   it("gracefully skips with skipReason agy-error on a nonzero agy exit", () => {
     const deps = makeDeps({ runAgy: () => ({ exitCode: 1, stderr: "boom" }) });
     expect(run(["--prompt", "hi"], deps)).toBe(0);
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-error",
+      failureClass: "unknown",
       task: "default",
       exitCode: 1,
       stderrTail: "boom",
@@ -587,10 +668,97 @@ describe("run", () => {
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-timeout",
+      failureClass: "timeout",
       task: "default",
       exitCode: 1,
       stderrTail: "Error: timeout waiting for response",
     });
+  });
+
+  it("classifies the guard's deadline result (exit 124 + marker) as agy-timeout", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: GUARD_DEADLINE_EXIT,
+        stderr: GUARD_DEADLINE_MARKER,
+        outcome: {},
+      }),
+    ).toBe("agy-timeout");
+    const deps = makeDeps({
+      runAgy: () => ({
+        exitCode: GUARD_DEADLINE_EXIT,
+        stderr: GUARD_DEADLINE_MARKER,
+      }),
+    });
+    expect(run(["--prompt", "hi"], deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "agy-timeout",
+      failureClass: "timeout",
+      exitCode: GUARD_DEADLINE_EXIT,
+    });
+  });
+
+  it("passes the guard deadline (timeout + 30 s) to runAgy as the 4th argument", () => {
+    const seen: Array<number | undefined> = [];
+    const deps = makeDeps({
+      runAgy: (_argv, _out, _cwd, deadlineMs) => {
+        seen.push(deadlineMs);
+        return { exitCode: 0, stderr: "" };
+      },
+    });
+    run(["--prompt", "hi", "--timeout", "10m"], deps);
+    expect(seen).toEqual([630_000]);
+  });
+
+  it("computes the deadline and the outer backstop", () => {
+    expect(agyDeadlineMs("10m")).toBe(630_000);
+    expect(agyDeadlineMs("not-a-duration")).toBe(330_000);
+    expect(agyBackstopMs(agyDeadlineMs("9m"))).toBe(580_000);
+  });
+
+  it("rounds a fractional timeout to an integer deadline the guard accepts", () => {
+    for (const t of ["1.33m", "4.4h", "1.1m", "2.5s"]) {
+      expect(Number.isInteger(agyDeadlineMs(t))).toBe(true);
+    }
+    expect(agyDeadlineMs("1.33m")).toBe(79_800 + 30_000);
+  });
+
+  it("translateGuardResult throws the guard's stderr on a spawn failure (-> spawn-failed)", () => {
+    const stderr = `${GUARD_SPAWN_FAILED_MARKER}: ENOENT\n`;
+    expect(() =>
+      translateGuardResult({
+        exitCode: GUARD_SPAWN_FAILED_EXIT,
+        stderr,
+        exitedDueToTimeout: false,
+      }),
+    ).toThrow(GUARD_SPAWN_FAILED_MARKER);
+  });
+
+  it("translateGuardResult does not treat exit 127 without the marker as a spawn failure", () => {
+    expect(
+      translateGuardResult({
+        exitCode: GUARD_SPAWN_FAILED_EXIT,
+        stderr: "agy: not found\n",
+        exitedDueToTimeout: false,
+      }),
+    ).toEqual({
+      exitCode: GUARD_SPAWN_FAILED_EXIT,
+      stderr: "agy: not found\n",
+    });
+  });
+
+  it("translateGuardResult appends the deadline marker after a backstop kill", () => {
+    const out = translateGuardResult({
+      exitCode: null,
+      stderr: "partial",
+      exitedDueToTimeout: true,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(`partial\n${GUARD_DEADLINE_MARKER}\n`);
+  });
+
+  it("points AGY_GUARD_PATH at the real guard script", () => {
+    expect(existsSync(AGY_GUARD_PATH)).toBe(true);
   });
 
   it("omits stderrTail entirely when agy's stderr is empty", () => {
@@ -599,6 +767,7 @@ describe("run", () => {
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-error",
+      failureClass: "unknown",
       task: "default",
       exitCode: 1,
     });
@@ -617,6 +786,7 @@ describe("run", () => {
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-timeout",
+      failureClass: "timeout",
       task: "default",
       exitCode: 1,
       agyStatus: "ERROR",
@@ -654,6 +824,7 @@ describe("run", () => {
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-canceled",
+      failureClass: "canceled",
       task: "default",
       exitCode: 0,
       agyStatus: "CANCELED",
@@ -746,7 +917,7 @@ describe("run", () => {
     errSpy.mockRestore();
   });
 
-  it("gracefully skips (exit 0, agy-error) when runAgy throws a spawn failure", () => {
+  it("gracefully skips (exit 0, spawn-failed) when runAgy throws a spawn failure", () => {
     const deps = makeDeps({
       runAgy: () => {
         throw new Error("spawn agy ENOMEM");
@@ -755,7 +926,8 @@ describe("run", () => {
     expect(run(["--prompt", "hi"], deps)).toBe(0);
     expect(envelope(deps)).toEqual({
       ran: false,
-      skipReason: "agy-error",
+      skipReason: "spawn-failed",
+      failureClass: "spawn-failed",
       task: "default",
       stderrTail: "spawn agy ENOMEM",
     });
@@ -769,10 +941,152 @@ describe("run", () => {
     expect(envelope(deps)).toEqual({
       ran: false,
       skipReason: "agy-not-authenticated",
+      failureClass: "auth",
       task: "default",
       exitCode: 1,
       stderrTail: "Please log in",
     });
+  });
+
+  it("classifies a clean exit with a 0-byte artifact as ran:false/agy-empty-artifact, not a silent ran:true (#627/#712)", () => {
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 0, stderr: "" }),
+      artifactHasContent: () => false,
+    });
+    expect(run(["--prompt", "hi"], deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "agy-empty-artifact",
+      failureClass: "empty-artifact",
+      task: "default",
+      exitCode: 0,
+    });
+  });
+
+  it("classifies a whitespace-only artifact the same way as a genuinely empty one", () => {
+    // A deps.artifactHasContent implementing the documented contract
+    // (">=1 non-whitespace byte") against a whitespace-only artifact must
+    // downgrade to agy-empty-artifact end-to-end, same as a 0-byte file.
+    const whitespaceOnlyArtifact = "   \n\t  ";
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 0, stderr: "" }),
+      readFile: () => whitespaceOnlyArtifact,
+      artifactHasContent: () => whitespaceOnlyArtifact.trim().length > 0,
+    });
+    expect(run(["--prompt", "hi"], deps)).toBe(0);
+    expect(envelope(deps).ran).toBe(false);
+    expect(envelope(deps).skipReason).toBe("agy-empty-artifact");
+  });
+
+  it("never writes a delegate.call telemetry event to the real HOME (recordEvent resolves under vitest's sandbox $HOME)", () => {
+    const sandboxHome = process.env.HOME as string;
+    const telemetryPath = path.join(
+      sandboxHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    try {
+      const deps = makeDeps();
+      run(["--prompt", "hi"], deps);
+      // The sandbox HOME (set in vitest.setup.ts) is where a real
+      // recordEvent call resolves its default logPath — confirming the
+      // event landed there, not the developer's actual ~/.flow, is the
+      // whole point of the sandbox swap.
+      expect(existsSync(telemetryPath)).toBe(true);
+      const lines = readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0);
+      expect(lines.length).toBeGreaterThanOrEqual(1);
+      const last = JSON.parse(lines[lines.length - 1] as string);
+      expect(last.event).toBe("delegate.call");
+    } finally {
+      rmSync(path.join(sandboxHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+
+  it("never stores stdout_tail on a successful run's telemetry event (no completion payloads)", () => {
+    const sandboxHome = process.env.HOME as string;
+    const telemetryPath = path.join(
+      sandboxHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    try {
+      const deps = makeDeps({ readFile: () => "some model completion text" });
+      run(["--prompt", "hi"], deps);
+      const lines = readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0);
+      const last = JSON.parse(lines[lines.length - 1] as string);
+      expect(last.attrs.ran).toBe(true);
+      expect(last.attrs.stdout_tail).toBeUndefined();
+    } finally {
+      rmSync(path.join(sandboxHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+
+  it("stores stdout_tail on a failing run's telemetry event when the artifact is small (diagnostic, not a completion)", () => {
+    const sandboxHome = process.env.HOME as string;
+    const telemetryPath = path.join(
+      sandboxHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    try {
+      const deps = makeDeps({
+        runAgy: () => ({ exitCode: 1, stderr: "boom" }),
+        readFile: () => "small diagnostic error text",
+      });
+      run(["--prompt", "hi"], deps);
+      const lines = readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0);
+      const last = JSON.parse(lines[lines.length - 1] as string);
+      expect(last.attrs.ran).toBe(false);
+      expect(last.attrs.stdout_tail).toBe("small diagnostic error text");
+    } finally {
+      rmSync(path.join(sandboxHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    }
+  });
+
+  it("omits stdout_tail on a failing run when the artifact is too large to plausibly be diagnostic text", () => {
+    const sandboxHome = process.env.HOME as string;
+    const telemetryPath = path.join(
+      sandboxHome,
+      ".flow",
+      "telemetry",
+      "events.jsonl",
+    );
+    try {
+      const deps = makeDeps({
+        runAgy: () => ({ exitCode: 1, stderr: "boom" }),
+        readFile: () => "x".repeat(2001),
+      });
+      run(["--prompt", "hi"], deps);
+      const lines = readFileSync(telemetryPath, "utf8")
+        .split("\n")
+        .filter((l) => l.length > 0);
+      const last = JSON.parse(lines[lines.length - 1] as string);
+      expect(last.attrs.ran).toBe(false);
+      expect(last.attrs.stdout_tail).toBeUndefined();
+    } finally {
+      rmSync(path.join(sandboxHome, ".flow", "telemetry"), {
+        recursive: true,
+        force: true,
+      });
+    }
   });
 
   it("runs agy with the prompt LAST and reports ran:true on success", () => {
@@ -855,6 +1169,78 @@ describe("run — --output-format json envelope lift", () => {
     const env = envelope(deps);
     expect(env.durationSeconds).toBeUndefined();
     expect(env.usage).toBeUndefined();
+  });
+});
+
+describe("run — deniedActions lift", () => {
+  const DENIED_FIXTURE = readFileSync(
+    path.join(__dirname, "fixtures", "agy", "denied-tools-envelope.json"),
+    "utf8",
+  );
+
+  it("lifts deniedActions:['RunCommand'] from the archived fixture on the ran:true json path", () => {
+    const deps = makeDeps({ readFile: () => DENIED_FIXTURE });
+    const code = run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(code).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      deniedActions: ["RunCommand"],
+    });
+  });
+
+  it("lifts deniedActions on the non-ran path too (e.g. a CANCELED reproduction of the same denial)", () => {
+    const deps = makeDeps({
+      runAgy: () => ({ exitCode: 0, stderr: "" }),
+      readFile: () =>
+        JSON.stringify({
+          status: "CANCELED",
+          denied_actions: [{ action: "command", display_name: "RunCommand" }],
+        }),
+    });
+    const code = run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(code).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "agy-canceled",
+      deniedActions: ["RunCommand"],
+    });
+  });
+
+  it("omits deniedActions when denied_actions is absent from the artifact", () => {
+    const deps = makeDeps({
+      readFile: () => JSON.stringify({ status: "SUCCESS", response: "ok" }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps).deniedActions).toBeUndefined();
+  });
+
+  it("omits deniedActions when denied_actions is null", () => {
+    const deps = makeDeps({
+      readFile: () =>
+        JSON.stringify({ status: "SUCCESS", denied_actions: null }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps).deniedActions).toBeUndefined();
+  });
+
+  it("omits deniedActions when denied_actions is an empty array", () => {
+    const deps = makeDeps({
+      readFile: () => JSON.stringify({ status: "SUCCESS", denied_actions: [] }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps).deniedActions).toBeUndefined();
+  });
+
+  it("falls back to `action` when an entry lacks display_name", () => {
+    const deps = makeDeps({
+      readFile: () =>
+        JSON.stringify({
+          status: "SUCCESS",
+          denied_actions: [{ action: "command" }],
+        }),
+    });
+    run(["--prompt", "hi", "--output-format", "json"], deps);
+    expect(envelope(deps).deniedActions).toEqual(["command"]);
   });
 });
 
@@ -1064,16 +1450,19 @@ describe("guard: exactly one prompt-bearing agy spawn site in bin/", () => {
       .map((name) => path.relative(binDir, path.join(dir, name))),
   );
   // A regex, not an exact-string literal: it must match both the sync
-  // `Bun.spawnSync(` and the async `Bun.spawn(` forms (bin/flow-delegate-fanout.ts:465
-  // already uses the async form in this same delegation subsystem, so the
-  // async spelling is not hypothetical), any spread identifier
-  // (`...argv`, `...agyArgv`, ...), and tolerate prettier-style
-  // whitespace/newline reflow inside the call — while still EXCLUDING
-  // flow-model-bench.ts's promptless `Bun.spawnSync(["agy", "--version"]`
-  // version probe (a string literal, not a spread, in second position) and
-  // flow-delegate.ts's own `Bun.spawnSync(["which", "agy"]` PATH check
-  // (first arg is "which", not "agy").
+  // `Bun.spawnSync(` and the async `Bun.spawn(` forms and tolerate
+  // prettier-style whitespace/newline reflow inside the call. The agy
+  // spawn is routed through the guard (bin/lib/agy-guard.ts), so the one
+  // prompt-bearing site is now the call whose argv starts
+  // `[process.execPath, AGY_GUARD_PATH`. The guard itself spawns
+  // `command[0]` generically (no "agy" literal), so it never counts.
+  // Promptless probes (flow-model-bench.ts's `["agy", "--version"]`,
+  // flow-delegate.ts's `["which", "agy"]`) match neither pattern.
   const AGY_SPAWN_PATTERN =
+    /Bun\.spawn(?:Sync)?\(\s*\[\s*process\.execPath\s*,\s*AGY_GUARD_PATH\b/;
+  // The pre-guard shape: a bare prompt-bearing `agy` spawn that would
+  // bypass both the guard and the single-site invariant.
+  const UNGUARDED_AGY_SPAWN_PATTERN =
     /Bun\.spawn(?:Sync)?\(\s*\[\s*"agy"\s*,\s*\.\.\.\w+/;
   const promptBearingAgySpawnSites = sourceFiles.filter((name) =>
     AGY_SPAWN_PATTERN.test(readFileSync(path.join(binDir, name), "utf8")),
@@ -1101,7 +1490,16 @@ describe("guard: exactly one prompt-bearing agy spawn site in bin/", () => {
     ).toBeGreaterThanOrEqual(4);
   });
 
-  it("matches the prompt-bearing agy spawn pattern exactly once, in flow-delegate.ts", () => {
+  it("matches the guarded prompt-bearing agy spawn pattern exactly once, in flow-delegate.ts", () => {
     expect(promptBearingAgySpawnSites).toEqual(["flow-delegate.ts"]);
+  });
+
+  it("has no unguarded prompt-bearing agy spawn anywhere in bin/", () => {
+    const unguarded = sourceFiles.filter((name) =>
+      UNGUARDED_AGY_SPAWN_PATTERN.test(
+        readFileSync(path.join(binDir, name), "utf8"),
+      ),
+    );
+    expect(unguarded).toEqual([]);
   });
 });

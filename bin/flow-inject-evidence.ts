@@ -16,6 +16,21 @@
  * Usage:
  *   flow-inject-evidence --body-file <path> --item <regex> \
  *     --output-file <path> --exit-code <N> [--timestamp <iso>]
+ *     [--no-tick] [--image <path>#<alt>]...
+ *   flow-inject-evidence --body-file <path> --caution-file <path>
+ *   flow-inject-evidence --body-file <path> --clear-caution
+ *
+ * Captured output is masked with `redactForPublish` before it is spliced
+ * in. `--caution-file` upserts a pointer-only verify-exhausted CAUTION
+ * block naming <path> (the file is never read); `--clear-caution`
+ * removes it. Neither caution mode takes --item.
+ *
+ * A line whose text starts `SUBJECTIVE: ` or `DECISION: ` is human-only and
+ * is never ticked, whatever exit code is passed. `--image` (repeatable)
+ * adds one worktree-relative image reference — the form `gh pr edit
+ * --attach` rewrites to an uploaded URL — plus one local `file://` link per
+ * screenshot. With at least one `--image`, `--output-file` and `--exit-code`
+ * are optional (a capture-only block).
  *
  * `--item` is interpreted as a JS regex via `new RegExp(args.item)`,
  * tested per body line. Pass a discriminating substring (` `npm run
@@ -24,32 +39,88 @@
  * escaped (or scoped out of the pattern) by the caller. Backticks,
  * spaces, dashes, slashes, equals signs are all literal.
  */
-import { readFileSync, writeFileSync } from "node:fs";
-import { normalizeDetailsBlocks } from "./lib/md-block-structure";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import * as path from "node:path";
+import {
+  fencedLineMask,
+  normalizeDetailsBlocks,
+} from "./lib/md-block-structure";
+import { redactForPublish } from "./lib/redact-secrets";
+import {
+  clearVerifyCaution,
+  displayExcerptPath,
+  upsertVerifyCaution,
+} from "./lib/verify-caution";
 
 export type InjectArgs = {
   bodyFile: string;
   item: string;
-  outputFile: string;
+  outputFile?: string;
   exitCode: number;
   timestamp?: string;
+  noTick?: boolean;
+  images?: EvidenceImage[];
 };
 
+export type CautionArgs =
+  | { mode: "caution-insert"; bodyFile: string; cautionFile: string }
+  | { mode: "caution-clear"; bodyFile: string };
+
+export type EvidenceImage = { path: string; alt: string };
+
 export type InjectResult =
-  | { ok: true; body: string; replaced: boolean; ticked: boolean }
+  | {
+      ok: true;
+      body: string;
+      replaced: boolean;
+      ticked: boolean;
+      humanOnly: boolean;
+    }
   | { ok: false; error: string };
 
 const HEAD_LINES = 100;
 const TAIL_LINES = 50;
 const TRIM_THRESHOLD = HEAD_LINES + TAIL_LINES;
 const MARKER_OPEN = "<!-- flow:evidence -->";
+const HUMAN_ONLY_RE = /^\s*-\s+\[[ xX]\]\s+(?:SUBJECTIVE|DECISION): /;
 
-export function parseArgs(argv: string[]): InjectArgs | { error: string } {
+function parseImage(val: string): EvidenceImage | null {
+  const hash = val.indexOf("#");
+  const file = hash < 0 ? val : val.slice(0, hash);
+  if (!file) return null;
+  const alt = hash < 0 ? "" : val.slice(hash + 1);
+  return { path: file, alt: alt || path.basename(file) };
+}
+
+export function parseArgs(
+  argv: string[],
+): InjectArgs | CautionArgs | { error: string } {
   const out: Partial<InjectArgs> = {};
+  let cautionFile: string | undefined;
+  let clearCaution = false;
+  const images: EvidenceImage[] = [];
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const val = argv[i + 1];
-    if (flag === "--body-file") out.bodyFile = val;
+    if (flag === "--no-tick") {
+      out.noTick = true;
+      continue;
+    }
+    if (flag === "--clear-caution") {
+      clearCaution = true;
+      continue;
+    }
+    if (flag === "--caution-file") {
+      if (val === undefined || val.startsWith("--")) {
+        return { error: "--caution-file requires a path" };
+      }
+      cautionFile = val;
+    } else if (flag === "--image") {
+      const image = val === undefined ? null : parseImage(val);
+      if (!image) return { error: "--image requires <path>#<alt>" };
+      images.push(image);
+    } else if (flag === "--body-file") out.bodyFile = val;
     else if (flag === "--item") out.item = val;
     else if (flag === "--output-file") out.outputFile = val;
     else if (flag === "--exit-code") out.exitCode = Number.parseInt(val, 10);
@@ -58,8 +129,23 @@ export function parseArgs(argv: string[]): InjectArgs | { error: string } {
     i++;
   }
   if (!out.bodyFile) return { error: "--body-file is required" };
+  if (cautionFile !== undefined || clearCaution) {
+    if (cautionFile !== undefined && clearCaution) {
+      return { error: "--caution-file and --clear-caution conflict" };
+    }
+    if (out.item !== undefined) {
+      return { error: "a caution mode cannot be combined with --item" };
+    }
+    return cautionFile !== undefined
+      ? { mode: "caution-insert", bodyFile: out.bodyFile, cautionFile }
+      : { mode: "caution-clear", bodyFile: out.bodyFile };
+  }
   if (!out.item) return { error: "--item is required" };
-  if (!out.outputFile) return { error: "--output-file is required" };
+  if (images.length > 0) out.images = images;
+  if (!out.outputFile && images.length === 0) {
+    return { error: "--output-file is required" };
+  }
+  if (!out.outputFile && out.exitCode === undefined) out.exitCode = 0;
   if (typeof out.exitCode !== "number" || Number.isNaN(out.exitCode)) {
     return { error: "--exit-code must be an integer" };
   }
@@ -102,13 +188,12 @@ export function pickFenceLength(output: string): number {
  * Sibling defense to `pickFenceLength`, aimed at a different consumer.
  * The fence stops a *markdown renderer* mis-reading captured output;
  * this stops a *line-oriented section parser* doing the same.
- * `flow-gate-decide` extracts the `## Test Steps` section by scanning to
- * the next `^## ` and does not track code fences — so a captured
- * `npm test` run that prints its own markdown report (`## Regressions
- * (1)`) silently truncates the section, hiding every checklist item
- * below it. The gate then counts zero unchecked items and returns
- * `auto-merge` on a PR whose manual steps were never run. Observed on
- * PR #755, where it hid the one genuinely-manual step.
+ * `flow-gate-decide` now skips fenced lines when bounding `## Test Steps`,
+ * but an UNCLOSED fence fails closed (its lines are read as live), so a
+ * captured `npm test` report heading (`## Regressions (1)`) could still
+ * truncate the section, hiding every checklist item below it and letting
+ * the gate return `auto-merge` on unrun manual steps (observed on PR #755).
+ * The indent is kept as defense-in-depth.
  *
  * One leading space suffices: the gate's anchored `^## ` test fails on
  * any indent, and inside the fenced block the space is invisible.
@@ -117,14 +202,40 @@ export function neutralizeHeadings(output: string): string {
   return output.replace(/^(#{1,6} )/gm, " $1");
 }
 
+function imageLines(images: EvidenceImage[]): string[] {
+  const out: string[] = [];
+  for (const image of images) {
+    const abs = path.resolve(image.path);
+    const rel = path.relative(process.cwd(), abs).split(path.sep).join("/");
+    const alt = image.alt.replace(/[\[\]\r\n]/g, " ");
+    out.push(`![${alt}](${encodeURI(rel)})`, "");
+    out.push(`[${alt} (local file)](file://${encodeURI(abs)})`, "");
+  }
+  return out;
+}
+
+/**
+ * `output === null` is a capture-only block: screenshots, no command ran.
+ * It renders `<details open>` so the pictures show without a click.
+ */
 export function buildEvidenceBlock(
-  output: string,
+  output: string | null,
   exitCode: number,
   timestamp: string,
+  images: EvidenceImage[] = [],
 ): string {
+  if (output === null) {
+    const block = [
+      `<details open>${MARKER_OPEN}<summary>Screenshots (auto-captured ${timestamp})</summary>`,
+      ...imageLines(images),
+      "</details>",
+      "",
+    ].join("\n");
+    return normalizeDetailsBlocks(block).body;
+  }
   const status = exitCode === 0 ? "pass" : `FAILED exit ${exitCode}`;
   const summary = `Output (auto-captured ${timestamp}; ${status})`;
-  const trimmed = neutralizeHeadings(trimOutput(output));
+  const trimmed = neutralizeHeadings(redactForPublish(trimOutput(output)));
   const fence = "`".repeat(pickFenceLength(trimmed));
   // The blank line before `</details>` here just closes off the fenced
   // code block for markdown re-entry (unrelated to the two GFM
@@ -139,6 +250,7 @@ export function buildEvidenceBlock(
     trimmed,
     fence,
     "",
+    ...imageLines(images),
     "</details>",
     "",
   ].join("\n");
@@ -200,11 +312,12 @@ function findExistingBlockEnd(
   matchIdx: number,
 ): number | null {
   const itemEnd = findListItemEnd(lines, matchIdx);
+  const fenced = fencedLineMask(lines);
   let i = itemEnd + 1;
   while (i < lines.length && lines[i].trim() === "") i++;
   if (i >= lines.length || !lines[i].includes(MARKER_OPEN)) return null;
   while (i < lines.length) {
-    if (lines[i].includes("</details>")) return i;
+    if (!fenced[i] && lines[i].includes("</details>")) return i;
     i++;
   }
   return null;
@@ -213,7 +326,8 @@ function findExistingBlockEnd(
 /**
  * Find the first line matching `args.item` (interpreted as a JS regex,
  * tested against each line). On match: tick `- [ ]` → `- [x]` if the
- * exit code is 0; replace any existing evidence block attached to the
+ * exit code is 0 — unless `noTick` is set or the line is human-only
+ * (`SUBJECTIVE: ` / `DECISION: `), which no caller input can tick; replace any existing evidence block attached to the
  * matched bullet; insert a fresh evidence block after the bullet's
  * last continuation line. Multi-line bullets keep their continuation
  * intact — evidence never splits a list item.
@@ -221,17 +335,21 @@ function findExistingBlockEnd(
 export function rewriteBody(
   body: string,
   args: InjectArgs,
-  output: string,
+  output: string | null,
 ): InjectResult {
   const lines = body.split("\n");
   const itemRe = new RegExp(args.item);
-  const matchIdx = lines.findIndex((line) => itemRe.test(line));
+  const fenced = fencedLineMask(lines);
+  const matchIdx = lines.findIndex(
+    (line, i) => !fenced[i] && itemRe.test(line),
+  );
   if (matchIdx < 0) {
     return { ok: false, error: `no line matched item regex: ${args.item}` };
   }
 
+  const humanOnly = HUMAN_ONLY_RE.test(lines[matchIdx]);
   let ticked = false;
-  if (args.exitCode === 0) {
+  if (args.exitCode === 0 && !args.noTick && !humanOnly) {
     const next = lines[matchIdx].replace(/^(\s*)- \[ \]/, "$1- [x]");
     if (next !== lines[matchIdx]) {
       lines[matchIdx] = next;
@@ -254,7 +372,7 @@ export function rewriteBody(
   }
 
   const ts = args.timestamp ?? new Date().toISOString();
-  const evidence = buildEvidenceBlock(output, args.exitCode, ts);
+  const evidence = buildEvidenceBlock(output, args.exitCode, ts, args.images);
   lines.splice(itemEnd + 1, 0, ...evidence.split("\n"));
 
   const { body: normalizedBody, insertions } = normalizeDetailsBlocks(
@@ -265,7 +383,42 @@ export function rewriteBody(
       `flow-inject-evidence: normalized ${insertions} <details> blank-line gap(s) in ${args.bodyFile}\n`,
     );
   }
-  return { ok: true, body: normalizedBody, replaced, ticked };
+  return { ok: true, body: normalizedBody, replaced, ticked, humanOnly };
+}
+
+function runCaution(parsed: CautionArgs): void {
+  const body = readFileSync(parsed.bodyFile, "utf8");
+  if (parsed.mode === "caution-clear") {
+    const r = clearVerifyCaution(body);
+    if (r.cleared) writeFileSync(parsed.bodyFile, r.body);
+    process.stdout.write(
+      r.cleared ? "caution cleared\n" : "no caution to clear\n",
+    );
+    return;
+  }
+  if (!existsSync(parsed.cautionFile)) {
+    process.stderr.write(
+      `flow-inject-evidence: caution file not found: ${parsed.cautionFile}\n`,
+    );
+    process.exit(1);
+  }
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: path.dirname(path.resolve(parsed.bodyFile)),
+    encoding: "utf8",
+  });
+  const root = top.status === 0 ? top.stdout.trim() : undefined;
+  const r = upsertVerifyCaution(
+    body,
+    displayExcerptPath(parsed.cautionFile, root),
+  );
+  if (!r.ok) {
+    process.stderr.write(`flow-inject-evidence: ${r.error}\n`);
+    process.exit(1);
+  }
+  writeFileSync(parsed.bodyFile, r.body);
+  process.stdout.write(
+    r.replaced ? "caution replaced\n" : "caution inserted\n",
+  );
 }
 
 async function main(): Promise<void> {
@@ -274,8 +427,15 @@ async function main(): Promise<void> {
     process.stderr.write(`flow-inject-evidence: ${parsed.error}\n`);
     process.exit(2);
   }
+  if ("mode" in parsed) {
+    runCaution(parsed);
+    return;
+  }
   const body = readFileSync(parsed.bodyFile, "utf8");
-  const output = readFileSync(parsed.outputFile, "utf8");
+  const output =
+    parsed.outputFile === undefined
+      ? null
+      : readFileSync(parsed.outputFile, "utf8");
   const result = rewriteBody(body, parsed, output);
   if (!result.ok) {
     process.stderr.write(`flow-inject-evidence: ${result.error}\n`);
@@ -283,7 +443,7 @@ async function main(): Promise<void> {
   }
   writeFileSync(parsed.bodyFile, result.body);
   process.stdout.write(
-    `evidence ${result.replaced ? "replaced" : "inserted"}; box ${result.ticked ? "ticked" : "left"}\n`,
+    `evidence ${result.replaced ? "replaced" : "inserted"}; box ${result.ticked ? "ticked" : result.humanOnly ? "left (human-only)" : "left"}\n`,
   );
 }
 

@@ -1,0 +1,3 @@
+Load the `flow-pr-review` skill and treat this as a review already in progress for PR 1 with `WORKTREE=$REPO`. Everything up to and including the Step 8 fix-applier is finished, and the PR body has already been saved to `.flow-tmp/body.md`. No agent is pending. Do not spawn any agent and do not use SendMessage.
+
+Execute ONLY Step 8c (run every runnable verification item, tick the boxes, inject the evidence, write the body back to the PR). Do not fix a failing item and do not make any commit; just record it. Stop after the body is written back. Emit `ran` (items you executed), `passed` and `failed` (of those executed).

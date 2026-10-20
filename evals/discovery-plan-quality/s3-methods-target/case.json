@@ -1,0 +1,63 @@
+{
+  "id": "s3-methods-target",
+  "title": "Request prescribes methods AND a quantitative target (Prompt interpretation recommended-path line)",
+  "provenance": "Adapted from the past pipeline request `reduce-review-phase-token-cost` (~/.flow/state/reduce-review-phase-token-cost.request.md: reduce a cost by applying a named pattern), rewritten as a startup-time target with two named methods against the todo-cli fixture. Non-researchable.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture"
+  },
+  "graders": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "exists": true
+    },
+    {
+      "id": "plan-lint",
+      "kind": "command",
+      "argv": ["flow-plan-lint", "--plan-md-file", ".flow-tmp/plan.md"],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "recommended-path",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "matches": "- \\*\\*Recommended path:\\*\\* `?(methods plausibly reach target|extend scope with named additional safe steps|relax target|split into multiple pipelines)`?[.,;:]*\\s*(\\n|$)"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

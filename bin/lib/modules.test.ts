@@ -205,7 +205,8 @@ describe("modules registry completeness (live discovery, not doc prose)", () => 
     const core = MODULES.find((m) => m.id === "core")!;
     expect(core.validators).toContain("flow-epic-manifest-schema");
     expect(core.validators).toContain("flow-intent-resolution-schema");
-    expect(core.validators.length).toBe(5);
+    expect(core.validators).toContain("flow-ui-driver-schema");
+    expect(core.validators.length).toBe(6);
   });
 
   it("materialized testing split: generic flow-testing is a core skill, Svelte flow-testing-svelte is a stack-svelte skill", () => {

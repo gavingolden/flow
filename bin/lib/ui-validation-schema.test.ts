@@ -453,6 +453,127 @@ describe("validateUiValidationManifest — wrong-shape rejections", () => {
   });
 });
 
+describe("validateUiValidationManifest — dependsOn", () => {
+  const withDeps = (deps: unknown): unknown => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.dependsOn = deps;
+    return fixture;
+  };
+
+  it("accepts a well-formed dependsOn (start optional)", () => {
+    const result = validateUiValidationManifest(
+      withDeps([
+        {
+          name: "supabase",
+          url: "http://127.0.0.1:54321/rest/v1/",
+          start: "npx supabase start",
+        },
+        { name: "api", url: "https://localhost:8443/health" },
+      ]),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("still accepts a manifest without dependsOn", () => {
+    expect(validateUiValidationManifest(MINIMAL_MANIFEST).ok).toBe(true);
+  });
+
+  it.each([
+    ["not an array", { name: "db", url: "http://127.0.0.1:1/" }, "dependsOn"],
+    ["entry not an object", ["db"], "dependsOn[0]"],
+    [
+      "empty name",
+      [{ name: "", url: "http://127.0.0.1:1/" }],
+      "dependsOn[0].name",
+    ],
+    [
+      "non-http url",
+      [{ name: "db", url: "ftp://127.0.0.1/" }],
+      "dependsOn[0].url",
+    ],
+    [
+      "url with a {{PORT}} sentinel",
+      [{ name: "db", url: "http://localhost:{{PORT}}/" }],
+      "dependsOn[0].url",
+    ],
+    [
+      "empty start",
+      [{ name: "db", url: "http://127.0.0.1:1/", start: "" }],
+      "dependsOn[0].start",
+    ],
+  ])("rejects dependsOn: %s", (_label, deps, field) => {
+    const result = validateUiValidationManifest(withDeps(deps));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain(field);
+  });
+});
+
+describe("validateUiValidationManifest — dependsOn probe and requires", () => {
+  const withDeps = (deps: unknown): unknown => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.dependsOn = deps;
+    return fixture;
+  };
+  const DOCKER = {
+    name: "docker",
+    probe: "docker info",
+    start: "open -a OrbStack",
+  };
+  const SUPABASE = {
+    name: "supabase",
+    url: "http://127.0.0.1:54321/rest/v1/",
+    requires: ["docker"],
+  };
+
+  it("accepts a probe dependency and a url dependency that requires an earlier entry", () => {
+    expect(validateUiValidationManifest(withDeps([DOCKER, SUPABASE])).ok).toBe(
+      true,
+    );
+  });
+
+  it("keeps a url-only manifest valid (no probe, no requires)", () => {
+    expect(
+      validateUiValidationManifest(
+        withDeps([{ name: "api", url: "http://127.0.0.1:1/" }]),
+      ).ok,
+    ).toBe(true);
+  });
+
+  it.each([
+    [
+      "both url and probe",
+      [{ name: "db", url: "http://127.0.0.1:1/", probe: "true" }],
+      "dependsOn[0] must have exactly one of 'url' or 'probe', not both",
+    ],
+    ["neither url nor probe", [{ name: "db" }], "dependsOn[0].url"],
+    ["empty probe", [{ name: "db", probe: "" }], "dependsOn[0].probe"],
+    [
+      "requires not an array",
+      [DOCKER, { ...SUPABASE, requires: "docker" }],
+      "dependsOn[1].requires must be an array",
+    ],
+    [
+      "requires an unknown name",
+      [DOCKER, { ...SUPABASE, requires: ["nope"] }],
+      "dependsOn[1].requires[0] 'nope' names no dependsOn entry",
+    ],
+    [
+      "requires a later entry (forward reference)",
+      [{ ...SUPABASE, requires: ["docker"] }, DOCKER],
+      "dependsOn[0].requires[0] 'docker' names a later",
+    ],
+    [
+      "requires itself",
+      [{ ...DOCKER, requires: ["docker"] }],
+      "dependsOn[0].requires[0] 'docker' names a later (or the same)",
+    ],
+  ])("rejects dependsOn: %s", (_label, deps, expected) => {
+    const result = validateUiValidationManifest(withDeps(deps));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain(expected);
+  });
+});
+
 describe("ui-validation-schema CLI — `--validate <path>`", () => {
   it("exits 2 with usage on stderr when --validate is missing", () => {
     const result = runCli([]);

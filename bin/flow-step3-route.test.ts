@@ -7,9 +7,12 @@ import {
   decideStep3Route,
   extractRecommendedPath,
   extractSurveyVerdict,
+  extractVettingVerdict,
   parseArgs,
+  parseVettingVerdict,
   run,
   SURVEY_VERDICTS,
+  VETTING_VERDICTS,
   type Intent,
 } from "./flow-step3-route";
 
@@ -297,6 +300,119 @@ describe(extractSurveyVerdict, () => {
   });
 });
 
+const PLAN_VETTING_PUSH_BACK = `## Request vetting\n\n- **Verdict:** push back: do nothing\n`;
+const PLAN_VETTING_ADOPT_WITH_CONDITIONS = `## Request vetting\n\n- **Verdict:** adopt-with-conditions: measure it first\n`;
+const PLAN_VETTING_ADOPT = `## Request vetting\n\n- **Verdict:** adopt\n`;
+const PLAN_VETTING_BARE_PUSH_BACK = `## Request vetting\n\n- **Verdict:** push back\n`;
+
+describe("decideStep3Route — `## Request vetting` push-back routing", () => {
+  it("routes chore to route-to-step-4 on `push back: X`", () => {
+    expect(decideStep3Route("chore", PLAN_VETTING_PUSH_BACK)).toBe(
+      "route-to-step-4",
+    );
+  });
+
+  it("routes EVERY non-feature intent to route-to-step-4 on `push back: X`", () => {
+    for (const intent of NON_FEATURE_INTENTS) {
+      expect(decideStep3Route(intent, PLAN_VETTING_PUSH_BACK)).toBe(
+        "route-to-step-4",
+      );
+    }
+  });
+
+  it("leaves chore on advance-to-step-5 for `adopt-with-conditions: X`", () => {
+    expect(decideStep3Route("chore", PLAN_VETTING_ADOPT_WITH_CONDITIONS)).toBe(
+      "advance-to-step-5",
+    );
+  });
+
+  it("leaves chore on advance-to-step-5 for a bare `adopt`", () => {
+    expect(decideStep3Route("chore", PLAN_VETTING_ADOPT)).toBe(
+      "advance-to-step-5",
+    );
+  });
+
+  it("still routes on a backtick-decorated `push back: X` verdict", () => {
+    const plan =
+      "## Request vetting\n\n- **Verdict:** `push back: do nothing`\n";
+    expect(decideStep3Route("chore", plan)).toBe("route-to-step-4");
+  });
+
+  it("a bare `push back` with no colon/detail still routes (fail-closed, not fail-open)", () => {
+    // parseVettingVerdict itself stays strict (returns null — the lint's
+    // job is to name this as a miss), but the ROUTER must not fail open
+    // into an autonomous advance-to-step-5 on a malformed push-back verdict.
+    expect(decideStep3Route("chore", PLAN_VETTING_BARE_PUSH_BACK)).toBe(
+      "route-to-step-4",
+    );
+  });
+
+  it("push back still wins for feature intent (already route-to-step-4, but via the vetting rule)", () => {
+    expect(decideStep3Route("feature", PLAN_VETTING_PUSH_BACK)).toBe(
+      "route-to-step-4",
+    );
+  });
+});
+
+describe(extractVettingVerdict, () => {
+  it("returns null when the `## Request vetting` heading is absent", () => {
+    expect(extractVettingVerdict(PLAN_WITHOUT_SECTION)).toBeNull();
+    expect(extractVettingVerdict("")).toBeNull();
+  });
+
+  it("extracts the colon-form value verbatim", () => {
+    expect(extractVettingVerdict(PLAN_VETTING_PUSH_BACK)).toBe(
+      "push back: do nothing",
+    );
+  });
+});
+
+describe(parseVettingVerdict, () => {
+  it("parses exact `adopt` with an empty detail", () => {
+    expect(parseVettingVerdict("adopt")).toEqual({
+      kind: "adopt",
+      detail: "",
+    });
+  });
+
+  it("parses `adopt-with-conditions: <detail>`", () => {
+    expect(
+      parseVettingVerdict("adopt-with-conditions: measure it first"),
+    ).toEqual({
+      kind: "adopt-with-conditions",
+      detail: "measure it first",
+    });
+  });
+
+  it("parses `push back: <detail>`", () => {
+    expect(parseVettingVerdict("push back: do nothing")).toEqual({
+      kind: "push back",
+      detail: "do nothing",
+    });
+  });
+
+  it("returns null for a bare `push back` with no colon/detail", () => {
+    expect(parseVettingVerdict("push back")).toBeNull();
+  });
+
+  it("returns null for a bare `adopt-with-conditions` with no colon/detail", () => {
+    expect(parseVettingVerdict("adopt-with-conditions")).toBeNull();
+  });
+
+  it("returns null for an off-enum paraphrase", () => {
+    expect(parseVettingVerdict("adopt with conditions")).toBeNull();
+    expect(parseVettingVerdict("")).toBeNull();
+  });
+
+  it("VETTING_VERDICTS enumerates the three closed kinds", () => {
+    expect(VETTING_VERDICTS).toEqual([
+      "adopt",
+      "adopt-with-conditions",
+      "push back",
+    ]);
+  });
+});
+
 describe(extractRecommendedPath, () => {
   it("returns null when section heading is absent", () => {
     expect(extractRecommendedPath(PLAN_WITHOUT_SECTION)).toBeNull();
@@ -387,7 +503,7 @@ describe(extractRecommendedPath, () => {
   });
 
   it("ignores a level-3 (###) Prompt-Interpretation heading", () => {
-    // discovery-instructions.md specifies a top-level ## heading;
+    // discovery-prompt-interpretation.md specifies a top-level ## heading;
     // level-3 is intentionally not recognised.
     const plan = `### Prompt interpretation\n\n- **Recommended path:** extend scope with named additional safe steps\n`;
     expect(extractRecommendedPath(plan)).toBeNull();

@@ -204,6 +204,8 @@ plan.md's `## Alternatives considered` (see
    fi
    ```
 
+   When `flow-agy-scout` is on PATH, try it first — see [references/delegated-scout.md](references/delegated-scout.md).
+
    Make exactly **one** Task-tool call:
 
    ```
@@ -228,6 +230,7 @@ config.models.implement > inherited` (see
    [ -z "$SCOUT_MODEL" ] && SCOUT_MODEL=$(jq -r '.modelImplement // empty' ~/.flow/state/"$SLUG".json)
    [ -z "$SCOUT_MODEL" ] && SCOUT_MODEL=$(jq -r '.models.implement // empty' ~/.flow/config.json 2>/dev/null)
    # Non-empty ⇒ pass model: "$SCOUT_MODEL" on the Task call; empty ⇒ omit.
+   SCOUT_EFFORT=$(command -v flow-spawn-effort >/dev/null 2>&1 && flow-spawn-effort scout)  # non-empty ⇒ pass effort: "$SCOUT_EFFORT"; empty ⇒ omit
    ```
 
 4. When the subagent returns, treat its 3–5-sentence both-sides summary
@@ -302,14 +305,14 @@ scout report back; the artifact on disk is the record.
 - Before committing to implementation, perform a brief structured
   assessment. Present findings to the user as a table:
 
-  | Criterion            | Assessment                                                                                              |
-  | -------------------- | ------------------------------------------------------------------------------------------------------- |
-  | Customer value       | _How much does this improve the user's workflow?_                                                       |
-  | Technical complexity | _Rough effort estimate and what areas of the codebase are affected_                                     |
-  | Debt risk            | _Does this follow existing patterns or introduce new ones?_                                             |
-  | Composability        | _Can this design be easily extended, layered on, or reused?_                                            |
-  | Redundancy           | Does this duplicate an existing capability (skill/helper/config/prior feature)? Cite it, or state none. |
-  | **Recommendation**   | **Proceed / Reconsider scope / Defer / Reject**                                                         |
+  | Criterion            | Assessment                                                                                                                                                  |
+  | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Customer value       | _How much does this improve the user's workflow?_                                                                                                           |
+  | Technical complexity | _Rough effort estimate and what areas of the codebase are affected_                                                                                         |
+  | Debt risk            | _Does this follow existing patterns or introduce new ones? Carry each non-keep `assessment:` verdict from scout's `## affected_modules` here with its why._ |
+  | Composability        | _Can this design be easily extended, layered on, or reused?_                                                                                                |
+  | Redundancy           | Does this duplicate an existing capability (skill/helper/config/prior feature)? Cite it, or state none.                                                     |
+  | **Recommendation**   | **Proceed / Reconsider scope / Defer / Reject**                                                                                                             |
 
 - Within this analysis:
   - **Challenge the feature.** Don't just validate the user's idea. Identify potential
@@ -321,7 +324,7 @@ scout report back; the artifact on disk is the record.
     Minimal scope / anti-over-engineering targets unrequested feature creep, not
     trivial robustness fixes — for the fix-now-vs-defer bar (when a small,
     low-risk, in-scope fix must land in-PR rather than be deferred), see
-    `templates/AGENTS.md.template` (`## Anti-Overengineering`) and `/flow-pr-review`'s
+    `templates/references/agent-conduct.md` (`## Anti-Overengineering`) and `/flow-pr-review`'s
     `flow-fix-applier-instructions/SKILL.md`.
   - **Consider alternatives.** Propose at least one alternative approach if one exists.
     Briefly explain the trade-off. When the user's feature description is framed as a
@@ -378,7 +381,7 @@ discovered during implementation` bullet to the relevant task (or a minimal new 
     path** is anything other than `methods plausibly reach target`, the
     upstream discovery flagged a tension between prescribed methods and
     the stated target (see
-    `skills/pipeline/flow-product-planning/references/discovery-instructions.md`
+    `skills/pipeline/flow-product-planning/references/discovery-prompt-interpretation.md`
     "Prompt interpretation (conditional)" for the four-value enum). Add a
     **Prompt interpretation** row to the assessment table whose Assessment
     cell names the tension verbatim from plan.md and surfaces the
@@ -472,32 +475,32 @@ interpretation` section, or the section's Recommended path is
 After the user approves the critical analysis and test specs, seed a PR description so the
 PR tells a coherent story from the start — captures intent, not a post-hoc summary.
 **If `.flow-tmp/pr-description-draft.md` exists** (left by `product-planning`): use it
-as-is and skip to Step 5. Otherwise synthesize one with `## Why` / `## What` / `## Key
-decisions` / `## User-facing changes` / (conditionally) `## System flow changes` /
-`## Test Steps` sections (verify every factual claim live per AGENTS.md's 'Verify
-factual claims before emitting them.' rule).
+as-is and skip to Step 5. Otherwise synthesize one with `## TLDR` / `## User-facing
+changes` / `## System changes` / `## Why` / `## Key decisions` / `## Test Steps`
+sections (verify every factual claim live per AGENTS.md's 'Verify factual claims
+before emitting them.' rule).
 
 The **Test Steps** automation test: can I name (a) a fixture/setup, (b) one or more
 deterministic assertions, and (c) an exit condition — all without subjective human
 judgment? If yes, write the item as the runnable shell command, not manual prose. A
 non-trivial UI change authors one `SUBJECTIVE: `-prefixed step per facet (or one overall
-sign-off for a Visual-Spec-referencing PR) that the agent can never tick. Apply the
+sign-off for a Visual-Spec-referencing PR) that the agent can never tick. Human-only items use exactly two labels — `SUBJECTIVE: ` (taste; review attaches a screenshot) and `DECISION: ` (accept a named trade-off); a browser behaviour check is written `Browser: on <route>, <action> — expect <result>`; post-merge chores go to `flow-followups`, never Test Steps (rubric headings **Decision checks**, **Behaviour checks: the Browser: shape**, **Split rule: a taste item holds only taste**, **Shallow smells**). Apply the
 rubric's **Coverage breadth** (one check per distinct facet), **"Decompose a manual step by layer"** (route a backend contract to an integration test, keep only the genuine
 browser remainder manual), and **Precondition concreteness** (spell out the exact how)
-rules to every candidate item. Open the section with this HTML comment, copied verbatim,
+rules to every candidate item, then run the authoring lint (`references/pr-description-authoring.md` `## Test Steps`). Open the section with this HTML comment, copied verbatim,
 between the heading and the first `- [ ]` item:
 
 ```html
-<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+<!-- flow:authoring-rubric — for each checkbox item below, the three-question
 automation test from manual-test-rubric.md is: (a) named fixture/setup,
 (b) deterministic assertion(s), (c) exit condition. If all three are answerable
 without subjective human judgment, it must be a runnable item. Source of truth:
 skills/pipeline/flow-pr-review/references/manual-test-rubric.md. -->
 ```
 
-Full section-by-section template, worked examples, and drafting rules (concise
-non-implementation-terms "Why", user-terms "User-facing changes" with `none` for
-pure-internal PRs, always-emit-the-heading, no-hard-wrap) in
+Full section-by-section template, worked examples, and drafting rules (one-sentence
+25-word-max "TLDR" naming a surface not a file; user-terms "User-facing changes" and
+reviewer-facing "System changes", both mandatory with `none`; no-hard-wrap) in
 [references/pr-description-authoring.md](references/pr-description-authoring.md). Save to
 `.flow-tmp/pr-description-draft.md` (`mkdir -p .flow-tmp` first) and present to the user
 for quick confirmation — do NOT block on it; "skip" or "later" proceeds to Step 5.
@@ -630,16 +633,28 @@ runs `flow-pre-commit --json` against the post-edit worktree, and
 writes the structured artifact at
 `<worktree>/.flow-tmp/coder-result.json`.
 
-4. After `/flow-coder` returns, do a cheap existence check on the artifact:
+4. After `/flow-coder` returns, do a cheap completeness check on the artifact.
+   A `status: partial` artifact is reachable here — not an automatic
+   failure — when its only defect is turn-budget entries (every attempted
+   edit applied and `verify_status == "pass"` after the continuation):
 
    ```bash
-   test -s "$WORKTREE/.flow-tmp/coder-result.json" \
+   jq -e '(.status == "complete" or .status == "partial") and .verify_status == "pass"' "$WORKTREE/.flow-tmp/coder-result.json" >/dev/null \
      || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
+   jq -r '.edits[] | select((.tool_error // "") | startswith("turn-budget — ")) | "\(.file): \(.intent)"' "$WORKTREE/.flow-tmp/coder-result.json" | while IFS= read -r t; do flow-untracked add --title "$t" --source coder; done
    ```
 
-On missing or empty artifact, surface the failure to the caller —
-the supervisor escalates `NEEDS HUMAN: coder-failed` rather than
-retrying past the 1-retry cap.
+On a missing/invalid artifact, or one with `verify_status != "pass"`,
+surface the failure to the caller — the supervisor escalates
+`NEEDS HUMAN: coder-failed` rather than retrying past the 1-retry cap. A
+`status: partial` artifact that clears the check above (all attempted
+edits applied, `verify_status == "pass"`) proceeds instead of escalating:
+register the entries via the loop above, and the PR body's
+`## Deviations from plan` names the count and untracked ids AND
+`## Test Steps` gains an unchecked
+`- [ ] DECISION: confirm N unattempted entries (listed under
+
+## Deviations from plan) are acceptable` item so the PR is gated.
 
 5. Read the artifact body once and parse into a typed object. Reuse
    the parsed object across Step 6 (test implementation, when it needs
@@ -657,7 +672,7 @@ This step runs only after `/flow-coder` returns successfully (Step 5's wider-sco
 
 Run `flow-annotate-pr <PR>` against the merged-to-base diff. The helper parses `git diff -U0 <merge-base>...HEAD`, evaluates three trigger rules per hunk — (a) hunk has ≥10 changed lines, (b) hunk is a mixed-add-delete restructure (≥4 `+` AND ≥4 `-` lines), (c) file's total changed LOC is ≥30 with per-file dedup (only the first non-trivial hunk in a ≥30-LOC file gets annotated via rule c) — ranks the matches by priority, caps the result via a floor(8)/ratio(50%)/ceiling(24) scaling formula (operator-overridable machine-wide via a `flowAnnotatePr` key in `~/.flow/config.json`), and emits a JSON envelope on stdout: `{candidates: [...], overflowNote?: string}`. Each candidate carries `{file, line, end_line?, side: "RIGHT"|"LEFT", hunk_excerpt}` but NO `body` field — that is the agent's job.
 
-For each candidate in the envelope, generate a 1-2-sentence rationale in casual tone (incomplete sentences permitted) explaining the non-obvious _why_ of the change at that location. On a fix-shaped hunk (part of a PR whose pipeline exists to fix an observed defect, or whose dominant commit type is `fix:`), state the causal pair within that same 1-2-sentence cap — what was wrong at this location and why this edit fixes it — instead of intent-only description; feature/refactor hunks keep today's intent-only rule. Prefix the rationale with the literal `**why:** ` (Markdown bold + colon + space) and suffix it with `\n\n<!-- flow-intent-v1 -->` (newline-newline before the HTML-comment integrity suffix so the suffix is invisible in rendered Markdown). Construct the Finding[] JSON (each entry: `{file, line, end_line?, side, body}`) and pipe it to `flow-post-findings <PR>` (or write to `.flow-tmp/intent-findings.json` and pass via `--file`). `flow-post-findings` posts each annotation as an individual inline review comment via the `/comments` endpoint — same shape that `/flow-pr-review` uses for its findings, but with the `**why:** ` prefix marking these as author intent (not a Conventional Comments review finding).
+For each candidate in the envelope, generate a 1-2-sentence rationale in casual tone (incomplete sentences permitted) explaining the non-obvious _why_ of the change at that location. On a fix-shaped hunk (part of a PR whose pipeline exists to fix an observed defect, or whose dominant commit type is `fix:`), state the causal pair within that same 1-2-sentence cap — what was wrong at this location and why this edit fixes it — instead of intent-only description; feature/refactor hunks keep today's intent-only rule. Prefix the rationale with the literal `**why:** ` (Markdown bold + colon + space) and suffix it with `\n\n<!-- flow-intent-v1 -->` (newline-newline before the HTML-comment integrity suffix so the suffix is invisible in rendered Markdown). Construct the Finding[] JSON (each entry: `{file, line, end_line?, side, body}`) write it to `.flow-tmp/intent-findings.json` and run `flow-post-findings <PR> --file <absolute path to that file>` as its own standalone Bash call (already-posted annotations are skipped, so a re-run is safe). `flow-post-findings` posts each annotation as an individual inline review comment via the `/comments` endpoint — same shape that `/flow-pr-review` uses for its findings, but with the `**why:** ` prefix marking these as author intent (not a Conventional Comments review finding).
 
 When `overflowNote` is present (more matched hunks than the resolved cap allows), append it as a self-contained callout at the END of the PR body. Read the current body with `gh pr view <PR> --json body --jq .body > .flow-tmp/pr-body.md`, append the note after all existing content with a leading blank-line separator (so the `> [!NOTE]` renders as a GitHub alert), run `flow-md-validate --fix-pr-body .flow-tmp/pr-body.md` to repair any `<details>` blank-line gaps, then update with `gh pr edit <PR> --body-file .flow-tmp/pr-body.md`. This preserves the surplus rationale in durable form — the note itself says the rationale lives in the commit messages — when the inline annotation cap is hit.
 
@@ -688,7 +703,7 @@ block to scrollback only — escalation can fire before a PR exists, so the
 PR body is not edited and the JSONL log is left on disk for a later resume
 to consume. Do **not** execute the follow-up directly — that's the
 supervisor's job, gated by the allowlist. See
-`skills/pipeline/flow-pipeline/SKILL.md` step 11 for the contract.
+`skills/pipeline/flow-pipeline/references/phases/step-11-follow-ups.md` for the contract.
 
 Skip this step when the change has no user-visible local-machine side-effect
 (pure code edits, doc-only changes, internal refactors).

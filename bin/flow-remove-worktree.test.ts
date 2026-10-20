@@ -10,6 +10,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteBranchWithForceFallback,
+  forgetRemovedWorktree,
   isDeregisteredFailure,
   isNotFullyMergedFailure,
   isRemovalPhaseFailure,
@@ -24,6 +25,7 @@ import {
   resolveTargetInput,
 } from "./flow-remove-worktree";
 import { salvageAgentMemory } from "./lib/worktree-fs";
+import { readState, writeState } from "./lib/state";
 
 /** Computes the SAME `repoCacheKey` value as `./lib/paths.ts`'s
  * `repoCacheKey`, but derived independently (never by calling
@@ -327,6 +329,94 @@ describe(matchWorktree, () => {
       // canonical live entry.
       const match = matchWorktree("slug", worktrees, linkDir);
       expect(match?.path).toBe(canonicalReal);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// --- forgetRemovedWorktree --------------------------------------------------
+
+describe(forgetRemovedWorktree, () => {
+  let stateDir!: string;
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "forget-wt-state-"));
+  });
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  function seed(phase: string, worktree: string | undefined): void {
+    writeState(
+      {
+        slug: "csv-export",
+        phase,
+        repo: "/tmp/repo",
+        worktree,
+        updatedAt: "2026-04-30T12:00:00Z",
+      },
+      stateDir,
+    );
+  }
+
+  it.each(["merged", "cancelled"])(
+    "clears the recorded worktree at %s when it is the directory just removed",
+    (phase) => {
+      seed(phase, "/tmp/wt/csv-export");
+      expect(
+        forgetRemovedWorktree("csv-export", "/tmp/wt/csv-export", stateDir),
+      ).toBe(true);
+      const after = readState("csv-export", stateDir);
+      expect(after?.worktree).toBeUndefined();
+      expect(after?.phase).toBe(phase);
+    },
+  );
+
+  it.each(["implementing", "gated", "needs-human", "epic-designing"])(
+    "keeps the recorded worktree at the live/awaiting phase %s (a live pipeline never loses the field, so resume still escalates missing-worktree)",
+    (phase) => {
+      seed(phase, "/tmp/wt/csv-export");
+      expect(
+        forgetRemovedWorktree("csv-export", "/tmp/wt/csv-export", stateDir),
+      ).toBe(false);
+      expect(readState("csv-export", stateDir)?.worktree).toBe(
+        "/tmp/wt/csv-export",
+      );
+    },
+  );
+
+  it("keeps the record when the removed directory is a different worktree (never clears a sibling's field)", () => {
+    seed("merged", "/tmp/wt/csv-export");
+    expect(
+      forgetRemovedWorktree("csv-export", "/tmp/wt/csv-export-2", stateDir),
+    ).toBe(false);
+    expect(readState("csv-export", stateDir)?.worktree).toBe(
+      "/tmp/wt/csv-export",
+    );
+  });
+
+  it("returns false and writes nothing for a missing state file or an absent worktree field", () => {
+    expect(forgetRemovedWorktree("ghost", "/tmp/wt/x", stateDir)).toBe(false);
+    seed("merged", undefined);
+    expect(forgetRemovedWorktree("csv-export", "/tmp/wt/x", stateDir)).toBe(
+      false,
+    );
+  });
+
+  it("matches a DELETED directory recorded through a symlinked ancestor (macOS /var -> /private/var), where realpath of the deleted leaf alone cannot resolve", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "forget-wt-canon-"));
+    try {
+      const realParent = path.join(root, "real");
+      fs.mkdirSync(realParent);
+      const linkParent = path.join(root, "link");
+      fs.symlinkSync(realParent, linkParent);
+      // Recorded via the symlinked spelling; git reports the canonical one.
+      seed("cancelled", path.join(linkParent, "wt"));
+      const removedCanonical = path.join(fs.realpathSync(realParent), "wt");
+      expect(
+        forgetRemovedWorktree("csv-export", removedCanonical, stateDir),
+      ).toBe(true);
+      expect(readState("csv-export", stateDir)?.worktree).toBeUndefined();
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -1081,6 +1171,42 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
     expect(list).not.toContain(wtDir);
   });
 
+  it.each([
+    ["merged", true],
+    ["implementing", false],
+  ] as const)(
+    "end-to-end: removing the worktree of a pipeline at %s %s its recorded worktree in ~/.flow/state/<slug>.json",
+    async (phase, cleared) => {
+      const create = await runNewWorktree(["fin"], fx.repoDir);
+      expect(create.exitCode, `stderr: ${create.stderr}`).toBe(0);
+      const wtDir = path.join(path.dirname(fx.repoDir), "repo-fin");
+      const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-rm-home-"));
+      try {
+        const stateDir = path.join(fakeHome, ".flow", "state");
+        writeState(
+          {
+            slug: "fin",
+            phase,
+            repo: fx.repoDir,
+            worktree: wtDir,
+            updatedAt: "2026-04-30T12:00:00Z",
+          },
+          stateDir,
+        );
+        const env: NodeJS.ProcessEnv = { ...process.env, HOME: fakeHome };
+        delete env.FLOW_SLUG;
+        const remove = await runHelper(["fin"], fx.repoDir, env);
+        expect(remove.exitCode, `stderr: ${remove.stderr}`).toBe(0);
+        expect(fs.existsSync(wtDir)).toBe(false);
+        const after = readState("fin", stateDir);
+        expect(after?.phase).toBe(phase);
+        expect(after?.worktree).toBe(cleared ? undefined : wtDir);
+      } finally {
+        fs.rmSync(fakeHome, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("worktree memory link end-to-end: linked, ignored, and salvaged into cache on removal (PR #756 Test Step 5)", async () => {
     const create = await runNewWorktree(["probe-mem"], fx.repoDir);
     expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
@@ -1194,111 +1320,120 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
 
 // --- Integration: auto-delete merged branches -------------------------------
 
-describe("flow-remove-worktree (integration: auto-delete merged branches)", () => {
-  let fx: FreshRepoFixture;
-  beforeEach(() => {
-    fx = makeFreshRepoFixture();
-  });
-  afterEach(() => fx.cleanup());
+// ~2 s alone, past the 5 s default under full-suite load (each case shells out to git several times).
+describe(
+  "flow-remove-worktree (integration: auto-delete merged branches)",
+  { timeout: 15_000 },
+  () => {
+    let fx: FreshRepoFixture;
+    beforeEach(() => {
+      fx = makeFreshRepoFixture();
+    });
+    afterEach(() => fx.cleanup());
 
-  it("auto-deletes the local branch when its tip is reachable from origin/<base>", async () => {
-    const create = await runNewWorktree(["merged-feat"], fx.repoDir);
-    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
-      0,
-    );
-    const wtDir = path.join(path.dirname(fx.repoDir), "repo-merged-feat");
+    it("auto-deletes the local branch when its tip is reachable from origin/<base>", async () => {
+      const create = await runNewWorktree(["merged-feat"], fx.repoDir);
+      expect(
+        create.exitCode,
+        `flow-new-worktree stderr: ${create.stderr}`,
+      ).toBe(0);
+      const wtDir = path.join(path.dirname(fx.repoDir), "repo-merged-feat");
 
-    // Commit on the per-task branch from inside the worktree.
-    fs.writeFileSync(path.join(wtDir, "feature.txt"), "shipped\n");
-    mustGit(["add", "."], wtDir);
-    mustGit(["commit", "-m", "feat"], wtDir);
+      // Commit on the per-task branch from inside the worktree.
+      fs.writeFileSync(path.join(wtDir, "feature.txt"), "shipped\n");
+      mustGit(["add", "."], wtDir);
+      mustGit(["commit", "-m", "feat"], wtDir);
 
-    // Fast-forward origin/main to the per-task branch tip so the branch is
-    // provably reachable from origin/main, then refresh the primary's
-    // remote-tracking ref so detectDefaultBranch + the merge probe both see it.
-    mustGit(["push", "origin", "merged-feat:main"], wtDir);
-    mustGit(["fetch", "origin"], fx.repoDir);
+      // Fast-forward origin/main to the per-task branch tip so the branch is
+      // provably reachable from origin/main, then refresh the primary's
+      // remote-tracking ref so detectDefaultBranch + the merge probe both see it.
+      mustGit(["push", "origin", "merged-feat:main"], wtDir);
+      mustGit(["fetch", "origin"], fx.repoDir);
 
-    const r = await runHelper(["merged-feat"], fx.repoDir);
-    expect(r.exitCode, `stderr: ${r.stderr}\nstdout: ${r.stdout}`).toBe(0);
-    expect(fs.existsSync(wtDir)).toBe(false);
+      const r = await runHelper(["merged-feat"], fx.repoDir);
+      expect(r.exitCode, `stderr: ${r.stderr}\nstdout: ${r.stdout}`).toBe(0);
+      expect(fs.existsSync(wtDir)).toBe(false);
 
-    const branches = mustGit(["branch", "--list"], fx.repoDir);
-    expect(branches).not.toContain("merged-feat");
-    expect(r.stdout, `stdout: ${r.stdout}`).toMatch(
-      /fully merged into origin\/main/,
-    );
-  });
+      const branches = mustGit(["branch", "--list"], fx.repoDir);
+      expect(branches).not.toContain("merged-feat");
+      expect(r.stdout, `stdout: ${r.stdout}`).toMatch(
+        /fully merged into origin\/main/,
+      );
+    });
 
-  it("preserves the local branch when it has commits not in origin/<base>", async () => {
-    const create = await runNewWorktree(["unmerged-feat"], fx.repoDir);
-    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
-      0,
-    );
-    const wtDir = path.join(path.dirname(fx.repoDir), "repo-unmerged-feat");
+    it("preserves the local branch when it has commits not in origin/<base>", async () => {
+      const create = await runNewWorktree(["unmerged-feat"], fx.repoDir);
+      expect(
+        create.exitCode,
+        `flow-new-worktree stderr: ${create.stderr}`,
+      ).toBe(0);
+      const wtDir = path.join(path.dirname(fx.repoDir), "repo-unmerged-feat");
 
-    // Commit on the per-task branch but DO NOT push — origin/main stays at the
-    // initial commit, so the branch tip is unreachable from origin/main.
-    fs.writeFileSync(path.join(wtDir, "wip.txt"), "in progress\n");
-    mustGit(["add", "."], wtDir);
-    mustGit(["commit", "-m", "wip"], wtDir);
+      // Commit on the per-task branch but DO NOT push — origin/main stays at the
+      // initial commit, so the branch tip is unreachable from origin/main.
+      fs.writeFileSync(path.join(wtDir, "wip.txt"), "in progress\n");
+      mustGit(["add", "."], wtDir);
+      mustGit(["commit", "-m", "wip"], wtDir);
 
-    const r = await runHelper(["unmerged-feat"], fx.repoDir);
-    expect(r.exitCode, `stderr: ${r.stderr}\nstdout: ${r.stdout}`).toBe(0);
-    expect(fs.existsSync(wtDir)).toBe(false);
+      const r = await runHelper(["unmerged-feat"], fx.repoDir);
+      expect(r.exitCode, `stderr: ${r.stderr}\nstdout: ${r.stdout}`).toBe(0);
+      expect(fs.existsSync(wtDir)).toBe(false);
 
-    const branches = mustGit(["branch", "--list"], fx.repoDir);
-    expect(branches).toContain("unmerged-feat");
-    expect(r.stdout, `stdout: ${r.stdout}`).toMatch(/was kept/);
-  });
+      const branches = mustGit(["branch", "--list"], fx.repoDir);
+      expect(branches).toContain("unmerged-feat");
+      expect(r.stdout, `stdout: ${r.stdout}`).toMatch(/was kept/);
+    });
 
-  it("--delete-branch flag still force-attempts deletion regardless of merge state", async () => {
-    const create = await runNewWorktree(["flag-feat"], fx.repoDir);
-    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
-      0,
-    );
-    const wtDir = path.join(path.dirname(fx.repoDir), "repo-flag-feat");
+    it("--delete-branch flag still force-attempts deletion regardless of merge state", async () => {
+      const create = await runNewWorktree(["flag-feat"], fx.repoDir);
+      expect(
+        create.exitCode,
+        `flow-new-worktree stderr: ${create.stderr}`,
+      ).toBe(0);
+      const wtDir = path.join(path.dirname(fx.repoDir), "repo-flag-feat");
 
-    // No new commits — branch tip equals origin/main, so `git branch -d`
-    // would succeed anyway. The point of this spec is that the legacy
-    // success line ("Branch 'flag-feat' deleted.") fires WITHOUT the
-    // "fully merged into" suffix, proving the auto-detection arm did NOT
-    // run when --delete-branch was set.
-    const r = await runHelper(["flag-feat", "--delete-branch"], fx.repoDir);
-    expect(r.exitCode, `stderr: ${r.stderr}\nstdout: ${r.stdout}`).toBe(0);
-    expect(fs.existsSync(wtDir)).toBe(false);
+      // No new commits — branch tip equals origin/main, so `git branch -d`
+      // would succeed anyway. The point of this spec is that the legacy
+      // success line ("Branch 'flag-feat' deleted.") fires WITHOUT the
+      // "fully merged into" suffix, proving the auto-detection arm did NOT
+      // run when --delete-branch was set.
+      const r = await runHelper(["flag-feat", "--delete-branch"], fx.repoDir);
+      expect(r.exitCode, `stderr: ${r.stderr}\nstdout: ${r.stdout}`).toBe(0);
+      expect(fs.existsSync(wtDir)).toBe(false);
 
-    const branches = mustGit(["branch", "--list"], fx.repoDir);
-    expect(branches).not.toContain("flag-feat");
-    expect(r.stdout, `stdout: ${r.stdout}`).toContain(
-      "Branch 'flag-feat' deleted.",
-    );
-    expect(r.stdout, `stdout: ${r.stdout}`).not.toMatch(/fully merged into/);
-  });
+      const branches = mustGit(["branch", "--list"], fx.repoDir);
+      expect(branches).not.toContain("flag-feat");
+      expect(r.stdout, `stdout: ${r.stdout}`).toContain(
+        "Branch 'flag-feat' deleted.",
+      );
+      expect(r.stdout, `stdout: ${r.stdout}`).not.toMatch(/fully merged into/);
+    });
 
-  it("--delete-branch force-deletes a not-fully-merged (squash-merge-like) branch", async () => {
-    const create = await runNewWorktree(["squash-feat"], fx.repoDir);
-    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
-      0,
-    );
-    const wtDir = path.join(path.dirname(fx.repoDir), "repo-squash-feat");
+    it("--delete-branch force-deletes a not-fully-merged (squash-merge-like) branch", async () => {
+      const create = await runNewWorktree(["squash-feat"], fx.repoDir);
+      expect(
+        create.exitCode,
+        `flow-new-worktree stderr: ${create.stderr}`,
+      ).toBe(0);
+      const wtDir = path.join(path.dirname(fx.repoDir), "repo-squash-feat");
 
-    // Commit on the per-task branch but DO NOT push/merge into origin/main, so
-    // its tip is unreachable from origin/main and `git branch -d` would refuse
-    // with 'not fully merged' — the squash-merge case the force-fallback handles.
-    fs.writeFileSync(path.join(wtDir, "squash.txt"), "squashed work\n");
-    mustGit(["add", "."], wtDir);
-    mustGit(["commit", "-m", "feat: squashed"], wtDir);
+      // Commit on the per-task branch but DO NOT push/merge into origin/main, so
+      // its tip is unreachable from origin/main and `git branch -d` would refuse
+      // with 'not fully merged' — the squash-merge case the force-fallback handles.
+      fs.writeFileSync(path.join(wtDir, "squash.txt"), "squashed work\n");
+      mustGit(["add", "."], wtDir);
+      mustGit(["commit", "-m", "feat: squashed"], wtDir);
 
-    const r = await runHelper(["squash-feat", "--delete-branch"], fx.repoDir);
-    expect(r.exitCode, `stderr: ${r.stderr}\nstdout: ${r.stdout}`).toBe(0);
-    expect(fs.existsSync(wtDir)).toBe(false);
+      const r = await runHelper(["squash-feat", "--delete-branch"], fx.repoDir);
+      expect(r.exitCode, `stderr: ${r.stderr}\nstdout: ${r.stdout}`).toBe(0);
+      expect(fs.existsSync(wtDir)).toBe(false);
 
-    const branches = mustGit(["branch", "--list"], fx.repoDir);
-    expect(branches).not.toContain("squash-feat");
-    expect(r.stdout, `stdout: ${r.stdout}`).toMatch(/force-deleted/);
-  });
-});
+      const branches = mustGit(["branch", "--list"], fx.repoDir);
+      expect(branches).not.toContain("squash-feat");
+      expect(r.stdout, `stdout: ${r.stdout}`).toMatch(/force-deleted/);
+    });
+  },
+);
 
 // --- Integration: collision auto-suffix cross-pipeline safety ----------------
 

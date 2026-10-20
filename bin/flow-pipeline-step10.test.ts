@@ -1,28 +1,24 @@
 import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { readPipelineSkillCorpus } from "./lib/pipeline-skill-corpus";
 
 /**
  * Doc-lint regression for `/flow-pipeline` step 10's merge invocation.
  *
- * The bug this guards: gh's post-merge `git checkout <base>` (triggered
- * by `--delete-branch`) collides with the primary worktree's checkout
- * of the same base when invoked from a per-task worktree. The fix wraps
- * every merge call in `(cd "$PRIMARY" && ...)`. This lint pins both the
- * SKILL.md occurrences and the matching auto-merge-rubric.md row so a
- * future refactor can't silently drop the wrapping.
+ * Step 10 runs `flow-merge-guard merge "$PR"` as a standalone Bash call so
+ * flow's launch-settings allow rule `Bash(flow-merge-guard merge *)` matches
+ * it (a `$(...)` wrapper, pipe or `cd ... &&` prefix never would). The bare
+ * `gh pr merge --squash` and its base-checkout cwd (gh's post-merge `git
+ * checkout <base>` collides with a feature worktree) live in the helper and
+ * are pinned by bin/flow-merge-guard.test.ts. This lint pins the SKILL.md
+ * call shape and the matching auto-merge-rubric.md row.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SKILL_MD_PATH = path.resolve(
-  HERE,
-  "..",
-  "skills",
-  "pipeline",
-  "flow-pipeline",
-  "SKILL.md",
-);
 const RUBRIC_MD_PATH = path.resolve(
   HERE,
   "..",
@@ -33,7 +29,7 @@ const RUBRIC_MD_PATH = path.resolve(
   "auto-merge-rubric.md",
 );
 
-const skillContent = fs.readFileSync(SKILL_MD_PATH, "utf8");
+const skillContent = readPipelineSkillCorpus();
 const rubricContent = fs.readFileSync(RUBRIC_MD_PATH, "utf8");
 
 function extractStep10(content: string): string {
@@ -55,140 +51,144 @@ function extractStep10(content: string): string {
 
 const STEP_10 = extractStep10(skillContent);
 
-describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree", () => {
-  it('wraps every `gh pr merge --squash` invocation in `cd "$PRIMARY" && `', () => {
-    // An "invocation" is an executable shell line — it always has `"$PR"`
-    // as the PR argument. Bare-prose backtick references like
-    // "`gh pr merge --squash` stderr that triggered this resolver:" are
-    // descriptions, not invocations, and are excluded.
-    const needle = 'gh pr merge --squash "$PR"';
-    const wrapper = 'cd "$PRIMARY" && ';
-    const offending: string[] = [];
-    const stepLines = STEP_10.split("\n");
-    stepLines.forEach((line, idx) => {
-      if (!line.includes(needle)) return;
-      const needleIdx = line.indexOf(needle);
-      const preceding = line.slice(0, needleIdx);
-      if (!preceding.includes(wrapper)) {
-        offending.push(`step10:line ${idx + 1}: ${line}`);
-      }
-    });
+describe("flow-pipeline SKILL.md step 10 — standalone gate-checked merge", () => {
+  it('invokes `flow-merge-guard merge "$PR"` as its own standalone Bash call', () => {
+    // flow's launch-settings allow rule `Bash(flow-merge-guard merge *)`
+    // only matches a standalone call: a `$(...)` wrapper, a pipe or a
+    // `cd ... &&` prefix falls back to the permission classifier.
+    const needle = 'flow-merge-guard merge "$PR"';
+    const fenceLines = STEP_10.split("\n").filter((l) => l.trim() === needle);
     expect(
-      offending,
-      `Every \`${needle}\` inside step 10 must be preceded on the same line ` +
-        `by \`${wrapper}\` (so the merge runs from the primary worktree, not ` +
-        `the per-task worktree). Offending lines:\n${offending.join("\n")}`,
+      fenceLines.length,
+      `step 10 must carry a fenced line that is exactly \`${needle}\``,
+    ).toBeGreaterThanOrEqual(1);
+    const wrapped = STEP_10.split("\n").filter(
+      (l) =>
+        l.includes(needle) &&
+        !l.startsWith("`") &&
+        l.trim() !== needle &&
+        /(\$\(|\||&&|;\s*flow-merge-guard|^\s*\w+=)/.test(
+          l.slice(0, l.indexOf(needle) + needle.length),
+        ),
+    );
+    expect(
+      wrapped,
+      `no \`${needle}\` invocation may sit inside $(...), a pipe, or a cd/&& prefix:\n${wrapped.join("\n")}`,
     ).toEqual([]);
+    expect(STEP_10).not.toMatch(/\$\(\s*flow-merge-guard/);
+    expect(STEP_10).not.toMatch(/=\$\(flow-merge-guard/);
   });
 
-  it("derives `$PRIMARY` from `git worktree list` exactly once inside step 10", () => {
-    const needle =
-      "PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, \"\"); print; exit}')";
-    expect(
-      STEP_10.includes(needle),
-      `Step 10 must derive \`$PRIMARY\` via \`${needle}\` so the merge ` +
-        `subshell can \`cd\` into the primary worktree. The awk form keys ` +
-        `on the literal \`worktree \` prefix and strips it (rather than ` +
-        `field-splitting \`{print $2}\`), so worktree paths containing ` +
-        `whitespace survive intact — a naive \`{print $2}\` truncates at the ` +
-        `first space and reintroduces \`merge-failed\` escalations on ` +
-        `machines with spaced checkout paths.`,
-    ).toBe(true);
+  it("reads .flow-tmp/merge-result.json instead of capturing stdout", () => {
+    expect(STEP_10).toContain(".flow-tmp/merge-result.json");
+    expect(STEP_10).not.toMatch(/GUARD_JSON|GUARD_RC/);
   });
 
-  it("pins the absence of the removed --body / MERGE_FLAGS / flow-merge-body machinery", () => {
-    // PR #213 reverted step 10 to a bare `gh pr merge --squash` — the squash
-    // body now comes from gh's default concatenation, not a custom `--body`
-    // built by the deleted `flow-merge-body` helper. Without this negative
-    // assertion a future edit that reintroduces `--body` manipulation would
-    // pass the whole vitest suite.
-    //
-    // An "invocation" is an executable shell line — it always carries `"$PR"`
-    // as the PR argument (same convention the wrapping test above relies on).
-    // Bare-prose backtick mentions like "runs a bare `gh pr merge --squash` —
-    // no `--body`, no `--subject`" are descriptions, not invocations, and are
-    // excluded. Each real invocation must carry no `--body`/`--subject` flag —
-    // the legitimate `--body-file` on the unrelated `flow-create-issue`
-    // post-merge sweep never appears on a `gh pr merge ... "$PR"` line, so it
-    // does not trip a false positive. `MERGE_FLAGS` and `flow-merge-body` were
-    // unique to the removed machinery and must not reappear anywhere.
-    //
-    // Issue #486 re-litigated this exact negative pin (reopening the
-    // no-`--body` question) and it was re-affirmed wontfix — see
-    // references/git-workflow.md's "Why no authored squash body (issue #486)".
+  it("contains no raw `gh pr merge` invocation and no `$PRIMARY` plumbing (the merge happens inside the helper, from the base checkout)", () => {
+    expect(STEP_10).not.toMatch(/gh pr merge --squash "\$PR"/);
+    expect(STEP_10).not.toMatch(/PRIMARY=|\$PRIMARY|\$\{PRIMARY\}/);
     const mergeInvocations = STEP_10.split("\n").filter(
       (line) => line.includes("gh pr merge") && line.includes('"$PR"'),
     );
-    for (const line of mergeInvocations) {
-      expect(
-        line,
-        `step 10 merge invocation must carry no --body/--subject: ${line}`,
-      ).not.toMatch(/--body\b|--subject\b/);
-    }
-    expect(STEP_10).not.toMatch(/MERGE_FLAGS|flow-merge-body/);
-
-    const mergeCalls = STEP_10.match(/gh pr merge --squash "\$PR"/g) ?? [];
-    expect(mergeCalls).toHaveLength(4);
+    expect(mergeInvocations).toEqual([]);
   });
 
-  it("keeps the auto-merge rubric's action row in sync with the wrapped form", () => {
-    const needle = '(cd "$PRIMARY" && gh pr merge --squash';
+  it("pins the absence of the removed --body / MERGE_FLAGS / flow-merge-body machinery", () => {
+    // PR #213 reverted step 10 to a bare `gh pr merge --squash` — now run
+    // inside `flow-merge-guard merge` (bin/flow-merge-guard.test.ts pins the
+    // bare argv and the base-checkout cwd). Without this negative assertion
+    // a future edit that reintroduces `--body` manipulation to the step 10
+    // prose would pass the whole vitest suite. Issue #486 re-litigated the
+    // question and it was re-affirmed wontfix — see
+    // references/git-workflow.md's "Why no authored squash body (issue #486)".
+    expect(STEP_10).not.toMatch(/MERGE_FLAGS|flow-merge-body/);
+  });
+
+  it("keeps the auto-merge rubric's action row in sync with the standalone merge call", () => {
+    const needle = "`flow-merge-guard merge <pr>`";
     expect(
       rubricContent.includes(needle),
-      `auto-merge-rubric.md must reference the wrapped form \`${needle}\` ` +
-        `in its OPEN/0/auto-merge action so the rubric and the executable ` +
-        `step 10 agree on the primary-worktree CWD requirement.`,
+      `auto-merge-rubric.md must reference the standalone gate-checked ` +
+        `merge \`${needle}\` in its OPEN/0/auto-merge action so the rubric ` +
+        `and the executable step 10 agree.`,
     ).toBe(true);
+    expect(rubricContent).not.toContain('(cd "$PRIMARY" && gh pr merge');
   });
 
-  it('wraps the resolver-spawn `git fetch origin "$BASE_BRANCH"` in `cd "$WORKTREE" && `', () => {
-    const needle = 'git fetch origin "$BASE_BRANCH"';
-    const wrapper = 'cd "$WORKTREE" && ';
-    const offending: string[] = [];
-    const stepLines = STEP_10.split("\n");
-    stepLines.forEach((line, idx) => {
-      if (!line.includes(needle)) return;
-      const needleIdx = line.indexOf(needle);
-      const preceding = line.slice(0, needleIdx);
-      if (!preceding.includes(wrapper)) {
-        offending.push(`step10:line ${idx + 1}: ${line}`);
-      }
-    });
+  it("shows the rubric's GATED stdout example with the gate-checked merge command", () => {
+    expect(rubricContent).toContain(
+      "NEXT ACTION: tick each step once validated, then run: flow-merge-guard merge",
+    );
+  });
+
+  it("routes merge refusals by .reason instead of one catch-all tag", () => {
+    for (const needle of [
+      "`checks-pending` / `checks-unreadable`",
+      "`checks-failed`",
+      "`gate-blocked`",
+      "`merge-refused`",
+      '--reason "$TAG"',
+    ]) {
+      expect(STEP_10).toContain(needle);
+    }
+    expect(STEP_10).toContain("gate-override-without-confirmation");
+  });
+
+  it("re-enters step 7 after a resolver push instead of re-running the merge immediately", () => {
+    const at = STEP_10.indexOf("`push_status`. If `succeeded`");
+    expect(at).toBeGreaterThan(-1);
+    const item = STEP_10.slice(at, at + 700);
+    expect(item).toMatch(/re-enter step 7/);
+    expect(item).not.toMatch(/exactly once/);
+  });
+
+  it("routes a permission-refused merge call to the merge-permission-denied pause with its own reap", () => {
+    const at = STEP_10.indexOf("--reason merge-permission-denied");
+    expect(at).toBeGreaterThan(-1);
+    expect(
+      STEP_10.lastIndexOf("flow-browser-teardown --reap --record", at),
+    ).toBeGreaterThan(STEP_10.indexOf("flow-merge-guard merge"));
+    expect(STEP_10).toMatch(/never try another merge command/);
+  });
+
+  it('runs the resolver-spawn fetch as `git -C "$WORKTREE" fetch origin "$BASE_BRANCH"` (no cd wrapper)', () => {
+    // `git -C` keeps the supervisor's cwd put (a `cd` in a compound command
+    // trips the permission classifier) while still fetching from the per-task
+    // worktree, not the supervisor's ambient CWD.
+    const pinned = 'git -C "$WORKTREE" fetch origin "$BASE_BRANCH"';
+    expect(STEP_10).toContain(pinned);
+    const offending = STEP_10.split("\n")
+      .map((line, idx) => ({ line, idx }))
+      .filter(
+        ({ line }) =>
+          line.includes('fetch origin "$BASE_BRANCH"') &&
+          !line.includes(pinned),
+      )
+      .map(({ line, idx }) => `step10:line ${idx + 1}: ${line}`);
     expect(
       offending,
-      `Every \`${needle}\` inside step 10's resolver-spawn block must be ` +
-        `preceded on the same line by \`${wrapper}\` (so the fetch runs from ` +
-        `the per-task worktree, not the supervisor's ambient CWD — which a ` +
-        `future refactor might silently change). Offending lines:\n` +
-        `${offending.join("\n")}`,
+      `Every step-10 \`fetch origin "$BASE_BRANCH"\` must be \`${pinned}\`:\n${offending.join("\n")}`,
     ).toEqual([]);
   });
 
-  it('wraps the resolver-spawn `git diff --name-only --diff-filter=U` in `cd "$WORKTREE" && `', () => {
-    const needle = "git diff --name-only --diff-filter=U";
-    const wrapper = 'cd "$WORKTREE" && ';
-    const offending: string[] = [];
-    const stepLines = STEP_10.split("\n");
-    stepLines.forEach((line, idx) => {
-      if (!line.includes(needle)) return;
-      const needleIdx = line.indexOf(needle);
-      const preceding = line.slice(0, needleIdx);
-      // Skip markdown prose mentions (the needle appearing inside an inline
-      // backtick code-span). Only the actual fenced shell invocation needs
-      // the wrapper; prose that quotes the command for explanation does not.
-      if (preceding.includes("`")) return;
-      if (!preceding.includes(wrapper)) {
-        offending.push(`step10:line ${idx + 1}: ${line}`);
-      }
-    });
+  it('computes CONFLICTING_FILES with `git -C "$WORKTREE" diff --name-only --diff-filter=U` (no cd wrapper)', () => {
+    const pinned = 'git -C "$WORKTREE" diff --name-only --diff-filter=U';
+    expect(STEP_10).toContain(pinned);
+    const offending = STEP_10.split("\n")
+      .map((line, idx) => ({ line, idx }))
+      .filter(({ line }) => {
+        const at = line.indexOf("git diff --name-only --diff-filter=U");
+        if (at === -1) return false;
+        // Prose mentions inside an inline code span are not invocations.
+        return !line.slice(0, at).includes("`");
+      })
+      .map(({ line, idx }) => `step10:line ${idx + 1}: ${line}`);
     expect(
       offending,
-      `Every \`${needle}\` inside step 10's resolver-spawn block must be ` +
-        `preceded on the same line by \`${wrapper}\` (so \`CONFLICTING_FILES\` ` +
-        `is computed from the per-task worktree's index, not whatever CWD the ` +
-        `supervisor happens to be in when step 10 runs). Offending lines:\n` +
-        `${offending.join("\n")}`,
+      `Every step-10 conflict-file diff invocation must be \`${pinned}\` so ` +
+        `\`CONFLICTING_FILES\` is computed from the per-task worktree's index:\n${offending.join("\n")}`,
     ).toEqual([]);
+    expect(STEP_10).not.toMatch(/cd "\$WORKTREE" && git/);
   });
 
   it("structurally pins the merge-resolver-spawn-denied escalation branch", () => {
@@ -230,5 +230,130 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
       ),
       "step 10 must define MARKER_CHECK_CMD as `bun $FLOW_ROOT/bin/flow-conflict-marker-check.ts`.",
     ).toBe(true);
+  });
+
+  it("resolves FLOW_ROOT to the checkout from a private skill copy that has no bin/", () => {
+    const start = STEP_10.indexOf('FLOW_ROOT=$(cd -P "$SKILL_DIR');
+    const end = STEP_10.indexOf("; MARKER_CHECK_CMD=", start);
+    expect(start).toBeGreaterThan(-1);
+    const assignments = STEP_10.slice(start, end);
+    const tmp = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "flow-step10-root-")),
+    );
+    try {
+      const checkout = path.join(tmp, "checkout");
+      fs.mkdirSync(path.join(checkout, "bin"), { recursive: true });
+      fs.writeFileSync(
+        path.join(checkout, "bin", "flow-conflict-marker-check"),
+        "",
+      );
+      const pluginRoot = path.join(tmp, "copy", "flow-module-core");
+      const skillDir = path.join(pluginRoot, "skills", "flow-pipeline");
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.mkdirSync(path.join(pluginRoot, "bin"));
+      fs.symlinkSync(
+        path.join(checkout, "bin", "flow-conflict-marker-check"),
+        path.join(pluginRoot, "bin", "flow-conflict-marker-check"),
+      );
+      const r = spawnSync(
+        "bash",
+        ["-c", `${assignments}; printf '%s' "$FLOW_ROOT"`],
+        { env: { ...process.env, SKILL_DIR: skillDir }, encoding: "utf8" },
+      );
+      expect(r.stdout).toBe(checkout);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+const REPO_ROOT = path.resolve(HERE, "..");
+
+function markdownFilesUnder(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) return markdownFilesUnder(full);
+    return e.name.endsWith(".md") ? [full] : [];
+  });
+}
+
+const MERGE_COMMAND = /gh pr merge|flow-merge-guard merge/g;
+const COMPOUND_PREFIX = /\bcd\s|\(|\$\(|&&/;
+
+/**
+ * 1-based line numbers where a merge command sits behind a `cd`, subshell,
+ * `$(` or `&&`. The prefix is the text before the command back to the nearest
+ * backtick, `|`, double quote, `;` or line start; an immediate `Bash(` prefix
+ * is permission-rule text, not an invocation.
+ */
+export function compoundMergeLines(text: string): number[] {
+  const hits: number[] = [];
+  text.split("\n").forEach((line, idx) => {
+    for (const m of line.matchAll(MERGE_COMMAND)) {
+      const before = line.slice(0, m.index);
+      const cut = Math.max(
+        before.lastIndexOf("`"),
+        before.lastIndexOf("|"),
+        before.lastIndexOf('"'),
+        before.lastIndexOf(";"),
+      );
+      const prefix = before.slice(cut + 1);
+      if (prefix === "Bash(") continue;
+      if (COMPOUND_PREFIX.test(prefix)) hits.push(idx + 1);
+    }
+  });
+  return hits;
+}
+
+describe("manual-merge instructions are one standalone gate-checked command", () => {
+  it("no skill, reference or gate-summary text puts a cd / subshell / && before a merge command", () => {
+    const files = [
+      ...markdownFilesUnder(path.join(REPO_ROOT, "skills")),
+      ...markdownFilesUnder(path.join(REPO_ROOT, "references")),
+      path.join(REPO_ROOT, "bin", "flow-gate-summary.ts"),
+    ];
+    expect(files.length).toBeGreaterThan(10);
+    const offending = files.flatMap((f) =>
+      compoundMergeLines(fs.readFileSync(f, "utf8")).map(
+        (n) => `${path.relative(REPO_ROOT, f)}:${n}`,
+      ),
+    );
+    expect(
+      offending,
+      `a human-facing merge command must be standalone (a cd/subshell/&& prefix ` +
+        `falls back to the permission classifier and skips the Test Steps gate):\n${offending.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("the pin itself flags a reintroduced `(cd <repo> && gh pr merge` and spares rule text", () => {
+    expect(
+      compoundMergeLines("run (cd <repo> && gh pr merge --squash 5) now"),
+    ).toEqual([1]);
+    expect(compoundMergeLines("cd /repo && flow-merge-guard merge 5")).toEqual([
+      1,
+    ]);
+    expect(
+      compoundMergeLines("x=$(flow-merge-guard merge 5 --slug s)"),
+    ).toEqual([1]);
+    expect(compoundMergeLines("`Bash(flow-merge-guard merge *)`")).toEqual([]);
+    expect(
+      compoundMergeLines("`flow-merge-guard merge 5 --slug s` in a terminal"),
+    ).toEqual([]);
+  });
+});
+
+describe("flow-owned merge and override rules replace the paste-a-rule docs", () => {
+  const read = (...p: string[]) =>
+    fs.readFileSync(path.join(REPO_ROOT, ...p), "utf8");
+
+  it("docs, SKILL.md and the contract no longer tell the owner to paste a rule", () => {
+    expect(read("docs", "configuration.md")).not.toContain(
+      "Confirming a gate override",
+    );
+    expect(skillContent).not.toContain("user-global allow rule");
+    expect(read("references", "consumer-repo-contract.md")).toContain(
+      "flow-merge-guard * --record-override",
+    );
   });
 });

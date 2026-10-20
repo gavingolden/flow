@@ -15,7 +15,9 @@
  * - Returns `null` only when the artifact is GENUINELY broken: a non-object/
  *   null/array input, or any of the five required top-level keys (`commits`,
  *   `deferred`, `rejected_alternatives`, `anti_patterns_found`, `summary`)
- *   absent or of the wrong container type. This mirrors the genuinely-broken
+ *   absent or of the wrong container type. (`status` is required by the
+ *   strict validator but is ignored here — this is the degraded-read path,
+ *   not the completeness gate.) This mirrors the genuinely-broken
  *   bar `validateFixApplierResult` enforces for its top-level checks, so a
  *   genuinely-broken artifact still degrades to `(unreadable)` wholesale.
  * - Otherwise returns the per-entry-VALID subset of each array plus a `skipped`

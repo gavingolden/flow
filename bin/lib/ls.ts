@@ -16,7 +16,7 @@
  *     what's outstanding. Carve-out: a row whose KIND is "epic-run" renders
  *     no "(done)" even at a FINISHED phase — its shared state.json's phase
  *     describes the *design* lifecycle, not run progress, so a live run
- *     window can sit at `epic-approved` (see `resolveRowKind` below).
+ *     window can sit at `epic-approved` (see `resolveStateKind` in `./state`).
  *   - otherwise, drift handling by liveness/window presence:
  *     - state file but no window → "(no window)" (likely a crashed session)
  *     - window but no state file → "(no state)" (manual creation)
@@ -42,15 +42,18 @@ import {
   TERMINAL_PHASE_SET,
   FINISHED_PHASE_SET,
   AWAITING_HUMAN_PHASE_SET,
-  isEpicPhase,
+  resolveStateKind,
   type PipelineState,
   type PipelineKind,
 } from "./state";
-import { livenessOf } from "./liveness";
-import { reapStartingOrphans } from "./reap-orphans";
+import { livenessOf, type Liveness } from "./liveness";
+import { recoveryCommandFor } from "./recovery-command";
+import { reapStartingOrphans, STARTING_ORPHAN_GRACE_MS } from "./reap-orphans";
 import { relativeTime } from "./time";
 import { findWindowBySlug, listWindows, type TmuxWindow } from "./tmux";
+import { resolveRepoRoot, makeSameRepository } from "./repo-root";
 import { dim, dimStderr } from "./color";
+import { linkLabel, resolveLinkMode, visibleLength } from "./link";
 import {
   checkForUpdate,
   formatUpdateNotice,
@@ -65,6 +68,10 @@ import {
 export type LsOptions = {
   cost?: boolean;
   detail?: boolean;
+  /** Include every repository's pipelines, dropping the default repo scope. */
+  allRepos?: boolean;
+  /** Override for tests; defaults to process.cwd(). */
+  cwd?: string;
   /** Override for tests; defaults to ~/.claude/projects/. */
   projectsRoot?: string;
   /** Injectable for tests; defaults to the real read-only update check. */
@@ -79,7 +86,7 @@ export type Row = {
   /**
    * Which supervisor kind this row is: `feature` / `epic-design` /
    * `epic-run`, sourced from `state.kind` (falling back to
-   * `resolveRowKind`'s phase-derived default) — NEVER from the `@flow-kind`
+   * `resolveStateKind`'s phase-derived default) — NEVER from the `@flow-kind`
    * tmux pane option. Empty ONLY for the unmanaged "(no state)" rows built
    * from a window with no state file, which have no PipelineState to read.
    */
@@ -88,6 +95,8 @@ export type Row = {
   epic: string;
   phase: string;
   pr: string;
+  /** state.prUrl, when persisted (flow-open-pr writes it at PR-open time). Absent ⇒ the PR cell stays bare. */
+  prUrl?: string;
   lastActivity: string;
   annotation: "" | "(no window)" | "(no state)" | "(crashed)" | "(done)";
   /** True only when this row is a genuine crashed/orphaned session the user
@@ -100,37 +109,37 @@ export type Row = {
 
 /**
  * CLI shim for `bin/flow`'s `ls` verb. Intercepts --help / -h before any
- * state/tmux read, then parses --cost / --detail and dispatches to
- * `runLs`. The previous inline `runLsVerb` lived in `bin/flow`.
+ * state/tmux read, then parses --cost / --detail / --all-repos /
+ * --all|-a and dispatches to `runLs`. The previous inline `runLsVerb`
+ * lived in `bin/flow`.
  */
 export async function runLsCli(args: string[]): Promise<number> {
   if (argsContainHelp(args)) {
     printVerbHelp("ls");
     return 0;
   }
-  const allowed = new Set(["--cost", "--detail"]);
+  const allowed = new Set(["--cost", "--detail", "--all-repos", "--all", "-a"]);
   for (const arg of args) {
     if (!allowed.has(arg)) {
       console.error(`flow ls: unknown option '${arg}'`);
-      console.error("usage: flow ls [--cost [--detail]]");
+      console.error(
+        "usage: flow ls [--cost [--detail]] [--all-repos] [--all|-a]",
+      );
       return 2;
     }
   }
   const cost = args.includes("--cost");
   const detail = args.includes("--detail");
+  const allRepos =
+    args.includes("--all-repos") ||
+    args.includes("--all") ||
+    args.includes("-a");
   if (detail && !cost) {
     console.error("flow ls: --detail requires --cost");
     return 2;
   }
-  return await runLs({ cost, detail, checkDrift: checkInstallDrift });
+  return await runLs({ cost, detail, allRepos, checkDrift: checkInstallDrift });
 }
-
-/**
- * Grace window for the lazy never-started orphan sweep: a phase=`starting`
- * state with no live window older than this is reaped (see `reap-orphans.ts`).
- * ~60s leaves a just-launched, still cold-starting supervisor untouched.
- */
-const REAP_GRACE_MS = 60_000;
 
 export async function runLs(opts: LsOptions): Promise<number> {
   const now = Date.now();
@@ -140,19 +149,77 @@ export async function runLs(opts: LsOptions): Promise<number> {
   // Conservative — past-`starting` (no window) crashes keep their resume hint.
   const allStates = listStates();
   const reaped = new Set(
-    reapStartingOrphans(allStates, windows, now, REAP_GRACE_MS),
+    reapStartingOrphans(allStates, windows, now, STARTING_ORPHAN_GRACE_MS),
   );
-  const states = allStates.filter((s) => !reaped.has(s.slug));
-  const rows = await buildRows(states, windows, now, opts);
+  const survivors = allStates.filter((s) => !reaped.has(s.slug));
+
+  // THEN, and only then, apply the repo scope — the reap above always sees
+  // every repo's states so a foreign repo's never-started orphan is still
+  // cleaned up under a bare `flow ls`.
+  const allRepos = opts.allRepos === true;
+  const cwd = opts.cwd ?? process.cwd();
+  let states = survivors;
+  let hidden: PipelineState[] = [];
+  if (!allRepos) {
+    const currentRepo = resolveRepoRoot(cwd);
+    if (currentRepo === null) {
+      // Fail OPEN (deliberately not the epic-side fail-closed behavior):
+      // outside a git repo there's no scope to apply, so show everything —
+      // the note goes to stderr so stdout stays a clean table.
+      console.error(
+        dimStderr(
+          "flow ls: not in a git repo — showing every pipeline (scope with 'flow ls' inside a repo)",
+        ),
+      );
+    } else {
+      const sameRepo = makeSameRepository(cwd);
+      states = survivors.filter((s) => sameRepo(s.repo));
+      hidden = survivors.filter((s) => !sameRepo(s.repo));
+    }
+  }
+
+  // Hide windows claimed by hidden (foreign-repo) states before handing
+  // `windows` to buildRows — otherwise its unclaimed-window loop (which
+  // only knows about the repo-filtered `states`, not `hidden`) re-emits
+  // every hidden pipeline's window as a synthetic `<slug> (no state)` row,
+  // contradicting the "N pipelines in other repos hidden" footer below.
+  const hiddenWindowIds = new Set(
+    hidden
+      .map((s) => findWindowBySlug(windows, s.slug)?.id)
+      .filter((id): id is string => id !== undefined),
+  );
+  const visibleWindows =
+    hiddenWindowIds.size === 0
+      ? windows
+      : windows.filter((w) => !hiddenWindowIds.has(w.id));
+
+  const rows = await buildRows(states, visibleWindows, now, opts);
 
   if (rows.length === 0) {
-    console.log(dim("flow ls: no active pipelines"));
+    if (hidden.length === 0) {
+      console.log(dim("flow ls: no active pipelines"));
+    } else {
+      const needsResumeCount = hidden.filter((s) =>
+        needsResume(s, findWindowBySlug(windows, s.slug)),
+      ).length;
+      const resumeVerb = needsResumeCount === 1 ? "needs" : "need";
+      const resumeSuffix =
+        needsResumeCount > 0
+          ? ` (${needsResumeCount} ${resumeVerb} resume)`
+          : "";
+      console.log(
+        dim(
+          `flow ls: no pipelines in this repo (${hidden.length} in other repos${resumeSuffix} — show them with 'flow ls --all-repos')`,
+        ),
+      );
+    }
     emitUpdateNotice(opts);
     return 0;
   }
 
   printTable(rows, opts);
   printOrphanRecovery(rows);
+  printHiddenRepos(hidden, windows);
   if (opts.cost && opts.detail) printDetail(rows);
   warnUnknownModels(rows);
   emitUpdateNotice(opts);
@@ -164,7 +231,8 @@ export async function runLs(opts: LsOptions): Promise<number> {
  * `needsResumeHint` is true (state file with no tmux window, typically a
  * crashed `flow feature create` whose window never stayed up, OR a window
  * that survived but the recorded process is dead/stale). Each gets its
- * one-command restart line. Kept BELOW the table (not inlined into the NAME
+ * one-command restart line (the kind's own command via
+ * `recoveryCommandFor` — never `flow feature resume` for an epic row). Kept BELOW the table (not inlined into the NAME
  * cell) because printTable derives column widths from cell lengths, so a
  * long `flow feature resume <slug>` string in the cell would widen the
  * whole table for every row. No-op when no orphan rows exist, so healthy
@@ -186,8 +254,68 @@ export function printOrphanRecovery(rows: Row[]): void {
     dim("pipelines needing resume (no window, or crashed) — resume with:"),
   );
   for (const row of orphans) {
-    console.log(dim(`  flow feature resume ${row.name}`));
+    console.log(
+      dim(`  ${recoveryCommandFor(row.name, row.kind || "feature")}`),
+    );
   }
+}
+
+/**
+ * Names how many pipelines from other repos were hidden by the default repo
+ * scope, with a `(N needs resume)` parenthetical when any of them would show
+ * up in `printOrphanRecovery`'s footer under `--all-repos`. Calls the SAME
+ * `needsResume` predicate `buildRows` uses for `needsResumeHint` — never a
+ * parallel re-derivation — so this footer and an `--all-repos` run's table
+ * can never disagree on which rows need resuming. No-op when nothing was
+ * hidden.
+ */
+function printHiddenRepos(
+  hidden: PipelineState[],
+  windows: TmuxWindow[],
+): void {
+  if (hidden.length === 0) return;
+  const needsResumeCount = hidden.filter((s) =>
+    needsResume(s, findWindowBySlug(windows, s.slug)),
+  ).length;
+  const resumeVerb = needsResumeCount === 1 ? "needs" : "need";
+  const resumeSuffix =
+    needsResumeCount > 0 ? ` (${needsResumeCount} ${resumeVerb} resume)` : "";
+  const plural = hidden.length === 1 ? "" : "s";
+  console.log("");
+  console.log(
+    dim(
+      `${hidden.length} pipeline${plural} in other repos hidden${resumeSuffix} — show them with 'flow ls --all-repos'`,
+    ),
+  );
+}
+
+/**
+ * Whether a state row is a genuine crashed/orphaned session eligible for
+ * `flow feature resume` — the single source of truth for eligibility,
+ * called from `buildRows` (per-row `needsResumeHint`) and `printHiddenRepos`
+ * (the hidden-repos footer's resume count) so the two can never disagree.
+ * Mirrors `buildRows`'s own phase-first-then-liveness branching (see its
+ * comment) rather than re-deriving eligibility from the phase or the
+ * `(crashed)` / `(no window)` display strings.
+ *
+ * `knownVerdict` is an optional pre-resolved liveness verdict: `buildRows`
+ * already calls `livenessOf` while deriving the row's annotation, so passing
+ * it through here avoids a second `ps` spawn for the same row. It is looked
+ * up lazily (not as a parameter default) so a TERMINAL-phase row — which
+ * short-circuits before ever needing a verdict — never triggers a `ps`
+ * spawn either way; `printHiddenRepos`, which has no verdict on hand, omits
+ * it and gets one resolved on demand.
+ */
+function needsResume(
+  state: PipelineState,
+  window: TmuxWindow | undefined,
+  knownVerdict?: Liveness,
+): boolean {
+  if (TERMINAL_PHASE_SET.has(state.phase)) return false;
+  const verdict = knownVerdict ?? livenessOf(state);
+  if (verdict === "alive") return false;
+  if (verdict === "dead" || verdict === "stale") return true;
+  return !window;
 }
 
 /** Print the staleness + drift notices to STDERR so stdout stays a clean table. */
@@ -234,13 +362,13 @@ export async function buildRows(
     // ⇒ "(crashed)"; only `unknown` — no pid signal, a legacy tmux-era
     // state — degrades to the window-existence check).
     //
-    // needsResumeHint is derived exactly once, right here, alongside
-    // annotation, so the two can never disagree — the footer below merely
-    // reads it rather than re-deriving eligibility from the phase or the
-    // display string.
-    const rowKind = resolveRowKind(state);
+    // needsResumeHint is derived by the shared `needsResume` function
+    // (below), alongside annotation, so the two can never disagree — the
+    // footer(s) merely call the same function rather than re-deriving
+    // eligibility from the phase or the display string.
+    const rowKind = resolveStateKind(state);
     let annotation: Row["annotation"];
-    let needsResumeHint: boolean;
+    let verdict: Liveness | undefined;
     if (TERMINAL_PHASE_SET.has(state.phase)) {
       // Two buckets, both with a real call site: FINISHED -> "(done)",
       // AWAITING_HUMAN (gated/needs-human) -> no annotation (the pipeline
@@ -266,20 +394,17 @@ export async function buildRows(
           : AWAITING_HUMAN_PHASE_SET.has(state.phase)
             ? ""
             : "";
-      needsResumeHint = false;
     } else {
-      const verdict = livenessOf(state);
+      verdict = livenessOf(state);
       if (verdict === "alive") {
         annotation = "";
-        needsResumeHint = false;
       } else if (verdict === "dead" || verdict === "stale") {
         annotation = "(crashed)";
-        needsResumeHint = true;
       } else {
         annotation = window ? "" : "(no window)";
-        needsResumeHint = !window;
       }
     }
+    const needsResumeHint = needsResume(state, window, verdict);
     rows.push({
       name: state.slug,
       repo: path.basename(state.repo),
@@ -292,6 +417,7 @@ export async function buildRows(
       epic: state.epic?.slug ?? (rowKind === "feature" ? "" : state.slug),
       phase: state.phase || "—",
       pr: state.pr ? `#${state.pr}` : "—",
+      prUrl: state.prUrl,
       lastActivity: lastActivityFrom(state.updatedAt, nowMs),
       annotation,
       needsResumeHint,
@@ -353,18 +479,6 @@ export function formatEpicCell(epic: string): string {
   return epic || "—";
 }
 
-/**
- * Which supervisor kind a managed row is. Prefers the persisted
- * `state.kind` (Task 2); absent (a pre-existing state file, or a legacy one
- * from before this field existed) falls back to the phase-derived default —
- * `isEpicPhase` cannot itself distinguish epic-design from epic-run sharing
- * one state file (`bin/lib/state.ts`'s `isEpicPhase` doc comment), so the
- * fallback can only ever resolve to "epic-design", never "epic-run".
- */
-export function resolveRowKind(state: PipelineState): PipelineKind {
-  return state.kind ?? (isEpicPhase(state.phase) ? "epic-design" : "feature");
-}
-
 /** Renders the KIND column cell — mirrors `formatEpicCell`. */
 export function formatKindCell(kind: Row["kind"]): string {
   return kind || "—";
@@ -380,6 +494,7 @@ export function formatNameCell(row: Row): string {
 }
 
 function printTable(rows: Row[], opts: LsOptions): void {
+  const mode = resolveLinkMode();
   type Col = { header: string; get: (r: Row) => string };
   const cols: Col[] = [
     { header: "NAME", get: (r) => formatNameCell(r) },
@@ -387,19 +502,31 @@ function printTable(rows: Row[], opts: LsOptions): void {
     { header: "REPO", get: (r) => formatRepoCell(r.repo) },
     { header: "EPIC", get: (r) => formatEpicCell(r.epic) },
     { header: "PHASE", get: (r) => r.phase },
-    { header: "PR", get: (r) => r.pr },
+    {
+      header: "PR",
+      // NAMED EXCEPTION to bin/lib/link.ts's label-equals-raw-target
+      // invariant: the visible label is the bare `#123` cell, not the
+      // full PR URL — a full URL would blow the very column width this
+      // fix is narrowing. Uses linkLabel (not linkUrl) for exactly that
+      // reason. Falls back to the bare cell when the row has no prUrl
+      // (state written before prUrl existed, or no PR yet).
+      get: (r) => (r.prUrl ? linkLabel(r.pr, r.prUrl, mode) : r.pr),
+    },
     { header: "LAST ACTIVITY", get: (r) => r.lastActivity },
   ];
   if (opts.cost)
     cols.push({ header: "$ COST", get: (r) => formatCostCell(r.cost) });
 
   const widths = cols.map((c) =>
-    Math.max(c.header.length, ...rows.map((r) => c.get(r).length)),
+    Math.max(c.header.length, ...rows.map((r) => visibleLength(c.get(r)))),
   );
 
   const line = (cells: string[]) =>
     cells
-      .map((cell, i) => cell.padEnd(widths[i]))
+      .map(
+        (cell, i) =>
+          cell + " ".repeat(Math.max(0, widths[i] - visibleLength(cell))),
+      )
       .join("  ")
       .trimEnd();
 

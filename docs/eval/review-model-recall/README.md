@@ -1,0 +1,220 @@
+# review-model-recall harness
+
+A one-off, hand-run harness. It is **not** a supported flow helper: it is
+not on PATH, not in `bin/lib/modules.ts`'s helper registry, not covered by
+`bin/*.test.ts`, and not wired into `npm run verify` or CI. It exists only
+so the measurement recorded in
+[`../review-model-recall.md`](../review-model-recall.md) /
+[`../review-model-recall.json`](../review-model-recall.json) is
+reproducible from source instead of trusted on faith. See that write-up
+for what the numbers do and do not support — this file only covers how
+to re-run the harness itself.
+
+## Scripts
+
+| Script            | Job                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build-prompt.ts` | Assembles one review-lens prompt: the shared context block plus the per-lens section, both extracted live from `skills/pipeline/flow-pr-review/references/agent-prompts.md`, substituted with a PR's metadata/diff.                                                                                                                                                                                     |
+| `build-judge.ts`  | Builds the blinded scoring-judge prompt for one cell — never names which model (sonnet/opus) produced the candidate output, only the lens.                                                                                                                                                                                                                                                              |
+| `score.ts`        | Two subcommands: `extract` (diagnostic — parses each cell's raw result into a findings list, tolerant of prose-only output) and `aggregate` (reads judge outputs, computes per-cell/per-lens-arm recall stats and the separation verdict, in the same JSON shape as `../review-model-recall.json`).                                                                                                     |
+| `run.ts`          | Two subcommands: `matrix` (runs every review cell through `flow-claude-headless`, and every agy-arm cell through `flow-delegate`) and `judge` (runs every judge cell). Resume-safe (skips a cell only when its output file is a successful `claude -p` result; error and budget-killed cells are retried) and bounded-concurrency. Model arms: `sonnet`, `opus`, `fable` (per-cell cap $6 / $14 / $20). |
+
+All four are directly runnable (`chmod +x`, `#!/usr/bin/env bun`); none
+are symlinked onto PATH.
+
+## Invocation order
+
+Everything below reads/writes a `<data-dir>` (default: this directory's `data/` subdirectory)
+holding the per-PR inputs and the `runs/` / `judge/` cell outputs — see
+"Inputs this harness needs" below for what has to exist in it before you
+start.
+
+```sh
+# 1. Build one prompt per (lens, PR) pair — 9 prompts for the committed matrix.
+for lens in bug-detection pattern-consistency test-coverage; do
+  for pr in 812 756 802; do
+    bun build-prompt.ts "$lens" "$pr" --data-dir <data-dir> \
+      > "<data-dir>/prompt-$lens-$pr.txt"
+  done
+done
+
+# 2. Run every review cell (3 lenses x 3 PRs x 2 arms x 2 runs = 36 cells).
+bun run.ts matrix --data-dir <data-dir> --concurrency 6
+
+# 3. Score each cell against its reference set with a blinded judge.
+bun run.ts judge --data-dir <data-dir> --concurrency 6
+
+# 4. (optional, diagnostic) Sanity-check how each cell's raw output parsed.
+bun score.ts extract <data-dir>
+
+# 5. Aggregate the judge outputs into the committed JSON shape.
+bun score.ts aggregate <data-dir> > <data-dir>/scores.json
+```
+
+`run.ts`'s two subcommands are the only sanctioned spawn site for
+headless Claude here — the Claude cells of both shell out to
+`flow-claude-headless`
+(`skills/pipeline/flow-pipeline/references/headless-claude.md`), the
+repo's one sanctioned raw `claude -p` call site (the agy arm's cells go
+through `flow-delegate` instead, see "The agy arm and `--effort`" below),
+with `env -u FLOW_SLUG -u TMUX_PANE` so a nested run from inside a flow pipeline session cannot
+trip the parent's stop guard or overwrite its state.
+
+Run from a clean checkout of the default branch, same as the committed
+measurement — a dirty worktree or a feature branch changes what the
+review lenses see.
+
+## Arbitrary arms (lens A/B on real PRs)
+
+The harness is not limited to the sonnet/opus pair. The model-alias arms are
+`sonnet`, `opus` and `fable` (e.g. `--arms fable,opus`; the default stays
+`sonnet,opus`). Any other arm name runs `--model` (default `opus`) with the prompt file
+`prompt-<lens>-<pr>-<arm>.txt` you place in the data dir, so two spawn
+shapes, two prompt variants, or two config settings can be compared on the
+same lenses and PRs:
+
+```sh
+D=<data-dir>
+bun build-prompt.ts materialize <pr> --data-dir $D   # per-PR .flow-tmp-shaped inputs + ref files
+# write $D/prompt-<lens>-<pr>-<armA>.txt and $D/prompt-<lens>-<pr>-<armB>.txt yourself
+bun run.ts matrix --arms <armA>,<armB> --lenses bug-detection,pattern-consistency,test-coverage \
+  --prs <pr>[,<pr>...] --runs 2 --model opus --data-dir $D --concurrency 6
+bun run.ts judge  --arms <armA>,<armB> --lenses ... --prs ... --runs 2 --data-dir $D
+bun score.ts aggregate $D
+```
+
+Flags: `--arms <csv>` (default `sonnet,opus`), `--lenses`, `--prs`, `--runs`,
+`--model`. `materialize` writes `<D>/pr-<pr>/.flow-tmp/*` (fetch, commits,
+capped diff via the production `capDiff`, intent comments, static-analysis
+and review-scope stubs), `ref-<pr>.json` (all inline review comments) and
+`ref-acted-<pr>.json` (the subset whose path a later `(pr-review #<pr>)`
+fix-applier commit touched — the acted proxy, since resolved-thread state is
+empty on flow PRs).
+
+`score.ts aggregate` switches shape by arm set. For `sonnet,opus` it
+prints the committed `../review-model-recall.json` shape unchanged. For any
+other arms it prints `arms.<arm>` with `cost_usd {median, mean}`,
+`num_turns {median}`, `duration_ms {median}`, `recall_all` and
+`recall_acted`, plus `resolved_model_ids` (the dominant non-haiku
+`modelUsage` key of each review cell, since the envelope only echoes the
+alias). When exactly two arms were judged it also emits, per arm, per-PR
+`{runs, mean_recall, variance}` and a per-lens `separation` block
+(`baseline` is `opus` when present, `candidate`, `delta_mean_recall`,
+`pooled_within_arm_sd`, `exact_permutation_p_one_sided` testing that the
+candidate exceeds the baseline); deciding what counts as a pass is the
+experiment's job.
+
+Cost, turns and wall-clock are read from each cell's claude JSON
+(`runs/<cell>.json`), falling back to its `.envelope.json`. Re-running
+`matrix` or `judge` retries any cell whose out file is not a successful
+result (`is_error` true, a non-`success` `subtype`, or unparseable).
+
+### The agy arm and `--effort`
+
+`--arms agy-opus-5-5-high` (or `agy-argon-high` / `agy-argon-medium`, below) runs a cell through `flow-delegate` (the user's
+Google AI Ultra quota) instead of `claude -p`. It uses the SAME base prompt
+`prompt-<lens>-<pr>.txt` as the model-alias arms, led by the headless
+no-shell preamble (`AGY_HEADLESS_PREAMBLE`) and followed by the
+delegated-lens output contract from `bin/lib/lens-prompt.ts`
+(`agyLensOutputContract`: JSON only, no shell, no `.flow-tmp/` reads, file
+reads capped at twice the changed-file count, minimum 10) — the same
+preamble and contract production's `flow-agy-lenses` sends, so the
+measurement covers the shipped read rules. It does not wrap the PR
+metadata in production's untrusted-PR-data delimiters. The call passes the shared
+`AGENT_FINDINGS_JSON_SCHEMA`, `--add-dir <repo root>`, no
+`--skip-permissions` and a 15-minute timeout, and the arm name maps to the
+agy display name in `AGY_ARMS` (`Claude Opus 5.5 (High)`).
+
+A decoded response is written as a claude-shaped `runs/<cell>.json`
+(`type: "result"`, `subtype: "success"`, `result:` the projected findings
+JSON, `duration_ms`, `usage`), so `build-judge.ts` and `score.ts` need no
+agy-specific handling. A response that does not decode (empty body,
+schema-invalid, a skipped call) is written with `is_error: true`, so a
+re-run retries it, and is counted in `runs/<cell>.agy.json`
+(`attempts`, `unusable_attempts`, `last_skip_reason`) — "schema-valid on the
+first attempt" is `unusable_attempts == 0`. Agy cells carry no
+`total_cost_usd`; wall-clock comes from `duration_ms`. Cell file names allow
+hyphenated, digit-bearing arm names (`score.ts`'s `CELL_FILE`).
+
+**Argon arms.** `agy-argon-high` and `agy-argon-medium` map to `Gemini 4 Argon
+(High)` and `Gemini 4 Argon (Medium)` in `AGY_ARMS`. They run the same
+delegated-lens contract as the Opus arm: this harness measures the delegated
+**Claude** lens (`claudeLenses`, run through `flow-agy-lenses`), not the Gemini
+review lens (`reviewLens`, `flow-gemini-lens`) — the Gemini review lens is
+measured by bench case c7 in `bin/flow-model-bench.ts`.
+
+**Quota halt.** A failed agy cell is classified (`failureClass` on the delegate
+envelope, else derived from its skip reason and error text, and recorded as
+`last_failure_class` in `runs/<cell>.agy.json`). A quota or rate-limit refusal
+says nothing about the model, so it is kept out of `unusable_attempts` (counted
+as `refused_attempts` instead). After the first quota refusal (`quota-exhausted`)
+the agy pool stops starting cells, prints how many were not started, and
+`matrix` exits 3. A quota-halted cell writes NO final output file, and
+`isCompletedCellOutput` is false for a `ran: false` delegate envelope, so a
+re-run after the quota window resets re-runs the refused cells instead of
+skipping them.
+
+**Concurrency.** agy cells run in their own pool with a default of 2 workers
+(`AGY_DEFAULT_CONCURRENCY`; `--agy-concurrency <n>`, or an explicit
+`--concurrency` when given), beside the Claude cells' pool of 6, so a
+single Google-plan quota window is not hit by six parallel agy sessions.
+
+**Production-limit column.** Cells keep the 15-minute cap, so recall is
+measured at full length (`recall_all`). `score.ts aggregate` also reports
+`recall_at_production_limit` per arm: the same recall with every cell slower
+than `DELEGATED_LENS_TIMEOUT` (8 minutes, the production limit of the
+`claudeLenses` surface) counted as zero. Read the two columns together: a model
+that is accurate but slower than the limit is cut in production. This column is
+the delegated Claude-lens limit, not the Gemini `reviewLens` limit.
+
+`--effort <level>` sets the Claude arms' `--effort` (default `medium`, so
+the committed runs reproduce unchanged); use `--effort high` to run the
+`opus` arm at the effort production lenses run at. For an agy-vs-opus pair
+`separation.<lens>` additionally carries
+`exact_permutation_p_baseline_exceeds_one_sided`, the reverse-direction p
+(baseline exceeds candidate): a candidate that replaces the baseline has to
+clear the regression direction, not only the improvement direction.
+
+**Acted proxy.** Resolved-thread state is 0/0 on the committed PRs, so
+`materialize` marks a reference comment acted when its `path` is touched by
+a later fix-applier commit on that PR (a commit subject carrying
+`(pr-review #<pr>)`, `FIX_APPLIER_COMMIT_MARKER` in `bin/lib/ci-decision.ts`),
+written as 1-based indices into `ref-<pr>.json` to `ref-acted-<pr>.json`.
+PRs whose review fixes were not committed with that marker (812 and 756)
+get an empty acted set, so `recall_acted` is `null` for them.
+`ref-<pr>.json` holds top-level inline review comments only (replies are
+discussion, not findings).
+
+## Inputs this harness needs that are NOT committed
+
+`<data-dir>` needs, per PR (`812`, `756`, `802` for the committed run):
+
+- `meta-<pr>.json` — `{"title": ..., "body": ...}`. Regenerate with:
+  ```sh
+  gh pr view <pr> --json title,body > meta-<pr>.json
+  ```
+- `diff-<pr>.patch` — the full PR diff. Regenerate with:
+  ```sh
+  gh pr diff <pr> > diff-<pr>.patch
+  ```
+- `ref-<pr>.json` — the reference finding set: the inline review comments
+  that survived the PR's real review, as a JSON array of
+  `{"path": ..., "line": ..., "body": ...}`. Regenerate from the PR's
+  posted review comments, e.g.:
+  ```sh
+  gh api "repos/<owner>/<repo>/pulls/<pr>/comments" \
+    --jq '[.[] | {path, line, body}]' > ref-<pr>.json
+  ```
+
+None of these are checked in — they're per-measurement fetches, not
+harness source. `data-dir` (default: this directory's `data/` subdirectory) is gitignored
+(`docs/eval/review-model-recall/data/`) so a re-run's scratch inputs and
+`runs/`/`judge/` cell outputs never land in a commit by accident; point
+`--data-dir` wherever you like if you don't want the default.
+
+## Cost
+
+The committed run spent **$48.27** ($43.37 review runs, $4.90 judging)
+across 36 review cells + 36 judge cells. Re-running the full matrix
+costs roughly the same — this is why the harness is run by hand, never
+from CI or `npm run verify`.

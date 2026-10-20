@@ -48,7 +48,9 @@ import {
 } from "./plugin-root";
 import { moduleIdFromPluginRootName, pluginRootName } from "./plugin-manifest";
 import { withFileLock } from "./lock";
+import { commandOnPath, pathContains } from "./path-probe";
 import { applyShellRcCompletions } from "./setup-rc";
+import { seedUserProductBrief } from "./product-brief-seed";
 import {
   ensureSessionStartHook,
   ensureStopHook,
@@ -296,9 +298,8 @@ export type SetupOptions = {
    */
   checkDrift?: () => InstallDriftResult;
   /**
-   * Injectable environment for the auto-memory / subagent-cache-TTL install
-   * notices below. Defaults to `process.env`; tests stub
-   * `CLAUDE_CODE_DISABLE_AUTO_MEMORY` / `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL`
+   * Injectable environment for the auto-memory install notice below.
+   * Defaults to `process.env`; tests stub `CLAUDE_CODE_DISABLE_AUTO_MEMORY`
    * without mutating the real process env.
    */
   env?: NodeJS.ProcessEnv;
@@ -332,9 +333,9 @@ export type SetupSummary = {
  * 2.1.260: `1`/`true`/`yes`/`on`, case-insensitive and trimmed, are all
  * truthy — a strict `=== "1"` comparison would silently miss a user who
  * exported `=true`. Module-private: not exported, since the item-5
- * coverage calls `autoMemoryDisabled`/`subagentCacheTtlOverride` directly
- * (both already exported), so this predicate needs no public surface. A
- * future claude version divergence is re-checkable via this comment.
+ * coverage calls `autoMemoryDisabled` directly (already exported), so this
+ * predicate needs no public surface. A future claude version divergence is
+ * re-checkable via this comment.
  */
 function claudeEnvTruthy(value: string | undefined): boolean {
   if (value === undefined) return false;
@@ -363,44 +364,6 @@ export function autoMemoryDisabled(
     return parsed.autoMemoryEnabled === false;
   } catch {
     return false;
-  }
-}
-
-/**
- * Read-only, malformed-tolerant check for a `subagentPromptCacheTtl`
- * override (setting or env var) that would mask flow's per-agent
- * `experimental.cacheTtl: 1h` pins — the prompt-caching precedence list
- * puts this setting ABOVE per-agent `experimental.cacheTtl`. Returns the
- * overriding value's source string for the notice, or `null` when nothing
- * overrides. Same malformed-tolerant contract as `autoMemoryDisabled`.
- */
-export function subagentCacheTtlOverride(
-  settingsPath: string,
-  env: NodeJS.ProcessEnv = process.env,
-): string | null {
-  if (claudeEnvTruthy(env.FORCE_PROMPT_CACHING_5M))
-    return `FORCE_PROMPT_CACHING_5M=${env.FORCE_PROMPT_CACHING_5M}`;
-  if (env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL) {
-    // Deliberately unchanged — plain truthiness, not claudeEnvTruthy().
-    // Claude Code appears to enum-validate this against ["5m","1h"], so a
-    // plain-truthiness read may over-report for a bogus value. Kept
-    // because for a notice-only read, over-reporting is the safe
-    // direction: a wrong notice is cosmetic, a suppressed one hides an
-    // inert feature.
-    return `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=${env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL}`;
-  }
-  try {
-    const raw = fs.readFileSync(settingsPath, "utf8");
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (
-      typeof parsed.subagentPromptCacheTtl === "string" ||
-      typeof parsed.subagentPromptCacheTtl === "number"
-    ) {
-      return `subagentPromptCacheTtl=${parsed.subagentPromptCacheTtl}`;
-    }
-    return null;
-  } catch {
-    return null;
   }
 }
 
@@ -768,6 +731,30 @@ async function runUnderLock(
     log,
   );
 
+  // Seed ~/.flow/product.md only when absent — deliberately untracked by the
+  // manifest: a deleted brief is re-seeded on the next install, and the
+  // supported way to turn the feature off is the `review.product: false`
+  // kill switch, not deleting the seeded file.
+  const briefSeed = seedUserProductBrief({
+    homeDir: options.homeDir,
+    flowSource,
+    installRoot,
+  });
+  if (briefSeed.status === "created") {
+    log(
+      `  + ${briefSeed.path}  (seeded user-level product brief — edit it to state what you optimize for; a repo's own .flow/product.md wins)`,
+    );
+  } else if (
+    briefSeed.status === "no-template" ||
+    briefSeed.status === "failed"
+  ) {
+    log(
+      `  ! product brief seed skipped: ${briefSeed.status}${
+        briefSeed.error ? ` (${briefSeed.error})` : ""
+      }`,
+    );
+  }
+
   const settingsPath = options.settingsPath ?? CLAUDE_SETTINGS_PATH;
   if (!options.noHooks) {
     const result = ensureStopHook(settingsPath, STOP_HOOK_COMMAND, {
@@ -831,18 +818,12 @@ async function runUnderLock(
 
   // Read-only notices — unrelated to the hook merge above, so they must fire
   // regardless of `--no-hooks`. The users most likely to have hand-set
-  // `subagentPromptCacheTtl` or `autoMemoryEnabled: false` are exactly the
-  // `--no-hooks` users who hand-manage settings.json.
+  // `autoMemoryEnabled: false` are exactly the `--no-hooks` users who
+  // hand-manage settings.json.
   const notifyEnv = options.env ?? process.env;
   if (autoMemoryDisabled(settingsPath, notifyEnv)) {
     log(
       "  ! auto memory is disabled — flow-discovery/flow-scout memory: local will be inert (see docs/configuration.md)",
-    );
-  }
-  const cacheTtlOverride = subagentCacheTtlOverride(settingsPath, notifyEnv);
-  if (cacheTtlOverride) {
-    log(
-      `  ! ${cacheTtlOverride} overrides flow's per-agent 1h cache TTL (see docs/configuration.md)`,
     );
   }
 
@@ -1379,10 +1360,17 @@ function printOutcome(
         afterSha: ff.afterSha,
       });
       if (changed.length > 0) log(dim(`      changed: ${changed.join(", ")}`));
-    } else if (ff?.status === "skipped" && ff.reason === "dirty") {
+    } else if (
+      ff?.status === "skipped" &&
+      (ff.reason === "dirty" || ff.reason === "merge-failed")
+    ) {
+      const hint =
+        ff.reason === "dirty"
+          ? "commit or discard tracked edits in the flow checkout, then re-run `flow install --upgrade`"
+          : "move aside any untracked file in the way or local commits not on origin, then re-run `flow install --upgrade`";
       log(
         red(
-          `flow: content NOT refreshed (dirty) — links re-pointed but content not refreshed`,
+          `flow: content NOT refreshed (${ff.reason}) — links re-pointed but content not refreshed; ${hint}`,
         ),
       );
     } else if (ff?.status === "skipped" && ff.reason === "non-default-branch") {
@@ -1495,32 +1483,4 @@ function printModuleBreakdown(
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([id, n]) => `${id} ${n}`);
   log(dim(`      by module: ${parts.join(", ")}`));
-}
-
-function commandOnPath(cmd: string): boolean {
-  const result = Bun.spawnSync(["sh", "-c", `command -v ${cmd}`], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return result.exitCode === 0;
-}
-
-function pathContains(dir: string): boolean {
-  const p = process.env.PATH ?? "";
-  const real = (() => {
-    try {
-      return fs.realpathSync(dir);
-    } catch {
-      return dir;
-    }
-  })();
-  for (const segment of p.split(":")) {
-    if (segment === dir || segment === real) return true;
-    try {
-      if (fs.realpathSync(segment) === real) return true;
-    } catch {
-      // ignore non-existent PATH segments
-    }
-  }
-  return false;
 }

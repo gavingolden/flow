@@ -19,6 +19,13 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import * as os from "node:os";
 import picomatch from "picomatch";
 import { resolveChecks, npmRunCheck, type CheckDef } from "./lib/stack-table";
+import { checkKey, isReadOnlyVerifier, runDeduped } from "./lib/check-dedupe";
+import { withoutGitLocalEnv } from "./lib/git-local-env";
+import {
+  readVerifiedTree,
+  recordVerifiedTree,
+  workingTreeId,
+} from "./lib/verified-tree";
 import { withTestSemaphore } from "./lib/lock";
 import { FLOW_TEST_SEM_DIR } from "./lib/paths";
 import { detectStrayEnvFiles, strayEnvWarning } from "./lib/stray-env-file";
@@ -35,6 +42,7 @@ import {
 } from "./lib/monorepo-scopes";
 import { isPathBoundHelper } from "./lib/sources";
 import { resolveSlugFromEnv } from "./lib/session-identity";
+import { recordEvent } from "./lib/telemetry";
 import {
   classifyGrepExit,
   conflictGrepArgv,
@@ -73,6 +81,11 @@ export type ScopeMatcher = {
   requireAll?: boolean;
 };
 
+/** Scope label on a result seeded from the same-tree memo. Deliberately not
+ * scope-shaped, so no user-configured scope name can collide with it. */
+export const EARLIER_RUN_SCOPE = "<earlier-run>";
+const EARLIER_RUN_LABEL = "an earlier run on this exact tree";
+
 export type CheckResult = {
   name: string;
   scope: ScopeName;
@@ -86,12 +99,19 @@ export type CheckResult = {
    * use `skipReason` to surface it distinctly.
    */
   skipReason?: "actionlint-not-installed" | "go-not-installed";
+  /** Set on a result copied from an identical earlier run in this
+   * invocation; names the scope that physically executed it. */
+  dedupedFrom?: ScopeName;
 };
 
 export type CheckReport = {
   scopes: ScopeName[];
   results: CheckResult[];
   allPassed: boolean;
+  /** Sum of the durations the in-run reused rows avoided re-running. */
+  savedMs?: number;
+  /** Sum of the durations the rows reused from an earlier run avoided. */
+  earlierRunSavedMs?: number;
   /**
    * The file list scope detection saw, when available. Empty for the
    * `--scope <list>` path where the user named scopes explicitly and there
@@ -141,6 +161,7 @@ export type JsonResult = {
   durationMs: number;
   failure?: FailureExcerpt;
   skipReason?: "actionlint-not-installed" | "go-not-installed";
+  dedupedFrom?: ScopeName;
 };
 
 export type JsonReport = {
@@ -231,12 +252,15 @@ const SCOPE_MATCHERS: Record<Exclude<Scope, "root-fallback">, ScopeMatcher> = {
 
 // --- Helpers ---
 
-function run(argv: string[]): {
+function run(
+  argv: string[],
+  env?: NodeJS.ProcessEnv,
+): {
   stdout: string;
   stderr: string;
   exitCode: number;
 } {
-  const result = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" });
+  const result = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe", env });
   return {
     stdout: result.stdout.toString().trim(),
     stderr: result.stderr.toString().trim(),
@@ -333,7 +357,7 @@ export function runViaRegistry(argv: string[]): {
   stderr: string;
   exitCode: number;
 } {
-  return run(registryArgv(argv));
+  return run(registryArgv(argv), withoutGitLocalEnv(process.env));
 }
 
 // --- Scope Detection ---
@@ -736,18 +760,6 @@ export function parseScopes(
 }
 
 /**
- * Returns the check commands for a built-in scope. Re-expressed to resolve
- * through the shared stack table (`npmRunCheck` builds the node command form;
- * the go marker's default + a `-C backend` cwd option backs `backend`) so
- * built-in and auto-detected scopes share one command-shape mechanism. The
- * argv arrays are byte-for-byte identical to the previous static switch when
- * no `selection` is passed — the `describe(checksForScope)` block is the
- * guard against drift. Takes an optional `selection?: SelectionPlan` second
- * argument (see `tieredTestChecks`/`tieredDocsTestCheck` below): omitted or
- * `undefined` reproduces the original zero-arg argv exactly; passed, it
- * narrows the test check(s) per the tiered-selection plan.
- */
-/**
  * Builds the src/scripts/root-fallback test check(s) for a `selected` plan:
  * one `npm run test -- <explicit non-isolated files> --no-isolate` check,
  * plus a SEPARATE isolated check (no `--no-isolate`) for the colocated
@@ -801,22 +813,18 @@ function tieredTestChecks(selection: SelectionPlan): CheckDef[] {
   return checks;
 }
 
-/** docs scope's narrower form: always-run set only, no related/isolated
- * split — a .md-only diff has no colocated .ts sibling to isolate and no
- * `.ts` relatedInputs by construction. */
-function tieredDocsTestCheck(selection: SelectionPlan): CheckDef {
-  if (selection.mode === "full") return npmRunCheck("test");
-  const argv = [
-    "npm",
-    "run",
-    "test",
-    "--",
-    ...selection.explicitFiles,
-    "--no-isolate",
-  ];
-  return { name: argv.join(" "), argv };
-}
-
+/**
+ * Returns the check commands for a built-in scope. Re-expressed to resolve
+ * through the shared stack table (`npmRunCheck` builds the node command form;
+ * the go marker's default + a `-C backend` cwd option backs `backend`) so
+ * built-in and auto-detected scopes share one command-shape mechanism. The
+ * argv arrays are byte-for-byte identical to the previous static switch when
+ * no `selection` is passed — the `describe(checksForScope)` block is the
+ * guard against drift. Takes an optional `selection?: SelectionPlan` second
+ * argument (see `tieredTestChecks`, defined above): omitted or
+ * `undefined` reproduces the original zero-arg argv exactly; passed, it
+ * narrows the test check(s) per the tiered-selection plan.
+ */
 export function checksForScope(
   scope: Scope,
   selection?: SelectionPlan,
@@ -839,17 +847,19 @@ export function checksForScope(
       // exercise the always-run set — which is the only place
       // structural-anchor lints (e.g. bin/skill-md-lint.test.ts) run, since
       // .md-only diffs never fall through to root-fallback. Under tiered
-      // selection, that always-run set is exactly `selection.explicitFiles`
-      // (the manifest's alwaysRun tier is built FROM the scansRepoTree axis
-      // that seeds these lints — see docs/test-quality-methodology.md); with
-      // no manifest, the full suite plays the same role. `npm run lint`
+      // selection, that always-run set is `selection.explicitFiles` (the
+      // manifest's alwaysRun tier is built FROM the scansRepoTree axis that
+      // seeds these lints — see docs/test-quality-methodology.md); with no
+      // manifest, the full suite plays the same role. The test checks are
+      // the same builder src/scripts use, so a multi-scope diff reuses them
+      // via runDeduped instead of re-running a narrower variant. `npm run lint`
       // last mirrors src/scripts/root-fallback: it is the repo-wide
       // `prettier --check .`, so a markdown formatting violation fails the
       // gate locally instead of first surfacing in CI's root lint job. Stays
       // inert via filterDefinedChecks in repos with no `lint` script.
       return [
         { name: "flow-md-validate .", argv: ["flow-md-validate", "."] },
-        selection ? tieredDocsTestCheck(selection) : npmRunCheck("test"),
+        ...(selection ? tieredTestChecks(selection) : [npmRunCheck("test")]),
         npmRunCheck("lint"),
       ];
     case "actions":
@@ -1349,10 +1359,20 @@ export function formatReport(report: CheckReport): string {
 
   for (const result of report.results) {
     const icon = result.skipReason ? "SKIP" : result.passed ? "PASS" : "FAIL";
-    const duration = formatDuration(result.durationMs);
-    lines.push(`  ${icon}  ${result.name} (${duration})`);
+    const reusedFrom =
+      result.dedupedFrom === EARLIER_RUN_SCOPE
+        ? EARLIER_RUN_LABEL
+        : result.dedupedFrom;
+    const label = result.dedupedFrom
+      ? `reused from ${reusedFrom}`
+      : formatDuration(result.durationMs);
+    lines.push(`  ${icon}  ${result.name} (${label})`);
 
-    if (result.skipReason && result.output) {
+    if (result.dedupedFrom) {
+      if (!result.passed) {
+        lines.push(`        (same output as the ${reusedFrom} run above)`, "");
+      }
+    } else if (result.skipReason && result.output) {
       const indented = result.output
         .split("\n")
         .map((line) => `        ${line}`)
@@ -1369,11 +1389,19 @@ export function formatReport(report: CheckReport): string {
   }
 
   lines.push("");
-  const skipped = report.results.filter((r) => r.skipReason).length;
-  const ran = report.results.filter((r) => !r.skipReason);
+  const executed = report.results.filter((r) => !r.dedupedFrom);
+  const reusedCount = report.results.length - executed.length;
+  const earlierCount = report.results.filter(
+    (r) => r.dedupedFrom === EARLIER_RUN_SCOPE,
+  ).length;
+  const acrossCount = reusedCount - earlierCount;
+  const skipped = executed.filter((r) => r.skipReason).length;
+  const ran = executed.filter((r) => !r.skipReason);
   const passed = ran.filter((r) => r.passed).length;
   const total = ran.length;
-  if (total === 0 && skipped === 0) {
+  if (total === 0 && skipped === 0 && reusedCount > 0 && report.allPassed) {
+    lines.push(`All ${reusedCount} checks passed (reused).`);
+  } else if (total === 0 && skipped === 0) {
     if (report.reason === "no-checks-defined") {
       lines.push(
         "No checks ran (no matching npm scripts defined in package.json).",
@@ -1400,6 +1428,17 @@ export function formatReport(report: CheckReport): string {
         `Gate failed: ${report.unmatchedFiles?.length ?? 0} changed file(s) matched no checked scope (see "Unmatched files" above). Re-run with an explicit --scope to cover them, or extend the scope matchers.`,
       );
     }
+  }
+
+  if (acrossCount > 0) {
+    lines.push(
+      `Reused ${acrossCount} identical check run(s) across scopes (saved ~${formatDuration(report.savedMs ?? 0)}).`,
+    );
+  }
+  if (earlierCount > 0) {
+    lines.push(
+      `Reused ${earlierCount} check result(s) from ${EARLIER_RUN_LABEL} (saved ~${formatDuration(report.earlierRunSavedMs ?? 0)}).`,
+    );
   }
 
   return lines.join("\n");
@@ -1483,8 +1522,19 @@ export function formatJsonReport(report: CheckReport): string {
         passed: r.passed,
         durationMs: r.durationMs,
       };
-      if (!r.passed) result.failure = buildFailureExcerpt(r.output);
+      if (!r.passed) {
+        result.failure = buildFailureExcerpt(r.output);
+        // The executed row named by dedupedFrom already carries the excerpt.
+        if (r.dedupedFrom) {
+          result.failure.headExcerpt = "";
+          result.failure.tailExcerpt = "";
+        }
+      }
       if (r.skipReason) result.skipReason = r.skipReason;
+      if (r.dedupedFrom) {
+        result.dedupedFrom =
+          r.dedupedFrom === EARLIER_RUN_SCOPE ? "earlier-run" : r.dedupedFrom;
+      }
       return result;
     }),
     allPassed: report.allPassed,
@@ -1540,12 +1590,160 @@ shown above. See docs/test-quality-methodology.md.
 
 The lint check is skipped when no 'lint' npm script is defined.
 
-The same checks may run multiple times if multiple scopes are detected.
-Each check is run independently and reports its own pass/fail.
+Identical read-only checks (test, lint, typecheck, …) run once per
+invocation; later scopes reuse the first result and are labelled
+'reused from <scope>'. Any other command always runs.
+With --pre-push on a clean tree that an earlier all-read-only run already
+passed, those passes are reused too ('reused from an earlier run on this
+exact tree'). Each check reports its own pass/fail.
   `);
 }
 
+/**
+ * Runs one scoped check, throttling the test check through the host-wide
+ * semaphore and applying the `--no-isolate` isolated retry. Called only for a
+ * physical execution — a deduped (reused) row never reaches here.
+ */
+function executeScopedCheck(
+  check: CheckDef,
+  scope: ScopeName,
+  opts: { json: boolean; testConcurrency: number },
+): CheckResult {
+  const { json, testConcurrency } = opts;
+  // Throttle ONLY the test check (root `npm run test` and the workspace
+  // variant `npm run test -w <pkg>`) through the host-wide counting
+  // semaphore; typecheck/lint/md-validate/actionlint/go run unthrottled.
+  if (!isTestCheck(check.argv)) return runCheck(check.name, check.argv, scope);
+  const { result, throttled } = withTestSemaphore(
+    FLOW_TEST_SEM_DIR,
+    testConcurrency,
+    () => runCheck(check.name, check.argv, scope),
+  );
+  if (!throttled) {
+    // Acquire deadline elapsed: the test ran without holding a slot, so
+    // the host-wide cap was momentarily exceeded. Route to stderr in
+    // --json mode (stdout must stay a single JSON object), mirroring the
+    // no-checks skip message in main().
+    const note = `Scope '${scope}': test ran unthrottled (acquire timed out past the FLOW_TEST_CONCURRENCY=${testConcurrency} cap).`;
+    if (json) console.error(note);
+    else console.log(note);
+  }
+  // Isolation retry: a `--no-isolate` tiered check that FAILS gets one
+  // isolated re-run of the same file list before being reported red —
+  // `--no-isolate` can produce a false RED (cross-file shared-module
+  // contamination among the selected files), never a false GREEN, so
+  // a red result under `--no-isolate` that turns green under
+  // isolation was that contamination, not a real regression; a red
+  // result that stays red under isolation is a real failure either
+  // way. False greens are the case this retry cannot detect — that's
+  // what isolated CI is for.
+  if (!result.passed && check.argv.includes("--no-isolate")) {
+    const isolatedArgv = check.argv.filter((a) => a !== "--no-isolate");
+    const { result: isolatedResult } = withTestSemaphore(
+      FLOW_TEST_SEM_DIR,
+      testConcurrency,
+      () => runCheck(`${check.name} (isolated retry)`, isolatedArgv, scope),
+    );
+    return {
+      ...isolatedResult,
+      durationMs: result.durationMs + isolatedResult.durationMs,
+    };
+  }
+  return result;
+}
+
+/**
+ * Seeds the push-time reuse table from the same-tree memo. Only when every
+ * pushed non-delete local sha is HEAD and the clean tree is exactly the one
+ * the memo recorded — anything else (a dirty tree, an older sha, a tree no
+ * check has seen) leaves every check to run.
+ */
+function seedFromVerifiedTree(
+  refs: PrePushRef[],
+  tree: string | null,
+): Map<string, CheckResult> | undefined {
+  if (!tree) return undefined;
+  const pushed = refs.filter((r) => !/^0+$/.test(r.localSha));
+  if (pushed.length === 0) return undefined;
+  const head = run(["git", "rev-parse", "HEAD"]);
+  const headTree = run(["git", "rev-parse", "HEAD^{tree}"]);
+  if (head.exitCode !== 0 || headTree.exitCode !== 0) return undefined;
+  if (headTree.stdout !== tree) return undefined;
+  if (pushed.some((r) => r.localSha !== head.stdout)) return undefined;
+  const memo = readVerifiedTree();
+  if (!memo || memo.tree !== tree) return undefined;
+  const seeds = new Map<string, CheckResult>();
+  for (const [key, entry] of Object.entries(memo.passed)) {
+    seeds.set(key, {
+      name: entry.name,
+      scope: EARLIER_RUN_SCOPE,
+      passed: true,
+      output: "",
+      durationMs: entry.durationMs,
+    });
+  }
+  return seeds;
+}
+
+/**
+ * runDeduped credits a seeded duration once per reusing row (`rowMs`), but
+ * without the memo each distinct check would still have run only once, so the
+ * reported saving (`savedMs`) counts distinct check keys.
+ */
+export function earlierRunSavings(
+  planned: Array<{ argv: string[] }>,
+  results: CheckResult[],
+  prior: ReadonlyMap<string, CheckResult> | undefined,
+): { reusedChecks: number; rowMs: number; savedMs: number } {
+  let reusedChecks = 0;
+  let rowMs = 0;
+  const byKey = new Map<string, number>();
+  planned.forEach((p, i) => {
+    if (results[i]?.dedupedFrom !== EARLIER_RUN_SCOPE) return;
+    const key = checkKey(p.argv);
+    const ms = prior?.get(key)?.durationMs ?? 0;
+    reusedChecks++;
+    rowMs += ms;
+    byKey.set(key, ms);
+  });
+  let savedMs = 0;
+  for (const ms of byKey.values()) savedMs += ms;
+  return { reusedChecks, rowMs, savedMs };
+}
+
+/**
+ * Remembers this run's passes against the tree it ran on, but only when every
+ * planned check was a read-only verifier — a mutating check may have changed
+ * what later checks saw. Rows reused from this or an earlier run carry no
+ * fresh timing and are left to the run that executed them.
+ */
+function recordPassesForTree(
+  tree: string | null,
+  planned: Array<{ argv: string[] }>,
+  results: CheckResult[],
+): void {
+  if (!tree || planned.length === 0) return;
+  if (!planned.every((p) => isReadOnlyVerifier(p.argv))) return;
+  recordVerifiedTree(
+    tree,
+    planned.flatMap((p, i) =>
+      results[i].dedupedFrom
+        ? []
+        : [
+            {
+              argv: p.argv,
+              name: results[i].name,
+              passed: results[i].passed,
+              durationMs: results[i].durationMs,
+              skipped: Boolean(results[i].skipReason),
+            },
+          ],
+    ),
+  );
+}
+
 async function main(): Promise<void> {
+  const startedAt = Date.now();
   const args = process.argv.slice(2);
 
   if (args.includes("--help") || args.includes("-h")) {
@@ -1562,11 +1760,15 @@ async function main(): Promise<void> {
 
   const json = args.includes("--json");
   const prePush = args.includes("--pre-push");
+  const treeAtStart = workingTreeId();
   let scopes: ScopeName[];
   let changedFiles: string[] | undefined;
   // Dynamic scopes claimed via auto-detect/config, keyed by name for the
   // run loop. Empty on the --scope path (no diff to detect against).
   let dynamicScopes: DynamicScope[] = [];
+  // Passes from an earlier run on this exact tree; only ever set in --pre-push
+  // (/flow-verify and every other mode observe the worktree fresh).
+  let priorResults: Map<string, CheckResult> | undefined;
   const scopeIdx = args.indexOf("--scope");
   const prIdx = args.indexOf("--pr");
 
@@ -1584,6 +1786,7 @@ async function main(): Promise<void> {
     if (refs.length === 0) {
       process.exit(0);
     }
+    priorResults = seedFromVerifiedTree(refs, treeAtStart);
     changedFiles = getChangedFilesForPush(refs);
     dynamicScopes = loadDynamicScopes(computeUnmatchedFiles(changedFiles));
     scopes = detectScopesFromFiles(changedFiles, dynamicScopes);
@@ -1637,7 +1840,11 @@ async function main(): Promise<void> {
     changedFiles,
     discoveredTestFiles: () => discoverTestFiles(),
   });
-  const results: CheckResult[] = [];
+  const planned: Array<{
+    scope: ScopeName;
+    argv: string[];
+    check: CheckDef;
+  }> = [];
   for (const scope of scopes) {
     const dynamic = dynamicByName.get(scope);
     // Built-in scopes still gate on the root package.json's declared scripts
@@ -1658,50 +1865,21 @@ async function main(): Promise<void> {
       continue;
     }
     for (const check of checks) {
-      // Throttle ONLY the test check (root `npm run test` and the workspace
-      // variant `npm run test -w <pkg>`) through the host-wide counting
-      // semaphore; typecheck/lint/md-validate/actionlint/go run unthrottled.
-      if (isTestCheck(check.argv)) {
-        const { result, throttled } = withTestSemaphore(
-          FLOW_TEST_SEM_DIR,
-          testConcurrency,
-          () => runCheck(check.name, check.argv, scope),
-        );
-        if (!throttled) {
-          // Acquire deadline elapsed: the test ran without holding a slot, so
-          // the host-wide cap was momentarily exceeded. Route to stderr in
-          // --json mode (stdout must stay a single JSON object), mirroring the
-          // no-checks skip message above.
-          const note = `Scope '${scope}': test ran unthrottled (acquire timed out past the FLOW_TEST_CONCURRENCY=${testConcurrency} cap).`;
-          if (json) console.error(note);
-          else console.log(note);
-        }
-        // Isolation retry: a `--no-isolate` tiered check that FAILS gets one
-        // isolated re-run of the same file list before being reported red —
-        // `--no-isolate` can produce a false RED (cross-file shared-module
-        // contamination among the selected files), never a false GREEN, so
-        // a red result under `--no-isolate` that turns green under
-        // isolation was that contamination, not a real regression; a red
-        // result that stays red under isolation is a real failure either
-        // way. False greens are the case this retry cannot detect — that's
-        // what isolated CI is for.
-        if (!result.passed && check.argv.includes("--no-isolate")) {
-          const isolatedArgv = check.argv.filter((a) => a !== "--no-isolate");
-          const { result: isolatedResult } = withTestSemaphore(
-            FLOW_TEST_SEM_DIR,
-            testConcurrency,
-            () =>
-              runCheck(`${check.name} (isolated retry)`, isolatedArgv, scope),
-          );
-          results.push(isolatedResult);
-        } else {
-          results.push(result);
-        }
-      } else {
-        results.push(runCheck(check.name, check.argv, scope));
-      }
+      planned.push({ scope, argv: check.argv, check });
     }
   }
+  const { results, savedMs: totalSavedMs } = runDeduped(
+    planned,
+    (p) => executeScopedCheck(p.check, p.scope, { json, testConcurrency }),
+    priorResults,
+  );
+  const {
+    reusedChecks,
+    rowMs: earlierRunRowMs,
+    savedMs: earlierRunSavedMs,
+  } = earlierRunSavings(planned, results, priorResults);
+  const savedMs = totalSavedMs - earlierRunRowMs;
+  recordPassesForTree(treeAtStart, planned, results);
   if (selection && selection.mode === "selected") {
     const note = `selected ${selection.explicitFiles.length} test file(s), deferred ${selection.deferredCount} to CI; local ran with --no-isolate, CI re-runs isolated.`;
     if (json) console.error(note);
@@ -1741,11 +1919,34 @@ async function main(): Promise<void> {
     allPassed,
     changedFiles,
   };
+  if (savedMs > 0) report.savedMs = savedMs;
+  if (earlierRunSavedMs > 0) report.earlierRunSavedMs = earlierRunSavedMs;
   if (unmatchedFiles && unmatchedFiles.length > 0)
     report.unmatchedFiles = unmatchedFiles;
   if (reason) report.reason = reason;
 
   console.log(json ? formatJsonReport(report) : formatReport(report));
+
+  // Best-effort verify.attempt telemetry — one record per run, covering
+  // both --json and human-readable modes. failing_checks carries CheckResult
+  // NAMES only (never output/excerpt text), bounded to 20 entries.
+  try {
+    const failingChecks = results
+      .filter((r) => !r.passed && !r.dedupedFrom)
+      .map((r) => r.name)
+      .slice(0, 20);
+    recordEvent("verify.attempt", {
+      scopes,
+      ok: report.allPassed,
+      failing_checks: failingChecks,
+      duration_ms: Date.now() - startedAt,
+      json_mode: json,
+      reused_checks: reusedChecks,
+    });
+  } catch {
+    // swallowed — telemetry must never affect this CLI's exit code.
+  }
+
   process.exit(report.allPassed ? 0 : 1);
 }
 

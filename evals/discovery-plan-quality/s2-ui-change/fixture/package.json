@@ -1,0 +1,14 @@
+{
+  "name": "todo-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "bun test",
+    "start": "bun src/index.ts"
+  },
+  "devDependencies": {
+    "@sveltejs/kit": "^2.0.0",
+    "svelte": "^5.0.0"
+  }
+}

@@ -26,20 +26,23 @@ gathering and refutation run as `agy` subprocesses, fanned out concurrently by
 This is roadmap item **F1** for `flow-delegate`. Wiring it into
 `/flow-product-planning` discovery (roadmap **F2** / issue #338) is **now done**:
 the discovery sub-agent gathers web-grounded evidence before planning by driving
-`flow-delegate-fanout` **directly via Bash** — a spawned Task sub-agent does **not**
-have the `Skill` tool, so it cannot load this skill in-process; it `Read`s this
-skill's procedure and runs the fan-out itself. That F2 use is a **Bash fan-out**
+`flow-delegate-fanout` **directly via Bash** — it deliberately does not load this skill
+via the `Skill` tool (its default budget suits an interactive caller); it `Read`s
+this skill's procedure and runs the fan-out itself. That F2 use is a **Bash fan-out**
 (`flow-delegate-fanout`), **not a nested Task** — the discovery sub-agent
 itself is this pipeline's orchestrating "Claude", so the no-nested-LLM
-invariant and the nine-exemption count are preserved (no new exemption). The
-F2 caller runs a **tightened budget** (`--max-calls 12` plus a 3-minute
-per-entry `timeout: "3m"`) per the "Tighten for the #338 supervisor context"
-guidance in Constraints below, because a one-shot sub-agent has no
-yield/resume and its synchronous run must stay under the observed-safe
-~10-min ceiling. This skill's own research procedure (Instructions, report
+invariant and the eight-exemption count are preserved (no new exemption). The
+F2 caller runs a **tightened budget** (`--max-calls 12` plus a 20-minute
+per-entry `timeout: "20m"`, the research default) per the "Tighten for the #338
+supervisor context" guidance in Constraints below. Because a one-shot sub-agent
+has no yield/resume and no wake-up notifications, it launches the fan-out
+detached (`flow-spawn --detach`) and waits on its `--out` file in the
+foreground, in re-armed ≤9-minute steps (`flow-plan-review-wait --complete-line
+--pid`), so the limit is bounded by one wave × the research limit rather than
+by one tool call. This skill's own research procedure (Instructions, report
 template, fan-out logic) is unchanged by that wiring.
 
-The F2 discovery pre-check's synthesis is cached host-wide at `~/.flow/research-cache/` keyed on the normalized sharp question (see `flow-research-cache` / `discovery-instructions.md` Step 1.5), so an identical same-scope redirect or crash-resume reuses it instead of re-running the fan-out.
+The F2 discovery pre-check's synthesis is cached host-wide at `~/.flow/research-cache/` keyed on the normalized sharp question (see `flow-research-cache` / `discovery-research.md` Step 1.5), so an identical same-scope redirect or crash-resume reuses it instead of re-running the fan-out.
 
 # When to Use
 
@@ -75,15 +78,28 @@ The F2 discovery pre-check's synthesis is cached host-wide at `~/.flow/research-
   `flow-delegate` calls concurrently (bounded pool, default K=4), enforces a
   generous per-run total-call budget (default B=40, counted as dispatch
   attempts), and aggregates one JSON
-  `{ entries:[{task,model,ran,artifactPath?,skipReason?,durationMs?}], anyRan,
-allSkipped, calls:{attempted,ran,skipped,budget} }` to stdout AND `--out`. A
-  manifest entry is `{ task, model, prompt|promptFile, timeout?, addDirs?,
-out? }`. It backgrounds + persists to `--out` like `flow-ci-wait`, so a deep
-  run can outlive the harness foreground budget and a resumed turn reads the
-  result file.
+  `{ entries:[{task,model,ran,artifactPath?,skipReason?,durationMs?,deniedActions?}],
+anyRan, allSkipped, calls:{attempted,ran,skipped,budget} }` to stdout AND
+  `--out`. A manifest entry is `{ task, model, prompt|promptFile, timeout?,
+addDirs?, out?, skipPermissions?, outputFormat? }`. `skipPermissions` and
+  `outputFormat: "json"` are OPT-IN per entry, not defaults for this skill's
+  own Steps 2/3 gather/refute manifests below (they run without either,
+  subject to agy's normal interactive tool-permission prompting) — it is
+  `flow-research-run`'s deterministic discovery-backstop entries, a
+  DIFFERENT caller from this generic multi-angle skill, that set both:
+  `skipPermissions: true` (they pass no `addDirs`, so auto-approval grants no
+  `--add-dir` workspace directory, AND `flow-delegate` additionally pins the
+  child's `cwd` to an empty scratch directory in that case, so the
+  auto-approving run has nothing reachable via its inherited working
+  directory either — only agy's own tools, e.g. native web search, are
+  reached without a permission prompt) and `outputFormat: "json"` (so a
+  refused tool is nameable via the envelope's `deniedActions`). It
+  backgrounds + persists to `--out` like `flow-ci-wait`, so a deep run can
+  outlive the harness foreground budget and a resumed turn reads the result
+  file.
 - **Exact agy model variants** (live `agy models`, do not paraphrase): gather
-  runs on `Gemini 3.1 Pro (High)`; refutation runs on a DIFFERENT variant from
-  {`Claude Opus 4.6 (Thinking)`, `GPT-OSS 120B (Medium)`}.
+  runs on `Gemini 4 Argon (High)`; refutation runs on a DIFFERENT variant from
+  {`Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)`}.
 - **Coding / output standards:** `AGENTS.md`. The no-nested-LLM rule is
   load-bearing here — see Constraints.
 - [report template](references/report-template.md) — the cited-report
@@ -110,7 +126,7 @@ delegate it. Write the angles down; they become the gather manifest.
 Before paying for a fresh fan-out, check whether a prior identical `/flow-research`
 run already synthesized this exact question — mirroring `/flow-product-planning`
 discovery Step 1.5's cache pattern
-(`skills/pipeline/flow-product-planning/references/discovery-instructions.md`). Compose
+(`skills/pipeline/flow-product-planning/references/discovery-research.md`). Compose
 the cache key from the **final refined (post-clarification) question** under a
 direct-invocation namespace prefix so the direct `/flow-research` keyspace never
 collides with discovery's bare-question keyspace, then read the host-wide cache by
@@ -155,7 +171,7 @@ refresh repopulates the cache for the next caller.
 
 Build a gather manifest — one entry per angle — and write it to
 `.flow-tmp/research/<run-id>/gather-manifest.json`. **Every gather entry uses
-`"model": "Gemini 3.1 Pro (High)"`.** This GATHER step is a single-model
+`"model": "Gemini 4 Argon (High)"`.** This GATHER step is a single-model
 monoculture (agy's native Google grounding is the point); cross-model
 diversity lives only in the refute step (Step 3). Do not claim pervasive
 diversity — the diverse signal is adversarial, in the refute step.
@@ -177,7 +193,9 @@ flow-delegate-fanout \
 
 Read the aggregate. If `allSkipped` is true, take the agy-absent fallback
 (below). Otherwise read each ran entry's `artifactPath` to collect the
-extracted claims-with-quotes-and-grades.
+extracted claims-with-quotes-and-grades. Every `ran:false` entry in a
+non-`allSkipped` aggregate must be named in the report's own limitations
+section with its reason in plain language — never silently dropped.
 
 ## 3. Adversarial verify (agy fan-out, model-DIVERSE)
 
@@ -185,7 +203,7 @@ In Claude, **rank the gathered claims by importance × source-quality** and
 select the top-N to verify (N is a generous default, ~40, tunable — see
 Constraints). For each selected claim, build a refute manifest entry that runs
 on a **DIFFERENT model from the gatherer** — a variant from
-{`Claude Opus 4.6 (Thinking)`, `GPT-OSS 120B (Medium)`} — so the adversarial
+{`Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)`} — so the adversarial
 signal is genuinely cross-model rather than one model checking itself. Write it
 to `.flow-tmp/research/<run-id>/refute-manifest.json`.
 
@@ -252,6 +270,10 @@ the degraded/partial-run flag section of the template. Never present a
 half-researched report as a complete research result. A budget-truncated run is
 detectable from the aggregate's `calls` counts and the per-entry
 `skipReason:"budget-exhausted"`.
+
+An `agy-model-unavailable` skip means agy no longer offers the pinned model — run
+`flow doctor`, then set the model's config key to one `agy models` lists; do not
+retry.
 
 ## 6. Graceful agy-absent fallback (honestly degraded, three-tier)
 
@@ -320,7 +342,7 @@ Tier 2 fires **only when ALL three hold**:
   `~/.flow/config.json` key `research.deepResearchFallback`. A sub-agent / skill
   cannot import flow's `bin/lib` (it is not on PATH in a consumer worktree — see
   the F2 idiom at
-  `skills/pipeline/flow-product-planning/references/discovery-instructions.md:53-59`),
+  `skills/pipeline/flow-product-planning/references/discovery-instructions.md` Step 1.5 (a)),
   so read the always-present global config via `jq`. **This INVERTS the F2
   default-OFF `== true` predicate — do NOT copy `== true`.** Absent file,
   malformed JSON, an absent/non-object `research`, or a missing
@@ -383,13 +405,13 @@ produced it (tier-2 `claude -p` vs tier-3 sequential).
   mid-run must degrade the report's confidence and name the gaps, not be
   silently presented as a finished result.
 - **Paraphrasing the agy model-variant strings.** A wrong / renamed variant
-  silently forces a skip. Keep `Gemini 3.1 Pro (High)`,
-  `Claude Opus 4.6 (Thinking)`, `GPT-OSS 120B (Medium)` byte-exact.
+  silently forces a skip. Keep `Gemini 4 Argon (High)`,
+  `Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)` byte-exact.
 
 # Verification
 
-- The gather manifest pins `Gemini 3.1 Pro (High)`; the refute manifest pins a
-  different variant from {`Claude Opus 4.6 (Thinking)`, `GPT-OSS 120B (Medium)`}.
+- The gather manifest pins `Gemini 4 Argon (High)`; the refute manifest pins a
+  different variant from {`Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)`}.
 - The report has confidence-ranked findings (high/medium/low), a refuted-claims
   transparency block, caveats, and open questions; it is both returned in chat
   and written to `.flow-tmp/research/<run-id>/report.md`.

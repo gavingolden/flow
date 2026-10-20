@@ -29,7 +29,8 @@ the cross-model plan review, and the blind method survey — see `AGENTS.md`
 flow-claude-headless (--prompt <text, up to 200 chars> | --prompt-file <path>) \
   --model <alias|id> --effort <low|medium|high|xhigh|max> \
   [--max-budget-usd 5] [--max-turns 25] [--allowed-tools Read,Grep,Glob] \
-  [--env KEY]... [--bare] [--timeout-sec 600] [--out <path>] [--task <name>]
+  [--env KEY]... [--bare] [--timeout-sec 600] [--out <path>] [--task <name>] \
+  [--tools <list>] [--ask-tools <rules>]
 ```
 
 - `--effort` is required and explicit: verified live on `claude` 2.1.259
@@ -40,6 +41,21 @@ flow-claude-headless (--prompt <text, up to 200 chars> | --prompt-file <path>) \
 - `--max-turns` is accepted but hidden from `claude --help` on 2.1.259
   (probed via the missing-argument error, not the help text) — re-verify
   on any CLI upgrade before relying on it.
+- `--tools <list>` is an optional passthrough appended to the child argv
+  only when supplied: verified live on `claude` 2.1.266, documented in
+  `claude --help` as `--tools <tools...>` ("Use \"\" to disable all
+  tools"). An empty string (`--tools ""`) disables all tools in the
+  child, for a caller that wants a pure text-completion child with
+  no tool surface at all. Omitting the flag leaves the child argv exactly
+  as it was before this flag existed.
+- `--ask-tools <rules>` is an optional, tightening-only passthrough: a
+  comma-separated list of permission rules added to the child as
+  `permissions.ask` entries via one inline `--settings` JSON payload built
+  with `JSON.stringify`, so caller text can only become string elements of
+  the `ask` array. It never emits an `allow` or `deny` key and leaves
+  `--setting-sources project` and the fixed `--disallowedTools` list as they
+  were. `scripts/probe-merge-allow-rule.ts` uses it to probe the override
+  ask rules. Omitting the flag leaves the child argv unchanged.
 - The child env is an **allowlist**, not a denylist: only `PATH`, `HOME`,
   `TMPDIR`, `SHELL`, `TERM`, `LANG`, `USER`, `CLAUDE_CONFIG_DIR`, the
   auth/network passthrough (`CLAUDE_CODE_OAUTH_TOKEN`, `HTTP_PROXY`,

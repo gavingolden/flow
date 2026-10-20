@@ -6,7 +6,15 @@
  * lenses so the consolidator's six-mandatory-artifact contract stays
  * intact, and writes `review-scope.json` (its `started_at` doubles as the
  * telemetry attribution window). Prints `NOTICE — review-scope:` /
- * `NOTICE — lens-gated:` lines the wrapper echoes verbatim.
+ * `NOTICE — lens-gated:` lines the wrapper echoes verbatim. Optional lenses
+ * (`bin/lib/review-lens-gates.ts`'s `OPTIONAL_LENSES`) are gated on a
+ * precondition, never content: no synthetic artifact is written for them
+ * and no `lens-gated` notice fires when they're off, so the synthetic-
+ * artifact set and NOTICE lines a repo missing the precondition (e.g. no
+ * product brief) sees stay byte-identical to before the optional lens
+ * existed. `review-scope.json` itself is NOT byte-identical — it always
+ * carries the lens's `gates.<lens>` verdict and (for `product`)
+ * `product_brief`, whether or not the lens ran.
  *
  * Delta scoping requires: a prior marker SHA, that marker an ancestor of
  * HEAD, the prior review clean, delta scope enabled, no forced-full, and
@@ -31,9 +39,18 @@ import { capDiff, DEFAULT_MAX_LINES, DEFAULT_MAX_TOTAL } from "./flow-pr-diff";
 import {
   evaluateGates,
   hasNewBareImports,
+  MANIFEST_GLOBS,
+  matchesAny,
+  OPTIONAL_LENSES,
   type GateVerdict,
 } from "./lib/review-lens-gates";
+import {
+  composeSpawnSet,
+  resolveTier,
+  type ReviewTier,
+} from "./lib/review-tier";
 import type { AnalysisResult } from "./flow-pr-static-analysis/types";
+import { resolveProductBrief, type ProductBrief } from "./flow-product-brief";
 
 export const DELTA_RATIO_THRESHOLD = 0.75;
 
@@ -51,6 +68,11 @@ export type ReviewScope = {
   gates_enabled: boolean;
   delta_enabled: boolean;
   forced_full: boolean;
+  product_brief:
+    | { found: true; scope: "repo" | "user"; path: string }
+    | { found: false };
+  tier: ReviewTier;
+  tier_reasons: string[];
 };
 
 export function resolveScope(input: {
@@ -149,10 +171,19 @@ export function renderNotices(scope: ReviewScope): string[] {
       `NOTICE — review-scope: delta ${base7}..${head7} (${scope.delta_files.length} files, ${pct}% of PR diff)`,
     );
   }
+  notices.push(
+    `NOTICE — review-tier: ${scope.tier} — ${scope.tier_reasons.join("; ")}`,
+  );
   for (const [lens, verdict] of Object.entries(scope.gates)) {
+    if ((OPTIONAL_LENSES as readonly string[]).includes(lens)) continue;
     if (!verdict.run) {
       notices.push(`NOTICE — lens-gated: ${lens} skipped (${verdict.reason})`);
     }
+  }
+  if (scope.gates.product?.run && scope.product_brief.found) {
+    notices.push(
+      `NOTICE — product-lens: on (brief: ${scope.product_brief.scope})`,
+    );
   }
   return notices;
 }
@@ -172,6 +203,7 @@ export type RunDeps = {
   writeFile: (p: string, content: string) => void;
   now: () => Date;
   homeDir: string;
+  productBrief: (cwd: string) => ProductBrief;
 };
 
 export type ParsedArgs =
@@ -279,10 +311,43 @@ function countLines(diff: string): number {
   return lines.length;
 }
 
-function readTolerantBool(
+/** Added/removed line counts from a unified diff, excluding the `+++`/`---` file headers. */
+function countAdditionsDeletions(diff: string): {
+  additions: number;
+  deletions: number;
+} {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+")) additions++;
+    else if (line.startsWith("-")) deletions++;
+  }
+  return { additions, deletions };
+}
+
+/**
+ * True iff `.flow-tmp/plan.md` exists and carries an explicit
+ * `**Stakes:** high` (or `- **Stakes:** high`) flag — plan.md's real
+ * per-decision marker (see `## Decision analysis` entries, e.g.
+ * `- **Stakes:** system` / `- **Stakes:** none`). A bare `/high[- ]stakes/i`
+ * substring match would also fire on mentions and negations of the phrase
+ * "high-stakes" in ordinary prose (this PR's own plan.md discusses the tier
+ * feature by name) — matching the flag line itself avoids that.
+ */
+function readPlanHighStakes(
+  readFile: (p: string) => string | null,
+  worktree: string,
+): boolean {
+  const raw = readFile(path.join(worktree, ".flow-tmp", "plan.md"));
+  if (raw === null) return false;
+  return /^\s*-?\s*\*\*Stakes:\*\*\s*high\b/im.test(raw);
+}
+
+export function readTolerantBool(
   readFile: (p: string) => string | null,
   configPath: string,
-  key: "lensGates" | "deltaScope",
+  key: "lensGates" | "deltaScope" | "product",
 ): boolean {
   const raw = readFile(configPath);
   if (raw === null) return true;
@@ -319,6 +384,11 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     deps.readFile,
     configPath,
     "deltaScope",
+  );
+  const productEnabledByConfig = readTolerantBool(
+    deps.readFile,
+    configPath,
+    "product",
   );
   const gatesEnabled = !parsed.noGates && gatesEnabledByConfig;
   const deltaEnabled = deltaEnabledByConfig;
@@ -440,15 +510,77 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
   const diffRaw = resolved.scope === "delta" ? deltaDiffRaw : fullDiffRaw;
   const newBareImports = hasNewBareImports(diffRaw);
 
+  const productBrief = deps.productBrief(worktree);
+
   const gates = evaluateGates(scopeFiles, {
     enabled: gatesEnabled,
-    staticAnalysis,
     newBareImports,
+    productBrief,
   });
+  // `review.product: false` is a config kill switch, distinct from "no
+  // brief resolved" — it must never emit a `lens-gated` notice (optional
+  // lenses never do) and must win over a brief that DID resolve.
+  if (!productEnabledByConfig) {
+    gates.product = { run: false, reason: "review.product=false" };
+  }
+
+  const hasManifestChange = scopeFiles.some((f) =>
+    matchesAny(f, MANIFEST_GLOBS),
+  );
+  const { additions, deletions } = countAdditionsDeletions(diffRaw);
+  const { tier, reasons: tierReasonsBase } = resolveTier({
+    additions,
+    deletions,
+    files: scopeFiles,
+    hasDependencyChange: hasManifestChange || newBareImports,
+    planHighStakes: readPlanHighStakes(deps.readFile, worktree),
+    // Not yet threaded through this CLI's inputs (no PR title/branch-commit
+    // read on hand here) — the weak/asymmetric prefix signal simply never
+    // fires rather than being guessed at.
+    commitPrefix: null,
+  });
+
+  const hasDependencySignal = (staticAnalysis?.dependencies?.length ?? 0) > 0;
+  // Read `meta.security.ran` rather than inferring from `security.length` —
+  // "semgrep isn't installed" (ran=false) and "semgrep ran and found
+  // nothing" (ran=true, length=0) both produce an empty findings array, and
+  // only the former should skip the force-on backstop below.
+  const securityRan = staticAnalysis?.meta?.security?.ran === true;
+  const hasSecuritySignal =
+    securityRan && (staticAnalysis?.security?.length ?? 0) > 0;
+  const staticAnalysisHits: AgentName[] = [
+    ...(hasDependencySignal ? (["supply-chain"] as const) : []),
+    ...(hasSecuritySignal ? (["security"] as const) : []),
+  ];
+  const securityUnavailableReason =
+    staticAnalysis !== undefined && !securityRan
+      ? "static-analysis security lens did not run (semgrep unavailable or errored) — force-on backstop could not evaluate; verify security coverage manually"
+      : null;
+
+  // --force-full is the documented manual escape hatch for the tier (see
+  // plan.md's rejected-alternative note ruling out a second override flag)
+  // the same way it already forces scope=full instead of delta — it
+  // bypasses tier-based DROPPING only; the content gate and the
+  // static-analysis force-on above are untouched. `!gatesEnabled` (i.e.
+  // --no-gates or review.lensGates:false) bypasses the tier drop too — it
+  // is the umbrella "ignore all gating" escape hatch the existing
+  // every-lens-on contract already relies on; passing "deep" here never
+  // drops a lens (composeSpawnSet only drops on tier === "light").
+  const composedGates = composeSpawnSet({
+    gates,
+    tier: parsed.forceFull || !gatesEnabled ? "deep" : tier,
+    staticAnalysisHits,
+  });
+
+  const outPath =
+    parsed.out ?? path.join(worktree, ".flow-tmp", "review-scope.json");
 
   const scope: ReviewScope = {
     version: 1,
-    started_at: deps.now().toISOString(),
+    started_at:
+      (parsed.forceFull
+        ? widenedStartedAt(deps.readFile(outPath), headSha)
+        : null) ?? deps.now().toISOString(),
     scope: resolved.scope,
     reason: resolved.reason,
     base_sha: resolved.base_sha,
@@ -456,10 +588,17 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     pr_files: prFiles,
     delta_files: resolved.delta_files,
     delta_ratio: resolved.delta_ratio,
-    gates,
+    gates: composedGates,
     gates_enabled: gatesEnabled,
     delta_enabled: deltaEnabled,
     forced_full: parsed.forceFull,
+    product_brief: productBrief.found
+      ? { found: true, scope: productBrief.scope, path: productBrief.path }
+      : { found: false },
+    tier,
+    tier_reasons: securityUnavailableReason
+      ? [...tierReasonsBase, securityUnavailableReason]
+      : tierReasonsBase,
   };
 
   const cappedDiff = capDiff(
@@ -472,7 +611,8 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     parsed.diffOut ?? path.join(worktree, ".flow-tmp", "diff.txt");
   atomicWrite(deps, diffOutPath, cappedDiff);
 
-  for (const [lens, verdict] of Object.entries(gates)) {
+  for (const [lens, verdict] of Object.entries(scope.gates)) {
+    if ((OPTIONAL_LENSES as readonly string[]).includes(lens)) continue;
     if (!verdict.run) {
       const artifactPath = path.join(
         worktree,
@@ -487,8 +627,6 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     }
   }
 
-  const outPath =
-    parsed.out ?? path.join(worktree, ".flow-tmp", "review-scope.json");
   atomicWrite(deps, outPath, JSON.stringify(scope));
 
   // Under --json stdout is reserved for the envelope so callers can pipe it
@@ -499,6 +637,31 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
   if (parsed.json) process.stdout.write(`${JSON.stringify(scope)}\n`);
 
   return 0;
+}
+
+// A widen re-pass (`--force-full`) follows a same-head delta pass in one
+// review; keeping that pass's started_at keeps both passes' lens transcripts
+// inside the telemetry attribution window. A full prior scope, another head,
+// or an unreadable file means an unrelated review: start a fresh window.
+function widenedStartedAt(
+  existing: string | null,
+  headSha: string,
+): string | null {
+  if (!existing) return null;
+  try {
+    const prior = JSON.parse(existing) as Partial<ReviewScope>;
+    if (
+      prior.head_sha === headSha &&
+      prior.scope === "delta" &&
+      typeof prior.started_at === "string" &&
+      !Number.isNaN(Date.parse(prior.started_at))
+    ) {
+      return prior.started_at;
+    }
+  } catch {
+    // malformed prior file — fall through to a fresh window
+  }
+  return null;
 }
 
 const defaultGh: GhRunner = (args) => {
@@ -530,6 +693,7 @@ const defaultDeps: RunDeps = {
   },
   now: () => new Date(),
   homeDir: os.homedir(),
+  productBrief: (cwd) => resolveProductBrief({ cwd }),
 };
 
 if (import.meta.main) {

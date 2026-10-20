@@ -1,4 +1,10 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import {
+  DELEGATE_TIMEOUT_CEILING,
+  DELEGATE_TIMEOUT_DEFAULTS,
+} from "./lib/delegate-timeouts";
 import {
   VALID_DECORATIONS,
   VALID_LABELS,
@@ -6,12 +12,18 @@ import {
 } from "./lib/agent-finding-schema";
 import {
   AGENT_FINDINGS_JSON_SCHEMA,
+  buildPrompt,
   isGeminiLensEnabled,
   parseArgs,
   run,
   type DelegateEnvelope,
   type Deps,
 } from "./flow-gemini-lens";
+
+const DENIED_FIXTURE = readFileSync(
+  path.join(__dirname, "fixtures", "agy", "denied-tools-envelope.json"),
+  "utf8",
+);
 
 const VALID_FINDING = {
   file: "src/foo.ts",
@@ -443,12 +455,14 @@ describe("run — conformant output", () => {
     expect(argv[argv.indexOf("--json-schema") + 1]).toBe(`${OUT}.schema.json`);
   });
 
-  it("passes --timeout resolveDelegateTimeout('reviewLens') default (8m) to flow-delegate", () => {
+  it("passes --timeout resolveDelegateTimeout('reviewLens') default to flow-delegate", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
     const argv = deps.calls.delegate[0]!;
     expect(argv).toContain("--timeout");
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("8m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(
+      DELEGATE_TIMEOUT_DEFAULTS.reviewLens,
+    );
   });
 
   it("passes an explicit --timeout flag through to flow-delegate", () => {
@@ -458,18 +472,20 @@ describe("run — conformant output", () => {
     expect(argv[argv.indexOf("--timeout") + 1]).toBe("6m");
   });
 
-  it("clamps an explicit --timeout flag above the 9m sync ceiling", () => {
+  it("clamps an explicit --timeout flag above the 20m sanity bound", () => {
     const deps = makeDeps();
-    run([...BASE_ARGV, "--timeout", "15m"], deps);
+    run([...BASE_ARGV, "--timeout", "30m"], deps);
     const argv = deps.calls.delegate[0]!;
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("9m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(DELEGATE_TIMEOUT_CEILING);
   });
 
   it("falls back to the default when an explicit --timeout flag is not a valid Go duration", () => {
     const deps = makeDeps();
     run([...BASE_ARGV, "--timeout", "not-a-duration"], deps);
     const argv = deps.calls.delegate[0]!;
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("8m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(
+      DELEGATE_TIMEOUT_DEFAULTS.reviewLens,
+    );
   });
 
   it("writes AGENT_FINDINGS_JSON_SCHEMA to the --json-schema scratch path before dispatch", () => {
@@ -888,5 +904,334 @@ describe("run — usage errors", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(run(["--worktree", "/wt"], makeDeps())).toBe(2);
     errSpy.mockRestore();
+  });
+});
+
+describe("buildPrompt", () => {
+  it("composes the shared read-rules block and omits the old shell-inviting sentence", () => {
+    const diff = "diff --git a/x.ts b/x.ts\n@@ -1,1 +1,1 @@\n-old\n+new\n";
+    const prompt = buildPrompt(diff, "/repo");
+    expect(prompt).toContain("Reach for it with your file-reading tools ONLY");
+    expect(prompt).not.toContain("the working tree is your current directory");
+  });
+
+  it("derives fileCap from the diff's 'diff --git ' count, capped at 10 with a floor of 1", () => {
+    const manyFiles = Array.from(
+      { length: 15 },
+      (_, i) => `diff --git a/f${i}.ts b/f${i}.ts\n`,
+    ).join("");
+    expect(buildPrompt(manyFiles, "/repo")).toContain(
+      "Spot-check AT MOST 10 files",
+    );
+    const oneFile = "diff --git a/f.ts b/f.ts\n";
+    expect(buildPrompt(oneFile, "/repo")).toContain(
+      "Spot-check AT MOST 1 files",
+    );
+    const noHeader = "not a real diff";
+    expect(buildPrompt(noHeader, "/repo")).toContain(
+      "Spot-check AT MOST 1 files",
+    );
+  });
+
+  it("omits the read-rules block entirely and substitutes a no-filesystem clause when worktreePath is null", () => {
+    const prompt = buildPrompt("diff --git a/x.ts b/x.ts\n", null);
+    expect(prompt).not.toContain(
+      "Reach for it with your file-reading tools ONLY",
+    );
+    expect(prompt).toContain("no filesystem access");
+  });
+});
+
+describe("run — self-diagnosing skip reasons (denied tools / token exhaustion)", () => {
+  it("classifies a denied tool call as gemini-tools-denied and, when the fallback retry also fails, returns the ORIGINAL skip envelope with fallbackAttempted:true", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        if (callCount === 1) {
+          deps.files.set(rawPath, DENIED_FIXTURE);
+          return {
+            ran: true,
+            artifactPath: rawPath,
+            deniedActions: ["RunCommand"],
+            usage: { thinking_tokens: 3601, output_tokens: 3704 },
+          } as DelegateEnvelope;
+        }
+        deps.files.set(rawPath, "I could not produce JSON.");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "gemini-tools-denied",
+      fallbackAttempted: true,
+    });
+    expect(deps.calls.delegate).toHaveLength(2);
+    expect(deps.calls.delegate[1]).not.toContain("--add-dir");
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
+  it("retries exactly once without --add-dir on denial and returns ran:true with degraded:'diff-only' when the retry succeeds", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        if (callCount === 1) {
+          deps.files.set(rawPath, DENIED_FIXTURE);
+          return {
+            ran: true,
+            artifactPath: rawPath,
+            deniedActions: ["RunCommand"],
+            usage: { thinking_tokens: 3601, output_tokens: 3704 },
+          } as DelegateEnvelope;
+        }
+        deps.files.set(rawPath, JSON.stringify({ findings: [VALID_FINDING] }));
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: true,
+      degraded: "diff-only",
+      degradedReason: "gemini-tools-denied",
+      findingCount: 1,
+    });
+    expect(deps.calls.delegate).toHaveLength(2);
+    expect(deps.calls.delegate[1]).not.toContain("--add-dir");
+  });
+
+  it("classifies a thinking-dominated empty response with NO denials as gemini-token-exhausted", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        if (callCount === 1) {
+          deps.files.set(
+            rawPath,
+            JSON.stringify({ status: "SUCCESS", response: "" }),
+          );
+          return {
+            ran: true,
+            artifactPath: rawPath,
+            usage: { thinking_tokens: 5000, output_tokens: 100 },
+          } as DelegateEnvelope;
+        }
+        deps.files.set(rawPath, "still nothing usable");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "gemini-token-exhausted",
+      fallbackAttempted: true,
+    });
+    expect(deps.calls.delegate).toHaveLength(2);
+  });
+
+  it("still yields gemini-output-unparseable, with no retry, when neither denial nor exhaustion signals are present", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(rawPath, "not json at all");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "gemini-output-unparseable",
+    });
+    expect(deps.calls.delegate).toHaveLength(1);
+  });
+
+  it("classifies as denied, not exhausted, when both signals are present (the archived fixture has 3601 thinking of 3704 output AND denied_actions)", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(rawPath, DENIED_FIXTURE);
+        return callCount === 1
+          ? ({
+              ran: true,
+              artifactPath: rawPath,
+              deniedActions: ["RunCommand"],
+              usage: { thinking_tokens: 3601, output_tokens: 3704 },
+            } as DelegateEnvelope)
+          : ({ ran: true, artifactPath: rawPath } as DelegateEnvelope);
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({ skipReason: "gemini-tools-denied" });
+  });
+
+  it("promotes a ran:false envelope carrying deniedActions to gemini-tools-denied, even under a raw skipReason of agy-canceled", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        if (callCount === 1) {
+          return {
+            ran: false,
+            skipReason: "agy-canceled",
+            deniedActions: ["RunCommand"],
+          } as DelegateEnvelope;
+        }
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(rawPath, "still nothing usable");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      skipReason: "gemini-tools-denied",
+      fallbackAttempted: true,
+    });
+    expect(deps.calls.delegate).toHaveLength(2);
+  });
+
+  it("does NOT promote a ran:false envelope carrying an incidental deniedActions when the raw skipReason is agy-timeout", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        return {
+          ran: false,
+          skipReason: "agy-timeout",
+          deniedActions: ["RunCommand"],
+        } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({ skipReason: "agy-timeout" });
+    // Not retryable and not promoted, so exactly one dispatch, no retry.
+    expect(deps.calls.delegate).toHaveLength(1);
+  });
+
+  it("does NOT flip an agy-not-authenticated environment-class skip to ran-unusable on an incidental deniedActions", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        return {
+          ran: false,
+          skipReason: "agy-not-authenticated",
+          deniedActions: ["RunCommand"],
+        } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      skipReason: "agy-not-authenticated",
+    });
+    expect(deps.calls.delegate).toHaveLength(1);
+  });
+
+  // [conf 92] Regression test: `diag` was previously left at its `{}`
+  // initializer on the ran:true decode-failure branch, so `deniedActions`
+  // was silently OMITTED from the skip envelope exactly on the path this
+  // PR exists to fix. A blanket toMatchObject cannot catch an omitted
+  // key — assert the key explicitly.
+  it("includes deniedActions in the final skip envelope when the ran:true decode-failure branch classifies as gemini-tools-denied (even after the fallback retry also fails)", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        if (callCount === 1) {
+          deps.files.set(rawPath, DENIED_FIXTURE);
+          return {
+            ran: true,
+            artifactPath: rawPath,
+            deniedActions: ["RunCommand"],
+            usage: { thinking_tokens: 3601, output_tokens: 3704 },
+          } as DelegateEnvelope;
+        }
+        deps.files.set(rawPath, "still nothing usable");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    const env = envelope(deps);
+    expect(env.skipReason).toBe("gemini-tools-denied");
+    expect(env.deniedActions).toEqual(["RunCommand"]);
+  });
+});
+
+describe("run — retry timeout bound (Task 8 diff-only fallback)", () => {
+  // [conf 88] Regression test: the retry previously reused the primary's
+  // full --timeout, so primary+retry could exceed the caller's 10-minute
+  // Bash cap. The retry has no --add-dir and therefore no read phase, so
+  // it gets a short fixed bound strictly below the primary's.
+  it("dispatches the diff-only retry with a timeout strictly below the primary call's timeout", () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        if (callCount === 1) {
+          deps.files.set(rawPath, DENIED_FIXTURE);
+          return {
+            ran: true,
+            artifactPath: rawPath,
+            deniedActions: ["RunCommand"],
+            usage: { thinking_tokens: 3601, output_tokens: 3704 },
+          } as DelegateEnvelope;
+        }
+        deps.files.set(rawPath, "still nothing usable");
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(deps.calls.delegate).toHaveLength(2);
+    const retryArgv = deps.calls.delegate[1]!;
+    // The diff-only retry has no read phase: a fixed 2 minutes, independent of
+    // the primary's (now ≥ 10m) limit.
+    expect(retryArgv[retryArgv.indexOf("--timeout") + 1]).toBe("2m");
+    // The retry is the diff-only one: no --add-dir, so no read budget needed.
+    expect(retryArgv).not.toContain("--add-dir");
+  });
+
+  // [conf 86] Regression test: the retry previously overwrote the primary's
+  // rawPath, so a stale artifact from the primary's own failed attempt
+  // could survive under a name the retry then also wrote — and a failed
+  // retry write could leave a leftover retry artifact from a PRIOR run
+  // mistaken for this run's evidence. Separate raw paths + pre-clean fixes
+  // both.
+  it("writes the retry's artifact to a separate raw path from the primary's", () => {
+    let callCount = 0;
+    const outPaths: string[] = [];
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        callCount++;
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        outPaths.push(rawPath);
+        if (callCount === 1) {
+          deps.files.set(rawPath, DENIED_FIXTURE);
+          return {
+            ran: true,
+            artifactPath: rawPath,
+            deniedActions: ["RunCommand"],
+            usage: { thinking_tokens: 3601, output_tokens: 3704 },
+          } as DelegateEnvelope;
+        }
+        deps.files.set(rawPath, JSON.stringify({ findings: [VALID_FINDING] }));
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(outPaths[0]).not.toBe(outPaths[1]);
   });
 });

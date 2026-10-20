@@ -4,15 +4,28 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  CONTINUE_PHASE_BY_EPIC_STEP,
   decide,
   gatherInputs,
   parseArgs,
   run,
   TERMINAL_PHASE_SET,
+  type Deps,
   type DecisionResult,
   type Inputs,
 } from "./flow-epic-resume-decide";
-import { writeState, type PipelineState, TERMINAL_PHASES } from "./lib/state";
+import { CONTINUE_PHASE_BY_STEP } from "./flow-resume-decide";
+import {
+  checkpointConsumedPath,
+  checkpointMarkerPath,
+} from "./flow-checkpoint";
+import { checkpointBodyPath } from "./lib/checkpoint-freshness";
+import {
+  TERMINAL_EXIT_TRANSITIONS,
+  writeState,
+  type PipelineState,
+  TERMINAL_PHASES,
+} from "./lib/state";
 import {
   type GhRunner,
   type GitRunner,
@@ -75,9 +88,13 @@ describe("decide() — terminal phases (parity with TERMINAL_PHASES)", () => {
     expect(r.reason).toContain("cancelled");
   });
 
-  it("returns terminal when phase is 'needs-human' (canonical-set parity)", () => {
+  it("returns terminal when phase is 'needs-human' and no worktree is recorded (canonical-set parity)", () => {
     const r = decide(
-      makeInputs({ state: baseState({ phase: "needs-human" }) }),
+      makeInputs({
+        state: baseState({ phase: "needs-human", worktree: undefined }),
+        worktree: { kind: "absent-from-state" },
+        pr: { kind: "none" },
+      }),
     );
     expect(r.epicResumeAt).toBe("terminal");
     expect(r.reason).toContain("needs-human");
@@ -89,6 +106,122 @@ describe("decide() — terminal phases (parity with TERMINAL_PHASES)", () => {
     );
     expect(r.epicResumeAt).toBe("terminal");
     expect(r.epicResumeAt).not.toBe("checkpoint");
+  });
+});
+
+function pausedState(...phases: string[]): PipelineState {
+  return baseState({
+    phase: "needs-human",
+    phaseLog: [...phases, "needs-human"].map((phase, i) => ({
+      phase,
+      at: `t${i}`,
+    })),
+  });
+}
+
+describe("decide() — needs-human awaiting-human pause", () => {
+  it("resolves [epic-designing, needs-human] with a live worktree to awaiting-human, continuing at design / epic-designing", () => {
+    const r = decide(
+      makeInputs({
+        state: pausedState("epic-designing"),
+        pr: { kind: "none" },
+      }),
+    );
+    expect(r.epicResumeAt).toBe("awaiting-human");
+    expect(r.reason).toBe("needs-human-awaiting-human-step");
+    expect(r.context.continueAt).toBe("design");
+    expect(r.context.continuePhase).toBe("epic-designing");
+  });
+
+  it.each([
+    ["epic-validating", "validate", "epic-validating"],
+    ["epic-plan-review-pending", "validate", "epic-validating"],
+    ["epic-design-pending-review", "checkpoint", "epic-design-pending-review"],
+    ["starting", "design", "epic-designing"],
+  ])(
+    "a pause at %s continues at %s by writing %s",
+    (paused, continueAt, continuePhase) => {
+      const r = decide(
+        makeInputs({ state: pausedState(paused), pr: { kind: "none" } }),
+      );
+      expect(r.epicResumeAt).toBe("awaiting-human");
+      expect(r.context.continueAt).toBe(continueAt);
+      expect(r.context.continuePhase).toBe(continuePhase);
+    },
+  );
+
+  it("a pause at epic-pr-open continues at read-back-pr with an open PR and at open-pr without one; both write epic-pr-open", () => {
+    const withPr = decide(
+      makeInputs({ state: pausedState("epic-pr-open"), pr: OPEN_PR }),
+    );
+    expect(withPr.context.continueAt).toBe("read-back-pr");
+    expect(withPr.context.continuePhase).toBe("epic-pr-open");
+    const noPr = decide(
+      makeInputs({ state: pausedState("epic-pr-open"), pr: { kind: "none" } }),
+    );
+    expect(noPr.context.continueAt).toBe("open-pr");
+    expect(noPr.context.continuePhase).toBe("epic-pr-open");
+  });
+
+  it("leaves continueAt/continuePhase absent when the log has no step before the pause (ask which step)", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({
+          phase: "needs-human",
+          phaseLog: [{ phase: "needs-human", at: "t0" }],
+        }),
+        pr: { kind: "none" },
+      }),
+    );
+    expect(r.epicResumeAt).toBe("awaiting-human");
+    expect(r.context.continueAt).toBeUndefined();
+    expect(r.context.continuePhase).toBeUndefined();
+  });
+
+  it("escalates pr-closed-without-merge when the design PR was closed while paused", () => {
+    const r = decide(
+      makeInputs({
+        state: pausedState("epic-design-pending-review"),
+        pr: { kind: "found", state: "CLOSED", number: 5, url: "u" },
+      }),
+    );
+    expect(r.epicResumeAt).toBe("escalate");
+    expect(r.reason).toBe("pr-closed-without-merge");
+  });
+
+  it("is terminal (pr-merged-while-paused) when the design PR merged while paused", () => {
+    const r = decide(
+      makeInputs({
+        state: pausedState("epic-design-pending-review"),
+        pr: { kind: "found", state: "MERGED", number: 5, url: "u" },
+      }),
+    );
+    expect(r.epicResumeAt).toBe("terminal");
+    expect(r.reason).toBe("pr-merged-while-paused");
+  });
+
+  it("escalates worktree-missing-on-resume when the recorded worktree vanished (surfaced, not dead-ended)", () => {
+    const r = decide(
+      makeInputs({
+        state: pausedState("epic-designing"),
+        worktree: { kind: "missing-on-disk", path: "/tmp/gone" },
+        pr: { kind: "none" },
+      }),
+    );
+    expect(r.epicResumeAt).toBe("escalate");
+    expect(r.reason).toBe("worktree-missing-on-resume");
+  });
+
+  it("is terminal when no worktree was ever recorded", () => {
+    const r = decide(
+      makeInputs({
+        state: pausedState("epic-designing"),
+        worktree: { kind: "absent-from-state" },
+        pr: { kind: "none" },
+      }),
+    );
+    expect(r.epicResumeAt).toBe("terminal");
+    expect(r.reason).toContain("needs-human");
   });
 });
 
@@ -216,6 +349,35 @@ describe("decide() — checkpointExists (Task 5 parity with flow-resume-decide)"
   });
 });
 
+describe("gatherInputs() — needs-human is probed like a live phase", () => {
+  it("does not short-circuit needs-human: the worktree probe reads the recorded worktree", () => {
+    const git = (() => ({
+      stdout: "",
+      stderr: "",
+      exitCode: 1,
+    })) as unknown as GitRunner;
+    const gh = (() => ({
+      stdout: "",
+      stderr: "",
+      exitCode: 1,
+    })) as unknown as GhRunner;
+    const inputs = gatherInputs(
+      "paused-epic",
+      {
+        ...pausedState("epic-designing"),
+        worktree: path.join(os.tmpdir(), "flow-no-such-epic-wt-9f3a"),
+      },
+      gh,
+      git,
+      os.tmpdir(),
+    );
+    // A nonexistent recorded worktree reports missing-on-disk — proof the
+    // probe ran instead of the terminal short-circuit's hard-coded
+    // absent-from-state.
+    expect(inputs.worktree.kind).toBe("missing-on-disk");
+  });
+});
+
 describe("gatherInputs() — terminal-phase checkpoint probe", () => {
   // The decide() tests above build Inputs directly, so they never exercise the
   // terminal short-circuit that actually produces `checkpointExists`. These
@@ -313,6 +475,24 @@ describe("decide() — epic-pr-open idempotent readback precedence (load-bearing
 // ---------------------------------------------------------------------------
 
 describe("canonical phase-set parity", () => {
+  it("the feature and epic continue-phase maps together equal TERMINAL_EXIT_TRANSITIONS['needs-human'] exactly (union parity)", () => {
+    const union = [
+      ...Object.values(CONTINUE_PHASE_BY_STEP),
+      ...Object.values(CONTINUE_PHASE_BY_EPIC_STEP),
+    ];
+    const allowlisted = TERMINAL_EXIT_TRANSITIONS[
+      "needs-human"
+    ] as readonly string[];
+    expect([...new Set(union)].sort()).toEqual([...allowlisted].sort());
+  });
+
+  it("no epic continue phase is terminal or a merge phase", () => {
+    for (const phase of Object.values(CONTINUE_PHASE_BY_EPIC_STEP)) {
+      expect(TERMINAL_PHASES as readonly string[]).not.toContain(phase);
+      expect(phase).not.toBe("merging");
+    }
+  });
+
   it("TERMINAL_PHASE_SET equals the canonical lib/state TERMINAL_PHASES (no drift)", () => {
     // Mirrors flow-resume-decide's guard: the terminal short-circuit must
     // source from the canonical set so a future TERMINAL_PHASES change (e.g.
@@ -503,6 +683,41 @@ describe("run() integration", () => {
     expect(result.epicResumeAt).toBe("open-pr");
   });
 
+  it("drives a needs-human epic through the real CLI path: worktree and PR are probed and the verdict is awaiting-human (guards the terminal short-circuit exclusion)", () => {
+    initWorktree();
+    seedState("paused-cli-epic", {
+      phase: "needs-human",
+      phaseLog: [
+        { phase: "epic-designing", at: "t0" },
+        { phase: "needs-human", at: "t1" },
+      ],
+    });
+    const gitCalls: string[][] = [];
+    const git: GitRunner = (argv) => {
+      gitCalls.push(argv);
+      if (argv[0] === "rev-parse")
+        return { stdout: "true\n", stderr: "", exitCode: 0 };
+      if (argv[0] === "branch")
+        return { stdout: "epic-feature\n", stderr: "", exitCode: 0 };
+      return { stdout: "", stderr: "", exitCode: 1 };
+    };
+    const gh = vi.fn<GhRunner>(() => ({
+      stdout: "",
+      stderr: "no pull requests found",
+      exitCode: 1,
+    }));
+    const { writes, restore } = captureStdout();
+    const exit = run(["paused-cli-epic"], { stateDir, gh, git });
+    restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(writes.join("")) as DecisionResult;
+    expect(result.epicResumeAt).toBe("awaiting-human");
+    expect(result.context.continueAt).toBe("design");
+    expect(result.context.continuePhase).toBe("epic-designing");
+    expect(gitCalls.some((a) => a[0] === "rev-parse")).toBe(true);
+    expect(gh).toHaveBeenCalled();
+  });
+
   it("exits 2 with usage error on bad CLI args", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const exit = run(["--bogus"], { stateDir, gh: vi.fn(), git: vi.fn() });
@@ -524,5 +739,121 @@ describe("run() integration", () => {
     const result = JSON.parse(writes.join("")) as DecisionResult;
     expect(result.epicResumeAt).toBe("terminal");
     expect(result.context.slug).toBe("paneslug-epic");
+  });
+});
+
+describe("run() — one-shot checkpoint retirement", () => {
+  const okGit: GitRunner = (argv) => {
+    if (argv[0] === "rev-parse")
+      return { stdout: "true\n", stderr: "", exitCode: 0 };
+    if (argv[0] === "branch")
+      return { stdout: "epic-feature\n", stderr: "", exitCode: 0 };
+    return { stdout: "", stderr: "", exitCode: 1 };
+  };
+  const openPrGh: GhRunner = () => ({
+    stdout: JSON.stringify({
+      number: 7,
+      state: "OPEN",
+      url: "https://x/y/pull/7",
+    }),
+    stderr: "",
+    exitCode: 0,
+  });
+
+  function armNote(slug: string): { body: string; marker: string } {
+    const body = checkpointBodyPath(slug, stateDir);
+    const marker = checkpointMarkerPath(slug, stateDir);
+    fs.mkdirSync(path.dirname(body), { recursive: true });
+    fs.writeFileSync(body, "resume notes\n");
+    fs.writeFileSync(marker, `${slug}\n`);
+    return { body, marker };
+  }
+
+  function decideCli(slug: string, deps: Partial<Deps> = {}): DecisionResult {
+    const { writes, restore } = captureStdout();
+    const exit = run([slug], { stateDir, gh: openPrGh, git: okGit, ...deps });
+    restore();
+    expect(exit).toBe(0);
+    return JSON.parse(writes.join("")) as DecisionResult;
+  }
+
+  it("a non-paused verdict removes the marker, archives the note, and publishes the archived path", () => {
+    initWorktree();
+    seedState("retire-epic", { phase: "epic-design-pending-review" });
+    const { body, marker } = armNote("retire-epic");
+    const result = decideCli("retire-epic");
+    expect(result.epicResumeAt).toBe("checkpoint");
+    expect(fs.existsSync(marker)).toBe(false);
+    expect(fs.existsSync(body)).toBe(false);
+    const archived = checkpointConsumedPath("retire-epic", stateDir);
+    expect(fs.readFileSync(archived, "utf8")).toBe("resume notes\n");
+    expect(result.context.checkpointPath).toBe(archived);
+    expect(result.context.checkpointConsumed).toBe(true);
+    expect(result.context.checkpointExists).toBe(true);
+  });
+
+  it("a terminal verdict also retires the note (only awaiting-human and abort defer)", () => {
+    seedState("retire-terminal", { phase: "epic-approved" });
+    const { marker } = armNote("retire-terminal");
+    const result = decideCli("retire-terminal");
+    expect(result.epicResumeAt).toBe("terminal");
+    expect(fs.existsSync(marker)).toBe(false);
+    expect(result.context.checkpointPath).toBe(
+      checkpointConsumedPath("retire-terminal", stateDir),
+    );
+  });
+
+  it("keeps the marker and live note at the awaiting-human pause, then retires after the continue-phase write and a second run", () => {
+    initWorktree();
+    seedState("pause-epic", {
+      phase: "needs-human",
+      phaseLog: [
+        { phase: "epic-designing", at: "t0" },
+        { phase: "needs-human", at: "t1" },
+      ],
+    });
+    const { body, marker } = armNote("pause-epic");
+    const noPr: GhRunner = () => ({ stdout: "", stderr: "none", exitCode: 1 });
+
+    const paused = decideCli("pause-epic", { gh: noPr });
+    expect(paused.epicResumeAt).toBe("awaiting-human");
+    expect(fs.existsSync(marker)).toBe(true);
+    expect(fs.existsSync(body)).toBe(true);
+    expect(paused.context.checkpointPath).toBe(body);
+    expect(paused.context.checkpointConsumed).toBe(false);
+
+    seedState("pause-epic", { phase: "epic-designing" });
+    const resumed = decideCli("pause-epic", { gh: noPr });
+    expect(resumed.epicResumeAt).toBe("design");
+    expect(fs.existsSync(marker)).toBe(false);
+    expect(resumed.context.checkpointPath).toBe(
+      checkpointConsumedPath("pause-epic", stateDir),
+    );
+    expect(resumed.context.checkpointConsumed).toBe(true);
+  });
+
+  it("does not retire on abort (state missing) and never calls the consume seam at the pause", () => {
+    const consume = vi.fn();
+    expect(decideCli("ghost-epic", { consume }).epicResumeAt).toBe("abort");
+    initWorktree();
+    seedState("seam-epic", {
+      phase: "needs-human",
+      phaseLog: [
+        { phase: "epic-designing", at: "t0" },
+        { phase: "needs-human", at: "t1" },
+      ],
+    });
+    const noPr: GhRunner = () => ({ stdout: "", stderr: "none", exitCode: 1 });
+    expect(decideCli("seam-epic", { consume, gh: noPr }).epicResumeAt).toBe(
+      "awaiting-human",
+    );
+    expect(consume).not.toHaveBeenCalled();
+  });
+
+  it("omits checkpointPath when no note existed", () => {
+    seedState("no-note", { phase: "epic-approved" });
+    const result = decideCli("no-note");
+    expect(result.context.checkpointPath).toBeUndefined();
+    expect(result.context.checkpointConsumed).toBe(false);
   });
 });

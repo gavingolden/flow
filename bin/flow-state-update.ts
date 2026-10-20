@@ -9,10 +9,15 @@
  *
  * Usage:
  *   flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]
- *                              [--worktree <path>] [--auto-merge | --no-auto-merge]
+ *                              [--pr-url <url>] [--worktree <path>] [--auto-merge | --no-auto-merge]
  *                              [--session-id <value>] [--answer <text> | --answer-stdin]
- *                              [--interview-stdin]
+ *                              [--interview-stdin] [--increment-loop <ciFix|reviewFix>]
  *                              [--slug <slug>] [--force]
+ *
+ * `--increment-loop <ciFix|reviewFix>` bumps `state.loops.<key>` by one
+ * (absent `loops` starts at `{ciFix: 0, reviewFix: 0}` before the bump),
+ * preserving every other field. Stands alone or combines with `--phase`;
+ * any other key is rejected at the parse boundary.
  *
  * `--phase-outcome <text>` records a short outcome string on the phaseLog
  * entry appended by the same `--phase` write (no-op without `--phase`).
@@ -38,13 +43,12 @@
  *   instead of papering over it.
  * - `updatedAt` is rewritten to the current ISO-8601 UTC timestamp on
  *   every call.
- * - `gated` has a named exit allowlist (TERMINAL_EXIT_TRANSITIONS in
- *   `lib/state.ts`); every other terminal→non-terminal write still needs
- *   --force.
+ * - `gated` and `needs-human` each have a named exit allowlist
+ *   (TERMINAL_EXIT_TRANSITIONS in `lib/state.ts`); every other
+ *   terminal→non-terminal write still needs --force.
  */
 
 import * as fs from "node:fs";
-import * as path from "node:path";
 import {
   PIPELINE_PHASES,
   PIPELINE_PHASE_SET,
@@ -60,6 +64,7 @@ import {
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { publishStateBadges } from "./lib/tmux";
 import { resolveSlugAmbient } from "./lib/session-identity";
+import { recordEvent } from "./lib/telemetry";
 import {
   BRANCH_MARKER_FILENAME,
   checkWorktreeBranch,
@@ -70,6 +75,7 @@ type Args = {
   slug?: string;
   phase?: string;
   pr?: number;
+  prUrl?: string;
   worktree?: string;
   autoMerge?: boolean;
   sessionId?: string;
@@ -82,6 +88,8 @@ type Args = {
   phaseOutcome?: string;
   /** When true, bypass the terminal-phase regression guard. */
   force?: boolean;
+  /** The fix-loop counter key to increment by one, when `--increment-loop <key>` is passed. */
+  incrementLoop?: "ciFix" | "reviewFix";
 };
 
 /**
@@ -99,7 +107,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   let rest: string[];
   const out: Args = {};
   if (argv.length > 0 && !argv[0].startsWith("--")) {
-    out.slug = argv[0];
+    // Empty/whitespace-only positional reads as "not supplied" too, for
+    // parity with the identical `--slug ""` guard below — a caller that
+    // passes an unset shell var positionally (`flow-state-update "$SLUG"
+    // --phase ...`) would otherwise bind `out.slug = ""` and defeat the
+    // `parsed.slug ?? resolveSlug()` ambient fallback the same way.
+    if (argv[0].trim() !== "") {
+      out.slug = argv[0];
+    }
     rest = argv.slice(1);
   } else {
     rest = argv;
@@ -141,6 +156,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         out.pr = n;
         break;
       }
+      case "--pr-url":
+        out.prUrl = value;
+        break;
       case "--worktree":
         out.worktree = value;
         break;
@@ -153,10 +171,26 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--phase-outcome":
         out.phaseOutcome = value;
         break;
+      case "--increment-loop":
+        if (value !== "ciFix" && value !== "reviewFix") {
+          return {
+            error: `--increment-loop must be 'ciFix' or 'reviewFix', got '${value}'`,
+          };
+        }
+        out.incrementLoop = value;
+        break;
       case "--slug":
         if (out.slug !== undefined) {
           return { error: "cannot combine positional <slug> with --slug" };
         }
+        // An EMPTY --slug reads as "not supplied", so the ambient $FLOW_SLUG
+        // fallback below still fires. `--slug "$SLUG"` in a fresh per-Bash-call
+        // shell expands to `--slug ""` whenever SLUG is unset (every flow
+        // helper call runs in its own shell, so SLUG never survives between
+        // them). Binding "" here would defeat `parsed.slug ?? resolveSlug()` —
+        // "" is not nullish — and exit 2 with the misleading "no slug given and
+        // no FLOW_SLUG in the environment", naming the one thing that WAS set.
+        if (value.trim() === "") break;
         out.slug = value;
         break;
       default:
@@ -173,16 +207,18 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   if (
     out.phase === undefined &&
     out.pr === undefined &&
+    out.prUrl === undefined &&
     out.worktree === undefined &&
     out.autoMerge === undefined &&
     out.sessionId === undefined &&
     out.answer === undefined &&
     !out.answerStdin &&
-    !out.interviewStdin
+    !out.interviewStdin &&
+    out.incrementLoop === undefined
   ) {
     return {
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin is required",
+        "at least one of --phase, --pr, --pr-url, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin, --interview-stdin, --increment-loop is required",
     };
   }
   return out;
@@ -212,10 +248,19 @@ export function applyUpdate(
   const reap = TERMINAL_PHASE_SET.has(resolvedPhase)
     ? existing.reap
     : undefined;
+  const loops =
+    args.incrementLoop !== undefined
+      ? {
+          ciFix: existing.loops?.ciFix ?? 0,
+          reviewFix: existing.loops?.reviewFix ?? 0,
+          [args.incrementLoop]: (existing.loops?.[args.incrementLoop] ?? 0) + 1,
+        }
+      : existing.loops;
   return {
     ...existing,
     phase: resolvedPhase,
     pr: args.pr ?? existing.pr,
+    prUrl: args.prUrl ?? existing.prUrl,
     worktree: args.worktree ?? existing.worktree,
     autoMerge: args.autoMerge ?? existing.autoMerge,
     sessionId: args.sessionId ?? existing.sessionId,
@@ -223,6 +268,7 @@ export function applyUpdate(
     interview: args.interview ?? existing.interview,
     phaseLog,
     reap,
+    loops,
     updatedAt: nowIso(),
   };
 }
@@ -254,9 +300,9 @@ export function runUpdate(
     console.error(`flow-state-update: ${parsed.error}`);
     console.error(
       "usage: flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]\n" +
-        "                                 [--worktree <path>] [--auto-merge | --no-auto-merge]\n" +
+        "                                 [--pr-url <url>] [--worktree <path>] [--auto-merge | --no-auto-merge]\n" +
         "                                 [--session-id <value>] [--answer <text> | --answer-stdin]\n" +
-        "                                 [--interview-stdin]\n" +
+        "                                 [--interview-stdin] [--increment-loop <ciFix|reviewFix>]\n" +
         "                                 [--slug <slug>] [--force]",
     );
     return 2;
@@ -300,12 +346,15 @@ export function runUpdate(
   // terminal→non-terminal write is almost always an ambient-pane race that
   // resolved the slug to the wrong pipeline. Exit 4 (distinct from exit 3
   // used by branch-mismatch) so the supervisor can escalate differently.
-  // `gated` carries a named exit allowlist (TERMINAL_EXIT_TRANSITIONS) for
-  // its three legitimate exits (re-verify, re-gate, override-merge);
-  // --force remains the escape hatch for every other terminal phase. Once
-  // an allowlisted exit is accepted, `existing.phase` is no longer terminal,
-  // so this guard no longer applies to the rest of that state file's
-  // lifecycle — see the TERMINAL_EXIT_TRANSITIONS docblock in
+  // Two phases carry a named exit allowlist (TERMINAL_EXIT_TRANSITIONS):
+  // `gated`, for its three legitimate exits (re-verify, re-gate,
+  // override-merge), and `needs-human`, for the eight step phases a
+  // confirming "done" reply re-enters once `flow-resume-decide` resolves
+  // the paused pipeline's `awaiting-human` verdict. --force remains the
+  // escape hatch for every other terminal phase and every other exit from
+  // these two. Once an allowlisted exit is accepted, `existing.phase` is no
+  // longer terminal, so this guard no longer applies to the rest of that
+  // state file's lifecycle — see the TERMINAL_EXIT_TRANSITIONS docblock in
   // bin/lib/state.ts for the race this implies.
   if (
     parsed.phase !== undefined &&
@@ -364,6 +413,33 @@ export function runUpdate(
       deps.publishBadges ?? ((s) => void publishStateBadges(s));
     try {
       publishBadges(next);
+    } catch {
+      // swallowed — see comment above.
+    }
+  }
+
+  // Durable phase-trace telemetry, best-effort (same swallow idiom as the
+  // publishBadges block above): fires ONLY on a --phase write, only after
+  // the write itself succeeded. `since_prev_ms` is derived from the
+  // PRE-write phaseLog's last entry (not `next`'s, which already carries
+  // this transition) so it measures dwell time in the phase being left.
+  if (parsed.phase !== undefined) {
+    try {
+      const priorLog = existing.phaseLog;
+      const lastEntry =
+        priorLog && priorLog.length > 0
+          ? priorLog[priorLog.length - 1]
+          : undefined;
+      const sincePrevMs = lastEntry
+        ? Date.now() - Date.parse(lastEntry.at)
+        : null;
+      recordEvent("phase.transition", {
+        from: existing.phase,
+        to: parsed.phase,
+        outcome: parsed.phaseOutcome ?? null,
+        since_prev_ms: sincePrevMs,
+        forced: parsed.force ?? false,
+      });
     } catch {
       // swallowed — see comment above.
     }

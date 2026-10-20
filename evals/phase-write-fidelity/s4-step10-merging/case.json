@@ -1,15 +1,21 @@
 {
   "id": "s4-step10-merging",
   "title": "Step 10 entry advances state.phase to merging",
-  "provenance": "Synthetic fixture authored against bin/flow-merge-guard.ts's advancePhase wiring (plan.md Task 3, corrected call site inside checkGuard, not recordOverrideToken) and skills/pipeline/flow-pipeline/SKILL.md's Step 10.",
+  "provenance": "Synthetic fixture authored against bin/flow-merge-guard.ts's merge mode (the standalone `flow-merge-guard merge <pr>` call: live PR view, checks read, advancePhase to merging, then the bare squash merge against the gh shim) and skills/pipeline/flow-pipeline/SKILL.md's Step 10.",
   "prompt": "prompt.md",
   "fixture": {
     "repo": "fixture",
     "state": "state.json",
     "shims": ["../../_shims/gh"]
   },
-  "env": { "flowSlug": true },
-  "ghCalls": [["pr", "view", "1", "--json", "body,state,url"]],
+  "env": {
+    "flowSlug": true
+  },
+  "ghCalls": [
+    ["pr", "view", "1", "--json", "body,state,url"],
+    ["pr", "checks", "1", "--json", "name,state"],
+    ["pr", "merge", "--squash", "1"]
+  ],
   "resultSchema": "result-schema.json",
   "graders": [
     {
@@ -31,6 +37,18 @@
       "file": "$STREAM",
       "contains": "flow-module-core",
       "withOnly": true
+    },
+    {
+      "id": "step-doc-opened",
+      "kind": "command",
+      "gate": false,
+      "argv": [
+        "jq",
+        "-e",
+        "-s",
+        "any(.[]; .type==\"assistant\" and any(.message.content[]?; .type==\"tool_use\" and .name==\"Read\" and ((.input.file_path // \"\") | test(\"references/phases/step-10-merge\\\\.md\"))))",
+        "$STREAM"
+      ]
     },
     {
       "id": "transcript.finalContextTokens",

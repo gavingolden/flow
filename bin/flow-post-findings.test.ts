@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildPostArgv,
@@ -206,6 +209,9 @@ describe(postAll, () => {
       total: 2,
       succeeded: 2,
       failed: 0,
+      skipped: 0,
+      skippedAt: [],
+      repeatedAt: [],
       results: [
         { file: "a.ts", line: 1, success: true },
         { file: "b.ts", line: 2, success: true },
@@ -245,6 +251,9 @@ describe(formatSummary, () => {
       total: 2,
       succeeded: 1,
       failed: 1,
+      skipped: 0,
+      skippedAt: [],
+      repeatedAt: [],
       results: [
         { file: "a.ts", line: 1, success: true },
         { file: "b.ts", line: 2, success: false, error: "boom" },
@@ -281,6 +290,21 @@ describe(parseArgs, () => {
     });
   });
 
+  it("parses dedupe only as the first token with a lone PR", () => {
+    expect(parseArgs(["dedupe", "100"])).toEqual({
+      kind: "dedupe",
+      prArg: "100",
+    });
+    for (const argv of [
+      ["dedupe", "100", "--file", "f.json"],
+      ["dedupe", "100", "--head-sha", SHA],
+      ["dedupe"],
+      ["100", "dedupe"],
+    ]) {
+      expect(parseArgs(argv).kind).toBe("error");
+    }
+  });
+
   it("returns help when --help is present", () => {
     expect(parseArgs(["--help"])).toEqual({ kind: "help" });
   });
@@ -301,6 +325,7 @@ describe("run() integration", () => {
     const exit = await run(["100", "--file", "findings.json"], {
       gh,
       readFile,
+      env: {},
     });
     logSpy.mockRestore();
     expect(exit).toBe(0);
@@ -312,6 +337,9 @@ describe("run() integration", () => {
     const gh = vi.fn((argv: string[]) => {
       if (argv[0] === "pr" && argv[1] === "view") {
         return { stdout: SHA, stderr: "", exitCode: 0 };
+      }
+      if (argv.includes("--paginate")) {
+        return { stdout: "", stderr: "", exitCode: 0 };
       }
       call++;
       return call === 1
@@ -328,6 +356,7 @@ describe("run() integration", () => {
     const exit = await run(["100", "--file", "findings.json"], {
       gh,
       readFile,
+      env: {},
     });
     logSpy.mockRestore();
     expect(exit).toBe(1);
@@ -342,6 +371,7 @@ describe("run() integration", () => {
     const exit = await run(["100", "--file", "f.json", "--head-sha", SHA], {
       gh,
       readFile,
+      env: {},
     });
     logSpy.mockRestore();
     expect(exit).toBe(0);
@@ -380,5 +410,297 @@ describe("run() integration", () => {
     const exit = await run(["--bogus"], { gh: vi.fn(), readFile: vi.fn() });
     errSpy.mockRestore();
     expect(exit).toBe(2);
+  });
+});
+
+type GhArgs = Array<[string[]]>;
+const ok = (stdout = "") => ({ stdout, stderr: "", exitCode: 0 });
+const ndjson = (...rows: object[]) =>
+  rows.map((r) => JSON.stringify(r)).join("\n");
+const comment = (over: object) => ({
+  id: 1,
+  path: "a.ts",
+  line: 1,
+  original_line: 1,
+  start_line: null,
+  original_start_line: null,
+  side: "RIGHT",
+  body: "x",
+  user: "me",
+  in_reply_to_id: null,
+  ...over,
+});
+
+function silent<T>(fn: () => Promise<T>): Promise<{ out: string[]; v: T }> {
+  const out: string[] = [];
+  const log = vi.spyOn(console, "log").mockImplementation((m) => {
+    out.push(String(m));
+  });
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
+  return fn().then((v) => {
+    log.mockRestore();
+    err.mockRestore();
+    return { out, v };
+  });
+}
+
+describe("run() idempotent posting", () => {
+  const findingsFile = (...f: object[]) => vi.fn(async () => JSON.stringify(f));
+
+  it("skips a finding already on the PR and counts it", async () => {
+    const gh = vi.fn((argv: string[]) =>
+      argv.includes("--paginate") ? ok(ndjson(comment({}))) : ok(),
+    );
+    const { out, v } = await silent(() =>
+      run(["100", "--file", "f.json", "--head-sha", SHA], {
+        gh,
+        env: {},
+        readFile: findingsFile({ file: "a.ts", line: 1, body: "x\n" }),
+      }),
+    );
+    expect(v).toBe(0);
+    expect(out.join("\n")).toContain("SKIP  a.ts:1 (already on PR)");
+    const posts = (gh.mock.calls as unknown as GhArgs).filter((c) =>
+      c[0].includes("-f"),
+    );
+    expect(posts).toHaveLength(0);
+  });
+
+  it("posts an in-batch duplicate once", async () => {
+    const gh = vi.fn(() => ok());
+    const f = { file: "a.ts", line: 3, body: "dup" };
+    const { v, out } = await silent(() =>
+      run(["100", "--file", "f.json", "--head-sha", SHA], {
+        gh,
+        env: {},
+        readFile: findingsFile(f, f),
+      }),
+    );
+    expect(v).toBe(0);
+    const posts = (gh.mock.calls as unknown as GhArgs).filter((c) =>
+      c[0].includes("-f"),
+    );
+    expect(posts).toHaveLength(1);
+    const text = out.join("\n");
+    expect(text).toContain("SKIP  a.ts:3 (repeated in this batch)");
+    expect(text).not.toContain("already on PR");
+  });
+
+  it("posts nothing and exits 1 when the existing-comment read fails", async () => {
+    const gh = vi.fn((argv: string[]) =>
+      argv.includes("--paginate")
+        ? { stdout: "", stderr: "HTTP 502", exitCode: 1 }
+        : ok(),
+    );
+    const { v } = await silent(() =>
+      run(["100", "--file", "f.json", "--head-sha", SHA], {
+        gh,
+        env: {},
+        readFile: findingsFile({ file: "a.ts", line: 1, body: "x" }),
+      }),
+    );
+    expect(v).toBe(1);
+    const posts = (gh.mock.calls as unknown as GhArgs).filter((c) =>
+      c[0].includes("-f"),
+    );
+    expect(posts).toHaveLength(0);
+  });
+
+  it("matches a multi-line finding against GitHub's start_line/line response", async () => {
+    const gh = vi.fn((argv: string[]) =>
+      argv.includes("--paginate")
+        ? ok(ndjson(comment({ line: 8, start_line: 5, body: "range" })))
+        : ok(),
+    );
+    const { out } = await silent(() =>
+      run(["100", "--file", "f.json", "--head-sha", SHA], {
+        gh,
+        env: {},
+        readFile: findingsFile({
+          file: "a.ts",
+          line: 5,
+          end_line: 8,
+          body: "range",
+        }),
+      }),
+    );
+    expect(out.join("\n")).toContain("SKIP  a.ts:5");
+  });
+
+  it("parses a two-page NDJSON response and matches an outdated comment", async () => {
+    const page1 = Array.from({ length: 30 }, (_, i) =>
+      comment({
+        id: i + 1,
+        line: i + 10,
+        original_line: i + 10,
+        body: `b${i}`,
+      }),
+    );
+    const page2 = [
+      comment({ id: 99, line: null, original_line: 2, body: "old" }),
+    ];
+    const gh = vi.fn((argv: string[]) =>
+      argv.includes("--paginate") ? ok(ndjson(...page1, ...page2)) : ok(),
+    );
+    const { out } = await silent(() =>
+      run(["100", "--file", "f.json", "--head-sha", SHA], {
+        gh,
+        env: {},
+        readFile: findingsFile({ file: "a.ts", line: 2, body: "old" }),
+      }),
+    );
+    expect(out.join("\n")).toContain("SKIP  a.ts:2");
+  });
+});
+
+describe("run() dedupe", () => {
+  const FLOW = "**issue (non-blocking):** dup";
+  it("keeps the oldest, deletes newer same-author dupes, leaves others alone", async () => {
+    const rows = [
+      comment({ id: 1, body: FLOW }),
+      comment({ id: 2, body: FLOW }),
+      comment({ id: 3, body: FLOW }),
+      comment({ id: 4, body: FLOW, user: "someone-else" }),
+      comment({ id: 5, body: "hand written", user: "me" }),
+      comment({ id: 6, body: "hand written", user: "me" }),
+    ];
+    const gh = vi.fn((argv: string[]) => {
+      if (argv[1] === "user") return ok("me\n");
+      if (argv.includes("--paginate")) return ok(ndjson(...rows));
+      return ok();
+    });
+    const { out, v } = await silent(() =>
+      run(["dedupe", "100"], { gh, env: {} }),
+    );
+    expect(v).toBe(0);
+    const deletes = (gh.mock.calls as unknown as GhArgs)
+      .filter((c) => c[0].includes("DELETE"))
+      .map((c) => c[0][c[0].length - 1]);
+    expect(deletes).toEqual([
+      "repos/{owner}/{repo}/pulls/comments/2",
+      "repos/{owner}/{repo}/pulls/comments/3",
+    ]);
+    expect(JSON.parse(out[0])).toEqual({
+      pr: 100,
+      kept: 1,
+      deleted: [2, 3],
+      skippedWithReplies: [],
+      failed: [],
+    });
+  });
+
+  it("keeps a duplicate that has a reply, reporting it", async () => {
+    const rows = [
+      comment({ id: 1, body: FLOW }),
+      comment({ id: 2, body: FLOW }),
+      comment({ id: 3, body: "reply", in_reply_to_id: 2, user: "other" }),
+    ];
+    const gh = vi.fn((argv: string[]) => {
+      if (argv[1] === "user") return ok("me");
+      if (argv.includes("--paginate")) return ok(ndjson(...rows));
+      return ok();
+    });
+    const { out, v } = await silent(() =>
+      run(["dedupe", "100"], { gh, env: {} }),
+    );
+    expect(v).toBe(0);
+    expect(JSON.parse(out[0]).skippedWithReplies).toEqual([2]);
+    expect(
+      (gh.mock.calls as unknown as GhArgs).some((c) => c[0].includes("DELETE")),
+    ).toBe(false);
+  });
+
+  it("recognises the intent annotation shape", async () => {
+    const body = "**why:** because\n\n<!-- flow-intent-v1 -->";
+    const gh = vi.fn((argv: string[]) => {
+      if (argv[1] === "user") return ok("me");
+      if (argv.includes("--paginate"))
+        return ok(ndjson(comment({ id: 1, body }), comment({ id: 2, body })));
+      return ok();
+    });
+    const { out } = await silent(() => run(["dedupe", "100"], { gh, env: {} }));
+    expect(JSON.parse(out[0]).deleted).toEqual([2]);
+  });
+
+  it("exits 1 and deletes nothing when the gh user lookup fails", async () => {
+    const gh = vi.fn((argv: string[]) =>
+      argv[1] === "user"
+        ? { stdout: "", stderr: "HTTP 401", exitCode: 1 }
+        : ok(
+            ndjson(
+              comment({ id: 1, body: FLOW }),
+              comment({ id: 2, body: FLOW }),
+            ),
+          ),
+    );
+    const { v } = await silent(() => run(["dedupe", "100"], { gh, env: {} }));
+    expect(v).toBe(1);
+    expect(
+      (gh.mock.calls as unknown as GhArgs).some((c) => c[0].includes("DELETE")),
+    ).toBe(false);
+  });
+
+  it("reports a failed DELETE in failed[] and exits 1", async () => {
+    const gh = vi.fn((argv: string[]) => {
+      if (argv[1] === "user") return ok("me");
+      if (argv.includes("--paginate"))
+        return ok(
+          ndjson(
+            comment({ id: 1, body: FLOW }),
+            comment({ id: 2, body: FLOW }),
+            comment({ id: 3, body: FLOW }),
+          ),
+        );
+      if (argv.includes("DELETE") && argv[argv.length - 1].endsWith("/2"))
+        return { stdout: "", stderr: "HTTP 403", exitCode: 1 };
+      return ok();
+    });
+    const { out, v } = await silent(() =>
+      run(["dedupe", "100"], { gh, env: {} }),
+    );
+    expect(v).toBe(1);
+    const report = JSON.parse(out[0]);
+    expect(report.deleted).toEqual([3]);
+    expect(report.failed).toEqual([{ id: 2, error: "HTTP 403" }]);
+  });
+
+  it("exits 2 on --file, --head-sha or dedupe not first", async () => {
+    for (const argv of [
+      ["dedupe", "100", "--file", "f.json"],
+      ["dedupe", "100", "--head-sha", SHA],
+      ["100", "dedupe"],
+    ]) {
+      const { v } = await silent(() => run(argv, { gh: vi.fn(), env: {} }));
+      expect(v).toBe(2);
+    }
+  });
+});
+
+describe("run() own-PR check", () => {
+  it("refuses a PR that is not the pipeline's own, posting nothing", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fpf-own-"));
+    fs.writeFileSync(
+      path.join(dir, "slug-a.json"),
+      JSON.stringify({
+        slug: "slug-a",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-22T11:00:00Z",
+        pr: 5,
+      }),
+    );
+    const gh = vi.fn(() => ok());
+    const deps = { gh, env: { FLOW_SLUG: "slug-a" }, stateDir: dir };
+    const refused = await silent(() =>
+      run(["6", "--file", "f.json"], {
+        ...deps,
+        readFile: async () => "[]",
+      }),
+    );
+    const refusedDedupe = await silent(() => run(["dedupe", "6"], deps));
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(refused.v).toBe(2);
+    expect(refusedDedupe.v).toBe(2);
+    expect(gh).not.toHaveBeenCalled();
   });
 });

@@ -155,7 +155,7 @@ original request: on the wired paths, a `seedCorrupted()` failure now names
 before dispatch — as the recovery source, rather than printing the seed
 text (which, post-migration, is only a pointer line and would print
 nothing useful). This file DOES survive `flow ls`'s lazy reap
-(`REAP_GRACE_MS`, ~60s): `reapableStartingOrphans`
+(`STARTING_ORPHAN_GRACE_MS`, ~60s): `reapableStartingOrphans`
 (`bin/lib/reap-orphans.ts`) now skips any `phase: starting` slug with a
 `corrupt` `seedIngest` record, and `deleteState` unlinks the request file only
 alongside its state file — so the corrupted state (and its sibling request

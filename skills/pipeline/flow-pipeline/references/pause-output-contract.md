@@ -246,11 +246,15 @@ out the `NEXT ACTION:` row's numbered _steps_, which this section governs
 instead.
 
 For a `NEXT_ACTION_BY_REASON` recipe in `bin/flow-gate-summary.ts`
-specifically: a multi-line recipe's first line is always a plain,
-non-numbered header sentence — `pushNextAction` puts it on the `NEXT
-ACTION:` row and every following line verbatim, so a recipe whose first
-line is itself numbered would render with inconsistent indentation
-between the header and the steps below it.
+specifically: every recipe's first line is an imperative headline — it
+opens with a verb from `HEADLINE_VERBS`, is at most 100 characters, says
+what to do and never what went wrong, and is non-numbered.
+Multi-line headlines carry no command; a single-line recipe is its own
+step and keeps its command verbatim. The diagnosis belongs on `WHY:`,
+via the per-reason `WHY_BY_REASON` default. `pushNextAction` puts the
+headline on the `NEXT ACTION:` row and every following line verbatim, so
+a recipe whose first line is itself numbered would render with
+inconsistent indentation between the headline and the steps below it.
 
 **Discrete action.** A separate copy-pasteable command, or a separate
 decision the reader must make. A trailing qualifier on one command (e.g.
@@ -287,7 +291,7 @@ by a `.` in its recipe.
 > Before:
 >
 > ```
-> Recover manually: cd <worktree> && git fetch origin <base> && git merge origin/<base>; then STOP and resolve every conflict marker in your editor before committing. Once resolved: git add <resolved-files>, git commit, git push. If the push is rejected non-fast-forward, that means origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force. Then (cd <repo> && gh pr merge --squash <pr>)
+> Recover manually: cd <worktree> && git fetch origin <base> && git merge origin/<base>; then STOP and resolve every conflict marker in your editor before committing. Once resolved: git add <resolved-files>, git commit, git push. If the push is rejected non-fast-forward, that means origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force. Then reply done in the pipeline window (re-runs the step 9 gate, then merges), or merge the PR on GitHub yourself.
 > ```
 >
 > After:
@@ -297,7 +301,7 @@ by a `.` in its recipe.
 >   2. STOP and resolve every conflict marker in your editor before committing.
 >   3. Once resolved, run git add <resolved-files>, git commit, git push
 >   4. If the push is rejected non-fast-forward, origin/<pr-branch> advanced (not the base) -- run git fetch origin <pr-branch> && git merge origin/<pr-branch>, then push again; do NOT force.
->   5. Then run (cd <repo> && gh pr merge --squash <pr>).
+>   5. Then reply done in the pipeline window (re-runs the step 9 gate, then merges), or merge the PR on GitHub yourself.
 > ```
 
 ## Applicability
@@ -343,6 +347,17 @@ Nothing may be forced under a wrong label, and nothing may leak into
 open prose after the block. The block is always the last thing in the
 message.
 
+**Named carve-out: the checkpoint arm banner.** `flow-checkpoint`'s
+one-line `checkpointed: true|false — …` stderr banner is exempt from
+"the block is always the last thing in the message" when a checkpoint
+arm runs at the same site as a pause block. The banner is not open
+prose and not a slot inside the block — it's a fixed, mirror-only
+trailer line the supervisor echoes verbatim immediately below the
+completed block. See `flow-pipeline/references/phases/shared-gate-contracts.md`'s "Checkpoint arm signal
+(echo-verbatim)" subsection for the full mirror-only discipline that
+bounds it (anchor on `^checkpointed: (true|false)`, never restate from
+memory, never fold it into `**Next action:**`).
+
 ## Gate-grammar reconciliation
 
 Formal helper-rendered blocks — `flow-gate-summary` and
@@ -355,6 +370,14 @@ followed by a second markdown pause block over the same content. The
 markdown block form below is only for the informal sites the helpers do
 not cover (clarifying questions, feedback replies, post-render QA
 prose).
+
+`WHY:` is the diagnosis row. In both views it shows the site's diagnostic
+(`--why`), else the per-reason `WHY_BY_REASON` default, else nothing.
+Under `pm` it renders only on NEEDS HUMAN; gated/merged/cancelled `pm`
+renders stay why-free. It never shows a raw reason tag; the sentinel
+carries that. A needs-human `flow-notify` message leads with the same
+headline (`Next: …`); a gated one leads with `GATED_NEXT_ACTION` in
+`bin/flow-notify.ts`.
 
 ## Worked examples
 

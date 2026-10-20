@@ -1,14 +1,33 @@
 import { describe, expect, it } from "vitest";
+import picomatch from "picomatch";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
-import { STEP_PHASES, TERMINAL_EXIT_TRANSITIONS } from "./lib/state";
+import { extractLinks, validateFile } from "./flow-md-validate";
+import { CONTINUE_PHASE_BY_EPIC_STEP } from "./flow-epic-resume-decide";
+import {
+  PENDING_PHASES,
+  STEP_PHASES,
+  TERMINAL_EXIT_TRANSITIONS,
+} from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 import { ALWAYS_ON_LENSES, evaluateGates } from "./lib/review-lens-gates";
 import { CHECKPOINT_SITES } from "./flow-checkpoint";
-import { PHASE_EMITTERS, TERMINAL_PHASE_EMITTERS } from "./lib/phase-advance";
-import { SURVEY_VERDICTS } from "./flow-step3-route";
+import {
+  EARLY_PHASE_WRITES,
+  PHASE_EMITTERS,
+  TERMINAL_PHASE_EMITTERS,
+} from "./lib/phase-advance";
+import { SURVEY_VERDICTS, VETTING_VERDICTS } from "./flow-step3-route";
+import { UI_EXTENSIONS } from "./flow-ui-validate";
+import {
+  PIPELINE_SKILL_DIR,
+  parseDispatchTable,
+  parseReferenceIndex,
+  readPipelineSkillCore,
+  readPipelineSkillCorpus,
+} from "./lib/pipeline-skill-corpus";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -24,7 +43,7 @@ import { SURVEY_VERDICTS } from "./flow-step3-route";
  * silently drift away from the guard's contract.
  *
  * Also lints two cross-doc invariants for the named Task-tool
- * exemptions: AGENTS.md `## Don'ts` and flow-pipeline/SKILL.md "Hard
+ * exemptions: .claude/rules/flow-supervisor-contracts.md `## Don'ts` and flow-pipeline/SKILL.md "Hard
  * rules" must list the same set of exemptions, and the JSON schema
  * for the Fix-Applier Subagent's artifact must match between
  * flow-pr-review/SKILL.md and flow-fix-applier-instructions/SKILL.md.
@@ -39,7 +58,27 @@ const SKILL_MD_PATH = path.resolve(
   "flow-pipeline",
   "SKILL.md",
 );
+// The pipeline SKILL.md is read as a corpus (core + phase docs); any other
+// path reads as the single file it names.
+const readSkillText = (p: string): string =>
+  path.resolve(p) === SKILL_MD_PATH
+    ? readPipelineSkillCorpus()
+    : fs.readFileSync(p, "utf8");
 const AGENTS_MD_PATH = path.resolve(HERE, "..", "AGENTS.md");
+const SUPERVISOR_RULES_PATH = path.resolve(
+  HERE,
+  "..",
+  ".claude",
+  "rules",
+  "flow-supervisor-contracts.md",
+);
+const BIN_RULES_PATH = path.resolve(
+  HERE,
+  "..",
+  ".claude",
+  "rules",
+  "flow-bin-conventions.md",
+);
 const EXEMPTION_CONTRACTS_PATH = path.resolve(
   HERE,
   "..",
@@ -140,15 +179,6 @@ const POLLING_PROTOCOL_PATH = path.resolve(
   "references",
   "polling-protocol.md",
 );
-const GATEKEEPER_SPAWN_PROMPT_PATH = path.resolve(
-  HERE,
-  "..",
-  "skills",
-  "pipeline",
-  "flow-pr-review",
-  "references",
-  "gatekeeper-spawn-prompt.md",
-);
 const FIX_APPLIER_SPAWN_PROMPT_PATH = path.resolve(
   HERE,
   "..",
@@ -183,6 +213,27 @@ const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   "flow-product-planning",
   "references",
   "discovery-instructions.md",
+);
+const DISCOVERY_REFERENCES_DIR = path.dirname(DISCOVERY_INSTRUCTIONS_PATH);
+const DISCOVERY_RESEARCH_PATH = path.join(
+  DISCOVERY_REFERENCES_DIR,
+  "discovery-research.md",
+);
+const DISCOVERY_UI_PATH = path.join(
+  DISCOVERY_REFERENCES_DIR,
+  "discovery-ui.md",
+);
+const DISCOVERY_REVISION_PATH = path.join(
+  DISCOVERY_REFERENCES_DIR,
+  "discovery-revision.md",
+);
+const DISCOVERY_SURVEY_EPIC_PATH = path.join(
+  DISCOVERY_REFERENCES_DIR,
+  "discovery-survey-epic.md",
+);
+const DISCOVERY_PROMPT_INTERPRETATION_PATH = path.join(
+  DISCOVERY_REFERENCES_DIR,
+  "discovery-prompt-interpretation.md",
 );
 const EPIC_DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   HERE,
@@ -315,6 +366,27 @@ const AGENTS_TEMPLATE_PATH = path.resolve(
   "templates",
   "AGENTS.md.template",
 );
+const AGENTS_TEMPLATE_UI_RULES_PATH = path.resolve(
+  HERE,
+  "..",
+  "templates",
+  "rules",
+  "ui-validation.md",
+);
+const AGENTS_TEMPLATE_REF_VERIFICATION_PATH = path.resolve(
+  HERE,
+  "..",
+  "templates",
+  "references",
+  "verification.md",
+);
+const AGENTS_TEMPLATE_REF_AGENT_CONDUCT_PATH = path.resolve(
+  HERE,
+  "..",
+  "templates",
+  "references",
+  "agent-conduct.md",
+);
 const UI_VALIDATION_EVIDENCE_PATH = path.resolve(
   HERE,
   "..",
@@ -333,6 +405,14 @@ const UI_SMOKE_PASS_PATH = path.resolve(
   "references",
   "ui-smoke-pass.md",
 );
+const UI_DRIVER_INSTRUCTIONS_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-ui-driver-instructions",
+  "SKILL.md",
+);
 const FLOW_UI_VALIDATE_PATH = path.resolve(HERE, "flow-ui-validate.ts");
 const UI_VALIDATION_SCHEMA_PATH = path.resolve(
   HERE,
@@ -340,16 +420,10 @@ const UI_VALIDATION_SCHEMA_PATH = path.resolve(
   "ui-validation-schema.ts",
 );
 
-const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
-// `flow-verify-prep.ts` (plan.md Task 10) now owns the VERIFY_MODEL /
-// VERIFY_SUBAGENT resolution that used to be inline prose in Step 6's
-// spawn-prep fence — several lints below assert against its SOURCE
-// instead of SKILL.md text for exactly that reason.
-const verifyPrepContent = fs.readFileSync(
-  path.resolve(HERE, "flow-verify-prep.ts"),
-  "utf8",
-);
+const content = readPipelineSkillCorpus();
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
+const supervisorRulesContent = fs.readFileSync(SUPERVISOR_RULES_PATH, "utf8");
+const binRulesContent = fs.readFileSync(BIN_RULES_PATH, "utf8");
 const exemptionContractsContent = fs.readFileSync(
   EXEMPTION_CONTRACTS_PATH,
   "utf8",
@@ -377,10 +451,6 @@ const checkpointSkillContent = fs.readFileSync(
   CHECKPOINT_SKILL_MD_PATH,
   "utf8",
 );
-const gatekeeperSpawnPromptContent = fs.readFileSync(
-  GATEKEEPER_SPAWN_PROMPT_PATH,
-  "utf8",
-);
 const fixApplierSpawnPromptContent = fs.readFileSync(
   FIX_APPLIER_SPAWN_PROMPT_PATH,
   "utf8",
@@ -401,6 +471,31 @@ const discoveryInstructionsContent = fs.readFileSync(
   DISCOVERY_INSTRUCTIONS_PATH,
   "utf8",
 );
+const discoveryResearchContent = fs.readFileSync(
+  DISCOVERY_RESEARCH_PATH,
+  "utf8",
+);
+const discoveryUiContent = fs.readFileSync(DISCOVERY_UI_PATH, "utf8");
+const discoveryRevisionContent = fs.readFileSync(
+  DISCOVERY_REVISION_PATH,
+  "utf8",
+);
+const discoverySurveyEpicContent = fs.readFileSync(
+  DISCOVERY_SURVEY_EPIC_PATH,
+  "utf8",
+);
+const discoveryPromptInterpretationContent = fs.readFileSync(
+  DISCOVERY_PROMPT_INTERPRETATION_PATH,
+  "utf8",
+);
+const discoveryCoreAndReferencesContent = [
+  discoveryInstructionsContent,
+  discoveryResearchContent,
+  discoveryUiContent,
+  discoveryRevisionContent,
+  discoverySurveyEpicContent,
+  discoveryPromptInterpretationContent,
+].join("\n");
 const epicDiscoveryInstructionsContent = fs.readFileSync(
   EPIC_DISCOVERY_INSTRUCTIONS_PATH,
   "utf8",
@@ -427,6 +522,13 @@ const pullRequestTemplateContent = fs.readFileSync(
 );
 const agentPromptsContent = fs.readFileSync(AGENT_PROMPTS_PATH, "utf8");
 const verifyContent = fs.readFileSync(VERIFY_SKILL_MD_PATH, "utf8");
+
+// Collapses hard-wrap whitespace so a pinned multi-word prose fragment
+// matches regardless of where a given file happens to wrap the line — a
+// pure re-wrap (prettier, or a word inserted earlier in the sentence)
+// must not redden this lint with a misleading "contract rule dropped"
+// message.
+const flat = (s: string) => s.replace(/\s+/g, " ");
 const uiUxContent = fs.readFileSync(UI_UX_SKILL_MD_PATH, "utf8");
 const svelteContent = fs.readFileSync(SVELTE_SKILL_MD_PATH, "utf8");
 const tailwindShadcnContent = fs.readFileSync(
@@ -434,11 +536,27 @@ const tailwindShadcnContent = fs.readFileSync(
   "utf8",
 );
 const agentsTemplateContent = fs.readFileSync(AGENTS_TEMPLATE_PATH, "utf8");
+const agentsTemplateUiRulesContent = fs.readFileSync(
+  AGENTS_TEMPLATE_UI_RULES_PATH,
+  "utf8",
+);
+const agentsTemplateRefVerificationContent = fs.readFileSync(
+  AGENTS_TEMPLATE_REF_VERIFICATION_PATH,
+  "utf8",
+);
+const agentsTemplateRefAgentConductContent = fs.readFileSync(
+  AGENTS_TEMPLATE_REF_AGENT_CONDUCT_PATH,
+  "utf8",
+);
 const uiValidationEvidenceContent = fs.readFileSync(
   UI_VALIDATION_EVIDENCE_PATH,
   "utf8",
 );
 const uiSmokePassContent = fs.readFileSync(UI_SMOKE_PASS_PATH, "utf8");
+const uiDriverInstructionsContent = fs.readFileSync(
+  UI_DRIVER_INSTRUCTIONS_PATH,
+  "utf8",
+);
 const flowUiValidateContent = fs.readFileSync(FLOW_UI_VALIDATE_PATH, "utf8");
 const uiValidationSchemaContent = fs.readFileSync(
   UI_VALIDATION_SCHEMA_PATH,
@@ -477,9 +595,21 @@ function findStepHeadings(lines: string[]): string[] {
 }
 
 describe("flow-pipeline SKILL.md structural lint", () => {
-  it("ships exactly 12 numbered step headings (1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 11)", () => {
+  it("ships exactly 13 numbered step headings (0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 11)", () => {
     const headings = findStepHeadings(content.split("\n"));
-    expect(headings.length).toBe(12);
+    expect(headings.length).toBe(13);
+  });
+
+  it("step 3 documents ## Request vetting rendering and routing", () => {
+    for (const phrase of ["## Request vetting", "Vetting:", "push back"]) {
+      expect(
+        content.includes(phrase),
+        `SKILL.md step 3 must reference '${phrase}' — the plan-summary ` +
+          "Vetting: line, the cross-model reconciliation append, and the " +
+          "non-feature push-back route all depend on this phrase staying " +
+          "anchored in the doc.",
+      ).toBe(true);
+    }
   });
 
   it.each([
@@ -645,6 +775,56 @@ describe("flow-pipeline SKILL.md structural lint", () => {
         "anchored in the doc (AGENTS.md `## Output style` ultimate-goal rule).",
     ).toBe(true);
   });
+});
+
+describe("fix-loop cap wiring lint (state.json counters, not context)", () => {
+  function stepSection(heading: string): string {
+    const start = content.indexOf(`\n${heading} `);
+    if (start === -1) return "";
+    const next = content.indexOf("\n## ", start + 1);
+    return content.slice(start, next === -1 ? content.length : next);
+  }
+
+  it.each([
+    ["## Step 7", "ciFix", "3", "ci-fix-exhausted"],
+    ["## Step 8", "reviewFix", "2", "review-fix-exhausted"],
+  ])(
+    "%s counts its fix-loop cap in state.json and gates on the read-back",
+    (heading, key, cap, tag) => {
+      const section = stepSection(heading);
+      expect(section.length, `${heading} section not found`).toBeGreaterThan(0);
+      expect(
+        section.includes(`flow-state-update --increment-loop ${key}`),
+        `${heading} must bump the '${key}' counter so the cap survives a compaction.`,
+      ).toBe(true);
+      expect(
+        section.includes(`.loops.${key} // 0`),
+        `${heading} must read the '${key}' counter back from state.json.`,
+      ).toBe(true);
+      expect(
+        section.includes(cap),
+        `${heading} must name its numeric cap ${cap}.`,
+      ).toBe(true);
+      expect(
+        section.includes(tag),
+        `${heading} must escalate 'NEEDS HUMAN: ${tag}' at the cap.`,
+      ).toBe(true);
+      const readBack = section
+        .split("\n")
+        .filter((line) => line.includes(`.loops.${key} // 0`));
+      for (const line of readBack) {
+        expect(
+          line.includes("<slug>"),
+          `The '${key}' read-back must not use the literal <slug> placeholder inside a runnable ` +
+            `bash fence — the shell parses it as redirection. Use ~/.flow/state/"$SLUG".json.`,
+        ).toBe(false);
+        expect(
+          line.includes('~/.flow/state/"$SLUG".json'),
+          `The '${key}' read-back must use ~/.flow/state/"$SLUG".json, matching the file's own idiom.`,
+        ).toBe(true);
+      }
+    },
+  );
 });
 
 describe("pipeline-snapshot wiring lint", () => {
@@ -911,15 +1091,17 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
   }
 
   /**
-   * Extract exemption keys from AGENTS.md `## Don'ts` section. Format:
+   * Extract exemption keys from .claude/rules/flow-supervisor-contracts.md `## Don'ts` section. Format:
    * `**Task-tool exemption: \`/flow-pipeline\` → <skill-and-heading>.**`
    * The `/flow-pipeline` → prefix is stripped so the keys align with
    * the SKILL.md side (which doesn't include the `/flow-pipeline →` prefix).
    */
-  function extractAgentsExemptions(): string[] {
+  function extractRulesExemptions(): string[] {
     const re =
       /\*\*Task-tool exemption:\s*`\/flow-pipeline`\s*→\s*([^*]+?)\.\*\*/g;
-    return [...agentsContent.matchAll(re)].map((m) => normaliseExemption(m[1]));
+    return [...supervisorRulesContent.matchAll(re)].map((m) =>
+      normaliseExemption(m[1]),
+    );
   }
 
   /**
@@ -929,7 +1111,7 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
    * AGENTS.md opener name (minus the `/flow-pipeline → ` prefix). The
    * file-level `# Task-tool exemption contracts` title is an h1 and is
    * not matched. This guards the offloaded file against silent drift
-   * (a section deleted, renamed, or a ninth added) — the same drift
+   * (a section deleted, renamed, or an eighth added) — the same drift
    * class the AGENTS.md ↔ SKILL.md symmetry above prevents.
    */
   function extractContractsExemptions(): string[] {
@@ -939,35 +1121,35 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     );
   }
 
-  it("flow-pipeline/SKILL.md Hard rules lists exactly 9 Task-tool exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules lists exactly 8 Task-tool exemptions", () => {
     const exemptions = extractSkillExemptions();
     expect(
       exemptions.length,
-      "flow-pipeline/SKILL.md must list exactly 9 Task-tool exemption blocks " +
+      "flow-pipeline/SKILL.md must list exactly 8 Task-tool exemption blocks " +
         "(one each for /flow-pr-review Multi-Agent Review, /flow-product-planning Discovery " +
         "Subagent, /flow-new-feature Scout Subagent, /flow-pr-review Fix-Applier Subagent, " +
         "/flow-pipeline step 10's Merge-Conflict Resolver Subagent, /flow-coder " +
-        "Edit-Applier Subagent, /flow-pr-review Step 1.5 Gatekeeper Subagent, " +
-        "/flow-pr-review Step 3.5 Consolidator-Validator Subagent, and /flow-pipeline " +
-        "step 6's Verify-Retry-Loop Subagent). " +
+        "Edit-Applier Subagent, " +
+        "/flow-pr-review Step 3.5 Consolidator-Validator Subagent, and " +
+        "/flow-verify Independent UI-Driver Subagent). " +
         "Found: " +
         JSON.stringify(exemptions),
-    ).toBe(9);
+    ).toBe(8);
   });
 
-  it("AGENTS.md ## Don'ts lists exactly 9 Task-tool exemption bullets", () => {
-    const exemptions = extractAgentsExemptions();
+  it(".claude/rules/flow-supervisor-contracts.md '## Don'ts' lists exactly 8 Task-tool exemption bullets", () => {
+    const exemptions = extractRulesExemptions();
     expect(
       exemptions.length,
-      "AGENTS.md ## Don'ts must list exactly 9 Task-tool exemption bullets. " +
+      ".claude/rules/flow-supervisor-contracts.md '## Don'ts' must list exactly 8 Task-tool exemption bullets. " +
         "Found: " +
         JSON.stringify(exemptions),
-    ).toBe(9);
+    ).toBe(8);
   });
 
-  it("AGENTS.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
+  it(".claude/rules/flow-supervisor-contracts.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
     const skill = new Set(extractSkillExemptions());
-    const agents = new Set(extractAgentsExemptions());
+    const agents = new Set(extractRulesExemptions());
     const onlyInSkill = [...skill].filter((x) => !agents.has(x));
     const onlyInAgents = [...agents].filter((x) => !skill.has(x));
     expect(
@@ -984,27 +1166,27 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("references/exemption-contracts.md lists exactly 9 contract sections", () => {
+  it("references/exemption-contracts.md lists exactly 8 contract sections", () => {
     const exemptions = extractContractsExemptions();
     expect(
       exemptions.length,
-      "references/exemption-contracts.md must hold exactly 9 `## ` contract " +
+      "references/exemption-contracts.md must hold exactly 8 `## ` contract " +
         "sections (one per Task-tool exemption). Found: " +
         JSON.stringify(exemptions),
-    ).toBe(9);
+    ).toBe(8);
   });
 
-  it("references/exemption-contracts.md matches the AGENTS.md exemption set", () => {
+  it("references/exemption-contracts.md matches the .claude/rules/flow-supervisor-contracts.md exemption set", () => {
     const contracts = new Set(extractContractsExemptions());
-    const agents = new Set(extractAgentsExemptions());
+    const agents = new Set(extractRulesExemptions());
     const onlyInContracts = [...contracts].filter((x) => !agents.has(x));
     const onlyInAgents = [...agents].filter((x) => !contracts.has(x));
     expect(
       onlyInContracts.length,
-      `Sections in references/exemption-contracts.md but missing from AGENTS.md openers: ${JSON.stringify(onlyInContracts)}. ` +
-        "The offloaded contract file and the AGENTS.md `## Don'ts` openers enumerate the same " +
-        "nine exemptions; a section heading must match its AGENTS.md opener name (minus the " +
-        "`/flow-pipeline → ` prefix) so a reader hopping AGENTS.md → references lands on the right section.",
+      `Sections in references/exemption-contracts.md but missing from .claude/rules/flow-supervisor-contracts.md openers: ${JSON.stringify(onlyInContracts)}. ` +
+        "The offloaded contract file and the .claude/rules/flow-supervisor-contracts.md `## Don'ts` openers enumerate the same " +
+        "eight exemptions; a section heading must match its rule-file opener name (minus the " +
+        "`/flow-pipeline → ` prefix) so a reader hopping the rule file → references lands on the right section.",
     ).toBe(0);
     expect(
       onlyInAgents.length,
@@ -1014,49 +1196,49 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("flow-pipeline/SKILL.md Hard rules preamble references nine exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules preamble references eight exemptions", () => {
     expect(
       skillStripped.match(
-        /the\s+\*\*only nine\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
+        /the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
       ),
-      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only nine** authorised " +
+      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only eight** authorised " +
         "Task-tool fan-out sites'. If you added or removed an exemption, update the count " +
         "in the preamble too — the count is bidirectional with the block list below.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Hard rules opening references nine Task-tool exceptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules opening references eight Task-tool exceptions", () => {
     expect(
       skillStripped.match(
-        /the\s+nine\s+narrowly-named Task-tool exceptions that\s+follow/,
+        /the\s+eight\s+narrowly-named Task-tool exceptions that\s+follow/,
       ),
-      "flow-pipeline/SKILL.md Hard rules opening must say 'the nine narrowly-named " +
+      "flow-pipeline/SKILL.md Hard rules opening must say 'the eight narrowly-named " +
         "Task-tool exceptions that follow'. Drift here means a future reader sees a count " +
         "that doesn't match the exemption blocks.",
     ).toBeTruthy();
   });
 
-  it("AGENTS.md upstream prose references nine exceptions", () => {
+  it("AGENTS.md upstream prose references eight exceptions", () => {
     expect(
-      agentsContent.match(/\*\*with nine narrowly-named exceptions\*\*/),
-      "AGENTS.md ## Supervisor and sub-skills must say '**with nine narrowly-named exceptions**'. " +
+      agentsContent.match(/\*\*with eight narrowly-named exceptions\*\*/),
+      "AGENTS.md ## Supervisor and sub-skills must say '**with eight narrowly-named exceptions**'. " +
         "The count must match the bullet list under ## Don'ts.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/The nine\s+named exceptions are/),
-      "AGENTS.md ## Don'ts parent bullet must say 'The nine named exceptions are'. " +
+      agentsContent.match(/The eight\s+named exceptions are/),
+      "AGENTS.md ## Don'ts parent bullet must say 'The eight named exceptions are'. " +
         "Drift here is the most likely landmine when adding a new exemption.",
     ).toBeTruthy();
     expect(
       agentsContent.match(
-        /the\s+\*\*only nine\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
+        /the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
       ),
-      "AGENTS.md ## Don'ts closer must say 'the **only nine** authorised Task-tool fan-out sites'. " +
+      "AGENTS.md ## Don'ts closer must say 'the **only eight** authorised Task-tool fan-out sites'. " +
         "Same count, same wording as flow-pipeline/SKILL.md's closer.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Verification (this skill) lists all nine exemptions by name", () => {
+  it("flow-pipeline/SKILL.md Verification (this skill) lists all eight exemptions by name", () => {
     const verificationSection =
       content.split("# Verification")[1] ??
       content.split("# Verification (this skill)")[1] ??
@@ -1093,29 +1275,23 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
         "/flow-coder refactor; this list must enumerate all eight.",
     ).toBe(true);
     expect(
-      verificationSection.includes("Independent Gatekeeper Subagent"),
-      "flow-pipeline/SKILL.md Verification section must reference 'Independent Gatekeeper Subagent' " +
-        "as one of the named Task-tool exemptions. The seventh exemption was added in the " +
-        "/flow-pr-review Step 1.5 Gatekeeper refactor; this list must enumerate all eight.",
-    ).toBe(true);
-    expect(
       verificationSection.includes(
         "Independent Consolidator-Validator Subagent",
       ),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Consolidator-Validator Subagent' " +
-        "as one of the named Task-tool exemptions. The eighth exemption was added in the " +
-        "/flow-pr-review Step 3.5 Consolidator-Validator refactor; this list must enumerate all nine.",
+        "as one of the named Task-tool exemptions. The seventh exemption was added in the " +
+        "/flow-pr-review Step 3.5 Consolidator-Validator refactor; this list must enumerate all eight.",
     ).toBe(true);
     expect(
-      verificationSection.includes("Verify-Retry-Loop Subagent"),
-      "flow-pipeline/SKILL.md Verification section must reference 'Verify-Retry-Loop Subagent' " +
-        "as one of the named Task-tool exemptions. The ninth exemption was added in the " +
-        "step 6 verify-retry-loop refactor; this list must enumerate all nine.",
+      verificationSection.includes("Independent UI-Driver Subagent"),
+      "flow-pipeline/SKILL.md Verification section must reference 'Independent UI-Driver Subagent' " +
+        "as one of the named Task-tool exemptions. The eighth exemption was added in the " +
+        "/flow-verify UI-smoke refactor; this list must enumerate all eight.",
     ).toBe(true);
   });
 
   // Pins references/task-tool-exemption-preamble.md's "all <N> Task-tool"
-  // numeral to the count derived from extractAgentsExemptions() (the same
+  // numeral to the count derived from extractRulesExemptions() (the same
   // helper the exactly-9 assertions above use) rather than a hardcoded
   // literal, so a tenth exemption landing without updating the preamble's
   // prose goes red here instead of silently drifting (the six → nine drift
@@ -1140,8 +1316,8 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
   ];
   const numberToEnglish = (n: number): string => NUMBER_WORDS[n] ?? String(n);
 
-  it("references/task-tool-exemption-preamble.md's exemption-count numeral matches AGENTS.md's derived count", () => {
-    const expectedCount = extractAgentsExemptions().length;
+  it("references/task-tool-exemption-preamble.md's exemption-count numeral matches .claude/rules/flow-supervisor-contracts.md's derived count", () => {
+    const expectedCount = extractRulesExemptions().length;
     const expectedNumeral = numberToEnglish(expectedCount);
     const preambleContent = fs.readFileSync(
       path.resolve(
@@ -1158,213 +1334,409 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     expect(
       preambleContent.includes(`all ${expectedNumeral} Task-tool`),
       "references/task-tool-exemption-preamble.md must say " +
-        `'all ${expectedNumeral} Task-tool' — derived from AGENTS.md's ` +
-        `${expectedCount} exemption bullets (extractAgentsExemptions()), not ` +
+        `'all ${expectedNumeral} Task-tool' — derived from .claude/rules/flow-supervisor-contracts.md's ` +
+        `${expectedCount} exemption bullets (extractRulesExemptions()), not ` +
         "a hardcoded numeral. This is the count-drift guard for the six → " +
         "nine correction: if a tenth exemption lands, this numeral must " +
         "move to 'ten' in the same PR.",
     ).toBe(true);
   });
+
+  it(".claude/rules/flow-supervisor-contracts.md's 'Shared rationale for the N Task-tool exemptions' numeral matches the derived count", () => {
+    const expectedCount = extractRulesExemptions().length;
+    const expectedNumeral = numberToEnglish(expectedCount);
+    expect(
+      supervisorRulesContent.includes(
+        `Shared rationale for the ${expectedNumeral} Task-tool exemptions`,
+      ),
+      ".claude/rules/flow-supervisor-contracts.md's '## Don'ts' must say " +
+        `'Shared rationale for the ${expectedNumeral} Task-tool exemptions' — ` +
+        `derived from extractRulesExemptions()'s ${expectedCount} bullets, ` +
+        "not a hardcoded numeral. Guards the exact drift this PR fixed " +
+        "(the opener said 'eight' while the bullets below it numbered seven).",
+    ).toBe(true);
+  });
+
+  it("removed scaffolds (pr-review-gatekeeper, Verify-Retry-Loop, verify-loop-instructions) never reappear", () => {
+    const banned = [
+      "flow-verify-prep",
+      "Verify-Retry-Loop Subagent",
+      "Gatekeeper Subagent",
+      "flow-verify-loop-instructions",
+    ];
+    const roots = ["skills", "agents", "references", ".claude/rules"];
+    const files: string[] = [path.resolve(HERE, "..", "AGENTS.md")];
+    for (const root of roots) {
+      const rootPath = path.resolve(HERE, "..", root);
+      if (!fs.existsSync(rootPath)) continue;
+      const walk = (dir: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(full);
+          else if (entry.name.endsWith(".md")) files.push(full);
+        }
+      };
+      walk(rootPath);
+    }
+    for (const file of files) {
+      const text = fs.readFileSync(file, "utf8");
+      for (const phrase of banned) {
+        expect(
+          text.includes(phrase),
+          `${path.relative(path.resolve(HERE, ".."), file)} must not mention ` +
+            `'${phrase}' — this scaffold was removed; only docs/eval/ may ` +
+            "keep historical mentions.",
+        ).toBe(false);
+      }
+    }
+  });
 });
 
-describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warning)", () => {
+describe("always-loaded context budget (helper-measured)", () => {
   /**
-   * AGENTS.md grows ~10k chars/quarter as new Task-tool exemptions land,
-   * and once cleared Claude Code's 40k per-session performance warning with
-   * little headroom (PR #218). #219 added this guard so the budget is
-   * enforced on every PR via `npm run verify` rather than relying on a
-   * one-time PR-body checkbox. The budget stays below the 40_000
-   * warning threshold: it locks in the headroom won by offloading the nine
-   * exemption contract bodies to references/exemption-contracts.md (#220)
-   * instead of letting the file silently regrow back toward 40k. It was
-   * raised from 34_000 to fund one new first-class Output-style rule
-   * (**Treat every request as production-bound, not a hobby project.**),
-   * whose full bar is offloaded to templates/AGENTS.md.template so only the
-   * lean anchored summary lives here — a deliberate addition, not silent
-   * regrowth. New contracts still offload-then-trim (dedup an equivalent
-   * volume or move the body to a references/ file) rather than raise this
-   * budget again. Raised again from 36_000 to 38_000 to fund two deliberate
-   * additions: the `## Compact Instructions` compaction-steering section and
-   * the 9th Task-tool exemption opener (Verify-Retry-Loop Subagent), whose
-   * full body is offloaded to references/exemption-contracts.md per the
-   * offload-then-trim playbook so only the lean opener costs bytes here.
-   * Raised again from 38_000 to 39_000 to fund one more deliberate addition:
-   * the new `## Output style` principle **Understand the ultimate goal behind
-   * the request, not just the literal ask.**, whose full technique is offloaded
-   * to skills/pipeline/flow-product-planning/references/discovery-playbook.md so only
-   * the lean anchored summary costs bytes here — a deliberate addition, not
-   * silent regrowth. Raised once more from 39_000 to 39_700 to fund the
-   * `/flow-epic-run` separate-supervisor-session bullet (the epic-orchestrator
-   * judgment layer), whose full contract — the four hard invariants, the
-   * `epic.judgment` / `epic.maxRetries` config gate, the event-driven judgment
-   * surface — is offloaded to skills/pipeline/flow-epic-run/SKILL.md so only a lean
-   * pointer bullet (gated ⇒ escalate-only + never-merge inline) costs bytes
-   * here. Headroom to the 40k warning is now thin (~370 chars): the NEXT
-   * contract must offload-then-trim (dedup an equivalent volume), not raise
-   * this budget again. Raised once more from 39_700 to 39_950 to fund the lean
-   * one-line `agents/` static-agent-type-definition note (the `effort: low`
-   * pinning of the two mechanical fan-outs). Per the AGY cross-model plan
-   * review, a small documented raise was preferred over trimming load-bearing,
-   * lint-anchored AGENTS.md prose; the note was kept minimal and part-funded by
-   * non-destructive word-level tightening, and the file still sits 76 chars
-   * clear of the hard 40k warning (raising the budget PAST 40k was explicitly
-   * rejected — the guard exists to keep the file under it). The NEXT contract
-   * must offload-then-trim: there is no longer room to raise without crossing 40k.
-   * Dropped from 39_950 to 24_000 by the p5-context-diet pass (#431's
-   * follow-up): `## Output style`'s full rule bodies moved to
-   * references/output-style.md, `## Consumer-repo notes`' full surface area
-   * moved to references/consumer-repo-contract.md, and the session-marker /
-   * trailer + inline-intent-annotation mechanics plus several `## Don'ts`
-   * bullet bodies (Shared rationale, the one AskUserQuestion form, the
-   * auto-merge and auto-issue-create exemptions, the epic-create/epic-run
-   * detail) moved to references/git-workflow.md — each replaced in AGENTS.md
-   * by its anchored opener/binding-bar plus a relative link. Measured
-   * post-diet size is ~19_978 chars
-   * (`bin/flow-transcript-audit.ts --static AGENTS.md`); 24_000 keeps
-   * headroom for incremental additions without inviting the regrowth back
-   * toward 40k the offload-then-trim discipline exists to prevent.
-   * Raised once more from 24_000 to 24_300 to fund one deliberate
-   * addition: the `## Output style` rule **Explain problems
-   * impact-first in plain language.**, whose full rule body is
-   * offloaded to references/output-style.md and whose applied contract
-   * lives in
-   * skills/pipeline/flow-pipeline/references/pause-output-contract.md,
-   * so only the lean anchored one-line summary costs bytes here, per
-   * the offload-then-trim playbook. Pre-raise headroom was 128 chars
-   * against a ~226-char lean opener; trimming lint-anchored
-   * `## Output style` prose to make room was rejected on the same
-   * grounds as the 39_700 → 39_950 precedent above (a small documented
-   * raise over trimming load-bearing prose). The file remains far below
-   * Claude Code's 40k per-session warning.
-   * Raised once more from 24_300 to 24_600 to fund the `## Output style`
-   * rule **Emit instructions as scannable numbered steps.**, whose full
-   * rule body is offloaded to references/output-style.md and whose
-   * enforceable form lives in
-   * skills/pipeline/flow-pipeline/references/pause-output-contract.md
-   * `## Step contract`, so only the lean anchored one-line summary costs
-   * bytes here, per the offload-then-trim playbook. Pre-raise headroom
-   * was 61 chars against a ~225-char lean opener; trimming lint-anchored
-   * `## Output style` prose to make room was rejected on the same
-   * grounds as the two precedents above (a small documented raise over
-   * trimming load-bearing prose). The file remains far below Claude
-   * Code's 40k per-session warning.
-   * Raised once more from 24_600 to 24_700 to fund the
-   * `/flow-backlog-triage` separate-sanctioned-standalone-session bullet
-   * (one Task-tool fan-out for Phase-1 verification, zero
-   * `AskUserQuestion` forms), whose full contract is offloaded to
-   * `skills/universal/flow-backlog-triage/SKILL.md` so only the lean
-   * pointer bullet costs bytes here. Measured this bullet's chars via
-   * `wc -m AGENTS.md` (code units, NOT `wc -c` bytes — AGENTS.md carries
-   * non-ASCII em-dash/arrow glyphs that make the two counts diverge).
-   * Post-edit size is 24_591 chars against the prior 24_600 budget —
-   * technically still clears, but leaves only 9 chars of headroom, a
-   * red-build trap for the next editor; raised to the next round value
-   * instead of leaving that trap in place.
-   * Raised again from 24_700 to 24_900 after merging `main` in. The
-   * 24_700 figure was measured against this branch alone (24_591), but
-   * CI evaluates the PR merge-ref, where #559's own `## Don'ts`
-   * additions stack on top of this branch's pointer bullet for a
-   * combined 24_760. Neither branch overran the budget in isolation —
-   * the overrun is purely additive across two concurrently-open
-   * branches, which is exactly the case a local-only `wc -m` on one
-   * branch cannot see. Raised to the next round value (140 chars of
-   * headroom) rather than trimming either branch's lint-anchored prose,
-   * on the same grounds as the precedents above.
-   * Raised once more from 24_900 to 25_300 to fund the `## Output style`
-   * rule **Frame every explanation impact-first for a product-lens
-   * reader.**, whose full rule body (worked examples, exclusion list,
-   * per-stage focus table) is offloaded to references/output-style.md,
-   * so only the lean anchored one-line summary costs bytes here, per
-   * the offload-then-trim playbook. Pre-raise headroom was 22 chars
-   * (24_878 measured in code units via String.prototype.length, not
-   * `wc -c` bytes) against a ~247-char lean opener; post-edit size is
-   * 25_125. 25_200 was rejected — 75 chars of headroom is closer to the
-   * 9-char red-build trap called out two raises above than to the
-   * 136–202-char headroom the three most recent deliberate raises landed
-   * with (202, 136, 140) — so the budget
-   * goes to 25_300 (175 chars of headroom) instead, and trimming
-   * lint-anchored `## Output style` prose to make room was rejected on
-   * the same grounds as the precedents above.
-   * Raised once more from 25_300 to 25_900 to fund two deliberate
-   * additions for the intent interview (adaptive) feature: a
-   * `## Compact Instructions` KEEP bullet for `state.interview`, and a
-   * `## Don'ts` bullet naming the two interview pending phases as
-   * ordinary chat pauses, NOT `AskUserQuestion` (no new exemption). Both
-   * bullets were already tightened to lean anchored openers with the
-   * full round contract offloaded to
-   * skills/pipeline/flow-pipeline/references/interview-playbook.md, per
-   * the offload-then-trim playbook; post-edit size is 25_749, so 25_900
-   * (151 chars of headroom) matches the 136-202-char range the recent
-   * precedents above landed with, rather than the tighter traps rejected
-   * earlier in this history.
-   * Raised once more from 25_900 to 26_000 to fund extending the
-   * `## Don'ts` Bash-fan-out bullet to also name the Step-3 blind method
-   * survey (`flow-blind-survey`) as a `flow-delegate`/`flow-delegate-
-   * fanout` Bash fan-out, not a tenth exemption — the exact delta was
-   * measured at +56 chars (pre-edit 25_892, post-edit 25_948, both via
-   * String.prototype.length, not `wc -c` bytes); the budget goes to
-   * exactly that delta plus 44 chars of headroom (25_900 + 56 + 44 =
-   * 26_000) rather than the bare delta, matching the "don't land at a
-   * single-digit-headroom trap" discipline of every raise above.
-   * Raised once more from 26_000 to 26_300 to narrow the `claude -p`
-   * prohibition to the sanctioned `flow-claude-headless` Bash fan-out:
-   * the `## Supervisor and sub-skills` paragraph now says "never invokes
-   * raw `claude -p` subprocesses (headless Claude only via
-   * `flow-claude-headless`)" and names the helper's contract instead of
-   * the old standalone-leaf-skill sentence, and the `## Don'ts`
-   * Bash-fan-out bullet gained a trailing sentence naming
-   * `flow-claude-headless` alongside the Gemini lens / plan review /
-   * blind survey. Measured via String.prototype.length (not `wc -c`
-   * bytes): pre-edit 25_979, post-edit 26_102 — a +123-char delta. The
-   * budget goes to 26_300 (198 chars of headroom), not the bare
-   * post-edit value, matching the "don't land at a single-digit-headroom
-   * trap" discipline of every raise above.
-   * Raised once more from 26_300 to 26_500 to fund the `@flow-kind`
-   * publish-breadth + `flow ls` KIND-column facts: the `## Don'ts`
-   * pane-state bullet now says the six `@flow-*` mirrors publish "on every
-   * flow window" (they previously read epic-only by omission) and closes
-   * with "`flow ls`'s KIND column reads `PipelineState.kind`, never
-   * `@flow-kind`" — the foreclosed shortcut a future agent is most likely
-   * to take on this surface. Measured via String.prototype.length (not
-   * `wc -c` bytes): pre-edit 26_285, post-edit 26_380 — a +95-char delta,
-   * already the deduped form (the first draft was +151 before folding the
-   * publish-breadth fact into the existing mirrors sentence rather than
-   * appending a second one). The budget goes to 26_500 (120 chars of
-   * headroom), not the bare post-edit value, matching the "don't land at a
-   * single-digit-headroom trap" discipline of every raise above — the
-   * 26_300 budget had only 15 chars of headroom left on `main`, so a
-   * dedup-only path would have had to cut unrelated contract prose.
-   * Raised once more from 26_300 to 26_650 to document the optional
-   * `.flow/test-tiers.json` test-tier manifest at all three `AGENTS.md`
-   * anchors (the `## Where to look` table, the `flow-test-audit` helper
-   * name, and the `## Consumer-repo notes` paragraph). Measured via
-   * String.prototype.length (not `wc -c` bytes): pre-edit 26_285,
-   * post-edit 26_438 — a +153-char delta, additive-only per the
-   * edit-set's contract (no existing prose was reworded or reordered,
-   * so dedup-first wasn't available here). The budget goes to 26_650
-   * (212 chars of headroom), not the bare post-edit value, matching the
-   * "don't land at a single-digit-headroom trap" discipline of every
-   * raise above.
-   * Merge note: the two raises immediately above were authored
-   * independently off the same 26_285 base and collided in the merge of
-   * `origin/main` into this branch. Both prose additions survive, so the
-   * merged `AGENTS.md` measures 26_555 chars (String.prototype.length) —
-   * larger than either side's own post-edit measurement. The higher of the
-   * two budgets (26_650) is kept rather than summing the deltas: it already
-   * clears the merged size with 95 chars of headroom, so no further raise
-   * was warranted. The 26_500 side would have failed at merge time.
+   * Replaces the old hand-maintained `AGENTS.md char-count budget` ledger
+   * (19 commits of raise-the-constant history) with a helper-measured
+   * budget over the ACTUAL always-loaded set: CLAUDE.md + its resolved
+   * @import chain + any `.claude/rules/*.md` lacking a `paths:` key. A
+   * budget that only measured AGENTS.md's own length could be dodged by
+   * moving prose into a second unscoped import; summing the helper's eager
+   * set closes that gap. ALWAYS_LOADED_BUDGET is set to the smallest
+   * multiple of 500 at or above the measured eager-chars figure once every
+   * pinned anchor (Output-style openers, Compact Instructions, the
+   * Task-tool exemption pointer, the eight-exemption count) is kept —
+   * measured via `bun bin/flow-context-budget.ts --json` at the
+   * p6-context-budget diet (2026-09-09), post-diet eager set is
+   * CLAUDE.md + AGENTS.md only. On a future trim, lower this constant
+   * rather than letting silent headroom regrow; on a future addition that
+   * cannot fit, offload the addition to a `.claude/rules/*.md` file with a
+   * `paths:` key (lazy-loaded) before raising this budget.
    */
-  it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 26_650;
+  const ALWAYS_LOADED_BUDGET = 10_000;
+  const HEADROOM_CAP = 1_500;
+  const CORE_LINE_LIMIT = 200;
+
+  it("the eager always-loaded set stays within budget", async () => {
+    const { resolveAlwaysLoaded } = await import("./flow-context-budget");
+    const repoRoot = path.resolve(HERE, "..");
+    const { alwaysLoaded } = await resolveAlwaysLoaded(repoRoot);
+    const eagerChars = alwaysLoaded.totals.chars;
     expect(
-      agentsContent.length,
-      `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
-        `To add a new contract, dedup an equivalent volume first or offload it ` +
-        `to a references/ file (see references/exemption-contracts.md for the ` +
-        `offload-then-trim playbook landed in #220) rather than raising this ` +
-        `budget — the budget keeps AGENTS.md clear of Claude Code's 40k ` +
-        `per-session performance warning.`,
-    ).toBeLessThan(CHAR_BUDGET);
+      eagerChars,
+      `The always-loaded set (CLAUDE.md + @imports + unscoped .claude/rules) is ` +
+        `${eagerChars} chars; budget is ${ALWAYS_LOADED_BUDGET}. Offload the ` +
+        `addition to a \`paths:\`-scoped file under .claude/rules/ (see ` +
+        `.claude/rules/flow-supervisor-contracts.md for the pattern) rather ` +
+        `than raising this budget.`,
+    ).toBeLessThanOrEqual(ALWAYS_LOADED_BUDGET);
+    expect(
+      ALWAYS_LOADED_BUDGET - eagerChars,
+      `The budget has ${ALWAYS_LOADED_BUDGET - eagerChars} chars of headroom ` +
+        `over the measured eager set, above the ${HEADROOM_CAP}-char cap — on ` +
+        `a trim, lower ALWAYS_LOADED_BUDGET to match rather than leaving ` +
+        `silent headroom.`,
+    ).toBeLessThanOrEqual(HEADROOM_CAP);
+    const eagerBasenames = alwaysLoaded.files
+      .map((f) => path.basename(f.path))
+      .sort();
+    expect(
+      eagerBasenames,
+      `The eager set must be exactly CLAUDE.md + AGENTS.md — found: ${JSON.stringify(eagerBasenames)}. ` +
+        `A third eager file (or a .claude/rules/*.md missing its \`paths:\` key) ` +
+        `means a rule file is loading unconditionally; give it a \`paths:\` key.`,
+    ).toEqual(["AGENTS.md", "CLAUDE.md"]);
+  });
+
+  it("AGENTS.md stays at or under the 200-line core-file limit", () => {
+    const lineCount = agentsContent.split("\n").length;
+    expect(
+      lineCount,
+      `AGENTS.md is ${lineCount} lines; the always-loaded core must stay <= ` +
+        `${CORE_LINE_LIMIT} lines. Offload surface-specific detail to ` +
+        `.claude/rules/ instead of growing the core.`,
+    ).toBeLessThanOrEqual(CORE_LINE_LIMIT);
+  });
+
+  it("AGENTS.md carries zero Task-tool exemption openers (moved to .claude/rules/flow-supervisor-contracts.md)", () => {
+    expect(
+      agentsContent.includes("Task-tool exemption:"),
+      "AGENTS.md must not carry any 'Task-tool exemption:' opener — the full " +
+        "catalogue lives in .claude/rules/flow-supervisor-contracts.md, loaded " +
+        "only when an agent touches skills/, agents/, references/, or templates/.",
+    ).toBe(false);
+  });
+
+  it(".claude/rules/flow-supervisor-contracts.md carries all eight Task-tool exemption openers (bidirectional with the core-file pin above)", () => {
+    const count = (
+      supervisorRulesContent.match(/Task-tool exemption: `\/flow-pipeline`/g) ??
+      []
+    ).length;
+    expect(
+      count,
+      `.claude/rules/flow-supervisor-contracts.md must carry exactly 8 ` +
+        `'Task-tool exemption: \`/flow-pipeline\`' openers; found ${count}.`,
+    ).toBe(8);
+  });
+
+  it("both rule files carry a paths: frontmatter key (lazy-loaded, not eager)", async () => {
+    const { hasPathsFrontmatter } = await import("./flow-context-budget");
+    expect(
+      hasPathsFrontmatter(supervisorRulesContent),
+      ".claude/rules/flow-supervisor-contracts.md must carry a `paths:` " +
+        "frontmatter key — without it, the file loads unconditionally and " +
+        "defeats the always-loaded-budget diet.",
+    ).toBe(true);
+    expect(
+      hasPathsFrontmatter(binRulesContent),
+      ".claude/rules/flow-bin-conventions.md must carry a `paths:` " +
+        "frontmatter key — without it, the file loads unconditionally and " +
+        "defeats the always-loaded-budget diet.",
+    ).toBe(true);
+  });
+
+  it(".claude/rules/flow-supervisor-contracts.md points at docs/skill-description-convention.md, and the document exists", () => {
+    expect(
+      supervisorRulesContent.includes("docs/skill-description-convention.md"),
+      "the lazy skills/** rule is the zero-cost home for the pointer — " +
+        "#852 refused a `## Where to look` row on the ALWAYS_LOADED_BUDGET " +
+        "measurement",
+    ).toBe(true);
+    const docPath = path.resolve(
+      HERE,
+      "..",
+      "docs/skill-description-convention.md",
+    );
+    expect(
+      fs.existsSync(docPath),
+      "a deleted document leaves a dangling pointer",
+    ).toBe(true);
+    expect(
+      fs.statSync(docPath).size,
+      "a deleted or gutted document leaves a dangling pointer",
+    ).toBeGreaterThan(500);
+  });
+
+  /**
+   * TEMPLATE_CORE_BUDGET covers the CONSUMER-facing template core
+   * (templates/AGENTS.md.template) after the p2-context-diet-template-skills
+   * split moved UI validation into templates/rules/ and the trigger-less
+   * sections into templates/references/. Measured via
+   * `bun bin/flow-context-budget.ts --json`'s `templatePayload.core`; set to
+   * the smallest multiple of 500 at or above the measured chars. On a future
+   * trim, lower this constant rather than letting silent headroom regrow; on
+   * a future addition that cannot fit, offload it to templates/rules/ (a
+   * `paths:`-scoped rule) or templates/references/ (a routing-table pointer)
+   * rather than raising this budget.
+   */
+  const TEMPLATE_CORE_BUDGET = 8_000;
+  const SKILL_FRONTMATTER_BUDGET = 3_000;
+  // Token-scale counterpart to HEADROOM_CAP (which is char-scale, for the
+  // two char-based budgets above): SKILL_FRONTMATTER_BUDGET is measured in
+  // tokens, so it needs its own cap rather than reusing HEADROOM_CAP's
+  // char-scale number.
+  const FRONTMATTER_HEADROOM_CAP = 200;
+
+  it("the consumer template carries no repo-relative docs/ pointer, and every flow blob/main URL it cites exists on disk", () => {
+    const urlRe =
+      /https:\/\/github\.com\/gavingolden\/flow\/blob\/main\/([^\s`)>"]+)/g;
+    // Strip the blob/main URLs before checking for a bare docs/ pointer —
+    // otherwise the docs/ segment inside a legitimate cited URL would trip
+    // the guard. What remains is checked broadly (backtick, bare prose, or
+    // markdown link), not just the backtick-prefixed case, so a future edit
+    // can't reintroduce a repo-relative docs/ pointer in prose form and
+    // still pass.
+    const withoutFlowUrls = agentsTemplateContent.replace(urlRe, "");
+    expect(
+      /(^|[\s`(\[])docs\//m.test(withoutFlowUrls),
+      "flow install ships skills/, agents/, bin/ only — a consumer cannot " +
+        "follow a repo-relative docs/ path; cite the file by its " +
+        "https://github.com/gavingolden/flow/blob/main/ URL instead",
+    ).toBe(false);
+    const matches = Array.from(agentsTemplateContent.matchAll(urlRe));
+    expect(
+      matches.length,
+      "expected at least one https://github.com/gavingolden/flow/blob/main/ " +
+        "URL citing a doc in templates/AGENTS.md.template",
+    ).toBeGreaterThan(0);
+    for (const m of matches) {
+      const target = path.resolve(HERE, "..", m[1]);
+      expect(
+        fs.existsSync(target),
+        `templates/AGENTS.md.template cites ${m[0]}, but ${m[1]} does not ` +
+          "exist on disk.",
+      ).toBe(true);
+    }
+  });
+
+  it("the consumer template core stays within TEMPLATE_CORE_BUDGET", async () => {
+    const { resolveTemplatePayload } = await import("./flow-context-budget");
+    const repoRoot = path.resolve(HERE, "..");
+    const { core } = await resolveTemplatePayload(repoRoot);
+    const coreChars = core.totals.chars;
+    expect(
+      coreChars,
+      `templates/AGENTS.md.template is ${coreChars} chars; budget is ` +
+        `${TEMPLATE_CORE_BUDGET}. Offload the addition to templates/rules/ ` +
+        "(a `paths:`-scoped rule) or templates/references/ (linked from the " +
+        "core's `## Where to look` table) rather than raising this budget.",
+    ).toBeLessThanOrEqual(TEMPLATE_CORE_BUDGET);
+  });
+
+  it("the consumer template core stays within HEADROOM_CAP of TEMPLATE_CORE_BUDGET", async () => {
+    const { resolveTemplatePayload } = await import("./flow-context-budget");
+    const repoRoot = path.resolve(HERE, "..");
+    const { core } = await resolveTemplatePayload(repoRoot);
+    const coreChars = core.totals.chars;
+    expect(
+      TEMPLATE_CORE_BUDGET - coreChars,
+      `The budget has ${TEMPLATE_CORE_BUDGET - coreChars} chars of headroom ` +
+        `over the measured template core, above the ${HEADROOM_CAP}-char cap ` +
+        "— on a trim, lower TEMPLATE_CORE_BUDGET to match rather than " +
+        "leaving silent headroom.",
+    ).toBeLessThanOrEqual(HEADROOM_CAP);
+  });
+
+  it("the consumer template core keeps the always-loaded safety rules", () => {
+    // The new budget lints above (TEMPLATE_CORE_BUDGET, CORE_LINE_LIMIT)
+    // instruct the next author to offload content OUT of the core when it
+    // grows — with nothing asserting what must never be offloaded. Without
+    // this guard, a future trim could push a safety subsection behind a
+    // paths:-scoped rule or a routing row, and every check above would
+    // still pass: a session that works through bash/grep alone loads no
+    // paths:-scoped rule and no routing-row target, so moving an approval
+    // or safety rule out of the core silently deletes it for that session.
+    for (const heading of [
+      "## Safety (Sandbox Disabled)",
+      "### Reversibility Principle",
+      "### Requires Approval",
+      "### Forbidden (No Exceptions)",
+      "### Pre-Push Hook",
+      "### Command Execution",
+      "### Committing",
+      "## Hardening",
+      "## Security",
+    ]) {
+      expect(
+        agentsTemplateContent.includes(heading),
+        `templates/AGENTS.md.template must keep '${heading}' in the ` +
+          "always-loaded core: a session that works through bash/grep " +
+          "alone loads no paths:-scoped rule and no routing-row target, " +
+          "so moving an approval or safety rule out of the core deletes " +
+          "it for that session. Offload something else to fit the budget.",
+      ).toBe(true);
+    }
+  });
+
+  it("the consumer template core stays at or under CORE_LINE_LIMIT lines", async () => {
+    const { resolveTemplatePayload } = await import("./flow-context-budget");
+    const repoRoot = path.resolve(HERE, "..");
+    const { core } = await resolveTemplatePayload(repoRoot);
+    const coreLines = core.totals.lines;
+    expect(
+      coreLines,
+      `templates/AGENTS.md.template is ${coreLines} lines; the consumer ` +
+        `template core must stay <= ${CORE_LINE_LIMIT} lines. Offload ` +
+        "surface-specific detail to templates/rules/ or templates/references/ " +
+        "instead of growing the core.",
+    ).toBeLessThanOrEqual(CORE_LINE_LIMIT);
+  });
+
+  it("every templates/rules/*.md file carries a paths: frontmatter key (lazy-loaded)", async () => {
+    const { hasPathsFrontmatter } = await import("./flow-context-budget");
+    const rulesDir = path.resolve(HERE, "..", "templates", "rules");
+    const entries = fs.existsSync(rulesDir)
+      ? fs.readdirSync(rulesDir).filter((f) => f.endsWith(".md"))
+      : [];
+    expect(
+      entries.length,
+      "templates/rules/ must contain at least one *.md rule file.",
+    ).toBeGreaterThan(0);
+    for (const entry of entries) {
+      const content = fs.readFileSync(path.join(rulesDir, entry), "utf8");
+      expect(
+        hasPathsFrontmatter(content),
+        `templates/rules/${entry} must carry a \`paths:\` frontmatter key — ` +
+          "without it, the file is eager-loaded once copied under an " +
+          "adopting repo's .claude/rules/, defeating the point of the split.",
+      ).toBe(true);
+    }
+  });
+
+  it("every ## Where to look routing row in templates/AGENTS.md.template resolves relative to templates/ and names the right target", () => {
+    const templatesRoot = path.resolve(HERE, "..", "templates");
+    const tableMatch = agentsTemplateContent.match(
+      /## Where to look\n\n\| You want \| Read \|\n\|---\|---\|\n([\s\S]*?)\n\n/,
+    );
+    expect(
+      tableMatch,
+      "templates/AGENTS.md.template must carry a `## Where to look` table " +
+        "immediately after the opening paragraph.",
+    ).not.toBeNull();
+    const rows = (tableMatch?.[1] ?? "")
+      .split("\n")
+      .filter((line) => line.startsWith("|"));
+    expect(
+      rows.length,
+      "the `## Where to look` table must carry at least one routing row.",
+    ).toBeGreaterThan(0);
+    for (const row of rows) {
+      const cells = row
+        .slice(1, -1)
+        .split("|")
+        .map((c) => c.trim());
+      const [wantCell, readCell] = cells;
+      const target = readCell.replace(/`/g, "");
+      const targetPath = path.resolve(templatesRoot, target);
+      expect(
+        fs.existsSync(targetPath),
+        `## Where to look row target '${target}' must resolve relative to ` +
+          "templates/ (the core keeps its .md.template suffix, so " +
+          "flow-md-validate cannot catch a broken row here).",
+      ).toBe(true);
+      const targetContent = fs.readFileSync(targetPath, "utf8");
+      const phrases = wantCell.split(/[,/]/).map((p) => p.trim());
+      const everyPhraseIsAHeading = phrases.every((phrase) => {
+        const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`^#{2,3}\\s+.*${escaped}`, "im").test(targetContent);
+      });
+      expect(
+        everyPhraseIsAHeading,
+        `${target} must contain a heading matching EVERY one of the row's ` +
+          `'You want' phrases (${JSON.stringify(phrases)}) — a row that ` +
+          "still names a topic after the section it points to was deleted " +
+          "would silently keep passing under a partial (some()) match.",
+      ).toBe(true);
+    }
+  });
+
+  it("the installed-skill frontmatter total stays within SKILL_FRONTMATTER_BUDGET", async () => {
+    const { estimateFrontmatterCost } = await import("./lib/transcript-audit");
+    const repoRoot = path.resolve(HERE, "..");
+    const { total } = await estimateFrontmatterCost(
+      path.join(repoRoot, "skills"),
+    );
+    expect(
+      total,
+      `Installed-skill frontmatter totals ~${total} tokens; budget is ` +
+        `${SKILL_FRONTMATTER_BUDGET}. Trim the offending skill's ` +
+        "`description:` field per docs/skill-description-convention.md " +
+        "rather than raising this budget.",
+    ).toBeLessThanOrEqual(SKILL_FRONTMATTER_BUDGET);
+  });
+
+  it("the installed-skill frontmatter total stays within FRONTMATTER_HEADROOM_CAP of SKILL_FRONTMATTER_BUDGET", async () => {
+    const { estimateFrontmatterCost } = await import("./lib/transcript-audit");
+    const repoRoot = path.resolve(HERE, "..");
+    const { total } = await estimateFrontmatterCost(
+      path.join(repoRoot, "skills"),
+    );
+    expect(
+      SKILL_FRONTMATTER_BUDGET - total,
+      `The budget has ${SKILL_FRONTMATTER_BUDGET - total} tokens of ` +
+        "headroom over the measured frontmatter total, above the " +
+        `${FRONTMATTER_HEADROOM_CAP}-token cap — on a trim (per ` +
+        "docs/skill-description-convention.md), lower SKILL_FRONTMATTER_BUDGET to " +
+        "match rather than leaving silent headroom.",
+    ).toBeLessThanOrEqual(FRONTMATTER_HEADROOM_CAP);
   });
 });
 
@@ -1391,6 +1763,7 @@ describe("auto-issue-create fire-site enumeration lint", () => {
   /** One regex per named site, matched against each enumeration passage. */
   const SITE_MARKERS: ReadonlyArray<readonly [string, RegExp]> = [
     ["pr-review Step 6 deferral", /Step 6 deferral/],
+    ["fix-applier merged-mid-review consolidated issue", /merges mid-review/],
     ["pr-review Step 5 retrospective", /Step 5 retrospective/],
     ["flow-pipeline Step 10 post-merge sweep", /Step 10 post-merge sweep/],
     ["flow-untracked file <n>", /flow-untracked file `?<n>`?/],
@@ -1427,7 +1800,13 @@ describe("auto-issue-create fire-site enumeration lint", () => {
   }
 
   const PASSAGES: ReadonlyArray<readonly [string, string]> = [
-    ["AGENTS.md", enumerationPassage(agentsContent, "AGENTS.md")],
+    [
+      ".claude/rules/flow-supervisor-contracts.md",
+      enumerationPassage(
+        supervisorRulesContent,
+        ".claude/rules/flow-supervisor-contracts.md",
+      ),
+    ],
     [
       "references/git-workflow.md",
       enumerationPassage(gitWorkflowContent, "references/git-workflow.md"),
@@ -1468,13 +1847,16 @@ describe("auto-issue-create fire-site enumeration lint", () => {
   });
 });
 
-describe("low-effort fan-out subagent_type wiring lint", () => {
-  // Pins the two always-cheap fan-out spawn sites to their low-effort agent
-  // definitions (agents/flow-verify.md, agents/flow-fix-applier.md) with a
+describe("cheap-model fan-out subagent_type wiring lint", () => {
+  // Pins the two always-cheap fan-out spawn sites to their cheap-model agent
+  // definitions (agents/flow-fix-applier.md, agents/flow-ui-driver.md) with a
   // general-purpose fallback, and confirms each site still passes its
   // per-spawn model: override so the per-phase model flags keep working. A
   // future edit that reverts either site to a bare `subagent_type:
-  // general-purpose` (dropping the effort: low pinning) goes red here.
+  // general-purpose` (dropping the sonnet-default model routing) goes red
+  // here. Both definitions carry `effort: medium` as a fallback beneath the
+  // per-spawn `effort:` argument `flow-spawn-effort` resolves on Claude Code
+  // 2.1.292+ (the fallback applies on older builds or when a site omits it).
 
   // Shared negation vocabulary + clause-splitting helper for the two
   // "never mandates an X" prose-detector lints below (force-push,
@@ -1505,42 +1887,11 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
           ),
       );
 
-  it("the flow-pipeline verify-loop spawn site names flow-verify with a general-purpose fallback", () => {
-    expect(
-      content.includes("subagent_type: $VERIFY_SUBAGENT"),
-      "flow-pipeline SKILL.md step-6 spawn must use `subagent_type: $VERIFY_SUBAGENT` " +
-        "so the resolved low-effort agent (or the general-purpose fallback) is passed.",
-    ).toBe(true);
-    // The VERIFY_SUBAGENT resolution itself moved into `bin/flow-verify-prep.ts`
-    // (plan.md Task 10) — SKILL.md now only consumes `$VERIFY_SUBAGENT` from
-    // the helper's JSON, so these two assertions read the helper's source.
-    expect(
-      verifyPrepContent.includes(
-        'verifySubagent = "flow-module-core:flow-verify"',
-      ),
-      "bin/flow-verify-prep.ts must resolve VERIFY_SUBAGENT to " +
-        "`flow-module-core:flow-verify` — the agents/flow-verify.md definition " +
-        "that pins effort: low (plugin-qualified resolution asserted in full " +
-        "by the SITES it.each below).",
-    ).toBe(true);
-    expect(
-      /verifySubagent = "general-purpose"/.test(verifyPrepContent),
-      "bin/flow-verify-prep.ts must fall back to `general-purpose` when " +
-        "the flow-verify definition is not symlinked, so the spawn never fails on an " +
-        "unknown agent type.",
-    ).toBe(true);
-    expect(
-      content.includes('model: "$VERIFY_MODEL"'),
-      "flow-pipeline SKILL.md verify site must still pass the per-spawn " +
-        '`model: "$VERIFY_MODEL"` override so the per-phase model flags keep working.',
-    ).toBe(true);
-  });
-
   it("the pr-review fix-applier spawn site names flow-fix-applier with a general-purpose fallback", () => {
     expect(
       prReviewContent.includes("subagent_type: $FIX_APPLIER_SUBAGENT"),
       "pr-review SKILL.md Fix-Applier spawn must use `subagent_type: $FIX_APPLIER_SUBAGENT` " +
-        "so the resolved low-effort agent (or the general-purpose fallback) is passed.",
+        "so the resolved cheap-model agent (or the general-purpose fallback) is passed.",
     ).toBe(true);
     expect(
       prReviewContent.includes(
@@ -1548,7 +1899,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ),
       "pr-review SKILL.md must resolve FIX_APPLIER_SUBAGENT to " +
         "`flow-module-core:flow-fix-applier` — the agents/flow-fix-applier.md " +
-        "definition that pins effort: low.",
+        "definition that falls back to a literal sonnet default.",
     ).toBe(true);
     expect(
       /FIX_APPLIER_SUBAGENT=general-purpose/.test(prReviewContent),
@@ -1579,33 +1930,38 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     ).toBe(true);
   });
 
-  it("neither low-effort agent definition pins a model (per-spawn override must win)", () => {
-    for (const name of ["flow-verify.md", "flow-fix-applier.md"] as const) {
+  it("the cheap-model fan-out agent definition does not pin a model; its `effort: medium` is only a fallback (per-spawn overrides must win)", () => {
+    for (const name of ["flow-fix-applier.md"] as const) {
       const agentPath = path.resolve(HERE, "..", "agents", "core", name);
       expect(
         fs.existsSync(agentPath),
-        `agents/${name} must exist — it is the low-effort definition the spawn site resolves.`,
+        `agents/${name} must exist — it is the cheap-model definition the spawn site resolves.`,
       ).toBe(true);
       const body = fs.readFileSync(agentPath, "utf8");
       const frontmatter = body.split("---")[1] ?? "";
-      expect(
-        /^effort:\s*low\s*$/m.test(frontmatter),
-        `agents/${name} frontmatter must declare 'effort: low'.`,
-      ).toBe(true);
       expect(
         /^model:/m.test(frontmatter),
         `agents/${name} frontmatter must NOT pin a 'model:' — the per-spawn model: ` +
           "override must win so the per-phase model flags keep working.",
       ).toBe(false);
+      expect(
+        /^effort:\s*medium\s*$/m.test(frontmatter),
+        `agents/${name} frontmatter must carry 'effort: medium' — the ` +
+          "deterministic fallback beneath the per-spawn effort: argument, " +
+          "for builds before 2.1.292 or a spawn site that omits it.",
+      ).toBe(true);
     }
   });
 
-  // Frontmatter policy for the full fourteen-definition set
-  // (p4-review-agents + p4-pipeline-agents): mechanical roles pin
-  // `effort: low` (checked above and re-checked here), the gatekeeper
-  // pins `model: haiku` as the declarative cost-routing record, and
-  // every judgment role omits both so session effort and the spawn
-  // site's per-spawn/config-threaded model always win. flow-discovery
+  // Frontmatter policy for the full thirteen-definition set
+  // (p4-review-agents + p4-pipeline-agents): mechanical roles pin a cheap
+  // sonnet-default model and the subagent_type wiring (checked above and
+  // re-checked here), and NO row carries `effort:` except the three with a
+  // built-in per-spawn default — fix-applier, ui-driver and the product
+  // review lens (`wantEffort: "medium"`, mirrored by `effortDefault` in
+  // `model-routing-table.ts`) — where it is a floor beneath the per-spawn
+  // `effort:` argument; session effort and the spawn site's
+  // per-spawn/config-threaded model win everywhere else. flow-discovery
   // is the one row with `inheritsAllTools: true` — plan Decision
   // analysis 2 deliberately leaves it with no `tools:` allowlist
   // (discovery's research + design-artifact passes span Bash/WebFetch/
@@ -1614,34 +1970,23 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
   const AGENT_FRONTMATTER_POLICY: Array<{
     file: string;
     wantModel?: string;
-    wantEffort?: string;
     wantTools?: string;
     inheritsAllTools?: boolean;
     wantMemory?: "local";
     wantMaxTurns?: number;
-    wantCacheTtl?: "1h";
     wantSkills?: string;
+    wantEffort?: string;
   }> = [
     {
-      file: "flow-verify.md",
-      wantEffort: "low",
-      wantTools:
-        "Bash, Read, Edit, Write, Grep, ToolSearch, Task, SendMessage, mcp__chrome-devtools__\\*",
-      wantMaxTurns: 150,
-      wantCacheTtl: "1h",
-      wantSkills: "flow-verify-loop-instructions",
-    },
-    {
       file: "flow-fix-applier.md",
-      wantEffort: "low",
-      wantMaxTurns: 120,
-      wantCacheTtl: "1h",
+      wantTools:
+        "Bash, Edit, Write, Read, ToolSearch, Skill, mcp__chrome-devtools__\\*",
+      wantMaxTurns: 200,
       wantSkills: "flow-fix-applier-instructions",
+      wantEffort: "medium",
     },
-    { file: "flow-gatekeeper.md", wantModel: "haiku" },
     {
       file: "flow-consolidator.md",
-      wantCacheTtl: "1h",
       wantSkills: "flow-consolidator-instructions",
     },
     {
@@ -1653,6 +1998,15 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       wantTools: "Read, Grep, Glob, Write",
     },
     { file: "flow-review-security.md", wantTools: "Read, Grep, Glob, Write" },
+    {
+      file: "flow-review-product.md",
+      wantTools: "Read, Grep, Glob, Write",
+      wantEffort: "medium",
+    },
+    {
+      file: "flow-product-critic.md",
+      wantTools: "Read, Write",
+    },
     {
       file: "flow-review-pattern-consistency.md",
       wantTools: "Read, Grep, Glob, Write",
@@ -1679,7 +2033,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       file: "flow-discovery.md",
       inheritsAllTools: true,
       wantMemory: "local",
-      wantCacheTtl: "1h",
     },
     {
       file: "flow-merge-resolver.md",
@@ -1690,10 +2043,17 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     {
       file: "flow-edit-applier.md",
       wantTools: "Bash, Read, Edit, Write, Grep, Glob, NotebookEdit",
-      wantMaxTurns: 80,
+      wantMaxTurns: 240,
       wantSkills: "flow-coder-instructions",
     },
     { file: "flow-backlog-verifier.md", wantTools: "Bash, Read, Grep, Glob" },
+    {
+      file: "flow-ui-driver.md",
+      wantMaxTurns: 120,
+      wantSkills: "flow-ui-driver-instructions",
+      wantTools: "Bash, Read, Write, ToolSearch, mcp__chrome-devtools__\\*",
+      wantEffort: "medium",
+    },
   ];
 
   it("AGENT_FRONTMATTER_POLICY covers exactly the agents/ directory, with inheritsAllTools confined to flow-discovery.md", () => {
@@ -1713,13 +2073,12 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     for (const {
       file,
       wantModel,
-      wantEffort,
       wantTools,
       inheritsAllTools,
       wantMemory,
       wantMaxTurns,
-      wantCacheTtl,
       wantSkills,
+      wantEffort,
     } of AGENT_FRONTMATTER_POLICY) {
       const agentPath = path.resolve(HERE, "..", "agents", "core", file);
       expect(
@@ -1764,16 +2123,22 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
             "model: override / config threading must win.",
         ).toBe(false);
       }
+      // Only the rows naming `wantEffort` (fix-applier, ui-driver, the
+      // product review lens) carry `effort:` — the fallback beneath the
+      // per-spawn `effort:` argument `flow-spawn-effort` resolves. Every
+      // other role omits it and follows the session.
       if (wantEffort) {
         expect(
           new RegExp(`^effort:\\s*${wantEffort}\\s*$`, "m").test(frontmatter),
-          `agents/${file} frontmatter must pin 'effort: ${wantEffort}'.`,
+          `agents/${file} frontmatter must declare 'effort: ${wantEffort}' — ` +
+            "the fallback beneath the per-spawn effort: argument.",
         ).toBe(true);
       } else {
         expect(
           /^effort:/m.test(frontmatter),
-          `agents/${file} frontmatter must NOT pin 'effort:' — judgment ` +
-            "roles scale with session effort (gatekeeper: already bounded by haiku).",
+          `agents/${file} frontmatter must NOT declare 'effort:' — only ` +
+            "flow-fix-applier, flow-ui-driver and flow-review-product carry " +
+            "a fallback; every other role follows the session's effort.",
         ).toBe(false);
       }
       if (wantMemory) {
@@ -1802,22 +2167,10 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
           `agents/${file} frontmatter must NOT declare 'maxTurns:'.`,
         ).toBe(false);
       }
-      if (wantCacheTtl) {
-        // cacheTtl is nested under experimental:, never a top-level key —
-        // the docs say it's read only from the nested map; a top-level
-        // ^cacheTtl: line is silently ignored.
-        expect(
-          /^experimental:\s*\n\s+cacheTtl:\s*1h\s*$/m.test(frontmatter),
-          `agents/${file} frontmatter must declare 'experimental:' with a ` +
-            `nested 'cacheTtl: ${wantCacheTtl}' — a top-level 'cacheTtl:' ` +
-            "key is silently ignored by Claude Code.",
-        ).toBe(true);
-      } else {
-        expect(
-          /^experimental:/m.test(frontmatter),
-          `agents/${file} frontmatter must NOT declare 'experimental:'.`,
-        ).toBe(false);
-      }
+      expect(
+        /^experimental:/m.test(frontmatter),
+        `agents/${file} frontmatter must NOT declare 'experimental:'.`,
+      ).toBe(false);
       if (wantSkills) {
         expect(
           new RegExp(`^skills:\\s*\\n\\s+-\\s+${wantSkills}\\s*$`, "m").test(
@@ -1835,8 +2188,8 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     }
   });
 
-  it("flow-verify.md and flow-fix-applier.md retain the mcp__chrome-devtools__* and ToolSearch grants (UI-running agents)", () => {
-    for (const file of ["flow-verify.md", "flow-fix-applier.md"]) {
+  it("flow-fix-applier.md and flow-ui-driver.md retain the mcp__chrome-devtools__* and ToolSearch grants (UI-running agents)", () => {
+    for (const file of ["flow-fix-applier.md", "flow-ui-driver.md"]) {
       const content = fs.readFileSync(
         path.resolve(HERE, "..", "agents", "core", file),
         "utf8",
@@ -1845,29 +2198,28 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
         expect(
           content.includes(grant),
           `agents/${file} must keep the '${grant}' grant in its tools: ` +
-            "frontmatter — the two sub-agents run the browser UI passes; dropping " +
+            "frontmatter — the sub-agent runs the browser UI pass; dropping " +
             "it silently re-breaks the browser gate (mcp-not-available).",
         ).toBe(true);
       }
     }
   });
 
-  it("no agent other than flow-verify.md and flow-fix-applier.md carries the chrome-devtools MCP grant", () => {
+  it("no agent other than flow-fix-applier.md or flow-ui-driver.md carries the chrome-devtools MCP grant", () => {
     const agentsDir = path.resolve(HERE, "..", "agents", "core");
+    const uiRunningAgents = new Set([
+      "flow-fix-applier.md",
+      "flow-ui-driver.md",
+    ]);
     const otherAgentFiles = fs
       .readdirSync(agentsDir)
-      .filter(
-        (file) =>
-          file.endsWith(".md") &&
-          file !== "flow-verify.md" &&
-          file !== "flow-fix-applier.md",
-      );
+      .filter((file) => file.endsWith(".md") && !uiRunningAgents.has(file));
     for (const file of otherAgentFiles) {
       const content = fs.readFileSync(path.resolve(agentsDir, file), "utf8");
       expect(
         content.includes("mcp__chrome-devtools"),
         `agents/${file} must NOT carry the chrome-devtools MCP grant — only ` +
-          "flow-verify.md and flow-fix-applier.md run the browser UI passes; " +
+          "flow-fix-applier.md and flow-ui-driver.md run browser UI passes; " +
           "granting it elsewhere silently widens the browser blast radius.",
       ).toBe(false);
     }
@@ -1892,7 +2244,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     ].filter((p, i, arr) => fs.existsSync(p) && arr.indexOf(p) === i);
     let matchCount = 0;
     for (const file of corpus) {
-      const content = fs.readFileSync(file, "utf8");
+      const content = readSkillText(file);
       for (const match of content.matchAll(guardRegex)) {
         matchCount++;
         const [, moduleId, agentName] = match;
@@ -1913,24 +2265,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("the pr-review gatekeeper and consolidator spawn sites resolve their named agents with guarded fallbacks", () => {
-    expect(
-      prReviewContent.includes(
-        "GATEKEEPER_SUBAGENT=flow-module-core:flow-gatekeeper",
-      ),
-      "pr-review SKILL.md Step 1.5 must resolve GATEKEEPER_SUBAGENT to " +
-        "`flow-module-core:flow-gatekeeper`.",
-    ).toBe(true);
-    expect(
-      prReviewContent.includes(
-        "[ -f ~/.flow/claude-home/.claude/skills/flow-module-core/agents/flow-gatekeeper.md ]",
-      ),
-      "pr-review SKILL.md gatekeeper site must guard on the installed definition file.",
-    ).toBe(true);
-    expect(
-      prReviewContent.includes("subagent_type: $GATEKEEPER_SUBAGENT"),
-      "pr-review SKILL.md gatekeeper spawn must pass `subagent_type: $GATEKEEPER_SUBAGENT`.",
-    ).toBe(true);
+  it("the pr-review consolidator spawn site resolves its named agent with a guarded fallback", () => {
     expect(
       prReviewContent.includes(
         "CONSOLIDATOR_SUBAGENT=flow-module-core:flow-consolidator",
@@ -1973,7 +2308,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
   it("every guarded fallback site emits the named agent-fallback notice", () => {
     for (const name of [
-      "flow-gatekeeper",
       "flow-review-$LENS",
       "flow-consolidator",
       "flow-fix-applier",
@@ -1985,14 +2319,6 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
           "real guard notices as long as the prose mention survives.",
       ).toBe(true);
     }
-    expect(
-      verifyPrepContent.includes(
-        "agent-fallback: flow-verify → general-purpose",
-      ),
-      "bin/flow-verify-prep.ts must emit the named agent-fallback notice on " +
-        "its general-purpose fallback branch (moved from SKILL.md prose by " +
-        "plan.md Task 10).",
-    ).toBe(true);
     expect(
       content.includes("agent-fallback: flow-merge-resolver → general-purpose"),
       "flow-pipeline SKILL.md step-10 merge-resolver guard must emit the named " +
@@ -2291,7 +2617,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
     const negatedButMatchesTokenAndVerb = readAnchoredLine(
       "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
-      459,
+      466,
       "NEVER push to the base branch",
     );
     expect(
@@ -2302,9 +2628,9 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
 
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
-        "skills/pipeline/flow-verify-loop-instructions/SKILL.md",
-        403,
-        "NEVER touch the base branch",
+        "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
+        532,
+        "NEVER commit to or push the base branch",
       ],
       [
         "agents/core/flow-merge-resolver.md",
@@ -2313,7 +2639,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ],
       [
         "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
-        461,
+        468,
         "NEVER use `git push --force`",
       ],
     ];
@@ -2519,37 +2845,15 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ).toBe(false);
     }
   });
-
-  it("the gatekeeper haiku pin agrees between frontmatter and the per-spawn param", () => {
-    const gatekeeperFrontmatter =
-      fs
-        .readFileSync(
-          path.resolve(HERE, "..", "agents", "core", "flow-gatekeeper.md"),
-          "utf8",
-        )
-        .split("---")[1] ?? "";
-    expect(
-      /^model:\s*haiku\s*$/m.test(gatekeeperFrontmatter),
-      "agents/flow-gatekeeper.md frontmatter must pin `model: haiku` — the declarative " +
-        "half of the cost-routing pin.",
-    ).toBe(true);
-    expect(
-      prReviewContent.includes('model: "haiku"'),
-      'pr-review SKILL.md Step 1.5 must keep the per-spawn `model: "haiku"` param — it ' +
-        "keeps the general-purpose fallback path on haiku; the two pin sources must not drift.",
-    ).toBe(true);
-  });
 });
 
-describe("Compact Instructions + verify-loop-instructions structural anchors", () => {
-  // The `## Compact Instructions` compaction-steering section and the new
-  // flow-verify-loop-instructions/SKILL.md spawn-instructions file are load-bearing
+describe("Compact Instructions structural anchors", () => {
+  // The `## Compact Instructions` compaction-steering section is load-bearing
   // governance the PR's one-shot Test-Steps greps cover but no durable lint
-  // does. These anchors are the durable guard so a later edit deleting the
-  // KEEP/DROP list, dropping the heading from either file, or removing the
-  // instructions file goes red on `npm run verify` — same regression class
-  // the cross-doc `persist-back` and `task-tool-exemption-preamble.md`
-  // existence guards above protect against.
+  // does. This anchor is the durable guard so a later edit deleting the
+  // KEEP/DROP list or dropping the heading goes red on `npm run verify` —
+  // same regression class the cross-doc `persist-back` and
+  // `task-tool-exemption-preamble.md` existence guards above protect against.
 
   function compactSection(content: string): string {
     const start = content.indexOf("\n## Compact Instructions");
@@ -2594,119 +2898,6 @@ describe("Compact Instructions + verify-loop-instructions structural anchors", (
         "section so consumer repos get the same compaction steering.",
     ).toBeGreaterThan(0);
   });
-
-  it("flow-verify-loop-instructions/SKILL.md exists and carries its contract anchors", () => {
-    const verifyLoopPath = path.resolve(
-      HERE,
-      "..",
-      "skills",
-      "pipeline",
-      "flow-verify-loop-instructions",
-      "SKILL.md",
-    );
-    expect(
-      fs.existsSync(verifyLoopPath),
-      "skills/pipeline/flow-verify-loop-instructions/SKILL.md " +
-        "must exist — it is the spawn-instructions file the step-6 " +
-        "Verify-Retry-Loop subagent reads, referenced by name from SKILL.md, " +
-        "AGENTS.md, and exemption-contracts.md.",
-    ).toBe(true);
-    const content = fs.readFileSync(verifyLoopPath, "utf8");
-    expect(
-      content.length,
-      "flow-verify-loop-instructions/SKILL.md must be non-empty.",
-    ).toBeGreaterThan(0);
-    expect(
-      content.includes("verify-loop-result.json"),
-      "flow-verify-loop-instructions/SKILL.md must name the `verify-loop-result.json` artifact.",
-    ).toBe(true);
-    expect(
-      content.includes("verify_status"),
-      "flow-verify-loop-instructions/SKILL.md must document the `verify_status` artifact field.",
-    ).toBe(true);
-    expect(
-      content.includes("verify-coder-result.json"),
-      "flow-verify-loop-instructions/SKILL.md must document the load-bearing hybrid " +
-        "inline/nested-spawn invariant: narrow fixes apply inline; wider-scope " +
-        "fixes spawn one flow-edit-applier subagent writing " +
-        "verify-coder-result.json, recording coder_spawn and falling back " +
-        "inline on any miss — never hanging or retrying the spawn.",
-    ).toBe(true);
-    expect(
-      content.includes("select:Task") ||
-        content.includes("Load the Task tool before spawning"),
-      "flow-verify-loop-instructions/SKILL.md must document the Task-load guard " +
-        "('Load the Task tool before spawning' / ToolSearch query=\"select:Task\") " +
-        "for its one sanctioned nested spawn.",
-    ).toBe(true);
-  });
-
-  const CODER_SPAWN_VALUES = [
-    "ok",
-    "not-attempted",
-    "task-tool-unavailable",
-    "agent-unavailable",
-    "artifact-missing",
-    "invalid",
-  ] as const;
-
-  it.each(CODER_SPAWN_VALUES)(
-    "flow-verify-loop-instructions/SKILL.md documents the coder_spawn value %s",
-    (value) => {
-      const verifyLoopPath = path.resolve(
-        HERE,
-        "..",
-        "skills",
-        "pipeline",
-        "flow-verify-loop-instructions",
-        "SKILL.md",
-      );
-      const content = fs.readFileSync(verifyLoopPath, "utf8");
-      expect(
-        content.includes(`"${value}"`),
-        `flow-verify-loop-instructions/SKILL.md must document the coder_spawn value '"${value}"' — the ` +
-          "supervisor's step-6 NOTICE branch keys off exactly this enum; dropping a value " +
-          "breaks the record-and-degrade contract without failing any test.",
-      ).toBe(true);
-    },
-  );
-
-  it("flow-pipeline/SKILL.md's step-6 artifact read keeps the CODER_SPAWN NOTICE anchors", () => {
-    for (const literal of [
-      "CODER_SPAWN=$(jq -r '.coder_spawn // empty' \"$ARTIFACT_PATH\")",
-      "NOTICE — verify-loop coder spawn degraded:",
-    ]) {
-      expect(
-        content.includes(literal),
-        `flow-pipeline SKILL.md step-6 artifact read must keep '${literal}' — the recorded ` +
-          "coder_spawn degradation is never escalated, so this NOTICE is the only signal a " +
-          "depth-3 spawn or artifact miss ever reaches a human.",
-      ).toBe(true);
-    }
-  });
-
-  it("flow-pipeline SKILL.md step 6 resolves everything via flow-verify-prep, not a standalone phase write", () => {
-    // Superseded by `bin/lib/phase-advance.ts`'s PHASE_EMITTERS lint below:
-    // the former spawn-prep fence's OWN `flow-state-update --phase verifying`
-    // (measured 7/10, then 4/10, skipped even when folded into this fence)
-    // is now `flow-verify-prep`'s side effect, not a command in this file at
-    // all — this test pins the fence's first command is the helper call, not
-    // that a since-removed phase-write line still lives here.
-    const step6 = content.slice(content.indexOf("## Step 6 — Local verify"));
-    const fenceStart = step6.indexOf("```bash");
-    const fence = step6.slice(fenceStart, step6.indexOf("```", fenceStart + 7));
-    expect(
-      /```bash\nVERIFY_JSON=\$\(flow-verify-prep /.test(step6),
-      "step 6's spawn-prep fence must call flow-verify-prep as its first " +
-        "command — the phase write is the helper's side effect, so skipping " +
-        "the call means skipping the values needed to spawn at all.",
-    ).toBe(true);
-    expect(
-      fence.includes("flow-state-update --phase verifying"),
-      "the phase write must not reappear as a standalone command in step 6's " +
-        "fence — it is flow-verify-prep's side effect now.",
-    ).toBe(false);
-  });
 });
 
 describe("/flow-coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md ↔ flow-coder/SKILL.md)", () => {
@@ -2715,7 +2906,7 @@ describe("/flow-coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
    * each caller's hybrid threshold: /flow-new-feature step 5, /flow-verify step 3, and
    * /flow-refactoring step 3. The caller list is documented in three places:
    *
-   *   - AGENTS.md `## Don'ts` — /flow-coder Task-tool exemption bullet body prose.
+   *   - .claude/rules/flow-supervisor-contracts.md `## Don'ts` — /flow-coder Task-tool exemption bullet body prose.
    *   - flow-pipeline/SKILL.md "Hard rules" — Task-tool exemption #6 block.
    *   - flow-coder/SKILL.md frontmatter `description:` field.
    *
@@ -2739,26 +2930,29 @@ describe("/flow-coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
   function sliceAgentsCoderSection(): string {
     const startMarker =
       "**Task-tool exemption: `/flow-pipeline` → `/flow-coder` Independent";
-    const startIdx = agentsContent.indexOf(startMarker);
+    const startIdx = supervisorRulesContent.indexOf(startMarker);
     if (startIdx === -1) return "";
-    const rest = agentsContent.slice(startIdx + startMarker.length);
+    const rest = supervisorRulesContent.slice(startIdx + startMarker.length);
     const nextMarkerIdx = rest.indexOf("**Task-tool exemption");
     return nextMarkerIdx === -1 ? rest : rest.slice(0, nextMarkerIdx);
   }
 
   /**
-   * Slice the Task-tool exemption #6 block from flow-pipeline/SKILL.md,
-   * bounded by the next `**Task-tool exemption` marker. Strip blockquote
+   * Slice the Task-tool exemption #6 detail from the flow-pipeline corpus,
+   * bounded by the next `## ` heading. Strip blockquote
    * `> ` prefixes so cross-line regexes match contiguous prose.
    */
   function slicePipelineCoderSection(): string {
+    // Skill split (flow-pipeline core + phase docs): the core keeps only the
+    // exemption #6 heading; the callers moved verbatim into
+    // references/hard-rules-detail.md under "Detail of exemption 6", so the
+    // slice now runs over that chunk, bounded by the next "## " heading.
     const stripped = stripBlockquoteMarkers(content);
-    const startMarker =
-      "**Task-tool exemption #6: `/flow-coder` Independent Edit-Applier Subagent.**";
+    const startMarker = "## Detail of exemption 6";
     const startIdx = stripped.indexOf(startMarker);
     if (startIdx === -1) return "";
     const rest = stripped.slice(startIdx + startMarker.length);
-    const nextMarkerIdx = rest.indexOf("**Task-tool exemption");
+    const nextMarkerIdx = rest.indexOf("\n## ");
     return nextMarkerIdx === -1 ? rest : rest.slice(0, nextMarkerIdx);
   }
 
@@ -2880,6 +3074,7 @@ describe("flow-pr-agent-lens routing map ↔ flow-pr-review/SKILL.md agent table
     Performance: "performance",
     "Supply-Chain": "supply-chain",
     "Test Coverage": "test-coverage",
+    Product: "product",
   };
 
   function extractSkillAgentKebabs(): string[] {
@@ -2890,7 +3085,7 @@ describe("flow-pr-agent-lens routing map ↔ flow-pr-review/SKILL.md agent table
       .map((name) => AGENT_NAME_TO_KEBAB[name]);
   }
 
-  it("flow-pr-review/SKILL.md agent table and AGENT_LENS_MAP list the same six agents", () => {
+  it("flow-pr-review/SKILL.md agent table and AGENT_LENS_MAP list the same seven agents", () => {
     const skill = new Set(extractSkillAgentKebabs());
     const map = new Set(Object.keys(AGENT_LENS_MAP));
     const onlyInSkill = [...skill].filter((x) => !map.has(x));
@@ -2909,26 +3104,26 @@ describe("flow-pr-agent-lens routing map ↔ flow-pr-review/SKILL.md agent table
     ).toBe(0);
   });
 
-  it("flow-pr-review/SKILL.md agent table parses exactly six agent rows", () => {
+  it("flow-pr-review/SKILL.md agent table parses exactly seven agent rows", () => {
     expect(
       extractSkillAgentKebabs().length,
-      "flow-pr-review/SKILL.md agent table must have exactly six rows with bold agent names. " +
+      "flow-pr-review/SKILL.md agent table must have exactly seven rows with bold agent names. " +
         "If you added or removed an agent, update AGENT_LENS_MAP in bin/flow-pr-agent-lens.ts too.",
-    ).toBe(6);
+    ).toBe(7);
   });
 });
 
 describe("cross-model (Gemini) lens doc symmetry", () => {
   /**
    * The Gemini cross-model lens is a flow-delegate Bash fan-out (NOT a Task,
-   * NOT a seventh agent-table row — it has no static-analysis lens, so it is
-   * deliberately absent from AGENT_LENS_MAP and the six-row table above). It
+   * NOT an eighth agent-table row — it has no static-analysis lens, so it is
+   * deliberately absent from AGENT_LENS_MAP and the seven-row table above). It
    * is documented as a separate Step 3 sub-step + Step 3.5 consolidator
    * input. This lint guards against the two halves drifting: the Step 3
    * spawn/note and the Step 3.5 consolidator input list must both name
    * `agent-output-gemini.json`, and the consolidator-instructions §2 input
    * list must too. A separately-anchored guard — it does NOT touch the
-   * six-row `.toBe(6)` lint or the nine-exemption-count lints.
+   * seven-row `.toBe(7)` lint or the nine-exemption-count lints.
    */
   const GEMINI_ARTIFACT = "agent-output-gemini.json";
 
@@ -2988,26 +3183,125 @@ describe("cross-model (Gemini) lens doc symmetry", () => {
   });
 });
 
+describe("product lens doc symmetry", () => {
+  /**
+   * The product lens is the seventh, brief-gated agent-table row (unlike
+   * Gemini, which is deliberately absent from the table). Its artifact is
+   * still optional/tolerated-absent downstream — gated on a product brief
+   * resolving rather than on `review.lensGates`. This lint guards against
+   * the two halves drifting: the Step 3 spawn/note and the Step 3.5
+   * consolidator input list must both name `agent-output-product.json`, and
+   * the consolidator-instructions §2 input list must too. Cloned from the
+   * Gemini symmetry block above — a separately-anchored guard that does NOT
+   * touch the seven-row `.toBe(7)` lint or the nine-exemption-count lints.
+   */
+  const PRODUCT_ARTIFACT = "agent-output-product.json";
+
+  const consolidatorInstructionsPathForProduct = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "flow-consolidator-instructions",
+    "SKILL.md",
+  );
+  const consolidatorContentForProduct = fs.readFileSync(
+    consolidatorInstructionsPathForProduct,
+    "utf8",
+  );
+
+  const step35MarkerForProduct = "## 3.5. Independent Consolidator-Validator";
+  const step35IdxForProduct = prReviewContent.indexOf(step35MarkerForProduct);
+
+  it("flow-pr-review/SKILL.md Step 3 (before 3.5) names agent-output-product.json", () => {
+    const step3 = prReviewContent.slice(0, step35IdxForProduct);
+    expect(
+      step3.includes(PRODUCT_ARTIFACT),
+      "flow-pr-review/SKILL.md Step 3 must document the brief-gated product lens " +
+        `naming '${PRODUCT_ARTIFACT}'. If you removed the agent table row, the lens drifted ` +
+        "out of the spawn half of the contract.",
+    ).toBe(true);
+  });
+
+  it("flow-pr-review/SKILL.md Step 3.5 (consolidator input) names agent-output-product.json", () => {
+    const step35 = prReviewContent.slice(step35IdxForProduct);
+    expect(
+      step35.includes(PRODUCT_ARTIFACT),
+      "flow-pr-review/SKILL.md Step 3.5 consolidator input list must name " +
+        `'${PRODUCT_ARTIFACT}' as the optional eighth (tolerated-absent) input. ` +
+        "Drift here means the lens is spawned at Step 3 but never consumed.",
+    ).toBe(true);
+  });
+
+  it("flow-consolidator-instructions/SKILL.md §2 input list names agent-output-product.json", () => {
+    expect(
+      consolidatorContentForProduct.includes(PRODUCT_ARTIFACT),
+      "flow-consolidator-instructions/SKILL.md §2 Inputs must name " +
+        `'${PRODUCT_ARTIFACT}' as the optional eighth input so the consolidator ` +
+        "subagent's instructions stay in sync with flow-pr-review/SKILL.md.",
+    ).toBe(true);
+  });
+});
+
+describe("blind product critic doc symmetry (plan-time, distinct from the PR-review product lens)", () => {
+  /**
+   * The plan-time blind critic (step 3 of /flow-pipeline) is a SEPARATE
+   * feature from the PR-review product lens guarded above — it writes
+   * `.flow-tmp/product-critique.md` and reconciles into plan.md's
+   * `### Product critique (blind)` subsection, never `agent-output-product.json`.
+   * This lint guards that both the gate/read side and the write side of
+   * step3-threading.md, plus flow-pipeline/SKILL.md's pointer, keep naming
+   * the same artifact and subsection heading.
+   */
+  const skillsDirForCritic = path.resolve(HERE, "..", "skills", "pipeline");
+  const readForCritic = (rel: string) =>
+    readSkillText(path.resolve(skillsDirForCritic, rel));
+  const t3 = readForCritic("flow-pipeline/references/step3-threading.md");
+  const flowPipelineSkill = readForCritic("flow-pipeline/SKILL.md");
+
+  it("step3-threading.md names product-critique.md on both the gate and the write side", () => {
+    expect(
+      t3.includes("product-critique.md"),
+      "step3-threading.md must name 'product-critique.md' as the blind " +
+        "critic's artifact on both the staleness-gate read side and the " +
+        "reconciliation write side.",
+    ).toBe(true);
+  });
+
+  it("step3-threading.md and flow-pipeline/SKILL.md both name the '### Product critique (blind)' plan subsection", () => {
+    for (const [label, content] of [
+      ["step3-threading.md", t3],
+      ["flow-pipeline/SKILL.md", flowPipelineSkill],
+    ] as const) {
+      expect(
+        content.includes("Product critique (blind)"),
+        `${label} must name the '### Product critique (blind)' plan ` +
+          "subsection so the blind-critic contract stays in sync across docs.",
+      ).toBe(true);
+    }
+  });
+});
+
 describe("cross-model plan review doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", () => {
   /**
    * The Layer-2 cross-model plan review is a flow-delegate Bash fan-out (NOT a
    * Task, NOT a tenth exemption). Its "not a tenth exemption" sibling note must
-   * appear in BOTH AGENTS.md `## Don'ts` and flow-pipeline/SKILL.md "Hard
+   * appear in BOTH .claude/rules/flow-supervisor-contracts.md `## Don'ts` and flow-pipeline/SKILL.md "Hard
    * rules", using the SAME shared phrase as the Gemini-lens note so a rename
    * can't silently drift one doc out of sync. A separately-anchored guard — it
    * does NOT touch the nine-exemption-count `.toBe`/only-nine lints.
    */
   const PLAN_REVIEW_PHRASE = "cross-model plan review";
-  const FANOUT_PHRASE = "Bash fan-out, not a tenth exemption";
+  const FANOUT_PHRASE = "Bash fan-out, not an eighth exemption";
 
-  it("AGENTS.md names the cross-model plan review Bash-fan-out sibling note", () => {
+  it(".claude/rules/flow-supervisor-contracts.md names the cross-model plan review Bash-fan-out sibling note", () => {
     expect(
-      agentsContent.includes(PLAN_REVIEW_PHRASE),
-      `AGENTS.md ## Don'ts must name the '${PLAN_REVIEW_PHRASE}' Layer-2 lens.`,
+      supervisorRulesContent.includes(PLAN_REVIEW_PHRASE),
+      `.claude/rules/flow-supervisor-contracts.md '## Don'ts' must name the '${PLAN_REVIEW_PHRASE}' Layer-2 lens.`,
     ).toBe(true);
     expect(
-      agentsContent.includes(FANOUT_PHRASE),
-      `AGENTS.md must carry the shared '${FANOUT_PHRASE}' phrase for the plan-review note.`,
+      supervisorRulesContent.includes(FANOUT_PHRASE),
+      `.claude/rules/flow-supervisor-contracts.md must carry the shared '${FANOUT_PHRASE}' phrase for the plan-review note.`,
     ).toBe(true);
   });
 
@@ -3027,14 +3321,14 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
   /**
    * The Step-3 blind method survey is a flow-delegate-fanout Bash fan-out
    * (NOT a Task, NOT a tenth exemption). Its "not a tenth exemption"
-   * sibling note must appear in BOTH AGENTS.md `## Don'ts` and
+   * sibling note must appear in BOTH .claude/rules/flow-supervisor-contracts.md `## Don'ts` and
    * flow-pipeline/SKILL.md "Hard rules", using the SAME shared phrase as
    * the Gemini-lens and cross-model-plan-review notes so a rename can't
    * silently drift one doc out of sync. A separately-anchored guard — it
    * does NOT touch the nine-exemption-count `.toBe`/only-nine lints.
    */
   const SURVEY_PHRASE = "blind method survey";
-  const FANOUT_PHRASE = "Bash fan-out, not a tenth exemption";
+  const FANOUT_PHRASE = "Bash fan-out, not an eighth exemption";
   // Co-anchor both phrases in one regex (bounded to ~400 chars apart) so a
   // drift that leaves one phrase in place while moving/renaming the other
   // into an unrelated paragraph can't silently pass two independent
@@ -3043,13 +3337,13 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
     `${SURVEY_PHRASE}[\\s\\S]{0,400}${FANOUT_PHRASE}|${FANOUT_PHRASE}[\\s\\S]{0,400}${SURVEY_PHRASE}`,
   );
 
-  it("AGENTS.md co-anchors the blind method survey phrase with the Bash-fan-out sibling note in the same Don'ts bullet", () => {
+  it(".claude/rules/flow-supervisor-contracts.md co-anchors the blind method survey phrase with the Bash-fan-out sibling note in the same Don'ts bullet", () => {
     expect(
-      coAnchorRe.test(agentsContent),
-      "AGENTS.md must carry both phrases in the same Don'ts bullet.",
+      coAnchorRe.test(supervisorRulesContent),
+      ".claude/rules/flow-supervisor-contracts.md must carry both phrases in the same Don'ts bullet.",
     ).toBe(true);
     expect(
-      agentsContent.includes(
+      supervisorRulesContent.includes(
         "`flow-delegate`/`flow-plan-review`/`flow-blind-survey` calls",
       ),
     ).toBe(true);
@@ -3065,10 +3359,10 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
   });
 
   it.each(SURVEY_VERDICTS)(
-    "the survey-verdict enum value '%s' and the '- **Survey verdict:**' label appear in discovery-instructions.md, prd-template.md, and blind-survey.md",
+    "the survey-verdict enum value '%s' and the '- **Survey verdict:**' label appear in discovery-survey-epic.md, prd-template.md, and blind-survey.md",
     (verdict) => {
       for (const [name, text] of [
-        ["discovery-instructions.md", discoveryInstructionsContent],
+        ["discovery-survey-epic.md", discoverySurveyEpicContent],
         ["prd-template.md", prdTemplateContent],
         ["blind-survey.md", blindSurveyContent],
       ] as const) {
@@ -3084,6 +3378,20 @@ describe("blind method survey doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md
     },
   );
 
+  it.each(VETTING_VERDICTS)(
+    "the vetting-verdict enum value '%s' and the '- **Verdict:**' label appear in discovery-instructions.md",
+    (verdict) => {
+      expect(
+        discoveryInstructionsContent.includes(verdict),
+        `discovery-instructions.md must contain the verbatim vetting-verdict enum value '${verdict}'.`,
+      ).toBe(true);
+      expect(
+        discoveryInstructionsContent.includes("- **Verdict:**"),
+        "discovery-instructions.md must contain the '- **Verdict:**' label.",
+      ).toBe(true);
+    },
+  );
+
   it("prd-template.md's verdict line is exactly the code enum", () => {
     expect(prdTemplateContent).toContain(
       `- **Survey verdict:** ${SURVEY_VERDICTS.join(" | ")}`,
@@ -3095,14 +3403,14 @@ describe("cross-model design review doc symmetry (AGENTS.md ↔ flow-epic-create
   /**
    * The /flow-epic-create Step 4.5 cross-model design review is a flow-plan-review
    * Bash fan-out (NOT a Task, NOT a tenth exemption). Its "not a tenth exemption"
-   * sibling note must appear in BOTH AGENTS.md `## Don'ts` and flow-epic-create/SKILL.md,
+   * sibling note must appear in BOTH .claude/rules/flow-supervisor-contracts.md `## Don'ts` and flow-epic-create/SKILL.md,
    * using the SAME shared phrase as the /flow-pipeline plan-review note so a rename
    * can't silently drift one doc out of sync. A DISTINCT design-review phrase (not
    * the feature "cross-model plan review") independently anchors the epic note. A
    * separately-anchored guard — it does NOT touch the two-named-surface count.
    */
   const DESIGN_REVIEW_PHRASE = "cross-model design review";
-  const FANOUT_PHRASE = "Bash fan-out, not a tenth exemption";
+  const FANOUT_PHRASE = "Bash fan-out, not an eighth exemption";
   const EPIC_CREATE_PATH = path.resolve(
     HERE,
     "..",
@@ -3113,14 +3421,14 @@ describe("cross-model design review doc symmetry (AGENTS.md ↔ flow-epic-create
   );
   const epicCreateSkillContent = fs.readFileSync(EPIC_CREATE_PATH, "utf8");
 
-  it("AGENTS.md names the cross-model design review Bash-fan-out sibling note", () => {
+  it(".claude/rules/flow-supervisor-contracts.md names the cross-model design review Bash-fan-out sibling note", () => {
     expect(
-      agentsContent.includes(DESIGN_REVIEW_PHRASE),
-      `AGENTS.md ## Don'ts must name the '${DESIGN_REVIEW_PHRASE}' /flow-epic-create gate.`,
+      supervisorRulesContent.includes(DESIGN_REVIEW_PHRASE),
+      `.claude/rules/flow-supervisor-contracts.md '## Don'ts' must name the '${DESIGN_REVIEW_PHRASE}' /flow-epic-create gate.`,
     ).toBe(true);
     expect(
-      agentsContent.includes(FANOUT_PHRASE),
-      `AGENTS.md must carry the shared '${FANOUT_PHRASE}' phrase for the /flow-epic-create design-review note.`,
+      supervisorRulesContent.includes(FANOUT_PHRASE),
+      `.claude/rules/flow-supervisor-contracts.md must carry the shared '${FANOUT_PHRASE}' phrase for the /flow-epic-create design-review note.`,
     ).toBe(true);
   });
 
@@ -3264,6 +3572,7 @@ describe("cross-model plan review worktree + convergence pins", () => {
 
 describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ flow-fix-applier-instructions/SKILL.md)", () => {
   const REQUIRED_KEYS = [
+    "status",
     "commits",
     "deferred",
     "rejected_alternatives",
@@ -3299,7 +3608,7 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ fl
       prReviewContent.includes("# Fix-Applier Subagent"),
       "flow-pr-review/SKILL.md must have a top-level '# Fix-Applier Subagent' section that " +
         "documents the spawn procedure and prompt template. The exemption in flow-pipeline/SKILL.md " +
-        "Hard rules and AGENTS.md ## Don'ts is anchored on this heading name.",
+        "Hard rules and .claude/rules/flow-supervisor-contracts.md '## Don'ts' is anchored on this heading name.",
     ).toBe(true);
   });
 
@@ -3415,6 +3724,7 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ fl
 
 describe("Edit-Applier artifact JSON schema drift (flow-coder/SKILL.md ↔ flow-coder-instructions/SKILL.md)", () => {
   const CODER_REQUIRED_KEYS = [
+    "status",
     "edits",
     "verify_status",
     "rejected_alternatives",
@@ -3450,7 +3760,7 @@ describe("Edit-Applier artifact JSON schema drift (flow-coder/SKILL.md ↔ flow-
       coderContent.includes("## Independent Edit-Applier Subagent"),
       "flow-coder/SKILL.md must have an '## Independent Edit-Applier Subagent' section that " +
         "documents the spawn procedure and prompt template. The exemption in flow-pipeline/SKILL.md " +
-        "Hard rules and AGENTS.md ## Don'ts is anchored on this heading name.",
+        "Hard rules and .claude/rules/flow-supervisor-contracts.md '## Don'ts' is anchored on this heading name.",
     ).toBe(true);
   });
 
@@ -3497,26 +3807,27 @@ describe("Edit-Applier artifact JSON schema drift (flow-coder/SKILL.md ↔ flow-
     ).toBe(true);
   });
 
-  it("AGENTS.md cross-references flow-coder/SKILL.md", () => {
+  it(".claude/rules/flow-supervisor-contracts.md cross-references flow-coder/SKILL.md", () => {
     expect(
-      agentsContent.includes("skills/pipeline/flow-coder/SKILL.md"),
-      "AGENTS.md must reference 'skills/pipeline/flow-coder/SKILL.md' inside the fifth Task-tool " +
+      supervisorRulesContent.includes("skills/pipeline/flow-coder/SKILL.md"),
+      ".claude/rules/flow-supervisor-contracts.md must reference 'skills/pipeline/flow-coder/SKILL.md' inside the fifth Task-tool " +
         "exemption block so the bidirectional contract holds.",
     ).toBe(true);
   });
 });
 
-describe("Gatekeeper artifact JSON schema drift (flow-pr-review/SKILL.md)", () => {
+describe("Metadata-triage artifact JSON schema drift (flow-pr-review/SKILL.md)", () => {
   // skip_kind is intentionally NOT in the required-keys list — it's emitted
   // only on `decision: "skip"` and omitted on `decision: "proceed"`. The
   // sibling Fix-Applier and Edit-Applier schemas list every key as required;
-  // the Gatekeeper's optional skip_kind diverges from that pattern by design.
+  // the metadata triage's optional skip_kind diverges from that pattern by
+  // design.
   //
   // prompt_interpretation_tension IS in the required-keys list — it's emitted
   // on every verdict (always-emit boolean, never undefined) so the downstream
   // Pattern & Consistency Agent at Step 2 can read it from the artifact
   // unconditionally. Sibling contract: skills/pipeline/flow-product-planning/
-  // references/discovery-instructions.md "Prompt interpretation (conditional)"
+  // references/discovery-prompt-interpretation.md "Prompt interpretation (conditional)"
   // is the single source of truth for the detection heuristic and the
   // four-value Recommended-path enum.
   const GATEKEEPER_REQUIRED_KEYS = [
@@ -3527,60 +3838,55 @@ describe("Gatekeeper artifact JSON schema drift (flow-pr-review/SKILL.md)", () =
   ];
 
   it.each(GATEKEEPER_REQUIRED_KEYS)(
-    "flow-pr-review/references/gatekeeper-spawn-prompt.md declares the '%s' top-level key for the gatekeeper artifact",
+    "flow-pr-review/SKILL.md declares the '%s' top-level key for the metadata-triage artifact",
     (key) => {
       expect(
-        gatekeeperSpawnPromptContent.includes(`\`${key}\``),
-        `flow-pr-review/references/gatekeeper-spawn-prompt.md must reference '\`${key}\`' as one of the gatekeeper ` +
+        prReviewContent.includes(`\`${key}\``),
+        `flow-pr-review/SKILL.md must reference '\`${key}\`' as one of the metadata-triage ` +
           `artifact's typed fields. Drift here means the wrapper's branch-on-.decision ` +
-          `logic at Step 1.5 silently falls through if the Haiku subagent renames a ` +
-          `field. Mirrors the parallel Fix-Applier and Edit-Applier schema-drift lints ` +
-          `above.`,
+          `logic at Step 1.5 silently falls through if a field gets renamed. Mirrors the ` +
+          `parallel Fix-Applier and Edit-Applier schema-drift lints above.`,
       ).toBe(true);
     },
   );
 
-  it("flow-pr-review/references/gatekeeper-spawn-prompt.md documents the optional 'skip_kind' field for the gatekeeper artifact", () => {
+  it("flow-pr-review/SKILL.md documents the optional 'skip_kind' field for the metadata-triage artifact", () => {
     expect(
-      gatekeeperSpawnPromptContent.includes("`skip_kind`") ||
-        gatekeeperSpawnPromptContent.includes('"skip_kind"'),
-      "flow-pr-review/references/gatekeeper-spawn-prompt.md must reference 'skip_kind' (as `skip_kind` or \"skip_kind\") " +
-        "in the Gatekeeper subagent's documented artifact shape. The field is optional " +
+      prReviewContent.includes("`skip_kind`") ||
+        prReviewContent.includes('"skip_kind"'),
+      "flow-pr-review/SKILL.md must reference 'skip_kind' (as `skip_kind` or \"skip_kind\") " +
+        "in the metadata triage's documented artifact shape. The field is optional " +
         '(emitted only on decision: "skip") but the prose must still surface it so the ' +
         "wrapper's reader knows to expect it on skip verdicts.",
     ).toBe(true);
   });
 
-  it("flow-pr-review/SKILL.md has an Independent Gatekeeper Subagent section", () => {
+  it("flow-pr-review/SKILL.md has a Step 1.5 Metadata Triage section", () => {
     expect(
-      prReviewContent.includes("# Independent Gatekeeper Subagent"),
-      "flow-pr-review/SKILL.md must have a top-level '# Independent Gatekeeper Subagent' " +
-        "section. The exemption in flow-pipeline/SKILL.md Hard rules and AGENTS.md " +
-        "## Don'ts is anchored on this heading name.",
+      prReviewContent.includes("# Step 1.5 Metadata Triage"),
+      "flow-pr-review/SKILL.md must have a top-level '# Step 1.5 Metadata Triage' " +
+        "section describing the inline triage (no Task-tool spawn).",
     ).toBe(true);
   });
 
-  it("pr-review-last-sha: read-site lives in the Gatekeeper spawn prompt reference AND write-site lives in flow-pr-review/SKILL.md Step 13", () => {
-    // The marker file is the load-bearing input to the Gatekeeper's
+  it("pr-review-last-sha: read-site AND write-site both live in flow-pr-review/SKILL.md", () => {
+    // The marker file is the load-bearing input to the metadata triage's
     // "no-new-commits" skip rule. Without a write site on the clean Step 13
     // completion path, the most cost-effective skip rule is permanently
     // unreachable — every invocation falls through to the full Sonnet fan-out
     // even when the PR head SHA is unchanged since the last clean review.
-    // After the spawn-prompt extraction, the read-site moved to the new
-    // reference file while the write-site stayed in SKILL.md's Step 13
-    // clean-completion block. This lint asserts both sides of the paired
-    // contract so a future drift can't silently break the skip rule.
+    // Since the triage went inline, both the read-site (Step 1.5) and the
+    // write-site (Step 13's clean-completion block) live in the same file.
+    // This lint asserts both sides of the paired contract so a future drift
+    // can't silently break the skip rule.
+    const occurrences = (prReviewContent.match(/pr-review-last-sha/g) ?? [])
+      .length;
     expect(
-      gatekeeperSpawnPromptContent.includes("pr-review-last-sha"),
-      `flow-pr-review/references/gatekeeper-spawn-prompt.md must reference ` +
-        `'pr-review-last-sha' as the read-site for the no-new-commits skip rule. ` +
-        `A missing read means the skip rule is dead code.`,
-    ).toBe(true);
-    expect(
-      prReviewContent.includes("pr-review-last-sha"),
-      `flow-pr-review/SKILL.md must reference 'pr-review-last-sha' as the write-site ` +
-        `in Step 13's clean-completion block. A missing write means the marker is ` +
-        `never created and the skip rule's metadata check always falls through.`,
+      occurrences >= 2,
+      `flow-pr-review/SKILL.md must reference 'pr-review-last-sha' at both the Step 1.5 ` +
+        `read-site (no-new-commits skip rule) and the Step 13 write-site. Found ` +
+        `${occurrences} occurrence(s); a missing read means the skip rule is dead code, ` +
+        `a missing write means the marker is never created.`,
     ).toBe(true);
   });
 });
@@ -3649,8 +3955,8 @@ describe("Consolidator artifact JSON schema drift (flow-pr-review/SKILL.md)", ()
     expect(
       prReviewContent.includes("# Independent Consolidator-Validator Subagent"),
       "flow-pr-review/SKILL.md must have a top-level '# Independent Consolidator-Validator Subagent' " +
-        "section. The exemption in flow-pipeline/SKILL.md Hard rules and AGENTS.md " +
-        "## Don'ts is anchored on this heading name.",
+        "section. The exemption in flow-pipeline/SKILL.md Hard rules and " +
+        ".claude/rules/flow-supervisor-contracts.md '## Don'ts' is anchored on this heading name.",
     ).toBe(true);
   });
 
@@ -3674,11 +3980,11 @@ describe("AGENTS.md Output style anchors", () => {
     // The bolded anchor phrase **Treat user prompts as evidence of intent,
     // not exhaustive specifications.** is the stable lint hook for the rule
     // documented at AGENTS.md `## Output style`. Downstream contracts
-    // (skills/pipeline/flow-product-planning/references/discovery-instructions.md's
+    // (skills/pipeline/flow-product-planning/references/discovery-prompt-interpretation.md's
     // "Prompt interpretation (conditional)" sub-section,
     // skills/pipeline/flow-new-feature/SKILL.md Step 2's tension surfacing,
     // skills/pipeline/flow-pipeline/SKILL.md Step 3's non-feature-intent
-    // routing, skills/pipeline/flow-pr-review/SKILL.md Step 1.5's Gatekeeper
+    // routing, skills/pipeline/flow-pr-review/SKILL.md Step 1.5's metadata-triage
     // tension field) all refer to this rule by name. Renaming the rule's
     // anchor phrase requires updating this assertion in the same commit.
     const matches = agentsContent.match(
@@ -3739,7 +4045,7 @@ describe("AGENTS.md Output style anchors", () => {
     // rather than deferring them.** is the stable lint hook for the rule
     // documented at AGENTS.md `## Output style`. The full fix-now-vs-defer
     // bar it summarises lives at the two enforcement sites
-    // (templates/AGENTS.md.template `## Anti-Overengineering` and
+    // (templates/references/agent-conduct.md `## Anti-Overengineering` and
     // skills/pipeline/flow-fix-applier-instructions/SKILL.md);
     // this rule is the flow-repo-side decision-discipline pointer. Renaming
     // the rule's anchor phrase requires updating this assertion in the same
@@ -3763,7 +4069,7 @@ describe("AGENTS.md Output style anchors", () => {
     // a hobby project.** is the stable lint hook for the rule documented at
     // AGENTS.md `## Output style`. It governs the include-vs-defer decision
     // (cohesion over size) and the production-quality bar; the full treatment
-    // lives at templates/AGENTS.md.template (`## Scope: bundle cohesive work,
+    // lives at templates/references/agent-conduct.md (`## Scope: bundle cohesive work,
     // defer only separate features`), and the skill-side enforcement sites
     // (skills/pipeline/flow-product-planning/references/discovery-instructions.md's
     // "Bar for inclusion" + skills/pipeline/flow-new-feature/SKILL.md Step 2's
@@ -3859,6 +4165,46 @@ describe("AGENTS.md Output style anchors", () => {
     ).toBe(1);
   });
 
+  it("AGENTS.md contains the clickable-target rule anchor phrase exactly once", () => {
+    // The bolded anchor phrase **Route every emitted path/PR/issue URL
+    // through `bin/lib/link.ts` or a raw-target-labelled markdown link.**
+    // is the stable lint hook for the rule documented at AGENTS.md
+    // `## Output style`. Its rationale — the label-equals-raw-target
+    // invariant, the terminal (OSC 8) vs markdown mode split, the
+    // FORCE_COLOR carve-out in `hyperlinksEnabled`, the never-linkify
+    // list, and the tmux `terminal-features` prerequisite — lives at
+    // references/output-style.md `## Route every emitted path/PR/issue
+    // URL through bin/lib/link.ts`. Renaming the rule's anchor phrase
+    // requires updating this assertion in the same commit.
+    const matches = agentsContent.match(
+      /^- \*\*Route every emitted path\/PR\/issue URL through `bin\/lib\/link\.ts` or a raw-target-labelled markdown link\.\*\*/gm,
+    );
+    expect(
+      matches?.length ?? 0,
+      "AGENTS.md must contain the rule anchor phrase " +
+        "'- **Route every emitted path/PR/issue URL through " +
+        "`bin/lib/link.ts` or a raw-target-labelled markdown link.**' " +
+        "exactly once at the start of a list item in `## Output style`. " +
+        "Found " +
+        (matches?.length ?? 0) +
+        " match(es).",
+    ).toBe(1);
+  });
+
+  it("references/output-style.md carries the clickable-target rule section", () => {
+    // Every AGENTS.md `## Output style` bullet has a matching rationale
+    // section in references/output-style.md — the file's documented
+    // one-section-per-bullet convention. This is the second half of the
+    // anchor-test pair above.
+    const c = fs.readFileSync(
+      path.join(HERE, "..", "references", "output-style.md"),
+      "utf8",
+    );
+    expect(c).toContain(
+      "## Route every emitted path/PR/issue URL through a click target",
+    );
+  });
+
   it("AGENTS.md contains the product-lens impact-first rule anchor phrase exactly once", () => {
     // The bolded anchor phrase **Frame every explanation impact-first for
     // a product-lens reader.** is the stable lint hook for the rule
@@ -3886,10 +4232,10 @@ describe("AGENTS.md Output style anchors", () => {
 });
 
 describe("Prompt-interpretation contract anchors", () => {
-  // discovery-instructions.md is the single source of truth for the four-value
+  // discovery-prompt-interpretation.md is the single source of truth for the four-value
   // Recommended-path enum that bin/flow-step3-route.ts exact-matches against.
   // bin/flow-step3-route.test.ts enumerates the four values, but nothing
-  // catches a drop / rename in discovery-instructions.md itself — that's the
+  // catches a drop / rename in discovery-prompt-interpretation.md itself — that's the
   // upstream silent-drift footgun this anchor block guards.
   it.each([
     "methods plausibly reach target",
@@ -3897,11 +4243,11 @@ describe("Prompt-interpretation contract anchors", () => {
     "relax target",
     "split into multiple pipelines",
   ])(
-    "discovery-instructions.md contains the Recommended-path enum value '%s'",
+    "discovery-prompt-interpretation.md contains the Recommended-path enum value '%s'",
     (enumValue) => {
       expect(
-        discoveryInstructionsContent.includes(enumValue),
-        `discovery-instructions.md must contain the verbatim Recommended-path enum ` +
+        discoveryPromptInterpretationContent.includes(enumValue),
+        `discovery-prompt-interpretation.md must contain the verbatim Recommended-path enum ` +
           `value '${enumValue}'. This file is the single source of truth (see the ` +
           `"Single source of truth" paragraph in the same file); bin/flow-step3-route.ts ` +
           `exact-matches against the first string, and drift here silently routes ` +
@@ -3911,15 +4257,15 @@ describe("Prompt-interpretation contract anchors", () => {
     },
   );
 
-  it("discovery-instructions.md contains the '### Prompt interpretation (conditional)' heading", () => {
+  it("discovery-prompt-interpretation.md contains the '### Prompt interpretation (conditional)' heading", () => {
     expect(
-      discoveryInstructionsContent.includes(
+      discoveryPromptInterpretationContent.includes(
         "### Prompt interpretation (conditional)",
       ),
-      "discovery-instructions.md must contain the heading " +
+      "discovery-prompt-interpretation.md must contain the heading " +
         "'### Prompt interpretation (conditional)' verbatim. The PRD template " +
         "(skills/pipeline/flow-product-planning/templates/prd-template.md), pr-review's " +
-        "Gatekeeper spawn prompt (skills/pipeline/flow-pr-review/references/gatekeeper-spawn-prompt.md), " +
+        "Step 1.5 metadata triage (skills/pipeline/flow-pr-review/SKILL.md), " +
         "and the AGENTS.md Output style rule all cite this heading by name. " +
         "Renaming requires a lock-step update across those four files.",
     ).toBe(true);
@@ -3940,8 +4286,103 @@ describe("Prompt-interpretation contract anchors", () => {
         "Consistency Agent's Process section (step 8). This is the consumer of " +
         "the {{PROMPT_INTERPRETATION_TENSION}} template variable substituted by " +
         "flow-pr-review/SKILL.md step 5 — dropping the step would leave the variable " +
-        "un-consumed and the Gatekeeper-side tension signal silently dead.",
+        "un-consumed and the metadata-triage-side tension signal silently dead.",
     ).toBe(true);
+  });
+});
+
+// Branch-only discovery procedure lives in references/discovery-*.md, read on
+// demand. An unwired reference is never opened (discovery opened its named
+// sibling references in only 11-76 of 149 runs), so every moved block needs a
+// gate-site pointer in discovery-instructions.md, and each moved heading must
+// live in exactly one file so a pin cannot silently read a stale duplicate.
+const DISCOVERY_REFERENCES: { file: string; headings: string[] }[] = [
+  { file: "discovery-research.md", headings: [] },
+  {
+    file: "discovery-ui.md",
+    headings: ["### Visual Spec", "### Layout Intent"],
+  },
+  { file: "discovery-revision.md", headings: ["## Revision pass mode"] },
+  { file: "discovery-survey-epic.md", headings: ["### Epic context"] },
+  {
+    file: "discovery-prompt-interpretation.md",
+    headings: ["### Prompt interpretation (conditional)"],
+  },
+];
+
+describe("discovery reference reachability", () => {
+  const read = (file: string) =>
+    fs.readFileSync(path.join(DISCOVERY_REFERENCES_DIR, file), "utf8");
+  const hasHeading = (text: string, heading: string) =>
+    text.split("\n").includes(heading);
+
+  it.each(DISCOVERY_REFERENCES.map((r) => r.file))("%s exists", (file) => {
+    expect(
+      fs.existsSync(path.join(DISCOVERY_REFERENCES_DIR, file)),
+      `${file} must exist beside discovery-instructions.md.`,
+    ).toBe(true);
+  });
+
+  it.each(DISCOVERY_REFERENCES.map((r) => r.file))(
+    "discovery-instructions.md names %s",
+    (file) => {
+      expect(
+        discoveryInstructionsContent.includes(file),
+        `discovery-instructions.md must name ${file} at its gate site — a ` +
+          `reference nothing points at is never opened.`,
+      ).toBe(true);
+    },
+  );
+
+  it.each(
+    DISCOVERY_REFERENCES.flatMap((r) =>
+      r.headings.map((heading) => [r.file, heading] as const),
+    ),
+  )(
+    "%s holds the heading '%s' in exactly one discovery file",
+    (file, heading) => {
+      const owners = [
+        "discovery-instructions.md",
+        ...DISCOVERY_REFERENCES.map((r) => r.file),
+      ].filter((f) => hasHeading(read(f), heading));
+      expect(
+        owners,
+        `heading '${heading}' must appear in exactly one of discovery-instructions.md ` +
+          `and the discovery-*.md references, and that file is ${file}.`,
+      ).toEqual([file]);
+    },
+  );
+
+  // The spawn prompt names each marker-gated reference "before step 1" so
+  // discovery batches the read into its first turn instead of paying a mid-file
+  // pointer's sequential round trip. Nothing else would fail if a line is lost.
+  const overrideBlock = (marker: string) => {
+    const lines = productPlanningTopContent.split("\n");
+    const start = lines.findIndex((l) => l.startsWith(marker));
+    const end = lines.indexOf("```", start);
+    return start === -1 || end === -1 ? "" : lines.slice(start, end).join("\n");
+  };
+
+  it.each([
+    ["RESEARCH: force-on", "discovery-research.md"],
+    ["REVISION: <n>", "discovery-revision.md"],
+    ["EPIC: <slug>/<id>", "discovery-survey-epic.md"],
+    ["SURVEY: <absolute path>", "discovery-survey-epic.md"],
+  ])("the %s spawn block names %s before step 1", (marker, file) => {
+    const block = overrideBlock(marker);
+    expect(
+      block,
+      `no fenced '${marker}' block in flow-product-planning/SKILL.md`,
+    ).not.toBe("");
+    expect(block).toContain(
+      `Read {{SKILL_DIR}}/references/${file} before step 1.`,
+    );
+    expect(
+      block,
+      `the '${marker}' block must point at ${file}, not a section that moved out of discovery-instructions.md`,
+    ).not.toMatch(
+      /discovery-instructions\.md ("Revision pass mode"|step 1\.8)/,
+    );
   });
 });
 
@@ -4157,6 +4598,8 @@ describe("Plan-artifact section anchors (discovery-instructions.md ↔ prd-templ
     "**Lost:**",
     "## Alternatives considered",
     "## Cut list",
+    "## Request vetting",
+    "## Existing-code assessment",
   ];
   const MIRROR_SITES: Array<[string, string]> = [
     ["discovery-instructions.md", discoveryInstructionsContent],
@@ -4179,10 +4622,10 @@ describe("Plan-artifact section anchors (discovery-instructions.md ↔ prd-templ
     },
   );
 
-  it("discovery-instructions.md carries the '## Epic context' anchor", () => {
+  it("discovery-survey-epic.md carries the '## Epic context' anchor", () => {
     expect(
-      discoveryInstructionsContent.includes("## Epic context"),
-      "discovery-instructions.md must carry the '## Epic context' section contract — " +
+      discoverySurveyEpicContent.includes("## Epic context"),
+      "discovery-survey-epic.md must carry the '## Epic context' section contract — " +
         "the omit-when-empty section populated by the step 1.7 epic-membership detection.",
     ).toBe(true);
   });
@@ -4385,6 +4828,21 @@ describe("Scout plan-verification anchors (PLAN wiring + PLAN-DEVIATION channel)
     ).toBe(false);
   });
 
+  it("flow-scout-instructions/SKILL.md carries the existing-code assessment verdicts and the EXISTING-CODE: mirror", () => {
+    expect(scoutInstructionsContent).toContain(
+      "assessment: keep|simplify|rewrite",
+    );
+    expect(scoutInstructionsContent).toContain("EXISTING-CODE:");
+  });
+
+  it("flow-new-feature/SKILL.md Step 2 carries the assessment: verdict into the Debt risk row", () => {
+    const debtRow = newFeatureContent
+      .split("\n")
+      .find((l) => l.includes("| Debt risk"));
+    expect(debtRow).toBeDefined();
+    expect(debtRow).toContain("assessment:");
+  });
+
   it("flow-new-feature/SKILL.md passes {{PLAN_PATH}} into the scout spawn and reconciles PLAN-DEVIATION findings", () => {
     expect(
       newFeatureContent.includes("{{PLAN_PATH}}"),
@@ -4424,6 +4882,7 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
     "## Recommendation",
     "## Plan risks",
     "## Decision analysis",
+    "## Request vetting",
     "Reject — do nothing",
     "discovery-playbook.md",
     "**Goal:**",
@@ -4445,6 +4904,25 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
     },
   );
 
+  it.each([
+    "shared generated artifact",
+    "ledger entry",
+    "runner-driven",
+    "sharedArtifacts",
+  ])(
+    "epic-discovery-instructions.md carries the shared-artifact dependency-class anchor '%s'",
+    (phrase) => {
+      expect(
+        epicDiscoveryInstructionsContent.includes(phrase),
+        `skills/pipeline/flow-product-planning/references/epic-discovery-instructions.md ` +
+          `must contain the verbatim shared-artifact anchor '${phrase}'. Dropping it ` +
+          `silently drops the shared-generated-artifact dependency class or the ` +
+          `followups-ledger/runner-driven rule; restore it or update this anchor in ` +
+          `the same commit (AGENTS.md anchored-phrase rule).`,
+      ).toBe(true);
+    },
+  );
+
   it("epic-discovery-instructions.md cross-links the feature discovery-instructions.md", () => {
     expect(
       /(?<!epic-)discovery-instructions\.md/.test(
@@ -4455,6 +4933,26 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
         "feature file's counterparts and cross-link to it as the port source. Severing " +
         "the cross-link orphans the ported discipline; restore the reference or update " +
         "this lint in the same commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
+  it("flow-epic-create/SKILL.md Step 4 invokes flow-plan-lint --design-md-file by bare PATH name", () => {
+    const epicCreateSkillMdPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-epic-create",
+      "SKILL.md",
+    );
+    const c = fs.readFileSync(epicCreateSkillMdPath, "utf8");
+    expect(
+      c.includes("flow-plan-lint --design-md-file"),
+      "skills/pipeline/flow-epic-create/SKILL.md Step 4 must invoke " +
+        "'flow-plan-lint --design-md-file' by bare PATH name (never a bin/lib " +
+        "import) as a third validator alongside flow-epic-manifest-schema and " +
+        "flow-epic-dag, running the epic-grain '## Request vetting' check " +
+        "against design.md.",
     ).toBe(true);
   });
 });
@@ -4527,7 +5025,7 @@ describe("pr-review result-artifact contract lint", () => {
   );
 });
 
-describe("Task-tool ToolSearch-load preamble at all nine top-level spawn sites plus the nested verify-loop site", () => {
+describe("Task-tool ToolSearch-load preamble at all top-level spawn sites (ten sites, eight exemptions — ui-driver has two callers, product-planning-critic shares the discovery exemption)", () => {
   const SITES: ReadonlyArray<{ file: string; exemption_name: string }> = [
     {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
@@ -4536,10 +5034,6 @@ describe("Task-tool ToolSearch-load preamble at all nine top-level spawn sites p
     {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
       exemption_name: "pr-review-fix-applier",
-    },
-    {
-      file: "skills/pipeline/flow-pr-review/SKILL.md",
-      exemption_name: "pr-review-gatekeeper",
     },
     {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
@@ -4563,22 +5057,28 @@ describe("Task-tool ToolSearch-load preamble at all nine top-level spawn sites p
     },
     {
       file: "skills/pipeline/flow-pipeline/SKILL.md",
-      exemption_name: "flow-pipeline-verify-loop",
+      exemption_name: "product-planning-critic",
+    },
+    {
+      file: "skills/pipeline/flow-verify/SKILL.md",
+      exemption_name: "ui-driver",
+    },
+    {
+      // Second caller of the same eighth (ui-driver) exemption: /flow-pr-review
+      // Step 8c.iii's browser-item runnable bucket spawns the UI-Driver
+      // Subagent directly (mirrors /flow-coder's own multi-caller shape —
+      // one exemption, more than one spawn site — so the exemption count
+      // stays eight even though the site count is now ten).
+      file: "skills/pipeline/flow-pr-review/SKILL.md",
+      exemption_name: "ui-driver",
     },
   ];
 
-  const NESTED_SITE_NAME = "verify-loop-edit-applier";
-  const NESTED_SITE_FILE =
-    "skills/pipeline/flow-verify-loop-instructions/SKILL.md";
-  const TOP_LEVEL_SITES = SITES.filter(
-    (s) => s.exemption_name !== NESTED_SITE_NAME,
-  );
-
-  it.each(TOP_LEVEL_SITES)(
+  it.each(SITES)(
     "$file carries the 'Load the Task tool before spawning' preamble and escalation tag for $exemption_name",
     ({ file, exemption_name }) => {
       const absPath = path.resolve(HERE, "..", ...file.split("/"));
-      const fileContent = fs.readFileSync(absPath, "utf8");
+      const fileContent = readSkillText(absPath);
       expect(
         fileContent.includes("Load the Task tool before spawning"),
         `${file} must include the literal 'Load the Task tool before spawning' anchor at ` +
@@ -4599,34 +5099,6 @@ describe("Task-tool ToolSearch-load preamble at all nine top-level spawn sites p
     },
   );
 
-  it("the nested verify-loop → edit-applier site loads Task then records-and-degrades instead of escalating", () => {
-    const absPath = path.resolve(HERE, "..", ...NESTED_SITE_FILE.split("/"));
-    const fileContent = fs.readFileSync(absPath, "utf8");
-    expect(
-      fileContent.includes("Load the Task tool before spawning"),
-      `${NESTED_SITE_FILE} must include the literal 'Load the Task tool before spawning' ` +
-        `anchor for '${NESTED_SITE_NAME}', same as the nine top-level sites.`,
-    ).toBe(true);
-    expect(
-      fileContent.includes('coder_spawn: "task-tool-unavailable"'),
-      `${NESTED_SITE_FILE} must record coder_spawn: "task-tool-unavailable" on a missing ` +
-        `Task schema at the '${NESTED_SITE_NAME}' site.`,
-    ).toBe(true);
-    expect(
-      /do not escalate/i.test(fileContent),
-      `${NESTED_SITE_FILE} must state its failure action is inverted from the nine ` +
-        `top-level sites: do not escalate on a missing Task schema.`,
-    ).toBe(true);
-    expect(
-      fileContent.includes(
-        `NEEDS HUMAN: task-tool-unavailable: ${NESTED_SITE_NAME}`,
-      ),
-      `${NESTED_SITE_FILE} must NOT escalate 'NEEDS HUMAN: task-tool-unavailable: ` +
-        `${NESTED_SITE_NAME}' — inline application is this site's known-good fallback, ` +
-        `unlike the nine top-level exemptions that have none.`,
-    ).toBe(false);
-  });
-
   // Sites refactored to include-by-reference: the alias-tolerance literals
   // live in skills/pipeline/flow-pr-review/references/task-tool-exemption-preamble.md
   // rather than at the spawn site. For these sites, fall back to the reference
@@ -4638,6 +5110,12 @@ describe("Task-tool ToolSearch-load preamble at all nine top-level spawn sites p
     "pr-review-consolidator-validator",
     "flow-pipeline-merge-resolver",
     "flow-pipeline-verify-loop",
+    "product-planning-critic",
+    // The flow-verify/SKILL.md ui-driver row still carries the literal
+    // paragraph in-file (hasTaskInSkill/hasAgentInSkill already true there
+    // independent of this flag); the flow-pr-review/SKILL.md 8c.iii ui-driver
+    // row is the one that needs the preamble fallback.
+    "ui-driver",
   ]);
   const PREAMBLE_REF_PATH = path.resolve(
     HERE,
@@ -4653,7 +5131,7 @@ describe("Task-tool ToolSearch-load preamble at all nine top-level spawn sites p
     "$file names both Task and Agent aliases at the spawn site for $exemption_name",
     ({ file, exemption_name }) => {
       const absPath = path.resolve(HERE, "..", ...file.split("/"));
-      const fileContent = fs.readFileSync(absPath, "utf8");
+      const fileContent = readSkillText(absPath);
       const hasTaskInSkill = fileContent.includes('"name": "Task"');
       const hasAgentInSkill = fileContent.includes('"name": "Agent"');
 
@@ -4714,23 +5192,14 @@ describe("Agent spawn sites resolve plugin-qualified subagent_type on the plugin
   // test pins that invariant so a future refactor cannot silently revert
   // it back to the pre-fix, hard-spawn-failure shape.
   const SITES: ReadonlyArray<{ file: string; agent: string }> = [
-    { file: "skills/pipeline/flow-pipeline/SKILL.md", agent: "flow-verify" },
     {
       file: "skills/pipeline/flow-pipeline/SKILL.md",
       agent: "flow-merge-resolver",
-    },
-    {
-      file: "skills/pipeline/flow-verify-loop-instructions/SKILL.md",
-      agent: "flow-edit-applier",
     },
     { file: "skills/pipeline/flow-new-feature/SKILL.md", agent: "flow-scout" },
     {
       file: "skills/pipeline/flow-product-planning/SKILL.md",
       agent: "flow-discovery",
-    },
-    {
-      file: "skills/pipeline/flow-pr-review/SKILL.md",
-      agent: "flow-gatekeeper",
     },
     {
       file: "skills/pipeline/flow-pr-review/SKILL.md",
@@ -4755,7 +5224,7 @@ describe("Agent spawn sites resolve plugin-qualified subagent_type on the plugin
     "$file resolves $agent to flow-module-core:$agent on the plugin-root branch, never the bare name",
     ({ file, agent }) => {
       const absPath = path.resolve(HERE, "..", ...file.split("/"));
-      const fileContent = fs.readFileSync(absPath, "utf8");
+      const fileContent = readSkillText(absPath);
       const qualified = `flow-module-core:${agent}`;
       expect(
         fileContent.includes(qualified),
@@ -4908,6 +5377,7 @@ describe("pr-review include-by-reference structure", () => {
     ).toBeGreaterThanOrEqual(5);
   });
 
+  // Ceiling kept until flow-pr-review gets the core-plus-step-docs split (follow-up candidate).
   it("skills/pipeline/flow-pr-review/SKILL.md line count stays under the post-refactor budget", () => {
     const prReviewSkillPath = path.resolve(
       HERE,
@@ -4998,6 +5468,12 @@ describe("pr-review include-by-reference structure", () => {
     // cost only 2 net lines total; 1755 leaves 4 lines of genuine headroom
     // above the resulting 1751-line file (per this test's own split-length
     // metric), not round-number headroom for future growth.
+    // Note: a later PR renamed `## System flow changes` to `## System
+    // changes` and broadened its trigger from cross-component moves to any
+    // internal change worth a reviewer's attention, and dropped 11a's
+    // conditional-section mention in favor of a mandatory-with-`none` rule —
+    // the paragraph above is left as historical record of why the 1755 bump
+    // happened, not re-worded to match the current contract.
     //
     // Bumped 1755 → 1790 (plugin-qualified agent-resolution fix): a bare
     // `flow-<agent>` subagent_type fails Task-tool resolution outright on a
@@ -5040,149 +5516,99 @@ describe("pr-review include-by-reference structure", () => {
     // phase it now emits as a side effect (`flow-fetch-pr-review` — plan.md
     // Task 4) — 2 net lines, genuine load-bearing content for this PR's own
     // contract, not regrowth.
+    //
+    // Bumped 1865 -> 1885 (merge of origin/main into f3-product-critic): two
+    // independently-reviewed PRs each grew this file under the same pin --
+    // #830's per-lens model/tier resolution (main, 1863 lines) and this
+    // branch's seventh `product` lens (1846 lines). Neither is regrowth, and
+    // the merged file is their union at 1880 lines. 1885 leaves 5 lines of
+    // genuine headroom, not round-number headroom for future growth.
+    //
+    // Bumped 1885 -> 1930 (merge of origin/main into the ui-driver branch):
+    // a third independently-reviewed PR grew this file under the same pin --
+    // the eighth Task-tool exemption's Step 8c.iii UI-Driver spawn site (the
+    // second caller of `flow-ui-driver`, replacing the inline browser drive).
+    // The merged file is the union of all three at 1916 lines. 1930 leaves
+    // 14 lines of genuine headroom, not round-number headroom for future
+    // growth.
+    // Bumped 1930 -> 1940 (checkpointed applier artifact + turn-budget
+    // loss accounting + non-blocking wait).
+    //
+    // Lowered 1940 -> 1895 (review turn folding): Step 8c calls
+    // `flow-run-test-steps`, replacing the 8c per-item run/inject loop and
+    // 8c.i's fences with one helper call. The file lands at 1889 lines; 1895
+    // locks the reduction in with 6 lines of headroom.
+    //
+    // Raised 1895 -> 1905 (browser-retry / preflight contract): Step 8c.iii
+    // gains the `flow-ui-preflight` + no-pre-decide paragraph, the widened
+    // headless-fallback paragraph (detail lives in ui-validation-evidence.md
+    // "Headless fallback"), the `--resume-from 8c --browser-items` modifier,
+    // and the `browser-not-attempted` --reason slug. The file lands at 1903
+    // lines as this test counts them; 1905 leaves 2 lines of headroom.
+    //
+    // The login hand-off anchor folds inline into the headless-fallback
+    // paragraph (no new lines beyond one rewrap): the file now lands at 1904
+    // lines as this test counts them; 1905 leaves 1 line of headroom.
+    //
+    // Raised 1905 -> 1920 (per-spawn effort): the lens resolver gains
+    // LENS_EFFORT and its echo line, and the fix-applier and consolidator
+    // sites each gain a FIX_APPLIER_EFFORT / CONSOLIDATOR_EFFORT resolve
+    // paragraph — the `flow-spawn-effort` recipe, one per effort-threaded
+    // site. The file lands at 1916 lines as this test counts them.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1865 lines. Material regrowth past this ceiling would ` +
+        `budget of 1920 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1865);
+    ).toBeLessThan(1920);
   });
 
-  it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
-    const pipelineSkillPath = path.resolve(
-      HERE,
-      "..",
-      "skills",
-      "pipeline",
-      "flow-pipeline",
-      "SKILL.md",
+  it("skills/pipeline/flow-pr-review/SKILL.md routes Step 8c's runnable items through flow-run-test-steps with an explicit Bash timeout", () => {
+    // The helper's 540 s run budget only fits inside the Bash tool's 600 s
+    // ceiling when the caller passes `timeout: 600000`; without it the call
+    // dies at the 120 s default with no envelope.
+    const content = fs.readFileSync(
+      path.resolve(HERE, "..", "skills/pipeline/flow-pr-review/SKILL.md"),
+      "utf8",
     );
-    const content = fs.readFileSync(pipelineSkillPath, "utf8");
-    const lineCount = content.split("\n").length;
-    // New lint (p5-context-diet): the supervisor body had regrown 236 lines
-    // since its #411 split before this diet trimmed it 2,986 → 2,700 lines
-    // by moving the Step 3 threading/backstop contracts to
-    // references/step3-threading.md. 2750 leaves modest headroom above the
-    // 2,700-line post-diet floor without reopening the zero-headroom gate
-    // tension this same PR's Test Steps hit at exactly 2,700 — regrowth
-    // past 2750 should be treated as bloat creeping back in, the failure
-    // mode this diet exists to prevent. Raised from 2750 to 2760 to fund the
-    // rebase-to-merge conversion's `merge-resolver-spawn-denied` escalation
-    // branch in the Independent Merge-Conflict Resolver Subagent section — a
-    // few lines naming the new NEEDS HUMAN reason and its no-re-spawn /
-    // no-inline-resolution invariants. Kept deliberately tight rather than
-    // offloaded, since the branch is a handful of lines, not a new section.
-    // Tightened the spawn-denied branch (pr-review #485): removed a
-    // restated no-re-spawn clause (already stated three lines below) and
-    // moved the trailing context-isolation rationale to
-    // references/exemption-contracts.md. File now lands at 2758 lines —
-    // raised the ceiling to 2765 (7 lines of genuine headroom) rather than
-    // pinning it back at zero headroom, which is the exact tension this
-    // ceiling exists to prevent.
-    // Resolver-contract-hygiene PR: extracted the three no-retry escalation
-    // variants (branch-mismatch, terminal-regression, task-tool-unavailable)
-    // out of the `# Failure paths` block into references/failure-recovery.md
-    // § (c), replacing them with a compact trigger table, then appended a
-    // short "standard `# Failure paths` chain" pointer clause to each of the
-    // five terse step-10 escalation sites (the fifth,
-    // merge-resolver-missing-artifact, was initially missed in this PR and
-    // added in a pr-review #506 follow-up fix commit). File lands at 2660
-    // lines — RATCHETED the ceiling DOWN to 2685 (measured + ~25, rounded to
-    // the nearest 5), not raised, so the headroom this extraction freed is
-    // not silently refilled by unrelated regrowth.
-    // Terminal-state reap wiring PR: rewrote "# Resource cleanup" as the
-    // three-layer contract (point-of-use / registry-first backstop /
-    // orphan-sweep crash net) and wired `flow-browser-teardown --reap
-    // --record` + `flow-gate-summary --cleanup` into every terminal-state
-    // runbook block. This is genuine load-bearing safety content (the
-    // standalone-call / non-`&&`-chained warning this feature exists to
-    // enforce), already tightened repeatedly rather than offloaded — no
-    // references/ file is a natural home for a supervisor-wide invariant
-    // spanning every terminal exit. File lands at 2696 lines — raised the
-    // ceiling to 2700 (4 lines of genuine headroom), same discipline as the
-    // 2765 precedent above: not pinned back at zero headroom.
-    // Plugin-qualified agent-resolution fix: a bare `flow-<agent>`
-    // subagent_type fails Task-tool resolution outright on a plugin-root
-    // install (measured: "Agent type 'flow-scout' not found"). The
-    // flow-verify and flow-merge-resolver resolvers each grew from a
-    // one-line guard to an explicit three-tier if/elif/else block
-    // (plugin-qualified → legacy bare → general-purpose), plus corrected
-    // prose at each site — genuine load-bearing correctness content. File
-    // lands at 2725 lines — raised the ceiling to 2735 (10 lines of genuine
-    // headroom), same discipline as the precedents above.
-    // Note: a later PR collapsed these three-tier guards to two tiers
-    // (plugin-qualified → general-purpose, dropping the legacy-bare
-    // elif branch), shrinking the file below this ceiling — the number
-    // above is left as historical record, not re-tightened.
-    // Intent interview (adaptive): step 1's Intent interview sub-step,
-    // step 3's Question-gate branch, the sixth invocation-threading
-    // marker, the answer-sheet End-condition addition, and the two new
-    // pending-phase enumerations are genuine load-bearing feature
-    // content, not incidental bloat. File lands at 2815 lines — raised
-    // the ceiling to 2830 (15 lines of genuine headroom), same
-    // discipline as the precedents above.
-    // pr-review fix pass (PR #637): the step-1 per-round persistence fix,
-    // the step-3 question-gate post-answer persistence fix, and the
-    // reconciled step-3 resume-row wording are genuine correctness content
-    // fixing a mid-interview data-loss bug, not incidental bloat. File
-    // lands at 2845 lines — raised the ceiling to 2860 (15 lines of
-    // genuine headroom), same discipline as the precedents above.
-    // PM-lens supervisor wiring (Task 9): every terminal-state
-    // `flow-gate-summary` / `flow-pipeline-summary` / `flow-notify` call
-    // site across steps 3, 7, 9, 10, 11, and the resume/cancel paths
-    // gained `--tldr`/`--lens`/`--untracked-file`/`--counts-line`
-    // wiring, plus the six-slot pause-block templates and the `file #N`
-    // / `drop #N` reply-verb documentation at three sites — this is the
-    // feature's own mechanical breadth, not incidental bloat, and there
-    // is no references/ file that would not just relocate the same
-    // per-site wiring away from the site it documents. File lands at
-    // 2904 lines — raised the ceiling to 2920 (16 lines of genuine
-    // headroom), same discipline as the precedents above.
-    // Merging that PM-lens work with the flow-ci-check/flow-ci-wait
-    // step-7 split (PR #666) lands the combined file at 2923 lines —
-    // both sides' growth is feature-mechanical, so the ceiling moves to
-    // 2940 (17 lines of headroom), same discipline as above.
-    // Seed-integrity REQUEST_FILE contract: the "When to Use" bullet and
-    // Step 1's slug-extraction paragraph both gained the REQUEST_FILE
-    // pointer + NEEDS HUMAN: request-file-missing escalation — genuine
-    // correctness content for the single-line seed migration, not
-    // incidental bloat.
-    // Merged with the blind method survey from main (#720), which is
-    // itself feature-mechanical (a Hard-rules sibling blockquote, a
-    // ~7-line opener sub-step pointing at references/blind-survey.md,
-    // one new `flow-step3-route` decision's routing bullets, one
-    // plan-summary line, one resume-row clause) and had raised the
-    // ceiling to 3015. Both sides' growth is feature-mechanical and
-    // additive, and the combined file lands at 3024 lines, so the
-    // ceiling moves to 3040 (16 lines of genuine headroom), the same
-    // discipline as every raise above. This also absorbs — and does NOT
-    // retroactively re-tighten for — the pre-existing #704 overshoot
-    // already noted on the main side.
-    //
-    // Raised 3040 → 3060 by the graded-confidence PR (the step-3
-    // plan-summary template and the answer-sheet paragraph each grew by
-    // in-sentence extensions, +11 lines, landing the branch at 3037), which
-    // then absorbed #687's +8 on merge: the combined file measures 3044,
-    // so the ceiling moves to 3060 (16 lines of headroom, same discipline).
-    // Narrowing the `claude -p` prohibition to the sanctioned
-    // `flow-claude-headless` Bash fan-out (Hard-rules rewrite + new F2
-    // sibling blockquote + Verification bullet rewrite) is genuine
-    // feature-mechanical content, not incidental bloat. Measured via
-    // `wc -l`: pre-edit 3035, post-edit 3047 — a +12-line delta, which
-    // on its own had also targeted 3060. Merging it with the
-    // graded-confidence raise above lands the combined file at 3062
-    // `wc -l` lines (3063 as this test counts them), past the 3060 both
-    // sides had chosen independently, so the ceiling moves to 3080
-    // (17 lines of genuine headroom), the same discipline as every
-    // raise above.
-    expect(
-      lineCount,
-      `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
-        `budget of 3080 lines. Material regrowth past this ceiling would ` +
-        `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(3080);
+    // Same line as the call: `timeout: 600000` also appears at Step 3.5.
+    expect(content).toMatch(/flow-run-test-steps --pr[^\n]*timeout: 600000/);
   });
 
+  it("skills/pipeline/flow-new-feature/SKILL.md links the delegated-scout reference, which names the ran:true branch and the Task fallback", () => {
+    const root = path.resolve(HERE, "..", "skills/pipeline/flow-new-feature");
+    const skill = fs.readFileSync(path.join(root, "SKILL.md"), "utf8");
+    expect(skill).toContain("references/delegated-scout.md");
+    const reference = fs.readFileSync(
+      path.join(root, "references/delegated-scout.md"),
+      "utf8",
+    );
+    for (const needle of ["ran: true", "timeout: 600000", "Task scout"]) {
+      expect(reference, needle).toContain(needle);
+    }
+  });
+
+  it("skills/pipeline/flow-pr-review/SKILL.md links the delegated-lenses reference, which names the plan-only, background and fallback mechanics", () => {
+    const root = path.resolve(HERE, "..", "skills/pipeline/flow-pr-review");
+    const skill = fs.readFileSync(path.join(root, "SKILL.md"), "utf8");
+    expect(skill).toContain("references/delegated-lenses.md");
+    const reference = fs.readFileSync(
+      path.join(root, "references/delegated-lenses.md"),
+      "utf8",
+    );
+    for (const needle of ["fallback", "--plan-only", "run_in_background"]) {
+      expect(reference, needle).toContain(needle);
+    }
+  });
+
+  // flow-pipeline's line ceiling (raised 22 times, last 3211) is gone: the skill
+  // is a core plus per-step docs and the structural cases in "flow-pipeline
+  // skill split structure" below guard it. The core budget there comes from the
+  // compaction re-attach window (docs/eval/supervisor-skill-payload-baseline-2026-10.md).
+  // flow-pr-review (1920) and flow-new-feature (810) keep their ceilings until
+  // their own splits, the follow-up candidates in this change's plan.
+
+  // Ceiling kept until flow-new-feature gets the core-plus-step-docs split (follow-up candidate).
   it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
     const newFeatureSkillPath = path.resolve(
       HERE,
@@ -5213,12 +5639,14 @@ describe("pr-review include-by-reference structure", () => {
     // (plugin-qualified → general-purpose, dropping the legacy-bare
     // elif branch), shrinking the file below this ceiling — the number
     // above is left as historical record, not re-tightened.
+    // Bumped 795 -> 810 (checkpointed applier artifact + turn-budget
+    // loss accounting + non-blocking wait).
     expect(
       lineCount,
       `flow-new-feature/SKILL.md line count must stay under the post-diet ` +
-        `budget of 795 lines. Material regrowth past this ceiling would ` +
+        `budget of 810 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(795);
+    ).toBeLessThan(810);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
@@ -5271,6 +5699,7 @@ describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-do
           `would be uninformative.`,
       ).toBeGreaterThan(0);
 
+      const dispatch = parseDispatchTable(readPipelineSkillCore());
       for (const n of refs) {
         const needle = `## Step ${n} `;
         expect(
@@ -5280,9 +5709,250 @@ describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-do
             `A step renumber/rename in SKILL.md has drifted the helper's ` +
             `reminder text away from the doc.`,
         ).toBe(true);
+        // Skill split: the step text lives in a doc, so the label must also
+        // resolve to a dispatch row whose doc exists on disk.
+        const row = dispatch.find((r) => r.step.split(" ")[0] === n);
+        expect(
+          row,
+          `NEXT_STEP_BY_PHASE['${phase}'] references 'step ${n}', but the core's ` +
+            "`## Phase dispatch` table has no row for it.",
+        ).toBeDefined();
+        expect(
+          fs.existsSync(path.join(PIPELINE_SKILL_DIR, row!.doc)),
+          `the dispatch row for step ${n} names '${row!.doc}', which does not exist.`,
+        ).toBe(true);
+        expect(
+          label.includes(path.basename(row!.doc)),
+          `NEXT_STEP_BY_PHASE['${phase}'] = ${JSON.stringify(label)} must name ` +
+            `the step doc '${path.basename(row!.doc)}' its dispatch row points at, ` +
+            "so a stalled or compacted supervisor is told which file to open.",
+        ).toBe(true);
       }
     },
   );
+});
+
+describe("flow-pipeline skill split structure (core + phase docs)", () => {
+  // Replaces the flow-pipeline line ceiling. CORE_REATTACH_BUDGET_CHARS is not
+  // a tuning knob: Claude Code re-attaches only the first ~20,000 chars of a
+  // skill after a compaction (measured 16 of 16 re-attachments, see
+  // docs/eval/supervisor-skill-payload-baseline-2026-10.md), less the "Base
+  // directory" prefix line. SINGLE_READ_DOC_CHARS keeps each doc inside one
+  // Read call (25,000-token cap at ~2.46 chars/token).
+  const CORE_REATTACH_BUDGET_CHARS = 19_500;
+  const SINGLE_READ_DOC_CHARS = 60_000;
+
+  const core = readPipelineSkillCore();
+  const dispatch = parseDispatchTable(core);
+  const index = parseReferenceIndex(core);
+  const phasesDir = path.join(PIPELINE_SKILL_DIR, "references", "phases");
+  const phaseFiles = fs
+    .readdirSync(phasesDir)
+    .filter((f) => f.endsWith(".md"))
+    .sort();
+  const rel = (f: string) => `references/phases/${f}`;
+  const read = (r: string) =>
+    fs.readFileSync(path.join(PIPELINE_SKILL_DIR, r), "utf8");
+  const outsideFences = (md: string): string[] => {
+    let fence = 0;
+    return md.split("\n").filter((l) => {
+      const m = /^\s*(`{3,})(.*)$/.exec(l);
+      if (m) {
+        if (!fence) fence = m[1].length;
+        else if (m[1].length >= fence && m[2].trim() === "") fence = 0;
+        return false;
+      }
+      return !fence;
+    });
+  };
+  it("the core fits the compaction re-attach window", () => {
+    expect(
+      core.length,
+      `flow-pipeline/SKILL.md is ${core.length} chars; the budget is ` +
+        `${CORE_REATTACH_BUDGET_CHARS}. Claude Code re-attaches only the first ~20,000 chars of a ` +
+        "skill after a compaction (measured: docs/eval/supervisor-skill-payload-baseline-2026-10.md), so " +
+        "a longer core loses its tail — hard rules and dispatch rows — on exactly the long runs that " +
+        "need them. Raising this number defeats the purpose: move step prose into references/phases/ instead.",
+    ).toBeLessThanOrEqual(CORE_REATTACH_BUDGET_CHARS);
+  });
+
+  it("the post-compaction rule starts inside the re-attached window", () => {
+    const at = core.indexOf("## After a compaction or resume");
+    expect(
+      at,
+      "core is missing '## After a compaction or resume'",
+    ).toBeGreaterThan(-1);
+    expect(at).toBeLessThan(CORE_REATTACH_BUDGET_CHARS);
+  });
+
+  it("every non-epic step phase maps through NEXT_STEP_BY_PHASE to a dispatch row whose doc exists, and the row writes it", () => {
+    const stepPhases = STEP_PHASES.filter(
+      (ph) => !ph.startsWith("epic-") && ph !== "starting",
+    );
+    for (const phase of stepPhases) {
+      const refs = [
+        ...NEXT_STEP_BY_PHASE[phase].matchAll(/step (\d+(?:\.\d+)?)/gi),
+      ].map((m) => m[1]);
+      expect(
+        refs.length,
+        `NEXT_STEP_BY_PHASE['${phase}'] names no step`,
+      ).toBeGreaterThan(0);
+      for (const n of refs) {
+        const row = dispatch.find((r) => r.step.split(" ")[0] === n);
+        expect(
+          row,
+          `no dispatch row for step ${n} (phase '${phase}')`,
+        ).toBeDefined();
+        expect(
+          fs.existsSync(path.join(PIPELINE_SKILL_DIR, row!.doc)),
+          row!.doc,
+        ).toBe(true);
+      }
+      expect(
+        dispatch.some((r) => r.phases.includes(phase)),
+        `no dispatch row lists the phase '${phase}' under "Phases written".`,
+      ).toBe(true);
+    }
+  });
+
+  it("every non-epic pending phase maps to exactly one dispatch row", () => {
+    for (const ph of PENDING_PHASES.filter((p) => !p.startsWith("epic-")))
+      expect(
+        dispatch.filter((r) => r.phases.includes(ph)).length,
+        `pending phase '${ph}' must appear in exactly one '## Phase dispatch' row; ` +
+          "the after-compaction rule looks the phase up there.",
+      ).toBe(1);
+  });
+
+  it("the Hard rules the split promises to keep stay in the core, not a step doc or hard-rules-detail", () => {
+    const start = core.indexOf("\n# Hard rules\n");
+    expect(start, "core is missing '# Hard rules'").toBeGreaterThan(-1);
+    const next = core.indexOf("\n# ", start + 1);
+    const rules = core.slice(start, next === -1 ? undefined : next);
+    const flat = rules.replace(/\s*\n>?\s*/g, " ");
+    expect(flat).toMatch(
+      /the \*\*only eight\*\* authorised Task-tool fan-out sites/,
+    );
+    expect(flat).toMatch(
+      /the eight narrowly-named Task-tool exceptions that follow/,
+    );
+    expect(flat).toContain(
+      "You only call `AskUserQuestion` from the one named form.",
+    );
+    const turnEnd = flat.slice(
+      flat.indexOf("You never end the turn between sub-skills"),
+    );
+    expect(
+      turnEnd.startsWith("You never end"),
+      "never-end-the-turn rule missing",
+    ).toBe(true);
+    const listed = [
+      "plan-pending-review",
+      "triage-pending-clarification",
+      "approval-pending-clarification",
+      "triaged-no-change",
+      "ci-wait-pending",
+      "checkpoint-pending-clear",
+      "triage-pending-interview",
+      "plan-pending-interview",
+      "browser-retry-pending",
+    ];
+    for (const ph of listed)
+      expect(turnEnd, `never-end-the-turn list must name '${ph}'`).toContain(
+        ph,
+      );
+  });
+
+  it("every phases doc is named by the dispatch table or the on-demand index", () => {
+    const named = new Set([
+      ...dispatch.flatMap((r) =>
+        [...r.doc.matchAll(/references\/phases\/[\w.-]+\.md/g)].map(
+          (m) => m[0],
+        ),
+      ),
+      ...core
+        .split("\n")
+        .filter((l) => l.startsWith("|") && l.includes("references/phases/"))
+        .flatMap((l) =>
+          [...l.matchAll(/references\/phases\/[\w.-]+\.md/g)].map((m) => m[0]),
+        ),
+      ...index.map((r) => r.doc),
+    ]);
+    for (const f of phaseFiles)
+      expect(
+        named.has(rel(f)),
+        `${rel(f)} is in neither the dispatch table nor the on-demand index`,
+      ).toBe(true);
+    for (const d of named)
+      expect(fs.existsSync(path.join(PIPELINE_SKILL_DIR, d)), d).toBe(true);
+  });
+
+  it("the core has no step headings and each step doc has exactly one", () => {
+    const stepHeading = /^## Step /;
+    expect(outsideFences(core).filter((l) => stepHeading.test(l))).toEqual([]);
+    for (const f of phaseFiles) {
+      const count = outsideFences(read(rel(f))).filter((l) =>
+        stepHeading.test(l),
+      ).length;
+      expect(
+        count,
+        `${rel(f)} must carry ${f.startsWith("step-") ? "exactly one" : "no"} '## Step ' heading`,
+      ).toBe(f.startsWith("step-") ? 1 : 0);
+    }
+    expect(
+      outsideFences(read("references/hard-rules-detail.md")).filter((l) =>
+        stepHeading.test(l),
+      ),
+    ).toEqual([]);
+  });
+
+  it("every doc fits one Read", () => {
+    const docs = [
+      "SKILL.md",
+      "references/hard-rules-detail.md",
+      ...phaseFiles.map(rel),
+      ...index.map((r) => r.doc),
+    ];
+    for (const d of new Set(docs))
+      expect(
+        read(d).length,
+        `${d} exceeds one Read (${SINGLE_READ_DOC_CHARS} chars)`,
+      ).toBeLessThanOrEqual(SINGLE_READ_DOC_CHARS);
+  });
+
+  it("every skill reference a phases doc names is in the core's on-demand index", () => {
+    const refsDir = path.join(PIPELINE_SKILL_DIR, "references");
+    const indexed = new Set(index.map((r) => r.doc));
+    for (const f of phaseFiles) {
+      const named = [...read(rel(f)).matchAll(/references\/([\w.-]+\.md)/g)]
+        .map((m) => m[1])
+        .filter((n) => fs.existsSync(path.join(refsDir, n)));
+      for (const n of named)
+        expect(
+          indexed.has(`references/${n}`),
+          `${rel(f)} names references/${n}, which the core's on-demand index does not list`,
+        ).toBe(true);
+    }
+  });
+
+  it("every relative markdown link in the core and the docs resolves, anchor included", () => {
+    const files = [
+      "SKILL.md",
+      "references/hard-rules-detail.md",
+      ...phaseFiles.map(rel),
+    ];
+    let checked = 0;
+    for (const f of files) {
+      expect(validateFile(path.join(PIPELINE_SKILL_DIR, f)), f).toEqual([]);
+      checked += extractLinks(read(f)).filter(
+        (l) => !l.isImage && !/^[a-z]+:/i.test(l.raw),
+      ).length;
+    }
+    expect(
+      checked,
+      "no relative links were checked — the extraction is vacuous",
+    ).toBeGreaterThan(20);
+  });
 });
 
 describe("flow-pipeline SKILL.md ↔ TERMINAL_EXIT_TRANSITIONS cross-doc lint", () => {
@@ -5371,6 +6041,46 @@ describe("flow-pipeline SKILL.md ↔ TERMINAL_EXIT_TRANSITIONS cross-doc lint", 
         "the gated-exit prose stays traceable to bin/lib/state.ts.",
     ).toBe(true);
   });
+
+  // needs-human's allowlist entry (Task 6) is checked against an ISOLATED
+  // slice too — the `awaiting-human` Resume-mode row ONLY, never the "Gated
+  // is an explicit carve-out" paragraph. That paragraph already backticks
+  // `plan-pending-review` / `implementing` / `verifying` / `ci-wait` /
+  // `reviewing` (four of the eight needs-human exits) as ordinary in-flight
+  // phase names, so matching against it would pass vacuously — the same
+  // vacuity hole the carveOutParagraph exclusion above exists to close.
+  const awaitingHumanRow = content
+    .split("\n")
+    .find((line) => line.includes("| `awaiting-human` |"));
+
+  it("the awaiting-human Resume-mode row was found (sanity check for the anchor above)", () => {
+    expect(
+      awaitingHumanRow,
+      "awaiting-human Resume-mode row not found",
+    ).not.toBe(undefined);
+  });
+
+  // The four epic-design continue phases in the allowlist belong to
+  // `/flow-epic-create`'s awaiting-human row (checked below), not this
+  // feature supervisor's — same epic scoping as the NEXT_STEP_BY_PHASE lint.
+  it.each(
+    (TERMINAL_EXIT_TRANSITIONS["needs-human"] ?? [])
+      .filter((phase) => !phase.startsWith("epic-"))
+      .map((phase) => [phase]),
+  )(
+    "TERMINAL_EXIT_TRANSITIONS['needs-human'] phase '%s' is named (backticked) in SKILL.md's awaiting-human row",
+    (phase) => {
+      expect(
+        (awaitingHumanRow ?? "").includes(`\`${phase}\``),
+        `TERMINAL_EXIT_TRANSITIONS['needs-human'] includes '${phase}' ` +
+          "(bin/lib/state.ts), but flow-pipeline/SKILL.md's `awaiting-human` " +
+          "Resume-mode row never mentions `" +
+          phase +
+          "` — fix SKILL.md's awaiting-human row to name every allowlisted " +
+          "target.",
+      ).toBe(true);
+    },
+  );
 });
 
 describe("pr-review Step 11e inversion contract", () => {
@@ -5565,9 +6275,9 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
   // supervisor reclassified unchecked functional Test Steps as "subjective
   // UX", cited a stale "merge" instruction, and shipped a broken feature.
 
-  // AGENTS.md bullets are wrapped prose — collapse whitespace so a phrase
+  // .claude/rules/flow-supervisor-contracts.md bullets are wrapped prose — collapse whitespace so a phrase
   // that spans a line break still matches.
-  const agentsNorm = agentsContent.replace(/\s+/g, " ");
+  const rulesNorm = supervisorRulesContent.replace(/\s+/g, " ");
 
   it("flow-pipeline SKILL.md step 9 states a gated verdict is terminal, not advisory", () => {
     expect(
@@ -5645,6 +6355,35 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
+  it("flow-pipeline SKILL.md Resume mode has an awaiting-human row stating the never-continues-early / consume-on-reply guarantees (fix #872)", () => {
+    expect(
+      content.includes("| `awaiting-human` |"),
+      "flow-pipeline SKILL.md Resume-mode branch table must have an " +
+        "`awaiting-human` row — the resume routing for a needs-human pipeline " +
+        "with a live worktree (flow-resume-decide's awaiting-human ResumeAt " +
+        "value).",
+    ).toBe(true);
+    expect(
+      content.includes(
+        "This row never continues the pipeline before the user confirms the human step is done.",
+      ),
+      "the awaiting-human Resume-mode row must carry the never-continues " +
+        "sentence verbatim.",
+    ).toBe(true);
+    expect(
+      content.includes("consume only on the confirming reply"),
+      "the awaiting-human Resume-mode row must state the checkpoint is " +
+        "consumed only on the confirming reply, not at the pause — so a " +
+        "second /clear before `done` re-resumes into the same pause.",
+    ).toBe(true);
+    expect(
+      content.includes(".context.continueAt"),
+      "the awaiting-human Resume-mode row must reference " +
+        "`.context.continueAt` — the mechanical continue target " +
+        "flow-resume-decide computes from phaseLog.",
+    ).toBe(true);
+  });
+
   it("flow-pipeline SKILL.md step 9 has a Gate auto-checkpoint sub-step arming flow-checkpoint non-clobberingly", () => {
     expect(
       content.includes("### Gate auto-checkpoint sub-step"),
@@ -5654,16 +6393,14 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
     expect(
       content.includes(
-        "safe to `/clear` during validation — the\npipeline auto-resumes",
+        "per the [Checkpoint arm signal\n(echo-verbatim)](shared-gate-contracts.md#checkpoint-arm-signal-echo-verbatim)",
       ) ||
         content.includes(
-          "safe to `/clear` during validation — the pipeline auto-resumes",
-        ) ||
-        content.includes(
-          "safe to `/clear` during\nvalidation — the pipeline auto-resumes",
+          "per the [Checkpoint arm signal (echo-verbatim)](shared-gate-contracts.md#checkpoint-arm-signal-echo-verbatim)",
         ),
-      "the step 9 gate auto-checkpoint sub-step must carry the 'safe to " +
-        "/clear during validation — the pipeline auto-resumes' nudge.",
+      "the step 9 gate auto-checkpoint sub-step must point at the " +
+        "'Checkpoint arm signal (echo-verbatim)' subsection instead of " +
+        "authoring its own nudge wording.",
     ).toBe(true);
     expect(
       /### Gate auto-checkpoint sub-step[\s\S]*?\*\*Non-clobbering:\*\*[\s\S]*?flow-checkpoint/.test(
@@ -5690,6 +6427,25 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       "redirect-handling.md must document the gated /flow-coder carve-out " +
         "distinctly from the in-flight phases and from the gate-override " +
         "merge path.",
+    ).toBe(true);
+  });
+
+  it("the needs-human carve-out in redirect-handling.md / failure-recovery.md is pinned (fix #872: half of why the pause dead-ended)", () => {
+    expect(
+      redirectHandlingContent.includes("**Except at `needs-human`**"),
+      "redirect-handling.md's `merged / gated / needs-human / cancelled` " +
+        "row must carry the needs-human carve-out verbatim — without it a " +
+        "`done` reply after the escalation is classified as a brand-new " +
+        "request instead of the confirming reply.",
+    ).toBe(true);
+    expect(
+      failureRecoveryContent.includes(
+        "So is replying `done` in the pipeline window",
+      ),
+      "failure-recovery.md must carry the 'so is replying done in the " +
+        "pipeline window' sentence verbatim — a future prose edit or " +
+        "line-budget trim must not silently drop the other half of the " +
+        "needs-human confirming-reply contract.",
     ).toBe(true);
   });
 
@@ -5731,13 +6487,11 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
     expect(
       content.includes(
-        "safe to `/clear` —\n  approve on a fresh session; the plan re-renders on resume.",
-      ) ||
-        content.includes(
-          "safe to `/clear` — approve on a fresh session; the plan re-renders on resume.",
-        ),
-      "the step 3 plan-review clear point must carry the 'safe to /clear — " +
-        "approve on a fresh session; the plan re-renders on resume' nudge.",
+        "then echo its `checkpointed: ` stderr line verbatim as the last line of the turn, per the [Checkpoint arm signal (echo-verbatim)](shared-gate-contracts.md#checkpoint-arm-signal-echo-verbatim) subsection.",
+      ),
+      "the step 3 plan-review clear point must point at the 'Checkpoint " +
+        "arm signal (echo-verbatim)' subsection instead of authoring its " +
+        "own nudge wording.",
     ).toBe(true);
   });
 
@@ -5756,6 +6510,115 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       ).toBe(true);
     },
   );
+
+  it("flow-pipeline SKILL.md documents the Checkpoint arm signal (echo-verbatim) subsection", () => {
+    expect(
+      content.includes("### Checkpoint arm signal (echo-verbatim)"),
+      "flow-pipeline SKILL.md must contain a 'Checkpoint arm signal " +
+        "(echo-verbatim)' subsection documenting the stderr `checkpointed: " +
+        "` line every arm call prints and the supervisor's obligation to " +
+        "echo it verbatim.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline SKILL.md arms flow-checkpoint --site at every covered terminal row (>= 9 sites)", () => {
+    // Literal substring, NOT a loose regex: `flow-checkpoint --probe --site`
+    // does not contain `flow-checkpoint --site`, so probes are correctly not
+    // double-counted here.
+    const armCount = content.split("flow-checkpoint --site").length - 1;
+    expect(
+      armCount >= 9,
+      `flow-pipeline SKILL.md must contain at least 9 \`flow-checkpoint ` +
+        `--site\` occurrences (6 pre-existing arm sites + 3 new terminal ` +
+        `coverage-gap arms); found ${armCount}.`,
+    ).toBe(true);
+  });
+
+  // Per-site anchors for the 3 new terminal coverage-gap arms, following the
+  // Task-tool-exemption check's own per-site (not just aggregate-count)
+  // precedent above: a raw `armCount >= 9` can pass with a 10th silent site
+  // and a missing 1 of the 3 new ones, since the count doesn't say WHICH
+  // sites. Anchored on unique surrounding prose so a rename of the literal
+  // `--site terminal` token elsewhere can't produce a false pass.
+  it.each([
+    [
+      "step-11 MERGED block",
+      "flow-checkpoint --probe --site terminal | jq -r '.verdict')\" = write ] && echo \"Pipeline reached MERGED at",
+    ],
+    [
+      "merged-externally (step 9 early-exit row)",
+      'Pipeline reached MERGED (externally) at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal',
+    ],
+    [
+      "step-9 resume MERGED branch",
+      "run step 11's MERGED branch — which re-runs `flow-pipeline-summary",
+    ],
+    ["NEEDS HUMAN escalation block", "then arms the terminal checkpoint"],
+  ])(
+    "flow-pipeline SKILL.md arms the %s terminal coverage-gap site",
+    (_label, anchor) => {
+      expect(content.includes(anchor)).toBe(true);
+    },
+  );
+
+  // An "arm" invocation is either the explicit `flow-checkpoint --site
+  // <site>` form (pipeline auto-checkpoint sites) OR a bare `flow-checkpoint`
+  // call with none of --probe/--consume/--path (the manual skill's own arm
+  // form, which defaults --site to "manual" — see flow-checkpoint.ts's
+  // parseArgs). Excludes filename mentions (`flow-checkpoint.ts`) and the
+  // sibling freshness module (`flow-checkpoint-freshness`).
+  const isArmInvocationLine = (line: string): boolean => {
+    if (!/(^|[^\w.-])flow-checkpoint(\s|$)/.test(line)) return false;
+    if (line.includes("flow-checkpoint.ts")) return false;
+    if (line.includes("flow-checkpoint-freshness")) return false;
+    if (
+      line.includes("--probe") ||
+      line.includes("--consume") ||
+      line.includes("--path")
+    )
+      return false;
+    return true;
+  };
+
+  it("no flow-checkpoint arm line mutes stderr, in either the pipeline or the manual checkpoint SKILL.md", () => {
+    for (const [label, text] of [
+      ["flow-pipeline SKILL.md", content],
+      ["flow-checkpoint SKILL.md", checkpointSkillContent],
+    ] as const) {
+      const offendingLines = text
+        .split("\n")
+        .filter(
+          (line) =>
+            isArmInvocationLine(line) &&
+            (line.includes("2>/dev/null") ||
+              line.includes("2>&1") ||
+              line.includes("&>")),
+        );
+      expect(
+        offendingLines,
+        `${label} must never mute stderr on a \`flow-checkpoint\` arm ` +
+          `call — doing so silently swallows the \`checkpointed: \` arm ` +
+          `banner. Offending line(s): ${JSON.stringify(offendingLines)}`,
+      ).toEqual([]);
+    }
+  });
+
+  it("positive control: the arm-line stderr-mute predicate actually fires on a muted bare call", () => {
+    // Guards against the predicate being vacuously green (the bug this test
+    // itself once had: filtering on `flow-checkpoint --site` found nothing in
+    // the manual skill, whose only arm is a bare `flow-checkpoint` call, so
+    // the assertion below passed against ANY content).
+    const fixture = "flow-checkpoint 2>/dev/null";
+    expect(isArmInvocationLine(fixture)).toBe(true);
+    const offending = [fixture].filter(
+      (line) =>
+        isArmInvocationLine(line) &&
+        (line.includes("2>/dev/null") ||
+          line.includes("2>&1") ||
+          line.includes("&>")),
+    );
+    expect(offending).toEqual([fixture]);
+  });
 
   it("the /flow-checkpoint skill documents the checkpoint.consumed.md archive", () => {
     expect(
@@ -5953,55 +6816,319 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
-  it("all four prose sites name the conditional 'System flow changes' section", () => {
+  it("all four prose sites name the mandatory 'System changes' section", () => {
     expect(
-      prDescriptionAuthoringContent.includes("## System flow changes"),
+      prDescriptionAuthoringContent.includes("## System changes"),
       "flow-new-feature/references/pr-description-authoring.md must carry a " +
-        "`## System flow changes` guidance block between `## User-facing " +
-        "changes` and `## Test Steps` — the conditional, omit-when-empty " +
-        "section for cross-component PRs. Dropping it silently drops the " +
-        "section from every new-feature-authored PR description.",
+        "`## System changes` guidance block between `## User-facing " +
+        "changes` and `## Why` — the mandatory, `none`-when-empty section for " +
+        "any internal change worth a reviewer's attention. Dropping it silently " +
+        "drops the section from every new-feature-authored PR description.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes("## System flow changes"),
+      discoveryInstructionsContent.includes("## System changes"),
       "product-planning discovery-instructions.md Step 7 must carry the same " +
-        "`## System flow changes` guidance block, mirrored from " +
+        "`## System changes` guidance block, mirrored from " +
         "pr-description-authoring.md. Dropping it silently drops the section " +
         "from every discovery-seeded PR description.",
     ).toBe(true);
     expect(
-      pullRequestTemplateContent.includes("## System flow changes"),
-      ".github/PULL_REQUEST_TEMPLATE.md must carry a commented-out `## System " +
-        "flow changes` block after the `## User-facing changes` comment — so a " +
+      pullRequestTemplateContent.includes("## System changes"),
+      ".github/PULL_REQUEST_TEMPLATE.md must carry a live `## System changes` " +
+        "heading after `## User-facing changes` — so a " +
         "human authoring a PR by hand (no seeding skill involved) sees the same " +
-        "conditional section as the two skill-authored paths. Dropping it " +
+        "mandatory section as the two skill-authored paths. Dropping it " +
         "silently drops the section from hand-authored PRs.",
     ).toBe(true);
     expect(
-      agentsContent.includes("`## System flow changes`"),
-      "AGENTS.md's `- **PRs:**` bullet must name `## System flow changes` as " +
-        "conditional — the repo-wide pointer to the four-prose-site contract. " +
+      agentsContent.includes("`## System changes`"),
+      "AGENTS.md's `- **PRs:**` bullet must name `## System changes` as " +
+        "mandatory — the repo-wide pointer to the four-prose-site contract. " +
         "Dropping it silently orphans the pointer from the canonical agent " +
         "guide. Renaming the section name must update all four sites and this " +
         "lint in the same commit.",
     ).toBe(true);
   });
 
-  it("both authoring sites carry the System-flow-changes omit-when-empty rule", () => {
+  it("all four prose sites name the '## TLDR' lead section", () => {
+    for (const [label, content] of [
+      [
+        "flow-new-feature/references/pr-description-authoring.md",
+        prDescriptionAuthoringContent,
+      ],
+      [
+        "flow-product-planning/references/discovery-instructions.md",
+        discoveryInstructionsContent,
+      ],
+      [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
+    ] as const) {
+      expect(
+        content.includes("## TLDR"),
+        `${label} must carry a \`## TLDR\` section — the one-sentence, ` +
+          "25-word-max user-visible outcome a reader meets before `## Why`. " +
+          "Dropping it silently returns the body to a mechanism-first shape. " +
+          "(Its FIRST-heading position is asserted separately, by the " +
+          "outcome-first heading-order test below.)",
+      ).toBe(true);
+    }
     expect(
-      prDescriptionAuthoringContent.includes("OMIT THIS HEADING ENTIRELY"),
-      "flow-new-feature/references/pr-description-authoring.md must instruct " +
-        "OMIT THIS HEADING ENTIRELY for `## System flow changes` — the property " +
-        "that distinguishes it from `## User-facing changes`, which affirms " +
-        "`none` instead of omitting. Dropping this rule risks a vacuous `none` " +
-        "under a heading meant to be absent when nothing moved.",
+      agentsContent.includes("TLDR / User-facing changes / System changes"),
+      "AGENTS.md's `- **PRs:**` bullet must name the section order starting " +
+        "`TLDR / User-facing changes / System changes` — the repo-wide pointer " +
+        "to the outcome-first PR-body contract.",
+    ).toBe(true);
+  });
+
+  it("all three PR-body prose sites open with the four outcome-first headings", () => {
+    const EXPECTED_ORDER = [
+      "## TLDR",
+      "## User-facing changes",
+      "## System changes",
+      "## Why",
+    ];
+
+    // The template's `^## ` lines are the file's only PR-body headings.
+    const templateHeadings = pullRequestTemplateContent
+      .split("\n")
+      .filter((line) => line.startsWith("## "))
+      .map((line) => line.trim());
+    expect(
+      templateHeadings.slice(0, 4),
+      "The hand-author PR template's first four `## ` headings must be " +
+        "exactly `## TLDR`, `## User-facing changes`, `## System changes`, " +
+        "`## Why` — the outcome-first order a reader meets before any " +
+        "mechanism. Reordering them must update all four prose sites and this " +
+        "lint in the same commit.",
+    ).toEqual(EXPECTED_ORDER);
+    expect(
+      templateHeadings.at(-1),
+      "`## Test Steps` must stay the LAST heading in the template — it is the " +
+        "auto-merge gate signal parsed by bin/flow-gate-decide.ts.",
+    ).toBe("## Test Steps");
+
+    // pr-description-authoring.md's fenced PR-body template is the file's
+    // only source of `^## ` lines, so no slicing is needed.
+    const authoringHeadings = prDescriptionAuthoringContent
+      .split("\n")
+      .filter((line) => line.startsWith("## "))
+      .map((line) => line.trim());
+    expect(
+      authoringHeadings.slice(0, 4),
+      "flow-new-feature/references/pr-description-authoring.md's fenced " +
+        "PR-body template's first four `## ` headings must match the " +
+        "outcome-first order above. Reordering them must update all four " +
+        "prose sites and this lint in the same commit.",
+    ).toEqual(EXPECTED_ORDER);
+
+    // discovery-instructions.md's PR-body headings sit between its Step 7
+    // and Step 8 headings; slice to just that range before checking order.
+    const discoveryLines = discoveryInstructionsContent.split("\n");
+    const step7Index = discoveryLines.findIndex((line) =>
+      line.startsWith("## 7. Draft PR Description"),
+    );
+    const step8Index = discoveryLines.findIndex((line) =>
+      line.startsWith("## 8. Persist"),
+    );
+    const discoveryHeadings = discoveryLines
+      .slice(step7Index + 1, step8Index)
+      .filter((line) => line.startsWith("## "))
+      .map((line) => line.trim());
+    expect(
+      discoveryHeadings.slice(0, 4),
+      "flow-product-planning/references/discovery-instructions.md Step 7's " +
+        "PR-body template's first four `## ` headings must match the " +
+        "outcome-first order above. Reordering them must update all four " +
+        "prose sites and this lint in the same commit.",
+    ).toEqual(EXPECTED_ORDER);
+  });
+
+  it("both authoring sites carry the System-changes mandatory-`none` rule", () => {
+    for (const [label, content] of [
+      [
+        "flow-new-feature/references/pr-description-authoring.md",
+        prDescriptionAuthoringContent,
+      ],
+      [
+        "flow-product-planning/references/discovery-instructions.md",
+        discoveryInstructionsContent,
+      ],
+    ] as const) {
+      expect(
+        flat(content).includes(
+          flat(
+            "Never delete the heading. Exactly like `## User-facing changes` above, `none` is an explicit",
+          ),
+        ),
+        `${label} must state that \`## System changes\` is mandatory with the ` +
+          "same explicit `none` affirmation `## User-facing changes` carries — " +
+          "neither heading may ever be deleted. Dropping this rule reopens the " +
+          "old ambiguity between 'no change' and 'author forgot'.",
+      ).toBe(true);
+      expect(
+        flat(content).includes(
+          flat(
+            "Do not list file edits, helper refactors, or mechanical cleanups.",
+          ),
+        ),
+        `${label} must carry the \`## System changes\` NEGATIVE criterion — ` +
+          "no file edits, helper refactors, or mechanical cleanups, and " +
+          "`none` when the change moves no subsystem boundary, public " +
+          "contract, performance characteristic, or ongoing spend. Without it " +
+          "the broadened section degrades into a changelog of file edits.",
+      ).toBe(true);
+    }
+
+    // .github/PULL_REQUEST_TEMPLATE.md is a fifth contract site — it has no
+    // seeding skill, so a mandatory-`none` regression there would revert
+    // silently for every hand-authored PR.
+    expect(
+      flat(pullRequestTemplateContent).includes(
+        flat(
+          "Do not list file edits, helper refactors, or mechanical cleanups.",
+        ),
+      ),
+      ".github/PULL_REQUEST_TEMPLATE.md must carry the `## System changes` " +
+        "NEGATIVE criterion — no file edits, helper refactors, or mechanical " +
+        "cleanups. Without it a hand-authored PR's System changes section " +
+        "degrades into a changelog of file edits.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes("OMIT THIS HEADING ENTIRELY"),
-      "product-planning discovery-instructions.md Step 7 must carry the same " +
-        "OMIT THIS HEADING ENTIRELY rule, mirrored from " +
-        "pr-description-authoring.md. Dropping it risks a vacuous `none` under " +
-        "a heading meant to be absent when nothing moved.",
+      flat(pullRequestTemplateContent).includes(
+        flat(
+          "this heading is mandatory — `none` is an explicit author affirmation; never delete the heading.",
+        ),
+      ),
+      ".github/PULL_REQUEST_TEMPLATE.md must state that `## System changes` " +
+        "is mandatory with an explicit `none` affirmation, and that the " +
+        "heading is never deleted. Dropping this rule reopens the old " +
+        "ambiguity between 'no change' and 'author forgot' for hand-authored " +
+        "PRs.",
+    ).toBe(true);
+  });
+
+  it("the '## TLDR' rule body is guarded at all three prose sites", () => {
+    for (const [label, content] of [
+      [
+        "flow-new-feature/references/pr-description-authoring.md",
+        prDescriptionAuthoringContent,
+      ],
+      [
+        "flow-product-planning/references/discovery-instructions.md",
+        discoveryInstructionsContent,
+      ],
+      [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
+    ] as const) {
+      expect(
+        flat(content).includes(flat("25 words")),
+        `${label} must state the \`## TLDR\` 25-word cap. Dropping it lets ` +
+          "the one-sentence outcome sprawl into a paragraph.",
+      ).toBe(true);
+      expect(
+        flat(content).includes(flat("no file, function, or line number")),
+        `${label} must state the \`## TLDR\` no-internal-identifiers rule — ` +
+          "no file, function, or line number. Dropping it lets the sentence " +
+          "regress into mechanism-first prose.",
+      ).toBe(true);
+      expect(
+        flat(content).includes(
+          flat("the failure and the causal resolution together"),
+        ),
+        `${label} must state the fix-shaped \`## TLDR\` rule — on a fix PR, ` +
+          "the TLDR sentence names the failure and the causal resolution " +
+          "together. Dropping it silently loses the fix-framing safety net " +
+          "for a demoted `## Why`.",
+      ).toBe(true);
+    }
+  });
+
+  // Was a one-shot PR-body Test Steps grep; moved here per Durable-test
+  // precedence (bin/skill-md-lint.test.ts's own established pattern).
+  it("'## System flow changes' is dropped from every contract site", () => {
+    for (const [label, content] of [
+      ["AGENTS.md", agentsContent],
+      [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
+      [
+        "flow-new-feature/references/pr-description-authoring.md",
+        prDescriptionAuthoringContent,
+      ],
+      [
+        "flow-product-planning/references/discovery-*.md",
+        discoveryCoreAndReferencesContent,
+      ],
+      ["flow-pr-review/SKILL.md", prReviewContent],
+    ] as const) {
+      expect(
+        content.includes("System flow changes"),
+        `${label} must not carry the old 'System flow changes' section name — ` +
+          "it was renamed and broadened to `## System changes`. A surviving " +
+          "reference is stale prose pointing at a heading that no longer exists.",
+      ).toBe(false);
+    }
+  });
+
+  it("'## What' and the omit-the-heading rule are dropped from the PR template and skills", () => {
+    expect(
+      /^## What$/m.test(pullRequestTemplateContent),
+      ".github/PULL_REQUEST_TEMPLATE.md must not carry a `## What` heading — " +
+        "it was dropped; its content now splits between `## User-facing " +
+        "changes` and `## System changes`.",
+    ).toBe(false);
+    for (const [label, content] of [
+      [
+        "flow-new-feature/references/pr-description-authoring.md",
+        prDescriptionAuthoringContent,
+      ],
+      [
+        "flow-product-planning/references/discovery-*.md",
+        discoveryCoreAndReferencesContent,
+      ],
+      [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
+    ] as const) {
+      expect(
+        content.includes("OMIT THIS HEADING ENTIRELY"),
+        `${label} must not carry the old 'OMIT THIS HEADING ENTIRELY' ` +
+          "instruction — both outcome sections are now mandatory-with-`none`, " +
+          "replacing the omit-when-empty rule. A surviving reference " +
+          "reopens the old ambiguity between 'no change' and 'author forgot'.",
+      ).toBe(false);
+    }
+  });
+
+  it(".github/PULL_REQUEST_TEMPLATE.md meets the fix-shaped framing before the demoted '## Why'", () => {
+    const lines = pullRequestTemplateContent.split("\n");
+    const failingLineIndex = lines.findIndex((line) =>
+      line.includes("Failing"),
+    );
+    const whyHeadingIndex = lines.findIndex((line) =>
+      line.startsWith("## Why"),
+    );
+    expect(
+      failingLineIndex,
+      ".github/PULL_REQUEST_TEMPLATE.md must mention 'Failing' — the " +
+        "fix-shaped framing folded into the `## TLDR` guidance comment.",
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      failingLineIndex,
+      "the `## TLDR` guidance's 'Failing' mention must appear BEFORE the " +
+        "demoted `## Why` heading — a hand-author meets the fix-shaped " +
+        "requirement before reaching `## Why`. Reordering the template must " +
+        "keep this precondition true.",
+    ).toBeLessThan(whyHeadingIndex);
+  });
+
+  it("flow-pr-review/SKILL.md Step 11a Structure Check names TLDR and System changes", () => {
+    expect(
+      prReviewContent.includes("**TLDR**"),
+      "flow-pr-review/SKILL.md Step 11a's Structure Check list must carry a " +
+        "`**TLDR**` bullet — the fifth contract site this PR edits. Dropping " +
+        "it silently drops TLDR coverage from the review-time structure " +
+        "check.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("**System changes**"),
+      "flow-pr-review/SKILL.md Step 11a's Structure Check list must carry a " +
+        "`**System changes**` bullet. Dropping it silently drops System " +
+        "changes coverage from the review-time structure check.",
     ).toBe(true);
   });
 
@@ -6011,7 +7138,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       "flow-pr-review/SKILL.md Step 11 must reference 'Fix mechanism' — the " +
         "review-time safety net that flags a fix-shaped PR missing the " +
         "`**Failing:**` / `**Root cause:**` / `**Fix mechanism:**` causal " +
-        "contract, or a cross-component PR missing `## System flow changes`, " +
+        "contract, or a PR missing `## System changes`, " +
         "as a `suggestion`-severity description finding. Dropping this " +
         "paragraph silently removes the review-time backstop and lets a " +
         "non-compliant fix PR through unflagged.",
@@ -6059,8 +7186,8 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "anchored-phrase rule).",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes("Decompose a manual step by layer"),
-      "product-planning discovery-instructions.md Step 7 must reference the " +
+      discoveryUiContent.includes("Decompose a manual step by layer"),
+      "product-planning discovery-ui.md (step 7 UI paragraphs) must reference the " +
         "rubric's 'Decompose a manual step by layer' section — same " +
         "cross-file-deference contract as flow-new-feature/SKILL.md: the rule is " +
         "anchored once in manual-test-rubric.md and deferred to by name here. " +
@@ -6154,7 +7281,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "Six sites defer to this marker " +
         "(flow-new-feature/SKILL.md Step 4b, product-planning discovery-instructions.md " +
         "Step 7, flow-pr-review/SKILL.md Step 8c + Step 11, pr-review " +
-        "references/agent-prompts.md, AGENTS.md, templates/AGENTS.md.template); " +
+        "references/agent-prompts.md, AGENTS.md, templates/references/verification.md); " +
         "the byte-exact `SUBJECTIVE: ` string is the cross-file contract — " +
         "renaming it must update all sites and this lint in the same commit " +
         "(AGENTS.md anchored-phrase rule).",
@@ -6196,11 +7323,206 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "marker — the lean bullet names the rule and defers to the rubric.",
     ).toBe(true);
     expect(
-      agentsTemplateContent.includes("SUBJECTIVE: "),
-      "templates/AGENTS.md.template must reference the literal `SUBJECTIVE: ` " +
+      agentsTemplateRefVerificationContent.includes("SUBJECTIVE: "),
+      "templates/references/verification.md must reference the literal `SUBJECTIVE: ` " +
         "marker — the full bar carries the per-facet rule, the marker contract, " +
         "and the never-tick / flag-if-absent consequence, deferring to the " +
         "rubric by name.",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md contains the DECISION and Browser label contracts", () => {
+    for (const label of ["DECISION: ", "Browser: "]) {
+      expect(
+        manualTestRubricContent.includes(label),
+        `manual-test-rubric.md must contain the literal \`${label}\` label — ` +
+          "bin/lib/test-steps-parse.ts classifies checklist items by this " +
+          "byte-exact prefix and bin/flow-inject-evidence.ts refuses to tick " +
+          "`DECISION: `; renaming it must update the rubric, the parser, and " +
+          "this lint in the same commit.",
+      ).toBe(true);
+    }
+    for (const heading of [
+      "#### Decision checks",
+      "##### Behaviour checks: the Browser: shape",
+      "##### Split rule: a taste item holds only taste",
+      "##### Every SUBJECTIVE item carries a screenshot",
+    ]) {
+      expect(
+        manualTestRubricContent.includes(`\n${heading}\n`),
+        `manual-test-rubric.md must keep the '${heading}' heading — the ` +
+          "authoring sites point at it by name.",
+      ).toBe(true);
+    }
+    expect(
+      manualTestRubricContent.includes("for each `- [ ]` item below"),
+      "the authoring-rubric marker must not contain a literal unchecked box — " +
+        "a plain text search over PR bodies counts it as an open item.",
+    ).toBe(false);
+  });
+
+  it("every authoring site carries the two labels, the Browser: shape and the lint", () => {
+    const sites: [string, string][] = [
+      ["flow-new-feature/SKILL.md", newFeatureContent],
+      ["pr-description-authoring.md", prDescriptionAuthoringContent],
+      ["discovery-instructions.md", discoveryInstructionsContent],
+    ];
+    for (const [name, content] of sites) {
+      for (const literal of ["SUBJECTIVE: ", "DECISION: ", "Browser: "]) {
+        expect(
+          content.includes(literal),
+          `${name} must name the literal \`${literal}\` label — the authoring ` +
+            "sites mirror manual-test-rubric.md's two human-only labels and the " +
+            "browser-behaviour shape.",
+        ).toBe(true);
+      }
+    }
+    for (const [name, content] of sites.slice(1)) {
+      expect(
+        content.includes(
+          "flow-test-steps-lint --body-file .flow-tmp/pr-description-draft.md --phase authoring",
+        ),
+        `${name} must run the authoring lint on the saved draft.`,
+      ).toBe(true);
+      expect(
+        content.includes("command -v flow-test-steps-lint"),
+        `${name} must degrade to a named skip when the helper is absent.`,
+      ).toBe(true);
+    }
+    for (const [name, content] of [
+      ...sites,
+      ["PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent] as [
+        string,
+        string,
+      ],
+    ]) {
+      expect(
+        content.includes("for each `- [ ]` item below"),
+        `${name}: the authoring-rubric marker must not contain a literal unchecked box.`,
+      ).toBe(false);
+    }
+  });
+
+  it("the `SUBJECTIVE: confirm` literal and the per-item checkbox marker never reappear repo-wide", () => {
+    const roots = ["skills", ".github"];
+    const files: string[] = [];
+    for (const root of roots) {
+      const rootPath = path.resolve(HERE, "..", root);
+      if (!fs.existsSync(rootPath)) continue;
+      const walk = (dir: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(full);
+          else if (entry.name.endsWith(".md")) files.push(full);
+        }
+      };
+      walk(rootPath);
+    }
+    for (const file of files) {
+      const text = fs.readFileSync(file, "utf8");
+      expect(
+        text.includes("SUBJECTIVE: confirm"),
+        `${file}: 'SUBJECTIVE: confirm' migrated to 'DECISION: ' — this literal must not reappear.`,
+      ).toBe(false);
+      expect(
+        text.includes("for each `- [ ]` item below"),
+        `${file}: must not contain a literal unchecked-box marker.`,
+      ).toBe(false);
+    }
+  });
+
+  it("review Step 8c.iii runs flow-ui-preflight, takes --browser-items, and never pre-decides a browser outcome", () => {
+    const start = prReviewContent.indexOf("### 8c.iii.");
+    const end = prReviewContent.indexOf("### 8c.i. ");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const section = prReviewContent.slice(start, end);
+    expect(section).toContain("flow-ui-preflight");
+    expect(section).toContain(
+      "no browser item's outcome may be decided before 8c.iii runs",
+    );
+    expect(section).toContain("ONLY readiness verdict");
+    expect(prReviewContent).toContain("--browser-items");
+    expect(prReviewContent).toContain("browser-not-attempted");
+    expect(prReviewContent).not.toContain(
+      "inside the already-exempt Fix-Applier surface",
+    );
+    expect(uiValidationEvidenceContent).toContain("\n## Headless fallback\n");
+  });
+
+  it("pipeline Step 9 carries a non-terminal browser-retry row: auto-redrive marker, pending phase, no browser reap", () => {
+    const pipelineContent = readPipelineSkillCorpus();
+    const row = pipelineContent
+      .split("\n")
+      .find((l) => l.startsWith("| `browser-retry` | **Non-terminal**"));
+    expect(row, "Step 9 table must carry the browser-retry row").toBeDefined();
+    expect(row).toContain("browser-auto-redrive");
+    expect(row).toContain("--browser-items");
+    expect(row).toContain("browser-retry-pending");
+    expect(row).not.toContain("flow-browser-teardown --reap");
+    // Skill split (Task 5): the quick-reference phase list this used to pin
+    // was deleted — the pending-phase set is owned by PENDING_PHASES in
+    // bin/lib/state.ts (bin/lib/state.test.ts), and the dispatch row for
+    // step 9 now names the pause phase.
+    const step9 = parseDispatchTable(readPipelineSkillCore()).find((r) =>
+      r.step.startsWith("9 "),
+    );
+    expect(step9?.phases).toContain("browser-retry-pending");
+    expect(pipelineContent).toContain(
+      "Never decide a Step 8c outcome before Step 8c",
+    );
+  });
+
+  it("review routes the three browser item kinds and never relabels an undriven check", () => {
+    for (const heading of [
+      "## Three item kinds, one spawn",
+      "## Capture-only evidence for SUBJECTIVE items",
+    ]) {
+      expect(uiValidationEvidenceContent.includes(`\n${heading}\n`)).toBe(true);
+    }
+    expect(uiValidationEvidenceContent).toContain("browser-unavailable");
+    expect(uiValidationEvidenceContent).toContain("--no-tick --image");
+    for (const literal of ["DECISION: ", "Browser: ", "MODE: items"]) {
+      expect(
+        prReviewContent.includes(literal),
+        `flow-pr-review/SKILL.md must name \`${literal}\` in Step 8c / 8c.iii.`,
+      ).toBe(true);
+    }
+    expect(agentPromptsContent).toContain("MODE: items");
+    expect(agentPromptsContent).toContain("DECISION: ");
+  });
+
+  it("the lint is wired into review and the supervisor surfaces per-item screenshots", () => {
+    expect(manualTestRubricContent.includes("\n## Mechanical lint\n")).toBe(
+      true,
+    );
+    for (const code of [
+      "generic-suite",
+      "presence-only",
+      "subjective-mixed",
+      "subjective-no-image",
+      "ticked-no-evidence",
+      "post-merge-step",
+      "human-only-ticked",
+    ]) {
+      expect(
+        manualTestRubricContent.includes(`\`${code}\``),
+        `manual-test-rubric.md '## Mechanical lint' must map the '${code}' ` +
+          "lint code (bin/lib/test-steps-parse.ts LintCode) to a review action.",
+      ).toBe(true);
+    }
+    expect(prReviewContent).toContain(
+      "flow-test-steps-lint --body-file .flow-tmp/body.md --phase review",
+    );
+    expect(prReviewContent).toContain("## Mechanical lint");
+    expect(
+      content.split(".item_results[]?").length - 1,
+      "both 'Surface UI screenshots' recipes must read item_results[] first.",
+    ).toBeGreaterThanOrEqual(2);
+    expect(content).toContain(".ui_screenshots[]?");
+    expect(
+      content.includes('startswith("screenshots_")'),
+      "the gated branch must print a line when a screenshots_* skip fired.",
     ).toBe(true);
   });
 
@@ -6274,21 +7596,21 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
-  it("AGENTS.md auto-merge exemption excludes a gated verdict", () => {
+  it(".claude/rules/flow-supervisor-contracts.md auto-merge exemption excludes a gated verdict", () => {
     expect(
-      agentsNorm.includes("does **not** extend to a `gated` verdict"),
-      "AGENTS.md's auto-merge exemption bullet must state the exemption " +
+      rulesNorm.includes("does **not** extend to a `gated` verdict"),
+      ".claude/rules/flow-supervisor-contracts.md's auto-merge exemption bullet must state the exemption " +
         "'does **not** extend to a `gated` verdict' so the squash-merge " +
         "authority is scoped to the auto-merge verdict only.",
     ).toBe(true);
   });
 
-  it("AGENTS.md names the step 9 gate-override AskUserQuestion exemption", () => {
+  it(".claude/rules/flow-supervisor-contracts.md names the step 9 gate-override AskUserQuestion exemption", () => {
     expect(
-      agentsNorm.includes(
+      rulesNorm.includes(
         "AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override",
       ),
-      "AGENTS.md ## Don'ts must carry a named 'AskUserQuestion exemption: " +
+      ".claude/rules/flow-supervisor-contracts.md '## Don'ts' must carry a named 'AskUserQuestion exemption: " +
         "`/flow-pipeline` step 9 gate-override' bullet — the second authorised " +
         "AskUserQuestion site, documented bidirectionally with SKILL.md.",
     ).toBe(true);
@@ -6314,7 +7636,7 @@ describe("/flow-coder interactive-redirect caller anchor", () => {
   it.each([
     ["flow-pipeline/SKILL.md", content],
     ["flow-pipeline/references/redirect-handling.md", redirectHandlingContent],
-    ["AGENTS.md", agentsContent],
+    [".claude/rules/flow-supervisor-contracts.md", supervisorRulesContent],
     ["flow-coder/SKILL.md", coderContent],
     ["references/exemption-contracts.md", exemptionContractsContent],
   ])(
@@ -6355,30 +7677,32 @@ describe("browser-driven UI-validation structural anchors", () => {
   // assertion in the same commit.
 
   it("flow-pipeline SKILL.md Step 6 documents the Automated UI-smoke pass", () => {
-    // Step 6 (verifying) wires the LLM-free flow-ui-validate helper + the
-    // MCP probe → --mcp-absent fallback → loud-skip relay → ok:false fix-loop
-    // routing. Consumed by /flow-verify's own SKILL.md (which mirrors it) and the
-    // supervisor that drives Step 6. NOT a new ## Step heading (the 12-step
-    // count is asserted above).
+    // Step 6 (verifying) now invokes /flow-verify inline, which itself wires
+    // the LLM-free flow-ui-validate helper + the MCP probe → --mcp-absent
+    // fallback → loud-skip relay → ok:false fix-loop routing (verify
+    // SKILL.md is the one canonical site now that the pass runs in-process
+    // rather than crossing an isolation boundary). NOT a new ## Step
+    // heading (the 12-step count is asserted above).
     expect(
-      content.includes("Automated UI-smoke pass (before/alongside"),
+      content.includes("Automated UI-smoke pass."),
       "flow-pipeline SKILL.md Step 6 must document the 'Automated UI-smoke " +
         "pass'. It is the supervisor-side contract for the browser-validation " +
         "capability; /flow-verify SKILL.md and the rubric reference it.",
     ).toBe(true);
   });
 
-  it("flow-pipeline SKILL.md Step 6 documents the adaptive noise filter", () => {
-    // The other half of the noise filter: when an ok:false flags benign noise
-    // unrelated to the diff, the agent adds the substring to the manifest's
-    // ignore*Patterns and COMMITS that change (lands in the PR diff) instead of
-    // burning a fix-loop attempt. verify SKILL.md mirrors this guidance.
+  it("verify SKILL.md documents the adaptive noise filter", () => {
+    // When an ok:false flags benign noise unrelated to the diff, the agent
+    // adds the substring to the manifest's ignore*Patterns and COMMITS that
+    // change (lands in the PR diff) instead of burning a fix-loop attempt.
+    // Now the one canonical site (flow-pipeline SKILL.md defers to
+    // /flow-verify's own in-process report instead of mirroring this prose).
     expect(
-      content.includes("Adaptive noise filter:") &&
-        content.includes(
-          "add the offending substring to the manifest's `ignoreRequestPatterns`",
+      verifyContent.includes("Adaptive noise filter:") &&
+        verifyContent.includes(
+          "add the substring to the manifest's `ignoreRequestPatterns`",
         ),
-      "flow-pipeline SKILL.md Step 6 must document the 'Adaptive noise " +
+      "verify SKILL.md must document the 'Adaptive noise " +
         "filter' (add benign-noise substring to ignoreRequestPatterns + " +
         "commit the manifest change, don't fix-loop on it).",
     ).toBe(true);
@@ -6519,25 +7843,105 @@ describe("browser-driven UI-validation structural anchors", () => {
     ).toBe(true);
   });
 
-  it("AGENTS.md.template documents the ui-validation.json onboarding", () => {
+  it("templates/rules/ui-validation.md documents the ui-validation.json onboarding", () => {
     expect(
-      agentsTemplateContent.includes("three-ingredient new-repo onboarding"),
-      "templates/AGENTS.md.template must document the 'three-ingredient " +
+      agentsTemplateUiRulesContent.includes(
+        "three-ingredient new-repo onboarding",
+      ),
+      "templates/rules/ui-validation.md must document the 'three-ingredient " +
         "new-repo onboarding' for UI validation.",
     ).toBe(true);
     expect(
-      agentsTemplateContent.includes("ui-validation.json"),
-      "templates/AGENTS.md.template must reference 'ui-validation.json'.",
+      agentsTemplateUiRulesContent.includes("ui-validation.json"),
+      "templates/rules/ui-validation.md must reference 'ui-validation.json'.",
     ).toBe(true);
   });
 
-  it("AGENTS.md.template documents the ignoreRequestPatterns noise field", () => {
+  it("templates/rules/ui-validation.md's paths: frontmatter has a glob for every flow-ui-validate UI_EXTENSIONS entry", () => {
+    // Parity guard: flow-ui-validate.ts's UI_EXTENSIONS is the source of
+    // truth for what counts as a UI file; this rule's `paths:` frontmatter
+    // must mirror it, or the consumer rule silently stops loading on a
+    // surface flow-ui-validate already treats as UI.
+    const frontmatterMatch = agentsTemplateUiRulesContent.match(
+      /^---\npaths:\s*\n\s*\[([\s\S]*?)\]\n---/,
+    );
+    expect(
+      frontmatterMatch !== null,
+      "templates/rules/ui-validation.md must have a parseable `paths:` " +
+        "frontmatter array.",
+    ).toBe(true);
+    const pathsBlock = frontmatterMatch ? frontmatterMatch[1] : "";
+    const globs = Array.from(pathsBlock.matchAll(/"([^"]+)"/g)).map(
+      (m) => m[1],
+    );
+    for (const ext of UI_EXTENSIONS) {
+      const expectedGlob = `**/*${ext}`;
+      expect(
+        globs.includes(expectedGlob),
+        `templates/rules/ui-validation.md's 'paths:' frontmatter is missing ` +
+          `'${expectedGlob}' for UI_EXTENSIONS entry '${ext}' (bin/flow-ui-validate.ts). ` +
+          `Add the missing glob to templates/rules/ui-validation.md's 'paths:' ` +
+          `frontmatter so the consumer rule loads on every surface ` +
+          `flow-ui-validate already treats as UI.`,
+      ).toBe(true);
+    }
+  });
+
+  it("every templates/rules/*.md paths: glob matches at least one representative path (picomatch)", () => {
+    const rulesDir = path.resolve(HERE, "..", "templates/rules");
+    const ruleFiles = fs.readdirSync(rulesDir).filter((f) => f.endsWith(".md"));
+    const fixtures = [
+      ...UI_EXTENSIONS.map((ext) => `src/App${ext}`),
+      "src/routes/+page.svelte",
+      "src/lib/components/Button.svelte",
+      "src/store.svelte.ts",
+      "src/store.svelte.js",
+      ".flow/ui-validation.json",
+      ".flow/design/foundation.md",
+      // Generic, non-UI fixtures so a future non-UI rule file's paths:
+      // glob has something to match against — this list is deliberately
+      // UI-heavy today because every existing templates/rules/*.md rule is
+      // UI-scoped; extend it (never remove) when a new rule targets a
+      // different surface.
+      "src/index.ts",
+      "README.md",
+      "package.json",
+    ];
+    for (const file of ruleFiles) {
+      const content = fs.readFileSync(path.join(rulesDir, file), "utf8");
+      const frontmatterMatch = content.match(
+        /^---\npaths:\s*\n\s*\[([\s\S]*?)\]\n---/,
+      );
+      expect(
+        frontmatterMatch !== null,
+        `templates/rules/${file} must have a parseable \`paths:\` frontmatter array.`,
+      ).toBe(true);
+      const pathsBlock = frontmatterMatch ? frontmatterMatch[1] : "";
+      const globs = Array.from(pathsBlock.matchAll(/"([^"]+)"/g)).map(
+        (m) => m[1],
+      );
+      for (const glob of globs) {
+        const isMatch = picomatch(glob);
+        expect(
+          fixtures.some((p) => isMatch(p)),
+          `'${glob}' in templates/rules/${file} matches none of the ` +
+            "representative fixture paths — typo'd glob? A rule whose " +
+            "paths: never matches silently never loads. If this rule " +
+            "targets a surface not yet represented above, extend the " +
+            "`fixtures` array in this test with a representative path " +
+            "rather than assuming the glob is wrong.",
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("templates/rules/ui-validation.md documents the ignoreRequestPatterns noise field", () => {
     // The optional ignore*Patterns substring lists suppress benign browser
     // noise (canonically the favicon 404) before a route's ok is computed;
     // the manifest field reference must name them.
     expect(
-      agentsTemplateContent.includes("ignoreRequestPatterns"),
-      "templates/AGENTS.md.template must reference 'ignoreRequestPatterns' in " +
+      agentsTemplateUiRulesContent.includes("ignoreRequestPatterns"),
+      "templates/rules/ui-validation.md must reference 'ignoreRequestPatterns' in " +
         "the ui-validation manifest field reference.",
     ).toBe(true);
   });
@@ -6564,8 +7968,8 @@ describe("browser-driven UI-validation structural anchors", () => {
         "').",
     ).toBe(true);
     expect(
-      agentsTemplateContent.includes(guardrailAnchor),
-      "templates/AGENTS.md.template must state the secret-value guardrail " +
+      agentsTemplateUiRulesContent.includes(guardrailAnchor),
+      "templates/rules/ui-validation.md must state the secret-value guardrail " +
         "(anchor: '" +
         guardrailAnchor +
         "').",
@@ -6575,20 +7979,16 @@ describe("browser-driven UI-validation structural anchors", () => {
   it("guards the self-improving-manifest persist-back instruction across doc sites", () => {
     // The CRITICAL persist-back instruction (the agent commits on-the-fly
     // launch adaptations back into .flow/ui-validation.json) must survive at
-    // all four prose sites that document it so it can't be silently dropped
-    // from any one of them. Anchor on a stable single-line substring written
-    // into every site.
+    // the prose sites that document it so it can't be silently dropped from
+    // any one of them. Anchor on a stable single-line substring written into
+    // every site. flow-pipeline/SKILL.md no longer duplicates this prose —
+    // /flow-verify now runs the UI-smoke pass in-process (not an isolated
+    // subagent), so its own SKILL.md is the one canonical site instead of a
+    // cross-isolation-boundary mirror.
     const anchor = "persists the launch adaptation back into";
     expect(
-      agentsTemplateContent.includes(anchor),
-      "templates/AGENTS.md.template must document the self-improving-manifest " +
-        "persist-back instruction (anchor: '" +
-        anchor +
-        "').",
-    ).toBe(true);
-    expect(
-      content.includes(anchor),
-      "flow-pipeline SKILL.md Step 6 must document the self-improving-manifest " +
+      agentsTemplateUiRulesContent.includes(anchor),
+      "templates/rules/ui-validation.md must document the self-improving-manifest " +
         "persist-back instruction (anchor: '" +
         anchor +
         "').",
@@ -6648,6 +8048,7 @@ describe("browser-driven UI-validation structural anchors", () => {
       content,
       verifyContent,
       uiValidationEvidenceContent,
+      uiDriverInstructionsContent,
     ].filter((c) => c.includes(driveMcpSentence)).length;
     expect(
       copiesUnderSkills,
@@ -6778,13 +8179,15 @@ describe("browser-driven UI-validation structural anchors", () => {
       .find(
         (line) =>
           line.includes("flow-spawn") &&
+          line.includes("--detach") &&
           /--class\s+default/.test(line) &&
-          line.includes("sh -c"),
+          line.includes("--from-envelope"),
       );
     expect(
       uiSmokeLaunchLine,
       "ui-smoke-pass.md's launch line must carry `flow-spawn`, " +
-        "`--class default`, and `sh -c` together on one line.",
+        "`--detach`, `--class default`, and `--from-envelope` together on " +
+        "one line.",
     ).toBeDefined();
 
     expect(
@@ -6931,9 +8334,19 @@ describe("terminal-state reap wiring lint", () => {
   }
 
   it("every wired terminal flow-gate-summary occurrence in SKILL.md has its own preceding reap call", () => {
-    // 8 deliberately unwired: 5 step-10 merge-resolution escalations that
+    // 6 deliberately unwired (pr-review #926 re-pinned 7 -> 6: after a
+    // resolver push step 10 now re-enters step 7 and re-calls the merge
+    // helper, so the separate "retry failed" resolver-section escalation
+    // collapsed into step 10's single "still merge-failed" site). The
+    // earlier breakdown follows. 7 deliberately unwired: 4 step-10 merge-resolution escalations that
     // delegate to the (already-wired) `# Failure paths` chain, and 3
-    // elliptical resume-path back-references. Was pinned at 7 before the
+    // elliptical resume-path back-references. Re-pinned 8 -> 7 when step 10
+    // was rewritten around the standalone `flow-merge-guard merge` call: its
+    // conflict-class and non-conflict `merge-failed` escalations collapsed
+    // into one "still merge-failed after the retry" site (the 3 resolver-
+    // section sites are unchanged); the one NEW terminal site, the
+    // `merge-permission-denied` pause, is wired (its own preceding reap call
+    // plus `--cleanup`), so it does not count here. Was pinned at 7 before the
     // PM-lens TLDR/--lens sweep (Task 9): the step-10 conflict-class
     // "On retry failure" escalation's `flow-gate-summary --status
     // needs-human` text originally wrapped `--status` and `needs-human`
@@ -6944,7 +8357,7 @@ describe("terminal-state reap wiring lint", () => {
     // lint (still correctly unwired — it delegates to the same `#
     // Failure paths` chain as its siblings). Bumped 7 → 8 to reflect the
     // true count, not to loosen the check.
-    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 8);
+    checkTerminalSitesWired(content, "flow-pipeline/SKILL.md", 6);
   });
 
   it("every wired terminal flow-gate-summary occurrence in the reference docs has its own preceding reap call", () => {
@@ -7161,10 +8574,13 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
     ["flow-epic-dag --validate", "the bare-name DAG validator"],
     ["MODE: epic", "the designer fan-out mode flag"],
     ["AskUserQuestion", "the materiality-gated clarification form"],
-    ['ToolSearch query="select:Task"', "the Task-schema load preamble"],
     [
-      "task-tool-unavailable: epic-create-designer",
-      "the escalate-on-Task-miss NEEDS HUMAN tag",
+      "Invoke `/flow-product-planning` in-process",
+      "the in-process designer invocation (one discovery spawn inside the wrapper)",
+    ],
+    [
+      "task-tool-unavailable: product-planning-discovery",
+      "the wrapper-owned escalate-on-Task-miss NEEDS HUMAN tag",
     ],
     [
       "REQUEST_FILE",
@@ -7177,7 +8593,7 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
     // Step 4.5 cross-model design-review gate literals
     ["flow-plan-review", "the cross-model design-review Bash fan-out"],
     ["review.gemini", "the shared cross-model opt-in key"],
-    ["Bash fan-out, not a tenth exemption", "the not-a-Task sibling note"],
+    ["Bash fan-out, not an eighth exemption", "the not-a-Task sibling note"],
     ["^## Decision analysis", "the consumer-side Decision-analysis gate grep"],
     // Resume-mode literals
     [
@@ -7186,7 +8602,24 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
     ],
     ["flow-epic-resume-decide", "the bare-name epic resume decider"],
     ["RESUMING AT", "the resume re-entry print"],
+    // NEEDS HUMAN pause-then-continue literals
+    ["awaiting-human", "the paused-escalation Resume-mode row"],
+    [
+      ".context.checkpointPath",
+      "the archived-note path the decision publishes",
+    ],
+    ["--site plan-review", "the design-review auto-checkpoint arm"],
+    [
+      "flow-epic-escalate --reason",
+      "the one-call escalation that records the pause and arms its checkpoint",
+    ],
   ];
+
+  it("flow-epic-create/SKILL.md never hardcodes a general-purpose designer spawn", () => {
+    expect(epicCreateContent.includes("subagent_type: general-purpose")).toBe(
+      false,
+    );
+  });
 
   it.each(REQUIRED_LITERALS)(
     "flow-epic-create/SKILL.md contains the load-bearing literal %j (%s)",
@@ -7200,6 +8633,59 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
       ).toBe(true);
     },
   );
+
+  // The Resume-mode `awaiting-human` row ONLY (never the surrounding prose):
+  // it must name every phase a confirming `done` can write, mirroring the
+  // /flow-pipeline row lint (which scopes to the feature continue phases).
+  const epicAwaitingHumanRow = epicCreateContent
+    .split("\n")
+    .find((line) => line.startsWith("| `awaiting-human`"));
+
+  it("the epic awaiting-human Resume-mode row was found (sanity check for the anchor above)", () => {
+    expect(epicAwaitingHumanRow, "awaiting-human row not found").not.toBe(
+      undefined,
+    );
+  });
+
+  it.each(
+    [...new Set(Object.values(CONTINUE_PHASE_BY_EPIC_STEP))].map((p) => [p]),
+  )(
+    "CONTINUE_PHASE_BY_EPIC_STEP phase '%s' is named (backticked) in flow-epic-create/SKILL.md's awaiting-human row",
+    (phase) => {
+      expect(
+        (epicAwaitingHumanRow ?? "").includes(`\`${phase}\``),
+        `CONTINUE_PHASE_BY_EPIC_STEP (bin/flow-epic-resume-decide.ts) includes '${phase}', ` +
+          "but flow-epic-create/SKILL.md's `awaiting-human` Resume-mode row never " +
+          "mentions it — fix the row to name every epic continue phase.",
+      ).toBe(true);
+    },
+  );
+
+  it("every literal `NEEDS HUMAN: <tag>` names a known escalation tag (a new escalation must route through flow-epic-escalate and be added here)", () => {
+    // `request-file-missing` / `state-missing-on-resume` are the only plain
+    // lines (nothing to resume from); every other escalation must route
+    // through flow-epic-escalate.
+    const plain = [
+      ...epicCreateContent.matchAll(/NEEDS HUMAN: ([a-z-]+)/g),
+    ].map((m) => m[1]);
+    for (const tag of new Set(plain)) {
+      expect(
+        ["request-file-missing", "state-missing-on-resume"],
+        `unexpected plain 'NEEDS HUMAN: ${tag}' in flow-epic-create/SKILL.md — escalations go through flow-epic-escalate`,
+      ).toContain(tag);
+    }
+  });
+
+  it("the cancel branch writes cancelled BEFORE flow-remove-worktree (so forgetRemovedWorktree clears the record)", () => {
+    const start = epicCreateContent.indexOf("- **cancel** (");
+    expect(start).toBeGreaterThan(-1);
+    const end = epicCreateContent.indexOf("\n- **", start + 1);
+    const bullet = epicCreateContent.slice(start, end);
+    const write = bullet.indexOf("flow-state-update --phase cancelled");
+    const remove = bullet.indexOf("flow-remove-worktree");
+    expect(write).toBeGreaterThan(-1);
+    expect(remove).toBeGreaterThan(write);
+  });
 
   it("names the approve / redirect / cancel checkpoint classifications", () => {
     for (const verb of ["approve", "redirect", "cancel"]) {
@@ -7295,6 +8781,15 @@ describe("/flow-epic-run playbook SKILL.md literal anchors", () => {
     ["EPIC_DIR", "the literal epic path embedded by the CLI (R1)"],
     ["never import", "the R1 no-bin/lib-import constraint"],
     ["never hand-edit run.json", "the safe-write-only invariant"],
+    ["ledger entry", "the manifest followups-array-is-a-ledger framing"],
+    [
+      "runner-driven",
+      "the confirm-the-epic-is-runner-driven-before-filing rule",
+    ],
+    [
+      "flow-checkpoint --consume | jq -r '.archived",
+      "the retire-then-read checkpoint step (the playbook never calls the resume decision)",
+    ],
   ];
 
   it.each(REQUIRED_LITERALS)(
@@ -7364,15 +8859,17 @@ describe("/flow-epic-run playbook SKILL.md literal anchors", () => {
       "flow-epic-run/SKILL.md must state it fires NO AskUserQuestion form.",
     ).toBe(true);
     expect(
-      agentsContent.includes("/flow-epic-run") &&
+      supervisorRulesContent.includes("/flow-epic-run") &&
         /flow-epic-run[\s\S]{0,600}?(no|zero)[\s\S]{0,80}?Task/i.test(
-          agentsContent,
+          supervisorRulesContent,
         ),
       "AGENTS.md's /flow-epic-run bullet must state the playbook session spawns no " +
         "Task fan-out (bidirectional with flow-epic-run/SKILL.md).",
     ).toBe(true);
     expect(
-      /flow-epic-run[\s\S]{0,600}?AskUserQuestion/i.test(agentsContent),
+      /flow-epic-run[\s\S]{0,600}?AskUserQuestion/i.test(
+        supervisorRulesContent,
+      ),
       "AGENTS.md's /flow-epic-run bullet must state it fires no AskUserQuestion form.",
     ).toBe(true);
   });
@@ -7425,14 +8922,14 @@ describe("epic-metadata auto-commit/auto-push exemption doc wiring (Task 6)", ()
     ).toBe(true);
   });
 
-  it("AGENTS.md names both the auto-commit and auto-push epic-sync exemptions", () => {
+  it(".claude/rules/flow-supervisor-contracts.md names both the auto-commit and auto-push epic-sync exemptions", () => {
     expect(
-      agentsContent.includes("Auto-commit exemption"),
-      "AGENTS.md ## Don'ts must name the 'Auto-commit exemption' for flow-epic-sync --commit.",
+      supervisorRulesContent.includes("Auto-commit exemption"),
+      ".claude/rules/flow-supervisor-contracts.md '## Don'ts' must name the 'Auto-commit exemption' for flow-epic-sync --commit.",
     ).toBe(true);
     expect(
-      agentsContent.includes("flow-epic-sync --push"),
-      "AGENTS.md ## Don'ts must name 'flow-epic-sync --push' as the auto-push exemption.",
+      supervisorRulesContent.includes("flow-epic-sync --push"),
+      ".claude/rules/flow-supervisor-contracts.md '## Don'ts' must name 'flow-epic-sync --push' as the auto-push exemption.",
     ).toBe(true);
   });
 });
@@ -7444,8 +8941,7 @@ describe("per-phase model-routing wiring lint (feature: per-phase model selectio
   // override to an EXISTING fan-out is NOT a new exemption — these anchors guard
   // the wiring, not a new spawn count.
   const skillsDir = path.resolve(HERE, "..", "skills", "pipeline");
-  const read = (rel: string) =>
-    fs.readFileSync(path.resolve(skillsDir, rel), "utf8");
+  const read = (rel: string) => readSkillText(path.resolve(skillsDir, rel));
 
   it("the central model-routing reference exists with its precedence table", () => {
     const routing = read("flow-pipeline/references/model-routing.md");
@@ -7454,7 +8950,6 @@ describe("per-phase model-routing wiring lint (feature: per-phase model selectio
     for (const field of [
       "modelPlanning",
       "modelImplement",
-      "modelVerify",
       "modelReview",
       "modelFixApplier",
       "modelConsolidator",
@@ -7465,13 +8960,11 @@ describe("per-phase model-routing wiring lint (feature: per-phase model selectio
         `model-routing.md must name the '${field}' resolution field.`,
       ).toBe(true);
     }
-    // The verify-sonnet asymmetry and the gatekeeper pin are documented there.
-    expect(routing).toMatch(/verify.*sonnet/i);
-    expect(routing).toContain('model: "haiku"');
+    // The fixApplier-sonnet asymmetry is documented there.
+    expect(routing).toMatch(/fixApplier.*sonnet/i);
   });
 
   it.each([
-    ["flow-pipeline/SKILL.md", "modelVerify", "config.models.verify"],
     [
       "flow-pipeline/SKILL.md",
       "modelMergeResolver",
@@ -7507,15 +9000,6 @@ describe("per-phase model-routing wiring lint (feature: per-phase model selectio
     },
   );
 
-  it('the /flow-pr-review gatekeeper stays pinned to model: "haiku" with no flag and a discouraged config key', () => {
-    const prReview = read("flow-pr-review/SKILL.md");
-    expect(prReview).toContain('model: "haiku"');
-    // The discouraged-config-override note is present and forecloses a flag.
-    expect(prReview).toContain("config.models.gatekeeper");
-    expect(prReview.toLowerCase()).toContain("no");
-    expect(prReview).toContain("--model-gatekeeper");
-  });
-
   it("product-planning forwards the MODEL_PLANNING marker to its discovery spawn", () => {
     const pp = read("flow-product-planning/SKILL.md");
     expect(pp).toContain("MODEL_PLANNING");
@@ -7533,8 +9017,7 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
   // loop: the exact contract strings live in the docs, so an edit that drops or
   // renames one goes red here on `npm run verify`.
   const skillsDir = path.resolve(HERE, "..", "skills", "pipeline");
-  const read = (rel: string) =>
-    fs.readFileSync(path.resolve(skillsDir, rel), "utf8");
+  const read = (rel: string) => readSkillText(path.resolve(skillsDir, rel));
 
   const RANKING_TABLE_HEADER =
     "Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline?";
@@ -7551,16 +9034,16 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
     expect(di).toContain("plain `Yes` / `No`");
   });
 
-  it("discovery-instructions.md carries the Revision pass mode section and the --lint consistency rubric", () => {
-    const di = read(
-      "flow-product-planning/references/discovery-instructions.md",
-    );
+  it("discovery-revision.md carries the Revision pass mode section and the --lint consistency rubric", () => {
+    const di = discoveryRevisionContent;
     expect(
       di.includes("## Revision pass mode"),
-      "discovery-instructions.md must carry the top-level 'Revision pass mode' " +
+      "discovery-revision.md must carry the top-level 'Revision pass mode' " +
         "section — the single source of truth the REVISION marker forwards to.",
     ).toBe(true);
-    expect(di).toContain("flow-candidate-issues --lint");
+    expect(discoveryInstructionsContent).toContain(
+      "flow-candidate-issues --lint",
+    );
     // The revision contract names the MUST-NOT-regenerate embedded marker.
     expect(di).toContain("flow-plan-review-hash");
   });
@@ -7787,6 +9270,17 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
     ).toBe(false);
   });
 
+  it("the candidate-issues AskUserQuestion exemption is gone from .claude/rules/flow-supervisor-contracts.md", () => {
+    expect(
+      supervisorRulesContent.includes(
+        "AskUserQuestion exemption: `/flow-pipeline` candidate-issues",
+      ),
+      ".claude/rules/flow-supervisor-contracts.md must NOT reference the retired " +
+        "'AskUserQuestion exemption: `/flow-pipeline` candidate-issues' bullet — " +
+        "full retirement (option (e)) means only the gate-override form remains authorised.",
+    ).toBe(false);
+  });
+
   it("the candidate-issues form's 'picks which orthogonal candidates' description is gone from references/git-workflow.md", () => {
     // Proven non-vacuous the same way as the AGENTS.md check above: this
     // exact phrase (on one line, unlike its line-wrapped AGENTS.md
@@ -7913,8 +9407,8 @@ describe("design-artifact fidelity structural anchors", () => {
         "— no artifact reference → no section, no files, no browser pass.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes("Re-freeze is explicit-only"),
-      "discovery-instructions.md must state the explicit-only re-freeze policy " +
+      discoveryUiContent.includes("Re-freeze is explicit-only"),
+      "discovery-ui.md must state the explicit-only re-freeze policy " +
         "(a user redirect is the only trigger).",
     ).toBe(true);
   });
@@ -7953,8 +9447,8 @@ describe("design-artifact fidelity structural anchors", () => {
         `bin/lib/design-spec-schema.ts must declare the '${key}' field.`,
       ).toBe(true);
       expect(
-        discoveryInstructionsContent.includes(key),
-        `discovery-instructions.md's documented spec shape must carry '${key}' ` +
+        discoveryUiContent.includes(key),
+        `discovery-ui.md's documented spec shape must carry '${key}' ` +
           "— drift between the schema module and the documented shape silently " +
           "breaks the producer/consumer contract.",
       ).toBe(true);
@@ -7965,8 +9459,8 @@ describe("design-artifact fidelity structural anchors", () => {
         `design-spec-schema.ts must declare the ${tier} tier literal.`,
       ).toBe(true);
       expect(
-        discoveryInstructionsContent.includes(tier),
-        `discovery-instructions.md's spec shape must carry the ${tier} tier.`,
+        discoveryUiContent.includes(tier),
+        `discovery-ui.md's spec shape must carry the ${tier} tier.`,
       ).toBe(true);
     }
   });
@@ -8005,21 +9499,21 @@ describe("design-artifact fidelity structural anchors", () => {
 
   it("Layout Intent is wired symmetrically across producer and consumers", () => {
     expect(
-      discoveryInstructionsContent.includes("### Layout Intent"),
-      "discovery-instructions.md must carry the '### Layout Intent' " +
+      discoveryUiContent.includes("### Layout Intent"),
+      "discovery-ui.md must carry the '### Layout Intent' " +
         "authoring sub-section.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes(
+      discoveryUiContent.includes(
         "viewport-fill vs intrinsic vs scroll container",
       ),
-      "discovery-instructions.md's Layout Intent sub-section must require " +
+      "discovery-ui.md's Layout Intent sub-section must require " +
         "the sizing-policy facet to name viewport-fill vs intrinsic vs " +
         "scroll container.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes("the prose is normative"),
-      "discovery-instructions.md's Layout Intent sub-section must resolve " +
+      discoveryUiContent.includes("the prose is normative"),
+      "discovery-ui.md's Layout Intent sub-section must resolve " +
         "any topology-diagram/prose conflict to the prose.",
     ).toBe(true);
     expect(
@@ -8057,20 +9551,20 @@ describe("design-artifact fidelity structural anchors", () => {
     ).toBe(true);
   });
 
-  it("discovery-instructions.md carries the spec.json properties-map worked example and self-validate step", () => {
+  it("discovery-ui.md carries the spec.json properties-map worked example and self-validate step", () => {
     expect(
-      discoveryInstructionsContent.includes(
+      discoveryUiContent.includes(
         '"grid-template-columns": "repeat(auto-fill, minmax(240px, 1fr))"',
       ),
-      "discovery-instructions.md 1.6(c) must carry a worked example whose " +
+      "discovery-ui.md 1.6(c) must carry a worked example whose " +
         "'properties' is a {prop: extracted-value} map, not a bare array of " +
         "property names.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes(
+      discoveryUiContent.includes(
         "flow-design-spec validate .flow-tmp/design/spec.json",
       ),
-      "discovery-instructions.md 1.6(c) must instruct the discovery " +
+      "discovery-ui.md 1.6(c) must instruct the discovery " +
         "subagent to self-validate the frozen spec.json before proceeding.",
     ).toBe(true);
   });
@@ -8124,8 +9618,8 @@ describe("module-status conditional-degradation guards (flow-pipeline/SKILL.md, 
     ).toBeGreaterThanOrEqual(2);
   });
 
-  it("discovery-instructions.md Step 1.5 gates the flow-delegate-fanout research fan-out on the research module", () => {
-    expect(discoveryInstructionsContent).toContain(
+  it("discovery-research.md (Step 1.5) gates the flow-delegate-fanout research fan-out on the research module", () => {
+    expect(discoveryResearchContent).toContain(
       "flow-module-status --check research",
     );
   });
@@ -8163,6 +9657,33 @@ describe("prompt-intent-sanity-check structural anchors", () => {
     for (const verdict of ["sound", "suspect", "contradicted"]) {
       expect(promptSanityContent).toContain(verdict);
     }
+  });
+
+  it("flow-pipeline/SKILL.md carries the Solution fit and Existing code lines and the SOLUTION-FIT: thread marker", () => {
+    expect(content).toContain("Solution fit:");
+    expect(content).toContain("SOLUTION-FIT:");
+    expect(content).toContain("Existing code:");
+  });
+
+  it("flow-pipeline/SKILL.md Prompt sanity gate names the wrong-repo escalation", () => {
+    expect(content).toContain("wrong-repo");
+  });
+
+  it("references/prompt-sanity.md carries the Repo-fit check and wrong-repo sub-tag", () => {
+    const promptSanityContent = fs.readFileSync(
+      path.resolve(
+        HERE,
+        "..",
+        "skills",
+        "pipeline",
+        "flow-pipeline",
+        "references",
+        "prompt-sanity.md",
+      ),
+      "utf8",
+    );
+    expect(promptSanityContent).toContain("Repo-fit check");
+    expect(promptSanityContent).toContain("wrong-repo");
   });
 
   it("flow-pr-review/SKILL.md Step 3 carries the diff-only intent-guess sub-step and blindness prose", () => {
@@ -8230,7 +9751,7 @@ describe("prompt-intent-sanity-check structural anchors", () => {
     ]) {
       expect(c).toContain(v);
     }
-    expect(c).toContain("- [ ] SUBJECTIVE: confirm scope drift is intentional");
+    expect(c).toContain("- [ ] DECISION: confirm scope drift is intentional");
     expect(c).toContain("NEEDS HUMAN: intent-drift");
   });
 
@@ -8262,15 +9783,14 @@ describe("prompt-intent-sanity-check structural anchors", () => {
     ).toBeGreaterThanOrEqual(5);
   });
 
-  it("flow-pipeline/SKILL.md agent table Multi-Agent Review exemption still counts nine total", () => {
+  it("flow-pipeline/SKILL.md agent table Multi-Agent Review exemption still counts eight total", () => {
     const matches = content.match(/Task-tool exemption #\d+:/g) ?? [];
-    expect(matches.length).toBe(9);
+    expect(matches.length).toBe(8);
   });
 });
 
 describe("N-port sentinel doc wiring (AGENTS.md ↔ UI references ↔ SKILL.md resource cleanup)", () => {
   const REPO_ROOT = path.resolve(HERE, "..");
-  const AGENTS_MD_PATH = path.join(REPO_ROOT, "AGENTS.md");
   const UI_SMOKE_PASS_PATH = path.join(
     REPO_ROOT,
     "skills",
@@ -8290,9 +9810,8 @@ describe("N-port sentinel doc wiring (AGENTS.md ↔ UI references ↔ SKILL.md r
   const INLINE_ONLY_RULE =
     "**Port and URL overrides are passed INLINE to the launch subprocess (env vars / CLI flags) and are NEVER written to `.env.local`, `.env`, or any other file.**";
 
-  it("AGENTS.md carries the 'Don't write test-time port or URL overrides to a file.' bullet", () => {
-    const content = fs.readFileSync(AGENTS_MD_PATH, "utf8");
-    expect(content).toContain(
+  it(".claude/rules/flow-bin-conventions.md carries the 'Don't write test-time port or URL overrides to a file.' bullet", () => {
+    expect(binRulesContent).toContain(
       "Don't write test-time port or URL overrides to a file.",
     );
   });
@@ -8309,14 +9828,7 @@ describe("N-port sentinel doc wiring (AGENTS.md ↔ UI references ↔ SKILL.md r
   });
 
   it("flow-pipeline/SKILL.md resource-cleanup list carries the agent-written-file class", () => {
-    const skillMdPath = path.join(
-      REPO_ROOT,
-      "skills",
-      "pipeline",
-      "flow-pipeline",
-      "SKILL.md",
-    );
-    const content = fs.readFileSync(skillMdPath, "utf8");
+    const content = readPipelineSkillCorpus();
     expect(content).toContain("**Agent-written env/config files**");
   });
 });
@@ -8359,6 +9871,7 @@ describe("pause-output contract wiring lint", () => {
     "skills/universal/flow-testing/SKILL.md",
     "skills/universal/flow-research/SKILL.md",
     "skills/universal/flow-ui-ux/SKILL.md",
+    "skills/universal/flow-deliberate/SKILL.md",
   ];
 
   it("the contract file exists and carries the six literal slot labels", () => {
@@ -8435,10 +9948,7 @@ describe("pause-output contract wiring lint", () => {
   });
 
   it("flow-pipeline/SKILL.md references pause-output-contract.md at ≥9 pause sites", () => {
-    const c = fs.readFileSync(
-      path.join(REPO_ROOT, "skills", "pipeline", "flow-pipeline", "SKILL.md"),
-      "utf8",
-    );
+    const c = readPipelineSkillCorpus();
     // Strip HTML comments first so the extend-on-add sentinel comments
     // (`<!-- any new pause site below must reference
     // pause-output-contract.md -->`) don't inflate the count — only the
@@ -8458,10 +9968,7 @@ describe("pause-output contract wiring lint", () => {
   });
 
   it("the 'At most one question-gate fire per pipeline' paragraph documents the per-source method-pause carve-out", () => {
-    const c = fs.readFileSync(
-      path.join(REPO_ROOT, "skills", "pipeline", "flow-pipeline", "SKILL.md"),
-      "utf8",
-    );
+    const c = readPipelineSkillCorpus();
     const m = c.match(
       /\*\*At most one question-gate fire per pipeline\.\*\*[\s\S]*?(?=\n\n)/,
     );
@@ -8540,7 +10047,7 @@ describe("pause-output contract wiring lint", () => {
     // the bug (its battery survives on disk at
     // .flow-tmp/interview-questions.md), which is why this pins step 1
     // specifically.
-    const c = fs.readFileSync(SKILL_MD_PATH, "utf8").replace(/\s+/g, " ");
+    const c = readPipelineSkillCorpus().replace(/\s+/g, " ");
     const askTimeWrite =
       /flow-state-update --phase triage-pending-interview --interview-stdin/;
     expect(
@@ -8587,6 +10094,7 @@ describe("pause-output contract wiring lint", () => {
       "`Candidates:`",
       "`Top assumptions:`",
       "`Research:`",
+      "`Vetting verdict:`",
     ];
     const sites = [
       "skills/pipeline/flow-product-planning/SKILL.md",
@@ -8624,12 +10132,10 @@ describe("pause-output contract wiring lint", () => {
     expect(c).toContain("## Explain problems impact-first in plain language");
   });
 
-  it("templates/AGENTS.md.template carries the impact-first-language bullet", () => {
-    const c = fs.readFileSync(
-      path.join(REPO_ROOT, "templates", "AGENTS.md.template"),
-      "utf8",
+  it("templates/references/agent-conduct.md carries the impact-first-language bullet", () => {
+    expect(agentsTemplateRefAgentConductContent).toContain(
+      "**Explain problems impact-first in plain language.**",
     );
-    expect(c).toContain("**Explain problems impact-first in plain language.**");
   });
 
   it("pause-output-contract.md carries the Step contract section", () => {
@@ -8698,16 +10204,12 @@ describe("pause-output contract wiring lint", () => {
     expect(c).toContain("## Emit instructions as scannable numbered steps");
   });
 
-  it("AGENTS.md and templates/AGENTS.md.template carry the numbered-steps bullet", () => {
+  it("AGENTS.md and templates/references/agent-conduct.md carry the numbered-steps bullet", () => {
     const agentsC = fs.readFileSync(path.join(REPO_ROOT, "AGENTS.md"), "utf8");
-    const templateC = fs.readFileSync(
-      path.join(REPO_ROOT, "templates", "AGENTS.md.template"),
-      "utf8",
-    );
     expect(agentsC).toContain(
       "**Emit instructions as scannable numbered steps.**",
     );
-    expect(templateC).toContain(
+    expect(agentsTemplateRefAgentConductContent).toContain(
       "**Emit instructions as scannable numbered steps.**",
     );
   });
@@ -8896,7 +10398,7 @@ describe("pause-output contract wiring lint", () => {
     expect(findBrokenInlineSpans("odd ` count\nno backticks here")).toEqual([]);
   });
 
-  it("the six lens checklist files exist and the monolith stays deleted", () => {
+  it("the seven lens checklist files exist and the monolith stays deleted", () => {
     const checklistsDir = path.join(
       REPO_ROOT,
       "skills",
@@ -8912,6 +10414,7 @@ describe("pause-output contract wiring lint", () => {
       "performance.md",
       "supply-chain.md",
       "test-coverage.md",
+      "product.md",
     ];
     const present = fs
       .readdirSync(checklistsDir)
@@ -9020,10 +10523,8 @@ describe("pause-output contract wiring lint", () => {
 });
 
 describe("PM-lens supervisor wiring lint (Tasks 9/10)", () => {
-  const REPO_ROOT = path.resolve(HERE, "..");
-
   it("every flow-gate-summary --status (merged|gated|needs-human|cancelled) invocation in flow-pipeline SKILL.md carries --tldr", () => {
-    const c = fs.readFileSync(SKILL_MD_PATH, "utf8");
+    const c = readPipelineSkillCorpus();
     const stripped = c.replace(/<!--[\s\S]*?-->/g, "");
     const lines = stripped.split("\n");
     const offenders: string[] = [];
@@ -9067,12 +10568,12 @@ describe("PM-lens supervisor wiring lint (Tasks 9/10)", () => {
   });
 
   it("step-3 plan-summary template states task titles and file lists are not echoed", () => {
-    const c = fs.readFileSync(SKILL_MD_PATH, "utf8");
+    const c = readPipelineSkillCorpus();
     expect(c).toContain("task titles and file lists are not echoed");
   });
 
   it("`file #N` / `drop #N` reply verbs appear at the three named sites", () => {
-    const skillC = fs.readFileSync(SKILL_MD_PATH, "utf8");
+    const skillC = readPipelineSkillCorpus();
     const matches = skillC.match(/file #N/g) ?? [];
     expect(
       matches.length,
@@ -9278,29 +10779,16 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
       anchor: "verify-caution.txt",
     },
     {
-      file: "skills/pipeline/flow-pr-review/SKILL.md",
-      siteName: "pr-review-evidence-injection",
+      file: "skills/pipeline/flow-pipeline/SKILL.md",
+      siteName: "pipeline-verify-clear-caution",
       kind: "adjacent-lines",
-      anchor: "After every runnable item has been processed",
+      anchor: "--clear-caution | grep",
     },
-    {
-      file: "skills/pipeline/flow-pr-review/SKILL.md",
-      siteName: "pr-review-redraft-description",
-      kind: "adjacent-lines",
-      anchor: "<updated description>",
-    },
-    {
-      file: "skills/pipeline/flow-pr-review/SKILL.md",
-      siteName: "pr-review-testability-extend",
-      kind: "adjacent-lines",
-      anchor: "<original description with test section extended or added>",
-    },
-    {
-      file: "skills/pipeline/flow-pr-review/SKILL.md",
-      siteName: "pr-review-automatable-prune",
-      kind: "same-paragraph",
-      anchor: "prune the converted bullet",
-    },
+    // The former `pr-review-evidence-injection` entry (flow-pr-review 8c.i's
+    // hand-written fix-then-edit fence) is gone: `flow-run-test-steps` now owns
+    // that repair-before-push, and bin/flow-run-test-steps.test.ts asserts the
+    // `flow-md-validate --fix-pr-body` -> `--check-pr-body` -> single
+    // `gh pr edit` ordering instead.
     {
       file: "skills/pipeline/flow-new-feature/SKILL.md",
       siteName: "new-feature-overflow-note",
@@ -9352,7 +10840,7 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
     "$file names the '$siteName' site running flow-md-validate --fix-pr-body before its gh pr edit --body-file call",
     ({ file, siteName, kind, anchor }) => {
       const absPath = path.resolve(HERE, "..", ...file.split("/"));
-      const content = fs.readFileSync(absPath, "utf8");
+      const content = readSkillText(absPath);
       const found =
         kind === "adjacent-lines"
           ? findAdjacentRepairPair(content, anchor)
@@ -9367,14 +10855,11 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
     },
   );
 
-  it("covers exactly the seven known gh pr edit --body-file recipe sites, by name", () => {
+  it("covers exactly the four known gh pr edit --body-file recipe sites, by name", () => {
     expect(BODY_EDIT_SITES.map((s) => s.siteName)).toEqual([
       "pipeline-ui-smoke-note",
       "pipeline-verify-exhausted-caution",
-      "pr-review-evidence-injection",
-      "pr-review-redraft-description",
-      "pr-review-testability-extend",
-      "pr-review-automatable-prune",
+      "pipeline-verify-clear-caution",
       "new-feature-overflow-note",
     ]);
   });
@@ -9390,7 +10875,7 @@ describe("gh pr edit --body-file recipes repair <details> blank-line gaps first"
     const filesCovered = [...new Set(BODY_EDIT_SITES.map((s) => s.file))];
     for (const file of filesCovered) {
       const absPath = path.resolve(HERE, "..", ...file.split("/"));
-      const content = fs.readFileSync(absPath, "utf8");
+      const content = readSkillText(absPath);
       const actualCount = (content.match(/gh pr edit .*--body-file/g) ?? [])
         .length;
       const enumeratedCount = BODY_EDIT_SITES.filter(
@@ -9431,23 +10916,88 @@ describe("phase-write emitter lint (bin/lib/phase-advance.ts's PHASE_EMITTERS)",
     return content.slice(start, end);
   }
 
+  /**
+   * The marker each EARLY_PHASE_WRITES step's phase fence must PRECEDE —
+   * the first thing that step actually does after recording the phase.
+   * An existence-only lint would happily pass a fence appended to the
+   * step's tail, which is exactly the bug the step-head fences fix (the
+   * phase named the previous step for the whole of the current one), so
+   * the ordering assertion below is the load-bearing half.
+   *
+   * Each marker is LINE-ANCHORED (`^`, optionally after a `**` bold
+   * lead-in), never a bare substring: the invocation sites are a fenced
+   * `/flow-new-feature` / `/flow-pr-review` command line and the
+   * `**Copilot-module precheck …**` lead-in, all of which start their
+   * line. A bare `indexOf` would instead match the FIRST prose mention of
+   * the marker anywhere in the section, so ordinary explanatory prose
+   * above a correctly-placed fence would fail the lint — a doc-wording
+   * coupling, not a contract violation. Anchoring keeps the assertion
+   * about where the step starts working, not about how it is described.
+   */
+  const STEP_INVOCATION_MARKER: Record<string, RegExp> = {
+    implementing: /^[ \t]*(?:\*\*)?\/flow-new-feature\b/m,
+    "ci-wait": /^[ \t]*(?:\*\*)?Copilot-module precheck\b/m,
+    reviewing: /^[ \t]*(?:\*\*)?\/flow-pr-review\b/m,
+  };
+
   it.each(Object.entries(PHASE_EMITTERS))(
-    "%s carries no standalone `--phase %s` fence and its step section names the emitting helper (%s)",
+    "%s: its step section names the emitting helper (%s), and its `--phase` fence is step-head-required (EARLY_PHASE_WRITES) or document-wide forbidden (helper-only)",
     (phase, helper) => {
       // Word-boundary anchored so the legitimate `--phase ci-wait-pending`
       // yield write (SKILL.md ~1714-1715, wrapped across lines today) can
       // never trip this — and stays safe even if that paragraph is
       // re-flowed onto one line later (plan.md Contract adjustment #6).
       const standaloneWrite = new RegExp(`--phase ${phase}(?![-\\w])`);
-      expect(
-        standaloneWrite.test(content),
-        `flow-pipeline SKILL.md must carry no standalone '--phase ${phase}' ` +
-          `write — it is ${helper}'s side effect now, not a documented ` +
-          "pipeline-step instruction.",
-      ).toBe(false);
-
       const heading = STEP_HEADING_BY_PHASE[phase];
       const section = sliceStepSection(heading);
+
+      if (EARLY_PHASE_WRITES.has(phase as keyof typeof PHASE_EMITTERS)) {
+        // Step-head class: the fence is REQUIRED inside its own step
+        // section and forbidden everywhere else, so the helper stays a
+        // backstop rather than the sole writer.
+        const fence = standaloneWrite.exec(section);
+        expect(
+          fence !== null,
+          `the '${heading}' section must carry a step-head ` +
+            `'flow-state-update --phase ${phase}' fence — '${phase}' is an ` +
+            "EARLY_PHASE_WRITES member (bin/lib/phase-advance.ts), so the " +
+            `${helper} emission is only its idempotent backstop.`,
+        ).toBe(true);
+        expect(
+          standaloneWrite.test(content.replace(section, "")),
+          `flow-pipeline SKILL.md must carry exactly ONE '--phase ${phase}' ` +
+            `fence — a second one outside the '${heading}' section would ` +
+            "re-record the phase from a step that is not this one.",
+        ).toBe(false);
+
+        const marker = STEP_INVOCATION_MARKER[phase];
+        const markerMatch = marker.exec(section);
+        expect(
+          markerMatch !== null,
+          `the '${heading}' section must still name its invocation marker ` +
+            `(${marker}) at the start of a line for the fence-ordering ` +
+            "assertion to mean anything.",
+        ).toBe(true);
+        const markerAt = markerMatch!.index;
+        expect(
+          fence!.index < markerAt,
+          `the '--phase ${phase}' fence must appear BEFORE ${marker} in ` +
+            `the '${heading}' section. A tail-placed fence passes an ` +
+            "existence-only check while reproducing the exact bug this " +
+            "contract fixes: the phase would name the PREVIOUS step for " +
+            "the whole of this one.",
+        ).toBe(true);
+      } else {
+        // Helper-only class (gating, merging): these already write at
+        // their step's first command, so any prose fence is a duplicate.
+        expect(
+          standaloneWrite.test(content),
+          `flow-pipeline SKILL.md must carry no standalone '--phase ${phase}' ` +
+            `write — it is ${helper}'s side effect now, not a documented ` +
+            "pipeline-step instruction.",
+        ).toBe(false);
+      }
+
       expect(
         section.includes(helper),
         `the '${heading}' section must name its emitting helper ('${helper}') ` +
@@ -9468,6 +11018,24 @@ describe("phase-write emitter lint (bin/lib/phase-advance.ts's PHASE_EMITTERS)",
         `PHASE_EMITTERS['${phase}'] names '${helper}', but bin/${helper}.ts does not exist.`,
       ).toBe(true);
     }
+  });
+
+  it("'verifying' is deliberately absent from PHASE_EMITTERS but Step 6 still carries its own explicit --phase verifying write", () => {
+    // phase-advance.ts documents 'verifying' as an explicit prose call (no
+    // helper side effect), so it is excluded from the it.each loop above —
+    // this is the standalone anchor that keeps that explicit write honest.
+    expect(
+      Object.keys(PHASE_EMITTERS).includes("verifying"),
+      "'verifying' is expected to stay OUT of PHASE_EMITTERS (see phase-advance.ts) — " +
+        "if it was added, delete this test and let the it.each loop above cover it instead.",
+    ).toBe(false);
+    const section = sliceStepSection(STEP_HEADING_BY_PHASE.verifying);
+    expect(
+      /--phase verifying/.test(section),
+      "flow-pipeline SKILL.md Step 6 must still carry an explicit " +
+        "'--phase verifying' flow-state-update call — this is its only " +
+        "phase-write anchor since 'verifying' is absent from PHASE_EMITTERS.",
+    ).toBe(true);
   });
 });
 
@@ -9592,9 +11160,81 @@ describe("REQUEST_FILE seed-pointer contract — both supervisor SKILL.md files"
   );
 });
 
+describe("Step 0 request echo contract — both supervisor SKILL.md files", () => {
+  // Mechanical pin against a skipped prose step: `flow prompt`'s
+  // verbatim-echo block is only exercised by the supervisor's own prose
+  // instructions (there is no runtime code path that enforces it), so this
+  // is the only guard against a future edit silently dropping Step 0.
+  // Reads flow-epic-create/SKILL.md fresh (rather than reusing the sibling
+  // describe block's `epicCreateContent`, scoped inside that block's own
+  // callback) to stay standalone.
+  const epicCreateContent = fs.readFileSync(
+    path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-epic-create",
+      "SKILL.md",
+    ),
+    "utf8",
+  );
+
+  const REQUIRED_LITERALS = [
+    "## Step 0 — Echo the originating request",
+    "flow prompt",
+    "VERBATIM",
+  ];
+
+  // Slice out just the Step 0 section before asserting: "VERBATIM" alone
+  // appears dozens more times file-wide in flow-pipeline/SKILL.md, so a
+  // file-wide `.includes` check stays green even with the Step 0 section
+  // deleted entirely. Bound the slice at the next `## ` heading (or EOF when
+  // the section is the last one), and assert byte-exact case (unlike the
+  // two sibling blocks above) since all three literals are written in their
+  // canonical case in the source.
+  function step0Section(fullContent: string): string {
+    const start = fullContent.indexOf(
+      "## Step 0 — Echo the originating request",
+    );
+    if (start === -1) return "";
+    const nextHeadingRel = fullContent.slice(start + 1).search(/\n## /);
+    const end =
+      nextHeadingRel === -1 ? fullContent.length : start + 1 + nextHeadingRel;
+    return fullContent.slice(start, end);
+  }
+
+  const pipelineStep0 = step0Section(content);
+  const epicCreateStep0 = step0Section(epicCreateContent);
+
+  it.each(REQUIRED_LITERALS)(
+    "flow-pipeline/SKILL.md's Step 0 section contains the load-bearing literal %j",
+    (literal) => {
+      expect(
+        pipelineStep0.includes(literal),
+        `skills/pipeline/flow-pipeline/SKILL.md's Step 0 section must contain ` +
+          `'${literal}'. Dropping it breaks the Step 0 request-echo contract; ` +
+          `restore it or update this anchor in lockstep.`,
+      ).toBe(true);
+    },
+  );
+
+  it.each(REQUIRED_LITERALS)(
+    "flow-epic-create/SKILL.md's Step 0 section contains the load-bearing literal %j",
+    (literal) => {
+      expect(
+        epicCreateStep0.includes(literal),
+        `skills/pipeline/flow-epic-create/SKILL.md's Step 0 section must contain ` +
+          `'${literal}'. Dropping it breaks the Step 0 request-echo contract; ` +
+          `restore it or update this anchor in lockstep.`,
+      ).toBe(true);
+    },
+  );
+});
+
 describe("Lens negative-findings entry shape", () => {
-  // Explicit six-path list, NEVER a readdir or a `flow-review-*.md` glob:
-  // the glob matches a SEVENTH file, flow-review-intent-guess.md, which
+  // Explicit seven-path list, NEVER a readdir or a `flow-review-*.md` glob:
+  // the glob matches an EIGHTH file, flow-review-intent-guess.md, which
   // emits a different artifact (the blind intent guess) and must not be
   // pinned to this shape.
   const LENS_AGENT_FILES = [
@@ -9604,6 +11244,7 @@ describe("Lens negative-findings entry shape", () => {
     "flow-review-performance.md",
     "flow-review-supply-chain.md",
     "flow-review-test-coverage.md",
+    "flow-review-product.md",
   ];
 
   const CANONICAL_SHAPE_SENTENCE =
@@ -9692,15 +11333,15 @@ describe("review scope, lens gates, telemetry pins", () => {
     ).toBe(true);
   });
 
-  it("pr-review-last-sha is written from local HEAD at Step 13 and read against local HEAD by the Gatekeeper", () => {
-    // Extends the existing paired-contract lint (both files must reference
+  it("pr-review-last-sha is written from local HEAD at Step 13 and read against local HEAD by the Step 1.5 metadata triage", () => {
+    // Extends the existing paired-contract lint (both sites must reference
     // the literal 'pr-review-last-sha') with the local-HEAD sourcing that
     // closes the GitHub head-sync stall: neither site may fall back to
-    // `gh pr view` for the marker comparison.
-    expect(gatekeeperSpawnPromptContent.includes("pr-review-last-sha")).toBe(
-      true,
-    );
-    expect(prReviewContent.includes("pr-review-last-sha")).toBe(true);
+    // `gh pr view` for the marker comparison. Both sites now live in the
+    // same file since the triage went inline.
+    const occurrences = (prReviewContent.match(/pr-review-last-sha/g) ?? [])
+      .length;
+    expect(occurrences).toBeGreaterThanOrEqual(2);
 
     const step13Idx = prReviewContent.indexOf(
       "## 13. Register Local Follow-ups (when applicable)",
@@ -9717,10 +11358,18 @@ describe("review scope, lens gates, telemetry pins", () => {
         "source HEAD_SHA from local `git rev-parse HEAD`, not `gh pr view` — " +
         "the GitHub PR object can lag the tree by hours (known head-sync stall).",
     ).toBe(true);
+
+    const step15Idx = prReviewContent.indexOf("\n## 1.5. Metadata triage\n");
     expect(
-      gatekeeperSpawnPromptContent.includes("rev-parse HEAD"),
-      "flow-pr-review/references/gatekeeper-spawn-prompt.md's no-new-commits " +
-        "rule must compare the marker against local `git rev-parse HEAD`.",
+      step15Idx,
+      "flow-pr-review/SKILL.md must have a '## 1.5. Metadata triage' " +
+        "heading to slice the no-new-commits skip rule from.",
+    ).toBeGreaterThan(-1);
+    const step15Slice = prReviewContent.slice(step15Idx, step15Idx + 6000);
+    expect(
+      step15Slice.includes("rev-parse HEAD"),
+      "flow-pr-review/SKILL.md Step 1.5's no-new-commits rule must compare " +
+        "the marker against local `git rev-parse HEAD`.",
     ).toBe(true);
   });
 
@@ -9776,12 +11425,12 @@ describe("Preloaded instructions SKILL.md frontmatter + sentinel lint", () => {
   // keeps for the `general-purpose` fallback; (3) a spawn-prompt sentinel
   // line can name a different skill than the SKILL.md it points at.
   const PRELOAD_SKILLS = [
-    "flow-verify-loop-instructions",
     "flow-fix-applier-instructions",
     "flow-coder-instructions",
     "flow-merge-resolver-instructions",
     "flow-scout-instructions",
     "flow-consolidator-instructions",
+    "flow-ui-driver-instructions",
   ];
 
   it.each(PRELOAD_SKILLS)(
@@ -9827,10 +11476,6 @@ describe("Preloaded instructions SKILL.md frontmatter + sentinel lint", () => {
       {
         file: "skills/pipeline/flow-coder/SKILL.md",
         expectedName: "flow-coder-instructions",
-      },
-      {
-        file: "skills/pipeline/flow-pipeline/SKILL.md",
-        expectedName: "flow-verify-loop-instructions",
       },
       {
         file: "skills/pipeline/flow-new-feature/SKILL.md",
@@ -9888,14 +11533,13 @@ describe("partial-result-continuation.md pointer-site lint", () => {
     "skills/pipeline/flow-pipeline/SKILL.md",
     "skills/pipeline/flow-pr-review/SKILL.md",
     "skills/pipeline/flow-coder/SKILL.md",
-    "skills/pipeline/flow-verify-loop-instructions/SKILL.md",
   ];
 
   it.each(POINTER_SITES)(
     "%s references partial-result-continuation.md",
     (file) => {
       const p = path.resolve(HERE, "..", file);
-      const content = fs.readFileSync(p, "utf8");
+      const content = readSkillText(p);
       expect(
         content.includes("partial-result-continuation.md"),
         `${p} must reference references/partial-result-continuation.md — a dropped pointer silently reverts to immediate *-missing-artifact escalation.`,
@@ -9903,11 +11547,10 @@ describe("partial-result-continuation.md pointer-site lint", () => {
     },
   );
 
-  // The four maxTurns-pinned agent files carry the continuation contract's
+  // The three maxTurns-pinned agent files carry the continuation contract's
   // own paragraph, so the agent-side and supervisor-side halves cannot
   // drift apart independently.
   const MAX_TURNS_AGENT_FILES = [
-    "agents/core/flow-verify.md",
     "agents/core/flow-fix-applier.md",
     "agents/core/flow-edit-applier.md",
     "agents/core/flow-merge-resolver.md",
@@ -9917,11 +11560,68 @@ describe("partial-result-continuation.md pointer-site lint", () => {
     "%s references partial-result-continuation.md",
     (file) => {
       const p = path.resolve(HERE, "..", file);
-      const content = fs.readFileSync(p, "utf8");
+      const content = readSkillText(p);
       expect(
         content.includes("partial-result-continuation.md"),
         `${p} must reference skills/pipeline/flow-pipeline/references/partial-result-continuation.md.`,
       ).toBe(true);
+    },
+  );
+
+  const COMPLETENESS_CHECK_SITES = [
+    "skills/pipeline/flow-coder/SKILL.md",
+    "skills/pipeline/flow-new-feature/SKILL.md",
+    "skills/pipeline/flow-verify/SKILL.md",
+    "skills/universal/flow-refactoring/SKILL.md",
+    "skills/pipeline/flow-pr-review/SKILL.md",
+  ];
+
+  it.each(COMPLETENESS_CHECK_SITES)(
+    "%s uses the status == 'complete' completeness check, not a bare existence check",
+    (file) => {
+      const p = path.resolve(HERE, "..", file);
+      const content = fs.readFileSync(p, "utf8");
+      expect(content.includes('status == "complete"')).toBe(true);
+    },
+  );
+
+  it("partial-result-continuation.md's continuation contract is finish-first", () => {
+    const p = path.resolve(
+      HERE,
+      "..",
+      "skills/pipeline/flow-pipeline/references/partial-result-continuation.md",
+    );
+    const content = fs.readFileSync(p, "utf8");
+    expect(content.includes("fresh")).toBe(true);
+    expect(content.includes("finish the remaining")).toBe(true);
+    expect(content.includes("Agent stalled")).toBe(true);
+  });
+
+  const VERIFY_ROUND_CAP_FILES = [
+    "skills/pipeline/flow-coder-instructions/SKILL.md",
+    "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
+  ];
+
+  it.each(VERIFY_ROUND_CAP_FILES)(
+    "%s names the verify-fix round cap",
+    (file) => {
+      const p = path.resolve(HERE, "..", file);
+      const content = fs.readFileSync(p, "utf8");
+      expect(content.includes("verify-fix round")).toBe(true);
+    },
+  );
+
+  const NON_BLOCKING_WAIT_SITES = [
+    "skills/pipeline/flow-coder/SKILL.md",
+    "skills/pipeline/flow-pr-review/SKILL.md",
+  ];
+
+  it.each(NON_BLOCKING_WAIT_SITES)(
+    "%s forbids a foreground sleep loop while waiting on the subagent",
+    (file) => {
+      const p = path.resolve(HERE, "..", file);
+      const content = fs.readFileSync(p, "utf8");
+      expect(content.includes("never a foreground")).toBe(true);
     },
   );
 });
@@ -9974,5 +11674,696 @@ describe("no stale references/<agent>-instructions.md anchors (pr-review #756 Te
         `${file} references a moved instructions path (references/<agent>-instructions.md); the six instruction files now live at skills/pipeline/flow-<agent>-instructions/SKILL.md.`,
       ).toBe(false);
     }
+  });
+});
+
+/**
+ * Structural lint for f1's ONE prose threading site: the product-brief
+ * read-obligation in `discovery-instructions.md`. Site 2 (the cross-model
+ * battery prompt) renders a string, so its zero-cost-when-absent guarantee
+ * is a real byte-identity assertion in `bin/lib/plan-review-prompt.test.ts`.
+ * A prose obligation has no string to diff, so this is the honest,
+ * machine-checkable half: the block exists, it still obliges the agent to
+ * CITE the brief, and it still names the "no brief resolved ⇒ change
+ * nothing" branch.
+ *
+ * Every assertion anchors on a STABLE STRUCTURAL MARKER — the section
+ * heading, the helper name, the envelope's literal `found` values — never on
+ * an exact English sentence, so ordinary prose rewording does not turn the
+ * suite red.
+ *
+ * Deliberately no assertions over `skills/pipeline/flow-pipeline/`: the
+ * TLDR-authoring sites are f2-explanation-judge's, and a lint here would go
+ * red on an f1-only merge.
+ */
+describe("product-brief threading site (discovery read-obligation)", () => {
+  const PRODUCT_BRIEF_HEADING = "## 1.9. Product brief";
+
+  function briefSection(): string {
+    const c = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+    const start = c.indexOf(PRODUCT_BRIEF_HEADING);
+    expect(
+      start,
+      `discovery-instructions.md must carry a '${PRODUCT_BRIEF_HEADING}' ` +
+        "section — the product brief's only prose read site. Removing it " +
+        "leaves f2-explanation-judge and f3-product-critic consuming a " +
+        "read-obligation that no longer exists.",
+    ).toBeGreaterThan(-1);
+    const rest = c.slice(start + PRODUCT_BRIEF_HEADING.length);
+    const next = rest.search(/^## /m);
+    return rest.slice(0, next === -1 ? rest.length : next);
+  }
+
+  it("sits before the scope check, so the brief is loaded as project context", () => {
+    const c = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+    expect(c.indexOf(PRODUCT_BRIEF_HEADING)).toBeLessThan(
+      c.indexOf("## 2. Scope Check"),
+    );
+  });
+
+  it("reads the brief by bare PATH name, never a bin/lib import", () => {
+    const section = briefSection();
+    expect(
+      section.includes("flow-product-brief"),
+      "the section must name the `flow-product-brief` helper — the bare " +
+        "PATH name is how a subagent running in the consumer worktree " +
+        "reaches the resolver at all.",
+    ).toBe(true);
+    expect(
+      /bin\/lib/.test(section) === false ||
+        /never an? `?import`?/i.test(section),
+      "the section must not direct discovery at a bin/lib import; " +
+        "discovery runs in the consumer/target worktree, where flow's own " +
+        "source tree does not exist.",
+    ).toBe(true);
+  });
+
+  it("states the read as a REQUIRED obligation and names the sites to cite", () => {
+    const section = briefSection();
+    expect(
+      section.includes("REQUIRED"),
+      "the section must mark a resolved brief as REQUIRED context — the " +
+        "same obligation shape as the committed-foundation rule in step " +
+        "1.6(e). A read with no obligation to cite would pass silently.",
+    ).toBe(true);
+    expect(
+      /\bcite\b/i.test(section),
+      "the section must oblige the agent to CITE the brief, not merely " +
+        "read it (a future edit that keeps the read and drops the " +
+        "citation is the regression this pins).",
+    ).toBe(true);
+    for (const site of [
+      "## Problem Statement",
+      "Stakes:",
+      "## Decision analysis",
+      "Value rank:",
+    ]) {
+      expect(
+        section.includes(site),
+        `the section must name '${site}' as a citation site.`,
+      ).toBe(true);
+    }
+  });
+
+  it("names the absent branch: no brief resolved ⇒ change nothing", () => {
+    const section = briefSection();
+    expect(
+      section.includes('"found":false') || /found:\s*false/.test(section),
+      "the section must name the resolver's absent envelope, so a future " +
+        "edit cannot quietly make the read-obligation unconditional.",
+    ).toBe(true);
+    expect(
+      /change NOTHING|change nothing/.test(section),
+      "the section must state that an absent brief changes nothing — the " +
+        "prose half of the zero-cost-when-absent guarantee.",
+    ).toBe(true);
+    expect(
+      /byte-identical/.test(section),
+      "the section must state that the resulting plan.md is byte-identical " +
+        "to today's when no brief resolves.",
+    ).toBe(true);
+  });
+
+  it("runs the helper bare, with no shell-chain guard around it", () => {
+    const section = briefSection();
+    expect(
+      /^flow-product-brief$/m.test(section),
+      "the section must run `flow-product-brief` as a bare command — the " +
+        "helper resolves the brief itself and always exits 0, so a " +
+        "`test -f … && … || echo` chain only adds classifier-visible shell.",
+    ).toBe(true);
+    expect(
+      section.includes("test -f"),
+      "the section must not wrap the helper in a `test -f` existence chain.",
+    ).toBe(false);
+  });
+});
+
+// The Deliberation step is the ONLY pipeline site wired to the blind judge
+// (plan Decision 2: discovery's escape point, not a supervisor-wide hook and
+// not a new pipeline step). Its value depends entirely on a handful of
+// mechanical properties — a cap, an ordering, a blindness flag, an adoption
+// rule — that live in prose and would otherwise rot silently. This pins them.
+describe("discovery deliberation wiring", () => {
+  const REPO_ROOT = path.resolve(HERE, "..");
+  const DISCOVERY_PATH =
+    "skills/pipeline/flow-product-planning/references/discovery-instructions.md";
+
+  function deliberationSection(): string {
+    const text = fs.readFileSync(path.join(REPO_ROOT, DISCOVERY_PATH), "utf8");
+    const start = text.indexOf("**Deliberation step.**");
+    expect(
+      start,
+      "discovery-instructions.md must carry a `**Deliberation step.**` " +
+        "paragraph — it is the one wired consumer of the blind judge.",
+    ).toBeGreaterThan(-1);
+    const end = text.indexOf("**Relation to Decision analysis:**", start);
+    expect(
+      end,
+      "the Deliberation step must sit ABOVE `**Relation to Decision " +
+        "analysis:**` — that is the insertion point outside the " +
+        "byte-identical confidence-rubric block.",
+    ).toBeGreaterThan(start);
+    return text.slice(start, end);
+  }
+
+  it("sits outside the byte-identical confidence-rubric block", () => {
+    const text = fs.readFileSync(path.join(REPO_ROOT, DISCOVERY_PATH), "utf8");
+    const rubricEnd = text.indexOf("<!-- flow-confidence-rubric:end -->");
+    const step = text.indexOf("**Deliberation step.**");
+    expect(rubricEnd).toBeGreaterThan(-1);
+    // interview-playbook.md carries a byte-identical copy of the rubric block
+    // (bin/flow-confidence-rubric-lint.test.ts); an insert one line early goes
+    // red in a file this feature never names.
+    expect(
+      step,
+      "the Deliberation step must be inserted AFTER the rubric block's end " +
+        "marker, or it corrupts interview-playbook.md's byte-identical mirror.",
+    ).toBeGreaterThan(rubricEnd);
+  });
+
+  it("invokes flow-deliberate by bare PATH name, never a bin/lib import", () => {
+    const section = deliberationSection();
+    expect(section).toContain("flow-deliberate");
+    expect(
+      /never import `bin\/lib\/\*`|NOT a `bin\/lib` import/.test(section),
+      "discovery runs in the consumer worktree, where flow's bin/lib does " +
+        "not exist — the section must say so explicitly.",
+    ).toBe(true);
+    expect(
+      section.includes("bun bin/flow-deliberate"),
+      "must not invoke the helper through `bun bin/...` — that path does " +
+        "not exist in a consumer worktree.",
+    ).toBe(false);
+  });
+
+  it("passes the lean via --blind-to-file, kept outside the worktree", () => {
+    const section = deliberationSection();
+    expect(section).toContain("--blind-to-file");
+    expect(
+      /outside\*{0,2} the worktree|\*\*outside\*\* the worktree/.test(section),
+      "the lean file must be written outside the worktree — a `.flow-tmp/` " +
+        "lean is readable by the very judge it is hidden from.",
+    ).toBe(true);
+  });
+
+  it("caps consults at 3 per pass, in descending stakes order", () => {
+    const section = deliberationSection();
+    expect(section).toMatch(/at most\*{0,2} \*{0,2}3/);
+    expect(section).toContain("descending");
+    // The one-shot sub-agent's wall-clock budget is already spent when
+    // research ran inline, so the cap collapses to zero there.
+    expect(section).toMatch(/\*\*0\*\*|\bnever fires\b/);
+  });
+
+  it("names the taste and credential carve-outs the judge must never touch", () => {
+    const section = deliberationSection();
+    expect(section).toMatch(/preference or subjective taste/i);
+    expect(section).toMatch(/credentials or production access/i);
+  });
+
+  it("adopts only re-verified medium/high and marks provenance", () => {
+    const section = deliberationSection();
+    expect(section).toMatch(/`medium` or `high`/);
+    expect(section).toContain("deliberated (");
+    expect(
+      /zero retries/.test(section),
+      "a skip must fall through to today's escape with no retry — retrying " +
+        "a judge is shopping for the answer you wanted.",
+    ).toBe(true);
+  });
+
+  it("forbids transcribing the judge's own anchor onto a low line", () => {
+    const section = deliberationSection();
+    // flow-plan-lint requires a `low` anchor to start with `inference`; a
+    // `weighing:` anchor on `low` fails the plan gate this step exists to help.
+    expect(section).toMatch(/never\s+copy\s+the\s+judge's\s+own\s+anchor/i);
+    expect(section).toContain("flow-plan-lint");
+  });
+
+  it("is pointed at from the PRD template's Open Questions comment", () => {
+    const template = fs.readFileSync(
+      path.join(
+        REPO_ROOT,
+        "skills/pipeline/flow-product-planning/templates/prd-template.md",
+      ),
+      "utf8",
+    );
+    expect(template).toContain("deliberated (");
+    expect(template).toContain("Deliberation step");
+  });
+});
+
+describe("flow-review-finalize's documented invocation actually parses", () => {
+  // PR #829's review caught this fence exiting 2 before doing any work: it
+  // passed `--widened`, which the parser had no case for, and glued each
+  // `--lens-tokens` pair into one argv word via `"${ARR[@]/#/PREFIX }"`.
+  // Because the batching made this the review phase's ONE wrap-up call, a
+  // parse failure silently skips the body upsert, telemetry, the result
+  // artifact and the `pr-review-last-sha` marker — and nothing in the recipe
+  // checked the exit code. Every test passed the whole time, because nothing
+  // tested the recipe's argv against the parser. This does.
+  const FENCE_ANCHOR = "flow-review-finalize --pr";
+
+  function finalizeFence(): string {
+    const start = prReviewContent.indexOf(FENCE_ANCHOR);
+    expect(
+      start,
+      `flow-pr-review/SKILL.md must document a '${FENCE_ANCHOR}' invocation`,
+    ).toBeGreaterThan(-1);
+    const end = prReviewContent.indexOf("```", start);
+    return prReviewContent.slice(start, end === -1 ? start + 2000 : end);
+  }
+
+  it("passes only flags flow-review-finalize's parser accepts", () => {
+    const parserSrc = fs.readFileSync(
+      path.resolve(HERE, "..", "bin", "flow-review-finalize.ts"),
+      "utf8",
+    );
+    const accepted = new Set(
+      (parserSrc.match(/case "(--[a-z-]+)"/g) ?? []).map((m) => m.slice(6, -1)),
+    );
+    expect(
+      accepted.size,
+      "parser cases should be discoverable",
+    ).toBeGreaterThan(5);
+    const used = [...new Set(finalizeFence().match(/--[a-z][a-z-]+/g) ?? [])];
+    const unknown = used.filter((f) => !accepted.has(f));
+    expect(
+      unknown,
+      `flow-pr-review/SKILL.md's flow-review-finalize fence passes flag(s) ` +
+        `${unknown.join(", ")} that bin/flow-review-finalize.ts's parseArgs ` +
+        `has no case for. parseArgs returns exit 2 on an unknown flag, and ` +
+        `this is the review phase's single wrap-up call — so the body upsert, ` +
+        `telemetry, result artifact and pr-review-last-sha marker would all ` +
+        `silently not happen.`,
+    ).toEqual([]);
+  });
+
+  it('builds every conditional argument as an array, never a `${VAR:+--flag "$VAR"}` expansion', () => {
+    // `${VAR:+--flag "$VAR"}` expands to TWO words under bash but exactly ONE
+    // under zsh, which does not word-split unquoted expansions. The
+    // supervisor's shell is zsh, so the conditional-flag form passes
+    // `--widened <reason>` as a single argv word and parseArgs rejects it —
+    // a bash-only reading of the recipe cannot see this.
+    const fence = finalizeFence();
+    const conditionalFlag = /\$\{[A-Z_]+:\+\s*--[a-z-]+/;
+    expect(
+      conditionalFlag.test(fence),
+      `flow-pr-review/SKILL.md's flow-review-finalize fence builds a flag with ` +
+        `a \${VAR:+--flag "$VAR"} conditional expansion. That yields two argv ` +
+        `words under bash but ONE under zsh (which does not word-split ` +
+        `unquoted expansions), so the flag and its value arrive glued together ` +
+        `and parseArgs exits 2. Build an array instead: ` +
+        `ARGS=(); [ -n "$VAR" ] && ARGS=(--flag "$VAR"); then pass "\${ARGS[@]}".`,
+    ).toBe(false);
+  });
+
+  it("checks the helper's exit code rather than firing blind", () => {
+    const start = prReviewContent.indexOf(FENCE_ANCHOR);
+    const window = prReviewContent.slice(start, start + 1200);
+    expect(
+      /RC=\$\?/.test(window) && /RC/.test(window),
+      `flow-pr-review/SKILL.md's flow-review-finalize fence must capture and ` +
+        `check the helper's exit code — an unnoticed non-zero exit silently ` +
+        `skips the entire review wrap-up.`,
+    ).toBe(true);
+  });
+});
+
+describe("Manifest write-back + shared-artifact write-back anchors", () => {
+  it("discovery-survey-epic.md and prd-template.md carry the Manifest write-back contract", () => {
+    expect(
+      discoverySurveyEpicContent.includes("Manifest write-back"),
+      "skills/pipeline/flow-product-planning/references/discovery-survey-epic.md " +
+        "must contain the verbatim 'Manifest write-back' anchor — dropping it silently " +
+        "drops the same-PR manifest write-back obligation for a discovered/standalone " +
+        "producer edge.",
+    ).toBe(true);
+    expect(
+      prdTemplateContent.includes("Manifest write-back"),
+      "skills/pipeline/flow-product-planning/templates/prd-template.md must mirror the " +
+        "'Manifest write-back' field in its ## Epic context template.",
+    ).toBe(true);
+  });
+
+  it("discovery-survey-epic.md documents the sharedArtifacts field", () => {
+    expect(
+      discoverySurveyEpicContent.includes("sharedArtifacts"),
+      "skills/pipeline/flow-product-planning/references/discovery-survey-epic.md must " +
+        "document the optional per-feature `sharedArtifacts` field.",
+    ).toBe(true);
+  });
+
+  it("flow-fix-applier-instructions/SKILL.md and flow-pr-review/SKILL.md validate manifests against the diff", () => {
+    expect(
+      fixApplierContent.includes("flow-epic-dag --touched-files"),
+      "skills/pipeline/flow-fix-applier-instructions/SKILL.md must call " +
+        "`flow-epic-dag --touched-files` against every epic manifest on every PR.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("flow-epic-dag --touched-files"),
+      "skills/pipeline/flow-pr-review/SKILL.md must reference `flow-epic-dag --touched-files` " +
+        "in its Fix-Applier sync pointer (§7.5).",
+    ).toBe(true);
+  });
+});
+
+describe("turn-budget sentinel + SUBJECTIVE-gating rule wiring (PR #859)", () => {
+  const TURN_BUDGET_SENTINEL = "turn-budget — ";
+
+  it.each([
+    ["flow-fix-applier-instructions/SKILL.md", () => fixApplierContent],
+    ["flow-coder-instructions/SKILL.md", () => coderInstructionsContent],
+    ["flow-new-feature/SKILL.md", () => newFeatureContent],
+    ["flow-pr-review/SKILL.md", () => prReviewContent],
+  ])("%s carries the literal turn-budget sentinel", (name, getContent) => {
+    expect(
+      getContent().includes(TURN_BUDGET_SENTINEL),
+      `${name} must carry the literal turn-budget sentinel ` +
+        `"${TURN_BUDGET_SENTINEL}" (em dash + trailing space) so a consumer's ` +
+        `startsWith("turn-budget — ") check has something to match verbatim.`,
+    ).toBe(true);
+  });
+
+  it.each([
+    ["flow-new-feature/SKILL.md", () => newFeatureContent],
+    ["flow-pr-review/SKILL.md", () => prReviewContent],
+  ])(
+    "%s gates unattempted entries with a DECISION Test Step",
+    (name, getContent) => {
+      expect(
+        getContent().includes("DECISION: confirm N unattempted entries"),
+        `${name} must gate a partial/turn-budget artifact behind an unchecked ` +
+          "`- [ ] DECISION: confirm N unattempted entries...` Test Step so the PR " +
+          "is never auto-merged with silently-dropped work.",
+      ).toBe(true);
+    },
+  );
+});
+
+describe("subagent contract fixes (#587, #853, #590, #494, #834)", () => {
+  const read = (...parts: string[]) =>
+    fs.readFileSync(path.resolve(HERE, "..", ...parts), "utf8");
+  const fixApplier = read(
+    "skills",
+    "pipeline",
+    "flow-fix-applier-instructions",
+    "SKILL.md",
+  );
+
+  describe("agent tool allowlist covers instruction-mandated tools", () => {
+    const agentsDir = path.resolve(HERE, "..", "agents", "core");
+    const rows = fs
+      .readdirSync(agentsDir)
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => {
+        const fm =
+          fs.readFileSync(path.join(agentsDir, f), "utf8").split("---")[1] ??
+          "";
+        return {
+          f,
+          tools: /^tools:\s*(.+)$/m.exec(fm)?.[1],
+          skill: /^skills:\s*\n\s*-\s*(\S+)/m.exec(fm)?.[1],
+        };
+      })
+      .filter((r) => r.tools && r.skill);
+
+    it.each(rows.map((r) => [r.f, r] as const))(
+      "%s grants Skill when its preloaded instructions load a skill via the Skill tool",
+      (_f, row) => {
+        const p = path.resolve(
+          HERE,
+          "..",
+          "skills",
+          "pipeline",
+          row.skill as string,
+          "SKILL.md",
+        );
+        expect(fs.existsSync(p)).toBe(true);
+        if (/via the `?Skill`? tool/.test(fs.readFileSync(p, "utf8"))) {
+          expect(
+            (row.tools as string).split(",").map((t) => t.trim()),
+          ).toContain("Skill");
+        }
+      },
+    );
+  });
+
+  it("fix-applier step 8 re-runs /flow-verify under UI_SMOKE_DRIVER: inline, and verify honors it", () => {
+    const step8 = fixApplier.slice(
+      fixApplier.indexOf("## 8. "),
+      fixApplier.indexOf("## 9. "),
+    );
+    expect(step8).toContain("/flow-verify");
+    expect(step8).toContain("UI_SMOKE_DRIVER: inline");
+    expect(step8).toContain(
+      "git restore --staged --worktree . && git clean -fd",
+    );
+    expect(read("skills", "pipeline", "flow-verify", "SKILL.md")).toContain(
+      "Under `UI_SMOKE_DRIVER: inline`",
+    );
+  });
+
+  it("fix-applier deferral never wraps flow-create-issue in $(…)", () => {
+    for (const f of [
+      fixApplier,
+      read("skills", "pipeline", "flow-pr-review", "SKILL.md"),
+    ]) {
+      expect(/\$\(\s*flow-create-issue/.test(f)).toBe(false);
+    }
+  });
+
+  it("pr-review and the consolidator forbid / distrust cross-lens agreement claims", () => {
+    expect(read("skills", "pipeline", "flow-pr-review", "SKILL.md")).toContain(
+      "must never assert that lenses agree",
+    );
+    expect(
+      read("skills", "pipeline", "flow-consolidator-instructions", "SKILL.md"),
+    ).toContain("unverified pointer");
+  });
+
+  it("fix-applier step 5d computes the touched-file list once, before the manifest loop", () => {
+    const from = fixApplier.indexOf("BASE_REF=");
+    const block = /^([\s\S]*?)```/.exec(fixApplier.slice(from))?.[1] as string;
+    expect(block.match(/git diff/g)?.length).toBe(1);
+    expect(block.indexOf("git diff")).toBeLessThan(block.indexOf("for m in"));
+  });
+
+  it("no skill claims a spawned sub-agent lacks the Skill tool", () => {
+    const walk = (d: string): string[] =>
+      fs
+        .readdirSync(d, { withFileTypes: true })
+        .flatMap((e) =>
+          e.isDirectory()
+            ? walk(path.join(d, e.name))
+            : e.name.endsWith(".md")
+              ? [path.join(d, e.name)]
+              : [],
+        );
+    const bad = walk(path.resolve(HERE, "..", "skills")).filter((f) =>
+      /(not|NOT)\*{0,2}\s+have the `Skill` tool|sub-agent does not have|has no `?Skill`? tool|lacks? the `?Skill`? tool/.test(
+        fs.readFileSync(f, "utf8"),
+      ),
+    );
+    expect(bad).toEqual([]);
+  });
+});
+
+describe("flow-doc read forms", () => {
+  const ROOT = path.resolve(HERE, "..");
+  const READ_RULE = "Read flow's own docs with the Read tool";
+
+  const walkMd = (dir: string): string[] =>
+    fs.existsSync(dir)
+      ? fs
+          .readdirSync(dir, { withFileTypes: true })
+          .flatMap((e) =>
+            e.isDirectory()
+              ? walkMd(path.join(dir, e.name))
+              : e.name.endsWith(".md")
+                ? [path.join(dir, e.name)]
+                : [],
+          )
+      : [];
+
+  it("the flow-pipeline supervisor carries the Read-tool-not-awk hard rule", () => {
+    const skill = readPipelineSkillCorpus();
+    expect(skill).toContain("never awk or pattern-range sed");
+  });
+
+  it("every Bash-capable (or tools-unrestricted) agents/core agent carries the read-forms invariant", () => {
+    const agentsDir = path.resolve(ROOT, "agents", "core");
+    for (const file of fs.readdirSync(agentsDir)) {
+      if (!file.endsWith(".md")) continue;
+      const content = fs.readFileSync(path.resolve(agentsDir, file), "utf8");
+      const frontmatter = content.split("---")[1] ?? "";
+      const tools = /^tools:\s*(.+)$/m.exec(frontmatter)?.[1];
+      const hasBash =
+        tools === undefined ||
+        tools.split(",").some((t) => t.trim() === "Bash");
+      if (!hasBash) continue;
+      expect(
+        content.includes(READ_RULE),
+        `agents/core/${file} can run Bash (or omits tools:), so it must carry ` +
+          `the "${READ_RULE}" invariant — otherwise it may awk/sed flow's ` +
+          "installed docs and stall on a protected-file prompt.",
+      ).toBe(true);
+    }
+  });
+
+  it("no skill, agent, or reference line pairs a flow doc home with awk, sed -i, or pattern-range sed", () => {
+    const docPath = /\.flow\/(?:claude-home|overlays)/;
+    const risky = /\bawk\b|sed -i|sed -n '\//;
+    const offenders: string[] = [];
+    for (const root of ["skills", "agents", "references"]) {
+      for (const file of walkMd(path.resolve(ROOT, root))) {
+        fs.readFileSync(file, "utf8")
+          .split("\n")
+          .forEach((line, i) => {
+            if (docPath.test(line) && risky.test(line))
+              offenders.push(`${path.relative(ROOT, file)}:${i + 1}`);
+          });
+      }
+    }
+    expect(
+      offenders,
+      "these lines show an awk / in-place / pattern-range sed form aimed at " +
+        "flow's installed docs, which Claude Code can flag as a protected-file " +
+        "edit; teach the Read tool (or sed -n 'N,Mp') instead.",
+    ).toEqual([]);
+  });
+});
+
+describe("per-spawn effort wiring lint", () => {
+  const root = path.resolve(HERE, "..");
+  const read = (rel: string) =>
+    fs.readFileSync(path.join(root, rel), "utf8").replace(/\s+/g, " ");
+
+  // The six files holding the eight effort-threaded Task spawn sites. Each
+  // variable pairs with the site-specific wording that hands it to the Task
+  // call — the resolve line and surrounding frontmatter/echo notes also name
+  // the variable next to `effort:`, so only this instruction proves the
+  // value is actually passed.
+  const PASS_TASK =
+    "pass the non-empty result as the Task call's per-spawn `effort:`";
+  const SITES: Array<{ file: string; vars: Array<[string, string]> }> = [
+    {
+      file: "skills/pipeline/flow-pr-review/SKILL.md",
+      vars: [
+        [
+          "LENS_EFFORT",
+          "`effort:` set to that lens's printed `resolve_lens` effort",
+        ],
+        ["FIX_APPLIER_EFFORT", PASS_TASK],
+        [
+          "CONSOLIDATOR_EFFORT",
+          "(plus the resolved `model:` and `effort:` above when non-empty)",
+        ],
+      ],
+    },
+    {
+      file: "skills/pipeline/flow-verify/SKILL.md",
+      vars: [["UI_DRIVER_EFFORT", PASS_TASK]],
+    },
+    {
+      file: "skills/pipeline/flow-product-planning/SKILL.md",
+      vars: [
+        [
+          "PLANNING_EFFORT",
+          "as the discovery Task call's per-spawn `effort:` argument",
+        ],
+      ],
+    },
+    {
+      file: "skills/pipeline/flow-new-feature/SKILL.md",
+      vars: [["SCOUT_EFFORT", 'pass effort: "$SCOUT_EFFORT"']],
+    },
+    {
+      file: "skills/pipeline/flow-coder/SKILL.md",
+      vars: [
+        [
+          "CODER_EFFORT",
+          "rides the same Task call as its per-spawn `effort:` argument",
+        ],
+      ],
+    },
+    {
+      file: "skills/pipeline/flow-pipeline/references/phases/step-10-merge.md",
+      vars: [
+        [
+          "MERGE_RESOLVER_EFFORT",
+          'the per-spawn `effort: "$MERGE_RESOLVER_EFFORT"` argument resolved above',
+        ],
+      ],
+    },
+  ];
+
+  it("every spawn-site file resolves effort through flow-spawn-effort and passes each variable as an `effort:` argument", () => {
+    for (const { file, vars } of SITES) {
+      const text = read(file);
+      expect(text, `${file} must name flow-spawn-effort`).toContain(
+        "flow-spawn-effort",
+      );
+      for (const [v, passInstruction] of vars) {
+        expect(
+          text.includes(`${v}=$(command -v flow-spawn-effort`),
+          `${file} must resolve ${v} through flow-spawn-effort`,
+        ).toBe(true);
+        expect(
+          text,
+          `${file} must keep the instruction that hands ${v} to the Task call`,
+        ).toContain(passInstruction);
+      }
+    }
+  });
+
+  it("no spawn site carries schema-gate or version prose — the helper's build gate is the single gate", () => {
+    for (const { file } of SITES) {
+      expect(
+        read(file).toLowerCase(),
+        `${file} must not gate effort on the loaded schema`,
+      ).not.toContain("only if the loaded schema lists");
+    }
+  });
+
+  it("no shipped doc, agent, skill, reference or bin/lib source still claims the Task tool has no per-spawn effort argument", () => {
+    const STALE = [
+      /no per-spawn effort argument/i,
+      /no per-invocation `effort` parameter/i,
+    ];
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === "node_modules" || entry.name === ".git") continue;
+          if (path.relative(root, full) === path.join("docs", "eval")) continue;
+          walk(full);
+        } else if (
+          /\.(md|ts)$/.test(entry.name) &&
+          !/\.test\.ts$/.test(entry.name)
+        ) {
+          files.push(full);
+        }
+      }
+    };
+    for (const dir of ["agents", "skills", "references", "docs"]) {
+      walk(path.join(root, dir));
+    }
+    for (const entry of fs.readdirSync(path.join(root, "bin", "lib"))) {
+      if (/\.ts$/.test(entry) && !/\.test\.ts$/.test(entry)) {
+        files.push(path.join(root, "bin", "lib", entry));
+      }
+    }
+    const offenders = files.filter((f) => {
+      const text = fs.readFileSync(f, "utf8").replace(/\s+/g, " ");
+      return STALE.some((re) => re.test(text));
+    });
+    expect(
+      offenders.map((f) => path.relative(root, f)),
+      "the Task tool takes a per-invocation `effort` parameter on Claude Code " +
+        "2.1.292+; rewrite these stale claims (docs/eval/** fixtures are exempt)",
+    ).toEqual([]);
   });
 });

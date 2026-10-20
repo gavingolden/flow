@@ -1,0 +1,393 @@
+{
+  "measuredAt": "2026-10-19T21:42:24.307Z",
+  "records": [
+    {
+      "surface": "research-gather",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 1,
+      "wallSec": 521.965,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 10807,
+      "deniedActions": []
+    },
+    {
+      "surface": "research-gather",
+      "model": "Gemini 4 Argon (Medium)",
+      "repeat": 1,
+      "wallSec": 536.032,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 12849,
+      "deniedActions": []
+    },
+    {
+      "surface": "research-gather",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 2,
+      "wallSec": 415.365,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 10730,
+      "deniedActions": []
+    },
+    {
+      "surface": "research-gather",
+      "model": "Gemini 4 Argon (Medium)",
+      "repeat": 2,
+      "wallSec": 387.9,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 11374,
+      "deniedActions": []
+    },
+    {
+      "surface": "research-gather",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 3,
+      "wallSec": 346.644,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 10192,
+      "deniedActions": []
+    },
+    {
+      "surface": "research-gather",
+      "model": "Gemini 4 Argon (Medium)",
+      "repeat": 3,
+      "wallSec": 330.737,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 8553,
+      "deniedActions": []
+    },
+    {
+      "surface": "plan-review",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 1,
+      "wallSec": 306.526,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 35446,
+      "deniedActions": []
+    },
+    {
+      "surface": "plan-review",
+      "model": "Gemini 4 Argon (Medium)",
+      "repeat": 1,
+      "wallSec": 162.82,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 23783,
+      "deniedActions": []
+    },
+    {
+      "surface": "plan-review",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 2,
+      "wallSec": 254.438,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 29686,
+      "deniedActions": []
+    },
+    {
+      "surface": "plan-review",
+      "model": "Gemini 4 Argon (Medium)",
+      "repeat": 2,
+      "wallSec": 109.288,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 23497,
+      "deniedActions": []
+    },
+    {
+      "surface": "plan-review",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 3,
+      "wallSec": 256.345,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 29053,
+      "deniedActions": []
+    },
+    {
+      "surface": "plan-review",
+      "model": "Gemini 4 Argon (Medium)",
+      "repeat": 3,
+      "wallSec": 129.65,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 28812,
+      "deniedActions": []
+    },
+    {
+      "surface": "blind-survey",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 1,
+      "wallSec": 78.806,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 5016,
+      "deniedActions": []
+    },
+    {
+      "surface": "blind-survey",
+      "model": "Gemini 4 Argon (Medium)",
+      "repeat": 1,
+      "wallSec": 88.646,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 5454,
+      "deniedActions": []
+    },
+    {
+      "surface": "blind-survey",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 2,
+      "wallSec": 100.882,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 4785,
+      "deniedActions": []
+    },
+    {
+      "surface": "blind-survey",
+      "model": "Gemini 4 Argon (Medium)",
+      "repeat": 2,
+      "wallSec": 45.153,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 5345,
+      "deniedActions": []
+    },
+    {
+      "surface": "blind-survey",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 3,
+      "wallSec": 96.049,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 5198,
+      "deniedActions": []
+    },
+    {
+      "surface": "blind-survey",
+      "model": "Gemini 4 Argon (Medium)",
+      "repeat": 3,
+      "wallSec": 66.701,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 5009,
+      "deniedActions": []
+    },
+    {
+      "surface": "intent-guess",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 1,
+      "wallSec": 37.642,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 4842,
+      "deniedActions": []
+    },
+    {
+      "surface": "intent-guess",
+      "model": "Gemini 4 Argon (Medium)",
+      "repeat": 1,
+      "wallSec": 20.849,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 4327,
+      "deniedActions": []
+    },
+    {
+      "surface": "intent-guess",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 2,
+      "wallSec": 36.481,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 5876,
+      "deniedActions": []
+    },
+    {
+      "surface": "intent-guess",
+      "model": "Gemini 4 Argon (Medium)",
+      "repeat": 2,
+      "wallSec": 25.359,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 5065,
+      "deniedActions": []
+    },
+    {
+      "surface": "review-lens",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 1,
+      "wallSec": 176.541,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 2631,
+      "deniedActions": []
+    },
+    {
+      "surface": "review-lens",
+      "model": "Gemini 4 Argon (Medium)",
+      "repeat": 1,
+      "wallSec": 116.966,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 3454,
+      "deniedActions": []
+    },
+    {
+      "surface": "review-lens",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 2,
+      "wallSec": 130.142,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 2077,
+      "deniedActions": []
+    },
+    {
+      "surface": "review-lens",
+      "model": "Gemini 4 Argon (Medium)",
+      "repeat": 2,
+      "wallSec": 95.135,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 3206,
+      "deniedActions": []
+    },
+    {
+      "surface": "research-gather-capped",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 1,
+      "wallSec": 376.436,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 9401,
+      "deniedActions": []
+    },
+    {
+      "surface": "research-gather-capped",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 2,
+      "wallSec": 308.409,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 7092,
+      "deniedActions": []
+    },
+    {
+      "surface": "research-gather-capped",
+      "model": "Gemini 4 Argon (High)",
+      "repeat": 3,
+      "wallSec": 258.712,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 7295,
+      "deniedActions": []
+    }
+  ],
+  "limits": {
+    "research-gather": {
+      "Gemini 4 Argon (High)": {
+        "limit": "20m",
+        "verdict": "limit-mismatch",
+        "medianSec": 415.365
+      },
+      "Gemini 4 Argon (Medium)": {
+        "limit": "20m",
+        "verdict": "fits",
+        "medianSec": 387.9
+      }
+    },
+    "plan-review": {
+      "Gemini 4 Argon (High)": {
+        "limit": "13m",
+        "verdict": "fits",
+        "medianSec": 256.345
+      },
+      "Gemini 4 Argon (Medium)": {
+        "limit": "10m",
+        "verdict": "fits",
+        "medianSec": 129.65
+      }
+    },
+    "blind-survey": {
+      "Gemini 4 Argon (High)": {
+        "limit": "10m",
+        "verdict": "fits",
+        "medianSec": 96.049
+      },
+      "Gemini 4 Argon (Medium)": {
+        "limit": "10m",
+        "verdict": "fits",
+        "medianSec": 66.701
+      }
+    },
+    "intent-guess": {
+      "Gemini 4 Argon (High)": {
+        "limit": "10m",
+        "verdict": "fits",
+        "medianSec": 37.0615
+      },
+      "Gemini 4 Argon (Medium)": {
+        "limit": "10m",
+        "verdict": "fits",
+        "medianSec": 23.104
+      }
+    },
+    "review-lens": {
+      "Gemini 4 Argon (High)": {
+        "limit": "10m",
+        "verdict": "fits",
+        "medianSec": 153.3415
+      },
+      "Gemini 4 Argon (Medium)": {
+        "limit": "10m",
+        "verdict": "fits",
+        "medianSec": 106.0505
+      }
+    },
+    "research-gather-capped": {
+      "Gemini 4 Argon (High)": {
+        "limit": "16m",
+        "verdict": "fits",
+        "medianSec": 308.409
+      }
+    }
+  }
+}

@@ -18,6 +18,9 @@
  * agentic-execution loop is out of scope for this harness.
  */
 
+import type { AgyFailureClass } from "./agy-failure-class";
+import { isGoDuration } from "./delegate-timeouts";
+
 export type BenchSurface =
   | "scout"
   | "log-triage"
@@ -26,6 +29,8 @@ export type BenchSurface =
   | "plan-review"
   | "review-lens"
   | "research-refute"
+  | "research-gather"
+  | "blind-survey"
   | "critique"
   | "gatekeeper";
 
@@ -37,6 +42,8 @@ export const BENCH_SURFACES: readonly BenchSurface[] = [
   "plan-review",
   "review-lens",
   "research-refute",
+  "research-gather",
+  "blind-survey",
   "critique",
   "gatekeeper",
 ];
@@ -72,6 +79,16 @@ export type BenchCase = {
   schemaAb?: boolean;
   sizes?: number[];
   repeats?: number;
+  // Production posture. `skipPermissions` auto-approves agy tools (web search)
+  // with no workspace reachable; `addDir` (fixture-relative) grants read access
+  // to a small context directory in place of the repository (the prompt names
+  // it with the {{ADD_DIR}} placeholder, resolved at dispatch) — never both, so
+  // an auto-approving process never reaches a workspace. `productionTimeout` is the
+  // step's real limit (a Go duration): the case is dispatched at exactly that
+  // cut, so a timeout is the production outcome.
+  skipPermissions?: boolean;
+  addDir?: string;
+  productionTimeout?: string;
   // Staleness annotation — the commit SHA the case was authored against, so
   // a later drift in the surface's prompt/schema is detectable. REQUIRED
   // non-empty: a case with no authoredAtCommit cannot be checked for rot.
@@ -140,6 +157,13 @@ export type BenchResult = {
   structuredOutput?: unknown;
   parseRetries?: number;
   size?: number;
+  // Why a ran:false slot failed: the delegate envelope's class, or
+  // "tool-denied-empty" for a ran:true attempt whose tools were refused and
+  // whose answer came back empty (production behaviour, still counted).
+  failureClass?: AgyFailureClass | "tool-denied-empty";
+  // Quota reset hint parsed from the refusal text (e.g. "92h31m22s").
+  resetsIn?: string;
+  deniedActions?: string[];
 };
 
 export type ValidationOk<T> = { ok: true; value: T };
@@ -231,6 +255,25 @@ export function validateCase(o: unknown): ValidationResult<BenchCase> {
   }
   if (o.repeats !== undefined && !isNumber(o.repeats)) {
     return err("'repeats' must be a number when present");
+  }
+  if (o.skipPermissions !== undefined && !isBoolean(o.skipPermissions)) {
+    return err("'skipPermissions' must be a boolean when present");
+  }
+  if (o.addDir !== undefined && !isNonEmptyString(o.addDir)) {
+    return err("'addDir' must be a non-empty string when present");
+  }
+  if (o.addDir !== undefined && o.skipPermissions === true) {
+    return err(
+      "'addDir' and 'skipPermissions' are mutually exclusive (an auto-approving agy process must reach no workspace)",
+    );
+  }
+  if (
+    o.productionTimeout !== undefined &&
+    (!isString(o.productionTimeout) || !isGoDuration(o.productionTimeout))
+  ) {
+    return err(
+      `'productionTimeout' must be a Go-duration string when present (got ${JSON.stringify(o.productionTimeout)})`,
+    );
   }
   if (!isNonEmptyString(o.authoredAtCommit)) {
     return err("'authoredAtCommit' must be a non-empty string");

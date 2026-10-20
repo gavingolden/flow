@@ -1,0 +1,304 @@
+---
+name: flow-ui-driver-instructions
+description: Preloaded instructions for the flow-ui-driver subagent; not for direct invocation.
+---
+
+<!-- flow-instructions-sentinel: flow-ui-driver-instructions -->
+
+# UI-driver instructions
+
+These instructions are read by the UI-driver subagent that `/flow-verify`'s
+SKILL.md (or `/flow-pr-review` Step 8c.iii) spawns via the Task tool. The
+subagent runs in an isolated context — its MCP tool calls, launch subprocess
+output, and captures assembly stay inside its own session and are never
+returned to the caller. The only outputs it produces are the side effects on
+the worktree (the committed manifest self-improvements, the captures JSON)
+and the structured artifact it writes to disk
+(`.flow-tmp/ui-driver-result.json`), plus a brief one-paragraph summary it
+returns on completion.
+
+The drive procedure itself — probe, launch, per-route/per-viewport MCP
+sequence, noise filter, self-improving manifest persist-back, teardown — is
+the shared body already documented in
+[`../flow-pipeline/references/ui-smoke-pass.md`](../flow-pipeline/references/ui-smoke-pass.md).
+This file does not reproduce that procedure; it cites it by relative path so
+the two cannot drift, and adds only what is specific to running that
+procedure INSIDE a spawned, isolated sub-agent rather than inline in the
+calling skill's own context: the spawn-prompt inputs, the artifact contract,
+and the two responsibilities the caller does not do for you (the
+`evidence_paths[] → ui_screenshots[]` mapping, and the `fix_context[]`
+assembly).
+
+## Inputs
+
+The wrapper passes you these inputs in its spawn prompt:
+
+- `ENVELOPE_PATH` — the absolute path to the `flow-ui-validate` verdict
+  envelope the caller already resolved (a `ran:true` ready or bootstrap
+  envelope; the caller does the probe → bootstrap-inference step before ever
+  spawning you, so you only ever receive a drivable envelope).
+- `MANIFEST_PATH` — the absolute path to `.flow/ui-validation.json`.
+- `WORKTREE` — the absolute worktree path (your working directory).
+- `SLUG` — the pipeline slug, resolved by the caller from `FLOW_SLUG` /
+  `~/.flow/state/<slug>.json` / the worktree basename (env-only chain — see
+  "Never read tmux pane state" below).
+- `ARTIFACT_PATH` — the absolute path to write the result artifact
+  (`.flow-tmp/ui-driver-result.json` under the worktree).
+- `CAPTURES_PATH` — the absolute path to write the per-route/per-viewport
+  captures JSON (`.flow-tmp/ui-captures.json` under the worktree).
+- `MODE` — optional. Absent for the `/flow-verify` default drive (drive the
+  full manifest route set). Set to the literal `items` by the
+  `/flow-pr-review` 8c.iii caller (the older literal `visual-appearance` is
+  still accepted as an alias and means the same thing), always paired with a
+  checklist item list in the same spawn prompt where each item is tagged
+  `appearance`, `behavior` or `capture`: drive only the routes needed to cover
+  those items, apply `ui-smoke-pass.md`'s per-viewport `## UI traits to
+verify` rubric, follow its `## Item-driven drive` section for the per-kind
+  procedure and bounds, set each `fix_context[]` entry's optional `item` field
+  to the checklist item it maps evidence back to, and write one
+  `item_results[]` entry per item (see step 4 below). An untagged item under
+  the alias is `appearance`.
+- `CALLER` — optional: `review-8c` from the `/flow-pr-review` 8c.iii caller;
+  absent means `verify` (the `/flow-verify` smoke pass). Stamped into the
+  artifact as `caller` so the merge gate can tell the two writers of the same
+  path apart.
+- `PREFLIGHT` — optional: the `flow-ui-preflight` envelope the caller already
+  ran. When it says `ready: false`, do not launch anything: write the artifact
+  with `ran: false`, `ok: false`, `skipped_reason: "dependency-unready"`.
+- `SKILL_DIR` — the absolute skill base directory. Resolve
+  `../flow-pipeline/references/ui-smoke-pass.md` relative to this path, not
+  the worktree you `cd`'d into.
+
+## 1. Load context
+
+- Read the envelope at `ENVELOPE_PATH` for `meta.launch`, `meta.env`,
+  `meta.baseUrl`, `meta.port`/`meta.ports`, `routes[]`, `loginUrl`,
+  `credentialEnvVars`, and `meta.viewports`.
+- Read `../flow-pipeline/references/ui-smoke-pass.md` end to end before
+  driving anything — "Launch and drive", "Design-fidelity sub-pass",
+  "Teardown", "Fix-loop routing", "Noise filter", and "Self-improving
+  manifest" are all load-bearing, not optional background.
+
+## 2. Drive
+
+Follow `ui-smoke-pass.md`'s "Probe and skip (and bootstrap)" and "Launch and
+drive" sections verbatim — that shared file carries the canonical
+per-route/per-viewport drive-MCP call sequence (issue #318 de-duplicated it
+into one shared reference; do not re-copy it here). In short: bring the
+launch up with one standalone call, `flow-spawn --detach --class default
+--stdout <WORKTREE>/.flow-tmp/ui-launch.out --stderr
+<WORKTREE>/.flow-tmp/ui-launch.err --slug <SLUG> --cwd <WORKTREE>
+--from-envelope <ENVELOPE_PATH>`, every placeholder written as a literal
+absolute path or the slug (the helper reads `meta.launch`/`meta.env` from the
+verdict file and applies `meta.env` to the launch process only — never a
+`.env.local`/`.env`/config file); the literal stderr
+`flow-spawn: unknown flag: --cwd` or `unknown flag: --from-envelope` (an older
+install) means `skipped_reason: "app-launch-failed"` with "flow-spawn too old —
+run flow install --upgrade" in the summary; any other `flow-spawn:
+--from-envelope: …` refusal (e.g. no meta object, an unresolved `{{PORT}}`)
+means `app-launch-failed` quoting that message as the cause — never another
+launch form, and always put the cause in the summary (the supervisor relays it
+as the skip reason). Then open a per-pipeline isolated page keyed on `SLUG`, run the Login step when the
+manifest declares a login wall — credential presence is checked with
+`flow-ui-login check` (names only), and the seeded local test account's
+values come from `flow-ui-login test-account` — then drive each
+route × each declared viewport per `ui-smoke-pass.md`'s "Launch and drive"
+section.
+
+Login recipe (a manifest with a login wall):
+
+1. Run `flow-ui-login test-account --manifest <abs>/.flow/ui-validation.json
+--worktree <abs>` as its own standalone foreground Bash call (absolute
+   paths, no pipe, no redirect, no env-var prefix, no `cd … &&`, no
+   background). It reads only the committed, unmodified
+   `.flow/ui-validation.json`, so a bootstrap must commit the manifest before
+   logging in (exit 2 `manifest-not-committed` / `manifest-not-in-worktree`
+   otherwise). Exit 3 means the account is missing: record
+   `credentials-unavailable`. Exit 2 with `non-local-base-url` means the
+   manifest points off localhost: record `login-failed` naming the non-local
+   address (`baseUrl` or `loginUrl`).
+2. If the MCP tools are deferred, load `mcp__chrome-devtools__fill_form`
+   with `ToolSearch` (`select:`) alongside `navigate_page`, then
+   `navigate_page` to `loginUrl`.
+3. `take_snapshot` (mandatory — `fill_form` needs the element `uid`s; the
+   snapshot is transient and never saved). Never snapshot again while still on
+   `loginUrl` after filling.
+4. ONE `fill_form` call with the two values `test-account` printed, then
+   click the submit button.
+5. `wait_for` the redirect and derive `loginOk` from `location.pathname`
+   leaving `loginUrl`.
+
+**Never capture the login form, and never persist a credential VALUE.** The
+email/username field renders in plaintext in both a screenshot and an a11y
+snapshot — masking is not the protection here — so the unconditional rule is:
+the login form is never screenshotted or saved as evidence, and only
+credential NAMES (never a VALUE) are ever written to the captures JSON, the
+result artifact, the manifest, a commit message, a PR body or a Test Step. Your `Write` grant makes omitting this rule more
+dangerous than it was when the pass ran inline, not less — honor it exactly
+as written in `ui-smoke-pass.md`.
+
+<!-- flow-credential-denial-rule -->
+
+**Credential denial means stop.** When a permission check, the auto-mode
+classifier, or a deny rule refuses any credential-related action —
+reading a `.env`-family file, printing a credential variable, running
+`flow-ui-login test-account`, or the `fill_form` that types the
+test-account values — STOP the browser check. Never retry through another
+tool (Read, grep, cat, a script, `evaluate_script`, or a different
+fill/type tool): record `skipped_reason: "credentials-unavailable"` and let
+the caller surface `smoketest-needs-creds`, naming only the variable NAMES.
+Values filled and submitted but the page still on `loginUrl` is not a
+refusal: record `login-failed`.
+
+**Slug resolution is env-only.** Resolve `SLUG` from the value the wrapper
+passed you (itself derived from `FLOW_SLUG` / `~/.flow/state/<slug>.json` /
+the worktree basename). Never read tmux pane state — in code or in this
+file's own prose — to key the isolated page or resolve the slug; that is a
+frozen anti-pattern (`bin/pane-read-lint.test.ts` fails CI on a pane read
+anywhere, prose included).
+
+Write the enriched per-viewport captures to `CAPTURES_PATH` and run
+`flow-ui-validate --manifest "$MANIFEST_PATH" --captures "$CAPTURES_PATH"`.
+Apply the "Noise filter" and "Self-improving manifest" sections exactly:
+when a flagged error is benign noise unrelated to the diff, add the
+substring to `ignoreRequestPatterns` / `ignoreConsolePatterns` and commit the
+manifest change rather than treating it as a drive failure; when you adapted
+the launch/env/baseUrl/routes/login fields to make the run work, persist
+those adaptations back into `.flow/ui-validation.json` and commit them too.
+
+## 3. Tear down on every exit path
+
+Follow `ui-smoke-pass.md`'s "Teardown (servers and browser, symmetric)"
+section exactly, on completion **and on every error / early-exit path** —
+close the isolated page/context you opened (by the numeric `pageId` your own
+`new_page` call returned, never a re-derived `list_pages` scan) and bring the
+launched server(s) down (by the printed launch pid's process group,
+`kill -TERM -<pid>`, or the registry `pgid`, never a bare shell-job kill). Do this before writing the artifact in step 5,
+so a crash after teardown still leaves the worktree clean.
+
+<!-- flow-denial-teardown -->
+
+Exception — after a credential denial: make no further browser, MCP or
+teardown calls (the classifier treats them as tunneling the denied action).
+Write the artifact with `credentials-unavailable` and return. The pipeline's
+`flow-browser-teardown --reap --record` closes the page, the browser and the
+launched servers.
+
+## 4. Map captures to the artifact shape
+
+Two mappings this agent owns that the caller does not do for you:
+
+- **`evidence_paths[] → ui_screenshots[]`.** `flow-ui-validate --captures`'s
+  verdict carries `evidence_paths[]`; carry forward the existing `test -f`
+  survival guard — a screenshot path that failed to actually land on disk
+  (the save-path cascade's `screenshots-unwritable` case) is dropped rather
+  than emitted into `ui_screenshots[]`. Only a path that verifiably exists on
+  disk at artifact-write time is reported as evidence.
+- **`fix_context[]` assembly.** For each route whose captures produced an
+  `ok:false` (a console error, a failed request, or a missing
+  `expectSelectors` element) that survived the noise filter, add one
+  `{route, consoleErrors, failedRequests, missingSelectors}` entry (plus
+  `item` — the checklist item this route's evidence maps back to — when
+  `MODE: items` supplied an enumerated item list; omit `item`
+  entirely for the default `/flow-verify` drive, which has no per-item
+  checklist).
+  `bin/lib/ui-driver-schema.ts` rejects an artifact that exceeds any of
+  three independent caps: 10 entries total, 20 items per
+  `consoleErrors`/`failedRequests`/`missingSelectors` array, and 300
+  characters per string within those arrays. Apply the caps in this order
+  so nothing is silently rejected downstream: truncate each individual
+  string to 300 characters; then, if an inner array still has more than 20
+  items, keep the first 20 and drop the rest (an item count cannot be
+  "truncated" — only a string can); then, if you have more than 10 route
+  entries, keep the 10 most actionable (routes with the most captures, or
+  the earliest in `routes[]` on a tie) and drop the rest.
+
+- **`item_results[]` assembly (`MODE: items` only).** One entry per item in
+  the spawn prompt's list, in list order, per `ui-smoke-pass.md`
+  `## Item-driven drive`. Echo each item's `index` (the 1-based checklist
+  index the list gave it) in its entry — the gate matches on `index` only:
+  - `appearance` — assert the observation against the a11y snapshot; verdict
+    `pass` / `fail` / `not-drivable`; `snapshot_path` is the saved snapshot.
+  - `behavior` — perform the item's action chain, `wait_for` the expected
+    result, snapshot as proof. `pass` requires the expected element to be
+    **visible in the viewport**, not merely present in the page. At most
+    **8 browser actions and one wait of 15s** per item; on overrun the
+    verdict is `not-drivable` with the reason, and you move to the next item.
+  - `capture` — reach the state the item text describes (running any local,
+    reversible setup it names), screenshot at the sizes the item names, else
+    phone **390** and desktop **1280**. Never judge a capture item: verdict
+    `captured` or `not-captured` only. When the exact state cannot be
+    reached, capture the nearest reachable state and set `reason` to
+    `partial: <precondition not met>`. **Never capture a credential form.**
+  - `screenshots[]` holds only **absolute** paths that pass the same `test -f` survival
+    guard as `ui_screenshots[]`, written under `.flow-tmp/ui-evidence/`.
+    Schema caps: 30 entries, 6 screenshots per entry, 300 characters per
+    string — truncate strings, keep the first 6 screenshots, and if the list
+    exceeds 30 items report the first 30 and name the rest in `summary`.
+  - Omit `item_results` entirely for the default `/flow-verify` drive.
+
+## 5. Write the artifact (last act)
+
+Write `ARTIFACT_PATH` as the LAST act, after teardown, conforming to
+`bin/lib/ui-driver-schema.ts`'s `UiDriverResult` shape. `headSha` is the output
+of `git rev-parse HEAD` in `WORKTREE` computed immediately before the write —
+AFTER any manifest commit-back above, so a self-improving commit never makes
+fresh evidence look stale; `caller` is `CALLER` (default `verify`):
+
+```json
+{
+  "ran": true,
+  "ok": true,
+  "captures_path": "<CAPTURES_PATH, absolute>",
+  "ui_screenshots": ["<absolute path>", "..."],
+  "fix_context": [
+    {
+      "route": "/",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "missingSelectors": []
+    }
+  ],
+  "headSha": "<git rev-parse HEAD, computed immediately before writing>",
+  "caller": "<verify | review-8c — per CALLER>",
+  "item_results": [
+    {
+      "index": 10,
+      "item": "<checklist item text>",
+      "kind": "behavior",
+      "verdict": "pass",
+      "snapshot_path": "<absolute path>",
+      "screenshots": []
+    }
+  ],
+  "rejected_alternatives": ["<what you tried and rolled back — 1 line each>"],
+  "summary": "<3-5 sentence both-sides summary>"
+}
+```
+
+On a degraded run (MCP absent, browser-profile busy, launch/login failure,
+a credential action refused or absent, or every screenshot save path
+denied), set `ran`/`ok` to reflect the degrade and set `skipped_reason` to
+the matching member of the schema's union (`mcp-not-available`,
+`browser-profile-busy`, `app-launch-failed`, `login-failed`,
+`screenshots-unwritable`, `credentials-unavailable` — a credential action
+was refused or the credentials are absent, `dependency-unready` — the
+`PREFLIGHT` envelope said `ready: false`) — never `driver-no-artifact`,
+which is reserved for the CALLER to synthesize when this agent's artifact
+never lands on disk at all (a timeout, a crash before step 5). Validate
+before returning: `flow-ui-driver-schema --validate "$ARTIFACT_PATH"`
+(exit 0 required).
+
+Two invariants, matching the flow-fix-applier subagent:
+
+- **Drive the browser inline. Never spawn a nested Task.** Your own
+  isolated context is the isolation a nested spawn would provide.
+- **You are one-shot.** Do not ask the user clarifying questions. Return a
+  short both-sides summary; the artifact on disk is the durable record.
+
+## 6. Return a brief summary
+
+One short paragraph (3–5 sentences): which routes/viewports you drove, the
+verdict, and at least one negative finding — a noise-filter addition you
+made, a manifest adaptation you persisted, or a degrade you hit. Do not
+paste the artifact JSON back.

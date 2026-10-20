@@ -1,11 +1,11 @@
 # Escalation Recipes
 
-This file carries the nine worked heredoc + validate + `mv` recipes
+This file carries the seven worked heredoc + validate + `mv` recipes
 for the bail-out paths in `/flow-pr-review`'s wrapper. Each recipe writes
 `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
 and the per-tag `completed_steps[]` / `missed_steps[]` arrays the
 supervisor's branch-on-status logic reads at `/flow-pipeline` step 8.
-The nine blocks are kept distinct (not templated) because the
+The seven blocks are kept distinct (not templated) because the
 per-tag arrays differ in load-bearing ways — see each recipe's intro
 for what fires it.
 
@@ -17,52 +17,6 @@ if `pr-review-result.json` already exists with `status: "escalated"`
 generic escalation must NOT overwrite it. Each heredoc below should
 be preceded by the guard's `[ "$(jq -r '.status' "$RESULT_PATH"
 2>/dev/null || true)" = "escalated" ] && exit 0` check.
-
-## `task-tool-unavailable: pr-review-gatekeeper`
-
-Raised by Step 1.5's spawn-site preamble when
-`ToolSearch query="select:Task"` returns neither `"name": "Task"` nor
-`"name": "Agent"`. Only Step 1 ran before the bail; Step 1.5 onward did
-not.
-
-```bash
-RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
-[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
-cat > "$RESULT_PATH.tmp" <<'EOF'
-{
-  "status": "escalated",
-  "completed_steps": ["1"],
-  "missed_steps": ["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
-  "escalation_tag": "task-tool-unavailable: pr-review-gatekeeper",
-  "summary": "Bailed at the Gatekeeper spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available."
-}
-EOF
-flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
-  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
-```
-
-## `gatekeeper-missing-artifact`
-
-Raised by Step 1.5's post-spawn existence check when
-`test -s "$ARTIFACT_PATH"` fails (the Gatekeeper subagent returned but
-wrote no artifact at `.flow-tmp/gatekeeper-result.json`). Only Step 1 ran
-before the bail; Step 1.5 onward did not.
-
-```bash
-RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
-[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
-cat > "$RESULT_PATH.tmp" <<'EOF'
-{
-  "status": "escalated",
-  "completed_steps": ["1"],
-  "missed_steps": ["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
-  "escalation_tag": "gatekeeper-missing-artifact",
-  "summary": "Gatekeeper subagent returned but wrote no artifact at .flow-tmp/gatekeeper-result.json; supervisor must escalate without retry per the no-retry-on-missing-artifact contract."
-}
-EOF
-flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
-  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
-```
 
 ## `task-tool-unavailable: pr-review-multi-agent-review`
 
@@ -111,11 +65,12 @@ flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
 
 ## `fix-applier-missing-artifact`
 
-Raised by Step 8's post-spawn existence check when
-`test -s "$ARTIFACT_PATH"` fails (the Fix-Applier subagent returned
-but its artifact at `.flow-tmp/fix-applier-result.json` is missing or
-empty). Steps 1 through 5 plus the Step 8 spawn ran; Steps 8c onward
-did not.
+Raised by Step 8's post-spawn completeness check when the artifact is
+missing or invalid (not merely `test -s "$ARTIFACT_PATH"`). A
+`status: "partial"` artifact first routes to the partial-result
+continuation (SKILL Spawn procedure item 4) and escalates here only when
+the continuation also leaves it missing, invalid, or still `partial`.
+Steps 1 through 5 plus the Step 8 spawn ran; Steps 8c onward did not.
 
 ```bash
 RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
@@ -126,7 +81,35 @@ cat > "$RESULT_PATH.tmp" <<'EOF'
   "completed_steps": ["1", "2", "3", "4", "5", "8"],
   "missed_steps": ["8c", "9", "10", "11", "12", "13"],
   "escalation_tag": "fix-applier-missing-artifact",
-  "summary": "Fix-Applier subagent returned but the artifact at .flow-tmp/fix-applier-result.json is missing or empty. Wrapper bailed at Step 8's existence check; supervisor must restart."
+  "summary": "Fix-Applier subagent returned but the artifact at .flow-tmp/fix-applier-result.json is missing, invalid, or still status: partial. Wrapper bailed at Step 8's completeness check; supervisor must restart."
+}
+EOF
+flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
+  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+```
+
+## `agent-stalled: pr-review-fix-applier`
+
+Raised when the Fix-Applier subagent's Task result reports
+`Agent stalled: no progress for 600s (stream watchdog did not
+recover)`. Per `flow-pipeline/references/partial-result-continuation.md`'s
+Stall branch: send exactly one `SendMessage` resume attempt; if refused,
+or the artifact still isn't `status: "complete"` afterward, consume the
+partial artifact, route never-started findings through loss accounting
+(`flow-untracked add`) rather than finishing the work inline, then run
+`flow-pre-commit --json` once — a red tree with never-started findings
+escalates below, a green tree proceeds without escalating.
+
+```bash
+RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
+cat > "$RESULT_PATH.tmp" <<'EOF'
+{
+  "status": "escalated",
+  "completed_steps": ["1", "2", "3", "4", "5", "8"],
+  "missed_steps": ["8c", "9", "10", "11", "12", "13"],
+  "escalation_tag": "agent-stalled: pr-review-fix-applier",
+  "summary": "Fix-Applier subagent stalled (stream watchdog, no progress for 600s). One SendMessage resume attempt failed to produce a status: complete artifact; the tree is still red after consuming the partial artifact."
 }
 EOF
 flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
@@ -137,7 +120,7 @@ flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
 
 Raised by Step 3.5's spawn-site preamble when
 `ToolSearch query="select:Task"` returns neither `"name": "Task"` nor
-`"name": "Agent"`. Steps 1, 1.5 (Gatekeeper), and 2 (Fetch) ran
+`"name": "Agent"`. Steps 1, 1.5 (metadata triage), and 2 (Fetch) ran
 successfully; Step 3.5 bailed before fanning out the multi-agent
 review, so Step 3 (and everything after) did not run.
 

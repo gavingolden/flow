@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  appendPhaseLog,
   autoResumesAfterClear,
   AWAITING_HUMAN_PHASES,
   deleteState,
@@ -14,6 +15,7 @@ import {
   isMainStateFile,
   isPipelineKind,
   isPipelinePhase,
+  kindFromPhase,
   listStates,
   PENDING_PHASES,
   PHASE_MODEL_FIELDS,
@@ -21,8 +23,10 @@ import {
   PIPELINE_KINDS,
   PIPELINE_PHASES,
   PIPELINE_PHASE_SET,
+  pausedPhase,
   readState,
   requestFilePath,
+  resolveStateKind,
   shortPhase,
   STEP_PHASES,
   TERMINAL_EXIT_TRANSITIONS,
@@ -147,6 +151,27 @@ describe("state", () => {
       }),
     );
     expect(readState("bad-worktree", dir)).toBeNull();
+  });
+
+  it("readState round-trips reservedWorktree and rejects a non-string one", () => {
+    writeState(
+      fixture("reserved", { reservedWorktree: "/tmp/repo-reserved" }),
+      dir,
+    );
+    expect(readState("reserved", dir)?.reservedWorktree).toBe(
+      "/tmp/repo-reserved",
+    );
+    fs.writeFileSync(
+      path.join(dir, "bad-reserved.json"),
+      JSON.stringify({
+        slug: "bad-reserved",
+        phase: "starting",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        reservedWorktree: 42,
+      }),
+    );
+    expect(readState("bad-reserved", dir)).toBeNull();
   });
 
   it("readState returns null when state JSON has wrong-type waitForCopilot (string instead of boolean)", () => {
@@ -1497,6 +1522,19 @@ describe("phase constants", () => {
     expect(isPipelinePhase("ci-wait-pending")).toBe(true);
   });
 
+  it("browser-retry-pending is a pending phase with the brwsr? label, disjoint from STEP and TERMINAL", () => {
+    expect(PENDING_PHASES).toContain("browser-retry-pending");
+    expect(STEP_PHASES as readonly string[]).not.toContain(
+      "browser-retry-pending",
+    );
+    expect(TERMINAL_PHASES as readonly string[]).not.toContain(
+      "browser-retry-pending",
+    );
+    expect(PHASE_SHORT["browser-retry-pending"]).toBe("brwsr?");
+    expect(isLegitimateEndPhase("browser-retry-pending")).toBe(true);
+    expect(isPipelinePhase("browser-retry-pending")).toBe(true);
+  });
+
   it("isPipelinePhase narrows known phases", () => {
     expect(isPipelinePhase("implementing")).toBe(true);
     expect(isPipelinePhase("merged")).toBe(true);
@@ -1558,14 +1596,109 @@ describe("phase constants", () => {
     expect(isEpicPhase("starting")).toBe(false);
   });
 
+  it("kindFromPhase maps epic phases to epic-design and everything else to feature", () => {
+    expect(kindFromPhase("epic-designing")).toBe("epic-design");
+    expect(kindFromPhase("epic-approved")).toBe("epic-design");
+    expect(kindFromPhase("implementing")).toBe("feature");
+    expect(kindFromPhase("needs-human")).toBe("feature");
+  });
+
+  it("resolveStateKind prefers the recorded kind", () => {
+    expect(
+      resolveStateKind({
+        kind: "epic-run",
+        phase: "implementing",
+        phaseLog: undefined,
+      }),
+    ).toBe("epic-run");
+  });
+
+  it("resolveStateKind falls back to epic-design for an absent kind at an epic phase", () => {
+    expect(resolveStateKind({ kind: undefined, phase: "epic-designing" })).toBe(
+      "epic-design",
+    );
+  });
+
+  it("resolveStateKind falls back to feature for an absent kind at a non-epic phase", () => {
+    expect(resolveStateKind({ kind: undefined, phase: "implementing" })).toBe(
+      "feature",
+    );
+  });
+
+  it("resolveStateKind reads a kind-less needs-human pause through the phase it interrupted", () => {
+    const log = (phases: string[]) =>
+      phases.map((phase) => ({ phase, at: "2026-04-30T12:00:00Z" }));
+    expect(
+      resolveStateKind({
+        kind: undefined,
+        phase: "needs-human",
+        phaseLog: log(["epic-designing", "needs-human"]),
+      }),
+    ).toBe("epic-design");
+    expect(
+      resolveStateKind({
+        kind: undefined,
+        phase: "needs-human",
+        phaseLog: log(["implementing", "needs-human"]),
+      }),
+    ).toBe("feature");
+    expect(
+      resolveStateKind({
+        kind: undefined,
+        phase: "needs-human",
+        phaseLog: log(["needs-human"]),
+      }),
+    ).toBe("feature");
+  });
+
+  it("the phase-derived kind fallback expression lives only in bin/lib/state.ts (source-scan pin)", () => {
+    const binDir = path.resolve(__dirname, "..");
+    const offenders: string[] = [];
+    const walk = (d: string): void => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const full = path.join(d, e.name);
+        if (e.isDirectory()) {
+          if (e.name !== "node_modules") walk(full);
+        } else if (
+          e.name.endsWith(".ts") &&
+          !e.name.endsWith(".test.ts") &&
+          !full.endsWith(path.join("lib", "state.ts")) &&
+          /isEpicPhase\([^)]*\)\s*\?\s*"epic-design"\s*:\s*"feature"/.test(
+            fs.readFileSync(full, "utf8"),
+          )
+        ) {
+          offenders.push(path.relative(binDir, full));
+        }
+      }
+    };
+    walk(binDir);
+    expect(offenders).toEqual([]);
+  });
+
   it("autoResumesAfterClear defaults to the feature terminal/gated rule", () => {
     expect(autoResumesAfterClear("gated")).toBe(true);
     expect(autoResumesAfterClear("epic-design-pending-review")).toBe(true);
     expect(autoResumesAfterClear("implementing")).toBe(true);
     expect(autoResumesAfterClear("merged")).toBe(false);
     expect(autoResumesAfterClear("cancelled")).toBe(false);
-    expect(autoResumesAfterClear("needs-human")).toBe(false);
+    expect(autoResumesAfterClear("needs-human")).toBe(true);
     expect(autoResumesAfterClear("epic-approved")).toBe(false);
+  });
+
+  it("autoResumesAfterClear('needs-human', ...) carves out feature and epic-design", () => {
+    expect(autoResumesAfterClear("needs-human", "feature")).toBe(true);
+    expect(autoResumesAfterClear("needs-human", "epic-design")).toBe(true);
+    expect(autoResumesAfterClear("needs-human", "epic-run")).toBe(true);
+  });
+
+  it("autoResumesAfterClear keeps every other terminal phase non-resuming for feature and epic-design", () => {
+    for (const kind of ["feature", "epic-design"] as const) {
+      for (const phase of ["merged", "cancelled", "epic-approved"]) {
+        expect(autoResumesAfterClear(phase, kind), `${kind}/${phase}`).toBe(
+          false,
+        );
+      }
+    }
   });
 
   it("autoResumesAfterClear('epic-run', ...) resumes regardless of phase", () => {
@@ -1589,23 +1722,96 @@ describe("phase constants", () => {
     expect(isAllowedTerminalExit("__proto__", "verifying")).toBe(false);
   });
 
-  it("TERMINAL_EXIT_TRANSITIONS is exactly {gated: [verifying, gating, merging]} (drift-guard)", () => {
+  it("TERMINAL_EXIT_TRANSITIONS is exactly {gated: [verifying, gating, merging], needs-human: [the eight feature + four epic continue phases]} (drift-guard)", () => {
     // Exact equality, not containment — this is what catches a silent
-    // widening of the allowlist to a phase other than `gated`, or a
-    // silent addition/removal of one of the three documented targets.
-    expect(Object.keys(TERMINAL_EXIT_TRANSITIONS)).toEqual(["gated"]);
+    // widening of the allowlist to a phase other than `gated` / `needs-human`,
+    // or a silent addition/removal of one of the documented targets.
+    expect(Object.keys(TERMINAL_EXIT_TRANSITIONS)).toEqual([
+      "gated",
+      "needs-human",
+    ]);
     expect(TERMINAL_EXIT_TRANSITIONS.gated).toEqual([
       "verifying",
       "gating",
       "merging",
     ]);
+    expect(TERMINAL_EXIT_TRANSITIONS["needs-human"]).toEqual([
+      "planning",
+      "plan-pending-review",
+      "implementing",
+      "installing-skills",
+      "verifying",
+      "ci-wait",
+      "reviewing",
+      "gating",
+      "epic-designing",
+      "epic-validating",
+      "epic-pr-open",
+      "epic-design-pending-review",
+    ]);
   });
 
-  it("every TERMINAL_EXIT_TRANSITIONS.gated target is a real, non-terminal phase", () => {
-    for (const target of TERMINAL_EXIT_TRANSITIONS.gated) {
-      expect(PIPELINE_PHASES as readonly string[]).toContain(target);
-      expect(TERMINAL_PHASES as readonly string[]).not.toContain(target);
+  it("the needs-human allowlist never names merging or a pre-worktree phase", () => {
+    const targets = TERMINAL_EXIT_TRANSITIONS[
+      "needs-human"
+    ] as readonly string[];
+    for (const banned of [
+      "merging",
+      "starting",
+      "triaging",
+      "worktree-create",
+    ]) {
+      expect(targets).not.toContain(banned);
     }
+  });
+
+  it("every TERMINAL_EXIT_TRANSITIONS target is a real, non-terminal phase", () => {
+    for (const key of Object.keys(TERMINAL_EXIT_TRANSITIONS)) {
+      for (const target of TERMINAL_EXIT_TRANSITIONS[
+        key
+      ] as readonly string[]) {
+        expect(PIPELINE_PHASES as readonly string[]).toContain(target);
+        expect(TERMINAL_PHASES as readonly string[]).not.toContain(target);
+      }
+    }
+  });
+});
+
+describe("pausedPhase", () => {
+  it("scans backward from the latest needs-human entry: ci-wait then needs-human -> ci-wait", () => {
+    expect(pausedPhase([{ phase: "ci-wait" }, { phase: "needs-human" }])).toBe(
+      "ci-wait",
+    );
+  });
+
+  it("skips a terminal entry (gated) between the paused phase and needs-human", () => {
+    expect(
+      pausedPhase([
+        { phase: "implementing" },
+        { phase: "gated" },
+        { phase: "needs-human" },
+      ]),
+    ).toBe("implementing");
+  });
+
+  it("returns undefined for an empty log", () => {
+    expect(pausedPhase([])).toBeUndefined();
+  });
+
+  it("returns undefined for an undefined log", () => {
+    expect(pausedPhase(undefined)).toBeUndefined();
+  });
+
+  it("returns undefined when every entry back to the start is terminal", () => {
+    expect(
+      pausedPhase([{ phase: "gated" }, { phase: "needs-human" }]),
+    ).toBeUndefined();
+  });
+
+  it("scans from the end when no needs-human entry exists", () => {
+    expect(pausedPhase([{ phase: "implementing" }, { phase: "ci-wait" }])).toBe(
+      "ci-wait",
+    );
   });
 });
 
@@ -1631,6 +1837,7 @@ describe("shortPhase", () => {
     "triage-pending-interview": "intq?",
     "approval-pending-clarification": "appr?",
     "ci-wait-pending": "ci?",
+    "browser-retry-pending": "brwsr?",
     "checkpoint-pending-clear": "ckpt?",
     merged: "merged",
     gated: "gated",
@@ -1673,5 +1880,57 @@ describe("shortPhase", () => {
     for (const key of Object.keys(PHASE_SHORT)) {
       expect(known.has(key), `PHASE_SHORT has stale entry '${key}'`).toBe(true);
     }
+  });
+});
+
+describe("appendPhaseLog", () => {
+  const base: PipelineState = {
+    slug: "csv-export",
+    phase: "implementing",
+    repo: "me/flow",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  it("returns the existing log unchanged when the last entry's phase already matches (same-phase tail)", () => {
+    const withLog: PipelineState = {
+      ...base,
+      phaseLog: [{ phase: "ci-wait", at: "2026-01-01T00:00:00.000Z" }],
+    };
+    const result = appendPhaseLog(withLog, "ci-wait");
+    expect(result).toEqual(withLog.phaseLog);
+    expect(result).toHaveLength(1);
+  });
+
+  it("appends when the new phase differs from the last entry", () => {
+    const withLog: PipelineState = {
+      ...base,
+      phaseLog: [{ phase: "ci-wait", at: "2026-01-01T00:00:00.000Z" }],
+    };
+    const result = appendPhaseLog(withLog, "reviewing");
+    expect(result).toHaveLength(2);
+    expect(result.at(-1)?.phase).toBe("reviewing");
+  });
+
+  it("appends when phaseLog is empty/absent", () => {
+    const result = appendPhaseLog(base, "implementing");
+    expect(result).toHaveLength(1);
+    expect(result[0]?.phase).toBe("implementing");
+  });
+
+  it("still appends a non-adjacent repeat (A, B, A)", () => {
+    const withLog: PipelineState = {
+      ...base,
+      phaseLog: [
+        { phase: "implementing", at: "2026-01-01T00:00:00.000Z" },
+        { phase: "ci-wait", at: "2026-01-01T00:05:00.000Z" },
+      ],
+    };
+    const result = appendPhaseLog(withLog, "implementing");
+    expect(result).toHaveLength(3);
+    expect(result.map((entry) => entry.phase)).toEqual([
+      "implementing",
+      "ci-wait",
+      "implementing",
+    ]);
   });
 });

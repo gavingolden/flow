@@ -10,7 +10,7 @@ waiter that owns no state and makes no decisions. The supervisor calls
 `flow-ci-check` in the foreground; on a `waiting` verdict it backgrounds
 `flow-ci-wait` and wakes on its completion notification (with a Monitor
 / `ScheduleWakeup` fallback, then a `ci-wait-pending` yield-and-resume as
-the last resort) to call `flow-ci-check` again. See SKILL.md step 7 for
+the last resort) to call `flow-ci-check` again. See `references/phases/step-07-ci-wait.md` for
 the full wake-precedence contract.
 
 ## Goals
@@ -216,7 +216,7 @@ The fallback prefers the cheaper failure mode.
 
 With opt-in Copilot review (`flow feature create --copilot-review <auto|always|never>`,
 default `auto`), `/flow-pipeline` step 7 decides _before_ the wait whether
-to request Copilot for this PR — see SKILL.md step 7's "Copilot request
+to request Copilot for this PR — see `references/phases/step-07-ci-wait.md`'s "Copilot request
 decision". On the **request** path nothing here changes: the two signals
 above (in-flight `reviewRequests` + the historical-PR fallback) still
 resolve `copilotConfigured`, and the retrigger / claim-deadline /
@@ -676,6 +676,11 @@ cap is **3 fix-loops** across the whole pipeline — after the third
 red CI, escalate `NEEDS HUMAN: ci-fix-exhausted` and end. Each
 fix-loop counts regardless of whether CI was failing for the same
 reason (a different test failing on attempt 2 still counts).
+
+The count lives in `state.json` as `state.loops.ciFix` (bumped by
+`flow-state-update --increment-loop ciFix`), not in the supervisor's
+context, so it survives a compaction or a resume — see `references/phases/step-07-ci-wait.md`
+for the read-back and the gate.
 
 ## Bot reviewer name
 

@@ -1,0 +1,197 @@
+[
+  {
+    "status": "SUCCESS",
+    "response": "",
+    "duration_seconds": 8.437796,
+    "num_turns": 1,
+    "json_schema": {
+      "type": "object",
+      "properties": {
+        "reasoning": {
+          "type": "string",
+          "description": "Think step by step through the skip rules IN ORDER for each PR before answering \u2014 check closed-or-merged first, then draft, then trivial-diff, then no-new-commits, only falling through to 'no skip rule matched' when none apply. Write that reasoning here \u2014 it is not graded directly, but a leading reasoning field measurably improves the quality of constrained JSON output."
+        },
+        "verdicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pr": {
+                "type": "number",
+                "description": "The PR number from pr.json."
+              },
+              "decision": {
+                "type": "string",
+                "description": "One of 'skip' or 'proceed'."
+              },
+              "rule": {
+                "type": "string",
+                "description": "The exact rule that produced the decision: one of 'closed-or-merged', 'draft', 'trivial-diff', 'no-new-commits', or 'no-skip-rule-matched'."
+              }
+            },
+            "required": [
+              "pr",
+              "decision",
+              "rule"
+            ]
+          },
+          "description": "One entry per PR in pr.json."
+        },
+        "confidence": {
+          "type": "number",
+          "description": "0-100: how confident you are that every verdict and rule is correct."
+        }
+      },
+      "required": [
+        "reasoning",
+        "verdicts",
+        "confidence"
+      ],
+      "additionalProperties": false
+    },
+    "usage": {
+      "input_tokens": 22539,
+      "output_tokens": 2475,
+      "thinking_tokens": 2340,
+      "cache_read_tokens": 16290,
+      "total_tokens": 25014
+    },
+    "denied_actions": [
+      {
+        "action": "command",
+        "display_name": "RunCommand"
+      }
+    ],
+    "_source_case": "c10-gatekeeper--schema--gemini-3.8-flash-high--r0.md"
+  },
+  {
+    "status": "SUCCESS",
+    "response": "",
+    "duration_seconds": 13.966298,
+    "num_turns": 1,
+    "json_schema": {
+      "type": "object",
+      "properties": {
+        "reasoning": {
+          "type": "string",
+          "description": "Think step by step through the skip rules IN ORDER for each PR before answering \u2014 check closed-or-merged first, then draft, then trivial-diff, then no-new-commits, only falling through to 'no skip rule matched' when none apply. Write that reasoning here \u2014 it is not graded directly, but a leading reasoning field measurably improves the quality of constrained JSON output."
+        },
+        "verdicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pr": {
+                "type": "number",
+                "description": "The PR number from pr.json."
+              },
+              "decision": {
+                "type": "string",
+                "description": "One of 'skip' or 'proceed'."
+              },
+              "rule": {
+                "type": "string",
+                "description": "The exact rule that produced the decision: one of 'closed-or-merged', 'draft', 'trivial-diff', 'no-new-commits', or 'no-skip-rule-matched'."
+              }
+            },
+            "required": [
+              "pr",
+              "decision",
+              "rule"
+            ]
+          },
+          "description": "One entry per PR in pr.json."
+        },
+        "confidence": {
+          "type": "number",
+          "description": "0-100: how confident you are that every verdict and rule is correct."
+        }
+      },
+      "required": [
+        "reasoning",
+        "verdicts",
+        "confidence"
+      ],
+      "additionalProperties": false
+    },
+    "usage": {
+      "input_tokens": 18220,
+      "output_tokens": 3690,
+      "thinking_tokens": 3621,
+      "cache_read_tokens": 0,
+      "total_tokens": 21910
+    },
+    "denied_actions": [
+      {
+        "action": "command",
+        "display_name": "RunCommand"
+      }
+    ],
+    "_source_case": "c10-gatekeeper--schema--gemini-3.8-flash-high--r3.md"
+  },
+  {
+    "status": "SUCCESS",
+    "response": "",
+    "duration_seconds": 9.027969,
+    "num_turns": 1,
+    "json_schema": {
+      "type": "object",
+      "properties": {
+        "reasoning": {
+          "type": "string",
+          "description": "Think step by step through the skip rules IN ORDER for each PR before answering \u2014 check closed-or-merged first, then draft, then trivial-diff, then no-new-commits, only falling through to 'no skip rule matched' when none apply. Write that reasoning here \u2014 it is not graded directly, but a leading reasoning field measurably improves the quality of constrained JSON output."
+        },
+        "verdicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pr": {
+                "type": "number",
+                "description": "The PR number from pr.json."
+              },
+              "decision": {
+                "type": "string",
+                "description": "One of 'skip' or 'proceed'."
+              },
+              "rule": {
+                "type": "string",
+                "description": "The exact rule that produced the decision: one of 'closed-or-merged', 'draft', 'trivial-diff', 'no-new-commits', or 'no-skip-rule-matched'."
+              }
+            },
+            "required": [
+              "pr",
+              "decision",
+              "rule"
+            ]
+          },
+          "description": "One entry per PR in pr.json."
+        },
+        "confidence": {
+          "type": "number",
+          "description": "0-100: how confident you are that every verdict and rule is correct."
+        }
+      },
+      "required": [
+        "reasoning",
+        "verdicts",
+        "confidence"
+      ],
+      "additionalProperties": false
+    },
+    "usage": {
+      "input_tokens": 22986,
+      "output_tokens": 3027,
+      "thinking_tokens": 2903,
+      "cache_read_tokens": 16292,
+      "total_tokens": 26013
+    },
+    "denied_actions": [
+      {
+        "action": "command",
+        "display_name": "RunCommand"
+      }
+    ],
+    "_source_case": "c10-gatekeeper--schema--gemini-3.8-flash-high--r4.md"
+  }
+]

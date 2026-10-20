@@ -16,7 +16,8 @@ description: >-
 
 Turn a noisy backlog — GitHub issues, an adhoc notes file, or both — into a
 written triage document that (1) verifies every claim before judging it,
-(2) bundles surviving work into minimum-PR-count units, (3) produces a
+(2) bundles surviving work into minimum-PR-count units and shows only the
+top n ranked chunks up front, (3) produces a
 non-empty kill list, and (4) emits a ready-to-launch pipeline queue. This
 skill exists because unverified "likely fixed" guesses bury real bugs, theme
 bundles are unreviewable, and a backlog with no kill list only ever sorts,
@@ -71,6 +72,14 @@ explicit argument to pick the mode directly: `milestone: <goal>` selects
 milestone mode against that goal; `no milestone` suppresses milestone
 inference entirely, and the run states in the Decision Brief that
 inference was suppressed by argument rather than absent by omission.
+`top: <n>` caps the Decision Brief at n chunk cards (default 5); every
+DO bundle that survives but misses the cut lands in the Audit
+Appendix's `### Next-chunk candidates` ledger, and a delta re-triage
+run after acting on the shown chunks surfaces the next n. In grooming
+mode the ranking is stability-first — an observed failure outranks an
+absent feature at equal effort; name a milestone for feature-led
+chunks. Useful values of n are 3–7; above that the brief re-creates the
+length problem the cut exists to solve.
 Grooming mode's default lens, absent any other signal, is PM-shaped:
 app stability, bug fixes, and high-value features/enhancements. Full mode
 detail: [references/methodology.md](references/methodology.md).
@@ -134,12 +143,17 @@ NEEDS-DECISION / REJECT, using the canonical prompt block. See
 [references/methodology.md](references/methodology.md) "Phase 2 —
 adjudicate value".
 
-## 4. Phase 3 — Bundle for minimum PRs
+## 4. Phase 3 — Bundle, chunk, rank
 
 Bundle by shared root cause, shared surface/files, or shared review
 context — never by theme — using the one-reviewable-PR test, and size each
 bundle onto the model/effort ladder. See
-[references/methodology.md](references/methodology.md) "Phase 3".
+[references/methodology.md](references/methodology.md) "Phase 3". Then
+group DO bundles into chunks (one anchor bundle plus riders sharing its
+root cause, surface, or files), rank chunks with the ranking layer —
+Value rank first, then the ordered anchor-backed tie-breaks — and cut to
+the top n. See [references/methodology.md](references/methodology.md)
+"Chunking", "Ranking layer", and "Top-n cut and bias".
 
 ## 5. Phase 4 — Act
 
@@ -189,8 +203,10 @@ document is wanted.
 
 Print the document's absolute path both at the top of the document
 itself and in the chat summary at the end of the run. The chat summary
-opens with that path, then the Decision Brief's top recommendation
-tier(s) given inline, not a pointer back into the document.
+opens with that path, then states how many chunks were shown (`n` of
+`M` total DO chunks) and how many next-chunk candidates remain, then
+the Decision Brief's top recommendation tier(s) given inline, not a
+pointer back into the document.
 
 # Verification
 
@@ -222,8 +238,9 @@ Appendix`) is filled in, not left as a template.
   guessed one.
 - The emitted document's first section is `## Decision Brief`, not
   `## Audit Appendix` or anything else.
-- The chat summary carries the document's absolute path and the
-  Decision Brief's top recommendation tier(s).
+- The chat summary carries the document's absolute path, the shown-vs-
+  total chunk count and next-chunk-candidate count, and the Decision
+  Brief's top recommendation tier(s).
 - On any run with a notes source, the capture file exists and its
   ref-block count equals `M` from the Phase-0 count assertion.
 - Every `flow-verbatim-notes attach` attachment is reported with its
@@ -231,6 +248,12 @@ Appendix`) is filled in, not left as a template.
   a named reason, or `would-create` / `would-update` on a dry run), and
   every ref that landed on no issue is listed in the
   `### Verbatim note attachment` section.
+- The Decision Brief carries at most n chunk cards (n from `top: <n>`,
+  default 5), in rank order, and every chunk not shown has exactly one
+  `### Next-chunk candidates` row (a chunk with riders still gets one
+  row, not one per constituent bundle).
+- The Decision Brief's opener carries the `**Shown:**` and
+  `**Ranking bias:**` lines.
 
 # Constraints
 
@@ -269,3 +292,9 @@ future run actually behaved this way.
   see [references/verbatim-attachment.md](references/verbatim-attachment.md).
 - NEVER reconcile a disagreement between an owner's note and a verified
   triage finding — post them as two separately authored comments.
+- NEVER rank by a weighted numeric sum — Value rank is the primary key
+  and the ranking layer's ordered tie-breaks decide the rest, each step
+  anchor-backed.
+- NEVER admit a rider by theme — a rider shares the anchor bundle's root
+  cause, surface, or files, and the one-reviewable-PR test still applies
+  per bundle, never per chunk.

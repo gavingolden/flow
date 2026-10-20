@@ -1,0 +1,12 @@
+{
+  "id": "c12-blind-survey",
+  "surface": "blind-survey",
+  "kind": "free-text",
+  "promptFile": "prompt.md",
+  "inputFiles": [],
+  "addDir": "context",
+  "productionTimeout": "10m",
+  "repeats": 5,
+  "authoredAtCommit": "add488006e6b507dc09a65abc2c50f6e148f8081",
+  "routable": true
+}

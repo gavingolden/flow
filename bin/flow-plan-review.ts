@@ -30,8 +30,9 @@
  * Skip vocabulary: `plan-review-disabled` (gate off), `plan-unreadable`,
  * `no-decision-analysis` (omit-when-empty ⇒ nothing to review),
  * `decision-analysis-unchanged` (the widened hashed inputs — `**Goal:**` +
- * `## Decision analysis` + `## Cut list`, each normalized — are unchanged
- * since the last reviewed revision; see the hash helpers below),
+ * `## Decision analysis` + `## Cut list` + `## Request vetting`, each
+ * normalized — are unchanged since the last reviewed revision; see the
+ * hash helpers below),
  * `worktree-not-provided` (`--worktree` omitted on the review path — a
  * wiring bug, distinct from an environment condition), `worktree-not-found`
  * (`--worktree` points at a non-directory), `reviewer-empty` /
@@ -119,6 +120,7 @@ import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { buildBatteryPrompt, extractGoalLine } from "./lib/plan-review-prompt";
+import { resolveProductBrief } from "./flow-product-brief";
 import { classifyEngagement } from "./lib/plan-review-engagement";
 import { resolveDelegateModel } from "./lib/delegate-models";
 import { godurToSec } from "./lib/delegate-timeouts";
@@ -136,30 +138,28 @@ const DEFAULT_TASK = "plan-review";
 // Bounds each agy call explicitly rather than relying on flow-delegate's own
 // default. `--start` (see the async spine below) detaches the worker that
 // makes these calls, so NEITHER cap is bounded above by any Bash-tool
-// ceiling anymore — each is bounded ONLY BELOW, by what an agentic six-lens
-// run actually needs (measured live against this repo: ~1m35-1m50 for
-// Gemini/reviewer 1, ~4m30-4m50 engaged for Opus/reviewer 2, with a full
-// 362s of pure unbounded verification observed on a ~550-line plan before
-// Task 1's battery-prompt bounds existed).
+// ceiling — each is bounded ONLY BELOW, by what an agentic six-lens run
+// actually needs.
 //
-// REVIEWER_2_TIMEOUT is `15m`: ~3x the measured engaged run and ~2.5x the
-// observed unbounded-verification burn, so a bounded reviewer (Task 1) has
-// real writing headroom well past the point that killed the unbounded one.
-// REVIEWER_1_TIMEOUT stays `3m` — with the sum constraint gone, there is no
-// reason to haircut it below its measured ~1m50 margin.
+// REVIEWER_2_TIMEOUT is `15m`: ~3x the measured engaged Opus run (~4m30-4m50)
+// and ~2.5x the observed unbounded-verification burn, so a bounded reviewer
+// has real writing headroom well past the point that killed the unbounded one.
+// REVIEWER_1_TIMEOUT is `13m`, sized by the Stage 0 probe
+// (docs/eval/argon-latency-probe-2026-10.md): Argon High's median plan-review
+// answer is 256 s and 3x that is 769 s, above the 10-minute floor of the sizing
+// rule (docs/eval/argon-latency-probe/README.md). The 3-minute limit it
+// replaces cut a reviewer that had already written 24 KB of findings.
 //
 // The deep tier still runs its two reviewers SERIALLY (see the fanout
-// call's `concurrency: 1` and the comment there), so 3m + 15m = 18m is
-// still the wall-clock SUM a live deep run can take — it is simply no
-// longer a call-lifetime ceiling anyone must budget under. It IS the give-up
-// cap `--check` must accommodate before declaring a still-alive worker
-// `review-timed-out`; that cap is DERIVED via `maxElapsedSec()` below
-// (REVIEWER_1_TIMEOUT + REVIEWER_2_TIMEOUT + slack), never restated as a
-// number here, so it can never drift from the constants it guards. The
-// standard tier runs only reviewer 1 (MODEL, i.e. Gemini), so it uses the
-// REVIEWER_1_TIMEOUT value.
-const REVIEWER_1_TIMEOUT = "3m";
-const REVIEWER_2_TIMEOUT = "15m";
+// call's `concurrency: 1` and the comment there), so reviewer 1 + reviewer 2
+// is the wall-clock SUM a live deep run can take. The give-up cap `--check`
+// must accommodate before declaring a still-alive worker `review-timed-out` is
+// DERIVED via `maxElapsedSec()` below (reviewer 1 + reviewer 2 + 300 s slack —
+// 18m standard / 33m deep at a 13m reviewer 1), never restated as a number
+// here, so it can never drift from the constants it guards. The standard tier
+// runs only reviewer 1 (MODEL, i.e. Gemini), so it uses REVIEWER_1_TIMEOUT.
+export const REVIEWER_1_TIMEOUT = "13m";
+export const REVIEWER_2_TIMEOUT = "15m";
 
 // godurToSec now lives in ./lib/delegate-timeouts.ts (the single owner of
 // Go-duration parsing, per Task 2) and is re-exported here so existing
@@ -178,8 +178,8 @@ const WORKER_SLACK_SEC = 300;
  * The derived wall-clock cap `--check` gives a detached worker before
  * declaring it `review-timed-out` and killing it. NEVER a hardcoded number
  * — always re-derived from the live REVIEWER_*_TIMEOUT constants so it can
- * never silently drift from the caps it is meant to guard (1380s / 23m
- * deep, 480s / 8m standard, at today's `3m`/`15m` split).
+ * never silently drift from the caps it is meant to guard (1980s / 33m
+ * deep, 1080s / 18m standard, at today's `13m`/`15m` split).
  */
 export function maxElapsedSec(depth: "standard" | "deep"): number {
   return (
@@ -429,6 +429,37 @@ function extractCutListBody(planText: string): string {
 }
 
 /**
+ * Extracts the `## Request vetting` section BODY — from the heading to the
+ * next `## ` heading or EOF — EXCLUDING any `- **Cross-model case
+ * against:**` line. That exclusion mirrors `extractDecisionAnalysisBody`'s
+ * own `### Cross-model review (AGY)` exclusion above: the line is the
+ * supervisor's post-hoc reconciliation of the battery's lens-7
+ * (`Adversarial premise`) finding onto the section
+ * (skills/pipeline/flow-pipeline/SKILL.md step 3), not authored content,
+ * so appending it on reconciliation must never re-fire the review.
+ * Deliberately its OWN function rather than a widened `extractCutListBody`
+ * — that extractor's docstring explicitly forbids generalizing a
+ * subsection exclusion into it; the exclusion here belongs to Request
+ * vetting's own footprint only. Returns "" when the section is absent.
+ */
+function extractRequestVettingBody(planText: string): string {
+  const lines = planText.split("\n");
+  const startIdx = lines.findIndex((l) => /^## Request vetting/.test(l));
+  if (startIdx === -1) return "";
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (/^#{1,2} /.test(lines[i])) {
+      endIdx = i;
+      break;
+    }
+  }
+  return lines
+    .slice(startIdx + 1, endIdx)
+    .filter((l) => !/^- \*\*Cross-model case against:\*\*/.test(l))
+    .join("\n");
+}
+
+/**
  * Normalizes a section body before hashing so only a SEMANTIC change
  * re-fires the review — a byte-for-byte SHA over LLM-generated markdown
  * is fragile (the AGY cross-model review flagged this). Normalization: trim
@@ -459,11 +490,13 @@ export function normalizeDecisionBody(body: string): string {
 
 /**
  * sha256 (hex) of the NORMALIZED, widened content key: the `**Goal:**` line
- * + the `## Decision analysis` body + the `## Cut list` body, each extracted
- * by its OWN tolerant extractor and normalized independently, then joined.
- * Widened (originally Decision-analysis-only) so a goal-conflicting edit or a
- * cut-list-only edit also re-fires the review. The revision-pass re-fire
- * guard compares this against the embedded marker.
+ * + the `## Decision analysis` body + the `## Cut list` body + the
+ * `## Request vetting` body (FOUR hashed inputs total), each extracted by
+ * its OWN tolerant extractor and normalized independently, then joined.
+ * Widened (originally Decision-analysis-only, then Cut-list, now Request
+ * vetting) so a goal-conflicting edit, a cut-list-only edit, or a
+ * vetting-verdict change also re-fires the review. The revision-pass
+ * re-fire guard compares this against the embedded marker.
  */
 export function computeDecisionHash(planText: string): string {
   const goalLine = (extractGoalLine(planText) ?? "").trim();
@@ -471,7 +504,12 @@ export function computeDecisionHash(planText: string): string {
     extractDecisionAnalysisBody(planText),
   );
   const cutListBody = normalizeDecisionBody(extractCutListBody(planText));
-  const combined = [goalLine, decisionBody, cutListBody].join("\n\0\n");
+  const vettingBody = normalizeDecisionBody(
+    extractRequestVettingBody(planText),
+  );
+  const combined = [goalLine, decisionBody, cutListBody, vettingBody].join(
+    "\n\0\n",
+  );
   return createHash("sha256").update(combined).digest("hex");
 }
 
@@ -556,6 +594,14 @@ export type Deps = {
   // True when `path` exists and is a directory. Backs the worktree gate
   // below; injectable like the other deps.
   dirExists: (path: string) => boolean;
+  // Resolves the repo's standing product brief for the given worktree, or
+  // null when none resolves. An IN-PROCESS import rather than a shell-out
+  // to the PATH binary: the symlink does not exist on a fresh checkout or
+  // in CI, and a subprocess there would silently skip the brief in exactly
+  // the environment that gates the merge. The "never a bin/lib import"
+  // rule is scoped to the SUBAGENT-facing prose sites, which run in the
+  // consumer worktree; this helper is flow's own.
+  readProductBrief: (worktree: string) => string | null;
   // True when `path` exists (file or directory) — used only to decide
   // whether a partial artifact is worth naming in a skip envelope.
   fileExists: (path: string) => boolean;
@@ -1056,8 +1102,8 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // ~/.flow/config.json before any test can inject an override, defeating
   // the injectable-config-reader seam and breaking `npm run verify` for a
   // maintainer with `delegate.models.planReview*` set. Non-null: only the
-  // "scout" surface's default is null; planReview / planReviewSecond's
-  // defaults and every well-typed override are strings.
+  // "scout" and "claudeLenses" surfaces default to null; planReview /
+  // planReviewSecond's defaults and every well-typed override are strings.
   const MODEL = resolveDelegateModel("planReview") as string;
   const SECOND_MODEL = resolveDelegateModel("planReviewSecond") as string;
 
@@ -1143,6 +1189,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   }
 
   const depth = parsed.depth === "auto" ? computeDepth(plan) : parsed.depth;
+  const productBrief = deps.readProductBrief(parsed.worktree);
 
   try {
     deps.mkdirp(dirname(parsed.out));
@@ -1152,6 +1199,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
         planText: plan,
         goalLine: extractGoalLine(plan),
         worktreePath: parsed.worktree,
+        productBrief,
       }),
     );
   } catch {
@@ -1264,6 +1312,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
         goalLine: extractGoalLine(plan),
         sameFamilyAsAuthor: true,
         worktreePath: parsed.worktree,
+        productBrief,
       }),
     );
   } catch {
@@ -1461,6 +1510,12 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
     dirExists:
       o?.dirExists ?? ((p) => existsSync(p) && statSync(p).isDirectory()),
+    readProductBrief:
+      o?.readProductBrief ??
+      ((w) => {
+        const brief = resolveProductBrief({ cwd: w });
+        return brief.found ? brief.text : null;
+      }),
     fileExists: o?.fileExists ?? ((p) => existsSync(p)),
 
     spawnDetached:
