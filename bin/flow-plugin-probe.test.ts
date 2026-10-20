@@ -15,6 +15,7 @@ import * as path from "node:path";
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
+  effortVerdictFromTranscript,
   parseArgs,
   runClaude,
   runProbes,
@@ -33,6 +34,7 @@ const ALL_IDS: ProbeId[] = [
   "skills-preload-name",
   "max-turns-partial",
   "cache-ttl-1h",
+  "subagent-effort-param",
   "plugin-eval-availability",
   "workflow-headless-await",
   "workflow-plugin-command",
@@ -43,6 +45,7 @@ const LIVE_ONLY_IDS: ProbeId[] = [
   "skills-preload-name",
   "max-turns-partial",
   "cache-ttl-1h",
+  "subagent-effort-param",
   "workflow-headless-await",
   "workflow-plugin-command",
 ];
@@ -482,5 +485,39 @@ describe(parseArgs, () => {
       probes: [],
       live: true,
     });
+  });
+});
+
+describe("subagent-effort-param verdict", () => {
+  const turn = (effort: string, role = "assistant") =>
+    JSON.stringify({
+      type: role,
+      effort,
+      message: { role, output_config: { effort } },
+    });
+
+  it("is confirmed when every assistant turn (incl. the resumed one) ran at low", () => {
+    const r = effortVerdictFromTranscript(
+      [turn("low"), turn("low", "user"), turn("low")].join("\n"),
+    );
+    expect(r).toEqual({ verdict: "confirmed", turns: 2, counts: { low: 2 } });
+  });
+
+  it("is refuted when any assistant turn ran above low", () => {
+    const r = effortVerdictFromTranscript(
+      [turn("low"), turn("medium")].join("\n"),
+    );
+    expect(r.verdict).toBe("refuted");
+    expect(r.counts).toEqual({ low: 1, medium: 1 });
+  });
+
+  it("is inconclusive when no assistant turn carries an effort field", () => {
+    const r = effortVerdictFromTranscript(
+      [
+        JSON.stringify({ type: "assistant", message: { role: "assistant" } }),
+        "",
+      ].join("\n"),
+    );
+    expect(r).toEqual({ verdict: "inconclusive", turns: 0, counts: {} });
   });
 });

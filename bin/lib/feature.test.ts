@@ -148,6 +148,10 @@ import {
   FLOW_OVERRIDE_ASK_RULES,
 } from "./merge-allow-rule";
 import {
+  FLOW_NEVER_ALLOW_HELPERS,
+  FLOW_ROUTINE_ALLOW_RULES,
+} from "./pipeline-allow-rules";
+import {
   runNew as runNewReal,
   runFeatureCli as runFeatureCliReal,
   deriveWorktreePath,
@@ -2269,6 +2273,20 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(raw).not.toHaveProperty("model");
   });
 
+  it("runFeatureCli warns when config efforts.fixApplier is present-but-invalid", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ efforts: { fixApplier: "hgh" } }),
+    });
+    expect(code).toBe(0);
+    expect(errors.join("\n")).toMatch(
+      /efforts\.fixApplier.*not a valid effort level/,
+    );
+  });
+
   it("runNew --resume re-applies the saved model into the respawn argv", () => {
     // LOAD-BEARING: omit `command` so buildLaunchCommand runs.
     writeState(
@@ -4376,6 +4394,18 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(allow.filter((r) => r.startsWith("Bash(flow-merge-guard"))).toEqual([
       FLOW_MERGE_ALLOW_RULE,
     ]);
+  });
+
+  it("pre-approves every routine helper by name, never a flow-* wildcard or a never-allow helper", () => {
+    ensureLaunchSettings(settingsPath);
+    const { allow } = readPermissions();
+    for (const rule of FLOW_ROUTINE_ALLOW_RULES) expect(allow).toContain(rule);
+    expect(allow).not.toContain("Bash(flow-*)");
+    expect(allow.filter((r) => /^Bash\(flow-\*/.test(r))).toEqual([]);
+    for (const h of FLOW_NEVER_ALLOW_HELPERS) {
+      if (h === "flow-merge-guard") continue;
+      expect(allow.filter((r) => r.startsWith(`Bash(${h}`))).toEqual([]);
+    }
   });
 
   it("asks on exactly the two --record-override rules, never a merge-covering ask", () => {

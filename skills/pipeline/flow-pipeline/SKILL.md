@@ -243,17 +243,18 @@ exist anymore).
 flow-state-update --phase "$PHASE"
 ```
 
-The helper merges fields preserving `repo`, `worktree`, and `pr`,
-and refreshes `updatedAt`. It exits non-zero if the slug has no
-state file, surfacing drift instead of papering over it.
+The helper merges fields (preserving `repo`, `worktree`, `pr`),
+refreshes `updatedAt`, and exits non-zero when the slug has no state file.
 
-`$PHASE` must be one of the values listed in the phase table below.
-The slug is auto-resolved from `$FLOW_SLUG` — the canonical pipeline
-identifier, set by `flow feature create` in the launch env and
-matching the worktree directory's basename (e.g. `csv-export`). Under
-the tmux launcher, the window title is *not* this identifier: the
-supervisor renames it to a readable title in step 1, and the user may
-further rename it via `tmux ,`, with no effect on `$FLOW_SLUG`.
+Call each flow helper as its own Bash call — no `cd X &&` prefix or `&&`
+chain; those shapes can miss the launch-settings pre-approval and hit the
+auto-mode classifier. For orphaned processes propose
+`flow reap --yes --include-strays`, never `ps | awk | kill`.
+
+`$PHASE` is a value from the phase table below. The slug auto-resolves
+from `$FLOW_SLUG` (set by `flow feature create`; the worktree directory's
+basename). The tmux window title is *not* this
+identifier — step 1 and the user (`tmux ,`) may rename it freely.
 
 ## Additional fields to set once
 

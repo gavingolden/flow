@@ -55,6 +55,7 @@ import {
   type PipelineState,
 } from "./state";
 import { recoveryCommandFor } from "./recovery-command";
+import { collectEffortConfigWarnings } from "./efforts-config";
 import {
   readDefaultModel,
   collectModelConfigWarnings,
@@ -80,6 +81,7 @@ import {
   FLOW_MERGE_ALLOW_RULE,
   FLOW_OVERRIDE_ASK_RULES,
 } from "./merge-allow-rule";
+import { FLOW_ROUTINE_ALLOW_RULES } from "./pipeline-allow-rules";
 import {
   seedIngestConfirmsDelivery,
   seedIngestIsCorrupt,
@@ -1035,6 +1037,9 @@ function runFresh(
   for (const w of collectModelConfigWarnings(readConfig)) {
     console.error(dim(`flow feature create: ${w}`));
   }
+  for (const w of collectEffortConfigWarnings(readConfig)) {
+    console.error(dim(`flow feature create: ${w}`));
+  }
   const sessionModel = options.model ?? readDefaultModel(readConfig);
 
   // Launch-time behaviour defaults, resolved ONCE here (never at a
@@ -1971,6 +1976,7 @@ export function launchSettingsPermissions(): {
       ...FLOW_UI_LOGIN_ALLOW_RULES,
       ...FLOW_CREATE_ISSUE_ALLOW_RULES,
       FLOW_MERGE_ALLOW_RULE,
+      ...FLOW_ROUTINE_ALLOW_RULES,
     ],
     ask: [...FLOW_OVERRIDE_ASK_RULES],
   };

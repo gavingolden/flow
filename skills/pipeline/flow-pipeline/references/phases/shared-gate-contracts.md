@@ -71,8 +71,12 @@ Resolve the product brief ONCE per session, by bare PATH name — never a
 in the consumer/target worktree where flow's own `bin/lib` does not exist:
 
 ```bash
-{ test -f "$WORKTREE/.flow/product.md" || test -f ~/.flow/product.md; } && (cd "$WORKTREE" && flow-product-brief) || echo '{"found":false}'
+flow-product-brief
 ```
+
+Run it as a standalone call from the worktree (the session's working
+directory) — no `cd` prefix; it resolves the repo from its cwd, falls back to
+`~/.flow/product.md`, and prints `{"found":false}` when neither exists.
 
 Every `TLDR="..."` string and every `--why` string this skill authors is
 REQUIRED to cite the resolved brief's top-ranked priorities, in its `Use`

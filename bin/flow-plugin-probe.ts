@@ -30,6 +30,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn as spawnAsync, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { AGENT_MEMORY_DIRNAME, resolveFlowSource } from "./lib/paths";
 import { ensurePluginRoot } from "./lib/plugin-root";
 
@@ -44,6 +45,7 @@ export type ProbeId =
   | "skills-preload-name"
   | "max-turns-partial"
   | "cache-ttl-1h"
+  | "subagent-effort-param"
   | "plugin-eval-availability"
   | "workflow-headless-await"
   | "workflow-plugin-command";
@@ -66,6 +68,7 @@ const PROBE_IDS: ProbeId[] = [
   "skills-preload-name",
   "max-turns-partial",
   "cache-ttl-1h",
+  "subagent-effort-param",
   "plugin-eval-availability",
   "workflow-headless-await",
   "workflow-plugin-command",
@@ -80,6 +83,7 @@ const LIVE_ONLY_IDS: ProbeId[] = [
   "skills-preload-name",
   "max-turns-partial",
   "cache-ttl-1h",
+  "subagent-effort-param",
   "workflow-headless-await",
   "workflow-plugin-command",
 ];
@@ -1008,6 +1012,126 @@ async function probeCacheTtl1h(fixtureHome: string): Promise<ProbeVerdict> {
   };
 }
 
+/**
+ * Pure verdict over one sub-agent transcript: every assistant turn carries
+ * its effort in `"effort":"<level>"` / `"perTurnEffort":"<level>"` fields.
+ * All turns `low` ⇒ the per-invocation `effort: low` beat the agent file's
+ * `medium` (confirmed); any other level ⇒ refuted; no effort field at all ⇒
+ * inconclusive. Exported for the unit suite.
+ */
+export function effortVerdictFromTranscript(jsonl: string): {
+  verdict: "confirmed" | "refuted" | "inconclusive";
+  turns: number;
+  counts: Record<string, number>;
+} {
+  const counts: Record<string, number> = {};
+  let turns = 0;
+  for (const line of jsonl.split("\n")) {
+    if (!/"(?:type|role)":"assistant"/.test(line)) continue;
+    const levels = new Set(
+      [...line.matchAll(/"(?:effort|perTurnEffort)":"(\w+)"/g)].map(
+        (m) => m[1],
+      ),
+    );
+    if (levels.size === 0) continue;
+    turns++;
+    for (const level of levels) counts[level] = (counts[level] ?? 0) + 1;
+  }
+  if (turns === 0) return { verdict: "inconclusive", turns, counts };
+  const allLow = Object.keys(counts).every((level) => level === "low");
+  return { verdict: allLow ? "confirmed" : "refuted", turns, counts };
+}
+
+async function probeSubagentEffortParam(
+  fixtureHome: string,
+): Promise<ProbeVerdict> {
+  const id: ProbeId = "subagent-effort-param";
+  const nonce = randomBytes(4).toString("hex");
+  const agentName = `probe-effort-${nonce}`;
+  const agentsJson = JSON.stringify({
+    [agentName]: {
+      description:
+        "probe fixture agent for the per-invocation effort parameter",
+      prompt: `Reply with exactly: OK ${nonce}`,
+      effort: "medium",
+    },
+  });
+  const result = await runClaude(
+    [
+      "--model",
+      "sonnet",
+      "--effort",
+      "high",
+      "--agents",
+      agentsJson,
+      "-p",
+      `Use the Task tool with subagent_type ${agentName}, effort: low, description: probe, prompt: 'reply OK ${nonce}'; then use SendMessage to message that same sub-agent once more with 'reply OK ${nonce} again'.`,
+    ],
+    { timeoutMs: LIVE_TIMEOUT_MS },
+  );
+  const notRun = unrunnable(result, LIVE_TIMEOUT_MS);
+  if (notRun) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: result.timedOut
+        ? `subagent-effort-param live probe timed out after ${LIVE_TIMEOUT_MS}ms`
+        : `subagent-effort-param live probe ${notRun}`,
+      fallback:
+        "keep the agent-file effort: medium fallback; omit effort: below 2.1.292",
+    };
+  }
+  // Real HOME (no `home:` override for live probes): the sub-agent transcript
+  // lands under the real ~/.claude/projects. The agent's .meta.json names its
+  // agentType — bare for an --agents fixture, plugin-qualified for plugin
+  // agents — so match either form, then read the sibling .jsonl.
+  const projectsRoot = path.join(os.homedir(), ".claude", "projects");
+  const found = spawnSync(
+    "find",
+    [projectsRoot, "-path", "*/subagents/agent-*.meta.json", "-mmin", "-10"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+  );
+  const agentTypeRe = new RegExp(`(^|:)${agentName}$`);
+  let transcript = "";
+  let metaNote = "";
+  for (const metaPath of (found.stdout ?? "").split("\n").filter(Boolean)) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as {
+        agentType?: string;
+        effort?: string;
+      };
+      if (!meta.agentType || !agentTypeRe.test(meta.agentType)) continue;
+      const jsonl = fs.readFileSync(
+        metaPath.replace(/\.meta\.json$/, ".jsonl"),
+        "utf8",
+      );
+      if (!jsonl.includes(nonce)) continue;
+      transcript = jsonl;
+      if (meta.effort) metaNote = `; meta.effort=${meta.effort}`;
+      break;
+    } catch {
+      // unreadable / non-JSON candidate: try the next one
+    }
+  }
+  if (!transcript) {
+    return {
+      id,
+      verdict: "inconclusive",
+      evidence: `no sub-agent transcript for ${agentName} found under ${projectsRoot} (claude exit ${result.exitCode}): ${result.stdout.trim().slice(0, 300)}`,
+      fallback:
+        "keep the agent-file effort: medium fallback; omit effort: below 2.1.292",
+    };
+  }
+  const { verdict, turns, counts } = effortVerdictFromTranscript(transcript);
+  return {
+    id,
+    verdict,
+    evidence: `per-invocation effort: low over an agent-file effort: medium, session --effort high (exit ${result.exitCode}); ${turns} assistant turn(s) carried effort fields, counts ${JSON.stringify(counts)}${metaNote}`,
+    fallback:
+      "keep the agent-file effort: medium fallback; omit effort: below 2.1.292",
+  };
+}
+
 /** Settles whether the Workflow tool can run an inline one-agent script and
  * surface its return value to the top-level `-p` session, mirroring
  * `probeMaxTurnsPartial`'s Task-tool live-probe shape. */
@@ -1114,6 +1238,7 @@ const PROBE_FNS: Record<
   "skills-preload-name": probeSkillsPreloadName,
   "max-turns-partial": probeMaxTurnsPartial,
   "cache-ttl-1h": probeCacheTtl1h,
+  "subagent-effort-param": probeSubagentEffortParam,
   "plugin-eval-availability": probePluginEvalAvailability,
   "workflow-headless-await": probeWorkflowHeadlessAwait,
   "workflow-plugin-command": probeWorkflowPluginCommand,
