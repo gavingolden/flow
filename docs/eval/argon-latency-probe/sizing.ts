@@ -98,8 +98,15 @@ function median(xs: number[]): number {
 // (limit-mismatch above); stalls when >= 2/3 of the model's calls are empty.
 // Over ONE surface's records — the caller groups by surface (see sizeLimits).
 export function sizeLimit(records: ProbeRecord[], model: string): SizedLimit {
-  const own = records.filter((r) => r.model === model);
-  if (own.length === 0) throw new Error(`no probe records for ${model}`);
+  // A call that never reached the model (agy missing or logged out) is neither
+  // an answer nor a stall; its near-zero wall time would pull the median down
+  // and dilute the empty share. Timeouts and empty answers stay: they are
+  // measured failures.
+  const own = records.filter(
+    (r) => r.model === model && (r.ran || r.timedOut || r.empty),
+  );
+  if (own.length === 0)
+    throw new Error(`no measured probe attempts for ${model}`);
   const medianSec = median(own.map((r) => r.wallSec));
   const minutes = Math.ceil(Math.max(FLOOR_SEC, 3 * medianSec) / 60);
   const emptyShare = own.filter((r) => r.empty).length / own.length;

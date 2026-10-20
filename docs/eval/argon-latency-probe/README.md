@@ -81,7 +81,11 @@ The probe stops at the first quota refusal (a delegate envelope whose
 calls were not run, and exits 3. A refused call is not recorded: it carries no
 latency signal. Wait for the quota window to reset (five hours on the Google
 AI Ultra plan) and re-run only the missing surfaces with `--surfaces` and
-`--repeats`.
+`--repeats`, into the same `--out` directory. The re-run loads the earlier
+`records.json`, keeps the records of every surface it does not re-measure, and
+replaces the records of a surface it does, so limits are sized over the merged
+set. A call that never reached the model (agy missing or logged out) is left
+out of the sizing: it carries no answer time.
 
 ### Detach-and-wait launch
 

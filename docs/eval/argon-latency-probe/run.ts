@@ -128,6 +128,19 @@ export function recordsDocument(
   );
 }
 
+// Records from an earlier run in the same out dir, for surfaces this run does
+// not re-measure. A missing or unreadable file is an empty history.
+export function readPriorRecords(path: string): ProbeRecord[] {
+  try {
+    const doc = JSON.parse(readFileSync(path, "utf8")) as {
+      records?: unknown;
+    };
+    return Array.isArray(doc.records) ? (doc.records as ProbeRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export type Dispatch = (
   entry: FanoutManifestEntry,
 ) => Promise<FanoutResult["entries"][number]>;
@@ -142,18 +155,21 @@ function runPinnedDelegate(
     {
       stdin: "ignore",
       stdout: "pipe",
-      stderr: "pipe",
+      stderr: "ignore",
     },
   );
-  return proc.exited.then(async () => {
-    const stdout = await new Response(proc.stdout).text();
-    const line = stdout.trim().split("\n").filter(Boolean).pop() ?? "";
-    try {
-      return JSON.parse(line) as DelegateEnvelope;
-    } catch {
-      return { ran: false, task: entry.task, skipReason: "agy-error" };
-    }
-  });
+  // Drain stdout while the child runs: reading it only after exit would
+  // deadlock a child that fills the pipe buffer.
+  return Promise.all([new Response(proc.stdout).text(), proc.exited]).then(
+    ([stdout]) => {
+      const line = stdout.trim().split("\n").filter(Boolean).pop() ?? "";
+      try {
+        return JSON.parse(line) as DelegateEnvelope;
+      } catch {
+        return { ran: false, task: entry.task, skipReason: "agy-error" };
+      }
+    },
+  );
 }
 
 // One entry per fanout call, concurrency 1: serial by construction, so a quota
@@ -194,6 +210,7 @@ export async function runProbe(
     progress?: (l: string) => void;
     io?: Io;
     writeRecords?: (path: string, data: string) => void;
+    readPrior?: (path: string) => ProbeRecord[];
     writeOut?: (line: string) => void;
   } = {},
 ): Promise<number> {
@@ -208,7 +225,7 @@ export async function runProbe(
     writeOut(
       JSON.stringify({
         code,
-        recorded: records.length,
+        recorded: records.length - kept,
         planned: manifest.length,
       }),
     );
@@ -225,10 +242,16 @@ export async function runProbe(
     io: deps.io,
   });
   const recordsPath = join(args.out, "records.json");
-  const records: ProbeRecord[] = [];
+  // A re-run of some surfaces merges into the earlier records instead of
+  // replacing them; a surface measured again replaces its own earlier records.
+  const remeasured = new Set(manifest.map((e) => e.task.split("__r")[0]));
+  const records: ProbeRecord[] = (deps.readPrior ?? readPriorRecords)(
+    recordsPath,
+  ).filter((r) => !remeasured.has(r.surface));
+  const kept = records.length;
   for (const entry of manifest) {
     progress(
-      `argon-latency-probe: ${entry.task} (${records.length + 1}/${manifest.length})\n`,
+      `argon-latency-probe: ${entry.task} (${records.length - kept + 1}/${manifest.length})\n`,
     );
     const result = await dispatch(entry);
     // A refused call carries no latency signal and would drag the median down;
@@ -236,7 +259,7 @@ export async function runProbe(
     if (result.failureClass === "quota-exhausted") {
       writeRecords(recordsPath, recordsDocument(records, now().toISOString()));
       progress(
-        `argon-latency-probe: quota refusal at ${entry.task}; ${manifest.length - records.length} calls not run. Wait for the reset and re-run for the rest.\n`,
+        `argon-latency-probe: quota refusal at ${entry.task}; ${manifest.length - (records.length - kept)} calls not run. Wait for the reset and re-run for the rest.\n`,
       );
       return finish(3);
     }

@@ -236,7 +236,38 @@ describe("sizeLimit", () => {
         HIGH,
       ).medianSec,
     ).toBe(100);
-    expect(() => sizeLimit([rec({})], MED)).toThrow(/no probe records/);
+    expect(() => sizeLimit([rec({})], MED)).toThrow(/no measured probe/);
+  });
+
+  it("leaves never-attempted calls (agy not authenticated) out of the median and the empty share", () => {
+    const unauthenticated = rec({ ran: false, wallSec: 0.05 });
+    expect(
+      sizeLimit([unauthenticated, rec({ wallSec: 500 })], HIGH).medianSec,
+    ).toBe(500);
+    expect(
+      sizeLimit(
+        [unauthenticated, unauthenticated, rec({ empty: true }), rec({})],
+        HIGH,
+      ).verdict,
+    ).toBe("fits");
+  });
+
+  it("rejects sizing when no record was a measured attempt", () => {
+    expect(() => sizeLimit([rec({ ran: false, wallSec: 0.05 })], HIGH)).toThrow(
+      /no measured probe/,
+    );
+  });
+
+  it("keeps real timeouts and empty answers as measured failures", () => {
+    expect(
+      sizeLimit(
+        [
+          rec({ ran: false, timedOut: true, empty: true }),
+          rec({ empty: true }),
+        ],
+        HIGH,
+      ).verdict,
+    ).toBe("stalls");
   });
 });
 
@@ -458,6 +489,40 @@ describe("runProbe", () => {
     expect(doc.records).toHaveLength(2);
     expect(JSON.parse(out[0]!)).toEqual({ code: 3, recorded: 2, planned: 4 });
     expect(doc.records.every((r: ProbeRecord) => r.timedOut)).toBe(true);
+  });
+
+  it("merges into the earlier records: re-measured surfaces are replaced, others kept", async () => {
+    const writes = new Map<string, string>();
+    const prior = [
+      rec({ surface: "plan-review", wallSec: 111 }),
+      rec({ surface: "intent-guess", wallSec: 999 }),
+    ];
+    const out: string[] = [];
+    await runProbe(args(), {
+      writeOut: (l) => void out.push(l),
+      io: io(new Map()),
+      readPrior: () => prior,
+      writeRecords: (p, d) => void writes.set(p, d),
+      progress: () => {},
+      now: () => new Date("2026-10-19T00:00:00Z"),
+      dispatch: async (e) => ({
+        task: e.task,
+        model: e.model ?? null,
+        ran: false,
+        skipReason: "agy-timeout",
+        durationMs: 1000,
+      }),
+    });
+    const doc = JSON.parse(writes.get("/out/records.json")!);
+    expect(doc.records).toHaveLength(5);
+    expect(
+      doc.records.filter((r: ProbeRecord) => r.surface === "plan-review"),
+    ).toHaveLength(1);
+    expect(
+      doc.records.filter((r: ProbeRecord) => r.surface === "intent-guess"),
+    ).toHaveLength(4);
+    expect(doc.records.every((r: ProbeRecord) => r.wallSec !== 999)).toBe(true);
+    expect(JSON.parse(out[0]!)).toEqual({ code: 0, recorded: 4, planned: 4 });
   });
 
   it("recordsDocument carries measuredAt, records and per-surface limits", () => {
