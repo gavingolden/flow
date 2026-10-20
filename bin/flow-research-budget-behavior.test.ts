@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
+import { DEFAULT_TIMEOUT } from "./flow-research-run";
 
 /**
  * Behavioral companion to `flow-research-budget-lint.test.ts`.
@@ -123,7 +124,7 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
     const r = runBudget({});
     expect(r.status).toBe(0);
     expect(r.vars.MAX).toBe("12");
-    expect(r.vars.TIMEOUT).toBe("3m");
+    expect(r.vars.TIMEOUT).toBe(DEFAULT_TIMEOUT);
     expect(r.vars.MODEL).toBe("Gemini 4 Argon (High)");
     expect(r.vars.REFUTE).toBe(DELEGATE_MODEL_DEFAULTS.researchRefute);
   });

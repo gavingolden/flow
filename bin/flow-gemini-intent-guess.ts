@@ -19,7 +19,7 @@
  *     blindness contract) and delegate ONE bounded agy call via
  *     `flow-delegate` (model "Gemini 4 Argon (High)", `--timeout` from
  *     `resolveDelegateTimeout("intentGuess")` — `delegate.timeouts.intentGuess`,
- *     default 5m, clamped to a 9m sync ceiling).
+ *     default 10m, 20m sanity bound).
  *  3. Branch on the flow-delegate envelope's `ran` field (NEVER the exit
  *     code): `ran:false` → propagate the skipReason, finalize nothing.
  *  4. `ran:true` → read the raw agy artifact and decode it through the
@@ -220,6 +220,25 @@ export function validateIntentGuess(
   };
 }
 
+// Derive a bounded changed-file list from the diff's `--- a/` / `+++ b/`
+// markers rather than requiring a separate flag — keeps the CLI surface
+// minimal. `+++ b/` alone misses deletions (whose destination header is
+// `+++ /dev/null`), so pull the source path too. Exported so the latency probe
+// (docs/eval/argon-latency-probe) builds the same production prompt.
+export function changedFileList(diff: string): string {
+  const changedFiles = new Set<string>();
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("--- a/"))
+      changedFiles.add(line.slice("--- a/".length));
+    if (line.startsWith("+++ b/"))
+      changedFiles.add(line.slice("+++ b/".length));
+  }
+  return (
+    Array.from(changedFiles).join("\n") ||
+    "(unable to derive file list from diff)"
+  );
+}
+
 // Exported so bin/lib/agy-read-rules.test.ts can pin this call site to the
 // shared read-rules block (Task 3) and bin/flow-gemini-intent-guess.test.ts
 // can assert the prompt text directly (Task 2/5).
@@ -375,20 +394,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return skip("gemini-intent-guess-diff-unreadable");
   }
 
-  // Derive a bounded changed-file list from the diff's `--- a/` / `+++ b/`
-  // markers rather than requiring a separate flag — keeps the CLI surface
-  // minimal. `+++ b/` alone misses deletions (whose destination header is
-  // `+++ /dev/null`), so pull the source path too.
-  const changedFiles = new Set<string>();
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("--- a/"))
-      changedFiles.add(line.slice("--- a/".length));
-    if (line.startsWith("+++ b/"))
-      changedFiles.add(line.slice("+++ b/".length));
-  }
-  const fileList =
-    Array.from(changedFiles).join("\n") ||
-    "(unable to derive file list from diff)";
+  const fileList = changedFileList(diff);
 
   try {
     deps.mkdirp(dirname(parsed.out));

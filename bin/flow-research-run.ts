@@ -21,12 +21,12 @@
  * envelope's `ran`/`allSkipped` field NEVER the exit code -> write artifact ->
  * graceful skip on any failure -> exit 0 on every operational path):
  *  1. Read budget/model overrides from ~/.flow/config.json tolerantly, reusing
- *     discovery's frozen defaults (maxCalls 12, timeout "3m", gather
+ *     discovery's frozen defaults (maxCalls 12, timeout "20m", gather
  *     "Gemini 4 Argon (High)", refute "Claude Opus 5.5 (Medium)" with the
  *     cross-model diversity guard).
  *  2. Build a deterministic 2-entry manifest (gather + adversarial refute).
  *  3. Run `flow-delegate-fanout` (concurrency pinned at 4 — 2 entries are one
- *     wave, ~3m bounded).
+ *     wave, bounded by the research limit).
  *  4. `allSkipped` (agy unavailable) -> status {ran:false,reason:"agy-unavailable"}.
  *  5. Otherwise read the per-entry agy artifacts, build a BOUNDED findings
  *     block, write it to --out, and status {ran:true,reason:"ran"} — or
@@ -50,7 +50,13 @@
  * if any, agy denied (see `deniedActions` below).
  */
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { resolveDelegateModel } from "./lib/delegate-models";
@@ -60,7 +66,18 @@ import { redactSecrets } from "./lib/redact-secrets";
 // (skills/pipeline/flow-product-planning/references/discovery-research.md, the
 // `read_budget` block). Keep these byte-identical to that source of truth.
 const DEFAULT_MAX_CALLS = 12;
-const DEFAULT_TIMEOUT = "3m";
+// The research limit: gather and fact-check share it (buildManifest applies one
+// timeout to both). 20 minutes is the sizing rule's cap
+// (docs/eval/argon-latency-probe/README.md): Stage 0 measured Argon High's
+// gather median at 415 s (docs/eval/argon-latency-probe-2026-10.md), so 3x is
+// 21 minutes, over the cap — a limit mismatch, shipped at the cap (Argon Medium
+// fits at 20m). A capped-search variant was 1.35x faster (median 308 s), below
+// the 2x bar, so the gather prompt is unchanged. The 3-minute limit it replaces
+// cut a gather that had spent 163 s searching with no answer. Callers no longer hold the
+// run inside one 10-minute tool call — they launch it with `flow-spawn
+// --detach` and wait on the status file (flow-plan-review-wait --pid) — so the
+// limit is not bounded by a tool call.
+export const DEFAULT_TIMEOUT = "20m";
 const FALLBACK_REFUTE_MODEL = "GPT-OSS 120B (Medium)";
 
 const GATHER_TASK = "research-gather";
@@ -393,6 +410,7 @@ export type Deps = {
   runFanout: FanoutRunner;
   readFile: (path: string) => string;
   writeFile: (path: string, contents: string) => void;
+  rename: (from: string, to: string) => void;
   removeFile: (path: string) => void;
   mkdirp: (dir: string) => void;
   writeOut: (line: string) => void;
@@ -406,7 +424,11 @@ function writeStatus(deps: Deps, path: string, status: Status): void {
   // enough to error the run. Research must never block planning.
   try {
     deps.mkdirp(dirname(path));
-    deps.writeFile(path, JSON.stringify(status));
+    // Temp file + rename, newline-terminated: a detached-run waiter
+    // (flow-plan-review-wait --complete-line) never sees a half-written or
+    // unterminated status file.
+    deps.writeFile(`${path}.tmp`, JSON.stringify(status) + "\n");
+    deps.rename(`${path}.tmp`, path);
   } catch {
     // swallow — a status-write failure must not abort the operational path.
   }
@@ -613,7 +635,7 @@ function defaultRunFanout(input: {
   outPath: string;
 }): FanoutAggregate {
   // Spawn the flow-delegate-fanout BINARY and parse its one-line aggregate
-  // envelope. --concurrency is pinned at 4 (2 entries => one wave, ~3m bounded).
+  // envelope. --concurrency is pinned at 4 (2 entries => one wave, bounded by the research limit).
   const argv = [
     "--manifest",
     input.manifestPath,
@@ -647,6 +669,7 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     runFanout: o?.runFanout ?? defaultRunFanout,
     readFile: o?.readFile ?? ((p) => readFileSync(p, "utf8")),
     writeFile: o?.writeFile ?? ((p, c) => writeFileSync(p, c)),
+    rename: o?.rename ?? ((from, to) => renameSync(from, to)),
     removeFile: o?.removeFile ?? ((p) => void rmSync(p, { force: true })),
     mkdirp: o?.mkdirp ?? ((d) => void mkdirSync(d, { recursive: true })),
     writeOut: o?.writeOut ?? ((line) => console.log(line)),

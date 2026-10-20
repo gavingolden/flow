@@ -1,0 +1,12 @@
+{
+  "id": "c11-research-gather",
+  "surface": "research-gather",
+  "kind": "free-text",
+  "promptFile": "prompt.md",
+  "inputFiles": [],
+  "skipPermissions": true,
+  "productionTimeout": "20m",
+  "repeats": 5,
+  "authoredAtCommit": "add488006e6b507dc09a65abc2c50f6e148f8081",
+  "routable": true
+}

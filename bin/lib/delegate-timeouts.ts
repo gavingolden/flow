@@ -2,16 +2,13 @@
  * Tolerant per-surface resolver for `~/.flow/config.json`'s
  * `delegate.timeouts` table, mirroring `delegate-models.ts`'s shape.
  *
- * A sync delegate call (`flow-gemini-lens`, `flow-gemini-intent-guess`)
- * runs inside a Bash tool call that itself pins a 600000ms/10m timeout
- * (`skills/pipeline/flow-pr-review/SKILL.md`,
- * `skills/pipeline/flow-pr-review/references/intent-mismatch-resolution.md`).
- * A configured `agy --print-timeout` above that ceiling means the
- * Bash tool kills the helper first and the caller never sees an envelope
- * at all — a worse misclassification than the one this module exists to
- * fix. `SYNC_DELEGATE_CEILING` ("9m") leaves a minute of slack for bun
- * startup + the agy spawn itself, and `resolveDelegateTimeout` always
- * warns before silently clamping down to it.
+ * The delegate calls this module sizes (`flow-gemini-lens`,
+ * `flow-gemini-intent-guess`) are launched detached (`flow-spawn --detach`)
+ * and awaited with `flow-plan-review-wait`, so no Bash tool call's
+ * 600000ms/10m timeout bounds them. `DELEGATE_TIMEOUT_CEILING` ("20m") is a
+ * sanity bound, not a tool-call limit: it stops a typo like "200m" from
+ * holding a pipeline for hours, and `resolveDelegateTimeout` always warns
+ * before silently clamping down to it.
  *
  * Reuses `models-config.ts`'s `ReadConfigFile` / `defaultReadConfigFile`
  * seam (tolerant boundary read, injectable for tests) — same precedent as
@@ -30,11 +27,11 @@ export type DelegateTimeoutSurface = "reviewLens" | "intentGuess";
 
 export const DELEGATE_TIMEOUT_DEFAULTS: Record<DelegateTimeoutSurface, string> =
   {
-    reviewLens: "8m",
-    intentGuess: "5m",
+    reviewLens: "10m",
+    intentGuess: "10m",
   };
 
-export const SYNC_DELEGATE_CEILING = "9m";
+export const DELEGATE_TIMEOUT_CEILING = "20m";
 
 // Go-duration grammar: one or more `<number><unit>` pairs, unit one of
 // ns/us/µs/ms/s/m/h (e.g. "3m", "90s", "2m30s", "1.5h"). No unit repeats
@@ -97,7 +94,7 @@ function extractDelegateTimeoutsKey(raw: unknown, key: string): unknown {
  * Resolves the `--print-timeout`-shaped godur string for a given delegate
  * surface: `delegate.timeouts.<surface>` from `~/.flow/config.json` when
  * present and a well-formed Go duration, else the seeded default. A
- * resolved value above `SYNC_DELEGATE_CEILING` is clamped down to it
+ * resolved value above `DELEGATE_TIMEOUT_CEILING` is clamped down to it
  * (warn-and-clamp, never warn-and-pass — see module docstring); a value
  * exactly at the ceiling is accepted as-is. Never
  * throws — a missing file, malformed JSON, absent key, or non-godur value
@@ -124,14 +121,14 @@ export function resolveDelegateTimeout(
   }
 
   const trimmed = value.trim();
-  if (godurToSec(trimmed) > godurToSec(SYNC_DELEGATE_CEILING)) {
+  if (godurToSec(trimmed) > godurToSec(DELEGATE_TIMEOUT_CEILING)) {
     if (!warnedClampSurfaces.has(surface)) {
       warnedClampSurfaces.add(surface);
       console.error(
-        `delegate.timeouts.${surface}: '${trimmed}' exceeds the ${SYNC_DELEGATE_CEILING} sync ceiling (the Bash tool calls that run this surface pin a 600000ms timeout); clamping to ${SYNC_DELEGATE_CEILING}.`,
+        `delegate.timeouts.${surface}: '${trimmed}' exceeds the ${DELEGATE_TIMEOUT_CEILING} sanity bound; clamping to ${DELEGATE_TIMEOUT_CEILING}.`,
       );
     }
-    return SYNC_DELEGATE_CEILING;
+    return DELEGATE_TIMEOUT_CEILING;
   }
 
   if (trimmed !== defaultValue && !warnedOverrideSurfaces.has(surface)) {
@@ -145,12 +142,11 @@ export function resolveDelegateTimeout(
 }
 
 /**
- * Applies the same validation + `SYNC_DELEGATE_CEILING` clamp that
+ * Applies the same validation + `DELEGATE_TIMEOUT_CEILING` clamp that
  * `resolveDelegateTimeout` applies to the config path, but to an explicit
  * `--timeout` CLI flag value. Without this, a hand-passed flag could
- * request a duration above the 9-minute sync ceiling and reproduce the
- * exact no-envelope-at-all failure the clamp exists to prevent (the Bash
- * tool's 600000ms cap kills the helper before agy's own timeout fires).
+ * request an absurd duration (a typo like "200m") and hold the caller for
+ * hours past the sanity bound.
  * A malformed value falls back to the surface's seeded default, same as
  * an invalid config value. Never throws.
  */
@@ -169,14 +165,14 @@ export function clampDelegateTimeout(
   }
 
   const trimmed = value.trim();
-  if (godurToSec(trimmed) > godurToSec(SYNC_DELEGATE_CEILING)) {
+  if (godurToSec(trimmed) > godurToSec(DELEGATE_TIMEOUT_CEILING)) {
     if (!warnedClampSurfaces.has(surface)) {
       warnedClampSurfaces.add(surface);
       console.error(
-        `delegate.timeouts.${surface}: '--timeout ${trimmed}' exceeds the ${SYNC_DELEGATE_CEILING} sync ceiling (the Bash tool calls that run this surface pin a 600000ms timeout); clamping to ${SYNC_DELEGATE_CEILING}.`,
+        `delegate.timeouts.${surface}: '--timeout ${trimmed}' exceeds the ${DELEGATE_TIMEOUT_CEILING} sanity bound; clamping to ${DELEGATE_TIMEOUT_CEILING}.`,
       );
     }
-    return SYNC_DELEGATE_CEILING;
+    return DELEGATE_TIMEOUT_CEILING;
   }
 
   return trimmed;

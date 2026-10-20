@@ -24,8 +24,11 @@ survey file absent, and `flow-module-status --check research` — on a pass,
 author a goal-only brief from step-1's goal line plus goal-level interview
 answers (NEVER the raw description or the user's method), and run
 `flow-blind-survey --brief-file … --description-file … --out
-"$WORKTREE/.flow-tmp/blind-survey.md" --worktree "$WORKTREE"` as a Bash
-call with `timeout: 600000`. Branch on `{ran}`, never the exit code; print
+"$WORKTREE/.flow-tmp/blind-survey.md" --worktree "$WORKTREE"` launched
+detached (`flow-spawn --detach`) and awaited with `flow-plan-review-wait
+--complete-line --pid` in re-armed steps — never one blocking Bash call
+(recipe and give-up rule: [references/blind-survey.md](../blind-survey.md)).
+Branch on `{ran}`, never the exit code; print
 one chat line either way (`blind survey: A=… B=…` or `blind survey
 skipped — <reason>`); on `ran:true`, thread a `SURVEY:` marker below. Runs
 once per pipeline — a revision pass reuses the existing survey file. On a
@@ -64,9 +67,13 @@ forced, so on the `forceResearch == true` path you MUST ALSO run the research
 yourself BEFORE invoking `/flow-product-planning`: probe
 `flow-module-status --check research` (non-zero ⇒ module deselected, notice
 already emitted — note the skip and proceed to planning appending nothing),
-then run `flow-research-run --task "<verbatim user description>" --out
+then launch `flow-research-run --task "<verbatim user description>" --out
 "$WORKTREE/.flow-tmp/research-findings.md" --status-file
-"$WORKTREE/.flow-tmp/research-status.json"`, folding non-empty findings into
+"$WORKTREE/.flow-tmp/research-status.json"` detached (`flow-spawn --detach`,
+the status file removed first) and wait on that status file with
+`flow-plan-review-wait --complete-line --pid` in re-armed steps (give-up =
+the research limit + 5 minutes, reason `research-timeout`; recipe in
+step3-threading.md), folding non-empty findings into
 the invocation through the same channel, clearly labelled `RESEARCH FINDINGS
 (web-grounded, pre-run by supervisor — use as prior context, do NOT re-run
 the fan-out):`. This self-degrades to a graceful skip when agy is unavailable

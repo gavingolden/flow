@@ -22,6 +22,8 @@
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { DELEGATED_LENS_TIMEOUT } from "../../../bin/lib/delegate-models";
+import { godurToSec } from "../../../bin/lib/delegate-timeouts";
 import { aggregateArms, type CellStat } from "./score-arms";
 
 const LENSES = [
@@ -612,7 +614,13 @@ function runArmsAggregate(
     });
   }
   if (bad.length) console.error(`UNPARSED JUDGES: ${bad.join(", ")}`);
-  const agg = aggregateArms(cells);
+  // `recall_at_production_limit` is measured at the DELEGATED CLAUDE-LENS limit
+  // (the `claudeLenses` surface this harness's agy arms run through
+  // flow-agy-lenses) — NOT the Gemini `reviewLens` limit, which bench case c7
+  // measures.
+  const agg = aggregateArms(cells, {
+    productionLimitMs: godurToSec(DELEGATED_LENS_TIMEOUT) * 1000,
+  });
   const two = twoArmSeparation(cells);
   const arms = Object.fromEntries(
     Object.entries(agg.arms).map(([name, stats]) => [

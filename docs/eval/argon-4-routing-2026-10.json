@@ -1,0 +1,155 @@
+{
+  "schema": "flow/argon-4-routing@1",
+  "measured_at": "2026-10-20",
+  "agy_version": "1.4.2",
+  "doc": "docs/eval/argon-4-routing-2026-10.md",
+  "bench_run": "docs/model-bench/argon-4-2026-10/",
+  "screen_repeats": 3,
+  "amendment": "2026-10-20: no top-up past the screen, Stage 2 cut, Argon Medium lens cells at 1 run per (lens, PR)",
+  "quota": {
+    "argon_calls": 112,
+    "stage0": 29,
+    "screen": 54,
+    "probes": 1,
+    "lens_cells": 28,
+    "max_per_window": 60,
+    "quota_refusals": 0
+  },
+  "steps": [
+    {
+      "surface": "planReview",
+      "model_today": "Gemini 4 Argon (High)",
+      "limit": "13m",
+      "stage0": { "high": "fits", "medium": "fits" },
+      "case": "c6-plan-review",
+      "recall": {
+        "gemini-4-argon-high": 1.0,
+        "gemini-4-argon-medium": 1.0,
+        "claude-sonnet-4-6": 1.0,
+        "gemini-3.1-pro-high": 0.98,
+        "gemini-3.7-flash-high": 1.0
+      },
+      "outcome": "keep Argon High"
+    },
+    {
+      "surface": "blindSurvey",
+      "model_today": "Gemini 4 Argon (High)",
+      "limit": "10m",
+      "stage0": { "high": "fits", "medium": "fits" },
+      "case": "c12-blind-survey",
+      "recall": { "gemini-4-argon-high": 1.0, "gemini-4-argon-medium": 1.0 },
+      "outcome": "keep Argon High"
+    },
+    {
+      "surface": "researchGather",
+      "model_today": "Gemini 4 Argon (High)",
+      "limit": "20m",
+      "stage0": { "high": "limit-mismatch", "medium": "fits" },
+      "case": "c11-research-gather",
+      "recall": { "gemini-4-argon-high": 0.93, "gemini-4-argon-medium": 0.93 },
+      "outcome": "consider Argon Medium"
+    },
+    {
+      "surface": "intentGuess",
+      "model_today": "Gemini 4 Argon (High)",
+      "limit": "10m",
+      "stage0": { "high": "fits", "medium": "fits" },
+      "case": "c4-intent-json",
+      "recall": {
+        "gemini-4-argon-high": 1.0,
+        "gemini-4-argon-medium": 1.0,
+        "claude-sonnet-4-6": 1.0,
+        "gemini-3.1-pro-high": 0.92,
+        "gemini-3.7-flash-high": 1.0
+      },
+      "outcome": "keep Argon High"
+    },
+    {
+      "surface": "reviewLens",
+      "model_today": "Gemini 4 Argon (High)",
+      "limit": "10m",
+      "stage0": { "high": "fits", "medium": "fits" },
+      "case": "c7-review-lens",
+      "recall": {
+        "gemini-4-argon-high": 1.0,
+        "gemini-4-argon-medium": 1.0,
+        "claude-sonnet-4-6": 0.83,
+        "gemini-3.1-pro-high": 0.75,
+        "gemini-3.7-flash-high": 0.0
+      },
+      "outcome": "keep Argon High"
+    },
+    {
+      "surface": "researchRefute",
+      "model_today": "Claude Opus 5.5 (Medium)",
+      "limit": "20m",
+      "case": "c8-research-refute",
+      "recall": {
+        "gemini-4-argon-high": 0.87,
+        "gemini-4-argon-medium": 1.0,
+        "claude-sonnet-4-6": 1.0,
+        "gemini-3.1-pro-high": 1.0,
+        "gemini-3.7-flash-high": 1.0
+      },
+      "outcome": "structural hold"
+    },
+    {
+      "surface": "planReviewSecond",
+      "model_today": "Claude Opus 5.5 (High)",
+      "outcome": "structural hold"
+    },
+    {
+      "surface": "blindSurveySecond",
+      "model_today": "Claude Opus 5.5 (High)",
+      "outcome": "structural hold"
+    },
+    {
+      "surface": "scout",
+      "model_today": null,
+      "limit": "8m",
+      "case": "c2b-real-defect",
+      "recall": {
+        "gemini-4-argon-high": 0.44,
+        "gemini-4-argon-medium": 0.17,
+        "claude-sonnet-4-6": 0.09
+      },
+      "non_empty": {
+        "gemini-4-argon-high": "1/3",
+        "gemini-4-argon-medium": "2/3"
+      },
+      "outcome": "consider Claude (stays Claude)"
+    },
+    {
+      "surface": "claudeLenses",
+      "model_today": null,
+      "limit": "8m",
+      "harness": "docs/eval/review-model-recall/",
+      "recall_per_lens": {
+        "opus-task-reference": {
+          "bug-detection": 0.048,
+          "pattern-consistency": 0.06,
+          "test-coverage": 0.06
+        },
+        "agy-argon-high": {
+          "bug-detection": 0.057,
+          "pattern-consistency": 0.066,
+          "test-coverage": 0.082,
+          "all": 0.068,
+          "all_at_8m": 0.05,
+          "cells": 18,
+          "median_cell_s": 347
+        },
+        "agy-argon-medium": {
+          "bug-detection": 0.076,
+          "pattern-consistency": 0.075,
+          "test-coverage": 0.092,
+          "all": 0.081,
+          "all_at_8m": 0.081,
+          "cells": 9,
+          "median_cell_s": 249
+        }
+      },
+      "outcome": "both tiers clear the lens bar"
+    }
+  ]
+}

@@ -58,6 +58,15 @@ import {
   type StructuredTuple,
   type TruthCriterion,
 } from "./model-bench-schema";
+import {
+  groundTruthFailure,
+  groundTruthKind,
+  type GroundTruthKind,
+} from "./model-bench-ground-truth";
+import {
+  renderTimeoutFit,
+  type TimeoutFitRow,
+} from "./model-bench-timeout-fit";
 
 export type ModelCaseScore = {
   recall: number;
@@ -74,7 +83,15 @@ export type ModelCaseScore = {
   vacuous: number;
   pushback?: "named" | "hedged" | "missed" | "over-objected";
   ranAttempts: number;
+  // Reliability denominator: every non-warm-up attempt EXCEPT quota / rate-limit
+  // refusals (a refused call says nothing about the model's reliability).
   totalAttempts: number;
+  // Attempts refused for quota or rate limit — excluded from totalAttempts.
+  quotaRefused?: number;
+  // ran:true attempts whose tools were denied and whose answer came back empty:
+  // production behaviour, so still counted in totalAttempts, but reported as
+  // their own class.
+  toolDeniedEmpty?: number;
   latency: { median: number; min: number; max: number };
 };
 
@@ -93,6 +110,12 @@ function median(values: number[]): number {
   return sorted.length % 2 === 0
     ? (sorted[mid - 1]! + sorted[mid]!) / 2
     : sorted[mid]!;
+}
+
+function isQuotaRefusal(a: BenchResult): boolean {
+  return (
+    a.failureClass === "quota-exhausted" || a.failureClass === "rate-limited"
+  );
 }
 
 function defectFingerprint(d: {
@@ -245,6 +268,7 @@ function scoreCaseForArm(
   for (const [model, allAttempts] of byModel) {
     const attempts = allAttempts.filter((a) => a.ran);
     const texts = textsFor(attempts);
+    const quotaRefused = allAttempts.filter(isQuotaRefusal).length;
 
     // Union-across-attempts view: used for every "did the model ever get
     // this" field (requiredMissed, falsePositives, precision, vacuous, the
@@ -334,7 +358,11 @@ function scoreCaseForArm(
       vacuous,
       pushback,
       ranAttempts: attempts.length,
-      totalAttempts: allAttempts.length,
+      totalAttempts: allAttempts.length - quotaRefused,
+      quotaRefused,
+      toolDeniedEmpty: allAttempts.filter(
+        (a) => a.failureClass === "tool-denied-empty",
+      ).length,
       latency: {
         median: median(durations),
         min: durations.length ? Math.min(...durations) : 0,
@@ -450,20 +478,78 @@ function averageRecall(caseScores: CaseScore[], model: string): number {
 
 const BORDERLINE_TOLERANCE = 0.01;
 
+export type GateOpts = {
+  // The incumbent-comparison latency gate; off for runs whose latency evidence
+  // is single-shot fixture time rather than production-realistic.
+  latencyGate: boolean;
+  // Gate a no-baseline or at-ceiling case on fixture ground truth instead of
+  // the incumbent comparison (see model-bench-ground-truth.ts).
+  groundTruthFloor?: number;
+};
+
 // Gates evaluated IN THIS ORDER (quality first, latency LAST — a latency
 // win with any quality regression is a hard reject, never a weighted
 // trade-off). A borderline miss on the parity or latency gate (within
 // BORDERLINE_TOLERANCE of the threshold) records inconclusive rather than a
-// hard reject.
+// hard reject. A case the incumbent has no rows on can never pass silently: it
+// is inconclusive (naming the missing baseline) unless a ground-truth floor
+// gates it.
 function evaluateCandidate(
   caseScores: CaseScore[],
   incumbent: string,
   candidate: string,
+  opts: GateOpts,
 ): VerdictCell {
+  // Keyed per CaseScore, not caseId: a schemaAb case scores two arms under one
+  // caseId, and each arm is gated or compared on its own.
+  const groundTruth = new Map<CaseScore, GroundTruthKind>();
+  const missingBaseline: string[] = [];
+
+  if (
+    caseScores.length > 0 &&
+    !caseScores.some((cs) => cs.perModel[candidate])
+  ) {
+    return {
+      status: "inconclusive",
+      reason: `no ${candidate} rows on this surface — nothing to evaluate`,
+    };
+  }
+
   for (const cs of caseScores) {
-    const inc = cs.perModel[incumbent];
     const cand = cs.perModel[candidate];
-    if (!inc || !cand) continue;
+    if (!cand) continue;
+    if ((cand.quotaRefused ?? 0) > 0 && cand.totalAttempts === 0) {
+      return {
+        status: "inconclusive",
+        reason: `no usable attempts: every ${candidate} attempt on ${cs.caseId} was refused for quota or rate limit`,
+      };
+    }
+    const kind =
+      opts.groundTruthFloor !== undefined
+        ? groundTruthKind(cs, [incumbent])
+        : null;
+    if (kind !== null && opts.groundTruthFloor !== undefined) {
+      const failure = groundTruthFailure(cand, opts.groundTruthFloor);
+      if (failure !== null) {
+        return {
+          status: "reject",
+          reason: `mechanical parity failed on ${cs.caseId} (${kind}): ${failure}`,
+        };
+      }
+      groundTruth.set(cs, kind);
+    } else if (!cs.perModel[incumbent]) {
+      missingBaseline.push(cs.caseId);
+    }
+  }
+
+  const comparable = caseScores.filter(
+    (cs) =>
+      cs.perModel[candidate] && cs.perModel[incumbent] && !groundTruth.has(cs),
+  );
+
+  for (const cs of comparable) {
+    const inc = cs.perModel[incumbent]!;
+    const cand = cs.perModel[candidate]!;
     for (const d of inc.defectsCaught) {
       if (cand.defectsMissed.includes(d)) {
         return {
@@ -474,10 +560,9 @@ function evaluateCandidate(
     }
   }
 
-  for (const cs of caseScores) {
-    const inc = cs.perModel[incumbent];
-    const cand = cs.perModel[candidate];
-    if (!inc || !cand) continue;
+  for (const cs of comparable) {
+    const inc = cs.perModel[incumbent]!;
+    const cand = cs.perModel[candidate]!;
     const threshold = inc.recall - 0.05;
     if (cand.recall < threshold) {
       if (threshold - cand.recall <= BORDERLINE_TOLERANCE) {
@@ -503,7 +588,14 @@ function evaluateCandidate(
     }
   }
 
-  if (caseScores.length > 0 && caseScores.every((cs) => !cs.discriminating)) {
+  if (missingBaseline.length > 0) {
+    return {
+      status: "inconclusive",
+      reason: `no baseline rows for ${incumbent} on ${missingBaseline.join(", ")} — cannot compare ${candidate}; add --baseline-results or set --ground-truth-floor`,
+    };
+  }
+
+  if (comparable.length > 0 && comparable.every((cs) => !cs.discriminating)) {
     return {
       status: "inconclusive",
       reason: "test too easy — every backing case is non-discriminating",
@@ -515,37 +607,61 @@ function evaluateCandidate(
     if (cand && cand.totalAttempts > 0) {
       const failRatio = 1 - cand.ranAttempts / cand.totalAttempts;
       if (failRatio > 0.2) {
+        const denied = cand.toolDeniedEmpty
+          ? ` (${cand.toolDeniedEmpty} tool-denied empty answer(s) counted as production behaviour)`
+          : "";
         return {
           status: "inconclusive",
-          reason: `reliability: ${candidate} failed to run on ${(failRatio * 100).toFixed(0)}% of attempts on ${cs.caseId}`,
+          reason: `reliability: ${candidate} failed to run on ${(failRatio * 100).toFixed(0)}% of attempts on ${cs.caseId}${denied}`,
         };
       }
     }
   }
 
-  const candMedian = averageMedianLatency(caseScores, candidate);
-  const incMedian = averageMedianLatency(caseScores, incumbent);
-  if (incMedian > 0) {
-    const threshold = 0.6 * incMedian;
-    if (candMedian > threshold) {
-      if (candMedian - threshold <= BORDERLINE_TOLERANCE * incMedian) {
+  if (opts.latencyGate) {
+    const candMedian = averageMedianLatency(comparable, candidate);
+    const incMedian = averageMedianLatency(comparable, incumbent);
+    if (incMedian > 0) {
+      const threshold = 0.6 * incMedian;
+      if (candMedian > threshold) {
+        if (candMedian - threshold <= BORDERLINE_TOLERANCE * incMedian) {
+          return {
+            status: "inconclusive",
+            reason: "latency payoff borderline — re-run when models update",
+          };
+        }
         return {
-          status: "inconclusive",
-          reason: "latency payoff borderline — re-run when models update",
+          status: "reject",
+          reason: `latency payoff insufficient: ${candidate} median ${candMedian.toFixed(2)}s is not <= 60% of incumbent's ${incMedian.toFixed(2)}s`,
         };
       }
-      return {
-        status: "reject",
-        reason: `latency payoff insufficient: ${candidate} median ${candMedian.toFixed(2)}s is not <= 60% of incumbent's ${incMedian.toFixed(2)}s`,
-      };
     }
   }
 
+  const gated = [
+    ...new Set([...groundTruth].map(([cs, kind]) => `${cs.caseId} (${kind})`)),
+  ];
   return {
     status: "clear",
     reason:
-      "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable, and a real latency payoff",
+      "cleared every gate: no defect regression, mechanical parity held, structured integrity held, discriminating cases available, reliable" +
+      (opts.latencyGate ? ", and a real latency payoff" : "") +
+      (gated.length > 0
+        ? `; gated on fixture ground truth: ${gated.join(", ")}`
+        : ""),
   };
+}
+
+// A misspelled --incumbent must never clear a candidate on ground truth alone.
+export function assertIncumbentHasRows(
+  scores: CaseScore[],
+  incumbent: string,
+): void {
+  if (scores.length > 0 && !scores.some((s) => s.perModel[incumbent])) {
+    throw new Error(
+      `incumbent "${incumbent}" has no rows in the loaded results — check --incumbent (and --baseline-results)`,
+    );
+  }
 }
 
 export function verdict(
@@ -555,8 +671,15 @@ export function verdict(
     candidates: string[];
     judged?: Record<string, "worse" | "parity" | "better">;
     caseSurfaces: Record<string, BenchSurface>;
+    latencyGate?: boolean;
+    groundTruthFloor?: number;
   },
 ): Record<string, Record<string, VerdictCell>> {
+  assertIncumbentHasRows(scores, opts.incumbent);
+  const gateOpts: GateOpts = {
+    latencyGate: opts.latencyGate ?? true,
+    groundTruthFloor: opts.groundTruthFloor,
+  };
   const bySurface = new Map<string, CaseScore[]>();
   for (const s of scores) {
     const surface = opts.caseSurfaces[s.caseId];
@@ -569,7 +692,12 @@ export function verdict(
   for (const [surface, caseScores] of bySurface) {
     matrix[surface] = {};
     for (const candidate of opts.candidates) {
-      let cell = evaluateCandidate(caseScores, opts.incumbent, candidate);
+      let cell = evaluateCandidate(
+        caseScores,
+        opts.incumbent,
+        candidate,
+        gateOpts,
+      );
       const judgedVerdict =
         opts.judged?.[`${surface}::${candidate}`] ?? opts.judged?.[candidate];
       // A blind 'worse' verdict downgrades a clear to inconclusive; 'better'
@@ -710,9 +838,15 @@ function sectionSchemaTax(tax: Record<string, SchemaTaxResult>): string {
   return lines.join("\n");
 }
 
+// case -> model -> arm -> executed (non-warm-up) result rows.
+export type ExecutedRepeats = Record<
+  string,
+  Record<string, Record<string, number>>
+>;
+
 function sectionProvenance(meta: {
   commit: string;
-  repeatTiers: Record<string, number>;
+  executedRepeats: ExecutedRepeats;
   models: string[];
   incumbent: string;
   agyVersion: string;
@@ -726,20 +860,37 @@ function sectionProvenance(meta: {
     `- models: ${meta.models.join(", ")}`,
     `- incumbent: ${meta.incumbent}`,
     `- run date: ${meta.runDate}`,
-    `- repeat tiers: ${JSON.stringify(meta.repeatTiers)}`,
+    `- executed repeats (non-warm-up rows per case, model and arm): ${JSON.stringify(meta.executedRepeats)}`,
   ].join("\n");
 }
 
-function sectionLimitations(scores: CaseScore[]): string {
+function repeatsLimitation(executed: ExecutedRepeats): string {
+  const counts = Object.values(executed).flatMap((byModel) =>
+    Object.values(byModel).flatMap((byArm) => Object.values(byArm)),
+  );
+  const span =
+    counts.length === 0
+      ? "no executed rows"
+      : Math.min(...counts) === Math.max(...counts)
+        ? `N=${counts[0]} per case, model and arm`
+        : `N=${Math.min(...counts)} to N=${Math.max(...counts)} per case, model and arm`;
+  return `- Executed repeats (${span}; exact counts in Run provenance) are far below the N>=30 that stable latency percentiles call for; medians are reported but underpowered.`;
+}
+
+function sectionLimitations(
+  scores: CaseScore[],
+  incumbent: string,
+  executed: ExecutedRepeats,
+): string {
   const nonDisc = scores
     .filter((s) => !s.discriminating)
     .map((s) => `${s.caseId} (${s.arm})`);
   return [
     "## Limitations",
     "",
-    "- Repeat tiers (N=10 on decision-bearing surfaces, N=3 elsewhere) are far below the N>=30 that stable latency percentiles call for; medians are reported but underpowered.",
+    repeatsLimitation(executed),
     "- Planted-defect detection rates are selection-biased toward authorable defects and do not generalise to natural defects; the c2b real-defect control narrows but does not close that gap.",
-    "- The incumbent baseline runs claude-sonnet-4-6 under agy's scaffold, not the Claude Code scaffold production uses — scaffold-matched to the candidates, but not production-matched.",
+    `- The incumbent baseline (${incumbent}) ran under agy's scaffold, not necessarily the scaffold production uses; rows merged from a committed --baseline-results file were measured earlier, on that run's agy version and roster.`,
     "- Tokens/usage are descriptive only and never gate a verdict.",
     "- Latency is read from durationSeconds (agy's own model-time reading), never the fanout's pool wall-clock.",
     "- A non-discriminating case contributes no clear verdict for any candidate on that surface.",
@@ -755,11 +906,13 @@ export function renderReport(
   tax: Record<string, SchemaTaxResult>,
   meta: {
     commit: string;
-    repeatTiers: Record<string, number>;
+    executedRepeats: ExecutedRepeats;
     models: string[];
     incumbent: string;
     agyVersion: string;
     runDate: string;
+    // Present (non-empty) only when a case carries a productionTimeout.
+    timeoutFit?: TimeoutFitRow[];
   },
 ): string {
   return [
@@ -768,7 +921,10 @@ export function renderReport(
     sectionNoCandidate(matrix),
     sectionDiscrimination(scores),
     sectionSchemaTax(tax),
+    ...(meta.timeoutFit && meta.timeoutFit.length > 0
+      ? [renderTimeoutFit(meta.timeoutFit)]
+      : []),
     sectionProvenance(meta),
-    sectionLimitations(scores),
+    sectionLimitations(scores, meta.incumbent, meta.executedRepeats),
   ].join("\n\n");
 }

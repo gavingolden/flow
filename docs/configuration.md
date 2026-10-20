@@ -212,7 +212,7 @@ Three sites launch through the wrapper today, each recorded with `class: "defaul
 | `research.model`                | the agy model variant for the forced-research gather pass; unset falls through to `delegate.models.researchGather`, then the built-in default                                                                                                                                                                                                                                                                                                                                                                                             |
 | `research.refuteModel`          | the agy model variant for the forced-research adversarial refute pass; unset falls through to `delegate.models.researchRefute`, then the built-in default — a cross-model diversity guard silently substitutes a fallback when this collides with the resolved gather model                                                                                                                                                                                                                                                               |
 | `research.maxCalls`             | the maximum number of agy calls the forced-research runner may spend (default `12`)                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `research.timeout`              | how long the forced-research runner waits for the gather/refute fan-out (default `"3m"`)                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `research.timeout`              | how long the forced-research runner waits for the gather/refute fan-out (default `"20m"`)                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `research.deepResearchFallback` | whether a stalled forced-research run retries on paid Claude credits instead of the cheaper delegated path (default `true`, slower, and spends credits); strict `false` disables                                                                                                                                                                                                                                                                                                                                                          |
 | `bots.copilot`                  | a bare login string, or `{ login?, globs?: { alwaysReview?, neverAlone? } }` — custom Copilot reviewer login and/or path-glob overrides layered over flow's built-in glob sets                                                                                                                                                                                                                                                                                                                                                            |
 | `bots.copilot.login`            | derived view, not settable — the effective reviewer login `bots.copilot` resolves to (default `copilot-pull-request-reviewer`); set via `bots.copilot`, not this path                                                                                                                                                                                                                                                                                                                                                                     |
@@ -452,7 +452,7 @@ record](eval/agy-delegation-recall-2026-10.md).
 ## Delegate timeouts
 
 `delegate.timeouts.<surface>` (`bin/lib/delegate-timeouts.ts`) routes the
-`--print-timeout` godur string `flow-delegate` passes to each sync
+`--print-timeout` godur string `flow-delegate` passes to each
 cross-model delegate call — distinct from `delegate.models.*` above, which
 routes the _model_, not the _timeout budget_, for these same surfaces.
 Value grammar: a Go-duration string, one or more `<number><unit>` pairs
@@ -463,21 +463,22 @@ never throws.
 
 | surface       | what it drives                             | default today |
 | ------------- | ------------------------------------------ | ------------- |
-| `reviewLens`  | `/flow-pr-review` Gemini review lens       | `8m`          |
-| `intentGuess` | `/flow-pr-review` cross-model intent guess | `5m`          |
+| `reviewLens`  | `/flow-pr-review` Gemini review lens       | `10m`         |
+| `intentGuess` | `/flow-pr-review` cross-model intent guess | `10m`         |
 
-**9-minute sync ceiling.** Both surfaces run inside a Bash tool call that
-itself pins a 600000ms (10-minute) timeout
-(`skills/pipeline/flow-pr-review/SKILL.md`,
-`skills/pipeline/flow-pr-review/references/intent-mismatch-resolution.md`).
-A configured timeout above that ceiling means the Bash tool kills the
-helper before agy's own `--print-timeout` ever fires, so the caller never
-sees an envelope at all — a worse misclassification than a bare
-`agy-timeout` skip. An exact-`9m` override is accepted as-is, reserving a
-minute of slack under the 10-minute Bash cap; `resolveDelegateTimeout`
-clamps only an override strictly above `9m` down to `9m`, warning once per
-surface on stderr, rather than
-silently passing the unsafe value through.
+**20-minute sanity bound.** Both surfaces are launched detached
+(`flow-spawn --detach`) and awaited with `flow-plan-review-wait`, so no
+Bash tool call's 600000ms (10-minute) timeout holds them. The defaults come
+from the Stage 0 latency probe
+([`eval/argon-latency-probe-2026-10.md`](eval/argon-latency-probe-2026-10.md)):
+10m is the sizing floor, which both fit. The research, plan-review and
+survey limits are not `delegate.timeouts` keys: the research limit is
+`research.timeout` (default `20m`), the other two are fixed defaults. The sizing rule is in
+[`eval/argon-latency-probe/README.md`](eval/argon-latency-probe/README.md).
+`resolveDelegateTimeout` still clamps an override strictly above `20m`
+down to `20m`, warning once per surface on stderr, so a typo like `"200m"`
+cannot hold a pipeline for hours. An override between `9m` and `20m` now
+passes through as written; before, it was clamped to `9m`.
 
 ## tmux status-bar bindings (opt-in)
 

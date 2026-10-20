@@ -33,9 +33,10 @@ import {
   resolveDelegatedLenses,
   type DelegateSurface,
 } from "./delegate-models";
+import { DEFAULT_TIMEOUT as RESEARCH_DEFAULT_TIMEOUT } from "../flow-research-run";
 import {
   DELEGATE_TIMEOUT_DEFAULTS,
-  SYNC_DELEGATE_CEILING,
+  DELEGATE_TIMEOUT_CEILING,
   isGoDuration,
   godurToSec,
   type DelegateTimeoutSurface,
@@ -212,9 +213,9 @@ function delegateTimeoutRow(surface: DelegateTimeoutSurface): Descriptor {
       const v = getPath(safeRead(read), ["delegate", "timeouts", surface]);
       if (typeof v === "string" && isGoDuration(v)) {
         const trimmed = v.trim();
-        return godurToSec(trimmed) > godurToSec(SYNC_DELEGATE_CEILING)
+        return godurToSec(trimmed) > godurToSec(DELEGATE_TIMEOUT_CEILING)
           ? {
-              value: SYNC_DELEGATE_CEILING,
+              value: DELEGATE_TIMEOUT_CEILING,
               source: `config (${key}, clamped from ${trimmed})`,
             }
           : { value: trimmed, source: `config (${key})` };
@@ -297,7 +298,10 @@ const DESCRIPTORS: Descriptor[] = [
       if (typeof v === "string" && v.trim()) {
         return { value: v, source: "config (research.timeout)" };
       }
-      return { value: "3m", source: 'built-in ("3m")' };
+      return {
+        value: RESEARCH_DEFAULT_TIMEOUT,
+        source: `built-in ("${RESEARCH_DEFAULT_TIMEOUT}")`,
+      };
     },
   },
   {

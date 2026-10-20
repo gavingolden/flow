@@ -14,6 +14,7 @@ import { join } from "node:path";
 import {
   validateResults,
   validateTruth,
+  type BenchResult,
   type BenchSurface,
 } from "./model-bench-schema";
 import { loadCases } from "./model-bench-manifest";
@@ -24,7 +25,9 @@ import {
   recommend,
   renderReport,
   type CaseScore,
+  type ExecutedRepeats,
 } from "./model-bench-score";
+import { timeoutFit } from "./model-bench-timeout-fit";
 
 export type ReportDeps = {
   readFile: (p: string) => string;
@@ -44,6 +47,14 @@ export type ReportArgs = {
   judgedFile?: string;
   incumbent: string;
   schemaTaxThreshold: number;
+  // Off for runs whose latency evidence is single-shot fixture time.
+  latencyGate?: boolean;
+  // See model-bench-ground-truth.ts.
+  groundTruthFloor?: number;
+  // A committed results.json whose rows for the incumbent are merged in at
+  // report time, so a candidate can be compared against a run that is not in
+  // this output directory.
+  baselineResults?: string;
 };
 
 function safeCall<T>(fn: () => T, fallback: T): T {
@@ -108,6 +119,54 @@ function translateJudged(
   }
 }
 
+// Merges the baseline file's rows for the incumbent into `results` (only for a
+// case/arm the run itself has no incumbent row on). Only the incumbent's rows
+// are merged, so the incumbent is the only model a "no baseline" case can be
+// judged against: another model named in the file contributes no rows.
+function readBaseline(
+  args: ReportArgs,
+  deps: ReportDeps,
+  results: BenchResult[],
+): { results: BenchResult[] } | { error: string } {
+  const path = args.baselineResults!;
+  if (!deps.fileExists(path)) {
+    return { error: `--baseline-results ${path}: file not found` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(deps.readFile(path));
+  } catch (err) {
+    return {
+      error: `--baseline-results ${path}: not valid JSON: ${(err as Error).message}`,
+    };
+  }
+  const validated = validateResults(parsed);
+  if (!validated.ok) {
+    return { error: `--baseline-results ${path}: ${validated.reason}` };
+  }
+  const have = new Set(
+    results
+      .filter((r) => r.model === args.incumbent)
+      .map((r) => `${r.caseId}::${r.arm}`),
+  );
+  const merged = validated.value.filter(
+    (r) => r.model === args.incumbent && !have.has(`${r.caseId}::${r.arm}`),
+  );
+  return { results: [...results, ...merged] };
+}
+
+// What actually ran, not what a fixture's repeat tier asked for: a screen at
+// fewer repeats than the tier would otherwise read as the full tier.
+export function executedRepeats(results: BenchResult[]): ExecutedRepeats {
+  const out: ExecutedRepeats = {};
+  for (const r of results) {
+    if (r.warmup) continue;
+    const byArm = ((out[r.caseId] ??= {})[r.model] ??= {});
+    byArm[r.arm] = (byArm[r.arm] ?? 0) + 1;
+  }
+  return out;
+}
+
 export function runReport(args: ReportArgs, deps: ReportDeps): number {
   const resultsPath = join(args.out, "results.json");
   if (!deps.fileExists(resultsPath)) {
@@ -130,7 +189,15 @@ export function runReport(args: ReportArgs, deps: ReportDeps): number {
     deps.progress(`flow-model-bench: ${resultsPath}: ${validated.reason}\n`);
     return 2;
   }
-  const results = validated.value;
+  let results = validated.value;
+  if (args.baselineResults) {
+    const baseline = readBaseline(args, deps, results);
+    if ("error" in baseline) {
+      deps.progress(`flow-model-bench: ${baseline.error}\n`);
+      return 2;
+    }
+    results = baseline.results;
+  }
 
   const cases = loadCases(args.fixturesDir, deps);
   if ("error" in cases) {
@@ -139,11 +206,9 @@ export function runReport(args: ReportArgs, deps: ReportDeps): number {
   }
 
   const caseSurfaces: Record<string, BenchSurface> = {};
-  const repeatTiers: Record<string, number> = {};
   const scores: CaseScore[] = [];
   for (const c of cases) {
     caseSurfaces[c.id] = c.surface;
-    repeatTiers[c.id] = c.repeats ?? 1;
     const truthPath = join(args.fixturesDir, c.id, "truth.json");
     if (!deps.fileExists(truthPath)) continue;
     let truthParsed: unknown;
@@ -173,17 +238,25 @@ export function runReport(args: ReportArgs, deps: ReportDeps): number {
   }
 
   const tax = schemaTax(scores, args.schemaTaxThreshold);
-  const matrix = verdict(scores, {
-    incumbent: args.incumbent,
-    candidates,
-    judged,
-    caseSurfaces,
-  });
+  let matrix: ReturnType<typeof verdict>;
+  try {
+    matrix = verdict(scores, {
+      incumbent: args.incumbent,
+      candidates,
+      judged,
+      caseSurfaces,
+      latencyGate: args.latencyGate,
+      groundTruthFloor: args.groundTruthFloor,
+    });
+  } catch (err) {
+    deps.progress(`flow-model-bench: ${(err as Error).message}\n`);
+    return 2;
+  }
   const recommendation = recommend(matrix, scores, caseSurfaces);
 
   const meta = {
     commit: safeCall(deps.gitHead, "unknown"),
-    repeatTiers,
+    executedRepeats: executedRepeats(results),
     models,
     incumbent: args.incumbent,
     agyVersion: safeCall(deps.agyVersion, "unknown"),
@@ -191,6 +264,7 @@ export function runReport(args: ReportArgs, deps: ReportDeps): number {
       () => deps.runDate(resultsPath),
       new Date().toISOString().slice(0, 10),
     ),
+    timeoutFit: timeoutFit(results, cases),
   };
 
   const report = renderReport(scores, matrix, tax, meta);

@@ -6,8 +6,10 @@ import {
   recommend,
   renderReport,
   type CaseScore,
+  type ExecutedRepeats,
 } from "./model-bench-score";
-import type { BenchResult, BenchTruth } from "./model-bench-schema";
+import type { BenchCase, BenchResult, BenchTruth } from "./model-bench-schema";
+import { timeoutFit } from "./model-bench-timeout-fit";
 
 function result(overrides: Partial<BenchResult>): BenchResult {
   return {
@@ -743,7 +745,7 @@ describe("schemaTax", () => {
 describe("renderReport", () => {
   const meta = {
     commit: "abc1234",
-    repeatTiers: { c1: 3 },
+    executedRepeats: { c1: { m1: { schema: 3 } } },
     models: ["m1", "m2"],
     incumbent: "m1",
     agyVersion: "1.0.0",
@@ -776,5 +778,402 @@ describe("renderReport", () => {
     expect(noCandidateSection).toMatch(
       /none — every surface has at least one clearing candidate/,
     );
+  });
+});
+
+describe("verdict — a baseline-less or tied case can never clear silently", () => {
+  type PerModel = CaseScore["perModel"];
+  const cs = (
+    caseId: string,
+    perModel: PerModel,
+    discriminating = true,
+  ): CaseScore => ({
+    caseId,
+    arm: "n/a",
+    spread: discriminating ? 0.5 : 0,
+    discriminating,
+    perModel,
+  });
+  const model = (over: Partial<PerModel[string]> = {}): PerModel[string] => ({
+    recall: 1,
+    precision: 1,
+    requiredMissed: [],
+    defectsCaught: [],
+    defectsMissed: [],
+    falsePositives: [],
+    vacuous: 0,
+    ranAttempts: 5,
+    totalAttempts: 5,
+    latency: { median: 5, min: 5, max: 5 },
+    ...over,
+  });
+  const run = (
+    scores: CaseScore[],
+    extra: Partial<Parameters<typeof verdict>[1]> = {},
+  ) =>
+    verdict(scores, {
+      incumbent: "inc",
+      candidates: ["cand"],
+      caseSurfaces: Object.fromEntries(
+        scores.map((s) => [s.caseId, "scout" as const]),
+      ),
+      ...extra,
+    }).scout!.cand!;
+
+  it("is inconclusive, naming the missing baseline, when the incumbent has no rows on a case", () => {
+    const scores = [
+      cs("c1", { inc: model(), cand: model() }),
+      cs("c-new", { cand: model() }),
+    ];
+    const cell = run(scores);
+    expect(cell.status).toBe("inconclusive");
+    expect(cell.reason).toMatch(/no baseline rows for inc on c-new/);
+  });
+
+  it("with a ground-truth floor, a no-baseline case passes on recall >= floor with the reason 'ground truth only'", () => {
+    const scores = [
+      cs(
+        "c1",
+        { inc: model({ recall: 0.9 }), cand: model({ recall: 0.9 }) },
+        true,
+      ),
+      cs("c-new", { cand: model({ recall: 0.85 }) }),
+    ];
+    const cell = run(scores, { groundTruthFloor: 0.8, latencyGate: false });
+    expect(cell.status).toBe("clear");
+    expect(cell.reason).toContain("c-new (ground truth only)");
+  });
+
+  it("fails the parity gate on a no-baseline case below the floor, forbidden claim or vacuous field", () => {
+    // c1 gives the incumbent rows somewhere in the dataset (a misspelled
+    // --incumbent is a separate, named error).
+    const anchor = cs("c1", { inc: model(), cand: model() });
+    const below = run([anchor, cs("c-new", { cand: model({ recall: 0.6 }) })], {
+      groundTruthFloor: 0.8,
+    });
+    expect(below.status).toBe("reject");
+    expect(below.reason).toMatch(
+      /c-new \(ground truth only\).*recall 0\.60 < floor 0\.8/,
+    );
+
+    const forbidden = run(
+      [
+        anchor,
+        cs("c-new", {
+          cand: model({ falsePositives: ["backslash escaping"] }),
+        }),
+      ],
+      { groundTruthFloor: 0.8 },
+    );
+    expect(forbidden.status).toBe("reject");
+    expect(forbidden.reason).toMatch(/forbidden claim/);
+
+    const vacuous = run(
+      [anchor, cs("c-new", { cand: model({ vacuous: 1 }) })],
+      {
+        groundTruthFloor: 0.8,
+      },
+    );
+    expect(vacuous.status).toBe("reject");
+  });
+
+  it("with a ground-truth floor, a case every model aces is gated as 'at ceiling'", () => {
+    const aced = cs("c-tie", { inc: model(), cand: model() }, false);
+    expect(run([aced]).status).toBe("inconclusive"); // no floor: test too easy
+    const cell = run([aced], { groundTruthFloor: 0.8 });
+    expect(cell.status).toBe("clear");
+    expect(cell.reason).toContain("c-tie (at ceiling)");
+    const failing = run(
+      [
+        cs(
+          "c-tie",
+          { inc: model(), cand: model({ falsePositives: ["x"] }) },
+          false,
+        ),
+      ],
+      { groundTruthFloor: 0.8 },
+    );
+    // not at ceiling for everyone? both recall 1 -> at ceiling, forbidden claim fails it
+    expect(failing.status).toBe("reject");
+    expect(failing.reason).toMatch(/at ceiling/);
+  });
+
+  it("gates the two arms of a schemaAb case independently: an at-ceiling schema arm cannot hide a regressed free-form arm", () => {
+    const arm = (a: "schema" | "free-form", perModel: PerModel): CaseScore => ({
+      ...cs("c-ab", perModel, false),
+      arm: a,
+    });
+    const cell = run(
+      [
+        arm("schema", { inc: model(), cand: model() }),
+        arm("free-form", {
+          inc: model({ recall: 0.9 }),
+          cand: model({ recall: 0.5 }),
+        }),
+      ],
+      { groundTruthFloor: 0.8, latencyGate: false },
+    );
+    expect(cell.status).toBe("reject");
+    expect(cell.reason).toMatch(/mechanical parity failed on c-ab/);
+  });
+
+  it("is inconclusive, never clear, when the candidate has no rows on the surface", () => {
+    const cell = run([cs("c1", { inc: model() })]);
+    expect(cell.status).toBe("inconclusive");
+    expect(cell.reason).toMatch(/no cand rows on this surface/);
+  });
+
+  it("--no-latency-gate: no verdict cites latency, even for a much slower candidate", () => {
+    const slow = cs("c1", {
+      inc: model({ latency: { median: 1, min: 1, max: 1 } }),
+      cand: model({ latency: { median: 100, min: 100, max: 100 } }),
+    });
+    const gated = run([slow]);
+    expect(gated.status).toBe("reject");
+    expect(gated.reason).toMatch(/latency/);
+    const ungated = run([slow], { latencyGate: false });
+    expect(ungated.status).toBe("clear");
+    expect(ungated.reason).not.toMatch(/latency/);
+  });
+
+  it("excludes quota-refused attempts from the reliability denominator", () => {
+    // 5 refused + 5 ran: reliability counts only the 5 that could have run.
+    const cell = run(
+      [
+        cs("c1", {
+          inc: model(),
+          cand: model({ ranAttempts: 5, totalAttempts: 5, quotaRefused: 5 }),
+        }),
+      ],
+      { latencyGate: false },
+    );
+    expect(cell.status).toBe("clear");
+  });
+
+  it("is inconclusive, not a parity reject, when every candidate attempt was quota-refused", () => {
+    const cell = run([
+      cs("c1", {
+        inc: model(),
+        cand: model({
+          recall: 0,
+          ranAttempts: 0,
+          totalAttempts: 0,
+          quotaRefused: 5,
+        }),
+      }),
+    ]);
+    expect(cell.status).toBe("inconclusive");
+    expect(cell.reason).toMatch(/quota or rate limit/);
+  });
+
+  it("errors by name when the incumbent has zero rows across the whole dataset", () => {
+    expect(() =>
+      run([cs("c1", { other: model(), cand: model() })], {
+        groundTruthFloor: 0.8,
+      }),
+    ).toThrow(/incumbent "inc" has no rows/);
+  });
+
+  it("names tool-denied empty answers in the reliability reason while still counting them", () => {
+    const cell = run([
+      cs("c1", {
+        inc: model(),
+        cand: model({ ranAttempts: 3, totalAttempts: 5, toolDeniedEmpty: 2 }),
+      }),
+    ]);
+    expect(cell.status).toBe("inconclusive");
+    expect(cell.reason).toMatch(/2 tool-denied empty answer/);
+  });
+});
+
+describe("scoreCase — failure classes", () => {
+  const truth: BenchTruth = { caseId: "c1", required: ["alpha"] };
+  it("drops quota and rate-limit refusals from totalAttempts, counts tool-denied-empty, keeps other failures", () => {
+    const [score] = scoreCase(
+      [
+        result({ model: "m", response: "alpha" }),
+        result({ model: "m", ran: false, failureClass: "quota-exhausted" }),
+        result({ model: "m", ran: false, failureClass: "rate-limited" }),
+        result({ model: "m", ran: false, failureClass: "timeout" }),
+        result({
+          model: "m",
+          ran: true,
+          response: "",
+          failureClass: "tool-denied-empty",
+        }),
+      ],
+      truth,
+    );
+    const m = score!.perModel.m!;
+    expect(m.quotaRefused).toBe(2);
+    expect(m.totalAttempts).toBe(3);
+    expect(m.toolDeniedEmpty).toBe(1);
+    expect(m.ranAttempts).toBe(2);
+  });
+});
+
+describe("renderReport — executed repeats", () => {
+  const meta = (executedRepeats: ExecutedRepeats) => ({
+    commit: "abc1234",
+    executedRepeats,
+    models: ["m1"],
+    incumbent: "m1",
+    agyVersion: "1.0.0",
+    runDate: "2026-10-19",
+  });
+
+  it("states the executed repeat count, not a fixed repeat tier", () => {
+    const report = renderReport(
+      [],
+      {},
+      {},
+      meta({ c1: { m1: { schema: 3 } }, c2: { m1: { "n/a": 3 } } }),
+    );
+    expect(report).toContain("N=3 per case, model and arm");
+    expect(report).not.toContain("N=10");
+    expect(report).toContain(
+      '{"c1":{"m1":{"schema":3}},"c2":{"m1":{"n/a":3}}}',
+    );
+  });
+
+  it("states the range when cases ran different counts", () => {
+    const report = renderReport(
+      [],
+      {},
+      {},
+      meta({ c1: { m1: { "n/a": 10 } }, c2: { m1: { "n/a": 3 } } }),
+    );
+    expect(report).toContain("N=3 to N=10 per case, model and arm");
+  });
+});
+
+describe("renderReport — incumbent and production timeout fit", () => {
+  const meta = {
+    commit: "abc1234",
+    executedRepeats: {},
+    models: ["m1"],
+    incumbent: "gemini-4-argon-high",
+    agyVersion: "1.0.0",
+    runDate: "2026-10-19",
+  };
+
+  it("names the actual incumbent in Limitations, never a hardcoded model", () => {
+    const report = renderReport([], {}, {}, meta);
+    expect(report).toContain("gemini-4-argon-high");
+    expect(report).not.toContain("claude-sonnet-4-6");
+  });
+
+  it("omits the timeout-fit section without productionTimeout cases", () => {
+    expect(renderReport([], {}, {}, meta)).not.toContain(
+      "Production timeout fit",
+    );
+    expect(renderReport([], {}, {}, { ...meta, timeoutFit: [] })).not.toContain(
+      "Production timeout fit",
+    );
+  });
+
+  it("renders one row per (step, model) with the single-shot label", () => {
+    const rows = [
+      {
+        surface: "plan-review",
+        model: "m1",
+        limit: "10m",
+        overLimit: 0,
+        timedOut: 1,
+        attempts: 5,
+      },
+      {
+        surface: "plan-review",
+        model: "m2",
+        limit: "10m",
+        overLimit: 0,
+        timedOut: 0,
+        attempts: 5,
+      },
+    ];
+    const report = renderReport([], {}, {}, { ...meta, timeoutFit: rows });
+    expect(report).toContain("## Production timeout fit");
+    expect(report).toContain(
+      "single-shot fixture time — production-realistic answer times are in the Stage 0 probe",
+    );
+    expect(report).toMatch(
+      /\*\*plan-review\*\* \/ m1: 1\/5 timed out at the 10m production limit/,
+    );
+    expect(report).toMatch(/\*\*plan-review\*\* \/ m2: 0\/5 timed out/);
+  });
+});
+
+describe("timeoutFit", () => {
+  const c = (
+    id: string,
+    surface: BenchCase["surface"],
+    productionTimeout?: string,
+  ): BenchCase => ({
+    id,
+    surface,
+    kind: "free-text",
+    promptFile: "p",
+    inputFiles: [],
+    authoredAtCommit: "abc",
+    routable: true,
+    ...(productionTimeout ? { productionTimeout } : {}),
+  });
+
+  it("counts, per (step, model), attempts that timed out and answered over the limit", () => {
+    const rows = timeoutFit(
+      [
+        result({
+          caseId: "a",
+          model: "m1",
+          ran: false,
+          skipReason: "agy-timeout",
+        }),
+        result({ caseId: "a", model: "m1", ran: true, durationSeconds: 700 }),
+        result({ caseId: "a", model: "m1", ran: true, durationSeconds: 100 }),
+        result({ caseId: "a", model: "m2", ran: true, durationSeconds: 50 }),
+        result({
+          caseId: "a",
+          model: "m1",
+          warmup: true,
+          ran: false,
+          skipReason: "agy-timeout",
+        }),
+        result({
+          caseId: "a",
+          model: "m1",
+          ran: false,
+          failureClass: "quota-exhausted",
+        }),
+        result({
+          caseId: "b",
+          model: "m1",
+          ran: false,
+          skipReason: "agy-timeout",
+        }),
+      ],
+      [c("a", "plan-review", "10m"), c("b", "scout")],
+    );
+    expect(rows).toEqual([
+      {
+        surface: "plan-review",
+        model: "m1",
+        limit: "10m",
+        overLimit: 1,
+        timedOut: 1,
+        attempts: 3,
+      },
+      {
+        surface: "plan-review",
+        model: "m2",
+        limit: "10m",
+        overLimit: 0,
+        timedOut: 0,
+        attempts: 1,
+      },
+    ]);
+  });
+
+  it("is empty when no case carries a productionTimeout", () => {
+    expect(timeoutFit([result({})], [c("c1", "scout")])).toEqual([]);
   });
 });

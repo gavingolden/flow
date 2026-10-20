@@ -71,6 +71,8 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
   // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
   // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
+  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): keep Argon
+  // High; c4 1.00 at ceiling, Medium also clears.
   intentGuess: "Gemini 4 Argon (High)",
   // NO FLIP (2026-09-05): review-lens rejected for 3.8 on mechanical parity
   // (c7-review-lens recall 0.00 vs incumbent 0.83 — the empty-response mode
@@ -80,6 +82,8 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
   // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
   // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
+  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): keep Argon
+  // High; c7 1.00 vs 0.83 reference, Medium also clears.
   reviewLens: "Gemini 4 Argon (High)",
   // NO BENCH COVERAGE (2026-09-05): bin/fixtures/model-bench/ contains no
   // research-gather case, so NO bench run has ever measured this surface and
@@ -90,6 +94,9 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
   // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
   // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
+  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): consider Argon
+  // Medium; both 0.93 on c11, but High needs more than the 20m cap (limit
+  // mismatch).
   researchGather: "Gemini 4 Argon (High)",
   // NO FLIP (evaluated 2026-08-05, PR #543): both Gemini candidates
   // cleared research-refute on the hardened c8 fixture at N=10, and the
@@ -126,6 +133,9 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // ("not recognized as a known model"). Moved to Claude Opus 5.5 (Medium):
   // (High) timed out the 3m refute cap on a live forced-research probe;
   // Medium finished in ~2m.
+  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): structural
+  // hold (must differ from the Gemini gather); Argon High 0.87 would fail the
+  // 0.95 bar.
   researchRefute: "Claude Opus 5.5 (Medium)",
   // FLIPPED (2026-08-17 run): gemini-3.7-flash-high cleared every
   // plan-review gate on c6-plan-review at N=10 (no defect regression,
@@ -142,6 +152,8 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
   // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
   // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
+  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): keep Argon
+  // High; c6 1.00 at ceiling, Medium also clears in half the time.
   planReview: "Gemini 4 Argon (High)",
   // Does NOT flip despite plan-review's gemini-3.1-pro-high clear (same
   // bench run): the deep-tier second reviewer exists for cross-model
@@ -154,6 +166,8 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // cleared nothing that would have tested it.
   // RETIRED (2026-10-05): agy dropped Claude Opus 4.6 (Thinking); Opus 5.5
   // (High) replaced it and was not benchmarked on this surface.
+  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): structural
+  // hold (cross-vendor); Opus column pending follow-up.
   planReviewSecond: "Claude Opus 5.5 (High)",
   // Pinned judges for the Step-3 blind method survey (flow-blind-survey):
   // the dogfood run's judge A rode the unpinned agy session default, so
@@ -167,11 +181,15 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
   // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
   // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
+  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): keep Argon
+  // High; c12 1.00 on ground truth, Medium also clears.
   blindSurvey: "Gemini 4 Argon (High)",
   // UNCHANGED (2026-09-05 run): structural cross-vendor hold against
   // blindSurvey, on the same rationale as planReviewSecond.
   // RETIRED (2026-10-05): Opus 4.6 (Thinking) retired; Opus 5.5 (High)
   // replaced it, not benchmarked on this surface.
+  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): structural
+  // hold (cross-vendor); Opus column pending follow-up.
   blindSurveySecond: "Claude Opus 5.5 (High)",
   // null means "use the Claude Task subagent" (today's behaviour) rather
   // than delegating scouting to an agy variant. Both bench candidates were
@@ -185,6 +203,8 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // Claude Opus 5.5 (High) bench not run — the Ultra Claude quota was
   // exhausted by the lens recall check. The slot is now live: setting it
   // runs flow-agy-scout first, with the Task scout as the fallback.
+  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): stays Claude;
+  // Argon misses a c2b real defect and times out at 8m.
   scout: null,
   // null means "delegation off": every Claude review lens runs as a Task
   // agent, exactly as before. NULL (2026-10-06,
@@ -192,6 +212,9 @@ export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // lost 7/18 agy cells to shell attempts (fixed), run 2 lost 13/18 to the
   // Ultra Claude quota (~23 Opus-High runs per five-hour window). Completed
   // bug-detection cells matched or beat Opus; capacity is the blocker.
+  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): both Argon
+  // tiers clear the lens bar (High 0.068, Medium 0.081 vs Opus 0.048-0.060 per
+  // lens); routing to Medium is for discussion.
   claudeLenses: null,
 };
 
@@ -208,8 +231,9 @@ export const DELEGATABLE_LENSES: readonly DelegatableLens[] =
 // `delegate.lenses`.
 export const DEFAULT_DELEGATED_LENSES: readonly DelegatableLens[] = [];
 
-// Fixed per-run agy budgets (see delegate-timeouts.ts for the configurable
-// surfaces and the 9m sync ceiling these must stay under).
+// Fixed per-run agy budgets for the delegated Claude lenses and scout (not
+// configurable; see delegate-timeouts.ts for the configurable surfaces and
+// their 20m sanity bound).
 export const DELEGATED_LENS_TIMEOUT = "8m";
 export const DELEGATED_SCOUT_TIMEOUT = "8m";
 

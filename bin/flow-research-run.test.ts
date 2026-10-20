@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   boundFindings,
   buildManifest,
+  DEFAULT_TIMEOUT,
   type Deps,
   type EntryOutcome,
   type FanoutAggregate,
@@ -11,6 +12,7 @@ import {
   run,
 } from "./flow-research-run";
 import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
+import { godurToSec } from "./lib/delegate-timeouts";
 
 const ran = (text: string): EntryOutcome => ({ text, ran: true });
 const skipped = (
@@ -72,13 +74,13 @@ describe("buildManifest", () => {
     const m = buildManifest("add CSV export", {
       gatherModel: "Gemini 3.1 Pro (High)",
       refuteModel: "Claude Opus 5.5 (Medium)",
-      timeout: "3m",
+      timeout: DEFAULT_TIMEOUT,
     });
     expect(m).toHaveLength(2);
     for (const entry of m) {
       expect(typeof entry.model).toBe("string");
       expect(entry.model.length).toBeGreaterThan(0);
-      expect(entry.timeout).toBe("3m");
+      expect(entry.timeout).toBe(DEFAULT_TIMEOUT);
       expect(entry.prompt).toContain("add CSV export");
     }
     expect(m[0]!.model).toBe("Gemini 3.1 Pro (High)");
@@ -89,7 +91,7 @@ describe("buildManifest", () => {
     const m = buildManifest("add CSV export", {
       gatherModel: "Gemini 3.1 Pro (High)",
       refuteModel: "Claude Opus 5.5 (Medium)",
-      timeout: "3m",
+      timeout: DEFAULT_TIMEOUT,
     });
     for (const entry of m) {
       expect(entry.skipPermissions).toBe(true);
@@ -102,7 +104,7 @@ describe("buildManifest", () => {
     const [gather] = buildManifest("X", {
       gatherModel: "Gemini 3.1 Pro (High)",
       refuteModel: "Claude Opus 5.5 (Medium)",
-      timeout: "3m",
+      timeout: DEFAULT_TIMEOUT,
     });
     expect(gather!.prompt).toMatch(/web search/i);
     expect(gather!.prompt).toMatch(/cited source URLs/i);
@@ -113,7 +115,7 @@ describe("buildManifest", () => {
     const [, refute] = buildManifest("X", {
       gatherModel: "Gemini 3.1 Pro (High)",
       refuteModel: "Claude Opus 5.5 (Medium)",
-      timeout: "3m",
+      timeout: DEFAULT_TIMEOUT,
     });
     expect(refute!.prompt).toMatch(/refute/i);
     expect(refute!.prompt).toMatch(/critically assess/i);
@@ -293,6 +295,7 @@ type Recorder = Deps & {
   files: Map<string, string>;
   out: string[];
   err: string[];
+  renames: Array<{ from: string; to: string }>;
 };
 
 function makeDeps(
@@ -302,6 +305,7 @@ function makeDeps(
   const files = new Map<string, string>();
   const out: string[] = [];
   const err: string[] = [];
+  const renames: Array<{ from: string; to: string }> = [];
   const base: Deps = {
     readConfig: () => "{}",
     runFanout,
@@ -312,6 +316,11 @@ function makeDeps(
     writeFile: (p, c) => {
       files.set(p, c);
     },
+    rename: (from, to) => {
+      files.set(to, files.get(from)!);
+      files.delete(from);
+      renames.push({ from, to });
+    },
     removeFile: (p) => {
       files.delete(p);
     },
@@ -319,7 +328,7 @@ function makeDeps(
     writeOut: (line) => out.push(line),
     writeErr: (line) => err.push(line),
   };
-  return Object.assign(base, overrides, { files, out, err });
+  return Object.assign(base, overrides, { files, out, err, renames });
 }
 
 const ARGV = [
@@ -332,6 +341,22 @@ const ARGV = [
 ];
 const OUT = "/wt/.flow-tmp/research-findings.md";
 const STATUS = "/wt/.flow-tmp/research-status.json";
+
+describe("run — status file write", () => {
+  it("writes the status file newline-terminated via a tmp file then rename", () => {
+    const deps = makeDeps(() => ({ allSkipped: true, anyRan: false }));
+    expect(run(ARGV, deps)).toBe(0);
+    expect(deps.renames).toEqual([{ from: `${STATUS}.tmp`, to: STATUS }]);
+    expect(deps.files.has(`${STATUS}.tmp`)).toBe(false);
+    const raw = deps.files.get(STATUS)!;
+    expect(raw.endsWith("\n")).toBe(true);
+    expect(JSON.parse(raw)).toMatchObject({ ran: false });
+  });
+
+  it("lifts the research limit to at least the 10-minute floor", () => {
+    expect(godurToSec(DEFAULT_TIMEOUT)).toBeGreaterThanOrEqual(600);
+  });
+});
 
 describe("run — injected fanout stub", () => {
   it("writes status {ran:false,reason:agy-unavailable} and exits 0 when agy is down", () => {

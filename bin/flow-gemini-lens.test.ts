@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { godurToSec, SYNC_DELEGATE_CEILING } from "./lib/delegate-timeouts";
+import {
+  DELEGATE_TIMEOUT_CEILING,
+  DELEGATE_TIMEOUT_DEFAULTS,
+} from "./lib/delegate-timeouts";
 import {
   VALID_DECORATIONS,
   VALID_LABELS,
@@ -452,12 +455,14 @@ describe("run — conformant output", () => {
     expect(argv[argv.indexOf("--json-schema") + 1]).toBe(`${OUT}.schema.json`);
   });
 
-  it("passes --timeout resolveDelegateTimeout('reviewLens') default (8m) to flow-delegate", () => {
+  it("passes --timeout resolveDelegateTimeout('reviewLens') default to flow-delegate", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
     const argv = deps.calls.delegate[0]!;
     expect(argv).toContain("--timeout");
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("8m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(
+      DELEGATE_TIMEOUT_DEFAULTS.reviewLens,
+    );
   });
 
   it("passes an explicit --timeout flag through to flow-delegate", () => {
@@ -467,18 +472,20 @@ describe("run — conformant output", () => {
     expect(argv[argv.indexOf("--timeout") + 1]).toBe("6m");
   });
 
-  it("clamps an explicit --timeout flag above the 9m sync ceiling", () => {
+  it("clamps an explicit --timeout flag above the 20m sanity bound", () => {
     const deps = makeDeps();
-    run([...BASE_ARGV, "--timeout", "15m"], deps);
+    run([...BASE_ARGV, "--timeout", "30m"], deps);
     const argv = deps.calls.delegate[0]!;
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("9m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(DELEGATE_TIMEOUT_CEILING);
   });
 
   it("falls back to the default when an explicit --timeout flag is not a valid Go duration", () => {
     const deps = makeDeps();
     run([...BASE_ARGV, "--timeout", "not-a-duration"], deps);
     const argv = deps.calls.delegate[0]!;
-    expect(argv[argv.indexOf("--timeout") + 1]).toBe("8m");
+    expect(argv[argv.indexOf("--timeout") + 1]).toBe(
+      DELEGATE_TIMEOUT_DEFAULTS.reviewLens,
+    );
   });
 
   it("writes AGENT_FINDINGS_JSON_SCHEMA to the --json-schema scratch path before dispatch", () => {
@@ -1188,23 +1195,10 @@ describe("run — retry timeout bound (Task 8 diff-only fallback)", () => {
     });
     run(BASE_ARGV, deps);
     expect(deps.calls.delegate).toHaveLength(2);
-    const primaryArgv = deps.calls.delegate[0]!;
     const retryArgv = deps.calls.delegate[1]!;
-    const primaryTimeout = primaryArgv[primaryArgv.indexOf("--timeout") + 1]!;
-    const retryTimeout = retryArgv[retryArgv.indexOf("--timeout") + 1]!;
-    // Unit-aware: a bare parseInt would read "60s" as 60 and "8m" as 8 and
-    // report the retry as the LONGER call. godurToSec is the module that owns
-    // Go-duration parsing.
-    expect(godurToSec(retryTimeout)).toBeLessThan(godurToSec(primaryTimeout));
-    // The load-bearing property is about the PAIR, not either call alone:
-    // together they must fit inside the caller's 10-minute Bash cap, which is
-    // what SYNC_DELEGATE_CEILING exists to protect. Asserting the sum rather
-    // than a literal retry value is what makes this survive a re-tune of
-    // either bound — a fixed 2m retry silently stopped satisfying it the
-    // moment the primary reached its 8m default.
-    expect(
-      godurToSec(primaryTimeout) + godurToSec(retryTimeout),
-    ).toBeLessThanOrEqual(godurToSec(SYNC_DELEGATE_CEILING));
+    // The diff-only retry has no read phase: a fixed 2 minutes, independent of
+    // the primary's (now ≥ 10m) limit.
+    expect(retryArgv[retryArgv.indexOf("--timeout") + 1]).toBe("2m");
     // The retry is the diff-only one: no --add-dir, so no read budget needed.
     expect(retryArgv).not.toContain("--add-dir");
   });
