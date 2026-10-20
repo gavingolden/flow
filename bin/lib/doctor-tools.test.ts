@@ -316,10 +316,17 @@ describe("checkPipelinePermissions", () => {
     expect(c.status).toBe("pass");
   });
 
-  it("passes with only the two override rules in personal ask", () => {
-    settingsAt(home(), askBody([BARE, ARGS]));
+  it("warns for a personal --record-override ask entry, which brings the prompt back", () => {
+    const file = settingsAt(home(), askBody([BARE, ARGS]));
     const [c] = checkPipelinePermissions(makeDeps(root));
-    expect(c.status).toBe("pass");
+    expect(c.status).toBe("warn");
+    expect(c.summary).toContain("delete it");
+    expect(c.summary).toContain(
+      "re-asks after the pipeline's own confirmation",
+    );
+    expect(c.summary).not.toContain("every unattended merge");
+    expect(c.fix).toContain(`delete "${BARE}"`);
+    expect(c.fix).toContain(file);
   });
 
   it("passes with an informational detail when autoMode.classifyAllShell is on", () => {
@@ -341,7 +348,9 @@ describe("checkPipelinePermissions", () => {
     const [c] = checkPipelinePermissions(makeDeps(root));
     expect(c.status).toBe("warn");
     expect(c.summary).toContain("Bash(flow-merge-guard *)");
-    expect(c.fix).toContain('narrow "Bash(flow-merge-guard *)"');
+    expect(c.summary).toContain("every unattended merge stop for approval");
+    expect(c.summary).toContain("delete it");
+    expect(c.fix).toContain('delete "Bash(flow-merge-guard *)"');
     expect(c.fix).toContain(file);
   });
 

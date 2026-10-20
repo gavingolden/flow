@@ -10,8 +10,8 @@ import type { DoctorCheck, DoctorDeps } from "./doctor";
 import { installCommand } from "./doctor-util";
 import {
   classifyAllShellOn,
-  findMergeCoveringAskEntry,
-  FLOW_OVERRIDE_ASK_RULES,
+  findFlowMergeGuardAskEntry,
+  personalAskEntryMessage,
 } from "./merge-allow-rule";
 import { readConfigFileAt } from "./modules-config";
 import { readLauncherConfig } from "./launcher-config";
@@ -49,15 +49,16 @@ export const TOOLS_PIPELINE_PERMISSIONS_META = {
 export function checkPipelinePermissions(deps: DoctorDeps): DoctorCheck[] {
   const base = TOOLS_PIPELINE_PERMISSIONS_META;
   const settingsPath = userSettingsPath(deps.env, deps.homeDir);
-  const { entry, resolvedPath } = findMergeCoveringAskEntry(settingsPath);
+  const { entry, resolvedPath, coversMerge } =
+    findFlowMergeGuardAskEntry(settingsPath);
   if (entry !== undefined) {
     return [
       {
         ...base,
         status: "warn",
-        summary: `your Claude settings ask before every flow-merge-guard call (${entry}), so every unattended merge would prompt`,
-        details: [`the ask entry ${entry} also matches the merge call`],
-        fix: `narrow "${entry}" in permissions.ask in ${resolvedPath} to the two override rules: ${FLOW_OVERRIDE_ASK_RULES.map((r) => `"${r}"`).join(" and ")}, or delete it`,
+        summary: personalAskEntryMessage(entry, coversMerge),
+        details: [`found in ${resolvedPath}`],
+        fix: `delete "${entry}" from permissions.ask in ${resolvedPath}`,
       },
     ];
   }

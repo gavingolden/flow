@@ -6,6 +6,7 @@ import {
   CONFLICT_STDERR_PATTERNS,
   evaluateMergeGuard,
   evaluateMergePreconditions,
+  overrideDisclosureBody,
   OVERRIDE_FRESHNESS_MS,
   parseArgs,
   run,
@@ -14,6 +15,7 @@ import {
   type MergeOutcome,
 } from "./flow-merge-guard";
 import { FLOW_MERGE_ALLOW_RULE } from "./lib/merge-allow-rule";
+import { advancePhase } from "./lib/phase-advance";
 import type { PipelineState } from "./lib/state";
 
 let stateDir!: string;
@@ -324,7 +326,7 @@ describe("run() check mode", () => {
 
 describe("run() record mode", () => {
   it("writes a gateOverride token to state.json and exits 0", () => {
-    seedState("zeta");
+    seedState("zeta", { pr: 5, phase: "gated" });
     const cap = captureStdout();
     const exit = run(["5", "--slug", "zeta", "--record-override"], {
       stateDir,
@@ -341,6 +343,124 @@ describe("run() record mode", () => {
     });
   });
 
+  function recordRun(
+    argv: string[],
+    deps: Partial<Deps> = {},
+  ): { exit: number; out: string } {
+    const cap = captureStdout();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = run(argv, { stateDir, now: () => NOW, ...deps });
+    cap.restore();
+    errSpy.mockRestore();
+    return { exit, out: cap.writes.join("") };
+  }
+  const tokenOf = (slug: string) =>
+    (
+      JSON.parse(
+        fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"),
+      ) as PipelineState
+    ).gateOverride;
+
+  it("refuses a PR that is not state.pr, writing no token", () => {
+    seedState("rho", { pr: 5, phase: "gated" });
+    const { exit, out } = recordRun([
+      "6",
+      "--slug",
+      "rho",
+      "--record-override",
+    ]);
+    expect(exit).toBe(1);
+    expect(JSON.parse(out)).toEqual({
+      recorded: false,
+      reason: "pr-not-owned: this pipeline's PR is #5, not #6",
+    });
+    expect(tokenOf("rho")).toBeUndefined();
+  });
+
+  it("refuses any phase but gated or gating-from-gated (needs-human and implementing), writing no token", () => {
+    for (const phase of ["needs-human", "implementing"] as const) {
+      const slug = `phase-${phase}`;
+      seedState(slug, { pr: 5, phase });
+      const { exit, out } = recordRun([
+        "5",
+        "--slug",
+        slug,
+        "--record-override",
+      ]);
+      expect(exit).toBe(1);
+      expect(JSON.parse(out).reason).toBe(`not-gated: phase is ${phase}`);
+      expect(tokenOf(slug)).toBeUndefined();
+    }
+  });
+
+  it("accepts gating entered from gated (the gate-decide re-query), writing the token", () => {
+    seedState("gd-ok", {
+      pr: 5,
+      phase: "gating",
+      phaseLog: [
+        { phase: "reviewing", at: "2026-01-01T00:00:00Z" },
+        { phase: "gated", at: "2026-01-01T00:01:00Z" },
+        { phase: "gating", at: "2026-01-01T00:02:00Z" },
+      ],
+    });
+    const { exit } = recordRun(["5", "--slug", "gd-ok", "--record-override"]);
+    expect(exit).toBe(0);
+    expect(tokenOf("gd-ok")?.pr).toBe(5);
+  });
+
+  it("accepts an override after the real gate-decide re-query advance", () => {
+    seedState("gd-real", {
+      pr: 5,
+      phase: "gated",
+      phaseLog: [
+        { phase: "reviewing", at: "2026-01-01T00:00:00Z" },
+        { phase: "gated", at: "2026-01-01T00:01:00Z" },
+      ],
+    });
+    const advance = () =>
+      advancePhase("gating", {
+        slug: "gd-real",
+        expectPr: 5,
+        dir: stateDir,
+        publishBadges: () => {},
+      });
+    expect(advance().advanced).toBe(true);
+    expect(advance().advanced).toBe(false);
+    const { exit } = recordRun(["5", "--slug", "gd-real", "--record-override"]);
+    expect(exit).toBe(0);
+    expect(tokenOf("gd-real")?.pr).toBe(5);
+  });
+
+  it("refuses gating reached from a non-gated phase, writing no token", () => {
+    seedState("gd-bad", {
+      pr: 5,
+      phase: "gating",
+      phaseLog: [
+        { phase: "reviewing", at: "2026-01-01T00:00:00Z" },
+        { phase: "gating", at: "2026-01-01T00:01:00Z" },
+      ],
+    });
+    const { exit, out } = recordRun([
+      "5",
+      "--slug",
+      "gd-bad",
+      "--record-override",
+    ]);
+    expect(exit).toBe(1);
+    expect(JSON.parse(out).reason).toBe("not-gated: phase is gating");
+    expect(tokenOf("gd-bad")).toBeUndefined();
+  });
+
+  it("exits 2 on a --slug that is not the ambient pipeline's, writing no token", () => {
+    seedState("mine", { pr: 5, phase: "gated" });
+    seedState("theirs", { pr: 5, phase: "gated" });
+    const { exit } = recordRun(["5", "--slug", "theirs", "--record-override"], {
+      resolveSlug: () => "mine",
+    });
+    expect(exit).toBe(2);
+    expect(tokenOf("theirs")).toBeUndefined();
+  });
+
   it("exits 2 when there is no state file to record the token into", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const exit = run(["5", "--slug", "missing", "--record-override"], {
@@ -354,7 +474,7 @@ describe("run() record mode", () => {
   it("a recorded token then clears the same PR in a subsequent check", () => {
     // End-to-end: record-override writes the token, check mode reads it back
     // and clears the merge for that PR.
-    seedState("eta", { pr: 9 });
+    seedState("eta", { pr: 9, phase: "gated" });
     const recCap = captureStdout();
     run(["9", "--slug", "eta", "--record-override"], {
       stateDir,
@@ -465,7 +585,7 @@ describe("run() — phase advance", () => {
   });
 
   it("recordOverrideToken does NOT advance the phase, and the recorded token round-trips unchanged", () => {
-    seedState("lambda", { phase: "gating", pr: 5 });
+    seedState("lambda", { phase: "gated", pr: 5 });
     const cap = captureStdout();
     const exit = run(["5", "--slug", "lambda", "--record-override"], {
       stateDir,
@@ -476,7 +596,7 @@ describe("run() — phase advance", () => {
     const written = readWritten("lambda");
     // The override path leaves phase untouched — it is a fresh-confirmation
     // recording, not a pipeline transition (plan.md Contract adjustment #1).
-    expect(written.phase).toBe("gating");
+    expect(written.phase).toBe("gated");
     expect(written.gateOverride).toEqual({
       pr: 5,
       confirmedAt: new Date(NOW).toISOString(),
@@ -495,6 +615,7 @@ describe("run() — merge mode", () => {
     checks?: { stdout: string; stderr?: string; exitCode?: number };
   }) {
     return vi.fn((argv: string[]) => {
+      if (argv[1] === "comment") return { stdout: "", stderr: "", exitCode: 0 };
       if (argv[1] === "view") {
         return {
           stdout: JSON.stringify({
@@ -595,7 +716,12 @@ describe("run() — merge mode", () => {
       "utf8",
     );
     expect(src).toContain('["pr", "merge", "--squash", String(pr)]');
-    expect(src).not.toMatch(/--body|--subject|--delete-branch|--admin/);
+    // The disclosure comment legitimately uses --body; scope the check to the merge runner.
+    const runner = src.slice(
+      src.indexOf("const defaultRunMerge"),
+      src.indexOf("const MERGE_EXIT"),
+    );
+    expect(runner).not.toMatch(/--body|--subject|--delete-branch|--admin/);
   });
 
   it("refuses unchecked Test Steps without an override token (exit 1, no merge, phase untouched)", () => {
@@ -817,6 +943,85 @@ describe("run() — merge mode", () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
+  it("discloses the override when autoMerge:false merges on a fresh token", () => {
+    seedMerge("m6f", {
+      autoMerge: false,
+      gateOverride: freshOverride(5, 1000),
+    });
+    const gh = ghFor({});
+    const { exit } = runMerge(["merge", "5", "--slug", "m6f"], {
+      gh,
+      runMerge: okMerge,
+    });
+    expect(exit).toBe(0);
+    const comments = gh.mock.calls.filter((c) => c[0][1] === "comment");
+    expect(comments).toHaveLength(1);
+    expect(comments[0][0][4]).toContain("auto-merge was paused");
+    expect(comments[0][0][4]).not.toContain("0 Test");
+  });
+
+  it("names what was overridden in the disclosure wording", () => {
+    const at = "2026-10-20T16:31:45.000Z";
+    expect(overrideDisclosureBody(at, 2, false)).toBe(
+      "Merged on a gate override confirmed at 2026-10-20 16:31 UTC; 2 Test Steps were unchecked.",
+    );
+    expect(overrideDisclosureBody(at, 1, false)).toContain(
+      "1 Test Step was unchecked.",
+    );
+    expect(overrideDisclosureBody(at, 0, true)).toBe(
+      "Merged on a gate override confirmed at 2026-10-20 16:31 UTC; auto-merge was paused.",
+    );
+    expect(overrideDisclosureBody(at, 3, true)).toContain(
+      "3 Test Steps were unchecked and auto-merge was paused.",
+    );
+    expect(overrideDisclosureBody(undefined, 1, false)).toContain(
+      "an unrecorded time",
+    );
+  });
+
+  it("posts one disclosure comment when it merged on an override token", () => {
+    seedMerge("m6c", { gateOverride: freshOverride(5, 1000) });
+    const gh = ghFor({ body: HAS_UNCHECKED });
+    const { exit, out } = runMerge(["merge", "5", "--slug", "m6c"], {
+      gh,
+      runMerge: okMerge,
+    });
+    expect(exit).toBe(0);
+    expect(out.decision).toBe("merged");
+    const comments = gh.mock.calls.filter((c) => c[0][1] === "comment");
+    expect(comments).toHaveLength(1);
+    expect(comments[0][0]).toEqual([
+      "pr",
+      "comment",
+      "5",
+      "--body",
+      `Merged on a gate override confirmed at ${new Date(NOW - 1000).toISOString().slice(0, 16).replace("T", " ")} UTC; 2 Test Steps were unchecked.`,
+    ]);
+  });
+
+  it("posts no disclosure comment on a normal merge", () => {
+    seedMerge("m6d");
+    const gh = ghFor({});
+    runMerge(["merge", "5", "--slug", "m6d"], { gh, runMerge: okMerge });
+    expect(gh.mock.calls.some((c) => c[0][1] === "comment")).toBe(false);
+  });
+
+  it("a failing disclosure comment never blocks the merge", () => {
+    seedMerge("m6e", { gateOverride: freshOverride(5, 1000) });
+    const base = ghFor({ body: HAS_UNCHECKED });
+    const gh = vi.fn((argv: string[]) =>
+      argv[1] === "comment"
+        ? { stdout: "", stderr: "HTTP 500", exitCode: 1 }
+        : base(argv),
+    );
+    const { exit, out } = runMerge(["merge", "5", "--slug", "m6e"], {
+      gh,
+      runMerge: okMerge,
+    });
+    expect(exit).toBe(0);
+    expect(out.decision).toBe("merged");
+  });
+
   it("refuses a check state outside the pending/failed/passing sets (fail-closed)", () => {
     seedMerge("m13");
     const spy = vi.fn(okMerge);
@@ -975,13 +1180,14 @@ describe(evaluateMergePreconditions, () => {
   };
 
   it("passes when everything holds, including no-checks-reported", () => {
-    expect(evaluateMergePreconditions(base)).toEqual({ ok: true });
+    const clean = { ok: true, overrideApplied: false, uncheckedCount: 0 };
+    expect(evaluateMergePreconditions(base)).toEqual(clean);
     expect(
       evaluateMergePreconditions({
         ...base,
         checks: { kind: "no-checks-reported" },
       }),
-    ).toEqual({ ok: true });
+    ).toEqual(clean);
   });
 
   it("refuses a missing state file", () => {

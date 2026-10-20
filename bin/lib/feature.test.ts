@@ -145,9 +145,10 @@ vi.mock("./liveness", async () => {
 import { FLOW_CLAUDE_HOME, installedHelperPath } from "./paths";
 import {
   FLOW_MERGE_ALLOW_RULE,
-  FLOW_OVERRIDE_ASK_RULES,
+  FLOW_OVERRIDE_ALLOW_RULES,
 } from "./merge-allow-rule";
 import {
+  FLOW_NARROW_ALLOW_RULES,
   FLOW_NEVER_ALLOW_HELPERS,
   FLOW_ROUTINE_ALLOW_RULES,
 } from "./pipeline-allow-rules";
@@ -4332,10 +4333,9 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   function readPermissions(): {
     deny: string[];
     allow: string[];
-    ask: string[];
   } {
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
-      permissions: { deny: string[]; allow: string[]; ask: string[] };
+      permissions: { deny: string[]; allow: string[] };
     };
     return settings.permissions;
   }
@@ -4387,13 +4387,13 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(allow).toContain("Bash(flow-ui-login test-account *)");
   });
 
-  it("pre-approves exactly the merge call and no other flow-merge-guard allow entry", () => {
+  it("allows exactly the merge and two override rules in the flow-merge-guard family, and writes no ask list", () => {
     ensureLaunchSettings(settingsPath);
-    const { allow } = readPermissions();
-    expect(allow).toContain(FLOW_MERGE_ALLOW_RULE);
-    expect(allow.filter((r) => r.startsWith("Bash(flow-merge-guard"))).toEqual([
-      FLOW_MERGE_ALLOW_RULE,
-    ]);
+    const permissions = readPermissions();
+    expect(
+      permissions.allow.filter((r) => r.startsWith("Bash(flow-merge-guard")),
+    ).toEqual([FLOW_MERGE_ALLOW_RULE, ...FLOW_OVERRIDE_ALLOW_RULES]);
+    expect(permissions).not.toHaveProperty("ask");
   });
 
   it("pre-approves every routine helper by name, never a flow-* wildcard or a never-allow helper", () => {
@@ -4404,21 +4404,10 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(allow.filter((r) => /^Bash\(flow-\*/.test(r))).toEqual([]);
     for (const h of FLOW_NEVER_ALLOW_HELPERS) {
       if (h === "flow-merge-guard") continue;
-      expect(allow.filter((r) => r.startsWith(`Bash(${h}`))).toEqual([]);
+      expect(allow.filter((r) => r.startsWith(`Bash(${h}`))).toEqual([
+        ...(FLOW_NARROW_ALLOW_RULES[h] ?? []),
+      ]);
     }
-  });
-
-  it("asks on exactly the two --record-override rules, never a merge-covering ask", () => {
-    ensureLaunchSettings(settingsPath);
-    const { ask } = readPermissions();
-    expect(ask).toEqual([...FLOW_OVERRIDE_ASK_RULES]);
-    expect(
-      ask.filter(
-        (r) =>
-          r.startsWith("Bash(flow-merge-guard") &&
-          !r.includes("--record-override"),
-      ),
-    ).toEqual([]);
   });
 
   it("launchSettingsPermissions() matches the written file", () => {

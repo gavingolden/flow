@@ -39,7 +39,12 @@
  *       gate verdict was surfaced — see
  *       `skills/pipeline/flow-pipeline/references/redirect-handling.md`
  *       "Gate override". Emits `{ recorded: true, pr, confirmedAt }`,
- *       exit 0.
+ *       exit 0. Refuses (exit 2) another pipeline's `--slug`, and (exit 1,
+ *       `{ recorded: false, reason }`, no token written) a PR that is not
+ *       `state.pr` (`pr-not-owned`) or any phase but `gated` (or `gating` entered from `gated`, as
+ *       the gate re-query leaves it) (`not-gated`).
+ *       These checks do NOT stop a model that skips the confirmation form on
+ *       its own gated PR; the form is the only conscious confirmation.
  *
  *   flow-merge-guard merge <PR> [--slug <slug>]
  *       Merge mode. The gate-checked merge itself: re-derives every gate
@@ -52,8 +57,9 @@
  *       `<worktree>/.flow-tmp/merge-result.json`. `merge` MUST stay the first
  *       argv token: flow's launch-settings allow rule
  *       (flow-launched sessions only) `Bash(flow-merge-guard merge *)` only matches that shape, and
- *       `--record-override` is deliberately a usage error here so recording
- *       an override stays outside the pre-approval.
+ *       `--record-override` is a usage error here. When the merge went
+ *       through on an override token, one PR comment discloses it
+ *       (best-effort; a failed post never blocks the merge).
  *         exit 0 merged (or already MERGED) / 1 refused / 3 merge failed /
  *         2 usage, gh error, no slug.
  *
@@ -80,6 +86,7 @@ import {
 import { readState, writeState, type PipelineState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
+import { prNotOwnedReason } from "./lib/pipeline-pr-ownership";
 import { advancePhase } from "./lib/phase-advance";
 import { isValidSlug } from "./lib/slug";
 import {
@@ -278,13 +285,15 @@ export function evaluateMergePreconditions(input: {
   pr: number;
   checks: CheckState;
   nowMs: number;
-}): { ok: true } | { ok: false; reason: string; uncheckedItems?: string[] } {
+}):
+  | { ok: true; overrideApplied: boolean; uncheckedCount: number }
+  | { ok: false; reason: string; uncheckedItems?: string[] } {
   const { body, prState, state, pr, checks, nowMs } = input;
   if (!state) return { ok: false, reason: "no-state" };
   if (state.pr !== pr) {
     return {
       ok: false,
-      reason: `pr-not-owned: state.pr is ${state.pr ?? "unset"}, not #${pr}`,
+      reason: prNotOwnedReason(state.pr, pr),
     };
   }
   if (prState !== "OPEN")
@@ -297,7 +306,9 @@ export function evaluateMergePreconditions(input: {
       uncheckedItems: verdict.uncheckedItems,
     };
   }
-  if (state.autoMerge === false && !tokenIsFresh(state, pr, nowMs)) {
+  const autoMergeOverride =
+    state.autoMerge === false && tokenIsFresh(state, pr, nowMs);
+  if (state.autoMerge === false && !autoMergeOverride) {
     return {
       ok: false,
       reason:
@@ -311,7 +322,11 @@ export function evaluateMergePreconditions(input: {
       reason: `checks-failed: ${checks.failedChecks.map((c) => c.name).join(", ")}`,
     };
   }
-  return { ok: true };
+  return {
+    ok: true,
+    overrideApplied: verdict.overrideApplied || autoMergeOverride,
+    uncheckedCount: verdict.uncheckedItems.length,
+  };
 }
 
 /** Check states that let a merge through; anything outside this set and the pending/failed sets refuses. */
@@ -436,6 +451,55 @@ export function parseMergeArgs(
   return { pr, slug };
 }
 
+function formatConfirmedAt(iso: string | undefined): string {
+  const ms = iso === undefined ? NaN : Date.parse(iso);
+  if (!Number.isFinite(ms)) return "an unrecorded time";
+  return `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+export function overrideDisclosureBody(
+  confirmedAt: string | undefined,
+  uncheckedCount: number,
+  autoMergePaused: boolean,
+): string {
+  const what: string[] = [];
+  if (uncheckedCount > 0) {
+    what.push(
+      `${uncheckedCount} Test ${uncheckedCount === 1 ? "Step was" : "Steps were"} unchecked`,
+    );
+  }
+  if (autoMergePaused) what.push("auto-merge was paused");
+  const detail =
+    what.length > 0 ? what.join(" and ") : "the gate was overridden";
+  return `Merged on a gate override confirmed at ${formatConfirmedAt(confirmedAt)}; ${detail}.`;
+}
+
+/** Detection, not prevention: leave a visible trace on the PR; never blocks the merge. */
+function discloseOverride(
+  pr: number,
+  state: PipelineState,
+  uncheckedCount: number,
+  gh: GhRunner,
+): void {
+  const body = overrideDisclosureBody(
+    state.gateOverride?.confirmedAt,
+    uncheckedCount,
+    state.autoMerge === false,
+  );
+  try {
+    const r = gh(["pr", "comment", String(pr), "--body", body]);
+    if (r.exitCode !== 0) {
+      console.error(
+        `flow-merge-guard: could not post the override disclosure comment: ${r.stderr.trim() || `gh exited ${r.exitCode}`}`,
+      );
+    }
+  } catch (e) {
+    console.error(
+      `flow-merge-guard: could not post the override disclosure comment: ${(e as Error).message}`,
+    );
+  }
+}
+
 function mergePr(
   pr: number,
   slug: string,
@@ -477,10 +541,7 @@ function mergePr(
       state,
     );
   }
-  if (state.pr !== pr)
-    return refuse(
-      `pr-not-owned: state.pr is ${state.pr ?? "unset"}, not #${pr}`,
-    );
+  if (state.pr !== pr) return refuse(prNotOwnedReason(state.pr, pr));
   if (fetched.state === "MERGED") {
     return emitMergeOutcome(
       { decision: "merged", reason: "already-merged" },
@@ -514,6 +575,8 @@ function mergePr(
   }
   const result = runMerge(pr, state.repo);
   if (result.exitCode === 0) {
+    if (pre.overrideApplied)
+      discloseOverride(pr, state, pre.uncheckedCount, gh);
     return emitMergeOutcome({ decision: "merged", reason: "merged" }, state);
   }
   const conflict = CONFLICT_STDERR_PATTERNS.some((p) =>
@@ -542,6 +605,23 @@ function recordOverrideToken(
       `flow-merge-guard: no state file for slug '${slug}' — cannot record a gate override.`,
     );
     return 2;
+  }
+  if (state.pr !== pr) {
+    const reason = prNotOwnedReason(state.pr, pr);
+    process.stdout.write(JSON.stringify({ recorded: false, reason }) + "\n");
+    return 1;
+  }
+  // The documented re-query (`flow-gate-decide`) moves `gated` → `gating`
+  // before this runs, so `gating` counts when the pipeline came from `gated`.
+  const log = state.phaseLog ?? [];
+  const prevPhase = log.length >= 2 ? log[log.length - 2]?.phase : undefined;
+  const atGate =
+    state.phase === "gated" ||
+    (state.phase === "gating" && prevPhase === "gated");
+  if (!atGate) {
+    const reason = `not-gated: phase is ${state.phase}`;
+    process.stdout.write(JSON.stringify({ recorded: false, reason }) + "\n");
+    return 1;
   }
   const confirmedAt = new Date(now()).toISOString();
   const updated: PipelineState = {
@@ -662,6 +742,13 @@ export function run(argv: string[], deps: Deps = {}): number {
   }
 
   if (parsed.recordOverride) {
+    const ambient = resolveSlug();
+    if (ambient && slug !== ambient) {
+      console.error(
+        `flow-merge-guard: --slug '${slug}' is not this pipeline's slug ('${ambient}'); record mode acts only on its own pipeline.`,
+      );
+      return 2;
+    }
     return recordOverrideToken(parsed.pr, slug, stateDir, now);
   }
   return checkGuard(parsed.pr, slug, stateDir, gh, now);

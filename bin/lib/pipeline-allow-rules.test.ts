@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  FLOW_NARROW_ALLOW_RULES,
   FLOW_NEVER_ALLOW_HELPERS,
   FLOW_ROUTINE_ALLOW_RULES,
   FLOW_ROUTINE_HELPERS,
@@ -45,4 +46,79 @@ describe("FLOW_ROUTINE_ALLOW_RULES", () => {
       FLOW_ROUTINE_HELPERS.length * 2,
     );
   });
+});
+
+describe("FLOW_NARROW_ALLOW_RULES", () => {
+  it("is keyed only by never-allow helpers", () => {
+    for (const h of Object.keys(FLOW_NARROW_ALLOW_RULES))
+      expect(FLOW_NEVER_ALLOW_HELPERS).toContain(h);
+  });
+
+  it("pins every flow-spawn rule to a literal prefix ending in a routine helper", () => {
+    for (const rule of FLOW_NARROW_ALLOW_RULES["flow-spawn"]) {
+      expect(rule.endsWith(" *)")).toBe(true);
+      const literal = rule.slice("Bash(".length, -" *)".length);
+      expect(literal).not.toContain("*");
+      const wrapped = literal.split(" -- ")[1].split(" ").pop() as string;
+      expect(FLOW_ROUTINE_HELPERS).toContain(wrapped);
+    }
+  });
+
+  it("never grants a blanket Bash(<helper> *)", () => {
+    for (const [h, rules] of Object.entries(FLOW_NARROW_ALLOW_RULES)) {
+      expect(rules).not.toContain(`Bash(${h} *)`);
+      expect(rules).not.toContain(`Bash(${h})`);
+    }
+  });
+});
+
+describe("step 7 waiter doc pin", () => {
+  it("launches the CI waiter as one standalone line with no $( substitution", () => {
+    const doc = fs.readFileSync(
+      path.resolve(
+        BIN_DIR,
+        "..",
+        "skills/pipeline/flow-pipeline/references/phases/step-07-ci-wait.md",
+      ),
+      "utf8",
+    );
+    const lines = doc
+      .split("\n")
+      .filter((l) => l.includes("flow-spawn --class default -- flow-ci-wait"));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) expect(l).not.toContain("$(");
+    expect(doc).toContain(
+      'flow-spawn --class default -- flow-ci-wait "$PR" --min-sec 60 --max-sec 540',
+    );
+  });
+});
+
+describe("plan-review waiter doc pin", () => {
+  const rule = FLOW_NARROW_ALLOW_RULES["flow-spawn"].find((r) =>
+    r.includes("flow-plan-review-wait"),
+  );
+  const prefix = (rule ?? "").replace(/^Bash\(/, "").replace(/\*\)$/, "");
+
+  it("derives the literal prefix from the narrow rule", () => {
+    expect(prefix).toBe("flow-spawn --class default -- flow-plan-review-wait ");
+  });
+
+  it.each([
+    "skills/pipeline/flow-pipeline/references/phases/step-03-plan.md",
+    "skills/pipeline/flow-epic-create/SKILL.md",
+  ])(
+    "%s launches the waiter with the rule's prefix and no $( substitution",
+    (rel) => {
+      const doc = fs
+        .readFileSync(path.resolve(BIN_DIR, "..", rel), "utf8")
+        .replace(/\s+/g, " ");
+      const at = doc.indexOf(prefix);
+      expect(
+        at,
+        `${rel} no longer contains "${prefix}"`,
+      ).toBeGreaterThanOrEqual(0);
+      const invocation = doc.slice(at, doc.indexOf("--max-sec 540", at));
+      expect(invocation).not.toContain("$(");
+    },
+  );
 });
