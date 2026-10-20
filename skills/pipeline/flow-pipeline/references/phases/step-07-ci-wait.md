@@ -112,12 +112,13 @@ Branch on `.status`: **`decided`** — go straight to "Branch on `.decision`"
 below (`$CHECK` already carries every `RunResult` field; `$VERDICT_FILE`
 was written since the exit was decided). **`waiting`** — go to step (2).
 
-**(2) Backgrounded waiter, primary wake** — read `nextCheckSec` (flat 60s,
-`FLAT_CADENCE_SEC`) and arm the dumb waiter with `run_in_background: true`:
+**(2) Backgrounded waiter, primary wake** — the cadence is a flat 60s
+(`FLAT_CADENCE_SEC`), so arm the dumb waiter with `run_in_background: true`
+as one standalone Bash call (pre-approved in flow-launched sessions; a
+`$(…)` line in the same call would stop the rule matching):
 
 ```bash
-NEXT=$(printf '%s' "$CHECK" | jq -r '.nextCheckSec')
-flow-spawn --class default -- flow-ci-wait "$PR" --min-sec "$NEXT" --max-sec 540
+flow-spawn --class default -- flow-ci-wait "$PR" --min-sec 60 --max-sec 540
 ```
 
 The Bash completion notification (waiter exit, up to 540s later) is the
@@ -127,7 +128,7 @@ resumed loop.
 **(3) Fallback ladder**, only when the primary wake misses a turn: a
 bounded Monitor `until` loop (`until flow-ci-check "$PR"
 $NOT_REQUESTED_FLAG $WAIT_FLAG --out "$VERDICT_FILE" | jq -e
-'.status=="decided"' >/dev/null; do sleep "$NEXT"; done`, ≤3600000 ms) or
+'.status=="decided"' >/dev/null; do sleep 60; done`, ≤3600000 ms) or
 `ScheduleWakeup` (same 60s floor, equivalent, when present) — both end in
 the same `flow-ci-check` call. If neither fires before turn-end:
 **yield-and-resume (`ci-wait-pending`)** — write `flow-state-update --phase

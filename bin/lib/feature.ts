@@ -14,6 +14,7 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
@@ -79,9 +80,13 @@ import {
 } from "./secret-deny-rules";
 import {
   FLOW_MERGE_ALLOW_RULE,
-  FLOW_OVERRIDE_ASK_RULES,
+  FLOW_OVERRIDE_ALLOW_RULES,
+  warnOnPersonalAskEntry,
 } from "./merge-allow-rule";
-import { FLOW_ROUTINE_ALLOW_RULES } from "./pipeline-allow-rules";
+import {
+  FLOW_NARROW_ALLOW_RULES,
+  FLOW_ROUTINE_ALLOW_RULES,
+} from "./pipeline-allow-rules";
 import {
   seedIngestConfirmsDelivery,
   seedIngestIsCorrupt,
@@ -1968,7 +1973,6 @@ function warnOnHookDivergence(
 export function launchSettingsPermissions(): {
   deny: string[];
   allow: string[];
-  ask: string[];
 } {
   return {
     deny: [...SECRET_FILE_DENY_RULES],
@@ -1976,9 +1980,10 @@ export function launchSettingsPermissions(): {
       ...FLOW_UI_LOGIN_ALLOW_RULES,
       ...FLOW_CREATE_ISSUE_ALLOW_RULES,
       FLOW_MERGE_ALLOW_RULE,
+      ...FLOW_OVERRIDE_ALLOW_RULES,
       ...FLOW_ROUTINE_ALLOW_RULES,
+      ...Object.values(FLOW_NARROW_ALLOW_RULES).flat(),
     ],
-    ask: [...FLOW_OVERRIDE_ASK_RULES],
   };
 }
 
@@ -2109,6 +2114,7 @@ function buildLaunchCommand(
   pluginRootsScan?: () => string[],
   overlayDir?: string,
 ): string[] {
+  warnOnPersonalAskEntry(process.env, os.homedir());
   try {
     ensureLaunchSettings(settingsPath);
   } catch (err) {
@@ -2144,6 +2150,7 @@ function buildPlainCommand(
   pluginRootsScan?: () => string[],
   overlayDir?: string,
 ): string[] {
+  warnOnPersonalAskEntry(process.env, os.homedir());
   try {
     ensureLaunchSettings(settingsPath);
   } catch (err) {

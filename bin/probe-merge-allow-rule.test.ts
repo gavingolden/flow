@@ -5,9 +5,12 @@ import { describe, expect, it } from "vitest";
 import { ensureLaunchSettings } from "./lib/feature";
 import {
   FLOW_MERGE_ALLOW_RULE,
-  FLOW_OVERRIDE_ASK_RULES,
+  FLOW_OVERRIDE_ALLOW_RULES,
 } from "./lib/merge-allow-rule";
-import { FLOW_ROUTINE_ALLOW_RULES } from "./lib/pipeline-allow-rules";
+import {
+  FLOW_NARROW_ALLOW_RULES,
+  FLOW_ROUTINE_ALLOW_RULES,
+} from "./lib/pipeline-allow-rules";
 import {
   classify,
   markerSatisfied,
@@ -25,9 +28,9 @@ const [
   noRuleControl,
   autoControl,
   autoMerge,
-  askBare,
-  askSlug,
-  askMerge,
+  overrideBare,
+  overrideSlug,
+  overrideOnlyMerge,
   autoOverrideControl,
   chained,
   pipeTail,
@@ -35,6 +38,9 @@ const [
   cdPrefix,
   autoCdPrefix,
   killControl,
+  ciWaiter,
+  planReviewWaiter,
+  launderControl,
 ] = ROWS;
 const base = { ran: true, markerSeen: false, denied: false, diagnostics: "" };
 
@@ -122,56 +128,30 @@ describe("probe-merge-allow-rule classify", () => {
   });
 });
 
-describe("probe-merge-allow-rule classify (ask-rule rows)", () => {
-  it("has fifteen rows, with the ask rows decisive and the override control informational", () => {
-    expect(ROWS).toHaveLength(15);
-    expect([askBare, askSlug, askMerge].map((r) => r.askRules)).toEqual([
-      true,
-      true,
-      true,
-    ]);
-    expect([askBare, askSlug, askMerge].map((r) => r.informational)).toEqual([
-      undefined,
-      undefined,
-      undefined,
-    ]);
-    expect(autoOverrideControl.askRules).toBeUndefined();
+describe("probe-merge-allow-rule classify (override-rule rows)", () => {
+  it("has eighteen rows, with the override rows decisive dontAsk rows and the auto override control informational", () => {
+    expect(ROWS).toHaveLength(18);
+    for (const row of [overrideBare, overrideSlug, overrideOnlyMerge]) {
+      expect(row.overrideRules).toBe(true);
+      expect(row.mode).toBe("dontAsk");
+      expect(row.informational).toBeUndefined();
+    }
+    expect(overrideSlug.command).toContain("--slug");
+    expect(autoOverrideControl.overrideRules).toBeUndefined();
     expect(autoOverrideControl.informational).toBe(true);
   });
 
-  it("passes the refusal rows when the override was refused, fails them when the stub ran", () => {
-    for (const row of [askBare, askSlug]) {
-      expect(classify({ ...base, row, denied: true })).toBe("pass");
-      expect(classify({ ...base, row, markerSeen: true })).toBe("fail");
-      expect(
-        classify({ ...base, row, markerSeen: true, controlRan: true }),
-      ).toBe("fail");
+  it("passes the override rows only when the stub ran, and the merge-with-override-only row only on a refusal", () => {
+    for (const row of [overrideBare, overrideSlug]) {
+      expect(classify({ ...base, row, markerSeen: true })).toBe("pass");
+      expect(classify({ ...base, row, denied: true })).toBe("fail");
     }
-  });
-
-  it("is inconclusive when the child never tried the override command", () => {
-    expect(classify({ ...base, row: askBare })).toBe("inconclusive");
-    expect(classify({ ...base, row: askBare, ran: false })).toBe(
-      "inconclusive",
+    expect(classify({ ...base, row: overrideOnlyMerge, denied: true })).toBe(
+      "pass",
     );
-  });
-
-  it("passes the merge row when the stub ran, even when the no-rule auto control also ran", () => {
-    expect(classify({ ...base, row: askMerge, markerSeen: true })).toBe("pass");
     expect(
-      classify({ ...base, row: askMerge, markerSeen: true, controlRan: true }),
-    ).toBe("pass");
-    expect(classify({ ...base, row: askMerge, denied: true })).toBe("fail");
-  });
-
-  it("reports auto-unavailable for an ask row, never a rule failure", () => {
-    expect(
-      classify({
-        ...base,
-        row: askBare,
-        diagnostics: "auto mode is not available",
-      }),
-    ).toBe("auto-unavailable");
+      classify({ ...base, row: overrideOnlyMerge, markerSeen: true }),
+    ).toBe("fail");
   });
 
   it("reports the no-rules override control as classifier-approves when the stub ran", () => {
@@ -252,15 +232,16 @@ describe("rulesFromLaunchSettings", () => {
     return fs.mkdtempSync(path.join(os.tmpdir(), "probe-rules-"));
   }
 
-  it("yields the merge rule and both ask rules from a file ensureLaunchSettings generated", () => {
+  it("yields the merge, override, routine and narrow rules from a file ensureLaunchSettings generated", () => {
     const dir = tmp();
     try {
       const file = path.join(dir, "launch-settings.json");
       ensureLaunchSettings(file);
       expect(rulesFromLaunchSettings(file)).toEqual({
         mergeAllow: FLOW_MERGE_ALLOW_RULE,
-        overrideAsk: [...FLOW_OVERRIDE_ASK_RULES],
+        overrideAllow: [...FLOW_OVERRIDE_ALLOW_RULES],
         routineAllow: [...FLOW_ROUTINE_ALLOW_RULES],
+        narrowAllow: Object.values(FLOW_NARROW_ALLOW_RULES).flat(),
       });
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -284,8 +265,9 @@ describe("rulesFromLaunchSettings", () => {
 describe("probe-merge-allow-rule routine-helper rows", () => {
   const rules = {
     mergeAllow: FLOW_MERGE_ALLOW_RULE,
-    overrideAsk: [...FLOW_OVERRIDE_ASK_RULES],
+    overrideAllow: [...FLOW_OVERRIDE_ALLOW_RULES],
     routineAllow: [...FLOW_ROUTINE_ALLOW_RULES],
+    narrowAllow: Object.values(FLOW_NARROW_ALLOW_RULES).flat(),
   };
 
   it("leaves the merge rows stubbing flow-merge-guard with the original allowed tools", () => {
@@ -294,6 +276,37 @@ describe("probe-merge-allow-rule routine-helper rows", () => {
       `Bash(true),${FLOW_MERGE_ALLOW_RULE}`,
     );
     expect(allowedToolsFor(noRuleControl, rules)).toBe("Bash(true)");
+    expect(allowedToolsFor(overrideBare, rules)).toBe(
+      ["Bash(true)", ...FLOW_OVERRIDE_ALLOW_RULES].join(","),
+    );
+  });
+
+  it("probes the documented flow-spawn waiter lines and a laundering control with only the narrow rules", () => {
+    for (const row of [ciWaiter, planReviewWaiter, launderControl]) {
+      expect(row.narrowRules).toBe(true);
+      expect(row.mode).toBe("dontAsk");
+      expect(stubsFor(row)).toEqual(["flow-spawn"]);
+      expect(allowedToolsFor(row, rules)).toBe(
+        ["Bash(true)", ...rules.narrowAllow].join(","),
+      );
+    }
+    expect(ciWaiter.command).toBe(
+      "flow-spawn --class default -- flow-ci-wait 999999 --min-sec 60 --max-sec 540",
+    );
+    expect(planReviewWaiter.command).toContain(
+      "flow-spawn --class default -- flow-plan-review-wait ",
+    );
+    expect([ciWaiter, planReviewWaiter].map((r) => r.expectMarker)).toEqual([
+      true,
+      true,
+    ]);
+    expect(launderControl.expectMarker).toBe(false);
+    expect(classify({ ...base, row: launderControl, denied: true })).toBe(
+      "pass",
+    );
+    expect(classify({ ...base, row: launderControl, markerSeen: true })).toBe(
+      "fail",
+    );
   });
 
   it("stubs every helper a routine row names and passes the routine rules", () => {

@@ -78,7 +78,7 @@ import { resolveSlugFromEnv } from "./lib/session-identity";
 import { finalizePhase } from "./lib/phase-advance";
 import {
   classifyAllShellOn,
-  findMergeCoveringAskEntry,
+  findFlowMergeGuardAskEntry,
 } from "./lib/merge-allow-rule";
 import { userSettingsPath } from "./lib/claude-user-settings";
 import { recordEvent } from "./lib/telemetry";
@@ -1126,8 +1126,9 @@ function mergeRuleHintFor(
   }
   const pr = (prUrl && extractPrNumber(prUrl)) || "<pr>";
   const settingsPath = userSettingsPath(env, homeDir);
-  const { entry, resolvedPath } = findMergeCoveringAskEntry(settingsPath);
-  if (entry !== undefined) {
+  const { entry, resolvedPath, coversMerge } =
+    findFlowMergeGuardAskEntry(settingsPath);
+  if (entry !== undefined && coversMerge) {
     return `Your Claude settings ask before every flow-merge-guard call (\`${entry}\` in ${resolvedPath}), which makes every merge prompt. Narrow or delete that entry (\`flow doctor\` checks it), or reply \`merge #${pr}\` to finish this one.`;
   }
   if (classifyAllShellOn(settingsPath)) {
