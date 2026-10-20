@@ -471,8 +471,9 @@ never throws.
 Bash tool call's 600000ms (10-minute) timeout holds them. The defaults come
 from the Stage 0 latency probe
 ([`eval/argon-latency-probe-2026-10.md`](eval/argon-latency-probe-2026-10.md)):
-10m is the sizing floor, which both fit, and the research step takes the 20m
-cap. The sizing rule is in
+10m is the sizing floor, which both fit. The research, plan-review and
+survey limits are not `delegate.timeouts` keys: the research limit is
+`research.timeout` (default `20m`), the other two are fixed defaults. The sizing rule is in
 [`eval/argon-latency-probe/README.md`](eval/argon-latency-probe/README.md).
 `resolveDelegateTimeout` still clamps an override strictly above `20m`
 down to `20m`, warning once per surface on stderr, so a typo like `"200m"`

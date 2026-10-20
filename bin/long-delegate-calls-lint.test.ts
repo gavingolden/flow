@@ -142,7 +142,17 @@ describe.each(SITES)("long delegate call site: $name", (site) => {
     "names a give-up and kills the process group",
     () => {
       expect(text).toMatch(/give-up/);
-      expect(text).toContain('kill -- -"$PID"');
+      expect(text).toMatch(/kill -- -"\$\(cat [^\n]*\.pid"?\)"/);
+    },
+  );
+
+  // Each Bash call is a fresh shell, so $PID set in the launch block is unset
+  // by the wait and give-up calls; the recipe must persist it and read it back.
+  it.runIf(site.carriesRecipe)(
+    "persists the pid to a file and reads it back in the wait call",
+    () => {
+      expect(text).toMatch(/echo "\$PID" > [^\n]*\.pid/);
+      expect(text).toMatch(/PID=\$\(cat [^\n]*\.pid"?\)/);
     },
   );
 });

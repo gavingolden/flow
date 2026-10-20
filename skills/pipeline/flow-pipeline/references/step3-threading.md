@@ -197,7 +197,7 @@ from an earlier pass would satisfy the waiter instantly.
 
 ```bash
 STATUS="$WORKTREE/.flow-tmp/research-status.json"
-rm -f "$STATUS"
+rm -f "$STATUS" "$WORKTREE/.flow-tmp/research-findings.md"
 date +%s > "$WORKTREE/.flow-tmp/research-run.start"
 PID=$(flow-spawn --detach --stdout "$WORKTREE/.flow-tmp/research-run.log" \
   --stderr "$WORKTREE/.flow-tmp/research-run.err" -- \
@@ -223,7 +223,8 @@ status file exactly as below (`ran` / `reason`). On
 skip and proceed to planning appending nothing. On `timeout`, re-run the wait
 until the **give-up time** — the resolved research limit (`research.timeout`,
 default `20m`) + 5 minutes (25 minutes by default) since the start time. Past it, kill the runner's
-process group (`kill -- -"$PID"`), print the skip line
+process group (`kill -- -"$(cat "$WORKTREE/.flow-tmp/research-run.pid")"`;
+`$PID` is unset in a later Bash call), print the skip line
 `research skipped — research-timeout`, and proceed to planning appending
 nothing.
 

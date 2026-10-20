@@ -78,12 +78,14 @@ flow-plan-review-wait "$INTENT_ENV" --complete-line --pid "$PID" --max-sec 540
 echo "elapsed: $(( $(date +%s) - $(cat "$WORKTREE/.flow-tmp/intent-guess-gemini.start") ))s"
 ```
 
-On `"outcome":"complete"` read the envelope (`cat "$INTENT_ENV"`) and branch
+On `"outcome":"complete"` read the envelope (`cat "$WORKTREE/.flow-tmp/intent-guess-envelope.json"`) and branch
 as below. On `process-exited-without-result` record `ran: false` with
 `skipReason` `helper-exited-without-envelope` and proceed with only the
 diff-only guess. On `timeout`, re-run the wait until the **give-up time** —
 the intent limit + 5 minutes since the start time (15 minutes at the default
-10m). Past it, kill the helper's process group (`kill -- -"$PID"`), record
+10m). Past it, kill the helper's process group
+(`kill -- -"$(cat "$WORKTREE/.flow-tmp/intent-guess-gemini.pid")"`; `$PID` is
+unset in a later Bash call), record
 `ran: false` with `skipReason` `intent-guess-timeout` and `skipClass` `ran-unusable`, and proceed with only the diff-only guess.
 
 Branch on the helper's `{ran}` stdout envelope, never the exit code (it

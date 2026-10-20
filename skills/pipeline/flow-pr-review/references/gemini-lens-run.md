@@ -50,7 +50,7 @@ echo "elapsed: $(( $(date +%s) - $(cat "$WORKTREE/.flow-tmp/gemini-lens.start") 
 
 The waiter prints one `{"outcome": …}` line:
 
-- **`complete`** — read the envelope (`cat "$LENS_ENV"`) and branch on its
+- **`complete`** — read the envelope (`cat "$WORKTREE/.flow-tmp/gemini-lens-envelope.json"`) and branch on its
   `{ran}` field as `SKILL.md` describes, never the exit code.
 - **`process-exited-without-result`** — the helper exited without printing an
   envelope. Record `ran: false` with `skipReason`
@@ -58,7 +58,8 @@ The waiter prints one `{"outcome": …}` line:
 - **`timeout`** (the 540 s step ran out) — re-run the wait until the
   **give-up time**: the lens limit + the 2-minute retry + 5 minutes since the
   start time (17 minutes at the default 10m). Past it, kill the helper's
-  process group (`kill -- -"$PID"`), record `ran: false` with `skipReason`
+  process group (`kill -- -"$(cat "$WORKTREE/.flow-tmp/gemini-lens.pid")"`;
+  `$PID` is unset in a later Bash call), record `ran: false` with `skipReason`
   `lens-timeout` (`skipClass: ran-unusable`) and proceed without the lens.
 
 Wait for the lens envelope and, when it was launched, the intent-guess

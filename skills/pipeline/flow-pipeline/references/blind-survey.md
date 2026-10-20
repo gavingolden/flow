@@ -119,19 +119,23 @@ The waiter prints one `{"outcome": …}` line:
 
 - **`complete`** — the envelope is whole. Go to step 3.
 - **`process-exited-without-result`** — the helper exited (or crashed)
-  without printing an envelope. Print the skip line
-  `blind survey skipped — fanout-error` and proceed with no marker.
+  without printing an envelope. Remove the description temp file
+  (`rm -f "$(cat "$WORKTREE/.flow-tmp/blind-survey.desc-path")"`), print the
+  skip line `blind survey skipped — fanout-error` and proceed with no marker.
 - **`timeout`** (the 540 s step ran out) — re-run the wait, until the
   **give-up time**: judge A + judge B + 5 minutes since the start time
   (21 minutes today). Past it, kill the helper's process group
-  (`kill -- -"$PID"`), print the skip line
-  `blind survey skipped — survey-timeout`, and proceed with no marker.
+  (`kill -- -"$(cat "$WORKTREE/.flow-tmp/blind-survey.pid")"`; `$PID`
+  is unset in a later Bash call), remove the description temp file
+  (`rm -f "$(cat "$WORKTREE/.flow-tmp/blind-survey.desc-path")"`), print the
+  skip line `blind survey skipped — survey-timeout`, and proceed with no
+  marker.
 
 **3. Read the envelope and clean up.**
 
 ```bash
 rm -f "$(cat "$WORKTREE/.flow-tmp/blind-survey.desc-path")"
-cat "$SURVEY_ENV"
+cat "$WORKTREE/.flow-tmp/blind-survey-envelope.json"
 ```
 
 Branch on the envelope's `{ran}` field, **never** the exit code (every
