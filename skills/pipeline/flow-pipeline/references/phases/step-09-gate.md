@@ -118,8 +118,11 @@ below; any other decision ⇒ route per step 9's main decision table.
 When the three tests pass, fire exactly one `AskUserQuestion`
 confirmation naming the PR and the unchecked-step count (the named
 exemption in "Hard rules"); on an affirmative answer, run
-`flow-merge-guard "$PR" --record-override` and re-enter step 10 — the
-backstop there reads the token and lets the merge through. On any
+`flow-merge-guard "$PR" --record-override` as its own standalone Bash
+call (pre-approved in flow-launched sessions, so the confirmation is the
+only prompt) and re-enter step 10 — the backstop there reads the token
+and lets the merge through. A `pr-not-owned` or `not-gated` refusal
+records nothing: re-render the GATED block and end. On any
 non-affirmative answer, or when the instruction fails the "fresh" or
 "in-context" test, do **not** fire the confirmation and do **not**
 record a token — re-render the GATED block via `flow-gate-summary

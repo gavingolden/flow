@@ -1308,15 +1308,13 @@ has no exact `comment_ids` match in either `commits[]` or `deferred[]`,
 the artifact is incomplete: surface the gap to the caller rather than
 silently skipping the reply.
 
-Construct a JSON array and pipe it to the reply helper:
+Write the JSON array to `<WORKTREE>/.flow-tmp/pr-replies.json`, then run (standalone):
 
 ```bash
-echo '<json-array>' | flow-reply-pr-comments <pr-number>
+flow-reply-pr-comments <pr-number> --file <WORKTREE>/.flow-tmp/pr-replies.json
 ```
 
-Each entry: `{"comment_id": <id>, "body": "<reply>"}`.
-
-Use a leading emoji for scannability:
+Each entry: `{"comment_id": <id>, "body": "<reply>"}`. Use a leading emoji for scannability:
 
 - ✅ **Addressed** — terse confirmation. Include detail only if the fix
   differs from the suggestion.
@@ -1333,11 +1331,11 @@ review with an event wrapper. The formal-review wrapper creates a heavier-weight
 "X reviewed your PR" entry with an Approved / Requested-changes / Commented banner that
 is overkill for self-review.
 
-Build a JSON array of findings (one entry per inline comment) and pipe it to
-`flow-post-findings`:
+Write the findings JSON array (one entry per inline comment) to
+`<WORKTREE>/.flow-tmp/findings-post.json`, then run (standalone):
 
 ```bash
-echo '<findings-json>' | flow-post-findings <pr-number>
+flow-post-findings <pr-number> --file <WORKTREE>/.flow-tmp/findings-post.json
 ```
 
 Each entry: `{"file": "src/foo.ts", "line": 42, "end_line": 48, "side": "RIGHT", "body": "<conventional-comment-body>"}`.
@@ -1361,6 +1359,10 @@ The helper resolves the PR's head SHA via `gh pr view --json headRefOid` (overri
 `repos/{owner}/{repo}/pulls/<n>/comments` endpoint with the right `-f` / `-F` flag mix,
 and prints a per-finding pass/fail summary. Exit 0 when every finding posted, exit 1 when
 any failed.
+
+Re-running is safe: already-posted findings are skipped (`SKIP`). For duplicates from an
+older run, run `flow-post-findings dedupe <pr-number>` standalone — never `gh api -X DELETE`.
+`pr-not-owned` (exit 2): not this pipeline's PR, nothing posted — log one line, continue. A failed existing-comment read (exit 1) posts nothing: add `inline comments not posted: <reason> — re-run flow-post-findings <pr-number> --file <path>` to the summary below.
 
 For the top-level review summary (counts by label, suppression note, conventional-comments
 link), use a regular issue comment:

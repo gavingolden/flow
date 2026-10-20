@@ -219,9 +219,10 @@ supervisor:
    `AskUserQuestion` exemption in SKILL.md "Hard rules".
 2. On an affirmative answer, run `flow-merge-guard "$PR"
 --record-override` to write the fresh-confirmation token, then
-   re-enter step 10. With the owner's `permissions.ask` rules, that call
-   raises a Claude Code permission prompt even in auto mode; a declined
-   prompt is a non-affirmative answer (record nothing). On any
+   re-enter step 10. Run it as its own standalone Bash call — it is
+   pre-approved in flow-launched sessions, so the confirmation above is
+   the only prompt. If the helper refuses (`pr-not-owned` or `not-gated`),
+   nothing was recorded: re-render the GATED block and end. On any
    non-affirmative answer, the PR stays `gated` — re-render the GATED
    block and end.
 
