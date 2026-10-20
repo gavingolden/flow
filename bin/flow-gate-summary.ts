@@ -79,6 +79,7 @@ import { finalizePhase } from "./lib/phase-advance";
 import {
   classifyAllShellOn,
   findFlowMergeGuardAskEntry,
+  personalAskEntryMessage,
 } from "./lib/merge-allow-rule";
 import { userSettingsPath } from "./lib/claude-user-settings";
 import { recordEvent } from "./lib/telemetry";
@@ -1110,7 +1111,7 @@ function resolveCleanupInput(
 /**
  * The conditional line for a `merge-permission-denied` pause. flow's launch
  * settings already carry the merge rule, so the cause is either a personal
- * `permissions.ask` entry that makes every merge prompt, or a pipeline
+ * `permissions.ask` entry that makes every merge stop for approval, or a pipeline
  * launched before flow shipped the rule. Read-only; never tells the owner to
  * paste a rule.
  */
@@ -1129,7 +1130,7 @@ function mergeRuleHintFor(
   const { entry, resolvedPath, coversMerge } =
     findFlowMergeGuardAskEntry(settingsPath);
   if (entry !== undefined && coversMerge) {
-    return `Your Claude settings ask before every flow-merge-guard call (\`${entry}\` in ${resolvedPath}), which makes every merge prompt. Narrow or delete that entry (\`flow doctor\` checks it), or reply \`merge #${pr}\` to finish this one.`;
+    return `Your Claude settings have ${personalAskEntryMessage(entry, true)} (${resolvedPath}; \`flow doctor\` checks it). Reply \`merge #${pr}\` to finish this one.`;
   }
   if (classifyAllShellOn(settingsPath)) {
     return `Your Claude settings turn on \`autoMode.classifyAllShell\` (${settingsPath}), which makes auto mode ignore every Bash allow rule, so relaunching will not help; reply \`merge #${pr}\` to finish this one.`;

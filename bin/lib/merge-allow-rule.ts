@@ -8,7 +8,7 @@
  * ACCEPTED RISK: the auto-mode classifier reviews neither the merge nor the
  * override recording. The guards are the pipeline's "merge anyway?" form (the
  * one conscious confirmation), flow-merge-guard's record-mode refusals (own
- * slug, own PR, phase `gated`) and its merge-mode checks (Test Steps clear or
+ * slug, own PR, phase `gated`, or `gating` entered from `gated`) and its merge-mode checks (Test Steps clear or
  * a fresh override token, no pending or failed CI, `autoMerge` not false, the
  * PR is this pipeline's own). Nothing mechanical stops a model that skips the
  * form on its own gated PR; an override merge posts a disclosure comment on

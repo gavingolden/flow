@@ -224,7 +224,8 @@ supervisor:
    the only prompt. If the helper refuses (`pr-not-owned` or `not-gated` — the gate
    re-query's `gating` counts when it came from `gated`),
    nothing was recorded: re-render the GATED block with a plain-language
-   `--why` (`override not recorded: this PR is not the pipeline's own` /
+   `--tldr` (`--why` is dropped under the default `pm` lens;
+   `override not recorded: this PR is not the pipeline's own` /
    `override not recorded: the pipeline is no longer at the gate`), say
    that nothing was merged and nothing is lost, and end. On any
    non-affirmative answer, the PR stays `gated` — re-render the GATED

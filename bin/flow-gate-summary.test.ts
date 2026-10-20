@@ -501,7 +501,7 @@ describe("render — needs-human (per-reason mapping)", () => {
       const out = renderViaRun(home, "merge-permission-denied");
       expect(out).toContain("Bash(flow-merge-guard *)");
       expect(out).toContain(path.join(home, ".claude", "settings.json"));
-      expect(out).toContain("makes every merge prompt");
+      expect(out).toContain("makes every unattended merge stop for approval");
       expect(out).not.toContain("permissions.allow");
     });
 
@@ -512,7 +512,7 @@ describe("render — needs-human (per-reason mapping)", () => {
         }),
       );
       const out = renderViaRun(home, "merge-permission-denied");
-      expect(out).not.toContain("makes every merge prompt");
+      expect(out).not.toContain("stop for approval");
       expect(out).toContain("flow feature resume mrh-test-slug");
     });
 
@@ -532,7 +532,7 @@ describe("render — needs-human (per-reason mapping)", () => {
       );
     });
 
-    it("the conflicting-entry line carries the narrow-or-delete remedy and the real PR number", () => {
+    it("the conflicting-entry line carries the delete remedy and the real PR number", () => {
       const home = homeWithSettings(
         JSON.stringify({
           permissions: { ask: ["Bash(flow-merge-guard *)"] },
@@ -542,7 +542,8 @@ describe("render — needs-human (per-reason mapping)", () => {
         "--pr-url",
         "https://github.com/o/r/pull/77",
       ]);
-      expect(out).toContain("Narrow or delete that entry");
+      expect(out).toContain("— delete it");
+      expect(out).not.toContain("Narrow");
       expect(out).toContain("merge #77");
     });
 

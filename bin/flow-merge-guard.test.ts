@@ -15,6 +15,7 @@ import {
   type MergeOutcome,
 } from "./flow-merge-guard";
 import { FLOW_MERGE_ALLOW_RULE } from "./lib/merge-allow-rule";
+import { advancePhase } from "./lib/phase-advance";
 import type { PipelineState } from "./lib/state";
 
 let stateDir!: string;
@@ -376,7 +377,7 @@ describe("run() record mode", () => {
     expect(tokenOf("rho")).toBeUndefined();
   });
 
-  it("refuses any phase but gated (needs-human and implementing), writing no token", () => {
+  it("refuses any phase but gated or gating-from-gated (needs-human and implementing), writing no token", () => {
     for (const phase of ["needs-human", "implementing"] as const) {
       const slug = `phase-${phase}`;
       seedState(slug, { pr: 5, phase });
@@ -405,6 +406,29 @@ describe("run() record mode", () => {
     const { exit } = recordRun(["5", "--slug", "gd-ok", "--record-override"]);
     expect(exit).toBe(0);
     expect(tokenOf("gd-ok")?.pr).toBe(5);
+  });
+
+  it("accepts an override after the real gate-decide re-query advance", () => {
+    seedState("gd-real", {
+      pr: 5,
+      phase: "gated",
+      phaseLog: [
+        { phase: "reviewing", at: "2026-01-01T00:00:00Z" },
+        { phase: "gated", at: "2026-01-01T00:01:00Z" },
+      ],
+    });
+    const advance = () =>
+      advancePhase("gating", {
+        slug: "gd-real",
+        expectPr: 5,
+        dir: stateDir,
+        publishBadges: () => {},
+      });
+    expect(advance().advanced).toBe(true);
+    expect(advance().advanced).toBe(false);
+    const { exit } = recordRun(["5", "--slug", "gd-real", "--record-override"]);
+    expect(exit).toBe(0);
+    expect(tokenOf("gd-real")?.pr).toBe(5);
   });
 
   it("refuses gating reached from a non-gated phase, writing no token", () => {

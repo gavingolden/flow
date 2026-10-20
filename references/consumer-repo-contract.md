@@ -173,7 +173,7 @@ two fixed `flow-spawn` waiter lines. These rules live only in flow's
 mode no longer reviews the merge, the override recording or the review
 comments; `flow-merge-guard` re-checks the Test Steps, CI and PR ownership
 before it merges and refuses an override unless the PR is the pipeline's own
-and `gated`, and the comment helpers refuse any PR but the pipeline's own.
+and at the gate (`gated`, or `gating` right after the re-check), and the comment helpers refuse any PR but the pipeline's own.
 The full per-rule decision table is in `docs/configuration.md`
 ("Permission rule decisions").
 
