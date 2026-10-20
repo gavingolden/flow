@@ -41,7 +41,8 @@
  *       "Gate override". Emits `{ recorded: true, pr, confirmedAt }`,
  *       exit 0. Refuses (exit 2) another pipeline's `--slug`, and (exit 1,
  *       `{ recorded: false, reason }`, no token written) a PR that is not
- *       `state.pr` (`pr-not-owned`) or any phase but `gated` (`not-gated`).
+ *       `state.pr` (`pr-not-owned`) or any phase but `gated` (or `gating` entered from `gated`, as
+ *       the gate re-query leaves it) (`not-gated`).
  *       These checks do NOT stop a model that skips the confirmation form on
  *       its own gated PR; the form is the only conscious confirmation.
  *
@@ -585,7 +586,14 @@ function recordOverrideToken(
     process.stdout.write(JSON.stringify({ recorded: false, reason }) + "\n");
     return 1;
   }
-  if (state.phase !== "gated") {
+  // The documented re-query (`flow-gate-decide`) moves `gated` → `gating`
+  // before this runs, so `gating` counts when the pipeline came from `gated`.
+  const log = state.phaseLog ?? [];
+  const prevPhase = log.length >= 2 ? log[log.length - 2]?.phase : undefined;
+  const atGate =
+    state.phase === "gated" ||
+    (state.phase === "gating" && prevPhase === "gated");
+  if (!atGate) {
     const reason = `not-gated: phase is ${state.phase}`;
     process.stdout.write(JSON.stringify({ recorded: false, reason }) + "\n");
     return 1;

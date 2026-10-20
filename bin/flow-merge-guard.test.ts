@@ -391,6 +391,41 @@ describe("run() record mode", () => {
     }
   });
 
+  it("accepts gating entered from gated (the gate-decide re-query), writing the token", () => {
+    seedState("gd-ok", {
+      pr: 5,
+      phase: "gating",
+      phaseLog: [
+        { phase: "reviewing", at: "2026-01-01T00:00:00Z" },
+        { phase: "gated", at: "2026-01-01T00:01:00Z" },
+        { phase: "gating", at: "2026-01-01T00:02:00Z" },
+      ],
+    });
+    const { exit } = recordRun(["5", "--slug", "gd-ok", "--record-override"]);
+    expect(exit).toBe(0);
+    expect(tokenOf("gd-ok")?.pr).toBe(5);
+  });
+
+  it("refuses gating reached from a non-gated phase, writing no token", () => {
+    seedState("gd-bad", {
+      pr: 5,
+      phase: "gating",
+      phaseLog: [
+        { phase: "reviewing", at: "2026-01-01T00:00:00Z" },
+        { phase: "gating", at: "2026-01-01T00:01:00Z" },
+      ],
+    });
+    const { exit, out } = recordRun([
+      "5",
+      "--slug",
+      "gd-bad",
+      "--record-override",
+    ]);
+    expect(exit).toBe(1);
+    expect(JSON.parse(out).reason).toBe("not-gated: phase is gating");
+    expect(tokenOf("gd-bad")).toBeUndefined();
+  });
+
   it("exits 2 on a --slug that is not the ambient pipeline's, writing no token", () => {
     seedState("mine", { pr: 5, phase: "gated" });
     seedState("theirs", { pr: 5, phase: "gated" });

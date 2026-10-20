@@ -221,7 +221,8 @@ supervisor:
 --record-override` to write the fresh-confirmation token, then
    re-enter step 10. Run it as its own standalone Bash call — it is
    pre-approved in flow-launched sessions, so the confirmation above is
-   the only prompt. If the helper refuses (`pr-not-owned` or `not-gated`),
+   the only prompt. If the helper refuses (`pr-not-owned` or `not-gated` — the gate
+   re-query's `gating` counts when it came from `gated`),
    nothing was recorded: re-render the GATED block and end. On any
    non-affirmative answer, the PR stays `gated` — re-render the GATED
    block and end.
