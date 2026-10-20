@@ -339,7 +339,9 @@ export function rulesFromLaunchSettings(file: string): ShippedRules {
   const overrideAllow = allow.filter((e) =>
     (FLOW_OVERRIDE_ALLOW_RULES as readonly string[]).includes(e),
   );
-  const routineAllow = allow.filter((e) => FLOW_ROUTINE_ALLOW_RULES.includes(e));
+  const routineAllow = allow.filter((e) =>
+    FLOW_ROUTINE_ALLOW_RULES.includes(e),
+  );
   const narrowExpected = Object.values(FLOW_NARROW_ALLOW_RULES).flat();
   const narrowAllow = allow.filter((e) => narrowExpected.includes(e));
   if (
