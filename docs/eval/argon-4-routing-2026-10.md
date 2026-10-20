@@ -135,8 +135,109 @@ stalls on High, so no step is raised as a `DECISION:` item.
 
 ## Results
 
-_Filled after the measurement runs._
+Measured 2026-10-19 to 2026-10-20 on agy 1.4.2. Screen: 3 repeats per (case,
+model) on each step's production arm, no warm-up
+([`../model-bench/argon-4-2026-10/`](../model-bench/argon-4-2026-10/): results,
+three reports and their verdicts). Recall is the mean over the screen repeats;
+"ref" is the committed `claude-sonnet-4-6` row in
+`docs/model-bench/results.json`, and the retired pins are the committed
+`gemini-3.1-pro-high` / `gemini-3.7-flash-high` rows. Reliability is non-empty
+attempts over attempts. Verdicts stand on n=3 (see the Amendment below), so a
+difference under about 0.1 is within run-to-run noise.
+
+### Bench steps
+
+| Step                                   | Model today              | Limit (Stage 0 High / Medium) | Case                  | Argon High         | Argon Medium       | Ref (Sonnet 4.6)   | 3.1 Pro / 3.7 Flash          | Opus 5.5          | Reliability (High / Medium) |
+| -------------------------------------- | ------------------------ | ----------------------------- | --------------------- | ------------------ | ------------------ | ------------------ | ---------------------------- | ----------------- | --------------------------- |
+| Plan reviewer #1 (`planReview`)        | Argon High               | 13m (fits / fits)             | c6, at ceiling        | 1.00               | 1.00               | 1.00               | 0.98 / 1.00                  | pending follow-up | 3/3 / 3/3                   |
+| Method-survey judge A (`blindSurvey`)  | Argon High               | 10m (fits / fits)             | c12, ground truth     | 1.00               | 1.00               | none               | none                         | pending follow-up | 3/3 / 3/3                   |
+| Research gather (`researchGather`)     | Argon High               | 20m (limit-mismatch / fits)   | c11, ground truth     | 0.93               | 0.93               | none               | none                         | pending follow-up | 3/3 / 3/3                   |
+| PR intent guess (`intentGuess`)        | Argon High               | 10m (fits / fits)             | c4 schema, at ceiling | 1.00               | 1.00               | 1.00               | 0.92 / 1.00                  | pending follow-up | 3/3 / 3/3                   |
+| Gemini review lens (`reviewLens`)      | Argon High               | 10m (fits / fits)             | c7 schema             | 1.00               | 1.00               | 0.83               | 0.75 / 0.00                  | pending follow-up | 3/3 / 3/3                   |
+| Research fact-check (`researchRefute`) | Claude Opus 5.5 (Medium) | 20m (shared, not timed)       | c8 free-form          | 0.87               | 1.00               | 1.00               | 1.00 / 1.00                  | pending follow-up | 3/3 / 3/3                   |
+| Scout (`scout`)                        | Claude (in-session)      | 8m (not probed)               | c1 / c2 / c2b         | 1.00 / 1.00 / 0.44 | 1.00 / 0.96 / 0.17 | 0.72 / 0.63 / 0.09 | 0.97 / 0.89 / 0.11 (3.1 Pro) | pending follow-up | c2b: 1/3 / 2/3              |
+
+- **Scout.** Both tiers miss a c2b real defect that Sonnet 4.6 caught (a
+  defect regression), and the c2b runs mostly did not finish inside the
+  scout's 8-minute limit: Argon High timed out on 2 of 3, Medium on 1 of 3. On
+  the planted-defect cases (c1, c2) both tiers score above every committed
+  model.
+- **Research fact-check on Argon High** scored 0.87 against the reference's
+  1.00, below the 0.95 bar. Argon Medium scored 1.00.
+- **Ceilings.** c4 and c6 are aced by every model in the run and c11/c12 have no
+  baseline rows, so those four steps are gated on fixture ground truth
+  (`--ground-truth-floor 0.8`). They show Argon is not worse; they cannot show
+  it is better.
+
+### Delegated Claude review lenses (`claudeLenses`)
+
+Recall harness ([`review-model-recall/`](review-model-recall/)): three lenses
+re-run over the diffs of PRs #812, #756 and #802 and scored by a blinded judge
+against each PR's reference findings. The Opus column is the committed
+Claude Task-tool reference in
+[`review-model-recall.json`](review-model-recall.json) (2 runs per cell).
+"At 8m" counts only findings from cells that finished inside the 8-minute
+delegated-lens limit (`DELEGATED_LENS_TIMEOUT`).
+
+| Lens                | Opus (Task, reference) | Argon High (18 cells) | Argon Medium (9 cells) |
+| ------------------- | ---------------------- | --------------------- | ---------------------- |
+| bug-detection       | 0.048                  | 0.057                 | 0.076                  |
+| pattern-consistency | 0.060                  | 0.066                 | 0.075                  |
+| test-coverage       | 0.060                  | 0.082                 | 0.092                  |
+| All lenses          | —                      | 0.068                 | 0.081                  |
+| All lenses, at 8m   | —                      | 0.050                 | 0.081                  |
+| Median cell time    | —                      | 347 s                 | 249 s                  |
+
+Both tiers clear the lens bar (at least the reference minus 0.05) on every
+lens, at full length and at the 8-minute limit. Argon High loses about a
+quarter of its recall at the limit because some cells run past 8 minutes;
+every Argon Medium cell finished inside it. Absolute recall is low for every
+model, Opus included: the reference sets are large, and a single run finds a
+small share of them.
+
+### Quota
+
+About 112 Argon calls in total: 29 in Stage 0, 54 in the screen, 1 live
+intent-guess probe between tranches, and 28 lens cells (18 High, 9 Medium, and
+1 Medium cell re-run after the machine restarted mid-run). No window exceeded
+60 calls; the last one used about 57. No call was refused for quota at any
+point.
+
+**Claude-pool lockout.** Before this run the Google plan's Claude pool was
+locked out until the evening of 2026-10-18. While it is locked, every
+Claude-pinned agy step skips: the research fact-check, plan reviewer #2 and
+method-survey judge B. That is why no Opus 5.5 column ran here (ticked
+follow-up: a fallback for that lockout).
 
 ## Recommendations (for discussion)
 
-_Filled after the results are in._
+Outcomes follow the pre-registered rule, read top to bottom for each tier. No
+value changes in this PR.
+
+| Step                                     | Outcome                        | Recommendation                                                                                                                                                                     |
+| ---------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plan reviewer #1 (`planReview`)          | keep Argon High                | Keep. Medium also clears and answers in half the time (130 s vs 256 s median); worth a switch only if quota gets tight.                                                            |
+| Method-survey judge A (`blindSurvey`)    | keep Argon High                | Keep. Medium also clears.                                                                                                                                                          |
+| Research gather (`researchGather`)       | consider Argon Medium          | Discuss moving to Medium: same recall (0.93), and it fits the 20-minute limit, which High needs more than (limit mismatch).                                                        |
+| PR intent guess (`intentGuess`)          | keep Argon High                | Keep. The case is at ceiling, so Medium (also 1.00) is a quota option, not a quality one.                                                                                          |
+| Gemini review lens (`reviewLens`)        | keep Argon High                | Keep. Both tiers beat every committed model on c7 (1.00 vs 0.83 reference).                                                                                                        |
+| Research fact-check (`researchRefute`)   | structural hold (Claude)       | No change: it must stay a different family from the Gemini gather. Argon High would have failed anyway (0.87).                                                                     |
+| Plan reviewer #2, survey judge B         | structural hold (Claude)       | No change, same cross-vendor rule. Opus via agy is the pending follow-up.                                                                                                          |
+| Scout (`scout`)                          | consider Claude (stays Claude) | No change. Argon misses the real defect and does not finish inside 8 minutes.                                                                                                      |
+| Delegated Claude lenses (`claudeLenses`) | both tiers clear the lens bar  | Discuss routing to Argon Medium: highest recall here and every cell inside the 8-minute limit, at no Claude cost. Confidence is low (9 cells, n=1 per PR): rerun before switching. |
+
+## Amendment (2026-10-20, user-directed, after the screen)
+
+Made after the screen results were in, on the maintainer's instruction to trim
+the measurement. The pre-registered rule above is unchanged.
+
+- **No top-up.** No (step, model) pair was topped up past the 3-repeat screen,
+  so every verdict above stands on n=3 rather than the committed repeat tiers.
+- **Stage 2 cut.** c3, c5, c9a, c9b and c10 were not run; the commit-message,
+  log-triage, critique and gatekeeper rows of the bench reports are
+  "inconclusive: no rows" for that reason.
+- **Argon Medium lens cells at 1 run per (lens, PR)**: 9 cells, not 18.
+- **Time limits unchanged after the screen.** Every new limit is already at
+  least 2.2 times the slowest measured answer on either tier: research 20m vs
+  9.0 minutes, plan review 13m vs 5.1, review lens 10m vs 2.9, survey 10m vs
+  1.7, intent guess 10m vs 0.6.
