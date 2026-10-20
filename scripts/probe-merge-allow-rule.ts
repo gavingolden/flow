@@ -391,6 +391,13 @@ function runRow(
     .replaceAll("<scratch>", scratch)
     .replaceAll("<sentinel-pid>", String(sentinel?.pid ?? 0));
   const out = path.join(scratch, `out-${index}.json`);
+  // flow-claude-headless caps an inline --prompt at 200 chars; a row whose
+  // command carries a scratch path overflows it.
+  const promptFile = path.join(scratch, `prompt-${index}.txt`);
+  fs.writeFileSync(
+    promptFile,
+    `Run this exact shell command with the Bash tool, then reply done: ${command}`,
+  );
   const headless = path.join(__dirname, "..", "bin", "flow-claude-headless.ts");
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -401,8 +408,8 @@ function runRow(
     "bun",
     [
       headless,
-      "--prompt",
-      `Run this exact shell command with the Bash tool, then reply done: ${command}`,
+      "--prompt-file",
+      promptFile,
       "--model",
       "haiku",
       "--effort",
