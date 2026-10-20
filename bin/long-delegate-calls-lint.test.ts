@@ -1,7 +1,9 @@
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { readPipelineSkillDoc } from "./lib/pipeline-skill-corpus";
 
 /**
@@ -169,5 +171,73 @@ describe("flow-pr-review/SKILL.md", () => {
     for (const [what, re] of FORBIDDEN) {
       expect(re.test(skill), `SKILL.md must not carry ${what}`).toBe(false);
     }
+  });
+});
+
+// `flow-plan-review-wait --complete-line` reports a watched file complete only
+// when its last byte is a newline, so a helper that prints its envelope without
+// one is recorded as skipped. Run each stdout-watching helper at an early skip
+// (no agy call) and check the real binary's stdout.
+describe("stdout-watched helpers end their envelope with a newline", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "long-delegate-"));
+  const emptyConfig = path.join(tmp, "config.json");
+  fs.writeFileSync(emptyConfig, "{}");
+  const missing = path.join(tmp, "missing");
+  const out = path.join(tmp, "out");
+  afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  const bin = (name: string) => path.join(ROOT, "bin", `${name}.ts`);
+
+  const CASES: Array<[string, string[]]> = [
+    [
+      "flow-blind-survey",
+      [
+        "--brief-file",
+        missing,
+        "--description-file",
+        missing,
+        "--out",
+        out,
+        "--worktree",
+        ROOT,
+      ],
+    ],
+    [
+      "flow-gemini-lens",
+      [
+        "--worktree",
+        ROOT,
+        "--diff-file",
+        missing,
+        "--out",
+        out,
+        "--config",
+        emptyConfig,
+      ],
+    ],
+    [
+      "flow-gemini-intent-guess",
+      [
+        "--worktree",
+        ROOT,
+        "--diff-file",
+        missing,
+        "--out",
+        out,
+        "--config",
+        emptyConfig,
+      ],
+    ],
+  ];
+
+  it.each(CASES)("%s", (helper, argv) => {
+    const env = { ...process.env };
+    delete env.FLOW_SLUG;
+    const r = spawnSync("bun", [bin(helper), ...argv], {
+      encoding: "utf8",
+      env,
+    });
+    expect(r.stdout.endsWith("\n")).toBe(true);
+    expect(r.stdout.trim().split("\n")).toHaveLength(1);
+    expect(JSON.parse(r.stdout)).toMatchObject({ ran: false });
   });
 });

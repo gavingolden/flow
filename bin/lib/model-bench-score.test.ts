@@ -917,6 +917,12 @@ describe("verdict — a baseline-less or tied case can never clear silently", ()
     expect(cell.reason).toMatch(/mechanical parity failed on c-ab/);
   });
 
+  it("is inconclusive, never clear, when the candidate has no rows on the surface", () => {
+    const cell = run([cs("c1", { inc: model() })]);
+    expect(cell.status).toBe("inconclusive");
+    expect(cell.reason).toMatch(/no cand rows on this surface/);
+  });
+
   it("--no-latency-gate: no verdict cites latency, even for a much slower candidate", () => {
     const slow = cs("c1", {
       inc: model({ latency: { median: 1, min: 1, max: 1 } }),

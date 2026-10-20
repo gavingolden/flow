@@ -12,8 +12,13 @@
  */
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildSettingsRows } from "./config-settings";
+import {
+  DELEGATE_TIMEOUT_DEFAULTS,
+  resolveDelegateTimeout,
+  type DelegateTimeoutSurface,
+} from "./delegate-timeouts";
 import {
   DEFAULT_TIMEOUT,
   resolveMaxCalls,
@@ -111,4 +116,33 @@ describe("config-default-parity: the view's defaults match their real consumer's
   it("research.deepResearchFallback: the view's rendered default matches the SKILL.md predicate's assumed true", () => {
     expect(viewDefault("research.deepResearchFallback")).toBe("true");
   });
+});
+
+// delegateTimeoutRow in config-settings.ts repeats resolveDelegateTimeout's
+// 20m clamp by hand; a drift would make `flow config all` show a limit that
+// pipelines do not use.
+describe("config-default-parity: delegate.timeouts overrides", () => {
+  const surfaces = Object.keys(
+    DELEGATE_TIMEOUT_DEFAULTS,
+  ) as DelegateTimeoutSurface[];
+
+  it.each(["15m", "20m", "30m"])(
+    "an override of %s resolves to the same value in the view and the resolver",
+    (override) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      for (const surface of surfaces) {
+        const cfg = { delegate: { timeouts: { [surface]: override } } };
+        const row = buildSettingsRows(() => cfg).find(
+          (r) => r.setting === `delegate.timeouts.${surface}`,
+        );
+        expect(row?.value, surface).toBe(
+          resolveDelegateTimeout(surface, () => cfg),
+        );
+        expect(row?.source.includes("clamped from 30m"), surface).toBe(
+          override === "30m",
+        );
+      }
+      vi.restoreAllMocks();
+    },
+  );
 });

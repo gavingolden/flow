@@ -867,6 +867,14 @@ describe("run — atomic --out write and failureClass projection", () => {
     expect(deps.calls.written[0]!.data).toBe(deps.calls.out[0]);
   });
 
+  it("ends the --out file with a newline, which a --complete-line waiter requires", async () => {
+    const deps = makeDeps({
+      readFile: () => manifestOf([{ task: "a", prompt: "x" }]),
+    });
+    await run(["--manifest", "m.json", "--out", "/o/result.json"], deps);
+    expect(deps.calls.written[0]!.data.endsWith("\n")).toBe(true);
+  });
+
   it("copies a failed envelope's failureClass onto its entry", async () => {
     const deps = makeDeps({
       readFile: () =>

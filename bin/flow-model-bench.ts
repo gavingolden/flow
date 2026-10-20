@@ -3,8 +3,12 @@
  * Maintainer-only model-routing benchmark runner. Loads the committed
  * bin/fixtures/model-bench/*&#47;case.json fixtures, expands them into a
  * (case x arm x model x repeat[ x size]) manifest plus one warm-up slot per
- * group, dispatches the manifest through flow-delegate-fanout, and writes a
- * blinded judge packet alongside the raw results. Pure manifest-building,
+ * group (unless --no-warmup), dispatches the manifest through
+ * flow-delegate-fanout in chunks (--chunk-size) at each case's production
+ * limit, rewrites results.json after every chunk, and writes a blinded judge
+ * packet alongside the raw results. It stops at the first quota refusal
+ * (exit 3, naming the slots left and the reset time); --resume finishes the
+ * remaining slots later. Pure manifest-building,
  * blinding, and classification logic lives in bin/lib/model-bench-manifest.ts
  * (kept out of this file to stay under the line-count target); this file
  * owns CLI parsing, dispatch, retries, and the results/packet writers.
@@ -36,7 +40,7 @@
  * --delegate-bin (default: the sibling flow-delegate.ts of THIS file) and
  * preflights it — a deliberately-invalid --output-format value must fail
  * with a usage error NAMING the flag, not an "unknown flag" error — before
- * spending any of the ~441-call budget.
+ * spending any of the call budget.
  */
 
 import {

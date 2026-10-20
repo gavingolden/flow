@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseArgs, run, type Deps } from "./flow-plan-review-wait";
 
@@ -295,5 +298,48 @@ describe("--complete-line and --pid", () => {
       now: clock.now,
     });
     expect(clock.now()).toBeGreaterThanOrEqual(2000);
+  });
+});
+
+describe("--complete-line against the real file readers", () => {
+  // Only the clock is faked: statSize and lastByte are the shipped readers.
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "wait-readers-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const outcomeFor = async (content: string) => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const file = join(dir, "env.json");
+    writeFileSync(file, content);
+    const clock = makeFakeClock();
+    await run([file, "--complete-line", "--interval", "1", "--max-sec", "2"], {
+      sleep: clock.sleep,
+      now: clock.now,
+    });
+    return { line: logSpy.mock.calls.at(-1)?.[0], elapsedMs: clock.now() };
+  };
+
+  it("keeps waiting on an empty file", async () => {
+    expect(await outcomeFor("")).toEqual({
+      line: '{"outcome":"timeout"}',
+      elapsedMs: 2000,
+    });
+  });
+
+  it("keeps waiting on a whole JSON object with no trailing newline", async () => {
+    expect((await outcomeFor('{"ran":true}')).line).toBe(
+      '{"outcome":"timeout"}',
+    );
+  });
+
+  it("completes at once on a newline-terminated object", async () => {
+    expect(await outcomeFor('{"ran":true}\n')).toEqual({
+      line: '{"outcome":"complete"}',
+      elapsedMs: 0,
+    });
   });
 });
