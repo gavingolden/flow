@@ -1692,6 +1692,15 @@ describe("maxElapsedSec", () => {
   });
 });
 
+describe("maxElapsedSec — the minutes written in the docs", () => {
+  // The source comment, the PR description and the docs state "18 minutes
+  // standard, 33 deep"; re-sizing a reviewer limit must update them together.
+  it("is 18 minutes on the standard tier and 33 on the deep tier", () => {
+    expect(maxElapsedSec("standard")).toBe(18 * 60);
+    expect(maxElapsedSec("deep")).toBe(33 * 60);
+  });
+});
+
 describe("mapReviewerSkipReason", () => {
   it("maps flow-delegate's agy-timeout to this module's reviewer-timeout", () => {
     expect(mapReviewerSkipReason("agy-timeout")).toBe("reviewer-timeout");
