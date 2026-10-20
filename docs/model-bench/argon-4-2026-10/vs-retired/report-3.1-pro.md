@@ -91,16 +91,16 @@ _single-shot fixture time — production-realistic answer times are in the Stage
 
 ## Run provenance
 
-- commit: b02793ef329e711d9f7cf6ba8e3daae28e066f90
+- commit: b87aad9bccee12e026137153d19e4f7a7170f8fa
 - agy version: 1.4.2
 - models: gemini-4-argon-high, gemini-4-argon-medium, gemini-3.1-pro-high
 - incumbent: gemini-3.1-pro-high
 - run date: 2026-10-20
-- repeat tiers: {"c4-intent-json":10,"c11-research-gather":5,"c2b-real-defect":10,"c6-plan-review":10,"c3-log-triage":3,"c5-commit-msg":10,"c9b-pushback-control":10,"c12-blind-survey":5,"c2-planted-defects":10,"c10-gatekeeper":10,"c7-review-lens":3,"c9a-pushback-wrong":10,"c1-multifile-contract":10,"c8-research-refute":10}
+- executed repeats (non-warm-up rows per case, model and arm): {"c4-intent-json":{"gemini-4-argon-high":{"schema":3},"gemini-4-argon-medium":{"schema":3},"gemini-3.1-pro-high":{"schema":10,"free-form":10}},"c7-review-lens":{"gemini-4-argon-high":{"schema":3},"gemini-4-argon-medium":{"schema":3},"gemini-3.1-pro-high":{"schema":3,"free-form":3}},"c6-plan-review":{"gemini-4-argon-high":{"free-form":3},"gemini-4-argon-medium":{"free-form":3},"gemini-3.1-pro-high":{"schema":10,"free-form":10}},"c8-research-refute":{"gemini-4-argon-high":{"free-form":3},"gemini-4-argon-medium":{"free-form":3},"gemini-3.1-pro-high":{"schema":10,"free-form":10}},"c11-research-gather":{"gemini-4-argon-high":{"n/a":3},"gemini-4-argon-medium":{"n/a":3}},"c2b-real-defect":{"gemini-4-argon-high":{"n/a":3},"gemini-4-argon-medium":{"n/a":3},"gemini-3.1-pro-high":{"n/a":10}},"c12-blind-survey":{"gemini-4-argon-high":{"n/a":3},"gemini-4-argon-medium":{"n/a":3}},"c2-planted-defects":{"gemini-4-argon-high":{"n/a":3},"gemini-4-argon-medium":{"n/a":3},"gemini-3.1-pro-high":{"n/a":10}},"c1-multifile-contract":{"gemini-4-argon-high":{"n/a":3},"gemini-4-argon-medium":{"n/a":3},"gemini-3.1-pro-high":{"n/a":10}},"c3-log-triage":{"gemini-3.1-pro-high":{"n/a":9}},"c9b-pushback-control":{"gemini-3.1-pro-high":{"schema":10,"free-form":10}},"c9a-pushback-wrong":{"gemini-3.1-pro-high":{"schema":10,"free-form":10}},"c5-commit-msg":{"gemini-3.1-pro-high":{"n/a":10}},"c10-gatekeeper":{"gemini-3.1-pro-high":{"schema":10,"free-form":10}}}
 
 ## Limitations
 
-- Repeat tiers (N=10 on decision-bearing surfaces, N=3 elsewhere) are far below the N>=30 that stable latency percentiles call for; medians are reported but underpowered.
+- Executed repeats (N=3 to N=10 per case, model and arm; exact counts in Run provenance) are far below the N>=30 that stable latency percentiles call for; medians are reported but underpowered.
 - Planted-defect detection rates are selection-biased toward authorable defects and do not generalise to natural defects; the c2b real-defect control narrows but does not close that gap.
 - The incumbent baseline (gemini-3.1-pro-high) ran under agy's scaffold, not necessarily the scaffold production uses; rows merged from a committed --baseline-results file were measured earlier, on that run's agy version and roster.
 - Tokens/usage are descriptive only and never gate a verdict.
