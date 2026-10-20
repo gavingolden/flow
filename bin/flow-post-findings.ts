@@ -64,6 +64,7 @@ export type PostSummary = {
   failed: number;
   skipped: number;
   skippedAt: string[];
+  repeatedAt: string[];
   results: PostResult[];
 };
 
@@ -228,6 +229,7 @@ export function postAll(
     failed: results.length - succeeded,
     skipped: 0,
     skippedAt: [],
+    repeatedAt: [],
     results,
   };
 }
@@ -240,9 +242,15 @@ export function formatSummary(summary: PostSummary): string {
   if (summary.skipped > 0) {
     lines.push(`Skipped ${summary.skipped} already on the PR`);
   }
+  if (summary.repeatedAt.length > 0) {
+    lines.push(`Skipped ${summary.repeatedAt.length} repeated in this batch`);
+  }
   lines.push("");
   for (const where of summary.skippedAt) {
     lines.push(`  SKIP  ${where} (already on PR)`);
+  }
+  for (const where of summary.repeatedAt) {
+    lines.push(`  SKIP  ${where} (repeated in this batch)`);
   }
   for (const r of summary.results) {
     const where = `${r.file}:${r.line}`;
@@ -413,8 +421,9 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
 
   let toPost: Finding[];
   let skipped: Finding[];
+  let repeated: Finding[];
   try {
-    ({ toPost, skipped } = filterNewFindings(
+    ({ toPost, skipped, repeated } = filterNewFindings(
       findings,
       fetchExistingComments(prNumber, gh),
     ));
@@ -430,6 +439,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const summary = postAll(prNumber, headSha, toPost, gh);
   summary.skipped = skipped.length;
   summary.skippedAt = skipped.map((f) => `${f.file}:${f.line}`);
+  summary.repeatedAt = repeated.map((f) => `${f.file}:${f.line}`);
   console.log(formatSummary(summary));
   return summary.failed > 0 ? 1 : 0;
 }

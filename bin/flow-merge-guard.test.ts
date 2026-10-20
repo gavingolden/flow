@@ -6,6 +6,7 @@ import {
   CONFLICT_STDERR_PATTERNS,
   evaluateMergeGuard,
   evaluateMergePreconditions,
+  overrideDisclosureBody,
   OVERRIDE_FRESHNESS_MS,
   parseArgs,
   run,
@@ -370,7 +371,7 @@ describe("run() record mode", () => {
     expect(exit).toBe(1);
     expect(JSON.parse(out)).toEqual({
       recorded: false,
-      reason: "pr-not-owned: state.pr is 5, not #6",
+      reason: "pr-not-owned: this pipeline's PR is #5, not #6",
     });
     expect(tokenOf("rho")).toBeUndefined();
   });
@@ -918,6 +919,42 @@ describe("run() — merge mode", () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
+  it("discloses the override when autoMerge:false merges on a fresh token", () => {
+    seedMerge("m6f", {
+      autoMerge: false,
+      gateOverride: freshOverride(5, 1000),
+    });
+    const gh = ghFor({});
+    const { exit } = runMerge(["merge", "5", "--slug", "m6f"], {
+      gh,
+      runMerge: okMerge,
+    });
+    expect(exit).toBe(0);
+    const comments = gh.mock.calls.filter((c) => c[0][1] === "comment");
+    expect(comments).toHaveLength(1);
+    expect(comments[0][0][4]).toContain("auto-merge was paused");
+    expect(comments[0][0][4]).not.toContain("0 Test");
+  });
+
+  it("names what was overridden in the disclosure wording", () => {
+    const at = "2026-10-20T16:31:45.000Z";
+    expect(overrideDisclosureBody(at, 2, false)).toBe(
+      "Merged on a gate override confirmed at 2026-10-20 16:31 UTC; 2 Test Steps were unchecked.",
+    );
+    expect(overrideDisclosureBody(at, 1, false)).toContain(
+      "1 Test Step was unchecked.",
+    );
+    expect(overrideDisclosureBody(at, 0, true)).toBe(
+      "Merged on a gate override confirmed at 2026-10-20 16:31 UTC; auto-merge was paused.",
+    );
+    expect(overrideDisclosureBody(at, 3, true)).toContain(
+      "3 Test Steps were unchecked and auto-merge was paused.",
+    );
+    expect(overrideDisclosureBody(undefined, 1, false)).toContain(
+      "an unrecorded time",
+    );
+  });
+
   it("posts one disclosure comment when it merged on an override token", () => {
     seedMerge("m6c", { gateOverride: freshOverride(5, 1000) });
     const gh = ghFor({ body: HAS_UNCHECKED });
@@ -934,7 +971,7 @@ describe("run() — merge mode", () => {
       "comment",
       "5",
       "--body",
-      `Merged on a gate override confirmed at ${new Date(NOW - 1000).toISOString()}; 2 Test Steps were unchecked.`,
+      `Merged on a gate override confirmed at ${new Date(NOW - 1000).toISOString().slice(0, 16).replace("T", " ")} UTC; 2 Test Steps were unchecked.`,
     ]);
   });
 

@@ -32,7 +32,10 @@ describe("checkOwnPipelinePr", () => {
     seed("my-slug", { pr: 5 });
     expect(
       checkOwnPipelinePr(6, { env: { FLOW_SLUG: "my-slug" }, stateDir }),
-    ).toEqual({ ok: false, reason: "pr-not-owned: state.pr is 5, not #6" });
+    ).toEqual({
+      ok: false,
+      reason: "pr-not-owned: this pipeline's PR is #5, not #6",
+    });
   });
 
   it("allows the pipeline's own PR", () => {
@@ -46,7 +49,10 @@ describe("checkOwnPipelinePr", () => {
     seed("my-slug", {});
     expect(
       checkOwnPipelinePr(5, { env: { FLOW_SLUG: "my-slug" }, stateDir }),
-    ).toEqual({ ok: false, reason: "pr-not-owned: state.pr is unset, not #5" });
+    ).toEqual({
+      ok: false,
+      reason: "pr-not-owned: this pipeline has no PR yet, not #5",
+    });
   });
 
   it("refuses when the slug has no state file", () => {

@@ -321,6 +321,10 @@ describe("checkPipelinePermissions", () => {
     const [c] = checkPipelinePermissions(makeDeps(root));
     expect(c.status).toBe("warn");
     expect(c.summary).toContain("delete it");
+    expect(c.summary).toContain(
+      "re-asks after the pipeline's own confirmation",
+    );
+    expect(c.summary).not.toContain("every unattended merge");
     expect(c.fix).toContain(`delete "${BARE}"`);
     expect(c.fix).toContain(file);
   });
@@ -344,6 +348,8 @@ describe("checkPipelinePermissions", () => {
     const [c] = checkPipelinePermissions(makeDeps(root));
     expect(c.status).toBe("warn");
     expect(c.summary).toContain("Bash(flow-merge-guard *)");
+    expect(c.summary).toContain("every unattended merge stop for approval");
+    expect(c.summary).toContain("delete it");
     expect(c.fix).toContain('delete "Bash(flow-merge-guard *)"');
     expect(c.fix).toContain(file);
   });

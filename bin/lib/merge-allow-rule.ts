@@ -77,8 +77,14 @@ export function classifyAllShellOn(settingsPath: string): boolean {
 }
 
 /** The one message doctor and `flow feature create/resume` share for a personal ask entry. */
-export function personalAskEntryMessage(entry: string): string {
-  return `a personal flow-merge-guard ask rule (${entry}) brings back a permission prompt flow's pipeline already confirms — delete it`;
+export function personalAskEntryMessage(
+  entry: string,
+  coversMerge: boolean,
+): string {
+  const effect = coversMerge
+    ? "makes every unattended merge stop for approval"
+    : "re-asks after the pipeline's own confirmation";
+  return `a personal flow-merge-guard ask rule (${entry}) ${effect} — delete it`;
 }
 
 /** Launch-time notice (never blocks): prints the doctor message when a personal ask entry exists. */
@@ -87,10 +93,12 @@ export function warnOnPersonalAskEntry(
   homeDir: string,
   write: (line: string) => void = (l) => process.stderr.write(l),
 ): void {
-  const { entry, resolvedPath } = findFlowMergeGuardAskEntry(
+  const { entry, resolvedPath, coversMerge } = findFlowMergeGuardAskEntry(
     userSettingsPath(env, homeDir),
   );
   if (entry !== undefined) {
-    write(`warning: ${personalAskEntryMessage(entry)} (${resolvedPath})\n`);
+    write(
+      `warning: ${personalAskEntryMessage(entry, coversMerge)} (${resolvedPath})\n`,
+    );
   }
 }

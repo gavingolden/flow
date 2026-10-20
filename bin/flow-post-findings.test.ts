@@ -211,6 +211,7 @@ describe(postAll, () => {
       failed: 0,
       skipped: 0,
       skippedAt: [],
+      repeatedAt: [],
       results: [
         { file: "a.ts", line: 1, success: true },
         { file: "b.ts", line: 2, success: true },
@@ -252,6 +253,7 @@ describe(formatSummary, () => {
       failed: 1,
       skipped: 0,
       skippedAt: [],
+      repeatedAt: [],
       results: [
         { file: "a.ts", line: 1, success: true },
         { file: "b.ts", line: 2, success: false, error: "boom" },
@@ -467,7 +469,7 @@ describe("run() idempotent posting", () => {
   it("posts an in-batch duplicate once", async () => {
     const gh = vi.fn(() => ok());
     const f = { file: "a.ts", line: 3, body: "dup" };
-    const { v } = await silent(() =>
+    const { v, out } = await silent(() =>
       run(["100", "--file", "f.json", "--head-sha", SHA], {
         gh,
         env: {},
@@ -479,6 +481,9 @@ describe("run() idempotent posting", () => {
       c[0].includes("-f"),
     );
     expect(posts).toHaveLength(1);
+    const text = out.join("\n");
+    expect(text).toContain("SKIP  a.ts:3 (repeated in this batch)");
+    expect(text).not.toContain("already on PR");
   });
 
   it("posts nothing and exits 1 when the existing-comment read fails", async () => {
@@ -615,6 +620,48 @@ describe("run() dedupe", () => {
     });
     const { out } = await silent(() => run(["dedupe", "100"], { gh, env: {} }));
     expect(JSON.parse(out[0]).deleted).toEqual([2]);
+  });
+
+  it("exits 1 and deletes nothing when the gh user lookup fails", async () => {
+    const gh = vi.fn((argv: string[]) =>
+      argv[1] === "user"
+        ? { stdout: "", stderr: "HTTP 401", exitCode: 1 }
+        : ok(
+            ndjson(
+              comment({ id: 1, body: FLOW }),
+              comment({ id: 2, body: FLOW }),
+            ),
+          ),
+    );
+    const { v } = await silent(() => run(["dedupe", "100"], { gh, env: {} }));
+    expect(v).toBe(1);
+    expect(
+      (gh.mock.calls as unknown as GhArgs).some((c) => c[0].includes("DELETE")),
+    ).toBe(false);
+  });
+
+  it("reports a failed DELETE in failed[] and exits 1", async () => {
+    const gh = vi.fn((argv: string[]) => {
+      if (argv[1] === "user") return ok("me");
+      if (argv.includes("--paginate"))
+        return ok(
+          ndjson(
+            comment({ id: 1, body: FLOW }),
+            comment({ id: 2, body: FLOW }),
+            comment({ id: 3, body: FLOW }),
+          ),
+        );
+      if (argv.includes("DELETE") && argv[argv.length - 1].endsWith("/2"))
+        return { stdout: "", stderr: "HTTP 403", exitCode: 1 };
+      return ok();
+    });
+    const { out, v } = await silent(() =>
+      run(["dedupe", "100"], { gh, env: {} }),
+    );
+    expect(v).toBe(1);
+    const report = JSON.parse(out[0]);
+    expect(report.deleted).toEqual([3]);
+    expect(report.failed).toEqual([{ id: 2, error: "HTTP 403" }]);
   });
 
   it("exits 2 on --file, --head-sha or dedupe not first", async () => {

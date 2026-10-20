@@ -2,6 +2,14 @@ import { FLOW_STATE_DIR } from "./paths";
 import { resolveSlugAmbient } from "./session-identity";
 import { readState } from "./state";
 
+export function prNotOwnedReason(
+  statePr: number | null | undefined,
+  pr: number,
+): string {
+  const own = statePr == null ? " has no PR yet" : `'s PR is #${statePr}`;
+  return `pr-not-owned: this pipeline${own}, not #${pr}`;
+}
+
 /**
  * Inside a live pipeline (an ambient slug resolves), the comment helpers may
  * act only on that pipeline's own PR. With no ambient slug there is no
@@ -19,7 +27,7 @@ export function checkOwnPipelinePr(
   if (state.pr !== pr) {
     return {
       ok: false,
-      reason: `pr-not-owned: state.pr is ${state.pr ?? "unset"}, not #${pr}`,
+      reason: prNotOwnedReason(state.pr, pr),
     };
   }
   return { ok: true };

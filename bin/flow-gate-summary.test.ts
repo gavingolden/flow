@@ -505,6 +505,17 @@ describe("render — needs-human (per-reason mapping)", () => {
       expect(out).not.toContain("permissions.allow");
     });
 
+    it("does not claim every merge prompts for an override-only ask entry", () => {
+      const home = homeWithSettings(
+        JSON.stringify({
+          permissions: { ask: ["Bash(flow-merge-guard * --record-override)"] },
+        }),
+      );
+      const out = renderViaRun(home, "merge-permission-denied");
+      expect(out).not.toContain("makes every merge prompt");
+      expect(out).toContain("flow feature resume mrh-test-slug");
+    });
+
     it("names classifyAllShell and says relaunching will not help when no ask entry conflicts", () => {
       const home = homeWithSettings(
         JSON.stringify({ autoMode: { classifyAllShell: true } }),

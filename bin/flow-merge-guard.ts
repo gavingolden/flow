@@ -86,6 +86,7 @@ import {
 import { readState, writeState, type PipelineState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
+import { prNotOwnedReason } from "./lib/pipeline-pr-ownership";
 import { advancePhase } from "./lib/phase-advance";
 import { isValidSlug } from "./lib/slug";
 import {
@@ -292,7 +293,7 @@ export function evaluateMergePreconditions(input: {
   if (state.pr !== pr) {
     return {
       ok: false,
-      reason: `pr-not-owned: state.pr is ${state.pr ?? "unset"}, not #${pr}`,
+      reason: prNotOwnedReason(state.pr, pr),
     };
   }
   if (prState !== "OPEN")
@@ -450,6 +451,29 @@ export function parseMergeArgs(
   return { pr, slug };
 }
 
+function formatConfirmedAt(iso: string | undefined): string {
+  const ms = iso === undefined ? NaN : Date.parse(iso);
+  if (!Number.isFinite(ms)) return "an unrecorded time";
+  return `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+export function overrideDisclosureBody(
+  confirmedAt: string | undefined,
+  uncheckedCount: number,
+  autoMergePaused: boolean,
+): string {
+  const what: string[] = [];
+  if (uncheckedCount > 0) {
+    what.push(
+      `${uncheckedCount} Test ${uncheckedCount === 1 ? "Step was" : "Steps were"} unchecked`,
+    );
+  }
+  if (autoMergePaused) what.push("auto-merge was paused");
+  const detail =
+    what.length > 0 ? what.join(" and ") : "the gate was overridden";
+  return `Merged on a gate override confirmed at ${formatConfirmedAt(confirmedAt)}; ${detail}.`;
+}
+
 /** Detection, not prevention: leave a visible trace on the PR; never blocks the merge. */
 function discloseOverride(
   pr: number,
@@ -457,7 +481,11 @@ function discloseOverride(
   uncheckedCount: number,
   gh: GhRunner,
 ): void {
-  const body = `Merged on a gate override confirmed at ${state.gateOverride?.confirmedAt ?? "an unrecorded time"}; ${uncheckedCount} Test Steps were unchecked.`;
+  const body = overrideDisclosureBody(
+    state.gateOverride?.confirmedAt,
+    uncheckedCount,
+    state.autoMerge === false,
+  );
   try {
     const r = gh(["pr", "comment", String(pr), "--body", body]);
     if (r.exitCode !== 0) {
@@ -513,10 +541,7 @@ function mergePr(
       state,
     );
   }
-  if (state.pr !== pr)
-    return refuse(
-      `pr-not-owned: state.pr is ${state.pr ?? "unset"}, not #${pr}`,
-    );
+  if (state.pr !== pr) return refuse(prNotOwnedReason(state.pr, pr));
   if (fetched.state === "MERGED") {
     return emitMergeOutcome(
       { decision: "merged", reason: "already-merged" },
@@ -582,7 +607,7 @@ function recordOverrideToken(
     return 2;
   }
   if (state.pr !== pr) {
-    const reason = `pr-not-owned: state.pr is ${state.pr ?? "unset"}, not #${pr}`;
+    const reason = prNotOwnedReason(state.pr, pr);
     process.stdout.write(JSON.stringify({ recorded: false, reason }) + "\n");
     return 1;
   }

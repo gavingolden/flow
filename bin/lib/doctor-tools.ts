@@ -49,13 +49,14 @@ export const TOOLS_PIPELINE_PERMISSIONS_META = {
 export function checkPipelinePermissions(deps: DoctorDeps): DoctorCheck[] {
   const base = TOOLS_PIPELINE_PERMISSIONS_META;
   const settingsPath = userSettingsPath(deps.env, deps.homeDir);
-  const { entry, resolvedPath } = findFlowMergeGuardAskEntry(settingsPath);
+  const { entry, resolvedPath, coversMerge } =
+    findFlowMergeGuardAskEntry(settingsPath);
   if (entry !== undefined) {
     return [
       {
         ...base,
         status: "warn",
-        summary: personalAskEntryMessage(entry),
+        summary: personalAskEntryMessage(entry, coversMerge),
         details: [`found in ${resolvedPath}`],
         fix: `delete "${entry}" from permissions.ask in ${resolvedPath}`,
       },

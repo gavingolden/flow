@@ -173,8 +173,24 @@ describe("warnOnPersonalAskEntry", () => {
     );
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain(ASK_BARE);
+    expect(lines[0]).toContain("re-asks after the pipeline's own confirmation");
     expect(lines[0]).toContain("delete it");
     expect(lines[0]).toContain(file);
+  });
+
+  it("uses the merge-covering wording for a rule that matches merges", () => {
+    const cfg = path.join(root, "cfg2");
+    fs.mkdirSync(cfg);
+    fs.writeFileSync(
+      path.join(cfg, "settings.json"),
+      askSettings(["Bash(flow-merge-guard *)"]),
+    );
+    const lines: string[] = [];
+    warnOnPersonalAskEntry({ CLAUDE_CONFIG_DIR: cfg }, root, (l) =>
+      lines.push(l),
+    );
+    expect(lines[0]).toContain("every unattended merge stop for approval");
+    expect(lines[0]).toContain("delete it");
   });
 
   it("prints nothing without a personal ask entry", () => {

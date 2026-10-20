@@ -92,3 +92,33 @@ describe("step 7 waiter doc pin", () => {
     );
   });
 });
+
+describe("plan-review waiter doc pin", () => {
+  const rule = FLOW_NARROW_ALLOW_RULES["flow-spawn"].find((r) =>
+    r.includes("flow-plan-review-wait"),
+  );
+  const prefix = (rule ?? "").replace(/^Bash\(/, "").replace(/\*\)$/, "");
+
+  it("derives the literal prefix from the narrow rule", () => {
+    expect(prefix).toBe("flow-spawn --class default -- flow-plan-review-wait ");
+  });
+
+  it.each([
+    "skills/pipeline/flow-pipeline/references/phases/step-03-plan.md",
+    "skills/pipeline/flow-epic-create/SKILL.md",
+  ])(
+    "%s launches the waiter with the rule's prefix and no $( substitution",
+    (rel) => {
+      const doc = fs
+        .readFileSync(path.resolve(BIN_DIR, "..", rel), "utf8")
+        .replace(/\s+/g, " ");
+      const at = doc.indexOf(prefix);
+      expect(
+        at,
+        `${rel} no longer contains "${prefix}"`,
+      ).toBeGreaterThanOrEqual(0);
+      const invocation = doc.slice(at, doc.indexOf("--max-sec 540", at));
+      expect(invocation).not.toContain("$(");
+    },
+  );
+});

@@ -71,19 +71,22 @@ export function fetchExistingComments(
 export function filterNewFindings(
   findings: Finding[],
   existing: ExistingComment[],
-): { toPost: Finding[]; skipped: Finding[] } {
-  const seen = new Set(existing.map(commentKey));
+): { toPost: Finding[]; skipped: Finding[]; repeated: Finding[] } {
+  const onPr = new Set(existing.map(commentKey));
+  const inBatch = new Set<string>();
   const toPost: Finding[] = [];
   const skipped: Finding[] = [];
+  const repeated: Finding[] = [];
   for (const f of findings) {
     const k = findingKey(f);
-    if (seen.has(k)) skipped.push(f);
+    if (onPr.has(k)) skipped.push(f);
+    else if (inBatch.has(k)) repeated.push(f);
     else {
-      seen.add(k);
+      inBatch.add(k);
       toPost.push(f);
     }
   }
-  return { toPost, skipped };
+  return { toPost, skipped, repeated };
 }
 
 const CC_LABELS =

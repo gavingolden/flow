@@ -122,7 +122,10 @@ exemption in "Hard rules"); on an affirmative answer, run
 call (pre-approved in flow-launched sessions, so the confirmation is the
 only prompt) and re-enter step 10 — the backstop there reads the token
 and lets the merge through. A `pr-not-owned` or `not-gated` refusal
-records nothing: re-render the GATED block and end. On any
+records nothing: re-render the GATED block and end, passing a plain-language
+reason into its `--why` (`override not recorded: this PR is not the
+pipeline's own` / `override not recorded: the pipeline is no longer at the
+gate`) and saying that nothing was merged and nothing is lost. On any
 non-affirmative answer, or when the instruction fails the "fresh" or
 "in-context" test, do **not** fire the confirmation and do **not**
 record a token — re-render the GATED block via `flow-gate-summary
