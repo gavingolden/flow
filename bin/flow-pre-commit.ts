@@ -684,8 +684,14 @@ export function computeAllPassedAndReason(
   scopes: ScopeName[],
   unmatchedFiles: string[] | undefined,
   scopeResultCount: number = results.length,
+  exists: (p: string) => boolean = existsSync,
 ): { allPassed: boolean; reason?: "no-checks-defined" | "unmatched-files" } {
-  if (scopeResultCount === 0 && (changedFiles?.length ?? 0) > 0) {
+  // A deleted workflow file trips `actions` but leaves actionlint nothing to
+  // lint (see `actionlintCheck`), so it cannot itself demand a check result.
+  const checkable = (changedFiles ?? []).filter(
+    (f) => !(matchesScope(f, SCOPE_MATCHERS.actions) && !exists(f)),
+  );
+  if (scopeResultCount === 0 && checkable.length > 0) {
     return { allPassed: false, reason: "no-checks-defined" };
   }
   // Genuine-orphan guard: a scope ran but left files matching NO scope at all.
@@ -843,13 +849,15 @@ export function actionlintCheck(
  * the go marker's default + a `-C backend` cwd option backs `backend`) so
  * built-in and auto-detected scopes share one command-shape mechanism. The
  * argv arrays are byte-for-byte identical to the previous static switch when
- * no `selection` is passed — the `describe(checksForScope)` block is the
+ * no `selection` is passed, except `actions`, which resolves via
+ * `actionlintCheck` — the `describe(checksForScope)` block is the
  * guard against drift. Takes an optional `selection?: SelectionPlan` second
  * argument (see `tieredTestChecks`, defined above): omitted or
  * `undefined` reproduces the original zero-arg argv exactly; passed, it
  * narrows the test check(s) per the tiered-selection plan. An optional
  * `changedFiles?: string[]` third argument feeds the `actions` arm the diff's
- * workflow files (see `actionlintCheck`); omitted, it lints the whole folder.
+ * workflow files (see `actionlintCheck`); omitted, it runs bare actionlint (all
+ * workflows), or omits the check when no workflows folder exists.
  */
 export function checksForScope(
   scope: Scope,
@@ -897,8 +905,9 @@ export function checksForScope(
       // path; an auto-detected workflow-YAML diff also co-trips `scripts`,
       // which already runs lint). Stays inert via filterDefinedChecks in
       // repos with no `lint` script.
-      const check = actionlintCheck(changedFiles);
-      return [...(check ? [check] : []), npmRunCheck("lint")];
+      return [actionlintCheck(changedFiles), npmRunCheck("lint")].filter(
+        (c): c is CheckDef => c !== null,
+      );
     case "backend":
       // The go stack's default vet+test, run in the `backend` subdir via `-C`.
       return resolveChecks({ marker: "go.mod" }).map((c) => goInBackend(c));
@@ -1597,7 +1606,8 @@ Check mapping:
   src:            npm run typecheck, npm run test, npm run lint
   scripts:        npm run typecheck:scripts, npm run test, npm run lint
   docs:           flow-md-validate ., npm run test, npm run lint
-  actions:        actionlint <changed workflow files>, npm run lint
+  actions:        actionlint <changed workflow files> (all workflows under
+                  --scope actions), npm run lint
   backend:        go vet -C backend ./..., go test -C backend ./...
   root-fallback:  npm run typecheck, npm run test, npm run lint
                   (fires for files no other scope claimed)

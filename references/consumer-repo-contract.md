@@ -16,8 +16,8 @@ gitignored tree never reds the gate),
 `npm run test` (structural-anchor lints), and `npm run lint`; the
 `backend/` prefix trips `backend` (prefix-only): `go vet -C backend ./...`
 and `go test -C backend ./...`. Workflow YAML under `.github/workflows/`
-ALSO trips `actions` (`actionlint` on the changed workflow files +
-`npm run lint`) on top of `scripts`. `actionlint` and `go` are OPTIONAL: off `PATH`, the
+ALSO trips `actions` (`actionlint` on the changed workflow files, or every workflow under
+`--scope actions`, + `npm run lint`) on top of `scripts`. `actionlint` and `go` are OPTIONAL: off `PATH`, the
 affected check emits a `skipReason` and counts as passed.
 
 The `root-fallback` pseudo-scope (`npm run typecheck` + `npm run test` +

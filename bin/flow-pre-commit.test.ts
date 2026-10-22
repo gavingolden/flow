@@ -308,6 +308,34 @@ describe(computeUnmatchedFiles, () => {
 });
 
 describe(computeAllPassedAndReason, () => {
+  it("does not demand a check result for a deletion-only workflow diff", () => {
+    const gone = () => false;
+    const wf = [".github/workflows/x.yml"];
+    expect(
+      computeAllPassedAndReason([], wf, ["scripts", "actions"], [], 0, gone),
+    ).toEqual({ allPassed: true });
+    expect(
+      computeAllPassedAndReason(
+        [],
+        [...wf, "src/a.ts"],
+        ["scripts", "actions"],
+        [],
+        0,
+        gone,
+      ),
+    ).toEqual({ allPassed: false, reason: "no-checks-defined" });
+    expect(
+      computeAllPassedAndReason(
+        [],
+        wf,
+        ["scripts", "actions"],
+        [],
+        0,
+        () => true,
+      ),
+    ).toEqual({ allPassed: false, reason: "no-checks-defined" });
+  });
+
   it("flags reason='no-checks-defined' + allPassed=false on non-empty diff + empty results", () => {
     expect(
       computeAllPassedAndReason(
@@ -2823,6 +2851,58 @@ describe("integration: a .md-only diff detects the docs scope and runs npm run t
       const report = JSON.parse(result.stdout) as JsonReport;
       expect(report.scopes).toContain("docs");
       expect(report.results.map((r) => r.name)).toContain("npm run test");
+    },
+  );
+});
+
+describe("integration: a workflow push hands actionlint only the changed workflow files", () => {
+  let tmpDir: string;
+  const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
+
+  beforeAll(() => {
+    if (!bunOnPath) return;
+    tmpDir = mkdtempSync(join(tmpdir(), "flow-pre-commit-actionlint-"));
+    mkdirSync(join(tmpDir, "bin"));
+    mkdirSync(join(tmpDir, ".github", "workflows"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "bin", "actionlint"),
+      '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$ARGV_OUT"\nexit 0\n',
+      { mode: 0o755 },
+    );
+    writeFileSync(join(tmpDir, ".github/workflows/ci.yml"), "a: 1\n");
+    writeFileSync(join(tmpDir, ".github/workflows/other.yml"), "a: 1\n");
+    const git = (...a: string[]) =>
+      spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...a], {
+        cwd: tmpDir,
+      });
+    git("init", "-q", "-b", "main");
+    git("add", ".github");
+    git("commit", "-q", "-m", "init");
+    writeFileSync(join(tmpDir, ".github/workflows/ci.yml"), "a: 2\n");
+    git("add", ".github");
+  });
+
+  afterAll(() => {
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it.skipIf(!bunOnPath)(
+    "passes exactly the changed workflow to actionlint on a diff-driven run",
+    () => {
+      const here =
+        import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const out = join(tmpDir, "argv.txt");
+      spawnSync("bun", [resolve(here, "flow-pre-commit.ts"), "--json"], {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          FLOW_SLUG: undefined,
+          ARGV_OUT: out,
+          PATH: `${join(tmpDir, "bin")}:${process.env.PATH}`,
+        },
+      });
+      expect(readFileSync(out, "utf8").trim()).toBe(".github/workflows/ci.yml");
     },
   );
 });
