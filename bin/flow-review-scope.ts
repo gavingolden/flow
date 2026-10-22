@@ -190,7 +190,11 @@ export function renderNotices(scope: ReviewScope): string[] {
 
 // --- CLI / run() ---
 
-export type GhRunner = (args: string[]) => { stdout: string; exitCode: number };
+export type GhRunner = (args: string[]) => {
+  stdout: string;
+  exitCode: number;
+  stderr?: string;
+};
 export type GitRunner = (
   args: string[],
   cwd: string,
@@ -458,7 +462,10 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
 
   const fullDiffResult = deps.gh(["pr", "diff", String(parsed.pr)]);
   if (fullDiffResult.exitCode !== 0) {
-    process.stderr.write("flow-review-scope: gh pr diff failed\n");
+    const detail = (fullDiffResult.stderr ?? "").trim().split("\n")[0];
+    process.stderr.write(
+      `flow-review-scope: gh pr diff failed${detail ? `: ${detail}` : ""}\n`,
+    );
     return 1;
   }
   const fullDiffRaw = fullDiffResult.stdout;
@@ -633,6 +640,15 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     }
   }
 
+  // A widen re-pass runs after Step 3.5 already read the delta pass's
+  // consolidator-result.json; leaving it would let a crashed widened
+  // consolidator pass the existence check on stale findings.
+  if (parsed.forceFull) {
+    fs.rmSync(path.join(worktree, ".flow-tmp", "consolidator-result.json"), {
+      force: true,
+    });
+  }
+
   atomicWrite(deps, outPath, JSON.stringify(scope));
 
   // Under --json stdout is reserved for the envelope so callers can pipe it
@@ -672,7 +688,11 @@ function widenedStartedAt(
 
 const defaultGh: GhRunner = (args) => {
   const r = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
-  return { stdout: r.stdout.toString(), exitCode: r.exitCode ?? 1 };
+  return {
+    stdout: r.stdout.toString(),
+    exitCode: r.exitCode ?? 1,
+    stderr: r.stderr.toString(),
+  };
 };
 
 const defaultGit: GitRunner = (args, cwd) => {

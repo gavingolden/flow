@@ -324,6 +324,55 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
     expect(artifact.gated).toBeDefined();
   });
 
+  it("a failed gh pr diff carries gh's first stderr line into the failure message", async () => {
+    const dir = makeRepo();
+    const gh = (args: string[]) =>
+      args[1] === "diff"
+        ? {
+            stdout: "",
+            exitCode: 1,
+            stderr:
+              "HTTP 406: Sorry, the diff exceeded the maximum number of lines (20000)\nsecond line",
+          }
+        : { stdout: "a.ts\n", exitCode: 0 };
+    const git = (a: string[], cwd: string) => {
+      const r = spawnSync("git", ["-C", cwd, ...a], { encoding: "utf8" });
+      return { stdout: r.stdout ?? "", exitCode: r.status ?? 1 };
+    };
+    const writes: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string | Uint8Array) => {
+      writes.push(String(c));
+      return true;
+    }) as typeof process.stderr.write;
+    let code: number;
+    try {
+      code = await run(["--pr", "5", "--worktree", dir], {
+        gh,
+        git,
+        readFile: (p) => {
+          try {
+            return fs.readFileSync(p, "utf8");
+          } catch {
+            return null;
+          }
+        },
+        writeFile: (p, content) => fs.writeFileSync(p, content),
+        now: () => new Date("2026-01-01T00:00:00.000Z"),
+        homeDir: dir,
+        productBrief: () => ({ found: false }),
+      });
+    } finally {
+      process.stderr.write = orig;
+    }
+    expect(code).toBe(1);
+    const out = writes.join("");
+    expect(out).toContain(
+      "flow-review-scope: gh pr diff failed: HTTP 406: Sorry, the diff exceeded",
+    );
+    expect(out).not.toContain("second line");
+  });
+
   describe("started_at across a --force-full widen re-pass", () => {
     const PRIOR_START = "2025-12-31T23:00:00.000Z";
     const NOW = "2026-01-01T00:00:00.000Z";
@@ -509,6 +558,20 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       );
       expect(scope.gates["supply-chain"].run).toBe(true);
       expect(fs.existsSync(artifact(dir, "supply-chain"))).toBe(false);
+    });
+
+    it("stale output: a --force-full widen deletes the delta pass's consolidator-result.json, a plain pass keeps it", async () => {
+      const dir = makeRepo();
+      const consolidator = path.join(
+        dir,
+        ".flow-tmp",
+        "consolidator-result.json",
+      );
+      fs.writeFileSync(consolidator, "{}");
+      expect(await runScope(dir, [])).toBe(0);
+      expect(fs.existsSync(consolidator)).toBe(true);
+      expect(await runScope(dir, ["--force-full"])).toBe(0);
+      expect(fs.existsSync(consolidator)).toBe(false);
     });
 
     it("stale output: the optional product lens loses a stale artifact even when it is not due to run", async () => {

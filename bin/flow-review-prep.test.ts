@@ -54,6 +54,7 @@ function makeExec(
     metaDeletions?: number;
     metaChangedFiles?: number;
     failFetch?: boolean;
+    emptyState?: boolean;
     failIntent?: boolean;
     failCommits?: boolean;
     failStaticAnalysis?: boolean;
@@ -78,7 +79,7 @@ function makeExec(
     if (cmd === "gh") {
       return {
         stdout: JSON.stringify({
-          state: "OPEN",
+          state: opts.emptyState ? "" : "OPEN",
           isDraft: false,
           additions: opts.metaAdditions ?? 10,
           deletions: opts.metaDeletions ?? 5,
@@ -170,6 +171,7 @@ describe("runReviewPrep", () => {
       worktree,
       exec: makeExec({ failIntent: true }),
     });
+    expect(fs.existsSync(prep.paths.result)).toBe(false);
     expect(prep.completeness).toBe("partial");
     expect(prep.critical_skips).toEqual([]);
     expect(prep.skips).toEqual([
@@ -183,6 +185,7 @@ describe("runReviewPrep", () => {
       worktree,
       exec: makeExec({ failCommits: true }),
     });
+    expect(fs.existsSync(prep.paths.result)).toBe(false);
     expect(prep.completeness).toBe("partial");
     expect(prep.critical_skips).toEqual([]);
     expect(prep.skips).toEqual([
@@ -196,6 +199,7 @@ describe("runReviewPrep", () => {
       worktree,
       exec: makeExec({ failStaticAnalysis: true }),
     });
+    expect(fs.existsSync(prep.paths.result)).toBe(false);
     expect(prep.completeness).toBe("partial");
     expect(prep.critical_skips).toEqual([]);
     expect(prep.skips).toEqual([
@@ -220,6 +224,17 @@ describe("runReviewPrep", () => {
     // though the metadata fetch never ran.
     expect(prep.state).toBe("UNKNOWN");
     expect(prep.additions).toBe(0);
+  });
+
+  it("a metadata response with no PR state is a critical fetch skip that writes the escalated result", async () => {
+    const prep = await runReviewPrep({
+      pr: 1,
+      worktree,
+      exec: makeExec({ emptyState: true }),
+    });
+    expect(prep.state).toBe("UNKNOWN");
+    expect(prep.critical_skips).toEqual(["fetch"]);
+    expect(readResult().escalation_tag).toBe("review-setup-incomplete");
   });
 
   describe("size_band boundaries", () => {
@@ -364,19 +379,22 @@ describe("fail-closed review setup (#839)", () => {
     await runReviewPrep({
       pr: 1,
       worktree,
-      exec: failingScope("HTTP 406: diff too large"),
+      exec: failingScope(
+        "flow-review-scope: gh pr diff failed: HTTP 406: Sorry, the diff exceeded the maximum number of lines (20000)",
+      ),
     });
     expect(readResult().summary).toContain("split the PR");
 
-    fs.rmSync(tmpPath("pr-review-result.json"));
-    await runReviewPrep({
-      pr: 1,
-      worktree,
-      exec: failingScope("connection reset"),
-    });
-    const summary = readResult().summary as string;
-    expect(summary).toContain("Re-run");
-    expect(summary).not.toContain("split the PR");
+    for (const text of [
+      "connection reset",
+      "flow-review-scope: gh pr diff failed: HTTP 403: API rate limit exceeded for user ID 1",
+    ]) {
+      fs.rmSync(tmpPath("pr-review-result.json"));
+      await runReviewPrep({ pr: 1, worktree, exec: failingScope(text) });
+      const summary = readResult().summary as string;
+      expect(summary).toContain("Re-run");
+      expect(summary).not.toContain("split the PR");
+    }
   });
 
   it("pre-clean: a successful run removes stale gemini, consolidator and prior result files and writes no result", async () => {
@@ -408,7 +426,11 @@ describe("fail-closed review setup (#839)", () => {
     const result = setupIncompleteResult([
       { step: "fetch", reason: "boom\nsecond line", critical: true },
       { step: "commits", reason: "ignored", critical: false },
-      { step: "review_scope", reason: "exceeded 300 files", critical: true },
+      {
+        step: "review_scope",
+        reason: "HTTP 406: diff exceeded 300 files",
+        critical: true,
+      },
     ]);
     expect(validatePrReviewResult(result).ok).toBe(true);
     expect(result.status).toBe("escalated");
@@ -418,7 +440,9 @@ describe("fail-closed review setup (#839)", () => {
     expect(result.summary).toContain("fetch: boom");
     expect(result.summary).not.toContain("second line");
     expect(result.summary).not.toContain("commits");
-    expect(result.summary).toContain("review_scope: exceeded 300 files");
+    expect(result.summary).toContain(
+      "review_scope: HTTP 406: diff exceeded 300 files",
+    );
     expect(result.summary).toContain("split the PR");
   });
 });

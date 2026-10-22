@@ -12370,14 +12370,8 @@ describe("per-spawn effort wiring lint", () => {
 });
 
 describe("flow-pr-review run list has one reader", () => {
-  const PR_REVIEW_DIR = path.resolve(
-    HERE,
-    "..",
-    "skills",
-    "pipeline",
-    "flow-pr-review",
-  );
-  const skill = fs.readFileSync(path.join(PR_REVIEW_DIR, "SKILL.md"), "utf8");
+  const PR_REVIEW_DIR = path.dirname(PR_REVIEW_SKILL_MD_PATH);
+  const skill = fs.readFileSync(PR_REVIEW_SKILL_MD_PATH, "utf8");
 
   it("neither SKILL.md nor any reference mentions the retired .gated_lenses summary field", () => {
     const files = [

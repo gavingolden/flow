@@ -99,7 +99,9 @@ function defaultReadFile(p: string): string | null {
 
 function defaultWriteFile(p: string, content: string): void {
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, content);
+  const tmp = `${p}.tmp`;
+  fs.writeFileSync(tmp, content);
+  fs.renameSync(tmp, p);
 }
 
 function defaultDeleteFile(p: string): void {
@@ -135,7 +137,7 @@ export function setupIncompleteResult(skips: ReviewPrepSkip[]): PrReviewResult {
     .map((s) => `${s.step}: ${s.reason.split("\n")[0]}`)
     .join("; ");
   const tooLarge = critical.some((s) =>
-    /406|too.?large|exceeded/i.test(s.reason),
+    /HTTP 406|diff exceeded|too.?large/i.test(s.reason),
   );
   const next = tooLarge
     ? "GitHub refused the diff as too large: split the PR, then re-run the review."
@@ -236,10 +238,10 @@ export async function runReviewPrep(
       throw new Error(metaResult.stderr || "gh pr view (metadata) failed");
     }
     const meta = JSON.parse(metaResult.stdout);
-    state =
-      typeof meta.state === "string" && meta.state !== ""
-        ? meta.state
-        : "UNKNOWN";
+    if (typeof meta.state !== "string" || meta.state === "") {
+      throw new Error("gh pr view (metadata) returned no PR state");
+    }
+    state = meta.state;
     draft = Boolean(meta.isDraft);
     additions = Number(meta.additions) || 0;
     deletions = Number(meta.deletions) || 0;

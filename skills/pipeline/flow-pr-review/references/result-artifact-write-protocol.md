@@ -117,6 +117,11 @@ landing where a reader expects a well-formed JSON object.
 **Every write** to `pr-review-result.json` in `/flow-pr-review`'s wrapper
 — clean-exit AND wrapper-escalation alike:
 
+- **`flow-review-prep` round-start write** — on a critical setup failure the
+  helper writes the escalated `review-setup-incomplete` result (via `.tmp` +
+  rename). It first deletes the prior round's result right after the scope
+  step, so the read-before-overwrite guard deliberately does not apply: a
+  prior round's escalation must not survive into a new round.
 - **Step 1.5 metadata-triage "skip" branch** — when the inline triage
   decides `decision: "skip"`, the wrapper writes
   `pr-review-result.json` with `status: "clean"` and
