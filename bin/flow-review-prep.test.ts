@@ -358,7 +358,7 @@ describe("fail-closed review setup (#839)", () => {
     expect(written.status).toBe("escalated");
     expect(written.escalation_tag).toBe("review-setup-incomplete");
     expect(validatePrReviewResult(written).ok).toBe(true);
-    expect(written.summary).toContain("review_scope");
+    expect(written.summary).toContain("working out what changed failed");
   });
 
   it("a failed fetch writes the setup-incomplete escalated result naming the fetch step", async () => {
@@ -372,7 +372,8 @@ describe("fail-closed review setup (#839)", () => {
     expect(written.status).toBe("escalated");
     expect(written.escalation_tag).toBe("review-setup-incomplete");
     expect(validatePrReviewResult(written).ok).toBe(true);
-    expect(written.summary).toContain("fetch");
+    expect(written.summary).toContain("fetching the PR failed");
+    expect(written.summary).toContain("Nothing is lost");
   });
 
   it("tells the user to split the PR when GitHub refused the diff as too large, else to re-run", async () => {
@@ -394,6 +395,7 @@ describe("fail-closed review setup (#839)", () => {
       const summary = readResult().summary as string;
       expect(summary).toContain("Re-run");
       expect(summary).not.toContain("split the PR");
+      expect(summary).not.toContain("GitHub is reachable");
     }
   });
 
@@ -437,11 +439,11 @@ describe("fail-closed review setup (#839)", () => {
     expect(result.completed_steps).toEqual(["1", "1.5"]);
     expect(result.missed_steps[0]).toBe("2");
     expect(result.missed_steps).toContain("8c");
-    expect(result.summary).toContain("fetch: boom");
+    expect(result.summary).toContain("fetching the PR failed (boom)");
     expect(result.summary).not.toContain("second line");
     expect(result.summary).not.toContain("commits");
     expect(result.summary).toContain(
-      "review_scope: HTTP 406: diff exceeded 300 files",
+      "working out what changed failed (HTTP 406: diff exceeded 300 files)",
     );
     expect(result.summary).toContain("split the PR");
   });

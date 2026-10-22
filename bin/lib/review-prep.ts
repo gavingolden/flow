@@ -130,24 +130,34 @@ const SETUP_INCOMPLETE_MISSED_STEPS = [
   "13",
 ];
 
+const STEP_LABELS: Record<string, string> = {
+  fetch: "fetching the PR",
+  review_scope: "working out what changed",
+};
+
 /** The escalated result written when a critical setup step failed. */
 export function setupIncompleteResult(skips: ReviewPrepSkip[]): PrReviewResult {
   const critical = skips.filter((s) => s.critical);
   const named = critical
-    .map((s) => `${s.step}: ${s.reason.split("\n")[0]}`)
+    .map(
+      (s) =>
+        `${STEP_LABELS[s.step] ?? s.step} failed (${s.reason.split("\n")[0]})`,
+    )
     .join("; ");
   const tooLarge = critical.some((s) =>
     /HTTP 406|diff exceeded|too.?large/i.test(s.reason),
   );
+  // The failure may be local (git, the worktree), so the generic next step
+  // must not blame GitHub.
   const next = tooLarge
     ? "GitHub refused the diff as too large: split the PR, then re-run the review."
-    : "Re-run the review once GitHub is reachable.";
+    : "Re-run the review; if it fails the same way, check that gh is signed in and the worktree is intact.";
   return {
     status: "escalated",
     completed_steps: ["1", "1.5"],
     missed_steps: [...SETUP_INCOMPLETE_MISSED_STEPS],
     escalation_tag: "review-setup-incomplete",
-    summary: `Review setup failed (${named}). ${next}`,
+    summary: `Review setup could not finish: ${named}. Nothing is lost — no review was posted and the PR is unchanged. ${next}`,
   };
 }
 

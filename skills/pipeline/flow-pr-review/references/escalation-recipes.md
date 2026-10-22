@@ -260,11 +260,11 @@ onward missed), after clearing the prior round's scope, diff, gemini, and
 consolidator outputs so nothing stale can be read as this round's.
 Step 2's pre-flight prints the result's `.summary` and stops.
 
-What the user sees: `NEEDS HUMAN: review-setup-incomplete`, the failed
-step(s) named with the first line of each reason, and one next step —
-split the PR when GitHub refused the diff as too large (a 406 or
-"too large" / "exceeded" reason), otherwise re-run the review once GitHub
-is reachable.
+What the user sees: `NEEDS HUMAN: review-setup-incomplete`, each failed
+step in plain words with the first line of its reason, a "nothing is
+lost" line (no review was posted), and one next step — split the PR when
+GitHub refused the diff as too large, otherwise re-run the review (and
+check `gh` sign-in and the worktree if it fails the same way).
 
 Why it stops instead of running all code checks anyway: the only
 fallback diff source is the same GitHub call that just failed, so the
