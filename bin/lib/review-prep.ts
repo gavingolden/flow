@@ -11,13 +11,21 @@
  * Each sub-step runs in its own try/catch and appends a named `skips[]`
  * entry rather than aborting the others. Only sub-steps that break scope
  * computation itself (PR fetch/metadata, review-scope diff/changed-file
- * list) are `critical: true`. `completeness` is `"partial"` on ANY skip,
- * but `critical_skips` is what callers gate lens fan-out on — a
- * non-critical hiccup must never force all six lenses to run.
+ * list) are `critical: true`. `completeness` is `"partial"` on ANY skip.
+ * Any critical skip makes this helper write the escalated
+ * `review-setup-incomplete` result artifact itself and the review stops at
+ * Step 2 — a non-critical hiccup never does. Prior-round inputs (gemini and
+ * consolidator output, the old result, a failed scope pass's
+ * `review-scope.json` / `diff.txt`) are cleared so none can be read as
+ * this round's.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import {
+  validatePrReviewResult,
+  type PrReviewResult,
+} from "./pr-review-result-schema";
 
 export type ExecResult = { stdout: string; stderr: string; exitCode: number };
 export type ExecFn = (argv: string[], opts?: { cwd?: string }) => ExecResult;
@@ -37,7 +45,6 @@ export type ReviewPrep = {
   changed_files: number;
   size_band: "small" | "large" | "very-large";
   scope: "full" | "delta";
-  gated_lenses: string[];
   delta_files: string[];
   prompt_interpretation_tension: boolean;
   completeness: "full" | "partial";
@@ -49,6 +56,7 @@ export type ReviewPrep = {
     review_scope: string;
     diff: string;
     intent_comments: string;
+    result: string;
   };
   notices: string[];
   skips: ReviewPrepSkip[];
@@ -102,6 +110,45 @@ function defaultDeleteFile(p: string): void {
   }
 }
 
+const SETUP_INCOMPLETE_MISSED_STEPS = [
+  "2",
+  "3",
+  "3.5",
+  "4",
+  "5",
+  "6",
+  "7",
+  "7.5",
+  "8",
+  "8c",
+  "9",
+  "10",
+  "11",
+  "12",
+  "13",
+];
+
+/** The escalated result written when a critical setup step failed. */
+export function setupIncompleteResult(skips: ReviewPrepSkip[]): PrReviewResult {
+  const critical = skips.filter((s) => s.critical);
+  const named = critical
+    .map((s) => `${s.step}: ${s.reason.split("\n")[0]}`)
+    .join("; ");
+  const tooLarge = critical.some((s) =>
+    /406|too.?large|exceeded/i.test(s.reason),
+  );
+  const next = tooLarge
+    ? "GitHub refused the diff as too large: split the PR, then re-run the review."
+    : "Re-run the review once GitHub is reachable.";
+  return {
+    status: "escalated",
+    completed_steps: ["1", "1.5"],
+    missed_steps: [...SETUP_INCOMPLETE_MISSED_STEPS],
+    escalation_tag: "review-setup-incomplete",
+    summary: `Review setup failed (${named}). ${next}`,
+  };
+}
+
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -143,6 +190,7 @@ export async function runReviewPrep(
     review_scope: path.join(dir, "review-scope.json"),
     diff: path.join(dir, "diff.txt"),
     intent_comments: path.join(dir, "intent-comments.md"),
+    result: path.join(dir, "pr-review-result.json"),
   };
 
   const skips: ReviewPrepSkip[] = [];
@@ -157,11 +205,17 @@ export async function runReviewPrep(
   let deletions = 0;
   let changed_files = 0;
   let scope: ReviewPrep["scope"] = "full";
-  let gated_lenses: string[] = [];
   let delta_files: string[] = [];
   let tier: unknown;
   let tier_reasons: unknown;
   let prompt_interpretation_tension = false;
+
+  // Prior-round outputs a lens/consolidator step reads back must not
+  // survive into this round. pr-review-result.json is deliberately NOT
+  // cleared here: flow-review-scope reads its prior `clean` status to
+  // allow a delta scope, so it is removed right after the scope step.
+  deleteFile(path.join(dir, "agent-output-gemini.json"));
+  deleteFile(path.join(dir, "consolidator-result.json"));
 
   runStep(skips, "fetch", true, () => {
     const fetchResult = exec(["flow-fetch-pr-review", prStr]);
@@ -228,36 +282,41 @@ export async function runReviewPrep(
   });
 
   runStep(skips, "review_scope", true, () => {
-    const r = exec([
-      "flow-review-scope",
-      "--pr",
-      prStr,
-      "--worktree",
-      opts.worktree,
-      "--json",
-    ]);
-    if (r.exitCode !== 0)
-      throw new Error(r.stderr || "flow-review-scope failed");
-    for (const line of r.stderr.split("\n")) {
-      if (line.startsWith("NOTICE")) notices.push(line);
+    try {
+      const r = exec([
+        "flow-review-scope",
+        "--pr",
+        prStr,
+        "--worktree",
+        opts.worktree,
+        "--json",
+      ]);
+      if (r.exitCode !== 0)
+        throw new Error(r.stderr || "flow-review-scope failed");
+      for (const line of r.stderr.split("\n")) {
+        if (line.startsWith("NOTICE")) notices.push(line);
+      }
+      // Pass-through, not parse-through: read the artifact flow-review-scope
+      // already wrote and re-emit its fields untouched — never rewrite it.
+      const raw = readFile(paths.review_scope);
+      if (raw === null)
+        throw new Error(
+          "review-scope.json missing after flow-review-scope run",
+        );
+      const parsed = JSON.parse(raw);
+      scope = parsed.scope === "delta" ? "delta" : "full";
+      delta_files = Array.isArray(parsed.delta_files) ? parsed.delta_files : [];
+      if ("tier" in parsed) tier = parsed.tier;
+      if ("tier_reasons" in parsed) tier_reasons = parsed.tier_reasons;
+    } catch (err) {
+      // A failed scope pass can leave a prior round's scope/diff behind;
+      // later steps would read them as this round's verdict.
+      deleteFile(paths.review_scope);
+      deleteFile(paths.diff);
+      throw err;
+    } finally {
+      deleteFile(paths.result);
     }
-    // Pass-through, not parse-through: read the artifact flow-review-scope
-    // already wrote and re-emit its fields untouched — never rewrite it.
-    const raw = readFile(paths.review_scope);
-    if (raw === null)
-      throw new Error("review-scope.json missing after flow-review-scope run");
-    const parsed = JSON.parse(raw);
-    scope = parsed.scope === "delta" ? "delta" : "full";
-    delta_files = Array.isArray(parsed.delta_files) ? parsed.delta_files : [];
-    if (parsed.gates && typeof parsed.gates === "object") {
-      gated_lenses = Object.entries(
-        parsed.gates as Record<string, { run?: boolean }>,
-      )
-        .filter(([, verdict]) => verdict?.run === false)
-        .map(([lens]) => lens);
-    }
-    if ("tier" in parsed) tier = parsed.tier;
-    if ("tier_reasons" in parsed) tier_reasons = parsed.tier_reasons;
   });
 
   runStep(skips, "intent_comments", false, () => {
@@ -276,6 +335,16 @@ export async function runReviewPrep(
     );
   });
 
+  const criticalSkips = skips.filter((s) => s.critical).map((s) => s.step);
+  if (criticalSkips.length > 0) {
+    const escalated = setupIncompleteResult(skips);
+    const checked = validatePrReviewResult(escalated);
+    if (!checked.ok) {
+      throw new Error(`setup-incomplete result invalid: ${checked.reason}`);
+    }
+    writeFile(paths.result, JSON.stringify(escalated, null, 2) + "\n");
+  }
+
   const result: ReviewPrep = {
     pr: opts.pr,
     state,
@@ -285,11 +354,10 @@ export async function runReviewPrep(
     changed_files,
     size_band: sizeBand(additions + deletions),
     scope,
-    gated_lenses,
     delta_files,
     prompt_interpretation_tension,
     completeness: skips.length > 0 ? "partial" : "full",
-    critical_skips: skips.filter((s) => s.critical).map((s) => s.step),
+    critical_skips: criticalSkips,
     paths,
     notices,
     skips,
