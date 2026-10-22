@@ -10530,7 +10530,7 @@ describe("pause-output contract wiring lint", () => {
     const missing = codeLenses.filter(
       (lens) =>
         !extractLensSections(agentPromptsContent, lens).lensSection.includes(
-          "every `## ` entry",
+          `Walk every \`## \` entry in \`references/checklists/${lens}.md\``,
         ),
     );
     expect(

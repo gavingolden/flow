@@ -50,4 +50,5 @@ corrupted? Flag:
 - A "keep verbatim" assertion that checks only a prefix or label rather than comparing the
   full fixture value.
 - A numeric bound on a JSON value not first asserted to be a finite number (`NaN` and
-  `undefined` fail or pass comparisons silently).
+  `Infinity` serialize to `null`, which coerces to 0 in comparisons; `undefined` fails or passes
+  silently).

@@ -42,11 +42,11 @@ code does. Open the code it names and check:
 - Doc arithmetic ("head 200 + marker + tail 100 = 300"): locate the constants, sum the
   parts including marker/separator overhead, and grep for the exact number at every site.
 - Coverage claims ("every launch emits X"): check every sibling call site, such as a
-  duplicated private helper or an alternate backend (PR #477).
+  duplicated private helper or an alternate backend (flow PR #477).
 - Strictness claims ("exact", "byte-identical"): confirm the matcher is not `.includes(`,
-  `strings.Contains`, a prefix, or a partial regex on the same value (PR #505).
+  `strings.Contains`, a prefix, or a partial regex on the same value (flow PR #505).
 - Trigger claims: compare the predicate's real trigger set with the narrower scenario the
-  comment names; the narrow wording hides the other states that reach the branch (PR #461).
+  comment names; the narrow wording hides the other states that reach the branch (flow PR #461).
 
 ## Claims the Diff Contradicts
 
@@ -54,14 +54,14 @@ Applies to PR-body, runbook, README, evidence, and in-code-rationale sentences t
 or edits:
 
 - Negative claims ("nothing reads X"): grep the PR's own diff for a counterexample
-  (PR #524).
+  (flow PR #524).
 - Promised visibility: grep the renderer or template for each new field the PR says is
-  shown (PR #743).
+  shown (flow PR #743).
 - Recovery and re-run commands: confirm resume merges rather than overwrites, and that
-  documented commands pass inputs this PR moved (PRs #907, #950).
+  documented commands pass inputs this PR moved (flow PRs #907, #950).
 - Status and evidence claims ("fixed", "already lives in X", "the only variable"):
   cross-check the PR body's out-of-scope list and the diff's other changed inputs
-  (PR #748, econ-data #840).
+  (flow PR #748, econ-data #840).
 - In-code rationale for not doing a promised thing: a constraint the same PR authored is
   self-imposed; flag it (econ-data #690).
 
@@ -69,8 +69,8 @@ or edits:
 
 For an added or edited rule, carve-out, or gate, read the surrounding sentences, the rest of
 the doc, and its consuming SKILL.md. Flag a later floor overriding a named carve-out, or an
-output format requiring what the gate exists to avoid (PRs #637, #748). Confirm each newly
-cited sibling path resolves in the skill it names, not a neighbouring skill (PR #637).
+output format requiring what the gate exists to avoid (flow PRs #637, #748). Confirm each newly
+cited sibling path resolves in the skill it names, not a neighbouring skill (flow PR #637).
 
 ## npm Lifecycle Script Environment Guards
 
