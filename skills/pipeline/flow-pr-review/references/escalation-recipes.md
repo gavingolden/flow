@@ -1,13 +1,14 @@
 # Escalation Recipes
 
-This file carries the seven worked heredoc + validate + `mv` recipes
+This file carries the worked heredoc + validate + `mv` recipes
 for the bail-out paths in `/flow-pr-review`'s wrapper. Each recipe writes
 `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
 and the per-tag `completed_steps[]` / `missed_steps[]` arrays the
 supervisor's branch-on-status logic reads at `/flow-pipeline` step 8.
-The seven blocks are kept distinct (not templated) because the
+The blocks are kept distinct (not templated) because the
 per-tag arrays differ in load-bearing ways — see each recipe's intro
-for what fires it.
+for what fires it. The last section, `review-setup-incomplete`, is
+written by a helper, not by a recipe.
 
 All recipes must wrap their write with the read-before-overwrite
 guard documented in
@@ -246,3 +247,25 @@ jq -n \
 flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
   && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
 ```
+
+## `review-setup-incomplete`
+
+Raised by `flow-review-prep` itself, not by prose in the wrapper, when any
+critical setup step failed — the PR fetch/metadata or the review-scope
+diff/changed-file list (the summary's non-empty `.critical_skips`).
+There is no bash recipe for the agent to run: the helper writes the
+escalated `pr-review-result.json` before it returns (tag
+`review-setup-incomplete`, `completed_steps` `["1", "1.5"]`, Steps 2
+onward missed), after clearing the prior round's scope, diff, gemini, and
+consolidator outputs so nothing stale can be read as this round's.
+Step 2's pre-flight prints the result's `.summary` and stops.
+
+What the user sees: `NEEDS HUMAN: review-setup-incomplete`, each failed
+step in plain words with the first line of its reason, a "nothing is
+lost" line (no review was posted), and one next step — split the PR when
+GitHub refused the diff as too large, otherwise re-run the review (and
+check `gh` sign-in and the worktree if it fails the same way).
+
+Why it stops instead of running all code checks anyway: the only
+fallback diff source is the same GitHub call that just failed, so the
+checks would run with no diff and could report a clean review of nothing.

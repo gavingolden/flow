@@ -190,7 +190,11 @@ export function renderNotices(scope: ReviewScope): string[] {
 
 // --- CLI / run() ---
 
-export type GhRunner = (args: string[]) => { stdout: string; exitCode: number };
+export type GhRunner = (args: string[]) => {
+  stdout: string;
+  exitCode: number;
+  stderr?: string;
+};
 export type GitRunner = (
   args: string[],
   cwd: string,
@@ -458,7 +462,10 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
 
   const fullDiffResult = deps.gh(["pr", "diff", String(parsed.pr)]);
   if (fullDiffResult.exitCode !== 0) {
-    process.stderr.write("flow-review-scope: gh pr diff failed\n");
+    const detail = (fullDiffResult.stderr ?? "").trim().split("\n")[0];
+    process.stderr.write(
+      `flow-review-scope: gh pr diff failed${detail ? `: ${detail}` : ""}\n`,
+    );
     return 1;
   }
   const fullDiffRaw = fullDiffResult.stdout;
@@ -611,20 +618,35 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     parsed.diffOut ?? path.join(worktree, ".flow-tmp", "diff.txt");
   atomicWrite(deps, diffOutPath, cappedDiff);
 
+  // A lens due to run (or the optional product lens, which writes its own
+  // artifact only when it has something to say) must never be read back from
+  // an earlier round or a prior delta pass's "gated" placeholder: a check
+  // that writes nothing would otherwise pass on someone else's verdict.
   for (const [lens, verdict] of Object.entries(scope.gates)) {
-    if ((OPTIONAL_LENSES as readonly string[]).includes(lens)) continue;
-    if (!verdict.run) {
-      const artifactPath = path.join(
-        worktree,
-        ".flow-tmp",
-        `agent-output-${lens}.json`,
-      );
+    const artifactPath = path.join(
+      worktree,
+      ".flow-tmp",
+      `agent-output-${lens}.json`,
+    );
+    const optional = (OPTIONAL_LENSES as readonly string[]).includes(lens);
+    if (verdict.run || optional) {
+      fs.rmSync(artifactPath, { force: true });
+    } else {
       atomicWrite(
         deps,
         artifactPath,
         JSON.stringify(syntheticGatedArtifact(verdict.reason)),
       );
     }
+  }
+
+  // A widen re-pass runs after Step 3.5 already read the delta pass's
+  // consolidator-result.json; leaving it would let a crashed widened
+  // consolidator pass the existence check on stale findings.
+  if (parsed.forceFull) {
+    fs.rmSync(path.join(worktree, ".flow-tmp", "consolidator-result.json"), {
+      force: true,
+    });
   }
 
   atomicWrite(deps, outPath, JSON.stringify(scope));
@@ -666,7 +688,11 @@ function widenedStartedAt(
 
 const defaultGh: GhRunner = (args) => {
   const r = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
-  return { stdout: r.stdout.toString(), exitCode: r.exitCode ?? 1 };
+  return {
+    stdout: r.stdout.toString(),
+    exitCode: r.exitCode ?? 1,
+    stderr: r.stderr.toString(),
+  };
 };
 
 const defaultGit: GitRunner = (args, cwd) => {
