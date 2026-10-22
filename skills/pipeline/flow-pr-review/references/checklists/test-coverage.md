@@ -38,3 +38,17 @@ over a surface whose contract is explicitly additive ("later producers may add s
 flag it as brittle — prefer asserting presence of each required item or a minimum count.
 Look for: hard-coded totals in tests adjacent to superset-stable/additive contract doc
 comments.
+
+## Vacuous Guards
+
+A guard that passes when the protected thing vanishes or is mangled protects nothing (flow
+#915, #866, #864). For each guard, ask: would this fail if the protected thing were removed or
+corrupted? Flag:
+
+- An expected set derived from the artifact under test (`Object.keys(actual)`,
+  `for x in observed`), which can never disagree with it.
+- A "keep verbatim" assertion that checks only a prefix or label rather than comparing the
+  full fixture value.
+- A numeric bound on a JSON value not first asserted to be a finite number (`NaN` and
+  `Infinity` serialize to `null`, which coerces to 0 in comparisons; `undefined` fails or passes
+  silently).

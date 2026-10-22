@@ -531,7 +531,7 @@ subagent rather than landing in the supervisor's transcript.
    Pass this value as `{{PROMPT_INTERPRETATION_TENSION}}` only when filling the
    **Pattern & Consistency Agent's** prompt template — the other five agents have no
    `Process` step that reads it, so passing it there is a no-op. See
-   `references/agent-prompts.md` Pattern & Consistency Agent Process step 8 for the
+   `references/agent-prompts.md` Pattern & Consistency Agent Process step 9 for the
    conditional behaviour the flag triggers.
 
 6. Read `references/agent-prompts.md` for the prompt templates. Author-authored intent

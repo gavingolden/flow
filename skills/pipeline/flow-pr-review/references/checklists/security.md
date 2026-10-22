@@ -23,6 +23,9 @@ scrutiny. A single missed validation can become an exploitable vulnerability.
 - CORS configuration changes, especially wildcard origins
 - File upload handling without type/size/path validation
 - Cryptographic operations using weak algorithms or hardcoded keys
+- A model- or reviewer-supplied field that unlocks an exemption or changes a gate without
+  validation against the invocation's config
+- A provenance or fingerprint mismatch that warns instead of refusing
 
 ### How to check
 
