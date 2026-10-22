@@ -431,6 +431,94 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
     });
   });
 
+  describe("stale output deletion per scope pass", () => {
+    async function runScope(dir: string, args: string[]): Promise<number> {
+      const gh = (a: string[]) => {
+        if (a[0] === "pr" && a[1] === "view")
+          return { stdout: "a.ts\n", exitCode: 0 };
+        return { stdout: "", exitCode: 0 };
+      };
+      const git = (a: string[], cwd: string) => {
+        const r = spawnSync("git", ["-C", cwd, ...a], { encoding: "utf8" });
+        return { stdout: r.stdout ?? "", exitCode: r.status ?? 1 };
+      };
+      return run(["--pr", "5", "--worktree", dir, ...args], {
+        gh,
+        git,
+        readFile: (p) => {
+          try {
+            return fs.readFileSync(p, "utf8");
+          } catch {
+            return null;
+          }
+        },
+        writeFile: (p, content) => {
+          fs.mkdirSync(path.dirname(p), { recursive: true });
+          fs.writeFileSync(p, content);
+        },
+        now: () => new Date("2026-01-01T00:00:00.000Z"),
+        homeDir: dir,
+        productBrief: () => ({ found: false }),
+      });
+    }
+    const artifact = (dir: string, lens: string) =>
+      path.join(dir, ".flow-tmp", `agent-output-${lens}.json`);
+
+    it("stale output: a lens marked run:true loses its earlier-round agent-output file", async () => {
+      const dir = makeRepo();
+      fs.writeFileSync(artifact(dir, "security"), '{"stale":true}');
+      expect(await runScope(dir, ["--no-gates"])).toBe(0);
+      const scope = JSON.parse(
+        fs.readFileSync(
+          path.join(dir, ".flow-tmp", "review-scope.json"),
+          "utf8",
+        ),
+      );
+      expect(scope.gates.security.run).toBe(true);
+      expect(fs.existsSync(artifact(dir, "security"))).toBe(false);
+    });
+
+    it("stale output: a lens marked run:false still gets its synthetic placeholder", async () => {
+      const dir = makeRepo();
+      fs.writeFileSync(artifact(dir, "supply-chain"), '{"stale":true}');
+      expect(await runScope(dir, [])).toBe(0);
+      const scope = JSON.parse(
+        fs.readFileSync(
+          path.join(dir, ".flow-tmp", "review-scope.json"),
+          "utf8",
+        ),
+      );
+      expect(scope.gates["supply-chain"].run).toBe(false);
+      const placeholder = JSON.parse(
+        fs.readFileSync(artifact(dir, "supply-chain"), "utf8"),
+      );
+      expect(placeholder.gated).toBeDefined();
+      expect(placeholder.stale).toBeUndefined();
+    });
+
+    it("stale output: a --force-full widen deletes the delta pass's placeholder for a now-running lens", async () => {
+      const dir = makeRepo();
+      expect(await runScope(dir, [])).toBe(0);
+      expect(fs.existsSync(artifact(dir, "supply-chain"))).toBe(true);
+      expect(await runScope(dir, ["--force-full", "--no-gates"])).toBe(0);
+      const scope = JSON.parse(
+        fs.readFileSync(
+          path.join(dir, ".flow-tmp", "review-scope.json"),
+          "utf8",
+        ),
+      );
+      expect(scope.gates["supply-chain"].run).toBe(true);
+      expect(fs.existsSync(artifact(dir, "supply-chain"))).toBe(false);
+    });
+
+    it("stale output: the optional product lens loses a stale artifact even when it is not due to run", async () => {
+      const dir = makeRepo();
+      fs.writeFileSync(artifact(dir, "product"), '{"stale":true}');
+      expect(await runScope(dir, [])).toBe(0);
+      expect(fs.existsSync(artifact(dir, "product"))).toBe(false);
+    });
+  });
+
   it("keeps stdout to the JSON envelope under --json (notices go to stderr)", () => {
     const dir = makeRepo();
     const r = spawnSync(

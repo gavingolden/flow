@@ -611,14 +611,20 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     parsed.diffOut ?? path.join(worktree, ".flow-tmp", "diff.txt");
   atomicWrite(deps, diffOutPath, cappedDiff);
 
+  // A lens due to run (or the optional product lens, which writes its own
+  // artifact only when it has something to say) must never be read back from
+  // an earlier round or a prior delta pass's "gated" placeholder: a check
+  // that writes nothing would otherwise pass on someone else's verdict.
   for (const [lens, verdict] of Object.entries(scope.gates)) {
-    if ((OPTIONAL_LENSES as readonly string[]).includes(lens)) continue;
-    if (!verdict.run) {
-      const artifactPath = path.join(
-        worktree,
-        ".flow-tmp",
-        `agent-output-${lens}.json`,
-      );
+    const artifactPath = path.join(
+      worktree,
+      ".flow-tmp",
+      `agent-output-${lens}.json`,
+    );
+    const optional = (OPTIONAL_LENSES as readonly string[]).includes(lens);
+    if (verdict.run || optional) {
+      fs.rmSync(artifactPath, { force: true });
+    } else {
       atomicWrite(
         deps,
         artifactPath,
