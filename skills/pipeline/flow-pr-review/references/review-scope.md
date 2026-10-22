@@ -31,8 +31,8 @@ GATED_LENSES=$(jq -r '.gates | to_entries[] | select(.value.run==false) | .key' 
 DELTA_FILES=$(jq -r '.delta_files[]' "$WORKTREE/.flow-tmp/review-scope.json")
 ```
 
-(`SUMMARY`'s `.scope`, `.gated_lenses`, and `.delta_files` fields are the
-same data, already parsed — either source works.) `flow-review-prep`
+(Read gate verdicts from `review-scope.json` only — the `--force-full`
+widen pass rewrites it, so a copy elsewhere can go stale.) `flow-review-prep`
 already captured every `NOTICE — review-scope:` / `NOTICE — lens-gated:`
 line the helper printed, under `SUMMARY`'s `.notices` — these are the
 user-visible cost signals; echo them from there.

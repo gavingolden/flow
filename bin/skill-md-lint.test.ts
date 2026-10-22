@@ -5326,7 +5326,7 @@ describe("pr-review include-by-reference structure", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("references/escalation-recipes.md carries all six escalation-tag literals", () => {
+  it("references/escalation-recipes.md carries all seven escalation-tag literals", () => {
     const content = fs.readFileSync(ESCALATION_RECIPES_PATH, "utf8");
     for (const tag of [
       "task-tool-unavailable: pr-review-multi-agent-review",
@@ -5335,6 +5335,7 @@ describe("pr-review include-by-reference structure", () => {
       "fix-applier-missing-artifact",
       "consolidator-schema-failure",
       "consolidator-missing-artifact",
+      "review-setup-incomplete",
     ]) {
       expect(
         content.includes(tag),
@@ -12365,5 +12366,57 @@ describe("per-spawn effort wiring lint", () => {
       "the Task tool takes a per-invocation `effort` parameter on Claude Code " +
         "2.1.292+; rewrite these stale claims (docs/eval/** fixtures are exempt)",
     ).toEqual([]);
+  });
+});
+
+describe("flow-pr-review run list has one reader", () => {
+  const PR_REVIEW_DIR = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "flow-pr-review",
+  );
+  const skill = fs.readFileSync(path.join(PR_REVIEW_DIR, "SKILL.md"), "utf8");
+
+  it("neither SKILL.md nor any reference mentions the retired .gated_lenses summary field", () => {
+    const files = [
+      path.join(PR_REVIEW_DIR, "SKILL.md"),
+      ...fs
+        .readdirSync(path.join(PR_REVIEW_DIR, "references"), {
+          recursive: true,
+          encoding: "utf8",
+        })
+        .map((rel) => path.join(PR_REVIEW_DIR, "references", rel))
+        .filter((p) => fs.statSync(p).isFile()),
+    ];
+    const offenders = files.filter((p) =>
+      fs.readFileSync(p, "utf8").includes(".gated_lenses"),
+    );
+    expect(
+      offenders,
+      "the run list has ONE reader (review-scope.json `.gates` in the Step 3 " +
+        "spawn loop); a second `.gated_lenses` reader is the #839 drift",
+    ).toEqual([]);
+  });
+
+  it("Step 3 reads the run list off review-scope.json .gates exactly once", () => {
+    const start = skill.indexOf("\n## 3. ");
+    const end = skill.indexOf("\n## 3.5");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const step3 = skill.slice(start, end);
+    const reader = ".gates | to_entries[] | select(.value.run==true)";
+    expect(step3.split(reader).length - 1).toBe(1);
+    expect(step3).toContain('"$WORKTREE/.flow-tmp/review-scope.json"');
+  });
+
+  it("the Completeness rule does not promise to run all lenses on a setup failure", () => {
+    const start = skill.indexOf("**Completeness rule.**");
+    const end = skill.indexOf("\n\n", start);
+    expect(start).toBeGreaterThan(-1);
+    const rule = skill.slice(start, end);
+    expect(rule).not.toContain("run all six");
+    expect(rule).not.toContain("ungated regardless");
   });
 });

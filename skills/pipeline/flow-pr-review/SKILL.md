@@ -310,6 +310,7 @@ artifact's list.
 | `"escalated"` | `consolidator-schema-failure` | `["1", "1.5", "2", "3"]` | `["3.5", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `consolidator-missing-artifact` | `["1", "1.5", "2", "3"]` | `["3.5", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `fix-applier-missing-artifact` | `["1", "2", "3", "4", "5", "8"]` | `["8c", "9", "10", "11", "12", "13"]` |
+| `"escalated"` | `review-setup-incomplete` | `["1", "1.5"]` | `["2", "3", "3.5", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `intent-drift` | `["1", "1.5", "2", "3", "3.5", "3.6"]` | `["4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"partial"` | `null` | Steps that ran | Steps that didn't |
 
@@ -463,10 +464,10 @@ SUMMARY=$(flow-review-prep --pr <number> --worktree "$WORKTREE")
 Then perform pre-flight checks against the summary:
 
 1. **Closed/merged**: If `.state` is `closed` or `merged`, tell the user and stop.
-   `.state` is `UNKNOWN` — never empty — when the metadata fetch itself failed (a
-   critical `flow-review-prep` skip); treat `UNKNOWN` the same as closed/merged and
-   stop rather than assuming an open PR, since the closed/merged check itself
-   couldn't run.
+   `.state` is `UNKNOWN` — never empty — when the metadata fetch itself failed. An
+   `UNKNOWN` state or any `.critical_skips` means `flow-review-prep` already wrote an
+   escalated `review-setup-incomplete` result — print `NEEDS HUMAN: review-setup-incomplete`
+   plus its `.summary` and stop ([recipe](references/escalation-recipes.md)).
 2. **Draft**: If `.draft` is true, warn the user ("PR is a draft — findings may change
    before it's ready for review") and continue.
 3. **PR size**: Check `.size_band`:
@@ -498,7 +499,7 @@ subagent rather than landing in the supervisor's transcript.
    `flow-review-prep` ran `flow-review-scope` for you and wrote `review-scope.json` +
    the capped diff under `.flow-tmp/` (full procedure in
    [references/review-scope.md](references/review-scope.md)). Read the gate verdicts
-   off the summary's `.gated_lenses`.
+   off `review-scope.json` `.gates`.
 3. Commit history with full messages (not just subjects) is already at `.paths.commits`
    — `flow-review-prep` ran `gh pr view --json commits` for you. Per `AGENTS.md`, commit
    bodies capture the **why**, design-choice rationale, and rejected approaches — use them
@@ -543,14 +544,10 @@ subagent rather than landing in the supervisor's transcript.
    `{{EXISTING_INTENT_COMMENTS}}`; absent annotations, the file contains the literal
    `(none — author posted no intent annotations)` — substitute as-is.
 
-**Completeness rule.** When the summary's `.critical_skips` is non-empty,
-`flow-review-prep` could not establish scope reliably (the PR fetch/metadata
-or the review-scope diff/changed-file list failed) — run all six code lenses
-ungated regardless of `.gated_lenses`. The seventh, `product`, stays gated on
-brief presence: its gate is a precondition, not a scope gate, so a failed
-scope read never resurrects it. Otherwise trust `.gated_lenses` as
-computed, and surface any non-critical `.skips[]` entries in the final
-report.
+**Completeness rule.** Setup failure never reaches Step 3 (Step 2 stops on it). The run
+list's only source is `review-scope.json` `.gates` — rewritten by the widen pass, which
+also clears stale outputs for checks due to run. Surface non-critical `.skips[]` entries
+in the final report.
 
 **Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-multi-agent-review` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review`, write the result artifact, and do not fall back to in-line execution.
 
