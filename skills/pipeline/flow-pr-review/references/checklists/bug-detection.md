@@ -100,7 +100,8 @@ carries `undefined` while consumers write `x.field === null` checks. Grep every
 result-construction site to confirm each sets the documented value (including explicit
 `null`), and check test assertions: `toBeUndefined()` next to a doc that says `null` is the
 smoking gun. Align the wire shape to the docs (preferred) and update the test in the same
-commit.
+commit. A provenance or diagnostic field set only on the success path is missing on exactly
+the error record that needs it (flow #866).
 
 ## path.join With Absolute Segment Discards the Base
 
@@ -122,3 +123,36 @@ for `?? <accumulator>.length` (or `?? 0`, `?? count`) feeding a
 `while (acc.length < total)`-style bound; require a hard failure on the missing field or an
 explicit short-page heuristic, and check the doc comment matches the implemented
 termination rule.
+
+## Aggregates Over Incomplete, Unmeasured, or Mis-Scaled Inputs
+
+A median, mean, rate, or score is only as true as the records feeding it. Check four things:
+
+- Inputs are filtered to measured records (skipped, unauthenticated, never-attempted runs
+  excluded), with a guard for zero records left (flow #951, #867).
+- The artifact is asserted complete for its declared scope (expected keys, zero errored
+  pairs, pinned provenance) before aggregating (flow #867).
+- Any tolerance or quantum derives from the same transform as the score it gates: what
+  single-observation change does it represent? (flow #868)
+- Projections use `max(configured cap, observed)`, not the cap alone.
+
+## State Transitions That Are Unreachable or Skip Their Gates
+
+In code or skill prose (flow #870, #867, #808):
+
+- Name the field a branch condition reads; confirm the consumed artifact's schema has it
+  and a documented producer sets the trigger value.
+- Terminal shortcuts (`--converged`, `--finalize`, `--stop`) must re-run the normal path's
+  guards.
+- A transient fetch or auth failure in a poll tracker is unknown/retryable, never the
+  terminal value.
+
+## Validation That Checks Shape, Not Identity or Combination
+
+Flag a check that proves structure but not the thing consumed (flow #869, #630, #866):
+
+- `len(results) == len(inputs)` as the only check of per-item LLM/tool output, with no
+  per-index identity compare.
+- Fields validated one by one but consumed as a tuple the producer cannot emit (e.g.
+  `sort=custom&dir=desc`).
+- A widened pattern that admits malformed values a resolver then silently no-ops on.

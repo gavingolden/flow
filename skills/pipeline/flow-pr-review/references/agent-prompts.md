@@ -249,7 +249,8 @@ code do what the author intended?**
    - Loop boundaries: could the loop under/overshoot?
    - Async ordering: could operations interleave in a way the code doesn't handle?
    - Error propagation: do catch blocks handle the right error types?
-5. Check `references/checklists/bug-detection.md`'s Error Handling and Type Safety sections.
+5. Walk every `## ` entry in `references/checklists/bug-detection.md`, starting with its
+   Error Handling and Type Safety sections.
 6. Output your findings as JSON.
 
 ### False Positive Avoidance
@@ -349,7 +350,8 @@ exclusively on: **could an attacker exploit this code?**
    - High-entropy strings that look like API keys or tokens
    - Strings matching patterns: `sk-`, `pk-`, `ghp_`, `Bearer `, base64-encoded blocks
    - Configuration that embeds credentials directly
-7. Check `references/checklists/security.md`'s Security section.
+7. Walk every `## ` entry in `references/checklists/security.md`, starting with its
+   Security section.
 8. Output your findings as JSON.
 
 ### False Positive Avoidance
@@ -372,7 +374,9 @@ Do NOT flag:
 
 You verify that the PR follows project conventions and applies patterns consistently.
 This includes AGENTS.md compliance, CLAUDE.md compliance, naming conventions,
-cross-cutting pattern uniformity, and code organization.
+cross-cutting pattern uniformity, and code organization. Checking that claims the diff
+adds or edits match the implementation is in scope; the "Missing documentation" exclusion
+covers absent docs, not false ones.
 
 You are NOT looking for bugs, security issues, performance problems, or supply-chain
 concerns (dependencies, license, package.json fields) — those are other agents' jobs.
@@ -402,11 +406,15 @@ Your concern is: **does this code fit naturally into the existing codebase?**
      existing ones?
 6. Check for dead code introduced by the PR — unused imports, unreachable branches,
    commented-out code without an explanation.
-7. Check `references/checklists/pattern-consistency.md`'s Consistency Checks section and
-   `references/checklists/bug-detection.md`'s Lifecycle/Cleanup section. When the target
-   repo's `.flow/review-checklist.md` carries a Component Composition entry (moved there —
-   it's stack-specific, see `docs/consumer-review-patterns.md`), check that too.
-8. **Prompt-interpretation tension check (conditional).** When the spawn prompt's
+7. Walk every `## ` entry in `references/checklists/pattern-consistency.md`, starting with
+   its Consistency Checks section, and check `references/checklists/bug-detection.md`'s
+   Lifecycle / Cleanup section. When the target repo's `.flow/review-checklist.md` carries
+   a Component Composition entry (moved there — it's stack-specific, see
+   `docs/consumer-review-patterns.md`), check that too.
+8. **Enumerate claims.** List every claim sentence the diff adds or edits (docs, comments,
+   runbooks, agent prompts, PR body). For each, name the code location that backs or
+   contradicts it; a contradicted claim is an `issue`.
+9. **Prompt-interpretation tension check (conditional).** When the spawn prompt's
    `{{PROMPT_INTERPRETATION_TENSION}}` variable is the literal string `true`, the
    originating PR body names BOTH prescribed methods (a numbered list or explicit
    enumeration of moves) AND a quantitative target (a number with units like
@@ -429,7 +437,7 @@ Your concern is: **does this code fit naturally into the existing codebase?**
      explicitly relaxed the target with rationale), skip the finding.
      When the spawn-prompt variable is `false` or missing, skip this step entirely —
      existing reviewer behaviour is unchanged for PRs without the tension flag.
-9. Output your findings as JSON.
+10. Output your findings as JSON.
 
 ### False Positive Avoidance
 
@@ -472,10 +480,10 @@ introduce a measurable performance regression in a realistic scenario?**
 2. Read each changed file in full, not just the diff lines. Performance problems
    often live in the surrounding loop / cleanup / batching structure that the diff
    doesn't show.
-3. Walk the **Performance** section of `references/checklists/performance.md` — both its
-   "What to look for" enumeration (N+1 queries, missing pagination, listener/interval
-   leaks, sequential awaits, O(n^2) on growing datasets, large-data spreads,
-   missing/incorrect cache invalidation) and its "How to check" walkthrough (per database
+3. Walk every `## ` entry in `references/checklists/performance.md`, starting with the
+   **Performance** section — both its "What to look for" enumeration (N+1 queries,
+   missing pagination, listener/interval leaks, sequential awaits, O(n^2) on growing
+   datasets, large-data spreads, missing/incorrect cache invalidation) and its "How to check" walkthrough (per database
    call: inside a loop? batchable?; per list query: `LIMIT` or pagination?; per
    `addEventListener`/`setInterval`: corresponding cleanup?; per `await` chain: independent
    ops parallelizable via `Promise.all`?; per large-data op: complexity appropriate for
@@ -537,9 +545,9 @@ user-facing flow?**
    (`^1.x` → `^2.x`) or relaxes a previously-pinned version; (c) top-level field
    deletions (`bin`, `main`, `exports`, `types`, `engines`, `files`,
    `scripts.prepare`, `scripts.postinstall`); (d) license field changes.
-3. Walk `references/checklists/supply-chain.md`'s **"Removing a Top-Level
-   `package.json` Field Breaks an Install Pathway"** section for the field-deletion
-   sub-case. Its "How to check" walkthrough
+3. Walk every `## ` entry in `references/checklists/supply-chain.md`, starting with its
+   **"Removing a Top-Level `package.json` Field Breaks an Install Pathway"** section for
+   the field-deletion sub-case. Its "How to check" walkthrough
    instructs: list every top-level field removed; for each, identify what
    install/invocation pathway it enabled (`bin` → `npm i -g`, `main` → bare
    imports, `prepare` → fresh-clone build); `grep -rn 'npm link\|npm i -g\|npm
@@ -619,9 +627,9 @@ Your concern is: **will the test suite catch regressions in the changed code?**
    - Are tests testing behavior (what the code does) or implementation (how it does it)?
    - Are mocks correct — do they match the real interface? Could they mask a bug?
    - Is test data realistic or just placeholder values that skip interesting cases?
-7. Check `references/checklists/test-coverage.md` for real-time-wait and exact-count
-   brittleness. When the target repo's `.flow/review-checklist.md` carries a Test
-   Environment entry (moved there — it's stack-specific, see
+7. Walk every `## ` entry in `references/checklists/test-coverage.md`, starting with its
+   real-time-wait and exact-count brittleness entries. When the target repo's
+   `.flow/review-checklist.md` carries a Test Environment entry (moved there — it's stack-specific, see
    `docs/consumer-review-patterns.md`), check that too for vitest/SvelteKit-specific
    issues.
 8. Scan the PR description's "Test Steps" section (legacy PRs may use "Manual validation",

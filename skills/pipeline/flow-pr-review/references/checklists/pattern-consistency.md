@@ -26,6 +26,52 @@ not just some. If a branch omits one, determine whether the omission is intentio
 commented) or accidental. **General rule:** if N-1 of N branches use a pattern, the Nth
 branch probably should too.
 
+A second source of truth for existing state (a new writer, cache, or index) must route
+through every invariant the incumbent writer enforces (econ-data #633).
+
+## Prose Claims Must Match the Code They Describe
+
+Applies to a doc, comment, or agent-prompt sentence the diff adds or edits that states what
+code does. Open the code it names and check:
+
+- Enumerated scenarios: the dispatch table is the authority (a refactor that narrows
+  `unfinishedStatuses` leaves a comment claiming an unreachable scenario). Delete the
+  impossible scenario rather than hedge it.
+- Cited ranges and defaults: compare against the helper's filter default (e.g.
+  `min_confidence`); prefer naming the default over a baked-in range.
+- Doc arithmetic ("head 200 + marker + tail 100 = 300"): locate the constants, sum the
+  parts including marker/separator overhead, and grep for the exact number at every site.
+- Coverage claims ("every launch emits X"): check every sibling call site, such as a
+  duplicated private helper or an alternate backend (PR #477).
+- Strictness claims ("exact", "byte-identical"): confirm the matcher is not `.includes(`,
+  `strings.Contains`, a prefix, or a partial regex on the same value (PR #505).
+- Trigger claims: compare the predicate's real trigger set with the narrower scenario the
+  comment names; the narrow wording hides the other states that reach the branch (PR #461).
+
+## Claims the Diff Contradicts
+
+Applies to PR-body, runbook, README, evidence, and in-code-rationale sentences the diff adds
+or edits:
+
+- Negative claims ("nothing reads X"): grep the PR's own diff for a counterexample
+  (PR #524).
+- Promised visibility: grep the renderer or template for each new field the PR says is
+  shown (PR #743).
+- Recovery and re-run commands: confirm resume merges rather than overwrites, and that
+  documented commands pass inputs this PR moved (PRs #907, #950).
+- Status and evidence claims ("fixed", "already lives in X", "the only variable"):
+  cross-check the PR body's out-of-scope list and the diff's other changed inputs
+  (PR #748, econ-data #840).
+- In-code rationale for not doing a promised thing: a constraint the same PR authored is
+  self-imposed; flag it (econ-data #690).
+
+## New Rules That Contradict Their Neighbours
+
+For an added or edited rule, carve-out, or gate, read the surrounding sentences, the rest of
+the doc, and its consuming SKILL.md. Flag a later floor overriding a named carve-out, or an
+output format requiring what the gate exists to avoid (PRs #637, #748). Confirm each newly
+cited sibling path resolves in the skill it names, not a neighbouring skill (PR #637).
+
 ## npm Lifecycle Script Environment Guards
 
 `prepare`/`postinstall`/`preinstall` scripts run automatically during `npm install`/`npm ci`.
@@ -33,15 +79,6 @@ If they depend on non-Node tools (`git`, `bun`, `docker`) without a guard, they 
 in environments lacking those tools. For each lifecycle script, identify external tool
 dependencies, verify each is guarded with `command -v`/`which`, and verify failure is
 non-fatal (doesn't block `npm install`).
-
-## Stale Comments Referencing Impossible Scenarios
-
-When a phase doc-comment enumerates resume scenarios or branch-reach conditions, a refactor
-that narrows reachability (e.g. shrinks a dispatch table's `unfinishedStatuses`) leaves the
-comment claiming a scenario the new wiring makes unreachable. Trace whether the
-runner/dispatcher can actually produce each enumerated scenario — the dispatch table is the
-authority. Prefer deleting the impossible scenario over hedging it; a short accurate comment
-beats a long partly-wrong one.
 
 ## Branch Staleness vs. Main-Integrated Behaviour
 
@@ -65,24 +102,6 @@ orchestrator, a test harness). For each result-returning primitive used outside 
 point, grep it (and its helpers) for `process.exit`; enumerate whether the new caller's
 argument set can reach it. The fix is not "wrap in try/catch" — refactor the primitive to
 throw or return a failure variant, pushing the exit decision back to the CLI entry point.
-
-## Agent Prompt Cites A Confidence Range That Diverges From The Helper's Filter Default
-
-Agent role prompts describing a pre-digest lens's payload sometimes restate the lens's
-_internal_ confidence-score range rather than the _filtered_ range the agent actually
-receives (the helper applies `confidence >= min_confidence` before emitting). A prompt whose
-cited lower bound is below the helper's default lies about what shows up in the agent's
-facts block. Grep the matching CLI parser for its `min_confidence` default and compare;
-prefer prose that names the filter default by name over a baked-in range, so it stays true
-if the default moves.
-
-## Doc Arithmetic Drift From Code Constants
-
-Prose budgets that sum components ("head 200 + marker + tail 100 = 300") derive from code
-constants and drift from them, either via a refactor updating the constant but not every doc
-site quoting it, or via an author who never checked the sum. For each cited budget, locate
-the constant(s) it derives from, sum the parts including marker/separator overhead, and grep
-the repo for the exact number — every site must agree with the code and with each other.
 
 ## Exact-String Anchor Gating Between Producer and Consumer Docs
 
@@ -112,31 +131,6 @@ silently false-passes when the pattern matches nothing. Guards exist to fail lou
 whose selector can quietly select zero files never detects anything. Flag bare `**` pathspecs
 in grep-based invariants: use explicit `:(glob)` pathspec magic, or assert the selector
 matches a known-present sentinel file so an empty selection fails.
-
-## Doc Claims Overstating Instrumentation Coverage (PR #477)
-
-When a PR adds instrumentation/telemetry on one code path and ships prose claiming universal
-coverage ("every launch", "all requests"), cross-check each claim against the actual call
-sites — sibling paths (a duplicated private helper, an alternate backend) may be
-uninstrumented by design. Flag the wording, not the missing instrumentation, when the scope
-was deliberate.
-
-## Doc Comment Asserting a Stricter Contract Than the Matcher Implements (PR #505)
-
-When a comment or constant doc claims a cross-layer string contract must stay
-"byte-identical"/"exact match" but the paired matcher uses a substring/`includes`/prefix
-check, flag the contradiction — either the matcher should be strict or the comment should
-state the real (looser) contract. Look for doc comments containing "exact"/"byte-identical"
-adjacent to `.includes(`, `strings.Contains`, or regex partial matches on the same value.
-
-## Predicate Doc Comment Naming a Narrower Trigger Than the Predicate Matches (PR #461)
-
-When a boolean helper is documented in terms of the _scenario that motivated it_ but its
-predicate actually matches a broader set, flag the gap — the narrow wording invites a future
-reader to reason about only the motivating case and miss the other states that reach the
-branch, which is how an over-broad guard survives review. Distinct from the stricter-doc
-pattern above: there the comment is _stricter_ than the code, here it is _narrower in
-trigger_ while the code is broader.
 
 ## JSDoc/Comment Cross-Reference to an Instance Member Written as `Class.method` (PR #577)
 

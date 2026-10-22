@@ -13,6 +13,7 @@ import {
 } from "./lib/state";
 import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 import { ALWAYS_ON_LENSES, evaluateGates } from "./lib/review-lens-gates";
+import { extractLensSections, LENS_HEADINGS } from "./lib/lens-prompt";
 import { CHECKPOINT_SITES } from "./flow-checkpoint";
 import {
   EARLY_PHASE_WRITES,
@@ -4271,7 +4272,7 @@ describe("Prompt-interpretation contract anchors", () => {
     ).toBe(true);
   });
 
-  // agent-prompts.md's Pattern & Consistency Agent step 8 anchor is referenced
+  // agent-prompts.md's Pattern & Consistency Agent step 9 anchor is referenced
   // from skills/pipeline/flow-pr-review/SKILL.md step 5 (the {{PROMPT_INTERPRETATION_TENSION}}
   // template-variable substitution site). Dropping the step would leave the
   // template variable un-consumed, and the SKILL.md prose would still claim a
@@ -4283,7 +4284,7 @@ describe("Prompt-interpretation contract anchors", () => {
       ),
       "agent-prompts.md must contain the anchor literal " +
         "'Prompt-interpretation tension check (conditional)' inside the Pattern & " +
-        "Consistency Agent's Process section (step 8). This is the consumer of " +
+        "Consistency Agent's Process section (step 9). This is the consumer of " +
         "the {{PROMPT_INTERPRETATION_TENSION}} template variable substituted by " +
         "flow-pr-review/SKILL.md step 5 — dropping the step would leave the variable " +
         "un-consumed and the metadata-triage-side tension signal silently dead.",
@@ -10519,6 +10520,31 @@ describe("pause-output contract wiring lint", () => {
         `(docs/consumer-review-patterns.md). Never split a lens file into ` +
         `sub-files, and never delete a load-bearing pattern just for length.`,
     ).toEqual([]);
+  });
+
+  it("every code-lens Process step walks every checklist entry", () => {
+    const codeLenses = (
+      Object.keys(LENS_HEADINGS) as Array<keyof typeof LENS_HEADINGS>
+    ).filter((lens) => lens !== "product");
+    expect(codeLenses).toHaveLength(6);
+    const missing = codeLenses.filter(
+      (lens) =>
+        !extractLensSections(agentPromptsContent, lens).lensSection.includes(
+          "every `## ` entry",
+        ),
+    );
+    expect(
+      missing,
+      `The following code lenses' Process sections in agent-prompts.md do not ` +
+        `say "every \`## \` entry": ${missing.join(", ")}. Each code lens must ` +
+        `walk the whole references/checklists/<lens>.md, not only the sections ` +
+        `its Process step names.`,
+    ).toEqual([]);
+    expect(
+      extractLensSections(agentPromptsContent, "pattern-consistency")
+        .lensSection,
+      "pattern-consistency Process must keep the claim-enumeration step.",
+    ).toContain("**Enumerate claims.**");
   });
 });
 
