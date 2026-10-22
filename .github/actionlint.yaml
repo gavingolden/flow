@@ -1,0 +1,6 @@
+# job.workflow_ref / job.workflow_sha are documented GitHub job-context fields
+# that actionlint's schema does not know yet; remove once actionlint does.
+paths:
+  .github/workflows/cloudflare-pages-prune.yml:
+    ignore:
+      - 'property "workflow_(ref|sha)" is not defined in object type'
