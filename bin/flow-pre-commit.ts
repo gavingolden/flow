@@ -229,7 +229,7 @@ const ZERO_SHA = "0000000000000000000000000000000000000000";
 // AND end in `.yml`/`.yaml` to trip it (a markdown note under the workflows
 // dir does not). Workflow YAML edits trip BOTH `scripts` (which runs the
 // bin/ workflow-shape regression tests) AND `actions` (which runs
-// `actionlint` against the workflows dir) — different defect classes, so
+// `actionlint` on the changed workflow files) — different defect classes, so
 // both checks run.
 //
 // `backend` is prefix-only (no `.go` AND-match) because `go vet -C backend
@@ -684,8 +684,14 @@ export function computeAllPassedAndReason(
   scopes: ScopeName[],
   unmatchedFiles: string[] | undefined,
   scopeResultCount: number = results.length,
+  exists: (p: string) => boolean = existsSync,
 ): { allPassed: boolean; reason?: "no-checks-defined" | "unmatched-files" } {
-  if (scopeResultCount === 0 && (changedFiles?.length ?? 0) > 0) {
+  // A deleted workflow file trips `actions` but leaves actionlint nothing to
+  // lint (see `actionlintCheck`), so it cannot itself demand a check result.
+  const checkable = (changedFiles ?? []).filter(
+    (f) => !(matchesScope(f, SCOPE_MATCHERS.actions) && !exists(f)),
+  );
+  if (scopeResultCount === 0 && checkable.length > 0) {
     return { allPassed: false, reason: "no-checks-defined" };
   }
   // Genuine-orphan guard: a scope ran but left files matching NO scope at all.
@@ -814,20 +820,49 @@ function tieredTestChecks(selection: SelectionPlan): CheckDef[] {
 }
 
 /**
+ * The `actions` scope's actionlint check. actionlint rejects a bare folder
+ * (exit 3), so a diff-driven run passes only the changed workflow files that
+ * still exist (deletions drop out); `undefined` (the `--scope` path, no diff)
+ * falls back to the no-arg form, which auto-discovers `.github/workflows`.
+ * Returns `null` when there is nothing to lint.
+ */
+export function actionlintCheck(
+  changedFiles: string[] | undefined,
+  exists: (p: string) => boolean = existsSync,
+): CheckDef | null {
+  if (changedFiles === undefined) {
+    return exists(".github/workflows")
+      ? { name: "actionlint", argv: ["actionlint"] }
+      : null;
+  }
+  const files = changedFiles.filter(
+    (f) => matchesScope(f, SCOPE_MATCHERS.actions) && exists(f),
+  );
+  return files.length > 0
+    ? { name: "actionlint", argv: ["actionlint", ...files] }
+    : null;
+}
+
+/**
  * Returns the check commands for a built-in scope. Re-expressed to resolve
  * through the shared stack table (`npmRunCheck` builds the node command form;
  * the go marker's default + a `-C backend` cwd option backs `backend`) so
  * built-in and auto-detected scopes share one command-shape mechanism. The
  * argv arrays are byte-for-byte identical to the previous static switch when
- * no `selection` is passed — the `describe(checksForScope)` block is the
+ * no `selection` is passed, except `actions`, which resolves via
+ * `actionlintCheck` — the `describe(checksForScope)` block is the
  * guard against drift. Takes an optional `selection?: SelectionPlan` second
  * argument (see `tieredTestChecks`, defined above): omitted or
  * `undefined` reproduces the original zero-arg argv exactly; passed, it
- * narrows the test check(s) per the tiered-selection plan.
+ * narrows the test check(s) per the tiered-selection plan. An optional
+ * `changedFiles?: string[]` third argument feeds the `actions` arm the diff's
+ * workflow files (see `actionlintCheck`); omitted, it runs bare actionlint (all
+ * workflows), or omits the check when no workflows folder exists.
  */
 export function checksForScope(
   scope: Scope,
   selection?: SelectionPlan,
+  changedFiles?: string[],
 ): CheckDef[] {
   switch (scope) {
     case "src":
@@ -870,13 +905,9 @@ export function checksForScope(
       // path; an auto-detected workflow-YAML diff also co-trips `scripts`,
       // which already runs lint). Stays inert via filterDefinedChecks in
       // repos with no `lint` script.
-      return [
-        {
-          name: "actionlint .github/workflows/",
-          argv: ["actionlint", ".github/workflows/"],
-        },
-        npmRunCheck("lint"),
-      ];
+      return [actionlintCheck(changedFiles), npmRunCheck("lint")].filter(
+        (c): c is CheckDef => c !== null,
+      );
     case "backend":
       // The go stack's default vet+test, run in the `backend` subdir via `-C`.
       return resolveChecks({ marker: "go.mod" }).map((c) => goInBackend(c));
@@ -1575,7 +1606,8 @@ Check mapping:
   src:            npm run typecheck, npm run test, npm run lint
   scripts:        npm run typecheck:scripts, npm run test, npm run lint
   docs:           flow-md-validate ., npm run test, npm run lint
-  actions:        actionlint .github/workflows/, npm run lint
+  actions:        actionlint <changed workflow files> (all workflows under
+                  --scope actions), npm run lint
   backend:        go vet -C backend ./..., go test -C backend ./...
   root-fallback:  npm run typecheck, npm run test, npm run lint
                   (fires for files no other scope claimed)
@@ -1853,7 +1885,7 @@ async function main(): Promise<void> {
     const checks = dynamic
       ? dynamic.checks
       : filterDefinedChecks(
-          checksForScope(scope as Scope, selection),
+          checksForScope(scope as Scope, selection, changedFiles),
           definedScripts,
         );
     if (checks.length === 0) {

@@ -29,6 +29,7 @@ import {
   buildFailureExcerpt,
   checkConflictMarkers,
   checkHelperExecutableModes,
+  actionlintCheck,
   checksForScope,
   EARLIER_RUN_SCOPE,
   earlierRunSavings,
@@ -307,6 +308,34 @@ describe(computeUnmatchedFiles, () => {
 });
 
 describe(computeAllPassedAndReason, () => {
+  it("does not demand a check result for a deletion-only workflow diff", () => {
+    const gone = () => false;
+    const wf = [".github/workflows/x.yml"];
+    expect(
+      computeAllPassedAndReason([], wf, ["scripts", "actions"], [], 0, gone),
+    ).toEqual({ allPassed: true });
+    expect(
+      computeAllPassedAndReason(
+        [],
+        [...wf, "src/a.ts"],
+        ["scripts", "actions"],
+        [],
+        0,
+        gone,
+      ),
+    ).toEqual({ allPassed: false, reason: "no-checks-defined" });
+    expect(
+      computeAllPassedAndReason(
+        [],
+        wf,
+        ["scripts", "actions"],
+        [],
+        0,
+        () => true,
+      ),
+    ).toEqual({ allPassed: false, reason: "no-checks-defined" });
+  });
+
   it("flags reason='no-checks-defined' + allPassed=false on non-empty diff + empty results", () => {
     expect(
       computeAllPassedAndReason(
@@ -491,12 +520,22 @@ describe(checksForScope, () => {
     ]);
   });
 
-  it("should return actionlint .github/workflows/ and lint for actions", () => {
+  it("should return bare actionlint and lint for actions when no changed-file list is passed", () => {
     const checks = checksForScope("actions");
     expect(checks).toEqual([
+      { name: "actionlint", argv: ["actionlint"] },
+      { name: "npm run lint", argv: ["npm", "run", "lint"] },
+    ]);
+  });
+
+  it("should pass the changed workflow file to actionlint when a changed-file list is given", () => {
+    const checks = checksForScope("actions", undefined, [
+      ".github/workflows/ci.yml",
+    ]);
+    expect(checks).toEqual([
       {
-        name: "actionlint .github/workflows/",
-        argv: ["actionlint", ".github/workflows/"],
+        name: "actionlint",
+        argv: ["actionlint", ".github/workflows/ci.yml"],
       },
       { name: "npm run lint", argv: ["npm", "run", "lint"] },
     ]);
@@ -579,6 +618,62 @@ describe(checksForScope, () => {
 
   it("does not recognise npm run test:watch as a throttled test check", () => {
     expect(isTestCheck(["npm", "run", "test:watch"])).toBe(false);
+  });
+});
+
+describe("actionlintCheck", () => {
+  const present = () => true;
+
+  it("should keep a changed workflow file when it exists", () => {
+    expect(actionlintCheck([".github/workflows/ci.yml"], present)).toEqual({
+      name: "actionlint",
+      argv: ["actionlint", ".github/workflows/ci.yml"],
+    });
+  });
+
+  it("should keep a .yaml workflow file when it exists", () => {
+    expect(actionlintCheck([".github/workflows/ci.yaml"], present)).toEqual({
+      name: "actionlint",
+      argv: ["actionlint", ".github/workflows/ci.yaml"],
+    });
+  });
+
+  it("should drop a markdown file under the workflows dir and non-workflow paths", () => {
+    expect(
+      actionlintCheck(
+        [
+          ".github/workflows/README.md",
+          "bin/flow-pre-commit.ts",
+          ".github/dependabot.yml",
+          ".github/workflows/ci.yml",
+        ],
+        present,
+      ),
+    ).toEqual({
+      name: "actionlint",
+      argv: ["actionlint", ".github/workflows/ci.yml"],
+    });
+  });
+
+  it("should drop a deleted workflow file and return null when none remain", () => {
+    expect(
+      actionlintCheck([".github/workflows/gone.yml"], () => false),
+    ).toBeNull();
+  });
+
+  it("should return null when the changed list holds no workflow files", () => {
+    expect(actionlintCheck(["bin/flow-pre-commit.ts"], present)).toBeNull();
+  });
+
+  it("should return bare actionlint when no list is given and the workflows folder exists", () => {
+    expect(actionlintCheck(undefined, present)).toEqual({
+      name: "actionlint",
+      argv: ["actionlint"],
+    });
+  });
+
+  it("should return null when no list is given and the workflows folder is absent", () => {
+    expect(actionlintCheck(undefined, () => false)).toBeNull();
   });
 });
 
@@ -818,8 +913,8 @@ describe(runCheck, () => {
 
   it("returns skipReason actionlint-not-installed when runner exits 127 for actionlint", () => {
     const result = runCheck(
-      "actionlint .github/workflows/",
-      ["actionlint", ".github/workflows/"],
+      "actionlint",
+      ["actionlint"],
       "actions",
       exitWith(127, "actionlint: command not found"),
     );
@@ -836,8 +931,8 @@ describe(runCheck, () => {
       },
     );
     const result = runCheck(
-      "actionlint .github/workflows/",
-      ["actionlint", ".github/workflows/"],
+      "actionlint",
+      ["actionlint"],
       "actions",
       throwing(enoent),
     );
@@ -847,8 +942,8 @@ describe(runCheck, () => {
 
   it("returns skipReason when stderr matches command-not-found and exit is non-zero (e.g. shell wrapper exit 1)", () => {
     const result = runCheck(
-      "actionlint .github/workflows/",
-      ["actionlint", ".github/workflows/"],
+      "actionlint",
+      ["actionlint"],
       "actions",
       exitWith(1, "bash: actionlint: command not found"),
     );
@@ -883,8 +978,8 @@ describe(runCheck, () => {
 
   it("does NOT skip a real actionlint lint failure (non-127 exit, stderr without command-not-found markers)", () => {
     const result = runCheck(
-      "actionlint .github/workflows/",
-      ["actionlint", ".github/workflows/"],
+      "actionlint",
+      ["actionlint"],
       "actions",
       exitWith(
         1,
@@ -1088,6 +1183,11 @@ describe("registryArgv", () => {
         join(tmpDir, "package.json"),
         JSON.stringify({ name: "fixture", version: "0.0.1" }, null, 2),
       );
+      mkdirSync(join(tmpDir, ".github", "workflows"), { recursive: true });
+      writeFileSync(
+        join(tmpDir, ".github", "workflows", "ci.yml"),
+        "on: push\n",
+      );
       spawnSync("git", ["init", "-q", "-b", "main"], { cwd: tmpDir });
       spawnSync(
         "git",
@@ -1143,7 +1243,7 @@ describe("registryArgv", () => {
         );
         const report = JSON.parse(result.stdout) as JsonReport;
         const actionlintResult = report.results.find(
-          (r) => r.name === "actionlint .github/workflows/",
+          (r) => r.name === "actionlint",
         );
         expect(actionlintResult?.passed).toBe(true);
         expect(actionlintResult?.skipReason).toBe("actionlint-not-installed");
@@ -1995,7 +2095,7 @@ describe(formatReport, () => {
       scopes: ["actions"] as Scope[],
       results: [
         createResult({
-          name: "actionlint .github/workflows/",
+          name: "actionlint",
           scope: "actions",
           passed: true,
           output: "actionlint not installed — skipped",
@@ -2035,7 +2135,7 @@ describe(formatReport, () => {
       scopes: ["actions"] as Scope[],
       results: [
         createResult({
-          name: "actionlint .github/workflows/",
+          name: "actionlint",
           scope: "actions",
           passed: true,
           skipReason: "actionlint-not-installed",
@@ -2051,7 +2151,7 @@ describe(formatReport, () => {
       results: [
         createResult({ name: "npm run typecheck", scope: "src", passed: true }),
         createResult({
-          name: "actionlint .github/workflows/",
+          name: "actionlint",
           scope: "actions",
           passed: true,
           skipReason: "actionlint-not-installed",
@@ -2309,7 +2409,7 @@ describe(formatJsonReport, () => {
       scopes: ["actions"] as Scope[],
       results: [
         createResult({
-          name: "actionlint .github/workflows/",
+          name: "actionlint",
           scope: "actions",
           passed: true,
           skipReason: "actionlint-not-installed",
@@ -2751,6 +2851,58 @@ describe("integration: a .md-only diff detects the docs scope and runs npm run t
       const report = JSON.parse(result.stdout) as JsonReport;
       expect(report.scopes).toContain("docs");
       expect(report.results.map((r) => r.name)).toContain("npm run test");
+    },
+  );
+});
+
+describe("integration: a workflow push hands actionlint only the changed workflow files", () => {
+  let tmpDir: string;
+  const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
+
+  beforeAll(() => {
+    if (!bunOnPath) return;
+    tmpDir = mkdtempSync(join(tmpdir(), "flow-pre-commit-actionlint-"));
+    mkdirSync(join(tmpDir, "bin"));
+    mkdirSync(join(tmpDir, ".github", "workflows"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "bin", "actionlint"),
+      '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$ARGV_OUT"\nexit 0\n',
+      { mode: 0o755 },
+    );
+    writeFileSync(join(tmpDir, ".github/workflows/ci.yml"), "a: 1\n");
+    writeFileSync(join(tmpDir, ".github/workflows/other.yml"), "a: 1\n");
+    const git = (...a: string[]) =>
+      spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...a], {
+        cwd: tmpDir,
+      });
+    git("init", "-q", "-b", "main");
+    git("add", ".github");
+    git("commit", "-q", "-m", "init");
+    writeFileSync(join(tmpDir, ".github/workflows/ci.yml"), "a: 2\n");
+    git("add", ".github");
+  });
+
+  afterAll(() => {
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it.skipIf(!bunOnPath)(
+    "passes exactly the changed workflow to actionlint on a diff-driven run",
+    () => {
+      const here =
+        import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const out = join(tmpDir, "argv.txt");
+      spawnSync("bun", [resolve(here, "flow-pre-commit.ts"), "--json"], {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          FLOW_SLUG: undefined,
+          ARGV_OUT: out,
+          PATH: `${join(tmpDir, "bin")}:${process.env.PATH}`,
+        },
+      });
+      expect(readFileSync(out, "utf8").trim()).toBe(".github/workflows/ci.yml");
     },
   );
 });
