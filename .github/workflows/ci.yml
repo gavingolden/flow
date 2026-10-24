@@ -1,13 +1,18 @@
-# CI gate: runs `npm run verify` (typecheck:scripts + vitest + lint) on every PR
-# and on every push to main. This is the server-side backstop for the
-# local-only `flow-pre-commit` gate — a human pushing a PR outside
-# `/flow-pipeline` never invokes that gate, and an in-pipeline run can pass
-# falsely when the PATH-symlinked binary executes stale pre-edit code.
+# CI gate, two jobs on every PR and on every push to main:
+#   - `verify` runs `npm run verify` (typecheck:scripts + vitest + lint).
+#   - `actionlint` lints every workflow under .github/workflows/ (honouring
+#     .github/actionlint.yaml), so a broken workflow fails here even when the
+#     author has no local actionlint — `flow-pre-commit` skips it when absent.
+# This is the server-side backstop for the local-only `flow-pre-commit` gate —
+# a human pushing a PR outside `/flow-pipeline` never invokes that gate, and an
+# in-pipeline run can pass falsely when the PATH-symlinked binary executes
+# stale pre-edit code.
 #
-# Recommended: make the `verify` job a required status check (via a branch
-# ruleset, or classic branch protection) on `main` so red PRs cannot be
-# merged. The status check to select is the job name `verify` (GitHub may
-# display it as `CI / verify` in the PR checks tab). See AGENTS.md.
+# Recommended: make both jobs required status checks (via a branch ruleset, or
+# classic branch protection) on `main` so red PRs cannot be merged. The status
+# checks to select are the job names `verify` and `actionlint` (GitHub may
+# display them as `CI / verify` and `CI / actionlint` in the PR checks tab).
+# See AGENTS.md.
 
 name: CI
 
@@ -48,3 +53,30 @@ jobs:
 
       - name: Verify
         run: npm run verify
+
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Least-privilege: this job only checks out and lints — it never writes.
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # No first-party actionlint action exists (rhysd/actionlint ships no
+      # action.yml) and every `uses:` here is SHA-pinned, so install the
+      # release binary directly, pinned by version AND verified against the
+      # upstream SHA256 (actionlint_<ver>_checksums.txt). The upstream
+      # download-actionlint.bash does no checksum verification. shellcheck is
+      # preinstalled on ubuntu-latest, so `run:` shell is linted too. With no
+      # file args, actionlint discovers every .github/workflows/*.yml.
+      - name: Run actionlint
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        run: |
+          curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" -o actionlint.tar.gz
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum -c -
+          tar xzf actionlint.tar.gz actionlint
+          ./actionlint -color
