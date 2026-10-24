@@ -12,7 +12,7 @@ npm run verify             # typecheck:scripts + test + lint
 bun bin/flow install         # global install (skills, helpers, wrapper)
 ```
 
-There is no `npm run build` — flow ships `bin/flow` directly via Bun, so there is no compile step. `.github/workflows/ci.yml` runs `npm run verify` on every PR and push to `main` as the server-side backstop for the local-only `flow-pre-commit` gate.
+There is no `npm run build` — flow ships `bin/flow` directly via Bun, so there is no compile step. `.github/workflows/ci.yml` runs `npm run verify` and `actionlint` (every workflow file) on every PR and push to `main` as the server-side backstop for the local-only `flow-pre-commit` gate.
 
 ## Code conventions
 

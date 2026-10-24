@@ -69,10 +69,13 @@ DERIVED from one a helper already writes. Contract: `docs/configuration.md`.
 
 ## CI
 
-`.github/workflows/ci.yml` runs `npm run verify` (`typecheck:scripts` +
-vitest + lint) on every PR and push to `main` — the server-side backstop
-for the local-only `flow-pre-commit` gate. The runner installs Node and
-Bun (vitest spawns `bun`). **Make the `verify` job a required status
-check** via a branch ruleset on `main` — select job name `verify` (shown
-`CI / verify` in the checks tab). A repo-admin setting, not
-workflow-enforceable.
+`.github/workflows/ci.yml` runs two jobs on every PR and push to `main` —
+the server-side backstop for the local-only `flow-pre-commit` gate:
+`verify` (`npm run verify`: `typecheck:scripts` + vitest + lint; the
+runner installs Node and Bun, since vitest spawns `bun`) and `actionlint`
+(every workflow file, a version- and SHA256-pinned release binary, so
+workflow breakage is caught even where `flow-pre-commit` skipped a missing
+local actionlint). **Make both jobs required status checks** via a branch
+ruleset on `main` — select job names `verify` and `actionlint` (shown
+`CI / verify` / `CI / actionlint` in the checks tab). A repo-admin
+setting, not workflow-enforceable.
