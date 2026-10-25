@@ -14,10 +14,21 @@ markdown instead of a helper block.
    carrying the status, e.g. `### ⏸ GATED — manual validation needed`,
    `### ❓ Clarification needed`, `### ✅ Merged`. It is the visual
    anchor the user scrolls to.
-2. `**TLDR:**` (always) — one sentence, the user-visible outcome or
-   consequence, never the mechanism. It is the first slot, before any
-   omit-when-empty slot, so a reader who stops after one line still
-   knows what happened.
+2. `**TLDR:**` (always) — one sentence, ≤35 words, the user-visible
+   outcome or consequence, never the mechanism. When the pause
+   summarizes a change (plan ready, gated, merged), write it for a
+   reader who has forgotten the thread: the outcome first, then what
+   was wrong or missing before and what is true now, as
+   `<what you get>: <thing> used to <problem>; now <new behaviour>` or
+   `… no longer <problem> …`. For a net-new feature, name the cost or
+   workaround the reader was paying, never just the negated after ("you couldn't X; now you can X").
+   Thresholds, flag lists, command names, and file names belong under
+   `**Needs attention:**` or in the plan. Escalation and cancel pauses
+   keep the impact + "nothing is lost" form, and when their TLDR is
+   authored rather than a fixed pre-written line, add a few plain words
+   naming the change the pipeline was making; Q&A pauses are unchanged.
+   It is the first slot, before any omit-when-empty slot, so a reader
+   who stops after one line still knows what happened.
 3. **Labeled slots (omit-when-empty, in this order):**
    - `**Unsolved:**` — open forks, unresolved questions, or known-red
      items left as-is, each with the recommended default inline when
@@ -209,6 +220,26 @@ generalized rule in `references/output-style.md`.
 > After: I'm not sure which kind of "faster" you mean — page load or
 > the live-refresh interval — and either reading is equally plausible
 > from what you wrote.
+
+**Change summary, fix-shaped (plan ready):**
+
+> Before: You'll have fewer red results to re-check by hand.
+> `flow-eval compare --fail-on-regression` will fail only when the
+> score drops, context grows more than 10%, or cost grows more than
+> 50%. Runs on an install that's missing one of this branch's agents
+> will stop up front and name the missing files.
+> After: You no longer re-check every eval red by hand: the regression
+> gate used to fail on routine cost and timing noise; now it fails only
+> on real regressions.
+
+**Change summary, feature-shaped (merged):**
+
+> Before: Every sub-agent `flow config models` lists now runs at its
+> own reasoning effort. The review fix-applier and UI checker never run
+> above medium by default, and you can change any of them in config.
+> After: Mechanical review fixes no longer cost high-effort prices:
+> every sub-agent used to think as hard as the whole pipeline; now each
+> runs at its own depth you can set.
 
 ## Step contract
 
@@ -414,8 +445,9 @@ in a feature plan's calibration appendix).
 
 > ### ⏸ GATED — PR #640, 2 checks need you
 >
-> **TLDR:** `/clear` in a finished flow window now fires an
-> orientation turn naming the merged PR; two hand checks remain.
+> **TLDR:** `/clear` in a finished flow window no longer leaves a
+> blank pane that looks broken: it now opens with a short turn naming
+> the merged PR; two hand checks remain.
 > **Needs attention:** SUBJECTIVE — in a real tmux window at `merged`,
 > `/clear` fires a turn within ~10s → https://github.com/gavingolden/flow/pull/640
 > · ask a follow-up there and confirm the answer is repo-grounded.
@@ -431,9 +463,9 @@ in a feature plan's calibration appendix).
 
 > ### ✅ MERGED — PR #644
 >
-> **TLDR:** Plan review now runs on Gemini 3.7 Flash by default
-> (benched: same defect catch rate, ~2× faster) →
-> https://github.com/gavingolden/flow/pull/644
+> **TLDR:** Plan review is now ~2× faster at the same defect catch
+> rate: its default model was picked before Gemini 3.7 Flash existed;
+> now it runs on that → https://github.com/gavingolden/flow/pull/644
 > **Untracked:** none — #651 (bench the flash-medium/-low tiers) filed
 > at merge.
 > 5 findings fixed, 0 deferred.

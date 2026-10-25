@@ -94,9 +94,12 @@ After the wrapper returns, **read `<worktree>/.flow-tmp/plan.md`** once
 and print the plan-summary block to chat per `references/pause-output-contract.md`
 — six labeled slots, no open prose, ≤12 lines, ≤2 bullets per slot. Author
 the TLDR per [TLDR and WHY authoring (product brief)](shared-gate-contracts.md#tldr-and-why-authoring-product-brief).
-(template: `### ⏸ Plan ready for review` / `**TLDR:** <one-sentence
-user-visible outcome, suffixed `(N zero-stakes questions resolved
-without asking)` when N checked `**Stakes:** none` entries exist>` /
+(template: `### ⏸ Plan ready for review` / `**TLDR:** <one sentence,
+≤35 words: the outcome, then what was wrong or missing before (reuse the
+plan's drafted PR TLDR), suffixed `(N zero-stakes questions resolved
+without asking)` when N checked `**Stakes:** none` entries exist — the
+suffix is chat-only: not counted against the cap, never passed to
+`--tldr`>` /
 `**Unsolved:** <open answer-sheet items with their `(high)`/`(medium)`
 tag and recommended default inline, anchors omitted>` / `**Needs
 attention:** <high-stakes decisions read from `## Decision analysis` +
@@ -372,7 +375,7 @@ only and the helper exact-matches against them. The blind survey's
   [ "$SPEC_RC" != "0" ] && WHY="$WHY; design spec INVALID: $DESIGN_SPEC_REASON"
   LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)
   # Author the TLDR per [TLDR and WHY authoring (product brief)](shared-gate-contracts.md#tldr-and-why-authoring-product-brief).
-  TLDR="<one sentence, ≤25 words, the plan's outcome for the reader>"
+  TLDR="<one sentence, ≤35 words: what you get, then <the thing> used to <problem>; now <new behaviour> — reuse the plan's drafted PR TLDR>"
   flow-gate-summary --status awaiting-approval --echo-prose \
     --why "$WHY" \
     --worktree "$WORKTREE" \
@@ -486,7 +489,7 @@ only and the helper exact-matches against them. The blind survey's
     [ "$SPEC_RC" != "0" ] && WHY="$WHY; design spec INVALID: $DESIGN_SPEC_REASON"
     LENS=$(jq -r '.output.lens // "pm"' ~/.flow/config.json 2>/dev/null)
     # Author the TLDR per [TLDR and WHY authoring (product brief)](shared-gate-contracts.md#tldr-and-why-authoring-product-brief).
-    TLDR="<one sentence, ≤25 words, the plan's outcome for the reader>"
+    TLDR="<one sentence, ≤35 words: what you get, then <the thing> used to <problem>; now <new behaviour> — reuse the plan's drafted PR TLDR>"
     flow-gate-summary --status awaiting-approval --echo-prose \
       --why "$WHY" \
       --worktree "$WORKTREE" \
