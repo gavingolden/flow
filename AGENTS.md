@@ -54,7 +54,7 @@ are at [references/output-style.md](references/output-style.md).
 - **Treat every request as production-bound, not a hobby project.** Include cohesive work in-task (don't dodge it via a follow-up issue) and hold a production bar on the surface you touch.
 - **Satisfy local, reversible preconditions before gating a Test Step as manual.** Reserve manual gates for genuinely external/irreversible/subjective items.
 - **Non-trivial UI appearance changes need an authored SUBJECTIVE: approval step the agent can't tick.**
-- **Structure every pause-point message.** A turn ending on user input or a stop uses the six labeled slots of `skills/pipeline/flow-pipeline/references/pause-output-contract.md` — `**TLDR:**` first, `**Unsolved:**` / `**Needs attention:**` / `**Manual action:**` / `**Untracked:**` omit-when-empty, `**Next action:**` last — within its ~12-line ceiling, never open prose.
+- **Structure every pause-point message.** A turn ending on user input or a stop uses the six labeled slots of `skills/pipeline/flow-pipeline/references/pause-output-contract.md` — `**TLDR:**` first (outcome, then what was wrong before), `**Unsolved:**` / `**Needs attention:**` / `**Manual action:**` / `**Untracked:**` omit-when-empty, `**Next action:**` last — within its ~12-line ceiling, never open prose.
 - **Explain problems impact-first in plain language.** Problem reports lead with the user-visible impact, translate internal identifiers into their effect, and present options with each one's consequences, recommendation first.
 - **Frame every explanation impact-first for a product-lens reader.** Lead with the user-visible consequence, naming the concrete command/flag/artifact; mechanism only on "give me the technical version"; exclusions per `references/output-style.md`.
 - **Emit instructions as scannable numbered steps.** Two or more discrete actions render as `1.`/`2.` imperative steps, sub-bullets for detail, actor named when interleaved; a single action stays inline.
@@ -125,8 +125,7 @@ No `npm run build` — flow ships `bin/flow` via Bun, no compile step.
 - Don't treat an absent optional-module skill as a hard failure — check
   `flow-module-status --check-skill <name>` and degrade to a named skip.
 - Don't propagate unverified factual claims. See `## Output style`
-  'Verify factual claims before emitting them.' — latent values rot
-  (line numbers shift, SHAs advance, flags get renamed).
+  'Verify factual claims before emitting them.' — latent values rot.
 - Don't introduce a database. Markdown plan files plus
   `~/.flow/state/<slug>.json` are the state store; if the queue ever
   outgrows that, swap in Beads via an adapter rather than building

@@ -7,7 +7,7 @@
 
 import { linkUrl, type LinkMode } from "./link";
 
-export const TLDR_MAX_WORDS = 25;
+export const TLDR_MAX_WORDS = 35;
 
 export type ClampedTldr = { text: string; truncated: boolean; words: number };
 

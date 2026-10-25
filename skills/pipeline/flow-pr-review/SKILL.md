@@ -1397,7 +1397,7 @@ should capture rationale inline (per `AGENTS.md` Committing rules).
 
 Check whether the PR description follows the standardized format with these sections:
 
-- **TLDR** — one sentence, 25 words or fewer, naming the user-visible outcome in the surface the reader uses (no file, function, or line number); on a fix-shaped PR it states the failure and the causal resolution together
+- **TLDR** — one sentence, 35 words or fewer, naming the user-visible outcome in the surface the reader uses (no file, function, or line number), then what was wrong or missing before and what is true now; on a fix-shaped PR it states the failure and the causal resolution together
 - **User-facing changes** — concrete user-observable deltas (or the literal `none` for pure-internal PRs); the heading is mandatory
 - **System changes** — any internal change worth a reviewer's attention: a subsystem boundary that moved, a public contract that changed, performance, or ongoing spend (or the literal `none`); the heading is mandatory, exactly like User-facing changes
 - **Why** — problem statement and motivation

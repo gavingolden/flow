@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+import { TLDR_MAX_WORDS } from "./lib/gate-summary-rows";
 import { lintDesign, lintPlan, parseArgs, run } from "./flow-plan-lint";
 
 const REPO_ROOT = path.resolve(
@@ -1699,5 +1700,174 @@ describe("run — CLI exit codes", () => {
 
   it("exits 2 (usage error) when neither --plan-md-file nor --design-md-file is given", () => {
     expect(run(["--survey-ran"])).toBe(2);
+  });
+});
+
+describe("lintPlan — Problem Statement lead", () => {
+  const PLAIN_LEAD =
+    "Exports are how people move widget data into spreadsheets. Today they copy it by hand, which is slow and error-prone. That costs every analyst a few minutes per report.";
+  const withProblem = (body: string): string =>
+    CONFORMING_PLAN.replace("Users cannot export widgets today.", body);
+  const leadMisses = (body: string): string[] =>
+    lintPlan(withProblem(body)).misses.filter((m) =>
+      m.includes("'## Problem Statement'"),
+    );
+
+  it("stays clean for a plain lead followed by a premise-check paragraph", () => {
+    expect(
+      leadMisses(`${PLAIN_LEAD}\n\n**Premise check:** holds.\n\n- evidence`),
+    ).toEqual([]);
+  });
+
+  it("names a plan that opens with the premise check", () => {
+    const misses = leadMisses(`**Premise check:** holds.\n\n${PLAIN_LEAD}`);
+    expect(misses).toHaveLength(1);
+    expect(misses[0]).toContain("opens with the premise check");
+    expect(misses[0]).toContain("lead with 2-4 plain sentences");
+  });
+
+  it("names a plan that opens with a table", () => {
+    const misses = leadMisses(
+      `| a | b |\n| - | - |\n| 1 | 2 |\n\n${PLAIN_LEAD}`,
+    );
+    expect(misses).toHaveLength(1);
+    expect(misses[0]).toContain("opens with a table");
+  });
+
+  it("names a plan that opens with a list", () => {
+    for (const marker of ["-", "*", "1."]) {
+      const misses = leadMisses(`${marker} first thing\n\n${PLAIN_LEAD}`);
+      expect(misses).toHaveLength(1);
+      expect(misses[0]).toContain("opens with a list");
+    }
+  });
+
+  it("names a lead paragraph that carries an anchor", () => {
+    const misses = leadMisses(`${PLAIN_LEAD} [anchor: bin/flow-plan-lint.ts]`);
+    expect(misses).toEqual([
+      "'## Problem Statement' lead paragraph carries an anchor — move evidence below the lead",
+    ]);
+  });
+
+  it("names a lead paragraph with a backticked code path", () => {
+    for (const token of ["bin/flow-plan-lint.ts", "plan.md"]) {
+      expect(leadMisses(`${PLAIN_LEAD} See \`${token}\`.`)).toEqual([
+        "'## Problem Statement' lead paragraph names a code path — move it below the lead",
+      ]);
+    }
+  });
+
+  it("ignores a backticked slash command", () => {
+    for (const cmd of ["/clear", "/flow-pipeline"]) {
+      expect(leadMisses(`${PLAIN_LEAD} Type \`${cmd}\`.`)).toEqual([]);
+    }
+  });
+
+  it("ignores a backticked token with no slash or extension", () => {
+    expect(leadMisses(`${PLAIN_LEAD} Run \`flow-plan-lint\`.`)).toEqual([]);
+  });
+
+  it("ignores HTML comments and blockquote lines above the lead", () => {
+    expect(
+      leadMisses(`<!-- note -->\n> [!NOTE]\n> aside\n\n${PLAIN_LEAD}`),
+    ).toEqual([]);
+  });
+
+  it("names an empty Problem Statement", () => {
+    expect(leadMisses("")).toEqual([
+      "'## Problem Statement' has no lead paragraph",
+    ]);
+  });
+
+  it("stays silent when the heading is absent (the presence check reports it)", () => {
+    const { misses } = lintPlan(
+      withoutSection(CONFORMING_PLAN, "## Problem Statement"),
+    );
+    expect(misses.some((m) => m.includes("lead paragraph"))).toBe(false);
+    expect(misses.some((m) => m.includes("opens with"))).toBe(false);
+  });
+});
+
+describe("lintPlan — drafted PR TLDR", () => {
+  const withTldr = (tldr: string): string =>
+    CONFORMING_PLAN.replace(
+      "# PR description draft\n",
+      `# PR description draft\n\n## TLDR\n\n${tldr}\n`,
+    );
+  const tldrMisses = (tldr: string): string[] =>
+    lintPlan(withTldr(tldr)).misses.filter((m) =>
+      m.includes("drafted PR TLDR"),
+    );
+
+  it("warns when the drafted TLDR runs past 35 words", () => {
+    const words = Array.from(
+      { length: TLDR_MAX_WORDS + 1 },
+      (_, i) => `w${i + 1}`,
+    );
+    words[3] = "before";
+    expect(tldrMisses(words.join(" "))).toEqual([
+      "warn: drafted PR TLDR is 36 words (cap: 35)",
+    ]);
+  });
+
+  it("accepts a 35-word TLDR that names a before-state", () => {
+    const words = Array.from({ length: 35 }, (_, i) => `w${i + 1}`);
+    words[3] = "before";
+    expect(tldrMisses(words.join(" "))).toEqual([]);
+  });
+
+  it("warns when the drafted TLDR names no before-state", () => {
+    expect(
+      tldrMisses("Users can now export widgets to CSV in one click."),
+    ).toEqual([
+      "warn: drafted PR TLDR names no before-state — say what was wrong or missing before",
+    ]);
+  });
+
+  it("accepts a before-marker such as 'used to'", () => {
+    expect(
+      tldrMisses("Exports used to need a manual copy; now one click does it."),
+    ).toEqual([]);
+  });
+
+  it("matches before-markers as whole words only", () => {
+    expect(
+      tldrMisses("Users can export widgets, a todayish tweak."),
+    ).toHaveLength(1);
+  });
+
+  it("reads a hard-wrapped TLDR as one paragraph", () => {
+    expect(
+      tldrMisses("Exports are one click now:\nthey used to need a copy."),
+    ).toEqual([]);
+  });
+
+  it("skips an HTML comment left under '## TLDR'", () => {
+    expect(
+      tldrMisses("<!-- template hint -->\n\nExports used to be manual."),
+    ).toEqual([]);
+  });
+
+  it("stays silent when '## TLDR' is empty and the next heading follows", () => {
+    expect(tldrMisses("\n## Why")).toEqual([]);
+  });
+
+  it("pins the shared TLDR cap at 35 words", () => {
+    expect(TLDR_MAX_WORDS).toBe(35);
+  });
+
+  it("stays silent when the plan has no '# PR description draft'", () => {
+    const plan = CONFORMING_PLAN.replace("# PR description draft", "# Notes");
+    expect(
+      lintPlan(plan).misses.filter((m) => m.includes("drafted PR TLDR")),
+    ).toEqual([]);
+  });
+
+  it("stays silent when the draft has no '## TLDR'", () => {
+    expect(
+      lintPlan(CONFORMING_PLAN).misses.filter((m) =>
+        m.includes("drafted PR TLDR"),
+      ),
+    ).toEqual([]);
   });
 });

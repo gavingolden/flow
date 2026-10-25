@@ -9,6 +9,8 @@
 
 ## Problem Statement
 
+The todo app keeps your list in one file on disk and shows it back when you ask. If that file gets damaged, the app today shows an empty list and says nothing, so you cannot tell lost data from a list you never filled. The next thing you add then overwrites the damaged file, which costs you the only copy.
+
 - **Corruption looks like emptiness.** `loadTodos` in `src/store.ts` swallows every JSON parse error and returns `[]`, so `todo list` prints nothing for a damaged file.
 - **The next write destroys the evidence.** `todo add` after a swallowed parse error saves a fresh one-item list over the corrupt file.
 
@@ -142,4 +144,4 @@ The weakest assumption is that a hard failure on load is acceptable to a user wh
 
 ## TLDR
 
-A corrupt todo file is now reported instead of shown as an empty list.
+A damaged todo file used to show up as an empty list; now it is reported as corrupt.

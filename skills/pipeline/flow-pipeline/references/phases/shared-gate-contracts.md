@@ -85,6 +85,16 @@ brief's PM ranks highest, never an internal mechanism. On `{"found":false}`,
 change nothing: author the TLDR/WHY exactly as each site above already
 documents, with no brief clause at all.
 
+A change-summary TLDR (plan ready, gated, merged) follows the was → now
+framing in `pause-output-contract.md` `## The block` item 2 — the
+brief-priority outcome is the lead clause, then what was wrong or missing
+before and what is true now. At plan-pending-review, reuse the plan's
+`# PR description draft` → `## TLDR` (flow-plan-lint warns when it runs long
+or names no before-state), rewording only if it fails the framing; at gated
+and merged, start from the PR body's `## TLDR`. When reusing the drafted
+or PR-body TLDR, drop backticks, `$`, and double quotes before putting it in
+the `TLDR="..."` assignment, so nothing in it can run in the shell.
+
 ### Checkpoint arm signal (echo-verbatim)
 
 `flow-checkpoint` prints exactly ONE stderr line at every arm —

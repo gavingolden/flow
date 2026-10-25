@@ -6,9 +6,12 @@
  * risks, the Task breakdown heading, and a Contract block under every task.
  * Also cross-checks the machine-readable closed-path mirror
  * (excluded-paths.json) against the plan's `## Alternatives considered`
- * prose. Run by discovery itself as a self-check before returning
- * (discovery-instructions.md `# Verification`) AND by the `/flow-pipeline`
- * supervisor as a step-3 advisory backstop, next to
+ * prose. Names a `## Problem Statement` whose lead is not plain prose
+ * (opens with the premise check, a table, or a list, or carries an anchor
+ * or a code path) and warns when the drafted PR `## TLDR` runs past 35
+ * words or names no before-state. Run by discovery itself as a self-check
+ * before returning (discovery-instructions.md `# Verification`) AND by the
+ * `/flow-pipeline` supervisor as a step-3 advisory backstop, next to
  * `flow-candidate-issues --lint`.
  *
  * Advisory by design: this NEVER blocks planning. A miss is named, never
@@ -50,6 +53,7 @@ import {
   parseVettingVerdict,
   SURVEY_VERDICTS,
 } from "./flow-step3-route";
+import { TLDR_MAX_WORDS } from "./lib/gate-summary-rows";
 import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 const CONFIDENCE_RE = /\[confidence:\s*(high|medium|low)\]/g;
@@ -116,6 +120,85 @@ function checkGoalLine(planText: string, misses: string[]): void {
   if (words.length > 30) {
     misses.push(
       `warn: Goal line is ${words.length} words (advisory bound: <=30) — check for ceremony inflation`,
+    );
+  }
+}
+
+const LEAD_FIX =
+  "lead with 2-4 plain sentences (what it is for, what goes wrong today, what that costs) first";
+
+function checkProblemStatementLead(planText: string, misses: string[]): void {
+  const match = planText.match(/^## Problem Statement\s*$/m);
+  if (!match) return;
+  const body = sliceToNextHeading(
+    planText,
+    (match.index ?? 0) + match[0].length,
+  )
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split("\n")
+    .filter((line) => !/^\s*>/.test(line))
+    .join("\n");
+  const lead = body
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .find(Boolean);
+  if (!lead) {
+    misses.push("'## Problem Statement' has no lead paragraph");
+    return;
+  }
+  const opens = /^\*\*Premise check:\*\*/.test(lead)
+    ? "the premise check"
+    : lead.startsWith("|")
+      ? "a table"
+      : /^(?:[-*]|\d+\.)\s/.test(lead)
+        ? "a list"
+        : null;
+  if (opens) {
+    misses.push(`'## Problem Statement' opens with ${opens} — ${LEAD_FIX}`);
+    return;
+  }
+  if (lead.includes("[anchor:")) {
+    misses.push(
+      "'## Problem Statement' lead paragraph carries an anchor — move evidence below the lead",
+    );
+  }
+  const namesCodePath = [...lead.matchAll(/`([^`\n]+)`/g)].some(
+    (m) => /[\w.~-]\/[\w.-]/.test(m[1]) || /\.[A-Za-z]{1,5}$/.test(m[1]),
+  );
+  if (namesCodePath) {
+    misses.push(
+      "'## Problem Statement' lead paragraph names a code path — move it below the lead",
+    );
+  }
+}
+
+const BEFORE_MARKER_RE =
+  /\b(?:used to|no longer|was|were|had to|couldn't|could not|today|before|missing|without)\b/i;
+
+function checkDraftTldr(planText: string, misses: string[]): void {
+  const draft = planText.match(/^# PR description draft\s*$/m);
+  if (!draft) return;
+  const afterDraft = planText.slice((draft.index ?? 0) + draft[0].length);
+  const heading = afterDraft.match(/^## TLDR\s*$/m);
+  if (!heading) return;
+  const tldr = sliceToNextHeading(
+    afterDraft,
+    (heading.index ?? 0) + heading[0].length,
+  )
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split(/\n\s*\n/)
+    .map((p) => p.replace(/\s+/g, " ").trim())
+    .find(Boolean);
+  if (!tldr) return;
+  const words = tldr.split(/\s+/).length;
+  if (words > TLDR_MAX_WORDS) {
+    misses.push(
+      `warn: drafted PR TLDR is ${words} words (cap: ${TLDR_MAX_WORDS})`,
+    );
+  }
+  if (!BEFORE_MARKER_RE.test(tldr)) {
+    misses.push(
+      "warn: drafted PR TLDR names no before-state — say what was wrong or missing before",
     );
   }
 }
@@ -1125,6 +1208,7 @@ export function lintPlan(
       misses,
       "every plan must state the problem before the solution",
     );
+    checkProblemStatementLead(planText, misses);
     checkBehavioralContrast(planText, misses);
     checkHeadingPresent(
       planText,
@@ -1157,6 +1241,7 @@ export function lintPlan(
     checkStakesLines(planText, misses);
     checkVerdictConfidence(planText, misses);
     checkExcludedPathsMirror(planText, opts.excludedPathsJson, misses);
+    checkDraftTldr(planText, misses);
   } catch (e) {
     misses.push(
       `internal lint error (treated as advisory, non-blocking): ${e instanceof Error ? e.message : String(e)}`,

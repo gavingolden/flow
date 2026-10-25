@@ -22,7 +22,7 @@ flow-pipeline-summary --status needs-human --state-file ~/.flow/state/"$SLUG".js
 COUNTS_LINE=$(flow-pipeline-summary --status needs-human --fix-applier-result "$WORKTREE/.flow-tmp/fix-applier-result.json" --counts-line)
 flow-epic-membership --slug "$SLUG" --terminal-state needs-human  # epic-membership block (no-op for non-epic features)
 flow-browser-teardown --reap --record  # registry-driven; records outcome; always exits 0
-TLDR="<one sentence, <=25 words, the user-visible outcome for <reason>>"  # authored here, not derived; per [TLDR and WHY authoring (product brief)](shared-gate-contracts.md#tldr-and-why-authoring-product-brief)
+TLDR="<one sentence, ≤35 words: the impact and what is (or isn't) lost for <reason>, naming the change the pipeline was making in a few plain words>"  # authored here, not derived; per [TLDR and WHY authoring (product brief)](shared-gate-contracts.md#tldr-and-why-authoring-product-brief)
 flow-gate-summary --status needs-human --reason "<reason>" \
   --why "<one-line context>" --cleanup \
   --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" \

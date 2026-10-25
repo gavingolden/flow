@@ -917,7 +917,7 @@ describe("render — cancelled", () => {
 
 describe("gate-summary-rows", () => {
   describe("clampTldr", () => {
-    it("passes a ≤25-word sentence through unchanged", () => {
+    it("passes a ≤35-word sentence through unchanged", () => {
       expect(clampTldr("short and sweet")).toEqual({
         text: "short and sweet",
         truncated: false,
@@ -925,16 +925,22 @@ describe("gate-summary-rows", () => {
       });
     });
 
-    it("truncates a 26-word sentence at the word boundary with an ellipsis", () => {
-      const words = Array.from({ length: 26 }, (_, i) => `w${i + 1}`);
+    it("truncates a 36-word sentence at the word boundary with an ellipsis", () => {
+      const words = Array.from(
+        { length: TLDR_MAX_WORDS + 1 },
+        (_, i) => `w${i + 1}`,
+      );
       const result = clampTldr(words.join(" "));
       expect(result.truncated).toBe(true);
-      expect(result.words).toBe(26);
+      expect(result.words).toBe(TLDR_MAX_WORDS + 1);
       expect(result.text).toBe(words.slice(0, TLDR_MAX_WORDS).join(" ") + "…");
     });
 
-    it("counts exactly 25 words as not truncated", () => {
-      const words = Array.from({ length: 25 }, (_, i) => `w${i + 1}`);
+    it("counts exactly 35 words as not truncated", () => {
+      const words = Array.from(
+        { length: TLDR_MAX_WORDS },
+        (_, i) => `w${i + 1}`,
+      );
       expect(clampTldr(words.join(" ")).truncated).toBe(false);
     });
   });
@@ -1247,8 +1253,11 @@ describe("render — pm lens", () => {
     expect(out).not.toContain("UNTRACKED");
   });
 
-  it("a 26-word --tldr truncates at the word boundary rather than failing the render", () => {
-    const words = Array.from({ length: 26 }, (_, i) => `w${i + 1}`);
+  it("a 36-word --tldr truncates at the word boundary rather than failing the render", () => {
+    const words = Array.from(
+      { length: TLDR_MAX_WORDS + 1 },
+      (_, i) => `w${i + 1}`,
+    );
     const clamped = clampTldr(words.join(" "));
     const out = render({
       status: "gated",
@@ -2092,8 +2101,11 @@ describe("run (end-to-end CLI)", () => {
     expect(out).toContain("3 findings fixed, 1 deferred");
   });
 
-  it("a 26-word --tldr warns on stderr, truncates, and still exits 0", () => {
-    const words = Array.from({ length: 26 }, (_, i) => `w${i + 1}`);
+  it("a 36-word --tldr warns on stderr, truncates, and still exits 0", () => {
+    const words = Array.from(
+      { length: TLDR_MAX_WORDS + 1 },
+      (_, i) => `w${i + 1}`,
+    );
     const originalErr = process.stderr.write.bind(process.stderr);
     let stderrCaptured = "";
     process.stderr.write = ((chunk: unknown) => {
@@ -2125,7 +2137,7 @@ describe("run (end-to-end CLI)", () => {
       process.stderr.write = originalErr;
     }
     expect(stderrCaptured).toContain(
-      "flow-gate-summary: --tldr truncated to 25 words (got 26)",
+      `flow-gate-summary: --tldr truncated to ${TLDR_MAX_WORDS} words (got ${TLDR_MAX_WORDS + 1})`,
     );
     expect(stdoutOut.split("\n")[0].endsWith("…")).toBe(true);
   });

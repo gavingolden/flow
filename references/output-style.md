@@ -203,8 +203,9 @@ for written, asynchronous, technical-to-layperson reports.
 The applied contract lives at
 `skills/pipeline/flow-pipeline/references/pause-output-contract.md`
 `## Language contract`: the same six rules below at binding depth, plus
-five worked before/after pairs (CI failure, test failure, merge
-conflict, a gate decision needing a choice, honest uncertainty). This
+seven worked before/after pairs (CI failure, test failure, merge
+conflict, a gate decision needing a choice, honest uncertainty, and two
+change-summary pairs: fix-shaped and feature-shaped). This
 section carries the rationale; that file is the enforceable form
 agents follow at every pause point.
 
@@ -285,6 +286,12 @@ The register is calibrated from the user's explicit picks in an
   or artifact the user will actually touch (e.g. `flow ls --csv`) — even
   in the concise register. Concreteness about _what you get_ is not
   "technical detail"; it survives the cut.
+- **Change summaries: outcome, then the before.** A TLDR, plan lead, or
+  PR summary names what the change gives the reader, then what was wrong
+  or missing before; a reader who has forgotten the thread cannot rebuild
+  the before from the after. See
+  `skills/pipeline/flow-pipeline/references/pause-output-contract.md`
+  `## The block` item 2.
 - **CI/status notices: terse impact-first.** What was caught, what is
   protected, the next step — a narrative retelling is an acceptable
   second choice, technical-first never is.

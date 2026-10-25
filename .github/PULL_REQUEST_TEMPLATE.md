@@ -1,8 +1,9 @@
 ## TLDR
 
-<!-- One sentence, 25 words or fewer, naming the user-visible outcome. Name no file,
-function, or line number — name the surface the reader uses (the command, the flag,
-the artifact). Fix-shaped PR (fixes an observed defect, or the branch's dominant
+<!-- One sentence, 35 words or fewer: the user-visible outcome first, then what was wrong
+or missing before and what is true now, so a reader who has forgotten the context needs
+nothing else. Name no file, function, or line number — name the surface the reader uses
+(the command, the flag, the artifact). Fix-shaped PR (fixes an observed defect, or the branch's dominant
 commit type is `fix:`): this one sentence names the failure and the causal resolution
 together — the same failure the `**Failing:**` line under `## Why` names — so a reader
 meets the fix framing before `## Why` below. -->
