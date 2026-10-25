@@ -419,7 +419,8 @@ format. Sections:
 paragraphs unless prose is genuinely warranted; flow-shaped content (system/user flows,
 before → after comparisons) is never rendered as an arrow-paragraph. Mermaid diagrams are
 at the planner's discretion (the pre-run research findings carry no evidence on mermaid's
-effect on model comprehension either way) — never required.
+effect on model comprehension either way) — never required. Every section follows
+this, except the Problem Statement's plain-language lead, which is prose.
 
 - **Goal line** — a single `**Goal:** <one sentence>` line directly under the PRD's
   feature-title `#` heading, before `## Problem Statement`. One sentence, ≤30 words,
@@ -427,10 +428,14 @@ effect on model comprehension either way) — never required.
   restatement of the title or the request ("implement the feature described below")
   violates the contract: brevity is a contract requirement, not a style preference.
   Always present — no omit-when-empty carve-out. See the "Goal line" sub-section below.
-- **Problem Statement** — what problem this solves and why it matters (not solution
-  language). When step 3's premise check fails, open with a `**Premise check:**` line
-  naming what was assumed vs. what the codebase shows, and set `## Recommendation` to a
-  non-`Proceed` verdict; omit-when-sound (no line when the stated premise holds). A
+- **Problem Statement** — opens with a plain-language lead of 2–4 sentences (no anchors,
+  tables, lists, or internal identifiers) written for a reader with no context, in
+  reading order: what the affected thing is for, what goes wrong or is missing today, and
+  what that costs the reader; when the premise does not hold, the lead says so plainly.
+  Evidence, tables, and anchors follow the lead. Then what problem this solves and why it
+  matters (not solution language). When step 3's premise check fails, follow the lead
+  with a `**Premise check:**` line naming what was assumed vs. what the codebase shows,
+  and set `## Recommendation` to a non-`Proceed` verdict; omit-when-sound (no line when the stated premise holds). A
   threaded `PROMPT-SANITY: <note>` (triage's Prompt sanity gate reached `suspect`) counts
   as evidence for this check, and any attached/referenced file is cross-checked against
   the request's claims regardless of whether a note was threaded.
@@ -1153,8 +1158,9 @@ the description early means the PR tells a coherent story from the start.
 ````markdown
 ## TLDR
 
-<One sentence, 25 words or fewer, naming the user-visible outcome. Name no file,
-function, or line number — name the surface the reader uses (the command, the flag,
+<One sentence, 35 words or fewer: the user-visible outcome first, then what was wrong
+or missing before and what is true now, so a reader who has forgotten the context needs
+nothing else. Name no file, function, or line number — name the surface the reader uses (the command, the flag,
 the artifact). This is the same string the supervisor already authors as `$TLDR` at
 every terminal gate in `skills/pipeline/flow-pipeline/SKILL.md`; reuse it rather than
 inventing a second one. On a fix-shaped PR the sentence itself states the failure and
@@ -1363,9 +1369,10 @@ skills/pipeline/flow-pr-review/references/manual-test-rubric.md. -->
   verbatim.
 - "Why" must not contain solution language. If you catch yourself writing
   "by adding X" or "through implementing Y", rewrite to focus on the problem.
-- "TLDR" is one sentence, 25 words or fewer, naming the user-visible outcome in the
-  surface the reader uses — no file, function, or line number. On a fix-shaped PR it
-  states the failure and the causal resolution together.
+- "TLDR" is one sentence, 35 words or fewer, naming the user-visible outcome in the
+  surface the reader uses — no file, function, or line number — then what was wrong or
+  missing before and what is true now. On a fix-shaped PR it states the failure and the
+  causal resolution together.
 - "User-facing changes" and "System changes" bullets should each be testable against
   the implementation. Avoid vague bullets like "improve the user experience".
 - "Key decisions" should only include decisions where a reasonable alternative
@@ -1507,7 +1514,7 @@ When the spawn prompt carries `REVISION: <n>`, **MUST Read `<SKILL_DIR>/referenc
 - A failed premise check surfaces as a `**Premise check:**` line in the Problem
   Statement and the `## Recommendation` verdict is non-`Proceed`; a sound premise
   carries no line.
-- `flow-plan-lint` already checks the Goal line, Behavioral contrast, Recommendation, Plan risks, Cut list, Request vetting, Existing-code assessment, Method selection, the Open Questions resolution / confidence / stakes markers, task Contract blocks, and the `excluded-paths.json` mirror, and `flow-candidate-issues --lint` already checks the candidate follow-up value bars, references, and bundling — do not re-verify those by hand.
+- `flow-plan-lint` already checks the Goal line, the Problem Statement lead, the drafted PR TLDR, Behavioral contrast, Recommendation, Plan risks, Cut list, Request vetting, Existing-code assessment, Method selection, the Open Questions resolution / confidence / stakes markers, task Contract blocks, and the `excluded-paths.json` mirror, and `flow-candidate-issues --lint` already checks the candidate follow-up value bars, references, and bundling — do not re-verify those by hand.
 - **Self-check before returning:** run `flow-plan-lint --plan-md-file <the plan.md path>`
   by bare PATH name and fix every named miss. Tolerant: when the helper is missing
   from PATH, the check skips silently (same research-cache discipline as Step 1.5) —

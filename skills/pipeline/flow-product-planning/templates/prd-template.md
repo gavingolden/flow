@@ -13,12 +13,18 @@
 
 ## Problem Statement
 
-<!-- The pain, not the fix. Avoid "we need a button that…". When the step-3 premise
-     check fails, open with a **Premise check:** line naming what was assumed vs.
-     what the codebase shows (omit-when-sound — no line when the premise holds),
-     and set ## Recommendation to a non-Proceed verdict. -->
+<!-- The pain, not the fix. Avoid "we need a button that…". Open with a
+     plain-language lead of 2-4 sentences (no anchors, tables, lists, or internal
+     identifiers) for a reader with no context: what the thing is for, what goes
+     wrong or is missing today, and what that costs the reader. Evidence, tables,
+     and anchors follow the lead. When the step-3 premise check fails, follow the
+     lead with a **Premise check:** line naming what was assumed vs. what the
+     codebase shows (omit-when-sound — no line when the premise holds), and set
+     ## Recommendation to a non-Proceed verdict. -->
 
-[What problem does this solve? Why does it matter? Who is affected?]
+[Plain-language lead: what is this for, what goes wrong today, what does that cost?]
+
+[Evidence, tables, and anchors follow the lead.]
 
 ## Request vetting
 

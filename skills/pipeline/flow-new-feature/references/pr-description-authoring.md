@@ -35,8 +35,9 @@ test specs:
 ````markdown
 ## TLDR
 
-<One sentence, 25 words or fewer, naming the user-visible outcome. Name no file, function, or
-line number — name the surface the reader uses (the command, the flag, the artifact). This is
+<One sentence, 35 words or fewer: the user-visible outcome first, then what was wrong or
+missing before and what is true now, so a reader who has forgotten the context needs nothing
+else. Name no file, function, or line number — name the surface the reader uses (the command, the flag, the artifact). This is
 the same string the supervisor already authors as `$TLDR` at every terminal gate in
 `skills/pipeline/flow-pipeline/SKILL.md`; reuse it rather than inventing a second one. On a
 fix-shaped PR the sentence itself states the failure and the causal resolution together, so a
@@ -271,10 +272,10 @@ confirmation before proceeding to implementation.
   The `pr-review` skill will catch missing descriptions.
 - "Why" must focus on the user's problem, not the implementation approach.
 - Keep it concise — this is a PR description, not a design doc.
-- "TLDR" is one sentence, 25 words or fewer, naming the user-visible outcome in the surface
-  the reader uses — no file, function, or line number. It is the same string the supervisor
-  authors as `$TLDR` at a terminal gate. On a fix-shaped PR it states the failure and the
-  causal resolution together.
+- "TLDR" is one sentence, 35 words or fewer, naming the user-visible outcome in the surface
+  the reader uses — no file, function, or line number — then what was wrong or missing before
+  and what is true now. It is the same string the supervisor authors as `$TLDR` at a terminal
+  gate. On a fix-shaped PR it states the failure and the causal resolution together.
 - "User-facing changes" must be phrased in user terms (what someone running the tool will
   see or do differently), not implementation terms, and names a surface rather than a file,
   function, or line number. Deliverables belong here as capabilities, each verifiable

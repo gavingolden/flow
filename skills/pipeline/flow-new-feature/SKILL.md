@@ -499,7 +499,7 @@ skills/pipeline/flow-pr-review/references/manual-test-rubric.md. -->
 ```
 
 Full section-by-section template, worked examples, and drafting rules (one-sentence
-25-word-max "TLDR" naming a surface not a file; user-terms "User-facing changes" and
+35-word-max "TLDR" (outcome, then the before) naming a surface not a file; user-terms "User-facing changes" and
 reviewer-facing "System changes", both mandatory with `none`; no-hard-wrap) in
 [references/pr-description-authoring.md](references/pr-description-authoring.md). Save to
 `.flow-tmp/pr-description-draft.md` (`mkdir -p .flow-tmp` first) and present to the user
