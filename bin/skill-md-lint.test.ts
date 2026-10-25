@@ -4678,6 +4678,42 @@ describe("Plan-artifact section anchors (discovery-instructions.md ↔ prd-templ
   );
 });
 
+describe("Problem Statement plain-language lead (discovery-instructions.md ↔ prd-template.md)", () => {
+  it("discovery-instructions.md and prd-template.md require the plain-language lead", () => {
+    for (const [label, content] of [
+      ["discovery-instructions.md", discoveryInstructionsContent],
+      ["prd-template.md", prdTemplateContent],
+    ] as const) {
+      expect(
+        flat(content).includes(flat("plain-language lead")),
+        `${label} must require the Problem Statement's plain-language lead — ` +
+          "dropping it returns plans to an anchor-dense opening a cold reader " +
+          "cannot follow.",
+      ).toBe(true);
+    }
+  });
+
+  it("discovery-instructions.md carves the lead out of the prefer-tables rule", () => {
+    expect(
+      flat(discoveryInstructionsContent).includes(
+        flat("except the Problem Statement's plain-language lead"),
+      ),
+      "the Authoring style paragraph must carve the plain-language lead out " +
+        "of 'prefer tables and lists', or the two instructions contradict.",
+    ).toBe(true);
+  });
+
+  it("discovery-instructions.md no longer tells discovery to open with the premise check", () => {
+    expect(
+      flat(discoveryInstructionsContent).includes(
+        flat("open with a `**Premise check:**` line"),
+      ),
+      "the Problem Statement bullet must follow the lead with the premise " +
+        "check, not open with it.",
+    ).toBe(false);
+  });
+});
+
 describe("Machine-readable closed-path anchors (excluded-paths.json injection)", () => {
   it("discovery-instructions.md documents the excluded-paths.json sibling mirror", () => {
     expect(
@@ -6867,7 +6903,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       expect(
         content.includes("## TLDR"),
         `${label} must carry a \`## TLDR\` section — the one-sentence, ` +
-          "25-word-max user-visible outcome a reader meets before `## Why`. " +
+          "35-word-max user-visible outcome a reader meets before `## Why`. " +
           "Dropping it silently returns the body to a mechanism-first shape. " +
           "(Its FIRST-heading position is asserted separately, by the " +
           "outcome-first heading-order test below.)",
@@ -7021,9 +7057,19 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
     ] as const) {
       expect(
-        flat(content).includes(flat("25 words")),
-        `${label} must state the \`## TLDR\` 25-word cap. Dropping it lets ` +
+        flat(content).includes(flat("35 words")),
+        `${label} must state the \`## TLDR\` 35-word cap. Dropping it lets ` +
           "the one-sentence outcome sprawl into a paragraph.",
+      ).toBe(true);
+      expect(
+        flat(content).includes(flat("25 words")),
+        `${label} still states the superseded \`## TLDR\` 25-word cap.`,
+      ).toBe(false);
+      expect(
+        flat(content).includes(flat("what was wrong or missing before")),
+        `${label} must state the \`## TLDR\` was -> now rule — the outcome, ` +
+          "then what was wrong or missing before. Dropping it returns every " +
+          "PR TLDR to an after-only shape a cold reader cannot use.",
       ).toBe(true);
       expect(
         flat(content).includes(flat("no file, function, or line number")),
@@ -10138,6 +10184,77 @@ describe("pause-output contract wiring lint", () => {
     expect(agentsTemplateRefAgentConductContent).toContain(
       "**Explain problems impact-first in plain language.**",
     );
+  });
+
+  it("the pause TLDR rule carries the was -> now framing and its worked pairs", () => {
+    const c = flat(fs.readFileSync(CONTRACT_PATH, "utf8"));
+    const gate = flat(
+      fs.readFileSync(
+        path.join(
+          REPO_ROOT,
+          "skills",
+          "pipeline",
+          "flow-pipeline",
+          "references",
+          "phases",
+          "shared-gate-contracts.md",
+        ),
+        "utf8",
+      ),
+    );
+    for (const [label, content] of [
+      ["pause-output-contract.md", c],
+      ["shared-gate-contracts.md", gate],
+    ] as const) {
+      expect(
+        content.includes("what was wrong or missing before"),
+        `${label} must state the was -> now TLDR rule.`,
+      ).toBe(true);
+    }
+    for (const phrase of [
+      "**Change summary, fix-shaped (plan ready):**",
+      "**Change summary, feature-shaped (merged):**",
+      "naming the change the pipeline was making",
+    ]) {
+      expect(
+        c.includes(phrase),
+        `pause-output-contract.md must carry '${phrase}'.`,
+      ).toBe(true);
+    }
+    const after = c.match(
+      /\*\*Change summary, fix-shaped \(plan ready\):\*\* > Before:.*? > After: (.*?) \*\*Change summary, feature-shaped/,
+    );
+    expect(
+      after,
+      "the fix-shaped pair must carry an After sentence",
+    ).not.toBeNull();
+    expect(
+      after![1].includes("`"),
+      "the fix-shaped After sentence must carry no command, flag, or file name (no backticks).",
+    ).toBe(false);
+  });
+
+  it("the plan-ready, gated, and merged TLDR placeholders carry the was -> now template", () => {
+    const phasesDir = path.join(
+      REPO_ROOT,
+      "skills",
+      "pipeline",
+      "flow-pipeline",
+      "references",
+      "phases",
+    );
+    for (const file of [
+      "step-03-plan.md",
+      "step-09-gate.md",
+      "step-11-follow-ups.md",
+    ]) {
+      expect(
+        flat(fs.readFileSync(path.join(phasesDir, file), "utf8")).includes(
+          "used to <problem>; now <new behaviour>",
+        ),
+        `${file} must carry the TLDR template 'used to <problem>; now <new behaviour>'.`,
+      ).toBe(true);
+    }
   });
 
   it("pause-output-contract.md carries the Step contract section", () => {
