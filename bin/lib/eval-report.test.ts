@@ -447,7 +447,11 @@ describe("compareReports", () => {
 
   function metricsScenario(
     metrics: Record<string, number[]>,
-    opts: { score?: number; statuses?: RunRecord["status"][] } = {},
+    opts: {
+      score?: number;
+      statuses?: RunRecord["status"][];
+      direction?: "lower" | "higher";
+    } = {},
   ): ScenarioRecord {
     const score = opts.score ?? 1;
     const names = Object.keys(metrics);
@@ -471,10 +475,10 @@ describe("compareReports", () => {
           return [
             n,
             {
-              median: sorted[Math.floor((sorted.length - 1) / 2)],
+              median: median(v),
               min: sorted[0],
               max: sorted[sorted.length - 1],
-              direction: "lower" as const,
+              direction: opts.direction ?? ("lower" as const),
               values: v,
             },
           ];
@@ -588,6 +592,36 @@ describe("compareReports", () => {
       const cmp = cmpOf({ [COST]: [0.95, 1, 1.06] }, { [COST]: [6.6] });
       expect(cmp.scenarios[0].metrics[0].verdict).toBe("worse");
       expect(cmp.regressions).toEqual([`s1: ${COST}`]);
+    });
+
+    it("a null override re-bands a default gated metric to --tolerance", () => {
+      const cmp = cmpOf(
+        { [COST]: [1] },
+        { [COST]: [1.3] },
+        { gateMetrics: { [COST]: null } },
+      );
+      expect(cmp.scenarios[0].metrics[0].gateBand).toBe(0.1);
+      expect(cmp.regressions).toEqual([`s1: ${COST}`]);
+    });
+
+    it("a gated higher-is-better metric regresses on a drop past the band", () => {
+      const M = "custom.hits";
+      const run = (cand: number) =>
+        compareReports(
+          makeReport({
+            scenarios: [
+              metricsScenario({ [M]: [10] }, { direction: "higher" }),
+            ],
+          }),
+          makeReport({
+            scenarios: [
+              metricsScenario({ [M]: [cand] }, { direction: "higher" }),
+            ],
+          }),
+          { gateMetrics: { [M]: 0.2 } },
+        );
+      expect(run(5).regressions).toEqual([`s1: ${M}`]);
+      expect(run(9).regressions).toEqual([]);
     });
 
     it("--gate-metric style override gates an otherwise ungated metric", () => {
@@ -842,5 +876,8 @@ describe("renderComparison", () => {
     expect(md.indexOf("## Non-failing shifts")).toBeLessThan(
       md.indexOf("## Warnings"),
     );
+    base.scenarios[0].score = 0.5;
+    const noDrop = renderComparison(compareReports(base, cand));
+    expect(noDrop).not.toContain("candidate runs did not pass");
   });
 });

@@ -68,12 +68,12 @@ Decision E in the plan, as written before the arms ran:
 
 ## Verdicts
 
-| Suite                    | Score before | Score after | finalContextTokens | total_cost_usd | Verdict                                             |
-| ------------------------ | ------------ | ----------- | ------------------ | -------------- | --------------------------------------------------- |
-| phase-write-fidelity     | 0.980 (4/5)  | 0.633 (1/5) | 128k → 127k        | $5.61 → $20.86 | fail (unmeasured: stage A stopped at turn-end)      |
-| verify-loop-isolation    | 0.964 (1/2)  | 0.700 (0/2) | 145k → 148k        | $3.44 → $6.62  | fail (unmeasured: stage A stopped at turn-end)      |
-| checkpoint-pending-clear | 1.000 (4/4)  | 0.950 (3/4) | 87k → 75k          | $7.65 → $6.36  | fail (cost/duration noise at n=2; not port-related) |
-| haiku-gatekeeper         | 0.875 (3/6)  | 0.917 (5/6) | 62k → 62k          | $1.80 → $1.75  | fail (cost/duration noise at n=2; not port-related) |
+| Suite                    | Score before | Score after | finalContextTokens | total_cost_usd | Verdict                                                              |
+| ------------------------ | ------------ | ----------- | ------------------ | -------------- | -------------------------------------------------------------------- |
+| phase-write-fidelity     | 0.980 (4/5)  | 0.633 (1/5) | 128k → 127k        | $5.61 → $20.86 | fail (unmeasured: stage A stopped at turn-end)                       |
+| verify-loop-isolation    | 0.964 (1/2)  | 0.700 (0/2) | 145k → 148k        | $3.44 → $6.62  | fail (unmeasured: stage A stopped at turn-end)                       |
+| checkpoint-pending-clear | 1.000 (4/4)  | 0.950 (3/4) | 87k → 75k          | $7.65 → $6.36  | fail (score: 1 of 2 candidate runs failed two gates; see correction) |
+| haiku-gatekeeper         | 0.875 (3/6)  | 0.917 (5/6) | 62k → 62k          | $1.80 → $1.75  | fail (cost/duration noise at n=2; not port-related)                  |
 
 **Correction (2026-10-21):** the table row's cost/duration attribution for
 `checkpoint-pending-clear` is wrong — its compare red came from its score

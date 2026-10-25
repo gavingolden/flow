@@ -467,8 +467,11 @@ root from the checkout you invoke `bun bin/flow-eval.ts` from
 `~/.flow/claude-home/` install — so measuring a branch under test is just
 running `flow-eval` from that branch's checkout or worktree. No
 repointing the global install and no restore step, unless the branch adds
-an `agents/core/` definition: then `run` skips as `flow-agents-missing`,
-and its notice names the install and restore commands:
+an `agents/core/` definition (then `run` skips as `flow-agents-missing`,
+and its notice names the install and restore commands) or edits one (the
+presence-only check cannot see that, so the run would measure the installed
+copy from main; repoint with `flow install --upgrade --source <checkout>`
+first):
 
 ```sh
 cd <branch-checkout-or-worktree>

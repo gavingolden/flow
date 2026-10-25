@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ablationLeakGate, buildGraderContext, type Deps } from "./eval-cli";
+import {
+  ablationLeakGate,
+  buildGraderContext,
+  listTreeAgentFiles,
+  type Deps,
+} from "./eval-cli";
 import type { MaterializedFixture } from "./eval-fixture";
 import type { ResolvedScenario } from "./eval-suite";
 import { transcriptMetrics } from "./eval-transcript";
@@ -179,5 +184,35 @@ describe("ablationLeakGate", () => {
     expect(grade.pass).toBe(false);
     expect(grade.actual).toBe("transcript empty");
     expect(grade.detail).toContain("no transcript at all");
+  });
+});
+
+describe("listTreeAgentFiles", () => {
+  it("lists only .md files", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agents-"));
+    try {
+      fs.writeFileSync(path.join(dir, "a.md"), "");
+      fs.writeFileSync(path.join(dir, "b.txt"), "");
+      expect(listTreeAgentFiles(dir)).toEqual(["a.md"]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("treats a missing directory as empty", () => {
+    expect(
+      listTreeAgentFiles(path.join(os.tmpdir(), "no-such-agents-dir")),
+    ).toEqual([]);
+  });
+
+  it("surfaces a non-ENOENT read error instead of silently disabling the check", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agents-"));
+    const file = path.join(dir, "not-a-dir");
+    try {
+      fs.writeFileSync(file, "");
+      expect(() => listTreeAgentFiles(file)).toThrow(/ENOTDIR/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

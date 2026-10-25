@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { main, parseArgs, type Deps } from "./lib/eval-cli";
 import { materializeFixture } from "./lib/eval-fixture";
 import { gradeAll } from "./lib/eval-graders";
-import { buildChildArgv } from "./lib/eval-runner";
+import { buildChildArgv, probeFlowInstall } from "./lib/eval-runner";
 import type { EvalReport } from "./lib/eval-report";
 
 // No test in this file ever spawns a real `claude` or `gh` process: every
@@ -213,6 +213,13 @@ describe("parseArgs", () => {
       });
     });
 
+    it("keeps a metric named __proto__ as an own key rather than dropping it", () => {
+      const parsed = cmp("--gate-metric", "__proto__") as {
+        gateMetrics: object;
+      };
+      expect(Object.keys(parsed.gateMetrics)).toEqual(["__proto__"]);
+    });
+
     it("name=n carries an explicit band, repeatable, split on the first =", () => {
       expect(
         cmp(
@@ -296,7 +303,7 @@ describe("main run — availability skip paths", () => {
         progressLines.some(
           (l) =>
             l ===
-            `flow-eval: skipped — ${scenario.expected === "flow-not-installed" ? "flow is not installed" : scenario.expected === "claude-not-on-path" ? "claude is not on PATH" : "claude is not authenticated"} (vitest remains the CI gate; install and log in to Claude Code to run evals)\n`,
+            `flow-eval: skipped — ${scenario.expected === "flow-not-installed" ? "flow is not installed" : scenario.expected === "claude-not-on-path" ? "claude is not on PATH" : "claude is not authenticated"}${scenario.expected.startsWith("claude-") ? " (vitest remains the CI gate; install and log in to Claude Code to run evals)" : " (vitest remains the CI gate)"}\n`,
         ),
       ).toBe(true);
       const report: EvalReport = JSON.parse(
@@ -305,6 +312,35 @@ describe("main run — availability skip paths", () => {
       expect(report.skipped?.reason).toBe(scenario.expected);
     });
   }
+});
+
+describe("main run — agent-install guard wiring", () => {
+  it("passes the tree's agent list to the real install probe and skips before any spend", async () => {
+    const fs = memFs(baseFiles());
+    const progressLines: string[] = [];
+    const runScenarioOnce = vi.fn() as unknown as Deps["runScenarioOnce"];
+    const deps = fakeDeps(fs, {
+      probeFlowInstall,
+      exists: (p) => fs.exists(p) || p.endsWith("flow-module-core/agents"),
+      treeAgentFiles: () => ["flow-x.md"],
+      runScenarioOnce,
+      progress: (l) => progressLines.push(l),
+    });
+    const code = await main(
+      ["run", "--suite", "fake-suite", "--out", "out", "--evals-dir", "evals"],
+      deps,
+    );
+    expect(code).toBe(0);
+    const report: EvalReport = JSON.parse(
+      fs.readFile(path.join("out", "fake-suite", "report.json")),
+    );
+    expect(report.skipped?.reason).toBe("flow-agents-missing");
+    const out = progressLines.join("");
+    expect(out).toContain("flow-x.md");
+    expect(out).not.toContain("<this checkout>");
+    expect(out).not.toContain("log in to Claude Code");
+    expect(runScenarioOnce).not.toHaveBeenCalled();
+  });
 });
 
 describe("main run — nonexistent suite", () => {
@@ -1156,6 +1192,7 @@ describe("main compare — committed f6 report replay", () => {
   async function compareWith(
     mem: MemFs,
     extra: string[],
+    failOnRegression = true,
   ): Promise<{ code: number; stdout: string; progress: string[] }> {
     const progress: string[] = [];
     const stdoutSpy = vi
@@ -1169,7 +1206,7 @@ describe("main compare — committed f6 report replay", () => {
           "base.json",
           "--candidate",
           "cand.json",
-          "--fail-on-regression",
+          ...(failOnRegression ? ["--fail-on-regression"] : []),
           ...extra,
         ],
         fakeDeps(mem, { progress: (l) => progress.push(l) }),
@@ -1209,18 +1246,43 @@ describe("main compare — committed f6 report replay", () => {
   });
 
   it("refuses a skipped candidate report with exit 2, with or without --fail-on-regression", async () => {
+    for (const flag of [true, false]) {
+      const mem = replayFs("haiku-gatekeeper");
+      const skipped = {
+        ...JSON.parse(mem.readFile("cand.json")),
+        skipped: { reason: "flow-agents-missing", notice: "missing flow-x.md" },
+      };
+      mem.writeFile("cand.json", JSON.stringify(skipped));
+      const { code, progress } = await compareWith(mem, [], flag);
+      expect(code).toBe(2);
+      expect(progress.join("")).toContain(
+        "cannot compare — candidate report was skipped (flow-agents-missing): missing flow-x.md",
+      );
+    }
+  });
+
+  it("refuses a skipped base report with exit 2", async () => {
     const mem = replayFs("haiku-gatekeeper");
-    const skipped = {
-      ...JSON.parse(mem.readFile("cand.json")),
-      skipped: { reason: "flow-agents-missing", notice: "missing flow-x.md" },
-    };
-    mem.writeFile("cand.json", JSON.stringify(skipped));
-    const { code, progress } = await compareWith(mem, []);
+    mem.writeFile(
+      "base.json",
+      JSON.stringify({
+        ...JSON.parse(mem.readFile("base.json")),
+        skipped: { reason: "flow-agents-missing", notice: "missing flow-x.md" },
+      }),
+    );
+    const { code, progress } = await compareWith(mem, [], false);
     expect(code).toBe(2);
     expect(progress.join("")).toContain(
-      "cannot compare — candidate report was skipped (flow-agents-missing): missing flow-x.md",
+      "cannot compare — base report was skipped",
     );
   });
+
+  it.each(["phase-write-fidelity", "verify-loop-isolation"])(
+    "%s still exits 1",
+    async (suite) => {
+      expect((await compareWith(replayFs(suite), [])).code).toBe(1);
+    },
+  );
 
   it("refuses a --gate-metric name found in neither report with exit 2 and prints no table", async () => {
     const { code, stdout, progress } = await compareWith(
@@ -1232,6 +1294,8 @@ describe("main compare — committed f6 report replay", () => {
     expect(progress.join("")).toContain(
       "--gate-metric names a metric in neither report: result.duration",
     );
+    expect(progress.join("")).toContain("available: ");
+    expect(progress.join("")).toContain("result.duration_ms");
   });
 });
 

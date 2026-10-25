@@ -671,6 +671,7 @@ export type Comparison = {
   regressions: string[];
   nonFailingShifts: string[];
   unknownGateMetrics: string[];
+  reportedMetricNames: string[];
   warnings: string[];
   environmentMismatch: boolean;
 };
@@ -826,6 +827,7 @@ export function compareReports(
     regressions,
     nonFailingShifts,
     unknownGateMetrics,
+    reportedMetricNames: [...reportedMetricNames].sort(),
     warnings,
     environmentMismatch,
   };

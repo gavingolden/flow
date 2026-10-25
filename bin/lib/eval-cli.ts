@@ -687,11 +687,17 @@ async function runVerb(args: RunArgs, deps: Deps): Promise<number> {
 
   const suiteIds =
     args.suites === "all" ? listSuiteDirs(args.evalsDir, deps) : args.suites;
-  const availability = deps.probeFlowInstall(
+  const probed = deps.probeFlowInstall(
     deps.exists,
     undefined,
     deps.treeAgentFiles(),
   ) satisfies ClaudeAvailability;
+  const availability: ClaudeAvailability = probed.ok
+    ? probed
+    : {
+        ...probed,
+        notice: probed.notice.replace("<this checkout>", ownCheckoutRoot()),
+      };
   const resolvedAvailability: ClaudeAvailability = availability.ok
     ? deps.probeClaude(args.claudeBin)
     : availability;
@@ -712,9 +718,10 @@ async function runVerb(args: RunArgs, deps: Deps): Promise<number> {
     reports.push(report);
 
     if (report.skipped) {
-      deps.progress(
-        `flow-eval: skipped — ${report.skipped.notice} (vitest remains the CI gate; install and log in to Claude Code to run evals)\n`,
-      );
+      const hint = report.skipped.reason.startsWith("claude-")
+        ? " (vitest remains the CI gate; install and log in to Claude Code to run evals)"
+        : " (vitest remains the CI gate)";
+      deps.progress(`flow-eval: skipped — ${report.skipped.notice}${hint}\n`);
     }
   }
 
@@ -734,6 +741,16 @@ async function runVerb(args: RunArgs, deps: Deps): Promise<number> {
   }
 
   return 0;
+}
+
+/** `.md` agent definitions in `dir`; a missing dir is empty, any other read error surfaces. */
+export function listTreeAgentFiles(dir: string): string[] {
+  try {
+    return fs.readdirSync(dir).filter((f) => f.endsWith(".md"));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
 }
 
 export async function main(
@@ -777,15 +794,8 @@ export async function main(
     readdir: (p) => fs.readdirSync(p),
     progress: (line) => process.stderr.write(line + "\n"),
     sessionId: () => randomUUID(),
-    treeAgentFiles: () => {
-      try {
-        return fs
-          .readdirSync(path.join(ownCheckoutRoot(), "agents", "core"))
-          .filter((f) => f.endsWith(".md"));
-      } catch {
-        return [];
-      }
-    },
+    treeAgentFiles: () =>
+      listTreeAgentFiles(path.join(ownCheckoutRoot(), "agents", "core")),
     ...deps,
   };
 
@@ -838,7 +848,7 @@ export async function main(
     ] as const) {
       if (r.skipped) {
         fullDeps.progress(
-          `flow-eval: cannot compare — ${which} report was skipped (${r.skipped.reason}): ${r.skipped.notice}`,
+          `flow-eval: cannot compare — ${which} report was skipped (${r.skipped.reason}): ${r.skipped.notice}\n`,
         );
         return 2;
       }
@@ -849,7 +859,7 @@ export async function main(
     });
     if (cmp.unknownGateMetrics.length > 0) {
       fullDeps.progress(
-        `flow-eval: cannot compare — --gate-metric names a metric in neither report: ${cmp.unknownGateMetrics.join(", ")}`,
+        `flow-eval: cannot compare — --gate-metric names a metric in neither report: ${cmp.unknownGateMetrics.join(", ")} (available: ${cmp.reportedMetricNames.join(", ")})\n`,
       );
       return 2;
     }
