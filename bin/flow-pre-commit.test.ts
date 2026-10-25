@@ -2404,6 +2404,18 @@ describe(formatJsonReport, () => {
     expect(parsedEmpty).not.toHaveProperty("unmatchedFiles");
   });
 
+  it("copies earlierRunSavedMs when present and omits it when absent", () => {
+    const withSaving = JSON.parse(
+      formatJsonReport(createReport({ earlierRunSavedMs: 1234 })),
+    ) as JsonReport;
+    expect(withSaving.earlierRunSavedMs).toBe(1234);
+
+    const without = JSON.parse(
+      formatJsonReport(createReport({})),
+    ) as JsonReport;
+    expect(without).not.toHaveProperty("earlierRunSavedMs");
+  });
+
   it("emits skipReason on a per-result entry when it is set", () => {
     const report = createReport({
       scopes: ["actions"] as Scope[],

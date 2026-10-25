@@ -5,9 +5,13 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { withoutGitLocalEnv } from "./git-local-env";
 import {
+  discardVerifiedTree,
   readVerifiedTree,
   recordVerifiedTree,
+  reusablePasses,
+  VERIFIED_TREE_MAX_AGE_MS,
   workingTreeId,
+  type VerifiedTreeMemo,
 } from "./verified-tree";
 
 const ENV: NodeJS.ProcessEnv = {
@@ -30,8 +34,27 @@ const pass = (cmd: string, extra: object = {}) => ({
   ...extra,
 });
 
+const memoOf = (
+  at: string,
+  extra: Partial<VerifiedTreeMemo> = {},
+): VerifiedTreeMemo => ({
+  version: 2,
+  tree: "T1",
+  passed: { k: { name: "npm run test", durationMs: 50, at } },
+  failed: {},
+  ...extra,
+});
+
 describe("verified-tree", () => {
   let repo: string;
+  const memoFile = () =>
+    git(
+      repo,
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-path",
+      "flow-verified-tree.json",
+    );
   beforeEach(() => {
     repo = fs.realpathSync(
       fs.mkdtempSync(path.join(os.tmpdir(), "flow-verified-tree-test-")),
@@ -162,22 +185,31 @@ describe("verified-tree", () => {
       expect(readVerifiedTree(repo)?.passed).toEqual({});
     });
 
-    it("reads a corrupt file as null", () => {
+    it("reads a corrupt file, a v1 memo, or a v2 memo without failed as null", () => {
       recordVerifiedTree("T1", [pass("npm run test")], repo);
-      const p = git(
-        repo,
-        "rev-parse",
-        "--path-format=absolute",
-        "--git-path",
-        "flow-verified-tree.json",
-      );
+      const p = memoFile();
       fs.writeFileSync(p, "{not json");
+      expect(readVerifiedTree(repo)).toBeNull();
+      fs.writeFileSync(
+        p,
+        JSON.stringify({ version: 1, tree: "x", passed: {} }),
+      );
       expect(readVerifiedTree(repo)).toBeNull();
       fs.writeFileSync(
         p,
         JSON.stringify({ version: 2, tree: "x", passed: {} }),
       );
       expect(readVerifiedTree(repo)).toBeNull();
+    });
+
+    it("does not replay a pass after the same check failed on the tree", () => {
+      const key = JSON.stringify(["npm", "run", "test"]);
+      recordVerifiedTree("T1", [pass("npm run test", { passed: false })], repo);
+      recordVerifiedTree("T1", [pass("npm run test")], repo);
+      const memo = readVerifiedTree(repo);
+      expect(Object.keys(memo?.failed ?? {})).toEqual([key]);
+      expect(memo?.passed).toEqual({});
+      expect(reusablePasses(memo, "T1", Date.now()).size).toBe(0);
     });
 
     it("never throws outside a repository", () => {
@@ -195,6 +227,67 @@ describe("verified-tree", () => {
     it("keeps the memo in the worktree's private git folder, out of status", () => {
       recordVerifiedTree("T1", [pass("npm run test")], repo);
       expect(git(repo, "status", "--porcelain")).toBe("");
+    });
+  });
+
+  describe("reusablePasses", () => {
+    const now = Date.parse("2026-01-01T01:00:00.000Z");
+    const iso = (ms: number) => new Date(ms).toISOString();
+
+    it("returns a fresh same-tree pass", () => {
+      const out = reusablePasses(memoOf(iso(now - 1000)), "T1", now);
+      expect([...out.keys()]).toEqual(["k"]);
+      expect(out.get("k")).toEqual({ name: "npm run test", durationMs: 50 });
+    });
+
+    it("keeps an entry exactly at the max age and excludes an older one", () => {
+      const edge = iso(now - VERIFIED_TREE_MAX_AGE_MS);
+      expect(reusablePasses(memoOf(edge), "T1", now).size).toBe(1);
+      const stale = iso(now - VERIFIED_TREE_MAX_AGE_MS - 1);
+      expect(reusablePasses(memoOf(stale), "T1", now).size).toBe(0);
+    });
+
+    it("honours an injected max age", () => {
+      expect(
+        reusablePasses(memoOf(iso(now - 5000)), "T1", now, 1000).size,
+      ).toBe(0);
+    });
+
+    it("excludes an unparseable or future-dated timestamp", () => {
+      expect(reusablePasses(memoOf("not a date"), "T1", now).size).toBe(0);
+      expect(reusablePasses(memoOf(iso(now + 1000)), "T1", now).size).toBe(0);
+    });
+
+    it("is empty for a different tree, a null tree, or a null memo", () => {
+      const memo = memoOf(iso(now));
+      expect(reusablePasses(memo, "T2", now).size).toBe(0);
+      expect(reusablePasses(memo, null, now).size).toBe(0);
+      expect(reusablePasses(null, "T1", now).size).toBe(0);
+    });
+
+    it("excludes a key that is in failed", () => {
+      const memo = memoOf(iso(now), {
+        failed: { k: { name: "npm run test", at: iso(now) } },
+      });
+      expect(reusablePasses(memo, "T1", now).size).toBe(0);
+    });
+  });
+
+  describe("discardVerifiedTree", () => {
+    it("removes a memo that belongs to the tree", () => {
+      recordVerifiedTree("T1", [pass("npm run test")], repo);
+      discardVerifiedTree("T1", repo);
+      expect(readVerifiedTree(repo)).toBeNull();
+      expect(fs.existsSync(memoFile())).toBe(false);
+    });
+
+    it("leaves a memo for another tree, and tolerates null or no memo", () => {
+      recordVerifiedTree("T1", [pass("npm run test")], repo);
+      discardVerifiedTree("T2", repo);
+      discardVerifiedTree(null, repo);
+      expect(readVerifiedTree(repo)?.tree).toBe("T1");
+      fs.rmSync(memoFile());
+      expect(() => discardVerifiedTree("T1", repo)).not.toThrow();
     });
   });
 });

@@ -13,6 +13,7 @@
  *   flow-pre-commit --pr 126           # detect from PR changed files
  *   flow-pre-commit --scope src        # explicit scope
  *   flow-pre-commit --pre-push         # read refs from stdin (git hook)
+ *   flow-pre-commit --reuse-verified-tree  # replay same-tree passes
  */
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
@@ -22,8 +23,10 @@ import { resolveChecks, npmRunCheck, type CheckDef } from "./lib/stack-table";
 import { checkKey, isReadOnlyVerifier, runDeduped } from "./lib/check-dedupe";
 import { withoutGitLocalEnv } from "./lib/git-local-env";
 import {
+  discardVerifiedTree,
   readVerifiedTree,
   recordVerifiedTree,
+  reusablePasses,
   workingTreeId,
 } from "./lib/verified-tree";
 import { withTestSemaphore } from "./lib/lock";
@@ -168,6 +171,8 @@ export type JsonReport = {
   scopes: ScopeName[];
   results: JsonResult[];
   allPassed: boolean;
+  /** Time the checks reused from an earlier run on this tree avoided. */
+  earlierRunSavedMs?: number;
   changedFiles?: string[];
   unmatchedFiles?: string[];
   reason?: "no-checks-defined" | "unmatched-files";
@@ -1576,6 +1581,9 @@ export function formatJsonReport(report: CheckReport): string {
     json.unmatchedFiles = report.unmatchedFiles;
   }
   if (report.reason) json.reason = report.reason;
+  if (report.earlierRunSavedMs) {
+    json.earlierRunSavedMs = report.earlierRunSavedMs;
+  }
   return JSON.stringify(json, null, 2);
 }
 
@@ -1592,6 +1600,11 @@ Options:
   --scope <scopes>   Comma-separated scopes: src, scripts, docs, actions, backend
   --pr <number>      Detect scopes from PR changed files
   --pre-push         Read refs from stdin (used by .githooks/pre-push)
+  --reuse-verified-tree
+                     Replay read-only passes an earlier run recorded on this
+                     exact tree (at most 30 minutes old, never for a check
+                     that failed on it). /flow-verify passes this flag;
+                     without it (outside --pre-push) every check executes.
   --json             Emit a single bounded JSON object on stdout instead
                      of the human-readable report. Failures include a
                      {firstErrorLine, firstErrorText, headExcerpt,
@@ -1625,9 +1638,11 @@ The lint check is skipped when no 'lint' npm script is defined.
 Identical read-only checks (test, lint, typecheck, …) run once per
 invocation; later scopes reuse the first result and are labelled
 'reused from <scope>'. Any other command always runs.
-With --pre-push on a clean tree that an earlier all-read-only run already
-passed, those passes are reused too ('reused from an earlier run on this
-exact tree'). Each check reports its own pass/fail.
+With --pre-push on a clean tree, or with --reuse-verified-tree on any tree,
+passes an earlier all-read-only run recorded on that exact tree are reused
+too ('reused from an earlier run on this exact tree') when they are at most
+30 minutes old and the check never failed on the tree. A run whose checks
+change any non-ignored file (tracked or new) records nothing. Each check reports its own pass/fail.
   `);
 }
 
@@ -1685,27 +1700,30 @@ function executeScopedCheck(
 }
 
 /**
- * Seeds the push-time reuse table from the same-tree memo. Only when every
- * pushed non-delete local sha is HEAD and the clean tree is exactly the one
- * the memo recorded — anything else (a dirty tree, an older sha, a tree no
- * check has seen) leaves every check to run.
+ * Seeds the reuse table from the same-tree memo. With `refs` (push gating)
+ * only when every pushed non-delete local sha is HEAD and the clean tree is
+ * exactly the one the memo recorded; without `refs` (--reuse-verified-tree)
+ * any tree the memo matches. Either way `reusablePasses` applies the
+ * freshness and never-failed filter.
  */
 function seedFromVerifiedTree(
-  refs: PrePushRef[],
   tree: string | null,
+  refs?: PrePushRef[],
 ): Map<string, CheckResult> | undefined {
   if (!tree) return undefined;
-  const pushed = refs.filter((r) => !/^0+$/.test(r.localSha));
-  if (pushed.length === 0) return undefined;
-  const head = run(["git", "rev-parse", "HEAD"]);
-  const headTree = run(["git", "rev-parse", "HEAD^{tree}"]);
-  if (head.exitCode !== 0 || headTree.exitCode !== 0) return undefined;
-  if (headTree.stdout !== tree) return undefined;
-  if (pushed.some((r) => r.localSha !== head.stdout)) return undefined;
-  const memo = readVerifiedTree();
-  if (!memo || memo.tree !== tree) return undefined;
+  if (refs) {
+    const pushed = refs.filter((r) => !/^0+$/.test(r.localSha));
+    if (pushed.length === 0) return undefined;
+    const head = run(["git", "rev-parse", "HEAD"]);
+    const headTree = run(["git", "rev-parse", "HEAD^{tree}"]);
+    if (head.exitCode !== 0 || headTree.exitCode !== 0) return undefined;
+    if (headTree.stdout !== tree) return undefined;
+    if (pushed.some((r) => r.localSha !== head.stdout)) return undefined;
+  }
+  const passes = reusablePasses(readVerifiedTree(), tree, Date.now());
+  if (passes.size === 0) return undefined;
   const seeds = new Map<string, CheckResult>();
-  for (const [key, entry] of Object.entries(memo.passed)) {
+  for (const [key, entry] of passes) {
     seeds.set(key, {
       name: entry.name,
       scope: EARLIER_RUN_SCOPE,
@@ -1756,6 +1774,12 @@ function recordPassesForTree(
 ): void {
   if (!tree || planned.length === 0) return;
   if (!planned.every((p) => isReadOnlyVerifier(p.argv))) return;
+  // A check that changed any non-ignored file (tracked or new) means the passes belong to a tree the
+  // run itself replaced; record nothing and drop any memo for the start tree.
+  if (workingTreeId() !== tree) {
+    discardVerifiedTree(tree);
+    return;
+  }
   recordVerifiedTree(
     tree,
     planned.flatMap((p, i) =>
@@ -1798,8 +1822,8 @@ async function main(): Promise<void> {
   // Dynamic scopes claimed via auto-detect/config, keyed by name for the
   // run loop. Empty on the --scope path (no diff to detect against).
   let dynamicScopes: DynamicScope[] = [];
-  // Passes from an earlier run on this exact tree; only ever set in --pre-push
-  // (/flow-verify and every other mode observe the worktree fresh).
+  // Passes from an earlier run on this exact tree; only set in --pre-push or
+  // with --reuse-verified-tree (every other run observes the worktree fresh).
   let priorResults: Map<string, CheckResult> | undefined;
   const scopeIdx = args.indexOf("--scope");
   const prIdx = args.indexOf("--pr");
@@ -1818,7 +1842,7 @@ async function main(): Promise<void> {
     if (refs.length === 0) {
       process.exit(0);
     }
-    priorResults = seedFromVerifiedTree(refs, treeAtStart);
+    priorResults = seedFromVerifiedTree(treeAtStart, refs);
     changedFiles = getChangedFilesForPush(refs);
     dynamicScopes = loadDynamicScopes(computeUnmatchedFiles(changedFiles));
     scopes = detectScopesFromFiles(changedFiles, dynamicScopes);
@@ -1856,6 +1880,9 @@ async function main(): Promise<void> {
     changedFiles = getChangedFiles();
     dynamicScopes = loadDynamicScopes(computeUnmatchedFiles(changedFiles));
     scopes = detectScopesFromFiles(changedFiles, dynamicScopes);
+  }
+  if (!prePush && args.includes("--reuse-verified-tree")) {
+    priorResults = seedFromVerifiedTree(treeAtStart);
   }
 
   const definedScripts = loadDefinedNpmScripts();
