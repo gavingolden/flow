@@ -53,6 +53,7 @@ import {
   parseVettingVerdict,
   SURVEY_VERDICTS,
 } from "./flow-step3-route";
+import { TLDR_MAX_WORDS } from "./lib/gate-summary-rows";
 import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 const CONFIDENCE_RE = /\[confidence:\s*(high|medium|low)\]/g;
@@ -162,7 +163,7 @@ function checkProblemStatementLead(planText: string, misses: string[]): void {
     );
   }
   const namesCodePath = [...lead.matchAll(/`([^`\n]+)`/g)].some(
-    (m) => m[1].includes("/") || /\.[A-Za-z]{1,5}$/.test(m[1]),
+    (m) => /[\w.~-]\/[\w.-]/.test(m[1]) || /\.[A-Za-z]{1,5}$/.test(m[1]),
   );
   if (namesCodePath) {
     misses.push(
@@ -171,7 +172,6 @@ function checkProblemStatementLead(planText: string, misses: string[]): void {
   }
 }
 
-const DRAFT_TLDR_MAX_WORDS = 35;
 const BEFORE_MARKER_RE =
   /\b(?:used to|no longer|was|were|had to|couldn't|could not|today|before|missing|without)\b/i;
 
@@ -181,16 +181,19 @@ function checkDraftTldr(planText: string, misses: string[]): void {
   const afterDraft = planText.slice((draft.index ?? 0) + draft[0].length);
   const heading = afterDraft.match(/^## TLDR\s*$/m);
   if (!heading) return;
-  const tldr = afterDraft
-    .slice((heading.index ?? 0) + heading[0].length)
-    .split("\n")
-    .map((line) => line.trim())
+  const tldr = sliceToNextHeading(
+    afterDraft,
+    (heading.index ?? 0) + heading[0].length,
+  )
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split(/\n\s*\n/)
+    .map((p) => p.replace(/\s+/g, " ").trim())
     .find(Boolean);
-  if (!tldr || tldr.startsWith("#")) return;
+  if (!tldr) return;
   const words = tldr.split(/\s+/).length;
-  if (words > DRAFT_TLDR_MAX_WORDS) {
+  if (words > TLDR_MAX_WORDS) {
     misses.push(
-      `warn: drafted PR TLDR is ${words} words (cap: ${DRAFT_TLDR_MAX_WORDS})`,
+      `warn: drafted PR TLDR is ${words} words (cap: ${TLDR_MAX_WORDS})`,
     );
   }
   if (!BEFORE_MARKER_RE.test(tldr)) {

@@ -91,7 +91,9 @@ brief-priority outcome is the lead clause, then what was wrong or missing
 before and what is true now. At plan-pending-review, reuse the plan's
 `# PR description draft` → `## TLDR` (flow-plan-lint warns when it runs long
 or names no before-state), rewording only if it fails the framing; at gated
-and merged, start from the PR body's `## TLDR`.
+and merged, start from the PR body's `## TLDR`. When reusing the drafted
+or PR-body TLDR, drop backticks, `$`, and double quotes before putting it in
+the `TLDR="..."` assignment, so nothing in it can run in the shell.
 
 ### Checkpoint arm signal (echo-verbatim)
 

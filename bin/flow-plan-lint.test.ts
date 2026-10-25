@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+import { TLDR_MAX_WORDS } from "./lib/gate-summary-rows";
 import { lintDesign, lintPlan, parseArgs, run } from "./flow-plan-lint";
 
 const REPO_ROOT = path.resolve(
@@ -1756,6 +1757,12 @@ describe("lintPlan — Problem Statement lead", () => {
     }
   });
 
+  it("ignores a backticked slash command", () => {
+    for (const cmd of ["/clear", "/flow-pipeline"]) {
+      expect(leadMisses(`${PLAIN_LEAD} Type \`${cmd}\`.`)).toEqual([]);
+    }
+  });
+
   it("ignores a backticked token with no slash or extension", () => {
     expect(leadMisses(`${PLAIN_LEAD} Run \`flow-plan-lint\`.`)).toEqual([]);
   });
@@ -1793,7 +1800,10 @@ describe("lintPlan — drafted PR TLDR", () => {
     );
 
   it("warns when the drafted TLDR runs past 35 words", () => {
-    const words = Array.from({ length: 36 }, (_, i) => `w${i + 1}`);
+    const words = Array.from(
+      { length: TLDR_MAX_WORDS + 1 },
+      (_, i) => `w${i + 1}`,
+    );
     words[3] = "before";
     expect(tldrMisses(words.join(" "))).toEqual([
       "warn: drafted PR TLDR is 36 words (cap: 35)",
@@ -1824,6 +1834,26 @@ describe("lintPlan — drafted PR TLDR", () => {
     expect(
       tldrMisses("Users can export widgets, a todayish tweak."),
     ).toHaveLength(1);
+  });
+
+  it("reads a hard-wrapped TLDR as one paragraph", () => {
+    expect(
+      tldrMisses("Exports are one click now:\nthey used to need a copy."),
+    ).toEqual([]);
+  });
+
+  it("skips an HTML comment left under '## TLDR'", () => {
+    expect(
+      tldrMisses("<!-- template hint -->\n\nExports used to be manual."),
+    ).toEqual([]);
+  });
+
+  it("stays silent when '## TLDR' is empty and the next heading follows", () => {
+    expect(tldrMisses("\n## Why")).toEqual([]);
+  });
+
+  it("pins the shared TLDR cap at 35 words", () => {
+    expect(TLDR_MAX_WORDS).toBe(35);
   });
 
   it("stays silent when the plan has no '# PR description draft'", () => {

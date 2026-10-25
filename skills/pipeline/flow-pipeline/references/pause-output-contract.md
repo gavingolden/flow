@@ -22,8 +22,9 @@ markdown instead of a helper block.
    `<what you get>: <thing> used to <problem>; now <new behaviour>` or
    `… no longer <problem> …`. For a net-new feature, name the cost or
    workaround the reader was paying, never just the negated after ("you couldn't X; now you can X").
-   Thresholds, flag lists, command names, and file names belong under
-   `**Needs attention:**` or in the plan. Escalation and cancel pauses
+   Thresholds, flag lists, and file names belong under
+   `**Needs attention:**` or in the plan; name only the one user-facing
+   surface the outcome lands on, in plain words without backticks. Escalation and cancel pauses
    keep the impact + "nothing is lost" form, and when their TLDR is
    authored rather than a fixed pre-written line, add a few plain words
    naming the change the pipeline was making; Q&A pauses are unchanged.
@@ -445,9 +446,9 @@ in a feature plan's calibration appendix).
 
 > ### ⏸ GATED — PR #640, 2 checks need you
 >
-> **TLDR:** `/clear` in a finished flow window no longer leaves a
-> blank pane that looks broken: it now opens with a short turn naming
-> the merged PR; two hand checks remain.
+> **TLDR:** Clearing a finished flow window (the clear command) no
+> longer leaves a blank pane that looks broken: it now opens with a
+> short turn naming the merged PR; two hand checks remain.
 > **Needs attention:** SUBJECTIVE — in a real tmux window at `merged`,
 > `/clear` fires a turn within ~10s → https://github.com/gavingolden/flow/pull/640
 > · ask a follow-up there and confirm the answer is repo-grounded.

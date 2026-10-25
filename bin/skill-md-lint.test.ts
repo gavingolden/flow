@@ -10245,6 +10245,7 @@ describe("pause-output contract wiring lint", () => {
     );
     for (const file of [
       "step-03-plan.md",
+      "step-07-ci-wait.md",
       "step-09-gate.md",
       "step-11-follow-ups.md",
     ]) {
@@ -10255,6 +10256,44 @@ describe("pause-output contract wiring lint", () => {
         `${file} must carry the TLDR template 'used to <problem>; now <new behaviour>'.`,
       ).toBe(true);
     }
+  });
+
+  it("the needs-human TLDR placeholders name the change the pipeline was making", () => {
+    const phasesDir = path.join(
+      REPO_ROOT,
+      "skills",
+      "pipeline",
+      "flow-pipeline",
+      "references",
+      "phases",
+    );
+    for (const file of [
+      "failure-paths.md",
+      "step-07-ci-wait.md",
+      "step-09-gate.md",
+    ]) {
+      expect(
+        flat(fs.readFileSync(path.join(phasesDir, file), "utf8")).includes(
+          "naming the change the pipeline was making",
+        ),
+        `${file} must carry the escalation TLDR clause 'naming the change the pipeline was making'.`,
+      ).toBe(true);
+    }
+  });
+
+  it("no skill or PR-template file still documents a 25-word TLDR cap", () => {
+    const stale = /(≤|<=)25 words|25 words or fewer|25-word/;
+    const hits: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (stale.test(fs.readFileSync(full, "utf8"))) hits.push(full);
+      }
+    };
+    walk(path.join(REPO_ROOT, "skills"));
+    walk(path.join(REPO_ROOT, ".github"));
+    expect(hits).toEqual([]);
   });
 
   it("pause-output-contract.md carries the Step contract section", () => {
