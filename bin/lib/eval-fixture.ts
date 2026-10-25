@@ -67,7 +67,7 @@ export type MaterializedFixture = {
  * silently point an f2 branch's eval at `main`). A branch under evaluation
  * must evaluate its own tree.
  */
-function ownCheckoutRoot(): string {
+export function ownCheckoutRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 }
 

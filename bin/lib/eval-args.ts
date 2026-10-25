@@ -35,6 +35,7 @@ export type CompareArgs = {
   base: string;
   candidate: string;
   tolerance: number;
+  gateMetrics: Record<string, number | null>;
   failOnRegression: boolean;
   json: boolean;
 };
@@ -102,6 +103,7 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
     let base: string | undefined;
     let candidate: string | undefined;
     let tolerance = DEFAULTS.tolerance;
+    const gateMetrics: Record<string, number | null> = Object.create(null);
     let failOnRegression = false;
     let json = false;
     for (let i = 0; i < rest.length; i++) {
@@ -123,6 +125,21 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
         if (!Number.isFinite(n))
           return { error: "--tolerance must be a number" };
         tolerance = n;
+      } else if (flag === "--gate-metric") {
+        const eq = v.indexOf("=");
+        const name = eq === -1 ? v : v.slice(0, eq);
+        if (name === "")
+          return { error: "--gate-metric requires a metric name" };
+        if (eq === -1) gateMetrics[name] = null;
+        else {
+          const raw = v.slice(eq + 1);
+          const n = raw.trim() === "" ? NaN : Number(raw);
+          if (!Number.isFinite(n) || n < 0)
+            return {
+              error: "--gate-metric tolerance must be a non-negative number",
+            };
+          gateMetrics[name] = n;
+        }
       } else return { error: `unknown flag: ${flag}` };
       i++;
     }
@@ -133,6 +150,7 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
       base,
       candidate,
       tolerance,
+      gateMetrics,
       failOnRegression,
       json,
     };

@@ -165,6 +165,13 @@ describe("validateReport", () => {
     expect(validateReport(makeReport()).ok).toBe(true);
   });
 
+  it("accepts a skipped report with reason flow-agents-missing", () => {
+    const r = makeReport({
+      skipped: { reason: "flow-agents-missing", notice: "missing flow-x.md" },
+    });
+    expect(validateReport(r).ok).toBe(true);
+  });
+
   it("rejects a bad schemaVersion", () => {
     expect(validateReport(makeReport({ schemaVersion: 2 as 1 })).ok).toBe(
       false,
@@ -435,6 +442,63 @@ describe("renderSummary", () => {
 });
 
 describe("compareReports", () => {
+  const COST = "result.total_cost_usd";
+  const DURATION = "result.duration_ms";
+
+  function metricsScenario(
+    metrics: Record<string, number[]>,
+    opts: {
+      score?: number;
+      statuses?: RunRecord["status"][];
+      direction?: "lower" | "higher";
+    } = {},
+  ): ScenarioRecord {
+    const score = opts.score ?? 1;
+    const names = Object.keys(metrics);
+    const statuses = opts.statuses ?? ["pass"];
+    return {
+      id: "s1",
+      title: "S1",
+      status: "pass",
+      score,
+      runs: statuses.map((status, i) => ({
+        run: i + 1,
+        status,
+        score,
+        grades: [],
+        metrics: {},
+      })),
+      metrics: Object.fromEntries(
+        names.map((n) => {
+          const v = metrics[n];
+          const sorted = [...v].sort((a, b) => a - b);
+          return [
+            n,
+            {
+              median: median(v),
+              min: sorted[0],
+              max: sorted[sorted.length - 1],
+              direction: opts.direction ?? ("lower" as const),
+              values: v,
+            },
+          ];
+        }),
+      ),
+    };
+  }
+
+  function cmpOf(
+    base: Record<string, number[]>,
+    cand: Record<string, number[]>,
+    opts: Parameters<typeof compareReports>[2] = {},
+  ) {
+    return compareReports(
+      makeReport({ scenarios: [metricsScenario(base)] }),
+      makeReport({ scenarios: [metricsScenario(cand)] }),
+      opts,
+    );
+  }
+
   function median(values: number[]): number {
     const sorted = [...values].sort((a, b) => a - b);
     const mid = Math.floor(sorted.length / 2);
@@ -487,11 +551,140 @@ describe("compareReports", () => {
     expect(cmp.scenarios[0].metrics[0].verdict).toBe("better");
   });
 
-  it("marks noisy instead of worse when base spread exceeds tolerance", () => {
+  it("marks noisy instead of worse when the shift is within the base spread", () => {
     const base = makeReport({ scenarios: [scenarioWith(1, [700, 1300])] }); // wide spread around median 1000
     const cand = makeReport({ scenarios: [scenarioWith(1, [1400])] });
     const cmp = compareReports(base, cand, { tolerance: 0.1 });
     expect(cmp.scenarios[0].metrics[0].verdict).toBe("noisy");
+  });
+
+  describe("gate policy", () => {
+    it("cost +30% is worse but non-failing; +60% is a regression", () => {
+      const mild = cmpOf({ [COST]: [1] }, { [COST]: [1.3] });
+      expect(mild.scenarios[0].metrics[0].verdict).toBe("worse");
+      expect(mild.scenarios[0].metrics[0].gateBand).toBe(0.5);
+      expect(mild.regressions).toEqual([]);
+      expect(mild.nonFailingShifts).toEqual([`s1: ${COST}`]);
+      const big = cmpOf({ [COST]: [1] }, { [COST]: [1.6] });
+      expect(big.regressions).toEqual([`s1: ${COST}`]);
+      expect(big.nonFailingShifts).toEqual([]);
+    });
+
+    it("an ungated metric is recorded with no band and never regresses", () => {
+      const cmp = cmpOf({ [DURATION]: [1000] }, { [DURATION]: [1500] });
+      expect(cmp.scenarios[0].metrics[0].verdict).toBe("worse");
+      expect(cmp.scenarios[0].metrics[0].gateBand).toBeNull();
+      expect(cmp.regressions).toEqual([]);
+      expect(cmp.nonFailingShifts).toEqual([`s1: ${DURATION}`]);
+    });
+
+    it("a null-band default gate uses the run-wide tolerance", () => {
+      const cmp = cmpOf(
+        { "transcript.finalContextTokens": [1000] },
+        { "transcript.finalContextTokens": [1300] },
+        { tolerance: 0.2 },
+      );
+      expect(cmp.scenarios[0].metrics[0].gateBand).toBe(0.2);
+      expect(cmp.regressions).toEqual(["s1: transcript.finalContextTokens"]);
+    });
+
+    it("base spread of 11% does not make a +560% shift noisy", () => {
+      const cmp = cmpOf({ [COST]: [0.95, 1, 1.06] }, { [COST]: [6.6] });
+      expect(cmp.scenarios[0].metrics[0].verdict).toBe("worse");
+      expect(cmp.regressions).toEqual([`s1: ${COST}`]);
+    });
+
+    it("a null override re-bands a default gated metric to --tolerance", () => {
+      const cmp = cmpOf(
+        { [COST]: [1] },
+        { [COST]: [1.3] },
+        { gateMetrics: { [COST]: null } },
+      );
+      expect(cmp.scenarios[0].metrics[0].gateBand).toBe(0.1);
+      expect(cmp.regressions).toEqual([`s1: ${COST}`]);
+    });
+
+    it("a gated higher-is-better metric regresses on a drop past the band", () => {
+      const M = "custom.hits";
+      const run = (cand: number) =>
+        compareReports(
+          makeReport({
+            scenarios: [
+              metricsScenario({ [M]: [10] }, { direction: "higher" }),
+            ],
+          }),
+          makeReport({
+            scenarios: [
+              metricsScenario({ [M]: [cand] }, { direction: "higher" }),
+            ],
+          }),
+          { gateMetrics: { [M]: 0.2 } },
+        );
+      expect(run(5).regressions).toEqual([`s1: ${M}`]);
+      expect(run(9).regressions).toEqual([]);
+    });
+
+    it("--gate-metric style override gates an otherwise ungated metric", () => {
+      const cmp = cmpOf(
+        { [DURATION]: [1000] },
+        { [DURATION]: [1500] },
+        { gateMetrics: { [DURATION]: null } },
+      );
+      expect(cmp.regressions).toEqual([`s1: ${DURATION}`]);
+      expect(cmp.nonFailingShifts).toEqual([]);
+      expect(cmp.unknownGateMetrics).toEqual([]);
+    });
+
+    it("reports a caller-supplied gate metric found in neither report", () => {
+      const cmp = cmpOf(
+        { [DURATION]: [1000] },
+        { [DURATION]: [1000] },
+        { gateMetrics: { "result.duration": null } },
+      );
+      expect(cmp.unknownGateMetrics).toEqual(["result.duration"]);
+    });
+
+    it("default gated metrics absent from both reports are not unknown", () => {
+      const cmp = cmpOf({ [DURATION]: [1] }, { [DURATION]: [1] });
+      expect(cmp.unknownGateMetrics).toEqual([]);
+    });
+
+    it("regresses when a gated metric present in base is missing from the candidate", () => {
+      const cmp = cmpOf({ [COST]: [1], [DURATION]: [1] }, { [DURATION]: [1] });
+      expect(cmp.regressions).toEqual([`s1: ${COST} missing from candidate`]);
+    });
+
+    it("does not regress when an ungated metric is missing from the candidate", () => {
+      const cmp = cmpOf({ [DURATION]: [1], [COST]: [1] }, { [COST]: [1] });
+      expect(cmp.regressions).toEqual([]);
+    });
+
+    it("a gated metric with base median 0 that rises is a regression", () => {
+      const cmp = cmpOf({ [COST]: [0] }, { [COST]: [0.2] });
+      expect(cmp.scenarios[0].metrics[0].pct).toBeNull();
+      expect(cmp.regressions).toEqual([`s1: ${COST}`]);
+    });
+
+    it("counts non-passing candidate runs, excluding the without arm", () => {
+      const cand = metricsScenario(
+        {},
+        { score: 0.5, statuses: ["pass", "fail"] },
+      );
+      cand.runs.push({
+        ...cand.runs[0],
+        run: 3,
+        arm: "without",
+        status: "fail",
+      });
+      const cmp = compareReports(
+        makeReport({ scenarios: [metricsScenario({})] }),
+        makeReport({ scenarios: [cand] }),
+      );
+      expect(cmp.scenarios[0].candidateRuns).toEqual({
+        total: 2,
+        notPassing: 1,
+      });
+    });
   });
 
   it("flags environmentMismatch and pushes a warning on model/claudeVersion drift", () => {
@@ -542,11 +735,14 @@ describe("compareReports", () => {
     expect(cmp.regressions).toContain("s1: score");
   });
 
-  it("warns when a scenario is present in only one report", () => {
-    const base = makeReport({ scenarios: [scenarioWith(1, [1000])] });
-    const cand = makeReport({ scenarios: [] });
-    const cmp = compareReports(base, cand);
-    expect(cmp.warnings.some((w) => w.includes("only one report"))).toBe(true);
+  it("regresses on a base-only scenario and only warns on a candidate-only one", () => {
+    const withS1 = makeReport({ scenarios: [scenarioWith(1, [1000])] });
+    const empty = makeReport({ scenarios: [] });
+    const baseOnly = compareReports(withS1, empty);
+    expect(baseOnly.regressions).toContain("s1: missing from candidate");
+    const candOnly = compareReports(empty, withS1);
+    expect(candOnly.regressions).toEqual([]);
+    expect(candOnly.warnings.some((w) => w.includes("'s1'"))).toBe(true);
   });
 
   it("flags environmentMismatch and warns on childArgvDigest drift between two reports", () => {
@@ -622,5 +818,66 @@ describe("renderComparison", () => {
     expect(md).toContain("s1");
     expect(md).toContain("Regressions");
     expect(md).toContain("Warnings");
+  });
+
+  it("renders the Gated column, Non-failing shifts section, and not-passing note", () => {
+    const base = makeReport({
+      scenarios: [
+        {
+          id: "s1",
+          title: "S1",
+          status: "pass",
+          score: 1,
+          runs: [],
+          metrics: {
+            "result.total_cost_usd": {
+              median: 1,
+              min: 1,
+              max: 1,
+              direction: "lower",
+              values: [1],
+            },
+          },
+        },
+      ],
+    });
+    const cand = makeReport({
+      scenarios: [
+        {
+          id: "s1",
+          title: "S1",
+          status: "fail",
+          score: 0.5,
+          runs: [
+            { run: 1, status: "pass", score: 1, grades: [], metrics: {} },
+            { run: 2, status: "fail", score: 0, grades: [], metrics: {} },
+          ],
+          metrics: {
+            "result.total_cost_usd": {
+              median: 1.3,
+              min: 1.3,
+              max: 1.3,
+              direction: "lower",
+              values: [1.3],
+            },
+          },
+        },
+      ],
+    });
+    const md = renderComparison(compareReports(base, cand));
+    expect(md).toContain("| Verdict | Gated |");
+    expect(md).toContain("| worse | 50% |");
+    expect(md).toContain("## Non-failing shifts (1)");
+    expect(md).toContain("- s1: result.total_cost_usd");
+    expect(md).toContain("1 of 2 candidate runs did not pass");
+    expect(md.indexOf("## Regressions")).toBeLessThan(
+      md.indexOf("## Non-failing shifts"),
+    );
+    expect(md.indexOf("## Non-failing shifts")).toBeLessThan(
+      md.indexOf("## Warnings"),
+    );
+    base.scenarios[0].score = 0.5;
+    const noDrop = renderComparison(compareReports(base, cand));
+    expect(noDrop).not.toContain("candidate runs did not pass");
   });
 });

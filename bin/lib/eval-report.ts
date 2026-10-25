@@ -149,6 +149,7 @@ export type EvalReport = {
       | "claude-not-on-path"
       | "claude-not-authenticated"
       | "flow-not-installed"
+      | "flow-agents-missing"
       | "dry-run";
     notice: string;
   };
@@ -333,6 +334,7 @@ export function validateReport(o: unknown): ValidationResult<EvalReport> {
       "claude-not-on-path",
       "claude-not-authenticated",
       "flow-not-installed",
+      "flow-agents-missing",
       "dry-run",
     ]);
     if (
@@ -638,6 +640,20 @@ export type MetricDelta = {
   delta: number;
   pct: number | null;
   verdict: "better" | "worse" | "same" | "noisy";
+  /** The band a worse shift must exceed to fail the gate (a `null` policy
+   * band resolved to the run-wide tolerance), or `null` when the metric is
+   * recorded-only. */
+  gateBand: number | null;
+};
+
+/**
+ * Metrics whose worse shifts fail `compare`. `null` means use the run-wide
+ * tolerance; a number is the gate band. Every other metric is recorded in
+ * the table and listed under `nonFailingShifts` but never fails the gate.
+ */
+export const DEFAULT_GATED_METRICS: Readonly<Record<string, number | null>> = {
+  "transcript.finalContextTokens": null,
+  "result.total_cost_usd": 0.5,
 };
 
 export type Comparison = {
@@ -650,8 +666,12 @@ export type Comparison = {
     candidateScore: number;
     scoreDelta: number;
     metrics: MetricDelta[];
+    candidateRuns: { total: number; notPassing: number };
   }>;
   regressions: string[];
+  nonFailingShifts: string[];
+  unknownGateMetrics: string[];
+  reportedMetricNames: string[];
   warnings: string[];
   environmentMismatch: boolean;
 };
@@ -660,7 +680,7 @@ function verdictFor(
   baseSummary: MetricSummary,
   candMedian: number,
   tolerance: number,
-): "better" | "worse" | "same" | "noisy" {
+): { verdict: "better" | "worse" | "same" | "noisy"; pct: number } {
   const base = baseSummary.median;
   const pct =
     base === 0
@@ -671,23 +691,28 @@ function verdictFor(
   const spread =
     base === 0 ? 0 : (baseSummary.max - baseSummary.min) / Math.abs(base);
   const beyondTolerance = Math.abs(pct) > tolerance;
-  if (!beyondTolerance) return "same";
+  if (!beyondTolerance) return { verdict: "same", pct };
   // A direction-signed relative change: for "lower is better" metrics a
   // positive pct (candidate went up) is worse; for "higher is better" a
   // negative pct is worse.
   const worse = baseSummary.direction === "lower" ? pct > 0 : pct < 0;
-  if (worse && spread > tolerance) return "noisy";
-  return worse ? "worse" : "better";
+  if (worse && Math.abs(pct) <= spread) return { verdict: "noisy", pct };
+  return { verdict: worse ? "worse" : "better", pct };
 }
 
 export function compareReports(
   base: EvalReport,
   cand: EvalReport,
-  opts: { tolerance?: number } = {},
+  opts: {
+    tolerance?: number;
+    gateMetrics?: Readonly<Record<string, number | null>>;
+  } = {},
 ): Comparison {
   const tolerance = opts.tolerance ?? 0.1;
+  const policy = { ...DEFAULT_GATED_METRICS, ...opts.gateMetrics };
   const warnings: string[] = [];
   const regressions: string[] = [];
+  const nonFailingShifts: string[] = [];
 
   const childArgvDigestDrift =
     base.runner.childArgvDigest !== undefined &&
@@ -713,8 +738,12 @@ export function compareReports(
   for (const id of allIds) {
     const b = baseById.get(id);
     const c = candById.get(id);
+    if (b && !c) {
+      regressions.push(`${id}: missing from candidate`);
+      continue;
+    }
     if (!b || !c) {
-      warnings.push(`scenario '${id}' present in only one report`);
+      warnings.push(`scenario '${id}' present only in the candidate report`);
       continue;
     }
     const scoreDelta = c.score - b.score;
@@ -730,11 +759,23 @@ export function compareReports(
     for (const name of metricNames) {
       const bm = b.metrics[name];
       const cm = c.metrics[name];
+      const gated = Object.hasOwn(policy, name);
+      if (bm && !cm) {
+        if (gated) regressions.push(`${id}: ${name} missing from candidate`);
+        continue;
+      }
       if (!bm || !cm) continue;
       const delta = cm.median - bm.median;
       const pct = bm.median === 0 ? null : delta / Math.abs(bm.median);
-      const verdict = verdictFor(bm, cm.median, tolerance);
-      if (verdict === "worse") regressions.push(`${id}: ${name}`);
+      const { verdict, pct: signedPct } = verdictFor(bm, cm.median, tolerance);
+      const gateBand = gated ? (policy[name] ?? tolerance) : null;
+      if (verdict === "worse") {
+        if (gateBand !== null && Math.abs(signedPct) > gateBand) {
+          regressions.push(`${id}: ${name}`);
+        } else {
+          nonFailingShifts.push(`${id}: ${name}`);
+        }
+      }
       metrics.push({
         name,
         base: bm.median,
@@ -742,8 +783,11 @@ export function compareReports(
         delta,
         pct,
         verdict,
+        gateBand,
       });
     }
+
+    const scored = c.runs.filter((r) => r.arm !== "without");
 
     scenarios.push({
       id,
@@ -751,8 +795,21 @@ export function compareReports(
       candidateScore: c.score,
       scoreDelta,
       metrics,
+      candidateRuns: {
+        total: scored.length,
+        notPassing: scored.filter((r) => r.status !== "pass").length,
+      },
     });
   }
+
+  const reportedMetricNames = new Set(
+    [...base.scenarios, ...cand.scenarios].flatMap((sc) =>
+      Object.keys(sc.metrics),
+    ),
+  );
+  const unknownGateMetrics = Object.keys(opts.gateMetrics ?? {}).filter(
+    (name) => !reportedMetricNames.has(name),
+  );
 
   return {
     suite: cand.suite,
@@ -768,6 +825,9 @@ export function compareReports(
     },
     scenarios,
     regressions,
+    nonFailingShifts,
+    unknownGateMetrics,
+    reportedMetricNames: [...reportedMetricNames].sort(),
     warnings,
     environmentMismatch,
   };
@@ -780,16 +840,20 @@ export function renderComparison(c: Comparison): string {
   );
   lines.push("");
   for (const s of c.scenarios) {
+    const notPassingNote =
+      s.scoreDelta < 0 && s.candidateRuns.notPassing > 0
+        ? ` — ${s.candidateRuns.notPassing} of ${s.candidateRuns.total} candidate runs did not pass`
+        : "";
     lines.push(
-      `## ${s.id} (score ${fmtNum(s.baseScore)} -> ${fmtNum(s.candidateScore)}, delta ${fmtNum(s.scoreDelta)})`,
+      `## ${s.id} (score ${fmtNum(s.baseScore)} -> ${fmtNum(s.candidateScore)}, delta ${fmtNum(s.scoreDelta)})${notPassingNote}`,
     );
     lines.push("");
-    lines.push("| Metric | Base | Candidate | Delta | % | Verdict |");
-    lines.push("| --- | --- | --- | --- | --- | --- |");
+    lines.push("| Metric | Base | Candidate | Delta | % | Verdict | Gated |");
+    lines.push("| --- | --- | --- | --- | --- | --- | --- |");
     for (const m of s.metrics) {
       const pctStr = m.pct === null ? "n/a" : `${(m.pct * 100).toFixed(1)}%`;
       lines.push(
-        `| ${m.name} | ${fmtNum(m.base)} | ${fmtNum(m.candidate)} | ${fmtNum(m.delta)} | ${pctStr} | ${m.verdict} |`,
+        `| ${m.name} | ${fmtNum(m.base)} | ${fmtNum(m.candidate)} | ${fmtNum(m.delta)} | ${pctStr} | ${m.verdict} | ${m.gateBand === null ? "no" : `${+(m.gateBand * 100).toFixed(1)}%`} |`,
       );
     }
     lines.push("");
@@ -799,6 +863,13 @@ export function renderComparison(c: Comparison): string {
     c.regressions.length === 0
       ? "None."
       : c.regressions.map((r) => `- ${r}`).join("\n"),
+  );
+  lines.push("");
+  lines.push(`## Non-failing shifts (${c.nonFailingShifts.length})`);
+  lines.push(
+    c.nonFailingShifts.length === 0
+      ? "None."
+      : c.nonFailingShifts.map((r) => `- ${r}`).join("\n"),
   );
   lines.push("");
   lines.push(`## Warnings (${c.warnings.length})`);

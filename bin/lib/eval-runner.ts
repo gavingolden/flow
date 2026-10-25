@@ -42,7 +42,8 @@ export type ClaudeAvailability =
       reason:
         | "claude-not-on-path"
         | "claude-not-authenticated"
-        | "flow-not-installed";
+        | "flow-not-installed"
+        | "flow-agents-missing";
       notice: string;
     };
 
@@ -102,11 +103,15 @@ function defaultExists(p: string): boolean {
  * Free precondition check — the child needs the global agent definitions
  * flow install materializes at `~/.flow/claude-home/.claude/skills/flow-module-core/agents/`,
  * which `bin/skill-md-lint.test.ts`'s agent-presence probes read from this
- * exact path.
+ * exact path. Also checks that every agent definition the tree under
+ * evaluation ships (`treeAgentFiles`, the `.md` names in `agents/core/`) is
+ * present in the installed set — presence only, so an edited existing
+ * definition is not detected.
  */
 export function probeFlowInstall(
   exists: (p: string) => boolean = defaultExists,
   home: string = os.homedir(),
+  treeAgentFiles: readonly string[] = [],
 ): ClaudeAvailability {
   const agentsDir = path.join(
     home,
@@ -122,6 +127,16 @@ export function probeFlowInstall(
       ok: false,
       reason: "flow-not-installed",
       notice: "flow is not installed (run `flow install` first)",
+    };
+  }
+  const missing = treeAgentFiles.filter(
+    (f) => !exists(path.join(agentsDir, f)),
+  );
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      reason: "flow-agents-missing",
+      notice: `installed flow is missing ${missing.length} agent definition(s) this tree ships: ${missing.join(", ")} — run \`flow install --upgrade\`; if a definition is new on this branch, \`flow install --upgrade --source <this checkout>\` points your global flow install at this checkout until you re-run \`flow install --upgrade\` from your main checkout`,
     };
   }
   return { ok: true, version: "" };

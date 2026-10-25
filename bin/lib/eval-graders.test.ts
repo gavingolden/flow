@@ -93,6 +93,14 @@ describe("matchValue", () => {
       matchValue({ notMatches: "NOTICE" }, "NOTICE — agent-fallback").pass,
     ).toBe(false);
   });
+  it("matches/notMatches test each element of an array actual", () => {
+    expect(matchValue({ matches: "a,b" }, ["a", "b"]).pass).toBe(false);
+    expect(matchValue({ matches: "^b$" }, ["a", "b"]).pass).toBe(true);
+    expect(matchValue({ notMatches: "^b$" }, ["a", "b"]).pass).toBe(false);
+    expect(matchValue({ notMatches: "^c$" }, ["a", "b"]).pass).toBe(true);
+    expect(matchValue({ matches: ".*" }, []).pass).toBe(false);
+    expect(matchValue({ notMatches: ".*" }, []).pass).toBe(true);
+  });
   it("exists compares presence against the expected boolean", () => {
     expect(matchValue({ exists: true }, "x").pass).toBe(true);
     expect(matchValue({ exists: true }, undefined).pass).toBe(false);

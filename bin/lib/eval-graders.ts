@@ -68,12 +68,21 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
+function regexHits(re: RegExp, actual: unknown): boolean {
+  return Array.isArray(actual)
+    ? actual.some((el) => re.test(String(el)))
+    : re.test(String(actual));
+}
+
 /**
  * `equals` — deep-equal; `oneOf` — deep-equal against any member;
  * `contains` — substring match, against a string `actual` directly or
  * against any string element of an array `actual`;
- * `matches`/`notMatches` — regex over `String(actual)`; `exists` —
- * `actual !== undefined` (compared against the expected boolean).
+ * `matches` — regex tested against `String(actual)`, or against each
+ * element of an array `actual` (passes if ANY element matches; an empty
+ * array never matches); `notMatches` — the negation (passes if NO element
+ * matches); `exists` — `actual !== undefined` (compared against the
+ * expected boolean).
  * A literal `null` is a usable `equals` expected value (it deep-equals an
  * `actual` of `null`), but an omitted/`undefined` `actual` never matches
  * it — use this to assert a required field is present-but-null.
@@ -99,14 +108,15 @@ export function matchValue(
     return { pass, expected: `contains "${needle}"` };
   }
   if (m.matches !== undefined) {
+    const re = new RegExp(m.matches);
     return {
-      pass: new RegExp(m.matches).test(String(actual)),
+      pass: regexHits(re, actual),
       expected: `matches /${m.matches}/`,
     };
   }
   if (m.notMatches !== undefined) {
     return {
-      pass: !new RegExp(m.notMatches).test(String(actual)),
+      pass: !regexHits(new RegExp(m.notMatches), actual),
       expected: `not matches /${m.notMatches}/`,
     };
   }
