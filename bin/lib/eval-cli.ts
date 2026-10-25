@@ -38,7 +38,11 @@ import {
   type ResolvedScenario,
   type SuiteSpec,
 } from "./eval-suite";
-import { materializeFixture, type MaterializedFixture } from "./eval-fixture";
+import {
+  materializeFixture,
+  ownCheckoutRoot,
+  type MaterializedFixture,
+} from "./eval-fixture";
 import {
   probeClaude,
   probeFlowInstall,
@@ -89,6 +93,12 @@ export type Deps = {
    * deviation from the shape the other fields already establish.
    */
   readdir: (p: string) => string[];
+  /**
+   * The `.md` agent definition names the tree under evaluation ships in
+   * `agents/core/`, handed to `probeFlowInstall` so a definition the
+   * installed flow lacks skips the run before any spend.
+   */
+  treeAgentFiles: () => string[];
 } & LoadSuiteDeps;
 
 // `Deps.readFile` throws on a missing file (matching every other reader in
@@ -679,6 +689,8 @@ async function runVerb(args: RunArgs, deps: Deps): Promise<number> {
     args.suites === "all" ? listSuiteDirs(args.evalsDir, deps) : args.suites;
   const availability = deps.probeFlowInstall(
     deps.exists,
+    undefined,
+    deps.treeAgentFiles(),
   ) satisfies ClaudeAvailability;
   const resolvedAvailability: ClaudeAvailability = availability.ok
     ? deps.probeClaude(args.claudeBin)
@@ -736,7 +748,7 @@ export async function main(
         "  run --suite <id>|--all --out <dir> [--record-baseline] [--dry-run] ...\n" +
         "  validate <path>...\n" +
         "  report <report.json>\n" +
-        "  compare --base <report.json> --candidate <report.json>\n" +
+        "  compare --base <report.json> --candidate <report.json> [--tolerance <n>] [--gate-metric <name>[=<n>]]... [--fail-on-regression] [--json]\n" +
         "See docs/eval/README.md for the full flag reference.\n",
     );
     return 2;
@@ -765,6 +777,15 @@ export async function main(
     readdir: (p) => fs.readdirSync(p),
     progress: (line) => process.stderr.write(line + "\n"),
     sessionId: () => randomUUID(),
+    treeAgentFiles: () => {
+      try {
+        return fs
+          .readdirSync(path.join(ownCheckoutRoot(), "agents", "core"))
+          .filter((f) => f.endsWith(".md"));
+      } catch {
+        return [];
+      }
+    },
     ...deps,
   };
 
@@ -811,9 +832,27 @@ export async function main(
       fullDeps.progress(`flow-eval: could not parse report(s) for compare\n`);
       return 2;
     }
+    for (const [which, r] of [
+      ["base", base.value],
+      ["candidate", candidate.value],
+    ] as const) {
+      if (r.skipped) {
+        fullDeps.progress(
+          `flow-eval: cannot compare — ${which} report was skipped (${r.skipped.reason}): ${r.skipped.notice}`,
+        );
+        return 2;
+      }
+    }
     const cmp = compareReports(base.value, candidate.value, {
       tolerance: parsed.tolerance,
+      gateMetrics: parsed.gateMetrics,
     });
+    if (cmp.unknownGateMetrics.length > 0) {
+      fullDeps.progress(
+        `flow-eval: cannot compare — --gate-metric names a metric in neither report: ${cmp.unknownGateMetrics.join(", ")}`,
+      );
+      return 2;
+    }
     process.stdout.write(
       (parsed.json ? JSON.stringify(cmp, null, 2) : renderComparison(cmp)) +
         "\n",

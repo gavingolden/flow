@@ -178,13 +178,16 @@ prompt session, so it carries neither flag.
 
 `flow-eval` spawns a real `claude -p` child against a plugin root it
 materializes itself from the checkout you invoke `bun bin/flow-eval.ts`
-from (`bin/lib/eval-fixture.ts`'s `ownCheckoutRoot()`) — it does not read
-the global `~/.flow/claude-home/` install at run time. The global install
-is only an existence precondition: `flow-eval` checks that
+from (`bin/lib/eval-fixture.ts`'s `ownCheckoutRoot()`). The global
+`~/.flow/claude-home/` install is still read at run time, though: the
+skills' agent-presence guards look for each agent definition in the
+installed copy. So `flow-eval` checks that
 `~/.flow/claude-home/.claude/skills/flow-module-core/agents/` exists
-before running, and a missing install surfaces as the named
-`flow-not-installed` skip, not a crash. Run `flow install` once to
-satisfy that precondition.
+before running (a missing install surfaces as the named
+`flow-not-installed` skip, not a crash) and that it carries every
+`agents/core/*.md` definition the tree you invoke it from ships (a gap
+surfaces as the named `flow-agents-missing` skip). Run `flow install`
+once to satisfy the first check.
 
 ## The ui-smoke-isolation suite
 
@@ -294,7 +297,7 @@ not a defect to suppress.
 
 Named skip reasons (exit 0, one-line stderr notice, a `skipped` report
 still written): `claude-not-on-path`, `claude-not-authenticated`,
-`flow-not-installed`. `--dry-run` writes a `skipped: {reason: "dry-run"}`
+`flow-not-installed`, `flow-agents-missing`. `--dry-run` writes a `skipped: {reason: "dry-run"}`
 report for the same reason — vitest (`bin/evals-suites.test.ts`,
 `bin/flow-eval.test.ts`) stays the CI gate; no vitest spec ever spawns
 `claude`.
@@ -372,16 +375,44 @@ bun bin/flow-eval.ts compare --base docs/eval/baseline/verify-loop-isolation.rep
 ```
 
 diffs two reports scenario-by-scenario and metric-by-metric: `worse` /
-`better` / `same` / `noisy` (base-spread-exceeds-tolerance) verdicts,
-direction-aware (`lower`/`higher`-is-better), plus an
+`better` / `same` / `noisy` verdicts, direction-aware
+(`lower`/`higher`-is-better), plus an
 `environmentMismatch` warning when `runner.childArgvDigest` (when BOTH
 reports carry one) differs between the two reports — a shape drift means
 the two children were composed differently (e.g. one predates a
 `--permission-prompts` addition), not just a different tree — or when
 `runner.model`/`runner.effort`/
-`runner.claudeVersion` differ between the two reports. `--fail-on-regression`
-exits 1 on any regression; `--json` prints the raw `Comparison` object
-instead of the markdown table.
+`runner.claudeVersion` differ between the two reports.
+
+Only **gated** metrics fail the compare; every other metric is
+recorded-only. A scenario's score is always gated (any drop is a
+regression). By default two metrics are also gated:
+`transcript.finalContextTokens` at `--tolerance` and
+`result.total_cost_usd` at a 0.5 band (+50%). `--gate-metric
+<name>[=<n>]` (repeatable) gates another metric, or re-bands a default
+one: a bare name uses `--tolerance`, `name=<n>` uses band `<n>`. A band
+below `--tolerance` is effectively `--tolerance`. Two thresholds are at
+work: `--tolerance` labels a shift `worse`; the gate band decides whether
+it fails. A `worse` row within its band (or on a recorded-only metric) is
+listed under **Non-failing shifts** and does not fail the compare. A
+`noisy` verdict is a `worse` shift that stays within the base arm's own
+run-to-run spread (min-to-max over the median); it never fails either. A
+scenario in the base report but absent from the candidate, or a gated
+metric present in the base scenario but absent from the candidate's, is a
+regression. When a scenario's score dropped, its heading adds "k of n
+candidate runs did not pass" so a single flaky run is legible as such. A
+gate protocol that decides on a non-default metric (turn count, duration,
+a behavioural count) or a tighter cost band must name it with
+`--gate-metric` in its recorded compare command (e.g. `--gate-metric
+result.total_cost_usd` for cost at `--tolerance`, as the f2/f6 protocols
+used).
+
+`--fail-on-regression` exits 1 on any regression. `compare` exits 2,
+with or without `--fail-on-regression`, when either report is a
+`skipped` report (there is nothing to compare) or when a `--gate-metric`
+name appears in neither report (a likely typo that would otherwise gate
+nothing). `--json` prints the raw `Comparison` object instead of the
+markdown table.
 
 ## Recording a baseline
 
@@ -389,18 +420,16 @@ One command, from a **plain shell** — never inside a flow session window
 (a pipeline may spawn `claude -p` only through `flow-claude-headless`;
 baseline recording is a maintainer-initiated action, not a pipeline step):
 
-Before recording, confirm
-`~/.flow/claude-home/.claude/skills/flow-module-core/agents/` carries
-every agent definition the suites you're about to run spawn (notably
-`flow-verify.md`) — `probeFlowInstall` only stats the agents
-**directory**, never individual definitions, so a partial install still
-passes the precondition check and silently degrades to `general-purpose`
-at run time (losing the agent's tool allowlist). This is worse than a
-red, not better: the `no-agent-fallback` grader reads `notMatches` over
-`$ASSISTANT_TEXT`, which excludes tool-result output, so the `echo`'d
-`NOTICE — agent-fallback:` line only turns it red if the supervisor
-happens to restate it in assistant-role prose — not guaranteed. Treat
-this as a manual pre-flight check, not a grader-enforced one.
+No manual pre-flight check is needed for agent definitions: `run`
+compares the tree's `agents/core/` definitions with the installed set and,
+on a gap, skips every suite as `flow-agents-missing` (the notice names the
+missing files) before any spend, so an unattended recording returns at
+once. A missing definition would otherwise degrade silently to
+`general-purpose` at run time (losing the agent's tool allowlist).
+`flow install --upgrade --source <checkout>` repoints the global install at
+that checkout; once the branch's worktree is gone, run `flow install
+--upgrade` from your main checkout to restore it. The check is
+presence-only: an edited existing definition is not detected.
 
 ```sh
 bun bin/flow-eval.ts run --all --out .flow-tmp/eval --record-baseline
@@ -437,7 +466,9 @@ root from the checkout you invoke `bun bin/flow-eval.ts` from
 (`bin/lib/eval-fixture.ts`'s `ownCheckoutRoot()`), not from the global
 `~/.flow/claude-home/` install — so measuring a branch under test is just
 running `flow-eval` from that branch's checkout or worktree. No
-repointing the global install and no restore step:
+repointing the global install and no restore step, unless the branch adds
+an `agents/core/` definition: then `run` skips as `flow-agents-missing`,
+and its notice names the install and restore commands:
 
 ```sh
 cd <branch-checkout-or-worktree>

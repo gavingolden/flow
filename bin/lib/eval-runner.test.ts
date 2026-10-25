@@ -107,6 +107,42 @@ describe("probeFlowInstall", () => {
     );
     expect(result.ok).toBe(true);
   });
+
+  it("returns flow-agents-missing naming each definition the install lacks", () => {
+    const result = probeFlowInstall(
+      (p) => !p.endsWith("flow-x.md"),
+      "/home/eval-user",
+      ["flow-a.md", "flow-x.md"],
+    );
+    expect(result).toEqual({
+      ok: false,
+      reason: "flow-agents-missing",
+      notice: expect.stringContaining("flow-x.md"),
+    });
+    if (!result.ok) {
+      expect(result.notice).not.toContain("flow-a.md");
+      expect(result.notice).toContain("missing 1 agent definition(s)");
+    }
+  });
+
+  it("returns ok when every tree agent definition is installed", () => {
+    expect(
+      probeFlowInstall(() => true, "/home/eval-user", [
+        "flow-a.md",
+        "flow-x.md",
+      ]).ok,
+    ).toBe(true);
+  });
+
+  it("ignores the agents dir contents when the tree lists no definitions", () => {
+    expect(
+      probeFlowInstall(
+        (p) => p.endsWith("flow-module-core/agents"),
+        "/home/eval-user",
+        [],
+      ).ok,
+    ).toBe(true);
+  });
 });
 
 describe("buildChildArgv", () => {

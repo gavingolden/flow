@@ -32,6 +32,7 @@ function makeDeps(): Deps {
     progress: noop,
     sessionId: () => "sess",
     readdir: () => [],
+    treeAgentFiles: () => [],
   };
 }
 

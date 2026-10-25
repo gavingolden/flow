@@ -75,6 +75,13 @@ Decision E in the plan, as written before the arms ran:
 | checkpoint-pending-clear | 1.000 (4/4)  | 0.950 (3/4) | 87k → 75k          | $7.65 → $6.36  | fail (cost/duration noise at n=2; not port-related) |
 | haiku-gatekeeper         | 0.875 (3/6)  | 0.917 (5/6) | 62k → 62k          | $1.80 → $1.75  | fail (cost/duration noise at n=2; not port-related) |
 
+**Correction (2026-10-21):** the table row's cost/duration attribution for
+`checkpoint-pending-clear` is wrong — its compare red came from its score
+alone (one of its two candidate runs failed two gates, the flake the prose
+above mentions). Under the new compare gate (only the score, context, and
+cost beyond +50% fail; other shifts are non-failing) replaying these
+committed reports exits 0 for `haiku-gatekeeper` and 1 for the other three.
+
 ## Measurement protocol
 
 - Before arm: from the canonical `main` checkout at the branch's merge-base

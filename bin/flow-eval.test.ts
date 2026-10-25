@@ -1,6 +1,7 @@
 import * as realFs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { main, parseArgs, type Deps } from "./lib/eval-cli";
 import { materializeFixture } from "./lib/eval-fixture";
@@ -109,6 +110,7 @@ function fakeDeps(fs: MemFs, overrides: Partial<Deps> = {}): Deps {
     readdir: fs.readdir,
     progress: () => {},
     sessionId: () => "sess-fixed",
+    treeAgentFiles: () => [],
     ...overrides,
   };
 }
@@ -195,6 +197,49 @@ describe("parseArgs", () => {
     });
     const val = parseArgs(["validate", "evals/a", "evals/b"]);
     expect(val).toEqual({ verb: "validate", paths: ["evals/a", "evals/b"] });
+  });
+
+  describe("compare --gate-metric", () => {
+    const cmp = (...extra: string[]) =>
+      parseArgs(["compare", "--base", "b", "--candidate", "c", ...extra]);
+
+    it("defaults gateMetrics to empty", () => {
+      expect(cmp()).toMatchObject({ gateMetrics: {} });
+    });
+
+    it("a bare name gates at the run-wide tolerance (null)", () => {
+      expect(cmp("--gate-metric", "result.duration_ms")).toMatchObject({
+        gateMetrics: { "result.duration_ms": null },
+      });
+    });
+
+    it("name=n carries an explicit band, repeatable, split on the first =", () => {
+      expect(
+        cmp(
+          "--gate-metric",
+          "result.total_cost_usd=0.3",
+          "--gate-metric",
+          "result.num_turns",
+        ),
+      ).toMatchObject({
+        gateMetrics: { "result.total_cost_usd": 0.3, "result.num_turns": null },
+      });
+    });
+
+    it("rejects a non-finite or negative band", () => {
+      const expected = {
+        error: "--gate-metric tolerance must be a non-negative number",
+      };
+      expect(cmp("--gate-metric", "m=abc")).toEqual(expected);
+      expect(cmp("--gate-metric", "m=-1")).toEqual(expected);
+      expect(cmp("--gate-metric", "m=")).toEqual(expected);
+    });
+
+    it("rejects an empty metric name", () => {
+      expect(cmp("--gate-metric", "=0.5")).toEqual({
+        error: "--gate-metric requires a metric name",
+      });
+    });
   });
 });
 
@@ -396,6 +441,7 @@ describe("main run --dry-run", () => {
           .map((d) => d.name),
       progress: () => {},
       sessionId: () => "sess-dry",
+      treeAgentFiles: () => [],
     };
 
     try {
@@ -1082,6 +1128,110 @@ describe("main compare", () => {
     } finally {
       stdoutSpy.mockRestore();
     }
+  });
+});
+
+describe("main compare — committed f6 report replay", () => {
+  const F6 = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "docs",
+    "eval",
+    "f6",
+  );
+
+  function replayFs(suite: string): MemFs {
+    return memFs({
+      "base.json": realFs.readFileSync(
+        path.join(F6, "before", suite, "report.json"),
+        "utf8",
+      ),
+      "cand.json": realFs.readFileSync(
+        path.join(F6, "after", suite, "report.json"),
+        "utf8",
+      ),
+    });
+  }
+
+  async function compareWith(
+    mem: MemFs,
+    extra: string[],
+  ): Promise<{ code: number; stdout: string; progress: string[] }> {
+    const progress: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    try {
+      const code = await main(
+        [
+          "compare",
+          "--base",
+          "base.json",
+          "--candidate",
+          "cand.json",
+          "--fail-on-regression",
+          ...extra,
+        ],
+        fakeDeps(mem, { progress: (l) => progress.push(l) }),
+      );
+      const stdout = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+      return { code, stdout, progress };
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+  }
+
+  it("haiku-gatekeeper exits 0: cost and duration shifts are non-failing", async () => {
+    const { code, stdout } = await compareWith(
+      replayFs("haiku-gatekeeper"),
+      [],
+    );
+    expect(code).toBe(0);
+    expect(stdout).toContain("## Non-failing shifts (4)");
+  });
+
+  it("haiku-gatekeeper exits 1 once --gate-metric result.duration_ms gates duration", async () => {
+    const { code } = await compareWith(replayFs("haiku-gatekeeper"), [
+      "--gate-metric",
+      "result.duration_ms",
+    ]);
+    expect(code).toBe(1);
+  });
+
+  it("checkpoint-pending-clear exits 1 on its score alone and says how many candidate runs failed", async () => {
+    const { code, stdout } = await compareWith(
+      replayFs("checkpoint-pending-clear"),
+      [],
+    );
+    expect(code).toBe(1);
+    expect(stdout).toContain("1 of 2 candidate runs did not pass");
+    expect(stdout).toContain("- s2-resume-gated-feedback: score");
+  });
+
+  it("refuses a skipped candidate report with exit 2, with or without --fail-on-regression", async () => {
+    const mem = replayFs("haiku-gatekeeper");
+    const skipped = {
+      ...JSON.parse(mem.readFile("cand.json")),
+      skipped: { reason: "flow-agents-missing", notice: "missing flow-x.md" },
+    };
+    mem.writeFile("cand.json", JSON.stringify(skipped));
+    const { code, progress } = await compareWith(mem, []);
+    expect(code).toBe(2);
+    expect(progress.join("")).toContain(
+      "cannot compare — candidate report was skipped (flow-agents-missing): missing flow-x.md",
+    );
+  });
+
+  it("refuses a --gate-metric name found in neither report with exit 2 and prints no table", async () => {
+    const { code, stdout, progress } = await compareWith(
+      replayFs("haiku-gatekeeper"),
+      ["--gate-metric", "result.duration"],
+    );
+    expect(code).toBe(2);
+    expect(stdout).toBe("");
+    expect(progress.join("")).toContain(
+      "--gate-metric names a metric in neither report: result.duration",
+    );
   });
 });
 

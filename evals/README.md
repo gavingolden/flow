@@ -173,12 +173,13 @@ Matchers (exactly one required for `structured`/`json-file`/`file`):
 `equals` (deep-equal), `oneOf` (deep-equal against any member), `contains`
 (substring match — against the whole string for a string `actual`, or
 against any string element for an array `actual`), `matches`/`notMatches`
-(regex over `String(actual)`), `exists` (boolean presence check — for
+(regex over `String(actual)`; for an array `actual` the regex is tested
+against each element — `matches` passes if ANY element matches,
+`notMatches` passes if NO element matches, so an empty array fails
+`matches` and passes `notMatches`), `exists` (boolean presence check — for
 `file`, this is a real filesystem existence check, not a "field is
-defined" check). `matches`/`notMatches` stringify an array `actual` via
-`String(actual)` (comma-joined), so a pattern can span element
-boundaries — prefer `contains` when you mean "one element has this
-substring".
+defined" check). Because the test is per element, a pattern can no
+longer span element boundaries; use `contains` for a plain substring.
 
 ## Placeholders
 
@@ -221,7 +222,10 @@ scenario's fixture, spawns `claude -p` with the rendered prompt (unless
 <report.json> --candidate <report.json>` diffs two reports (median per
 metric, direction-aware verdicts, a tolerance band) — this is how a
 supervisor-scaffold removal proves it didn't regress cost/context/turns
-against the recorded baseline. `--ablation with-without` runs a
+against the recorded baseline; only gated metrics (the score,
+`transcript.finalContextTokens`, and `result.total_cost_usd` by default,
+plus any `--gate-metric` name) fail the gate, other shifts are listed as
+non-failing. `--ablation with-without` runs a
 complementary no-plugin baseline arm WITHIN a single invocation (rather
 than across two committed trees) and reports the delta; a grader marked
 `withOnly: true` (e.g. a `plugin-loaded` gate that can never pass without
