@@ -24,7 +24,9 @@ export function checkKey(argv: readonly string[]): string {
  * generate, other user commands) always runs and resets reuse. */
 export function isReadOnlyVerifier(argv: readonly string[]): boolean {
   const [bin, sub, script] = argv;
-  if (bin === "flow-md-validate" || bin === "actionlint") return true;
+  if (bin === "flow-md-validate" || bin === "actionlint" || bin === "jq") {
+    return true;
+  }
   if (bin === "npm") {
     if (sub !== "run" || script === undefined) return false;
     return NPM_VERIFY_SCRIPTS.has(script) || script.startsWith("typecheck:");

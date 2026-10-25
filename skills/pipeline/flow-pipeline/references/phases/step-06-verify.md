@@ -19,8 +19,9 @@ the `maxTurns` bound the removed subagent carried). The supervisor owns the
 outer ceiling: it re-invokes `/flow-verify` at most 3 times total (the
 3-outer-attempt cap) when an attempt does not end clean, then stops and
 returns the report rather than looping further. Each
-re-invocation observes the worktree fresh (it re-runs `flow-pre-commit
---json` itself), so a re-invocation is idempotent.
+re-invocation re-runs `flow-pre-commit --json` itself and reuses only passes
+recorded on the identical tree within 30 minutes (never for a check that
+failed there), so a re-invocation is idempotent.
 
 **Automated UI-smoke pass.** `/flow-verify` Step 1 already runs the
 browser-driven UI-smoke pass (when the diff touches a meaningful UI
@@ -80,8 +81,9 @@ flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/body.md" && gh pr edit "$PR"
 ```
 
 **Re-entry / resume.** Phase stays `verifying` and the resume `step-6` row
-re-enters here and re-invokes `/flow-verify` inline (it observes the
-worktree fresh, so a re-invocation is idempotent). `/flow-verify`'s own
+re-enters here and re-invokes `/flow-verify` inline (it reuses only
+same-tree passes — identical tree, at most 30 minutes old, never for a check
+that failed there — so a re-invocation is idempotent). `/flow-verify`'s own
 Step 3 hybrid threshold still decides narrow-inline vs.
 `/flow-coder`-delegated fixes (the sixth named Task-tool exemption); the
 work now happens directly in the supervisor's own context — there is no

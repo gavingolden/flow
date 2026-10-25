@@ -8,16 +8,22 @@ import { checkKey, isReadOnlyVerifier } from "./check-dedupe";
  * Same-tree memo: which read-only checks already passed on which exact tree,
  * stored in the worktree's private git folder
  * (`git rev-parse --git-path flow-verified-tree.json`) so it never shows up
- * as an untracked file and dies with the worktree. A later push-time
- * `flow-pre-commit` run on that same clean tree reuses the passes.
+ * as an untracked file and dies with the worktree. A later `flow-pre-commit`
+ * run on that same tree reuses the passes when it is a push-time run or passes
+ * `--reuse-verified-tree`, and only for passes that are fresh (see
+ * `reusablePasses`) and for checks that never failed on the tree.
  *
  * node:child_process (not Bun.spawnSync) so the vitest cases run under node.
  */
 export type VerifiedTreeMemo = {
-  version: 1;
+  version: 2;
   tree: string;
   passed: Record<string, { name: string; durationMs: number; at: string }>;
+  /** Read-only checks that failed on this tree; never replayable as a pass. */
+  failed: Record<string, { name: string; at: string }>;
 };
+
+export const VERIFIED_TREE_MAX_AGE_MS = 30 * 60 * 1000;
 
 const MEMO_FILENAME = "flow-verified-tree.json";
 
@@ -87,10 +93,12 @@ function isMemo(v: unknown): v is VerifiedTreeMemo {
   if (typeof v !== "object" || v === null) return false;
   const m = v as Record<string, unknown>;
   return (
-    m.version === 1 &&
+    m.version === 2 &&
     typeof m.tree === "string" &&
     typeof m.passed === "object" &&
-    m.passed !== null
+    m.passed !== null &&
+    typeof m.failed === "object" &&
+    m.failed !== null
   );
 }
 
@@ -107,10 +115,48 @@ export function readVerifiedTree(cwd?: string): VerifiedTreeMemo | null {
 }
 
 /**
+ * The memo's passes a run on `tree` may replay at `nowMs`: same tree, never
+ * failed on it, a parseable timestamp, and no older than `maxAgeMs`. A
+ * future-dated entry (negative age) counts as stale.
+ */
+export function reusablePasses(
+  memo: VerifiedTreeMemo | null,
+  tree: string | null,
+  nowMs: number,
+  maxAgeMs: number = VERIFIED_TREE_MAX_AGE_MS,
+): Map<string, { name: string; durationMs: number }> {
+  const out = new Map<string, { name: string; durationMs: number }>();
+  if (!memo || !tree || memo.tree !== tree) return out;
+  for (const [key, entry] of Object.entries(memo.passed)) {
+    if (Object.hasOwn(memo.failed, key)) continue;
+    const at = Date.parse(entry.at);
+    if (Number.isNaN(at)) continue;
+    const age = nowMs - at;
+    if (age < 0 || age > maxAgeMs) continue;
+    out.set(key, { name: entry.name, durationMs: entry.durationMs });
+  }
+  return out;
+}
+
+/** Deletes the memo when it belongs to `tree`; no-op otherwise. Never throws. */
+export function discardVerifiedTree(tree: string | null, cwd?: string): void {
+  try {
+    if (!tree) return;
+    const p = memoPath(cwd);
+    if (!p) return;
+    if (readVerifiedTree(cwd)?.tree !== tree) return;
+    fs.rmSync(p, { force: true });
+  } catch {
+    // swallowed — the memo is an optimisation only.
+  }
+}
+
+/**
  * Records the passing, non-skipped, read-only results of a run against
  * `tree`: merged into an existing entry for the same tree, replacing an entry
- * for a different one. A read-only check that FAILED this run is dropped from
- * the entry — an earlier pass on the same tree is no longer trustworthy.
+ * for a different one. A read-only check that FAILED this run moves from
+ * `passed` to `failed`, and a later pass of a key in `failed` on the same tree
+ * is refused — a check that ever failed on a tree is never replayable there.
  * Never throws; the memo is an optimisation only.
  */
 export function recordVerifiedTree(
@@ -128,19 +174,22 @@ export function recordVerifiedTree(
     const p = memoPath(cwd);
     if (!p) return;
     const existing = readVerifiedTree(cwd);
-    const passed: VerifiedTreeMemo["passed"] =
-      existing && existing.tree === tree ? { ...existing.passed } : {};
+    const same = existing && existing.tree === tree ? existing : null;
+    const passed: VerifiedTreeMemo["passed"] = { ...same?.passed };
+    const failed: VerifiedTreeMemo["failed"] = { ...same?.failed };
     const at = new Date().toISOString();
     for (const r of results) {
       if (r.skipped || !isReadOnlyVerifier(r.argv)) continue;
       const key = checkKey(r.argv);
       if (r.passed) {
+        if (Object.hasOwn(failed, key)) continue;
         passed[key] = { name: r.name, durationMs: r.durationMs, at };
       } else {
         delete passed[key];
+        failed[key] = { name: r.name, at };
       }
     }
-    const memo: VerifiedTreeMemo = { version: 1, tree, passed };
+    const memo: VerifiedTreeMemo = { version: 2, tree, passed, failed };
     const tmp = `${p}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(memo), "utf8");
     fs.renameSync(tmp, p);

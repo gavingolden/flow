@@ -4,7 +4,7 @@ description: >-
   Run pre-commit verification checks, fix failures, and re-run until clean. Use
   when user says "verify", "run checks", "check my changes", "pre-commit", or
   before committing changes.
-argument-hint: "[--scope frontend,backend,scripts] [--pr <number>]"
+argument-hint: "[--scope frontend,backend,scripts] [--pr <number>] [fresh]"
 ---
 
 # Goal
@@ -38,10 +38,15 @@ Run all relevant pre-commit checks, fix any failures, and re-run until every che
 ## 1. Run the Pre-Commit Checks
 
 ```bash
-flow-pre-commit --json $ARGUMENTS
+flow-pre-commit --json --reuse-verified-tree $ARGUMENTS
 ```
 
-If `$ARGUMENTS` is empty, the helper auto-detects scope from `git diff HEAD`. The `--json`
+When the invocation asks for a fresh run (a `fresh` or `--fresh` token in `$ARGUMENTS`),
+drop that token and omit `--reuse-verified-tree` so every check executes; a direct
+terminal run of `flow-pre-commit --json` is the equivalent.
+
+If `$ARGUMENTS` is empty, the helper auto-detects scope from `git diff HEAD` (a clean
+tree falls back to the diff against the merge-base). The `--json`
 flag is required: it bounds each failed check's output to ~200 lines (head 100 + tail 100)
 and extracts a `firstErrorText` field so the model summarising results doesn't have to scrape
 a wall of raw stderr. If `flow-pre-commit` isn't on PATH, fall back to running the equivalent
@@ -148,6 +153,11 @@ this shape (failed checks only — passing checks omit the `failure` field):
 A row carrying `dedupedFrom: "<scope>"` repeats that scope's result for the identical
 command, and its `headExcerpt`/`tailExcerpt` are empty — read the excerpt from the
 executed row it names.
+
+A row carrying `dedupedFrom: "earlier-run"` is a pass carried over from a run on this exact
+code (the identical tree) within the last 30 minutes, never a check that failed on it. Its
+`durationMs` is `0` and nothing executed for it. Report how many checks were reused and the
+report's `earlierRunSavedMs` saving, so a reused pass is never described as freshly run.
 
 Parse the JSON — `failure.firstErrorText` and `failure.headExcerpt` (on the executed
 row, not a `dedupedFrom` copy) are the canonical source of failure context. Do not paste the full raw stderr back into chat; the bounded

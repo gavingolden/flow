@@ -31,7 +31,7 @@ non-empty diff signals `reason: "no-checks-defined"`.)
 When several scopes resolve to the same command, an identical read-only
 verifier runs once per invocation: `npm run test`, `test:related`, `lint`,
 `typecheck`, `typecheck:*`, `check`, or `format:check` (any trailing args),
-`flow-md-validate`, `actionlint`, and `go vet` / `go test`. It executes at
+`flow-md-validate`, `actionlint`, `jq`, and `go vet` / `go test`. It executes at
 its first position; each later scope still gets a result row, carrying
 `dedupedFrom` (the executing scope), `durationMs: 0`, and — for a failing
 row — empty `headExcerpt`/`tailExcerpt` with `firstErrorText` kept. Reuse
@@ -40,9 +40,9 @@ spelled like one of these (e.g. `npm run test` in `.flow/pre-commit.json`) is
 reused too. Any command not on that list (build, generate, other configured
 commands) always runs and resets reuse, so a mutating step can never leave a
 stale verdict behind.
-Reuse never spans invocations — the one exception is `--pre-push` on a
-clean tree (see below) — and an npm-workspaces root `npm run test` is not a
-duplicate of `npm run test -w <pkg>`.
+An npm-workspaces root `npm run test` is not a duplicate of
+`npm run test -w <pkg>`. Reuse across invocations is limited to the two
+modes described below.
 
 ## Git environment and same-tree reuse
 
@@ -57,13 +57,16 @@ checks is the consumer's responsibility.
 
 A run whose planned checks are all read-only verifiers records its passes
 against the exact tree they ran on (in the worktree's private git folder,
-never a tracked file). A later `flow-pre-commit --pre-push` run on a clean
-tree whose pushed commit is `HEAD` and whose tree matches reuses those
-passes instead of re-running them, printing
-`reused from an earlier run on this exact tree` per check; a dirty tree, a
-different tree, or any non-read-only planned check runs everything. Only
-`--pre-push` reuses — `/flow-verify` and every other mode always observe
-the worktree fresh. The record is advisory: it is a plain file in the
+never a tracked file). Two modes replay those passes instead of re-running
+them, printing `reused from an earlier run on this exact tree` per check:
+`--pre-push` (on a clean tree whose pushed commit is `HEAD`) and
+`--reuse-verified-tree` (which `/flow-verify` passes; any tree). A replay
+needs the identical tree, a pass at most 30 minutes old, and a check that
+never failed on that tree; a different tree or any non-read-only planned
+check runs everything. A run whose checks change tracked files records
+nothing. Direct terminal runs, git hooks, and `--pr` / `--scope` callers
+stay fresh, and re-invoking `/flow-verify` stays idempotent. The record is
+advisory: it is a plain file in the
 worktree's git folder, so an agent working in that worktree could forge it —
 the same trust level as `--no-verify`, which is forbidden only by
 instruction, not by enforcement.

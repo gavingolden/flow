@@ -10,7 +10,9 @@ import { fileURLToPath } from "node:url";
  * normal run is NOT executed again by a `--pre-push` run on the identical
  * clean tree, and IS executed again once the tree has changed. The check is a
  * real `npm run test` whose script appends to a counter file, so "did it run"
- * is observed, not inferred.
+ * is observed, not inferred. `--reuse-verified-tree` replays the same memo
+ * outside the push path, but never for a check that failed on the tree and
+ * never from a run whose own checks changed tracked files.
  */
 const describeOnPosix = process.platform === "win32" ? describe.skip : describe;
 
@@ -216,6 +218,117 @@ describeOnPosix("flow-pre-commit same-tree reuse (live)", () => {
       const mutating = runPreCommit(["--json"]);
       expect(mutating.status, mutating.stdout + mutating.stderr).toBe(0);
       expect(fs.existsSync(memo)).toBe(false);
+    },
+    120_000,
+  );
+
+  const memoPath = () =>
+    git(repo, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-path",
+      "flow-verified-tree.json",
+    ]);
+
+  const setTestScript = (script: string) => {
+    const pkgPath = path.join(repo, "package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+    pkg.scripts.test = script;
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg));
+    git(repo, ["commit", "-q", "-am", "test script"]);
+  };
+
+  type Row = { name: string; dedupedFrom?: string };
+  const rowsOf = (stdout: string) => JSON.parse(stdout).results as Row[];
+
+  it.skipIf(!bunOnPath)(
+    "--reuse-verified-tree replays a recorded pass on the identical tree and reports the saving",
+    () => {
+      const first = runPreCommit(["--json"]);
+      expect(first.status, first.stdout + first.stderr).toBe(0);
+      expect(count()).toBe(1);
+
+      const reused = runPreCommit(["--json", "--reuse-verified-tree"]);
+      expect(reused.status, reused.stdout + reused.stderr).toBe(0);
+      expect(count()).toBe(1);
+      expect(
+        rowsOf(reused.stdout).find((r) => r.name === "npm run test")
+          ?.dedupedFrom,
+      ).toBe("earlier-run");
+      expect(JSON.parse(reused.stdout).earlierRunSavedMs).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+
+  it.skipIf(!bunOnPath)(
+    "executes every check without the flag even on an identical tree",
+    () => {
+      runPreCommit(["--json"]);
+      const again = runPreCommit(["--json"]);
+      expect(again.status, again.stdout + again.stderr).toBe(0);
+      expect(count()).toBe(2);
+      expect(JSON.parse(again.stdout)).not.toHaveProperty("earlierRunSavedMs");
+    },
+    120_000,
+  );
+
+  it.skipIf(!bunOnPath)(
+    "executes every check under the flag once the tree changed",
+    () => {
+      runPreCommit(["--json"]);
+      fs.writeFileSync(path.join(repo, "probe", "a.txt"), "edited\n");
+      const changed = runPreCommit(["--json", "--reuse-verified-tree"]);
+      expect(changed.status, changed.stdout + changed.stderr).toBe(0);
+      expect(count()).toBe(2);
+      expect(
+        rowsOf(changed.stdout).every((r) => r.dedupedFrom !== "earlier-run"),
+      ).toBe(true);
+    },
+    120_000,
+  );
+
+  it.skipIf(!bunOnPath)(
+    "executes under the flag a check that failed and then passed on the tree",
+    () => {
+      const gate = path.join(root, "gate");
+      fs.writeFileSync(gate, "");
+      setTestScript(`echo ran >> ${counter}; test ! -e ${gate}`);
+
+      const failing = runPreCommit(["--json"]);
+      expect(failing.status).not.toBe(0);
+      expect(count()).toBe(1);
+
+      fs.rmSync(gate);
+      const passing = runPreCommit(["--json"]);
+      expect(passing.status, passing.stdout + passing.stderr).toBe(0);
+      expect(count()).toBe(2);
+
+      const flagged = runPreCommit(["--json", "--reuse-verified-tree"]);
+      expect(flagged.status, flagged.stdout + flagged.stderr).toBe(0);
+      expect(count()).toBe(3);
+      expect(
+        rowsOf(flagged.stdout).every((r) => r.dedupedFrom !== "earlier-run"),
+      ).toBe(true);
+    },
+    120_000,
+  );
+
+  it.skipIf(!bunOnPath)(
+    "leaves no memo for the start tree when a check edits a tracked file",
+    () => {
+      const gate = path.join(root, "gate");
+      setTestScript(
+        `echo ran >> ${counter}; if [ -e ${gate} ]; then echo x >> probe/a.txt; fi`,
+      );
+
+      const recording = runPreCommit(["--json"]);
+      expect(recording.status, recording.stdout + recording.stderr).toBe(0);
+      expect(fs.existsSync(memoPath())).toBe(true);
+
+      fs.writeFileSync(gate, "");
+      const mutating = runPreCommit(["--json"]);
+      expect(mutating.status, mutating.stdout + mutating.stderr).toBe(0);
+      expect(fs.existsSync(memoPath())).toBe(false);
     },
     120_000,
   );

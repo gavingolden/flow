@@ -118,6 +118,20 @@ describe("runDeduped", () => {
     );
     expect(calls).toHaveLength(2);
   });
+
+  it("does not treat jq as a barrier between identical verifiers", () => {
+    const { calls, execute } = harness();
+    runDeduped(
+      [
+        item("src", "npm run test"),
+        item("cfg", "jq empty f"),
+        item("root-fallback", "npm run test"),
+      ],
+      execute,
+    );
+    expect(calls.filter((c) => c.endsWith("npm run test"))).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+  });
 });
 
 describe("runDeduped with prior results", () => {
@@ -181,6 +195,7 @@ describe("isReadOnlyVerifier", () => {
     "npm run test:related -- x.ts",
     "flow-md-validate .",
     "actionlint",
+    "jq empty f",
   ])("accepts %s", (cmd) => {
     expect(isReadOnlyVerifier(argv(cmd))).toBe(true);
   });
