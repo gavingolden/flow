@@ -1604,7 +1604,7 @@ Options:
                      Replay read-only passes an earlier run recorded on this
                      exact tree (at most 30 minutes old, never for a check
                      that failed on it). /flow-verify passes this flag;
-                     without it every check executes.
+                     without it (outside --pre-push) every check executes.
   --json             Emit a single bounded JSON object on stdout instead
                      of the human-readable report. Failures include a
                      {firstErrorLine, firstErrorText, headExcerpt,
@@ -1642,7 +1642,7 @@ With --pre-push on a clean tree, or with --reuse-verified-tree on any tree,
 passes an earlier all-read-only run recorded on that exact tree are reused
 too ('reused from an earlier run on this exact tree') when they are at most
 30 minutes old and the check never failed on the tree. A run whose checks
-change tracked files records nothing. Each check reports its own pass/fail.
+change any non-ignored file (tracked or new) records nothing. Each check reports its own pass/fail.
   `);
 }
 
@@ -1774,7 +1774,7 @@ function recordPassesForTree(
 ): void {
   if (!tree || planned.length === 0) return;
   if (!planned.every((p) => isReadOnlyVerifier(p.argv))) return;
-  // A check that edited tracked files means the passes belong to a tree the
+  // A check that changed any non-ignored file (tracked or new) means the passes belong to a tree the
   // run itself replaced; record nothing and drop any memo for the start tree.
   if (workingTreeId() !== tree) {
     discardVerifiedTree(tree);

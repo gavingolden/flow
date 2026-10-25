@@ -157,7 +157,9 @@ executed row it names.
 A row carrying `dedupedFrom: "earlier-run"` is a pass carried over from a run on this exact
 code (the identical tree) within the last 30 minutes, never a check that failed on it. Its
 `durationMs` is `0` and nothing executed for it. Report how many checks were reused and the
-report's `earlierRunSavedMs` saving, so a reused pass is never described as freshly run.
+time saved in plain words (e.g. `9 checks reused from an earlier run on this exact code, about
+2 min 51 s saved`): convert `earlierRunSavedMs` to seconds or minutes and never print the
+field name. A reused pass is never described as freshly run.
 
 Parse the JSON — `failure.firstErrorText` and `failure.headExcerpt` (on the executed
 row, not a `dedupedFrom` copy) are the canonical source of failure context. Do not paste the full raw stderr back into chat; the bounded

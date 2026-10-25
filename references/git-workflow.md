@@ -70,7 +70,8 @@ a full check run), every pipeline push site follows four rules:
    with its duration and escalate like a refusal.
 
 A push of a tree that `flow-pre-commit` already passed adds seconds, not
-minutes: `flow-pre-commit --pre-push` reuses same-tree passes (see
+minutes when its passes are still reusable (same tree, at most 30 minutes old,
+never failed): `flow-pre-commit --pre-push` reuses same-tree passes (see
 [consumer-repo-contract.md](consumer-repo-contract.md)).
 
 ### Why no authored squash body (issue #486)

@@ -63,9 +63,12 @@ them, printing `reused from an earlier run on this exact tree` per check:
 `--reuse-verified-tree` (which `/flow-verify` passes; any tree). A replay
 needs the identical tree, a pass at most 30 minutes old, and a check that
 never failed on that tree; a different tree or any non-read-only planned
-check runs everything. A run whose checks change tracked files records
-nothing. Direct terminal runs, git hooks, and `--pr` / `--scope` callers
-stay fresh, and re-invoking `/flow-verify` stays idempotent. The record is
+check runs everything. A run whose checks change any non-ignored file
+(tracked or new) records nothing. Any run without `--pre-push` or
+`--reuse-verified-tree` stays fresh: direct terminal runs, the implement
+step's runs, and the `pre-commit` hook. `/flow-verify` forwards `--scope` /
+`--pr` alongside `--reuse-verified-tree`, so those invocations replay too;
+`/flow-verify fresh` opts out, and re-invoking `/flow-verify` stays idempotent. The record is
 advisory: it is a plain file in the
 worktree's git folder, so an agent working in that worktree could forge it —
 the same trust level as `--no-verify`, which is forbidden only by

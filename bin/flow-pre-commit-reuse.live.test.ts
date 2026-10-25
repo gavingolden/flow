@@ -248,6 +248,7 @@ describeOnPosix("flow-pre-commit same-tree reuse (live)", () => {
       expect(first.status, first.stdout + first.stderr).toBe(0);
       expect(count()).toBe(1);
 
+      const memoBefore = fs.readFileSync(memoPath(), "utf8");
       const reused = runPreCommit(["--json", "--reuse-verified-tree"]);
       expect(reused.status, reused.stdout + reused.stderr).toBe(0);
       expect(count()).toBe(1);
@@ -256,6 +257,23 @@ describeOnPosix("flow-pre-commit same-tree reuse (live)", () => {
           ?.dedupedFrom,
       ).toBe("earlier-run");
       expect(JSON.parse(reused.stdout).earlierRunSavedMs).toBeGreaterThan(0);
+      expect(fs.readFileSync(memoPath(), "utf8")).toBe(memoBefore);
+    },
+    120_000,
+  );
+
+  it.skipIf(!bunOnPath)(
+    "--reuse-verified-tree replays on a dirty (uncommitted) tree",
+    () => {
+      fs.writeFileSync(path.join(repo, "probe", "a.txt"), "dirty\n");
+      expect(runPreCommit(["--json"]).status).toBe(0);
+      expect(count()).toBe(1);
+      const reused = runPreCommit(["--json", "--reuse-verified-tree"]);
+      expect(count()).toBe(1);
+      expect(
+        rowsOf(reused.stdout).find((r) => r.name === "npm run test")
+          ?.dedupedFrom,
+      ).toBe("earlier-run");
     },
     120_000,
   );
