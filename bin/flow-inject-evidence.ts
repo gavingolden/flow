@@ -39,7 +39,13 @@
  * escaped (or scoped out of the pattern) by the caller. Backticks,
  * spaces, dashes, slashes, equals signs are all literal.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
 import {
@@ -117,6 +123,12 @@ export function parseArgs(
       }
       cautionFile = val;
     } else if (flag === "--image") {
+      if (val !== undefined && /[\x00-\x1f]/.test(val)) {
+        return {
+          error:
+            "--image takes one path per flag (got a newline/control character) — repeat --image per screenshot",
+        };
+      }
       const image = val === undefined ? null : parseImage(val);
       if (!image) return { error: "--image requires <path>#<alt>" };
       images.push(image);
@@ -200,6 +212,49 @@ export function pickFenceLength(output: string): number {
  */
 export function neutralizeHeadings(output: string): string {
   return output.replace(/^(#{1,6} )/gm, " $1");
+}
+
+export type RelocateDeps = {
+  cwd: string;
+  exists: (p: string) => boolean;
+  copyFile: (from: string, to: string) => void;
+  mkdirp: (dir: string) => void;
+};
+
+const EVIDENCE_DIR = path.join(".flow-tmp", "ui-evidence");
+
+/**
+ * A screenshot outside the working directory is never uploaded (the PR body
+ * can only reference worktree files), so copy it under `.flow-tmp/ui-evidence/`
+ * and point the evidence block at the copy. Inside-worktree images pass
+ * through untouched; a name collision gets a `-2`, `-3`, … suffix.
+ */
+export function relocateOutsideImages(
+  images: EvidenceImage[],
+  deps: RelocateDeps,
+): { ok: true; images: EvidenceImage[] } | { ok: false; error: string } {
+  const out: EvidenceImage[] = [];
+  for (const image of images) {
+    const abs = path.resolve(deps.cwd, image.path);
+    const rel = path.relative(deps.cwd, abs);
+    if (!rel.startsWith("..") && !path.isAbsolute(rel)) {
+      out.push(image);
+      continue;
+    }
+    if (!deps.exists(abs)) {
+      return { ok: false, error: `--image source not found: ${abs}` };
+    }
+    const ext = path.extname(abs);
+    const stem = path.basename(abs, ext);
+    let dest = path.join(deps.cwd, EVIDENCE_DIR, `${stem}${ext}`);
+    for (let n = 2; deps.exists(dest); n++) {
+      dest = path.join(deps.cwd, EVIDENCE_DIR, `${stem}-${n}${ext}`);
+    }
+    deps.mkdirp(path.dirname(dest));
+    deps.copyFile(abs, dest);
+    out.push({ path: dest, alt: image.alt });
+  }
+  return { ok: true, images: out };
 }
 
 function imageLines(images: EvidenceImage[]): string[] {
@@ -436,6 +491,19 @@ async function main(): Promise<void> {
     parsed.outputFile === undefined
       ? null
       : readFileSync(parsed.outputFile, "utf8");
+  if (parsed.images !== undefined) {
+    const relocated = relocateOutsideImages(parsed.images, {
+      cwd: process.cwd(),
+      exists: existsSync,
+      copyFile: copyFileSync,
+      mkdirp: (dir) => void mkdirSync(dir, { recursive: true }),
+    });
+    if (!relocated.ok) {
+      process.stderr.write(`flow-inject-evidence: ${relocated.error}\n`);
+      process.exit(2);
+    }
+    parsed.images = relocated.images;
+  }
   const result = rewriteBody(body, parsed, output);
   if (!result.ok) {
     process.stderr.write(`flow-inject-evidence: ${result.error}\n`);
