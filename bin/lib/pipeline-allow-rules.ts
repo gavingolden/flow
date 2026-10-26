@@ -24,6 +24,9 @@
  * without classifier review; they are core routine steps, so the risk is
  * taken knowingly.
  *
+ * Also accepted: `flow-ui-critique` spends model quota without classifier
+ * review, bounded by its $3 per-call cap and its own once-per-phase refusal.
+ *
  * A rule only matches a standalone call; a `cd … &&` prefix or a chain of
  * helpers may still reach the classifier, so the supervisor calls helpers one
  * per Bash call.

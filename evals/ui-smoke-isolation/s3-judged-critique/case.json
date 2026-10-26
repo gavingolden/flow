@@ -54,6 +54,12 @@
       "exists": true
     },
     {
+      "id": "cramped-row-detected-at-round-0",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/ui-critique/round-0-findings.json",
+      "matches": "cramped-row:"
+    },
+    {
       "id": "tiles-no-longer-cramped",
       "kind": "file",
       "file": "$REPO/.flow-tmp/ui-critique/after-findings.json",

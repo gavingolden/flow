@@ -29,10 +29,32 @@ function shotKey(s: SectionShot): string {
   return [s.route, s.section, s.viewport, s.part].join("\u0000");
 }
 
+const PLAIN_REASONS: Record<string, string> = {
+  "headless-error": "the reviewer call failed",
+  "unparseable-result": "the reviewer's reply could not be read",
+  "rule-doc-missing": "a design-rule file the reviewer needs is missing",
+  "no-section-shots": "the browser drive captured no section screenshots",
+  "runtime-error": "the review tool hit an unexpected error",
+  "bad-phase": "the review tool was called with an unknown phase",
+  "resumed-mid-round": "the run restarted mid-round, so the round was undone",
+  "claude-timeout": "the reviewer took too long and was stopped",
+  "mcp-not-available": "the browser tools were not available",
+  "claude-missing": "the reviewer is not installed on this machine",
+};
+
+/** Skip and round reasons arrive as helper codes; the PR shows plain words. */
+export function plainReason(reason: string): string {
+  const known = PLAIN_REASONS[reason];
+  if (known) return known;
+  return /^[a-z0-9]+(-[a-z0-9]+)+$/.test(reason)
+    ? "the reviewer could not run"
+    : reason;
+}
+
 function outcomeLine(log: LoopLog): string {
   const kind =
-    log.round?.kind === "smell" ? "Smell-repair round" : "Critique round";
-  const why = log.round?.reason ? `: ${log.round.reason}` : "";
+    log.round?.kind === "smell" ? "Layout repair round" : "Critique round";
+  const why = log.round?.reason ? `: ${plainReason(log.round.reason)}` : "";
   switch (log.outcome) {
     case "kept":
       return `${kind} kept${why}.`;
@@ -54,7 +76,7 @@ function comparison(
   if (before.length === 0) return [];
   const pairs = before.slice(0, MAX_PAIRS);
   const label = (s: SectionShot, side: string) =>
-    `![${cell(s.section)} ${s.viewport} ${side}](${relPath(s.path)})`;
+    `![${cell(s.section).replace(/[[\]]/g, " ")} ${s.viewport} ${side}](${encodeURI(relPath(s.path))})`;
   if (after === null) {
     return [
       "| Section | Viewport | Shot |",
@@ -100,18 +122,14 @@ export function renderUiReview(i: {
   demotion: string | null;
 }): string {
   const { log } = i;
+  const lines = [UI_REVIEW_OPEN, "## UI review", ""];
   if (log.skip) {
-    return [
-      UI_REVIEW_OPEN,
-      "## UI review",
-      "",
-      `Not run: ${log.skip}`,
-      UI_REVIEW_CLOSE,
-    ].join("\n");
+    lines.push(`Not run: ${plainReason(log.skip)}`, "");
+  } else {
+    lines.push(outcomeLine(log), "");
+    lines.push(...comparison(i.before, i.after));
+    lines.push(...residualLines(log.residual));
   }
-  const lines = [UI_REVIEW_OPEN, "## UI review", "", outcomeLine(log), ""];
-  lines.push(...comparison(i.before, i.after));
-  lines.push(...residualLines(log.residual));
   if (log.persistent.length > 0) {
     lines.push(
       "**Persistent page-check defects** (unchanged through every verify attempt):",
@@ -119,14 +137,17 @@ export function renderUiReview(i: {
       "",
     );
   }
-  if (i.demotion) lines.push(`Demoted to list-only: ${i.demotion}`, "");
-  if (log.omittedSections > 0) {
+  if (i.demotion && !log.skip) {
+    lines.push(`Demoted to list-only: ${i.demotion}`, "");
+  }
+  if (log.omittedSections > 0 && !log.skip) {
     lines.push(
       `${log.omittedSections} section(s) were left out of the critique gallery to stay within its size cap.`,
       "",
     );
   }
-  lines.push(`Cost: $${log.costUsd.toFixed(2)}`, UI_REVIEW_CLOSE);
+  if (!log.skip) lines.push(`Cost: $${log.costUsd.toFixed(2)}`);
+  lines.push(UI_REVIEW_CLOSE);
   return lines.join("\n");
 }
 
@@ -138,13 +159,11 @@ export function residualDecisionItem(
   const defects = residual.filter((f) => f.severity === "defect");
   const n = defects.length + persistent.length;
   if (n === 0) return null;
-  const top =
+  const top = cell(
     defects.length > 0
-      ? `${defects[0].section} @ ${defects[0].viewport} — ${defects[0].observation}`.slice(
-          0,
-          80,
-        )
-      : persistent[0].slice(0, 80);
+      ? `${defects[0].section} @ ${defects[0].viewport} — ${defects[0].observation}`
+      : persistent[0],
+  ).slice(0, 80);
   return `- [ ] DECISION: accept this UI with ${n} unresolved defect(s) listed under UI review (top: ${top}), or redirect to fix them`;
 }
 
@@ -166,6 +185,16 @@ function replaceBlock(lines: string[], block: string[]): string[] | null {
   if (close < 0) close = from;
   lines.splice(from, close - from + 1, ...block);
   return lines;
+}
+
+const CHECKBOX = /^(\s*[-*] )\[[ xX]\] /;
+
+/** A human-ticked DECISION stays ticked while its text is unchanged. */
+function isSameTickedDecision(existing: string, next: string): boolean {
+  return (
+    /^\s*[-*] \[[xX]\] /.test(existing) &&
+    existing.replace(CHECKBOX, "").trim() === next.replace(CHECKBOX, "").trim()
+  );
 }
 
 /**
@@ -201,7 +230,7 @@ export function upsertUiReview(
       : `${decision.trimEnd()} ${UI_REVIEW_DECISION_MARKER}`;
   if (at >= 0) {
     if (marked === null) lines.splice(at, 1);
-    else lines[at] = marked;
+    else if (!isSameTickedDecision(lines[at], marked)) lines[at] = marked;
   } else if (marked !== null) {
     const bounds = testStepsSectionBounds(lines);
     if (bounds) {

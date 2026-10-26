@@ -120,6 +120,7 @@ export type LoopLog = {
   omittedSections: number;
   costUsd: number;
   completed: boolean;
+  critiqueCalls: string[];
   skip?: string;
 };
 
@@ -141,6 +142,7 @@ export function emptyLoopLog(): LoopLog {
     omittedSections: 0,
     costUsd: 0,
     completed: false,
+    critiqueCalls: [],
   };
 }
 
@@ -194,6 +196,11 @@ export function parseLoopLog(raw: string | null): LoopLog {
   }
   if (typeof o.costUsd === "number") out.costUsd = o.costUsd;
   if (o.completed === true) out.completed = true;
+  if (Array.isArray(o.critiqueCalls)) {
+    out.critiqueCalls = o.critiqueCalls.filter(
+      (s): s is string => typeof s === "string",
+    );
+  }
   if (typeof o.skip === "string") out.skip = o.skip;
   return out;
 }
@@ -315,10 +322,14 @@ const RANK: Record<CritiqueSeverity, number> = {
   minor: 1,
 };
 
+export const findingKey = (
+  f: Pick<CritiqueFinding, "route" | "section" | "viewport">,
+): string => `${f.route} | ${f.section} | ${f.viewport}`;
+
 function worstByKey(findings: CritiqueFinding[]): Map<string, number> {
   const m = new Map<string, number>();
   for (const f of findings) {
-    const key = `${f.route} | ${f.section} | ${f.viewport}`;
+    const key = findingKey(f);
     m.set(key, Math.max(m.get(key) ?? 0, RANK[f.severity]));
   }
   return m;
@@ -333,11 +344,13 @@ export function acceptRound(i: {
   regressed: boolean;
   targeted: CritiqueFinding[];
   after: CritiqueFinding[];
+  /** `route | section | viewport` keys present in the post-round gallery. */
+  afterKeys?: Set<string>;
 }): { decision: "keep" | "revert"; reason: string } {
   const revert = (reason: string) => ({ decision: "revert" as const, reason });
   if (i.regressed) {
     return revert(
-      "the page-check comparison regressed (a new defect, more smells, or lost content)",
+      "the page checks got worse (a new defect, more small layout problems, or lost content)",
     );
   }
   const before = worstByKey(i.targeted);
@@ -347,6 +360,9 @@ export function acceptRound(i: {
     return revert("no targeted defect or major finding to improve");
   }
   for (const [key, rank] of targetedKeys) {
+    if (i.afterKeys && !i.afterKeys.has(key)) {
+      return revert(`${key} was not in the post-round screenshots`);
+    }
     if ((after.get(key) ?? 0) >= rank) {
       return revert(`${key} did not improve`);
     }

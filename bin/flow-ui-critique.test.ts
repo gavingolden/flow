@@ -212,9 +212,10 @@ describe("rounds", () => {
   });
 
   it("round-begin rejects a bad kind and a missing HEAD as named skips", () => {
-    expect(
-      run(["round-begin", "--worktree", W, "--kind", "x"], harness().deps),
-    ).toBe(0);
+    const bad = harness();
+    run(["round-begin", "--worktree", W, "--kind", "x"], bad.deps);
+    expect(result(bad)).toEqual({ ran: false, skipReason: "bad-kind" });
+    expect(logOf(bad)).toBeNull();
     const h = harness({}, { gitHead: () => null });
     run(["round-begin", "--worktree", W, "--kind", "smell"], h.deps);
     expect(result(h).skipReason).toBe("git-head-unavailable");
@@ -501,7 +502,8 @@ describe("render", () => {
       h.deps,
     );
     const body = h.files.get("/b.md")!;
-    expect(body).toContain("Not run: mcp-not-available");
+    expect(body).toContain("Not run: the browser tools were not available");
+    expect(body).not.toContain("mcp-not-available");
     expect(body).not.toContain("DECISION:");
     expect(result(h)).toMatchObject({ decisionAdded: false });
   });
@@ -752,5 +754,375 @@ describe("critique", () => {
       h.deps,
     );
     expect(result(h).skipReason).toBe("bad-phase");
+  });
+});
+
+describe("loop state coherence", () => {
+  const tmp = `${W}/.flow-tmp`;
+  const critDir = `${tmp}/ui-critique`;
+  const shotAt = (p: string) => ({
+    route: "/",
+    section: "Pricing",
+    viewport: "phone",
+    part: "whole",
+    path: p,
+  });
+  const defect = {
+    id: "f",
+    severity: "defect",
+    route: "/",
+    section: "Pricing",
+    viewport: "phone",
+    shot: SHOT,
+    observation: "overlap",
+    rule: "r",
+    fix: "f",
+  };
+  const record = (h: Harness, ...extra: string[]) =>
+    run(["record", "--worktree", W, "--reason", "r", ...extra], h.deps);
+  const render = (h: Harness, ...extra: string[]) =>
+    run(["render", "--worktree", W, "--body-file", "/b.md", ...extra], h.deps);
+
+  it("a later real outcome clears a recorded skip, so persistent defects and the DECISION item render", () => {
+    const h = harness({
+      "/b.md": BODY,
+      [`${critDir}/log.json`]: { persistent: ["[xs] leak: x"] },
+    });
+    record(h, "--outcome", "skipped");
+    expect(logOf(h).skip).toBe("r");
+    record(h, "--outcome", "list-only", "--complete");
+    expect(logOf(h).skip).toBeUndefined();
+    render(h);
+    const body = h.files.get("/b.md")!;
+    expect(body).toContain("[xs] leak: x");
+    expect(body).toContain("DECISION:");
+    expect(body).not.toContain("Not run");
+  });
+
+  it("a skipped render still lists persistent defects and keeps their DECISION item", () => {
+    const h = harness({
+      "/b.md": BODY,
+      [`${critDir}/log.json`]: { persistent: ["[xs] leak: x"] },
+    });
+    render(h, "--skip", "headless-error");
+    const body = h.files.get("/b.md")!;
+    expect(body).toContain("Not run: the reviewer call failed");
+    expect(body).toContain("[xs] leak: x");
+    expect(body).toContain("DECISION:");
+    expect(result(h)).toMatchObject({ persistentDefects: 1 });
+  });
+
+  it("round-end rejects an unknown decision without closing the round", () => {
+    const h = harness();
+    run(["round-begin", "--worktree", W, "--kind", "critique"], h.deps);
+    run(
+      ["round-end", "--worktree", W, "--decision", "kept", "--reason", "x"],
+      h.deps,
+    );
+    expect(result(h)).toEqual({ ran: false, skipReason: "bad-decision" });
+    expect(logOf(h).round.open).toBe(true);
+  });
+
+  it("renders the After column only for a kept round", () => {
+    const seeded = (outcome: string) =>
+      harness({
+        "/b.md": BODY,
+        [`${critDir}/log.json`]: { outcome },
+        [`${critDir}/round-0-driver.json`]: {
+          section_shots: [
+            shotAt(`${W}/.flow-tmp/ui-evidence/critique-round-0/a.png`),
+          ],
+        },
+        [`${critDir}/after-driver.json`]: {
+          section_shots: [shotAt(`${W}/.flow-tmp/ui-evidence/critique/a.png`)],
+        },
+      });
+    const kept = seeded("kept");
+    render(kept);
+    const keptBody = kept.files.get("/b.md")!;
+    expect(keptBody).toContain("| Before | After |");
+    expect(keptBody).toContain(
+      "](.flow-tmp/ui-evidence/critique-round-0/a.png)",
+    );
+    expect(keptBody).toContain("](.flow-tmp/ui-evidence/critique/a.png)");
+    const reverted = seeded("reverted");
+    render(reverted);
+    const revertedBody = reverted.files.get("/b.md")!;
+    expect(revertedBody).not.toContain("After");
+    expect(revertedBody).not.toContain("ui-evidence/critique/a.png");
+  });
+
+  it("keeps a ticked DECISION ticked while its text is unchanged and re-arms it when the defects change", () => {
+    const h = harness({
+      "/b.md": BODY,
+      [`${critDir}/log.json`]: { outcome: "kept", residual: [defect] },
+    });
+    render(h);
+    const ticked = h.files
+      .get("/b.md")!
+      .replace("- [ ] DECISION:", "- [x] DECISION:");
+    h.files.set("/b.md", ticked);
+    render(h);
+    expect(h.files.get("/b.md")).toBe(ticked);
+    h.files.set(
+      `${critDir}/log.json`,
+      JSON.stringify({
+        outcome: "kept",
+        residual: [defect, { ...defect, id: "g" }],
+      }),
+    );
+    render(h);
+    expect(h.files.get("/b.md")).toMatch(
+      /- \[ \] DECISION: .*with 2 unresolved/,
+    );
+  });
+
+  it("collapses newlines in model text so the DECISION item stays one line", () => {
+    const h = harness({
+      "/b.md": BODY,
+      [`${critDir}/log.json`]: {
+        outcome: "kept",
+        residual: [
+          { ...defect, observation: "a\n- [x] SUBJECTIVE: ok\n## Fake" },
+        ],
+      },
+    });
+    render(h);
+    const lines = h.files.get("/b.md")!.split("\n");
+    const at = lines.findIndex((l) => l.includes("DECISION:"));
+    expect(lines[at]).toContain("flow:ui-review-decision");
+    expect(lines.filter((l) => l.startsWith("## Fake"))).toEqual([]);
+  });
+
+  it("escapes brackets and spaces so the upload step can still match the image", () => {
+    const h = harness({
+      "/b.md": BODY,
+      [`${critDir}/log.json`]: { outcome: "clean" },
+      [`${critDir}/round-0-driver.json`]: {
+        section_shots: [
+          {
+            ...shotAt(`${W}/.flow-tmp/ui-evidence/my shot.png`),
+            section: "Pricing [Beta]",
+          },
+        ],
+      },
+    });
+    render(h);
+    expect(h.files.get("/b.md")).toContain(
+      "![Pricing  Beta  phone before](.flow-tmp/ui-evidence/my%20shot.png)",
+    );
+  });
+
+  it("never lets a helper code reach the section as a reason", () => {
+    const h = harness({
+      "/b.md": BODY,
+      [`${critDir}/log.json`]: {
+        outcome: "reverted",
+        round: {
+          kind: "critique",
+          preSha: "a",
+          open: false,
+          reason: "resumed-mid-round",
+        },
+      },
+    });
+    render(h);
+    const body = h.files.get("/b.md")!;
+    expect(body).toContain(
+      "Critique round reverted: the run restarted mid-round, so the round was undone.",
+    );
+    render(h, "--skip", "some-unlisted-code");
+    expect(h.files.get("/b.md")).toContain(
+      "Not run: the reviewer could not run",
+    );
+  });
+
+  it("a smell round reads as a layout repair round", () => {
+    const h = harness({
+      "/b.md": BODY,
+      [`${critDir}/log.json`]: {
+        outcome: "kept",
+        round: { kind: "smell", preSha: "a", open: false, reason: "better" },
+      },
+    });
+    render(h);
+    expect(h.files.get("/b.md")).toContain("Layout repair round kept: better.");
+  });
+
+  it("accept on a regressed compare without --after names the regression, not a missing critique", () => {
+    const h = harness({
+      "/c.json": { decision: "revert", regressed: true },
+      "/t.json": { findings: [{ ...defect }] },
+    });
+    run(["accept", "--compare", "/c.json", "--targeted", "/t.json"], h.deps);
+    expect(result(h).decision).toBe("revert");
+    expect(result(h).reason).toContain("page checks got worse");
+  });
+
+  it("accept reverts when a targeted section is missing from the post-round gallery", () => {
+    const base = {
+      "/c.json": { decision: "keep", regressed: false },
+      "/t.json": { findings: [defect] },
+      "/a.json": { findings: [] },
+    };
+    const missing = harness({
+      ...base,
+      "/ad.json": { section_shots: [{ ...shotAt(SHOT), section: "Renamed" }] },
+    });
+    const args = [
+      "accept",
+      "--compare",
+      "/c.json",
+      "--targeted",
+      "/t.json",
+      "--after",
+      "/a.json",
+      "--after-driver",
+      "/ad.json",
+    ];
+    run(args, missing.deps);
+    expect(result(missing)).toMatchObject({ decision: "revert" });
+    expect(result(missing).reason).toContain("Pricing");
+    const present = harness({
+      ...base,
+      "/ad.json": { section_shots: [shotAt(SHOT)] },
+    });
+    run(args, present.deps);
+    expect(result(present).decision).toBe("keep");
+  });
+
+  it("a persistent off-screen element does not count its own overflow line as another failure", () => {
+    const h = harness();
+    const ctx = {
+      route: "/",
+      consoleErrors: [],
+      failedRequests: [],
+      missingSelectors: [],
+      heuristicIssues: ["[xs] past-viewport: div.wide extends to 352px"],
+      geometryIssues: [
+        "[xs] horizontal overflow: scrollWidth=352 > clientWidth=320",
+      ],
+    };
+    for (let i = 0; i < 3; i++) {
+      h.files.set(
+        `/d${i}.json`,
+        JSON.stringify({ ran: true, ok: false, fix_context: [ctx] }),
+      );
+      run(["persistent", "--worktree", W, "--record", `/d${i}.json`], h.deps);
+    }
+    run(["persistent", "--worktree", W, "--check"], h.deps);
+    expect(result(h).allPersistent).toBe(true);
+    const other = harness();
+    for (let i = 0; i < 3; i++) {
+      other.files.set(
+        `/d${i}.json`,
+        JSON.stringify({
+          ran: true,
+          ok: false,
+          fix_context: [{ ...ctx, heuristicIssues: ["[xs] leak: x"] }],
+        }),
+      );
+      run(
+        ["persistent", "--worktree", W, "--record", `/d${i}.json`],
+        other.deps,
+      );
+    }
+    run(["persistent", "--worktree", W, "--check"], other.deps);
+    expect(result(other).allPersistent).toBe(false);
+  });
+});
+
+describe("critique spend guard", () => {
+  const shot = {
+    route: "/",
+    section: "Pricing",
+    viewport: "phone",
+    part: "whole",
+    path: SHOT,
+  };
+  const files = () => ({
+    "/d.json": { ran: true, ok: true, section_shots: [shot] },
+    "/plan.md": "## Layout Intent\n\nx\n",
+    "/skills/flow-ui-ux/references/rendered-critique.md": "a",
+    "/skills/flow-ui-ux/references/visual-design.md": "b",
+    "/skills/flow-ui-ux/references/layout.md": "c",
+    "/skills/flow-ui-ux/references/accessibility.md": "d",
+    "/child.json": { result: '{"findings":[]}' },
+  });
+  const args = (phase: string) => [
+    "critique",
+    "--driver-result",
+    "/d.json",
+    "--plan",
+    "/plan.md",
+    "--phase",
+    phase,
+    "--out",
+    `/out/${phase}.json`,
+    "--worktree",
+    W,
+  ];
+  const envelope = (): HeadlessEnvelope => ({
+    ran: true,
+    artifact: "/child.json",
+    total_cost_usd: 1.25,
+  });
+
+  it("spends once per phase, records the real cost in the log, and refuses a repeat", () => {
+    const h = harness(files(), {}, envelope);
+    run(args("round-0"), h.deps);
+    expect(result(h).ran).toBe(true);
+    expect(logOf(h)).toMatchObject({
+      critiqueCalls: ["round-0"],
+      costUsd: 1.25,
+    });
+    run(args("round-0"), h.deps);
+    expect(result(h)).toEqual({
+      ran: false,
+      skipReason: "phase-already-critiqued",
+    });
+    expect(h.spawned).toHaveLength(1);
+    run(args("post-round"), h.deps);
+    expect(h.spawned).toHaveLength(2);
+    expect(logOf(h).costUsd).toBeCloseTo(2.5);
+  });
+
+  it("a failed call still counts against the cap", () => {
+    const h = harness(files(), {}, () => ({
+      ran: false,
+      skipReason: "claude-timeout",
+    }));
+    run(args("round-0"), h.deps);
+    run(args("round-0"), h.deps);
+    expect(result(h).skipReason).toBe("phase-already-critiqued");
+    expect(h.spawned).toHaveLength(1);
+  });
+
+  it("refuses to spend once the loop is completed", () => {
+    const h = harness(
+      {
+        ...files(),
+        [`${W}/.flow-tmp/ui-critique/log.json`]: { completed: true },
+      },
+      {},
+      envelope,
+    );
+    run(args("round-0"), h.deps);
+    expect(result(h)).toEqual({ ran: false, skipReason: "already-ran" });
+    expect(h.spawned).toEqual([]);
+  });
+
+  it("carries the omitted-section count into the log", () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({
+      ...shot,
+      section: `S${i}`,
+    }));
+    const h = harness(
+      { ...files(), "/d.json": { ran: true, ok: true, section_shots: many } },
+      {},
+      envelope,
+    );
+    run(args("round-0"), h.deps);
+    expect(logOf(h).omittedSections).toBeGreaterThan(0);
   });
 });

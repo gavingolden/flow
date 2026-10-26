@@ -50,9 +50,11 @@ task's interface spec (files / signatures / exported symbols / call-site
 edits, or the change-type surgical form) copied from an approved plan's
 Contract block — `acceptance` — a runnable per-edit check — and
 `skill_docs` — absolute skill/reference paths the subagent Reads before
-that entry's first edit and records in the artifact's `skills_read`. Today only
-`/flow-new-feature` step 5's plan-contract path composes them; `/flow-verify`,
-`/flow-refactoring`, and the redirect path keep composing bare triples, and the
+that entry's first edit and records in the artifact's `skills_read`. Today
+`/flow-new-feature` step 5's plan-contract path and `/flow-verify`'s UI fix
+rounds compose them (the verify rounds pass the rule paths as per-entry
+`skill_docs` and the Layout Intent as `DESIGN_CONTEXT`); `/flow-refactoring`
+and the redirect path keep composing bare triples, and the
 subagent treats an entry without them exactly as before (see
 `flow-coder-instructions/SKILL.md` for how `contract` is honored as a
 strong prior via a mechanical pre-check).
@@ -276,8 +278,8 @@ Fill in the seven `{{...}}` placeholders before passing to the Task tool:
 `WORKTREE`, `SKILL_DIR`, `ARTIFACT_PATH`. `{{DESIGN_CONTEXT}}` is
 **optional**: it renders the caller's optional `DESIGN_CONTEXT` Skill
 argument (authored by `/flow-new-feature` Step 5's "Design context
-(omit-when-absent)" sub-step — the wrapper only renders it, never composes
-it). When the caller passed no `DESIGN_CONTEXT`, **omit the entire "Design
+(omit-when-absent)" sub-step, or by `/flow-verify`'s UI fix rounds — the
+wrapper only renders it, never composes it). When the caller passed no `DESIGN_CONTEXT`, **omit the entire "Design
 context" block below — the two label lines and the placeholder — so non-UI
 spawn prompts stay byte-identical to the pre-design-context shape.**
 

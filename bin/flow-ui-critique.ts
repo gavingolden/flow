@@ -43,6 +43,8 @@ import {
   opRoundBegin,
   opRoundEnd,
   readJson,
+  readLog,
+  writeLog,
   type Flags,
   type OpResult,
   type OpsDeps,
@@ -85,7 +87,7 @@ const USAGE = `usage: flow-ui-critique <subcommand> [flags]
   record      --worktree <w> --outcome clean|list-only|skipped --reason <text> [--residual-file <p>] [--omitted <n>] [--cost <usd>] [--complete]
   persistent  --worktree <w> (--record <driver-result> | --check)
   critique    --driver-result <p> --plan <p> [--smells <p>] --phase round-0|post-round --out <p> [--worktree <w>]
-  accept      --compare <p> --targeted <p> [--after <p>]
+  accept      --compare <p> --targeted <p> [--after <p>] [--after-driver <p>]
   render      --worktree <w> --body-file <p> [--push-copy <p>] [--skip <reason>]`;
 
 const BOOLEAN_FLAGS = new Set(["complete", "check"]);
@@ -105,7 +107,10 @@ const SPEC: Record<string, { required: string[]; optional: string[] }> = {
     required: ["driver-result", "plan", "phase", "out"],
     optional: ["smells", "worktree"],
   },
-  accept: { required: ["compare", "targeted"], optional: ["after"] },
+  accept: {
+    required: ["compare", "targeted"],
+    optional: ["after", "after-driver"],
+  },
   render: {
     required: ["worktree", "body-file"],
     optional: ["push-copy", "skip"],
@@ -147,6 +152,14 @@ function critique(f: Flags, deps: Deps): OpResult {
   if (phase !== "round-0" && phase !== "post-round") {
     return { ran: false, skipReason: "bad-phase" };
   }
+  // The $3 per-call cap is enforced by the headless child; the call count
+  // lives here because this subcommand is pre-approved without classifier
+  // review, so a looping caller must not be able to re-spend.
+  const prior = readLog(deps, w);
+  if (prior.completed) return { ran: false, skipReason: "already-ran" };
+  if (prior.critiqueCalls.includes(phase)) {
+    return { ran: false, skipReason: "phase-already-critiqued" };
+  }
   const driver = readJson(deps, String(f["driver-result"])) as {
     section_shots?: SectionShot[];
     route_snapshots?: { route: string; path: string }[];
@@ -186,6 +199,16 @@ function critique(f: Flags, deps: Deps): OpResult {
     phase,
   });
 
+  writeLog(deps, w, {
+    ...prior,
+    critiqueCalls: [...prior.critiqueCalls, phase],
+    omittedSections: Math.max(prior.omittedSections, gallery.omittedSections),
+  });
+  const recordSpend = (usd: unknown): void => {
+    if (typeof usd !== "number" || !(usd > 0)) return;
+    const cur = readLog(deps, w);
+    writeLog(deps, w, { ...cur, costUsd: cur.costUsd + usd });
+  };
   const scratch = deps.mkdtemp();
   const promptPath = path.join(scratch, "ui-critique-prompt.md");
   const childOut = path.join(
@@ -223,6 +246,7 @@ function critique(f: Flags, deps: Deps): OpResult {
   } finally {
     deps.removeDir(scratch);
   }
+  recordSpend(envelope.total_cost_usd);
   if (envelope.ran !== true) {
     return { ran: false, skipReason: envelope.skipReason ?? "headless-error" };
   }

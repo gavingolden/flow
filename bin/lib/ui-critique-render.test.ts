@@ -121,6 +121,16 @@ describe("renderUiReview", () => {
     );
     expect(out).not.toContain("Cost:");
   });
+
+  it("maps a helper skip code to a plain reason", () => {
+    const out = renderUiReview({
+      before: [],
+      after: null,
+      log: log({ skip: "unparseable-result" }),
+      demotion: null,
+    });
+    expect(out).toContain("Not run: the reviewer's reply could not be read");
+  });
 });
 
 describe("residualDecisionItem", () => {

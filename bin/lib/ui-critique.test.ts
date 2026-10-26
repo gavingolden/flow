@@ -219,7 +219,7 @@ describe("acceptRound", () => {
   it("reverts on a regression regardless of the findings", () => {
     const r = acceptRound({ regressed: true, targeted, after: [] });
     expect(r.decision).toBe("revert");
-    expect(r.reason).toContain("regressed");
+    expect(r.reason).toContain("page checks got worse");
   });
 
   it("reverts when a targeted location did not get strictly better", () => {
@@ -301,6 +301,7 @@ describe("parseLoopLog", () => {
       omittedSections: 2,
       costUsd: 0.5,
       completed: true,
+      critiqueCalls: ["round-0"],
       skip: "why",
     };
     expect(parseLoopLog(JSON.stringify(log))).toEqual(log);

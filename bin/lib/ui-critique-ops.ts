@@ -11,6 +11,7 @@ import { readUiCritiqueEnabled } from "./ui-critique-config";
 import {
   acceptRound,
   decideGate,
+  findingKey,
   parseLoopLog,
   persistentDefects,
   type CritiqueFinding,
@@ -73,11 +74,11 @@ export function readJson(deps: OpsDeps, p: string): unknown {
   }
 }
 
-function readLog(deps: OpsDeps, w: string): LoopLog {
+export function readLog(deps: OpsDeps, w: string): LoopLog {
   return parseLoopLog(deps.readFile(logFile(w)));
 }
 
-function writeLog(deps: OpsDeps, w: string, log: LoopLog): void {
+export function writeLog(deps: OpsDeps, w: string, log: LoopLog): void {
   deps.mkdirp(critDir(w));
   deps.writeFile(logFile(w), JSON.stringify(log, null, 2) + "\n");
 }
@@ -180,6 +181,9 @@ export function opRoundEnd(f: Flags, deps: OpsDeps): OpResult {
   const w = str(f.worktree);
   const log = readLog(deps, w);
   if (!log.round?.open) return failed("no-open-round");
+  if (f.decision !== "keep" && f.decision !== "revert") {
+    return failed("bad-decision");
+  }
   const keep = f.decision === "keep";
   if (!keep) {
     const head = deps.gitHead(w);
@@ -205,8 +209,9 @@ export function opRoundEnd(f: Flags, deps: OpsDeps): OpResult {
     typeof f["residual-file"] === "string"
       ? readFindings(deps, f["residual-file"])
       : null;
+  const { skip: _skip, ...rest } = log;
   const next: LoopLog = {
-    ...log,
+    ...rest,
     round: {
       ...log.round,
       open: false,
@@ -240,8 +245,9 @@ export function opRecord(f: Flags, deps: OpsDeps): OpResult {
     typeof f["residual-file"] === "string"
       ? readFindings(deps, f["residual-file"])
       : null;
+  const { skip: _skip, ...rest } = log;
   const next: LoopLog = {
-    ...log,
+    ...rest,
     outcome,
     mode: outcome === "list-only" ? "list-only" : log.mode,
     residual: residual ?? log.residual,
@@ -272,15 +278,26 @@ export function opPersistent(f: Flags, deps: OpsDeps): OpResult {
     const list = (e: Record<string, unknown>, k: string): string[] =>
       Array.isArray(e[k]) ? (e[k] as string[]) : [];
     const issues = ctx.flatMap((e) => list(e, "heuristicIssues"));
+    // An element past the viewport also widens the page, so its own
+    // "horizontal overflow" geometry line is the same defect, not a second
+    // failure class that would block the persistent-defect hand-off.
+    const geometry = (e: Record<string, unknown>): string[] => {
+      const heuristic = list(e, "heuristicIssues");
+      return list(e, "geometryIssues").filter((g) => {
+        const tag = g.match(/^(\[[^\]]*\]) horizontal overflow/)?.[1];
+        return !(
+          tag && heuristic.some((h) => h.startsWith(`${tag} past-viewport:`))
+        );
+      });
+    };
     const other = ctx.reduce(
       (n, e) =>
         n +
-        [
-          "consoleErrors",
-          "failedRequests",
-          "missingSelectors",
-          "geometryIssues",
-        ].reduce((m, k) => m + list(e, k).length, 0),
+        geometry(e).length +
+        ["consoleErrors", "failedRequests", "missingSelectors"].reduce(
+          (m, k) => m + list(e, k).length,
+          0,
+        ),
       0,
     );
     deps.mkdirp(critDir(w));
@@ -319,16 +336,17 @@ export function opRender(f: Flags, deps: OpsDeps): OpResult {
   const demoted = demotion(deps);
   const section = renderUiReview({
     before: round0?.section_shots ?? [],
-    after: after?.section_shots ?? null,
+    after: log.outcome === "kept" ? (after?.section_shots ?? null) : null,
     log,
     demotion:
       log.mode === "list-only"
         ? demoted.reason || "recent critique rounds were reverted"
         : null,
   });
-  const decision = log.skip
-    ? null
-    : residualDecisionItem(log.residual, log.persistent);
+  const decision = residualDecisionItem(
+    log.skip ? [] : log.residual,
+    log.persistent,
+  );
   const next = upsertUiReview(body, section, decision);
   deps.writeFile(bodyFile, next);
   deps.writeFile(path.join(w, ".flow-tmp", "ui-review.md"), section + "\n");
@@ -344,7 +362,7 @@ export function opRender(f: Flags, deps: OpsDeps): OpResult {
     residualDefects: log.skip
       ? 0
       : log.residual.filter((r) => r.severity === "defect").length,
-    persistentDefects: log.skip ? 0 : log.persistent.length,
+    persistentDefects: log.persistent.length,
     decisionAdded: decision !== null,
   };
 }
@@ -366,12 +384,24 @@ export function opAccept(f: Flags, deps: OpsDeps): OpResult {
   }
   const after =
     typeof f.after === "string" ? readFindings(deps, f.after) : null;
-  if (after === null) {
+  if (after === null && !compare.regressed) {
     return {
       decision: "revert",
       reason:
         "the post-round critique is unavailable, so the round cannot be verified",
     };
   }
-  return { ...acceptRound({ regressed: compare.regressed, targeted, after }) };
+  const shots =
+    typeof f["after-driver"] === "string"
+      ? readDriver(deps, f["after-driver"])?.section_shots
+      : undefined;
+  const afterKeys = shots ? new Set(shots.map(findingKey)) : undefined;
+  return {
+    ...acceptRound({
+      regressed: compare.regressed,
+      targeted,
+      after: after ?? [],
+      afterKeys,
+    }),
+  };
 }

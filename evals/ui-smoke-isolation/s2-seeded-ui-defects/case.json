@@ -36,6 +36,12 @@
       "contains": "\"heuristics\""
     },
     {
+      "id": "true-320-emulated",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/ui-captures.json",
+      "matches": "\"innerWidth\": *320\\b"
+    },
+    {
       "id": "verify-status-pass",
       "kind": "structured",
       "path": "verify_status",
