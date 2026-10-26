@@ -1,0 +1,91 @@
+{
+  "id": "s2-seeded-ui-defects",
+  "title": "Step 6 verify detects and fixes planted page-quality defects (citation leak, anchor under sticky header, overflow at 320px)",
+  "provenance": "Synthetic zero-dependency Bun static fixture authored for this suite; the overlay page plants one deterministic probe-detectable defect per class, and preload/plan-digest.md is a short synthetic plan digest (no relative links) describing the report page.",
+  "prompt": "prompt.md",
+  "preload": ["preload/plan-digest.md"],
+  "fixture": {
+    "repo": "fixture",
+    "overlay": "overlay",
+    "state": "state.json"
+  },
+  "env": {
+    "flowSlug": true
+  },
+  "maxBudgetUsd": 12,
+  "timeoutSec": 1800,
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "mcp-drive-happened",
+      "kind": "metric",
+      "source": "transcript.mcpToolCalls",
+      "direction": "lower",
+      "min": 1
+    },
+    {
+      "id": "captures-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/ui-captures.json",
+      "exists": true
+    },
+    {
+      "id": "probe-ran",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/ui-captures.json",
+      "contains": "\"heuristics\""
+    },
+    {
+      "id": "verify-status-pass",
+      "kind": "structured",
+      "path": "verify_status",
+      "equals": "pass"
+    },
+    {
+      "id": "citation-leak-fixed",
+      "kind": "file",
+      "file": "$REPO/public/index.html",
+      "notMatches": "\\(cite index="
+    },
+    {
+      "id": "prose-preserved",
+      "kind": "file",
+      "file": "$REPO/public/index.html",
+      "matches": "Revenue grew steadily across all three regions[^<]*and\\s+costs stayed flat"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    }
+  ]
+}

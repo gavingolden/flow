@@ -102,7 +102,7 @@ const PROBE_SOURCE = String.raw`() => {
     ["markup", /<\/?[a-z][a-z0-9-]*(\s[^>]*)?>|&(?:[a-z]+|#\d+);/i],
     ["template", /\{\{[^}]*\}\}|\$\{[^}]*\}|\{%[^%]*%\}/],
     ["object", /\[object [A-Z][A-Za-z]*\]/],
-    ["citation", /【[^】]*】|†source|contentReference\[/],
+    ["citation", /【[^】]*】|†source|contentReference\[|\(cite index=[^)]*\)|\[cite:[^\]]*\]/],
     ["token", /\bundefined\b|\bNaN\b|\*\*[^*\n]+\*\*/],
   ];
   const leaked = (text, el) => {

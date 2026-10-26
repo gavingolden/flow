@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ui-smoke seeded-defects fixture</title>
+    <!-- Planted defects (evals/ui-smoke-isolation s2): each one is caught by
+         the deterministic page-quality probe, not by a model's eye:
+           1. a literal "(cite index=3)" citation marker in visible text (leak)
+           2. an in-page jump link whose target has no scroll-margin-top, so
+              it lands under the sticky header (anchor)
+           3. a 344px-wide table that ends 40px past a 320px viewport
+              (past-viewport)
+           4. two "Regenerate" buttons in <main> (duplicate control) -->
+    <style>
+      body {
+        margin: 0;
+        font: 16px/1.5 system-ui, sans-serif;
+        color: #1a1a1a;
+        background: #ffffff;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        height: 56px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 0 16px;
+        background: #f3f3f3;
+        border-bottom: 1px solid #d0d0d0;
+      }
+      main {
+        padding: 16px;
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      section {
+        min-height: 600px;
+      }
+      .wide-table {
+        width: 344px;
+        border-collapse: collapse;
+      }
+      .wide-table td {
+        border: 1px solid #d0d0d0;
+        padding: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Quarterly report</strong>
+      <a href="#details">Jump to details</a>
+    </header>
+    <main>
+      <section id="summary">
+        <h1>Quarterly report</h1>
+        <p>
+          Revenue grew steadily across all three regions (cite index=3) and
+          costs stayed flat.
+        </p>
+        <button type="button">Regenerate</button>
+      </section>
+      <section>
+        <h2>Regions</h2>
+        <table class="wide-table">
+          <tr>
+            <td>North</td>
+            <td>South</td>
+            <td>West</td>
+          </tr>
+        </table>
+      </section>
+      <section id="details">
+        <h2>Details</h2>
+        <p>Per-region figures are listed below.</p>
+        <button type="button">Regenerate</button>
+      </section>
+    </main>
+  </body>
+</html>
