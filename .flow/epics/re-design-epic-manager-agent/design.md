@@ -57,7 +57,10 @@ f5 stores this in the owner's product brief (`~/.flow/product.md`, a new
    smallest version that proves it.
 3. **Ruthless prioritization.** Rank by user impact × confidence ÷ cost. Cut
    or defer low-value and unproven work, including the executive's own
-   critiques: raise only points that would change the decision (max 3).
+   critiques. A blocking point must name the decision it changes, the
+   evidence that would settle it, and the cost of being wrong. There is no
+   count cap: a large plan can have many. Everything else is a non-blocking
+   note that rides along with the decision and never costs a revision round.
 4. **Simplicity unless change later is expensive.** Default to the simplest
    thing. Invest ahead only where reversing later is costly — persisted data
    shapes, public interfaces, security boundaries, anything at 10× scale.
@@ -68,7 +71,10 @@ f5 stores this in the owner's product brief (`~/.flow/product.md`, a new
    recommendation the owner can accept in one word.
 6. **Press, don't rubber-stamp.** When unconvinced, send a challenge memo —
    questions plus the evidence that would change the decision — into the
-   pipeline's own revision pass. At most two rounds, then decide or defer.
+   pipeline's own revision pass. Keep pressing while each round closes
+   blocking points; when a round closes none, stop and decide or defer with
+   the open points. A runaway backstop of 4 rounds is logged as a calibration
+   signal, not treated as the expected stop.
 7. **Outside view.** Before approving a consequential choice, steelman the
    strongest alternative and run a pre-mortem ("it is three months later and
    this failed — why?"). Prefer a cross-model view: the executive shares the
@@ -88,8 +94,35 @@ owner, never type into a pipeline's window.
 ### Challenges and expansions to the owner's framing (adopted)
 
 - **"Always question things" can become a churn engine.** Every challenge
-  costs a revision pass (~minutes, opus tokens). Hence the materiality filter
-  (max 3, decision-changing only) and the two-round cap (charter 3, 6).
+  costs a revision pass (~minutes, opus tokens). The guard is quality, not
+  count (owner, round 3: "limiting questions to 3 is arbitrary"): a
+  materiality bar on blocking points, free non-blocking notes, stop on no
+  progress (charter 3, 6), and a measured acted-on rate.
+  - _Evidence:_ no study supports a fixed count; the first draft's "3" was a
+    guess.
+  - Intrinsic self-correction with no outside feedback often fails to
+    improve reasoning and sometimes makes it worse (Huang et al., ICLR 2024,
+    https://arxiv.org/abs/2310.01798). So a challenge must cite evidence or
+    context the pipeline lacked.
+  - Iterative refinement gains shrink each round (Self-Refine, NeurIPS 2023,
+    https://arxiv.org/abs/2303.17651). So stop on no progress, not on a
+    fixed round count.
+  - Larger changes get a smaller share of useful review comments (Bosu,
+    Greiler, Bird, MSR 2015, Microsoft). So a big plan needs a sharper bar,
+    not a lower cap.
+  - Google kept a static-analysis check only while its "effective false
+    positive" rate stayed under ~10%. That rate counts the issues developers
+    did not act on (Sadowski et al., CACM 2018).
+  - Calibration therefore logs each blocking point and whether the pipeline
+    or owner acted on it. A falling acted-on rate tightens the bar.
+  - _Alternatives weighed:_
+    - a fixed count cap (simple, arbitrary, under-serves big plans);
+    - a cap scaled to plan size (still arbitrary);
+    - a spend or time budget per review (limits cost, not noise);
+    - letting only the cross-model reviewer raise challenges (less
+      self-bias, but loses the epic context only the executive has).
+  - _Chosen:_ the materiality bar + blocking/non-blocking split + no-progress
+    stop + acted-on calibration.
 - **"Higher level" means an executive's lens, not more thinking** (owner
   clarification, round 2). The executive asks what the request is for and
   whether it is the right approach or justified at all (charter 1–2). A
@@ -157,8 +190,10 @@ grant runs `flow-exec-review review --kind plan` before pausing: hard
 mechanical preconditions first (cross-model review engaged, anchors resolve,
 lint clean, no one-way-door action), then one headless call over the decision
 packet returning approve / challenge / defer with door type, confidence,
-rationale and ≤3 challenges. Approve ⇒ proceed, log, stamp the PR. Challenge
-⇒ the pipeline's own revision pass, max two rounds. Defer ⇒ today's pause,
+rationale, blocking challenges (no count cap, each meeting the charter-3
+bar) and non-blocking notes. Approve ⇒ proceed, log, stamp the PR, pass the
+notes along. Challenge ⇒ the pipeline's own revision pass, repeated while
+each round closes blocking points. Defer ⇒ today's pause,
 with one recommendation. At each merge, a wave review (`--kind wave`) returns
 continue / reorder / propose / escalate. A reorder is applied by
 `/flow-epic-run` now, and by the sequencer after f3. A proposal (defer, cut
