@@ -21,7 +21,8 @@ export type AttachItem = { target: string; arg: string; sha: string };
 export type ScreenshotSkip =
   | "screenshots_gh_too_old"
   | "screenshots_body_too_large"
-  | "screenshots_too_many";
+  | "screenshots_too_many"
+  | "screenshots_outside_worktree";
 
 export function ghSupportsAttach(versionOutput: string): boolean {
   const m = versionOutput.match(/gh version (\d+)\.(\d+)\.(\d+)/);
@@ -75,6 +76,20 @@ function resolveLocalImage(worktree: string, target: string): string | null {
   return abs;
 }
 
+/** Local image targets that point outside the worktree (never uploadable). */
+function outsideWorktreeTargets(body: string, worktree: string): string[] {
+  const seen = new Set<string>();
+  for (const m of body.matchAll(IMAGE_RE)) {
+    if (!isLocalTarget(m[2])) continue;
+    const rel = path.relative(
+      worktree,
+      path.resolve(worktree, decodeURI(m[2])),
+    );
+    if (rel.startsWith("..") || path.isAbsolute(rel)) seen.add(m[2]);
+  }
+  return [...seen];
+}
+
 export function hasLocalImageRefs(body: string): boolean {
   return [...body.matchAll(IMAGE_RE)].some((m) => isLocalTarget(m[2]));
 }
@@ -100,6 +115,8 @@ export type ScreenshotPlan = {
   bodyWithoutImages: string;
   attach: AttachItem[];
   skip?: { step: ScreenshotSkip; reason: string };
+  /** Non-blocking findings: reported, but the upload still proceeds. */
+  notes?: { step: ScreenshotSkip; reason: string }[];
 };
 
 export function planScreenshots(input: {
@@ -134,7 +151,23 @@ export function planScreenshots(input: {
     attach.push({ target: m[2], arg: alt ? `${abs}#${alt}` : abs, sha });
   }
 
-  if (attach.length === 0) return { body, bodyWithoutImages, attach };
+  // Computed before the early return below: a body whose only screenshots sit
+  // outside the worktree has nothing to attach, and would otherwise report
+  // `screenshots_uploaded: 0` with no reason.
+  const outside = outsideWorktreeTargets(body, input.worktree);
+  const outsideNote =
+    outside.length > 0
+      ? {
+          step: "screenshots_outside_worktree" as const,
+          reason: `${outside.length} screenshot(s) outside the worktree were not uploaded: ${outside[0]}`,
+        }
+      : undefined;
+
+  if (attach.length === 0) {
+    return outsideNote
+      ? { body, bodyWithoutImages, attach, skip: outsideNote }
+      : { body, bodyWithoutImages, attach };
+  }
   if (attach.length > ATTACH_MAX_FILES) {
     return {
       body,
@@ -169,7 +202,9 @@ export function planScreenshots(input: {
       },
     };
   }
-  return { body, bodyWithoutImages, attach };
+  return outsideNote
+    ? { body, bodyWithoutImages, attach, notes: [outsideNote] }
+    : { body, bodyWithoutImages, attach };
 }
 
 /**
@@ -244,6 +279,7 @@ export function pushBodyWithScreenshots(
   const skips: { step: string; reason: string }[] = [];
   let uploaded = 0;
   if (plan.skip) skips.push(plan.skip);
+  skips.push(...(plan.notes ?? []));
   if (plan.body !== original) io.writeFile(args.bodyFile, plan.body);
 
   // A body pushed without its images goes through a sibling file so

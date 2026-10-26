@@ -650,6 +650,38 @@ describe("screenshot attach", () => {
     expect(result.body_updated).toBe(true);
   });
 
+  it("attach: a screenshot outside the worktree records screenshots_outside_worktree instead of a silent zero", async () => {
+    seed(`## Test Steps\n\n![shot](../elsewhere/shot.png)\n`);
+    const calls: string[][] = [];
+    const result = await runReviewFinalize({
+      ...baseOpts(calls),
+      exec: attachExec(calls, { version: "2.101.0" }),
+    });
+    expect(result.screenshots_uploaded).toBe(0);
+    const skip = result.skips.find(
+      (s) => s.step === "screenshots_outside_worktree",
+    );
+    expect(skip?.reason).toBe(
+      "1 screenshot(s) outside the worktree were not uploaded: ../elsewhere/shot.png",
+    );
+  });
+
+  it("attach: an outside screenshot is reported without blocking the in-worktree upload", async () => {
+    seed(
+      `## Test Steps\n\n${REF}\n\n![shot](../elsewhere/shot.png)\n\n${LOCAL_LINK}\n`,
+    );
+    const calls: string[][] = [];
+    const result = await runReviewFinalize({
+      ...baseOpts(calls),
+      exec: attachExec(calls, { version: "2.101.0" }),
+    });
+    expect(result.screenshots_uploaded).toBe(1);
+    expect(result.skips.map((s) => s.step)).toContain(
+      "screenshots_outside_worktree",
+    );
+    expect(edits(calls)[0]).toContain("--attach");
+  });
+
   it("attach: an upload failure retries the body write once without attachments and leaves the ledger empty", async () => {
     seed();
     const calls: string[][] = [];
