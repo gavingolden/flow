@@ -121,17 +121,24 @@ function loadEvidence(
 function driverVerdict(
   driver: Record<string, unknown> | null,
   index: number,
-): string | null {
+): { verdict: string; reason: string | null } | null {
   const results = driver?.item_results;
   if (!Array.isArray(results)) return null;
   for (const r of results) {
     if (typeof r === "object" && r !== null) {
       const e = r as Record<string, unknown>;
-      if (e.index === index && typeof e.verdict === "string") return e.verdict;
+      if (e.index === index && typeof e.verdict === "string") {
+        return {
+          verdict: e.verdict,
+          reason: typeof e.reason === "string" ? e.reason : null,
+        };
+      }
     }
   }
   return null;
 }
+
+const DATA_PRECONDITION_PREFIX = "data-precondition: ";
 
 function driverSkip(driver: Record<string, unknown> | null): string | null {
   if (driver?.ran !== false) return null;
@@ -144,7 +151,8 @@ function classifyOne(
   ev: Evidence,
   index: number,
 ): { status: BrowserItemStatus; reason?: string } {
-  const verdict = driverVerdict(ev.driver, index);
+  const found = driverVerdict(ev.driver, index);
+  const verdict = found?.verdict;
   if (verdict === "pass") {
     return { status: "passed-unticked", reason: "driver verdict: pass" };
   }
@@ -152,6 +160,15 @@ function classifyOne(
     return { status: "failed", reason: "driver verdict: fail" };
   }
   if (verdict === "not-drivable") {
+    // A quota or rate limit does not clear on a re-drive, so this stays
+    // `not-drivable` (the gate reads it as gated, never `browser-retry`).
+    if (found?.reason?.startsWith(DATA_PRECONDITION_PREFIX)) {
+      const rest = found.reason.slice(DATA_PRECONDITION_PREFIX.length);
+      return {
+        status: "not-drivable",
+        reason: `data precondition: ${rest} — local app data, not a code failure`,
+      };
+    }
     return { status: "not-drivable", reason: "driver verdict: not-drivable" };
   }
   if (ev.preflight?.ready === false) {

@@ -426,6 +426,95 @@ describe("heuristic fix-context fields", () => {
   });
 });
 
+describe("critique-loop artifact fields", () => {
+  const shot = (over: Record<string, unknown> = {}) => ({
+    route: "/",
+    section: "Pricing",
+    viewport: "phone",
+    part: "whole",
+    path: "/wt/.flow-tmp/ui-evidence/pricing-phone.png",
+    ...over,
+  });
+  const withField = (field: string, value: unknown) =>
+    validateUiDriverResult({ ...VALID_FULL, [field]: value });
+  const errorsOf = (r: ReturnType<typeof validateUiDriverResult>) =>
+    r.ok ? [] : r.errors;
+
+  it("accepts data_preconditions, section_shots and route_snapshots", () => {
+    const r = validateUiDriverResult({
+      ...VALID_FULL,
+      data_preconditions: ["/api/cards answered 429"],
+      section_shots: [shot(), shot({ viewport: "desktop-dark", part: "end" })],
+      route_snapshots: [
+        { route: "/", path: ".flow-tmp/ui-evidence/snapshot-home.txt" },
+      ],
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  it("caps data_preconditions at 10 items of 300 chars", () => {
+    expect(
+      withField(
+        "data_preconditions",
+        Array.from({ length: 11 }, (_, i) => `p${i}`),
+      ).ok,
+    ).toBe(false);
+    expect(withField("data_preconditions", ["x".repeat(301)]).ok).toBe(false);
+    expect(withField("data_preconditions", "nope").ok).toBe(false);
+  });
+
+  it("caps section_shots at 48 and route_snapshots at 3 entries", () => {
+    expect(
+      withField(
+        "section_shots",
+        Array.from({ length: 48 }, () => shot()),
+      ).ok,
+    ).toBe(true);
+    expect(
+      errorsOf(
+        withField(
+          "section_shots",
+          Array.from({ length: 49 }, () => shot()),
+        ),
+      ).join(),
+    ).toContain("48-entry cap");
+    const snap = { route: "/", path: ".flow-tmp/ui-evidence/s.txt" };
+    expect(withField("route_snapshots", [snap, snap, snap]).ok).toBe(true);
+    expect(withField("route_snapshots", [snap, snap, snap, snap]).ok).toBe(
+      false,
+    );
+  });
+
+  it.each([
+    ["viewport", "tablet"],
+    ["part", "middle"],
+    ["section", ""],
+    ["route", 5],
+  ])("rejects a section shot with a bad %s", (field, value) => {
+    expect(withField("section_shots", [shot({ [field]: value })]).ok).toBe(
+      false,
+    );
+  });
+
+  it.each([
+    "/etc/passwd",
+    "/wt/.flow-tmp/other/x.png",
+    ".flow-tmp/ui-evidence/../../secret.png",
+    "/wt/.flow-tmp/ui-evidence/../../../etc/passwd",
+  ])("rejects an evidence path outside .flow-tmp/ui-evidence/: %s", (p) => {
+    expect(withField("section_shots", [shot({ path: p })]).ok).toBe(false);
+    expect(withField("route_snapshots", [{ route: "/", path: p }]).ok).toBe(
+      false,
+    );
+  });
+
+  it("rejects over-long strings in a section shot", () => {
+    expect(
+      withField("section_shots", [shot({ section: "x".repeat(301) })]).ok,
+    ).toBe(false);
+  });
+});
+
 describe("ui-driver-schema fixtures", () => {
   it("the ok fixture parses and validates", () => {
     const parsed = JSON.parse(fs.readFileSync(OK_FIXTURE, "utf8"));

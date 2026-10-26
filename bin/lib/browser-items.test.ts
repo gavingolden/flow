@@ -338,6 +338,52 @@ describe("browserUnavailableBacked", () => {
   });
 });
 
+describe("data-precondition items", () => {
+  it("labels a not-drivable item with a data-precondition reason honestly and keeps it not-drivable", () => {
+    const deps = files({
+      [DRIVER_PATH]: driver({
+        item_results: [
+          {
+            index: 2,
+            item: "x",
+            kind: "behavior",
+            verdict: "not-drivable",
+            reason: "data-precondition: /api/cards answered 429 on /dashboard",
+            screenshots: [],
+          },
+        ],
+      }),
+    });
+    const items = classifyOpenBrowserItems(BODY, WT, HEAD, deps);
+    expect(items[0]).toMatchObject({
+      index: 2,
+      status: "not-drivable",
+      reason:
+        "data precondition: /api/cards answered 429 on /dashboard — local app data, not a code failure",
+    });
+  });
+
+  it("keeps the plain label for a not-drivable item with any other reason", () => {
+    const deps = files({
+      [DRIVER_PATH]: driver({
+        item_results: [
+          {
+            index: 2,
+            item: "x",
+            kind: "behavior",
+            verdict: "not-drivable",
+            reason: "exceeded 8 actions",
+            screenshots: [],
+          },
+        ],
+      }),
+    });
+    expect(classifyOpenBrowserItems(BODY, WT, HEAD, deps)[0].reason).toBe(
+      "driver verdict: not-drivable",
+    );
+  });
+});
+
 describe("driverAttemptFailure", () => {
   it.each(["app-launch-failed", "login-failed", "dependency-unready"])(
     "returns %s from a fresh review-8c driver artifact",

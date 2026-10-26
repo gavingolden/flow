@@ -81,6 +81,21 @@ export type UiDriverItemResult = {
   screenshots: string[];
 };
 
+export const SECTION_VIEWPORTS = ["phone", "desktop", "desktop-dark"] as const;
+export const SECTION_PARTS = ["whole", "start", "end"] as const;
+
+// One screenshot of one page section, captured by the driver for the
+// critique loop. Capture only: the driver never judges what it photographs.
+export type SectionShot = {
+  route: string;
+  section: string;
+  viewport: (typeof SECTION_VIEWPORTS)[number];
+  part: (typeof SECTION_PARTS)[number];
+  path: string;
+};
+
+export type RouteSnapshot = { route: string; path: string };
+
 export const UI_DRIVER_CALLERS = ["verify", "review-8c"] as const;
 
 // `headSha` (local `git rev-parse HEAD` at artifact-write time) and `caller`
@@ -97,6 +112,9 @@ export type UiDriverResult = {
   fix_context: UiDriverFixContextEntry[];
   item_results?: UiDriverItemResult[];
   heuristic_smells?: string[];
+  data_preconditions?: string[];
+  section_shots?: SectionShot[];
+  route_snapshots?: RouteSnapshot[];
   rejected_alternatives: string[];
   summary: string;
 };
@@ -151,6 +169,84 @@ function validateCappedStrings(
       );
     }
   });
+  return errors;
+}
+
+const DATA_PRECONDITIONS_MAX_ITEMS = 10;
+const SECTION_SHOTS_MAX_ENTRIES = 48;
+const ROUTE_SNAPSHOTS_MAX_ENTRIES = 3;
+const EVIDENCE_DIR = ".flow-tmp/ui-evidence/";
+
+// Evidence paths must stay inside the worktree's evidence directory: a
+// `..` segment or a different directory would let a crafted artifact point
+// later readers (the critic, the PR body) at an arbitrary file.
+function isEvidencePath(p: string): boolean {
+  if (p.split(/[\\/]/).includes("..")) return false;
+  const norm = p.replace(/\\/g, "/");
+  return norm.startsWith(EVIDENCE_DIR) || norm.includes(`/${EVIDENCE_DIR}`);
+}
+
+function validateRouteSnapshot(entry: unknown, path: string): string[] {
+  if (typeof entry !== "object" || entry === null) {
+    return [`'${path}' must be an object`];
+  }
+  const o = entry as Record<string, unknown>;
+  const errors: string[] = [];
+  for (const f of ["route", "path"] as const) {
+    const v = o[f];
+    if (!isString(v) || v.length === 0) {
+      errors.push(`'${path}.${f}' must be a non-empty string`);
+    } else if (v.length > FIX_CONTEXT_STRING_MAX_CHARS) {
+      errors.push(
+        `'${path}.${f}' exceeds the ${FIX_CONTEXT_STRING_MAX_CHARS}-char cap`,
+      );
+    }
+  }
+  if (isString(o.path) && !isEvidencePath(o.path)) {
+    errors.push(`'${path}.path' must stay under ${EVIDENCE_DIR}`);
+  }
+  return errors;
+}
+
+function validateSectionShot(entry: unknown, path: string): string[] {
+  const errors = validateRouteSnapshot(entry, path);
+  if (typeof entry !== "object" || entry === null) return errors;
+  const o = entry as Record<string, unknown>;
+  if (!isString(o.section) || o.section.length === 0) {
+    errors.push(`'${path}.section' must be a non-empty string`);
+  } else if (o.section.length > FIX_CONTEXT_STRING_MAX_CHARS) {
+    errors.push(
+      `'${path}.section' exceeds the ${FIX_CONTEXT_STRING_MAX_CHARS}-char cap`,
+    );
+  }
+  if (
+    !isString(o.viewport) ||
+    !(SECTION_VIEWPORTS as readonly string[]).includes(o.viewport)
+  ) {
+    errors.push(
+      `'${path}.viewport' must be one of ${SECTION_VIEWPORTS.join(", ")}`,
+    );
+  }
+  if (
+    !isString(o.part) ||
+    !(SECTION_PARTS as readonly string[]).includes(o.part)
+  ) {
+    errors.push(`'${path}.part' must be one of ${SECTION_PARTS.join(", ")}`);
+  }
+  return errors;
+}
+
+function validateEntryList(
+  raw: unknown,
+  label: string,
+  max: number,
+  validate: (entry: unknown, path: string) => string[],
+): string[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) return [`'${label}' must be an array when present`];
+  const errors: string[] = [];
+  if (raw.length > max) errors.push(`'${label}' exceeds the ${max}-entry cap`);
+  raw.forEach((e, i) => errors.push(...validate(e, `${label}[${i}]`)));
   return errors;
 }
 
@@ -322,6 +418,39 @@ export function validateUiDriverResult(raw: unknown): ValidationResult {
 
   errors.push(
     ...validateCappedStrings(o.heuristic_smells, "heuristic_smells", false),
+  );
+
+  if (o.data_preconditions !== undefined) {
+    if (!isStringArray(o.data_preconditions)) {
+      errors.push("'data_preconditions' must be an array of strings");
+    } else {
+      if (o.data_preconditions.length > DATA_PRECONDITIONS_MAX_ITEMS) {
+        errors.push(
+          `'data_preconditions' exceeds the ${DATA_PRECONDITIONS_MAX_ITEMS}-item cap`,
+        );
+      }
+      o.data_preconditions.forEach((s, i) => {
+        if (s.length > FIX_CONTEXT_STRING_MAX_CHARS) {
+          errors.push(
+            `'data_preconditions[${i}]' exceeds the ${FIX_CONTEXT_STRING_MAX_CHARS}-char cap`,
+          );
+        }
+      });
+    }
+  }
+  errors.push(
+    ...validateEntryList(
+      o.section_shots,
+      "section_shots",
+      SECTION_SHOTS_MAX_ENTRIES,
+      validateSectionShot,
+    ),
+    ...validateEntryList(
+      o.route_snapshots,
+      "route_snapshots",
+      ROUTE_SNAPSHOTS_MAX_ENTRIES,
+      validateRouteSnapshot,
+    ),
   );
 
   if (o.item_results !== undefined) {
