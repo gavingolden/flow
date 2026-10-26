@@ -33,6 +33,11 @@ export type RouteFindings = {
   envSkips?: string[];
   refusedIgnores?: string[];
   mainTextLength?: number | null;
+  /**
+   * Environment conditions (a quota or rate-limit 429) reported as a skip
+   * line naming the endpoint rather than a code failure. Never fail the route.
+   */
+  dataPreconditions?: string[];
 };
 
 /**
@@ -56,6 +61,8 @@ export type ViewportCapture = {
   innerWidth?: number;
   colorScheme?: "light" | "dark";
   heuristics?: HeuristicsCapture;
+  /** Requests answered HTTP 429, with how often each URL was requested (≤10). */
+  rateLimited?: { url: string; count: number }[];
 };
 
 export type Captures = {
@@ -110,6 +117,52 @@ export function filterCapture(
   return { consoleErrors, failedRequests, missingSelectors };
 }
 
+export const REQUEST_STORM_MIN = 5;
+
+/**
+ * A 429 on a URL requested fewer than REQUEST_STORM_MIN times is a quota or
+ * rate limit in the environment, not a code defect: relabel it a data
+ * precondition naming the endpoint and drop its failed-request and console
+ * lines. A URL hammered REQUEST_STORM_MIN or more times is the app's own
+ * request storm and stays a failure, prefixed `request-storm:`.
+ */
+export function classifyDataPreconditions(
+  routePath: string,
+  vp: ViewportCapture,
+  f: { failedRequests: string[]; consoleErrors: string[] },
+): {
+  dataPreconditions: string[];
+  failedRequests: string[];
+  consoleErrors: string[];
+} {
+  const dataPreconditions: string[] = [];
+  let failedRequests = [...f.failedRequests];
+  let consoleErrors = [...f.consoleErrors];
+  let consoleBudget = 0;
+  for (const rl of vp.rateLimited ?? []) {
+    if (rl.count >= REQUEST_STORM_MIN) {
+      failedRequests = failedRequests.map((r) =>
+        r.includes(rl.url) && !r.startsWith("request-storm:")
+          ? `request-storm: ${r}`
+          : r,
+      );
+      continue;
+    }
+    const label = `[${vp.name}] data-precondition: ${rl.url} answered 429 (quota or rate limit) on ${routePath}`;
+    if (!dataPreconditions.includes(label)) dataPreconditions.push(label);
+    failedRequests = failedRequests.filter((r) => !r.includes(rl.url));
+    consoleBudget += Math.max(1, rl.count);
+  }
+  consoleErrors = consoleErrors.filter((e) => {
+    if (consoleBudget > 0 && /status of 429/.test(e)) {
+      consoleBudget--;
+      return false;
+    }
+    return true;
+  });
+  return { dataPreconditions, failedRequests, consoleErrors };
+}
+
 /**
  * Per-viewport fold: compute console/request/missing-selector findings from
  * each viewport's own fields PLUS the three mechanical geometry assertions,
@@ -128,6 +181,7 @@ export function computeViewportFindings(
   const heuristicIssues: string[] = [];
   const heuristicSmells: string[] = [];
   const envSkips: string[] = [];
+  const dataPreconditions: string[] = [];
   const refused = new Set<string>();
 
   for (const vp of viewports) {
@@ -138,9 +192,11 @@ export function computeViewportFindings(
       vp.failedRequests,
       vp.snapshotText,
     );
-    for (const e of filtered.consoleErrors)
+    const classified = classifyDataPreconditions(capture.path, vp, filtered);
+    dataPreconditions.push(...classified.dataPreconditions);
+    for (const e of classified.consoleErrors)
       consoleErrors.push(`[${vp.name}] ${e}`);
-    for (const r of filtered.failedRequests)
+    for (const r of classified.failedRequests)
       failedRequests.push(`[${vp.name}] ${r}`);
     // Only a viewport that actually captured a snapshot participates in the
     // missing-selector check; mirrors the withSnapshot guard on the
@@ -239,6 +295,7 @@ export function computeViewportFindings(
     heuristicIssues,
     heuristicSmells,
     envSkips,
+    dataPreconditions,
     refusedIgnores: [...refused],
     mainTextLength: widest?.heuristics?.mainTextLength ?? null,
   };

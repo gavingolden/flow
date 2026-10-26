@@ -1459,3 +1459,85 @@ describe("--compare", () => {
     expect(drive(["--compare", "b.json"], {}).code).toBe(2);
   });
 });
+
+describe("ASSEMBLE — data preconditions (429)", () => {
+  const assemble = (vp: Record<string, unknown>) =>
+    envelope(
+      drive(["--captures", "cap.json"], {
+        [MANIFEST_PATH]: VALID_MANIFEST,
+        "cap.json": JSON.stringify({
+          launchOk: true,
+          loginOk: true,
+          routes: [
+            {
+              path: "/dashboard",
+              consoleErrors: [],
+              failedRequests: [],
+              snapshotText: '[data-testid="dashboard"]',
+              viewports: [
+                {
+                  name: "mobile",
+                  width: 390,
+                  snapshotText: '[data-testid="dashboard"]',
+                  consoleErrors: [
+                    "Failed to load resource: the server responded with a status of 429 ()",
+                  ],
+                  failedRequests: ["GET /api/cards 429"],
+                  ...vp,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+  const route = (e: Record<string, unknown>) =>
+    (e.routes as Array<Record<string, unknown>>)[0];
+
+  it("relabels a low-count 429 as a data precondition naming the endpoint, not a failure", () => {
+    const e = assemble({ rateLimited: [{ url: "/api/cards", count: 1 }] });
+    expect(e.ok).toBe(true);
+    expect(route(e).failedRequests).toEqual([]);
+    expect(route(e).consoleErrors).toEqual([]);
+    expect(route(e).dataPreconditions).toEqual([
+      "[mobile] data-precondition: /api/cards answered 429 (quota or rate limit) on /dashboard",
+    ]);
+  });
+
+  it("keeps a request storm a failure, prefixed request-storm:", () => {
+    const e = assemble({ rateLimited: [{ url: "/api/cards", count: 5 }] });
+    expect(e.ok).toBe(false);
+    expect(route(e).failedRequests).toEqual([
+      "[mobile] request-storm: GET /api/cards 429",
+    ]);
+    expect(route(e).dataPreconditions).toEqual([]);
+  });
+
+  it("changes nothing when the driver reported no rate limit", () => {
+    const e = assemble({});
+    expect(e.ok).toBe(false);
+    expect(route(e).failedRequests).toEqual(["[mobile] GET /api/cards 429"]);
+    expect(route(e).dataPreconditions).toEqual([]);
+  });
+
+  it("--compare ignores data preconditions", () => {
+    const out = (dp: string[]) =>
+      JSON.stringify({
+        routes: [
+          {
+            path: "/",
+            consoleErrors: [],
+            failedRequests: [],
+            missingSelectors: [],
+            dataPreconditions: dp,
+            heuristicSmells: ["[p] wall: x"],
+          },
+        ],
+      });
+    const c = drive(["--compare", "b.json", "a.json"], {
+      "b.json": out([]),
+      "a.json": out(["[p] data-precondition: /x answered 429 on /"]),
+    });
+    expect(envelope(c).regressed).toBe(false);
+  });
+});
