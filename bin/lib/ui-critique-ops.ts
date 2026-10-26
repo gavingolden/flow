@@ -216,6 +216,8 @@ export function opRoundEnd(f: Flags, deps: OpsDeps): OpResult {
     outcome: keep ? "kept" : "reverted",
     residual: residual ?? log.residual,
     costUsd: log.costUsd + cost,
+    // The loop is one round, ever: closing it completes the log.
+    completed: true,
   };
   writeLog(deps, w, next);
   if (log.round.kind === "critique") {

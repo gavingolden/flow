@@ -8270,6 +8270,22 @@ describe("browser-driven UI-validation structural anchors", () => {
     ).toBe(true);
   });
 
+  it("flow-verify names the post-pass repair allowance next to its one-spawn rules", () => {
+    // The UI critique loop and the smell-repair round add ONE extra
+    // flow-ui-driver re-drive and ONE /flow-coder round after a clean pass.
+    // The "exactly one Task call" and "at most one /flow-coder" rules would
+    // otherwise read as forbidding them, so the allowance must stay stated.
+    const verify = fs.readFileSync(
+      path.resolve(HERE, "..", "skills", "pipeline", "flow-verify", "SKILL.md"),
+      "utf8",
+    );
+    expect(verify).toContain("Post-pass repair allowance");
+    expect(verify).toContain(
+      "ONE extra `flow-ui-driver` re-drive and ONE `/flow-coder` round",
+    );
+    expect((verify.match(/Post-pass repair allowance/g) ?? []).length).toBe(3);
+  });
+
   it("the multi-viewport 'UI traits to verify' rubric stays wired and not skippable", () => {
     // The per-viewport responsive rubric is the single source of truth both
     // browser passes apply per captured viewport; this anchor fails if the

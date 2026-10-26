@@ -246,6 +246,7 @@ describe("rounds", () => {
     expect(restored).toMatchObject({ ok: true, headSha: "head2" });
     expect(logOf(h)).toMatchObject({
       outcome: "reverted",
+      completed: true,
       costUsd: 1.5,
       round: { open: false, decision: "revert", reason: "regressed" },
     });
