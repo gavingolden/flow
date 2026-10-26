@@ -101,6 +101,33 @@ describe("validateCoderResult — happy paths", () => {
   });
 });
 
+describe("validateCoderResult — skills_read", () => {
+  const withSkills = (skills_read: unknown) => ({
+    ...(structuredClone(VALID_FULL) as Record<string, unknown>),
+    skills_read,
+  });
+
+  it("accepts an artifact without skills_read (older artifacts)", () => {
+    expect(validateCoderResult(VALID_FULL).ok).toBe(true);
+  });
+
+  it("accepts a list of non-empty paths, including an empty list", () => {
+    expect(validateCoderResult(withSkills(["/a/flow-ui-ux/SKILL.md"])).ok).toBe(
+      true,
+    );
+    expect(validateCoderResult(withSkills([])).ok).toBe(true);
+  });
+
+  it.each([["not-an-array"], [[""]], [[1]]])(
+    "rejects skills_read = %j",
+    (bad) => {
+      const result = validateCoderResult(withSkills(bad));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toContain("skills_read");
+    },
+  );
+});
+
 describe("validateCoderResult — required-key omissions", () => {
   it.each([
     "status",
