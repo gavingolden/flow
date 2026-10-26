@@ -237,6 +237,7 @@ describe("buildSettingsRows", () => {
         "config (update.autoUpgrade)",
       ],
       [{ product: { judge: true } }, "product.judge", "config (product.judge)"],
+      [{ ui: { critique: true } }, "ui.critique", "config (ui.critique)"],
       [
         { review: { lensGates: true } },
         "review.lensGates",
