@@ -48,6 +48,10 @@ export type UiDriverFixContextEntry = {
   consoleErrors: string[];
   failedRequests: string[];
   missingSelectors: string[];
+  // Per-viewport geometry and page-quality findings. Optional so artifacts
+  // written before these existed still validate.
+  geometryIssues?: string[];
+  heuristicIssues?: string[];
 };
 
 export const ITEM_KINDS = ["appearance", "behavior", "capture"] as const;
@@ -92,6 +96,7 @@ export type UiDriverResult = {
   ui_screenshots: string[];
   fix_context: UiDriverFixContextEntry[];
   item_results?: UiDriverItemResult[];
+  heuristic_smells?: string[];
   rejected_alternatives: string[];
   summary: string;
 };
@@ -122,6 +127,33 @@ function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every(isString);
 }
 
+function validateCappedStrings(
+  arr: unknown,
+  label: string,
+  required: boolean,
+): string[] {
+  if (arr === undefined && !required) return [];
+  if (!isStringArray(arr)) {
+    return [
+      `'${label}' must be an array of strings${required ? "" : " when present"}`,
+    ];
+  }
+  const errors: string[] = [];
+  if (arr.length > FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS) {
+    errors.push(
+      `'${label}' exceeds the ${FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS}-item cap`,
+    );
+  }
+  arr.forEach((s, i) => {
+    if (s.length > FIX_CONTEXT_STRING_MAX_CHARS) {
+      errors.push(
+        `'${label}[${i}]' exceeds the ${FIX_CONTEXT_STRING_MAX_CHARS}-char cap`,
+      );
+    }
+  });
+  return errors;
+}
+
 function validateFixContextEntry(entry: unknown, path: string): string[] {
   const errors: string[] = [];
   if (typeof entry !== "object" || entry === null) {
@@ -149,23 +181,10 @@ function validateFixContextEntry(entry: unknown, path: string): string[] {
     "failedRequests",
     "missingSelectors",
   ] as const) {
-    const arr = o[field];
-    if (!isStringArray(arr)) {
-      errors.push(`'${path}.${field}' must be an array of strings`);
-      continue;
-    }
-    if (arr.length > FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS) {
-      errors.push(
-        `'${path}.${field}' exceeds the ${FIX_CONTEXT_INNER_ARRAY_MAX_ITEMS}-item cap`,
-      );
-    }
-    arr.forEach((s, i) => {
-      if (s.length > FIX_CONTEXT_STRING_MAX_CHARS) {
-        errors.push(
-          `'${path}.${field}[${i}]' exceeds the ${FIX_CONTEXT_STRING_MAX_CHARS}-char cap`,
-        );
-      }
-    });
+    errors.push(...validateCappedStrings(o[field], `${path}.${field}`, true));
+  }
+  for (const field of ["geometryIssues", "heuristicIssues"] as const) {
+    errors.push(...validateCappedStrings(o[field], `${path}.${field}`, false));
   }
   return errors;
 }
@@ -300,6 +319,10 @@ export function validateUiDriverResult(raw: unknown): ValidationResult {
       errors.push(...validateFixContextEntry(entry, `fix_context[${i}]`));
     });
   }
+
+  errors.push(
+    ...validateCappedStrings(o.heuristic_smells, "heuristic_smells", false),
+  );
 
   if (o.item_results !== undefined) {
     if (!Array.isArray(o.item_results)) {

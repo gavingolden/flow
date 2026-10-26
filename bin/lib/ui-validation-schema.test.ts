@@ -112,6 +112,15 @@ describe("validateUiValidationManifest — happy paths", () => {
     expect(validateUiValidationManifest(fixture).ok).toBe(true);
   });
 
+  it("accepts ignoreHeuristicPatterns as a string array", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.ignoreHeuristicPatterns = ["wall: main > section"];
+    expect(validateUiValidationManifest(fixture).ok).toBe(true);
+  });
+
   it("accepts a manifest with no viewports (backward-compatible)", () => {
     // MINIMAL_MANIFEST has no viewports — the default is applied downstream.
     expect(validateUiValidationManifest(MINIMAL_MANIFEST).ok).toBe(true);
@@ -386,6 +395,17 @@ describe("validateUiValidationManifest — wrong-shape rejections", () => {
     const result = validateUiValidationManifest(fixture);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("ignoreConsolePatterns");
+  });
+
+  it("rejects ignoreHeuristicPatterns when not an array of strings", () => {
+    for (const bad of ["wall:", [1, 2]]) {
+      const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+      fixture.ignoreHeuristicPatterns = bad;
+      const result = validateUiValidationManifest(fixture);
+      expect(result.ok).toBe(false);
+      if (!result.ok)
+        expect(result.reason).toContain("ignoreHeuristicPatterns");
+    }
   });
 
   it("rejects ignoreRequestPatterns when an array of non-strings", () => {

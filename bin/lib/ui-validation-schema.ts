@@ -8,7 +8,7 @@
  * Unlike `.flow/pre-commit.json` (a top-level ARRAY of scopes), this
  * manifest is a single OBJECT: `{ launch, baseUrl, loginUrl?,
  * credentialEnvVars?, routes, disableAnimations?, ignoreConsolePatterns?,
- * ignoreRequestPatterns?, viewports?, dependsOn? }`. The validator mirrors
+ * ignoreRequestPatterns?, ignoreHeuristicPatterns?, viewports?, dependsOn? }`. The validator mirrors
  * `bin/lib/pr-review-result-schema.ts`'s `validate*()` / `ValidationResult<T>`
  * / `--validate` CLI shape and borrows `bin/lib/agent-finding-schema.ts`'s
  * nested-array idiom for the `routes[]` array of `{ path, expectSelectors? }`.
@@ -91,6 +91,7 @@ export type UiValidationManifest = {
   disableAnimations?: boolean;
   ignoreConsolePatterns?: string[];
   ignoreRequestPatterns?: string[];
+  ignoreHeuristicPatterns?: string[];
   viewports?: Viewport[];
   dependsOn?: UiValidationDependency[];
 };
@@ -292,6 +293,15 @@ export function validateUiValidationManifest(
   ) {
     return err(
       "'ignoreRequestPatterns' must be an array of strings when present",
+    );
+  }
+
+  if (
+    parsed.ignoreHeuristicPatterns !== undefined &&
+    !isStringArray(parsed.ignoreHeuristicPatterns)
+  ) {
+    return err(
+      "'ignoreHeuristicPatterns' must be an array of strings when present",
     );
   }
 

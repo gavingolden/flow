@@ -362,6 +362,70 @@ describe("validateUiDriverResult", () => {
   });
 });
 
+describe("heuristic fix-context fields", () => {
+  const entry = (extra: Record<string, unknown>) => ({
+    ...VALID_FULL,
+    fix_context: [
+      {
+        route: "/",
+        consoleErrors: [],
+        failedRequests: [],
+        missingSelectors: [],
+        ...extra,
+      },
+    ],
+  });
+
+  it("accepts an entry without the optional arrays (older artifacts)", () => {
+    expect(validateUiDriverResult(entry({})).ok).toBe(true);
+  });
+
+  it("accepts geometryIssues, heuristicIssues and heuristic_smells", () => {
+    const result = validateUiDriverResult({
+      ...entry({
+        geometryIssues: ["[mobile] horizontal overflow"],
+        heuristicIssues: ["[phone] leak: token"],
+      }),
+      heuristic_smells: ["[phone] wall: main"],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it.each(["geometryIssues", "heuristicIssues"])(
+    "enforces the 20-item and 300-char caps on %s",
+    (field) => {
+      const many = validateUiDriverResult(
+        entry({ [field]: Array.from({ length: 21 }, (_, i) => `e${i}`) }),
+      );
+      expect(many.ok).toBe(false);
+      if (!many.ok) expect(many.errors.join()).toContain("20-item cap");
+      const long = validateUiDriverResult(
+        entry({ [field]: ["x".repeat(301)] }),
+      );
+      expect(long.ok).toBe(false);
+      if (!long.ok) expect(long.errors.join()).toContain("300-char cap");
+      expect(validateUiDriverResult(entry({ [field]: "nope" })).ok).toBe(false);
+    },
+  );
+
+  it("caps heuristic_smells at 20 items of 300 chars", () => {
+    const base = entry({});
+    const many = validateUiDriverResult({
+      ...base,
+      heuristic_smells: Array.from({ length: 21 }, (_, i) => `s${i}`),
+    });
+    expect(many.ok).toBe(false);
+    const long = validateUiDriverResult({
+      ...base,
+      heuristic_smells: ["x".repeat(301)],
+    });
+    expect(long.ok).toBe(false);
+    expect(
+      validateUiDriverResult({ ...base, heuristic_smells: "nope" }).ok,
+    ).toBe(false);
+  });
+});
+
 describe("ui-driver-schema fixtures", () => {
   it("the ok fixture parses and validates", () => {
     const parsed = JSON.parse(fs.readFileSync(OK_FIXTURE, "utf8"));
