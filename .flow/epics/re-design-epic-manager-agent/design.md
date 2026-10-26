@@ -184,8 +184,11 @@ owner, never type into a pipeline's window.
 
 ### D8 — Executive review at decision points, under an owner grant
 
-_Decision:_ `flow epic grant <epic> --autonomy high|off [--model] [--effort]`
-(owner-typed) writes or withdraws the grant. At plan approval, an epic feature with a live
+_Decision:_ `flow epic grant <epic> --autonomy high|off` (owner-typed)
+writes or withdraws the grant. The grant carries no model: the executive uses
+the owner's manager setting (`flow epic manage --model/--effort` >
+`config.models.manager` / `config.efforts.manager` > opus/high), so there is
+one model source. At plan approval, an epic feature with a live
 grant runs `flow-exec-review review --kind plan` before pausing: hard
 mechanical preconditions first (cross-model review engaged, anchors resolve,
 lint clean, no one-way-door action), then one headless call over the decision
