@@ -170,7 +170,7 @@ context.
 
 ## 3. Fix Failures
 
-A `ran:true` UI-validate result with `ok:false` (from the optional UI-smoke pass in Step 1) is a verify failure: route it through this same fix loop, treating each failing route's `consoleErrors` / `failedRequests` / `missingSelectors` as the failure context the inline-or-`/flow-coder` decision keys off.
+A `ran:true` UI-validate result with `ok:false` (from the optional UI-smoke pass in Step 1) is a verify failure: route it through this same fix loop, treating each failing route's `consoleErrors` / `failedRequests` / `missingSelectors` / `geometryIssues` / `heuristicIssues` as the failure context the inline-or-`/flow-coder` decision keys off. The failure classes now include geometry defects and page-quality defects (leaked markup, an anchor landing under sticky chrome, content past the viewport, contrast below 3:1); the fix pass re-reads the design contract named in `ui-smoke-pass.md` "Fix-loop routing". Relay the advisory `heuristic_smells`, any env skips (`viewport-mismatch`, `dark-scheme-not-applied`) as a loud skip line, and any `ignoreHeuristicPatterns` the run added or the helper refused (`refusedIgnores`) in your report — smells never fail the pass.
 
 Decide whether to delegate the fix to `/flow-coder` based on the **hybrid
 threshold**:

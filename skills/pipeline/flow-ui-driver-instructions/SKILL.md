@@ -157,7 +157,8 @@ file's own prose — to key the isolated page or resolve the slug; that is a
 frozen anti-pattern (`bin/pane-read-lint.test.ts` fails CI on a pane read
 anywhere, prose included).
 
-Write the enriched per-viewport captures to `CAPTURES_PATH` and run
+Write the enriched per-viewport captures to `CAPTURES_PATH` — with `launchOk`
+and `loginOk` stated explicitly at the top level — and run
 `flow-ui-validate --manifest "$MANIFEST_PATH" --captures "$CAPTURES_PATH"`.
 Apply the "Noise filter" and "Self-improving manifest" sections exactly:
 when a flagged error is benign noise unrelated to the diff, add the
@@ -165,6 +166,9 @@ substring to `ignoreRequestPatterns` / `ignoreConsolePatterns` and commit the
 manifest change rather than treating it as a drive failure; when you adapted
 the launch/env/baseUrl/routes/login fields to make the run work, persist
 those adaptations back into `.flow/ui-validation.json` and commit them too.
+A page-quality finding the diff did not introduce may be silenced the same way
+through `ignoreHeuristicPatterns` (never a `leak:` or `past-viewport:` finding;
+the helper refuses those).
 
 ## 3. Tear down on every exit path
 
@@ -195,16 +199,20 @@ Two mappings this agent owns that the caller does not do for you:
   than emitted into `ui_screenshots[]`. Only a path that verifiably exists on
   disk at artifact-write time is reported as evidence.
 - **`fix_context[]` assembly.** For each route whose captures produced an
-  `ok:false` (a console error, a failed request, or a missing
-  `expectSelectors` element) that survived the noise filter, add one
-  `{route, consoleErrors, failedRequests, missingSelectors}` entry (plus
+  `ok:false` (a console error, a failed request, a missing
+  `expectSelectors` element, a geometry defect, or a page-quality defect) that
+  survived the noise filter, add one
+  `{route, consoleErrors, failedRequests, missingSelectors, geometryIssues,
+heuristicIssues}` entry, copying the route's `geometryIssues` and
+  `heuristicIssues` verbatim (a geometry-only failure must never produce an
+  empty entry), plus
   `item` — the checklist item this route's evidence maps back to — when
   `MODE: items` supplied an enumerated item list; omit `item`
   entirely for the default `/flow-verify` drive, which has no per-item
   checklist).
   `bin/lib/ui-driver-schema.ts` rejects an artifact that exceeds any of
   three independent caps: 10 entries total, 20 items per
-  `consoleErrors`/`failedRequests`/`missingSelectors` array, and 300
+  `consoleErrors`/`failedRequests`/`missingSelectors`/`geometryIssues`/`heuristicIssues` array, and 300
   characters per string within those arrays. Apply the caps in this order
   so nothing is silently rejected downstream: truncate each individual
   string to 300 characters; then, if an inner array still has more than 20
@@ -212,6 +220,13 @@ Two mappings this agent owns that the caller does not do for you:
   "truncated" — only a string can); then, if you have more than 10 route
   entries, keep the 10 most actionable (routes with the most captures, or
   the earliest in `routes[]` on a tie) and drop the rest.
+
+- **`heuristic_smells`.** Collect every route's advisory `heuristicSmells`
+  into the artifact's top-level `heuristic_smells` (at most 20 strings of 300
+  characters, same truncation order as above). Smells never make `ok` false,
+  and never enter `fix_context[]`. A `viewport-mismatch` or
+  `dark-scheme-not-applied` env skip is named in `summary`, never in
+  `fix_context[]`.
 
 - **`item_results[]` assembly (`MODE: items` only).** One entry per item in
   the spawn prompt's list, in list order, per `ui-smoke-pass.md`
