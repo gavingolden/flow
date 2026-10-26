@@ -51,6 +51,94 @@ describe("probe scripts", () => {
   });
 });
 
+type Stub = Record<string, unknown>;
+
+function details(open: boolean): Stub {
+  const attrs = new Map<string, string>(open ? [["open", ""]] : []);
+  return {
+    attrs,
+    setAttribute: (k: string, v: string) => void attrs.set(k, v),
+    removeAttribute: (k: string) => void attrs.delete(k),
+    hasAttribute: (k: string) => attrs.has(k),
+  };
+}
+
+function section(tag: string, id: string, heading: string | null): Stub {
+  const h = heading === null ? null : { textContent: heading };
+  return {
+    id,
+    tagName: tag.toUpperCase(),
+    matches: () => false,
+    querySelector: () => h,
+    getAttribute: () => null,
+    getBoundingClientRect: () => ({ top: 10, height: 100 }),
+  };
+}
+
+function runWithDom<T>(dom: Stub, fn: () => T): T {
+  const g = globalThis as Record<string, unknown>;
+  const saved = { document: g.document, window: g.window, CSS: g.CSS };
+  g.document = dom;
+  g.window = { innerHeight: 800, scrollY: 0 };
+  g.CSS = { escape: (v: string) => v.replace(/^(\d)/, "\\3$1 ") };
+  try {
+    return fn();
+  } finally {
+    Object.assign(g, saved);
+  }
+}
+
+describe("section scripts", () => {
+  const evalScript = (src: string) =>
+    new Function(`return (${src})`)() as () => Record<string, unknown>;
+
+  it("restore re-closes exactly the <details> the sections script opened", () => {
+    const closed = details(false);
+    const alreadyOpen = details(true);
+    const all = [closed, alreadyOpen];
+    const dom = {
+      querySelectorAll: (sel: string) =>
+        sel === "details:not([open])"
+          ? all.filter(
+              (d) => !(d.hasAttribute as (k: string) => boolean)("open"),
+            )
+          : all.filter((d) =>
+              (d.hasAttribute as (k: string) => boolean)("data-flow-opened"),
+            ),
+      querySelector: () => null,
+      body: { children: [] },
+    };
+    runWithDom(dom, () => evalScript(sectionsScript())());
+    expect((closed.hasAttribute as (k: string) => boolean)("open")).toBe(true);
+    const restored = runWithDom(dom, () =>
+      evalScript(sectionsRestoreScript())(),
+    );
+    expect(restored).toBe(1);
+    expect((closed.hasAttribute as (k: string) => boolean)("open")).toBe(false);
+    expect((alreadyOpen.hasAttribute as (k: string) => boolean)("open")).toBe(
+      true,
+    );
+  });
+
+  it("scopes unnamed sections to the root, escapes ids and never emits an empty label", () => {
+    const kids = [
+      section("div", "", "  \n  "),
+      section("section", "2024-results", "Results"),
+    ];
+    const dom = {
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      body: { children: kids },
+    };
+    const out = runWithDom(dom, () => evalScript(sectionsScript())()) as {
+      sections: { section: string; selector: string }[];
+    };
+    expect(out.sections[0].section).toBe("section-1");
+    expect(out.sections[0].selector).toBe("body > div:nth-child(1)");
+    expect(out.sections[1].selector).toBe("#\\32 024-results");
+  });
+});
+
 describe("judgeHeuristics", () => {
   it("classifies leaks, anchors and past-viewport as defects with class tags", () => {
     const v = judgeHeuristics(

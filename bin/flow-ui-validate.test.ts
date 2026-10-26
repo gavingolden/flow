@@ -1454,6 +1454,33 @@ describe("--compare", () => {
     expect(v.decision).toBe("keep");
   });
 
+  it("reverts as regressed when the after drive lost a route", () => {
+    const v = compare(
+      [route({ heuristicSmells: ["[p] wall: x"] }), route({ path: "/b" })],
+      [route()],
+    );
+    expect(v).toMatchObject({
+      decision: "revert",
+      regressed: true,
+      missingRoutes: ["/b"],
+    });
+  });
+
+  it("reverts as regressed when the after drive did not run", () => {
+    const c = drive(["--compare", "b.json", "a.json"], {
+      "b.json": out([route({ heuristicSmells: ["[p] wall: x"] })]),
+      "a.json": JSON.stringify({
+        ran: false,
+        skipped_reason: "app-launch-failed",
+      }),
+    });
+    expect(envelope(c)).toMatchObject({
+      decision: "revert",
+      regressed: true,
+      missingRoutes: ["/"],
+    });
+  });
+
   it("exits 2 on a missing file or missing operand", () => {
     expect(drive(["--compare", "b.json", "a.json"], {}).code).toBe(2);
     expect(drive(["--compare", "b.json"], {}).code).toBe(2);
@@ -1510,6 +1537,20 @@ describe("ASSEMBLE — data preconditions (429)", () => {
     expect(route(e).failedRequests).toEqual([
       "[mobile] request-storm: GET /api/cards 429",
     ]);
+    expect(route(e).dataPreconditions).toEqual([]);
+  });
+
+  it("keeps a non-429 failure on the same endpoint as a failure", () => {
+    const e = assemble({
+      failedRequests: ["GET /api/cards 429", "POST /api/cards 500"],
+      rateLimited: [{ url: "/api/cards", count: 1 }],
+    });
+    expect(route(e).failedRequests).toEqual(["[mobile] POST /api/cards 500"]);
+  });
+
+  it("ignores a rate-limit entry with an empty url", () => {
+    const e = assemble({ rateLimited: [{ url: "", count: 1 }] });
+    expect(route(e).failedRequests).toEqual(["[mobile] GET /api/cards 429"]);
     expect(route(e).dataPreconditions).toEqual([]);
   });
 

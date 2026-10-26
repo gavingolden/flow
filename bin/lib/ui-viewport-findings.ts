@@ -140,17 +140,17 @@ export function classifyDataPreconditions(
   let consoleErrors = [...f.consoleErrors];
   let consoleBudget = 0;
   for (const rl of vp.rateLimited ?? []) {
+    if (!rl.url) continue;
+    const is429 = (r: string) => r.includes(rl.url) && /\b429\b/.test(r);
     if (rl.count >= REQUEST_STORM_MIN) {
       failedRequests = failedRequests.map((r) =>
-        r.includes(rl.url) && !r.startsWith("request-storm:")
-          ? `request-storm: ${r}`
-          : r,
+        is429(r) && !r.startsWith("request-storm:") ? `request-storm: ${r}` : r,
       );
       continue;
     }
     const label = `[${vp.name}] data-precondition: ${rl.url} answered 429 (quota or rate limit) on ${routePath}`;
     if (!dataPreconditions.includes(label)) dataPreconditions.push(label);
-    failedRequests = failedRequests.filter((r) => !r.includes(rl.url));
+    failedRequests = failedRequests.filter((r) => !is429(r));
     consoleBudget += Math.max(1, rl.count);
   }
   consoleErrors = consoleErrors.filter((e) => {
@@ -309,12 +309,13 @@ export type CompareVerdict = {
   decision: "keep" | "revert";
   regressed: boolean;
   newDefects: string[];
+  missingRoutes: string[];
   smellsBefore: number;
   smellsAfter: number;
   textDrops: { route: string; before: number; after: number }[];
 };
 
-type AssembleOutput = { routes?: RouteFindings[] };
+type AssembleOutput = { ran?: boolean; routes?: RouteFindings[] };
 
 function defectKeys(out: AssembleOutput): string[] {
   return (out.routes ?? []).flatMap((r) =>
@@ -362,12 +363,21 @@ export function compareFindings(
       }
     }
   }
+  const afterPaths = new Set((after.routes ?? []).map((r) => r.path));
+  const missingRoutes = (before.routes ?? [])
+    .map((r) => r.path)
+    .filter((p) => !afterPaths.has(p));
   const regressed =
-    newDefects.length > 0 || smellsAfter > smellsBefore || textDrops.length > 0;
+    after.ran === false ||
+    missingRoutes.length > 0 ||
+    newDefects.length > 0 ||
+    smellsAfter > smellsBefore ||
+    textDrops.length > 0;
   return {
     decision: !regressed && smellsAfter < smellsBefore ? "keep" : "revert",
     regressed,
     newDefects,
+    missingRoutes,
     smellsBefore,
     smellsAfter,
     textDrops,

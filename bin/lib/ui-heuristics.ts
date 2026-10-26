@@ -137,10 +137,11 @@ const PROBE_SOURCE = String.raw`() => {
       if (c && c.a === 1) return c;
       if (c && c.a > 0) return null;
     }
-    return /dark/.test(cs(document.documentElement).colorScheme) ? null : { r: 255, g: 255, b: 255, a: 1 };
+    return /dark/.test(cs(document.documentElement).colorScheme) ? { r: 0, g: 0, b: 0, a: 1 } : { r: 255, g: 255, b: 255, a: 1 };
   };
-  const bodyBg = bg(document.body);
-  out.bodyLuminance = bodyBg ? lum(bodyBg) : 1;
+  const appRoot = document.querySelector("main,#root,#app");
+  const bodyBg = bg(document.body) || (appRoot && bg(appRoot));
+  out.bodyLuminance = bodyBg ? lum(bodyBg) : /dark/.test(cs(document.documentElement).colorScheme) ? 0 : 1;
   let low = [];
   for (const el of Array.from(textEls).slice(0, 600)) {
     if (el.closest(":disabled,[aria-disabled=true]")) continue;
@@ -193,7 +194,14 @@ const PROBE_SOURCE = String.raw`() => {
       out.clippedText.push({ path: path(el), overflowPx: el.scrollWidth - el.clientWidth });
     }
   }
-  const scrolls = (e) => { for (let n = e.parentElement; n; n = n.parentElement) if (/auto|scroll/.test(cs(n).overflowX)) return true; return false; };
+  const scrolls = (e) => {
+    for (let n = e.parentElement; n; n = n.parentElement) {
+      const o = cs(n).overflowX;
+      if (/auto|scroll/.test(o)) return true;
+      if (/hidden|clip/.test(o) && n.getBoundingClientRect().right <= W + 1) return true;
+    }
+    return false;
+  };
   for (const el of all) {
     if (out.pastViewport.length >= CAP) break;
     const r = el.getBoundingClientRect();
@@ -274,8 +282,11 @@ const SECTIONS_SOURCE = String.raw`() => {
   const sections = kids.slice(0, 8).map((c) => {
     const h = c.matches("h1,h2,h3") ? c : c.querySelector("h1,h2,h3");
     const r = c.getBoundingClientRect();
-    const label = ((h && h.textContent) || c.id || "").replace(/\s+/g, " ").trim().slice(0, 60);
-    return { section: label, selector: c.id ? "#" + c.id : c.tagName.toLowerCase() + ":nth-child(" + (Array.from(root.children).indexOf(c) + 1) + ")", top: Math.round(r.top + window.scrollY), height: Math.round(r.height) };
+    const squash = (t) => (t || "").replace(/\s+/g, " ").trim();
+    const idx = Array.from(root.children).indexOf(c) + 1;
+    const label = (squash(h && h.textContent) || squash(c.id) || squash(c.getAttribute("aria-label")) || "section-" + idx).slice(0, 60);
+    const base = root === document.body ? "body" : "main";
+    return { section: label, selector: c.id ? "#" + CSS.escape(c.id) : base + " > " + c.tagName.toLowerCase() + ":nth-child(" + idx + ")", top: Math.round(r.top + window.scrollY), height: Math.round(r.height) };
   });
   return { innerHeight: window.innerHeight, sections };
 }`;
