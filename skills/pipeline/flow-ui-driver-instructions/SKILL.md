@@ -58,6 +58,13 @@ verify` rubric, follow its `## Item-driven drive` section for the per-kind
   to the checklist item it maps evidence back to, and write one
   `item_results[]` entry per item (see step 4 below). An untagged item under
   the alias is `appearance`.
+- `SECTIONS` — optional: the literal `on`, passed when verify's pre-drive
+  `flow-ui-critique gate` returned `run:true`. After an `ok:true` ASSEMBLE,
+  and before teardown, follow `ui-smoke-pass.md`'s `## Section capture
+(critique loop)` and record `section_shots[]` / `route_snapshots[]`.
+  Absent means no section capture, at no cost. `MODE: sections` is the loop's
+  one re-drive: the full drive plus that capture regardless of ASSEMBLE's
+  outcome (`CALLER` stays `verify`). You capture; you never judge.
 - `CALLER` — optional: `review-8c` from the `/flow-pr-review` 8c.iii caller;
   absent means `verify` (the `/flow-verify` smoke pass). Stamped into the
   artifact as `caller` so the merge gate can tell the two writers of the same
@@ -221,6 +228,17 @@ heuristicIssues}` entry, copying the route's `geometryIssues` and
   entries, keep the 10 most actionable (routes with the most captures, or
   the earliest in `routes[]` on a tie) and drop the rest.
 
+- **`data_preconditions`.** Collect every route's `dataPreconditions` (the
+  environment 429 labels `flow-ui-validate` emitted) into the artifact's
+  top-level `data_preconditions` (at most 10 strings of 300 characters). They
+  never make `ok` false and never enter `fix_context[]`.
+- **`section_shots` / `route_snapshots`.** From the section capture only:
+  `section_shots` (at most 48 entries; `viewport` is `phone`, `desktop` or
+  `desktop-dark`; `part` is `whole`, `start` or `end`) and `route_snapshots`
+  (at most 3 entries, each route's desktop accessibility snapshot text file).
+  Every `path` must pass the same `test -f` survival guard as
+  `ui_screenshots[]` and sit under `.flow-tmp/ui-evidence/`.
+
 - **`heuristic_smells`.** Collect every route's advisory `heuristicSmells`
   into the artifact's top-level `heuristic_smells` (at most 20 strings of 300
   characters, same truncation order as above). Smells never make `ok` false,
@@ -238,7 +256,7 @@ heuristicIssues}` entry, copying the route's `geometryIssues` and
     result, snapshot as proof. `pass` requires the expected element to be
     **visible in the viewport**, not merely present in the page. At most
     **8 browser actions and one wait of 15s** per item; on overrun the
-    verdict is `not-drivable` with the reason, and you move to the next item.
+    verdict is `not-drivable` with the reason, and you move to the next item. A route whose `rateLimited` shows a URL requested fewer than 5 times is `not-drivable` with reason `data-precondition: <url> answered 429` — never `fail`.
   - `capture` — reach the state the item text describes (running any local,
     reversible setup it names), screenshot at the sizes the item names, else
     phone **390** and desktop **1280**. Never judge a capture item: verdict

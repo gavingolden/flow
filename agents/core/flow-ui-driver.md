@@ -2,7 +2,7 @@
 name: flow-ui-driver
 description: Browser-drive sub-agent for /flow-verify's UI-smoke pass. Launches the app, drives chrome-devtools per route and viewport, writes the captures JSON + result artifact. The manifest already says what to do, so this agent does not deliberate.
 tools: Bash, Read, Write, ToolSearch, mcp__chrome-devtools__*
-maxTurns: 120
+maxTurns: 200
 effort: medium
 skills:
   - flow-ui-driver-instructions
@@ -35,7 +35,7 @@ this fallback. The per-spawn `model:` argument the caller passes still wins over
 this definition's model (`config.models.uiDriver`, falling back to a literal
 sonnet), so per-phase model flags keep working unchanged.
 
-`maxTurns: 120` bounds the per-route drive loop. If you reach it, write the
+`maxTurns: 200` bounds the per-route drive loop. If you reach it, write the
 artifact FIRST as soon as you sense you're near the budget — a missing or
 partial artifact degrades `/flow-verify` to a `driver-no-artifact` skip
 rather than blocking verify.

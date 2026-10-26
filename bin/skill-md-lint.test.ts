@@ -2050,7 +2050,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     { file: "flow-backlog-verifier.md", wantTools: "Bash, Read, Grep, Glob" },
     {
       file: "flow-ui-driver.md",
-      wantMaxTurns: 120,
+      wantMaxTurns: 200,
       wantSkills: "flow-ui-driver-instructions",
       wantTools: "Bash, Read, Write, ToolSearch, mcp__chrome-devtools__\\*",
       wantEffort: "medium",
