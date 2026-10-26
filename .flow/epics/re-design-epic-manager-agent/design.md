@@ -47,9 +47,11 @@ it is a root (f5), launchable in parallel with f1.
 f5 stores this in the owner's product brief (`~/.flow/product.md`, a new
 `## Deciding on my behalf` section) so there is one values document, not two.
 
-1. **Goal first.** Start every review from the epic goal and what an end user
-   will experience — not from the artifact's text. Ask what the owner meant,
-   not only what was written.
+1. **Goal first — the executive's lens.** Look at the request the way the
+   leader who owns the outcome would: what is the inferred goal, why is it
+   being asked for, and what will an end user experience? Never carry out the
+   literal ask without that. Judge whether the requested approach is the
+   right one, and whether the work is justified at all.
 2. **Question the premise.** Is this the root problem or a symptom (ask why
    until it stops changing)? Is the value proven, or speculative? Prefer the
    smallest version that proves it.
@@ -71,10 +73,10 @@ f5 stores this in the owner's product brief (`~/.flow/product.md`, a new
    strongest alternative and run a pre-mortem ("it is three months later and
    this failed — why?"). Prefer a cross-model view: the executive shares the
    feature agent's model family and blind spots.
-8. **Accountable.** Every decision is logged with rationale, confidence, door
-   type and how to reverse it; the owner sees a digest of what was decided
-   for them; an owner reversal becomes a ruling later reviews treat as
-   precedent.
+8. **Accountable.** Every decision states why, how confident, and how to undo
+   it, in places the owner already looks: the PR body and the epic board.
+   When the owner corrects a decision, the correction becomes a line in this
+   charter, which every later review reads.
 9. **Owner rulings win.** Push back once, with evidence; then comply.
 10. **Bias to action.** A deferral costs the owner an interruption. Defer only
     for a one-way door, or low confidence on something user-facing.
@@ -88,27 +90,69 @@ owner, never type into a pipeline's window.
 - **"Always question things" can become a churn engine.** Every challenge
   costs a revision pass (~minutes, opus tokens). Hence the materiality filter
   (max 3, decision-changing only) and the two-round cap (charter 3, 6).
-- **Thinking "at a higher level" needs different inputs, not just a different
-  prompt.** The same model reading the same plan will mostly agree with it.
-  The executive's edge is context the feature agent lacks: the epic goal and
-  design, sibling pipelines, the owner's past rulings and reversals, what
-  shipped or failed before, and the cross-model review. f5's decision packet
-  is built from exactly these.
-- **Acting on the owner's behalf drifts without feedback.** Rulings + the
-  decision digest are the calibration loop; trust widens by decision class
-  (plan approval first; UI sign-off only behind a second opt-in, f4).
-- **Prioritization power needs a scope.** The executive may reorder, defer or
-  cut _unstarted_ features of its epic (two-way doors, logged). Changing the
-  epic goal or adding scope is always deferred; root-cause discoveries are
-  filed as follow-ups, not launched unprompted.
+- **"Higher level" means an executive's lens, not more thinking** (owner
+  clarification, round 2). The executive asks what the request is for and
+  whether it is the right approach or justified at all (charter 1–2). A
+  leader can do that because they see more than the person doing the work,
+  so the lens comes with that context: the epic goal and design, sibling
+  pipelines, the charter's standing corrections, what shipped or failed
+  before, and the cross-model review. f5's decision packet is built from
+  exactly these.
+- **Acting on the owner's behalf drifts without feedback.** The PR stamp,
+  the board digest and charter corrections are the calibration loop. Trust
+  widens one decision type at a time: plan approval first, UI sign-off only
+  behind a second opt-in (f4).
+- **Prioritization power needs a scope.** The executive may reorder
+  _unstarted_ features of its epic, then log it. Deferring, cutting or adding
+  a feature, or changing the epic goal, is never applied. It is _proposed_ to
+  the owner with its rationale (owner, round 2: "should not reshape the epic
+  without my input but it should propose changes"). An owner `yes` routes it
+  through amend-manifest.
 - **The executive must not live in the loop.** PR #420 deleted the last loop
   for mixing judgment into sequencing. The loop triggers and displays; f5
   decides.
 
+### Owner follow-up (2026-10-26, round 2) — simpler decision record, monitors
+
+- **Not every decision goes through the manager.** Pipelines keep making
+  their own calls as today, using flow's existing
+  `[confidence: high|medium|low]` recommendations. The executive steps in
+  only where a pipeline would otherwise stop and wait for the owner: plan
+  approval, the post-merge wave review, and (f4) UI sign-off. It uses the
+  same confidence scale. High confidence on a two-way door ⇒ act. Anything
+  else ⇒ the pipeline pauses in its own window, exactly as today, and the
+  owner answers there.
+- **No new record store.** The `flow epic ruling` / `flow epic revoke`
+  commands are cut. A decision is recorded where the owner already looks: a
+  stamp in the feature's PR body (permanent on GitHub) and a line on the
+  epic board. f1's `log.jsonl` keeps the machine copy, local to this machine
+  and not source-controlled. When the owner answers in a feature window, that
+  answer stays in the pipeline's own plan and PR as today; the manager does
+  not need to see it. A correction the owner wants to stick becomes one line
+  in the charter section of `~/.flow/product.md`. That file is user-level
+  (applies in every repo) and is not source-controlled. The grant is one
+  owner-typed command, `flow epic grant <epic> --autonomy high|off`.
+- **The charter is always read from the user-level brief.**
+  `bin/flow-product-brief.ts` resolves a repo's `.flow/product.md` first, so
+  a repo with its own brief would otherwise hide the owner's charter. The
+  charter is about the owner, not the product, so f5 reads it from
+  `~/.flow/product.md` directly.
+- **Why a small watcher program rather than a Claude session using
+  Monitor.** Monitor wakes a Claude session on each event, but every watch
+  expires after at most 30 minutes. So an idle manager session wakes about
+  48 times a day just to re-arm it, paying for a model turn each time. Over
+  days its conversation fills, gets summarised, and loses earlier rulings,
+  and it stops when its window closes. The f1 sequencer does the watching
+  for free and never forgets (its memory is files). When a decision is
+  needed it hands the executive a fresh, curated briefing (f5's packet)
+  instead of a long, compacted chat. The owner still has a session to talk
+  to: `/flow-epic-run`, which can use Monitor on the sequencer's log while
+  the owner is actively working with it.
+
 ### D8 — Executive review at decision points, under an owner grant
 
-_Decision:_ `flow epic grant <epic> --autonomy high [--model] [--effort]`
-(owner-typed) writes the grant. At plan approval, an epic feature with a live
+_Decision:_ `flow epic grant <epic> --autonomy high|off [--model] [--effort]`
+(owner-typed) writes or withdraws the grant. At plan approval, an epic feature with a live
 grant runs `flow-exec-review review --kind plan` before pausing: hard
 mechanical preconditions first (cross-model review engaged, anchors resolve,
 lint clean, no one-way-door action), then one headless call over the decision
@@ -116,8 +160,9 @@ packet returning approve / challenge / defer with door type, confidence,
 rationale and ≤3 challenges. Approve ⇒ proceed, log, stamp the PR. Challenge
 ⇒ the pipeline's own revision pass, max two rounds. Defer ⇒ today's pause,
 with one recommendation. At each merge, a wave review (`--kind wave`) returns
-continue / reorder / defer-feature / cut-feature / escalate — applied by
-`/flow-epic-run` now and by the sequencer after f3. _Consequences:_ the
+continue / reorder / propose / escalate. A reorder is applied by
+`/flow-epic-run` now, and by the sequencer after f3. A proposal (defer, cut
+or add a feature, change the goal) waits for the owner. _Consequences:_ the
 owner's keystroke is replaced only where the owner granted it and the door is
 two-way; every decision is visible and reversible. → **f5-executive-judgment**,
 **f3-sequencer-executive**
@@ -486,7 +531,7 @@ owner's ruling.
 - **Depends on:** nothing — `/flow-epic-run` uses it the day it merges.
 - **Produces:** `## Deciding on my behalf` in the product brief (and its
   seed); `flow-exec-review review --kind plan|wave`;
-  `references/executive-review.md`; `flow epic grant|revoke|ruling`; the
+  `references/executive-review.md`; `flow epic grant --autonomy high|off`; the
   pre-pause executive check in `step-04-approval.md`; the challenge-round
   protocol; the wave-review step in `/flow-epic-run`; PR stamp and log
   entries.
@@ -521,8 +566,9 @@ owner's ruling.
   **w1-managed-wave** — _evidence the sequencer works before it gets
   autonomy._
 - **Produces:** `flow epic manage --autonomy high`; one wave review per
-  observed merge, applying two-way-door decisions to unstarted features only;
-  the decision digest and per-feature decision lines on the board.
+  observed merge, applying reorders of unstarted features only and showing
+  every reshape as a proposal; the decision digest and per-feature decision
+  lines on the board.
 
 ### w2-ui-review-section · Wait node: the `## UI review` section has shipped
 
