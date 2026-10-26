@@ -10,13 +10,18 @@
  * calls, not importable functions. This keeps the no-nested-LLM constraint
  * intact: this helper never spawns `claude -p` or a Task.
  *
- * Two modes:
+ * Two decision modes, plus two utility modes that need no manifest:
  *
  *   SKIP-DECISION (pre-flight, before any browser driving):
  *     flow-ui-validate [--manifest <path>] [--mcp-absent]
  *                      [--changed-files <path>]   (or changed paths via stdin)
  *   ASSEMBLE (after the skill has driven MCP and written captures):
  *     flow-ui-validate [--manifest <path>] --captures <path>
+ *
+ *   PAGE SCRIPTS: flow-ui-validate --probe-script | --sections-script |
+ *                 --sections-restore-script  (print the JS the driver runs)
+ *   COMPARE: flow-ui-validate --compare <before.json> <after.json>
+ *            (keep/revert verdict between two ASSEMBLE outputs)
  *
  * Output: a single JSON envelope on stdout, always carrying `ran` + `loud`
  * (+ optional `skipped_reason` / `nudge`). Exit codes mirror
@@ -37,6 +42,17 @@
 import * as fs from "node:fs";
 
 import { validateUiValidationManifest } from "./lib/ui-validation-schema";
+import {
+  compareFindings,
+  computeViewportFindings,
+  filterCapture,
+} from "./lib/ui-viewport-findings";
+import type { Captures, RouteFindings } from "./lib/ui-viewport-findings";
+import {
+  heuristicsProbeScript,
+  sectionsRestoreScript,
+  sectionsScript,
+} from "./lib/ui-heuristics";
 import type {
   UiValidationManifest,
   Viewport,
@@ -58,21 +74,6 @@ export type SkippedReason =
   | "app-launch-failed"
   | "login-failed"
   | "browser-profile-busy";
-
-export type RouteFindings = {
-  path: string;
-  ok: boolean;
-  consoleErrors: string[];
-  failedRequests: string[];
-  missingSelectors: string[];
-  /**
-   * Per-viewport geometry failures (off-center constrained column, horizontal
-   * overflow, missing-element-at-breakpoint), each naming the offending
-   * viewport. Present (possibly empty) only on the per-viewport path; absent on
-   * the legacy single-capture path.
-   */
-  geometryIssues?: string[];
-};
 
 export type ReadyRoute = {
   path: string;
@@ -128,44 +129,16 @@ export type UiValidateEnvelope = {
   meta?: Record<string, unknown>;
 };
 
-/**
- * Per-(route × viewport) capture the driving skill writes after resizing the
- * page, driving the MCP, and reading geometry via `evaluate_script`. The
- * geometry fields (`rootGap` / `scrollWidth` / `clientWidth`) are raw NUMBERS
- * the skill measured — this helper applies pure-TypeScript tolerance/equality
- * checks to them and never drives the MCP or reads the DOM itself.
- */
-export type ViewportCapture = {
-  name: string;
-  width: number;
-  snapshotText?: string;
-  consoleErrors?: string[];
-  failedRequests?: string[];
-  screenshotPath?: string;
-  rootGap?: { left: number; right: number };
-  scrollWidth?: number;
-  clientWidth?: number;
-};
-
-export type Captures = {
-  launchOk: boolean;
-  loginOk: boolean;
-  routes: Array<{
-    path: string;
-    consoleErrors: string[];
-    failedRequests: string[];
-    snapshotText: string;
-    screenshotPath?: string;
-    viewports?: ViewportCapture[];
-  }>;
-};
-
 export type Args = {
   manifest: string;
   mcpAbsent: boolean;
   browserBusy: boolean;
   changedFiles?: string;
   captures?: string;
+  /** Page-script modes: print one driver script and exit, no manifest needed. */
+  script?: "probe" | "sections" | "sections-restore";
+  /** `--compare <before.json> <after.json>`: keep/revert between two ASSEMBLE outputs. */
+  compare?: [string, string];
 };
 
 export type Deps = {
@@ -208,6 +181,8 @@ export const HELP_TEXT = `flow-ui-validate — LLM-free core of browser-driven U
 Usage:
   flow-ui-validate [--manifest <path>] [--mcp-absent] [--browser-busy] [--changed-files <path>]
   flow-ui-validate [--manifest <path>] --captures <path>
+  flow-ui-validate --probe-script | --sections-script | --sections-restore-script
+  flow-ui-validate --compare <before.json> <after.json>
 
 Options:
   --manifest <path>       Path to the .flow/ui-validation.json manifest
@@ -221,6 +196,15 @@ Options:
                           diff-touches-UI signal). Also accepted via stdin.
   --captures <path>       ASSEMBLE mode: a JSON file the skill writes after
                           driving the MCP per route.
+  --probe-script          Print the page-quality probe the driver hands to
+                          evaluate_script, then exit 0.
+  --sections-script       Print the script that opens collapsed <details> and
+                          lists the page's sections, then exit 0.
+  --sections-restore-script
+                          Print the script that re-closes what
+                          --sections-script opened, then exit 0.
+  --compare <b> <a>       Compare two ASSEMBLE outputs (before, after) and
+                          print {"decision":"keep"|"revert",...}.
   --help, -h              Show this help.
 
 Exit codes:
@@ -262,6 +246,29 @@ export function parseArgs(
         out.changedFiles = value;
         i++;
         continue;
+      case "--probe-script":
+        out.script = "probe";
+        continue;
+      case "--sections-script":
+        out.script = "sections";
+        continue;
+      case "--sections-restore-script":
+        out.script = "sections-restore";
+        continue;
+      case "--compare": {
+        const after = argv[i + 2];
+        if (
+          !value ||
+          value.startsWith("--") ||
+          !after ||
+          after.startsWith("--")
+        ) {
+          return { error: "--compare requires <before.json> <after.json>" };
+        }
+        out.compare = [value, after];
+        i += 2;
+        continue;
+      }
       case "--captures":
         if (!value || value.startsWith("--")) {
           return { error: "--captures requires a value" };
@@ -332,140 +339,6 @@ function parseChangedFiles(raw: string): string[] {
 
 // --- Per-route findings (ASSEMBLE) -----------------------------------------
 
-/**
- * Filter benign-noise substrings out of a single capture's console/request
- * lists and compute its missing-selector list. Shared by both the legacy
- * single-capture path and the per-viewport fold. Substring (not regex)
- * filters: an entry is suppressed when ANY pattern is a substring of it.
- * Absent patterns => no filtering (the benign favicon 404 is the canonical
- * case, cleared via ignoreRequestPatterns: ["/favicon.ico"]). Filter BEFORE
- * computing ok so suppressed noise never fails a route.
- */
-function filterCapture(
-  manifest: UiValidationManifest,
-  path: string,
-  consoleRaw: string[] | undefined,
-  failedRaw: string[] | undefined,
-  snapshotRaw: string | undefined,
-): {
-  consoleErrors: string[];
-  failedRequests: string[];
-  missingSelectors: string[];
-} {
-  const ignoreConsolePatterns = manifest.ignoreConsolePatterns ?? [];
-  const ignoreRequestPatterns = manifest.ignoreRequestPatterns ?? [];
-  const consoleErrors = (consoleRaw ?? []).filter(
-    (e) => !ignoreConsolePatterns.some((p) => e.includes(p)),
-  );
-  const failedRequests = (failedRaw ?? []).filter(
-    (r) => !ignoreRequestPatterns.some((p) => r.includes(p)),
-  );
-  const manifestRoute = manifest.routes.find((r) => r.path === path);
-  const expectSelectors = manifestRoute?.expectSelectors ?? [];
-  const snapshotText = snapshotRaw ?? "";
-  const missingSelectors = expectSelectors.filter(
-    (sel) => !snapshotText.includes(sel),
-  );
-  return { consoleErrors, failedRequests, missingSelectors };
-}
-
-/**
- * Per-viewport fold: compute console/request/missing-selector findings from
- * each viewport's own fields PLUS the three mechanical geometry assertions,
- * naming the offending viewport(s). Pure TypeScript over captured numbers —
- * no MCP, no DOM read.
- */
-function computeViewportFindings(
-  manifest: UiValidationManifest,
-  capture: Captures["routes"][number],
-  viewports: ViewportCapture[],
-): RouteFindings {
-  const consoleErrors: string[] = [];
-  const failedRequests: string[] = [];
-  const missingSelectors: string[] = [];
-  const geometryIssues: string[] = [];
-
-  for (const vp of viewports) {
-    const filtered = filterCapture(
-      manifest,
-      capture.path,
-      vp.consoleErrors,
-      vp.failedRequests,
-      vp.snapshotText,
-    );
-    for (const e of filtered.consoleErrors)
-      consoleErrors.push(`[${vp.name}] ${e}`);
-    for (const r of filtered.failedRequests)
-      failedRequests.push(`[${vp.name}] ${r}`);
-    // Only a viewport that actually captured a snapshot participates in the
-    // missing-selector check; mirrors the withSnapshot guard on the
-    // breakpoint axis below so a no-snapshot capture (filterCapture coerces
-    // undefined snapshotText to "") never spuriously flags every selector.
-    if (vp.snapshotText !== undefined) {
-      for (const s of filtered.missingSelectors)
-        missingSelectors.push(`[${vp.name}] ${s}`);
-    }
-
-    // (a) Off-center constrained column: asymmetric left/right gaps beyond a
-    // small absolute floor plus a relative band, so intentional sidebars and
-    // sub-pixel rounding don't false-positive.
-    if (vp.rootGap) {
-      const tolerance = Math.max(16, 0.05 * vp.width);
-      if (Math.abs(vp.rootGap.left - vp.rootGap.right) > tolerance) {
-        geometryIssues.push(
-          `[${vp.name}] off-center constrained column: rootGap left=${vp.rootGap.left} right=${vp.rootGap.right} (tolerance ${tolerance})`,
-        );
-      }
-    }
-
-    // (b) Horizontal overflow at this viewport.
-    if (
-      typeof vp.scrollWidth === "number" &&
-      typeof vp.clientWidth === "number" &&
-      vp.scrollWidth > vp.clientWidth
-    ) {
-      geometryIssues.push(
-        `[${vp.name}] horizontal overflow: scrollWidth=${vp.scrollWidth} > clientWidth=${vp.clientWidth}`,
-      );
-    }
-  }
-
-  // (c) Missing-element-at-breakpoint: a route-declared selector present in
-  // SOME viewports' snapshotText but absent in another's. Only viewports that
-  // actually captured a snapshot participate, so a viewport with no snapshot
-  // never spuriously triggers the breakpoint mismatch.
-  const manifestRoute = manifest.routes.find((r) => r.path === capture.path);
-  const expectSelectors = manifestRoute?.expectSelectors ?? [];
-  const withSnapshot = viewports.filter((vp) => vp.snapshotText !== undefined);
-  for (const sel of expectSelectors) {
-    const present = withSnapshot.filter((vp) =>
-      (vp.snapshotText ?? "").includes(sel),
-    );
-    if (present.length > 0 && present.length < withSnapshot.length) {
-      const absent = withSnapshot
-        .filter((vp) => !(vp.snapshotText ?? "").includes(sel))
-        .map((vp) => vp.name);
-      geometryIssues.push(
-        `missing-at-breakpoint: '${sel}' present at some viewports but absent at ${absent.join(", ")}`,
-      );
-    }
-  }
-
-  const ok =
-    consoleErrors.length === 0 &&
-    failedRequests.length === 0 &&
-    missingSelectors.length === 0 &&
-    geometryIssues.length === 0;
-  return {
-    path: capture.path,
-    ok,
-    consoleErrors,
-    failedRequests,
-    missingSelectors,
-    geometryIssues,
-  };
-}
-
 export function computeRouteFindings(
   manifest: UiValidationManifest,
   capture: Captures["routes"][number],
@@ -521,7 +394,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   if ("error" in parsed) {
     writeErr(`flow-ui-validate: ${parsed.error}\n`);
     writeErr(
-      "usage: flow-ui-validate [--manifest <path>] [--mcp-absent] [--browser-busy] [--changed-files <path>] | --captures <path>\n",
+      "usage: flow-ui-validate [--manifest <path>] [--mcp-absent] [--browser-busy] [--changed-files <path>] | --captures <path> | --probe-script | --sections-script | --sections-restore-script | --compare <before.json> <after.json>\n",
     );
     return 2;
   }
@@ -530,6 +403,50 @@ export function run(argv: string[], deps: Deps = {}): number {
     writeOut(JSON.stringify(env) + "\n");
     return 0;
   };
+
+  // Page scripts and --compare need no manifest, so they short-circuit before
+  // the manifest load below.
+  if (parsed.script !== undefined) {
+    const scripts = {
+      probe: heuristicsProbeScript,
+      sections: sectionsScript,
+      "sections-restore": sectionsRestoreScript,
+    };
+    writeOut(scripts[parsed.script]() + "\n");
+    return 0;
+  }
+  if (parsed.compare !== undefined) {
+    const read = (p: string): unknown => {
+      const raw = readFile(p);
+      if (raw === null) return null;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    };
+    const [before, after] = parsed.compare.map(read);
+    for (const [name, doc] of [
+      [parsed.compare[0], before],
+      [parsed.compare[1], after],
+    ] as const) {
+      if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
+        writeErr(
+          `flow-ui-validate: --compare file unreadable or malformed: ${name}\n`,
+        );
+        return 2;
+      }
+    }
+    writeOut(
+      JSON.stringify(
+        compareFindings(
+          before as { routes?: RouteFindings[] },
+          after as { routes?: RouteFindings[] },
+        ),
+      ) + "\n",
+    );
+    return 0;
+  }
 
   // --mcp-absent wins over every other mode: environment-level, quiet skip.
   if (parsed.mcpAbsent) {
@@ -683,7 +600,17 @@ export function run(argv: string[], deps: Deps = {}): number {
       return 2;
     }
 
-    if (!captures.launchOk) {
+    // Absent launch/login fields mean "not reported": a run that captured a
+    // snapshot clearly launched and logged in. Only an explicit `false`, or
+    // absence with nothing captured, is a failure.
+    const capturedAny = captures.routes.some(
+      (c) =>
+        (typeof c.snapshotText === "string" && c.snapshotText.length > 0) ||
+        (c.viewports ?? []).some((v) => (v.snapshotText ?? "").length > 0),
+    );
+    const failed = (v: boolean | undefined): boolean =>
+      v === false || (v === undefined && !capturedAny);
+    if (failed(captures.launchOk)) {
       return emit({
         ran: false,
         loud: true,
@@ -691,7 +618,7 @@ export function run(argv: string[], deps: Deps = {}): number {
         nudge: `manifest present but the dev server (${manifest.launch}) did not start — check the launch command and that the app builds`,
       });
     }
-    if (!captures.loginOk) {
+    if (failed(captures.loginOk)) {
       return emit({
         ran: false,
         loud: true,
