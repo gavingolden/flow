@@ -62,6 +62,9 @@ artifacts under `.flow-tmp/`, not in the transcript. Keep their paths:
   losing it forces re-asking answered questions.
 - The pause-output contract — pause-point messages stay slot-labeled
   after compaction.
+- `.flow-tmp/ui-critique/log.json` while `/flow-verify`'s critique loop or
+  smell-repair round is open — its `round.preSha` is what a resumed loop
+  reverts to before anything else.
 
 ## DROP — reconstructable, high volume
 

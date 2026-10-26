@@ -1404,6 +1404,7 @@ Check whether the PR description follows the standardized format with these sect
 - **Key decisions** — non-obvious choices with rationale
 - **Deviations from plan** — omit-when-empty; one bullet per meaningful deviation between the approved plan and what shipped (see `flow-pipeline/references/pause-output-contract.md` `## Definitions`), populated by 11d below, immediately before Test Steps
 - **Test Steps** — verification steps for reviewers, automated and manual (also the auto-merge gate signal: zero unchecked `- [ ]` items ⇒ auto-merge, one or more ⇒ gated)
+- **UI review** — `## UI review` (between the `flow:ui-review` markers) is machine-written by verify: leave it in place and never restate it in other sections
 
 **If the description is empty or missing**: Draft one from the diff and PR title using the
 format above. This is the highest-priority fix in this step.
@@ -1634,7 +1635,7 @@ no branch fired, the current live body, fetched first via `gh pr view <number> -
 collection, the Automation-precedence audit line, the result artifact, the
 `pr-review-last-sha` marker, and the untracked-follow-up seed. It runs
 `flow-md-validate --fix-pr-body` immediately before pushing the body via `gh pr edit`,
-internally, never skipped:
+internally, never skipped. When `.flow-tmp/ui-critique/log.json` exists, first run `flow-ui-critique render --worktree "$WORKTREE" --body-file "$WORKTREE/.flow-tmp/body.md"` so the gallery's local image references reach `flow-review-finalize`'s `--attach` upload:
 
 ```bash
 WIDEN_ARGS=(); [ -n "$WIDEN_REASON" ] && WIDEN_ARGS=(--widened "$WIDEN_REASON")

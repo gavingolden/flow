@@ -48,6 +48,11 @@ Also echo the same line to the user in-session (a plain assistant-message
 line, not only the PR-body upsert above) so the gap is visible without
 opening the PR.
 
+**UI critique loop.** For a UI PR with a `SUBJECTIVE:` Test Step, the critique loop
+([ui-critique-loop.md](../ui-critique-loop.md)) runs inside `/flow-verify`
+after a clean pass — once per pipeline, outside the 3-attempt cap, never a `NEEDS HUMAN`.
+Echo its in-session `UI critique: …` line to the user as `/flow-verify` prints it.
+
 **Surface UI screenshots.** Read `$WORKTREE/.flow-tmp/ui-driver-result.json`:
 `jq -r '.item_results[]?'` first — when any entry carries `screenshots[]`, print each such `item` on its own line followed by its `screenshots[]` — else fall back to `jq -r '.ui_screenshots[]?'` for the paths (the driver already applied the
 `test -f` survival guard mapping `evidence_paths[]` from
@@ -65,7 +70,13 @@ before treating the orphan as a failure, and commits a matched entry to
 `.flow/pre-commit.json`. A config-authoring re-run does not consume an
 outer attempt.
 
-**Exhaustion.** After 3 failed outer attempts, escalate `NEEDS HUMAN:
+**Exhaustion.** After 3 failed outer attempts: when the third attempt's only failing
+check is the UI-smoke pass, run `flow-ui-critique persistent --check --worktree "$WORKTREE"`.
+`allPersistent: true` means no escalation — print `UI checks: <n> persistent defect(s)
+left for your decision`, run `flow-ui-critique render` with the image-free `--push-copy`
+(then `flow-md-validate --fix-pr-body` and `gh pr edit`, as in
+[ui-critique-loop.md](../ui-critique-loop.md) step 6), and continue to step 7. Otherwise
+escalate `NEEDS HUMAN:
 verify-exhausted`. `$FINAL_FAILURE_EXCERPT` is the third attempt's
 `flow-pre-commit --json` failure excerpt, copied from `/flow-verify`'s
 visible report. It stays in the local file and the terminal escalation;
