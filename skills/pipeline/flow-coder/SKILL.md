@@ -45,10 +45,12 @@ the wrapper's brief return summary and reads the artifact once.
   `skills/pipeline/flow-pipeline/references/phases/mid-flight-redirects.md`.
 
 Every caller composes the required `{file, intent, expected_outcome}`
-triple. Two **optional** per-entry fields extend it: `contract` — the
+triple. **Optional** per-entry fields extend it: `contract` — the
 task's interface spec (files / signatures / exported symbols / call-site
 edits, or the change-type surgical form) copied from an approved plan's
-Contract block — and `acceptance` — a runnable per-edit check. Today only
+Contract block — `acceptance` — a runnable per-edit check — and
+`skill_docs` — absolute skill/reference paths the subagent Reads before
+that entry's first edit and records in the artifact's `skills_read`. Today only
 `/flow-new-feature` step 5's plan-contract path composes them; `/flow-verify`,
 `/flow-refactoring`, and the redirect path keep composing bare triples, and the
 subagent treats an entry without them exactly as before (see

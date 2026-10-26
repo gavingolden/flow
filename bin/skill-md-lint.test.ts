@@ -5679,12 +5679,17 @@ describe("pr-review include-by-reference structure", () => {
     // above is left as historical record, not re-tightened.
     // Bumped 795 -> 810 (checkpointed applier artifact + turn-budget
     // loss accounting + non-blocking wait).
+    // Bumped 810 -> 835 (2026-10-25, UI skill threading): Step 5 now hands
+    // the implementer `skill_docs` paths and, for UI edit-sets, the flow-ui-ux
+    // rule paths, and checks them against the artifact's `skills_read`.
+    // Those lines are load-bearing contract (a UI diff that skips the design
+    // rules is the failure this prevents); 835 leaves 4 lines of headroom over the 831 it lands at.
     expect(
       lineCount,
       `flow-new-feature/SKILL.md line count must stay under the post-diet ` +
-        `budget of 810 lines. Material regrowth past this ceiling would ` +
+        `budget of 835 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(810);
+    ).toBeLessThan(835);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
