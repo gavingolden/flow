@@ -101,8 +101,10 @@ sentinel by hand on that path. Then, per visual item:
    fill a credential VALUE yourself — before the per-route drive. Then, **per route, loop over `meta.viewports`** (the
    `flow-ui-validate` ready envelope carries the declared set or the built-in
    default `xs 320 / mobile 390 / tablet 768 / desktop 1280 / wide 1440`):
-   `resize_page` to each viewport `width` × its `height` when declared, else a
-   tall default (2000px), so above-the-fold cropping never hides overflow, run
+   call `emulate` once per viewport with `viewport: "<width>x<height>x1"` (the
+   declared `height`, else a tall default of 2000 so above-the-fold cropping
+   never hides overflow; append `,mobile,touch` below 768 wide) and
+   `colorScheme: "light"`, then run
    the **same per-route drive loop as the
    gate-time pass** (the canonical
    `navigate_page` → `wait_for` → `take_snapshot` → console/network sequence

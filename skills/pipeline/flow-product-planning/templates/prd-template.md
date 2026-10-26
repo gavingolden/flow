@@ -160,6 +160,10 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 
 <!-- Omit this whole section for non-UI plans. Authoring contract: discovery-ui.md "Layout Intent". Do not inline the contract here. -->
 
+- **Design intent:** [who and what they must accomplish; the feel; one default look this rejects; the reference]
+- **Polish bar:** [2-4 named, observable qualities]
+- **Judged scope:** every surface on each touched route, siblings included
+
 ### Surface: [name] ([route])
 
 - **Regions & nesting:** [what regions exist and how they nest]

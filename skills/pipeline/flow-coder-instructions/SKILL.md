@@ -64,8 +64,8 @@ Before drafting any edit, load the inputs:
 
 - Parse the edit-set from the wrapper's spawn prompt. Validate that every
   entry has the three required fields (`file`, `intent`,
-  `expected_outcome`); the two optional fields (`contract`, `acceptance`)
-  may be present or absent per entry. If any entry is missing a required
+  `expected_outcome`); the optional fields (`contract`, `acceptance`,
+  `skill_docs`) may be present or absent per entry. If any entry is missing a required
   field, record it in `anti_patterns_found` with a
   recommendation for the caller and proceed with the well-formed entries.
 - Read the project's `AGENTS.md` (or `CLAUDE.md`) to understand commit
@@ -88,6 +88,14 @@ Before drafting any edit, load the inputs:
   apply the best conforming approximation and record the deviation in
   `anti_patterns_found`, same discipline as the foundation/spec sentence
   above.
+- **Skill docs and design rules.** Read every path in an entry's
+  `skill_docs` and every rule path the Design context block names (the
+  flow-ui-ux `SKILL.md` and `references/*.md`, the stack UI skill) BEFORE
+  that entry's first edit, apply them while writing, and record each path
+  you actually read in the artifact's top-level `skills_read` array (absolute
+  paths). A path that cannot be read is noted in `anti_patterns_found`, never
+  silently skipped. There is no self-critique pass: rendered judgment happens
+  in verify's probe and smell-repair round, not here.
 - For each edit-set entry, read the named file enough times to understand
   the surrounding context (typically ±20 lines around the area the intent
   describes). These reads stay in your context — they are read-only
@@ -264,6 +272,7 @@ The artifact MUST conform to this JSON schema:
       "introduced_by_this_pr": false
     }
   ],
+  "skills_read": ["<absolute path of each skill_docs / DESIGN_CONTEXT rule file actually Read; optional>"],
   "summary": "<3–5 sentence both-sides return summary; see step 5>"
 }
 ```

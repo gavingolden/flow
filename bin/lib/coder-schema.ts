@@ -52,6 +52,8 @@ export type CoderResult = {
   verify_status: string;
   rejected_alternatives: CoderRejectedAlternative[];
   anti_patterns_found: CoderAntiPattern[];
+  /** Absolute skill/reference paths the implementer actually Read. */
+  skills_read?: string[];
   summary: string;
 };
 
@@ -168,6 +170,20 @@ export function validateCoderResult(parsed: unknown): ValidationResult {
   }
   if (!isNonEmptyString(o.summary)) {
     return err(`'summary' must be a non-empty string`);
+  }
+
+  if (o.skills_read !== undefined) {
+    if (!Array.isArray(o.skills_read)) {
+      return err(`'skills_read' must be an array when present`, "skills_read");
+    }
+    for (let i = 0; i < o.skills_read.length; i++) {
+      if (!isNonEmptyString(o.skills_read[i])) {
+        return err(
+          `'skills_read' entries must be non-empty strings`,
+          `skills_read[${i}]`,
+        );
+      }
+    }
   }
 
   const edits = o.edits as unknown[];

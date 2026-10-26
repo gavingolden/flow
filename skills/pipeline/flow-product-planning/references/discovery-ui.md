@@ -66,7 +66,13 @@ Every mechanical bullet mirrors a `spec.json` assertion 1:1 (same id) — a bull
 - **Fires:** "re-theme the `/sets` page"; "add a sidebar filter panel"; any plan whose Task breakdown adds/moves UI regions (a new panel, a relocated nav, a restructured page layout).
 - **Does NOT fire:** backend/CLI/docs/infra plans with no UI surface; a copy-only tweak with no structural change (e.g. "fix a typo in the button label", "change the toast copy").
 
-When the gate fires, add an omit-when-empty `## Layout Intent` section to the PRD, authored per surface. Required pre-read: read the ui-ux skill's layout-composition heuristics at `~/.flow/claude-home/.claude/skills/flow-ui-ux/references/layout.md` (grids, Gestalt grouping, responsive strategy, archetypes) before authoring, so the reasoning is informed, not just recorded; fall back to the facet checklist below when the file is absent (a manual run on a host without flow's skills must not crash).
+When the gate fires, add an omit-when-empty `## Layout Intent` section to the PRD, authored per surface. Required pre-read: read the ui-ux skill's layout-composition heuristics (grids, Gestalt grouping, responsive strategy, archetypes) at the path printed by `flow-module-status --skill-path flow-ui-ux --ref references/layout.md` before authoring, so the reasoning is informed, not just recorded. A non-zero exit is a named skip, never a guessed path — fall back to the facet checklist below (a manual run on a host without flow's skills must not crash).
+
+Open the section with one required **Design intent** bullet group (once for the plan, not per surface), answering the ui-ux skill's §2 "Clarify Design Intent" questions so the implementer and the critique both have a target:
+
+- **Design intent:** who the user is and what they must accomplish; the feel (dense and precise, calm and spacious, …); one default look this deliberately rejects; and the reference it leans on.
+- **Polish bar:** 2-4 named, observable qualities the finished page must show (e.g. "one clear focal point per screen", "no truncated labels at 390px").
+- **Judged scope:** every surface on each touched route, siblings included.
 
 Per surface, author all six required facets:
 
@@ -89,7 +95,7 @@ Per surface, author all six required facets:
 
 The diagram is topology-only, not proportion — box sizes carry no meaning about relative dimensions. If the diagram and the prose ever disagree, the prose is normative; the diagram is an aid — resolve any diagram/prose conflict to the prose.
 
-**Scope boundary.** Layout Intent covers layout relationships and behaviors ONLY — regions, order, sizing policy, relative positioning, breakpoints, overflow/sticky/z-order. Absolute aesthetic values (colors, type scale, spacing values, shadows) stay with `.flow/design/foundation.md` tokens, a referenced design artifact (`## Visual Spec`), or the judged/SUBJECTIVE tier — do not duplicate them here.
+**Scope boundary.** Layout Intent covers layout relationships and behaviors, plus the **Design intent** group above (who, feel, rejected default, reference, polish bar) — regions, order, sizing policy, relative positioning, breakpoints, overflow/sticky/z-order. Framework or stack mechanics and absolute aesthetic values (colors, type scale, spacing values, pixel measurements, shadows) stay with `.flow/design/foundation.md` tokens, a referenced design artifact (`## Visual Spec`), or the judged/SUBJECTIVE tier — do not duplicate them here.
 
 **Placement.** Place `## Layout Intent` after `## Visual Spec` when that section is present, else after `## User Stories / Acceptance Criteria`.
 
@@ -122,6 +128,11 @@ These paragraphs sit inside step 7's PR-description template fence, inside its "
   `flow-design-spec diff` envelope, judged ones by the review-time side-by-side walk. See
   `skills/pipeline/flow-pr-review/references/manual-test-rubric.md` ("Subjective checks") for the
   scoped contract.
+
+  For every JS-driven navigation affordance the plan adds (tabs, button-driven scroll, a
+  "jump to" control), author one `Browser:` Test Step asserting where the target lands
+  relative to fixed or sticky chrome; in-page `#` anchors are already covered by verify's
+  probe. A Scope Boundary may exclude sibling surfaces from edits, never from checks.
 
   Before writing any item as a browser-manual step, apply the layered-decomposition check:
   route a backend/API contract to a deterministic integration test, reserve the browser tier

@@ -1404,6 +1404,7 @@ Check whether the PR description follows the standardized format with these sect
 - **Key decisions** — non-obvious choices with rationale
 - **Deviations from plan** — omit-when-empty; one bullet per meaningful deviation between the approved plan and what shipped (see `flow-pipeline/references/pause-output-contract.md` `## Definitions`), populated by 11d below, immediately before Test Steps
 - **Test Steps** — verification steps for reviewers, automated and manual (also the auto-merge gate signal: zero unchecked `- [ ]` items ⇒ auto-merge, one or more ⇒ gated)
+- **UI review** — `## UI review` (between the `flow:ui-review` markers) is machine-written by verify: leave it in place and never restate it in other sections
 
 **If the description is empty or missing**: Draft one from the diff and PR title using the
 format above. This is the highest-priority fix in this step.
@@ -1520,6 +1521,7 @@ new command is needed here) plus an unchecked
   assuming no prior knowledge of project-specific toggles or jargon, and never a bare
   "turn X on" / "with X enabled" without the concrete steps. See
   `references/manual-test-rubric.md` ("Precondition concreteness").
+- Never rewrite a Test Step's expected result to match what a run observed — an observed mismatch is a `fail` left open with its evidence; wording edits may clarify the action or preconditions only.
 
 Based on 12a-12d:
 
@@ -1633,7 +1635,7 @@ no branch fired, the current live body, fetched first via `gh pr view <number> -
 collection, the Automation-precedence audit line, the result artifact, the
 `pr-review-last-sha` marker, and the untracked-follow-up seed. It runs
 `flow-md-validate --fix-pr-body` immediately before pushing the body via `gh pr edit`,
-internally, never skipped:
+internally, never skipped. When `.flow-tmp/ui-critique/log.json` exists, first run `flow-ui-critique render --worktree "$WORKTREE" --body-file "$WORKTREE/.flow-tmp/body.md"` so the gallery's local image references reach `flow-review-finalize`'s `--attach` upload:
 
 ```bash
 WIDEN_ARGS=(); [ -n "$WIDEN_REASON" ] && WIDEN_ARGS=(--widened "$WIDEN_REASON")
@@ -1702,7 +1704,7 @@ section ends with one summary line:
 Automation-precedence audit: ran N/M items (X prose-promoted, Y left manual: <reasons>)
 ```
 
-Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X, Y) and the per-unticked-item rubric categories; the `flow-review-finalize` call above forwards them to `flow-classify-step --ran $N --total $M --prose-promoted $X --reason ...` internally and folds its stdout into the result artifact's `summary` field — read that field back (see above) and append it to the report under "Test Steps (from PR description)". Allowed `--reason` slugs (kebab-case form of the categories in references/manual-test-rubric.md, plus `credentials-unavailable` for a login blocked by a credential-denial per [references/ui-validation-evidence.md](references/ui-validation-evidence.md)): `subjective-UX`, `production-only`, `cross-browser`, `performance-under-realistic-load`, `cost-prohibitive-infra`, `browser-unavailable` (only with a fresh preflight/driver artifact behind it, else the wrap-up relabels it `browser-not-attempted`), `browser-not-attempted`, `credentials-unavailable`. The audit also names any dependency `startedByFlow: true` in `.flow-tmp/ui-preflight.json` as left running. The bullet list below remains the contract documentation; `bin/flow-classify-step.test.ts` pins the format on the helper side so the two cannot drift silently.
+Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X, Y) and the per-unticked-item rubric categories; the `flow-review-finalize` call above forwards them to `flow-classify-step --ran $N --total $M --prose-promoted $X --reason ...` internally and folds its stdout into the result artifact's `summary` field — read that field back (see above) and append it to the report under "Test Steps (from PR description)". Allowed `--reason` slugs (kebab-case form of the categories in references/manual-test-rubric.md, plus `credentials-unavailable` for a login blocked by a credential-denial per [references/ui-validation-evidence.md](references/ui-validation-evidence.md)): `subjective-UX`, `production-only`, `cross-browser`, `performance-under-realistic-load`, `cost-prohibitive-infra`, `browser-unavailable` (only with a fresh preflight/driver artifact behind it, else the wrap-up relabels it `browser-app-failed` when a fresh review-8c driver artifact shows the app failed to launch or log in, otherwise `browser-not-attempted`), `browser-not-attempted`, `browser-app-failed`, `credentials-unavailable`. The audit also names any dependency `startedByFlow: true` in `.flow-tmp/ui-preflight.json` as left running. The bullet list below remains the contract documentation; `bin/flow-classify-step.test.ts` pins the format on the helper side so the two cannot drift silently.
 
 - `M` is the total `- [ ]` item count in the section (the FIRST `flow-run-test-steps` call's `uncheckedTotal`; later `--only` re-runs see a smaller count).
 - `N` is the number ticked by 8c: `passed` summed across every `flow-run-test-steps` call + prose-promoted via 8c.ii + 8c.iii browser ticks.

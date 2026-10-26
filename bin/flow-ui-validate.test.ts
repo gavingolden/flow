@@ -1218,3 +1218,367 @@ describe("CLI arg errors", () => {
     expect(c.out).toContain("flow-ui-validate");
   });
 });
+
+describe("ASSEMBLE — absent launch/login fields", () => {
+  const route = (snapshotText: string) => ({
+    path: "/",
+    consoleErrors: [],
+    failedRequests: [],
+    snapshotText,
+  });
+
+  it("treats absent launchOk/loginOk as success when a route captured a snapshot", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: VALID_MANIFEST,
+      "cap.json": JSON.stringify({ routes: [route("<main>")] }),
+    });
+    const e = envelope(c);
+    expect(e.ran).toBe(true);
+    expect(e.skipped_reason).toBeUndefined();
+  });
+
+  it("treats absent launchOk with nothing captured as app-launch-failed", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: VALID_MANIFEST,
+      "cap.json": JSON.stringify({ routes: [route("")] }),
+    });
+    expect(envelope(c).skipped_reason).toBe("app-launch-failed");
+  });
+
+  it("an explicit false still fails even with a captured snapshot", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: VALID_MANIFEST,
+      "cap.json": JSON.stringify({
+        launchOk: true,
+        loginOk: false,
+        routes: [route("<main>")],
+      }),
+    });
+    expect(envelope(c).skipped_reason).toBe("login-failed");
+  });
+});
+
+describe("ASSEMBLE — page-quality heuristics", () => {
+  const heuristics = (over: Record<string, unknown> = {}) => ({
+    innerWidth: 390,
+    innerHeight: 844,
+    scrollHeight: 6000,
+    mainTextLength: 4000,
+    hasDarkScheme: false,
+    darkSchemeClass: null,
+    bodyLuminance: 1,
+    clippedText: [],
+    leakedText: [],
+    tallBlocks: [],
+    anchorLandings: [],
+    pastViewport: [],
+    lowContrast: [],
+    duplicateControls: [],
+    repeatedText: [],
+    crampedRows: [],
+    headingScale: [],
+    ...over,
+  });
+  const assemble = (vps: unknown[], manifest = VALID_MANIFEST) =>
+    envelope(
+      drive(["--captures", "cap.json"], {
+        [MANIFEST_PATH]: manifest,
+        "cap.json": JSON.stringify({
+          launchOk: true,
+          loginOk: true,
+          routes: [
+            {
+              path: "/",
+              consoleErrors: [],
+              failedRequests: [],
+              snapshotText: "main",
+              viewports: vps,
+            },
+          ],
+        }),
+      }),
+    );
+  const first = (e: Record<string, unknown>) =>
+    (e.routes as Array<Record<string, unknown>>)[0];
+
+  it("fails the route on a heuristic defect and keeps smells advisory", () => {
+    const e = assemble([
+      {
+        name: "phone",
+        width: 390,
+        snapshotText: "main",
+        heuristics: heuristics({
+          leakedText: [{ sample: "NaN", path: "p", kind: "token" }],
+          clippedText: [{ path: "h2", overflowPx: 9 }],
+        }),
+      },
+    ]);
+    expect(e.ok).toBe(false);
+    expect(first(e).heuristicIssues).toHaveLength(1);
+    expect(first(e).heuristicSmells).toHaveLength(1);
+  });
+
+  it("does not fail the route on smells, env skips or refused ignores", () => {
+    const manifest = JSON.stringify({
+      ...JSON.parse(VALID_MANIFEST),
+      ignoreHeuristicPatterns: ["h2"],
+    });
+    const e = assemble(
+      [
+        {
+          name: "phone",
+          width: 320,
+          snapshotText: "main",
+          heuristics: heuristics({
+            clippedText: [{ path: "h2", overflowPx: 9 }],
+          }),
+        },
+      ],
+      manifest,
+    );
+    expect(e.ok).toBe(true);
+    expect(first(e).envSkips).toHaveLength(1);
+    expect(first(e).heuristicSmells).toEqual([]);
+  });
+
+  it("reports the 1280 viewport's mainTextLength, else the widest probed", () => {
+    const vp = (name: string, width: number, len: number) => ({
+      name,
+      width,
+      snapshotText: "main",
+      heuristics: heuristics({ innerWidth: width, mainTextLength: len }),
+    });
+    expect(
+      first(assemble([vp("a", 1440, 3), vp("b", 1280, 2), vp("c", 390, 1)]))
+        .mainTextLength,
+    ).toBe(2);
+    expect(
+      first(assemble([vp("c", 390, 1), vp("a", 1440, 3)])).mainTextLength,
+    ).toBe(3);
+    expect(
+      first(assemble([{ name: "x", width: 390, snapshotText: "main" }]))
+        .mainTextLength,
+    ).toBeNull();
+  });
+
+  it("records a viewport mismatch from a bare innerWidth", () => {
+    const e = assemble([
+      { name: "phone", width: 390, innerWidth: 500, snapshotText: "main" },
+    ]);
+    expect(e.ok).toBe(true);
+    expect(first(e).envSkips).toEqual([
+      "[phone] viewport-mismatch: innerWidth 500 vs requested 390",
+    ]);
+  });
+});
+
+describe("page-script modes", () => {
+  it.each([
+    ["--probe-script", "scrollIntoView"],
+    ["--sections-script", "data-flow-opened"],
+    ["--sections-restore-script", "data-flow-opened"],
+  ])("%s prints its script without a manifest", (flag, needle) => {
+    const c = drive([flag], {});
+    expect(c.code).toBe(0);
+    expect(c.out).toContain(needle);
+    expect(c.out.startsWith("() =>")).toBe(true);
+  });
+});
+
+describe("--compare", () => {
+  const out = (routes: unknown[]) => JSON.stringify({ ran: true, routes });
+  const route = (over: Record<string, unknown> = {}) => ({
+    path: "/",
+    ok: true,
+    consoleErrors: [],
+    failedRequests: [],
+    missingSelectors: [],
+    geometryIssues: [],
+    heuristicIssues: [],
+    heuristicSmells: [],
+    mainTextLength: 1000,
+    ...over,
+  });
+  const compare = (before: unknown[], after: unknown[]) => {
+    const c = drive(["--compare", "b.json", "a.json"], {
+      "b.json": out(before),
+      "a.json": out(after),
+    });
+    expect(c.code).toBe(0);
+    return envelope(c);
+  };
+
+  it("keeps when smells drop and nothing regresses", () => {
+    const v = compare(
+      [route({ heuristicSmells: ["[p] wall: x", "[p] clipped: y"] })],
+      [route({ heuristicSmells: ["[p] clipped: y"], mainTextLength: 950 })],
+    );
+    expect(v).toMatchObject({
+      decision: "keep",
+      regressed: false,
+      smellsBefore: 2,
+      smellsAfter: 1,
+      newDefects: [],
+      textDrops: [],
+    });
+  });
+
+  it("reverts and flags a new defect", () => {
+    const v = compare([route()], [route({ heuristicIssues: ["[p] leak: x"] })]);
+    expect(v.decision).toBe("revert");
+    expect(v.regressed).toBe(true);
+    expect(v.newDefects).toEqual(["/ [p] leak: x"]);
+  });
+
+  it("reverts when smells did not strictly drop, without regressing", () => {
+    const smells = { heuristicSmells: ["[p] wall: x"] };
+    const v = compare([route(smells)], [route(smells)]);
+    expect(v).toMatchObject({ decision: "revert", regressed: false });
+  });
+
+  it("flags a text drop beyond the cap as a regression even if smells fell", () => {
+    const v = compare(
+      [route({ heuristicSmells: ["[p] wall: x"] })],
+      [route({ mainTextLength: 800 })],
+    );
+    expect(v.decision).toBe("revert");
+    expect(v.regressed).toBe(true);
+    expect(v.textDrops).toEqual([{ route: "/", before: 1000, after: 800 }]);
+  });
+
+  it("tolerates a text drop exactly at the cap", () => {
+    const v = compare(
+      [route({ heuristicSmells: ["[p] wall: x"] })],
+      [route({ mainTextLength: 850 })],
+    );
+    expect(v.decision).toBe("keep");
+  });
+
+  it("reverts as regressed when the after drive lost a route", () => {
+    const v = compare(
+      [route({ heuristicSmells: ["[p] wall: x"] }), route({ path: "/b" })],
+      [route()],
+    );
+    expect(v).toMatchObject({
+      decision: "revert",
+      regressed: true,
+      missingRoutes: ["/b"],
+    });
+  });
+
+  it("reverts as regressed when the after drive did not run", () => {
+    const c = drive(["--compare", "b.json", "a.json"], {
+      "b.json": out([route({ heuristicSmells: ["[p] wall: x"] })]),
+      "a.json": JSON.stringify({
+        ran: false,
+        skipped_reason: "app-launch-failed",
+      }),
+    });
+    expect(envelope(c)).toMatchObject({
+      decision: "revert",
+      regressed: true,
+      missingRoutes: ["/"],
+    });
+  });
+
+  it("exits 2 on a missing file or missing operand", () => {
+    expect(drive(["--compare", "b.json", "a.json"], {}).code).toBe(2);
+    expect(drive(["--compare", "b.json"], {}).code).toBe(2);
+  });
+});
+
+describe("ASSEMBLE — data preconditions (429)", () => {
+  const assemble = (vp: Record<string, unknown>) =>
+    envelope(
+      drive(["--captures", "cap.json"], {
+        [MANIFEST_PATH]: VALID_MANIFEST,
+        "cap.json": JSON.stringify({
+          launchOk: true,
+          loginOk: true,
+          routes: [
+            {
+              path: "/dashboard",
+              consoleErrors: [],
+              failedRequests: [],
+              snapshotText: '[data-testid="dashboard"]',
+              viewports: [
+                {
+                  name: "mobile",
+                  width: 390,
+                  snapshotText: '[data-testid="dashboard"]',
+                  consoleErrors: [
+                    "Failed to load resource: the server responded with a status of 429 ()",
+                  ],
+                  failedRequests: ["GET /api/cards 429"],
+                  ...vp,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+  const route = (e: Record<string, unknown>) =>
+    (e.routes as Array<Record<string, unknown>>)[0];
+
+  it("relabels a low-count 429 as a data precondition naming the endpoint, not a failure", () => {
+    const e = assemble({ rateLimited: [{ url: "/api/cards", count: 1 }] });
+    expect(e.ok).toBe(true);
+    expect(route(e).failedRequests).toEqual([]);
+    expect(route(e).consoleErrors).toEqual([]);
+    expect(route(e).dataPreconditions).toEqual([
+      "[mobile] data-precondition: /api/cards answered 429 (quota or rate limit) on /dashboard",
+    ]);
+  });
+
+  it("keeps a request storm a failure, prefixed request-storm:", () => {
+    const e = assemble({ rateLimited: [{ url: "/api/cards", count: 5 }] });
+    expect(e.ok).toBe(false);
+    expect(route(e).failedRequests).toEqual([
+      "[mobile] request-storm: GET /api/cards 429",
+    ]);
+    expect(route(e).dataPreconditions).toEqual([]);
+  });
+
+  it("keeps a non-429 failure on the same endpoint as a failure", () => {
+    const e = assemble({
+      failedRequests: ["GET /api/cards 429", "POST /api/cards 500"],
+      rateLimited: [{ url: "/api/cards", count: 1 }],
+    });
+    expect(route(e).failedRequests).toEqual(["[mobile] POST /api/cards 500"]);
+  });
+
+  it("ignores a rate-limit entry with an empty url", () => {
+    const e = assemble({ rateLimited: [{ url: "", count: 1 }] });
+    expect(route(e).failedRequests).toEqual(["[mobile] GET /api/cards 429"]);
+    expect(route(e).dataPreconditions).toEqual([]);
+  });
+
+  it("changes nothing when the driver reported no rate limit", () => {
+    const e = assemble({});
+    expect(e.ok).toBe(false);
+    expect(route(e).failedRequests).toEqual(["[mobile] GET /api/cards 429"]);
+    expect(route(e).dataPreconditions).toEqual([]);
+  });
+
+  it("--compare ignores data preconditions", () => {
+    const out = (dp: string[]) =>
+      JSON.stringify({
+        routes: [
+          {
+            path: "/",
+            consoleErrors: [],
+            failedRequests: [],
+            missingSelectors: [],
+            dataPreconditions: dp,
+            heuristicSmells: ["[p] wall: x"],
+          },
+        ],
+      });
+    const c = drive(["--compare", "b.json", "a.json"], {
+      "b.json": out([]),
+      "a.json": out(["[p] data-precondition: /x answered 429 on /"]),
+    });
+    expect(envelope(c).regressed).toBe(false);
+  });
+});

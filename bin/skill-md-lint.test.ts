@@ -2050,7 +2050,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     { file: "flow-backlog-verifier.md", wantTools: "Bash, Read, Grep, Glob" },
     {
       file: "flow-ui-driver.md",
-      wantMaxTurns: 120,
+      wantMaxTurns: 200,
       wantSkills: "flow-ui-driver-instructions",
       wantTools: "Bash, Read, Write, ToolSearch, mcp__chrome-devtools__\\*",
       wantEffort: "medium",
@@ -5679,12 +5679,17 @@ describe("pr-review include-by-reference structure", () => {
     // above is left as historical record, not re-tightened.
     // Bumped 795 -> 810 (checkpointed applier artifact + turn-budget
     // loss accounting + non-blocking wait).
+    // Bumped 810 -> 835 (2026-10-25, UI skill threading): Step 5 now hands
+    // the implementer `skill_docs` paths and, for UI edit-sets, the flow-ui-ux
+    // rule paths, and checks them against the artifact's `skills_read`.
+    // Those lines are load-bearing contract (a UI diff that skips the design
+    // rules is the failure this prevents); 835 leaves 4 lines of headroom over the 831 it lands at.
     expect(
       lineCount,
       `flow-new-feature/SKILL.md line count must stay under the post-diet ` +
-        `budget of 810 lines. Material regrowth past this ceiling would ` +
+        `budget of 835 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(810);
+    ).toBeLessThan(835);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
@@ -8263,6 +8268,22 @@ describe("browser-driven UI-validation structural anchors", () => {
       "tailwind-shadcn SKILL.md must direct authoring enumerated " +
         "visual-appearance assertions as Test Steps.",
     ).toBe(true);
+  });
+
+  it("flow-verify names the post-pass repair allowance next to its one-spawn rules", () => {
+    // The UI critique loop and the smell-repair round add ONE extra
+    // flow-ui-driver re-drive and ONE /flow-coder round after a clean pass.
+    // The "exactly one Task call" and "at most one /flow-coder" rules would
+    // otherwise read as forbidding them, so the allowance must stay stated.
+    const verify = fs.readFileSync(
+      path.resolve(HERE, "..", "skills", "pipeline", "flow-verify", "SKILL.md"),
+      "utf8",
+    );
+    expect(verify).toContain("Post-pass repair allowance");
+    expect(verify).toContain(
+      "ONE extra `flow-ui-driver` re-drive and ONE `/flow-coder` round",
+    );
+    expect((verify.match(/Post-pass repair allowance/g) ?? []).length).toBe(3);
   });
 
   it("the multi-viewport 'UI traits to verify' rubric stays wired and not skippable", () => {

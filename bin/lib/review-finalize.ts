@@ -18,7 +18,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { browserUnavailableBacked } from "./browser-items";
+import {
+  browserUnavailableBacked,
+  driverAttemptFailure,
+} from "./browser-items";
 import { validatePrReviewResult } from "./pr-review-result-schema";
 import {
   ghSupportsAttach,
@@ -356,6 +359,16 @@ export async function runReviewFinalize(
           .backed
       ) {
         return r;
+      }
+      const attempted = driverAttemptFailure(opts.worktree, last_sha || null, {
+        readFile,
+      });
+      if (attempted) {
+        skips.push({
+          step: "classify_step",
+          reason: `browser-unavailable not backed by ui-preflight.json, but ui-driver-result.json skipped_reason: ${attempted} — relabelled browser-app-failed`,
+        });
+        return "browser-app-failed";
       }
       skips.push({
         step: "classify_step",

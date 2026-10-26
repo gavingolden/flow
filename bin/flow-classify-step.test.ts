@@ -127,6 +127,7 @@ describe("SLUG_TO_HUMAN", () => {
     ["cost-prohibitive-infra", "cost-prohibitive infra"],
     ["browser-unavailable", "browser unavailable"],
     ["browser-not-attempted", "browser not attempted"],
+    ["browser-app-failed", "app failed to start or log in in the browser"],
     ["credentials-unavailable", "credentials unavailable"],
   ])("maps %s → %s", (slug, human) => {
     expect(SLUG_TO_HUMAN[slug]).toBe(human);

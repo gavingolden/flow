@@ -341,6 +341,12 @@ const DESCRIPTORS: Descriptor[] = [
     resolve: (read) => strictFalseOptOut(read, "product.judge"),
   },
   {
+    key: "ui.critique",
+    meaning:
+      "whether UI PRs with a look-and-feel sign-off get an automatic critique-and-fix round before review",
+    resolve: (read) => strictFalseOptOut(read, "ui.critique"),
+  },
+  {
     key: "modules",
     meaning: "which optional flow modules this install has selected",
     resolve: (read) => {

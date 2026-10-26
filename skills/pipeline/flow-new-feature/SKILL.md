@@ -562,6 +562,11 @@ Decide whether to delegate edits to `/flow-coder` based on the **hybrid threshol
    Both optional fields are absent on the no-plan fallback path —
    `/flow-coder` treats a bare triple exactly as today.
 
+   Any entry may also carry `skill_docs: string[]` — absolute paths the
+   implementer must Read before that entry's first edit, resolved from the
+   task's `Skill:` tag with `flow-module-status --skill-path <skill>` (a
+   non-zero exit is a named skip in the step-5 summary, never a failure).
+
    Render the edit-set as a single JSON array — pass it to `/flow-coder` as
    the `EDIT_SET` argument.
 
@@ -608,9 +613,19 @@ Decide whether to delegate edits to `/flow-coder` based on the **hybrid threshol
    from the threaded body before appending — the diagram is a
    plan-review aid; only the normative prose reaches the implementer.
 
+   **UI rule paths (any edit-set touching UI files).** `DESIGN_CONTEXT`
+   always carries the absolute paths of the flow-ui-ux `SKILL.md` and its
+   `references/layout.md`, `references/visual-design.md` and
+   `references/accessibility.md` (from `flow-module-status --skill-path
+flow-ui-ux [--ref references/<name>.md]`; a non-zero exit is a named
+   skip), plus the active stack UI skill's `SKILL.md`, with the instruction
+   to Read each before the first UI edit and apply it while writing — paths
+   only, never inlined skill text.
+
    Omit `DESIGN_CONTEXT` entirely only when the plan has NONE of a
-   committed foundation, `## Visual Spec`, or `## Layout Intent` —
-   non-UI pipelines see byte-identical spawn prompts. `/flow-new-feature` is
+   committed foundation, `## Visual Spec`, or `## Layout Intent` AND the
+   edit-set touches no UI files — non-UI pipelines see byte-identical spawn
+   prompts. `/flow-new-feature` is
    the content source for the argument; `/flow-coder`'s wrapper only renders
    it into the `{{DESIGN_CONTEXT}}` placeholder of its spawn prompt.
 
@@ -643,6 +658,13 @@ writes the structured artifact at
      || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
    jq -r '.edits[] | select((.tool_error // "") | startswith("turn-budget — ")) | "\(.file): \(.intent)"' "$WORKTREE/.flow-tmp/coder-result.json" | while IFS= read -r t; do flow-untracked add --title "$t" --source coder; done
    ```
+
+   When `DESIGN_CONTEXT` carried UI rule paths, compare them with the
+   artifact's `skills_read`: register each design-skill path absent from it
+   (flow-ui-ux and its references, the stack UI skill) with `flow-untracked
+add --source coder --title "skill not applied: <name>"`. Any other unread
+   `skill_docs` path is noted in the step-5 summary only, never the owner's
+   untracked list.
 
 On a missing/invalid artifact, or one with `verify_status != "pass"`,
 surface the failure to the caller — the supervisor escalates

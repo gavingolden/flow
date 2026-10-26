@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ui-smoke judged-critique fixture</title>
+    <!-- Planted weakness (evals/ui-smoke-isolation s3): the page passes every
+         defect-tier probe check, but four stat tiles sit four-across at every
+         width, so at phone width each tile is under 100px wide and its label
+         is truncated (a cramped-row smell), and the h1 and h2 share one size
+         and weight (a flat-hierarchy smell). Only a judged critique plus one
+         fix round resolves them; the plan's design intent says the tiles
+         stack two-up on phones. -->
+    <style>
+      body {
+        margin: 0;
+        font: 16px/1.5 system-ui, sans-serif;
+        color: #1a1a1a;
+        background: #ffffff;
+      }
+      main {
+        padding: 16px;
+        max-width: 960px;
+        margin: 0 auto;
+      }
+      h1,
+      h2 {
+        margin: 0 0 8px;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      .tiles {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 24px;
+      }
+      .tile {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 8px;
+        border: 1px solid #c8c8c8;
+        overflow: hidden;
+      }
+      .label {
+        color: #4a4a4a;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .value {
+        font-size: 20px;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Usage overview</h1>
+      <h2>Last 30 days</h2>
+      <section id="stats" class="tiles">
+        <div class="tile">
+          <div class="label">Monthly active users</div>
+          <div class="value">12,480</div>
+        </div>
+        <div class="tile">
+          <div class="label">Average session length</div>
+          <div class="value">6m 12s</div>
+        </div>
+        <div class="tile">
+          <div class="label">Conversion rate</div>
+          <div class="value">3.4%</div>
+        </div>
+        <div class="tile">
+          <div class="label">Open support tickets</div>
+          <div class="value">27</div>
+        </div>
+      </section>
+      <p>Figures refresh every night.</p>
+    </main>
+  </body>
+</html>

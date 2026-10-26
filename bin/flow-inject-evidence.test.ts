@@ -7,6 +7,7 @@ import {
   buildEvidenceBlock,
   neutralizeHeadings,
   parseArgs,
+  relocateOutsideImages,
   rewriteBody,
   trimOutput,
 } from "./flow-inject-evidence";
@@ -615,6 +616,71 @@ describe("human-only items and screenshots", () => {
     expect(
       parseArgs(["--body-file", "b.md", "--item", "x", "--image", "#alt"]),
     ).toEqual({ error: "--image requires <path>#<alt>" });
+  });
+});
+
+describe("--image validation and relocation", () => {
+  const base = ["--body-file", "b.md", "--item", "x", "--no-tick"];
+
+  it("rejects a newline-joined --image value with a repeat-per-flag error", () => {
+    const joined = parseArgs([...base, "--image", "a.png\nb.png"]);
+    expect(joined).toEqual({
+      error:
+        "--image takes one path per flag (got a newline/control character) — repeat --image per screenshot",
+    });
+    expect("error" in parseArgs([...base, "--image", "a\u0001.png"])).toBe(
+      true,
+    );
+  });
+
+  const mkDeps = (existing: string[]) => {
+    const files = new Set(existing);
+    const copies: Array<[string, string]> = [];
+    return {
+      copies,
+      deps: {
+        cwd: "/wt",
+        exists: (p: string) => files.has(p),
+        mkdirp: () => {},
+        copyFile: (from: string, to: string) => {
+          copies.push([from, to]);
+          files.add(to);
+        },
+      },
+    };
+  };
+
+  it("passes inside-worktree images through untouched", () => {
+    const { deps, copies } = mkDeps([]);
+    const images = [{ path: ".flow-tmp/a.png", alt: "a" }];
+    expect(relocateOutsideImages(images, deps)).toEqual({ ok: true, images });
+    expect(copies).toEqual([]);
+  });
+
+  it("copies an outside image under .flow-tmp/ui-evidence and suffixes collisions", () => {
+    const { deps, copies } = mkDeps(["/tmp/shot.png", "/tmp/x/shot.png"]);
+    const r = relocateOutsideImages(
+      [
+        { path: "/tmp/shot.png", alt: "one" },
+        { path: "/tmp/x/shot.png", alt: "two" },
+      ],
+      deps,
+    );
+    expect(r).toEqual({
+      ok: true,
+      images: [
+        { path: "/wt/.flow-tmp/ui-evidence/shot.png", alt: "one" },
+        { path: "/wt/.flow-tmp/ui-evidence/shot-2.png", alt: "two" },
+      ],
+    });
+    expect(copies).toHaveLength(2);
+  });
+
+  it("names a missing outside source", () => {
+    const { deps } = mkDeps([]);
+    expect(
+      relocateOutsideImages([{ path: "/tmp/gone.png", alt: "g" }], deps),
+    ).toEqual({ ok: false, error: "--image source not found: /tmp/gone.png" });
   });
 });
 

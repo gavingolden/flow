@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   browserUnavailableBacked,
   classifyOpenBrowserItems,
+  driverAttemptFailure,
 } from "./browser-items";
 
 const HEAD = "abc123";
@@ -334,5 +335,78 @@ describe("browserUnavailableBacked", () => {
         files({ [PREFLIGHT_PATH]: { headSha: HEAD, ready: false } }),
       ).backed,
     ).toBe(false);
+  });
+});
+
+describe("data-precondition items", () => {
+  it("labels a not-drivable item with a data-precondition reason honestly and keeps it not-drivable", () => {
+    const deps = files({
+      [DRIVER_PATH]: driver({
+        item_results: [
+          {
+            index: 2,
+            item: "x",
+            kind: "behavior",
+            verdict: "not-drivable",
+            reason: "data-precondition: /api/cards answered 429 on /dashboard",
+            screenshots: [],
+          },
+        ],
+      }),
+    });
+    const items = classifyOpenBrowserItems(BODY, WT, HEAD, deps);
+    expect(items[0]).toMatchObject({
+      index: 2,
+      status: "not-drivable",
+      reason:
+        "data precondition: /api/cards answered 429 on /dashboard — local app data, not a code failure",
+    });
+  });
+
+  it("keeps the plain label for a not-drivable item with any other reason", () => {
+    const deps = files({
+      [DRIVER_PATH]: driver({
+        item_results: [
+          {
+            index: 2,
+            item: "x",
+            kind: "behavior",
+            verdict: "not-drivable",
+            reason: "exceeded 8 actions",
+            screenshots: [],
+          },
+        ],
+      }),
+    });
+    expect(classifyOpenBrowserItems(BODY, WT, HEAD, deps)[0].reason).toBe(
+      "driver verdict: not-drivable",
+    );
+  });
+});
+
+describe("driverAttemptFailure", () => {
+  it.each(["app-launch-failed", "login-failed", "dependency-unready"])(
+    "returns %s from a fresh review-8c driver artifact",
+    (skipped_reason) => {
+      const deps = files({
+        [DRIVER_PATH]: driver({ ran: false, skipped_reason }),
+      });
+      expect(driverAttemptFailure(WT, HEAD, deps)).toBe(skipped_reason);
+    },
+  );
+
+  it("is null for an environment skip, a ran driver, a stale stamp or a verify driver", () => {
+    for (const d of [
+      driver({ ran: false, skipped_reason: "mcp-not-available" }),
+      driver({ ran: false, skipped_reason: "credentials-unavailable" }),
+      driver(),
+      driver({ ran: false, skipped_reason: "login-failed", headSha: "old" }),
+      driver({ ran: false, skipped_reason: "login-failed", caller: "verify" }),
+    ]) {
+      expect(driverAttemptFailure(WT, HEAD, files({ [DRIVER_PATH]: d }))).toBe(
+        null,
+      );
+    }
+    expect(driverAttemptFailure(WT, null, files({}))).toBe(null);
   });
 });

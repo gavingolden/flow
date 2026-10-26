@@ -18,6 +18,16 @@
  *     (owned by no module) is always treated as active — same exit-code
  *     shape as --check, but there is no "unknown skill" error case.
  *
+ *   flow-module-status --skill-path <skill> [--ref <subpath>]
+ *     Prints the absolute installed path of the skill's `SKILL.md` (or of
+ *     `<subpath>` under the skill) so a caller can hand it to a sub-agent
+ *     that must Read it. The root is the pipeline's skill overlay
+ *     (`overlaySkillsDir(FLOW_SLUG)`) when it exists, else the standalone
+ *     claude-home skills dir (`FLOW_CLAUDE_HOME_SKILLS_DIR` when set, which
+ *     the eval harness uses to point a hermetic child at its own checkout). Exit 2 on a `--ref` that is absolute or climbs
+ *     with `..`; exit 3 when the owning module is inactive (the usual
+ *     notice) or the skill/file does not exist (`skill-path-not-found: …`).
+ *
  *   flow-module-status [--summary]
  *     No args, or --summary: prints the full per-module active/inactive +
  *     reason listing (`core` always shown active) to stdout. Exit 0.
@@ -39,29 +49,47 @@ import {
   skipEnvelope,
   type ModuleActivity,
 } from "./lib/module-status";
-import { isKnownModule, MANDATORY_MODULE, type ModuleId } from "./lib/modules";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import {
+  isKnownModule,
+  MANDATORY_MODULE,
+  MODULES,
+  type ModuleId,
+} from "./lib/modules";
+import { FLOW_CLAUDE_HOME_SKILLS_DIR } from "./lib/paths";
+import { overlaySkillsDir } from "./lib/skill-overlay";
 import type { Manifest } from "./lib/manifest";
 
 type Deps = {
   readSelection?: () => string[] | undefined;
   readManifest?: () => Manifest;
+  fileExists?: (p: string) => boolean;
+  /** The pipeline slug (defaults to `FLOW_SLUG`); selects the skill overlay. */
+  slug?: string;
+  overlaySkills?: (slug: string) => string;
+  homeSkillsDir?: string;
 };
 
 type ParsedArgs =
   | { mode: "check"; id: string; json: boolean }
   | { mode: "check-skill"; skill: string; json: boolean }
+  | { mode: "skill-path"; skill: string; ref?: string }
   | { mode: "summary" }
   | { error: string };
 
 const USAGE =
   "usage: flow-module-status --check <module-id> [--json]\n" +
   "       flow-module-status --check-skill <skill> [--json]\n" +
+  "       flow-module-status --skill-path <skill> [--ref <subpath>]\n" +
   "       flow-module-status [--summary]";
 
 function parseArgs(argv: string[]): ParsedArgs {
   let json = false;
   let checkId: string | undefined;
   let checkSkill: string | undefined;
+  let skillPath: string | undefined;
+  let ref: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -89,11 +117,46 @@ function parseArgs(argv: string[]): ParsedArgs {
         i++;
         continue;
       }
+      case "--skill-path": {
+        const value = argv[i + 1];
+        if (!value || value.startsWith("--")) {
+          return { error: "--skill-path requires a value" };
+        }
+        skillPath = value;
+        i++;
+        continue;
+      }
+      case "--ref": {
+        const value = argv[i + 1];
+        if (!value || value.startsWith("--")) {
+          return { error: "--ref requires a value" };
+        }
+        ref = value;
+        i++;
+        continue;
+      }
       default:
         return { error: `unknown flag: ${flag}` };
     }
   }
 
+  if (ref !== undefined && skillPath === undefined) {
+    return { error: "--ref is only valid with --skill-path" };
+  }
+  if (skillPath !== undefined) {
+    if (checkId !== undefined || checkSkill !== undefined) {
+      return { error: "--skill-path cannot be combined with --check*" };
+    }
+    if (
+      ref !== undefined &&
+      (path.isAbsolute(ref) || ref.split(/[\\/]/).includes(".."))
+    ) {
+      return {
+        error: `--ref must be a relative path without '..' segments: ${ref}`,
+      };
+    }
+    return { mode: "skill-path", skill: skillPath, ref };
+  }
   if (checkId !== undefined && checkSkill !== undefined) {
     return { error: "--check and --check-skill are mutually exclusive" };
   }
@@ -112,6 +175,47 @@ function renderSummary(activity: ModuleActivity[]): string {
     lines.push(`  ${m.id}: ${status} (${pin})`);
   }
   return lines.join("\n") + "\n";
+}
+
+function resolveSkillPath(
+  skill: string,
+  ref: string | undefined,
+  deps: Deps,
+): { code: number; stdout: string; stderr: string } {
+  const id = moduleForSkill(skill);
+  const fail = (what: string) => ({
+    code: 3,
+    stdout: "",
+    stderr: `flow-module-status: skill-path-not-found: ${what}\n`,
+  });
+  if (id === undefined) return fail(skill);
+  if (!isModuleActive(id, deps)) {
+    return { code: 3, stdout: "", stderr: `${noticeLine(id)}\n` };
+  }
+  const candidates = skill.startsWith("flow-")
+    ? [skill]
+    : [skill, `flow-${skill}`];
+  const name = MODULES.find((m) => m.id === id)!.skills.find((s) =>
+    candidates.includes(s),
+  )!;
+  const exists = deps.fileExists ?? ((p: string) => fs.existsSync(p));
+  const slug = deps.slug ?? process.env.FLOW_SLUG;
+  const overlay = slug ? (deps.overlaySkills ?? overlaySkillsDir)(slug) : null;
+  const root =
+    overlay && exists(overlay)
+      ? overlay
+      : (deps.homeSkillsDir ??
+        process.env.FLOW_CLAUDE_HOME_SKILLS_DIR ??
+        FLOW_CLAUDE_HOME_SKILLS_DIR);
+  const target = path.join(
+    root,
+    `flow-module-${id}`,
+    "skills",
+    name,
+    ref ?? "SKILL.md",
+  );
+  if (!exists(target)) return fail(target);
+  return { code: 0, stdout: `${target}\n`, stderr: "" };
 }
 
 /**
@@ -157,6 +261,10 @@ export function runModuleStatus(
     }
     if (active) return { code: 0, stdout: "", stderr: "" };
     return { code: 3, stdout: "", stderr: `${noticeLine(id)}\n` };
+  }
+
+  if (parsed.mode === "skill-path") {
+    return resolveSkillPath(parsed.skill, parsed.ref, deps);
   }
 
   // mode === "check-skill"

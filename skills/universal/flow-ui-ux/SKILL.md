@@ -45,6 +45,7 @@ Load the relevant reference on demand — don't read all of them up front:
 - [Component interaction](references/component-interaction.md) — the interactive state model, loading/double-submit prevention, response-time thresholds, disabled-state semantics, destructive-action and toast patterns.
 - [Accessibility](references/accessibility.md) — WCAG POUR + the WAI-ARIA APG discipline.
 - [Pre-submit critique protocol](references/critique-protocol.md) — the quality gate to run before declaring UI work done.
+- [Rendered-gallery critique](references/rendered-critique.md) — the rubric for judging a multi-section gallery of captured screenshots: inputs, severity, finding shape, post-round critique.
 
 # Instructions
 
@@ -80,7 +81,7 @@ Before declaring the work done, run the gate in `references/critique-protocol.md
 
 ## 5. Evaluate from a captured snapshot/screenshot
 
-This is the entry point `/flow-pr-review` Step 8c invokes when it judges a rendered UI without editing code. You are handed a captured a11y snapshot (the **primary** input — the structured accessibility tree from `take_snapshot`, diffable and authoritative for hierarchy, roles, names, focus order, and reading order) and optionally a screenshot (a **supplementary** input — useful for spacing rhythm, alignment, color restraint, and surface/depth, but never the sole basis for a judgment). Judge what you are given against the same authorities as steps 3–4: read the snapshot for accessibility and structure (WCAG/POUR, the focus-order and name/role/value discipline), and read the screenshot for composition (Refactoring UI spacing/hierarchy, Nielsen's heuristics, Anthropic's coherence signal). Return a concrete pass/fail per visual-appearance assertion plus the one to three highest-impact fixes — never a vague "looks fine." Stay stack-agnostic: name the principle and its source, not the framework mechanic.
+This is the entry point `/flow-pr-review` Step 8c invokes when it judges a rendered UI without editing code. You are handed a captured a11y snapshot (the **primary** input — the structured accessibility tree from `take_snapshot`, diffable and authoritative for hierarchy, roles, names, focus order, and reading order) and optionally a screenshot (a **supplementary** input — useful for spacing rhythm, alignment, color restraint, and surface/depth, but never the sole basis for a judgment). Judge what you are given against the same authorities as steps 3–4: read the snapshot for accessibility and structure (WCAG/POUR, the focus-order and name/role/value discipline), and read the screenshot for composition (Refactoring UI spacing/hierarchy, Nielsen's heuristics, Anthropic's coherence signal). Return a concrete pass/fail per visual-appearance assertion plus the one to three highest-impact fixes — never a vague "looks fine." Stay stack-agnostic: name the principle and its source, not the framework mechanic. When you are handed a multi-section gallery rather than one capture, follow `references/rendered-critique.md`.
 
 # Anti-Patterns
 

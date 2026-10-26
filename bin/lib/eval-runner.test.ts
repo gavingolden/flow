@@ -441,6 +441,19 @@ describe("buildChildEnv", () => {
     expect(env.HOME).toBe("/home/eval-user");
   });
 
+  it("points flow-module-status at the fixture's materialized skills for the with arm only", () => {
+    const fixture = makeFixture();
+    const skills = `${fixture.claudeHome}/.claude/skills`;
+    const base = { PATH: "/usr/bin" };
+    expect(
+      buildChildEnv(makeScenario(), fixture, base).FLOW_CLAUDE_HOME_SKILLS_DIR,
+    ).toBe(skills);
+    expect(
+      buildChildEnv(makeScenario(), fixture, base, "without")
+        .FLOW_CLAUDE_HOME_SKILLS_DIR,
+    ).toBeUndefined();
+  });
+
   it("sets FLOW_SLUG only when scenario.env.flowSlug is true", () => {
     const fixture = makeFixture();
     const withFlag = buildChildEnv(

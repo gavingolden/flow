@@ -155,3 +155,100 @@ describe("runModuleStatus --summary", () => {
     expect(result.stdout).toContain("research: inactive");
   });
 });
+
+describe("runModuleStatus --skill-path", () => {
+  const home = "/fake/home-skills";
+  const overlay = "/fake/overlays/pipe/.claude/skills";
+  const withFiles = (files: string[], extra: Record<string, unknown> = {}) => ({
+    ...fullDeps,
+    homeSkillsDir: home,
+    overlaySkills: () => overlay,
+    fileExists: (p: string) => files.includes(p),
+    ...extra,
+  });
+  const ui = (root: string, ref = "SKILL.md") =>
+    `${root}/flow-module-core/skills/flow-ui-ux/${ref}`;
+
+  it("prints the claude-home path for a bare or prefixed skill name", () => {
+    const deps = withFiles([ui(home)]);
+    for (const name of ["ui-ux", "flow-ui-ux"]) {
+      const r = runModuleStatus(["--skill-path", name], deps);
+      expect(r).toEqual({ code: 0, stdout: `${ui(home)}\n`, stderr: "" });
+    }
+  });
+
+  it("honours FLOW_CLAUDE_HOME_SKILLS_DIR as the claude-home root when set", () => {
+    const prior = process.env.FLOW_CLAUDE_HOME_SKILLS_DIR;
+    process.env.FLOW_CLAUDE_HOME_SKILLS_DIR = "/eval/skills";
+    try {
+      const { homeSkillsDir: _unused, ...deps } = withFiles([
+        ui("/eval/skills"),
+      ]);
+      const r = runModuleStatus(["--skill-path", "ui-ux"], deps);
+      expect(r.stdout).toBe(`${ui("/eval/skills")}\n`);
+    } finally {
+      if (prior === undefined) delete process.env.FLOW_CLAUDE_HOME_SKILLS_DIR;
+      else process.env.FLOW_CLAUDE_HOME_SKILLS_DIR = prior;
+    }
+  });
+
+  it("prefers the pipeline overlay when it exists", () => {
+    const deps = withFiles([overlay, ui(overlay), ui(home)], { slug: "pipe" });
+    const r = runModuleStatus(["--skill-path", "ui-ux"], deps);
+    expect(r.stdout).toBe(`${ui(overlay)}\n`);
+  });
+
+  it("falls back to claude-home when the slug has no overlay", () => {
+    const deps = withFiles([ui(home)], { slug: "pipe" });
+    expect(runModuleStatus(["--skill-path", "ui-ux"], deps).stdout).toBe(
+      `${ui(home)}\n`,
+    );
+  });
+
+  it("resolves a --ref under the skill", () => {
+    const deps = withFiles([ui(home, "references/layout.md")]);
+    const r = runModuleStatus(
+      ["--skill-path", "ui-ux", "--ref", "references/layout.md"],
+      deps,
+    );
+    expect(r.stdout).toBe(`${ui(home, "references/layout.md")}\n`);
+  });
+
+  it.each(["/etc/passwd", "../x.md", "references/../../x.md", "..\\x.md"])(
+    "rejects --ref %s with exit 2",
+    (ref) => {
+      const r = runModuleStatus(
+        ["--skill-path", "ui-ux", "--ref", ref],
+        withFiles([]),
+      );
+      expect(r.code).toBe(2);
+      expect(r.stdout).toBe("");
+    },
+  );
+
+  it("exits 3 with a distinct line for an unknown skill or a missing file", () => {
+    const unknown = runModuleStatus(
+      ["--skill-path", "not-a-skill"],
+      withFiles([]),
+    );
+    expect(unknown.code).toBe(3);
+    expect(unknown.stderr).toContain("skill-path-not-found: not-a-skill");
+    const missing = runModuleStatus(["--skill-path", "ui-ux"], withFiles([]));
+    expect(missing.code).toBe(3);
+    expect(missing.stderr).toContain(`skill-path-not-found: ${ui(home)}`);
+  });
+
+  it("exits 3 with the module notice for a deselected module", () => {
+    const r = runModuleStatus(["--skill-path", "svelte"], {
+      ...deselectedDeps,
+      fileExists: () => true,
+    });
+    expect(r.code).toBe(3);
+    expect(r.stderr).toContain("stack-svelte");
+  });
+
+  it("requires a value and rejects --ref on its own", () => {
+    expect(runModuleStatus(["--skill-path"], withFiles([])).code).toBe(2);
+    expect(runModuleStatus(["--ref", "a.md"], withFiles([])).code).toBe(2);
+  });
+});

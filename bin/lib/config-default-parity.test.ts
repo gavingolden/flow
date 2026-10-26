@@ -27,6 +27,7 @@ import {
 import { readTolerantBool } from "../flow-review-scope";
 import { readConfigDiscovery } from "../flow-research-note";
 import { readJudgeEnabled } from "./explain-judge";
+import { readUiCritiqueEnabled } from "./ui-critique-config";
 import { isGeminiLensEnabled } from "../flow-gemini-lens";
 
 function viewDefault(key: string): string {
@@ -71,6 +72,14 @@ describe("config-default-parity: the view's defaults match their real consumer's
     expect(
       viewDefault("product.judge"),
       "readJudgeEnabled(absent config) default",
+    ).toBe(String(consumerDefault));
+  });
+
+  it("ui.critique: view default matches readUiCritiqueEnabled's default", () => {
+    const consumerDefault = readUiCritiqueEnabled(() => null); // absent config file
+    expect(
+      viewDefault("ui.critique"),
+      "readUiCritiqueEnabled(absent config) default",
     ).toBe(String(consumerDefault));
   });
 
