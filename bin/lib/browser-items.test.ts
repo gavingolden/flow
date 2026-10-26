@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   browserUnavailableBacked,
   classifyOpenBrowserItems,
+  driverAttemptFailure,
 } from "./browser-items";
 
 const HEAD = "abc123";
@@ -334,5 +335,32 @@ describe("browserUnavailableBacked", () => {
         files({ [PREFLIGHT_PATH]: { headSha: HEAD, ready: false } }),
       ).backed,
     ).toBe(false);
+  });
+});
+
+describe("driverAttemptFailure", () => {
+  it.each(["app-launch-failed", "login-failed", "dependency-unready"])(
+    "returns %s from a fresh review-8c driver artifact",
+    (skipped_reason) => {
+      const deps = files({
+        [DRIVER_PATH]: driver({ ran: false, skipped_reason }),
+      });
+      expect(driverAttemptFailure(WT, HEAD, deps)).toBe(skipped_reason);
+    },
+  );
+
+  it("is null for an environment skip, a ran driver, a stale stamp or a verify driver", () => {
+    for (const d of [
+      driver({ ran: false, skipped_reason: "mcp-not-available" }),
+      driver({ ran: false, skipped_reason: "credentials-unavailable" }),
+      driver(),
+      driver({ ran: false, skipped_reason: "login-failed", headSha: "old" }),
+      driver({ ran: false, skipped_reason: "login-failed", caller: "verify" }),
+    ]) {
+      expect(driverAttemptFailure(WT, HEAD, files({ [DRIVER_PATH]: d }))).toBe(
+        null,
+      );
+    }
+    expect(driverAttemptFailure(WT, null, files({}))).toBe(null);
   });
 });

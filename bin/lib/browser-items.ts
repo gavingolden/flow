@@ -209,6 +209,22 @@ export function classifyOpenBrowserItems(
   return out;
 }
 
+/**
+ * The driver's `skipped_reason` when a head-fresh review-8c artifact shows it
+ * tried and the app failed to launch, log in, or reach a dependency — the
+ * evidence that turns "nobody tried" into "the app would not start".
+ */
+export function driverAttemptFailure(
+  worktree: string,
+  headSha: string | null,
+  deps: Deps = {},
+): string | null {
+  const skip = driverSkip(loadEvidence(worktree, headSha, deps).driver);
+  return skip && (DEPENDENCY_DRIVER_REASONS as readonly string[]).includes(skip)
+    ? skip
+    : null;
+}
+
 export function browserUnavailableBacked(
   worktree: string,
   headSha: string | null,

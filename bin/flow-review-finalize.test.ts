@@ -337,6 +337,37 @@ describe("runReviewFinalize", () => {
       );
     });
 
+    it.each(["app-launch-failed", "login-failed", "dependency-unready"])(
+      "relabels to browser-app-failed when a fresh review-8c driver artifact skipped with %s",
+      async (skipped_reason) => {
+        const { result, reasonArgs } = await run({
+          "ui-driver-result.json": {
+            headSha: "deadbeef1234",
+            caller: "review-8c",
+            ran: false,
+            skipped_reason,
+          },
+        });
+        expect(reasonArgs).toEqual(["--reason", "browser-app-failed"]);
+        expect(result.skips).toContainEqual({
+          step: "classify_step",
+          reason: `browser-unavailable not backed by ui-preflight.json, but ui-driver-result.json skipped_reason: ${skipped_reason} — relabelled browser-app-failed`,
+        });
+      },
+    );
+
+    it("keeps browser-not-attempted for a verify-stage or stale driver artifact", async () => {
+      const { reasonArgs } = await run({
+        "ui-driver-result.json": {
+          headSha: "deadbeef1234",
+          caller: "verify",
+          ran: false,
+          skipped_reason: "app-launch-failed",
+        },
+      });
+      expect(reasonArgs).toEqual(["--reason", "browser-not-attempted"]);
+    });
+
     it("relabels when the preflight is stamped for another head", async () => {
       const { reasonArgs } = await run({
         "ui-preflight.json": { headSha: "stale", ready: false },
