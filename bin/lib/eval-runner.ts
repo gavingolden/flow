@@ -346,6 +346,15 @@ export function buildChildEnv(
   }
   env.FLOW_PIPELINE = "1";
   env.FLOW_EVAL_FIXTURE = fixture.repoDir;
+  // `flow-module-status --skill-path` resolves skill files from here, so the
+  // child reads the checkout under evaluation, not the maintainer's install.
+  if (arm !== "without") {
+    env.FLOW_CLAUDE_HOME_SKILLS_DIR = path.join(
+      fixture.claudeHome,
+      ".claude",
+      "skills",
+    );
+  }
   if (scenario.env?.flowSlug) {
     env.FLOW_SLUG = fixture.slug;
   }

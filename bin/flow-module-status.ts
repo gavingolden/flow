@@ -23,7 +23,8 @@
  *     `<subpath>` under the skill) so a caller can hand it to a sub-agent
  *     that must Read it. The root is the pipeline's skill overlay
  *     (`overlaySkillsDir(FLOW_SLUG)`) when it exists, else the standalone
- *     claude-home skills dir. Exit 2 on a `--ref` that is absolute or climbs
+ *     claude-home skills dir (`FLOW_CLAUDE_HOME_SKILLS_DIR` when set, which
+ *     the eval harness uses to point a hermetic child at its own checkout). Exit 2 on a `--ref` that is absolute or climbs
  *     with `..`; exit 3 when the owning module is inactive (the usual
  *     notice) or the skill/file does not exist (`skill-path-not-found: …`).
  *
@@ -203,7 +204,9 @@ function resolveSkillPath(
   const root =
     overlay && exists(overlay)
       ? overlay
-      : (deps.homeSkillsDir ?? FLOW_CLAUDE_HOME_SKILLS_DIR);
+      : (deps.homeSkillsDir ??
+        process.env.FLOW_CLAUDE_HOME_SKILLS_DIR ??
+        FLOW_CLAUDE_HOME_SKILLS_DIR);
   const target = path.join(
     root,
     `flow-module-${id}`,

@@ -177,6 +177,21 @@ describe("runModuleStatus --skill-path", () => {
     }
   });
 
+  it("honours FLOW_CLAUDE_HOME_SKILLS_DIR as the claude-home root when set", () => {
+    const prior = process.env.FLOW_CLAUDE_HOME_SKILLS_DIR;
+    process.env.FLOW_CLAUDE_HOME_SKILLS_DIR = "/eval/skills";
+    try {
+      const { homeSkillsDir: _unused, ...deps } = withFiles([
+        ui("/eval/skills"),
+      ]);
+      const r = runModuleStatus(["--skill-path", "ui-ux"], deps);
+      expect(r.stdout).toBe(`${ui("/eval/skills")}\n`);
+    } finally {
+      if (prior === undefined) delete process.env.FLOW_CLAUDE_HOME_SKILLS_DIR;
+      else process.env.FLOW_CLAUDE_HOME_SKILLS_DIR = prior;
+    }
+  });
+
   it("prefers the pipeline overlay when it exists", () => {
     const deps = withFiles([overlay, ui(overlay), ui(home)], { slug: "pipe" });
     const r = runModuleStatus(["--skill-path", "ui-ux"], deps);

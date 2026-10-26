@@ -1,0 +1,109 @@
+{
+  "id": "s3-judged-critique",
+  "title": "Step 6 verify runs the judged UI critique loop: the critic cites a gallery shot, one fix round is kept, and the cramped tiles no longer sit four-across at 390",
+  "provenance": "Synthetic zero-dependency Bun static fixture authored for this suite; the overlay page passes every defect-tier probe check but plants a cramped-row and a flat-hierarchy smell that only a judged critique plus a fix round resolves. preload/plan-digest.md and fixture/flow-tmp/plan.md are a short synthetic plan carrying a Layout Intent with a design-intent bullet; fixture/flow-tmp/pr-description-draft.md is the PR draft the loop reads (the fixture flow-tmp/ directory is renamed to .flow-tmp/ at materialization).",
+  "prompt": "prompt.md",
+  "preload": ["preload/plan-digest.md"],
+  "fixture": {
+    "repo": "fixture",
+    "overlay": "overlay",
+    "state": "state.json"
+  },
+  "env": {
+    "flowSlug": true
+  },
+  "maxBudgetUsd": 15,
+  "timeoutSec": 2400,
+  "resultSchema": "result-schema.json",
+  "graders": [
+    {
+      "id": "mcp-drive-happened",
+      "kind": "metric",
+      "source": "transcript.mcpToolCalls",
+      "direction": "lower",
+      "min": 1
+    },
+    {
+      "id": "captures-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/ui-captures.json",
+      "exists": true
+    },
+    {
+      "id": "verify-status-pass",
+      "kind": "structured",
+      "path": "verify_status",
+      "equals": "pass"
+    },
+    {
+      "id": "critic-cited-a-gallery-shot",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/ui-critique/critique-0.json",
+      "matches": "\"shot\": *\"[^\"]*\\.flow-tmp/ui-evidence/critique/"
+    },
+    {
+      "id": "round-kept",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/ui-critique/log.json",
+      "matches": "\"outcome\": *\"kept\""
+    },
+    {
+      "id": "after-findings-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/ui-critique/after-findings.json",
+      "exists": true
+    },
+    {
+      "id": "tiles-no-longer-cramped",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/ui-critique/after-findings.json",
+      "notMatches": "cramped-row:"
+    },
+    {
+      "id": "ui-review-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/ui-review.md",
+      "contains": "flow:ui-review"
+    },
+    {
+      "id": "subjective-step-untouched",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/pr-description-draft.md",
+      "matches": "- \\[ \\] SUBJECTIVE:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE \u2014 agent-fallback:"
+    },
+    {
+      "id": "transcript.finalContextTokens",
+      "kind": "metric",
+      "gate": false,
+      "source": "transcript.finalContextTokens",
+      "direction": "lower"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    }
+  ]
+}
