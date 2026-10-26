@@ -1,4 +1,4 @@
-# Epic design — epic manager: a zero-token sequencer per epic, sibling coordination, and owner-granted answers decided inside the pipeline
+# Epic design — epic manager: an executive that decides on the owner's behalf, a zero-token sequencer per epic, and sibling coordination
 
 Supersedes `manager-agent-flow-event-driven` (designed 2026-08-25 in PR #674,
 0/6 features started). That epic's directory is deleted in this design PR; its
@@ -11,6 +11,116 @@ reconciled changes are listed under `## Decision analysis` →
 "Cross-model review (AGY)". The biggest change: the manager is now a
 deterministic Bun process, not a Claude session, and delegated answers are
 decided by the pipeline itself at its own pause.
+
+**Amended 2026-10-26:** see the next section — the executive (f5) is now a root and f3 wires it to the sequencer.
+
+## Amendment (2026-10-26) — the manager is an executive, not just a sequencer
+
+The owner, after approving the design: _"What I really want … is to think of
+things from MY perspective. The duty of the manager is to consider other
+perspectives that the feature pipeline might not take into account … focus
+on the high level goal, read in between the lines, ask what makes the most
+sense for end users … what is low value or unproven … act very much like a
+real high level executive … balance current needs vs future needs … err
+towards simplicity … ruthlessly PRIORITIZE … identify root problems … always
+question things … a mix of a distinguished engineer and a business-oriented
+executive … pressing agents to think more deeply … managers still always have
+the option to pause and defer to me when uncertain, but the ultimate goal is
+for the manager to act on my behalf."_
+
+**What changes.** The manager gains a brain (**f5-executive-judgment**, a new
+root) that decides at decision points; the sequencer (f1) stays its
+judgment-free hands. f3 becomes the wiring between them
+(**f3-sequencer-executive**). D5's grant and pre-pause check move from f3 into
+f5, and its narrow judge ("does the plan agree with `design.md`?") is
+replaced by the executive review below. f4 now depends on f5, not f3.
+
+**Field evidence that reordered the DAG (2026-10-26).** Driving this epic, the
+`/flow-epic-run` session sent f1's plan approval on the owner's instruction;
+f1 refused — a peer message cannot stand in for the owner's keystroke. Every
+autonomous decision is therefore blocked until an owner grant exists. The
+grant + executive is the owner's highest-value ask and needs no sequencer, so
+it is a root (f5), launchable in parallel with f1.
+
+### Executive charter (the owner's perspective, written once)
+
+f5 stores this in the owner's product brief (`~/.flow/product.md`, a new
+`## Deciding on my behalf` section) so there is one values document, not two.
+
+1. **Goal first.** Start every review from the epic goal and what an end user
+   will experience — not from the artifact's text. Ask what the owner meant,
+   not only what was written.
+2. **Question the premise.** Is this the root problem or a symptom (ask why
+   until it stops changing)? Is the value proven, or speculative? Prefer the
+   smallest version that proves it.
+3. **Ruthless prioritization.** Rank by user impact × confidence ÷ cost. Cut
+   or defer low-value and unproven work, including the executive's own
+   critiques: raise only points that would change the decision (max 3).
+4. **Simplicity unless change later is expensive.** Default to the simplest
+   thing. Invest ahead only where reversing later is costly — persisted data
+   shapes, public interfaces, security boundaries, anything at 10× scale.
+   Ask: what breaks in six months or at 10×, and can we change it cheaply then?
+5. **Doors.** Two-way doors (reversible, local) → decide, act, log. One-way
+   doors (irreversible, production, shared resources, spend commitments,
+   public contracts, owner taste with no evidence) → defer with one
+   recommendation the owner can accept in one word.
+6. **Press, don't rubber-stamp.** When unconvinced, send a challenge memo —
+   questions plus the evidence that would change the decision — into the
+   pipeline's own revision pass. At most two rounds, then decide or defer.
+7. **Outside view.** Before approving a consequential choice, steelman the
+   strongest alternative and run a pre-mortem ("it is three months later and
+   this failed — why?"). Prefer a cross-model view: the executive shares the
+   feature agent's model family and blind spots.
+8. **Accountable.** Every decision is logged with rationale, confidence, door
+   type and how to reverse it; the owner sees a digest of what was decided
+   for them; an owner reversal becomes a ruling later reviews treat as
+   precedent.
+9. **Owner rulings win.** Push back once, with evidence; then comply.
+10. **Bias to action.** A deferral costs the owner an interruption. Defer only
+    for a one-way door, or low confidence on something user-facing.
+
+Hard rules are unchanged: never merge on its own instruction, never override
+a gated verdict, never touch production or shared resources without the
+owner, never type into a pipeline's window.
+
+### Challenges and expansions to the owner's framing (adopted)
+
+- **"Always question things" can become a churn engine.** Every challenge
+  costs a revision pass (~minutes, opus tokens). Hence the materiality filter
+  (max 3, decision-changing only) and the two-round cap (charter 3, 6).
+- **Thinking "at a higher level" needs different inputs, not just a different
+  prompt.** The same model reading the same plan will mostly agree with it.
+  The executive's edge is context the feature agent lacks: the epic goal and
+  design, sibling pipelines, the owner's past rulings and reversals, what
+  shipped or failed before, and the cross-model review. f5's decision packet
+  is built from exactly these.
+- **Acting on the owner's behalf drifts without feedback.** Rulings + the
+  decision digest are the calibration loop; trust widens by decision class
+  (plan approval first; UI sign-off only behind a second opt-in, f4).
+- **Prioritization power needs a scope.** The executive may reorder, defer or
+  cut _unstarted_ features of its epic (two-way doors, logged). Changing the
+  epic goal or adding scope is always deferred; root-cause discoveries are
+  filed as follow-ups, not launched unprompted.
+- **The executive must not live in the loop.** PR #420 deleted the last loop
+  for mixing judgment into sequencing. The loop triggers and displays; f5
+  decides.
+
+### D8 — Executive review at decision points, under an owner grant
+
+_Decision:_ `flow epic grant <epic> --autonomy high [--model] [--effort]`
+(owner-typed) writes the grant. At plan approval, an epic feature with a live
+grant runs `flow-exec-review review --kind plan` before pausing: hard
+mechanical preconditions first (cross-model review engaged, anchors resolve,
+lint clean, no one-way-door action), then one headless call over the decision
+packet returning approve / challenge / defer with door type, confidence,
+rationale and ≤3 challenges. Approve ⇒ proceed, log, stamp the PR. Challenge
+⇒ the pipeline's own revision pass, max two rounds. Defer ⇒ today's pause,
+with one recommendation. At each merge, a wave review (`--kind wave`) returns
+continue / reorder / defer-feature / cut-feature / escalate — applied by
+`/flow-epic-run` now and by the sequencer after f3. _Consequences:_ the
+owner's keystroke is replaced only where the owner granted it and the door is
+two-way; every decision is visible and reversible. → **f5-executive-judgment**,
+**f3-sequencer-executive**
 
 ## 1. Problem & intent
 
@@ -303,7 +413,9 @@ check`: grant live; the cross-model plan review ran with a non-Claude
   failed precondition. `checkpoint-pending-clear` under the grant continues in
   the same session. Interviews are not delegated (A9). _Consequences:_ no
   message is ever consent; the owner sees every delegated approval in the PR
-  and on the board. → **f3-delegated-plan-approval**
+  and on the board. → **f5-executive-judgment** (amended 2026-10-26: the
+  grant and pre-pause check moved here, and the `design.md`-agreement judge
+  became the D8 executive review)
 - **D6 — Delegated UI sign-off needs a second opt-in, pictures, and a
   non-Claude reviewer; the default pre-assembles the evidence.** _Context:_
   owner Q2 extends delegation to subjective UI checks; LLM UI judges agree
@@ -331,19 +443,20 @@ check`: grant live; the cross-model plan review ran with a non-Claude
   pass's own verdict ("autonomy only after a real wave") was not in the DAG,
   so the sequencer's launch rule would have broken it. _Decision:_ two
   `waitFor` nodes: **w1-managed-wave** (the sequencer drove one feature from
-  launch to merged with no hand launch or bind) gates f3;
+  launch to merged with no hand launch or bind) gates f3 (the sequencer's
+  executive autonomy);
   **w2-ui-review-section** (the `add-ui-ux-critique-improve` PR merged) gates
   f4. _Consequences:_ +2 nodes, no extra PRs. → **w1**, **w2**
 
 **Delegation rubric (f3/f4 implement it; every condition must hold).**
 
-| Pause                                                                   | Delegable answer                                                     | Preconditions (all mechanical first, judge last)                                                                                                                                                                                                                                                                                                                          | Never delegated when                                                               |
-| ----------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `plan-pending-review`                                                   | `approve` (class `plan`)                                             | grant live; non-Claude plan reviewer engaged and every converged point resolved; anchors exist; `flow-plan-lint` clean; Recommendation is Proceed; vetting verdict `adopt` or `adopt-with-conditions`; high confidence on user/both-stakes Open Questions; no `Needs user input`; no coordination conflict on its files; headless opus/high judge agrees with `design.md` | the plan proposes a production, shared-DB, usage-counter, or shared-service action |
-| `checkpoint-pending-clear`                                              | `continue` (class `checkpoint`)                                      | grant live                                                                                                                                                                                                                                                                                                                                                                | —                                                                                  |
-| `triage-pending-interview`, `plan-pending-interview`, `*-clarification` | none                                                                 | —                                                                                                                                                                                                                                                                                                                                                                         | always (rare for epic launches; A9)                                                |
-| `gated`, only `SUBJECTIVE:` items open                                  | tick, then re-run the gate check (class `subjective`, second opt-in) | D6 evidence bar + non-Claude agreement                                                                                                                                                                                                                                                                                                                                    | `DECISION:` or `Browser:` items; any other gate reason                             |
-| `needs-human`                                                           | never                                                                | —                                                                                                                                                                                                                                                                                                                                                                         | always surfaced on the board                                                       |
+| Pause                                                                   | Delegable answer                                                     | Preconditions (all mechanical first, judge last)                                                                                                                                                                                                                                                                                                                                                              | Never delegated when                                                               |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `plan-pending-review`                                                   | `approve` (class `plan`)                                             | grant live; non-Claude plan reviewer engaged and every converged point resolved; anchors exist; `flow-plan-lint` clean; Recommendation is Proceed; vetting verdict `adopt` or `adopt-with-conditions`; high confidence on user/both-stakes Open Questions; no `Needs user input`; no coordination conflict on its files; D8 executive review approves (amended: was "headless judge agrees with `design.md`") | the plan proposes a production, shared-DB, usage-counter, or shared-service action |
+| `checkpoint-pending-clear`                                              | `continue` (class `checkpoint`)                                      | grant live                                                                                                                                                                                                                                                                                                                                                                                                    | —                                                                                  |
+| `triage-pending-interview`, `plan-pending-interview`, `*-clarification` | none                                                                 | —                                                                                                                                                                                                                                                                                                                                                                                                             | always (rare for epic launches; A9)                                                |
+| `gated`, only `SUBJECTIVE:` items open                                  | tick, then re-run the gate check (class `subjective`, second opt-in) | D6 evidence bar + non-Claude agreement                                                                                                                                                                                                                                                                                                                                                                        | `DECISION:` or `Browser:` items; any other gate reason                             |
+| `needs-human`                                                           | never                                                                | —                                                                                                                                                                                                                                                                                                                                                                                                             | always surfaced on the board                                                       |
 
 ## 4. Feature decomposition
 
@@ -366,6 +479,18 @@ owner's ruling.
   contracts, and `docs/target-architecture.md`; the stale "watch loop"
   comments rewritten.
 
+### f5-executive-judgment · The executive: owner charter, a review that approves, presses or defers, and the grant that lets it act — **[root · the owner's top ask]**
+
+- **Secret hidden (D8):** the charter's home, the decision packet, the
+  act / challenge / defer envelope, the hard preconditions, and the grant.
+- **Depends on:** nothing — `/flow-epic-run` uses it the day it merges.
+- **Produces:** `## Deciding on my behalf` in the product brief (and its
+  seed); `flow-exec-review review --kind plan|wave`;
+  `references/executive-review.md`; `flow epic grant|revoke|ruling`; the
+  pre-pause executive check in `step-04-approval.md`; the challenge-round
+  protocol; the wave-review step in `/flow-epic-run`; PR stamp and log
+  entries.
+
 ### f2-repo-coordination · A generated per-repo coordination file every pipeline reads, fed by the sequencer — **[MVP]**
 
 - **Secret hidden (D4):** ownership derivation, yield rules, the notes
@@ -387,17 +512,17 @@ owner's ruling.
 - **Depends on:** **f1-epic-sequencer** — _the sequencer whose wave this
   records, and the `waitFor` refusal that keeps this node from launching._
 
-### f3-delegated-plan-approval · Owner-granted plan approvals decided inside the pipeline before it pauses
+### f3-sequencer-executive · The sequencer runs the executive: wave reviews at every merge, decisions on the board, a digest for the owner
 
-- **Secret hidden (D5):** the rubric, the grant file, and the
-  check-before-pause protocol.
-- **Depends on:** **f1-epic-sequencer** — _`--autonomy` on `flow epic manage`,
-  the manager directory the grant lives in, and the log and board the
-  decisions show on;_ **w1-managed-wave** — _evidence the sequencer works
-  before autonomy is added._
-- **Produces:** `flow-delegation grant|revoke|check|record`;
-  `references/delegation-rubric.md`; the pre-pause check in
-  `step-04-approval.md`; the PR-body stamp; the decision-count board line.
+- **Secret hidden (D8, loop side):** how the zero-token loop hands decision
+  points to the executive without becoming judgment itself.
+- **Depends on:** **f1-epic-sequencer** — _the loop, board and log;_
+  **f5-executive-judgment** — _the grant and `flow-exec-review`;_
+  **w1-managed-wave** — _evidence the sequencer works before it gets
+  autonomy._
+- **Produces:** `flow epic manage --autonomy high`; one wave review per
+  observed merge, applying two-way-door decisions to unstarted features only;
+  the decision digest and per-feature decision lines on the board.
 
 ### w2-ui-review-section · Wait node: the `## UI review` section has shipped
 
@@ -412,8 +537,8 @@ owner's ruling.
 
 - **Secret hidden (D6):** the UI evidence bar, the cross-model agreement
   check, and the non-override gate re-check.
-- **Depends on:** **f3-delegated-plan-approval** — _the grant file, the
-  `flow-delegation` helpers, and the log + PR stamp;_ **w2-ui-review-section**
+- **Depends on:** **f5-executive-judgment** — _the grant file,
+  `flow-exec-review`, and the log + PR stamp;_ **w2-ui-review-section**
   — _the `## UI review` section the evidence bar reads._
 - **Produces:** the `subjective` class and `--delegate-ui`; the evidence block
   in the GATED render; the tick-with-evidence recipe; the non-override
@@ -423,32 +548,35 @@ owner's ruling.
 The walking-skeleton root is **f1**: everything hangs off its loop, and it is
 useful on its own the day it merges (it can drive econ-data's remaining
 features). The MVP the owner asked for (Q1: launches with coordination
-context, detects sibling conflicts, surfaces gated PRs) is f1 + f2; f3 and f4
-add the autonomy of Q2 once w1 and w2 are bound.
+context, detects sibling conflicts, surfaces gated PRs) is f1 + f2. The
+owner's top ask (amendment 2026-10-26) is f5, a second root that runs in
+parallel with f1; f3 and f4 extend its autonomy once w1 and w2 are bound.
 
 ## 5. Dependency DAG
 
 ```mermaid
 graph TD
   f1[f1-epic-sequencer<br/>MVP · walking-skeleton root]
+  f5[f5-executive-judgment<br/>root · owner's top ask]
   f2[f2-repo-coordination<br/>MVP]
   w1([w1-managed-wave<br/>wait node])
-  f3[f3-delegated-plan-approval]
+  f3[f3-sequencer-executive]
   w2([w2-ui-review-section<br/>wait node])
   f4[f4-delegated-ui-signoff]
   f1 -->|dispatch + board + launch call site| f2
   f1 -->|sequencer + waitFor refusal| w1
-  f1 -->|autonomy flag + manager dir + log| f3
+  f1 -->|loop + board + log| f3
+  f5 -->|grant + flow-exec-review| f3
   w1 -->|wave evidence| f3
   f1 -->|waitFor refusal| w2
-  f3 -->|grant + helpers + log| f4
+  f5 -->|grant + executive review + log| f4
   w2 -->|UI review section| f4
 ```
 
-- **Build order:** `f1 → (f2 ∥ [w1 → f3]) → [w2] → f4`; wait nodes are bound,
-  not built.
-- **MVP path:** f1 → f2 (two PRs).
-- **Well-formedness:** 6 nodes, 7 edges, no cycle — `flow-epic-dag --validate`
+- **Build order:** `(f1 ∥ f5) → (f2 ∥ [w1 → f3]) → [w2] → f4`; wait nodes are
+  bound, not built.
+- **MVP path:** f1 → f2 (two PRs); the owner's top ask, f5, lands in parallel.
+- **Well-formedness:** 7 nodes, 8 edges, no cycle — `flow-epic-dag --validate`
   exit 0.
 
 ## 6. Open Questions
