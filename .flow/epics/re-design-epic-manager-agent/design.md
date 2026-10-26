@@ -112,7 +112,7 @@ Epic-level, EARS-shaped. Per-feature acceptance lives in each feature's
 | Seed context for a feature | manifest text only; extra context needs hand `flow feature create` + `flow epic bind` | the sequencer passes the coordination brief through `flow epic launch --context-file` |
 | Model/effort per feature | manifest carries `effort`; `model` only as a per-launch CLI override | typed `flowNewHints.model` is honored at launch |
 | Sibling conflicts in one repo | a hand-written coordination file the owner remembers to update | a generated per-repo file plus committed free-text notes, read at plan, implement, and merge time; overlapping launches are held back |
-| A pipeline's plan approval | always waits for the owner | with `--autonomy high`: the pipeline approves itself when the rubric and a fixed opus/high judge pass, stamps the PR, logs it; otherwise waits in its own window as today |
+| A pipeline's plan approval | always waits for the owner | with `--autonomy high`: the pipeline approves itself when the rubric and a headless judge (the manager's `--model`/`--effort`, default opus/high) pass, stamps the PR, logs it; otherwise waits in its own window as today |
 | `SUBJECTIVE:` UI sign-off | only the owner ticks, after hunting for screenshots | default: the owner ticks once with the evidence already in the GATED block; with a second opt-in: ticked when screenshots, critique, and a non-Claude reviewer agree |
 | Merging a gated PR | owner says "merge" in the pipeline window | unchanged; nothing in this epic merges on its own instruction |
 | Manager crash / compaction | resume from a hand-off doc and memory notes | nothing to compact; restart rebuilds from disk |
@@ -222,11 +222,18 @@ are rewritten in f1.
   redraw a terse impact-first board. State lives in
   `~/.flow/state/managers/<slug>/` (outside `listStates()`, so it is never
   listed as a pipeline): `manager.json` (pid, process start time,
-  `heartbeatAt`, autonomy) under `withFileLockSync`, and one append-only
+  `heartbeatAt`, autonomy, model, effort) under `withFileLockSync`, and one append-only
   `log.jsonl` (launches, holds, observed merges, delegated decisions). It never
   touches the design session's `<slug>` window or `~/.flow/state/<slug>.json`.
   It makes no model call itself; the only leaf judgments in this epic are the
-  delegation checks, which run in the pipeline (D4). `/flow-epic-run` stays the
+  delegation checks, which run in the pipeline (D4). Like `flow feature
+  create`, `flow epic create`, and `flow epic run`, it takes
+  `--model <alias>` and `--effort <level>` (flag > `config.models.manager` /
+  `config.efforts.manager` > opus/high), recorded in `manager.json`: they set
+  the model/effort of every model call made on the manager's behalf (the
+  delegated-judgment headless calls) and the fallback for a launched feature
+  with no manifest hint (launch CLI override > manifest hint > manager flag >
+  config). `/flow-epic-run` stays the
   conversational surface. _Consequences:_ zero model tokens while idle; no
   wake mechanism to fail; nothing to compact; stopping it is always safe;
   `docs/target-architecture.md` names this one foreground exception.
@@ -288,7 +295,8 @@ are rewritten in f1.
   clean; `[confidence: high]` on every Open Question with `Stakes: user|both`
   (`Stakes: system` may be medium); no `Needs user input`; no prod/shared-DB/
   usage-counter/shared-service action; no unresolved coordination conflict.
-  Then one `flow-claude-headless` call (opus/high, budget-capped) confirms the
+  Then one `flow-claude-headless` call (the manager's `--model`/`--effort`,
+  default opus/high; budget-capped) confirms the
   plan agrees with `design.md`. Pass ⇒ no pause; a log entry; the disclosure
   `Approved under your standing delegation (decision <id>)`; the PR-body
   stamp. Fail ⇒ the normal pause in the pipeline's own window, naming the
@@ -507,8 +515,8 @@ graph TD
   named in the plan's `## Decision analysis` as accepted or overridden) and
   the headless judge confirms none is unaddressed [confidence: medium]
   [anchor: bin/flow-plan-review.ts convergence preamble]. **Stakes:** both.
-- **Headless judge cost.** **Recommended:** one opus/high
-  `flow-claude-headless` call per delegable plan pause, capped with
+- **Headless judge cost.** **Recommended:** one `flow-claude-headless` call
+  (at the manager's `--model`/`--effort`, default opus/high) per delegable plan pause, capped with
   `--max-budget-usd`; the board shows the count [confidence: medium] [anchor:
   skills/pipeline/flow-pipeline/references/headless-claude.md]. **Stakes:**
   system.
