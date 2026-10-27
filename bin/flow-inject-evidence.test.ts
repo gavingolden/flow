@@ -1,6 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -548,7 +554,7 @@ describe("human-only items and screenshots", () => {
     expect(r.ok && r.body).toContain("- [ ] The page loads.");
   });
 
-  it("human-only: an image-only block renders one image ref and one local link per screenshot", () => {
+  it("human-only: an image-only block renders one image ref and no file:// link per screenshot", () => {
     const images = [
       { path: ".flow-tmp/ui-evidence/pricing-390.png", alt: "pricing phone" },
       {
@@ -563,12 +569,10 @@ describe("human-only items and screenshots", () => {
     );
     const body = r.ok ? r.body : "";
     expect(body.match(/^!\[/gm)).toHaveLength(2);
-    expect(body.match(/\]\(file:\/\//g)).toHaveLength(2);
+    expect(body).not.toContain("file://");
+    expect(body).not.toContain("local file");
     expect(body).toContain(
       "![pricing phone](.flow-tmp/ui-evidence/pricing-390.png)",
-    );
-    expect(body).toContain(
-      `(file://${process.cwd()}/.flow-tmp/ui-evidence/pricing-390.png)`,
     );
     expect(body).toContain("<details open><!-- flow:evidence -->");
     expect(body).not.toContain("```");
@@ -699,6 +703,60 @@ describe("evidence redaction and fence-aware rewrite", () => {
     expect(block).toContain("bin/lib/redact-secrets.ts:45");
   });
 
+  it("relativizes root-absolute paths and leaves a <root>-other sibling alone", () => {
+    const root = "/w/repo";
+    const block = buildEvidenceBlock(
+      `shot ${root}/.flow-tmp/ui-evidence/x.png\nother ${root}-other/a.png`,
+      0,
+      TS,
+      [],
+      [root],
+    );
+    expect(block).toContain("shot .flow-tmp/ui-evidence/x.png");
+    expect(block).toContain(`other ${root}-other/a.png`);
+    expect(block).not.toContain(`${root}/`);
+  });
+
+  it("relativizes image paths against roots[0], not the process cwd, and captions them in plain text", () => {
+    const root = "/w/elsewhere";
+    const shot = `${root}/.flow-tmp/ui-evidence/s.png`;
+    for (const out of [null, "ok"]) {
+      const block = buildEvidenceBlock(
+        out,
+        0,
+        TS,
+        [{ path: shot, alt: "s.png" }],
+        [root],
+      );
+      expect(block).toContain("![s.png](.flow-tmp/ui-evidence/s.png)");
+      expect(block).toContain("Screenshot: `.flow-tmp/ui-evidence/s.png`");
+      expect(block).not.toContain(root);
+    }
+  });
+
+  it("rewrites the home directory to ~ and never publishes it", () => {
+    const home = homedir();
+    const block = buildEvidenceBlock(
+      `saved ${home}/.flow/y/z.png`,
+      0,
+      TS,
+      [],
+      ["/w/repo"],
+    );
+    expect(block).toContain("saved ~/.flow/y/z.png");
+    expect(block).not.toContain(home);
+  });
+
+  it("rewriteBody forwards roots into the evidence block", () => {
+    const r = rewriteBody(
+      "- [ ] run it\n",
+      { ...base, item: "run it", roots: ["/w/repo"] },
+      "at /w/repo/.flow-tmp/ui-evidence/x.png",
+    );
+    expect(r.ok && r.body).toContain("at .flow-tmp/ui-evidence/x.png");
+    expect(r.ok && r.body).not.toContain("/w/repo");
+  });
+
   it("fully replaces a previous block whose output has a fenced </details>", () => {
     const body = ["## Test Steps", "", "- [ ] `npm run verify` — pass"].join(
       "\n",
@@ -767,6 +825,49 @@ describe("parseArgs — caution modes", () => {
     expect(
       parseArgs(["--body-file", "b.md", "--item", "x", "--caution-file", "c"]),
     ).toHaveProperty("error");
+  });
+});
+
+describe("screenshot promotion — subprocess", () => {
+  const script = path.resolve(__dirname, "flow-inject-evidence.ts");
+
+  it("uploads a screenshot named in the output file as an image reference", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "inject-promote-"));
+    try {
+      const rel = ".flow-tmp/ui-evidence/review/9-strip.png";
+      mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
+      writeFileSync(path.join(dir, rel), "png");
+      const bodyFile = path.join(dir, "body.md");
+      const outFile = path.join(dir, "out.txt");
+      writeFileSync(bodyFile, "## Test Steps\n\n- [ ] SUBJECTIVE: looks ok\n");
+      writeFileSync(
+        outFile,
+        `Screenshots: ${rel} ghost: .flow-tmp/ui-evidence/missing.png\n`,
+      );
+      const r = spawnSync(
+        "bun",
+        [
+          script,
+          "--body-file",
+          bodyFile,
+          "--item",
+          "looks ok",
+          "--output-file",
+          outFile,
+          "--exit-code",
+          "0",
+          "--no-tick",
+        ],
+        { encoding: "utf8", cwd: dir },
+      );
+      expect(r.status).toBe(0);
+      const body = readFileSync(bodyFile, "utf8");
+      expect(body).toContain(`![9-strip.png](${rel})`);
+      expect(body).not.toContain("![missing.png]");
+      expect(body).not.toContain("file://");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

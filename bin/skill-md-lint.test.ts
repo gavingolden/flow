@@ -7884,7 +7884,7 @@ describe("browser-driven UI-validation structural anchors", () => {
     expect(
       reportTemplateContent.includes("For a ticked **visual-appearance** item"),
       "report-template.md must document the visual-appearance evidence rows " +
-        "(a11y-snapshot primary, screenshot referenced by path).",
+        "(a11y-snapshot primary, screenshot embedded and named in the evidence block).",
     ).toBe(true);
   });
 

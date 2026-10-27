@@ -94,7 +94,8 @@ export function hasLocalImageRefs(body: string): boolean {
   return [...body.matchAll(IMAGE_RE)].some((m) => isLocalTarget(m[2]));
 }
 
-/** Drop local image references (whole line when alone on it); links stay. */
+/** Drop local image references (whole line when alone on it); links and plain-text
+ * screenshot captions stay, so a stripped body still names each picture. */
 export function stripLocalImageRefs(body: string): string {
   return body
     .split("\n")

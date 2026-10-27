@@ -380,7 +380,7 @@ A taste sign-off with nothing to look at bills the user a manual boot-and-naviga
 At `/flow-pr-review` Step 8c the UI-Driver photographs the state each
 `SUBJECTIVE: ` item names — at the sizes the item names, else phone (390) and
 desktop (1280) — and the evidence block under the item carries one image
-reference plus one local `file://` link per screenshot. The box stays unticked.
+reference per screenshot. The box stays unticked.
 
 - The item text must say how to reach the state (route, theme, viewport, any
   local reversible setup), exactly as **Precondition concreteness** requires.

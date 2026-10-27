@@ -1,3 +1,6 @@
+import { realpathSync } from "node:fs";
+import * as path from "node:path";
+
 /**
  * Hand-rolled, pure secret redaction for text that lands in four persisted
  * surfaces: `.flow-tmp/` scratch, `flow-delegate-fanout`'s aggregate JSON,
@@ -92,9 +95,22 @@ const PATH_SEGMENT = new RegExp(`^(?:${PATH_WORD}(?:[._-]${PATH_WORD})*)?$`);
 const IDENT_WORD = "(?:[a-z][a-z0-9]*|[A-Z][A-Z0-9]*)";
 const IDENTIFIER = new RegExp(`^${IDENT_WORD}(?:[-_]${IDENT_WORD})+$`);
 
+// One leading dot is stripped from each segment (`..` becomes empty) so dot
+// directories (`.flow-tmp`, `.github`) and `./` / `../` prefixes pass; the
+// `/`-or-`.` precondition is judged on the run with any leading `./` / `../`
+// chain removed, so a bare `.`-prefixed or `./<token>` / `../<token>` with no
+// real separator stays masked.
 function isPathShaped(run: string): boolean {
-  if (!run.includes("/") && !run.includes(".")) return false;
-  return run.split("/").every((seg) => PATH_SEGMENT.test(seg));
+  const segs = run
+    .split("/")
+    .map((seg) => (seg === ".." ? "" : seg.replace(/^\./, "")));
+  const core = run
+    .replace(/^(?:\.{1,2}\/)+/, "")
+    .split("/")
+    .map((seg) => seg.replace(/^\./, ""))
+    .join("/");
+  if (!core.includes("/") && !core.includes(".")) return false;
+  return segs.every((seg) => PATH_SEGMENT.test(seg));
 }
 
 function isPublishExempt(match: string): boolean {
@@ -103,15 +119,68 @@ function isPublishExempt(match: string): boolean {
   return isPathShaped(core) || IDENTIFIER.test(core);
 }
 
+export type RelativizeOpts = { roots: string[]; home?: string };
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function pathForms(p: string | undefined): string[] {
+  const trimmed = (p ?? "").replace(/\/+$/, "");
+  if (!trimmed || !path.isAbsolute(trimmed)) return [];
+  const forms = new Set([trimmed]);
+  try {
+    const real = realpathSync(trimmed).replace(/\/+$/, "");
+    if (real) forms.add(real);
+  } catch {
+    // a root that does not exist on disk is matched by its literal form only
+  }
+  return [...forms];
+}
+
+function stripPrefixes(text: string, prefixes: string[], to: string): string {
+  let out = text;
+  for (const prefix of prefixes) {
+    const re = new RegExp(
+      `(?<![A-Za-z0-9_.~/-])(?:file://)?${escapeRegExp(prefix)}(?:/(?=[^\\s"'\`)\\]}>,;:])|(?![A-Za-z0-9_.-]))`,
+      "g",
+    );
+    out = out.replace(re, (m) => (m.endsWith("/") ? to : to ? "~" : "."));
+  }
+  return out;
+}
+
+/**
+ * Rewrites absolute paths under a worktree root to root-relative paths and
+ * paths under the home directory to `~/…`, so a published PR body carries
+ * neither the local checkout location nor the user name. Matches only at a
+ * path boundary, so a sibling `<root>-other/` is untouched. Reads the
+ * filesystem (realpathSync) to match a root's canonical form; never throws.
+ */
+export function relativizeForPublish(
+  text: string,
+  opts: RelativizeOpts,
+): string {
+  if (!text) return text;
+  const roots = [...new Set(opts.roots.flatMap(pathForms))].sort(
+    (a, b) => b.length - a.length,
+  );
+  const out = stripPrefixes(text, roots, "");
+  return stripPrefixes(out, pathForms(opts.home), "~/");
+}
+
 /**
  * Publish-grade masking for text spliced into a PR body. Masks known
  * credential shapes and key=value secrets, then 32+ char opaque runs —
  * except SHAs, UUIDs, repo-path-shaped runs, and identifier-shaped runs.
- * Pure, never throws.
+ * Reads the filesystem only through relativizeForPublish; never throws.
  */
-export function redactForPublish(text: string): string {
+export function redactForPublish(text: string, opts?: RelativizeOpts): string {
   if (!text) return text;
-  let out = text.replace(CONNECTION_URL_PASSWORD, "$1[REDACTED]@");
+  let out = (opts ? relativizeForPublish(text, opts) : text).replace(
+    CONNECTION_URL_PASSWORD,
+    "$1[REDACTED]@",
+  );
   out = out.replace(PUBLISH_AUTH, "$1[REDACTED]");
   out = out.replace(PUBLISH_BEARER_VALUE, "[REDACTED]");
   out = out.replace(SECRET_KEY_ASSIGNMENT, "$1[REDACTED]");

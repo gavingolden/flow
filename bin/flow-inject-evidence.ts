@@ -20,17 +20,20 @@
  *   flow-inject-evidence --body-file <path> --caution-file <path>
  *   flow-inject-evidence --body-file <path> --clear-caution
  *
- * Captured output is masked with `redactForPublish` before it is spliced
- * in. `--caution-file` upserts a pointer-only verify-exhausted CAUTION
- * block naming <path> (the file is never read); `--clear-caution`
+ * Captured output is relativized (worktree paths become relative, the
+ * home directory becomes `~`) and masked with `redactForPublish` before it
+ * is spliced in. `--caution-file` upserts a pointer-only verify-exhausted
+ * CAUTION block naming <path> (the file is never read); `--clear-caution`
  * removes it. Neither caution mode takes --item.
  *
  * A line whose text starts `SUBJECTIVE: ` or `DECISION: ` is human-only and
  * is never ticked, whatever exit code is passed. `--image` (repeatable)
- * adds one worktree-relative image reference — the form `gh pr edit
- * --attach` rewrites to an uploaded URL — plus one local `file://` link per
- * screenshot. With at least one `--image`, `--output-file` and `--exit-code`
- * are optional (a capture-only block).
+ * adds one worktree-relative image reference per screenshot — the form `gh
+ * pr edit --attach` rewrites to an uploaded URL; no `file://` link is
+ * emitted because GitHub strips it. Screenshots named as
+ * `.flow-tmp/ui-evidence/…` paths in `--output-file` are promoted to images
+ * automatically. With at least one `--image`, `--output-file` and
+ * `--exit-code` are optional (a capture-only block).
  *
  * `--item` is interpreted as a JS regex via `new RegExp(args.item)`,
  * tested per body line. Pass a discriminating substring (` `npm run
@@ -47,7 +50,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
+import * as os from "node:os";
 import * as path from "node:path";
+import { promoteEvidenceImages } from "./lib/evidence-images";
 import {
   fencedLineMask,
   normalizeDetailsBlocks,
@@ -67,6 +72,7 @@ export type InjectArgs = {
   timestamp?: string;
   noTick?: boolean;
   images?: EvidenceImage[];
+  roots?: string[];
 };
 
 export type CautionArgs =
@@ -257,14 +263,20 @@ export function relocateOutsideImages(
   return { ok: true, images: out };
 }
 
-function imageLines(images: EvidenceImage[]): string[] {
+function imageLines(images: EvidenceImage[], root: string): string[] {
   const out: string[] = [];
   for (const image of images) {
-    const abs = path.resolve(image.path);
-    const rel = path.relative(process.cwd(), abs).split(path.sep).join("/");
+    const abs = path.resolve(root, image.path);
+    const rel = path.relative(root, abs).split(path.sep).join("/");
     const alt = image.alt.replace(/[\[\]\r\n]/g, " ");
-    out.push(`![${alt}](${encodeURI(rel)})`, "");
-    out.push(`[${alt} (local file)](file://${encodeURI(abs)})`, "");
+    // The plain-text caption survives stripLocalImageRefs, so a body whose
+    // screenshot upload was skipped still names each picture.
+    out.push(
+      `![${alt}](${encodeURI(rel)})`,
+      "",
+      `Screenshot: \`${rel.replace(/[`\r\n]/g, " ")}\``,
+      "",
+    );
   }
   return out;
 }
@@ -278,11 +290,13 @@ export function buildEvidenceBlock(
   exitCode: number,
   timestamp: string,
   images: EvidenceImage[] = [],
+  roots?: string[],
 ): string {
+  const root = roots?.[0] ?? process.cwd();
   if (output === null) {
     const block = [
       `<details open>${MARKER_OPEN}<summary>Screenshots (auto-captured ${timestamp})</summary>`,
-      ...imageLines(images),
+      ...imageLines(images, root),
       "</details>",
       "",
     ].join("\n");
@@ -290,7 +304,12 @@ export function buildEvidenceBlock(
   }
   const status = exitCode === 0 ? "pass" : `FAILED exit ${exitCode}`;
   const summary = `Output (auto-captured ${timestamp}; ${status})`;
-  const trimmed = neutralizeHeadings(redactForPublish(trimOutput(output)));
+  const trimmed = neutralizeHeadings(
+    redactForPublish(trimOutput(output), {
+      roots: roots ?? [process.cwd()],
+      home: os.homedir(),
+    }),
+  );
   const fence = "`".repeat(pickFenceLength(trimmed));
   // The blank line before `</details>` here just closes off the fenced
   // code block for markdown re-entry (unrelated to the two GFM
@@ -305,7 +324,7 @@ export function buildEvidenceBlock(
     trimmed,
     fence,
     "",
-    ...imageLines(images),
+    ...imageLines(images, root),
     "</details>",
     "",
   ].join("\n");
@@ -427,7 +446,13 @@ export function rewriteBody(
   }
 
   const ts = args.timestamp ?? new Date().toISOString();
-  const evidence = buildEvidenceBlock(output, args.exitCode, ts, args.images);
+  const evidence = buildEvidenceBlock(
+    output,
+    args.exitCode,
+    ts,
+    args.images,
+    args.roots,
+  );
   lines.splice(itemEnd + 1, 0, ...evidence.split("\n"));
 
   const { body: normalizedBody, insertions } = normalizeDetailsBlocks(
@@ -439,6 +464,14 @@ export function rewriteBody(
     );
   }
   return { ok: true, body: normalizedBody, replaced, ticked, humanOnly };
+}
+
+function worktreeRoot(bodyFile: string): string | undefined {
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: path.dirname(path.resolve(bodyFile)),
+    encoding: "utf8",
+  });
+  return top.status === 0 ? top.stdout.trim() : undefined;
 }
 
 function runCaution(parsed: CautionArgs): void {
@@ -457,14 +490,9 @@ function runCaution(parsed: CautionArgs): void {
     );
     process.exit(1);
   }
-  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], {
-    cwd: path.dirname(path.resolve(parsed.bodyFile)),
-    encoding: "utf8",
-  });
-  const root = top.status === 0 ? top.stdout.trim() : undefined;
   const r = upsertVerifyCaution(
     body,
-    displayExcerptPath(parsed.cautionFile, root),
+    displayExcerptPath(parsed.cautionFile, worktreeRoot(parsed.bodyFile)),
   );
   if (!r.ok) {
     process.stderr.write(`flow-inject-evidence: ${r.error}\n`);
@@ -491,9 +519,22 @@ async function main(): Promise<void> {
     parsed.outputFile === undefined
       ? null
       : readFileSync(parsed.outputFile, "utf8");
+  const top = worktreeRoot(parsed.bodyFile);
+  parsed.roots = [top, process.cwd()].filter(
+    (r): r is string => r !== undefined && r !== "",
+  );
+  const primary = parsed.roots[0];
+  if (output !== null) {
+    const promoted = promoteEvidenceImages(
+      output,
+      parsed.images ?? [],
+      parsed.roots,
+    );
+    if (promoted.length > 0) parsed.images = promoted;
+  }
   if (parsed.images !== undefined) {
     const relocated = relocateOutsideImages(parsed.images, {
-      cwd: process.cwd(),
+      cwd: primary,
       exists: existsSync,
       copyFile: copyFileSync,
       mkdirp: (dir) => void mkdirSync(dir, { recursive: true }),
