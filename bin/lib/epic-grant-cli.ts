@@ -21,7 +21,9 @@ import {
   removeGrant,
   writeGrant,
 } from "./epic-grant";
+import { readCharter } from "./exec-charter";
 import { argsContainHelp } from "./help";
+import { isValidSlug } from "./slug";
 import { resolveRepoRoot } from "./repo-root";
 
 const USAGE = "usage: flow epic grant <epic-slug> --autonomy high|off";
@@ -32,17 +34,6 @@ export type EpicGrantDeps = {
   now?: () => Date;
   resolveRepo?: (cwd: string) => string | null;
 };
-
-function safeSlug(slug: string): boolean {
-  return (
-    slug !== "" &&
-    slug !== "." &&
-    slug !== ".." &&
-    !slug.includes("/") &&
-    !slug.includes("\\") &&
-    path.basename(slug) === slug
-  );
-}
 
 export function runEpicGrant(
   args: string[],
@@ -79,7 +70,7 @@ ${USAGE}
       positionals.push(a);
     }
   }
-  if (positionals.length !== 1 || !safeSlug(positionals[0])) {
+  if (positionals.length !== 1 || !isValidSlug(positionals[0])) {
     console.error(
       "flow epic grant: exactly one valid <epic-slug> is required.",
     );
@@ -175,6 +166,14 @@ ${USAGE}
   console.log(
     "  The epic executive may now approve this epic's plans when it is highly confident and the call is reversible; every decision is logged and stamped in the PR.",
   );
+  console.log(
+    "  Cost: a wrong call can let a plan through without you reading it; you will only see it afterward, in the PR stamp and the log.",
+  );
+  if (!readCharter().found) {
+    console.log(
+      "  Warning: ~/.flow/product.md has no usable '## Deciding on my behalf' section, so every plan on this epic will still pause for you until you add one.",
+    );
+  }
   console.log(`  Withdraw any time: flow epic grant ${epic} --autonomy off`);
   return 0;
 }

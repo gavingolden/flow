@@ -79,6 +79,8 @@ export const FLOW_CREATE_ISSUE_ALLOW_RULES: readonly string[] = [
 export const EPIC_GRANT_DENY_RULES: readonly string[] = [
   "Bash(*flow epic grant * --autonomy high*)",
   "Bash(*flow epic grant * --autonomy=high*)",
+  "Bash(*flow epic grant --autonomy high*)",
+  "Bash(*flow epic grant --autonomy=high*)",
   "Bash(env * flow epic grant *)",
   "Bash(*managers/*grant.json*)",
   "Write(~/.flow/state/managers/**)",

@@ -210,6 +210,9 @@ describe("checkPlanPreconditions", () => {
   const oneWay: Array<[string, string]> = [
     ["supabase db reset", "Run `supabase db reset` locally."],
     ["db push", "Run `supabase db push`."],
+    ["db:reset script", "`npm run db:reset`"],
+    ["db:push script", "`npm run db:push`"],
+    ["prisma migrate reset", "`prisma migrate reset`"],
     ["--linked", "`supabase migration up --linked`"],
     ["drop", "Execute DROP TABLE users."],
     ["truncate", "then truncate the table"],
@@ -253,19 +256,33 @@ describe("checkPlanPreconditions", () => {
     expect(check(stamp(desc)).ok).toBe(true);
   });
 
-  it("has a failing case for every PreconditionId", () => {
-    const covered = new Set<PreconditionId>([
-      "cross-model-unavailable",
-      "cross-model-not-engaged",
-      "cross-model-stale",
-      "anchor-unresolved",
-      "plan-lint",
-      "needs-user-input",
-      "stakes-confidence",
-      "plan-deviates-from-request",
-      "one-way-action",
-    ]);
-    expect(covered.size).toBe(9);
+  it("keeps a broad one-way pattern table", () => {
     expect(ONE_WAY_ACTION_PATTERNS.length).toBeGreaterThan(10);
+  });
+
+  it("one-way-action: indented Test Step sub-bullets and multi-line acceptance", () => {
+    const indented = BASE_PLAN.replace(
+      "— passes.",
+      "— passes.\n  - [ ] `gh pr merge`",
+    );
+    expect(failed(check(stamp(indented)))).toBe("one-way-action");
+  });
+
+  it("anchor-unresolved: absolute out-of-worktree and directory anchors", () => {
+    const abs = BASE_PLAN.replace(
+      "[anchor: bin/lib/state.ts:10]",
+      "[anchor: /etc/hosts.allow:1]",
+    );
+    expect(abs).not.toBe(BASE_PLAN);
+    expect(failed(check(stamp(abs)))).toBe("anchor-unresolved");
+    const dir = {
+      ...deps,
+      lineCount: () => {
+        throw new Error("EISDIR");
+      },
+    };
+    expect(failed(check(stamp(BASE_PLAN), RUN_OK, dir))).toBe(
+      "anchor-unresolved",
+    );
   });
 });

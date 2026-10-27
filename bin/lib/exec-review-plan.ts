@@ -17,6 +17,7 @@ import {
   type ExecLogPayload,
   type ManagerLogEntry,
 } from "./epic-manager-log";
+import { epicDirRelative } from "./epic-manifest-schema";
 import { readCharter } from "./exec-charter";
 import {
   normalizePlan,
@@ -177,7 +178,7 @@ export function runPlanReview(
   let designText: string | null = null;
   try {
     designText = deps.readFile(
-      path.join(worktree, ".flow", "epics", input.epic, "design.md"),
+      path.join(worktree, epicDirRelative(input.epic), "design.md"),
     );
   } catch {
     designText = null;

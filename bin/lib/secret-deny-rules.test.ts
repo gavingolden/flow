@@ -84,6 +84,12 @@ describe("EPIC_GRANT_DENY_RULES", () => {
     );
   });
 
+  it("denies the flag-first grant form", () => {
+    expect(EPIC_GRANT_DENY_RULES).toContain(
+      "Bash(*flow epic grant --autonomy high*)",
+    );
+  });
+
   it("denies an env-wrapped grant and shell writes naming grant.json", () => {
     expect(EPIC_GRANT_DENY_RULES).toContain("Bash(env * flow epic grant *)");
     expect(EPIC_GRANT_DENY_RULES).toContain("Bash(*managers/*grant.json*)");

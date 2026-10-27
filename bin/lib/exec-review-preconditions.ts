@@ -37,8 +37,8 @@ export type PreconditionResult =
  * can cost a production incident.
  */
 export const ONE_WAY_ACTION_PATTERNS: readonly RegExp[] = [
-  /\bsupabase\s+db\s+(reset|push)\b/i,
-  /\bdb\s+(reset|push)\b/i,
+  /\bdb[\s:_-]+(reset|push|drop|seed)\b/i,
+  /\bmigrat(e|ion)s?[\s:_-]+reset\b/i,
   /--linked\b/i,
   /\bDROP\s+(TABLE|DATABASE|SCHEMA|INDEX)\b/i,
   /\bTRUNCATE\b/i,
@@ -160,7 +160,7 @@ function checkAnchors(
     if (rel.startsWith("~/") || rel === "~") continue;
     const abs = path.resolve(worktree, rel);
     const within = path.relative(worktree, abs);
-    if (within.startsWith("..") && !path.isAbsolute(rel)) {
+    if (within.startsWith("..") || path.isAbsolute(within)) {
       return {
         ok: false,
         failed: "anchor-unresolved",
@@ -176,7 +176,16 @@ function checkAnchors(
     }
     const cited = /:(\d+(?:,\d+)*)$/.exec(m[0]);
     if (cited) {
-      const max = lines(abs);
+      let max: number;
+      try {
+        max = lines(abs);
+      } catch {
+        return {
+          ok: false,
+          failed: "anchor-unresolved",
+          detail: `anchor ${rel} is not a readable file`,
+        };
+      }
       for (const n of cited[1].split(",").map(Number)) {
         if (n > max) {
           return {
@@ -264,17 +273,16 @@ function contractAndAcceptanceLines(planText: string): string[] {
     const body = tasks.split(/^# /m)[0];
     let inContract = false;
     for (const line of body.split("\n")) {
-      if (/^- \*\*Contract:\*\*/.test(line)) inContract = true;
+      if (/^- \*\*(Contract|Acceptance criteria):\*\*/.test(line))
+        inContract = true;
       else if (/^- \*\*/.test(line) || /^#{1,3} /.test(line))
         inContract = false;
-      if (inContract || /^- \*\*Acceptance criteria:\*\*/.test(line)) {
-        out.push(line);
-      }
+      if (inContract) out.push(line);
     }
   }
   const steps = sectionBody(planText, /^## Test Steps\s*$/m);
   if (steps) {
-    out.push(...steps.split("\n").filter((l) => /^- \[[ xX]\]/.test(l)));
+    out.push(...steps.split("\n").filter((l) => /^\s*- \[[ xX]\]/.test(l)));
   }
   return out;
 }
