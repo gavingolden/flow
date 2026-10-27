@@ -42,12 +42,27 @@ type Parsed = {
   bare: Set<string>;
 };
 
-function parse(args: string[], valued: string[]): Parsed | { error: string } {
+/**
+ * `--` ends option parsing (everything after is positional). A valued flag
+ * takes the next token literally, even one starting with `--` (charter text
+ * may), unless that token is a known flag of this subcommand or the `--`
+ * terminator; a valued flag left without a value is a usage error unless it
+ * is listed in `bareOk`.
+ */
+function parse(
+  args: string[],
+  valued: string[],
+  bareOk: string[] = [],
+): Parsed | { error: string } {
   const flags: Record<string, string> = {};
   const positionals: string[] = [];
   const bare = new Set<string>();
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
+    if (a === "--") {
+      positionals.push(...args.slice(i + 1));
+      break;
+    }
     if (!a.startsWith("--")) {
       positionals.push(a);
       continue;
@@ -55,7 +70,13 @@ function parse(args: string[], valued: string[]): Parsed | { error: string } {
     const name = a.slice(2);
     if (!valued.includes(name)) return { error: `unknown flag: ${a}` };
     const next = args[i + 1];
-    if (next === undefined || next.startsWith("--")) {
+    if (
+      next === undefined ||
+      next === "--" ||
+      (next.startsWith("--") && valued.includes(next.slice(2)))
+    ) {
+      if (!bareOk.includes(name))
+        return { error: `--${name} requires a value` };
       bare.add(name);
       continue;
     }
@@ -183,7 +204,7 @@ export function run(
     }
 
     case "charter": {
-      const p = parse(rest, ["add", "decision"]);
+      const p = parse(rest, ["add", "decision"], ["add"]);
       if ("error" in p) return usage(p.error);
       const line = p.flags.add ?? p.positionals.join(" ");
       if (!p.flags.add && !p.bare.has("add"))
@@ -203,17 +224,30 @@ export function run(
         return usage("stamp-check requires --slug and --body-file");
       }
       const epic = readState(p.flags.slug, deps.stateDir)?.epic?.slug;
-      const latest = epic
-        ? readManagerLog(epic, deps.stateDir)
-            .filter(
-              (e) =>
-                e.kind === "exec-decision" &&
-                e.slug === p.flags.slug &&
-                e.exec?.reviewKind === "plan",
-            )
-            .at(-1)
-        : undefined;
-      if (!latest || latest.exec?.action !== "approve") {
+      const log = epic ? readManagerLog(epic, deps.stateDir) : [];
+      const latest = log
+        .filter(
+          (e) =>
+            (e.kind === "exec-decision" || e.kind === "exec-skip") &&
+            e.slug === p.flags.slug &&
+            e.exec?.reviewKind === "plan",
+        )
+        .at(-1);
+      const overruled =
+        latest?.kind === "exec-decision" &&
+        log.some(
+          (e) =>
+            e.kind === "exec-owner-reply" &&
+            e.exec?.decisionId === latest.exec?.decisionId &&
+            (e.exec?.ownerReply === "redirect" ||
+              e.exec?.ownerReply === "cancel"),
+        );
+      if (
+        !latest ||
+        latest.kind !== "exec-decision" ||
+        latest.exec?.action !== "approve" ||
+        overruled
+      ) {
         out({ ok: true, decisionId: null });
         return 0;
       }

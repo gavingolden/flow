@@ -99,6 +99,13 @@ describe("usage", () => {
     expect(call(["stamp-check", "--slug", "a"]).code).toBe(2);
     expect(call(["status", "--slug", "a", "--wat", "x"]).code).toBe(2);
   });
+
+  it("exits 2 for a valued flag given no value instead of silently dropping it", () => {
+    expect(call(["status", "--slug", "a", "--epic"]).code).toBe(2);
+    expect(call(["status", "--slug", "--epic", "e1"]).code).toBe(2);
+    expect(call(["charter", "--add", "x", "--decision"]).code).toBe(2);
+    expect(errors.join("\n")).toContain("--decision requires a value");
+  });
 });
 
 describe("status", () => {
@@ -314,6 +321,26 @@ describe("charter", () => {
     expect(text).toContain(": Z (decision plan-2)");
   });
 
+  it("accepts correction text that starts with `--`, literally or after a `--` terminator", () => {
+    expect(
+      call(["charter", "--add", "--linked migrations never approved"]).json,
+    ).toMatchObject({ ok: true });
+    expect(
+      call(["charter", "--add", "--", "--max-budget-usd must not be raised"])
+        .json,
+    ).toMatchObject({ ok: true });
+    expect(
+      call(["charter", "--add", "--decision", "plan-3", "--", "--x line"]).json,
+    ).toMatchObject({ ok: true });
+    const text = fs.readFileSync(
+      path.join(home, ".flow", "product.md"),
+      "utf8",
+    );
+    expect(text).toContain(": --linked migrations never approved\n");
+    expect(text).toContain(": --max-budget-usd must not be raised\n");
+    expect(text).toContain(": --x line (decision plan-3)");
+  });
+
   it("reports a missing section as JSON with exit 0", () => {
     w(path.join(home, ".flow", "product.md"), "# no charter\n");
     expect(call(["charter", "--add", "x"])).toEqual({
@@ -378,5 +405,88 @@ describe("stamp-check", () => {
       stateDir,
     );
     expect(check().json).toEqual({ ok: false, decisionId: "plan-9" });
+  });
+
+  const approve = (id: string) =>
+    appendManagerLog(
+      "e1",
+      {
+        ts: "t",
+        kind: "exec-decision",
+        slug: "feat",
+        exec: { decisionId: id, reviewKind: "plan", action: "approve" },
+      },
+      stateDir,
+    );
+
+  it("stops demanding the stamp once the owner redirected or cancelled that approval", () => {
+    fs.writeFileSync(body, "no stamp");
+    approve("plan-1");
+    expect(check().json).toEqual({ ok: false, decisionId: "plan-1" });
+    appendManagerLog(
+      "e1",
+      {
+        ts: "t",
+        kind: "exec-owner-reply",
+        slug: "feat",
+        exec: {
+          decisionId: "plan-1",
+          reviewKind: "plan",
+          ownerReply: "redirect",
+          wrongApproval: true,
+        },
+      },
+      stateDir,
+    );
+    expect(check().json).toEqual({ ok: true, decisionId: null });
+  });
+
+  it("stops demanding the stamp when a newer plan review was skipped", () => {
+    fs.writeFileSync(body, "no stamp");
+    approve("plan-1");
+    appendManagerLog(
+      "e1",
+      {
+        ts: "t",
+        kind: "exec-skip",
+        slug: "feat",
+        reason: "precondition-failed",
+        exec: { decisionId: "plan-2", reviewKind: "plan" },
+      },
+      stateDir,
+    );
+    expect(check().json).toEqual({ ok: true, decisionId: null });
+  });
+
+  it("still demands the stamp after an accept reply or an unrelated skip on another slug", () => {
+    fs.writeFileSync(body, "no stamp");
+    approve("plan-1");
+    appendManagerLog(
+      "e1",
+      {
+        ts: "t",
+        kind: "exec-owner-reply",
+        slug: "feat",
+        exec: {
+          decisionId: "plan-1",
+          reviewKind: "plan",
+          ownerReply: "accept",
+          accepted: true,
+        },
+      },
+      stateDir,
+    );
+    appendManagerLog(
+      "e1",
+      {
+        ts: "t",
+        kind: "exec-skip",
+        slug: "other",
+        reason: "x",
+        exec: { decisionId: "plan-9", reviewKind: "plan" },
+      },
+      stateDir,
+    );
+    expect(check().json).toEqual({ ok: false, decisionId: "plan-1" });
   });
 });

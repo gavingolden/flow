@@ -15,7 +15,8 @@ import {
   type ExecReviewDeps,
   type HeadlessEnvelope,
 } from "./exec-review-shared";
-import { runPlanReview } from "./exec-review-plan";
+import { runPlanReview, skipTextFor } from "./exec-review-plan";
+import type { PreconditionId } from "./exec-review-preconditions";
 import { writeState } from "./state";
 
 const PLAN = `# PRD
@@ -273,6 +274,19 @@ describe("headless failures pause with the forwarded reason", () => {
     expect(log().every((e) => e.kind === "exec-skip")).toBe(true);
   });
 
+  it("skips with headless-error and a skipText when the child returns no envelope", () => {
+    const r = run(deps({ spawnHeadless: () => ({}) }));
+    expect(r).toMatchObject({
+      ran: false,
+      skipReason: "headless-error",
+      skipText: skipTextFor("headless-error"),
+    });
+    expect(log()[0]).toMatchObject({
+      kind: "exec-skip",
+      reason: "headless-error",
+    });
+  });
+
   it("treats a missing artifact as an invalid envelope", () => {
     expect(
       run(
@@ -287,7 +301,93 @@ describe("headless failures pause with the forwarded reason", () => {
   });
 });
 
+describe("skipText", () => {
+  const ALL: PreconditionId[] = [
+    "cross-model-unavailable",
+    "cross-model-not-engaged",
+    "cross-model-stale",
+    "anchor-unresolved",
+    "plan-lint",
+    "needs-user-input",
+    "stakes-confidence",
+    "plan-deviates-from-request",
+    "one-way-action",
+  ];
+
+  it("gives every precondition its own plain-language sentence", () => {
+    const texts = ALL.map((id) => skipTextFor("precondition-failed", id));
+    expect(new Set(texts).size).toBe(ALL.length);
+    for (const t of texts) {
+      expect(t).not.toMatch(/precondition-failed|[a-z]+-[a-z]+-[a-z]+/);
+      expect(t.length).toBeGreaterThan(20);
+    }
+    expect(skipTextFor("precondition-failed", "cross-model-stale")).toBe(
+      "the outside-model review is older than the current plan",
+    );
+  });
+
+  it("falls back to a readable sentence for an unmapped skip reason", () => {
+    expect(skipTextFor("some-new-reason")).toContain("some-new-reason");
+    expect(skipTextFor("charter-missing")).not.toBe("charter-missing");
+  });
+
+  it("is carried on every ran:false result", () => {
+    w(path.join(home, ".flow", "product.md"), "# Brief only\n");
+    expect(run()).toMatchObject({
+      ran: false,
+      skipText: expect.stringContaining("Deciding on my behalf"),
+    });
+    w(path.join(home, ".flow", "product.md"), CHARTER);
+    w(
+      path.join(wt, ".flow-tmp", "plan-review.md.run.json"),
+      JSON.stringify({ reviewers: [] }),
+    );
+    expect(run()).toMatchObject({
+      ran: false,
+      skipReason: "precondition-failed",
+      skipText: skipTextFor("precondition-failed", "cross-model-not-engaged"),
+    });
+  });
+});
+
 describe("approve", () => {
+  it("defers an approve whose evidence anchors resolve to no real worktree file", () => {
+    const r = run(
+      deps({
+        preconditions: {
+          fileExists: (p) => !p.endsWith("state.ts"),
+          lineCount: () => 1000,
+          lint: () => [],
+        },
+      }),
+    );
+    expect(r).toMatchObject({ ran: true, action: "defer" });
+    if (!r.ran) throw new Error("unreachable");
+    expect(r.demotions.join(" ")).toContain("no evidence anchor resolves");
+    expect(r.disclosure).toBeUndefined();
+    const draft = fs.readFileSync(
+      path.join(wt, ".flow-tmp", "pr-description-draft.md"),
+      "utf8",
+    );
+    expect(draft).not.toContain("decision plan-");
+    expect(log().find((e) => e.kind === "exec-decision")?.exec?.action).toBe(
+      "defer",
+    );
+  });
+
+  it("defers an approve whose cited line is past the end of the file", () => {
+    const r = run(
+      deps({
+        preconditions: {
+          fileExists: () => true,
+          lineCount: () => 5,
+          lint: () => [],
+        },
+      }),
+    );
+    expect(r).toMatchObject({ ran: true, action: "defer" });
+  });
+
   it("logs the decision, stamps the draft PR body, and discloses", () => {
     const r = run();
     expect(r).toMatchObject({

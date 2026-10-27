@@ -51,6 +51,49 @@ export type ExecReviewDeps = {
   preconditions?: Parameters<typeof checkPlanPreconditions>[1];
 };
 
+/** The child prints one JSON line last; anything unparseable is a skip. */
+export function parseHeadlessStdout(stdout: string): HeadlessEnvelope {
+  const line = stdout.trim().split("\n").filter(Boolean).pop() ?? "{}";
+  try {
+    const parsed: unknown = JSON.parse(line);
+    return parsed !== null && typeof parsed === "object"
+      ? (parsed as HeadlessEnvelope)
+      : { ran: false, skipReason: "headless-error" };
+  } catch {
+    return { ran: false, skipReason: "headless-error" };
+  }
+}
+
+/** The one `flow-claude-headless` argv both reviews spawn, with their spend and tool limits. */
+export function execHeadlessArgv(a: {
+  promptPath: string;
+  out: string;
+  decisionId: string;
+  model: ModelAlias;
+  effort: EffortLevel;
+}): string[] {
+  return [
+    "--prompt-file",
+    a.promptPath,
+    "--model",
+    a.model,
+    "--effort",
+    a.effort,
+    "--allowed-tools",
+    "Read,Grep,Glob",
+    "--max-budget-usd",
+    String(EXEC_MAX_BUDGET_USD),
+    "--max-turns",
+    String(EXEC_MAX_TURNS),
+    "--timeout-sec",
+    String(EXEC_TIMEOUT_SEC),
+    "--task",
+    `exec-review-${a.decisionId}`,
+    "--out",
+    a.out,
+  ];
+}
+
 export function defaultExecDeps(): ExecReviewDeps {
   return {
     spawnHeadless: (argv, opts) => {
@@ -60,18 +103,7 @@ export function defaultExecDeps(): ExecReviewDeps {
         stdout: "pipe",
         stderr: "ignore",
       });
-      const line =
-        new TextDecoder()
-          .decode(r.stdout)
-          .trim()
-          .split("\n")
-          .filter(Boolean)
-          .pop() ?? "{}";
-      try {
-        return JSON.parse(line) as HeadlessEnvelope;
-      } catch {
-        return { ran: false, skipReason: "headless-error" };
-      }
+      return parseHeadlessStdout(new TextDecoder().decode(r.stdout));
     },
     readFile: (p) => fs.readFileSync(p, "utf8"),
     writeFile: (p, c) => {

@@ -19,9 +19,7 @@ import { readCommittedStatus } from "./epic-status-schema";
 import { readCharter } from "./exec-charter";
 import {
   designExcerpt,
-  EXEC_MAX_BUDGET_USD,
-  EXEC_MAX_TURNS,
-  EXEC_TIMEOUT_SEC,
+  execHeadlessArgv,
   makeDecisionId,
   readHeadlessResult,
   resolveExecModel,
@@ -210,26 +208,7 @@ export function runWaveReview(
     const out = path.join(scratch, "result.json");
     deps.writeFile(promptPath, packet);
     envelope = deps.spawnHeadless(
-      [
-        "--prompt-file",
-        promptPath,
-        "--model",
-        model,
-        "--effort",
-        effort,
-        "--allowed-tools",
-        "Read,Grep,Glob",
-        "--max-budget-usd",
-        String(EXEC_MAX_BUDGET_USD),
-        "--max-turns",
-        String(EXEC_MAX_TURNS),
-        "--timeout-sec",
-        String(EXEC_TIMEOUT_SEC),
-        "--task",
-        `exec-review-${decisionId}`,
-        "--out",
-        out,
-      ],
+      execHeadlessArgv({ promptPath, out, decisionId, model, effort }),
       { cwd: repoRoot },
     );
     if (envelope.ran === true) {

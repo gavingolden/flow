@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CHARTER_HEADING, seedUserProductBrief } from "./product-brief-seed";
+import { CHARTER_HEADING } from "./exec-charter";
+import { seedUserProductBrief } from "./product-brief-seed";
 
 let scratch!: string;
 let homeDir!: string;
@@ -153,6 +154,18 @@ describe("seedUserProductBrief charter migration", () => {
     const second = seedUserProductBrief({ homeDir, flowSource });
     expect(second.status).toBe("exists");
     expect(fs.readFileSync(briefPath(), "utf8")).toBe(after);
+  });
+
+  it("recognises a charter heading with trailing whitespace instead of appending a second copy", () => {
+    writeBrief(`# my own brief\n\n${CHARTER_HEADING}  \n\nmine\n`);
+
+    const result = seedUserProductBrief({ homeDir, flowSource });
+    expect(result.status).toBe("exists");
+    expect(
+      fs
+        .readFileSync(briefPath(), "utf8")
+        .match(new RegExp(CHARTER_HEADING, "g")),
+    ).toHaveLength(1);
   });
 
   it("does not re-append a section the owner deleted after the marker was written", () => {

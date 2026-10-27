@@ -12685,6 +12685,7 @@ describe("executive review anchors", () => {
     }
     expect(step04).toContain("EXECUTIVE CHALLENGE (round <r>, decision <id>):");
     expect(step04).toContain("flow-exec-review outcome");
+    expect(step04).toContain("executive skipped: <skipText>");
   });
 
   it("step 4 never arms the checkpoint marker on an executive approval", () => {
@@ -12696,12 +12697,33 @@ describe("executive review anchors", () => {
   it("step 3 runs the executive BEFORE writing plan-pending-review and forces the cross-model review for granted features", () => {
     expect(step03).toContain("--require-review");
     expect(step03).toContain("flow-exec-review status");
+    expect(step03).toContain(
+      'EXEC_SCOPE=$(flow-exec-review status --slug "$FLOW_SLUG")',
+    );
     const pointer = step03.indexOf("granted epic\n  feature first");
     const write = step03.indexOf(
       "Otherwise write `phase: plan-pending-review`",
     );
     expect(pointer).toBeGreaterThan(-1);
     expect(write).toBeGreaterThan(pointer);
+  });
+
+  it("step 5 runs stamp-check before the first flow-open-pr", () => {
+    const step05 = read(
+      "skills/pipeline/flow-pipeline/references/phases/step-05-implement.md",
+    );
+    const stamp = step05.indexOf("flow-exec-review stamp-check");
+    expect(stamp).toBeGreaterThan(-1);
+    expect(step05.indexOf("flow-open-pr", stamp)).toBeGreaterThan(stamp);
+  });
+
+  it("redirect handling logs the wrong-approval outcome and shows the charter offer", () => {
+    const redirectHandling = read(
+      "skills/pipeline/flow-pipeline/references/redirect-handling.md",
+    );
+    expect(redirectHandling).toContain("## After an executive approval");
+    expect(redirectHandling).toContain("flow-exec-review outcome");
+    expect(redirectHandling).toContain("charter --add --decision");
   });
 
   it("discovery's revision pass treats an EXECUTIVE CHALLENGE as evidence, not an owner instruction", () => {

@@ -148,10 +148,12 @@ import {
   FLOW_OVERRIDE_ALLOW_RULES,
 } from "./merge-allow-rule";
 import {
+  FLOW_EXEC_REVIEW_ALLOW_RULES,
   FLOW_NARROW_ALLOW_RULES,
   FLOW_NEVER_ALLOW_HELPERS,
   FLOW_ROUTINE_ALLOW_RULES,
 } from "./pipeline-allow-rules";
+import { EPIC_GRANT_DENY_RULES } from "./secret-deny-rules";
 import {
   runNew as runNewReal,
   runFeatureCli as runFeatureCliReal,
@@ -4408,6 +4410,21 @@ describe("ensureLaunchSettings hook-command resolution", () => {
         ...(FLOW_NARROW_ALLOW_RULES[h] ?? []),
       ]);
     }
+  });
+
+  it("writes the epic grant deny rules and pre-approves only the narrow exec-review subcommands", () => {
+    ensureLaunchSettings(settingsPath);
+    const { deny, allow } = readPermissions();
+    expect(EPIC_GRANT_DENY_RULES.length).toBeGreaterThan(0);
+    for (const rule of EPIC_GRANT_DENY_RULES) expect(deny).toContain(rule);
+    for (const rule of FLOW_EXEC_REVIEW_ALLOW_RULES)
+      expect(allow).toContain(rule);
+    expect(allow.filter((r) => r.startsWith("Bash(flow-exec-review"))).toEqual([
+      ...FLOW_EXEC_REVIEW_ALLOW_RULES,
+    ]);
+    expect(allow.some((r) => r.includes("flow-exec-review charter"))).toBe(
+      false,
+    );
   });
 
   it("launchSettingsPermissions() matches the written file", () => {

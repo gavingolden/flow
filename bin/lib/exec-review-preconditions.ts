@@ -301,6 +301,45 @@ function checkOneWay(planText: string): PreconditionResult {
   return { ok: true };
 }
 
+/**
+ * True when at least one path-form evidence anchor the executive cited points
+ * at a real worktree file with the cited lines in range. The envelope's own
+ * check is syntax-only; this is the mechanical re-check that keeps a
+ * model-claimed approve from clearing the bar on self-report.
+ */
+export function evidenceAnchorResolves(
+  evidence: string[],
+  worktree: string,
+  probes: Probes = {},
+): boolean {
+  const exists = probes.fileExists ?? ((p) => fs.existsSync(p));
+  const lines =
+    probes.lineCount ?? ((p) => fs.readFileSync(p, "utf8").split("\n").length);
+  for (const item of evidence) {
+    const parts = item
+      .trim()
+      .replace(/^`|`$/g, "")
+      .split(/[,;]/)
+      .map((q) => q.trim().replace(/^adjacent:\s*/, ""));
+    for (const part of parts) {
+      const m = /^([\w./@-]+\.\w+)(?::(\d+)(?:[-–—](\d+))?)?$/.exec(part);
+      if (!m) continue;
+      const abs = path.resolve(worktree, m[1]);
+      const within = path.relative(worktree, abs);
+      if (within.startsWith("..") || path.isAbsolute(within)) continue;
+      try {
+        if (!exists(abs)) continue;
+        const cited = Math.max(Number(m[2] ?? 0), Number(m[3] ?? 0));
+        if (cited > 0 && cited > lines(abs)) continue;
+      } catch {
+        continue;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
 export function checkPlanPreconditions(
   input: { planText: string; runRecordText: string | null; worktree: string },
   deps: Probes = {},

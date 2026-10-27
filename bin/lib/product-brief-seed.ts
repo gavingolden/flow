@@ -18,6 +18,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { extractCharterSection } from "./exec-charter";
 
 export type SeedProductBriefOptions = {
   /** Home directory the brief is seeded under. Defaults to os.homedir(). */
@@ -28,8 +29,6 @@ export type SeedProductBriefOptions = {
   installRoot?: string;
 };
 
-export const CHARTER_HEADING = "## Deciding on my behalf";
-
 export type SeedProductBriefResult = {
   status: "created" | "exists" | "section-added" | "no-template" | "failed";
   path: string;
@@ -37,20 +36,6 @@ export type SeedProductBriefResult = {
 };
 
 const TEMPLATE_RELATIVE_PATH = path.join("templates", "product.md.template");
-
-/** The charter section of a template: its heading to the next `## ` heading or EOF. */
-function templateCharterSection(template: string): string | null {
-  const start = template.indexOf(`\n${CHARTER_HEADING}\n`);
-  const from =
-    start === -1
-      ? template.startsWith(`${CHARTER_HEADING}\n`)
-        ? 0
-        : -1
-      : start + 1;
-  if (from === -1) return null;
-  const next = template.indexOf("\n## ", from + CHARTER_HEADING.length);
-  return template.slice(from, next === -1 ? undefined : next + 1).trimEnd();
-}
 
 function findTemplate(opts: SeedProductBriefOptions): string | undefined {
   const candidates = [
@@ -65,7 +50,7 @@ function findTemplate(opts: SeedProductBriefOptions): string | undefined {
 function readTemplateCharter(opts: SeedProductBriefOptions): string | null {
   try {
     const tpl = findTemplate(opts);
-    return tpl ? templateCharterSection(fs.readFileSync(tpl, "utf8")) : null;
+    return tpl ? extractCharterSection(fs.readFileSync(tpl, "utf8")) : null;
   } catch {
     return null;
   }
@@ -91,10 +76,7 @@ export function seedUserProductBrief(
     const existing = fs.readFileSync(destination, "utf8");
     if (existing.trim() !== "") {
       if (fs.existsSync(marker)) return { status: "exists", path: destination };
-      if (
-        existing.includes(`\n${CHARTER_HEADING}\n`) ||
-        existing.startsWith(`${CHARTER_HEADING}\n`)
-      ) {
+      if (extractCharterSection(existing) !== null) {
         writeMarker();
         return { status: "exists", path: destination };
       }
@@ -128,7 +110,7 @@ export function seedUserProductBrief(
     const contents = fs.readFileSync(templatePath, "utf8");
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.writeFileSync(destination, contents);
-    if (templateCharterSection(contents)) writeMarker();
+    if (extractCharterSection(contents) !== null) writeMarker();
     return { status: "created", path: destination };
   } catch (err) {
     return {

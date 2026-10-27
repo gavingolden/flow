@@ -145,8 +145,9 @@ delegated.
    `.recommendationAction` is set, add
    `**Needs attention:** Executive recommends: <recommendation> — reply accept to take it`.
 5. **`ran: false`** → today's pause, with the WHY suffixed
-   `; executive skipped: <skipReason>`, and no `accept` offer (a skip carries no
-   recommendation).
+   `; executive skipped: <skipText>` — `.skipText` is the plain-language reason
+   (which check stopped the executive), never the raw `.skipReason` id — and no
+   `accept` offer (a skip carries no recommendation).
 
 Format the deferral and skip pauses per `references/pause-output-contract.md`.
 <!-- any new pause site below must reference pause-output-contract.md -->

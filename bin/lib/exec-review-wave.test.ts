@@ -277,7 +277,11 @@ describe("runWaveReview", () => {
       {
         ts: "t9",
         kind: "grant",
-        exec: { decisionId: "g2", reviewKind: "plan", baselineMerged: ["f1"] },
+        exec: {
+          decisionId: "g2",
+          reviewKind: "plan",
+          baselineMerged: ["f1", "f2"],
+        },
       },
       stateDir,
     );

@@ -196,7 +196,9 @@ duplicate-check.
    proposal and rationale, launch nothing this step, and on the owner's yes route
    it through amend-manifest (a proposal is never applied without that yes);
    `escalate` ⇒ the escalation pause block above. Then order the frontier in
-   step 1 with `flow-exec-review order --epic <slug> --frontier <ids>`.
+   step 1 with `flow-exec-review order --epic <slug> --frontier <ids>` — except
+   on `no-grant`, where no reorder can have been applied: skip the `order` call
+   and use the frontier unchanged, so an ungranted epic pays one Bash call here.
 1. Compute the frontier from YOUR reconciled sets (not the raw cache):
    `flow-epic-dag --frontier <manifest> --completed <verified-done-ids>
 --launched <verified-in-flight-ids>`.

@@ -200,8 +200,11 @@ feature/non-feature end-condition split. Bash `flow-delegate` (AGY) fan-out, sam
 fan-out, not an eighth exemption"). Three-part gate: `review.gemini == true`
 in `~/.flow/config.json` (same key the Gemini lens uses), AND a non-empty
 `## Decision analysis` section in plan.md **or** a granted epic feature
-(`flow-exec-review status --slug "$FLOW_SLUG"` prints `granted: true`; then
-pass `--require-review` on every `flow-plan-review` call below, which
+(`$EXEC_SCOPE` reads `granted: true` — the one
+`flow-exec-review status --slug "$FLOW_SLUG"` probe step 3 runs per pass,
+set in the route block under **End conditions**; when this gate is reached
+first, run that same line in the gate's first Bash call and reuse the value
+rather than probing again; then pass `--require-review` on every `flow-plan-review` call below, which
 bypasses only the Decision-analysis part), AND
 `flow-module-status --check research` passing (`flow-plan-review` is a
 `research` helper; the check emits its own named notice); when **any** part
@@ -286,7 +289,12 @@ intent, not exhaustive specifications.** exists to close:
 ```bash
 METHOD_RESOLVED=$([ -f "$WORKTREE/.flow-tmp/method-resolved" ] && echo 1)
 ROUTE=$(flow-step3-route --intent "$INTENT" --plan-md-file "$WORKTREE/.flow-tmp/plan.md" ${METHOD_RESOLVED:+--method-resolved})
+EXEC_SCOPE=$(flow-exec-review status --slug "$FLOW_SLUG")
 ```
+
+`$EXEC_SCOPE` rides in the same Bash call, so a non-epic pipeline pays no extra
+turn; it is the single executive-scope probe for this pass (the cross-model
+gate above reads the same value).
 
 The helper at `bin/flow-step3-route.ts` returns one of three decisions.
 The four-cell Prompt-Interpretation matrix it implements (feature/non-feature
@@ -313,7 +321,8 @@ only and the helper exact-matches against them. The blind survey's
   [references/blind-survey.md](../blind-survey.md) "The method pause".
 
 - `$ROUTE` is `route-to-step-4` and intent is `feature` → **granted epic
-  feature first:** when `flow-exec-review status --slug "$FLOW_SLUG"` prints
+  feature first:** when `$EXEC_SCOPE` (the route block's
+  `flow-exec-review status --slug "$FLOW_SLUG"` line) prints
   `granted: true`, run step 4's
   [Executive review (granted epics)](step-04-approval.md#executive-review-granted-epics)
   BEFORE writing `plan-pending-review` (phase stays `planning`); its

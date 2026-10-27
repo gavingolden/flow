@@ -9,8 +9,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { withFileLockSync } from "./lock";
-import { CHARTER_HEADING } from "./product-brief-seed";
 
+export const CHARTER_HEADING = "## Deciding on my behalf";
 export const CHARTER_CHAR_LIMIT = 8000;
 const CORRECTIONS_HEADING = "### Standing corrections";
 
