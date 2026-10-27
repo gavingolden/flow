@@ -31,6 +31,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { stripCharterSection } from "./lib/exec-charter";
 import { resolveRepoRoot } from "./lib/repo-root";
 
 /**
@@ -121,9 +122,19 @@ function capBriefText(text: string): string {
   return `${closeDanglingFence(cut)}\n\n${TRUNCATION_MARKER}`;
 }
 
-/** Neutralise, then cap. Order matters: escaping lengthens the text. */
+/**
+ * Strip the owner's decision charter, neutralise, then cap. The charter is for
+ * the epic executive only (read raw from the user-level file by
+ * `exec-charter.ts`); stripping BEFORE the cap means a product reviewer never
+ * receives it whole or truncated, and it never displaces the brief's own tail.
+ * Escaping lengthens the text, so it precedes the cap too.
+ */
 function normaliseBriefText(raw: string): string {
-  return capBriefText(raw.replace(DELIMITER_RE, (m) => m.replace("<", "<\\")));
+  return capBriefText(
+    stripCharterSection(raw).replace(DELIMITER_RE, (m) =>
+      m.replace("<", "<\\"),
+    ),
+  );
 }
 
 export type ResolveOptions = {
@@ -189,11 +200,13 @@ export function resolveProductBrief(opts: ResolveOptions = {}): ProductBrief {
       continue;
     }
     if (typeof raw !== "string" || raw.trim() === "") continue;
+    const text = normaliseBriefText(raw);
+    if (text.trim() === "") continue;
     return {
       found: true,
       scope: candidate.scope,
       path: candidate.path,
-      text: normaliseBriefText(raw),
+      text,
     };
   }
 

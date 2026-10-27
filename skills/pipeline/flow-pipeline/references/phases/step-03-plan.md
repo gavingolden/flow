@@ -199,7 +199,10 @@ feature/non-feature end-condition split. Bash `flow-delegate` (AGY) fan-out, sam
 `/flow-pr-review`'s Gemini lens, spawns **no Task** (Hard rules' "Bash
 fan-out, not an eighth exemption"). Three-part gate: `review.gemini == true`
 in `~/.flow/config.json` (same key the Gemini lens uses), AND a non-empty
-`## Decision analysis` section in plan.md, AND
+`## Decision analysis` section in plan.md **or** a granted epic feature
+(`flow-exec-review status --slug "$FLOW_SLUG"` prints `granted: true`; then
+pass `--require-review` on every `flow-plan-review` call below, which
+bypasses only the Decision-analysis part), AND
 `flow-module-status --check research` passing (`flow-plan-review` is a
 `research` helper; the check emits its own named notice); when **any** part
 fails, record the reason in the chat summary and skip this sub-step unchanged.
@@ -309,7 +312,14 @@ only and the helper exact-matches against them. The blind survey's
   (keep-mine: one `REVISION:` pass first). Full protocol in
   [references/blind-survey.md](../blind-survey.md) "The method pause".
 
-- `$ROUTE` is `route-to-step-4` and intent is `feature` → write `phase: plan-pending-review`. Then,
+- `$ROUTE` is `route-to-step-4` and intent is `feature` → **granted epic
+  feature first:** when `flow-exec-review status --slug "$FLOW_SLUG"` prints
+  `granted: true`, run step 4's
+  [Executive review (granted epics)](step-04-approval.md#executive-review-granted-epics)
+  BEFORE writing `plan-pending-review` (phase stays `planning`); its
+  `approve` continues straight into step 5 in this turn, its `challenge` loops
+  back to this step, and `defer` / `ran: false` fall through to the rest of
+  this bullet. Otherwise write `phase: plan-pending-review`. Then,
   immediately before ending the turn:
 
   **Candidate follow-up issues disclosure.** Discovery lists

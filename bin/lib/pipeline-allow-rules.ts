@@ -27,6 +27,13 @@
  * Also accepted: `flow-ui-critique` spends model quota without classifier
  * review, bounded by its $3 per-call cap and its own once-per-phase refusal.
  *
+ * Also accepted: `flow-exec-review review` spends model quota without
+ * classifier review, bounded by its $3 per-call cap, its zero-spend refusal
+ * for any epic without a grant, and a round cap of five per plan.
+ * `flow-exec-review charter` writes the owner's values file and is
+ * deliberately NOT pre-approved (never a bare `Bash(flow-exec-review *)`), so
+ * the classifier still reviews every charter edit.
+ *
  * A rule only matches a standalone call; a `cd … &&` prefix or a chain of
  * helpers may still reach the classifier, so the supervisor calls helpers one
  * per Bash call.
@@ -84,3 +91,16 @@ export const FLOW_NARROW_ALLOW_RULES: Readonly<
 
 export const FLOW_ROUTINE_ALLOW_RULES: readonly string[] =
   FLOW_ROUTINE_HELPERS.flatMap((h) => [`Bash(${h})`, `Bash(${h} *)`]);
+
+/**
+ * One rule per `flow-exec-review` subcommand — never a blanket
+ * `Bash(flow-exec-review *)` and never `charter`, which writes the owner's
+ * brief.
+ */
+export const FLOW_EXEC_REVIEW_ALLOW_RULES: readonly string[] = [
+  "Bash(flow-exec-review status *)",
+  "Bash(flow-exec-review review *)",
+  "Bash(flow-exec-review order *)",
+  "Bash(flow-exec-review outcome *)",
+  "Bash(flow-exec-review stamp-check *)",
+];

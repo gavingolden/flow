@@ -215,6 +215,12 @@ export type Args = {
   // valueless like --print-hash.
   start: boolean;
   check: boolean;
+  // `--require-review` (valueless): bypasses ONLY the `no-decision-analysis`
+  // gate — every other gate is unchanged. A granted epic feature always gets
+  // the cross-model review, because the executive acts only on an engaged
+  // non-Claude reviewer. Threaded into the detached worker's argv too, since
+  // the worker re-evaluates its own gates.
+  requireReview: boolean;
   // Sibling-of-`--out` scratch path the WORKER writes its final envelope to
   // (atomic tmp-then-rename) when set. Also the path `--check` reads.
   resultFile?: string;
@@ -236,6 +242,10 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     }
     if (flag === "--check") {
       out.check = true;
+      continue;
+    }
+    if (flag === "--require-review") {
+      out.requireReview = true;
       continue;
     }
     const value = argv[i + 1];
@@ -296,6 +306,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     printHash: out.printHash ?? false,
     start: out.start ?? false,
     check: out.check ?? false,
+    requireReview: out.requireReview ?? false,
     resultFile: out.resultFile,
     depth: out.depth ?? "auto",
     worktree: out.worktree,
@@ -789,7 +800,7 @@ function evaluateStartGates(deps: Deps, args: Args): CheapGateResult {
   } catch {
     return { skip: true, skipReason: "plan-unreadable" };
   }
-  if (!hasDecisionAnalysis(plan)) {
+  if (!args.requireReview && !hasDecisionAnalysis(plan)) {
     return { skip: true, skipReason: "no-decision-analysis" };
   }
 
@@ -894,6 +905,7 @@ function runStart(deps: Deps, args: Args): number {
     args.task,
     "--result-file",
     runRecordPath,
+    ...(args.requireReview ? ["--require-review"] : []),
   ]);
   if (spawned === null) {
     return emit(deps, { ran: false, skipReason: "plan-review-spawn-failed" });
@@ -1052,11 +1064,11 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   if ("error" in parsed) {
     console.error(`flow-plan-review: ${parsed.error}`);
     console.error(
-      "usage: flow-plan-review --plan-file <path> --out <path> --worktree <dir> [--config <path>] [--task <name>] [--depth auto|standard|deep] [--result-file <path>]",
+      "usage: flow-plan-review --plan-file <path> --out <path> --worktree <dir> [--config <path>] [--task <name>] [--depth auto|standard|deep] [--result-file <path>] [--require-review]",
     );
     console.error("       flow-plan-review --print-hash --plan-file <path>");
     console.error(
-      "       flow-plan-review --start --plan-file <path> --out <path> --worktree <dir> [--config <path>] [--task <name>] [--depth auto|standard|deep]",
+      "       flow-plan-review --start --plan-file <path> --out <path> --worktree <dir> [--config <path>] [--task <name>] [--depth auto|standard|deep] [--require-review]",
     );
     console.error("       flow-plan-review --check --out <path>");
     return 2;
@@ -1163,7 +1175,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   } catch {
     return skip("plan-unreadable");
   }
-  if (!hasDecisionAnalysis(plan)) {
+  if (!parsed.requireReview && !hasDecisionAnalysis(plan)) {
     return skip("no-decision-analysis");
   }
 

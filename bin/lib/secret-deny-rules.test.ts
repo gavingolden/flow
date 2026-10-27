@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  EPIC_GRANT_DENY_RULES,
   FLOW_CREATE_ISSUE_ALLOW_RULES,
   FLOW_UI_LOGIN_ALLOW_RULES,
   SECRET_FILE_DENY_RULES,
@@ -70,5 +71,35 @@ describe("FLOW_CREATE_ISSUE_ALLOW_RULES", () => {
     expect(FLOW_CREATE_ISSUE_ALLOW_RULES).toEqual([
       "Bash(flow-create-issue *)",
     ]);
+  });
+});
+
+describe("EPIC_GRANT_DENY_RULES", () => {
+  it("denies the high-autonomy grant in space and equals forms", () => {
+    expect(EPIC_GRANT_DENY_RULES).toContain(
+      "Bash(*flow epic grant * --autonomy high*)",
+    );
+    expect(EPIC_GRANT_DENY_RULES).toContain(
+      "Bash(*flow epic grant * --autonomy=high*)",
+    );
+  });
+
+  it("denies an env-wrapped grant and shell writes naming grant.json", () => {
+    expect(EPIC_GRANT_DENY_RULES).toContain("Bash(env * flow epic grant *)");
+    expect(EPIC_GRANT_DENY_RULES).toContain("Bash(*managers/*grant.json*)");
+  });
+
+  it("denies Write and Edit under the managers state directory", () => {
+    expect(EPIC_GRANT_DENY_RULES).toContain("Write(~/.flow/state/managers/**)");
+    expect(EPIC_GRANT_DENY_RULES).toContain("Edit(~/.flow/state/managers/**)");
+  });
+
+  it("never denies the withdraw form and has no duplicates", () => {
+    expect(
+      EPIC_GRANT_DENY_RULES.some((r) => r.includes("--autonomy off")),
+    ).toBe(false);
+    expect(new Set(EPIC_GRANT_DENY_RULES).size).toBe(
+      EPIC_GRANT_DENY_RULES.length,
+    );
   });
 });

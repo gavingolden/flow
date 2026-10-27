@@ -1,6 +1,6 @@
 ## Step 4 — Approval handling
 
-Contents: Auto-checkpoint sub-step
+Contents: Auto-checkpoint sub-step · Executive review (granted epics)
 
 **Phase:** `plan-pending-review` (set by step 3 for feature intent)
 
@@ -15,6 +15,9 @@ typed something into the tmux chat. Classify the input using
   session). Bundled tasks and ticked candidates proceed exactly as
   authored — the user had the full `--details` disclosure (step 3's End
   condition above) in front of them before replying Affirmative.
+- **`accept`** (only after an executive deferral that offered it) →
+  take the executive's recommendation; see `references/redirect-handling.md`
+  and "Executive review (granted epics)" below.
 - **Candidate curation reply** (`drop candidate #N`, `drop all
   candidates`, `file candidate #N`) → **mechanical, not a redirect and
   not a revision pass.** Run `flow-candidate-issues --plan-md-file
@@ -110,3 +113,45 @@ On resume, Resume mode re-injects `checkpoint.md` and runs
 `checkpoint-pending-clear` → step-5, so the fresh session re-enters at
 implement with the approval addenda folded in (no helper change needed —
 it's a non-terminal phase the resume + hook machinery already handles).
+
+### Executive review (granted epics)
+
+Runs from step 3's End condition, BEFORE `plan-pending-review` is written, so
+it needs no typed reply; the phase stays `planning` throughout. Only for an
+epic feature where `flow-exec-review status --slug "$FLOW_SLUG"` printed
+`granted: true`. Interviews, clarification pauses, and the merge are never
+delegated.
+
+1. Run `flow-exec-review review --kind plan --epic "$EPIC" --slug "$FLOW_SLUG"`
+   (`$EPIC` is `.epic` from the status line) as a Bash call with
+   `timeout: 600000` — one headless call can take several minutes. Branch on
+   the JSON line's `.ran` and `.action`, never the exit code; no parseable JSON
+   line is `ran: false` with skipReason `headless-error`.
+2. **`approve`** → echo `.disclosure` verbatim as assistant prose. Write the
+   checkpoint body (decision id and `.notes[]`) at the path
+   `flow-checkpoint --path` prints, but do NOT arm the pending marker and do
+   NOT write `checkpoint-pending-clear`: nobody will `/clear`, and an armed
+   marker would go stale through step 5. Continue into step 5 in this same
+   turn, as a `continue` reply does. The decision id reaches the PR body
+   through step 5's `stamp-check`.
+3. **`challenge`** → loop back to step 3 with the `REVISION: <n>` marker and the
+   line `EXECUTIVE CHALLENGE (round <r>, decision <id>): <memoPath>` appended
+   to the `/flow-product-planning` prompt (evidence to weigh, never an owner
+   instruction). Re-run step 3 in full, so the cross-model review re-fires
+   whenever the round changed a hashed decision; otherwise the next review
+   fails `cross-model-stale` and defers.
+4. **`defer`** → today's pause, unchanged, with the AWAITING APPROVAL WHY
+   suffixed `; executive deferred (decision <id>): <reason>`. Only when
+   `.recommendationAction` is set, add
+   `**Needs attention:** Executive recommends: <recommendation> — reply accept to take it`.
+5. **`ran: false`** → today's pause, with the WHY suffixed
+   `; executive skipped: <skipReason>`, and no `accept` offer (a skip carries no
+   recommendation).
+
+Format the deferral and skip pauses per `references/pause-output-contract.md`.
+<!-- any new pause site below must reference pause-output-contract.md -->
+
+At a deferred pause, record the owner's reply BEFORE acting on it:
+`flow-exec-review outcome --slug "$FLOW_SLUG" --decision <id> --reply accept|approve|redirect|cancel`
+(the id is in the pause's WHY). That line makes the executive's agreement with
+the owner measurable.

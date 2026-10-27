@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  FLOW_EXEC_REVIEW_ALLOW_RULES,
   FLOW_NARROW_ALLOW_RULES,
   FLOW_NEVER_ALLOW_HELPERS,
   FLOW_ROUTINE_ALLOW_RULES,
@@ -69,6 +70,35 @@ describe("FLOW_NARROW_ALLOW_RULES", () => {
       expect(rules).not.toContain(`Bash(${h} *)`);
       expect(rules).not.toContain(`Bash(${h})`);
     }
+  });
+});
+
+describe("FLOW_EXEC_REVIEW_ALLOW_RULES", () => {
+  it("is one literal-subcommand rule each, never a bare wildcard", () => {
+    expect(FLOW_EXEC_REVIEW_ALLOW_RULES).not.toContain(
+      "Bash(flow-exec-review *)",
+    );
+    expect(FLOW_EXEC_REVIEW_ALLOW_RULES).not.toContain(
+      "Bash(flow-exec-review)",
+    );
+    for (const rule of FLOW_EXEC_REVIEW_ALLOW_RULES) {
+      expect(rule).toMatch(/^Bash\(flow-exec-review [a-z-]+ \*\)$/);
+    }
+  });
+
+  it("pre-approves status/review/order/outcome/stamp-check and never charter", () => {
+    expect(FLOW_EXEC_REVIEW_ALLOW_RULES).toEqual([
+      "Bash(flow-exec-review status *)",
+      "Bash(flow-exec-review review *)",
+      "Bash(flow-exec-review order *)",
+      "Bash(flow-exec-review outcome *)",
+      "Bash(flow-exec-review stamp-check *)",
+    ]);
+    expect(FLOW_EXEC_REVIEW_ALLOW_RULES.join(" ")).not.toContain("charter");
+  });
+
+  it("is not part of the routine bare-plus-wildcard helper list", () => {
+    expect(FLOW_ROUTINE_HELPERS).not.toContain("flow-exec-review");
   });
 });
 

@@ -67,3 +67,20 @@ export const FLOW_UI_LOGIN_ALLOW_RULES: readonly string[] = [
 export const FLOW_CREATE_ISSUE_ALLOW_RULES: readonly string[] = [
   "Bash(flow-create-issue *)",
 ];
+
+/**
+ * Keeps a flow-launched session from granting the epic executive autonomy:
+ * denies the high-autonomy grant command (space and `=` forms, and an `env`
+ * launderer) and any write to `~/.flow/state/managers/**`, where `grant.json`
+ * lives. A guard, not a proof — the CLI itself also refuses a non-TTY or
+ * `CLAUDECODE` caller; a forged grant still shows on first use in the PR stamp
+ * and the log line.
+ */
+export const EPIC_GRANT_DENY_RULES: readonly string[] = [
+  "Bash(*flow epic grant * --autonomy high*)",
+  "Bash(*flow epic grant * --autonomy=high*)",
+  "Bash(env * flow epic grant *)",
+  "Bash(*managers/*grant.json*)",
+  "Write(~/.flow/state/managers/**)",
+  "Edit(~/.flow/state/managers/**)",
+];

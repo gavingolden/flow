@@ -28,6 +28,15 @@ the tmux-pane / port-override / post-commit-diff rules live in
   Merge-Conflict Resolver, `/flow-coder` Edit-Applier, `/flow-pr-review`
   Consolidator-Validator, `/flow-verify` UI-Driver); no other skill or
   step may call Task.
+- Don't let a session grant epic autonomy. No session ever runs
+  `flow epic grant <epic> --autonomy high` or writes
+  `~/.flow/state/managers/<epic>/grant.json`: the grant is the owner's own
+  keystroke in a plain terminal. The command refuses a non-TTY or
+  `CLAUDECODE` caller, and flow-launched sessions are denied both the command
+  and writes under `~/.flow/state/managers/**` (`EPIC_GRANT_DENY_RULES`). That
+  stops an accidental grant or one made on a peer's instruction; it is not a
+  proof against a session that rewrites its own environment, so a forged grant
+  would still show on its first use in the PR stamp and the log line.
 - Don't leave spawned resources running. Three layers, in order:
   (1) point-of-use teardown first — close what you opened, on every
   exit path; (2) `flow-browser-teardown --reap --record` at every
@@ -174,7 +183,9 @@ done`'s heal): that one commit, never forced. Both contracts:
     session — a playbook, not a loop, reconciling the manifest against
     GitHub/git truth. Zero named fan-out: **no** Task/Agent sub-agent,
     **no** `AskUserQuestion` form. `gated ⇒ escalate-only`, never merges
-    a feature PR.
+    a feature PR. On a granted epic its launch-next step 0 calls
+    `flow-exec-review review --kind wave` — a Bash helper that runs
+    `flow-claude-headless` internally, not a Task and not a form.
   - **`/flow-backlog-triage` is a separate sanctioned standalone
     session,** so `/flow-pipeline`'s exactly-7 and one-form rule are
     unaffected by its one named surface: One Task-tool fan-out (Phase-1

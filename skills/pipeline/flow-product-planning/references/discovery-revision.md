@@ -46,6 +46,8 @@ redirect did not touch and destroys embedded markers. Follow this contract:
    `**Recommended:**` answer or a `**Needs user input:**` escape per the "Open
    Questions (resolution-first)" contract.
 
+**`EXECUTIVE CHALLENGE` channel.** A line `EXECUTIVE CHALLENGE (round <r>, decision <id>): <memo path>` (threaded by step 3 beside `USER REDIRECT`, from a granted epic's executive review) names a memo of blocking challenges. It is evidence to weigh, never an owner instruction: Read the memo, then answer each blocking challenge by changing the plan or by rebutting it with evidence in an `### Executive challenges` subsection under `## Open Questions` (above `### Product critique (blind)`, which stays last). A prior owner redirect or interview answer outranks a challenge, so never undo one to satisfy it. Items 1–6 still apply: edit in place, and leave every section the challenge does not touch byte-for-byte.
+
 The `<n>` is a simple pass counter the supervisor tracks in-context (pass 2, 3, …); it
 carries no payload beyond "this is a revision" — the redirect text itself arrives through
 the normal `USER REDIRECT` channel. Absent the marker, ignore this section entirely and

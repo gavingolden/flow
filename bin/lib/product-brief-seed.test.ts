@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { seedUserProductBrief } from "./product-brief-seed";
+import { CHARTER_HEADING, seedUserProductBrief } from "./product-brief-seed";
 
 let scratch!: string;
 let homeDir!: string;
@@ -118,5 +118,89 @@ describe("seedUserProductBrief", () => {
 
     expect(result.status).toBe("failed");
     expect(result.error).toBeTruthy();
+  });
+});
+
+describe("seedUserProductBrief charter migration", () => {
+  const CHARTER_SECTION = `${CHARTER_HEADING}\n\nintro\n\n1. one\n\n### Standing corrections\n`;
+  const CHARTER_TEMPLATE = `# Product brief\n\n## Vocabulary\n\nterms\n\n${CHARTER_SECTION}`;
+  const markerPath = () =>
+    path.join(homeDir, ".flow", "state", "charter-seeded");
+
+  beforeEach(() => {
+    fs.writeFileSync(
+      path.join(flowSource, "templates", "product.md.template"),
+      CHARTER_TEMPLATE,
+    );
+  });
+
+  function writeBrief(text: string) {
+    fs.mkdirSync(path.dirname(briefPath()), { recursive: true });
+    fs.writeFileSync(briefPath(), text);
+  }
+
+  it("appends the section once to an existing brief that lacks it", () => {
+    writeBrief("# my own brief\n\n## Mine\n\ntext\n");
+
+    const first = seedUserProductBrief({ homeDir, flowSource });
+    expect(first.status).toBe("section-added");
+    const after = fs.readFileSync(briefPath(), "utf8");
+    expect(after.startsWith("# my own brief\n\n## Mine\n\ntext\n")).toBe(true);
+    expect(after.match(new RegExp(CHARTER_HEADING, "g"))).toHaveLength(1);
+    expect(after).toContain("### Standing corrections");
+    expect(fs.existsSync(markerPath())).toBe(true);
+
+    const second = seedUserProductBrief({ homeDir, flowSource });
+    expect(second.status).toBe("exists");
+    expect(fs.readFileSync(briefPath(), "utf8")).toBe(after);
+  });
+
+  it("does not re-append a section the owner deleted after the marker was written", () => {
+    writeBrief("# my own brief\n");
+    seedUserProductBrief({ homeDir, flowSource });
+    writeBrief("# my own brief\n");
+
+    const again = seedUserProductBrief({ homeDir, flowSource });
+    expect(again.status).toBe("exists");
+    expect(fs.readFileSync(briefPath(), "utf8")).toBe("# my own brief\n");
+  });
+
+  it("leaves a brief that already has the section alone and records the marker", () => {
+    const text = `# mine\n\n${CHARTER_SECTION}`;
+    writeBrief(text);
+    expect(seedUserProductBrief({ homeDir, flowSource }).status).toBe("exists");
+    expect(fs.readFileSync(briefPath(), "utf8")).toBe(text);
+    expect(fs.existsSync(markerPath())).toBe(true);
+  });
+
+  it("writes the marker on a fresh seed so a later deletion stays deleted", () => {
+    expect(seedUserProductBrief({ homeDir, flowSource }).status).toBe(
+      "created",
+    );
+    expect(fs.existsSync(markerPath())).toBe(true);
+    writeBrief("# trimmed\n");
+    expect(seedUserProductBrief({ homeDir, flowSource }).status).toBe("exists");
+  });
+
+  it("reports exists when the template carries no charter section", () => {
+    fs.writeFileSync(
+      path.join(flowSource, "templates", "product.md.template"),
+      TEMPLATE_TEXT,
+    );
+    writeBrief("# mine\n");
+    expect(seedUserProductBrief({ homeDir, flowSource }).status).toBe("exists");
+    expect(fs.existsSync(markerPath())).toBe(false);
+  });
+
+  it("the shipped template carries the section as its last section", () => {
+    const real = fs.readFileSync(
+      path.resolve(__dirname, "../../templates/product.md.template"),
+      "utf8",
+    );
+    expect(real).toContain(CHARTER_HEADING);
+    expect(real).toContain("### Standing corrections");
+    expect(real.indexOf(CHARTER_HEADING)).toBeGreaterThan(
+      real.indexOf("## Vocabulary"),
+    );
   });
 });
