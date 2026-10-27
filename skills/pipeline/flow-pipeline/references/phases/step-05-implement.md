@@ -111,6 +111,10 @@ if [ -z "$(jq -r '.pr // empty' ~/.flow/state/"$FLOW_SLUG".json 2>/dev/null)" ];
   # On JUDGE's .verdict == "rewrite": rewrite ## Why / ## User-facing
   # changes once per .reasons[], re-judge once, then proceed regardless.
 fi
+# An executive-approved plan must carry its decision id in the PR body. On
+# {"ok":false}, copy the "Plan approved by the epic executive" bullet from the
+# draft into ## Key decisions and re-check once.
+flow-exec-review stamp-check --slug "$FLOW_SLUG" --body-file "$WORKTREE/.flow-tmp/pr-body.md"
 PR_URL=$(flow-open-pr \
   --body-file "$WORKTREE/.flow-tmp/pr-body.md" \
   --title "<conventional-commit summary>")

@@ -55,6 +55,7 @@ import {
   scanPluginRoots,
 } from "./plugin-root";
 import { slugify } from "./slug";
+import { runEpicGrant } from "./epic-grant-cli";
 import { confirmStdin } from "./confirm";
 import {
   epicDirRelative,
@@ -360,13 +361,19 @@ export function runEpicCli(args: string[], options: EpicOptions = {}): number {
       return runEpicLs(args.slice(1), options);
     case "done":
       return runEpicDone(args.slice(1), options);
+    case "grant":
+      return runEpicGrant(args.slice(1), options);
     case undefined:
       console.error("flow epic: a subcommand is required.");
-      console.error("usage: flow epic <create|run|status|bind|launch|ls|done>");
+      console.error(
+        "usage: flow epic <create|run|status|bind|launch|ls|done|grant>",
+      );
       return 2;
     default:
       console.error(`flow epic: unknown epic subcommand: ${sub}`);
-      console.error("usage: flow epic <create|run|status|bind|launch|ls|done>");
+      console.error(
+        "usage: flow epic <create|run|status|bind|launch|ls|done|grant>",
+      );
       return 2;
   }
 }

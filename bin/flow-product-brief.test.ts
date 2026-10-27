@@ -232,6 +232,40 @@ describe("resolveProductBrief — bounded, fence-safe text", () => {
   });
 });
 
+describe("resolveProductBrief — the owner charter never reaches readers", () => {
+  const CHARTER =
+    "## Deciding on my behalf\n\n1. secret charter point\n\n### Standing corrections\n\n- 2026-10-26: never X\n";
+
+  it("strips the charter at user scope", () => {
+    const brief = resolve({
+      [USER_BRIEF]: `# Brief\n\n## Ranked priorities\n\nfirst\n\n${CHARTER}`,
+    });
+    expect(brief.found && brief.text).toContain("## Ranked priorities");
+    expect(brief.found && brief.text).not.toContain("secret charter point");
+    expect(brief.found && brief.text).not.toContain("Standing corrections");
+  });
+
+  it("strips the charter at repo scope too and keeps later sections", () => {
+    const brief = resolve({
+      [REPO_BRIEF]: `# Brief\n\n${CHARTER}\n## Vocabulary\n\nterms\n`,
+    });
+    expect(brief.found && brief.text).not.toContain("secret charter point");
+    expect(brief.found && brief.text).toContain("## Vocabulary");
+  });
+
+  it("strips BEFORE the cap, so a long charter never truncates the real brief", () => {
+    const long = `${CHARTER}${"- filler line\n".repeat(600)}`;
+    const body = "# Brief\n\nreal content\n\n";
+    const brief = resolve({ [USER_BRIEF]: `${body}${long}` });
+    expect(brief.found && brief.text).toBe(body);
+    expect(brief.found && brief.text).not.toContain(TRUNCATION_MARKER);
+  });
+
+  it("treats a brief that is only the charter as absent", () => {
+    expect(resolve({ [USER_BRIEF]: CHARTER })).toEqual({ found: false });
+  });
+});
+
 describe("main — the CLI envelope", () => {
   function captureStdout(fn: () => number): { code: number; out: string } {
     const chunks: string[] = [];

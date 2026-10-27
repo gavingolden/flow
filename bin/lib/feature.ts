@@ -74,6 +74,7 @@ import { sanitizeSeedLine } from "./seed-delivery";
 import { appendLaunchRecord } from "./launch-log";
 import { dim } from "./color";
 import {
+  EPIC_GRANT_DENY_RULES,
   FLOW_CREATE_ISSUE_ALLOW_RULES,
   FLOW_UI_LOGIN_ALLOW_RULES,
   SECRET_FILE_DENY_RULES,
@@ -84,6 +85,7 @@ import {
   warnOnPersonalAskEntry,
 } from "./merge-allow-rule";
 import {
+  FLOW_EXEC_REVIEW_ALLOW_RULES,
   FLOW_NARROW_ALLOW_RULES,
   FLOW_ROUTINE_ALLOW_RULES,
 } from "./pipeline-allow-rules";
@@ -1975,13 +1977,14 @@ export function launchSettingsPermissions(): {
   allow: string[];
 } {
   return {
-    deny: [...SECRET_FILE_DENY_RULES],
+    deny: [...SECRET_FILE_DENY_RULES, ...EPIC_GRANT_DENY_RULES],
     allow: [
       ...FLOW_UI_LOGIN_ALLOW_RULES,
       ...FLOW_CREATE_ISSUE_ALLOW_RULES,
       FLOW_MERGE_ALLOW_RULE,
       ...FLOW_OVERRIDE_ALLOW_RULES,
       ...FLOW_ROUTINE_ALLOW_RULES,
+      ...FLOW_EXEC_REVIEW_ALLOW_RULES,
       ...Object.values(FLOW_NARROW_ALLOW_RULES).flat(),
     ],
   };

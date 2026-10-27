@@ -12617,3 +12617,138 @@ describe("flow-pr-review run list has one reader", () => {
     expect(rule).not.toContain("ungated regardless");
   });
 });
+
+describe("executive review anchors", () => {
+  // The epic executive's binding surfaces: the review prompt's hard rules, the
+  // step 3/4 wiring, the playbook's wave step, and the governance line. Losing
+  // any of these silently weakens a rule the owner relies on when delegating
+  // plan approval.
+  const ROOT = path.resolve(HERE, "..");
+  const read = (...p: string[]) =>
+    fs.readFileSync(path.join(ROOT, ...p), "utf8");
+  const prompt = read("references", "executive-review.md");
+  const step03 = read(
+    "skills/pipeline/flow-pipeline/references/phases/step-03-plan.md",
+  );
+  const step04 = read(
+    "skills/pipeline/flow-pipeline/references/phases/step-04-approval.md",
+  );
+  const revision = read(
+    "skills/pipeline/flow-product-planning/references/discovery-revision.md",
+  );
+  const playbook = read("skills/pipeline/flow-epic-run/SKILL.md");
+
+  const HARD_RULES = [
+    "never merge",
+    "never call `flow-merge-guard --record-override`",
+    "never answer a question that authorizes a production action, a shared-database write, a usage-counter change, or a shared-service reset",
+    "never `send-keys`",
+    "owner rulings win",
+  ];
+
+  it.each(HARD_RULES)(
+    "references/executive-review.md ## Hard rules states %j",
+    (phrase) => {
+      const start = prompt.indexOf("## Hard rules");
+      expect(
+        start,
+        "the prompt must keep its ## Hard rules heading",
+      ).toBeGreaterThan(-1);
+      expect(prompt.slice(start)).toContain(phrase);
+    },
+  );
+
+  it("the review prompt carries the re-judge-the-overridden instruction and the materiality bar", () => {
+    expect(prompt).toContain(
+      "Re-judge every point the planner marked overridden",
+    );
+    for (const field of [
+      "decisionItChanges",
+      "evidenceToSettle",
+      "costOfBeingWrong",
+    ]) {
+      expect(prompt).toContain(field);
+    }
+  });
+
+  it("step 4 carries the executive section with the plan-review call, the 10-minute Bash timeout, and every branch", () => {
+    expect(step04).toContain("### Executive review (granted epics)");
+    expect(step04).toContain("flow-exec-review review --kind plan");
+    expect(step04).toContain("timeout: 600000");
+    for (const branch of [
+      "**`approve`**",
+      "**`challenge`**",
+      "**`defer`**",
+      "**`ran: false`**",
+    ]) {
+      expect(step04, branch).toContain(branch);
+    }
+    expect(step04).toContain("EXECUTIVE CHALLENGE (round <r>, decision <id>):");
+    expect(step04).toContain("flow-exec-review outcome");
+    expect(step04).toContain("executive skipped: <skipText>");
+  });
+
+  it("step 4 never arms the checkpoint marker on an executive approval", () => {
+    const section = step04.slice(step04.indexOf("### Executive review"));
+    expect(section).toMatch(/do NOT arm the pending marker/i);
+    expect(section).toMatch(/NOT write `checkpoint-pending-clear`/);
+  });
+
+  it("step 3 runs the executive BEFORE writing plan-pending-review and forces the cross-model review for granted features", () => {
+    expect(step03).toContain("--require-review");
+    expect(step03).toContain("flow-exec-review status");
+    expect(step03).toContain(
+      'EXEC_SCOPE=$(flow-exec-review status --slug "$FLOW_SLUG")',
+    );
+    const pointer = step03.indexOf("granted epic\n  feature first");
+    const write = step03.indexOf(
+      "Otherwise write `phase: plan-pending-review`",
+    );
+    expect(pointer).toBeGreaterThan(-1);
+    expect(write).toBeGreaterThan(pointer);
+  });
+
+  it("step 5 runs stamp-check before the first flow-open-pr", () => {
+    const step05 = read(
+      "skills/pipeline/flow-pipeline/references/phases/step-05-implement.md",
+    );
+    const stamp = step05.indexOf("flow-exec-review stamp-check");
+    expect(stamp).toBeGreaterThan(-1);
+    const open = step05.indexOf("PR_URL=$(flow-open-pr");
+    expect(open).toBeGreaterThan(-1);
+    expect(open).toBeGreaterThan(stamp);
+  });
+
+  it("redirect handling logs the wrong-approval outcome and shows the charter offer", () => {
+    const redirectHandling = read(
+      "skills/pipeline/flow-pipeline/references/redirect-handling.md",
+    );
+    expect(redirectHandling).toContain("## After an executive approval");
+    expect(redirectHandling).toContain("flow-exec-review outcome");
+    expect(redirectHandling).toContain("charter --add --decision");
+  });
+
+  it("discovery's revision pass treats an EXECUTIVE CHALLENGE as evidence, not an owner instruction", () => {
+    expect(revision).toContain("EXECUTIVE CHALLENGE");
+    expect(revision).toMatch(/never an owner instruction/);
+    expect(revision).toContain("### Executive challenges");
+  });
+
+  it("the /flow-epic-run playbook has the wave step and the proposal rule, as a Bash call not a Task", () => {
+    expect(playbook).toContain("flow-exec-review review --kind wave");
+    expect(playbook).toContain("Executive wave review");
+    expect(playbook).toMatch(/does \*\*not apply an executive proposal\*\*/);
+    expect(playbook).toMatch(/Bash call that runs `flow-claude-headless`/);
+    expect(playbook).toMatch(/spawn\s+\*\*no Task\/Agent sub-agent\*\*/);
+  });
+
+  it("governance: no session grants autonomy or writes grant.json", () => {
+    expect(supervisorRulesContent).toContain(
+      "Don't let a session grant epic autonomy",
+    );
+    expect(supervisorRulesContent).toContain("grant.json");
+    expect(supervisorRulesContent).toMatch(
+      /not a\s+proof against a session that rewrites its own environment/,
+    );
+  });
+});

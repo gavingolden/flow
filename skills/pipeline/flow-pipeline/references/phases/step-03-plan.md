@@ -199,7 +199,12 @@ feature/non-feature end-condition split. Bash `flow-delegate` (AGY) fan-out, sam
 `/flow-pr-review`'s Gemini lens, spawns **no Task** (Hard rules' "Bash
 fan-out, not an eighth exemption"). Three-part gate: `review.gemini == true`
 in `~/.flow/config.json` (same key the Gemini lens uses), AND a non-empty
-`## Decision analysis` section in plan.md, AND
+`## Decision analysis` section in plan.md **or** a granted epic feature
+(`$EXEC_SCOPE` reads `granted: true` — each Bash call that needs the scope
+runs `EXEC_SCOPE=$(flow-exec-review status --slug "$FLOW_SLUG")` itself and
+echoes the JSON, because shell variables do not persist across Bash calls; an
+empty or unparseable result counts as not granted; then pass `--require-review` on every `flow-plan-review` call below, which
+bypasses only the Decision-analysis part), AND
 `flow-module-status --check research` passing (`flow-plan-review` is a
 `research` helper; the check emits its own named notice); when **any** part
 fails, record the reason in the chat summary and skip this sub-step unchanged.
@@ -283,7 +288,15 @@ intent, not exhaustive specifications.** exists to close:
 ```bash
 METHOD_RESOLVED=$([ -f "$WORKTREE/.flow-tmp/method-resolved" ] && echo 1)
 ROUTE=$(flow-step3-route --intent "$INTENT" --plan-md-file "$WORKTREE/.flow-tmp/plan.md" ${METHOD_RESOLVED:+--method-resolved})
+EXEC_SCOPE=$(flow-exec-review status --slug "$FLOW_SLUG")
+echo "$EXEC_SCOPE"
 ```
+
+`$EXEC_SCOPE` rides in the same Bash call as the route, so a non-epic pipeline
+pays no extra turn. Echo its JSON in that call's output (`echo "$EXEC_SCOPE"`):
+the variable does not carry into a later Bash call, so any later call that needs
+the scope runs the `status` line again, and an empty result counts as not
+granted.
 
 The helper at `bin/flow-step3-route.ts` returns one of three decisions.
 The four-cell Prompt-Interpretation matrix it implements (feature/non-feature
@@ -309,7 +322,15 @@ only and the helper exact-matches against them. The blind survey's
   (keep-mine: one `REVISION:` pass first). Full protocol in
   [references/blind-survey.md](../blind-survey.md) "The method pause".
 
-- `$ROUTE` is `route-to-step-4` and intent is `feature` → write `phase: plan-pending-review`. Then,
+- `$ROUTE` is `route-to-step-4` and intent is `feature` → **granted epic
+  feature first:** when `$EXEC_SCOPE` (the route block's
+  `flow-exec-review status --slug "$FLOW_SLUG"` line) prints
+  `granted: true`, run step 4's
+  [Executive review (granted epics)](step-04-approval.md#executive-review-granted-epics)
+  BEFORE writing `plan-pending-review` (phase stays `planning`); its
+  `approve` continues straight into step 5 in this turn, its `challenge` loops
+  back to this step, and `defer` / `ran: false` fall through to the rest of
+  this bullet. Otherwise write `phase: plan-pending-review`. Then,
   immediately before ending the turn:
 
   **Candidate follow-up issues disclosure.** Discovery lists
