@@ -63,9 +63,13 @@ not defend to the owner, is a blocking challenge.
   List the one-way actions you see in `oneWayActions`.
 - `confidence` is `high` only when evidence you can cite settles the question.
   The helper acts only on `high` + `two-way` + no `oneWayActions` + at least one
-  `evidence` entry in the closed form `path/to/file.ext:line` (or
-  `adjacent: path`, or `user: "quote"`). Anything else becomes a deferral no
-  matter what you answered, so do not inflate confidence.
+  `evidence` entry that cites a real repo file and line in the closed form
+  `path/to/file.ext:line` (or `adjacent: path`), outside `.flow-tmp/` — the plan
+  and review output are not evidence for themselves. `user: "quote"` entries
+  are allowed only as supplementary evidence beside such a repo anchor; an
+  approval backed by owner quotes alone becomes a deferral. Anything else
+  becomes a deferral no matter what you answered, so do not inflate
+  confidence.
 
 ### Prior rounds
 

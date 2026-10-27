@@ -341,6 +341,17 @@ describe("charter", () => {
     expect(text).toContain(": --x line (decision plan-3)");
   });
 
+  it("accepts `--` text after --add --decision <id> (the offered command's flag order)", () => {
+    expect(
+      call(["charter", "--add", "--decision", "plan-4", "--wide scope"]).json,
+    ).toMatchObject({ ok: true });
+    const text = fs.readFileSync(
+      path.join(home, ".flow", "product.md"),
+      "utf8",
+    );
+    expect(text).toContain(": --wide scope (decision plan-4)");
+  });
+
   it("reports a missing section as JSON with exit 0", () => {
     w(path.join(home, ".flow", "product.md"), "# no charter\n");
     expect(call(["charter", "--add", "x"])).toEqual({
@@ -438,6 +449,27 @@ describe("stamp-check", () => {
       },
       stateDir,
     );
+    expect(check().json).toEqual({ ok: true, decisionId: null });
+  });
+
+  it("redirect on an EARLIER decision does not excuse a newer approve; cancel does excuse its own", () => {
+    fs.writeFileSync(body, "no stamp");
+    approve("plan-1");
+    const reply = (id: string, ownerReply: "redirect" | "cancel") =>
+      appendManagerLog(
+        "e1",
+        {
+          ts: "t",
+          kind: "exec-owner-reply",
+          slug: "feat",
+          exec: { decisionId: id, reviewKind: "plan", ownerReply },
+        },
+        stateDir,
+      );
+    reply("plan-1", "redirect");
+    approve("plan-2");
+    expect(check().json).toEqual({ ok: false, decisionId: "plan-2" });
+    reply("plan-2", "cancel");
     expect(check().json).toEqual({ ok: true, decisionId: null });
   });
 

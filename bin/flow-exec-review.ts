@@ -86,6 +86,47 @@ function parse(
   return { flags, positionals, bare };
 }
 
+/**
+ * `charter --add [--decision <id>] "<text>"`: the text is taken literally
+ * wherever it sits — directly after `--add` or after `--decision <id>` —
+ * even when it starts with `--`.
+ */
+function parseCharter(
+  args: string[],
+): { line: string; decision?: string } | { error: string } {
+  let decision: string | undefined;
+  let sawAdd = false;
+  const text: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--") {
+      text.push(...args.slice(i + 1));
+      break;
+    }
+    if (a === "--decision") {
+      const next = args[i + 1];
+      if (next === undefined || next === "--") {
+        return { error: "--decision requires a value" };
+      }
+      decision = next;
+      i++;
+    } else if (a === "--add") {
+      sawAdd = true;
+      const next = args[i + 1];
+      if (next !== undefined && next !== "--" && next !== "--decision") {
+        text.push(next);
+        i++;
+      }
+    } else if (!a.startsWith("--") || (sawAdd && text.length === 0)) {
+      text.push(a);
+    } else {
+      return { error: `unknown flag: ${a}` };
+    }
+  }
+  if (!sawAdd) return { error: "charter requires --add" };
+  return { line: text.join(" "), decision };
+}
+
 export function run(
   argv: string[],
   overrides: Partial<ExecReviewDeps> = {},
@@ -204,14 +245,11 @@ export function run(
     }
 
     case "charter": {
-      const p = parse(rest, ["add", "decision"], ["add"]);
+      const p = parseCharter(rest);
       if ("error" in p) return usage(p.error);
-      const line = p.flags.add ?? p.positionals.join(" ");
-      if (!p.flags.add && !p.bare.has("add"))
-        return usage("charter requires --add");
-      const result = addCorrection(line, {
+      const result = addCorrection(p.line, {
         homeDir: deps.homeDir,
-        decisionId: p.flags.decision,
+        decisionId: p.decision,
       });
       out(result);
       return 0;

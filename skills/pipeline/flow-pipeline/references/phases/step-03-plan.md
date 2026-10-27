@@ -200,11 +200,10 @@ feature/non-feature end-condition split. Bash `flow-delegate` (AGY) fan-out, sam
 fan-out, not an eighth exemption"). Three-part gate: `review.gemini == true`
 in `~/.flow/config.json` (same key the Gemini lens uses), AND a non-empty
 `## Decision analysis` section in plan.md **or** a granted epic feature
-(`$EXEC_SCOPE` reads `granted: true` — the one
-`flow-exec-review status --slug "$FLOW_SLUG"` probe step 3 runs per pass,
-set in the route block under **End conditions**; when this gate is reached
-first, run that same line in the gate's first Bash call and reuse the value
-rather than probing again; then pass `--require-review` on every `flow-plan-review` call below, which
+(`$EXEC_SCOPE` reads `granted: true` — each Bash call that needs the scope
+runs `EXEC_SCOPE=$(flow-exec-review status --slug "$FLOW_SLUG")` itself and
+echoes the JSON, because shell variables do not persist across Bash calls; an
+empty or unparseable result counts as not granted; then pass `--require-review` on every `flow-plan-review` call below, which
 bypasses only the Decision-analysis part), AND
 `flow-module-status --check research` passing (`flow-plan-review` is a
 `research` helper; the check emits its own named notice); when **any** part
@@ -290,11 +289,14 @@ intent, not exhaustive specifications.** exists to close:
 METHOD_RESOLVED=$([ -f "$WORKTREE/.flow-tmp/method-resolved" ] && echo 1)
 ROUTE=$(flow-step3-route --intent "$INTENT" --plan-md-file "$WORKTREE/.flow-tmp/plan.md" ${METHOD_RESOLVED:+--method-resolved})
 EXEC_SCOPE=$(flow-exec-review status --slug "$FLOW_SLUG")
+echo "$EXEC_SCOPE"
 ```
 
-`$EXEC_SCOPE` rides in the same Bash call, so a non-epic pipeline pays no extra
-turn; it is the single executive-scope probe for this pass (the cross-model
-gate above reads the same value).
+`$EXEC_SCOPE` rides in the same Bash call as the route, so a non-epic pipeline
+pays no extra turn. Echo its JSON in that call's output (`echo "$EXEC_SCOPE"`):
+the variable does not carry into a later Bash call, so any later call that needs
+the scope runs the `status` line again, and an empty result counts as not
+granted.
 
 The helper at `bin/flow-step3-route.ts` returns one of three decisions.
 The four-cell Prompt-Interpretation matrix it implements (feature/non-feature

@@ -12714,7 +12714,9 @@ describe("executive review anchors", () => {
     );
     const stamp = step05.indexOf("flow-exec-review stamp-check");
     expect(stamp).toBeGreaterThan(-1);
-    expect(step05.indexOf("flow-open-pr", stamp)).toBeGreaterThan(stamp);
+    const open = step05.indexOf("PR_URL=$(flow-open-pr");
+    expect(open).toBeGreaterThan(-1);
+    expect(open).toBeGreaterThan(stamp);
   });
 
   it("redirect handling logs the wrong-approval outcome and shows the charter offer", () => {

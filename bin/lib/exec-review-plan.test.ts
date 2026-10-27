@@ -15,7 +15,8 @@ import {
   type ExecReviewDeps,
   type HeadlessEnvelope,
 } from "./exec-review-shared";
-import { runPlanReview, skipTextFor } from "./exec-review-plan";
+import { runPlanReview } from "./exec-review-plan";
+import { skipTextFor } from "./exec-review-skip-text";
 import type { PreconditionId } from "./exec-review-preconditions";
 import { writeState } from "./state";
 
@@ -302,35 +303,6 @@ describe("headless failures pause with the forwarded reason", () => {
 });
 
 describe("skipText", () => {
-  const ALL: PreconditionId[] = [
-    "cross-model-unavailable",
-    "cross-model-not-engaged",
-    "cross-model-stale",
-    "anchor-unresolved",
-    "plan-lint",
-    "needs-user-input",
-    "stakes-confidence",
-    "plan-deviates-from-request",
-    "one-way-action",
-  ];
-
-  it("gives every precondition its own plain-language sentence", () => {
-    const texts = ALL.map((id) => skipTextFor("precondition-failed", id));
-    expect(new Set(texts).size).toBe(ALL.length);
-    for (const t of texts) {
-      expect(t).not.toMatch(/precondition-failed|[a-z]+-[a-z]+-[a-z]+/);
-      expect(t.length).toBeGreaterThan(20);
-    }
-    expect(skipTextFor("precondition-failed", "cross-model-stale")).toBe(
-      "the outside-model review is older than the current plan",
-    );
-  });
-
-  it("falls back to a readable sentence for an unmapped skip reason", () => {
-    expect(skipTextFor("some-new-reason")).toContain("some-new-reason");
-    expect(skipTextFor("charter-missing")).not.toBe("charter-missing");
-  });
-
   it("is carried on every ran:false result", () => {
     w(path.join(home, ".flow", "product.md"), "# Brief only\n");
     expect(run()).toMatchObject({
@@ -364,6 +336,7 @@ describe("approve", () => {
     expect(r).toMatchObject({ ran: true, action: "defer" });
     if (!r.ran) throw new Error("unreachable");
     expect(r.demotions.join(" ")).toContain("no evidence anchor resolves");
+    expect(r.deferText).toContain("none of its evidence points at a real file");
     expect(r.disclosure).toBeUndefined();
     const draft = fs.readFileSync(
       path.join(wt, ".flow-tmp", "pr-description-draft.md"),

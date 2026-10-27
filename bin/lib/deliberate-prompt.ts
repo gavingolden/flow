@@ -220,7 +220,7 @@ export function parseDeliberation(text: string): Deliberation | null {
  * All three dash characters are allowed because models emit typographic
  * dashes freely; an en dash in a citation is not a different claim.
  */
-const LINE_SUFFIX = String.raw`(?::\d+(?:[-–—]\d+)?)?`;
+const LINE_SUFFIX = String.raw`(?::(\d+)(?:[-–—](\d+))?)?`;
 
 /**
  * True when an anchor is a closed form the CALLER can mechanically
@@ -244,20 +244,52 @@ export function isClosedFormAnchor(anchor: string): boolean {
   // one unverifiable element still demotes the whole anchor, so the check
   // stays conservative — a list cannot be used to smuggle prose in beside a
   // real path.
-  const parts = trimmed
+  const parts = splitAnchorParts(trimmed);
+  if (parts.length === 0) return false;
+  return parts.every((p) => parseClosedFormPath(p) !== null);
+}
+
+function splitAnchorParts(anchor: string): string[] {
+  return anchor
     .split(/[,;]/)
     .map((p) => p.trim())
     .filter((p) => p.length > 0);
-  if (parts.length === 0) return false;
-  return parts.every(isClosedFormPath);
 }
 
-function isClosedFormPath(part: string): boolean {
-  const path = /^adjacent:\s*(.+)$/.exec(part)?.[1]?.trim() ?? part;
-  // A bare path, optionally line-suffixed. Must look like a path — carrying
-  // an extension, or a directory separator — so a prose sentence cannot pass.
-  return (
-    new RegExp(String.raw`^[\w./@-]+\.\w+${LINE_SUFFIX}$`).test(path) ||
-    new RegExp(String.raw`^[\w./@-]+/[\w./@-]+${LINE_SUFFIX}$`).test(path)
+export interface ClosedFormPath {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+}
+
+/**
+ * Parses one closed-form path element (`path[:line[-line]]`, optionally
+ * `adjacent:`-prefixed and/or backticked) — the single grammar shared by the
+ * syntax gate above and the caller-side file-and-line re-check.
+ */
+export function parseClosedFormPath(part: string): ClosedFormPath | null {
+  const unticked = part.trim().replace(/^`|`$/g, "").trim();
+  const adjacent = /^adjacent:\s*(.+)$/.exec(unticked)?.[1];
+  const target = (adjacent ?? unticked).trim().replace(/^`|`$/g, "").trim();
+  // Must look like a path — carrying an extension, or a directory separator —
+  // so a prose sentence cannot pass.
+  const m =
+    new RegExp(String.raw`^([\w./@-]+\.\w+)${LINE_SUFFIX}$`).exec(target) ??
+    new RegExp(String.raw`^([\w./@-]+/[\w./@-]+)${LINE_SUFFIX}$`).exec(target);
+  if (!m) return null;
+  return {
+    path: m[1],
+    ...(m[2] ? { startLine: Number(m[2]) } : {}),
+    ...(m[3] ? { endLine: Number(m[3]) } : {}),
+  };
+}
+
+/** Every closed-form path element of an evidence item, in order. */
+export function closedFormPaths(anchor: string): ClosedFormPath[] {
+  return splitAnchorParts(anchor.trim().replace(/^`|`$/g, "").trim()).flatMap(
+    (p) => {
+      const parsed = parseClosedFormPath(p);
+      return parsed ? [parsed] : [];
+    },
   );
 }

@@ -1,7 +1,11 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { computeDecisionHash } from "../flow-plan-review";
 import {
   checkPlanPreconditions,
+  evidenceAnchorResolves,
   ONE_WAY_ACTION_PATTERNS,
   type PreconditionId,
 } from "./exec-review-preconditions";
@@ -284,5 +288,47 @@ describe("checkPlanPreconditions", () => {
     expect(failed(check(stamp(BASE_PLAN), RUN_OK, dir))).toBe(
       "anchor-unresolved",
     );
+  });
+});
+
+describe("evidenceAnchorResolves", () => {
+  const wt = fs.mkdtempSync(path.join(os.tmpdir(), "evid-"));
+  fs.mkdirSync(path.join(wt, "bin"));
+  fs.mkdirSync(path.join(wt, "src.d"));
+  fs.mkdirSync(path.join(wt, ".flow-tmp"));
+  fs.writeFileSync(path.join(wt, "bin", "flow"), "a\nb\nc\n");
+  fs.writeFileSync(path.join(wt, "bin", "x.ts"), "a\nb\nc\n");
+  fs.writeFileSync(path.join(wt, ".flow-tmp", "plan.md"), "a\nb\n");
+  const ok = (e: string[]) => evidenceAnchorResolves(e, wt);
+
+  it("defers on an owner quote alone", () => {
+    expect(ok(['user: "ship it"'])).toBe(false);
+  });
+
+  it("rejects paths outside the worktree", () => {
+    expect(ok(["../x.ts:1"])).toBe(false);
+    expect(ok(["/etc/hosts.txt:1"])).toBe(false);
+  });
+
+  it("rejects pipeline scratch under .flow-tmp", () => {
+    expect(ok([".flow-tmp/plan.md:1"])).toBe(false);
+  });
+
+  it("rejects a directory anchor", () => {
+    expect(ok(["src.d"])).toBe(false);
+    expect(ok(["bin/"])).toBe(false);
+  });
+
+  it("resolves an extensionless real file", () => {
+    expect(ok(["bin/flow:1"])).toBe(true);
+  });
+
+  it("resolves a backticked comma list and adjacent: forms", () => {
+    expect(ok(["`nope/a.ts:1`, `bin/x.ts:2`"])).toBe(true);
+    expect(ok(["adjacent: `bin/x.ts:2`"])).toBe(true);
+  });
+
+  it("rejects a line past the end of the file", () => {
+    expect(ok(["bin/x.ts:99"])).toBe(false);
   });
 });

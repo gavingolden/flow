@@ -126,7 +126,8 @@ delegated.
    (`$EPIC` is `.epic` from the status line) as a Bash call with
    `timeout: 600000` — one headless call can take several minutes. Branch on
    the JSON line's `.ran` and `.action`, never the exit code; no parseable JSON
-   line is `ran: false` with skipReason `headless-error`.
+   line is `ran: false` with skipReason `headless-error` and the skip text
+   `the executive's review did not return an answer`.
 2. **`approve`** → echo `.disclosure` verbatim as assistant prose. Write the
    checkpoint body (decision id and `.notes[]`) at the path
    `flow-checkpoint --path` prints, but do NOT arm the pending marker and do
@@ -141,7 +142,9 @@ delegated.
    whenever the round changed a hashed decision; otherwise the next review
    fails `cross-model-stale` and defers.
 4. **`defer`** → today's pause, unchanged, with the AWAITING APPROVAL WHY
-   suffixed `; executive deferred (decision <id>): <reason>`. Only when
+   suffixed `; executive deferred (decision <id>): <reason>`. When `.deferText`
+   is set (an approval demoted because no evidence pointed at a real repo
+   file and line), use it as the `<reason>` instead of `.rationale`. Only when
    `.recommendationAction` is set, add
    `**Needs attention:** Executive recommends: <recommendation> — reply accept to take it`.
 5. **`ran: false`** → today's pause, with the WHY suffixed

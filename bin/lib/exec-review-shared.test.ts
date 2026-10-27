@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { execHeadlessArgv, parseHeadlessStdout } from "./exec-review-shared";
 
 describe("parseHeadlessStdout", () => {
-  it("reads the last JSON line even when progress follows or precedes it", () => {
+  it("reads the last JSON line when progress precedes it or blank lines follow it", () => {
     expect(parseHeadlessStdout('progress\n{"ran":true}\n')).toEqual({
       ran: true,
     });

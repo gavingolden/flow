@@ -12,6 +12,7 @@ import {
   extractVettingVerdict,
   parseVettingVerdict,
 } from "../flow-step3-route";
+import { closedFormPaths } from "./deliberate-prompt";
 import { MIN_LENSES_ENGAGED } from "./plan-review-engagement";
 import { ANCHOR_RE } from "./value-anchors";
 
@@ -303,34 +304,38 @@ function checkOneWay(planText: string): PreconditionResult {
 
 /**
  * True when at least one path-form evidence anchor the executive cited points
- * at a real worktree file with the cited lines in range. The envelope's own
- * check is syntax-only; this is the mechanical re-check that keeps a
- * model-claimed approve from clearing the bar on self-report.
+ * at a real repo file (not a directory, not pipeline scratch under
+ * `.flow-tmp/`) with the cited lines in range. The envelope's own check is
+ * syntax-only; this is the mechanical re-check that keeps a model-claimed
+ * approve from clearing the bar on self-report. It shares one path grammar
+ * with that syntax gate (`closedFormPaths`).
  */
 export function evidenceAnchorResolves(
   evidence: string[],
   worktree: string,
   probes: Probes = {},
 ): boolean {
-  const exists = probes.fileExists ?? ((p) => fs.existsSync(p));
+  const exists =
+    probes.fileExists ??
+    ((p) => {
+      try {
+        return fs.statSync(p).isFile();
+      } catch {
+        return false;
+      }
+    });
   const lines =
     probes.lineCount ?? ((p) => fs.readFileSync(p, "utf8").split("\n").length);
   for (const item of evidence) {
-    const parts = item
-      .trim()
-      .replace(/^`|`$/g, "")
-      .split(/[,;]/)
-      .map((q) => q.trim().replace(/^adjacent:\s*/, ""));
-    for (const part of parts) {
-      const m = /^([\w./@-]+\.\w+)(?::(\d+)(?:[-–—](\d+))?)?$/.exec(part);
-      if (!m) continue;
-      const abs = path.resolve(worktree, m[1]);
+    for (const cited of closedFormPaths(item)) {
+      const abs = path.resolve(worktree, cited.path);
       const within = path.relative(worktree, abs);
       if (within.startsWith("..") || path.isAbsolute(within)) continue;
+      if (within.split(path.sep)[0] === ".flow-tmp") continue;
       try {
         if (!exists(abs)) continue;
-        const cited = Math.max(Number(m[2] ?? 0), Number(m[3] ?? 0));
-        if (cited > 0 && cited > lines(abs)) continue;
+        const last = Math.max(cited.startLine ?? 0, cited.endLine ?? 0);
+        if (last > 0 && last > lines(abs)) continue;
       } catch {
         continue;
       }
