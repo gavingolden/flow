@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 /**
  * Fire a macOS notification when the supervisor reaches a terminal end
- * state (MERGED / gated / NEEDS HUMAN).
+ * state (MERGED / gated / NEEDS HUMAN), or when a pipeline or the epic
+ * sequencer pauses for the owner without ending (`waiting`).
  *
  * Carries forward the legacy `src/util/notify.ts` behaviour from old
  * PR 17 into the tmux supervisor design (PR 10):
@@ -18,7 +19,7 @@
  *   returns 0 even if the notification never appears.
  *
  * Usage:
- *   flow-notify --status <merged|gated|needs-human>
+ *   flow-notify --status <merged|gated|needs-human|waiting>
  *               [--slug <slug>] [--reason <text>] [--url <url>] [--tag <tag>]
  *
  * `--reason` is the TLDR sentence at every call site — the pause/terminal
@@ -30,7 +31,9 @@
  * headline is the first line of that tag's `NEXT_ACTION_BY_REASON` recipe
  * (`nextActionHeadline`, `<slug>` / `<pr>` filled in from `--slug` /
  * `--url`). A gated message leads with `GATED_NEXT_ACTION`; a merged message
- * stays the bare TLDR. The whole message is capped at 180 chars, so only the
+ * stays the bare TLDR. A waiting message reads `Next: answer in window <slug>
+ * — <TLDR>`, where `--slug` names the window to answer in (the epic sequencer
+ * passes it explicitly: its window has no `TMUX_PANE`). The whole message is capped at 180 chars, so only the
  * TLDR tail is ever cut.
  *
  * `--slug` is optional: when omitted, the helper auto-resolves the
@@ -50,7 +53,7 @@ import { spawn } from "node:child_process";
 import { extractPrNumber, nextActionHeadline } from "./flow-gate-summary";
 import { resolveSlugAmbient } from "./lib/session-identity";
 
-const VALID_STATUSES = new Set(["merged", "gated", "needs-human"]);
+const VALID_STATUSES = new Set(["merged", "gated", "needs-human", "waiting"]);
 const MESSAGE_MAX_CHARS = 180;
 
 // Terminal counterpart: renderGated's `NEXT ACTION:` row in bin/flow-gate-summary.ts.
@@ -125,6 +128,11 @@ export function buildPayload(args: Args): Payload {
 
 function notificationAction(args: Args, slug: string): string {
   if (args.status === "gated") return GATED_NEXT_ACTION;
+  if (args.status === "waiting") {
+    return slug.length > 0
+      ? `answer in window ${slug}`
+      : "answer in the flow window";
+  }
   if (args.status !== "needs-human") return "";
   let action = nextActionHeadline(args.tag?.trim());
   if (slug.length > 0) action = action.replaceAll("<slug>", slug);
@@ -247,7 +255,7 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
   if ("error" in parsed) {
     console.error(`flow-notify: ${parsed.error}`);
     console.error(
-      "usage: flow-notify --status <merged|gated|needs-human> [--slug <slug>] [--reason <text>] [--url <url>] [--tag <tag>]",
+      "usage: flow-notify --status <merged|gated|needs-human|waiting> [--slug <slug>] [--reason <text>] [--url <url>] [--tag <tag>]",
     );
     return 2;
   }

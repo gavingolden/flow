@@ -66,9 +66,12 @@ describe("parseArgs", () => {
     });
   });
 
-  it.each(["merged", "gated", "needs-human"])("accepts status %s", (status) => {
-    expect(parseArgs(["--status", status])).toMatchObject({ status });
-  });
+  it.each(["merged", "gated", "needs-human", "waiting"])(
+    "accepts status %s",
+    (status) => {
+      expect(parseArgs(["--status", status])).toMatchObject({ status });
+    },
+  );
 
   it("accepts --tag", () => {
     expect(
@@ -215,6 +218,27 @@ describe("buildPayload", () => {
     expect(payload.message).toBe(
       `Next: ${GATED_NEXT_ACTION} — validate the smoke test`,
     );
+  });
+
+  it("waiting names the window to answer in, then the reason", () => {
+    expect(
+      buildPayload({
+        status: "waiting",
+        slug: "manage-my-epic",
+        reason: "drift on f2 — run /flow-epic-run reconcile-drift",
+      }),
+    ).toEqual({
+      title: "flow: waiting",
+      subtitle: "manage-my-epic",
+      message:
+        "Next: answer in window manage-my-epic — drift on f2 — run /flow-epic-run reconcile-drift",
+    });
+  });
+
+  it("waiting without a slug still gives a usable action", () => {
+    expect(
+      buildPayload({ status: "waiting", reason: "plan ready" }).message,
+    ).toBe("Next: answer in the flow window — plan ready");
   });
 
   it("merged messages stay the bare TLDR with no Next: prefix", () => {
@@ -385,6 +409,27 @@ describe("dispatch", () => {
         ],
       },
     ]);
+  });
+
+  it("dispatches a waiting notification under an explicit --slug with no pane", () => {
+    const deps = makeDeps({ hasTerminalNotifier: () => true });
+    const result = dispatch(
+      {
+        status: "waiting",
+        slug: "f1-epic-sequencer",
+        reason: "plan awaiting review",
+      },
+      deps,
+    );
+    expect(result).toMatchObject({
+      dispatched: true,
+      backend: "terminal-notifier",
+    });
+    const args = deps.calls[0]?.args ?? [];
+    expect(args[args.indexOf("-title") + 1]).toBe("flow: waiting");
+    expect(args[args.indexOf("-message") + 1]).toBe(
+      "Next: answer in window f1-epic-sequencer — plan awaiting review",
+    );
   });
 
   it("falls back to osascript when terminal-notifier is missing", () => {

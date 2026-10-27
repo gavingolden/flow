@@ -1,0 +1,115 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderManageBoard snapshots > GitHub unreachable and failed launch lines 1`] = `
+"### Epic my-epic — 0 / 2 merged — RUNNING
+manager haiku/low · unhinted features: haiku/low · autonomy observe · checkout abc1234 · updated 2026-10-26T12:00:00Z
+
+**TLDR:** my-epic: 0 of 2 merged, 0 running, 2 held back.
+**Unsolved:**
+- launch failed: beta — flow feature create exited 1 — fix it, then run flow epic launch my-epic beta or restart the sequencer (window manage-my-epic)
+- GitHub unreachable for 7m — launches paused (gh: HTTP 502) (window manage-my-epic)
+
+FEATURE  STATUS  SLUG  PR  PHASE  WAITS ON
+alpha    ready   —     —   —      —
+beta     ready   —     —   —      —
+ready: 2   waiting: 0   running: 0   blocked: 0   merged: 0 / 2
+
+**Next action:** fix the failed launch, then run flow epic launch my-epic beta — or restart this sequencer to retry."
+`;
+
+exports[`renderManageBoard snapshots > drift: bound and global drift name the pointer and the window 1`] = `
+"### Epic my-epic — 0 / 2 merged — NEEDS YOU
+manager opus/high · unhinted features: config · autonomy observe · checkout abc1234 · updated 2026-10-26T12:00:00Z
+
+**TLDR:** my-epic: 0 of 2 merged, 0 running, 1 held back.
+**Unsolved:**
+- drift: every launch halted — run.json names 'ghost', which the manifest no longer has — run /flow-epic-run reconcile-drift (window manage-my-epic)
+- drift: alpha — run.json binds 'alpha' to 'alpha-old' but no pipeline state exists for it — run /flow-epic-run reconcile-drift (window manage-my-epic)
+- drift: beta — a merged PR #9 is on branch 'beta' — run /flow-epic-run reconcile-drift (window manage-my-epic)
+
+FEATURE  STATUS  SLUG       PR  PHASE  WAITS ON
+alpha    orphan  alpha-old  —   —      —
+beta     ready   —          —   —      —
+ready: 1   waiting: 0   running: 0   blocked: 0   merged: 0 / 2
+
+**Next action:** run /flow-epic-run reconcile-drift, then restart this sequencer."
+`;
+
+exports[`renderManageBoard snapshots > final: every feature merged 1`] = `
+"### Epic my-epic — 2 / 2 merged — DONE
+manager opus/high · unhinted features: config · autonomy observe · checkout abc1234 · updated 2026-10-26T12:00:00Z
+
+**TLDR:** my-epic is done — all 2 features merged.
+
+FEATURE  STATUS  SLUG   PR  PHASE   WAITS ON
+alpha    merged  alpha  —   merged  —
+beta     merged  beta   —   merged  —
+ready: 0   waiting: 0   running: 0   blocked: 0   merged: 2 / 2
+
+**Next action:** press Enter or Ctrl-C to close this window — launched pipelines keep their own windows."
+`;
+
+exports[`renderManageBoard snapshots > idle: nothing launched, nothing needed 1`] = `
+"### Epic my-epic — 0 / 2 merged — RUNNING
+manager opus/high · unhinted features: config · autonomy observe · checkout abc1234 · updated 2026-10-26T12:00:00Z
+
+**TLDR:** my-epic: 0 of 2 merged, 0 running.
+
+FEATURE  STATUS   SLUG  PR  PHASE  WAITS ON
+alpha    ready    —     —   —      —
+beta     blocked  —     —   —      alpha
+ready: 1   waiting: 0   running: 0   blocked: 1   merged: 0 / 2
+
+**Next action:** nothing needed — the next ready feature launches on its own; Ctrl-C stops the sequencer without touching launched pipelines."
+`;
+
+exports[`renderManageBoard snapshots > launching: one flow epic launch in flight 1`] = `
+"### Epic my-epic — 0 / 2 merged — RUNNING
+manager opus/high · unhinted features: config · autonomy observe · checkout abc1234 · updated 2026-10-26T12:00:00Z
+
+**TLDR:** my-epic: 0 of 2 merged, 0 running, 2 held back.
+**Unsolved:**
+- launching: alpha — flow epic launch is still running (window manage-my-epic)
+- hold: beta — waiting for a free slot (window manage-my-epic)
+
+FEATURE  STATUS  SLUG  PR  PHASE  WAITS ON
+alpha    ready   —     —   —      —
+beta     ready   —     —   —      —
+ready: 2   waiting: 0   running: 0   blocked: 0   merged: 0 / 2
+
+**Next action:** nothing needed — the next ready feature launches on its own; Ctrl-C stops the sequencer without touching launched pipelines."
+`;
+
+exports[`renderManageBoard snapshots > owner-needed: names the window to answer in 1`] = `
+"### Epic my-epic — 0 / 2 merged — NEEDS YOU
+manager opus/high · unhinted features: config · autonomy observe · checkout abc1234 · updated 2026-10-26T12:00:00Z
+notifications off — set FLOW_NOTIFY=1
+
+**TLDR:** my-epic: 0 of 2 merged, 1 running, 2 waiting on you.
+**Needs attention:**
+- alpha: plan is waiting for your approval — answer in window alpha (flow attach alpha)
+- beta (PR #41): PR is gated — validate its open Test Steps, then merge — answer in window beta (flow attach beta)
+
+FEATURE  STATUS   SLUG   PR   PHASE                WAITS ON
+alpha    running  alpha  —    plan-pending-review  —
+beta     gated    beta   #41  gated                —
+ready: 0   waiting: 0   running: 1   blocked: 0   merged: 0 / 2
+
+**Next action:** answer in window alpha (flow attach alpha); this sequencer keeps launching on its own, and Ctrl-C stops it without touching launched pipelines."
+`;
+
+exports[`renderManageBoard snapshots > waiting: a wait node shows waiting on: <waitFor> 1`] = `
+"### Epic my-epic — 0 / 2 merged — RUNNING
+manager opus/high · unhinted features: config · autonomy observe · checkout abc1234 · updated 2026-10-26T12:00:00Z
+
+**TLDR:** my-epic: 0 of 2 merged, 0 running.
+**Unsolved:**
+- waiting on: the rollout lands in prod — gate is never launched; record it with flow epic bind my-epic gate --external "<ref>"
+
+FEATURE  STATUS   SLUG  PR  PHASE  WAITS ON
+alpha    ready    —     —   —      —
+gate     waiting  —     —   —      the rollout lands in prod
+ready: 1   waiting: 1   running: 0   blocked: 0   merged: 0 / 2
+
+**Next action:** nothing needed — the next ready feature launches on its own; Ctrl-C stops the sequencer without touching launched pipelines."
+`;
