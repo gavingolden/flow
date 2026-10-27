@@ -97,9 +97,10 @@ export type BoardModel = {
 
 const POINTER = "run /flow-epic-run reconcile-drift";
 
+/** Coarse on purpose: a seconds counter would redraw the board every tick of an outage. */
 function age(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 90) return `${s}s`;
+  if (s < 60) return "under a minute";
   const m = Math.round(s / 60);
   return m < 90 ? `${m}m` : `${Math.round(m / 60)}h`;
 }

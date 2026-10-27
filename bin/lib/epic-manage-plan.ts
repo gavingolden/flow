@@ -59,6 +59,25 @@ function readManifest(manifestPath: string): EpicManifest {
 export const githubFresh = (ctx: LoopContext, now: number): boolean =>
   ctx.lastGood !== null && now - ctx.lastGood.at <= 2 * ctx.cfg.githubPollMs;
 
+/**
+ * Keep the heartbeat fresh while ONE bounded probe is awaited (a slow `gh` can
+ * take its full 30 s timeout): a slow probe is not a hung sequencer. Only
+ * probes with their own timeout are wrapped, so a truly hung tick still goes
+ * stale.
+ */
+async function withBeat<T>(
+  ctx: LoopContext,
+  beat: () => void,
+  probe: () => Promise<T>,
+): Promise<T> {
+  const timer = setInterval(beat, ctx.cfg.statePollMs);
+  try {
+    return await probe();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 async function refreshGithub(
   ctx: LoopContext,
   deps: LoopDeps,
@@ -195,7 +214,9 @@ export async function plan(
   const branches = o.manifest.features
     .filter((f) => !o.runState.features[f.id])
     .map((f) => slugify(f.id));
-  await refreshGithub(ctx, deps, [...watched], branches);
+  await withBeat(ctx, hooks.beat, () =>
+    refreshGithub(ctx, deps, [...watched], branches),
+  );
   hooks.beat();
 
   let result = reconcileWith(ctx, deps, o, new Set());
@@ -245,7 +266,9 @@ export async function plan(
   }
   // Git refs are only read when a launch candidate exists (after observed merges unblock dependents).
   if (result.board.some((r) => r.status === "ready")) {
-    git = await probeGitRefs(ctx.cfg.manager.repo, deps.exec);
+    git = await withBeat(ctx, hooks.beat, () =>
+      probeGitRefs(ctx.cfg.manager.repo, deps.exec),
+    );
   }
   const guard = guardOf(result);
   return { result, guard, replan: () => guardOf(result) };

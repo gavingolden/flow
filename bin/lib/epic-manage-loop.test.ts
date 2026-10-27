@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { managerDir, readManagerLog } from "./epic-manager-log";
 import {
   abortableSleep,
@@ -732,6 +732,35 @@ describe("stopping", () => {
     expect(controller.signal.aborted).toBe(true);
     dispose();
     expect(process.listenerCount("SIGINT")).toBe(before);
+  });
+});
+
+describe("heartbeat during a slow probe", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("keeps manager.json fresh while a slow GitHub probe is awaited, so a slow gh never reads as stalled", async () => {
+    vi.useFakeTimers();
+    writeManifest(feat("alpha"));
+    bind("alpha");
+    const h = harness();
+    writeManager(h.cfg.manager, stateDir);
+    let release: () => void = () => {};
+    const baseExec = h.deps.exec;
+    h.deps.exec = async (cmd, args, cwd, timeout) => {
+      if (cmd === "gh" && args[0] === "api") {
+        await new Promise<void>((r) => (release = r));
+      }
+      return baseExec(cmd, args, cwd, timeout);
+    };
+    const pending = tick(h.ctx(), h.deps);
+    await vi.advanceTimersByTimeAsync(0);
+    h.clock.t += 20_000;
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(Date.parse(readManager(EPIC, stateDir)!.heartbeatAt)).toBe(
+      T0 + 20_000,
+    );
+    release();
+    await pending;
   });
 });
 
