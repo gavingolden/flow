@@ -203,6 +203,17 @@ describe("runEpicManage — launcher", () => {
     expect(o.createWindow).not.toHaveBeenCalled();
   });
 
+  it("refuses a stalled-but-running sequencer (heartbeat a minute old), opening no window", () => {
+    writeManager(
+      manager({ heartbeatAt: new Date(Date.now() - 60_000).toISOString() }),
+      stateDir,
+    );
+    const o = opts();
+    expect(runEpicManage([SLUG], o)).toBe(2);
+    expect(errors.join("\n")).toContain("flow attach manage-my-epic");
+    expect(o.createWindow).not.toHaveBeenCalled();
+  });
+
   it("refuses when window manage-<slug> already exists even without a record", () => {
     const o = opts({ windowExists: (n) => n === `manage-${SLUG}` });
     expect(runEpicManage([SLUG], o)).toBe(2);
@@ -348,6 +359,45 @@ describe("runEpicManage — foreground (in-process)", () => {
     expect(await runEpicManage([SLUG, "--foreground"], o)).toBe(2);
     expect(errors.join("\n")).toContain("flow attach manage-my-epic");
     expect(readManager(SLUG, stateDir)?.pid).toBe(4242);
+  });
+});
+
+describe("runEpicManage — crash restart", () => {
+  it("carries a dead predecessor's mid-launch marker into the new record and never relaunches that node", async () => {
+    writeManager(
+      manager({
+        pid: 4242,
+        launching: {
+          featureId: "alpha",
+          startedAt: new Date(Date.now() - 60_000).toISOString(),
+        },
+      }),
+      stateDir,
+    );
+    const controller = new AbortController();
+    const seen: (ManagerState | null)[] = [];
+    const spawnLaunch = vi.fn(async () => ({ exitCode: 0 }));
+    const o = opts({
+      controller,
+      liveness: {
+        isAlive: (pid: number) => pid === process.pid,
+        pidStartEpoch: () => 1000,
+      },
+      loopDeps: {
+        exec: async () => ({ exitCode: 1, stdout: "", stderr: "no gh" }),
+        spawnLaunch,
+        sleep: async () => {
+          seen.push(readManager(SLUG, stateDir));
+          controller.abort();
+        },
+        write: () => {},
+        headSha: async () => "abc1234",
+      },
+    });
+    expect(await runEpicManage([SLUG, "--foreground"], o)).toBe(0);
+    expect(seen[0]?.pid).toBe(process.pid);
+    expect(seen[0]?.launching?.featureId).toBe("alpha");
+    expect(spawnLaunch).not.toHaveBeenCalled();
   });
 });
 

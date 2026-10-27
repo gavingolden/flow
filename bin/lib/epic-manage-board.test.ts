@@ -142,13 +142,13 @@ describe("renderManageBoard snapshots", () => {
               },
             ],
             globalDrift: [
-              "run.json names 'ghost', which the manifest no longer has",
+              "the epic's launch record names 'ghost', which the manifest no longer has",
             ],
             boundDrift: [
               {
                 id: "alpha",
                 reason:
-                  "run.json binds 'alpha' to 'alpha-old' but no pipeline state exists for it",
+                  "alpha was launched as 'alpha-old', but that pipeline no longer exists",
               },
             ],
             observedMerged: [],
@@ -361,5 +361,121 @@ describe("ownerNeededFor", () => {
     }
     expect(OWNER_NEEDED_PHASES.has("ci-wait-pending")).toBe(false);
     expect(OWNER_NEEDED_PHASES.has("plan-review-pending")).toBe(false);
+  });
+});
+
+describe("renderManageBoard headline and sections", () => {
+  const m = () => manifest(feat("alpha"), feat("beta"));
+  const heading = (text: string): string => text.split("\n")[0]!;
+
+  it("drift on an unbound feature alone asks for the owner", () => {
+    const text = renderManageBoard(
+      model({
+        result: reconciled(m(), {}, []),
+        guard: {
+          ...noGuard,
+          verdicts: [
+            {
+              id: "alpha",
+              action: "drift",
+              reason: "a merged PR #9 is on branch 'alpha'",
+            },
+          ],
+        },
+      }),
+    );
+    expect(heading(text)).toContain("NEEDS YOU");
+    expect(text).toContain("run /flow-epic-run reconcile-drift, then restart");
+    expect(text).not.toContain("nothing needed");
+  });
+
+  it("a failed launch asks for the owner", () => {
+    const text = renderManageBoard(
+      model({
+        result: reconciled(m(), {}, []),
+        guard: {
+          ...noGuard,
+          verdicts: [{ id: "alpha", action: "failed", reason: "boom" }],
+        },
+      }),
+    );
+    expect(heading(text)).toContain("NEEDS YOU");
+  });
+
+  it("a GitHub outage is PAUSED, not RUNNING", () => {
+    const text = renderManageBoard(
+      model({
+        github: { ok: false, ageMs: 400_000, error: "gh: HTTP 502" },
+        guard: {
+          ...noGuard,
+          verdicts: [{ id: "alpha", action: "github-unverified" }],
+        },
+      }),
+    );
+    expect(heading(text)).toContain("PAUSED");
+    expect(text).toContain("GitHub unreachable for 7m");
+  });
+
+  it("in-flight launches and capacity holds are status, not problems", () => {
+    const text = renderManageBoard(
+      model({
+        result: reconciled(m(), {}, []),
+        guard: {
+          ...noGuard,
+          verdicts: [
+            { id: "alpha", action: "launching" },
+            { id: "beta", action: "capacity" },
+          ],
+        },
+      }),
+    );
+    expect(heading(text)).toContain("RUNNING");
+    expect(text).not.toContain("**Unsolved:**");
+    expect(text).not.toContain("held back");
+    expect(text).toContain("**In progress:**");
+    expect(text).toContain("launching: alpha");
+    expect(text).toContain("hold: beta");
+  });
+
+  it("global drift prints once, not once per ready feature", () => {
+    const reason =
+      "the epic's launch record names 'ghost', which the manifest no longer has";
+    const text = renderManageBoard(
+      model({
+        result: reconciled(m(), {}, []),
+        guard: {
+          ...noGuard,
+          globalDrift: [reason],
+          verdicts: [
+            { id: "alpha", action: "drift", reason },
+            { id: "beta", action: "drift", reason },
+          ],
+        },
+      }),
+    );
+    expect(text.split(reason).length - 1).toBe(1);
+  });
+
+  it("renders the outage age coarsely (under a minute, minutes, hours)", () => {
+    const at = (ageMs: number): string =>
+      renderManageBoard(model({ github: { ok: false, ageMs, error: "e" } }));
+    expect(at(30_000)).toContain("GitHub unreachable for under a minute");
+    expect(at(30_000)).toBe(at(31_000));
+    expect(at(400_000)).toContain("for 7m");
+    expect(at(3 * 3_600_000)).toContain("for 3h");
+  });
+
+  it("a feature merged on GitHub is not owner-needed even while its state file says gated", () => {
+    const mm = manifest(feat("alpha"));
+    const result = reconciled(mm, { alpha: "alpha" }, [
+      stateOf("alpha", "gated", { pr: 4 }),
+    ]);
+    const states = new Map([["alpha", stateOf("alpha", "gated", { pr: 4 })]]);
+    expect(ownerNeededFor(result.board, states)).toHaveLength(1);
+    const merged = result.board.map((r) => ({
+      ...r,
+      status: "merged" as const,
+    }));
+    expect(ownerNeededFor(merged, states)).toEqual([]);
   });
 });

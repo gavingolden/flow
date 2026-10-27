@@ -91,6 +91,22 @@ describe("appendManagerLog / readManagerLog", () => {
   });
 });
 
+describe("zero model calls", () => {
+  it("no sequencer module names claude or flow-claude-headless as a quoted command string", () => {
+    const lib = path.resolve(__dirname);
+    const files = fs
+      .readdirSync(lib)
+      .filter(
+        (f) => /^epic-manage(r)?(-.+)?\.ts$/.test(f) && !f.endsWith(".test.ts"),
+      );
+    expect(files.length).toBeGreaterThan(5);
+    for (const f of files) {
+      const text = fs.readFileSync(path.join(lib, f), "utf8");
+      expect(text, f).not.toMatch(/["'](claude|flow-claude-headless)["']/);
+    }
+  });
+});
+
 describe("single log module", () => {
   it("exactly one non-test module under bin/ exports appendManagerLog", () => {
     const binDir = path.resolve(__dirname, "..");

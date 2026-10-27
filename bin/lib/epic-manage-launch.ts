@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { managerDir } from "./epic-manager-log";
 import { iso } from "./epic-manage-events";
+import { slugify } from "./slug";
 
 /** A restart holds a mid-launch node this long: the launch semaphore alone can wait 300 s. */
 export const RESTART_HOLD_MS = 420_000;
@@ -61,7 +62,7 @@ export function startLaunch(
 ): void {
   const outPath = path.join(
     managerDir(s.epic, deps.stateDir),
-    `launch-${id}.log`,
+    `launch-${slugify(id)}.log`,
   );
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   const flight: InFlight = {

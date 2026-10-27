@@ -1,7 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`renderManageBoard snapshots > GitHub unreachable and failed launch lines 1`] = `
-"### Epic my-epic — 0 / 2 merged — RUNNING
+"### Epic my-epic — 0 / 2 merged — NEEDS YOU
 manager haiku/low · unhinted features: haiku/low · autonomy observe · checkout abc1234 · updated 2026-10-26T12:00:00Z
 
 **TLDR:** my-epic: 0 of 2 merged, 0 running, 2 held back.
@@ -23,8 +23,8 @@ manager opus/high · unhinted features: config · autonomy observe · checkout a
 
 **TLDR:** my-epic: 0 of 2 merged, 0 running, 1 held back.
 **Unsolved:**
-- drift: every launch halted — run.json names 'ghost', which the manifest no longer has — run /flow-epic-run reconcile-drift (window manage-my-epic)
-- drift: alpha — run.json binds 'alpha' to 'alpha-old' but no pipeline state exists for it — run /flow-epic-run reconcile-drift (window manage-my-epic)
+- drift: every launch halted — the epic's launch record names 'ghost', which the manifest no longer has — run /flow-epic-run reconcile-drift (window manage-my-epic)
+- drift: alpha — alpha was launched as 'alpha-old', but that pipeline no longer exists — run /flow-epic-run reconcile-drift (window manage-my-epic)
 - drift: beta — a merged PR #9 is on branch 'beta' — run /flow-epic-run reconcile-drift (window manage-my-epic)
 
 FEATURE  STATUS  SLUG       PR  PHASE  WAITS ON
@@ -67,8 +67,8 @@ exports[`renderManageBoard snapshots > launching: one flow epic launch in flight
 "### Epic my-epic — 0 / 2 merged — RUNNING
 manager opus/high · unhinted features: config · autonomy observe · checkout abc1234 · updated 2026-10-26T12:00:00Z
 
-**TLDR:** my-epic: 0 of 2 merged, 0 running, 2 held back.
-**Unsolved:**
+**TLDR:** my-epic: 0 of 2 merged, 0 running.
+**In progress:**
 - launching: alpha — flow epic launch is still running (window manage-my-epic)
 - hold: beta — waiting for a free slot (window manage-my-epic)
 

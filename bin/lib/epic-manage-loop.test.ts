@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { startLaunch } from "./epic-manage-launch";
 import { managerDir, readManagerLog } from "./epic-manager-log";
 import {
   abortableSleep,
@@ -128,7 +129,7 @@ type Harness = {
   prs: unknown[];
   gh: { fail: boolean; unresolvable: boolean };
   hold: { on: boolean; release: () => void };
-  failSpawn: { code: number };
+  failSpawn: { code: number; output?: string; reject?: boolean };
   ctx: () => LoopContext;
 };
 
@@ -148,7 +149,11 @@ function harness(
     prs: [] as unknown[],
     gh: { fail: false, unresolvable: false },
     hold: { on: false, release: () => {} },
-    failSpawn: { code: 0 },
+    failSpawn: { code: 0 } as {
+      code: number;
+      output?: string;
+      reject?: boolean;
+    },
   };
   const manager: ManagerState = {
     version: 1,
@@ -194,10 +199,13 @@ function harness(
   };
   const deps: LoopDeps = {
     exec,
-    spawnLaunch: async (args) => {
+    spawnLaunch: async (args, outPath) => {
       spawns.push(args);
       if (state.hold.on)
         await new Promise<void>((r) => (state.hold.release = r));
+      if (state.failSpawn.output !== undefined)
+        fs.writeFileSync(outPath, state.failSpawn.output);
+      if (state.failSpawn.reject) throw new Error("spawn exploded");
       if (state.failSpawn.code === 0) bind(args[3]!);
       return { exitCode: state.failSpawn.code };
     },
@@ -334,6 +342,121 @@ describe("tick — launch matrix", () => {
     expect(readManagerLog(EPIC, stateDir).map((e) => e.kind)).toContain(
       "launch-failed",
     );
+  });
+});
+
+describe("tick — failed launch reasons", () => {
+  it("takes the failure reason from the last line of the child's output, on the board and in the notification", async () => {
+    writeManifest(feat("alpha"));
+    const h = harness();
+    h.failSpawn.code = 2;
+    h.failSpawn.output =
+      "starting\nflow feature create: window alpha already exists\n";
+    await quiesce(h);
+    expect(h.writes.at(-1)).toContain(
+      "launch failed: alpha — flow feature create: window alpha already exists",
+    );
+    expect(
+      h.notifies.some((n) =>
+        n
+          .join(" ")
+          .includes("flow feature create: window alpha already exists"),
+      ),
+    ).toBe(true);
+  });
+
+  it("falls back to the exit code when the launch child rejects", async () => {
+    writeManifest(feat("alpha"));
+    const h = harness();
+    h.failSpawn.reject = true;
+    await quiesce(h);
+    expect(h.writes.at(-1)).toContain(
+      "launch failed: alpha — flow epic launch exited -1",
+    );
+  });
+});
+
+describe("startLaunch — log path", () => {
+  it("keeps the launch log inside the manager directory for any feature id", () => {
+    const state = {
+      epic: EPIC,
+      failed: new Map(),
+      launching: new Map(),
+      inFlight: null,
+    } as unknown as Parameters<typeof startLaunch>[0];
+    const outs: string[] = [];
+    startLaunch(
+      state,
+      {
+        stateDir,
+        now: () => T0,
+        spawnLaunch: async (_a: string[], outPath: string) => {
+          outs.push(outPath);
+          return { exitCode: 0 };
+        },
+      } as unknown as Parameters<typeof startLaunch>[1],
+      "x/../../../evil",
+      [],
+    );
+    const dir = managerDir(EPIC, stateDir);
+    expect(path.dirname(outs[0]!)).toBe(dir);
+    expect(fs.existsSync(path.join(tmp, "evil.log"))).toBe(false);
+  });
+});
+
+describe("tick — stop signal", () => {
+  it("does not start a launch once the stop signal has fired", async () => {
+    writeManifest(feat("alpha"));
+    const h = harness();
+    const controller = new AbortController();
+    controller.abort();
+    const r = await tick(h.ctx(), h.deps, controller.signal);
+    expect(r.launched).toBeUndefined();
+    expect(h.spawns).toEqual([]);
+  });
+});
+
+describe("tick — git ref probing", () => {
+  const gitProbes = (h: Harness): number =>
+    h.execCalls.filter((c) => c.cmd === "git" && c.args[0] === "for-each-ref")
+      .length;
+
+  it("serves cached refs between GitHub polls while a node is only held for capacity", async () => {
+    writeManifest(feat("run1"), feat("alpha"), feat("beta"));
+    bind("run1");
+    const h = harness({ maxParallel: 1 });
+    for (let i = 0; i < 10; i++) {
+      await tick(h.ctx(), h.deps);
+      h.clock.t += 3000;
+    }
+    expect(h.spawns).toEqual([]);
+    expect(gitProbes(h)).toBe(1);
+    h.clock.t += 90_000;
+    await tick(h.ctx(), h.deps);
+    expect(gitProbes(h)).toBe(2);
+  });
+
+  it("re-probes fresh right before a launch even when the cache is warm", async () => {
+    writeManifest(feat("alpha"), feat("beta"));
+    const h = harness();
+    h.hold.on = true;
+    await tick(h.ctx(), h.deps);
+    const afterFirst = gitProbes(h);
+    h.hold.release();
+    h.hold.on = false;
+    await flush();
+    h.clock.t += 3000;
+    const next = await tick(h.ctx(), h.deps);
+    expect(next.launched).toBe("beta");
+    expect(gitProbes(h)).toBe(afterFirst + 1);
+  });
+
+  it("keeps probing for bound-branch drift while no node is ready", async () => {
+    writeManifest(feat("alpha"));
+    bind("alpha", "implementing", { pr: 5, worktree: "/wt/alpha" });
+    const h = harness();
+    await tick(h.ctx(), h.deps);
+    expect(gitProbes(h)).toBe(1);
   });
 });
 
@@ -571,12 +694,54 @@ describe("tick — notifications", () => {
     });
   });
 
+  it("a merged-on-GitHub feature with a binding PR but no state file unblocks its dependent instead of halting as orphan", async () => {
+    writeManifest(feat("alpha"), feat("beta", ["alpha"]));
+    writeEpicRunState(
+      {
+        epicSlug: EPIC,
+        repo: repoDir,
+        manifestPath,
+        manifestSha: "s",
+        createdAt: "t",
+        updatedAt: "t",
+        features: { alpha: { slug: "alpha", launchedAt: "x", pr: 7 } },
+      },
+      epicsDir,
+    );
+    const h = harness();
+    h.prs.push({
+      number: 7,
+      headRefName: "alpha",
+      state: "MERGED",
+      mergedAt: "2026-10-26T11:00:00Z",
+    });
+    const r = await tick(h.ctx(), h.deps);
+    expect(r.launched).toBe("beta");
+    expect(h.writes.at(-1)).not.toContain("drift: alpha");
+  });
+
   it("header says notifications are off when FLOW_NOTIFY is not 1", async () => {
     writeManifest(feat("alpha"));
     bind("alpha");
     const h = harness({ env: {} });
     await tick(h.ctx(), h.deps);
     expect(h.writes[0]).toContain("notifications off — set FLOW_NOTIFY=1");
+  });
+});
+
+describe("tick — outage redraw", () => {
+  it("leaves the board untouched across ticks of a steady GitHub outage", async () => {
+    writeManifest(feat("alpha"));
+    bind("alpha");
+    const h = harness();
+    h.gh.fail = true;
+    await tick(h.ctx(), h.deps);
+    const n = h.writes.length;
+    for (let i = 0; i < 5; i++) {
+      h.clock.t += 3000;
+      await tick(h.ctx(), h.deps);
+    }
+    expect(h.writes).toHaveLength(n);
   });
 });
 

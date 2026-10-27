@@ -119,6 +119,13 @@ describe("claimManager (singleton)", () => {
     expect(readManager("e", stateDir)?.pid).toBe(1);
   });
 
+  it("refuses a stalled-but-running manager (alive, heartbeat a minute old)", () => {
+    writeManager(state({ pid: 1 }), stateDir);
+    const r = claimManager(state({ pid: 2 }), T0 + 60_000, alive, stateDir);
+    expect(r.ok).toBe(false);
+    expect(readManager("e", stateDir)?.pid).toBe(1);
+  });
+
   it("replaces a record whose process is gone", () => {
     writeManager(state({ pid: 1 }), stateDir);
     const dead = { isAlive: () => false };

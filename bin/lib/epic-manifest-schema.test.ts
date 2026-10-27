@@ -1,5 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -129,6 +136,31 @@ describe("validateEpicManifest — wrong-type rejections", () => {
     expect(validateEpicManifest([]).ok).toBe(false);
     expect(validateEpicManifest("string").ok).toBe(false);
     expect(validateEpicManifest(42).ok).toBe(false);
+  });
+
+  it.each(["x/../../evil", "../up", "-flag", "a b", "a/b", ".hidden"])(
+    "rejects the non-slug-shaped feature id %j",
+    (id) => {
+      const fixture = structuredClone(VALID_FULL) as {
+        features: { id: string }[];
+      };
+      fixture.features[0]!.id = id;
+      const result = validateEpicManifest(fixture);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toContain("slug-shaped");
+    },
+  );
+
+  it("accepts every committed epic manifest's feature ids", () => {
+    const epics = path.resolve(__dirname, "..", "..", ".flow", "epics");
+    for (const slug of readdirSync(epics)) {
+      const file = path.join(epics, slug, "manifest.json");
+      if (!existsSync(file)) continue;
+      expect(
+        validateEpicManifest(JSON.parse(readFileSync(file, "utf8"))).ok,
+        slug,
+      ).toBe(true);
+    }
   });
 
   it("rejects features when it is not an array", () => {

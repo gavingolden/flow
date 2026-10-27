@@ -129,6 +129,8 @@ function validateFlowNewHints(
   return null;
 }
 
+const FEATURE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 function validateFeature(feature: unknown, path: string): ValidationErr | null {
   if (
     typeof feature !== "object" ||
@@ -140,6 +142,11 @@ function validateFeature(feature: unknown, path: string): ValidationErr | null {
   const f = feature as Record<string, unknown>;
   if (!isNonEmptyString(f.id)) {
     return err(`${path}.id must be a non-empty string`);
+  }
+  if (!FEATURE_ID_RE.test(f.id)) {
+    return err(
+      `${path}.id must be slug-shaped (letters, digits, '.', '_', '-'; starting with a letter or digit)`,
+    );
   }
   if (!isNonEmptyString(f.title)) {
     return err(`${path}.title must be a non-empty string`);

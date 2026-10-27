@@ -63,6 +63,7 @@ export function ownerNeededFor(
 ): OwnerNeededLine[] {
   const out: OwnerNeededLine[] = [];
   for (const row of board) {
+    if (row.status === "merged") continue;
     const state = row.slug ? states.get(row.slug) : undefined;
     if (!row.slug || !state || !OWNER_NEEDED_PHASES.has(state.phase)) continue;
     out.push({
@@ -144,13 +145,24 @@ export function renderManageBoard(model: BoardModel): string {
   const { merged, total, running } = result.summary;
   const waiting = model.ownerNeeded.length;
   const failed = guard.verdicts.find((v) => v.action === "failed");
+  const globals = new Set(guard.globalDrift);
+  const gh = model.github;
+  const drifting =
+    guard.globalDrift.length +
+    guard.boundDrift.length +
+    guard.verdicts.filter((v) => v.action === "drift" && !globals.has(v.reason))
+      .length;
+  const paused =
+    !gh?.ok || guard.verdicts.some((v) => v.action === "github-unverified");
   const lines: string[] = [];
 
   const status = model.final
     ? "DONE"
-    : waiting > 0 || guard.globalDrift.length + guard.boundDrift.length > 0
+    : waiting > 0 || drifting > 0 || failed
       ? "NEEDS YOU"
-      : "RUNNING";
+      : paused
+        ? "PAUSED"
+        : "RUNNING";
   lines.push(`### Epic ${epic} — ${merged} / ${total} merged — ${status}`);
   lines.push(
     `manager ${model.manager.model}/${model.manager.effort} · unhinted features: ${unhinted(model.manager.featureFallback)} · autonomy ${model.manager.autonomy} · checkout ${model.headSha ?? "unknown"} · updated ${model.updatedAt}`,
@@ -159,7 +171,11 @@ export function renderManageBoard(model: BoardModel): string {
   lines.push("");
 
   const held = guard.verdicts.filter(
-    (v) => v.action !== "launch" && v.action !== "waiting",
+    (v) =>
+      v.action !== "launch" &&
+      v.action !== "waiting" &&
+      v.action !== "launching" &&
+      v.action !== "capacity",
   ).length;
   lines.push(
     model.final
@@ -185,9 +201,13 @@ export function renderManageBoard(model: BoardModel): string {
   for (const d of guard.boundDrift) {
     unsolved.push(`drift: ${d.id} — ${d.reason} — ${POINTER} (window ${win})`);
   }
-  for (const v of guard.verdicts)
-    unsolved.push(...(verdictLines(v, epic, win) ?? []));
-  const gh = model.github;
+  const progress: string[] = [];
+  for (const v of guard.verdicts) {
+    if (v.action === "drift" && globals.has(v.reason)) continue;
+    const target =
+      v.action === "launching" || v.action === "capacity" ? progress : unsolved;
+    target.push(...(verdictLines(v, epic, win) ?? []));
+  }
   if (!gh) {
     unsolved.push(
       `GitHub: first snapshot pending — launches paused (window ${win})`,
@@ -205,6 +225,10 @@ export function renderManageBoard(model: BoardModel): string {
     lines.push("**Unsolved:**", ...unsolved.map((u) => `- ${u}`));
   }
 
+  if (progress.length > 0) {
+    lines.push("**In progress:**", ...progress.map((u) => `- ${u}`));
+  }
+
   lines.push("", renderBoard(result.board, result.summary), "");
 
   let next: string;
@@ -214,7 +238,7 @@ export function renderManageBoard(model: BoardModel): string {
   } else if (waiting > 0) {
     const first = model.ownerNeeded[0]!;
     next = `answer in window ${first.window} (flow attach ${first.window}); this sequencer keeps launching on its own, and Ctrl-C stops it without touching launched pipelines.`;
-  } else if (guard.globalDrift.length + guard.boundDrift.length > 0) {
+  } else if (drifting > 0) {
     next = `${POINTER}, then restart this sequencer.`;
   } else if (failed) {
     next = `fix the failed launch, then run flow epic launch ${epic} ${failed.id} — or restart this sequencer to retry.`;

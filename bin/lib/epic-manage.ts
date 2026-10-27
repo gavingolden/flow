@@ -70,12 +70,13 @@ prints flow attach manage-<slug>.
 
 Options:
   --model <opus|haiku|sonnet|fable>
-                        the sequencer's model; also fills a feature's missing
-                        manifest model hint. Precedence: flag >
-                        config.models.manager > opus
+                        model for features whose plan names none (also reserved
+                        for the sequencer's future model calls; it makes none
+                        today). Precedence: flag > config.models.manager > opus
   --effort <low|medium|high|xhigh|max>
-                        the sequencer's effort; also fills a feature's missing
-                        effort hint. Precedence: flag > config.efforts.manager > high
+                        effort for features whose plan names none (also reserved
+                        for the sequencer's future model calls; it makes none
+                        today). Precedence: flag > config.efforts.manager > high
   --autonomy observe    the only supported value today
   --foreground          run the loop in this terminal instead of a tmux window`;
 
@@ -324,12 +325,29 @@ function defaultSpawnLaunch(repo: string): LoopDeps["spawnLaunch"] {
         detached: true,
         stdio: ["ignore", fd, fd],
       });
+      let closed = false;
+      const closeFd = (): void => {
+        if (closed) return;
+        closed = true;
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // already closed
+        }
+      };
       child.on("error", (e) => {
-        fs.writeSync(fd, `${e.message}\n`);
+        if (!closed) {
+          try {
+            fs.writeSync(fd, `${e.message}\n`);
+          } catch {
+            // best effort: the reason is also the resolved exit
+          }
+        }
+        closeFd();
         resolve({ exitCode: -1 });
       });
       child.on("close", (code) => {
-        fs.closeSync(fd);
+        closeFd();
         resolve({ exitCode: code ?? -1 });
       });
       child.unref();

@@ -61,13 +61,12 @@ export type GithubPr = {
   headRefName: string;
   state: "OPEN" | "MERGED" | "CLOSED";
   mergedAt?: string;
-  ci: "pass" | "fail" | "pending" | "none";
 };
 export type GithubSnapshot =
   | { ok: true; at: number; prs: GithubPr[] }
   | { ok: false; at: number; error: string };
 
-const PR_FIELDS = `fragment PrFields on PullRequest { number headRefName state mergedAt commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }`;
+const PR_FIELDS = `fragment PrFields on PullRequest { number headRefName state mergedAt }`;
 
 /** One aliased request: first 100 open PRs, each watched PR number, each unbound feature branch. */
 export function buildGithubQuery(input: {
@@ -91,14 +90,6 @@ export function buildGithubQuery(input: {
   return `query { ${repo} { ${lines.join(" ")} } } ${PR_FIELDS}`;
 }
 
-const CI_BY_ROLLUP: Record<string, GithubPr["ci"]> = {
-  SUCCESS: "pass",
-  FAILURE: "fail",
-  ERROR: "fail",
-  PENDING: "pending",
-  EXPECTED: "pending",
-};
-
 function toPr(v: unknown): GithubPr | null {
   if (typeof v !== "object" || v === null) return null;
   const o = v as Record<string, unknown>;
@@ -108,17 +99,11 @@ function toPr(v: unknown): GithubPr | null {
   if (o.state !== "OPEN" && o.state !== "MERGED" && o.state !== "CLOSED") {
     return null;
   }
-  const rollup = (
-    o.commits as {
-      nodes?: { commit?: { statusCheckRollup?: { state?: string } | null } }[];
-    }
-  )?.nodes?.[0]?.commit?.statusCheckRollup?.state;
   return {
     number: o.number,
     headRefName: o.headRefName,
     state: o.state,
     ...(typeof o.mergedAt === "string" ? { mergedAt: o.mergedAt } : {}),
-    ci: (rollup && CI_BY_ROLLUP[rollup]) || "none",
   };
 }
 
@@ -221,7 +206,8 @@ export function makeStrictSameRepository(
   cwd: string,
 ): (repoPath: string) => boolean {
   if (resolveGitCommonDir(cwd) === null) return () => false;
-  return makeSameRepository(cwd);
+  const same = makeSameRepository(cwd);
+  return (repoPath: string) => Boolean(repoPath?.trim()) && same(repoPath);
 }
 
 export type GitRefs = {

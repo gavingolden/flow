@@ -24,6 +24,7 @@ import {
   makeSameManifest,
   planLaunches,
   type GuardResult,
+  type NodeVerdict,
 } from "./epic-manage-guard";
 import {
   expireHolds,
@@ -113,6 +114,7 @@ export type LoopContext = LaunchState &
     lastBoard: string;
     lastUpdatedAt: string;
     head: { value: string | null; at: number } | null;
+    gitRefs: { refs: GitRefs; at: number } | null;
     startedAtMs: number;
   };
 
@@ -152,6 +154,7 @@ export function createLoopContext(
     lastBoard: "",
     lastUpdatedAt: "",
     head: null,
+    gitRefs: null,
     startedAtMs: deps.now(),
   };
   for (const e of readManagerLog(epic, deps.stateDir)) {
@@ -181,6 +184,7 @@ function heartbeat(ctx: LoopContext, deps: LoopDeps, status?: "done"): void {
 export async function tick(
   ctx: LoopContext,
   deps: LoopDeps,
+  signal?: AbortSignal,
 ): Promise<{ done: boolean; launched?: string }> {
   await Promise.resolve();
   settleInFlight(ctx);
@@ -208,10 +212,13 @@ export async function tick(
   });
 
   let launched: string | undefined;
-  if (!done && ctx.inFlight === null) {
-    const candidates = guard.verdicts.flatMap((v) =>
-      v.action === "launch" ? [v] : [],
-    );
+  if (!done && ctx.inFlight === null && !signal?.aborted) {
+    const launchable = (): Extract<NodeVerdict, { action: "launch" }>[] =>
+      guard.verdicts.flatMap((v) => (v.action === "launch" ? [v] : []));
+    if (launchable().length > 0 && !planned.gitFresh) {
+      guard = await planned.reprobe();
+    }
+    const candidates = launchable();
     const id = orderFrontier(candidates.map((v) => v.id))[0];
     const verdict = candidates.find((v) => v.id === id);
     if (verdict) {
@@ -334,7 +341,7 @@ export async function runManagerLoop(
     while (!signal.aborted) {
       heartbeat(ctx, deps);
       try {
-        const r = await tick(ctx, deps);
+        const r = await tick(ctx, deps, signal);
         lastError = "";
         if (r.done) {
           await (deps.waitForEnter ?? ((s) => deps.sleep(2 ** 31 - 1, s)))(

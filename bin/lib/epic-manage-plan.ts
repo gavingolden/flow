@@ -203,6 +203,10 @@ export async function plan(
   result: ReconcileResult;
   guard: GuardResult;
   replan: () => GuardResult;
+  /** True when the git refs behind `guard` were read this tick, not served from the poll-interval cache. */
+  gitFresh: boolean;
+  /** Re-read git refs now and re-plan: called right before a launch so a cached probe never authorises one. */
+  reprobe: () => Promise<GuardResult>;
 }> {
   const bySlug = new Map(o.repoStates.map((s) => [s.slug, s]));
   const watched = new Set<number>();
@@ -255,7 +259,8 @@ export async function plan(
             featureId: id,
             ...(slug ? { slug } : {}),
             key: `merged-observed:${id}`,
-            reason: "its PR merged on GitHub (observed; run.json untouched)",
+            reason:
+              "its PR merged on GitHub (observed; launch record untouched)",
           },
           deps.stateDir,
         ),
@@ -264,12 +269,40 @@ export async function plan(
     if (fresh.length > 0) await hooks.onMerged(fresh);
     result = reconcileWith(ctx, deps, o, new Set(observedMerged));
   }
-  // Git refs are only read when a launch candidate exists (after observed merges unblock dependents).
-  if (result.board.some((r) => r.status === "ready")) {
-    git = await withBeat(ctx, hooks.beat, () =>
+  // Refs feed launch-drift checks (ready nodes) and bound-branch drift (bound
+  // features with a worktree and PR), so bound drift stays stable while no node
+  // is ready. Cached for the GitHub poll interval to avoid a git probe per
+  // 3 s tick; tick re-probes fresh via `reprobe` just before any launch.
+  const probe = async (): Promise<GitRefs | null> => {
+    const refs = await withBeat(ctx, hooks.beat, () =>
       probeGitRefs(ctx.cfg.manager.repo, deps.exec),
     );
+    ctx.gitRefs = refs ? { refs, at: deps.now() } : null;
+    return refs;
+  };
+  const boundBranchCheck = result.board.some((r) => {
+    const rec = o.runState.features[r.id];
+    const s = rec?.slug ? bySlug.get(rec.slug) : undefined;
+    return Boolean(s?.worktree && (s.pr ?? rec?.pr) !== undefined);
+  });
+  let gitFresh = true;
+  if (result.board.some((r) => r.status === "ready") || boundBranchCheck) {
+    const cached = ctx.gitRefs;
+    if (cached && deps.now() - cached.at < ctx.cfg.githubPollMs) {
+      git = cached.refs;
+      gitFresh = false;
+    } else git = await probe();
   }
   const guard = guardOf(result);
-  return { result, guard, replan: () => guardOf(result) };
+  return {
+    result,
+    guard,
+    replan: () => guardOf(result),
+    gitFresh,
+    reprobe: async () => {
+      git = await probe();
+      gitFresh = true;
+      return guardOf(result);
+    },
+  };
 }

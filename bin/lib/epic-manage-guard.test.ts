@@ -83,7 +83,6 @@ const pr = (
   number,
   headRefName,
   state,
-  ci: "none",
 });
 
 const emptyGit = (): GitRefs => ({

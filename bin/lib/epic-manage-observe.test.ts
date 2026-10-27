@@ -62,44 +62,39 @@ describe("buildGithubQuery", () => {
     expect(q.match(/pr12:/g)).toHaveLength(1);
     expect(q).toContain('br0: pullRequests(headRefName: "f1-epic"');
     expect(q).toContain('br1: pullRequests(headRefName: "we\\"ird\\\\branch"');
-    expect(q).toContain("statusCheckRollup");
+    expect(q).not.toContain("statusCheckRollup");
     expect(q).not.toMatch(/files|changedFiles/);
   });
 });
 
 describe("parseGithubResponse", () => {
-  const node = (n: number, state: string, rollup?: string) => ({
+  const node = (n: number, state: string) => ({
     number: n,
     headRefName: `b${n}`,
     state,
     mergedAt: state === "MERGED" ? "2026-10-26T00:00:00Z" : null,
-    commits: {
-      nodes: [
-        { commit: { statusCheckRollup: rollup ? { state: rollup } : null } },
-      ],
-    },
   });
 
-  it("flattens open/watched/branch aliases, dedupes by number, maps CI", () => {
+  it("flattens open/watched/branch aliases and dedupes by number", () => {
     const prs = parseGithubResponse(
       JSON.stringify({
         data: {
           repository: {
             open: {
-              nodes: [node(1, "OPEN", "SUCCESS"), node(2, "OPEN", "FAILURE")],
+              nodes: [node(1, "OPEN"), node(2, "OPEN")],
             },
-            pr2: node(2, "OPEN", "FAILURE"),
+            pr2: node(2, "OPEN"),
             pr3: node(3, "MERGED"),
-            br0: { nodes: [node(4, "OPEN", "PENDING")] },
+            br0: { nodes: [node(4, "OPEN")] },
           },
         },
       }),
     );
-    expect(prs?.map((p) => [p.number, p.state, p.ci])).toEqual([
-      [1, "OPEN", "pass"],
-      [2, "OPEN", "fail"],
-      [3, "MERGED", "none"],
-      [4, "OPEN", "pending"],
+    expect(prs?.map((p) => [p.number, p.state])).toEqual([
+      [1, "OPEN"],
+      [2, "OPEN"],
+      [3, "MERGED"],
+      [4, "OPEN"],
     ]);
     expect(prs?.find((p) => p.number === 3)?.mergedAt).toBe(
       "2026-10-26T00:00:00Z",
@@ -285,6 +280,12 @@ describe("repo scoping", () => {
     const strict = makeStrictSameRepository(notGit);
     expect(strict(mine)).toBe(false);
     expect(strict(notGit)).toBe(false);
+  });
+
+  it("an empty or whitespace repo path matches nothing, even with a resolvable caller", () => {
+    const strict = makeStrictSameRepository(initRepo("mine"));
+    expect(strict("")).toBe(false);
+    expect(strict("   ")).toBe(false);
   });
 });
 

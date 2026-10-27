@@ -254,11 +254,13 @@ Options (launch):
 
 Options (manage):
   --model <opus|haiku|sonnet|fable>
-                        the sequencer's model; also fills a feature's missing manifest
-                        model hint. Precedence: --model > config.models.manager > opus
+                        model for features whose plan names none (also reserved for
+                        the sequencer's future model calls; it makes none today).
+                        Precedence: --model > config.models.manager > opus
   --effort <low|medium|high|xhigh|max>
-                        the sequencer's effort; also fills a feature's missing manifest
-                        effort hint. Precedence: --effort > config.efforts.manager > high
+                        effort for features whose plan names none (also reserved for
+                        the sequencer's future model calls; it makes none today).
+                        Precedence: --effort > config.efforts.manager > high
   --autonomy observe    the only supported value today
 
 Options (bind / launch):

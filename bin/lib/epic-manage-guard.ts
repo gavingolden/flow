@@ -89,7 +89,9 @@ function manifestDrift(input: GuardInput, ids: Set<string>): string[] {
   const out: string[] = [];
   for (const id of Object.keys(input.runState.features)) {
     if (!ids.has(id))
-      out.push(`run.json names '${id}', which the manifest no longer has`);
+      out.push(
+        `the epic's launch record names '${id}', which the manifest no longer has`,
+      );
   }
   for (const s of input.repoStates) {
     if (s.epic?.slug === input.epicSlug && !ids.has(s.epic.featureId)) {
@@ -100,7 +102,7 @@ function manifestDrift(input: GuardInput, ids: Set<string>): string[] {
   }
   if (!input.sameManifest(input.runState.manifestPath)) {
     out.push(
-      `run.json points at a different manifest (${input.runState.manifestPath})`,
+      `the epic's launch record points at a different manifest (${input.runState.manifestPath})`,
     );
   }
   return out;
@@ -116,10 +118,10 @@ function unboundDrift(id: string, input: GuardInput): string | null {
     (s) => s.epic?.slug === input.epicSlug && s.epic.featureId === id,
   );
   if (tagged) {
-    return `pipeline '${tagged.slug}' is tagged ${input.epicSlug}/${id} but run.json has no binding for it`;
+    return `pipeline '${tagged.slug}' is tagged ${input.epicSlug}/${id} but the epic's launch record has no entry for it`;
   }
   if (input.stateSlugExists(slug)) {
-    return `a pipeline state file '${slug}.json' exists but run.json has no binding for '${id}'`;
+    return `a pipeline named '${slug}' already exists but the epic's launch record has no entry for '${id}'`;
   }
   const pr = input.github?.ok
     ? input.github.prs.find(
@@ -127,13 +129,13 @@ function unboundDrift(id: string, input: GuardInput): string | null {
       )
     : undefined;
   if (pr)
-    return `${prRef(pr)} is on branch '${slug}' but run.json has no binding for '${id}'`;
+    return `${prRef(pr)} is on branch '${slug}' but the epic's launch record has no entry for '${id}'`;
   const git = input.git;
   if (git?.branches.has(slug) || git?.worktreeBranches.has(slug)) {
-    return `a local branch or worktree '${slug}' exists but run.json has no binding for '${id}'`;
+    return `a local branch or worktree '${slug}' exists but the epic's launch record has no entry for '${id}'`;
   }
   if (git?.worktreePaths.has(input.worktreePathFor(slug))) {
-    return `a worktree at ${input.worktreePathFor(slug)} exists but run.json has no binding for '${id}'`;
+    return `a worktree at ${input.worktreePathFor(slug)} exists but the epic's launch record has no entry for '${id}'`;
   }
   return null;
 }
@@ -169,14 +171,14 @@ export function planLaunches(input: GuardInput): GuardResult {
     if (stray) {
       boundDrift.push({
         id: row.id,
-        reason: `pipeline '${stray.slug}' is also tagged ${input.epicSlug}/${row.id} but run.json binds '${record.slug}'`,
+        reason: `pipeline '${stray.slug}' is also tagged ${input.epicSlug}/${row.id} but the epic's launch record binds '${record.slug}'`,
       });
       continue;
     }
     if (row.status === "orphan") {
       boundDrift.push({
         id: row.id,
-        reason: `run.json binds '${row.id}' to '${record.slug}' but no pipeline state exists for it`,
+        reason: `${row.id} was launched as '${record.slug}', but that pipeline no longer exists`,
       });
       continue;
     }
