@@ -68,7 +68,7 @@ Usage:
                                         --slug uses an explicit slug instead of deriving one from the description;
                                         hard-fails if that slug's window already exists)
   flow feature resume <name> [<name> ...]  resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
-  flow epic <create|run|status|bind|launch|ls|done> design and run an epic
+  flow epic <create|run|status|bind|launch|ls|done|manage> design and run an epic
   flow config all [--slug <name>] [--json]
                                         show every resolved config.json setting across three
                                         timing-labelled sections (models, launch, settings);
@@ -187,6 +187,7 @@ Usage:
   flow epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--force]
   flow epic ls [--all|-a] [--done] [--all-repos]
   flow epic done <slug> [--yes]
+  flow epic manage <slug> [--model <alias>] [--effort <level>] [--autonomy observe]
 
 Subcommands:
   create "<prompt>"     design an epic — open a tmux window running /flow-epic-create.
@@ -219,6 +220,15 @@ Subcommands:
   done <slug>           remove the recomputable per-machine ~/.flow/epics/<slug>/
                         runtime state (does NOT close the design window or
                         pipeline state — use \`flow done <slug>\` for those)
+  manage <slug>         open tmux window manage-<slug> running the zero-token
+                        sequencer: it launches each ready feature as soon as it
+                        is safe (one at a time, via \`flow epic launch\`), shows
+                        a live board of what needs you, and holds on any drift
+                        with a pointer to /flow-epic-run reconcile-drift. tmux
+                        only; makes no model calls and never merges. Ctrl-C (or
+                        closing the window) stops it without touching launched
+                        pipelines; a second start refuses and prints
+                        \`flow attach manage-<slug>\`
 
 Options (create):
   --effort <low|medium|high|xhigh|max>
@@ -241,6 +251,15 @@ Options (launch):
   --effort <low|medium|high|xhigh|max>
                         per-launch reasoning-effort override — wins over the manifest's
                         flowNewHints for this one launch
+
+Options (manage):
+  --model <opus|haiku|sonnet|fable>
+                        the sequencer's model; also fills a feature's missing manifest
+                        model hint. Precedence: --model > config.models.manager > opus
+  --effort <low|medium|high|xhigh|max>
+                        the sequencer's effort; also fills a feature's missing manifest
+                        effort hint. Precedence: --effort > config.efforts.manager > high
+  --autonomy observe    the only supported value today
 
 Options (bind / launch):
   --external "<ref>"    (bind) record a completed out-of-band feature (a PR/issue

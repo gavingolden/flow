@@ -8,6 +8,7 @@ import {
   printVerbHelp,
   runHelpVerb,
 } from "./help";
+import { MANAGE_USAGE } from "./epic-manage";
 
 describe("isHelpFlag", () => {
   it("matches --help", () => {
@@ -167,6 +168,17 @@ describe("HELP_TEXT", () => {
     expect(HELP_TEXT.epic).toContain("bind");
     expect(HELP_TEXT.epic).toContain("launch");
     expect(HELP_TEXT.epic).toContain("--external");
+  });
+
+  it("HELP_TEXT.epic documents flow epic manage with its flags and the stop contract", () => {
+    expect(HELP_TEXT.epic).toContain(MANAGE_USAGE);
+    expect(HELP_TOP).toContain("done|manage");
+    expect(HELP_TEXT.epic).toContain("Options (manage):");
+    expect(HELP_TEXT.epic).toContain("--autonomy observe");
+    expect(HELP_TEXT.epic).toContain("config.models.manager");
+    expect(HELP_TEXT.epic).toContain("config.efforts.manager");
+    expect(HELP_TEXT.epic).toMatch(/Ctrl-C.*without touching launched/s);
+    expect(HELP_TEXT.epic).toContain("tmux");
   });
 
   it("HELP_TEXT.epic documents the launch overrides and run --effort", () => {
