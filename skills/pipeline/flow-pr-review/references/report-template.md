@@ -108,9 +108,10 @@ so the audit trail names both the prose and the command the agent ran.
 For a ticked **visual-appearance** item run via the browser-validation
 capability (Step 8c.iii), the a11y `take_snapshot` text is the **primary**
 evidence injected via `flow-inject-evidence` as a `<details>` block; the
-screenshot is **referenced by path** (`.flow-tmp/ui-evidence/<n>.png`), never
-embedded as binary — the snapshot-by-reference convention keeps the PR body
-under GitHub's 65,536-char limit.
+screenshot (`.flow-tmp/ui-evidence/<n>.png`) is attached via `--image` and
+uploaded into the PR by `flow-review-finalize` — the snapshot stays the primary
+evidence, and the upload keeps the PR body under GitHub's 65,536-char limit
+(an image reference, not inline binary).
 
 End the section with the **Automation-precedence audit line**:
 

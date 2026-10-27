@@ -1,5 +1,12 @@
+import { mkdtempSync, mkdirSync, realpathSync, rmSync } from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { redactForPublish, redactSecrets } from "./redact-secrets";
+import {
+  redactForPublish,
+  redactSecrets,
+  relativizeForPublish,
+} from "./redact-secrets";
 
 describe("redactSecrets", () => {
   it("returns empty/falsy input unchanged", () => {
@@ -214,5 +221,122 @@ describe("redactForPublish", () => {
 
   it("is a no-op on empty input", () => {
     expect(redactForPublish("")).toBe("");
+  });
+});
+
+describe("redactForPublish dot-directory paths", () => {
+  const ABS =
+    "/Users/x/code/me/econ-data-chart-currency-symbol/.flow-tmp/ui-evidence/review/9-tsm-strip-1280.png";
+  const REL = ".flow-tmp/ui-evidence/review/9-tsm-strip-1280.png";
+
+  it.each([
+    ABS,
+    REL,
+    ".github/workflows/some-very-long-workflow-name-for-ci.yml",
+    "./src/components/some-very-long-component-name-here/index.ts",
+    "../../.flow-tmp/ui-evidence/review/9-tsm-strip-1280.png",
+  ])("leaves %s unchanged", (s) => {
+    expect(redactForPublish(s)).toBe(s);
+  });
+
+  it("still masks a JWT", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc123def456";
+    expect(redactForPublish(jwt)).toBe("[REDACTED]");
+  });
+
+  it("still masks a bare mixed-case base64 blob and a slash base64 secret", () => {
+    expect(
+      redactForPublish("blob Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdo end"),
+    ).toBe("blob [REDACTED] end");
+    expect(
+      redactForPublish("v wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY end"),
+    ).not.toContain("wJalr");
+  });
+
+  it("still masks a ghp_ token", () => {
+    const ghp = `ghp_${"a1B2c3D4e5".repeat(3)}abcdef`;
+    expect(redactForPublish(ghp)).toBe("[REDACTED]");
+  });
+
+  it("masks a dot-prefixed 32-char lowercase hex token with no slash", () => {
+    expect(redactForPublish(`.${"0123456789abcdef".repeat(2)}`)).toBe(
+      "[REDACTED]",
+    );
+  });
+});
+
+describe("relativizeForPublish", () => {
+  const opts = { roots: ["/w/repo"], home: "/Users/h" };
+
+  it("rewrites root-prefixed paths to root-relative", () => {
+    expect(relativizeForPublish("see /w/repo/.flow-tmp/x.png ok", opts)).toBe(
+      "see .flow-tmp/x.png ok",
+    );
+  });
+
+  it("rewrites home-prefixed paths to ~/", () => {
+    expect(relativizeForPublish("at /Users/h/.flow/y.png", opts)).toBe(
+      "at ~/.flow/y.png",
+    );
+  });
+
+  it("handles a file:// prefix on root and home", () => {
+    expect(relativizeForPublish("(file:///w/repo/a.png)", opts)).toBe(
+      "(a.png)",
+    );
+    expect(relativizeForPublish("file:///Users/h/a", opts)).toBe("~/a");
+  });
+
+  it("maps a bare root to . and a bare home to ~", () => {
+    expect(relativizeForPublish("cd /w/repo now", opts)).toBe("cd . now");
+    expect(relativizeForPublish("cd /Users/h now", opts)).toBe("cd ~ now");
+  });
+
+  it("leaves a sibling <root>-other/ untouched", () => {
+    expect(relativizeForPublish("/w/repo-other/a /w/repo2/b", opts)).toBe(
+      "/w/repo-other/a /w/repo2/b",
+    );
+  });
+
+  it("does not rewrite a root appearing mid-path", () => {
+    expect(relativizeForPublish("/mnt/w/repo/a", opts)).toBe("/mnt/w/repo/a");
+  });
+
+  it("applies the longest root first", () => {
+    const nested = { roots: ["/w", "/w/repo"] };
+    expect(relativizeForPublish("/w/repo/a /w/b", nested)).toBe("a b");
+  });
+
+  it("ignores empty and / roots and home", () => {
+    const text = "/usr/bin/x /Users/h/a";
+    expect(relativizeForPublish(text, { roots: ["", "/"], home: "/" })).toBe(
+      text,
+    );
+    expect(relativizeForPublish(text, { roots: [], home: "" })).toBe(text);
+  });
+
+  it("matches the realpath form of a root (macOS /var vs /private/var)", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "relativize-"));
+    try {
+      mkdirSync(path.join(dir, "sub"));
+      const real = realpathSync(dir);
+      expect(
+        relativizeForPublish(`${real}/sub/a.png and ${dir}/sub/b.png`, {
+          roots: [dir],
+        }),
+      ).toBe("sub/a.png and sub/b.png");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("redactForPublish relativizes first, then masks", () => {
+    const abs = "/w/repo/.flow-tmp/ui-evidence/review/9-tsm-strip-1280.png";
+    expect(redactForPublish(`shot ${abs}`, opts)).toBe(
+      "shot .flow-tmp/ui-evidence/review/9-tsm-strip-1280.png",
+    );
+    expect(redactForPublish("home /Users/h/.flow/y/z.png", opts)).toBe(
+      "home ~/.flow/y/z.png",
+    );
   });
 });

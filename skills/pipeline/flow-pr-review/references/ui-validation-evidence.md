@@ -112,9 +112,9 @@ sentinel by hand on that path. Then, per visual item:
    [../../flow-pipeline/references/ui-smoke-pass.md](../../flow-pipeline/references/ui-smoke-pass.md)),
    read geometry via `evaluate_script` (`scrollWidth`/`clientWidth` and the
    page-root constrained container's `rootGap`), and `take_screenshot` (the
-   **secondary** artifact, referenced by path, never embedded — `gh` takes no
-   inline binary; the a11y `take_snapshot` per viewport is the **primary**
-   evidence). Honor `disableAnimations` via `prefers-reduced-motion` emulation.
+   **secondary** artifact, attached as `--image` so `flow-review-finalize`
+   uploads it into the PR; the a11y `take_snapshot` per viewport is the
+   **primary** evidence). Honor `disableAnimations` via `prefers-reduced-motion` emulation.
    Write each route's `viewports[]` capture array so the helper computes the
    per-viewport geometry assertions.
 2. Judge the snapshot + screenshot **at each captured viewport** against the
@@ -123,8 +123,8 @@ sentinel by hand on that path. Then, per visual item:
    `## UI traits to verify` rubric below per viewport.
 3. On a pass, inject the a11y snapshot as the primary `<details>` block and tick
    the box via the **unchanged** `flow-inject-evidence` interface (Step 8c.i),
-   the screenshot referenced by its saved path inside the block (`--output-file`
-   points at the captured snapshot text, `--exit-code 0`).
+   each screenshot attached as `--image` so it sits in the same block
+   (`--output-file` points at the captured snapshot text, `--exit-code 0`).
 4. An **irreducibly-aesthetic** item ("does this feel premium?") stays unticked
    with a `subjective UX` reason — only concrete, second-observer-reproducible
    visual-appearance assertions are runnable here.
@@ -242,9 +242,12 @@ per item, matched on `index` only — review rewrites item text):
 
 - **`pass`** (`behavior` / `appearance`) — inject the snapshot at
   `snapshot_path` as the evidence block and tick, via the 8c.i
-  `flow-inject-evidence --output-file <snapshot_path> --exit-code 0` call; pass
-  any `screenshots[]` as `--image` so they sit in the same block.
-- **`fail`** — inject the snapshot with `--exit-code 1`; the box stays open
+  `flow-inject-evidence --output-file <snapshot_path> --exit-code 0` call. The
+  output file is the driver's snapshot, optionally preceded by a short verdict
+  note; screenshots are never listed as text paths — pass each `screenshots[]`
+  entry as `--image` so it uploads and sits in the same block.
+- **`fail`** — inject the snapshot (same output-file rule, screenshots as
+  `--image`, never as text paths) with `--exit-code 1`; the box stays open
   and the failure goes in the Step 12 report.
 - **`not-drivable`** — the box stays open; record the driver's `reason`
   verbatim under the item.
@@ -277,8 +280,8 @@ the user has something to judge. For each `capture` entry in `item_results[]`:
 
   Run it from the worktree root (the helper writes each image reference
   **worktree-relative** whatever form the path is passed in) — that reference is what
-  `flow-review-finalize` hands to `gh pr edit --attach` for upload, and its
-  `file://` link is what the GATED summary prints. `--no-tick` is belt and
+  `flow-review-finalize` hands to `gh pr edit --attach` for upload; the
+  supervisor's terminal summary builds its own local links. `--no-tick` is belt and
   braces: the helper refuses to tick a `SUBJECTIVE: ` / `DECISION: ` line
   whatever it is passed.
 
@@ -427,13 +430,13 @@ maintains, not a frozen contract.
 ## Snapshot-primary, screenshot-by-reference
 
 The a11y `take_snapshot` is the gate — it is the primary evidence injected via
-`flow-inject-evidence`. The screenshot is supplementary: referenced by its
-saved path inside the evidence block, never embedded (`gh` takes no inline
-binary). Every screenshot path that survives the save-path cascade below is
-also recorded into `ui-driver-result.json`'s `ui_screenshots[]` (see
-"Merge-back into `ui-driver-result.json`" below), so the `/flow-pipeline`
-supervisor can surface each one as a clickable absolute path in the session —
-the PR body itself keeps the existing by-path reference unchanged. The a11y
+`flow-inject-evidence`. The screenshot is supplementary: it rides as `--image`
+and `flow-review-finalize` uploads it into the PR, so the evidence block shows
+the picture rather than a path. Every screenshot path that survives the
+save-path cascade below is also recorded into `ui-driver-result.json`'s
+`ui_screenshots[]` (see "Merge-back into `ui-driver-result.json`" below), so
+the `/flow-pipeline` supervisor can surface each one as a clickable absolute
+path in the session. The a11y
 snapshot remains the gate either way; recording a screenshot path is
 additional evidence, never a substitute. Before/after comparison applies only
 where a design-fidelity `.flow-tmp/design/reference.*` baseline already

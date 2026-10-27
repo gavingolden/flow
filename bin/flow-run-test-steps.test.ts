@@ -459,6 +459,27 @@ describe("runTestSteps", () => {
     expect(fs.readFileSync(bodyFile, "utf8")).toContain("- [x] Run `x`");
   });
 
+  it("relativizes worktree-absolute paths in evidence, in both the literal and realpath forms", async () => {
+    const real = fs.realpathSync(worktree);
+    const shot = ".flow-tmp/ui-evidence/review/9-tsm-strip-1280.png";
+    const h = harness(bodyOf(["- [ ] Run `cmd-path`"]), {
+      commands: {
+        "cmd-path": [0, `saved ${worktree}/${shot}\nalso ${real}/${shot}\n`],
+      },
+    });
+    await runTestSteps({
+      pr: 1,
+      worktree,
+      budgetSec: 60,
+      exec: h.exec,
+      now: h.now,
+    });
+    const text = edits(h.calls)[0].bodyAtCall!;
+    expect(text).toContain(`saved ${shot}\nalso ${shot}`);
+    expect(text).not.toContain(worktree);
+    expect(text).not.toContain(real);
+  });
+
   it("counts every unchecked item in uncheckedTotal and skips already-ticked ones", async () => {
     const body = bodyOf([
       "- [x] Run `done`",

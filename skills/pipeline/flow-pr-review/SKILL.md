@@ -1173,7 +1173,8 @@ route set `/flow-verify` drives. Each route is still captured **per viewport**
 the per-viewport **`## UI traits to verify`** rubric to each while
 `flow-ui-validate` gates the mechanical geometry assertions automatically. The
 a11y `take_snapshot` is the primary evidence (injected via 8c.i's unchanged
-`flow-inject-evidence`), the screenshot supplementary and referenced by path.
+`flow-inject-evidence`), the screenshot supplementary and attached as `--image`
+(uploaded into the PR by `flow-review-finalize`).
 
 The ui-ux subjective judgment for each item **stays in the wrapper**: it reads
 the returned artifact's `ui_screenshots[]` paths and `fix_context[]` a11y /

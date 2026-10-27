@@ -134,6 +134,7 @@ function applyResult(
   bodyFile: string,
   output: string,
   exitCode: number,
+  worktree: string,
 ): string {
   const step = parseTestSteps(body).steps[index - 1];
   if (!step || step.line <= 0) {
@@ -146,7 +147,7 @@ function applyResult(
   }
   const res = rewriteBody(
     lines.join("\n"),
-    { bodyFile, item: `^${escapeRegExp(raw)}$`, exitCode },
+    { bodyFile, item: `^${escapeRegExp(raw)}$`, exitCode, roots: [worktree] },
     output,
   );
   if (!res.ok) throw new Error(res.error);
@@ -257,7 +258,14 @@ export async function runTestSteps(opts: {
     const output = run.stdout + run.stderr;
     fs.writeFileSync(path.join(dir, `evidence-${step.index}.txt`), output);
     fs.writeFileSync(path.join(dir, `exit-${step.index}`), `${run.exitCode}\n`);
-    body = applyResult(body, step.index, bodyFile, output, run.exitCode);
+    body = applyResult(
+      body,
+      step.index,
+      bodyFile,
+      output,
+      run.exitCode,
+      opts.worktree,
+    );
     envelope.ran++;
     if (run.exitCode === 0) envelope.passed++;
     else {
