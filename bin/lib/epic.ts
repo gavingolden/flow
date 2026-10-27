@@ -121,6 +121,7 @@ import {
   readLaunchDefaults,
   collectLaunchConfigWarnings,
 } from "./launch-config";
+import type { LivenessDeps } from "./liveness";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
 import {
@@ -153,6 +154,8 @@ import {
   type FeatureRunRecord,
 } from "./epic-run-state";
 import { readEpicMaxParallel } from "./epic-config";
+import { runEpicManage } from "./epic-manage";
+import { sequencerLine, sequencerView } from "./epic-manage-state";
 import { resolveLauncherBackend } from "./launcher-config";
 import { renderBoard, renderEpicList, type EpicListRow } from "./epic-render";
 import {
@@ -317,6 +320,8 @@ export type EpicOptions = {
   readConfig?: ReadConfigFile;
   /** tmux-on-PATH probe seam for the launcher-backend guard (test only). */
   tmuxOnPath?: () => boolean;
+  /** Process-liveness seam for the sequencer health line / manage singleton (test only). */
+  liveness?: LivenessDeps;
   /**
    * gh seam for `runEpicDone`'s close-out status-board heal (test only;
    * production uses `resume-probes.ts`'s `defaultGh`).
@@ -329,7 +334,10 @@ export type EpicOptions = {
   git?: GitRunner;
 };
 
-export function runEpicCli(args: string[], options: EpicOptions = {}): number {
+export function runEpicCli(
+  args: string[],
+  options: EpicOptions = {},
+): number | Promise<number> {
   // STEP 1: verb-level help guard FIRST, before any side effect. Like
   // feature.ts, this verb dispatches on a subcommand, so the verb-level guard
   // must fire ONLY when the help flag is in the verb position
@@ -360,13 +368,19 @@ export function runEpicCli(args: string[], options: EpicOptions = {}): number {
       return runEpicLs(args.slice(1), options);
     case "done":
       return runEpicDone(args.slice(1), options);
+    case "manage":
+      return runEpicManage(args.slice(1), options);
     case undefined:
       console.error("flow epic: a subcommand is required.");
-      console.error("usage: flow epic <create|run|status|bind|launch|ls|done>");
+      console.error(
+        "usage: flow epic <create|run|status|bind|launch|ls|done|manage>",
+      );
       return 2;
     default:
       console.error(`flow epic: unknown epic subcommand: ${sub}`);
-      console.error("usage: flow epic <create|run|status|bind|launch|ls|done>");
+      console.error(
+        "usage: flow epic <create|run|status|bind|launch|ls|done|manage>",
+      );
       return 2;
   }
 }
@@ -384,7 +398,7 @@ export function runEpicCli(args: string[], options: EpicOptions = {}): number {
  * value prints the error and returns `{ error: true }` — the caller must
  * exit 2 before any side effect (manifest load, spawn, state write).
  */
-function parseEnumValueFlag<T extends string>(
+export function parseEnumValueFlag<T extends string>(
   rest: string[],
   flag: string,
   allowed: readonly T[],
@@ -1435,6 +1449,12 @@ function runEpicStatus(rest: string[], options: EpicOptions): number {
     committedStatus: readCommittedStatus(path.dirname(manifestPath!)),
   });
 
+  const sequencer = sequencerView(
+    slug,
+    Date.parse((options.now ?? nowIso)()),
+    options.stateDir,
+    options.liveness,
+  );
   if (json) {
     // Exactly ONE JSON object on stdout (jq-parseable). `event` is the board
     // summary hint; `source` is the machine-visible hypothesis framing.
@@ -1445,6 +1465,7 @@ function runEpicStatus(rest: string[], options: EpicOptions): number {
         event: classifyEvent(result),
         summary: result.summary,
         board: result.board,
+        sequencer,
         source: STATUS_SOURCE_NOTE,
       }),
     );
@@ -1455,6 +1476,7 @@ function runEpicStatus(rest: string[], options: EpicOptions): number {
     `EPIC ${slug} — ${result.epicStatus} (${result.summary.merged}/${result.summary.total} merged)`,
   );
   console.log(renderBoard(result.board, result.summary));
+  console.log(sequencerLine(slug, sequencer));
   return 0;
 }
 

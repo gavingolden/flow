@@ -59,6 +59,12 @@ import { readEpicRunState, type EpicRunState } from "./epic-run-state";
 import { readCommittedStatus } from "./epic-status-schema";
 import { deriveWorktreePath } from "./feature";
 import { slugify } from "./slug";
+import {
+  buildSetOptionArgs,
+  FLOW_PHASE_OPTION,
+  FLOW_PHASE_SHORT_OPTION,
+  FLOW_SESSION,
+} from "./tmux";
 import { readState, type PipelineState } from "./state";
 
 export type LoopDeps = {
@@ -295,6 +301,27 @@ export function installStopHandlers(
   };
 }
 
+/** Badge the manage window `managing` once (best effort, only inside tmux): it has no state file to publish one. */
+async function publishManagingBadge(
+  ctx: LoopContext,
+  deps: LoopDeps,
+): Promise<void> {
+  if (!(deps.env ?? process.env).TMUX) return;
+  const target = `${FLOW_SESSION}:${ctx.cfg.manager.window}`;
+  for (const option of [FLOW_PHASE_OPTION, FLOW_PHASE_SHORT_OPTION]) {
+    try {
+      await deps.exec(
+        "tmux",
+        buildSetOptionArgs(target, option, "managing"),
+        ctx.cfg.manager.repo,
+        5_000,
+      );
+    } catch {
+      // a missing badge must never stop the sequencer
+    }
+  }
+}
+
 export async function runManagerLoop(
   cfg: LoopConfig,
   deps: LoopDeps,
@@ -302,6 +329,7 @@ export async function runManagerLoop(
 ): Promise<number> {
   const ctx = createLoopContext(cfg, deps);
   let lastError = "";
+  await publishManagingBadge(ctx, deps);
   try {
     while (!signal.aborted) {
       heartbeat(ctx, deps);

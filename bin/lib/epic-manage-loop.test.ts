@@ -735,6 +735,43 @@ describe("stopping", () => {
   });
 });
 
+describe("tmux badge", () => {
+  it("sets @flow-phase to managing once at start inside tmux, and never outside it", async () => {
+    writeManifest(feat("alpha"));
+    bind("alpha");
+    const inside = harness({
+      env: { FLOW_NOTIFY: "1", TMUX: "/tmp/tmux-1/default,1,0" },
+    });
+    const controller = new AbortController();
+    inside.deps.sleep = async () => controller.abort();
+    await runManagerLoop(inside.cfg, inside.deps, controller.signal);
+    const sets = inside.execCalls.filter((c) => c.cmd === "tmux");
+    expect(sets.map((c) => c.args)).toEqual([
+      [
+        "set-option",
+        "-w",
+        "-t",
+        "flow:manage-my-epic",
+        "@flow-phase",
+        "managing",
+      ],
+      [
+        "set-option",
+        "-w",
+        "-t",
+        "flow:manage-my-epic",
+        "@flow-phase-short",
+        "managing",
+      ],
+    ]);
+    const outside = harness();
+    const c2 = new AbortController();
+    outside.deps.sleep = async () => c2.abort();
+    await runManagerLoop(outside.cfg, outside.deps, c2.signal);
+    expect(outside.execCalls.some((c) => c.cmd === "tmux")).toBe(false);
+  });
+});
+
 describe("extension points", () => {
   it("orderFrontier is the identity and afterMergesObserved a no-op today", async () => {
     expect(orderFrontier(["b", "a"])).toEqual(["b", "a"]);

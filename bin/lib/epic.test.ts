@@ -119,6 +119,7 @@ import {
   type EpicOptions,
 } from "./epic";
 import type { GitRunner } from "./epic-metadata-commit";
+import { writeManager, type ManagerState } from "./epic-manage-state";
 
 // Epic orchestration is tmux-only and the launcher backend now defaults to
 // plain, so this file's create specs opt in via the per-run `--tmux` override
@@ -2081,6 +2082,111 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(typeof payload.source).toBe("string");
     expect(payload.source).toMatch(/cache|stale|hint/i);
     expect(payload.source).toMatch(/GitHub|git/);
+  });
+
+  // ── sequencer visibility (flow epic manage) ──────────────────────────────
+
+  const NOW_ISO = "2026-10-26T12:00:00.000Z";
+  const sequencerRecord = (
+    slug: string,
+    over: Partial<ManagerState> = {},
+  ): ManagerState => ({
+    version: 1,
+    epicSlug: slug,
+    repo: repoDir,
+    window: `manage-${slug}`,
+    pid: 4242,
+    procStartedAt: 1000,
+    startedAt: "2026-10-26T11:00:00.000Z",
+    heartbeatAt: "2026-10-26T11:59:56.000Z",
+    pollMs: 3000,
+    autonomy: "observe",
+    model: "opus",
+    effort: "high",
+    featureFallback: {},
+    status: "running",
+    launching: null,
+    ...over,
+  });
+  const aliveSeq = { isAlive: () => true, pidStartEpoch: () => 1000 };
+  const statusOpts = (over: Partial<EpicOptions> = {}): EpicOptions => ({
+    epicsDir,
+    stateDir,
+    now: () => NOW_ISO,
+    liveness: aliveSeq,
+    ...over,
+  });
+
+  it("status: sequencer line reads live with heartbeat age, model/effort and autonomy", () => {
+    const manifestPath = writeManifest("seq-live", [{ id: "schema" }]);
+    writeEpicRunState(seedRunState("seq-live", manifestPath), epicsDir);
+    writeManager(sequencerRecord("seq-live"), stateDir);
+    expect(runEpicCli(["status", "seq-live"], statusOpts())).toBe(0);
+    expect(logs.at(-1)).toBe(
+      "sequencer: live in window manage-seq-live · heartbeat 4s ago · opus/high · observe",
+    );
+  });
+
+  it("status: sequencer line reads stalled beyond three poll intervals", () => {
+    const manifestPath = writeManifest("seq-stale", [{ id: "schema" }]);
+    writeEpicRunState(seedRunState("seq-stale", manifestPath), epicsDir);
+    writeManager(
+      sequencerRecord("seq-stale", { heartbeatAt: "2026-10-26T11:57:00.000Z" }),
+      stateDir,
+    );
+    expect(runEpicCli(["status", "seq-stale"], statusOpts())).toBe(0);
+    expect(logs.at(-1)).toBe(
+      "sequencer: stalled — last heartbeat 3m ago (window manage-seq-stale)",
+    );
+  });
+
+  it("status: sequencer line points at flow epic manage when none runs (absent or crash-leftover record)", () => {
+    const manifestPath = writeManifest("seq-none", [{ id: "schema" }]);
+    writeEpicRunState(seedRunState("seq-none", manifestPath), epicsDir);
+    expect(runEpicCli(["status", "seq-none"], statusOpts())).toBe(0);
+    expect(logs.at(-1)).toBe(
+      "sequencer: none — start one with flow epic manage seq-none",
+    );
+    writeManager(sequencerRecord("seq-none"), stateDir);
+    logs.length = 0;
+    runEpicCli(
+      ["status", "seq-none"],
+      statusOpts({ liveness: { isAlive: () => false } }),
+    );
+    expect(logs.at(-1)).toBe(
+      "sequencer: none — start one with flow epic manage seq-none",
+    );
+  });
+
+  it("status --json: carries a sequencer object (live) or null, still exactly one JSON object", () => {
+    const manifestPath = writeManifest("seq-json", [{ id: "schema" }]);
+    writeEpicRunState(seedRunState("seq-json", manifestPath), epicsDir);
+    runEpicCli(["status", "seq-json", "--json"], statusOpts());
+    expect(logs).toHaveLength(1);
+    expect(JSON.parse(logs[0]!).sequencer).toBeNull();
+
+    writeManager(sequencerRecord("seq-json"), stateDir);
+    logs.length = 0;
+    runEpicCli(["status", "seq-json", "--json"], statusOpts());
+    expect(logs).toHaveLength(1);
+    expect(JSON.parse(logs[0]!).sequencer).toEqual({
+      window: "manage-seq-json",
+      health: "live",
+      heartbeatAgeMs: 4000,
+      model: "opus",
+      effort: "high",
+      autonomy: "observe",
+    });
+  });
+
+  it("manage: dispatches through runEpicCli (a usage error proves the route), and the verb lists manage", () => {
+    expect(runEpicCli(["manage"], statusOpts())).toBe(2);
+    expect(errors.join("\n")).toContain("exactly one <slug> is required");
+    errors.length = 0;
+    expect(runEpicCli(["bogus"], statusOpts())).toBe(2);
+    expect(errors.join("\n")).toContain(
+      "create|run|status|bind|launch|ls|done|manage",
+    );
   });
 
   it("status: threads the committed board through so a merged committed row with no run.json record shows merged", () => {

@@ -13,6 +13,7 @@ import * as path from "node:path";
 import { managerDir } from "./epic-manager-log";
 import { livenessOf, type LivenessDeps } from "./liveness";
 import { withFileLockSync } from "./lock";
+import { relativeTime } from "./time";
 import { EFFORT_LEVELS, MODEL_ALIASES } from "./state";
 import type { EffortLevel, ModelAlias } from "./state";
 
@@ -188,4 +189,47 @@ export function managerHealth(
     return { kind: "stalled", heartbeatAgeMs };
   }
   return { kind: "live", heartbeatAgeMs };
+}
+
+export type SequencerView = {
+  window: string;
+  health: "live" | "stalled" | "stopped";
+  heartbeatAgeMs?: number;
+  model: ModelAlias;
+  effort: EffortLevel;
+  autonomy: "observe";
+};
+
+/** The `flow epic status --json` `sequencer` field: null when no record exists. */
+export function sequencerView(
+  epicSlug: string,
+  nowMs: number,
+  stateDir?: string,
+  deps?: LivenessDeps,
+): SequencerView | null {
+  const m = readManager(epicSlug, stateDir);
+  if (!m) return null;
+  const h = managerHealth(m, nowMs, deps);
+  return {
+    window: m.window,
+    health: h.kind,
+    ...(h.kind === "stopped" ? {} : { heartbeatAgeMs: h.heartbeatAgeMs }),
+    model: m.model,
+    effort: m.effort,
+    autonomy: m.autonomy,
+  };
+}
+
+/** The one trailing `sequencer:` line of `flow epic status`. */
+export function sequencerLine(
+  epicSlug: string,
+  view: SequencerView | null,
+): string {
+  if (!view || view.health === "stopped") {
+    return `sequencer: none — start one with flow epic manage ${epicSlug}`;
+  }
+  const age = relativeTime(0, view.heartbeatAgeMs ?? 0);
+  return view.health === "live"
+    ? `sequencer: live in window ${view.window} · heartbeat ${age} · ${view.model}/${view.effort} · ${view.autonomy}`
+    : `sequencer: stalled — last heartbeat ${age} (window ${view.window})`;
 }

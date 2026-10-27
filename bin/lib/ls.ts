@@ -46,7 +46,12 @@ import {
   type PipelineState,
   type PipelineKind,
 } from "./state";
-import { livenessOf, type Liveness } from "./liveness";
+import { livenessOf, type Liveness, type LivenessDeps } from "./liveness";
+import {
+  listManagers,
+  managerHealth,
+  type ManagerState,
+} from "./epic-manage-state";
 import { recoveryCommandFor } from "./recovery-command";
 import { reapStartingOrphans, STARTING_ORPHAN_GRACE_MS } from "./reap-orphans";
 import { relativeTime } from "./time";
@@ -78,6 +83,8 @@ export type LsOptions = {
   checkUpdate?: () => UpdateCheckResult;
   /** Required (no default): the real read-only install-drift check. */
   checkDrift: () => InstallDriftResult;
+  /** Process-liveness seam for sequencer rows (test only). */
+  liveness?: LivenessDeps;
 };
 
 export type Row = {
@@ -89,8 +96,10 @@ export type Row = {
    * `resolveStateKind`'s phase-derived default) — NEVER from the `@flow-kind`
    * tmux pane option. Empty ONLY for the unmanaged "(no state)" rows built
    * from a window with no state file, which have no PipelineState to read.
+   * `epic-manage` is a `flow epic manage` sequencer row (built from its
+   * `manager.json`, not a pipeline state).
    */
-  kind: PipelineKind | "";
+  kind: PipelineKind | "epic-manage" | "";
   /** Epic slug from state.epic, or "" when this pipeline isn't epic-launched. */
   epic: string;
   phase: string;
@@ -160,6 +169,8 @@ export async function runLs(opts: LsOptions): Promise<number> {
   const cwd = opts.cwd ?? process.cwd();
   let states = survivors;
   let hidden: PipelineState[] = [];
+  let managers = listManagers();
+  let hiddenManagers: ManagerState[] = [];
   if (!allRepos) {
     const currentRepo = resolveRepoRoot(cwd);
     if (currentRepo === null) {
@@ -175,6 +186,8 @@ export async function runLs(opts: LsOptions): Promise<number> {
       const sameRepo = makeSameRepository(cwd);
       states = survivors.filter((s) => sameRepo(s.repo));
       hidden = survivors.filter((s) => !sameRepo(s.repo));
+      hiddenManagers = managers.filter((m) => !sameRepo(m.repo));
+      managers = managers.filter((m) => sameRepo(m.repo));
     }
   }
 
@@ -184,8 +197,8 @@ export async function runLs(opts: LsOptions): Promise<number> {
   // every hidden pipeline's window as a synthetic `<slug> (no state)` row,
   // contradicting the "N pipelines in other repos hidden" footer below.
   const hiddenWindowIds = new Set(
-    hidden
-      .map((s) => findWindowBySlug(windows, s.slug)?.id)
+    [...hidden.map((s) => s.slug), ...hiddenManagers.map((m) => m.window)]
+      .map((slug) => findWindowBySlug(windows, slug)?.id)
       .filter((id): id is string => id !== undefined),
   );
   const visibleWindows =
@@ -193,7 +206,7 @@ export async function runLs(opts: LsOptions): Promise<number> {
       ? windows
       : windows.filter((w) => !hiddenWindowIds.has(w.id));
 
-  const rows = await buildRows(states, visibleWindows, now, opts);
+  const rows = await buildRows(states, visibleWindows, now, opts, managers);
 
   if (rows.length === 0) {
     if (hidden.length === 0) {
@@ -254,9 +267,9 @@ export function printOrphanRecovery(rows: Row[]): void {
     dim("pipelines needing resume (no window, or crashed) — resume with:"),
   );
   for (const row of orphans) {
-    console.log(
-      dim(`  ${recoveryCommandFor(row.name, row.kind || "feature")}`),
-    );
+    const kind =
+      row.kind === "" || row.kind === "epic-manage" ? "feature" : row.kind;
+    console.log(dim(`  ${recoveryCommandFor(row.name, kind)}`));
   }
 }
 
@@ -331,6 +344,7 @@ export async function buildRows(
   windows: TmuxWindow[],
   nowMs: number,
   opts: LsOptions,
+  managers: ManagerState[] = [],
 ): Promise<Row[]> {
   const projectsRoot = opts.projectsRoot ?? defaultProjectsRoot();
 
@@ -426,6 +440,12 @@ export async function buildRows(
     });
   }
 
+  // A live or stalled `flow epic manage` sequencer claims its window so it no
+  // longer renders as "(no state)".
+  const sequencers = managerRows(managers, windows, nowMs, opts);
+  rows.push(...sequencers.rows);
+  for (const id of sequencers.claimed) matchedWindowIds.add(id);
+
   // Surface windows that no state row claimed. They're not pipelines
   // flow owns, so fall back to the tmux-reported activity so the user
   // still sees something. Display the user-visible window name (the
@@ -449,6 +469,37 @@ export async function buildRows(
   }
 
   return rows;
+}
+
+/** One row per live or stalled sequencer (a stopped record is a crash leftover — no row). */
+function managerRows(
+  managers: ManagerState[],
+  windows: TmuxWindow[],
+  nowMs: number,
+  opts: LsOptions,
+): { rows: Row[]; claimed: string[] } {
+  const rows: Row[] = [];
+  const claimed: string[] = [];
+  for (const m of managers) {
+    const health = managerHealth(m, nowMs, opts.liveness);
+    if (health.kind === "stopped") continue;
+    const window = findWindowBySlug(windows, m.window);
+    if (window) claimed.push(window.id);
+    rows.push({
+      name: m.window,
+      repo: path.basename(m.repo),
+      kind: "epic-manage",
+      epic: m.epicSlug,
+      phase: health.kind === "live" ? "managing" : "stalled",
+      pr: "—",
+      lastActivity: relativeTime(Date.parse(m.heartbeatAt), nowMs),
+      annotation: "",
+      needsResumeHint: false,
+      waitForCopilot: false,
+      cost: opts.cost ? EMPTY_COST : undefined,
+    });
+  }
+  return { rows, claimed };
 }
 
 function lastActivityFrom(
