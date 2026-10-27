@@ -197,7 +197,7 @@ export function renderManageBoard(model: BoardModel): string {
     );
   } else if (guard.verdicts.some((v) => v.action === "github-unverified")) {
     unsolved.push(
-      `GitHub snapshot is ${age(gh.ageMs)} old — launches paused until it refreshes (window ${win})`,
+      `GitHub or git state could not be verified (last GitHub snapshot ${age(gh.ageMs)} old) — launches paused until it can (window ${win})`,
     );
   }
   if (unsolved.length > 0) {
