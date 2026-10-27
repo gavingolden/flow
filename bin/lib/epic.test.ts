@@ -1589,7 +1589,7 @@ describe("runEpicCli create --resume", () => {
 });
 
 describe("runEpicCli run/status/ls/bind/launch", () => {
-  type FeatureSpec = { id: string; dependsOn?: string[] };
+  type FeatureSpec = { id: string; dependsOn?: string[]; waitFor?: string };
 
   function gitInit(): void {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
@@ -1610,6 +1610,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
           title: f.id.toUpperCase(),
           description: `build ${f.id}`,
           dependsOn: f.dependsOn ?? [],
+          ...(f.waitFor ? { waitFor: f.waitFor } : {}),
         })),
       }),
     );
@@ -3463,6 +3464,86 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     );
     expect(code).toBe(0);
     expect(fs.readFileSync(manifestPath, "utf8")).toBe(before);
+  });
+
+  // ── wait nodes (waitFor) + run.json lock ─────────────────────────────────
+
+  it.each([[[]], [["--force"]]])(
+    "launch: refuses a waitFor wait node (flags %j) — exit 2, no spawn, no binding",
+    (extra: string[]) => {
+      gitInit();
+      writeManifest("wait-launch", [
+        { id: "feat-w", waitFor: "the rollout lands in prod" },
+      ]);
+      const spawn = okSpawn();
+      const code = runEpicCli(["launch", "wait-launch", "feat-w", ...extra], {
+        cwd: repoDir,
+        epicsDir,
+        spawn,
+      });
+      expect(code).toBe(2);
+      expect(spawn).not.toHaveBeenCalled();
+      expect(errors.join("\n")).toContain(
+        "flow epic launch: 'feat-w' is a wait node (waiting on: the rollout lands in prod) — it is never launched; record it with flow epic bind wait-launch feat-w --external \"<ref>\"",
+      );
+      expect(readEpicRunState("wait-launch", epicsDir)).toBeNull();
+    },
+  );
+
+  it("bind: the slug form refuses a waitFor wait node (even with --force) and writes nothing", () => {
+    gitInit();
+    writeManifest("wait-bind", [{ id: "feat-w", waitFor: "owner sign-off" }]);
+    for (const extra of [[], ["--force"]]) {
+      const code = runEpicCli(
+        ["bind", "wait-bind", "feat-w", "some-slug", ...extra],
+        { cwd: repoDir, epicsDir, stateDir },
+      );
+      expect(code).toBe(2);
+    }
+    expect(errors.join("\n")).toContain(
+      "flow epic bind: 'feat-w' is a wait node (waiting on: owner sign-off)",
+    );
+    expect(readEpicRunState("wait-bind", epicsDir)).toBeNull();
+  });
+
+  it("bind --external: completes a waitFor wait node", () => {
+    gitInit();
+    writeManifest("wait-ext", [{ id: "feat-w", waitFor: "owner sign-off" }]);
+    const code = runEpicCli(
+      ["bind", "wait-ext", "feat-w", "--external", "PR #77"],
+      { cwd: repoDir, epicsDir, stateDir },
+    );
+    expect(code).toBe(0);
+    const rec = readEpicRunState("wait-ext", epicsDir)?.features["feat-w"];
+    expect(rec?.external).toBe("PR #77");
+  });
+
+  it("launch: run.json lock keeps a binding another writer added while the launch was in flight", () => {
+    gitInit();
+    const manifestPath = writeManifest("lock-race", [
+      { id: "feat-a" },
+      { id: "feat-b" },
+    ]);
+    const racingSpawn = vi.fn((_command: string, _args: string[]) => {
+      // A concurrent `flow epic launch` for feat-b lands its binding after this
+      // launch read run.json but before this launch writes its own record.
+      writeEpicRunState(
+        seedRunState("lock-race", manifestPath, {
+          features: { "feat-b": { slug: "b-slug", launchedAt: "x" } },
+        }),
+        epicsDir,
+      );
+      return { status: 0, stdout: "flow:a-slug\n", stderr: "" };
+    });
+    const code = runEpicCli(["launch", "lock-race", "feat-a"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn: racingSpawn,
+    });
+    expect(code).toBe(0);
+    const features = readEpicRunState("lock-race", epicsDir)?.features;
+    expect(features?.["feat-a"]?.slug).toBe("a-slug");
+    expect(features?.["feat-b"]?.slug).toBe("b-slug");
   });
 });
 

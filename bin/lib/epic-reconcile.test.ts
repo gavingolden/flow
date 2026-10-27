@@ -481,3 +481,66 @@ describe("reconcile — committed-board floor", () => {
     expect(withNull).toEqual(withoutFloor);
   });
 });
+
+describe("reconcile — waiting status for waitFor frontier nodes", () => {
+  const withWait = (id: string, waitFor: string, dependsOn: string[] = []) => ({
+    ...feat(id, dependsOn),
+    waitFor,
+  });
+
+  it("a frontier node with waitFor is waiting, never in toLaunch, and counted", () => {
+    const m = manifest([feat("a"), withWait("w", "the rollout lands")]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({}),
+      readFeatureState: noState,
+      maxParallel: 3,
+    });
+    const row = result.board.find((r) => r.id === "w")!;
+    expect(row.status).toBe("waiting");
+    expect(row.waitFor).toBe("the rollout lands");
+    expect(ids(result.toLaunch)).toEqual(["a"]);
+    expect(result.summary.waiting).toBe(1);
+    expect(result.summary.ready).toBe(1);
+  });
+
+  it("a wait node does not consume a launch slot", () => {
+    const m = manifest([withWait("w", "later"), feat("a"), feat("b")]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({}),
+      readFeatureState: noState,
+      maxParallel: 2,
+    });
+    expect(ids(result.toLaunch)).toEqual(["a", "b"]);
+  });
+
+  it("a wait node whose dependency is unmet stays blocked, not waiting", () => {
+    const m = manifest([feat("a"), withWait("w", "later", ["a"])]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({}),
+      readFeatureState: noState,
+      maxParallel: 3,
+    });
+    expect(result.board.find((r) => r.id === "w")!.status).toBe("blocked");
+    expect(result.summary.waiting).toBe(0);
+  });
+
+  it("an external bind completes the wait node and unblocks its dependents", () => {
+    const m = manifest([withWait("w", "later"), feat("d", ["w"])]);
+    const result = reconcile({
+      manifest: m,
+      runState: {
+        ...runState({}),
+        features: {
+          w: { external: "PR #9", completedAt: "2026-06-28T00:00:00Z" },
+        },
+      },
+      readFeatureState: noState,
+      maxParallel: 3,
+    });
+    expect(result.board.find((r) => r.id === "w")!.status).toBe("merged");
+    expect(ids(result.toLaunch)).toEqual(["d"]);
+  });
+});

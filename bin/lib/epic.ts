@@ -146,7 +146,7 @@ import {
 } from "./epic-launch";
 import {
   readEpicRunState,
-  writeEpicRunState,
+  updateEpicRunRecord,
   listEpicRunStates,
   deleteEpicRunState,
   type EpicRunState,
@@ -1629,10 +1629,15 @@ Options:
 
   const loaded = loadActuatorManifest(epicSlug, "bind", options);
   if (!loaded.ok) return loaded.code;
-  if (!loaded.manifest.features.some((f) => f.id === featureId)) {
+  const boundFeature = loaded.manifest.features.find((f) => f.id === featureId);
+  if (!boundFeature) {
     console.error(
       `flow epic bind: feature '${featureId}' is not in the manifest.`,
     );
+    return 2;
+  }
+  if (external === undefined && boundFeature.waitFor) {
+    console.error(waitNodeRefusal("bind", epicSlug, boundFeature));
     return 2;
   }
 
@@ -1712,11 +1717,34 @@ Options:
     };
   }
 
-  runState.features[featureId] = next;
-  runState.updatedAt = now();
-  writeEpicRunState(runState, options.epicsDir);
+  updateEpicRunRecord(
+    epicSlug,
+    () =>
+      loadOrInitRunState(
+        epicSlug,
+        loaded.repo,
+        loaded.manifestPath,
+        loaded.sha,
+        options,
+      ),
+    featureId,
+    next,
+    { dir: options.epicsDir, now },
+  );
   console.log(JSON.stringify({ featureId, record: next }));
   return 0;
+}
+
+/**
+ * A `waitFor` node is never launched or slug-bound: it completes only when the
+ * owner records the awaited event with `flow epic bind --external`.
+ */
+function waitNodeRefusal(
+  verb: "bind" | "launch",
+  epicSlug: string,
+  feature: { id: string; waitFor?: string },
+): string {
+  return `flow epic ${verb}: '${feature.id}' is a wait node (waiting on: ${feature.waitFor}) — it is never launched; record it with flow epic bind ${epicSlug} ${feature.id} --external "<ref>"`;
 }
 
 const LAUNCH_USAGE =
@@ -1804,6 +1832,10 @@ Options:
     );
     return 2;
   }
+  if (feature.waitFor) {
+    console.error(waitNodeRefusal("launch", epicSlug, feature));
+    return 2;
+  }
 
   const runState = loadOrInitRunState(
     epicSlug,
@@ -1842,13 +1874,17 @@ Options:
   const priorSlugs = [...(existing?.priorSlugs ?? [])];
   if (existing?.slug && existing.slug !== lr.slug)
     priorSlugs.push(existing.slug);
-  runState.features[featureId] = {
-    slug: lr.slug,
-    launchedAt: now(),
-    ...(priorSlugs.length > 0 ? { priorSlugs } : {}),
-  };
-  runState.updatedAt = now();
-  writeEpicRunState(runState, options.epicsDir);
+  updateEpicRunRecord(
+    epicSlug,
+    () => runState,
+    featureId,
+    {
+      slug: lr.slug,
+      launchedAt: now(),
+      ...(priorSlugs.length > 0 ? { priorSlugs } : {}),
+    },
+    { dir: options.epicsDir, now },
+  );
   // First line is the machine-read contract token (the minted slug), mirroring
   // `flow feature create` — the playbook parses it to record/verify the binding.
   console.log(`${FLOW_SESSION}:${lr.slug}`);
