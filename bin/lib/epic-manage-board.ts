@@ -1,9 +1,9 @@
 /**
  * Pure renderer for the `flow epic manage` window, in the pause-output
  * contract's vocabulary (status heading, `**TLDR:**`, `**Unsolved:**`,
- * `**Needs attention:**`, `**Next action:**` last). Every owner-needed,
- * drift, launch-failed, and hold line names the window to look at and a
- * reason. Text in, text out: no clock, no I/O, so boards snapshot-test.
+ * `**Needs attention:**`, `**Next action:**` last). Every owner-needed
+ * line names the feature window to answer in; the other lines carry a reason
+ * and a next step. Text in, text out: no clock, no I/O, so boards snapshot-test.
  */
 
 import type { GuardResult, NodeVerdict } from "./epic-manage-guard";
@@ -112,28 +112,22 @@ function unhinted(f: ManagerState["featureFallback"]): string {
     : "config";
 }
 
-function verdictLines(
-  v: NodeVerdict,
-  epic: string,
-  win: string,
-): string[] | null {
+function verdictLines(v: NodeVerdict, epic: string): string[] | null {
   switch (v.action) {
     case "drift":
-      return [`drift: ${v.id} — ${v.reason} — ${POINTER} (window ${win})`];
+      return [`drift: ${v.id} — ${v.reason} — ${POINTER}`];
     case "waiting":
       return [
         `waiting on: ${v.waitFor} — ${v.id} is never launched; record it with flow epic bind ${epic} ${v.id} --external "<ref>"`,
       ];
     case "failed":
       return [
-        `launch failed: ${v.id} — ${v.reason} — fix it, then run flow epic launch ${epic} ${v.id} or restart the sequencer (window ${win})`,
+        `launch failed: ${v.id} — ${v.reason} — fix it, then run flow epic launch ${epic} ${v.id} or restart the sequencer`,
       ];
     case "capacity":
-      return [`hold: ${v.id} — waiting for a free slot (window ${win})`];
+      return [`hold: ${v.id} — waiting for a free slot`];
     case "launching":
-      return [
-        `launching: ${v.id} — flow epic launch is still running (window ${win})`,
-      ];
+      return [`launching: ${v.id} — flow epic launch is still running`];
     default:
       return null;
   }
@@ -141,7 +135,6 @@ function verdictLines(
 
 export function renderManageBoard(model: BoardModel): string {
   const { epicSlug: epic, result, guard } = model;
-  const win = `manage-${epic}`;
   const { merged, total, running } = result.summary;
   const waiting = model.ownerNeeded.length;
   const failed = guard.verdicts.find((v) => v.action === "failed");
@@ -165,7 +158,7 @@ export function renderManageBoard(model: BoardModel): string {
         : "RUNNING";
   lines.push(`### Epic ${epic} — ${merged} / ${total} merged — ${status}`);
   lines.push(
-    `manager ${model.manager.model}/${model.manager.effort} · unhinted features: ${unhinted(model.manager.featureFallback)} · autonomy ${model.manager.autonomy} · checkout ${model.headSha ?? "unknown"} · updated ${model.updatedAt}`,
+    `features with no model in the plan: ${unhinted(model.manager.featureFallback)} · later executive calls: ${model.manager.model}/${model.manager.effort} · autonomy ${model.manager.autonomy} · checkout ${model.headSha ?? "unknown"} · updated ${model.updatedAt}`,
   );
   if (!model.notifyOn) lines.push("notifications off — set FLOW_NOTIFY=1");
   lines.push("");
@@ -194,31 +187,31 @@ export function renderManageBoard(model: BoardModel): string {
 
   const unsolved: string[] = [];
   for (const reason of guard.globalDrift) {
-    unsolved.push(
-      `drift: every launch halted — ${reason} — ${POINTER} (window ${win})`,
-    );
+    unsolved.push(`drift: every launch halted — ${reason} — ${POINTER}`);
   }
   for (const d of guard.boundDrift) {
-    unsolved.push(`drift: ${d.id} — ${d.reason} — ${POINTER} (window ${win})`);
+    unsolved.push(`drift: ${d.id} — ${d.reason} — ${POINTER}`);
   }
   const progress: string[] = [];
   for (const v of guard.verdicts) {
     if (v.action === "drift" && globals.has(v.reason)) continue;
     const target =
-      v.action === "launching" || v.action === "capacity" ? progress : unsolved;
-    target.push(...(verdictLines(v, epic, win) ?? []));
+      v.action === "launching" ||
+      v.action === "capacity" ||
+      v.action === "waiting"
+        ? progress
+        : unsolved;
+    target.push(...(verdictLines(v, epic) ?? []));
   }
   if (!gh) {
-    unsolved.push(
-      `GitHub: first snapshot pending — launches paused (window ${win})`,
-    );
+    unsolved.push("GitHub: first snapshot pending — launches paused");
   } else if (!gh.ok) {
     unsolved.push(
-      `GitHub unreachable for ${age(gh.ageMs)} — launches paused (${gh.error ?? "no response"}) (window ${win})`,
+      `GitHub unreachable for ${age(gh.ageMs)} — launches paused (${gh.error ?? "no response"})`,
     );
   } else if (guard.verdicts.some((v) => v.action === "github-unverified")) {
     unsolved.push(
-      `GitHub or git state could not be verified (last GitHub snapshot ${age(gh.ageMs)} old) — launches paused until it can (window ${win})`,
+      `GitHub or git state could not be verified (last GitHub snapshot ${age(gh.ageMs)} old) — launches paused until it can`,
     );
   }
   if (unsolved.length > 0) {

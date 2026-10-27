@@ -315,7 +315,7 @@ describe("tick — launch matrix", () => {
     await quiesce(h);
     expect(h.spawns).toHaveLength(1);
     expect(h.writes.at(-1)).toMatch(
-      /hold: (beta|gamma) — waiting for a free slot \(window manage-my-epic\)/,
+      /hold: (beta|gamma) — waiting for a free slot/,
     );
   });
 
@@ -528,7 +528,7 @@ describe("tick — GitHub pause", () => {
     expect(h.spawns).toHaveLength(0);
     expect(h.writes.at(-1)).toContain("GitHub unreachable");
     expect(h.writes.at(-1)).toContain("HTTP 502 Bad Gateway");
-    expect(h.writes.at(-1)).toContain("(window manage-my-epic)");
+    expect(h.writes.at(-1)).not.toContain("(window manage-");
     h.gh.fail = false;
     h.clock.t += 91_000;
     const resumed = await tick(h.ctx(), h.deps);

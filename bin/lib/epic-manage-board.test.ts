@@ -127,7 +127,7 @@ describe("renderManageBoard snapshots", () => {
     ).toMatchSnapshot();
   });
 
-  it("drift: bound and global drift name the pointer and the window", () => {
+  it("drift: bound and global drift name the pointer", () => {
     const m = manifest(feat("alpha"), feat("beta"));
     expect(
       renderManageBoard(
@@ -252,10 +252,12 @@ describe("renderManageBoard snapshots", () => {
 });
 
 describe("renderManageBoard slots", () => {
-  it("header shows manager model/effort and the unhinted-features source", () => {
-    expect(renderManageBoard(model())).toContain(
-      "manager opus/high · unhinted features: config · autonomy observe · checkout abc1234",
+  it("header names the plan-less feature default and the later executive-call model in plain words", () => {
+    const header = renderManageBoard(model());
+    expect(header).toContain(
+      "features with no model in the plan: config · later executive calls: opus/high · autonomy observe · checkout abc1234",
     );
+    expect(header).not.toContain("unhinted features");
     expect(
       renderManageBoard(
         model({
@@ -267,7 +269,9 @@ describe("renderManageBoard slots", () => {
           },
         }),
       ),
-    ).toContain("manager haiku/low · unhinted features: haiku/low");
+    ).toContain(
+      "features with no model in the plan: haiku/low · later executive calls: haiku/low",
+    );
   });
 
   it("flags notifications off only when FLOW_NOTIFY is not on", () => {
@@ -284,7 +288,7 @@ describe("renderManageBoard slots", () => {
     expect(lines.at(-1)).toMatch(/^\*\*Next action:\*\* /);
   });
 
-  it("every drift, hold, and launch-failed line names the window and a reason", () => {
+  it("every drift, hold, and launch-failed line carries a reason and no self-referencing window suffix", () => {
     const out = renderManageBoard(
       model({
         guard: {
@@ -301,9 +305,57 @@ describe("renderManageBoard slots", () => {
     );
     for (const prefix of ["drift: a1", "launch failed: a2", "hold: a3"]) {
       const line = out.split("\n").find((l) => l.includes(prefix))!;
-      expect(line).toContain(`(window manage-${EPIC})`);
+      expect(line).not.toContain("(window manage-");
     }
     expect(out).toContain("run /flow-epic-run reconcile-drift");
+    expect(out).not.toContain("(window manage-");
+  });
+
+  it("keeps the window pointer only on owner-needed lines", () => {
+    const out = renderManageBoard(
+      model({
+        ownerNeeded: [
+          {
+            id: "alpha",
+            slug: "alpha",
+            phase: "plan-pending-review",
+            window: "alpha",
+            reason: "plan is waiting for your approval",
+            key: "k",
+            notify: true,
+          },
+        ],
+      }),
+    );
+    expect(out).toContain("answer in window alpha (flow attach alpha)");
+  });
+
+  it("a wait node is In progress, not Unsolved, and does not change the headline", () => {
+    const waitGuard = {
+      ...noGuard,
+      verdicts: [
+        {
+          id: "gate",
+          action: "waiting" as const,
+          waitFor: "the rollout lands in prod",
+        },
+      ],
+    };
+    const m = manifest(feat("gate", [], "the rollout lands in prod"));
+    const out = renderManageBoard(
+      model({ result: reconciled(m, {}, []), guard: waitGuard }),
+    );
+    const lines = out.split("\n");
+    const wait = lines.findIndex((l) => l.includes("waiting on:"));
+    expect(wait).toBeGreaterThan(-1);
+    expect(lines[wait]).toContain(
+      'flow epic bind my-epic gate --external "<ref>"',
+    );
+    expect(lines.lastIndexOf("**In progress:**", wait)).toBeGreaterThan(
+      lines.lastIndexOf("**Unsolved:**", wait),
+    );
+    expect(out).not.toContain("**Unsolved:**");
+    expect(out).toContain("RUNNING");
   });
 });
 
