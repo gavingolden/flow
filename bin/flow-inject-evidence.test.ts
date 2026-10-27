@@ -717,6 +717,23 @@ describe("evidence redaction and fence-aware rewrite", () => {
     expect(block).not.toContain(`${root}/`);
   });
 
+  it("relativizes image paths against roots[0], not the process cwd, and captions them in plain text", () => {
+    const root = "/w/elsewhere";
+    const shot = `${root}/.flow-tmp/ui-evidence/s.png`;
+    for (const out of [null, "ok"]) {
+      const block = buildEvidenceBlock(
+        out,
+        0,
+        TS,
+        [{ path: shot, alt: "s.png" }],
+        [root],
+      );
+      expect(block).toContain("![s.png](.flow-tmp/ui-evidence/s.png)");
+      expect(block).toContain("Screenshot: `.flow-tmp/ui-evidence/s.png`");
+      expect(block).not.toContain(root);
+    }
+  });
+
   it("rewrites the home directory to ~ and never publishes it", () => {
     const home = homedir();
     const block = buildEvidenceBlock(

@@ -97,14 +97,19 @@ const IDENTIFIER = new RegExp(`^${IDENT_WORD}(?:[-_]${IDENT_WORD})+$`);
 
 // One leading dot is stripped from each segment (`..` becomes empty) so dot
 // directories (`.flow-tmp`, `.github`) and `./` / `../` prefixes pass; the
-// `/`-or-`.` precondition is judged on the stripped run, so a bare
-// `.`-prefixed token with no other separator stays masked.
+// `/`-or-`.` precondition is judged on the run with any leading `./` / `../`
+// chain removed, so a bare `.`-prefixed or `./<token>` / `../<token>` with no
+// real separator stays masked.
 function isPathShaped(run: string): boolean {
   const segs = run
     .split("/")
     .map((seg) => (seg === ".." ? "" : seg.replace(/^\./, "")));
-  const stripped = segs.join("/");
-  if (!stripped.includes("/") && !stripped.includes(".")) return false;
+  const core = run
+    .replace(/^(?:\.{1,2}\/)+/, "")
+    .split("/")
+    .map((seg) => seg.replace(/^\./, ""))
+    .join("/");
+  if (!core.includes("/") && !core.includes(".")) return false;
   return segs.every((seg) => PATH_SEGMENT.test(seg));
 }
 
@@ -149,7 +154,8 @@ function stripPrefixes(text: string, prefixes: string[], to: string): string {
  * Rewrites absolute paths under a worktree root to root-relative paths and
  * paths under the home directory to `~/…`, so a published PR body carries
  * neither the local checkout location nor the user name. Matches only at a
- * path boundary, so a sibling `<root>-other/` is untouched. Pure.
+ * path boundary, so a sibling `<root>-other/` is untouched. Reads the
+ * filesystem (realpathSync) to match a root's canonical form; never throws.
  */
 export function relativizeForPublish(
   text: string,
@@ -167,7 +173,7 @@ export function relativizeForPublish(
  * Publish-grade masking for text spliced into a PR body. Masks known
  * credential shapes and key=value secrets, then 32+ char opaque runs —
  * except SHAs, UUIDs, repo-path-shaped runs, and identifier-shaped runs.
- * Pure, never throws.
+ * Reads the filesystem only through relativizeForPublish; never throws.
  */
 export function redactForPublish(text: string, opts?: RelativizeOpts): string {
   if (!text) return text;

@@ -269,7 +269,14 @@ function imageLines(images: EvidenceImage[], root: string): string[] {
     const abs = path.resolve(root, image.path);
     const rel = path.relative(root, abs).split(path.sep).join("/");
     const alt = image.alt.replace(/[\[\]\r\n]/g, " ");
-    out.push(`![${alt}](${encodeURI(rel)})`, "");
+    // The plain-text caption survives stripLocalImageRefs, so a body whose
+    // screenshot upload was skipped still names each picture.
+    out.push(
+      `![${alt}](${encodeURI(rel)})`,
+      "",
+      `Screenshot: \`${rel.replace(/[`\r\n]/g, " ")}\``,
+      "",
+    );
   }
   return out;
 }

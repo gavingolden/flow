@@ -663,7 +663,7 @@ describe("screenshot attach", () => {
     ).toBe(false);
   });
 
-  it("attach: a body over 60000 chars records screenshots_body_too_large, strips image refs, keeps local links", async () => {
+  it("attach: a body over 60000 chars records screenshots_body_too_large, strips image refs, keeps local links and plain-text screenshot captions", async () => {
     seed(`## Test Steps\n\n${REF}\n\n${LOCAL_LINK}\n\n${"x".repeat(60001)}\n`);
     const calls: string[][] = [];
     const result = await runReviewFinalize({

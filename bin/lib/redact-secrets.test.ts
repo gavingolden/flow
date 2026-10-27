@@ -1,4 +1,10 @@
-import { mkdtempSync, mkdirSync, realpathSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -258,10 +264,23 @@ describe("redactForPublish dot-directory paths", () => {
     expect(redactForPublish(ghp)).toBe("[REDACTED]");
   });
 
-  it("masks a dot-prefixed 32-char lowercase hex token with no slash", () => {
-    expect(redactForPublish(`.${"0123456789abcdef".repeat(2)}`)).toBe(
-      "[REDACTED]",
-    );
+  const HEX = "abcdef0123abcdef0123abcdef0123abcd";
+
+  it("masks a dot-prefixed letter-led hex token with no slash", () => {
+    expect(redactForPublish(`.${HEX}`)).toBe("[REDACTED]");
+  });
+
+  it("masks a ./<token> and ../<token> letter-led hex token", () => {
+    expect(redactForPublish(`./${HEX}`)).toBe("[REDACTED]");
+    expect(redactForPublish(`../${HEX}`)).toBe("[REDACTED]");
+    expect(redactForPublish(`../../${HEX}`)).toBe("[REDACTED]");
+  });
+
+  it("still publishes real ./ and ../ paths", () => {
+    const rel = "./src/components/some-very-long-component-name-here/index.ts";
+    const up = "../../.flow-tmp/ui-evidence/review/9-tsm-strip-1280.png";
+    expect(redactForPublish(rel)).toBe(rel);
+    expect(redactForPublish(up)).toBe(up);
   });
 });
 
@@ -330,7 +349,38 @@ describe("relativizeForPublish", () => {
     }
   });
 
+  it("rewrites a root nested inside home to root-relative, not ~/", () => {
+    const nested = { roots: ["/Users/h/code/wt"], home: "/Users/h" };
+    expect(
+      relativizeForPublish("/Users/h/code/wt/a.png /Users/h/.flow/b", nested),
+    ).toBe("a.png ~/.flow/b");
+  });
+
+  it("matches a root reached through a symlink by its real path", () => {
+    const base = mkdtempSync(path.join(os.tmpdir(), "relativize-link-"));
+    try {
+      const real = path.join(base, "real");
+      const link = path.join(base, "link");
+      mkdirSync(path.join(real, "sub"), { recursive: true });
+      symlinkSync(real, link);
+      expect(
+        relativizeForPublish(`${realpathSync(real)}/sub/a.png`, {
+          roots: [link],
+        }),
+      ).toBe("sub/a.png");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   it("redactForPublish relativizes first, then masks", () => {
+    const camel = { roots: ["/w/myRepoDirName"] };
+    expect(
+      redactForPublish(
+        "/w/myRepoDirName/.flow-tmp/ui-evidence/review/shot.png",
+        camel,
+      ),
+    ).toBe(".flow-tmp/ui-evidence/review/shot.png");
     const abs = "/w/repo/.flow-tmp/ui-evidence/review/9-tsm-strip-1280.png";
     expect(redactForPublish(`shot ${abs}`, opts)).toBe(
       "shot .flow-tmp/ui-evidence/review/9-tsm-strip-1280.png",
