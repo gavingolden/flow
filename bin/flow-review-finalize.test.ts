@@ -610,6 +610,22 @@ describe("screenshot attach", () => {
     ).toEqual([]);
   });
 
+  it("attach: image syntax quoted in an inline code span is neither attached nor altered", async () => {
+    const QUOTED = "`![alt](.flow-tmp/ui-evidence/other.png)`";
+    seed(
+      `## Test Steps\n\n- [ ] SUBJECTIVE: ok\n\n${REF}\n\nWrite ${QUOTED} to embed.\n`,
+    );
+    const calls: string[][] = [];
+    const result = await runReviewFinalize({
+      ...baseOpts(calls),
+      exec: attachExec(calls, { version: "2.101.0" }),
+    });
+    const [edit] = edits(calls);
+    expect(edit.filter((a) => a === "--attach")).toHaveLength(1);
+    expect(result.screenshots_uploaded).toBe(1);
+    expect(fs.readFileSync(bodyPath(), "utf8")).toContain(QUOTED);
+  });
+
   it("attach: a second pass uploads nothing already in the ledger and pushes the hosted URL", async () => {
     seed();
     const first: string[][] = [];

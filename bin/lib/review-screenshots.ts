@@ -10,11 +10,30 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { codeRanges, inCode } from "./md-code-ranges";
 
 export const BODY_MAX_CHARS = 60000;
 export const ATTACH_MAX_FILES = 50;
 const ATTACH_MIN_VERSION = [2, 99, 0];
 const IMAGE_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
+
+/** Image references in prose; syntax quoted inside code is not an image. */
+function imageRefs(body: string): RegExpMatchArray[] {
+  const ranges = codeRanges(body);
+  return [...body.matchAll(IMAGE_RE)].filter(
+    (m) => !inCode(ranges, m.index ?? 0),
+  );
+}
+
+function replaceImageRefs(
+  body: string,
+  fn: (whole: string, alt: string, target: string) => string,
+): string {
+  const ranges = codeRanges(body);
+  return body.replace(IMAGE_RE, (whole, alt, target, offset: number) =>
+    inCode(ranges, offset) ? whole : fn(whole, alt, target),
+  );
+}
 
 export type Ledger = Record<string, string>;
 export type AttachItem = { target: string; arg: string; sha: string };
@@ -79,7 +98,7 @@ function resolveLocalImage(worktree: string, target: string): string | null {
 /** Local image targets that point outside the worktree (never uploadable). */
 function outsideWorktreeTargets(body: string, worktree: string): string[] {
   const seen = new Set<string>();
-  for (const m of body.matchAll(IMAGE_RE)) {
+  for (const m of imageRefs(body)) {
     if (!isLocalTarget(m[2])) continue;
     const rel = path.relative(
       worktree,
@@ -91,22 +110,23 @@ function outsideWorktreeTargets(body: string, worktree: string): string[] {
 }
 
 export function hasLocalImageRefs(body: string): boolean {
-  return [...body.matchAll(IMAGE_RE)].some((m) => isLocalTarget(m[2]));
+  return imageRefs(body).some((m) => isLocalTarget(m[2]));
 }
 
 /** Drop local image references (whole line when alone on it); links and plain-text
  * screenshot captions stay, so a stripped body still names each picture. */
 export function stripLocalImageRefs(body: string): string {
-  return body
-    .split("\n")
-    .filter((line) => {
-      const m = line.trim().match(/^!\[[^\]]*\]\(([^)\s]+)\)$/);
-      return !(m && isLocalTarget(m[1]));
-    })
-    .join("\n")
-    .replace(IMAGE_RE, (whole, _alt, target) =>
-      isLocalTarget(target) ? "" : whole,
-    );
+  const ranges = codeRanges(body);
+  let offset = 0;
+  const kept = body.split("\n").filter((line) => {
+    const at = offset + line.indexOf("![");
+    offset += line.length + 1;
+    const m = line.trim().match(/^!\[[^\]]*\]\(([^)\s]+)\)$/);
+    return !(m && isLocalTarget(m[1]) && !inCode(ranges, at));
+  });
+  return replaceImageRefs(kept.join("\n"), (whole, _alt, target) =>
+    isLocalTarget(target) ? "" : whole,
+  );
 }
 
 export type ScreenshotPlan = {
@@ -128,7 +148,7 @@ export function planScreenshots(input: {
   hashFile: (p: string) => string | null;
 }): ScreenshotPlan {
   const shaByTarget = new Map<string, string>();
-  for (const m of input.body.matchAll(IMAGE_RE)) {
+  for (const m of imageRefs(input.body)) {
     if (!isLocalTarget(m[2]) || shaByTarget.has(m[2])) continue;
     const abs = resolveLocalImage(input.worktree, m[2]);
     if (abs === null) continue;
@@ -136,14 +156,14 @@ export function planScreenshots(input: {
     if (sha !== null) shaByTarget.set(m[2], sha);
   }
 
-  const body = input.body.replace(IMAGE_RE, (whole, alt, target) => {
+  const body = replaceImageRefs(input.body, (whole, alt, target) => {
     const url = input.ledger[shaByTarget.get(target) ?? ""];
     return url ? `![${alt}](${url})` : whole;
   });
   const bodyWithoutImages = stripLocalImageRefs(body);
 
   const attach: AttachItem[] = [];
-  for (const m of body.matchAll(IMAGE_RE)) {
+  for (const m of imageRefs(body)) {
     const sha = shaByTarget.get(m[2]);
     if (sha === undefined || attach.some((a) => a.target === m[2])) continue;
     const abs = resolveLocalImage(input.worktree, m[2]);
@@ -219,8 +239,8 @@ export function hostedUrls(
   remoteBody: string,
   attach: AttachItem[],
 ): Map<string, string> {
-  const local = [...pushedBody.matchAll(IMAGE_RE)];
-  const remote = [...remoteBody.matchAll(IMAGE_RE)];
+  const local = imageRefs(pushedBody);
+  const remote = imageRefs(remoteBody);
   const out = new Map<string, string>();
   if (local.length !== remote.length) return out;
   local.forEach((m, i) => {
@@ -236,7 +256,7 @@ export function applyHostedUrls(
   body: string,
   urls: Map<string, string>,
 ): string {
-  return body.replace(IMAGE_RE, (whole, alt, target) => {
+  return replaceImageRefs(body, (whole, alt, target) => {
     const url = urls.get(target);
     return url ? `![${alt}](${url})` : whole;
   });

@@ -29,6 +29,16 @@ describe("promoteEvidenceImages", () => {
     expect(out).toEqual([{ path: REL, alt: "9-strip.png" }]);
   });
 
+  it("promotes a backticked path that exists on disk", () => {
+    const out = promoteEvidenceImages(
+      `saved \`${REL}\` ok`,
+      [],
+      [ROOT],
+      existing(`${ROOT}/${REL}`),
+    );
+    expect(out).toEqual([{ path: REL, alt: "9-strip.png" }]);
+  });
+
   it("promotes an existing absolute worktree path", () => {
     const out = promoteEvidenceImages(
       `shot ${ROOT}/${REL} saved`,
