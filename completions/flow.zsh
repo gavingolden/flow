@@ -125,6 +125,12 @@ _flow() {
                             '--force[relaunch an already-bound feature]' \
                             '--model[per-launch model override, wins over flowNewHints]:alias:(opus haiku sonnet fable)' \
                             '--effort[per-launch effort override, wins over flowNewHints]:level:(low medium high xhigh max)'
+                    elif [[ "$line[2]" == manage ]]; then
+                        _arguments \
+                            '--model[the sequencer model; also fills a missing feature hint]:alias:(opus haiku sonnet fable)' \
+                            '--effort[the sequencer effort; also fills a missing feature hint]:level:(low medium high xhigh max)' \
+                            '--autonomy[sequencer autonomy (observe is the only value)]:mode:(observe)' \
+                            '--foreground[run in this terminal instead of a tmux window]'
                     elif [[ "$line[2]" == ls ]]; then
                         _arguments \
                             '--done[include completed epics]' \
@@ -140,6 +146,7 @@ _flow() {
                             'launch:atomically create + bind a feature'
                             'ls:list epics with per-state feature counts'
                             'done:remove the per-machine run.json cache'
+                            'manage:run the zero-token sequencer for an approved epic'
                         )
                         _describe 'subcommand' sub
                     fi

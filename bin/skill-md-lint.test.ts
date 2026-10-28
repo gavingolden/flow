@@ -8944,6 +8944,91 @@ describe("/flow-epic-run playbook SKILL.md literal anchors", () => {
   });
 });
 
+describe("flow epic manage governance anchors", () => {
+  // `flow epic manage <slug>` is a Bun process, not a Claude session: this
+  // block pins the one sanctioned-surface statement in each governance doc so
+  // none can drift into granting it a Task fan-out, a form, or a merge. It is
+  // NOT a ninth Task-tool exemption — it carries no `Task-tool exemption:`
+  // opener, so the exactly-eight count above is undisturbed.
+  const read = (...p: string[]): string =>
+    fs.readFileSync(path.resolve(HERE, "..", ...p), "utf8");
+  const bulletStart = supervisorRulesContent.indexOf(
+    "**`flow epic manage` is a separate sanctioned sequencer process.**",
+  );
+  const bullet =
+    bulletStart < 0
+      ? ""
+      : supervisorRulesContent
+          .slice(bulletStart)
+          .split(/\n {2}- \*\*/)[0]!
+          .replace(/\s+/g, " ");
+
+  it("the supervisor-contracts rules file carries the full governance bullet right after the /flow-epic-run bullet", () => {
+    expect(
+      bulletStart,
+      ".claude/rules/flow-supervisor-contracts.md must carry the `flow epic manage` bullet.",
+    ).toBeGreaterThan(0);
+    expect(
+      supervisorRulesContent.indexOf(
+        "**`/flow-epic-run` is a separate sanctioned playbook session.**",
+      ),
+    ).toBeLessThan(bulletStart);
+    expect(bullet).toContain(
+      "`flow epic manage <slug>` is a separate sanctioned deterministic sequencer process, not a Claude session",
+    );
+    expect(bullet).toMatch(/zero Task\/Agent sub-agents/);
+    expect(bullet).toMatch(/zero `AskUserQuestion` forms/);
+    expect(bullet).toMatch(/zero model calls/);
+    expect(bullet).toMatch(/never merges a feature PR/);
+    expect(bullet).toContain(
+      "never repairs drift (it names `/flow-epic-run reconcile-drift`)",
+    );
+  });
+
+  it("the bullet is not an exemption opener (the exactly-eight count and the numeral derivation stay intact)", () => {
+    expect(bullet).not.toContain("Task-tool exemption:");
+    expect(extractRulesExemptionsForManage()).toBe(8);
+  });
+
+  function extractRulesExemptionsForManage(): number {
+    return (
+      supervisorRulesContent.match(/Task-tool exemption: `\/flow-pipeline`/g) ??
+      []
+    ).length;
+  }
+
+  it("docs/target-architecture.md names the single foreground exception to 'not a long-running daemon'", () => {
+    const arch = read("docs", "target-architecture.md");
+    expect(arch).toContain(
+      "It is not a long-running daemon. The single exception is `flow epic manage <slug>`: a foreground process the owner starts in its own tmux window and stops with Ctrl-C or by closing the window — never detached, never launchd, and making no model calls.",
+    );
+  });
+
+  it("the /flow-epic-run hands table lists the sequencer without giving the playbook a loop", () => {
+    const skill = read("skills", "pipeline", "flow-epic-run", "SKILL.md");
+    const row = skill
+      .split("\n")
+      .find((l) => l.startsWith("| `flow epic manage <slug>`"));
+    expect(
+      row,
+      "flow-epic-run/SKILL.md hands table must have a `flow epic manage <slug>` row",
+    ).toBeDefined();
+    expect(row).toContain(
+      "The owner-started, zero-token sequencer that launches the safe frontier on its own and halts on drift with a pointer back to this playbook's reconcile-drift. This playbook itself still runs no loop.",
+    );
+  });
+
+  it("AGENTS.md names flow epic manage as a zero-model, no-fan-out, never-merges process", () => {
+    const section = agentsContent.slice(
+      agentsContent.indexOf("## Supervisor and sub-skills: in-process only"),
+      agentsContent.indexOf("## Compact Instructions"),
+    );
+    expect(section).toMatch(
+      /`flow epic manage` is one: no model, no Task\/forms, never merges/,
+    );
+  });
+});
+
 describe("epic-metadata auto-commit/auto-push exemption doc wiring (Task 6)", () => {
   // The base-branch guard's v4 status-board allowlist gets a documented
   // --commit --push route in the epic-run playbook, and a lean pointer in

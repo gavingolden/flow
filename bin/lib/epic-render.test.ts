@@ -33,6 +33,7 @@ describe("renderBoard", () => {
   ];
   const summary: ReconcileSummary = {
     ready: 0,
+    waiting: 0,
     running: 1,
     blocked: 1,
     merged: 1,
@@ -61,9 +62,34 @@ describe("renderBoard", () => {
     expect(schemaLine).toContain("—"); // merged schema waits on nothing
   });
 
-  it("ends with the ready/running/blocked/merged summary line", () => {
+  it("ends with the ready/waiting/running/blocked/merged summary line", () => {
     const out = renderBoard(board, summary);
-    expect(out).toContain("ready: 0   running: 1   blocked: 1   merged: 1 / 3");
+    expect(out).toContain(
+      "ready: 0   waiting: 0   running: 1   blocked: 1   merged: 1 / 3",
+    );
+  });
+
+  it("renders a waiting row with its waitFor text in WAITS ON", () => {
+    const waitingBoard: BoardRow[] = [
+      {
+        id: "w1",
+        status: "waiting",
+        dependsOn: ["schema"],
+        waitFor: "the schema PR lands in prod",
+      },
+    ];
+    const out = renderBoard(waitingBoard, {
+      ready: 0,
+      waiting: 1,
+      running: 0,
+      blocked: 0,
+      merged: 0,
+      total: 1,
+    });
+    const line = out.split("\n").find((l) => l.startsWith("w1"))!;
+    expect(line).toContain("waiting");
+    expect(line).toContain("the schema PR lands in prod");
+    expect(out).toContain("waiting: 1");
   });
 });
 

@@ -17,6 +17,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { withFileLockSync } from "./lock";
 import { FLOW_EPICS_DIR } from "./paths";
 
 export const EPIC_RUN_STATE_FILENAME = "run.json";
@@ -139,14 +140,54 @@ export function readEpicRunState(
   }
 }
 
+/**
+ * Atomic (tmp file + rename): a crash mid-write leaves the previous run.json
+ * intact, and a concurrent reader never sees a torn file.
+ */
 export function writeEpicRunState(
   state: EpicRunState,
   dir = FLOW_EPICS_DIR,
 ): void {
   fs.mkdirSync(path.join(dir, state.epicSlug), { recursive: true });
-  fs.writeFileSync(
-    epicRunStatePath(state.epicSlug, dir),
-    JSON.stringify(state, null, 2) + "\n",
+  const target = epicRunStatePath(state.epicSlug, dir);
+  const tmp = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n");
+  fs.renameSync(tmp, target);
+}
+
+export function epicRunStateLockPath(
+  slug: string,
+  dir = FLOW_EPICS_DIR,
+): string {
+  return path.join(dir, slug, `${EPIC_RUN_STATE_FILENAME}.lock`);
+}
+
+/**
+ * Set ONE feature's record under the run.json lock: re-read the file inside
+ * the lock (or build a fresh state from `init`), replace only `featureId`'s
+ * record, and write back. A concurrent `flow epic launch` / `bind` for another
+ * feature can therefore never have its binding dropped by a stale
+ * read-modify-write. The lock wait is short — this runs in the launch/bind
+ * child, never in the sequencer loop.
+ */
+export function updateEpicRunRecord(
+  slug: string,
+  init: () => EpicRunState,
+  featureId: string,
+  record: FeatureRunRecord,
+  opts: { dir?: string; now: () => string },
+): void {
+  const dir = opts.dir ?? FLOW_EPICS_DIR;
+  fs.mkdirSync(path.join(dir, slug), { recursive: true });
+  withFileLockSync(
+    epicRunStateLockPath(slug, dir),
+    () => {
+      const state = readEpicRunState(slug, dir) ?? init();
+      state.features[featureId] = record;
+      state.updatedAt = opts.now();
+      writeEpicRunState(state, dir);
+    },
+    { timeoutMs: 5_000, pollMs: 25 },
   );
 }
 

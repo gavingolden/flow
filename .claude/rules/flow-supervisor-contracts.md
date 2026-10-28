@@ -175,6 +175,11 @@ done`'s heal): that one commit, never forced. Both contracts:
     GitHub/git truth. Zero named fan-out: **no** Task/Agent sub-agent,
     **no** `AskUserQuestion` form. `gated ⇒ escalate-only`, never merges
     a feature PR.
+  - **`flow epic manage` is a separate sanctioned sequencer process.**
+    `flow epic manage <slug>` is a separate sanctioned deterministic
+    sequencer process, not a Claude session: zero Task/Agent sub-agents,
+    zero `AskUserQuestion` forms, zero model calls, never merges a feature
+    PR, never repairs drift (it names `/flow-epic-run reconcile-drift`).
   - **`/flow-backlog-triage` is a separate sanctioned standalone
     session,** so `/flow-pipeline`'s exactly-7 and one-form rule are
     unaffected by its one named surface: One Task-tool fan-out (Phase-1

@@ -19,6 +19,8 @@ import {
 import * as stateModule from "./state";
 import * as tmuxModule from "./tmux";
 import * as livenessModule from "./liveness";
+import * as manageStateModule from "./epic-manage-state";
+import type { ManagerState } from "./epic-manage-state";
 import { encodeProjectSegment } from "./cost";
 import type { PipelineState } from "./state";
 import type { TmuxWindow } from "./tmux";
@@ -40,12 +42,47 @@ function buildRows(
   windows: TmuxWindow[],
   nowMs: number,
   opts: Partial<LsOptions> = {},
+  managers: ManagerState[] = [],
 ): ReturnType<typeof buildRowsImpl> {
-  return buildRowsImpl(states, windows, nowMs, {
-    checkDrift: NO_DRIFT,
-    ...opts,
-  });
+  return buildRowsImpl(
+    states,
+    windows,
+    nowMs,
+    {
+      checkDrift: NO_DRIFT,
+      ...opts,
+    },
+    managers,
+  );
 }
+
+// `runLs` reads the real `~/.flow/state/managers/`; keep every test hermetic.
+beforeEach(() => {
+  vi.spyOn(manageStateModule, "listManagers").mockReturnValue([]);
+});
+
+function sequencer(overrides: Partial<ManagerState> = {}): ManagerState {
+  return {
+    version: 1,
+    epicSlug: "my-epic",
+    repo: "/repo",
+    window: "manage-my-epic",
+    pid: 4242,
+    procStartedAt: 1000,
+    startedAt: new Date(NOW - 600_000).toISOString(),
+    heartbeatAt: new Date(NOW - 4_000).toISOString(),
+    pollMs: 3000,
+    autonomy: "observe",
+    model: "opus",
+    effort: "high",
+    featureFallback: {},
+    status: "running",
+    launching: null,
+    ...overrides,
+  };
+}
+
+const ALIVE = { isAlive: () => true, pidStartEpoch: () => 1000 };
 
 function state(overrides: Partial<PipelineState>): PipelineState {
   return {
@@ -336,6 +373,74 @@ describe(buildRows, () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].annotation).toBe("");
+  });
+});
+
+describe("buildRows — sequencer rows", () => {
+  it("shows a live sequencer with its heartbeat age and claims its window", async () => {
+    const rows = await buildRows(
+      [],
+      [window({ name: "manage-my-epic" })],
+      NOW,
+      { liveness: ALIVE },
+      [sequencer()],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      name: "manage-my-epic",
+      kind: "epic-manage",
+      epic: "my-epic",
+      phase: "managing",
+      lastActivity: "4s ago",
+      annotation: "",
+      repo: "repo",
+    });
+    expect(rows.some((r) => r.annotation === "(no state)")).toBe(false);
+  });
+
+  it("flags a sequencer stalled once its heartbeat is older than three polls", async () => {
+    const rows = await buildRows(
+      [],
+      [window({ name: "manage-my-epic" })],
+      NOW,
+      { liveness: ALIVE },
+      [sequencer({ heartbeatAt: new Date(NOW - 10_000).toISOString() })],
+    );
+    expect(rows[0]).toMatchObject({
+      phase: "stalled",
+      lastActivity: "10s ago",
+    });
+  });
+
+  it("a parked done sequencer reads as managing, never stalled", async () => {
+    const rows = await buildRows([], [], NOW, { liveness: ALIVE }, [
+      sequencer({
+        status: "done",
+        heartbeatAt: new Date(NOW - 3_600_000).toISOString(),
+      }),
+    ]);
+    expect(rows[0]?.phase).toBe("managing");
+  });
+
+  it("omits a stopped sequencer's crash-leftover record and leaves its window unclaimed", async () => {
+    const rows = await buildRows(
+      [],
+      [window({ name: "manage-my-epic" })],
+      NOW,
+      { liveness: { isAlive: () => false } },
+      [sequencer()],
+    );
+    expect(rows.map((r) => [r.name, r.annotation])).toEqual([
+      ["manage-my-epic", "(no state)"],
+    ]);
+  });
+
+  it("renders the sequencer kind cell and never offers it a resume command", async () => {
+    const rows = await buildRows([], [], NOW, { liveness: ALIVE }, [
+      sequencer(),
+    ]);
+    expect(formatKindCell(rows[0]!.kind)).toBe("epic-manage");
+    expect(rows[0]!.needsResumeHint).toBe(false);
   });
 });
 
@@ -1637,6 +1742,75 @@ describe("runLs — repo scoping", () => {
       .filter((l) => l.includes("flow feature resume"));
     expect(resumeLines).toHaveLength(1);
     expect(resumeLines[0]).toContain("flow feature resume foreign-zombie");
+  });
+});
+
+describe("runLs — sequencer rows", () => {
+  let mine: string;
+  let other: string;
+
+  beforeEach(() => {
+    mine = initGitRepo();
+    other = initGitRepo();
+  });
+
+  afterEach(() => {
+    fs.rmSync(mine, { recursive: true, force: true });
+    fs.rmSync(other, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it("shows this repo's sequencer, hides another repo's, and never mislabels either window (no state)", async () => {
+    vi.spyOn(stateModule, "listStates").mockReturnValue([]);
+    vi.spyOn(manageStateModule, "listManagers").mockReturnValue([
+      sequencer({ repo: mine }),
+      sequencer({
+        repo: other,
+        epicSlug: "their-epic",
+        window: "manage-their-epic",
+      }),
+    ]);
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("alive");
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+      window({ name: "manage-my-epic" }),
+      window({ name: "manage-their-epic" }),
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const code = await runLs({
+      cwd: mine,
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+    expect(code).toBe(0);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain("manage-my-epic");
+    expect(out).toContain("epic-manage");
+    expect(out).not.toContain("manage-their-epic");
+    expect(out).not.toContain("(no state)");
+  });
+
+  it("--all-repos shows every repo's sequencer", async () => {
+    vi.spyOn(stateModule, "listStates").mockReturnValue([]);
+    vi.spyOn(manageStateModule, "listManagers").mockReturnValue([
+      sequencer({ repo: mine }),
+      sequencer({
+        repo: other,
+        epicSlug: "their-epic",
+        window: "manage-their-epic",
+      }),
+    ]);
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("alive");
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await runLs({
+      cwd: mine,
+      allRepos: true,
+      checkUpdate: () => ({ status: "current" }),
+      checkDrift: NO_DRIFT,
+    });
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain("manage-my-epic");
+    expect(out).toContain("manage-their-epic");
   });
 });
 
