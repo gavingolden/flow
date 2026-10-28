@@ -5683,7 +5683,10 @@ describe("pr-review include-by-reference structure", () => {
     // the implementer `skill_docs` paths and, for UI edit-sets, the flow-ui-ux
     // rule paths, and checks them against the artifact's `skills_read`.
     // Those lines are load-bearing contract (a UI diff that skips the design
-    // rules is the failure this prevents); 835 leaves 4 lines of headroom over the 831 it lands at.
+    // rules is the failure this prevents). #981 moved the UI rule paths onto
+    // per-entry `skill_docs` and swapped the log-only check for the
+    // flow-coder-skills-check registration, net-neutral: still lands at 831,
+    // so < 835 leaves 3 lines of headroom.
     expect(
       lineCount,
       `flow-new-feature/SKILL.md line count must stay under the post-diet ` +
@@ -12615,5 +12618,73 @@ describe("flow-pr-review run list has one reader", () => {
     const rule = skill.slice(start, end);
     expect(rule).not.toContain("run all six");
     expect(rule).not.toContain("ungated regardless");
+  });
+});
+
+describe("coder design-reading enforcement (#981)", () => {
+  const skill = (name: string) =>
+    fs.readFileSync(
+      path.resolve(HERE, "..", "skills", "pipeline", name, "SKILL.md"),
+      "utf8",
+    );
+  const walk = (dir: string): string[] =>
+    fs
+      .readdirSync(dir, { withFileTypes: true })
+      .flatMap((e) =>
+        e.isDirectory()
+          ? walk(path.join(dir, e.name))
+          : e.name.endsWith(".md")
+            ? [path.join(dir, e.name)]
+            : [],
+      );
+
+  it("flow-coder waits on the completion notification, then runs the skills check with one SendMessage", () => {
+    const coder = skill("flow-coder");
+    expect(coder).toContain("completion notification");
+    expect(coder).toContain("never counts as completion");
+    const start = coder.indexOf("**Skills check (entries with skill_docs).**");
+    expect(start).toBeGreaterThan(-1);
+    const block = coder.slice(start, coder.indexOf("\n\n## ", start));
+    expect(block).toContain("flow-coder-skills-check");
+    expect(block).toContain("SendMessage");
+    expect(block).toContain("exactly ONE continuation");
+    expect(block).toContain("one skills continuation");
+    expect(coder).not.toContain("falling back to a bounded Monitor");
+  });
+
+  it("flow-pr-review's fix-applier wait no longer treats an artifact poll as completion", () => {
+    expect(skill("flow-pr-review")).not.toContain(
+      "falling back to a bounded Monitor",
+    );
+  });
+
+  it("flow-coder-instructions makes skill-docs reading a Read-tool pre-check and complete the final write", () => {
+    const instructions = skill("flow-coder-instructions");
+    expect(instructions).toContain("Skill-docs pre-check");
+    expect(instructions).toContain("Read tool");
+    expect(instructions).toContain("skills_read_late");
+    expect(instructions).toContain("final artifact write");
+  });
+
+  it("flow-new-feature step 5 puts UI rule paths on skill_docs and registers via the helper", () => {
+    const nf = skill("flow-new-feature");
+    const start = nf.indexOf(
+      "**UI rule paths (any edit-set touching UI files).**",
+    );
+    expect(start).toBeGreaterThan(-1);
+    const paragraph = nf.slice(start, nf.indexOf("\n\n", start));
+    expect(paragraph).toContain("`skill_docs`");
+    expect(nf).toContain("flow-coder-skills-check");
+    for (const s of [skill("flow-coder"), nf]) {
+      expect(s).toContain(".flow-tmp/coder-edit-set.json");
+    }
+    expect(nf).toContain("one `--design <path>` flag per UI rule path");
+  });
+
+  it("no skill under skills/ still emits the bare-skill-name wording", () => {
+    const offenders = walk(path.resolve(HERE, "..", "skills")).filter((p) =>
+      fs.readFileSync(p, "utf8").includes("skill not applied"),
+    );
+    expect(offenders).toEqual([]);
   });
 });

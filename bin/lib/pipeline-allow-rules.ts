@@ -66,6 +66,7 @@ export const FLOW_ROUTINE_HELPERS: readonly string[] = [
   "flow-reply-pr-comments",
   "flow-plan-review-wait",
   "flow-ui-critique",
+  "flow-coder-skills-check",
 ];
 
 export const FLOW_NEVER_ALLOW_HELPERS: readonly string[] = [

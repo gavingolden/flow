@@ -210,11 +210,12 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
    the artifact is genuinely missing or invalid, never on a well-formed
    `partial`.
 
-   **Waiting for the agent.** The spawn is asynchronous; wake on its
-   completion notification, falling back to a bounded Monitor `until`
-   loop on the completeness check above — never a foreground `sleep`
-   loop (see `../flow-pipeline/references/polling-protocol.md` "What this
-   wait means for the harness-native wake").
+   **Waiting for the agent.** The spawn is asynchronous; wake only on its
+   completion notification (or handback). An artifact poll may detect a
+   hang but never counts as completion — the agent writes interim
+   artifacts; never a foreground `sleep` loop (see
+   `../flow-pipeline/references/polling-protocol.md` "What this wait means
+   for the harness-native wake").
 
 5. Continue to Step 8c (the wrapper's post-spawn verification-item run),
    then Step 9 onwards.

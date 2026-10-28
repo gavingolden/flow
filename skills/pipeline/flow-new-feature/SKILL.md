@@ -556,7 +556,7 @@ Decide whether to delegate edits to `/flow-coder` based on the **hybrid threshol
    file's own `contract` slice). `acceptance` is task-grained, not
    file-grained: attach it only to the task's **final** entry (the
    `/flow-coder` edit-applier runs it once, after that last entry, not
-   per-edit — see `flow-coder-instructions/SKILL.md` step 4). Earlier
+   per-edit — see the `acceptance` item under `flow-coder-instructions/SKILL.md` step 2). Earlier
    entries for the same task omit `acceptance` entirely.
 
    Both optional fields are absent on the no-plan fallback path —
@@ -613,19 +613,18 @@ Decide whether to delegate edits to `/flow-coder` based on the **hybrid threshol
    from the threaded body before appending — the diagram is a
    plan-review aid; only the normative prose reaches the implementer.
 
-   **UI rule paths (any edit-set touching UI files).** `DESIGN_CONTEXT`
-   always carries the absolute paths of the flow-ui-ux `SKILL.md` and its
-   `references/layout.md`, `references/visual-design.md` and
-   `references/accessibility.md` (from `flow-module-status --skill-path
-flow-ui-ux [--ref references/<name>.md]`; a non-zero exit is a named
-   skip), plus the active stack UI skill's `SKILL.md`, with the instruction
-   to Read each before the first UI edit and apply it while writing — paths
-   only, never inlined skill text.
+   **UI rule paths (any edit-set touching UI files).** The absolute paths of
+   the flow-ui-ux `SKILL.md` and its `references/layout.md`,
+   `references/visual-design.md` and `references/accessibility.md` (from
+   `flow-module-status --skill-path flow-ui-ux [--ref references/<name>.md]`;
+   a non-zero exit is a named skip), plus the active stack UI skill's
+   `SKILL.md`, are appended (deduped) to the `skill_docs` of every edit-set
+   entry whose file is a UI file — the same shape verify's fix rounds use,
+   not `DESIGN_CONTEXT`. Paths only, never inlined skill text.
 
    Omit `DESIGN_CONTEXT` entirely only when the plan has NONE of a
-   committed foundation, `## Visual Spec`, or `## Layout Intent` AND the
-   edit-set touches no UI files — non-UI pipelines see byte-identical spawn
-   prompts. `/flow-new-feature` is
+   committed foundation, `## Visual Spec`, or `## Layout Intent` — non-UI
+   pipelines see byte-identical spawn prompts. `/flow-new-feature` is
    the content source for the argument; `/flow-coder`'s wrapper only renders
    it into the `{{DESIGN_CONTEXT}}` placeholder of its spawn prompt.
 
@@ -659,12 +658,16 @@ writes the structured artifact at
    jq -r '.edits[] | select((.tool_error // "") | startswith("turn-budget — ")) | "\(.file): \(.intent)"' "$WORKTREE/.flow-tmp/coder-result.json" | while IFS= read -r t; do flow-untracked add --title "$t" --source coder; done
    ```
 
-   When `DESIGN_CONTEXT` carried UI rule paths, compare them with the
-   artifact's `skills_read`: register each design-skill path absent from it
-   (flow-ui-ux and its references, the stack UI skill) with `flow-untracked
-add --source coder --title "skill not applied: <name>"`. Any other unread
-   `skill_docs` path is noted in the step-5 summary only, never the owner's
-   untracked list.
+   After `/flow-coder` returns (it already ran the skills check and its one
+   continuation), when step 2 appended UI rule paths and
+   `command -v flow-coder-skills-check` succeeds, run
+   `flow-coder-skills-check --artifact "$WORKTREE/.flow-tmp/coder-result.json" --edit-set-file "$WORKTREE/.flow-tmp/coder-edit-set.json"`
+   plus one `--design <path>` flag per UI rule path (repeat the flag). A
+   non-zero helper exit is a named skip line in the step-5 summary. When
+   `.untrackedTitle` is non-null, run
+   `flow-untracked add --source coder --title "<untrackedTitle>" --body "<untrackedBody>"`;
+   any other residual `missing`/`late` path is noted in the step-5 summary
+   only, never the owner's untracked list.
 
 On a missing/invalid artifact, or one with `verify_status != "pass"`,
 surface the failure to the caller — the supervisor escalates
@@ -674,9 +677,8 @@ edits applied, `verify_status == "pass"`) proceeds instead of escalating:
 register the entries via the loop above, and the PR body's
 `## Deviations from plan` names the count and untracked ids AND
 `## Test Steps` gains an unchecked
-`- [ ] DECISION: confirm N unattempted entries (listed under
-
-## Deviations from plan) are acceptable` item so the PR is gated.
+`- [ ] DECISION: confirm N unattempted entries (listed under ## Deviations from plan) are acceptable`
+item so the PR is gated.
 
 5. Read the artifact body once and parse into a typed object. Reuse
    the parsed object across Step 6 (test implementation, when it needs

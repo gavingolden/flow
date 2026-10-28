@@ -54,6 +54,8 @@ export type CoderResult = {
   anti_patterns_found: CoderAntiPattern[];
   /** Absolute skill/reference paths the implementer actually Read. */
   skills_read?: string[];
+  /** Absolute paths read only after the edits they govern had landed. */
+  skills_read_late?: string[];
   summary: string;
 };
 
@@ -181,6 +183,23 @@ export function validateCoderResult(parsed: unknown): ValidationResult {
         return err(
           `'skills_read' entries must be non-empty strings`,
           `skills_read[${i}]`,
+        );
+      }
+    }
+  }
+
+  if (o.skills_read_late !== undefined) {
+    if (!Array.isArray(o.skills_read_late)) {
+      return err(
+        `'skills_read_late' must be an array when present`,
+        "skills_read_late",
+      );
+    }
+    for (let i = 0; i < o.skills_read_late.length; i++) {
+      if (!isNonEmptyString(o.skills_read_late[i])) {
+        return err(
+          `'skills_read_late' entries must be non-empty strings`,
+          `skills_read_late[${i}]`,
         );
       }
     }

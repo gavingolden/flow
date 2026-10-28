@@ -135,6 +135,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-create-issue",
       "flow-followups",
       "flow-untracked",
+      "flow-coder-skills-check",
       "flow-foreclosed-paths",
       "flow-notify",
       "flow-browser-teardown",

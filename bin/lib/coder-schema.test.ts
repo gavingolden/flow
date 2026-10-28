@@ -128,6 +128,33 @@ describe("validateCoderResult — skills_read", () => {
   );
 });
 
+describe("validateCoderResult — skills_read_late", () => {
+  const withLate = (skills_read_late: unknown) => ({
+    ...(structuredClone(VALID_FULL) as Record<string, unknown>),
+    skills_read_late,
+  });
+
+  it("accepts an artifact without skills_read_late", () => {
+    expect(validateCoderResult(VALID_FULL).ok).toBe(true);
+  });
+
+  it("accepts a list of non-empty paths, including an empty list", () => {
+    expect(validateCoderResult(withLate(["/a/flow-ui-ux/SKILL.md"])).ok).toBe(
+      true,
+    );
+    expect(validateCoderResult(withLate([])).ok).toBe(true);
+  });
+
+  it.each([["not-an-array"], [[""]], [[1]]])(
+    "rejects skills_read_late = %j",
+    (bad) => {
+      const result = validateCoderResult(withLate(bad));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toContain("skills_read_late");
+    },
+  );
+});
+
 describe("validateCoderResult — required-key omissions", () => {
   it.each([
     "status",

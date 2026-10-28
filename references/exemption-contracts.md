@@ -215,7 +215,7 @@ Task-tool resolution outright — measured: "Agent type 'flow-scout' not
 found"), else `general-purpose` fallback emitting the `NOTICE — agent-fallback:` line
 (no bare-name legacy-install tier). The agent's `maxTurns: 240` budget
 means a `SendMessage` continuation of its own partial result
-(`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays inside this
+(`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) — and `/flow-coder`'s single skills-check continuation (its **Skills check** block) — stays inside this
 exemption — not an eighth site.
 
 ## `/flow-pr-review` Independent Consolidator-Validator Subagent
