@@ -52,8 +52,8 @@ Contract block — `acceptance` — a runnable per-edit check — and
 `skill_docs` — absolute skill/reference paths the subagent Reads before
 that entry's first edit and records in the artifact's `skills_read`. Today
 `/flow-new-feature` step 5's plan-contract path and `/flow-verify`'s UI fix
-rounds compose them (the verify rounds pass the rule paths as per-entry
-`skill_docs` and the Layout Intent as `DESIGN_CONTEXT`); `/flow-refactoring`
+rounds compose them (both pass the UI rule paths as per-entry
+`skill_docs`; the Layout Intent rides `DESIGN_CONTEXT`); `/flow-refactoring`
 and the redirect path keep composing bare triples, and the
 subagent treats an entry without them exactly as before (see
 `flow-coder-instructions/SKILL.md` for how `contract` is honored as a
@@ -245,16 +245,21 @@ config.models.implement > inherited` (see
    its per-spawn `effort:` argument.
 
 4. When the subagent returns, treat its 3–5 sentence summary as the chat
-   output. Do **not** read the artifact body in the wrapper — the caller
-   (`/flow-new-feature`, `/flow-verify`, or `/flow-refactoring`) reads it once when it
-   needs `verify_status` or per-edit dispositions, and reading it twice in
-   the same context erodes the context-cost win.
+   output. Do **not** read the artifact body in the wrapper (the skills-check
+   helper below is a subprocess returning a small verdict, not a body read) —
+   the caller (`/flow-new-feature`, `/flow-verify`, or `/flow-refactoring`)
+   reads it once when it needs `verify_status` or per-edit dispositions, and
+   reading it twice in the same context erodes the context-cost win.
 
-   **Waiting for the agent.** The spawn is asynchronous; wake on its
-   completion notification, falling back to a bounded Monitor `until`
-   loop on the completeness check below — never a foreground `sleep`
-   loop (see `../flow-pipeline/references/polling-protocol.md` "What this
-   wait means for the harness-native wake").
+   **Waiting for the agent.** The spawn is asynchronous; wake only on the
+   agent's completion notification (or its handback message). An artifact
+   poll may detect a hung agent but never counts as completion: the agent
+   writes interim `partial`/`complete` states and may amend the artifact
+   until it hands back. A stop blocked once by the stop guard while the
+   agent runs is expected — stop again rather than polling;
+   never a foreground `sleep` loop (see
+   `../flow-pipeline/references/polling-protocol.md` "What this wait means
+   for the harness-native wake").
 
    **Partial-result continuation.** If the Task result is marked partial
    with an agent id, or the artifact is missing, invalid, `status:
@@ -269,7 +274,31 @@ partial`, or an `Agent stalled` failure, send exactly one `SendMessage`
    ```
 
    on missing, invalid, or `status: partial` artifact, surface the
-   failure to the caller — the wrapper itself never retries.
+   failure to the caller — the wrapper itself never retries (the single
+   skills `SendMessage` below continues the same spawn; it is not a retry
+   or a second Task call).
+
+   **Skills check (entries with skill_docs).** Guard with
+   `command -v flow-coder-skills-check` (absent ⇒ one named-skip line,
+   "skills check unavailable", and continue). Write the `EDIT_SET` (inline
+   or from the caller's file) to `$WORKTREE/.flow-tmp/coder-edit-set.json`
+   first — callers re-read that same file — then run `flow-coder-skills-check
+   --artifact "$ARTIFACT_PATH" --edit-set-file "$WORKTREE/.flow-tmp/coder-edit-set.json"`. On `.needsContinuation ==
+   true`, load `SendMessage` and send exactly ONE continuation to the same
+   agent: "Your artifact's skills_read is missing these required paths:
+   <missing>, and these were read only after the edits they govern: <late>.
+   Do not restart. Read each now with the Read tool, one file per call.
+   Recheck every edit to a file whose entry listed that path; fix any edit
+   that does not conform, re-run `flow-pre-commit --json`, record any
+   deviation you cannot fix in anti_patterns_found, add each path to
+   skills_read and remove each rechecked path from skills_read_late, write
+   status complete as your final artifact write, then return your
+   both-sides summary." Wait for the next completion notification, re-run
+   the completeness check and the skills check once, and name any residual
+   missing/late in the one-line confirmation. Cap: one skills continuation
+   per spawn, sent after any partial-result continuation has resolved; a
+   refused or failed `SendMessage` falls through to reporting the residual
+   (never escalates).
 
 ## Spawn prompt template
 
@@ -396,12 +425,14 @@ the heading anchor.
 - NEVER make more than one Task-tool call per `/flow-coder` invocation. The
   single fan-out is the named exemption; multi-call fan-out is not
   authorised. If the artifact is missing after the spawn, surface the
-  failure to the caller — the wrapper itself never retries. Re-invocation
-  is the caller's decision; a second call inside this run would violate
-  the one-Task-call invariant.
+  failure to the caller — the wrapper itself never retries (the single
+  skills-check `SendMessage` is a continuation of the same spawn, not a
+  retry). Re-invocation is the caller's decision; a second call inside
+  this run would violate the one-Task-call invariant.
 - NEVER read `.flow-tmp/coder-result.json` body in the wrapper. The
-  cheap `jq -e` completeness check above (step 254) is the only allowed
-  artifact access between spawn and return. The caller's first read of the
+  cheap `jq -e` completeness check and the `flow-coder-skills-check`
+  verdict (both in step 4) are the only allowed artifact access between
+  spawn and return. The caller's first read of the
   body is the single read; reading earlier would duplicate that read in
   the same context.
 - NEVER let the subagent own the `mkdir -p .flow-tmp/`. Single
