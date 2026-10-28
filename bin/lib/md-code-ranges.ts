@@ -15,8 +15,17 @@ function runLength(text: string, at: number, end: number): number {
   return n;
 }
 
+const BLOCK_START = /^ {0,3}(#{1,6}(\s|$)|[-*+]\s|\d{1,9}[.)]\s|>)/;
+
+function startsBlockAt(text: string, from: number, end: number): boolean {
+  let e = from;
+  while (e < end && text[e] !== "\n") e++;
+  return BLOCK_START.test(text.slice(from, e));
+}
+
 // Find the end of a span opened by a run of `len` backticks, or -1. A span
-// may cross single newlines but never a blank line or the segment end.
+// may cross single newlines but never a blank line, a line opening a new
+// block (heading, list item, blockquote), or the segment end.
 function spanEnd(text: string, from: number, end: number, len: number): number {
   let i = from;
   while (i < end) {
@@ -24,7 +33,10 @@ function spanEnd(text: string, from: number, end: number, len: number): number {
       const n = runLength(text, i, end);
       if (n === len) return i + n;
       i += n;
-    } else if (text[i] === "\n" && isBlankAt(text, i + 1, end)) {
+    } else if (
+      text[i] === "\n" &&
+      (isBlankAt(text, i + 1, end) || startsBlockAt(text, i + 1, end))
+    ) {
       return -1;
     } else {
       i++;

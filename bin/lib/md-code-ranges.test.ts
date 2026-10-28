@@ -33,6 +33,27 @@ describe("codeRanges inline spans", () => {
   });
 });
 
+describe("codeRanges block boundaries", () => {
+  it.each([
+    ["list item", "- a ` b\n- c ` d"],
+    ["ordered item", "1. a ` b\n2. c ` d"],
+    ["heading", "a ` b\n# H ` c"],
+    ["blockquote", "a ` b\n> c ` d"],
+  ])("a span does not cross into a %s", (_n, body) => {
+    expect(spans(body)).toEqual([]);
+  });
+
+  it("a stray backtick in one item no longer swallows an image in the next", () => {
+    const body = "- stray ` here\n- ![x](a.png) and `code`";
+    expect(spans(body)).toEqual(["`code`"]);
+    expect(inCode(codeRanges(body), body.indexOf("![x]"))).toBe(false);
+  });
+
+  it("still lets a span continue onto a plain paragraph line", () => {
+    expect(spans("a `b\nc-d` e")).toEqual(["`b\nc-d`"]);
+  });
+});
+
 describe("codeRanges fences", () => {
   it("covers backtick and tilde fences including fence lines", () => {
     const body = "a\n```\nx\n```\nb\n~~~\ny\n~~~\nc";

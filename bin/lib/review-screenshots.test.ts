@@ -112,3 +112,19 @@ describe("hostedUrls pairing", () => {
     expect(hostedUrls(pushed, remote2, attach).size).toBe(1);
   });
 });
+
+describe("same path as real image and quoted copy", () => {
+  const body = `${REAL}\nQuote: \`${REAL}\`\n`;
+
+  it("applyHostedUrls rewrites only the real image", () => {
+    const urls = new Map([[".flow-tmp/ui-evidence/a.png", "https://h/1"]]);
+    expect(applyHostedUrls(body, urls)).toBe(
+      `![real](https://h/1)\nQuote: \`${REAL}\`\n`,
+    );
+  });
+
+  it("the planScreenshots ledger swap leaves the quoted copy byte-identical", () => {
+    const p = plan(body, { "sha:a.png": "https://h/1" });
+    expect(p.body).toBe(`![real](https://h/1)\nQuote: \`${REAL}\`\n`);
+  });
+});
