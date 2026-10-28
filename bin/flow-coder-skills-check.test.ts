@@ -62,7 +62,7 @@ describe("checkSkillsRead", () => {
     const artifact = { skills_read: [...TESTING_DOCS, design[0], design[1]] };
     const r = checkSkillsRead(artifact, uiEditSet, design);
     expect(r.untrackedTitle).toBe(
-      "UI edits skipped required design guidance — keyboard and screen-reader access were not checked against it",
+      "UI edits skipped required design guidance — keyboard and screen-reader access was not checked against it",
     );
     expect(r.untrackedTitle).not.toContain("layout");
     expect(r.untrackedTitle).not.toContain("skill not applied");

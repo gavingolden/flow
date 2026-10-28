@@ -31,6 +31,10 @@ export const DESIGN_GAP_TITLE =
 
 const GAP_PREFIX = "UI edits skipped required design guidance — ";
 const GAP_SUFFIX = " not checked against it";
+const SINGULAR_CLAUSES = new Set([
+  "layout",
+  "keyboard and screen-reader access",
+]);
 
 function gapClause(p: string): string {
   switch (path.basename(p)) {
@@ -52,7 +56,9 @@ function gapTitle(missingDesign: string[]): string {
     clauses.length > 1
       ? `${clauses.slice(0, -1).join(", ")} and ${clauses[clauses.length - 1]}`
       : clauses[0];
-  return `${GAP_PREFIX}${list} were${GAP_SUFFIX}`;
+  const verb =
+    clauses.length === 1 && SINGULAR_CLAUSES.has(clauses[0]) ? "was" : "were";
+  return `${GAP_PREFIX}${list} ${verb}${GAP_SUFFIX}`;
 }
 
 function anchorPath(p: string): string {
