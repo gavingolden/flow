@@ -556,7 +556,7 @@ Decide whether to delegate edits to `/flow-coder` based on the **hybrid threshol
    file's own `contract` slice). `acceptance` is task-grained, not
    file-grained: attach it only to the task's **final** entry (the
    `/flow-coder` edit-applier runs it once, after that last entry, not
-   per-edit — see `flow-coder-instructions/SKILL.md` step 4). Earlier
+   per-edit — see the `acceptance` item under `flow-coder-instructions/SKILL.md` step 2). Earlier
    entries for the same task omit `acceptance` entirely.
 
    Both optional fields are absent on the no-plan fallback path —
@@ -658,11 +658,13 @@ writes the structured artifact at
    jq -r '.edits[] | select((.tool_error // "") | startswith("turn-budget — ")) | "\(.file): \(.intent)"' "$WORKTREE/.flow-tmp/coder-result.json" | while IFS= read -r t; do flow-untracked add --title "$t" --source coder; done
    ```
 
-   After `/flow-coder` returns (its wrapper already ran the skills check and
-   its one continuation), when step 2 appended UI rule paths and
+   After `/flow-coder` returns (it already ran the skills check and its one
+   continuation), when step 2 appended UI rule paths and
    `command -v flow-coder-skills-check` succeeds, run
-   `flow-coder-skills-check --artifact "$WORKTREE/.flow-tmp/coder-result.json" --edit-set-file "$WORKTREE/.flow-tmp/coder-edit-set.json" --design <each UI rule path>`.
-   When `.untrackedTitle` is non-null, run
+   `flow-coder-skills-check --artifact "$WORKTREE/.flow-tmp/coder-result.json" --edit-set-file "$WORKTREE/.flow-tmp/coder-edit-set.json"`
+   plus one `--design <path>` flag per UI rule path (repeat the flag). A
+   non-zero helper exit is a named skip line in the step-5 summary. When
+   `.untrackedTitle` is non-null, run
    `flow-untracked add --source coder --title "<untrackedTitle>" --body "<untrackedBody>"`;
    any other residual `missing`/`late` path is noted in the step-5 summary
    only, never the owner's untracked list.

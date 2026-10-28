@@ -22,11 +22,45 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { isUiFile } from "./flow-ui-validate";
 
 export const DESIGN_GAP_TITLE =
   "UI edits skipped required design guidance — layout, spacing and keyboard access were not checked against it";
+
+const GAP_PREFIX = "UI edits skipped required design guidance — ";
+const GAP_SUFFIX = " not checked against it";
+
+function gapClause(p: string): string {
+  switch (path.basename(p)) {
+    case "layout.md":
+      return "layout";
+    case "visual-design.md":
+      return "spacing and visual hierarchy";
+    case "accessibility.md":
+      return "keyboard and screen-reader access";
+    default:
+      return "general UI rules";
+  }
+}
+
+function gapTitle(missingDesign: string[]): string {
+  const clauses = [...new Set(missingDesign.map(gapClause))];
+  if (clauses.length >= 4) return DESIGN_GAP_TITLE;
+  const list =
+    clauses.length > 1
+      ? `${clauses.slice(0, -1).join(", ")} and ${clauses[clauses.length - 1]}`
+      : clauses[0];
+  return `${GAP_PREFIX}${list} were${GAP_SUFFIX}`;
+}
+
+function anchorPath(p: string): string {
+  const home = os.homedir();
+  return p === home || p.startsWith(`${home}${path.sep}`)
+    ? `~${p.slice(home.length)}`
+    : p;
+}
 
 export type SkillsCheck = {
   required: string[];
@@ -110,6 +144,7 @@ export function checkSkillsRead(
   const missingDesign = designRequired.filter((p) => isMissing(p));
 
   const gap = missingDesign.length > 0;
+  const title = gap ? gapTitle(missingDesign) : null;
   return {
     required,
     read,
@@ -117,9 +152,9 @@ export function checkSkillsRead(
     late,
     needsContinuation: missing.length > 0 || late.length > 0,
     missingDesign,
-    untrackedTitle: gap ? DESIGN_GAP_TITLE : null,
+    untrackedTitle: title,
     untrackedBody: gap
-      ? `**Short form:** [V:2|C:Small|R:Low] ${DESIGN_GAP_TITLE} — skipped: ${missingDesign.map(shortLabel).join(", ")} [anchor: ${missingDesign[0]}]`
+      ? `**Short form:** [V:2|C:Small|R:Low] ${title} — skipped: ${missingDesign.map(shortLabel).join(", ")} [anchor: ${anchorPath(missingDesign[0])}]`
       : null,
   };
 }

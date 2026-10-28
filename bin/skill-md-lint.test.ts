@@ -12642,8 +12642,13 @@ describe("coder design-reading enforcement (#981)", () => {
     const coder = skill("flow-coder");
     expect(coder).toContain("completion notification");
     expect(coder).toContain("never counts as completion");
-    expect(coder).toContain("flow-coder-skills-check");
-    expect(coder).toContain("SendMessage");
+    const start = coder.indexOf("**Skills check (entries with skill_docs).**");
+    expect(start).toBeGreaterThan(-1);
+    const block = coder.slice(start, coder.indexOf("\n\n## ", start));
+    expect(block).toContain("flow-coder-skills-check");
+    expect(block).toContain("SendMessage");
+    expect(block).toContain("exactly ONE continuation");
+    expect(block).toContain("one skills continuation");
     expect(coder).not.toContain("falling back to a bounded Monitor");
   });
 
@@ -12670,6 +12675,10 @@ describe("coder design-reading enforcement (#981)", () => {
     const paragraph = nf.slice(start, nf.indexOf("\n\n", start));
     expect(paragraph).toContain("`skill_docs`");
     expect(nf).toContain("flow-coder-skills-check");
+    for (const s of [skill("flow-coder"), nf]) {
+      expect(s).toContain(".flow-tmp/coder-edit-set.json");
+    }
+    expect(nf).toContain("one `--design <path>` flag per UI rule path");
   });
 
   it("no skill under skills/ still emits the bare-skill-name wording", () => {

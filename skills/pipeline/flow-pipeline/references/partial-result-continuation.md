@@ -95,8 +95,8 @@ shared predicate every referencing site uses, not a bare `test -s`.
 
 ## Skills-check continuation (`/flow-coder`)
 
-A sibling continuation rides the same exemption and cap discipline: after a
-`complete` artifact, `/flow-coder` runs `flow-coder-skills-check` and, when
+A sibling continuation rides the same exemption and cap discipline: after the
+completeness check (a `complete` or accepted `partial` artifact), `/flow-coder` runs `flow-coder-skills-check` and, when
 `skills_read` misses or late-reads required paths, sends ONE `SendMessage`
 to the same agent. At most one per spawn, after any partial-result
 continuation resolves; never a new Task site. The procedure lives in

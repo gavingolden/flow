@@ -195,6 +195,11 @@ spawn:
    mkdir -p "$WORKTREE/.flow-tmp"
    ```
 
+   Then write the `EDIT_SET` (inline or from the caller's file) verbatim to
+   `$WORKTREE/.flow-tmp/coder-edit-set.json` on EVERY invocation, before
+   the spawn, so a `partial` turn-budget return still leaves the file for
+   the caller's step-5 skills check.
+
 3. Resolve the subagent type. The `agents/flow-edit-applier.md` definition
    (Bash/Read/Edit/Write/Grep/Glob/NotebookEdit allowlist, no
    `effort:`/`model:` pins) resolves in two tiers so the pipeline never
@@ -280,9 +285,7 @@ partial`, or an `Agent stalled` failure, send exactly one `SendMessage`
 
    **Skills check (entries with skill_docs).** Guard with
    `command -v flow-coder-skills-check` (absent ⇒ one named-skip line,
-   "skills check unavailable", and continue). Write the `EDIT_SET` (inline
-   or from the caller's file) to `$WORKTREE/.flow-tmp/coder-edit-set.json`
-   first — callers re-read that same file — then run `flow-coder-skills-check
+   "skills check unavailable", and continue). Run `flow-coder-skills-check
    --artifact "$ARTIFACT_PATH" --edit-set-file "$WORKTREE/.flow-tmp/coder-edit-set.json"`. On `.needsContinuation ==
    true`, load `SendMessage` and send exactly ONE continuation to the same
    agent: "Your artifact's skills_read is missing these required paths:

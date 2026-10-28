@@ -4,7 +4,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { checkIssueBody } from "./lib/issue-body-rubric";
-import { checkSkillsRead, DESIGN_GAP_TITLE } from "./flow-coder-skills-check";
+import {
+  checkSkillsRead,
+  DESIGN_GAP_TITLE,
+  run,
+} from "./flow-coder-skills-check";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "flow-coder-skills-check-"));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -46,6 +50,34 @@ describe("checkSkillsRead", () => {
     expect(r.untrackedBody).not.toBeNull();
     expect(checkIssueBody(r.untrackedBody as string).misses).toEqual([]);
     expect(r.untrackedBody).not.toContain("\n");
+  });
+
+  it("names only the skipped guides in a partial-miss title and anchors without a warning", () => {
+    const home = os.homedir();
+    const design = [
+      `${home}/.flow/skills/flow-ui-ux/SKILL.md`,
+      `${home}/.flow/skills/flow-ui-ux/references/layout.md`,
+      `${home}/.flow/skills/flow-ui-ux/references/accessibility.md`,
+    ];
+    const artifact = { skills_read: [...TESTING_DOCS, design[0], design[1]] };
+    const r = checkSkillsRead(artifact, uiEditSet, design);
+    expect(r.untrackedTitle).toBe(
+      "UI edits skipped required design guidance — keyboard and screen-reader access were not checked against it",
+    );
+    expect(r.untrackedTitle).not.toContain("layout");
+    expect(r.untrackedTitle).not.toContain("skill not applied");
+    const body = r.untrackedBody as string;
+    const check = checkIssueBody(body, { repoRoot: tmp });
+    expect(check.misses).toEqual([]);
+    expect(check.warnings).toEqual([]);
+    const r2 = checkSkillsRead(
+      { skills_read: TESTING_DOCS },
+      uiEditSet,
+      design,
+    );
+    expect(r2.untrackedTitle).toBe(
+      "UI edits skipped required design guidance — general UI rules, layout and keyboard and screen-reader access were not checked against it",
+    );
   });
 
   it("treats a path in both skills_read and skills_read_late as late, not missing", () => {
@@ -147,8 +179,25 @@ describe("flow-coder-skills-check CLI", () => {
   );
   fs.writeFileSync(editSetPath, JSON.stringify(uiEditSet));
 
-  const cli = (args: string[]) =>
-    spawnSync("bun", [SCRIPT, ...args], { encoding: "utf8" });
+  const cli = (args: string[]) => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const status = run(args, {
+      stdout: (x) => out.push(x),
+      stderr: (x) => err.push(x),
+    });
+    return { status, stdout: out.join(""), stderr: err.join("") };
+  };
+
+  it("runs end to end as a real process", () => {
+    const r = spawnSync(
+      "bun",
+      [SCRIPT, "--artifact", artifactPath, "--edit-set-file", editSetPath],
+      { encoding: "utf8" },
+    );
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout.trim()).needsContinuation).toBe(false);
+  });
 
   it("prints one JSON verdict from --edit-set-file", () => {
     const r = cli([
@@ -162,7 +211,19 @@ describe("flow-coder-skills-check CLI", () => {
     expect(r.status).toBe(0);
     const out = JSON.parse(r.stdout.trim());
     expect(out.missingDesign).toEqual([DESIGN[0]]);
-    expect(out.untrackedTitle).toBe(DESIGN_GAP_TITLE);
+    expect(out.untrackedTitle).toContain("general UI rules");
+  });
+
+  it("accepts repeated --design flags", () => {
+    const r = cli([
+      "--artifact",
+      artifactPath,
+      "--edit-set-file",
+      editSetPath,
+      ...DESIGN.flatMap((d) => ["--design", d]),
+    ]);
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout.trim()).missingDesign).toEqual(DESIGN);
   });
 
   it("accepts the inline --edit-set form", () => {
