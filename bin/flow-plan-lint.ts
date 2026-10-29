@@ -9,10 +9,11 @@
  * prose. Names a `## Problem Statement` whose lead is not plain prose
  * (opens with the premise check, a table, or a list, or carries an anchor
  * or a code path) and warns when the drafted PR `## TLDR` runs past 35
- * words or names no before-state. Run by discovery itself as a self-check
- * before returning (discovery-instructions.md `# Verification`) AND by the
- * `/flow-pipeline` supervisor as a step-3 advisory backstop, next to
- * `flow-candidate-issues --lint`.
+ * words or names no before-state, or writes a change bullet as a one-line
+ * arrow instead of a Before/After sub-bullet pair. Run by discovery itself
+ * as a self-check before returning (discovery-instructions.md
+ * `# Verification`) AND by the `/flow-pipeline` supervisor as a step-3
+ * advisory backstop, next to `flow-candidate-issues --lint`.
  *
  * Advisory by design: this NEVER blocks planning. A miss is named, never
  * enforced — the caller decides whether to surface it in chat and move on.
@@ -54,6 +55,7 @@ import {
   SURVEY_VERDICTS,
 } from "./flow-step3-route";
 import { TLDR_MAX_WORDS } from "./lib/gate-summary-rows";
+import { findArrowDeltaBullets } from "./lib/pr-delta-bullets";
 import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 const CONFIDENCE_RE = /\[confidence:\s*(high|medium|low)\]/g;
@@ -201,6 +203,13 @@ function checkDraftTldr(planText: string, misses: string[]): void {
       "warn: drafted PR TLDR names no before-state — say what was wrong or missing before",
     );
   }
+}
+
+function checkDraftDeltaBullets(planText: string, misses: string[]): void {
+  const draft = planText.match(/^# PR description draft\s*$/m);
+  if (!draft) return;
+  const afterDraft = planText.slice((draft.index ?? 0) + draft[0].length);
+  misses.push(...findArrowDeltaBullets(afterDraft));
 }
 
 function checkHeadingPresent(
@@ -1242,6 +1251,7 @@ export function lintPlan(
     checkVerdictConfidence(planText, misses);
     checkExcludedPathsMirror(planText, opts.excludedPathsJson, misses);
     checkDraftTldr(planText, misses);
+    checkDraftDeltaBullets(planText, misses);
   } catch (e) {
     misses.push(
       `internal lint error (treated as advisory, non-blocking): ${e instanceof Error ? e.message : String(e)}`,

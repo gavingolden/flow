@@ -1871,3 +1871,28 @@ describe("lintPlan — drafted PR TLDR", () => {
     ).toEqual([]);
   });
 });
+
+describe("lintPlan — drafted PR change bullets", () => {
+  const withBullet = (bullet: string): string =>
+    CONFORMING_PLAN.replace(
+      "# PR description draft\n",
+      `# PR description draft\n\n## User-facing changes\n\n${bullet}\n`,
+    );
+
+  it("warns when the draft writes a Before → After arrow bullet", () => {
+    const misses = lintPlan(withBullet("- Before → After: x → y")).misses;
+    expect(
+      misses.some((m) => m.startsWith("warn: PR '## User-facing changes'")),
+    ).toBe(true);
+  });
+
+  it("stays silent for a nested Before/After pair in the draft", () => {
+    const pair =
+      "- Starting is now explicit:\n  - **Before:** you ran x.\n  - **After:** you run y.";
+    expect(
+      lintPlan(withBullet(pair)).misses.filter((m) =>
+        m.startsWith("warn: PR "),
+      ),
+    ).toEqual([]);
+  });
+});

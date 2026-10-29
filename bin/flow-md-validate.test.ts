@@ -686,6 +686,29 @@ describe("main --fix-pr-body / --check-pr-body", () => {
     expect(code).toBe(0);
   });
 
+  it("--fix-pr-body warns on stderr about an arrow change bullet and still exits 0", async () => {
+    const file = write(
+      "arrow.md",
+      "## User-facing changes\n\n- Before → After: x → y\n\n## Why\n\nbecause\n",
+    );
+    const out: string[] = [];
+    const err: string[] = [];
+    const origLog = console.log;
+    const origErr = console.error;
+    console.log = (...args: unknown[]) => out.push(args.join(" "));
+    console.error = (...args: unknown[]) => err.push(args.join(" "));
+    try {
+      expect(await main(["--fix-pr-body", file])).toBe(0);
+    } finally {
+      console.log = origLog;
+      console.error = origErr;
+    }
+    expect(err).toHaveLength(1);
+    expect(err[0]).toMatch(/^warn: PR '## User-facing changes' writes 1 /);
+    expect(out.some((l) => l.includes("warn:"))).toBe(false);
+    expect(out.some((l) => l.includes("normalized 0"))).toBe(true);
+  });
+
   it("does not break the existing single-path repo-walk contract", async () => {
     write("a.md", "# A\n");
     expect(await main([tmp])).toBe(0);
