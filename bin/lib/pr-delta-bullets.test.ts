@@ -67,13 +67,19 @@ describe("findArrowDeltaBullets", () => {
     expect(findArrowDeltaBullets(body(pair, pair))).toEqual([]);
   });
 
-  it("should not warn when a nested pair with a prose arrow inside its After sentence", () => {
+  it("should not warn when a nested pair or its parent carries a prose arrow", () => {
     const pair =
       "- Model routing is explicit:\n  - **Before:** the model was implicit.\n  - **After:** the pick goes sonnet → opus per phase.";
     expect(findArrowDeltaBullets(body(pair))).toEqual([]);
     const arrowInParent =
       "- Routing runs plan → build:\n  - **Before:** one phase.\n  - **After:** two phases.";
     expect(findArrowDeltaBullets(body(arrowInParent))).toEqual([]);
+  });
+
+  it("should not warn when a nested **After:** sub-bullet mentions both bold labels", () => {
+    const pair =
+      "- PR change bullets now show each side on its own line:\n  - **Before:** one long arrow line.\n  - **After:** a headline with lines labeled **Before:** and **After:**.";
+    expect(findArrowDeltaBullets(body(pair))).toEqual([]);
   });
 
   it("should not warn when a brand-new capability is a single plain bullet", () => {

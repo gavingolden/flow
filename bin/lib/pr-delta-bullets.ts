@@ -39,10 +39,13 @@ function flaggedInSection(lines: string[]): number {
     if (!m) continue;
     const [, indent, text] = m;
     const isPairLabel = PAIR_LABEL.test(text);
+    const isPairSubBullet = indent.length > 0 && isPairLabel;
     const next = lines.slice(i + 1).find((l) => l.trim() !== "");
     const flagged =
       ARROW_PAIR_PREFIX.test(lines[i]) ||
-      (text.includes("**Before:**") && text.includes("**After:**")) ||
+      (!isPairSubBullet &&
+        text.includes("**Before:**") &&
+        text.includes("**After:**")) ||
       (indent.length === 0 && isPairLabel) ||
       (!isPairLabel &&
         !isPairChild(next, indent.length) &&
