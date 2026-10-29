@@ -6932,6 +6932,22 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     }
   });
 
+  it("the chat-summary sites render a changed decision as **Before:** / **After:**, never before→after", () => {
+    for (const rel of [
+      "skills/pipeline/flow-pipeline/references/pause-output-contract.md",
+      "skills/pipeline/flow-pipeline/references/phases/step-03-plan.md",
+      "references/output-style.md",
+    ]) {
+      const content = fs.readFileSync(path.resolve(HERE, "..", rel), "utf8");
+      expect(
+        /before→after|\(before: /.test(content),
+        `${rel} brought back the 'before→after' / '(before: ' chat-summary ` +
+          "form. Write a replaced behavior as the one-line bold pair " +
+          "`**Before:** <old>; **After:** <new>`.",
+      ).toBe(false);
+    }
+  });
+
   it("all four prose sites name the '## TLDR' lead section", () => {
     for (const [label, content] of [
       [

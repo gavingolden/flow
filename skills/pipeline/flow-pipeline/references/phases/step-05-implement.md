@@ -112,7 +112,18 @@ if [ -z "$(jq -r '.pr // empty' ~/.flow/state/"$FLOW_SLUG".json 2>/dev/null)" ];
   # On JUDGE's .verdict == "rewrite": rewrite ## Why / ## User-facing
   # changes once per .reasons[], re-judge once, then proceed regardless.
 fi
+```
+
+Run `flow-md-validate --fix-pr-body` as its own Bash call so any `warn:` is
+visible before the PR opens:
+
+```bash
 flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/pr-body.md"
+```
+
+Then open the PR:
+
+```bash
 PR_URL=$(flow-open-pr \
   --body-file "$WORKTREE/.flow-tmp/pr-body.md" \
   --title "<conventional-commit summary>")

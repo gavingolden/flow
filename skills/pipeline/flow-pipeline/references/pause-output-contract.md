@@ -433,7 +433,7 @@ in a feature plan's calibration appendix).
 > `flow-ci-wait` name; drop the transient-`gh` hang path; cap the
 > waiter at 9 min) — reply `answer: …` only to override.
 > **Needs attention:** state shape changes — CI anchors now persist in
-> the pipeline's state file (**After:** `ciWait.startedAt`), chosen over stateless GitHub-only anchors
+> the pipeline's state file as `ciWait.startedAt`, chosen over stateless GitHub-only anchors
 > because a slept process needs a durable start time. Risk: two
 > binaries instead of one.
 > **Next action:** `approve` · `redirect: …` · `answer: …` · `cancel`

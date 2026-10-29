@@ -1492,7 +1492,7 @@ the Fix-Applier Subagent — already parsed at Step 9) against the description:
 - Architectural approach that differs from what was described (e.g., description says
   "client-side only" but implementation adds a server endpoint)
 
-Keep (or, when redrafting, produce) changed-behavior bullets as the `**Before:**` / `**After:**` pair; a `warn:` from `flow-md-validate --fix-pr-body` names a bullet to reshape before `gh pr edit`.
+Keep (or, when redrafting, produce) changed-behavior bullets as the `**Before:**` / `**After:**` pair; after writing `.flow-tmp/body.md`, run `flow-md-validate --fix-pr-body .flow-tmp/body.md` as its own Bash call and reshape any bullet a `warn:` names (`flow-review-finalize` re-runs it but discards its stderr).
 
 When any of the above rises to a Q5-class meaningful deviation (per
 `flow-pipeline/references/pause-output-contract.md` `## Definitions`:
@@ -1514,7 +1514,7 @@ new command is needed here) plus an unchecked
 **Drafting conventions** (apply to every drafted/edited description in this step):
 
 - Render "Test Steps" items as `- [ ]` markdown checkboxes.
-- Keep (or, when redrafting, produce) changed-behavior bullets as the `**Before:**` / `**After:**` pair; a `warn:` from `flow-md-validate --fix-pr-body` names a bullet to reshape before `gh pr edit`.
+- Keep (or, when redrafting, produce) changed-behavior bullets as the `**Before:**` / `**After:**` pair; after writing `.flow-tmp/body.md`, run `flow-md-validate --fix-pr-body .flow-tmp/body.md` as its own Bash call and reshape any bullet a `warn:` names (`flow-review-finalize` re-runs it but discards its stderr).
 - Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
   and let the renderer wrap it. GitHub renders one long line as one flowing paragraph;
   hard wraps go ragged the moment a sentence is edited and add no value.

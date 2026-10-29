@@ -177,10 +177,15 @@ function checkProblemStatementLead(planText: string, misses: string[]): void {
 const BEFORE_MARKER_RE =
   /\b(?:used to|no longer|was|were|had to|couldn't|could not|today|before|missing|without)\b/i;
 
-function checkDraftTldr(planText: string, misses: string[]): void {
+function draftSection(planText: string): string | null {
   const draft = planText.match(/^# PR description draft\s*$/m);
-  if (!draft) return;
-  const afterDraft = planText.slice((draft.index ?? 0) + draft[0].length);
+  if (!draft) return null;
+  return planText.slice((draft.index ?? 0) + draft[0].length);
+}
+
+function checkDraftTldr(planText: string, misses: string[]): void {
+  const afterDraft = draftSection(planText);
+  if (afterDraft === null) return;
   const heading = afterDraft.match(/^## TLDR\s*$/m);
   if (!heading) return;
   const tldr = sliceToNextHeading(
@@ -206,9 +211,8 @@ function checkDraftTldr(planText: string, misses: string[]): void {
 }
 
 function checkDraftDeltaBullets(planText: string, misses: string[]): void {
-  const draft = planText.match(/^# PR description draft\s*$/m);
-  if (!draft) return;
-  const afterDraft = planText.slice((draft.index ?? 0) + draft[0].length);
+  const afterDraft = draftSection(planText);
+  if (afterDraft === null) return;
   misses.push(...findArrowDeltaBullets(afterDraft));
 }
 

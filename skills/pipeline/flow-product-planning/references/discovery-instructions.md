@@ -1522,7 +1522,7 @@ When the spawn prompt carries `REVISION: <n>`, **MUST Read `<SKILL_DIR>/referenc
 - A failed premise check surfaces as a `**Premise check:**` line in the Problem
   Statement and the `## Recommendation` verdict is non-`Proceed`; a sound premise
   carries no line.
-- `flow-plan-lint` already checks the Goal line, the Problem Statement lead, the drafted PR TLDR, Behavioral contrast, Recommendation, Plan risks, Cut list, Request vetting, Existing-code assessment, Method selection, the Open Questions resolution / confidence / stakes markers, task Contract blocks, and the `excluded-paths.json` mirror, and `flow-candidate-issues --lint` already checks the candidate follow-up value bars, references, and bundling — do not re-verify those by hand.
+- `flow-plan-lint` already checks the Goal line, the Problem Statement lead, the drafted PR TLDR, the drafted PR change bullets, Behavioral contrast, Recommendation, Plan risks, Cut list, Request vetting, Existing-code assessment, Method selection, the Open Questions resolution / confidence / stakes markers, task Contract blocks, and the `excluded-paths.json` mirror, and `flow-candidate-issues --lint` already checks the candidate follow-up value bars, references, and bundling — do not re-verify those by hand.
 - **Self-check before returning:** run `flow-plan-lint --plan-md-file <the plan.md path>`
   by bare PATH name and fix every named miss. Tolerant: when the helper is missing
   from PATH, the check skips silently (same research-cache discipline as Step 1.5) —

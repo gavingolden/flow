@@ -14,7 +14,7 @@ describe("findArrowDeltaBullets", () => {
     );
     expect(out).toHaveLength(1);
     expect(out[0]).toMatch(
-      /^warn: PR '## User-facing changes' writes 1 before\/after change\(s\)/,
+      /^warn: PR '## User-facing changes' has 1 change bullet\(s\)/,
     );
   });
 
@@ -25,6 +25,12 @@ describe("findArrowDeltaBullets", () => {
     expect(out).toHaveLength(1);
   });
 
+  it("should warn on a CRLF body", () => {
+    expect(
+      findArrowDeltaBullets(body("- a → b").replace(/\n/g, "\r\n")),
+    ).toHaveLength(1);
+  });
+
   it("should warn when a top-level **Before:** bullet has no outcome parent bullet", () => {
     const out = findArrowDeltaBullets(
       body(
@@ -32,7 +38,7 @@ describe("findArrowDeltaBullets", () => {
       ),
     );
     expect(out).toHaveLength(1);
-    expect(out[0]).toContain("writes 2 before/after change(s)");
+    expect(out[0]).toContain("has 2 change bullet(s)");
   });
 
   it("should warn when a change bullet joins two clauses with a bare → or -> arrow", () => {
@@ -49,13 +55,13 @@ describe("findArrowDeltaBullets", () => {
       body("- a → b\n- c -> d\n- plain new capability"),
     );
     expect(out).toHaveLength(1);
-    expect(out[0]).toContain("writes 2 before/after change(s)");
+    expect(out[0]).toContain("has 2 change bullet(s)");
   });
 
   it("should check ## System changes the same way as ## User-facing changes", () => {
     const out = findArrowDeltaBullets(body("none", "- Cache: off → on."));
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatch(/^warn: PR '## System changes' writes 1 /);
+    expect(out[0]).toMatch(/^warn: PR '## System changes' has 1 /);
     const both = findArrowDeltaBullets(body("- a → b", "- c → d"));
     expect(both).toHaveLength(2);
   });
