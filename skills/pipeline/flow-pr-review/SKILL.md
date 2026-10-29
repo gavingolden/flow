@@ -1400,8 +1400,8 @@ should capture rationale inline (per `AGENTS.md` Committing rules).
 Check whether the PR description follows the standardized format with these sections:
 
 - **TLDR** — one sentence, 35 words or fewer, naming the user-visible outcome in the surface the reader uses (no file, function, or line number), then what was wrong or missing before and what is true now; on a fix-shaped PR it states the failure and the causal resolution together
-- **User-facing changes** — concrete user-observable deltas (or the literal `none` for pure-internal PRs); the heading is mandatory
-- **System changes** — any internal change worth a reviewer's attention: a subsystem boundary that moved, a public contract that changed, performance, or ongoing spend (or the literal `none`); the heading is mandatory, exactly like User-facing changes
+- **User-facing changes** — concrete user-observable deltas (or the literal `none` for pure-internal PRs), a changed behavior as an outcome-stating parent bullet with `**Before:**` / `**After:**` sub-bullets (see pr-description-authoring.md); the heading is mandatory
+- **System changes** — any internal change worth a reviewer's attention: a subsystem boundary that moved, a public contract that changed, performance, or ongoing spend (or the literal `none`), a changed behavior as an outcome-stating parent bullet with `**Before:**` / `**After:**` sub-bullets (see pr-description-authoring.md); the heading is mandatory, exactly like User-facing changes
 - **Why** — problem statement and motivation
 - **Key decisions** — non-obvious choices with rationale
 - **Deviations from plan** — omit-when-empty; one bullet per meaningful deviation between the approved plan and what shipped (see `flow-pipeline/references/pause-output-contract.md` `## Definitions`), populated by 11d below, immediately before Test Steps
@@ -1492,6 +1492,8 @@ the Fix-Applier Subagent — already parsed at Step 9) against the description:
 - Architectural approach that differs from what was described (e.g., description says
   "client-side only" but implementation adds a server endpoint)
 
+Keep (or, when redrafting, produce) changed-behavior bullets as the `**Before:**` / `**After:**` pair; after writing `.flow-tmp/body.md`, run `flow-md-validate --fix-pr-body .flow-tmp/body.md` as its own Bash call and reshape any bullet a `warn:` names (`flow-review-finalize` re-runs it but discards its stderr).
+
 When any of the above rises to a Q5-class meaningful deviation (per
 `flow-pipeline/references/pause-output-contract.md` `## Definitions`:
 user-visible behavior differs from the plan, scope dropped/added, an
@@ -1512,6 +1514,7 @@ new command is needed here) plus an unchecked
 **Drafting conventions** (apply to every drafted/edited description in this step):
 
 - Render "Test Steps" items as `- [ ]` markdown checkboxes.
+- Keep (or, when redrafting, produce) changed-behavior bullets as the `**Before:**` / `**After:**` pair; after writing `.flow-tmp/body.md`, run `flow-md-validate --fix-pr-body .flow-tmp/body.md` as its own Bash call and reshape any bullet a `warn:` names (`flow-review-finalize` re-runs it but discards its stderr).
 - Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
   and let the renderer wrap it. GitHub renders one long line as one flowing paragraph;
   hard wraps go ragged the moment a sentence is edited and add no value.

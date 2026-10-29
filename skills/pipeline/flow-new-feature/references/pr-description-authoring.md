@@ -56,11 +56,17 @@ surface, or a side effect users can see should produce a bullet here, phrased as
 rather than a test name ("should display loading skeleton while fetching" becomes "Loading
 states during data fetches").
 
-Format: freeform bullets. For renames or removals, use a `Before → After` bullet so the
-delta reads at a glance. Example:
+Format: freeform bullets. A bullet about anything that worked differently before (a changed
+behavior, default, or output, a rename, a removal) is a parent bullet that states the
+user-visible outcome as a clause (never a bare topic label like "The chat summary:"), plus two
+nested sub-bullets, `- **Before:** <one sentence>` and `- **After:** <one sentence>`, with no
+arrow, so each side reads on its own line. A purely new capability stays one plain bullet.
+Example:
 
 - New flag: `flow ls --cost` adds a `$` column summed across the supervisor session.
-- Before → After: `flow install` (removed) → `flow install` (global install via symlink).
+- Starting a pipeline now takes the feature subcommand:
+  - **Before:** you ran `flow add "<desc>"`.
+  - **After:** you run `flow feature create "<desc>"`.
 
 If the change is pure-internal (refactor, infra, no user-observable delta), write the literal
 word `none` under the heading. Never delete the heading — `none` is an explicit author
@@ -69,8 +75,10 @@ affirmation, while a missing heading is ambiguous between "no change" and "autho
 ## System changes
 
 <Any internal change worth a reviewer's attention: a subsystem boundary that moved, a public
-contract that changed, a performance characteristic, or an ongoing cost. Derive Before → After
-bullets from plan.md's `### System flow` subsection when that subsection is non-`none`, and
+contract that changed, a performance characteristic, or an ongoing cost. Derive changed-behavior
+bullets, in the same parent + `**Before:**` / `**After:**` shape, from plan.md's `### System flow`
+subsection when that subsection is non-`none` (a System-flow pair copied into the PR gains an
+outcome parent bullet; a top-level `**Before:**` is flagged), and
 phrase each deliverable as a capability, not a test name or a file path. When the change moves
 an ongoing cost — API calls, CI time, token spend — name the direction and rough size; stay
 silent about cost when the change does not move one.

@@ -5593,12 +5593,16 @@ describe("pr-review include-by-reference structure", () => {
     // sites each gain a FIX_APPLIER_EFFORT / CONSOLIDATOR_EFFORT resolve
     // paragraph — the `flow-spawn-effort` recipe, one per effort-threaded
     // site. The file lands at 1916 lines as this test counts them.
+    //
+    // Raised 1920 -> 1925 (Before/After sub-bullets): the 11d Accuracy Sync
+    // and 11e Drafting-conventions preserve-the-shape clauses add three
+    // lines; the file lands at 1922 as this test counts them.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1920 lines. Material regrowth past this ceiling would ` +
+        `budget of 1925 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1920);
+    ).toBeLessThan(1925);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md routes Step 8c's runnable items through flow-run-test-steps with an explicit Bash timeout", () => {
@@ -5643,7 +5647,7 @@ describe("pr-review include-by-reference structure", () => {
   // is a core plus per-step docs and the structural cases in "flow-pipeline
   // skill split structure" below guard it. The core budget there comes from the
   // compaction re-attach window (docs/eval/supervisor-skill-payload-baseline-2026-10.md).
-  // flow-pr-review (1920) and flow-new-feature (810) keep their ceilings until
+  // flow-pr-review (1925) and flow-new-feature (810) keep their ceilings until
   // their own splits, the follow-up candidates in this change's plan.
 
   // Ceiling kept until flow-new-feature gets the core-plus-step-docs split (follow-up candidate).
@@ -6894,6 +6898,54 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "guide. Renaming the section name must update all four sites and this " +
         "lint in the same commit.",
     ).toBe(true);
+  });
+
+  it("all three PR-body authoring sites render a changed behavior as a Before/After sub-bullet pair", () => {
+    const discoveryLines = discoveryInstructionsContent.split("\n");
+    const step7Index = discoveryLines.findIndex((line) =>
+      line.startsWith("## 7. Draft PR Description"),
+    );
+    const step8Index = discoveryLines.findIndex((line) =>
+      line.startsWith("## 8. Persist"),
+    );
+    const discoveryStep7 = discoveryLines
+      .slice(step7Index + 1, step8Index)
+      .join("\n");
+    for (const [label, content] of [
+      ["pr-description-authoring.md", prDescriptionAuthoringContent],
+      ["discovery-instructions.md Step 7", discoveryStep7],
+      [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
+    ] as const) {
+      expect(
+        content.includes("**Before:**") && content.includes("**After:**"),
+        `${label} must teach a changed behavior as an outcome parent bullet ` +
+          "with nested `- **Before:**` / `- **After:**` sub-bullets. The rule " +
+          "is mirrored across pr-description-authoring.md, discovery " +
+          "Step 7, and the PR template — update all three together.",
+      ).toBe(true);
+      expect(
+        /^\s*- Before → After:/m.test(content),
+        `${label} still shows the one-line \`- Before → After:\` bullet ` +
+          "that renders as a wrapped paragraph on GitHub. Replace it with the " +
+          "nested Before/After pair and keep the three sites in sync.",
+      ).toBe(false);
+    }
+  });
+
+  it("the chat-summary sites render a changed decision as **Before:** / **After:**, never before→after", () => {
+    for (const rel of [
+      "skills/pipeline/flow-pipeline/references/pause-output-contract.md",
+      "skills/pipeline/flow-pipeline/references/phases/step-03-plan.md",
+      "references/output-style.md",
+    ]) {
+      const content = fs.readFileSync(path.resolve(HERE, "..", rel), "utf8");
+      expect(
+        /before→after|\(before: /.test(content),
+        `${rel} brought back the 'before→after' / '(before: ' chat-summary ` +
+          "form. Write a replaced behavior as the one-line bold pair " +
+          "`**Before:** <old>; **After:** <new>`.",
+      ).toBe(false);
+    }
   });
 
   it("all four prose sites name the '## TLDR' lead section", () => {

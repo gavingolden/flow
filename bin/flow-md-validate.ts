@@ -11,7 +11,9 @@
  * for the `<details>` GFM blank-line rules in `bin/lib/md-block-structure.ts`
  * — the same repair the hand-written `gh pr edit --body-file` recipes across
  * the skill library call before writing a PR body. They never touch the
- * repo-walk path above.
+ * repo-walk path above. Both also print an advisory `warn:` line to stderr
+ * per change section that writes a before/after as one arrow line
+ * (`bin/lib/pr-delta-bullets.ts`); it never changes stdout or the exit code.
  *
  * Exit codes:
  *   0 — clean (repo-walk: no violations; --fix-pr-body: always;
@@ -27,6 +29,7 @@ import {
   findDetailsBlockDefects,
   normalizeDetailsBlocks,
 } from "./lib/md-block-structure";
+import { findArrowDeltaBullets } from "./lib/pr-delta-bullets";
 
 export type ViolationKind =
   | "broken-link-target"
@@ -356,7 +359,8 @@ export async function main(argv: string[]): Promise<number> {
       "Inside a git work tree, paths git ignores are skipped (git ls-files); outside one,\n" +
       "only node_modules, .git, and .flow-tmp are skipped.\n\n" +
       "--fix-pr-body/--check-pr-body apply the <details> GFM blank-line rules to a single\n" +
-      "PR-body file, independent of the repo-walk path above.\n\n" +
+      "PR-body file, independent of the repo-walk path above. They also warn on stderr\n" +
+      "(never affecting stdout or the exit code) about arrow-style before/after bullets.\n\n" +
       "Exit codes: 0 clean, 1 violations, 2 usage/I-O error.";
     if (argv[0] === "--help" || argv[0] === "-h") {
       console.log(usage);
@@ -376,12 +380,16 @@ export async function main(argv: string[]): Promise<number> {
       return 2;
     }
     const body = fs.readFileSync(file, "utf8");
+    const warnArrowBullets = () => {
+      for (const w of findArrowDeltaBullets(body)) console.error(w);
+    };
     if (argv[0] === "--fix-pr-body") {
       const { body: fixed, insertions } = normalizeDetailsBlocks(body);
       if (insertions > 0) fs.writeFileSync(file, fixed);
       console.log(
         `flow-md-validate: normalized ${insertions} <details> blank-line gap(s) in ${argv[1]}`,
       );
+      warnArrowBullets();
       return 0;
     }
     const defects = findDetailsBlockDefects(body);
@@ -393,6 +401,7 @@ export async function main(argv: string[]): Promise<number> {
     console.log(
       `flow-md-validate: ${defects.length} <details> blank-line defect(s) in ${argv[1]}`,
     );
+    warnArrowBullets();
     return defects.length === 0 ? 0 : 1;
   }
   if (argv.length > 1) {
