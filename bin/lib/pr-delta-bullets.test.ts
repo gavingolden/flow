@@ -16,6 +16,9 @@ describe("findArrowDeltaBullets", () => {
     expect(out[0]).toMatch(
       /^warn: PR '## User-facing changes' has 1 change bullet\(s\)/,
     );
+    expect(out[0]).toContain(
+      '(first: "Before → After: `flow add` (removed) is ")',
+    );
   });
 
   it("should warn when a change bullet carries **Before:** and **After:** on one line", () => {

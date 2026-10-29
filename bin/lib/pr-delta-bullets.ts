@@ -32,7 +32,10 @@ function isPairChild(line: string | undefined, parentIndent: number): boolean {
   return m !== null && m[1].length > parentIndent && PAIR_LABEL.test(m[2]);
 }
 
-function flaggedInSection(lines: string[]): { count: number; first: string } {
+function flaggedInSection(
+  lines: string[],
+  rawLines: string[],
+): { count: number; first: string } {
   let count = 0;
   let first = "";
   for (let i = 0; i < lines.length; i++) {
@@ -52,7 +55,11 @@ function flaggedInSection(lines: string[]): { count: number; first: string } {
         !isPairChild(next, indent.length) &&
         PROSE_ARROW.test(text));
     if (flagged) {
-      if (count === 0) first = text.slice(0, 40);
+      if (count === 0)
+        first = rawLines[i]
+          .trim()
+          .replace(/^[-*]\s+/, "")
+          .slice(0, 40);
       count++;
     }
   }
@@ -61,13 +68,17 @@ function flaggedInSection(lines: string[]): { count: number; first: string } {
 
 export function findArrowDeltaBullets(body: string): string[] {
   const lines = maskCode(body).split(/\r?\n/);
+  const rawLines = body.split(/\r?\n/);
   const warnings: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const heading = SECTION_HEADING.exec(lines[i]);
     if (!heading) continue;
     let end = i + 1;
     while (end < lines.length && !ANY_TOP_HEADING.test(lines[end])) end++;
-    const { count: n, first } = flaggedInSection(lines.slice(i + 1, end));
+    const { count: n, first } = flaggedInSection(
+      lines.slice(i + 1, end),
+      rawLines.slice(i + 1, end),
+    );
     if (n > 0) {
       warnings.push(
         `warn: PR '## ${heading[1]}' has ${n} change bullet(s) not in the nested Before/After shape (first: "${first}") — use an outcome parent bullet with nested **Before:** / **After:** sub-bullets`,
