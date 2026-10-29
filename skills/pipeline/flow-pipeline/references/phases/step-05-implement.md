@@ -81,7 +81,8 @@ already-opened PR is never re-judged), run `flow-explain-judge` over the
 composed body's `## Why` and `## User-facing changes` sections — the two a
 code-blind reader most needs. On `"verdict":"rewrite"`, rewrite ONLY those
 two sections once using `.reasons[]`: preserve every factual deliverable,
-number, path, and caveat VERBATIM, translate only implementation mechanism
+number, path, and caveat VERBATIM, keep each changed-behavior bullet's
+`**Before:**` / `**After:**` sub-bullets, translate only implementation mechanism
 into its user-visible consequence, and — when a product brief resolved —
 target its `Use`/`Avoid` vocabulary, never inventing a new claim; then
 re-judge once and proceed to `flow-open-pr` regardless of the second
@@ -111,6 +112,7 @@ if [ -z "$(jq -r '.pr // empty' ~/.flow/state/"$FLOW_SLUG".json 2>/dev/null)" ];
   # On JUDGE's .verdict == "rewrite": rewrite ## Why / ## User-facing
   # changes once per .reasons[], re-judge once, then proceed regardless.
 fi
+flow-md-validate --fix-pr-body "$WORKTREE/.flow-tmp/pr-body.md"
 PR_URL=$(flow-open-pr \
   --body-file "$WORKTREE/.flow-tmp/pr-body.md" \
   --title "<conventional-commit summary>")
@@ -118,6 +120,12 @@ PR_URL=$(flow-open-pr \
 SLUG="$FLOW_SLUG"
 PR=$(jq -r '.pr' ~/.flow/state/"$SLUG".json)
 ```
+
+`flow-md-validate --fix-pr-body` always exits 0 and also repairs `<details>`
+blank-line spacing in the body. On any `warn:` line it prints to stderr, reshape
+only the flagged bullets once into an outcome parent bullet with nested
+`**Before:**` / `**After:**` sub-bullets (facts verbatim), then open the PR
+regardless — the check never blocks and never re-loops.
 
 `flow-open-pr` runs `gh pr create`, reads the PR number back via
 `gh pr view`, and writes it to `~/.flow/state/<slug>.json` in one

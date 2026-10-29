@@ -38,8 +38,10 @@ markdown instead of a helper block.
    - `**Needs attention:**` — high-stakes decisions (see
      `## Definitions`) and items awaiting the user's judgment
      (subjective checks, gated Test Steps with their click target, open
-     questions), each stated as before→after plus the option chosen and
-     why, plus every crucial-and-uncertain item (see `## Definitions`).
+     questions), each stated as the decision and why (when it replaces an
+     existing behavior, name the delta on the same line with bold
+     `**Before:** <old>; **After:** <new>` labels, one short clause each, no
+     arrow), plus every crucial-and-uncertain item (see `## Definitions`).
    - `**Manual action:**` — split `before merge:` / `whenever:` (see
      `## Definitions`).
    - `**Untracked:**` — discovered-but-not-tracked work items (see
@@ -89,7 +91,9 @@ dependency or module, a changed storage/state/contract shape, a new
 policy or exemption, a hard-to-reverse choice, or a debated fork with
 more than one viable option. Read these from a plan's
 `## Decision analysis` and `## Architecture Decisions` sections; state
-each as before→after, the option chosen, and why — never as an
+each as the decision and why — when it replaces an existing behavior,
+name the delta on the same line with bold `**Before:** <old>; **After:** <new>`
+labels (one short clause each, no arrow) — never as an
 enumerated task or file list (see `## Applicability`'s plan-approval
 entry).
 
@@ -351,9 +355,10 @@ input or reports a stop**, formal or informal:
 
 The plan-approval message (a step-3 end condition) is a named instance
 of the awaiting-approval render: `**Needs attention:**` carries
-before→after changes and high-stakes decisions with the option chosen
-and why (`## Definitions` above), plus one `Scope: N tasks, M files`
-line — task titles and file lists are never echoed, only the plan path
+high-stakes decisions stated as the decision and why (when one replaces an
+existing behavior, with bold `**Before:**` / `**After:**` labels on the same
+line, no arrow) with the option chosen (`## Definitions` above), plus one
+`Scope: N tasks, M files` line — task titles and file lists are never echoed, only the plan path
 under `**Next action:**`.
 
 Mid-turn progress narration is out of scope — the block marks the
@@ -428,8 +433,7 @@ in a feature plan's calibration appendix).
 > `flow-ci-wait` name; drop the transient-`gh` hang path; cap the
 > waiter at 9 min) — reply `answer: …` only to override.
 > **Needs attention:** state shape changes — CI anchors now persist in
-> `~/.flow/state/<slug>.json` (before: none; after:
-> `ciWait.startedAt`), chosen over stateless GitHub-only anchors
+> the pipeline's state file (**After:** `ciWait.startedAt`), chosen over stateless GitHub-only anchors
 > because a slept process needs a durable start time. Risk: two
 > binaries instead of one.
 > **Next action:** `approve` · `redirect: …` · `answer: …` · `cancel`
