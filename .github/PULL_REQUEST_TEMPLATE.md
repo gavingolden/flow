@@ -13,8 +13,9 @@ meets the fix framing before `## Why` below. -->
 <!-- Concrete user-observable deltas in user terms ("you can now run X"), not
 implementation terms ("added X to the renderer"). Name a surface, not a file,
 function, or line number. Deliverables belong here phrased as capabilities or
-behaviors, each verifiable against the diff. For renames or removals use
-`Before → After` bullets. If the PR is pure-internal (refactor, infra, no
+behaviors, each verifiable against the diff. A changed behavior is an
+outcome parent bullet with nested `- **Before:**` / `- **After:**` sub-bullets (no
+arrow); a new capability stays one plain bullet. If the PR is pure-internal (refactor, infra, no
 user-observable delta), write the literal word `none` here — never delete the
 heading. -->
 
@@ -22,7 +23,7 @@ heading. -->
 
 <!-- Any internal change worth a reviewer's attention: a subsystem boundary that
 moved, a public contract that changed, a performance characteristic, or an ongoing
-cost. Use `Before → After` bullets where behavior moved. When the change moves an
+cost. Where behavior moved, use an outcome parent bullet with nested `- **Before:**` / `- **After:**` sub-bullets. When the change moves an
 ongoing cost (API calls, CI time, token spend), name the direction and rough size;
 stay silent about cost when it does not move one.
 
