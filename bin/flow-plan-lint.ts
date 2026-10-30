@@ -3,7 +3,8 @@
  * Advisory plan-shape linter: checks a generated plan.md instance for the
  * always-present sections the plan-artifact contract requires — the Goal
  * line, Behavioral contrast (+ its Lost affirmation), Recommendation, Plan
- * risks, the Task breakdown heading, and a Contract block under every task.
+ * risks, Instrumentation (a spec table or a reasoned `none`), the Task
+ * breakdown heading, and a Contract block under every task.
  * Also cross-checks the machine-readable closed-path mirror
  * (excluded-paths.json) against the plan's `## Alternatives considered`
  * prose. Names a `## Problem Statement` whose lead is not plain prose
@@ -254,6 +255,66 @@ function checkCutListJustification(planText: string, misses: string[]): void {
   if (/^nothing\W*$/im.test(body)) {
     misses.push(
       "'## Cut list' asserts 'nothing' with no justification — say WHY nothing was cut (e.g. 'nothing — plan is already minimal')",
+    );
+  }
+}
+
+const RUNTIME_PATH_RE =
+  /(?<![\w-])(?:api|server|workers|jobs|queues|cron)\/|\+server\.|\+page\.server\.|hooks\.server\./;
+
+/**
+ * `## Instrumentation` is always-present inside the `# PRD` section: a spec
+ * table for a plan that touches a runtime surface, or one `none — <reason>`
+ * line. Scoped to the PRD so the omit-when-none `## Instrumentation` in the
+ * `# PR description draft` never satisfies it. A `none` is cross-checked
+ * against the tasks' `**Files:**` lines for runtime paths.
+ */
+function checkInstrumentation(planText: string, misses: string[]): void {
+  const prdMatch = planText.match(/^# PRD\s*$/m);
+  if (!prdMatch) return;
+  const afterPrd = (prdMatch.index ?? 0) + prdMatch[0].length;
+  const prdBody = planText.slice(
+    afterPrd,
+    findPrdSectionEnd(planText, afterPrd),
+  );
+  const match = prdBody.match(/^## Instrumentation\s*$/m);
+  if (!match) {
+    misses.push(
+      "missing '## Instrumentation' heading — every plan must spec its metrics or affirm none with a reason",
+    );
+    return;
+  }
+  const body = sliceToNextHeading(prdBody, (match.index ?? 0) + match[0].length)
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .trim();
+  if (body === "") {
+    misses.push(
+      "'## Instrumentation' is empty — spec the metrics or write 'none — <reason>'",
+    );
+    return;
+  }
+  if (!/^none\b/i.test(body)) {
+    if (!/^\|/m.test(body)) {
+      misses.push(
+        "'## Instrumentation' names a spec but carries no markdown table row — add the '### Metrics' table",
+      );
+    }
+    return;
+  }
+  const reason = body.match(/^none\s*(?:—|–|--?|:)\s*(\S[\s\S]*)$/i);
+  if (!reason) {
+    misses.push(
+      "'## Instrumentation' says 'none' with no reason — write 'none — <reason>' naming why no request handler, job, outbound call or pipeline changes",
+    );
+    return;
+  }
+  if (/refactor-only|no behaviou?r change/i.test(reason[1])) return;
+  const runtimeFiles = [...planText.matchAll(/^\s*- \*\*Files:\*\*(.*)$/gm)]
+    .map((m) => m[1])
+    .filter((line) => RUNTIME_PATH_RE.test(line));
+  if (runtimeFiles.length > 0) {
+    misses.push(
+      "'## Instrumentation' says 'none' but a task's **Files:** names a runtime path (route, server, worker, job, queue or cron) — spec the metrics, or say the change is refactor-only / has no behaviour change",
     );
   }
 }
@@ -1230,6 +1291,7 @@ export function lintPlan(
       "every plan must name its unnecessary complexity (or affirm none)",
     );
     checkCutListJustification(planText, misses);
+    checkInstrumentation(planText, misses);
     checkTaskContracts(planText, misses);
     checkCandidateTable(planText, misses);
     checkPromptInterpretation(planText, misses);

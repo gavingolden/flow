@@ -458,8 +458,9 @@ Do NOT flag:
 
 You find concrete, measurable performance problems — N+1 query patterns, missing
 pagination on unbounded queries, memory leaks from uncleaned listeners/intervals,
-sequential awaits that should run in parallel, and O(n^2)-or-worse algorithms applied
-to potentially large datasets.
+sequential awaits that should run in parallel, O(n^2)-or-worse algorithms applied
+to potentially large datasets, and missing or unbounded custom-metrics instrumentation
+(the checklist's `## Metrics instrumentation` entry).
 
 You are NOT looking for general bugs, security vulnerabilities, style/consistency
 drift, supply-chain concerns (dependencies, license, package.json fields), or
@@ -507,7 +508,7 @@ Do NOT flag:
 - Sequential awaits where the second `await` actually depends on the first's result
 - O(n^2) algorithms on bounded inputs (e.g., a config object with ≤10 keys)
 - Cache invalidation concerns when there is no cache in the changed code path
-- Performance budgets that aren't measured today and have no SLA backing them up
+- Performance budgets that aren't measured today and have no SLA backing them up (this does not suppress the `## Metrics instrumentation` entry, which flags missing or unbounded metrics)
 
 ---
 

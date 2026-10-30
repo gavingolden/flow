@@ -85,6 +85,35 @@ access mode is removed or narrowed.
       found" page (no information leakage about whether the dashboard exists)
 - [ ] Given a shared dashboard, the viewer cannot edit, delete, or navigate to other dashboards
 
+## Instrumentation
+
+**Contract:** `.flow/metrics.md` create
+
+### Metrics
+
+| Metric                  | Instrument | Unit    | Attributes (closed values)                              | Emitted at                 |
+| ----------------------- | ---------- | ------- | ------------------------------------------------------- | -------------------------- |
+| `share.create.duration` | Histogram  | seconds | `outcome` (`ok`, `error`)                               | share-creation RPC handler |
+| `share.create.failures` | Counter    | none    | `error_type` (`invalid_input`, `not_found`, `internal`) | share-creation RPC handler |
+| `share.view.duration`   | Histogram  | seconds | `outcome` (`ok`, `error`)                               | `/s/{token}` page load     |
+| `share.view.failures`   | Counter    | none    | `error_type` (`share_revoked`, `not_found`, `internal`) | `/s/{token}` page load     |
+
+Estimated series: 37 per operation (histogram 2 outcomes x 17, plus 3 `error_type` values on the failures counter)
+
+### Error types
+
+New: `share_revoked` (the token exists but was toggled off), `not_found` (no such token or dashboard). Both are client-caused and excluded from the availability SLO. `invalid_input` and `internal` are added from the starter list.
+
+### Dashboard panels
+
+Request rate, success vs failure, failures by `error_type`, and latency p50/p95/p99 for `share.create` and `share.view`.
+
+### SLO
+
+New journey SLO "view a shared dashboard": 99.5% availability over 30 days, with the standard burn-rate alert tiers (14.4x 1h/5m page, 6x 6h/30m page, 1x 3d/6h ticket) recorded once in `.flow/metrics.md`.
+
+**As-code:** spec-only — the repo keeps no dashboard or alert config yet
+
 ## Architecture Decisions
 
 - **Layers touched:** Database (new table + RPC), Domain model (new `share` module), UI

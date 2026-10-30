@@ -622,6 +622,14 @@ Decide whether to delegate edits to `/flow-coder` based on the **hybrid threshol
    entry whose file is a UI file — the same shape verify's fix rounds use,
    not `DESIGN_CONTEXT`. Paths only, never inlined skill text.
 
+   **Metrics rule paths (non-`none` `## Instrumentation`).** When the PRD's
+   `## Instrumentation` section is not `none`, append (deduped) the
+   flow-metrics `SKILL.md` and `references/conventions.md` (from
+   `flow-module-status --skill-path flow-metrics [--ref references/conventions.md]`;
+   a non-zero exit is a named skip) plus the repo's `.flow/metrics.md` when it
+   exists to the `skill_docs` of every edit-set entry whose file is source code
+   (not docs, styles or images; supervisor judgment). Paths only.
+
    Omit `DESIGN_CONTEXT` entirely only when the plan has NONE of a
    committed foundation, `## Visual Spec`, or `## Layout Intent` — non-UI
    pipelines see byte-identical spawn prompts. `/flow-new-feature` is
