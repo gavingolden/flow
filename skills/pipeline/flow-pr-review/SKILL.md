@@ -1404,6 +1404,7 @@ Check whether the PR description follows the standardized format with these sect
 - **System changes** — any internal change worth a reviewer's attention: a subsystem boundary that moved, a public contract that changed, performance, or ongoing spend (or the literal `none`), a changed behavior as an outcome-stating parent bullet with `**Before:**` / `**After:**` sub-bullets (see pr-description-authoring.md); the heading is mandatory, exactly like User-facing changes
 - **Why** — problem statement and motivation
 - **Key decisions** — non-obvious choices with rationale
+- **Instrumentation** — omit-when-none; the metrics, dashboard panels and alert/SLO spec for a runtime change: keep it in place and never restate it in other sections
 - **Deviations from plan** — omit-when-empty; one bullet per meaningful deviation between the approved plan and what shipped (see `flow-pipeline/references/pause-output-contract.md` `## Definitions`), populated by 11d below, immediately before Test Steps
 - **Test Steps** — verification steps for reviewers, automated and manual (also the auto-merge gate signal: zero unchecked `- [ ]` items ⇒ auto-merge, one or more ⇒ gated)
 - **UI review** — `## UI review` (between the `flow:ui-review` markers) is machine-written by verify: leave it in place and never restate it in other sections

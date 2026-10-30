@@ -183,6 +183,38 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 ```
 -->
 
+## Instrumentation
+
+<!-- Always present. Full form for a plan that adds or changes a request
+     handler, background job or queue consumer, outbound API call, or
+     multi-stage pipeline; otherwise a single `none — <reason>` line. See
+     references/discovery-instrumentation.md for the contract. -->
+
+**Contract:** [.flow/metrics.md create | extend]
+
+### Metrics
+
+| Metric                  | Instrument | Unit    | Attributes (closed values)   | Emitted at      |
+| ----------------------- | ---------- | ------- | ---------------------------- | --------------- |
+| [namespace.op.duration] | Histogram  | seconds | outcome (ok, error)          | [handler / job] |
+| [namespace.op.failures] | Counter    | none    | error_type ([listed values]) | [handler / job] |
+
+Estimated series: [n] per operation
+
+### Error types
+
+[new error_type values with meaning, or `reuses existing`]
+
+### Dashboard panels
+
+[panels added to `.flow/metrics.md` `## Dashboard panels`]
+
+### SLO
+
+[rolls into <SLO name>, or a new user-journey SLO with its SLI and target]
+
+**As-code:** [paths of dashboard or alert files updated | spec-only — <why>]
+
 ## Architecture Decisions
 
 <!-- Name the existing pattern, or justify a new one. Load

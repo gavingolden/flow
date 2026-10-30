@@ -1529,7 +1529,9 @@ describe("always-loaded context budget (helper-measured)", () => {
    * rather than raising this budget.
    */
   const TEMPLATE_CORE_BUDGET = 8_000;
-  const SKILL_FRONTMATTER_BUDGET = 3_000;
+  // Raised 3_000 -> 3_050 (flow-metrics core skill): its always-loaded
+  // description adds ~95 tokens (measured total 2954 -> 3049).
+  const SKILL_FRONTMATTER_BUDGET = 3_050;
   // Token-scale counterpart to HEADROOM_CAP (which is char-scale, for the
   // two char-based budgets above): SKILL_FRONTMATTER_BUDGET is measured in
   // tokens, so it needs its own cap rather than reusing HEADROOM_CAP's
@@ -4303,6 +4305,10 @@ const DISCOVERY_REFERENCES: { file: string; headings: string[] }[] = [
     file: "discovery-ui.md",
     headings: ["### Visual Spec", "### Layout Intent"],
   },
+  {
+    file: "discovery-instrumentation.md",
+    headings: ["### Instrumentation"],
+  },
   { file: "discovery-revision.md", headings: ["## Revision pass mode"] },
   { file: "discovery-survey-epic.md", headings: ["### Epic context"] },
   {
@@ -4384,6 +4390,89 @@ describe("discovery reference reachability", () => {
     ).not.toMatch(
       /discovery-instructions\.md ("Revision pass mode"|step 1\.8)/,
     );
+  });
+});
+
+describe("flow-metrics wiring", () => {
+  const read = (...segments: string[]) =>
+    fs.readFileSync(path.resolve(HERE, "..", ...segments), "utf8");
+  const metricsRoot = ["skills", "universal", "flow-metrics"];
+
+  it("flow-new-feature step 5 threads the flow-metrics paths behind the non-none Instrumentation gate", () => {
+    const skill = read("skills", "pipeline", "flow-new-feature", "SKILL.md");
+    expect(skill).toContain("flow-module-status --skill-path flow-metrics");
+    expect(
+      skill,
+      "step 5 must gate the metrics skill_docs on the PRD's `## Instrumentation` being non-`none`",
+    ).toMatch(/`## Instrumentation`[^]*?not\s+`none`/);
+  });
+
+  it("pr-description-authoring.md carries the omit-when-none ## Instrumentation section", () => {
+    expect(
+      read(
+        "skills",
+        "pipeline",
+        "flow-new-feature",
+        "references",
+        "pr-description-authoring.md",
+      ),
+    ).toMatch(/^## Instrumentation$/m);
+  });
+
+  it("flow-pr-review step 11a carries the **Instrumentation** bullet", () => {
+    expect(read("skills", "pipeline", "flow-pr-review", "SKILL.md")).toContain(
+      "- **Instrumentation** — omit-when-none",
+    );
+  });
+
+  it("the performance checklist carries ## Metrics instrumentation and the error_type rule", () => {
+    const checklist = read(
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+      "performance.md",
+    );
+    expect(checklist).toMatch(/^## Metrics instrumentation$/m);
+    expect(checklist).toContain("error_type");
+  });
+
+  it("the pattern-consistency checklist flags a runtime diff under a none Instrumentation section", () => {
+    const checklist = read(
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+      "pattern-consistency.md",
+    );
+    expect(checklist).toMatch(/`## Instrumentation` says `none` or is absent/);
+  });
+
+  it("consumer-repo-contract.md documents ## Metrics conventions and .flow/metrics.md", () => {
+    const contract = read("references", "consumer-repo-contract.md");
+    expect(contract).toMatch(/^## Metrics conventions$/m);
+    expect(contract).toContain(".flow/metrics.md");
+  });
+
+  it("the flow-metrics SKILL.md links all three references and every linked reference exists", () => {
+    const skill = read(...metricsRoot, "SKILL.md");
+    const linked = Array.from(
+      skill.matchAll(/\]\((references\/[a-z-]+\.md)\)/g),
+      (m) => m[1],
+    );
+    expect(linked.sort()).toEqual([
+      "references/backends.md",
+      "references/conventions.md",
+      "references/dashboards-alerts-slos.md",
+    ]);
+    for (const ref of linked) {
+      expect(
+        fs.existsSync(path.resolve(HERE, "..", ...metricsRoot, ref)),
+        `${ref} is linked from flow-metrics/SKILL.md but missing on disk`,
+      ).toBe(true);
+    }
   });
 });
 
@@ -4601,6 +4690,7 @@ describe("Plan-artifact section anchors (discovery-instructions.md ↔ prd-templ
     "## Cut list",
     "## Request vetting",
     "## Existing-code assessment",
+    "## Instrumentation",
   ];
   const MIRROR_SITES: Array<[string, string]> = [
     ["discovery-instructions.md", discoveryInstructionsContent],
@@ -5597,6 +5687,12 @@ describe("pr-review include-by-reference structure", () => {
     // Raised 1920 -> 1925 (Before/After sub-bullets): the 11d Accuracy Sync
     // and 11e Drafting-conventions preserve-the-shape clauses add three
     // lines; the file lands at 1922 as this test counts them.
+    //
+    // Kept at 1925 (merge of origin/main into the flow-metrics branch):
+    // this branch's Step 11a Structure Check `**Instrumentation**` bullet
+    // (its own 1920 -> 1921 raise) lands on top of the Before/After
+    // clauses. The merged file is their union at 1923 lines as this test
+    // counts them; 1925 leaves 2 lines of headroom.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
@@ -5691,12 +5787,16 @@ describe("pr-review include-by-reference structure", () => {
     // per-entry `skill_docs` and swapped the log-only check for the
     // flow-coder-skills-check registration, net-neutral: still lands at 831,
     // so < 835 leaves 3 lines of headroom.
+    // Raised 835 -> 842 (flow-metrics skill threading): the "Metrics rule
+    // paths" paragraph hands the implementer the metrics skill paths when the
+    // PRD's `## Instrumentation` is non-`none`. The file lands at 841 lines
+    // as this test counts them; 842 leaves 1 line of headroom.
     expect(
       lineCount,
       `flow-new-feature/SKILL.md line count must stay under the post-diet ` +
-        `budget of 835 lines. Material regrowth past this ceiling would ` +
+        `budget of 842 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(835);
+    ).toBeLessThan(842);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {

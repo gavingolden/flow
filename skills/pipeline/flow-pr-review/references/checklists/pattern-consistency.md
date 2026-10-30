@@ -64,6 +64,9 @@ or edits:
   (flow PR #748, econ-data #840).
 - In-code rationale for not doing a promised thing: a constraint the same PR authored is
   self-imposed; flag it (econ-data #690).
+- Instrumentation claims: a diff that adds or changes a request handler, job or queue
+  consumer, outbound API call, or multi-stage pipeline while the plan or PR
+  `## Instrumentation` says `none` or is absent; flag at confidence 80 or above.
 
 ## New Rules That Contradict Their Neighbours
 

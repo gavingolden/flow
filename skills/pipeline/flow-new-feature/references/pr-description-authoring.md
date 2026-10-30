@@ -107,6 +107,16 @@ the root cause>`. Each bullet: decision + why. During implementation, if a non-o
 is made or an approach is tried and abandoned, append it here and also capture it in the
 commit body per `AGENTS.md` — so future reviewers and agents don't retrace dead ends.>
 
+## Instrumentation
+
+<Omit-when-none. Only when the plan's `## Instrumentation` section is not
+`none`: the metrics, dashboard panels and alert/SLO spec, distilled from the
+plan section. With `backend: none yet`, only the PR that creates
+`.flow/metrics.md` carries the full note that graphs need a backend choice;
+later PRs carry one line saying these metrics are recorded but won't show on
+any graph until a metrics backend is chosen (status in `.flow/metrics.md`
+`## Backend`).>
+
 ## Deviations from plan
 
 <Omit-when-empty. One bullet per meaningful deviation between the
