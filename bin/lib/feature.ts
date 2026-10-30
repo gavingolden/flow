@@ -1914,8 +1914,8 @@ export function resolveSeedHookCommand(): string {
 /**
  * Same resolution order as `resolveSeedHookCommand`, for the PreToolUse
  * flow-doc read guard (`FLOW_DOC_READ_GUARD_COMMAND` override). Never warns
- * on divergence — only the seed hook carries that diagnostic, though
- * `warnOnHookDivergence` itself is helper-agnostic.
+ * on divergence — only the seed and request-echo hooks carry that
+ * diagnostic, though `warnOnHookDivergence` itself is helper-agnostic.
  */
 export function resolveDocReadGuardCommand(): string {
   return resolveHookCommand(

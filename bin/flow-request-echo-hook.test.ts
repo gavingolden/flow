@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -81,7 +82,7 @@ describe("flow-request-echo-hook run()", () => {
     expect(parseOnly(out).systemMessage).toContain(REQUEST);
   });
 
-  it.each(["merged", "cancelled"] as const)(
+  it.each(["merged", "cancelled", "epic-approved"] as const)(
     "prints nothing with --on-clear when the phase is %s",
     (phase) => {
       const { out, code } = launch({
@@ -159,11 +160,25 @@ describe("flow-request-echo-hook run()", () => {
     expect(parseOnly(out).systemMessage).toContain("flow prompt csv-export");
   });
 
-  it("returns 0 and prints nothing when reading state throws", () => {
+  it("prints nothing for an unparseable state file", () => {
     fs.writeFileSync(path.join(dir, "csv-export.json"), "{not json");
     const { out, code } = launch({});
     expect(code).toBe(0);
     expect(out).toBe("");
+  });
+
+  it("returns 0 when writing the message throws", () => {
+    writeState(stateOf(), dir);
+    fs.writeFileSync(requestFilePath("csv-export", dir), REQUEST);
+    const code = run({
+      argv: [],
+      env: { FLOW_SLUG: "csv-export" },
+      stateDir: dir,
+      write: () => {
+        throw new Error("EPIPE");
+      },
+    });
+    expect(code).toBe(0);
   });
 });
 
@@ -191,5 +206,36 @@ describe("flow-request-echo-hook decideEcho()", () => {
 describe("flow-request-echo-hook executable", () => {
   it("is executable", () => {
     expect(() => fs.accessSync(SCRIPT, fs.constants.X_OK)).not.toThrow();
+  });
+
+  describe("as a subprocess", () => {
+    const spawn = (args: string[], phase: PipelineState["phase"]) => {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), "flow-echo-home-"));
+      try {
+        const stateDir = path.join(home, ".flow", "state");
+        fs.mkdirSync(stateDir, { recursive: true });
+        writeState(stateOf({ phase }), stateDir);
+        fs.writeFileSync(requestFilePath("csv-export", stateDir), REQUEST);
+        return spawnSync(SCRIPT, args, {
+          input: '{"source":"clear"}',
+          encoding: "utf8",
+          env: { ...process.env, HOME: home, FLOW_SLUG: "csv-export" },
+        });
+      } finally {
+        fs.rmSync(home, { recursive: true, force: true });
+      }
+    };
+
+    it("prints the request to stdout and exits 0 when bare", () => {
+      const r = spawn([], "merged");
+      expect(r.status).toBe(0);
+      expect(parseOnly(r.stdout).systemMessage).toContain(REQUEST);
+    });
+
+    it("prints nothing and exits 0 for --on-clear at a finished phase", () => {
+      const r = spawn(["--on-clear"], "merged");
+      expect(r.status).toBe(0);
+      expect(r.stdout).toBe("");
+    });
   });
 });

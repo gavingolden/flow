@@ -19,6 +19,7 @@ import fs from "node:fs";
 import { renderRequestEchoMessage } from "./lib/request-echo";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import {
+  FINISHED_PHASE_SET,
   readState,
   requestFilePath,
   resolveStateKind,
@@ -36,9 +37,7 @@ export function decideEcho(input: EchoInput): { systemMessage: string } | null {
   const { onClear, slug, state, requestText } = input;
   if (slug === null || state === null) return null;
   if (resolveStateKind(state) === "epic-run") return null;
-  if (onClear && (state.phase === "merged" || state.phase === "cancelled")) {
-    return null;
-  }
+  if (onClear && FINISHED_PHASE_SET.has(state.phase)) return null;
   if (requestText === null || requestText === "") {
     return { systemMessage: `flow: could not read the request for ${slug}` };
   }

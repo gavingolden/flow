@@ -162,6 +162,9 @@ describe(renderRequestEchoMessage, () => {
   it("caps a 20,000-character body at 9,000 serialized characters and names `flow prompt <slug>`", () => {
     const out = renderRequestEchoMessage(baseState(), "y".repeat(20000));
     expect(serialized(out)).toBeLessThanOrEqual(REQUEST_ECHO_MESSAGE_MAX_CHARS);
+    expect(serialized(out)).toBeGreaterThanOrEqual(
+      REQUEST_ECHO_MESSAGE_MAX_CHARS - 1,
+    );
     expect(out.startsWith(requestEchoHeader(baseState(), "plain"))).toBe(true);
     expect(out).toContain("of 20000 characters");
     expect(

@@ -5,7 +5,7 @@ Contents: The first action of the supervisor · No-state-file guard · Only thes
 **Phase:** `triaging`
 
 **The first action of the supervisor.** Extract the pipeline slug from the seed prompt before
-any further bash calls. The seed is a single line whose
+any bash calls. The seed is a single line whose
 prefix has the form `[pipeline-slug: <slug>]` — parse the literal
 `<slug>` value from it and embed it inline in the two calls below. The
 slug is a concrete string (e.g. `csv-export`), not a shell variable
