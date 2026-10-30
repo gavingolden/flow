@@ -652,9 +652,51 @@ describe("run", () => {
       skipReason: "agy-error",
       failureClass: "unknown",
       task: "default",
+      model: null,
+      durationMs: 0,
       exitCode: 1,
       stderrTail: "boom",
     });
+  });
+
+  it("records the elapsed time and the requested model on a dispatched failure", () => {
+    let t = 1000;
+    const deps = makeDeps({
+      now: () => {
+        const v = t;
+        t += 2500;
+        return v;
+      },
+      runAgy: () => ({
+        exitCode: 0,
+        stderr: "",
+      }),
+      readFile: () =>
+        JSON.stringify({
+          status: "ERROR",
+          error: "Your previous response was blocked by content safety filters",
+        }),
+    });
+    run(
+      [
+        "--prompt",
+        "hi",
+        "--output-format",
+        "json",
+        "--model",
+        "Claude Opus 5.5 (High)",
+      ],
+      deps,
+    );
+    const env = envelope(deps);
+    expect(env).toMatchObject({
+      ran: false,
+      skipReason: "agy-error",
+      failureClass: "content-filtered",
+      model: "Claude Opus 5.5 (High)",
+    });
+    expect(typeof env.durationMs).toBe("number");
+    expect(env.durationMs).toBeGreaterThan(0);
   });
 
   it("maps a --print-timeout kill's stderr signature to agy-timeout, not agy-error", () => {
@@ -670,6 +712,8 @@ describe("run", () => {
       skipReason: "agy-timeout",
       failureClass: "timeout",
       task: "default",
+      model: null,
+      durationMs: 0,
       exitCode: 1,
       stderrTail: "Error: timeout waiting for response",
     });
@@ -769,6 +813,8 @@ describe("run", () => {
       skipReason: "agy-error",
       failureClass: "unknown",
       task: "default",
+      model: null,
+      durationMs: 0,
       exitCode: 1,
     });
   });
@@ -788,6 +834,8 @@ describe("run", () => {
       skipReason: "agy-timeout",
       failureClass: "timeout",
       task: "default",
+      model: null,
+      durationMs: 0,
       exitCode: 1,
       agyStatus: "ERROR",
       agyError: "timeout waiting for response",
@@ -826,6 +874,8 @@ describe("run", () => {
       skipReason: "agy-canceled",
       failureClass: "canceled",
       task: "default",
+      model: null,
+      durationMs: 0,
       exitCode: 0,
       agyStatus: "CANCELED",
     });
@@ -943,6 +993,8 @@ describe("run", () => {
       skipReason: "agy-not-authenticated",
       failureClass: "auth",
       task: "default",
+      model: null,
+      durationMs: 0,
       exitCode: 1,
       stderrTail: "Please log in",
     });
@@ -959,6 +1011,8 @@ describe("run", () => {
       skipReason: "agy-empty-artifact",
       failureClass: "empty-artifact",
       task: "default",
+      model: null,
+      durationMs: 0,
       exitCode: 0,
     });
   });
