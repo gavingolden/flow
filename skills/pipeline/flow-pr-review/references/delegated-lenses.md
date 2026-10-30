@@ -8,7 +8,7 @@ dropped: any lens it cannot deliver is a `fallback` lens, and you Task-spawn
 it as you always did. Which lenses move is config:
 `delegate.models.claudeLenses` (`null` = delegation off) and `delegate.lenses`;
 the helper owns the routing (delegation off, not in the delegated set, a Fable
-session keeps bug-detection on Claude, a live cooldown after a quota failure —
+session keeps bug-detection on Claude, a live cooldown after a review whose Google-plan runs all failed —
 until the reset agy names, else 60 minutes).
 
 This reference is a Bash fan-out, not a new Task-tool exemption: the Task
@@ -86,20 +86,21 @@ for every lens that ran on Claude although delegation was on, a plain-language
 reason (see [report-template.md](report-template.md)). Translate the helper's
 reason strings; never print them raw:
 
-| Helper reason                                                     | Say                                                                  |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `agy-output-unparseable`, `agy-empty-artifact`                    | the Google-plan result came back empty or unusable                   |
-| `agy-tools-denied`                                                | the Google-plan reviewer tried to run a command it is not allowed to |
-| `agy-token-exhausted`                                             | the Google-plan reviewer ran out of output budget                    |
-| `agy-timeout`                                                     | the Google-plan run timed out                                        |
-| `agy-quota-exhausted`                                             | the Google plan hit its usage limit                                  |
-| `agy-not-found`, `agy-not-authenticated`, `agy-model-unavailable` | the Google plan is not available on this machine                     |
-| `agy-prep-failed`, `agy-fanout-failed`, `agy-finalize-failed`     | the Google-plan run could not be prepared                            |
-| any other `agy-*`                                                 | the Google-plan run failed                                           |
-| route `fable-session-keeps-task`                                  | bug-detection stays on Claude when the session runs Fable            |
-| route `agy-cooldown`                                              | the Google plan is cooling down after a quota failure                |
+| Helper reason                                                     | Say                                                                                   |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `agy-output-unparseable`, `agy-empty-artifact`                    | the Google-plan result came back empty or unusable                                    |
+| `agy-tools-denied`                                                | the Google-plan reviewer tried to run a command it is not allowed to                  |
+| `agy-token-exhausted`                                             | the Google-plan reviewer ran out of output budget                                     |
+| `agy-timeout`                                                     | the Google-plan run timed out                                                         |
+| `agy-quota-exhausted`                                             | the Google plan hit its usage limit                                                   |
+| `agy-content-filtered`                                            | the Google-plan model declined to review this change (content filter)                 |
+| `agy-not-found`, `agy-not-authenticated`, `agy-model-unavailable` | the Google plan is not available on this machine                                      |
+| `agy-prep-failed`, `agy-fanout-failed`, `agy-finalize-failed`     | the Google-plan run could not be prepared                                             |
+| any other `agy-*`                                                 | the Google-plan run failed                                                            |
+| route `fable-session-keeps-task`                                  | bug-detection stays on Claude when the session runs Fable                             |
+| route `agy-cooldown`                                              | the Google plan is cooling down after an earlier review's Google-plan runs all failed |
 
 Examples: "security ran on Claude: Google-plan result came back empty";
-"all lenses on Claude: Google plan cooling down after a quota failure".
+"all lenses on Claude: Google plan cooling down after an earlier review's Google-plan runs all failed".
 Route reasons `delegation-off` and `not-in-delegated-set` are the default
 state, not a fallback — do not report them.
