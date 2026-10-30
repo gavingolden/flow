@@ -289,6 +289,51 @@ describe("lintPlan — always-present sections", () => {
     ).toBe(true);
   });
 
+  const planWithFiles = (files: string) =>
+    CONFORMING_PLAN.replace("create src/ExportButton.svelte", files);
+  const instrumentationMisses = (plan: string) =>
+    lintPlan(plan).misses.filter((m) => m.includes("Instrumentation"));
+
+  it.each([
+    "src/lib/server/db.ts",
+    "src/worker/sync.ts",
+    "src/workers/sync.ts",
+    "src/job/nightly.ts",
+    "src/jobs/nightly.ts",
+    "src/queue/email.ts",
+    "src/queues/email.ts",
+    "src/cron/cleanup.ts",
+    "src/routes/x/+page.server.ts",
+    "src/routes/x/+layout.server.ts",
+    "src/hooks.server.ts",
+    "src/routes/x/+server.ts",
+  ])("flags a 'none' Instrumentation when Files names %s", (file) => {
+    expect(
+      instrumentationMisses(planWithFiles(`create ${file}`)).some((m) =>
+        m.includes("runtime path"),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    "src/webserver/x.ts",
+    "src/my-api/x.ts",
+    "src/jobs/export.test.ts",
+    "src/routes/api/export/+server.spec.ts",
+    "docs/api/README.md",
+  ])("does not flag a 'none' Instrumentation for %s", (file) => {
+    expect(instrumentationMisses(planWithFiles(`create ${file}`))).toEqual([]);
+  });
+
+  it("flags a runtime path on a soft-wrapped Files line", () => {
+    const plan = planWithFiles(
+      "create src/ExportButton.svelte,\n    src/jobs/export.ts",
+    );
+    expect(
+      instrumentationMisses(plan).some((m) => m.includes("runtime path")),
+    ).toBe(true);
+  });
+
   it("accepts a runtime-path 'none' whose reason says refactor-only", () => {
     const plan = CONFORMING_PLAN.replace(
       "create src/ExportButton.svelte",

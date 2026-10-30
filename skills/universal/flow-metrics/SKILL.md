@@ -93,7 +93,7 @@ Create the file on the first instrumented change and extend it afterwards. Its s
 
 Every table keeps one row per value, sorted by its first column, so parallel changes append without merge conflicts. Never put secrets in the file.
 
-With `backend: none yet`, only the PR that creates `.flow/metrics.md` carries the full note that graphs need a backend choice; later PRs carry one line pointing at `.flow/metrics.md` `## Backend`.
+With `backend: none yet`, only the PR that creates `.flow/metrics.md` carries the full note that graphs need a backend choice; later PRs carry one line saying these metrics are recorded but won't show on any graph until a metrics backend is chosen (status in `.flow/metrics.md` `## Backend`).
 
 # Anti-Patterns
 

@@ -113,7 +113,9 @@ commit body per `AGENTS.md` — so future reviewers and agents don't retrace dea
 `none`: the metrics, dashboard panels and alert/SLO spec, distilled from the
 plan section. With `backend: none yet`, only the PR that creates
 `.flow/metrics.md` carries the full note that graphs need a backend choice;
-later PRs carry one line pointing at `.flow/metrics.md` `## Backend`.>
+later PRs carry one line saying these metrics are recorded but won't show on
+any graph until a metrics backend is chosen (status in `.flow/metrics.md`
+`## Backend`).>
 
 ## Deviations from plan
 

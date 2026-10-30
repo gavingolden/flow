@@ -91,12 +91,12 @@ access mode is removed or narrowed.
 
 ### Metrics
 
-| Metric                  | Instrument | Unit    | Attributes (closed values)                              | Emitted at                 |
-| ----------------------- | ---------- | ------- | ------------------------------------------------------- | -------------------------- |
-| `share.create.duration` | Histogram  | seconds | `outcome` (`ok`, `error`)                               | share-creation RPC handler |
-| `share.create.failures` | Counter    | none    | `error_type` (`invalid_input`, `not_found`, `internal`) | share-creation RPC handler |
-| `share.view.duration`   | Histogram  | seconds | `outcome` (`ok`, `error`)                               | `/s/{token}` page load     |
-| `share.view.failures`   | Counter    | none    | `error_type` (`share_revoked`, `not_found`, `internal`) | `/s/{token}` page load     |
+| Metric                  | Instrument | Unit    | Attributes (closed values)                              | Emitted at               |
+| ----------------------- | ---------- | ------- | ------------------------------------------------------- | ------------------------ |
+| `share.create.duration` | Histogram  | seconds | `outcome` (`ok`, `error`)                               | `ShareRepository.create` |
+| `share.create.failures` | Counter    | none    | `error_type` (`invalid_input`, `not_found`, `internal`) | `ShareRepository.create` |
+| `share.view.duration`   | Histogram  | seconds | `outcome` (`ok`, `error`)                               | `/s/{token}` page load   |
+| `share.view.failures`   | Counter    | none    | `error_type` (`share_revoked`, `not_found`, `internal`) | `/s/{token}` page load   |
 
 Estimated series: 37 per operation (histogram 2 outcomes x 17, plus 3 `error_type` values on the failures counter)
 
@@ -160,14 +160,18 @@ DEFINER` `get_shared_dashboard` RPC (Task 1) is the only anonymous read path, an
 
 - **Skill:** `svelte`
 - **Description:** Create `src/lib/domain/share/` with Share entity, ShareRepository (CRUD +
-  RPC call), SharedDashboardPayload type, DB types, and barrel exports
+  RPC call), SharedDashboardPayload type, DB types, and barrel exports. Add the repo-local
+  metrics helper and `.flow/metrics.md`, and emit `share.create.duration` / `share.create.failures`
+  (`error_type`: `invalid_input`, `not_found`, `internal`) from `ShareRepository.create` and
+  `share.view.duration` / `share.view.failures` (`error_type`: `share_revoked`, `not_found`,
+  `internal`) from `ShareRepository.getSharedDashboard`
 - **Inputs:** Generated DB types from Task 1
 - **Outputs:** Domain module with repository, entity, and payload type
 - **Contract:**
-  - **Files:** create `src/lib/domain/share/share.ts`, `src/lib/domain/share/share-repository.ts`, `src/lib/domain/share/types.ts`, `src/lib/domain/share/index.ts` (barrel)
+  - **Files:** create `src/lib/domain/share/share.ts`, `src/lib/domain/share/share-repository.ts`, `src/lib/domain/share/types.ts`, `src/lib/domain/share/index.ts` (barrel), `src/lib/metrics.ts` (repo-local helper), `.flow/metrics.md`
   - **Interfaces:** `export class Share { readonly id: string; readonly dashboardId: string; readonly token: string; isActive: boolean; get shareUrl(): string }`; `export class ShareRepository { getForDashboard(dashboardId: string): Promise<Result<Share | null, ShareError>>; create(dashboardId: string): Promise<Result<Share, ShareError>>; setActive(id: string, isActive: boolean): Promise<Result<Share, ShareError>>; getSharedDashboard(token: string): Promise<Result<SharedDashboardPayload, ShareError>> }`; `export type SharedDashboardPayload = { dashboard: Dashboard; graphs: Graph[]; expressions: Expression[] }`; `export type ShareError = "not-found" | "db-error"`
   - **Call-site edits:** `src/lib/domain/index.ts` — add `export * from "./share"` to the domain barrel
-- **Acceptance criteria:** `npm run test -- src/lib/domain/share && npm run typecheck` — module compiles and its unit tests pass
+- **Acceptance criteria:** `npm run test -- src/lib/domain/share && npm run typecheck` — module compiles and its unit tests pass; the metrics helper's in-memory recorder shows one `share.create.duration` observation per `create` call
 
 ### Task 3: Build share dialog UI
 
@@ -204,10 +208,10 @@ DEFINER` `get_shared_dashboard` RPC (Task 1) is the only anonymous read path, an
 - **Inputs:** Share domain module from Task 2
 - **Outputs:** Test files with full coverage of repository methods and entity behavior
 - **Contract:**
-  - **Files:** create `src/lib/domain/share/share.test.ts`, `src/lib/domain/share/share-repository.test.ts`
+  - **Files:** create `src/lib/domain/share/share.test.ts`, `src/lib/domain/share/share-repository.test.ts`, `src/lib/domain/share/share-metrics.test.ts`
   - **Interfaces:** none new — tests target the Task 2 exports (`Share`, `ShareRepository`, `SharedDashboardPayload`) with a mocked Supabase client
   - **Call-site edits:** none
-- **Acceptance criteria:** `npm run test -- src/lib/domain/share` — create, get, toggle, RPC, and error-path (db-error, not-found) specs all pass
+- **Acceptance criteria:** `npm run test -- src/lib/domain/share` — create, get, toggle, RPC, error-path (db-error, not-found), and metric-emission specs (one duration observation with `outcome`, one failures increment with the exact `error_type`, asserted against the helper's in-memory recorder) all pass
 
 | Task | Depends on |
 | ---- | ---------- |
@@ -222,7 +226,7 @@ DEFINER` `get_shared_dashboard` RPC (Task 1) is the only anonymous read path, an
 | Skill       | Recommended?     | Reason                                           |
 | ----------- | ---------------- | ------------------------------------------------ |
 | database    | Yes (Task 1)     | New table + RPC needed                           |
-| svelte      | Yes (Tasks 2, 4) | Domain module + new route                        |
+| svelte      | Yes (Tasks 2, 4) | Domain module + metrics helper + new route       |
 | ui          | Yes (Task 3)     | New share dialog component                       |
 | testing     | Yes (Task 5)     | Repository/entity unit coverage                  |
 | refactoring | No               | No existing code restructured — this is additive |

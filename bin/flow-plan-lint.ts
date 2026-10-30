@@ -273,7 +273,9 @@ function checkCutListJustification(planText: string, misses: string[]): void {
 }
 
 const RUNTIME_PATH_RE =
-  /(?<![\w-])(?:api|server|workers|jobs|queues|cron)\/|\+server\.|\+page\.server\.|hooks\.server\./;
+  /(?<![\w-])(?:api|server|workers?|jobs?|queues?|cron)\/|\+server\.|\+(?:page|layout)\.server\.|hooks\.server\./;
+
+const NON_RUNTIME_FILE_RE = /\.(?:test|spec)\.[cm]?[jt]sx?$|\.md$/i;
 
 /**
  * `## Instrumentation` is always-present inside the `# PRD` section: a spec
@@ -322,9 +324,16 @@ function checkInstrumentation(planText: string, misses: string[]): void {
     return;
   }
   if (/refactor-only|no behaviou?r change/i.test(reason[1])) return;
-  const runtimeFiles = [...planText.matchAll(/^\s*- \*\*Files:\*\*(.*)$/gm)]
-    .map((m) => m[1])
-    .filter((line) => RUNTIME_PATH_RE.test(line));
+  const runtimeFiles = [...planText.matchAll(/^\s*- \*\*Files:\*\*/gm)]
+    .map((m) => joinLogicalLine(planText, m.index ?? 0))
+    .flatMap((line) =>
+      line
+        .replace(/^- \*\*Files:\*\*\s*/, "")
+        .split(/[,;\s]+/)
+        .map((tok) => tok.replace(/^`|`$/g, ""))
+        .filter((tok) => !NON_RUNTIME_FILE_RE.test(tok)),
+    )
+    .filter((tok) => RUNTIME_PATH_RE.test(tok));
   if (runtimeFiles.length > 0) {
     misses.push(
       "'## Instrumentation' says 'none' but a task's **Files:** names a runtime path (route, server, worker, job, queue or cron) — spec the metrics, or say the change is refactor-only / has no behaviour change",

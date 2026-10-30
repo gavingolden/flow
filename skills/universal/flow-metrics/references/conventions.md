@@ -24,7 +24,7 @@ Record durations in seconds as a float, never milliseconds under a seconds unit.
 
 Volume and error rate come from the histogram count: do not add a separate "requests" counter. Percentiles come from the histogram, never from averaging percentiles.
 
-Why `error_type` is not on the histogram: OpenTelemetry's HTTP convention puts `error.type` on the duration histogram (https://opentelemetry.io/docs/specs/semconv/general/recording-errors/). That multiplies every error value by the bucket count on backends that bill or store per series. Splitting the histogram by `outcome` and putting `error_type` on a separate failures counter keeps the same success counts, failure counts by type and latency percentiles at roughly a quarter of the series. This applies to custom metrics only; leave auto-instrumented edge metrics as emitted.
+Why `error_type` is not on the histogram: OpenTelemetry's HTTP convention puts `error.type` on the duration histogram (https://opentelemetry.io/docs/specs/semconv/general/recording-errors/). That multiplies every error value by the bucket count on backends that bill or store per series. Splitting the histogram by `outcome` and putting `error_type` on a separate failures counter keeps the same success counts, failure counts by type and latency percentiles at roughly a fifth of the series. This applies to custom metrics only; leave auto-instrumented edge metrics as emitted.
 
 ## The `error_type` rule
 
@@ -51,13 +51,13 @@ Starter values for a repo with no list yet (each repo's own list is authoritativ
 
 ## Cardinality budget
 
-Estimated series for one operation = (product of attribute-value counts for each metric) summed over its metrics, where a histogram is also multiplied by its bucket count plus two (the `+Inf` bucket and the `_sum`/`_count` pair on Prometheus-style backends).
+Estimated series for one operation = (product of attribute-value counts for each metric) summed over its metrics, where a histogram is also multiplied by (boundary count + 3): one bucket per boundary, the `+Inf` bucket, and the `_sum`/`_count` pair on Prometheus-style backends.
 
 Worked example with 14 bucket bounds, `outcome` (2 values) and 11 `error_type` values:
 
 - Duration histogram by `outcome`: 2 x (14 + 1 + 2) = 34 series.
 - Failures counter by `error_type`: 11 series.
-- Total: about 45 series per operation. Putting `error_type` on the histogram instead gives (2 + 11) x 17 = 221.
+- Total: about 45 series per operation. Putting `error_type` on the histogram instead gives (1 success + 11 `error_type` values, since `error_type` is unset on success) x 17 = 204.
 
 Rules of thumb:
 

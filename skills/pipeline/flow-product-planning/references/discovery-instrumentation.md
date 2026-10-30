@@ -21,7 +21,7 @@ The section is always present. A missing heading is ambiguous and a `none` is an
 **Full form.** Under `## Instrumentation`, write:
 
 - A `**Contract:**` line naming `.flow/metrics.md` `create` or `extend`.
-- `### Metrics` — a table `Metric | Instrument | Unit | Attributes (closed values) | Emitted at`, one row per metric. Follow with one line per operation: `Estimated series: <n> per operation` (the product of attribute-value counts, multiplied by the bucket count plus two for a histogram; the formula is in the skill's `references/conventions.md`).
+- `### Metrics` — a table `Metric | Instrument | Unit | Attributes (closed values) | Emitted at`, one row per metric. Follow with one line per operation: `Estimated series: <n> per operation` (the product of attribute-value counts, multiplied by (boundary count + 3) for a histogram: one bucket per boundary, `+Inf`, and `_sum`/`_count`; the formula is in the skill's `references/conventions.md`).
 - `### Error types` — the new `error_type` values with their meaning, or `reuses existing`.
 - `### Dashboard panels` — the panels this change adds to `.flow/metrics.md` `## Dashboard panels`.
 - `### SLO` — `rolls into <SLO name>`, or a new journey SLO with its SLI and target. A new SLO is only for a new user journey.
@@ -33,6 +33,6 @@ Default to the skill's shape: one duration histogram per operation split only by
 
 **Task shape (full form only).** At least one task's `**Files:**` includes the repo-local metrics helper (or its creation) and `.flow/metrics.md`. Its description names the planned metrics and `error_type` values so the edit-set intent carries them to the implementer, and its acceptance criterion asserts emission (an emission test against the helper's in-memory recorder).
 
-**PR draft section.** In `.flow-tmp/pr-description-draft.md`, add an omit-when-none `## Instrumentation` section between `## Key decisions` and `## Deviations from plan`: the metrics, panels and alert/SLO spec distilled from the plan section. With `backend: none yet`, only the PR that creates `.flow/metrics.md` carries the full note that graphs need a backend choice; later PRs carry one line pointing at `.flow/metrics.md` `## Backend`. Omit the heading entirely when the plan section is `none`.
+**PR draft section.** In `.flow-tmp/pr-description-draft.md`, add an omit-when-none `## Instrumentation` section between `## Key decisions` and `## Deviations from plan`: the metrics, panels and alert/SLO spec distilled from the plan section. With `backend: none yet`, only the PR that creates `.flow/metrics.md` carries the full note that graphs need a backend choice; later PRs carry one line saying these metrics are recorded but won't show on any graph until a metrics backend is chosen (status in `.flow/metrics.md` `## Backend`). Omit the heading entirely when the plan section is `none`.
 
 **Forward pointer.** `/flow-new-feature` Step 5 reads the plan's `## Instrumentation` and, when it is not `none`, threads the metrics skill's paths into the implementer's `skill_docs`. `flow-plan-lint` names a missing section, a reason-less `none`, a table-less non-`none` section, and a `none` on runtime file paths; it is advisory, so the miss is named in the plan summary at approval.
