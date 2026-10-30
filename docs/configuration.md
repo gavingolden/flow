@@ -450,8 +450,8 @@ and it IS wired. `delegate.models.scout` is an **agy variant display-name
 string**: when set, `flow-agy-scout` tries the scout on that agy variant
 first (Google AI Ultra quota), and the Claude Task subagent runs as the
 fallback whenever the agy run does not return a complete report, while
-the Google plan is cooling down after a quota failure, or when the key is
-`null` (the default). Setting one has no effect on the other.
+the Google plan is cooling down (see `delegate.lenses` below), or when the
+key is `null` (the default). Setting one has no effect on the other.
 
 **`delegate.lenses`** lists which review lenses run on agy instead of
 Claude once `delegate.models.claudeLenses` names a variant: an array of
@@ -460,8 +460,13 @@ lens names from `bug-detection`, `security`, `pattern-consistency`,
 (including `intent-guess`, which is never delegated) warn once and are
 dropped; a wrong-typed value warns once and falls back to the default (no
 lens delegated). A delegated lens that returns an unusable result — or any
-lens while the Google plan is cooling down after a quota failure — runs as
-a Claude Task agent instead, so no lens is ever dropped.
+lens while the Google plan is cooling down — runs as a Claude Task agent
+instead, so no lens is ever dropped. The cooldown is armed when every
+Google-plan lens run of an earlier review failed for a quota, rate-limit,
+timeout, or empty or unknown reason, or when a delegated scout run hit a
+quota or rate limit. A content-filter refusal (the model
+declined to review the change) never arms it, unless a sibling lens hit a real
+quota or rate limit in the same review.
 
 Recommended only for `bug-detection` for now: in the October 2026 recall
 check the Ultra plan's Claude allowance ran out after about 23 Opus-High

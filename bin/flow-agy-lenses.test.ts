@@ -34,6 +34,10 @@ let prompts: Record<string, string>;
 let armed: string[][];
 let armedReset: Array<number | null>;
 let reads: string[];
+let cacheDir: string;
+
+const REFUSAL =
+  "Your previous response was blocked by content safety filters\nPlease provide a response that complies with content policies, or briefly explain to the user why you cannot help with this request\nRetries remaining: 3";
 
 const cfg =
   (over: Record<string, unknown> = {}) =>
@@ -107,6 +111,7 @@ const deps = (over: Partial<Deps> = {}): Partial<Deps> => ({
     }
   },
   runFanout: fanoutWith(() => ({ raw: GOOD })),
+  refusalCacheDir: cacheDir,
   ...over,
 });
 
@@ -178,9 +183,16 @@ beforeEach(() => {
   armed = [];
   armedReset = [];
   reads = [];
+  cacheDir = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "agy-refusals-")),
+    "agy-refusals",
+  );
 });
 
-afterEach(() => fs.rmSync(worktree, { recursive: true, force: true }));
+afterEach(() => {
+  fs.rmSync(worktree, { recursive: true, force: true });
+  fs.rmSync(path.dirname(cacheDir), { recursive: true, force: true });
+});
 
 describe("parseArgs", () => {
   it("rejects intent-guess and unknown lenses as usage errors", () => {
@@ -488,6 +500,7 @@ describe("cooldown arming (Story 2b)", () => {
         runFanout: fanoutWith(() => ({
           ran: false,
           skipReason: "agy-not-found",
+          failureClass: "unknown",
         })),
       }),
     );
@@ -576,6 +589,168 @@ describe("cooldown arming (Story 2b)", () => {
         skipClass: "ran-unusable",
       },
     ]);
+  });
+});
+
+describe("content-filter refusals", () => {
+  const refused = {
+    ran: false,
+    skipReason: "agy-error",
+    failureClass: "content-filtered",
+    agyError: REFUSAL,
+  } as const;
+
+  it("trusts the delegate's failureClass when the entry carries no matching text", async () => {
+    await run(
+      argv("pattern-consistency,bug-detection"),
+      deps({
+        runFanout: fanoutWith(() => ({
+          ran: false,
+          skipReason: "agy-error",
+          failureClass: "content-filtered",
+        })),
+      }),
+    );
+    expect(
+      envelope().fallback.map((f: { reason: string }) => f.reason),
+    ).toEqual(["agy-content-filtered", "agy-content-filtered"]);
+    expect(armed).toEqual([]);
+  });
+
+  it("reports an all-refused wave as agy-content-filtered and never arms the cooldown", async () => {
+    await run(
+      argv("pattern-consistency,bug-detection"),
+      deps({ runFanout: fanoutWith(() => ({ ...refused })) }),
+    );
+    expect(armed).toEqual([]);
+    expect(envelope().cooldownArmed).toBe(false);
+    expect(envelope().fallback).toEqual([
+      {
+        lens: "pattern-consistency",
+        reason: "agy-content-filtered",
+        skipClass: "ran-unusable",
+      },
+      {
+        lens: "bug-detection",
+        reason: "agy-content-filtered",
+        skipClass: "ran-unusable",
+      },
+    ]);
+  });
+
+  it("arms when a refusal sits next to a quota-exhausted sibling", async () => {
+    await run(
+      argv("pattern-consistency,bug-detection"),
+      deps({
+        runFanout: fanoutWith((lens) =>
+          lens === "bug-detection"
+            ? { ...refused }
+            : {
+                ran: false,
+                skipReason: "agy-error",
+                failureClass: "quota-exhausted",
+                agyError: "Individual quota reached.",
+              },
+        ),
+      }),
+    );
+    expect(armed).toEqual([["quota-exhausted", "content-filtered"]]);
+  });
+
+  it("does not arm when a refusal sits next to a timeout", async () => {
+    await run(
+      argv("pattern-consistency,bug-detection"),
+      deps({
+        runFanout: fanoutWith((lens) =>
+          lens === "bug-detection"
+            ? { ...refused }
+            : {
+                ran: false,
+                skipReason: "agy-timeout",
+                failureClass: "timeout",
+              },
+        ),
+      }),
+    );
+    expect(armed).toEqual([]);
+  });
+
+  it("copies the refused lens's prompt and raw output into the refusal cache", async () => {
+    await run(
+      argv("bug-detection"),
+      deps({
+        runFanout: fanoutWith(() => ({ ...refused, raw: "partial output" })),
+      }),
+    );
+    const names = fs.readdirSync(cacheDir);
+    const prompt = names.find((n) => n.endsWith("-bug-detection.prompt"));
+    const raw = names.find((n) => n.endsWith("-bug-detection.raw"));
+    expect(prompt).toBeDefined();
+    expect(raw).toBeDefined();
+    expect(fs.readFileSync(path.join(cacheDir, prompt!), "utf8")).toBe(
+      prompts["bug-detection"],
+    );
+    expect(fs.readFileSync(path.join(cacheDir, raw!), "utf8")).toBe(
+      "partial output",
+    );
+    expect(fs.existsSync(tmpFile("agy-lens-bug-detection.prompt"))).toBe(false);
+    expect(fs.statSync(path.join(cacheDir, prompt!)).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(cacheDir).mode & 0o777).toBe(0o700);
+  });
+
+  it("keeps nothing in the cache when no lens was refused", async () => {
+    await run(argv("bug-detection"), deps());
+    expect(fs.existsSync(cacheDir)).toBe(false);
+  });
+
+  it("classifies a refusal from the entry's diagnostics when the delegate stamped no failureClass", async () => {
+    await run(
+      argv("pattern-consistency"),
+      deps({
+        runFanout: fanoutWith(() => ({
+          ran: false,
+          skipReason: "agy-error",
+          stderrTail: REFUSAL,
+        })),
+      }),
+    );
+    expect(envelope().fallback[0]).toMatchObject({
+      reason: "agy-content-filtered",
+      skipClass: "ran-unusable",
+    });
+    expect(armed).toEqual([]);
+  });
+
+  it("maps an in-reply refusal on a ran:true lens to agy-content-filtered", async () => {
+    await run(
+      argv("pattern-consistency"),
+      deps({
+        runFanout: fanoutWith(() => ({
+          raw: JSON.stringify({ response: REFUSAL }),
+        })),
+      }),
+    );
+    expect(envelope().fallback[0]).toMatchObject({
+      reason: "agy-content-filtered",
+      skipClass: "ran-unusable",
+    });
+    expect(armed).toEqual([]);
+    expect(fs.readdirSync(cacheDir).length).toBeGreaterThan(0);
+  });
+
+  it("lets tools-denied win over refusal text on a ran:true lens", async () => {
+    await run(
+      argv("pattern-consistency"),
+      deps({
+        runFanout: fanoutWith(() => ({
+          raw: JSON.stringify({ response: REFUSAL }),
+          deniedActions: ["RunCommand"],
+        })),
+      }),
+    );
+    expect(envelope().fallback[0]).toMatchObject({
+      reason: "agy-tools-denied",
+    });
   });
 });
 

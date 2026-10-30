@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { classifyAgyFailure, AGY_FAILURE_CLASSES } from "./agy-failure-class";
+import {
+  classifyAgyFailure,
+  AGY_FAILURE_CLASSES,
+  isContentFilterText,
+} from "./agy-failure-class";
 
 describe("AGY_FAILURE_CLASSES", () => {
-  it("is exactly the nine named classes, in order", () => {
+  it("is exactly the ten named classes, in order", () => {
     expect(AGY_FAILURE_CLASSES).toEqual([
       "quota-exhausted",
       "rate-limited",
@@ -13,6 +17,7 @@ describe("AGY_FAILURE_CLASSES", () => {
       "spawn-failed",
       "unknown",
       "model-unavailable",
+      "content-filtered",
     ]);
   });
 });
@@ -104,5 +109,60 @@ describe("classifyAgyFailure", () => {
       stderrTail: "quota exceeded",
     });
     expect(result).toBe("quota-exhausted");
+  });
+});
+
+describe("content-filtered refusals", () => {
+  const exit0 =
+    "Your previous response was blocked by content safety filters\nPlease provide a response that complies with content policies, or briefly explain to the user why you cannot help with this request\nRetries remaining: 3";
+  const exit3 =
+    "agent executor error: generating and executing: Your previous response was blocked by content safety filters\nOutput retries exhausted after 4 attempts";
+
+  it("classifies the exit-0 refusal shape in agyError", () => {
+    expect(
+      classifyAgyFailure({ skipReason: "agy-error", agyError: exit0 }),
+    ).toBe("content-filtered");
+  });
+
+  it("classifies the exit-3 refusal shape in agyError", () => {
+    expect(
+      classifyAgyFailure({ skipReason: "agy-error", agyError: exit3 }),
+    ).toBe("content-filtered");
+  });
+
+  it("classifies a refusal that appears only in stderr", () => {
+    expect(
+      classifyAgyFailure({ skipReason: "agy-error", stderrTail: exit3 }),
+    ).toBe("content-filtered");
+  });
+
+  it("lets quota text win when it appears next to a refusal", () => {
+    expect(
+      classifyAgyFailure({
+        skipReason: "agy-error",
+        stderrTail: "Individual quota reached.",
+        agyError: exit0,
+      }),
+    ).toBe("quota-exhausted");
+  });
+
+  it("recognises refusal text and rejects unrelated text", () => {
+    expect(isContentFilterText(exit0)).toBe(true);
+    expect(isContentFilterText(exit3)).toBe(true);
+    expect(isContentFilterText("The diff looks fine, no findings.")).toBe(
+      false,
+    );
+    expect(isContentFilterText("")).toBe(false);
+  });
+
+  it("matches the policy phrasing on its own, in both inflections", () => {
+    expect(
+      isContentFilterText(
+        "Please provide a response that complies with content policies.",
+      ),
+    ).toBe(true);
+    expect(isContentFilterText("please comply with content policies")).toBe(
+      true,
+    );
   });
 });

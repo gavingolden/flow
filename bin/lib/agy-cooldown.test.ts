@@ -74,6 +74,27 @@ describe("shouldArmCooldown", () => {
     }
   });
 
+  it("never arms on a refusal alone or beside a non-quota class", () => {
+    expect(shouldArmCooldown(["content-filtered"])).toBe(false);
+    expect(shouldArmCooldown(["content-filtered", "content-filtered"])).toBe(
+      false,
+    );
+    expect(shouldArmCooldown(["content-filtered", "timeout"])).toBe(false);
+    expect(shouldArmCooldown(["content-filtered", "unknown"])).toBe(false);
+    expect(shouldArmCooldown(["content-filtered", "environment"])).toBe(false);
+  });
+
+  it("arms when a refusal sits next to a real quota or rate-limit failure", () => {
+    expect(shouldArmCooldown(["content-filtered", "quota-exhausted"])).toBe(
+      true,
+    );
+    expect(shouldArmCooldown(["content-filtered", "rate-limited"])).toBe(true);
+  });
+
+  it("keeps content-filtered out of the arming classes", () => {
+    expect(COOLDOWN_ARMING_CLASSES).not.toContain("content-filtered");
+  });
+
   it.each([
     "model-unavailable",
     "auth",

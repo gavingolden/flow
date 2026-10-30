@@ -34,7 +34,13 @@
  * a usage error.
  */
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import {
   decodeLensArtifact,
@@ -48,7 +54,12 @@ import {
   readCooldown,
   shouldArmCooldown,
 } from "./lib/agy-cooldown";
-import { classifyAgyFailure } from "./lib/agy-failure-class";
+import {
+  classifyAgyFailure,
+  isContentFilterText,
+} from "./lib/agy-failure-class";
+import { keepRefusalEvidence } from "./lib/agy-refusal-cache";
+import { FLOW_CACHE_DIR } from "./lib/paths";
 import {
   mergeAgyLensesRecord,
   parseAgyLensesRecord,
@@ -166,9 +177,13 @@ export type Deps = {
   loadState: (slug: string) => PipelineState | null;
   // null when the file is absent or unreadable.
   readFile: (path: string) => string | null;
-  writeFile: (path: string, contents: string) => void;
+  writeFile: (path: string, contents: string, mode?: number) => void;
   removeFile: (path: string) => void;
-  mkdirp: (dir: string) => void;
+  mkdirp: (dir: string, mode?: number) => void;
+  listDir: (dir: string) => string[];
+  // Where a refused lens's prompt and raw output are kept after the scratch
+  // cleanup; tests inject a tmpdir because FLOW_CACHE_DIR is the real cache.
+  refusalCacheDir: string;
   ghPrView: (pr: number, cwd: string) => PrMeta | null;
   gitShow: (spec: string, cwd: string) => string | null;
   runFanout: (
@@ -306,10 +321,13 @@ function staticFacts(sa: unknown, lens: DelegatableLens): string {
   }
 }
 
-// An environment skip never spent quota, so it must never arm the cooldown;
-// anything dispatched is classified from the delegate's own diagnostics.
+// An environment skip never spent quota, so it must never arm the cooldown.
+// This check stays first: flow-delegate stamps agy-not-found with
+// failureClass "unknown", which is an arming class. Anything dispatched takes
+// the delegate's own classification, else is re-derived from its diagnostics.
 function failureClass(skipReason: string, e: Partial<EntryResult>): string {
   if (classifyDelegateSkip(skipReason) === "environment") return "environment";
+  if (e.failureClass !== undefined) return e.failureClass;
   return classifyAgyFailure({
     skipReason,
     stderrTail: e.stderrTail,
@@ -334,6 +352,7 @@ async function runDelegated(
   const fallback: FallbackLensResult[] = [];
   const classes: string[] = [];
   const failureTexts: string[] = [];
+  const refused: DelegatableLens[] = [];
   const failAll = (reason: string, startedAt: string | null) => {
     for (const lens of agyLenses) {
       fallback.push({
@@ -452,9 +471,12 @@ async function runDelegated(
       const reason =
         cls === "quota-exhausted" || cls === "rate-limited"
           ? "agy-quota-exhausted"
-          : skipReason;
+          : cls === "content-filtered"
+            ? "agy-content-filtered"
+            : skipReason;
       fallback.push({ lens, reason, skipClass: classifyDelegateSkip(reason) });
       classes.push(cls);
+      if (cls === "content-filtered") refused.push(lens);
       failureTexts.push(e.agyError ?? "", e.stderrTail ?? "");
       return;
     }
@@ -466,9 +488,13 @@ async function runDelegated(
     }
     const decoded = decodeLensArtifact(raw);
     if (!decoded.ok) {
-      const reason = `agy-${classifyUnusableLensRun(raw, e)}`;
+      const unusable = classifyUnusableLensRun(raw, e);
+      // A refusal can arrive as the reply itself; tools-denied still wins.
+      const refusal = unusable !== "tools-denied" && isContentFilterText(raw);
+      const reason = refusal ? "agy-content-filtered" : `agy-${unusable}`;
       fallback.push({ lens, reason, skipClass: classifyDelegateSkip(reason) });
-      classes.push("empty-artifact");
+      if (refusal) refused.push(lens);
+      classes.push(refusal ? "content-filtered" : "empty-artifact");
       return;
     }
     try {
@@ -493,6 +519,19 @@ async function runDelegated(
     });
   });
 
+  const now = new Date();
+  for (const lens of refused) {
+    keepRefusalEvidence(
+      {
+        dir: deps.refusalCacheDir,
+        lens,
+        promptPath: tmp(args.worktree, `agy-lens-${lens}.prompt`),
+        rawPath: tmp(args.worktree, `agy-lens-${lens}.raw`),
+        now,
+      },
+      deps,
+    );
+  }
   for (const p of scratch) deps.removeFile(p);
   return {
     delegated,
@@ -569,8 +608,10 @@ export async function run(
     delegated = r.delegated;
     fallback = [...rerouted, ...r.fallback];
     startedAt = r.startedAt;
-    // Every agy-routed lens failing is the signature of exhausted or
-    // throttled quota; hold the next reviews on Claude for a while.
+    // Every agy-routed lens failing for a quota-spending reason is the
+    // signature of exhausted or throttled quota; hold the next reviews on
+    // Claude for a while. Content-filter refusals are excluded by
+    // shouldArmCooldown.
     if (delegated.length === 0 && shouldArmCooldown(r.classes)) {
       try {
         deps.armCooldown(r.classes, quotaResetMs(r.failureTexts));
@@ -685,9 +726,14 @@ function resolveDeps(args: Args, o?: Partial<Deps>): Deps {
           return null;
         }
       }),
-    writeFile: o?.writeFile ?? ((p, c) => writeFileSync(p, c)),
+    writeFile:
+      o?.writeFile ??
+      ((p, c, mode) => writeFileSync(p, c, mode === undefined ? {} : { mode })),
     removeFile: o?.removeFile ?? ((p) => void rmSync(p, { force: true })),
-    mkdirp: o?.mkdirp ?? ((d) => void mkdirSync(d, { recursive: true })),
+    mkdirp:
+      o?.mkdirp ?? ((d, mode) => void mkdirSync(d, { recursive: true, mode })),
+    listDir: o?.listDir ?? ((d) => readdirSync(d)),
+    refusalCacheDir: o?.refusalCacheDir ?? join(FLOW_CACHE_DIR, "agy-refusals"),
     ghPrView:
       o?.ghPrView ??
       ((pr, cwd) => {
