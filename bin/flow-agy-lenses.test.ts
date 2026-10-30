@@ -30,7 +30,11 @@ const GOOD = JSON.stringify({
 let worktree: string;
 let lines: string[];
 let fanoutCalls: ManifestEntry[][];
+let fanoutOpts: { manifestPath: string; outPath: string }[];
 let prompts: Record<string, string>;
+// Keyed `<rung>:<lens>` ("primary" | "reroute"), captured at fan-out time.
+let schemas: Record<string, string>;
+let rerouteSawEvidence: Record<string, boolean>;
 let armed: string[][];
 let armedReset: Array<number | null>;
 let reads: string[];
@@ -49,20 +53,35 @@ const cfg =
     },
   });
 
+type Rung = "primary" | "reroute";
+
 type EntryBehaviour = (
   lens: string,
   entry: ManifestEntry,
+  rung: Rung,
 ) => Partial<FanoutResult["entries"][number]> & { raw?: string };
 
 const fanoutWith =
   (behave: EntryBehaviour): Deps["runFanout"] =>
-  async (manifest) => {
+  async (manifest, opts) => {
     fanoutCalls.push(manifest);
+    fanoutOpts.push(opts);
     return {
       entries: manifest.map((entry) => {
-        const lens = entry.task.replace("agy-lens-", "");
-        prompts[lens] = fs.readFileSync(entry.promptFile!, "utf8");
-        const b = behave(lens, entry);
+        const rung: Rung = entry.task.startsWith("agy-reroute-")
+          ? "reroute"
+          : "primary";
+        const lens = entry.task.replace(/^agy-(lens|reroute)-/, "");
+        const prompt = fs.readFileSync(entry.promptFile!, "utf8");
+        schemas[`${rung}:${lens}`] = fs.readFileSync(entry.jsonSchema!, "utf8");
+        if (rung === "primary") prompts[lens] = prompt;
+        else {
+          prompts[`reroute:${lens}`] = prompt;
+          rerouteSawEvidence[lens] =
+            fs.existsSync(cacheDir) &&
+            fs.readdirSync(cacheDir).some((n) => n.endsWith(`-${lens}.prompt`));
+        }
+        const b = behave(lens, entry, rung);
         if (b.raw !== undefined) fs.writeFileSync(entry.out!, b.raw);
         const { raw: _raw, ...rest } = b;
         return {
@@ -179,7 +198,10 @@ beforeEach(() => {
   );
   lines = [];
   fanoutCalls = [];
+  fanoutOpts = [];
   prompts = {};
+  schemas = {};
+  rerouteSawEvidence = {};
   armed = [];
   armedReset = [];
   reads = [];
@@ -592,13 +614,15 @@ describe("cooldown arming (Story 2b)", () => {
   });
 });
 
+const REFUSED = {
+  ran: false,
+  skipReason: "agy-error",
+  failureClass: "content-filtered",
+  agyError: REFUSAL,
+} as const;
+
 describe("content-filter refusals", () => {
-  const refused = {
-    ran: false,
-    skipReason: "agy-error",
-    failureClass: "content-filtered",
-    agyError: REFUSAL,
-  } as const;
+  const refused = REFUSED;
 
   it("trusts the delegate's failureClass when the entry carries no matching text", async () => {
     await run(
@@ -629,11 +653,13 @@ describe("content-filter refusals", () => {
         lens: "pattern-consistency",
         reason: "agy-content-filtered",
         skipClass: "ran-unusable",
+        rerouteOutcome: "agy-content-filtered",
       },
       {
         lens: "bug-detection",
         reason: "agy-content-filtered",
         skipClass: "ran-unusable",
+        rerouteOutcome: "agy-content-filtered",
       },
     ]);
   });
@@ -754,6 +780,174 @@ describe("content-filter refusals", () => {
   });
 });
 
+describe("Gemini re-run of a refused lens", () => {
+  const GEMINI = "Gemini 4 Argon (Medium)";
+  const refusePrimaryOnly: EntryBehaviour = (_l, _e, rung) =>
+    rung === "primary" ? { ...REFUSED } : { raw: GOOD };
+
+  it("reports a recovered lens as delegated on Gemini with reroutedFrom, writes its agent-output and keeps it out of fallback", async () => {
+    await run(
+      argv("bug-detection"),
+      deps({ runFanout: fanoutWith(refusePrimaryOnly), now: () => 1000 }),
+    );
+    const e = envelope();
+    expect(e.delegated).toEqual([
+      expect.objectContaining({
+        lens: "bug-detection",
+        model: GEMINI,
+        reroutedFrom: "agy-content-filtered",
+        findingCount: 1,
+      }),
+    ]);
+    expect(e.fallback).toEqual([]);
+    expect(e.cooldownArmed).toBe(false);
+    expect(fs.existsSync(tmpFile("agent-output-bug-detection.json"))).toBe(
+      true,
+    );
+    const rerun = fanoutCalls
+      .map((c) => c[0]!)
+      .find((c) => c.task.startsWith("agy-reroute-"))!;
+    expect(rerun.task).toBe("agy-reroute-bug-detection");
+    expect(rerun.model).toBe(GEMINI);
+    expect(rerun.timeout).toBe("480s");
+    expect(rerun.addDirs).toEqual([worktree]);
+    expect(rerun.outputFormat).toBe("json");
+  });
+
+  it("gives the primary and its re-run rung distinct manifest and out paths", async () => {
+    await run(
+      argv("bug-detection"),
+      deps({ runFanout: fanoutWith(refusePrimaryOnly), now: () => 1000 }),
+    );
+    expect(fanoutOpts).toHaveLength(2);
+    const paths = fanoutOpts.flatMap((o) => [o.manifestPath, o.outPath]);
+    expect(new Set(paths).size).toBe(paths.length);
+  });
+
+  it("records the primary model on a lens that needed no re-run", async () => {
+    await run(argv("bug-detection"), deps());
+    expect(envelope().delegated[0]).toMatchObject({ model: VARIANT });
+    expect(envelope().delegated[0].reroutedFrom).toBeUndefined();
+  });
+
+  it("keeps the refusal evidence before the re-run starts", async () => {
+    await run(
+      argv("bug-detection"),
+      deps({ runFanout: fanoutWith(refusePrimaryOnly), now: () => 1000 }),
+    );
+    expect(rerouteSawEvidence["bug-detection"]).toBe(true);
+  });
+
+  it("gives the primary a reasoning-free schema and the re-run the full one", async () => {
+    await run(
+      argv("bug-detection"),
+      deps({ runFanout: fanoutWith(refusePrimaryOnly), now: () => 1000 }),
+    );
+    expect(schemas["primary:bug-detection"]).not.toContain("reasoning");
+    expect(schemas["reroute:bug-detection"]).toContain("reasoning");
+    expect(prompts["bug-detection"]).not.toContain("scratchpad");
+    expect(prompts["reroute:bug-detection"]).toContain("scratchpad");
+  });
+
+  it("falls back with the re-run's reason when the Gemini run refuses too", async () => {
+    await run(
+      argv("bug-detection"),
+      deps({ runFanout: fanoutWith(() => ({ ...REFUSED })), now: () => 1000 }),
+    );
+    expect(envelope().fallback).toEqual([
+      {
+        lens: "bug-detection",
+        reason: "agy-content-filtered",
+        skipClass: "ran-unusable",
+        rerouteOutcome: "agy-content-filtered",
+      },
+    ]);
+    expect(envelope().delegated).toEqual([]);
+  });
+
+  it("skips the re-run when too little of the helper budget is left", async () => {
+    let t = 0;
+    await run(
+      argv("bug-detection"),
+      deps({
+        runFanout: fanoutWith(refusePrimaryOnly),
+        now: () => {
+          const v = t;
+          t = 600_000;
+          return v;
+        },
+      }),
+    );
+    expect(fanoutCalls).toHaveLength(1);
+    expect(envelope().fallback).toEqual([
+      expect.objectContaining({
+        lens: "bug-detection",
+        reason: "agy-content-filtered",
+        rerouteOutcome: "skipped-no-time",
+      }),
+    ]);
+  });
+
+  it("never arms the cooldown on a Gemini re-run quota failure", async () => {
+    await run(
+      argv("pattern-consistency,bug-detection"),
+      deps({
+        now: () => 1000,
+        runFanout: fanoutWith((_l, _e, rung) =>
+          rung === "primary"
+            ? { ...REFUSED }
+            : {
+                ran: false,
+                skipReason: "agy-error",
+                failureClass: "quota-exhausted",
+                agyError: "Individual quota reached.",
+              },
+        ),
+      }),
+    );
+    expect(armed).toEqual([]);
+    expect(envelope().cooldownArmed).toBe(false);
+    expect(envelope().fallback[0]).toMatchObject({
+      rerouteOutcome: "agy-quota-exhausted",
+    });
+  });
+
+  it("still arms when a refused-and-recovered lens sits next to a quota-exhausted sibling", async () => {
+    await run(
+      argv("pattern-consistency,bug-detection"),
+      deps({
+        now: () => 1000,
+        runFanout: fanoutWith((lens, _e, rung) =>
+          lens === "bug-detection"
+            ? rung === "primary"
+              ? { ...REFUSED }
+              : { raw: GOOD }
+            : {
+                ran: false,
+                skipReason: "agy-error",
+                failureClass: "quota-exhausted",
+                agyError: "Individual quota reached.",
+              },
+        ),
+      }),
+    );
+    expect(armed).toEqual([["quota-exhausted", "content-filtered"]]);
+    expect(envelope().cooldownArmed).toBe(true);
+  });
+
+  it("does not re-run a refusal on a Gemini primary", async () => {
+    await run(
+      argv("bug-detection"),
+      deps({
+        readConfig: cfg({ models: { claudeLenses: "Gemini 4 Argon (High)" } }),
+        runFanout: fanoutWith(() => ({ ...REFUSED })),
+      }),
+    );
+    expect(fanoutCalls).toHaveLength(1);
+    expect(envelope().fallback[0].rerouteOutcome).toBeUndefined();
+  });
+});
+
 describe("prompt inputs", () => {
   const rewriteScope = (patch: Record<string, unknown>) => {
     const scopePath = tmpFile("review-scope.json");
@@ -846,30 +1040,47 @@ describe("prompt inputs", () => {
     );
   });
 
-  it("runs ONE wave with the per-lens timeout, schema, add-dir and no skip-permissions", async () => {
+  it("runs one one-entry fan-out per lens with the per-lens timeout, schema, add-dir and no skip-permissions", async () => {
     await run(argv("pattern-consistency,bug-detection"), deps());
-    expect(fanoutCalls).toHaveLength(1);
-    const wave = fanoutCalls[0]!;
-    expect(wave).toHaveLength(2);
-    for (const entry of wave) {
-      expect(entry.model).toBe(VARIANT);
-      expect(entry.timeout).toBe("8m");
-      expect(entry.outputFormat).toBe("json");
-      expect(entry.addDirs).toEqual([worktree]);
-      expect(entry.jsonSchema).toBeDefined();
-      expect(entry.skipPermissions).toBeUndefined();
+    expect(fanoutCalls).toHaveLength(2);
+    expect(fanoutCalls.every((c) => c.length === 1)).toBe(true);
+    expect(fanoutCalls.map((c) => c[0]!.task).sort()).toEqual([
+      "agy-lens-bug-detection",
+      "agy-lens-pattern-consistency",
+    ]);
+    for (const [entry] of fanoutCalls) {
+      expect(entry!.model).toBe(VARIANT);
+      expect(entry!.timeout).toBe("8m");
+      expect(entry!.outputFormat).toBe("json");
+      expect(entry!.addDirs).toEqual([worktree]);
+      expect(entry!.jsonSchema).toBeDefined();
+      expect(entry!.skipPermissions).toBeUndefined();
     }
+    const manifests = fanoutCalls.map((c) => c[0]!.promptFile);
+    expect(new Set(manifests).size).toBe(2);
+    const paths = fanoutOpts.flatMap((o) => [o.manifestPath, o.outPath]);
+    expect(new Set(paths).size).toBe(paths.length);
   });
 
-  it("removes its scratch files", async () => {
-    await run(argv("pattern-consistency"), deps());
-    expect(
+  it("removes its scratch files, including the re-run rung's", async () => {
+    const leftovers = () =>
       fs
         .readdirSync(path.join(worktree, ".flow-tmp"))
-        .filter(
-          (f) => f.startsWith("agy-lens") && f !== "agy-lenses-result.json",
+        .filter((f) => f.startsWith("agy-") && f !== "agy-lenses-result.json");
+    await run(argv("pattern-consistency"), deps());
+    expect(leftovers()).toEqual([]);
+    await run(
+      argv("bug-detection"),
+      deps({
+        runFanout: fanoutWith((_l, _e, rung) =>
+          rung === "primary" ? { ...REFUSED } : { raw: GOOD },
         ),
-    ).toEqual([]);
+      }),
+    );
+    expect(fanoutCalls.some((c) => c[0]!.task.startsWith("agy-reroute-"))).toBe(
+      true,
+    );
+    expect(leftovers()).toEqual([]);
   });
 });
 

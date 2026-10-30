@@ -56,8 +56,9 @@ Let `AGY_LENSES` be the lenses the plan routed to `agy`, comma-joined, and
      the same spawn mechanics as Step 3. Each carries a `reason`
      (and `skipClass`). They start only after the WHOLE agy wave returns, so
      a lens whose own agy attempt failed at once still waits for its slowest
-     sibling (about 2-3 minutes when a sibling succeeds, up to 8 minutes when
-     one hangs to the per-lens timeout).
+     sibling (about 2-3 minutes when a sibling succeeds, up to about 8.5
+     minutes when one hangs to the per-lens timeout, or up to about 9.5 minutes
+     when a refused lens spends its Gemini re-run; see "Refused lenses get one Gemini re-run").
    - No parseable envelope (helper killed or crashed): treat every lens in
      `AGY_LENSES` as a fallback lens, reason "the Google-plan run produced no
      result".
@@ -70,6 +71,31 @@ Let `AGY_LENSES` be the lenses the plan routed to `agy`, comma-joined, and
 
 Step 3.5's consolidator inputs are unchanged: one
 `agent-output-<lens>.json` per lens that ran, whichever engine produced it.
+
+## Refused lenses get one Gemini re-run
+
+When the Google-plan Claude model declines a lens with a content-filter
+refusal, `flow-agy-lenses` re-runs that one lens once on Gemini 4 Argon
+(Medium) instead of handing it straight to Claude. It applies only to
+content-filter refusals (never a timeout, quota hit or empty body) and only
+when the primary model is a Claude variant, so a Gemini primary is never
+re-run on Gemini. There is exactly one attempt per lens.
+
+- **Timing.** The re-run starts the moment that lens is refused; it does not
+  wait for its siblings. The helper has a 9.5-minute budget counted from its
+  own start. The re-run timeout is `min(8 min, remaining - 50 s)` and the
+  re-run is skipped when less than 3 minutes are left. Worst case, a lens refused
+  early adds about 8.5 minutes (the full 8-minute re-run timeout plus kill
+  grace); the helper as a whole never exceeds 9.5 minutes. Typically the
+  re-run adds about 4 minutes in place of a Claude run of that lens.
+- **Cooldown.** A re-run failure never arms the cooldown, and a lens only the
+  re-run recovered is not a primary success, so a quota-exhausted sibling
+  still arms it.
+- **Envelope.** A recovered lens is `delegated` with
+  `model: "Gemini 4 Argon (Medium)"` and `reroutedFrom: "agy-content-filtered"`.
+  An unrecovered lens stays a `fallback` lens (reason `agy-content-filtered`)
+  carrying `rerouteOutcome` (the re-run's own reason, or `skipped-no-time`).
+  The refusal evidence is kept before the re-run starts.
 
 ## Limits a delegated lens works under
 
@@ -100,7 +126,49 @@ reason strings; never print them raw:
 | route `fable-session-keeps-task`                                  | bug-detection stays on Claude when the session runs Fable             |
 | route `agy-cooldown`                                              | the Google plan is cooling down after recent Google-plan failures     |
 
+A lens in `delegated` with `reroutedFrom` is reported as: "`<lens>` ran on the
+Google plan (Gemini 4 Argon (Medium)) after the Google-plan Claude model
+declined it (content filter)". A fallback lens carrying `rerouteOutcome` is
+reported as: "`<lens>` ran on Claude: the Google-plan Claude model declined it
+and the Gemini re-run `<outcome>`", with `<outcome>` taken from this table
+(never the main table above, whose rows are full clauses):
+
+| `rerouteOutcome`                               | `<outcome>`                       |
+| ---------------------------------------------- | --------------------------------- |
+| `agy-timeout`                                  | timed out                         |
+| `agy-content-filtered`                         | was declined too                  |
+| `agy-quota-exhausted`                          | hit the Google plan's usage limit |
+| `agy-output-unparseable`, `agy-empty-artifact` | came back empty or unusable       |
+| `skipped-no-time`                              | was skipped for lack of time      |
+| any other `agy-*`                              | failed                            |
+
 Examples: "security ran on Claude: Google-plan result came back empty";
 "all lenses on Claude: Google plan cooling down after recent Google-plan failures".
 Route reasons `delegation-off` and `not-in-delegated-set` are the default
 state, not a fallback — do not report them.
+
+## Measuring the refusal rate
+
+The refusal rate is content-filter refusals divided by primary agy lens calls
+that were either answered or refused, from the `delegate.call` events in
+`~/.flow/telemetry/events.jsonl`. Re-run calls are excluded by their task
+prefix: only `agy-lens-*` tasks count, never `agy-reroute-*`. Set `SPLIT` to
+this change's merge date to compare before and after:
+
+```bash
+SPLIT=2026-10-30T00:00:00Z
+jq -s --arg split "$SPLIT" '
+  map(select(.event == "delegate.call" and (.attrs.task | tostring | startswith("agy-lens-"))))
+  | map(. + {refused: ((.attrs.failure_class == "content-filtered")
+        or ((.attrs.agy_error // "") | test("blocked by content safety")))})
+  | map(select(.attrs.ran == true or .refused))
+  | group_by(.ts >= $split)
+  | map({window: (if .[0].ts >= $split then "after" else "before" end),
+         refused: (map(select(.refused)) | length), total: length})
+' ~/.flow/telemetry/events.jsonl
+```
+
+Baseline before the re-run: 25 refusals of 72 answered-or-refused calls
+(about 35%) for 2026-10-12 to 2026-10-30. Older events stamp a refusal
+`failure_class: "unknown"`, so the recipe also matches the refusal text in
+`agy_error`.

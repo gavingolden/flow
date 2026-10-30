@@ -236,6 +236,10 @@ export const DEFAULT_DELEGATED_LENSES: readonly DelegatableLens[] = [];
 // their 20m sanity bound).
 export const DELEGATED_LENS_TIMEOUT = "8m";
 export const DELEGATED_SCOUT_TIMEOUT = "8m";
+// Gemini re-run rung for a Claude lens the content filter refused: Medium
+// cleared the lens recall bar with every cell inside 8 minutes
+// (docs/eval/argon-4-routing-2026-10.md).
+export const LENS_REROUTE_MODEL = "Gemini 4 Argon (Medium)";
 
 // Fires at most once per surface per process. Without this, a maintainer
 // who pinned a surface months ago via config would keep silently overriding
@@ -344,4 +348,9 @@ export function resolveDelegatedLenses(
     if (!out.includes(known)) out.push(known);
   }
   return out;
+}
+
+/** True for a Claude-family agy variant; the one rule both the lens schema and the refusal re-run key off. */
+export function isClaudeModel(model: string): boolean {
+  return /claude/i.test(model);
 }
