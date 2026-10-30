@@ -19,9 +19,14 @@
  * extracting this block back out of stdout MUST scan from the FIRST start
  * marker to the LAST end marker — not the first end marker, which would
  * truncate a body that quotes `REQUEST_ECHO_END` verbatim.
+ *
+ * `renderRequestEchoMessage` is the marker-free display renderer for the
+ * start-of-session hook's `systemMessage`: same header (plain link mode),
+ * same verbatim body, capped on the serialized JSON length so Claude Code's
+ * hook-message limit is never hit.
  */
 
-import { linkPath } from "./link";
+import { linkPath, type LinkMode } from "./link";
 import type { PipelineState } from "./state";
 
 export const REQUEST_ECHO_START = "<!-- flow-request-echo:start -->";
@@ -61,18 +66,57 @@ export function runShapingFlags(state: PipelineState): string[] {
   return flags;
 }
 
-export function renderRequestEcho(
+export function requestEchoHeader(
   state: PipelineState,
-  requestText: string,
+  mode: LinkMode,
 ): string {
   const flags = runShapingFlags(state);
   const flagsText =
     flags.length > 0 ? `flags: ${flags.join(" ")}` : "flags: none";
-  const repoText = linkPath(state.repo, "markdown");
+  const repoText = linkPath(state.repo, mode);
   const launcherText =
     state.launcher !== undefined ? ` | launcher: ${state.launcher}` : "";
-  const header = `slug: ${state.slug} | repo: ${repoText} | ${flagsText}${launcherText}`;
+  return `slug: ${state.slug} | repo: ${repoText} | ${flagsText}${launcherText}`;
+}
+
+export function renderRequestEcho(
+  state: PipelineState,
+  requestText: string,
+): string {
+  const header = requestEchoHeader(state, "markdown");
   return [REQUEST_ECHO_START, header, "", requestText, REQUEST_ECHO_END].join(
     "\n",
   );
+}
+
+/** Claude Code swaps a hook message over 10,000 characters for a file path
+ * plus a short preview; 9,000 leaves margin for how it counts characters. */
+export const REQUEST_ECHO_MESSAGE_MAX_CHARS = 9000;
+
+function serializedLength(systemMessage: string): number {
+  return JSON.stringify({ systemMessage }).length;
+}
+
+export function renderRequestEchoMessage(
+  state: PipelineState,
+  requestText: string,
+  maxChars: number = REQUEST_ECHO_MESSAGE_MAX_CHARS,
+): string {
+  const head = `${requestEchoHeader(state, "plain")}\n\n`;
+  const full = `${head}${requestText}`;
+  if (serializedLength(full) <= maxChars) return full;
+
+  const points = Array.from(requestText);
+  const total = points.length;
+  const build = (shown: number): string =>
+    `${head}${points.slice(0, shown).join("")}\n\n[request truncated: showing ${shown} of ${total} characters — run \`flow prompt ${state.slug}\` for the full text]`;
+
+  let lo = 0;
+  let hi = total;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (serializedLength(build(mid)) <= maxChars) lo = mid;
+    else hi = mid - 1;
+  }
+  return build(lo);
 }
