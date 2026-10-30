@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   renderRequestEcho,
+  renderRequestEchoMessage,
+  requestEchoHeader,
+  REQUEST_ECHO_MESSAGE_MAX_CHARS,
   runShapingFlags,
   REQUEST_ECHO_START,
   REQUEST_ECHO_END,
@@ -120,5 +123,83 @@ describe(renderRequestEcho, () => {
     expect(header).toContain("slug: csv-export");
     expect(header).toContain("repo:");
     expect(header).toContain("/work/flow");
+  });
+});
+
+const serialized = (m: string): number =>
+  JSON.stringify({ systemMessage: m }).length;
+
+describe(requestEchoHeader, () => {
+  it("renders the same header line in plain and markdown link modes apart from the repo link", () => {
+    const state = baseState({ launcher: "tmux", forceResearch: true });
+    const plain = requestEchoHeader(state, "plain");
+    expect(plain).toBe(
+      "slug: csv-export | repo: /work/flow | flags: --research | launcher: tmux",
+    );
+    const markdown = requestEchoHeader(state, "markdown");
+    expect(markdown).toContain("slug: csv-export | repo: ");
+    expect(markdown).toContain("flags: --research | launcher: tmux");
+    expect(renderRequestEcho(state, "b").split("\n")[1]).toBe(markdown);
+  });
+});
+
+describe(renderRequestEchoMessage, () => {
+  it("returns the header, a blank line, then the request verbatim", () => {
+    const body = "line one\n```js\nx\n```\n  trailing   ";
+    const out = renderRequestEchoMessage(baseState(), body);
+    expect(out).toBe(`${requestEchoHeader(baseState(), "plain")}\n\n${body}`);
+  });
+
+  it("passes the marker strings through without adding any markers", () => {
+    const body = `quotes ${REQUEST_ECHO_START} and ${REQUEST_ECHO_END}`;
+    const out = renderRequestEchoMessage(baseState(), body);
+    expect(out.endsWith(`\n\n${body}`)).toBe(true);
+    expect(out.startsWith(REQUEST_ECHO_START)).toBe(false);
+    expect(out.split(REQUEST_ECHO_START)).toHaveLength(2);
+    expect(out.split(REQUEST_ECHO_END)).toHaveLength(2);
+  });
+
+  it("caps a 20,000-character body at 9,000 serialized characters and names `flow prompt <slug>`", () => {
+    const out = renderRequestEchoMessage(baseState(), "y".repeat(20000));
+    expect(serialized(out)).toBeLessThanOrEqual(REQUEST_ECHO_MESSAGE_MAX_CHARS);
+    expect(out.startsWith(requestEchoHeader(baseState(), "plain"))).toBe(true);
+    expect(out).toContain("of 20000 characters");
+    expect(
+      out.endsWith("run `flow prompt csv-export` for the full text]"),
+    ).toBe(true);
+  });
+
+  it("counts JSON escaping against the cap for a 9,000-character body of short quoted lines", () => {
+    const body = Array.from({ length: 2250 }, () => '"a"').join("\n") + "\n";
+    expect(body).toHaveLength(9000);
+    const out = renderRequestEchoMessage(baseState(), body);
+    expect(serialized(out)).toBeLessThanOrEqual(REQUEST_ECHO_MESSAGE_MAX_CHARS);
+    expect(out).toContain("[request truncated:");
+  });
+
+  it("does not truncate a body whose serialized message fits exactly", () => {
+    const state = baseState();
+    const overhead = serialized(renderRequestEchoMessage(state, ""));
+    const out = renderRequestEchoMessage(state, "z".repeat(9000 - overhead));
+    expect(serialized(out)).toBe(9000);
+    expect(out).not.toContain("[request truncated:");
+  });
+
+  it("never splits a surrogate pair at the cut boundary", () => {
+    const emoji = "\u{1F600}";
+    const out = renderRequestEchoMessage(baseState(), emoji.repeat(5000), 600);
+    expect(serialized(out)).toBeLessThanOrEqual(600);
+    const kept = out.split("\n\n")[1]!;
+    expect(kept).toMatch(/^(\u{1F600})+$/u);
+    for (let i = 0; i < kept.length; i++) {
+      const c = kept.charCodeAt(i);
+      if (c >= 0xd800 && c <= 0xdbff) {
+        const next = kept.charCodeAt(i + 1);
+        expect(next >= 0xdc00 && next <= 0xdfff).toBe(true);
+        i++;
+      } else {
+        expect(c >= 0xdc00 && c <= 0xdfff).toBe(false);
+      }
+    }
   });
 });

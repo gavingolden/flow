@@ -291,7 +291,6 @@ Each step's procedure lives in its own doc. On entering a step, Read its doc wit
 
 | Step | Phases | Non-negotiable | Doc |
 |---|---|---|---|
-| 0 — Echo | none | echo the request verbatim as the first output | `references/phases/step-00-echo.md` |
 | 1 — Triage | `triaging`, `triage-pending-clarification`, `triage-pending-interview`, `triaged-no-change` | classify before any worktree; a question-only request ends in `triaged-no-change` | `references/phases/step-01-triage.md` |
 | 2 — Worktree | `worktree-create` | `flow-new-worktree` creates it, never raw git | `references/phases/step-02-worktree.md` |
 | 3 — Plan | `planning`, `plan-pending-interview`, `plan-review-pending` | the discovery agent authors the plan; helpers route and back-stop it | `references/phases/step-03-plan.md` + `shared-gate-contracts.md` |

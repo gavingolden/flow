@@ -1,12 +1,10 @@
 ## Step 1 — Triage
 
-Contents: The first state-affecting action of the supervisor · No-state-file guard · Only these two step-1 calls use --slug · Goal-framing: ladder up to the ultimate goal · Solution fit · Intent interview · Prompt sanity gate · End conditions
+Contents: The first action of the supervisor · No-state-file guard · Only these two step-1 calls use --slug · Goal-framing: ladder up to the ultimate goal · Solution fit · Intent interview · Prompt sanity gate · End conditions
 
 **Phase:** `triaging`
 
-**The first state-affecting action of the supervisor** (Step 0 above
-precedes it and is itself a bash call, but writes no state and is inert
-on control flow). Extract the pipeline slug from the seed prompt before
+**The first action of the supervisor.** Extract the pipeline slug from the seed prompt before
 any further bash calls. The seed is a single line whose
 prefix has the form `[pipeline-slug: <slug>]` — parse the literal
 `<slug>` value from it and embed it inline in the two calls below. The

@@ -1925,6 +1925,19 @@ export function resolveDocReadGuardCommand(): string {
   );
 }
 
+/**
+ * Same resolution order as `resolveSeedHookCommand`, for the SessionStart
+ * request-echo display hook (`FLOW_REQUEST_ECHO_HOOK_COMMAND` override).
+ * Warns on divergence: a stale installed copy would silently hide local edits.
+ */
+export function resolveRequestEchoHookCommand(): string {
+  return resolveHookCommand(
+    "flow-request-echo-hook",
+    "FLOW_REQUEST_ECHO_HOOK_COMMAND",
+    true,
+  );
+}
+
 function resolveHookCommand(
   helper: string,
   envVar: string,
@@ -1989,8 +2002,10 @@ export function launchSettingsPermissions(): {
 
 /**
  * Idempotently writes the flow-scoped `claude --settings` file registering the
- * UserPromptSubmit seed-ingested hook and the PreToolUse flow-doc read guard
- * (Bash `sed`/`awk` only) by absolute path. Writes ONLY this
+ * UserPromptSubmit seed-ingested hook, the PreToolUse flow-doc read guard
+ * (Bash `sed`/`awk` only) and the SessionStart request-echo display hook
+ * (`startup|compact` bare, `clear` with `--on-clear`) by absolute path.
+ * Writes ONLY this
  * flow-owned file — NEVER the user's global ~/.claude/settings.json (the
  * `--settings` flag is additive, so global settings still apply). Skips the
  * write when the on-disk content already matches the desired settings AND
@@ -2004,6 +2019,7 @@ export function ensureLaunchSettings(
   settingsPath: string = FLOW_LAUNCH_SETTINGS_PATH,
 ): void {
   const guardCommand = resolveDocReadGuardCommand();
+  const echoCommand = resolveRequestEchoHookCommand();
   const desired =
     JSON.stringify(
       {
@@ -2017,6 +2033,18 @@ export function ensureLaunchSettings(
               hooks: [
                 { type: "command", command: guardCommand, if: "Bash(sed *)" },
                 { type: "command", command: guardCommand, if: "Bash(awk *)" },
+              ],
+            },
+          ],
+          SessionStart: [
+            {
+              matcher: "startup|compact",
+              hooks: [{ type: "command", command: echoCommand }],
+            },
+            {
+              matcher: "clear",
+              hooks: [
+                { type: "command", command: `${echoCommand} --on-clear` },
               ],
             },
           ],
