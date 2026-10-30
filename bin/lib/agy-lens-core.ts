@@ -136,6 +136,28 @@ export const AGENT_FINDINGS_JSON_SCHEMA: Record<string, unknown> = {
   },
 };
 
+// Claude-on-agy variants decline the scratchpad `reasoning` field as a
+// content-filter trigger, so their wire schema drops it. A shallow clone —
+// AGENT_FINDINGS_JSON_SCHEMA itself is never mutated.
+const { reasoning: _reasoning, ...CLAUDE_LENS_PROPERTIES } =
+  AGENT_FINDINGS_JSON_SCHEMA.properties as Record<string, unknown>;
+export const CLAUDE_LENS_JSON_SCHEMA: Record<string, unknown> = {
+  ...AGENT_FINDINGS_JSON_SCHEMA,
+  required: (AGENT_FINDINGS_JSON_SCHEMA.required as string[]).filter(
+    (k) => k !== "reasoning",
+  ),
+  properties: CLAUDE_LENS_PROPERTIES,
+};
+
+export function lensSchemaFor(model: string): {
+  schema: Record<string, unknown>;
+  scratchpadField: boolean;
+} {
+  return /claude/i.test(model)
+    ? { schema: CLAUDE_LENS_JSON_SCHEMA, scratchpadField: false }
+    : { schema: AGENT_FINDINGS_JSON_SCHEMA, scratchpadField: true };
+}
+
 export function decodeLensArtifact(
   raw: string,
 ): { ok: true; value: AgentFindings; via: DecodeVia } | { ok: false } {

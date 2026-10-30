@@ -47,6 +47,7 @@ import {
   classifyUnusableLensRun,
   projectLensFindings,
   AGENT_FINDINGS_JSON_SCHEMA,
+  lensSchemaFor,
 } from "./lib/agy-lens-core";
 import {
   armCooldown,
@@ -71,12 +72,19 @@ import {
 import {
   DELEGATABLE_LENSES,
   DELEGATED_LENS_TIMEOUT,
+  LENS_REROUTE_MODEL,
   resolveDelegateModel,
   resolveDelegatedLenses,
   type DelegatableLens,
 } from "./lib/delegate-models";
 import { classifyDelegateSkip } from "./lib/delegate-skip-class";
-import { planLensRoutes, type LensRoute } from "./lib/delegated-lens-plan";
+import {
+  planLensRoutes,
+  rerouteTask,
+  rerouteTimeout,
+  shouldReroute,
+  type LensRoute,
+} from "./lib/delegated-lens-plan";
 import { buildDelegatedLensPrompt } from "./lib/lens-prompt";
 import {
   defaultReadConfigFile,
@@ -193,6 +201,7 @@ export type Deps = {
   readCooldown: () => { live: boolean; until?: string };
   armCooldown: (classes: string[], resetMs: number | null) => void;
   writeOut: (line: string) => void;
+  now: () => number;
 };
 
 const tmp = (worktree: string, name: string) =>
@@ -336,11 +345,99 @@ function failureClass(skipReason: string, e: Partial<EntryResult>): string {
   });
 }
 
+// What one lens contributed: exactly one of `delegated` / `fallback`, plus the
+// PRIMARY run's failure class and diagnostic text (the cooldown only ever
+// sees the primary rung; a Gemini re-run failure never counts).
+type LensOutcome = {
+  delegated?: DelegatedLensResult;
+  fallback?: FallbackLensResult;
+  cls?: string;
+  refused: boolean;
+  failureTexts: string[];
+};
+
+// Classifies one fan-out entry for one lens: a delegated result (and the
+// `agent-output-<lens>.json` write) on success, else a fallback.
+function classifyEntry(
+  deps: Deps,
+  args: Args,
+  lens: DelegatableLens,
+  e: EntryResult | undefined,
+  rawPath: string,
+  model: string,
+): LensOutcome {
+  const fail = (
+    reason: string,
+    cls: string,
+    refused = false,
+    failureTexts: string[] = [],
+  ): LensOutcome => ({
+    fallback: { lens, reason, skipClass: classifyDelegateSkip(reason) },
+    cls,
+    refused,
+    failureTexts,
+  });
+  if (e === undefined) return fail("agy-fanout-failed", "environment");
+  if (!e.ran) {
+    const skipReason = e.skipReason ?? "agy-skip";
+    const cls = failureClass(skipReason, e);
+    // A quota hit gets its own reason so the Step 12 report can say so
+    // instead of a generic "the Google-plan run failed".
+    const reason =
+      cls === "quota-exhausted" || cls === "rate-limited"
+        ? "agy-quota-exhausted"
+        : cls === "content-filtered"
+          ? "agy-content-filtered"
+          : skipReason;
+    return fail(reason, cls, cls === "content-filtered", [
+      e.agyError ?? "",
+      e.stderrTail ?? "",
+    ]);
+  }
+  let raw = "";
+  try {
+    raw = deps.readFile(e.artifactPath ?? rawPath) ?? "";
+  } catch {
+    raw = "";
+  }
+  const decoded = decodeLensArtifact(raw);
+  if (!decoded.ok) {
+    const unusable = classifyUnusableLensRun(raw, e);
+    // A refusal can arrive as the reply itself; tools-denied still wins.
+    const refusal = unusable !== "tools-denied" && isContentFilterText(raw);
+    return fail(
+      refusal ? "agy-content-filtered" : `agy-${unusable}`,
+      refusal ? "content-filtered" : "empty-artifact",
+      refusal,
+    );
+  }
+  try {
+    deps.writeFile(
+      tmp(args.worktree, `agent-output-${lens}.json`),
+      JSON.stringify(projectLensFindings(decoded.value), null, 2),
+    );
+  } catch {
+    return fail("agy-finalize-failed", "environment");
+  }
+  return {
+    delegated: {
+      lens,
+      findingCount: decoded.value.findings.length,
+      decodedVia: decoded.via,
+      durationSec: Math.round(e.durationSeconds ?? (e.durationMs ?? 0) / 1000),
+      model,
+    },
+    refused: false,
+    failureTexts: [],
+  };
+}
+
 async function runDelegated(
   args: Args,
   deps: Deps,
   variant: string,
   agyLenses: DelegatableLens[],
+  helperStartMs: number,
 ): Promise<{
   delegated: DelegatedLensResult[];
   fallback: FallbackLensResult[];
@@ -352,7 +449,6 @@ async function runDelegated(
   const fallback: FallbackLensResult[] = [];
   const classes: string[] = [];
   const failureTexts: string[] = [];
-  const refused: DelegatableLens[] = [];
   const failAll = (reason: string, startedAt: string | null) => {
     for (const lens of agyLenses) {
       fallback.push({
@@ -372,165 +468,186 @@ async function runDelegated(
     return failAll("agy-prep-failed", null);
   }
 
+  const primarySchema = lensSchemaFor(variant);
   const schemaPath = tmp(args.worktree, "agy-lenses.schema.json");
-  const manifestPath = tmp(args.worktree, "agy-lenses.manifest.json");
-  const fanoutOut = tmp(args.worktree, "agy-lenses.fanout.json");
-  const scratch = [schemaPath, manifestPath, fanoutOut];
-  const manifest: ManifestEntry[] = [];
-  const manifestLenses: DelegatableLens[] = [];
+  const rerouteSchemaPath = tmp(args.worktree, "agy-reroute.schema.json");
+  const scratch = [schemaPath, rerouteSchemaPath];
   try {
     deps.mkdirp(join(args.worktree, ".flow-tmp"));
-    deps.writeFile(schemaPath, JSON.stringify(AGENT_FINDINGS_JSON_SCHEMA));
-    for (const lens of agyLenses) {
-      try {
-        const promptPath = tmp(args.worktree, `agy-lens-${lens}.prompt`);
-        const checklistMd = deps.readFile(
-          join(args.skillDir, "references", "checklists", `${lens}.md`),
-        );
-        if (checklistMd === null) throw new Error("missing checklist");
-        deps.writeFile(
-          promptPath,
-          buildDelegatedLensPrompt({
-            lens,
-            agentPromptsMd: inputs.agentPromptsMd,
-            checklistMd,
-            conventionalCommentsMd: inputs.conventionalCommentsMd,
-            repoChecklistMd: inputs.repoChecklistMd,
-            prNumber: inputs.pr,
-            prTitle: inputs.meta.title,
-            prBody: inputs.meta.body,
-            commitMessages: inputs.commitMessages,
-            changedFiles: inputs.changedFiles,
-            diff: inputs.diff,
-            staticAnalysisFacts: staticFacts(inputs.staticAnalysis, lens),
-            intentComments: inputs.intentComments,
-            reviewScope: inputs.reviewScope,
-            promptInterpretationTension: inputs.tension,
-            productBriefPath: inputs.productBrief.path,
-            productBriefText: inputs.productBrief.text,
-            worktree: args.worktree,
-          }),
-        );
-        scratch.push(promptPath, tmp(args.worktree, `agy-lens-${lens}.raw`));
-        manifest.push({
-          task: `agy-lens-${lens}`,
-          model: variant,
-          promptFile: promptPath,
-          timeout: DELEGATED_LENS_TIMEOUT,
-          addDirs: [args.worktree],
-          out: tmp(args.worktree, `agy-lens-${lens}.raw`),
-          outputFormat: "json",
-          jsonSchema: schemaPath,
-        });
-        manifestLenses.push(lens);
-      } catch {
-        fallback.push({
-          lens,
-          reason: "agy-prep-failed",
-          skipClass: classifyDelegateSkip("agy-prep-failed"),
-        });
-        classes.push("environment");
-      }
-    }
+    deps.writeFile(schemaPath, JSON.stringify(primarySchema.schema));
+    deps.writeFile(
+      rerouteSchemaPath,
+      JSON.stringify(AGENT_FINDINGS_JSON_SCHEMA),
+    );
   } catch {
     for (const p of scratch) deps.removeFile(p);
-    fallback.length = 0;
-    classes.length = 0;
     return failAll("agy-prep-failed", inputs.reviewStartedAt);
   }
 
-  let result: FanoutResult | null = null;
-  if (manifest.length > 0) {
-    try {
-      result = await deps.runFanout(manifest, {
-        concurrency: manifest.length,
-        manifestPath,
-        outPath: fanoutOut,
-      });
-    } catch {
-      result = null;
-    }
-  }
-
-  manifestLenses.forEach((lens, i) => {
-    const e = result?.entries[i];
-    if (e === undefined) {
-      fallback.push({
+  const writePrompt = (
+    lens: DelegatableLens,
+    promptPath: string,
+    scratchpadField: boolean,
+  ): void => {
+    const checklistMd = deps.readFile(
+      join(args.skillDir, "references", "checklists", `${lens}.md`),
+    );
+    if (checklistMd === null) throw new Error("missing checklist");
+    deps.writeFile(
+      promptPath,
+      buildDelegatedLensPrompt({
         lens,
-        reason: "agy-fanout-failed",
-        skipClass: classifyDelegateSkip("agy-fanout-failed"),
-      });
-      classes.push("environment");
-      return;
-    }
-    if (!e.ran) {
-      const skipReason = e.skipReason ?? "agy-skip";
-      const cls = failureClass(skipReason, e);
-      // A quota hit gets its own reason so the Step 12 report can say so
-      // instead of a generic "the Google-plan run failed".
-      const reason =
-        cls === "quota-exhausted" || cls === "rate-limited"
-          ? "agy-quota-exhausted"
-          : cls === "content-filtered"
-            ? "agy-content-filtered"
-            : skipReason;
-      fallback.push({ lens, reason, skipClass: classifyDelegateSkip(reason) });
-      classes.push(cls);
-      if (cls === "content-filtered") refused.push(lens);
-      failureTexts.push(e.agyError ?? "", e.stderrTail ?? "");
-      return;
-    }
-    let raw = "";
+        agentPromptsMd: inputs.agentPromptsMd,
+        checklistMd,
+        conventionalCommentsMd: inputs.conventionalCommentsMd,
+        repoChecklistMd: inputs.repoChecklistMd,
+        prNumber: inputs.pr,
+        prTitle: inputs.meta.title,
+        prBody: inputs.meta.body,
+        commitMessages: inputs.commitMessages,
+        changedFiles: inputs.changedFiles,
+        diff: inputs.diff,
+        staticAnalysisFacts: staticFacts(inputs.staticAnalysis, lens),
+        intentComments: inputs.intentComments,
+        reviewScope: inputs.reviewScope,
+        promptInterpretationTension: inputs.tension,
+        productBriefPath: inputs.productBrief.path,
+        productBriefText: inputs.productBrief.text,
+        worktree: args.worktree,
+        scratchpadField,
+      }),
+    );
+  };
+
+  // One single-entry fan-out. Each rung owns its manifest / fanout-out /
+  // prompt / raw files so concurrent lens chains never share a scratch path.
+  const fanOne = async (
+    task: string,
+    model: string,
+    timeout: string,
+    jsonSchema: string,
+    promptPath: string,
+    rawPath: string,
+  ): Promise<EntryResult | undefined> => {
+    const manifestPath = tmp(args.worktree, `${task}.manifest.json`);
+    const fanoutOut = tmp(args.worktree, `${task}.fanout.json`);
+    scratch.push(promptPath, rawPath, manifestPath, fanoutOut);
     try {
-      raw = deps.readFile(e.artifactPath ?? manifest[i]!.out!) ?? "";
-    } catch {
-      raw = "";
-    }
-    const decoded = decodeLensArtifact(raw);
-    if (!decoded.ok) {
-      const unusable = classifyUnusableLensRun(raw, e);
-      // A refusal can arrive as the reply itself; tools-denied still wins.
-      const refusal = unusable !== "tools-denied" && isContentFilterText(raw);
-      const reason = refusal ? "agy-content-filtered" : `agy-${unusable}`;
-      fallback.push({ lens, reason, skipClass: classifyDelegateSkip(reason) });
-      if (refusal) refused.push(lens);
-      classes.push(refusal ? "content-filtered" : "empty-artifact");
-      return;
-    }
-    try {
-      deps.writeFile(
-        tmp(args.worktree, `agent-output-${lens}.json`),
-        JSON.stringify(projectLensFindings(decoded.value), null, 2),
+      const result = await deps.runFanout(
+        [
+          {
+            task,
+            model,
+            promptFile: promptPath,
+            timeout,
+            addDirs: [args.worktree],
+            out: rawPath,
+            outputFormat: "json",
+            jsonSchema,
+          },
+        ],
+        { concurrency: 1, manifestPath, outPath: fanoutOut },
       );
+      return result.entries[0];
     } catch {
-      fallback.push({
-        lens,
-        reason: "agy-finalize-failed",
-        skipClass: classifyDelegateSkip("agy-finalize-failed"),
-      });
-      classes.push("environment");
-      return;
+      return undefined;
     }
-    delegated.push({
-      lens,
-      findingCount: decoded.value.findings.length,
-      decodedVia: decoded.via,
-      durationSec: Math.round(e.durationSeconds ?? (e.durationMs ?? 0) / 1000),
-    });
-  });
+  };
 
-  const now = new Date();
-  for (const lens of refused) {
+  const runChain = async (lens: DelegatableLens): Promise<LensOutcome> => {
+    const task = `agy-lens-${lens}`;
+    const promptPath = tmp(args.worktree, `${task}.prompt`);
+    const rawPath = tmp(args.worktree, `${task}.raw`);
+    try {
+      writePrompt(lens, promptPath, primarySchema.scratchpadField);
+    } catch {
+      scratch.push(promptPath);
+      return {
+        fallback: {
+          lens,
+          reason: "agy-prep-failed",
+          skipClass: classifyDelegateSkip("agy-prep-failed"),
+        },
+        cls: "environment",
+        refused: false,
+        failureTexts: [],
+      };
+    }
+    const entry = await fanOne(
+      task,
+      variant,
+      DELEGATED_LENS_TIMEOUT,
+      schemaPath,
+      promptPath,
+      rawPath,
+    );
+    const primary = classifyEntry(deps, args, lens, entry, rawPath, variant);
+    if (!primary.refused) return primary;
+
+    // Evidence first: the re-run must never delay or lose the refusal record.
     keepRefusalEvidence(
       {
         dir: deps.refusalCacheDir,
         lens,
-        promptPath: tmp(args.worktree, `agy-lens-${lens}.prompt`),
-        rawPath: tmp(args.worktree, `agy-lens-${lens}.raw`),
-        now,
+        promptPath,
+        rawPath,
+        now: new Date(deps.now()),
       },
       deps,
     );
+    const reason = primary.fallback?.reason ?? "agy-content-filtered";
+    if (!shouldReroute(variant, reason)) return primary;
+    const stillFallback = (rerouteOutcome: string): LensOutcome => ({
+      ...primary,
+      fallback: { ...primary.fallback!, rerouteOutcome },
+    });
+
+    const timeout = rerouteTimeout(deps.now() - helperStartMs);
+    if (timeout === null) return stillFallback("skipped-no-time");
+    const rerouteTaskName = rerouteTask(lens);
+    const reroutePrompt = tmp(args.worktree, `${rerouteTaskName}.prompt`);
+    try {
+      writePrompt(lens, reroutePrompt, true);
+    } catch {
+      scratch.push(reroutePrompt);
+      return stillFallback("agy-prep-failed");
+    }
+    const rerouteRaw = tmp(args.worktree, `${rerouteTaskName}.raw`);
+    const rerouteEntry = await fanOne(
+      rerouteTaskName,
+      LENS_REROUTE_MODEL,
+      timeout,
+      rerouteSchemaPath,
+      reroutePrompt,
+      rerouteRaw,
+    );
+    const rerun = classifyEntry(
+      deps,
+      args,
+      lens,
+      rerouteEntry,
+      rerouteRaw,
+      LENS_REROUTE_MODEL,
+    );
+    if (rerun.delegated !== undefined) {
+      return {
+        ...primary,
+        fallback: undefined,
+        delegated: {
+          ...rerun.delegated,
+          reroutedFrom: "agy-content-filtered",
+        },
+      };
+    }
+    return stillFallback(rerun.fallback?.reason ?? "agy-skip");
+  };
+
+  const outcomes = await Promise.all(agyLenses.map((lens) => runChain(lens)));
+  for (const o of outcomes) {
+    if (o.delegated !== undefined) delegated.push(o.delegated);
+    if (o.fallback !== undefined) fallback.push(o.fallback);
+    if (o.cls !== undefined) classes.push(o.cls);
+    failureTexts.push(...o.failureTexts);
   }
   for (const p of scratch) deps.removeFile(p);
   return {
@@ -553,6 +670,7 @@ export async function run(
     return 2;
   }
   const deps = resolveDeps(parsed, depsOverride);
+  const helperStartMs = deps.now();
 
   const variant = resolveDelegateModel("claudeLenses", deps.readConfig);
   const slug = parsed.slug ?? deps.resolveSlug();
@@ -604,15 +722,25 @@ export async function run(
   let cooldownArmed = false;
   let startedAt: string | null = null;
   if (agyLenses.length > 0 && variant !== null) {
-    const r = await runDelegated(parsed, deps, variant, agyLenses);
+    const r = await runDelegated(
+      parsed,
+      deps,
+      variant,
+      agyLenses,
+      helperStartMs,
+    );
     delegated = r.delegated;
     fallback = [...rerouted, ...r.fallback];
     startedAt = r.startedAt;
     // Every agy-routed lens failing for a quota-spending reason is the
     // signature of exhausted or throttled quota; hold the next reviews on
     // Claude for a while. Content-filter refusals are excluded by
-    // shouldArmCooldown.
-    if (delegated.length === 0 && shouldArmCooldown(r.classes)) {
+    // shouldArmCooldown, and a lens only a Gemini re-run recovered is not a
+    // primary success.
+    if (
+      delegated.every((d) => d.reroutedFrom !== undefined) &&
+      shouldArmCooldown(r.classes)
+    ) {
       try {
         deps.armCooldown(r.classes, quotaResetMs(r.failureTexts));
         cooldownArmed = true;
@@ -764,6 +892,7 @@ function resolveDeps(args: Args, o?: Partial<Deps>): Deps {
       ((classes, resetMs) =>
         armCooldown(classes, undefined, undefined, resetMs)),
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
+    now: o?.now ?? (() => Date.now()),
   };
 }
 

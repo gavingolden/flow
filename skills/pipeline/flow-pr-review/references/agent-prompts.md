@@ -743,7 +743,7 @@ This lens is the **one additional cross-model reviewer** added to Step 3's
 multi-agent review. Unlike the seven agents above (the six mandatory lenses
 plus the brief-gated product lens), it does NOT run as a Task
 subagent — it runs via `flow-delegate` (agy) as a **Bash fan-out, NOT a
-Task**, on the model variant `Gemini 3.1 Pro (High)`, against the user's
+Task**, on the model variant `Gemini 4 Argon (High)`, against the user's
 Google AI Ultra quota. Its purpose is model diversity: the seven Claude agents
 share their model family's blind spots, and a genuinely different model
 catches issues no role-specialized Claude lens does. It is config-gated

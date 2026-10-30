@@ -8,7 +8,11 @@
  * model for each lens (`taskModelFor`) so this module stays pure.
  */
 
-import type { DelegatableLens } from "./delegate-models";
+import { DEADLINE_GRACE_MS, KILL_GRACE_MS } from "./agy-guard";
+import {
+  DELEGATED_LENS_TIMEOUT,
+  type DelegatableLens,
+} from "./delegate-models";
 
 export type LensRoute =
   | { lens: DelegatableLens; route: "agy" }
@@ -49,4 +53,31 @@ export function planLensRoutes(o: {
     }
     return { lens, route: "agy" };
   });
+}
+
+// The helper's whole-run ceiling (9.5 min) and the least time worth spending
+// on a Gemini re-run.
+export const HELPER_BUDGET_MS = 570_000;
+export const MIN_REROUTE_MS = 180_000;
+const BACKSTOP_MARGIN_MS = 5_000;
+const SAFETY_MARGIN_MS = 10_000;
+export const REROUTE_SLACK_MS =
+  DEADLINE_GRACE_MS + KILL_GRACE_MS + BACKSTOP_MARGIN_MS + SAFETY_MARGIN_MS;
+const REROUTE_CAP_MS = parseInt(DELEGATED_LENS_TIMEOUT, 10) * 60_000;
+
+/** `--timeout` for the re-run, or null when too little of the budget is left. */
+export function rerouteTimeout(elapsedMs: number): string | null {
+  const remaining = HELPER_BUDGET_MS - elapsedMs - REROUTE_SLACK_MS;
+  if (remaining < MIN_REROUTE_MS) return null;
+  return `${Math.floor(Math.min(remaining, REROUTE_CAP_MS) / 1000)}s`;
+}
+
+// Only a Claude primary re-runs: a Gemini content-filter refusal on a Gemini
+// primary would just repeat on the same family.
+export function shouldReroute(primaryModel: string, reason: string): boolean {
+  return reason === "agy-content-filtered" && /claude/i.test(primaryModel);
+}
+
+export function rerouteTask(lens: DelegatableLens): string {
+  return `agy-reroute-${lens}`;
 }

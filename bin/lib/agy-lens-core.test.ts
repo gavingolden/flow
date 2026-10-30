@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENT_FINDINGS_JSON_SCHEMA,
+  CLAUDE_LENS_JSON_SCHEMA,
   classifyUnusableLensRun,
   decodeLensArtifact,
+  lensSchemaFor,
   projectLensFindings,
 } from "./agy-lens-core";
 
@@ -120,5 +122,57 @@ describe("AGENT_FINDINGS_JSON_SCHEMA", () => {
       "rejected_alternatives",
       "anti_patterns_found",
     ]);
+  });
+});
+
+type SchemaProps = {
+  properties: Record<string, unknown>;
+  required: string[];
+};
+
+describe("CLAUDE_LENS_JSON_SCHEMA", () => {
+  const claude = CLAUDE_LENS_JSON_SCHEMA as unknown as SchemaProps;
+  const gemini = AGENT_FINDINGS_JSON_SCHEMA as unknown as SchemaProps;
+
+  it("drops reasoning from properties and required", () => {
+    expect(claude.properties).not.toHaveProperty("reasoning");
+    expect(claude.required).not.toContain("reasoning");
+    expect(claude.required).toEqual([
+      "findings",
+      "rejected_alternatives",
+      "anti_patterns_found",
+    ]);
+  });
+
+  it("keeps the label and decoration enums identical to the Gemini schema", () => {
+    const itemProps = (s: SchemaProps) =>
+      (
+        s.properties.findings as {
+          items: { properties: Record<string, unknown> };
+        }
+      ).items.properties;
+    expect(itemProps(claude).label).toEqual(itemProps(gemini).label);
+    expect(itemProps(claude).decoration).toEqual(itemProps(gemini).decoration);
+  });
+
+  it("does not mutate the Gemini schema", () => {
+    expect(gemini.properties).toHaveProperty("reasoning");
+    expect(gemini.required).toContain("reasoning");
+  });
+});
+
+describe("lensSchemaFor", () => {
+  it("returns the reasoning-free schema for a Claude model", () => {
+    expect(lensSchemaFor("Claude Opus 5.5 (High)")).toEqual({
+      schema: CLAUDE_LENS_JSON_SCHEMA,
+      scratchpadField: false,
+    });
+  });
+
+  it("returns the full schema for any non-Claude model", () => {
+    expect(lensSchemaFor("Gemini 4 Argon (High)")).toEqual({
+      schema: AGENT_FINDINGS_JSON_SCHEMA,
+      scratchpadField: true,
+    });
   });
 });
