@@ -30,6 +30,7 @@ const GOOD = JSON.stringify({
 let worktree: string;
 let lines: string[];
 let fanoutCalls: ManifestEntry[][];
+let fanoutOpts: { manifestPath: string; outPath: string }[];
 let prompts: Record<string, string>;
 // Keyed `<rung>:<lens>` ("primary" | "reroute"), captured at fan-out time.
 let schemas: Record<string, string>;
@@ -62,8 +63,9 @@ type EntryBehaviour = (
 
 const fanoutWith =
   (behave: EntryBehaviour): Deps["runFanout"] =>
-  async (manifest) => {
+  async (manifest, opts) => {
     fanoutCalls.push(manifest);
+    fanoutOpts.push(opts);
     return {
       entries: manifest.map((entry) => {
         const rung: Rung = entry.task.startsWith("agy-reroute-")
@@ -196,6 +198,7 @@ beforeEach(() => {
   );
   lines = [];
   fanoutCalls = [];
+  fanoutOpts = [];
   prompts = {};
   schemas = {};
   rerouteSawEvidence = {};
@@ -811,6 +814,16 @@ describe("Gemini re-run of a refused lens", () => {
     expect(rerun.outputFormat).toBe("json");
   });
 
+  it("gives the primary and its re-run rung distinct manifest and out paths", async () => {
+    await run(
+      argv("bug-detection"),
+      deps({ runFanout: fanoutWith(refusePrimaryOnly), now: () => 1000 }),
+    );
+    expect(fanoutOpts).toHaveLength(2);
+    const paths = fanoutOpts.flatMap((o) => [o.manifestPath, o.outPath]);
+    expect(new Set(paths).size).toBe(paths.length);
+  });
+
   it("records the primary model on a lens that needed no re-run", async () => {
     await run(argv("bug-detection"), deps());
     expect(envelope().delegated[0]).toMatchObject({ model: VARIANT });
@@ -1045,6 +1058,8 @@ describe("prompt inputs", () => {
     }
     const manifests = fanoutCalls.map((c) => c[0]!.promptFile);
     expect(new Set(manifests).size).toBe(2);
+    const paths = fanoutOpts.flatMap((o) => [o.manifestPath, o.outPath]);
+    expect(new Set(paths).size).toBe(paths.length);
   });
 
   it("removes its scratch files, including the re-run rung's", async () => {

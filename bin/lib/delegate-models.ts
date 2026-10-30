@@ -349,3 +349,8 @@ export function resolveDelegatedLenses(
   }
   return out;
 }
+
+/** True for a Claude-family agy variant; the one rule both the lens schema and the refusal re-run key off. */
+export function isClaudeModel(model: string): boolean {
+  return /claude/i.test(model);
+}

@@ -11,8 +11,10 @@
 import { DEADLINE_GRACE_MS, KILL_GRACE_MS } from "./agy-guard";
 import {
   DELEGATED_LENS_TIMEOUT,
+  isClaudeModel,
   type DelegatableLens,
 } from "./delegate-models";
+import { godurToSec } from "./delegate-timeouts";
 
 export type LensRoute =
   | { lens: DelegatableLens; route: "agy" }
@@ -63,7 +65,7 @@ const BACKSTOP_MARGIN_MS = 5_000;
 const SAFETY_MARGIN_MS = 10_000;
 export const REROUTE_SLACK_MS =
   DEADLINE_GRACE_MS + KILL_GRACE_MS + BACKSTOP_MARGIN_MS + SAFETY_MARGIN_MS;
-const REROUTE_CAP_MS = parseInt(DELEGATED_LENS_TIMEOUT, 10) * 60_000;
+const REROUTE_CAP_MS = godurToSec(DELEGATED_LENS_TIMEOUT) * 1000;
 
 /** `--timeout` for the re-run, or null when too little of the budget is left. */
 export function rerouteTimeout(elapsedMs: number): string | null {
@@ -75,7 +77,7 @@ export function rerouteTimeout(elapsedMs: number): string | null {
 // Only a Claude primary re-runs: a Gemini content-filter refusal on a Gemini
 // primary would just repeat on the same family.
 export function shouldReroute(primaryModel: string, reason: string): boolean {
-  return reason === "agy-content-filtered" && /claude/i.test(primaryModel);
+  return reason === "agy-content-filtered" && isClaudeModel(primaryModel);
 }
 
 export function rerouteTask(lens: DelegatableLens): string {

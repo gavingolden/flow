@@ -16,6 +16,7 @@ import {
   validateAgentFindings,
   type AgentFindings,
 } from "./agent-finding-schema";
+import { isClaudeModel } from "./delegate-models";
 import {
   decodeDelegateArtifact,
   unwrapAgyEnvelope,
@@ -153,7 +154,7 @@ export function lensSchemaFor(model: string): {
   schema: Record<string, unknown>;
   scratchpadField: boolean;
 } {
-  return /claude/i.test(model)
+  return isClaudeModel(model)
     ? { schema: CLAUDE_LENS_JSON_SCHEMA, scratchpadField: false }
     : { schema: AGENT_FINDINGS_JSON_SCHEMA, scratchpadField: true };
 }

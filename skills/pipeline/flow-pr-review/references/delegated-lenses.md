@@ -56,9 +56,9 @@ Let `AGY_LENSES` be the lenses the plan routed to `agy`, comma-joined, and
      the same spawn mechanics as Step 3. Each carries a `reason`
      (and `skipClass`). They start only after the WHOLE agy wave returns, so
      a lens whose own agy attempt failed at once still waits for its slowest
-     sibling (about 2-3 minutes when a sibling succeeds, up to about 9.5
-     minutes when one hangs to the per-lens timeout or a refused lens spends
-     its Gemini re-run; see "Refused lenses get one Gemini re-run").
+     sibling (about 2-3 minutes when a sibling succeeds, up to about 8.5
+     minutes when one hangs to the per-lens timeout, or up to about 9.5 minutes
+     when a refused lens spends its Gemini re-run; see "Refused lenses get one Gemini re-run").
    - No parseable envelope (helper killed or crashed): treat every lens in
      `AGY_LENSES` as a fallback lens, reason "the Google-plan run produced no
      result".
@@ -84,9 +84,10 @@ re-run on Gemini. There is exactly one attempt per lens.
 - **Timing.** The re-run starts the moment that lens is refused; it does not
   wait for its siblings. The helper has a 9.5-minute budget counted from its
   own start. The re-run timeout is `min(8 min, remaining - 50 s)` and the
-  re-run is skipped when less than 3 minutes are left. Worst case, the wave
-  takes about 6 minutes longer than it does without the re-run; typically it
-  adds about 4 minutes in place of a Claude run of that lens.
+  re-run is skipped when less than 3 minutes are left. Worst case, a lens refused
+  early adds about 8.5 minutes (the full 8-minute re-run timeout plus kill
+  grace); the helper as a whole never exceeds 9.5 minutes. Typically the
+  re-run adds about 4 minutes in place of a Claude run of that lens.
 - **Cooldown.** A re-run failure never arms the cooldown, and a lens only the
   re-run recovered is not a primary success, so a quota-exhausted sibling
   still arms it.
@@ -111,27 +112,35 @@ for every lens that ran on Claude although delegation was on, a plain-language
 reason (see [report-template.md](report-template.md)). Translate the helper's
 reason strings; never print them raw:
 
-| Helper reason                                                     | Say                                                                      |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `agy-output-unparseable`, `agy-empty-artifact`                    | the Google-plan result came back empty or unusable                       |
-| `agy-tools-denied`                                                | the Google-plan reviewer tried to run a command it is not allowed to     |
-| `agy-token-exhausted`                                             | the Google-plan reviewer ran out of output budget                        |
-| `agy-timeout`                                                     | the Google-plan run timed out                                            |
-| `agy-quota-exhausted`                                             | the Google plan hit its usage limit                                      |
-| `agy-content-filtered`                                            | the Google-plan model declined to review this change (content filter)    |
-| `agy-not-found`, `agy-not-authenticated`, `agy-model-unavailable` | the Google plan is not available on this machine                         |
-| `agy-prep-failed`, `agy-fanout-failed`, `agy-finalize-failed`     | the Google-plan run could not be prepared                                |
-| any other `agy-*`                                                 | the Google-plan run failed                                               |
-| `agy-content-filtered` with a `rerouteOutcome`                    | the Google-plan Claude model declined it and the Gemini re-run (outcome) |
-| route `fable-session-keeps-task`                                  | bug-detection stays on Claude when the session runs Fable                |
-| route `agy-cooldown`                                              | the Google plan is cooling down after recent Google-plan failures        |
+| Helper reason                                                     | Say                                                                   |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `agy-output-unparseable`, `agy-empty-artifact`                    | the Google-plan result came back empty or unusable                    |
+| `agy-tools-denied`                                                | the Google-plan reviewer tried to run a command it is not allowed to  |
+| `agy-token-exhausted`                                             | the Google-plan reviewer ran out of output budget                     |
+| `agy-timeout`                                                     | the Google-plan run timed out                                         |
+| `agy-quota-exhausted`                                             | the Google plan hit its usage limit                                   |
+| `agy-content-filtered`                                            | the Google-plan model declined to review this change (content filter) |
+| `agy-not-found`, `agy-not-authenticated`, `agy-model-unavailable` | the Google plan is not available on this machine                      |
+| `agy-prep-failed`, `agy-fanout-failed`, `agy-finalize-failed`     | the Google-plan run could not be prepared                             |
+| any other `agy-*`                                                 | the Google-plan run failed                                            |
+| route `fable-session-keeps-task`                                  | bug-detection stays on Claude when the session runs Fable             |
+| route `agy-cooldown`                                              | the Google plan is cooling down after recent Google-plan failures     |
 
 A lens in `delegated` with `reroutedFrom` is reported as: "`<lens>` ran on the
 Google plan (Gemini 4 Argon (Medium)) after the Google-plan Claude model
 declined it (content filter)". A fallback lens carrying `rerouteOutcome` is
 reported as: "`<lens>` ran on Claude: the Google-plan Claude model declined it
-and the Gemini re-run `<reason>`", with the reason translated by the table
-above (`skipped-no-time` reads "was skipped for lack of time").
+and the Gemini re-run `<outcome>`", with `<outcome>` taken from this table
+(never the main table above, whose rows are full clauses):
+
+| `rerouteOutcome`                               | `<outcome>`                       |
+| ---------------------------------------------- | --------------------------------- |
+| `agy-timeout`                                  | timed out                         |
+| `agy-content-filtered`                         | was declined too                  |
+| `agy-quota-exhausted`                          | hit the Google plan's usage limit |
+| `agy-output-unparseable`, `agy-empty-artifact` | came back empty or unusable       |
+| `skipped-no-time`                              | was skipped for lack of time      |
+| any other `agy-*`                              | failed                            |
 
 Examples: "security ran on Claude: Google-plan result came back empty";
 "all lenses on Claude: Google plan cooling down after recent Google-plan failures".
