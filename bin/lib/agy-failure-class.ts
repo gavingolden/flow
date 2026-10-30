@@ -40,7 +40,7 @@ const QUOTA_PATTERN =
   /quota reached|upgrade your subscription|resource[_ ]exhausted|quota exceeded/i;
 const RATE_LIMIT_PATTERN = /rate limit|429|too many requests/i;
 const CONTENT_FILTER_PATTERN =
-  /blocked by content safety filters|comply with content policies/i;
+  /blocked by content safety filters|compl(?:y|ies) with content policies/i;
 
 export function isContentFilterText(text: string): boolean {
   return CONTENT_FILTER_PATTERN.test(text);

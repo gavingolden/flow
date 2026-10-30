@@ -463,7 +463,8 @@ lens delegated). A delegated lens that returns an unusable result — or any
 lens while the Google plan is cooling down — runs as a Claude Task agent
 instead, so no lens is ever dropped. The cooldown is armed when every
 Google-plan lens run of an earlier review failed for a quota, rate-limit,
-timeout, or empty or unknown reason. A content-filter refusal (the model
+timeout, or empty or unknown reason, or when a delegated scout run hit a
+quota or rate limit. A content-filter refusal (the model
 declined to review the change) never arms it, unless a sibling lens hit a real
 quota or rate limit in the same review.
 

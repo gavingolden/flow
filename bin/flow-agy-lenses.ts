@@ -608,8 +608,10 @@ export async function run(
     delegated = r.delegated;
     fallback = [...rerouted, ...r.fallback];
     startedAt = r.startedAt;
-    // Every agy-routed lens failing is the signature of exhausted or
-    // throttled quota; hold the next reviews on Claude for a while.
+    // Every agy-routed lens failing for a quota-spending reason is the
+    // signature of exhausted or throttled quota; hold the next reviews on
+    // Claude for a while. Content-filter refusals are excluded by
+    // shouldArmCooldown.
     if (delegated.length === 0 && shouldArmCooldown(r.classes)) {
       try {
         deps.armCooldown(r.classes, quotaResetMs(r.failureTexts));

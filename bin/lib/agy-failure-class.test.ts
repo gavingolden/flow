@@ -154,4 +154,15 @@ describe("content-filtered refusals", () => {
     );
     expect(isContentFilterText("")).toBe(false);
   });
+
+  it("matches the policy phrasing on its own, in both inflections", () => {
+    expect(
+      isContentFilterText(
+        "Please provide a response that complies with content policies.",
+      ),
+    ).toBe(true);
+    expect(isContentFilterText("please comply with content policies")).toBe(
+      true,
+    );
+  });
 });

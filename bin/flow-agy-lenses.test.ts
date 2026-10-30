@@ -600,6 +600,23 @@ describe("content-filter refusals", () => {
     agyError: REFUSAL,
   } as const;
 
+  it("trusts the delegate's failureClass when the entry carries no matching text", async () => {
+    await run(
+      argv("pattern-consistency,bug-detection"),
+      deps({
+        runFanout: fanoutWith(() => ({
+          ran: false,
+          skipReason: "agy-error",
+          failureClass: "content-filtered",
+        })),
+      }),
+    );
+    expect(
+      envelope().fallback.map((f: { reason: string }) => f.reason),
+    ).toEqual(["agy-content-filtered", "agy-content-filtered"]);
+    expect(armed).toEqual([]);
+  });
+
   it("reports an all-refused wave as agy-content-filtered and never arms the cooldown", async () => {
     await run(
       argv("pattern-consistency,bug-detection"),
@@ -677,6 +694,8 @@ describe("content-filter refusals", () => {
       "partial output",
     );
     expect(fs.existsSync(tmpFile("agy-lens-bug-detection.prompt"))).toBe(false);
+    expect(fs.statSync(path.join(cacheDir, prompt!)).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(cacheDir).mode & 0o777).toBe(0o700);
   });
 
   it("keeps nothing in the cache when no lens was refused", async () => {
