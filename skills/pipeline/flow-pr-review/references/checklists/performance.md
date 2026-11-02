@@ -54,26 +54,23 @@ set multiplies series and the monitoring bill. The repo's `.flow/metrics.md` and
 ### What to look for
 
 - A touched trigger surface (request handler, job or queue consumer, outbound API call,
-  multi-stage pipeline) with no emission matching the PR's `## Instrumentation` section
+  multi-stage pipeline, connection or worker pool) with no emission matching the PR's
+  `## Instrumentation` section; check each surface in the diff against it
 - A metric recorded directly against a backend client instead of the repo's metrics helper
+  (confidence 80)
 - An attribute fed from an unbounded set: a raw error or exception message, a
-  user/request/session ID, or a raw URL path instead of a route template
-- An `error_type` value absent from `.flow/metrics.md` `## error_type values`
-- A duration recorded in milliseconds under a seconds unit
+  user/request/session ID, or a raw URL path instead of a route template; trace each new
+  attribute's values to a closed list (confidence 85-90, unbounded series)
+- An `error.type` value absent from `.flow/metrics.md` `## error.type values`; grep that file
+  and the helper's union for each new value (confidence 80-85)
+- A duration recorded in milliseconds under a seconds unit (confidence 80-85)
 - Separate success and failure metrics, or summaries, where the backend aggregates histograms
 - A hand-written HTTP-edge metric duplicating what auto-instrumentation already emits
-
-### How to check
-
-1. For each new metric attribute: trace its values to a closed list.
-2. For each new `error_type` value: grep `.flow/metrics.md` and the helper's union for it.
-3. For each trigger surface in the diff: is there an emission listed in `## Instrumentation`?
-
-### Confidence guidance
-
-- Raw message, ID or raw path as an attribute value: 85-90 (unbounded series)
-- `error_type` absent from `.flow/metrics.md`, or milliseconds under a seconds unit: 80-85
-- Metric bypassing the repo's helper: 80; duplicate of an auto-instrumented metric: 75-80
+  (confidence 75-80)
+- A gauge read with a rate (`rate()`, `increase()`): a level is read directly or with `max`
+  (confidence 80-85)
+- A utilisation ratio emitted as a gauge: a ratio cannot be summed or averaged across
+  instances; emit the used and max counts and compute the ratio in the query (confidence 80)
 
 **General rule:** Flag a concrete unbounded label or a missing emission on a named trigger
 surface, not a style preference about metric names.

@@ -29,6 +29,11 @@ branch probably should too.
 A second source of truth for existing state (a new writer, cache, or index) must route
 through every invariant the incumbent writer enforces (econ-data #633).
 
+- Metrics vocabulary: a new attribute key absent from `.flow/metrics.md` `## Attributes`; a
+  registered concept under another word (`upstream` vs `server.address`); a key ignoring a
+  fitting OpenTelemetry semantic-convention name; a tenant or customer ID as a label on a
+  series-billed backend; an alert action of ticket or with no channel. Confidence 80 or above.
+
 ## Prose Claims Must Match the Code They Describe
 
 Applies to a doc, comment, or agent-prompt sentence the diff adds or edits that states what
@@ -65,7 +70,7 @@ or edits:
 - In-code rationale for not doing a promised thing: a constraint the same PR authored is
   self-imposed; flag it (econ-data #690).
 - Instrumentation claims: a diff that adds or changes a request handler, job or queue
-  consumer, outbound API call, or multi-stage pipeline while the plan or PR
+  consumer, outbound API call, multi-stage pipeline, or a connection or worker pool while the plan or PR
   `## Instrumentation` says `none` or is absent; flag at confidence 80 or above.
 
 ## New Rules That Contradict Their Neighbours
