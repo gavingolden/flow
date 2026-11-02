@@ -3,8 +3,9 @@
  * Advisory plan-shape linter: checks a generated plan.md instance for the
  * always-present sections the plan-artifact contract requires — the Goal
  * line, Behavioral contrast (+ its Lost affirmation), Recommendation, Plan
- * risks, Instrumentation (a spec table or a reasoned `none`), the Task
- * breakdown heading, and a Contract block under every task.
+ * risks, Instrumentation (a spec table plus an `**Attributes:**` line, or a
+ * reasoned `none`), the Task breakdown heading, and a Contract block under
+ * every task.
  * Also cross-checks the machine-readable closed-path mirror
  * (excluded-paths.json) against the plan's `## Alternatives considered`
  * prose. Names a `## Problem Statement` whose lead is not plain prose
@@ -280,9 +281,10 @@ const NON_RUNTIME_FILE_RE = /\.(?:test|spec)\.[cm]?[jt]sx?$|\.md$/i;
 /**
  * `## Instrumentation` is always-present inside the `# PRD` section: a spec
  * table for a plan that touches a runtime surface, or one `none — <reason>`
- * line. Scoped to the PRD so the omit-when-none `## Instrumentation` in the
- * `# PR description draft` never satisfies it. A `none` is cross-checked
- * against the tasks' `**Files:**` lines for runtime paths.
+ * line. A spec must also carry an `**Attributes:**` line. Scoped to the PRD
+ * so the omit-when-none `## Instrumentation` in the `# PR description draft`
+ * never satisfies it. A `none` is cross-checked against the tasks'
+ * `**Files:**` lines for runtime paths.
  */
 function checkInstrumentation(planText: string, misses: string[]): void {
   const prdMatch = planText.match(/^# PRD\s*$/m);
@@ -312,6 +314,11 @@ function checkInstrumentation(planText: string, misses: string[]): void {
     if (!/^\|/m.test(body)) {
       misses.push(
         "'## Instrumentation' names a spec but carries no markdown table row — add the '### Metrics' table",
+      );
+    }
+    if (!/^\*\*Attributes:\*\*/m.test(body)) {
+      misses.push(
+        "'## Instrumentation' names a spec but carries no '**Attributes:**' line — write 'reuses registered' or the new keys with their closed values",
       );
     }
     return;

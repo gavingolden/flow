@@ -186,28 +186,38 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 ## Instrumentation
 
 <!-- Always present. Full form for a plan that adds or changes a request
-     handler, background job or queue consumer, outbound API call, or
-     multi-stage pipeline; otherwise a single `none — <reason>` line. See
+     handler, background job or queue consumer, outbound API call,
+     multi-stage pipeline, or connection or worker pool; otherwise a single `none — <reason>` line. See
      references/discovery-instrumentation.md for the contract. -->
 
 **Contract:** [.flow/metrics.md create | extend]
 
 ### Metrics
 
-| Metric                  | Instrument | Unit    | Attributes (closed values)   | Emitted at      |
-| ----------------------- | ---------- | ------- | ---------------------------- | --------------- |
-| [namespace.op.duration] | Histogram  | seconds | outcome (ok, error)          | [handler / job] |
-| [namespace.op.failures] | Counter    | none    | error_type ([listed values]) | [handler / job] |
+| Metric                  | Instrument | Unit    | Attributes (closed values)    | Emitted at      |
+| ----------------------- | ---------- | ------- | ----------------------------- | --------------- |
+| [namespace.op.duration] | Histogram  | seconds | operation.outcome (ok, error) | [handler / job] |
+| [namespace.op.failures] | Counter    | none    | error.type ([listed values])  | [handler / job] |
 
-Estimated series: [n] per operation
+Estimated series: [n] per operation[; samples/month: [m] — per-sample backend only]
+
+**Attributes:** [reuses registered | new keys with their closed values, added as `.flow/metrics.md` `## Attributes` rows]
 
 ### Error types
 
-[new error_type values with meaning, or `reuses existing`]
+[new error.type values with meaning, or `reuses existing`]
 
 ### Dashboard panels
 
-[panels added to `.flow/metrics.md` `## Dashboard panels`]
+[panels added to `.flow/metrics.md` `## Dashboard panels`, each naming the dashboard it lands on]
+
+### Alerts
+
+| Signal   | Condition   | Sustained for | Action        | Routes to                                  | Dashboard |
+| -------- | ----------- | ------------- | ------------- | ------------------------------------------ | --------- |
+| [signal] | [threshold] | [duration]    | [page/notify] | [channel name, never a webhook URL or key] | [link]    |
+
+[or `burn-rate tiers only`]
 
 ### SLO
 

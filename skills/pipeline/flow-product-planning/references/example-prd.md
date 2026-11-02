@@ -93,12 +93,14 @@ access mode is removed or narrowed.
 
 | Metric                  | Instrument | Unit    | Attributes (closed values)                              | Emitted at               |
 | ----------------------- | ---------- | ------- | ------------------------------------------------------- | ------------------------ |
-| `share.create.duration` | Histogram  | seconds | `outcome` (`ok`, `error`)                               | `ShareRepository.create` |
-| `share.create.failures` | Counter    | none    | `error_type` (`invalid_input`, `not_found`, `internal`) | `ShareRepository.create` |
-| `share.view.duration`   | Histogram  | seconds | `outcome` (`ok`, `error`)                               | `/s/{token}` page load   |
-| `share.view.failures`   | Counter    | none    | `error_type` (`share_revoked`, `not_found`, `internal`) | `/s/{token}` page load   |
+| `share.create.duration` | Histogram  | seconds | `operation.outcome` (`ok`, `error`)                     | `ShareRepository.create` |
+| `share.create.failures` | Counter    | none    | `error.type` (`invalid_input`, `not_found`, `internal`) | `ShareRepository.create` |
+| `share.view.duration`   | Histogram  | seconds | `operation.outcome` (`ok`, `error`)                     | `/s/{token}` page load   |
+| `share.view.failures`   | Counter    | none    | `error.type` (`share_revoked`, `not_found`, `internal`) | `/s/{token}` page load   |
 
-Estimated series: 37 per operation (histogram 2 outcomes x 17, plus 3 `error_type` values on the failures counter)
+Estimated series: 37 per operation (histogram 2 outcomes x 17, plus 3 `error.type` values on the failures counter)
+
+**Attributes:** registers `operation.outcome`, `error.type`
 
 ### Error types
 
@@ -106,11 +108,15 @@ New: `share_revoked` (the token exists but was toggled off), `not_found` (no suc
 
 ### Dashboard panels
 
-Request rate, success vs failure, failures by `error_type`, and latency p50/p95/p99 for `share.create` and `share.view`.
+Request rate, success vs failure, failures by `error.type`, and latency p50/p95/p99 for `share.create` and `share.view`, on the new overview dashboard.
+
+### Alerts
+
+burn-rate tiers only
 
 ### SLO
 
-New journey SLO "view a shared dashboard": 99.5% availability over 30 days, with the standard burn-rate alert tiers (14.4x 1h/5m page, 6x 6h/30m page, 1x 3d/6h ticket) recorded once in `.flow/metrics.md`.
+New journey SLO "view a shared dashboard": 99.5% availability over 30 days, with the standard burn-rate alert tiers (14.4x 1h/5m page, 6x 6h/30m page, 1x 3d/6h notify) recorded once in `.flow/metrics.md`.
 
 **As-code:** spec-only — the repo keeps no dashboard or alert config yet
 
@@ -162,8 +168,8 @@ DEFINER` `get_shared_dashboard` RPC (Task 1) is the only anonymous read path, an
 - **Description:** Create `src/lib/domain/share/` with Share entity, ShareRepository (CRUD +
   RPC call), SharedDashboardPayload type, DB types, and barrel exports. Add the repo-local
   metrics helper and `.flow/metrics.md`, and emit `share.create.duration` / `share.create.failures`
-  (`error_type`: `invalid_input`, `not_found`, `internal`) from `ShareRepository.create` and
-  `share.view.duration` / `share.view.failures` (`error_type`: `share_revoked`, `not_found`,
+  (`error.type`: `invalid_input`, `not_found`, `internal`) from `ShareRepository.create` and
+  `share.view.duration` / `share.view.failures` (`error.type`: `share_revoked`, `not_found`,
   `internal`) from `ShareRepository.getSharedDashboard`
 - **Inputs:** Generated DB types from Task 1
 - **Outputs:** Domain module with repository, entity, and payload type
@@ -211,7 +217,7 @@ DEFINER` `get_shared_dashboard` RPC (Task 1) is the only anonymous read path, an
   - **Files:** create `src/lib/domain/share/share.test.ts`, `src/lib/domain/share/share-repository.test.ts`, `src/lib/domain/share/share-metrics.test.ts`
   - **Interfaces:** none new — tests target the Task 2 exports (`Share`, `ShareRepository`, `SharedDashboardPayload`) with a mocked Supabase client
   - **Call-site edits:** none
-- **Acceptance criteria:** `npm run test -- src/lib/domain/share` — create, get, toggle, RPC, error-path (db-error, not-found), and metric-emission specs (one duration observation with `outcome`, one failures increment with the exact `error_type`, asserted against the helper's in-memory recorder) all pass
+- **Acceptance criteria:** `npm run test -- src/lib/domain/share` — create, get, toggle, RPC, error-path (db-error, not-found), and metric-emission specs (one duration observation with `operation.outcome`, one failures increment with the exact `error.type`, asserted against the helper's in-memory recorder) all pass
 
 | Task | Depends on |
 | ---- | ---------- |
