@@ -4425,7 +4425,7 @@ describe("flow-metrics wiring", () => {
     );
   });
 
-  it("the performance checklist carries ## Metrics instrumentation and the error_type rule", () => {
+  it("the performance checklist carries ## Metrics instrumentation and the error.type rule", () => {
     const checklist = read(
       "skills",
       "pipeline",
@@ -4435,7 +4435,7 @@ describe("flow-metrics wiring", () => {
       "performance.md",
     );
     expect(checklist).toMatch(/^## Metrics instrumentation$/m);
-    expect(checklist).toContain("error_type");
+    expect(checklist).toContain("error.type");
   });
 
   it("the pattern-consistency checklist flags a runtime diff under a none Instrumentation section", () => {
@@ -4448,6 +4448,68 @@ describe("flow-metrics wiring", () => {
       "pattern-consistency.md",
     );
     expect(checklist).toMatch(/`## Instrumentation` says `none` or is absent/);
+  });
+
+  it("the pattern-consistency checklist checks new attribute keys against the ## Attributes registry", () => {
+    const checklist = read(
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+      "pattern-consistency.md",
+    );
+    expect(checklist).toContain("## Attributes");
+  });
+
+  it("the discovery instrumentation reference asks for an **Attributes:** line", () => {
+    const reference = read(
+      "skills",
+      "pipeline",
+      "flow-product-planning",
+      "references",
+      "discovery-instrumentation.md",
+    );
+    expect(reference).toContain("**Attributes:**");
+  });
+
+  it("the flow-metrics conventions carry the saturation, bounded-dimension and registry sections", () => {
+    const conventions = read(...metricsRoot, "references", "conventions.md");
+    for (const heading of [
+      "## Saturation and backlog signals",
+      "## Bounded-but-large dimensions",
+      "## Attribute registry",
+    ]) {
+      expect(conventions.split("\n")).toContain(heading);
+    }
+    expect(conventions).toContain("error.type");
+    expect(conventions).toContain("operation.outcome");
+  });
+
+  it("the flow-metrics backends reference carries the gauge and Google Cloud Monitoring sections", () => {
+    const backends = read(...metricsRoot, "references", "backends.md");
+    expect(backends).toContain("no native gauge");
+    expect(backends).toMatch(/^## Google Cloud Monitoring$/m);
+    expect(backends).toContain("samples per month");
+  });
+
+  it("the flow-metrics dashboards reference carries saturation alerts and dashboard links and no ticket action", () => {
+    const dashboards = read(
+      ...metricsRoot,
+      "references",
+      "dashboards-alerts-slos.md",
+    );
+    expect(dashboards).toMatch(/^## Saturation alerts$/m);
+    expect(dashboards).toMatch(/^## Dashboards and links$/m);
+    expect(dashboards).toContain("Routes to");
+    expect(dashboards).not.toMatch(/\|\s*ticket\s*\|/);
+  });
+
+  it("flow-metrics SKILL.md step 9 names the Attributes and Dashboards sections and the GCP default", () => {
+    const skill = read(...metricsRoot, "SKILL.md");
+    expect(skill).toContain("`## Attributes`");
+    expect(skill).toContain("`## Dashboards`");
+    expect(skill).toContain("Google Cloud Monitoring on GCP");
   });
 
   it("consumer-repo-contract.md documents ## Metrics conventions and .flow/metrics.md", () => {

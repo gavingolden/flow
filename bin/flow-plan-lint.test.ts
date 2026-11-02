@@ -260,7 +260,7 @@ describe("lintPlan — always-present sections", () => {
     ).toEqual([]);
     const withTable = CONFORMING_PLAN.replace(
       /(## Instrumentation\n\n)none[^\n]*\n/,
-      "$1**Contract:** `.flow/metrics.md` create\n\n### Metrics\n\n| Metric | Instrument |\n| --- | --- |\n| export.duration | Histogram |\n",
+      "$1**Contract:** `.flow/metrics.md` create\n\n### Metrics\n\n| Metric | Instrument |\n| --- | --- |\n| export.duration | Histogram |\n\n**Attributes:** reuses registered\n",
     );
     expect(
       lintPlan(withTable).misses.filter((m) => m.includes("Instrumentation")),
@@ -274,6 +274,19 @@ describe("lintPlan — always-present sections", () => {
     );
     const { misses } = lintPlan(plan);
     expect(misses.some((m) => m.includes("no markdown table row"))).toBe(true);
+  });
+
+  it("names a miss when a non-none '## Instrumentation' carries no '**Attributes:**' line", () => {
+    const plan = CONFORMING_PLAN.replace(
+      /(## Instrumentation\n\n)none[^\n]*\n/,
+      "$1**Contract:** `.flow/metrics.md` create\n\n### Metrics\n\n| Metric | Instrument |\n| --- | --- |\n| export.duration | Histogram |\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) => m.includes("Instrumentation") && m.includes("Attributes"),
+      ),
+    ).toBe(true);
   });
 
   it("names a 'none' Instrumentation whose task Files name a runtime path", () => {
