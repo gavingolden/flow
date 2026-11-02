@@ -65,6 +65,7 @@ Write dashboards, alert rules or SLOs as code only when the repo already keeps t
 - Grafana dashboards: `**/grafana/**/*.json`, `**/dashboards/**/*.json`
 - Prometheus rules: `**/*rules*.yml`, `**/prometheus/**/*.yml`, `**/alerts/**/*.yml`
 - Datadog monitors or dashboards: `**/*.tf` with `datadog_monitor` or `datadog_dashboard`, `**/datadog/**/*.json`
+- Google Cloud Monitoring: `**/*.tf` with `google_monitoring_dashboard` or `google_monitoring_alert_policy`
 - SLO-as-code: `**/*slo*.yaml`, `**/*slo*.yml` (OpenSLO, https://github.com/OpenSLO/OpenSLO; whether v1 is still the current spec is unverified)
 
 When any match, update those files in the same change and list their paths in `.flow/metrics.md` `## As-code`. When none match, the spec stays in `.flow/metrics.md` and `## As-code` reads `spec-only`. Do not generate importable dashboard JSON or alert rules for a repo that keeps none, and do not bootstrap a backend or a Grafana stack: a one-import dashboard is a follow-up once the repo picks a backend.

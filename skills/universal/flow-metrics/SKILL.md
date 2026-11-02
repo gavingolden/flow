@@ -82,7 +82,7 @@ Against the helper's in-memory recorder, add one success test, one failure test 
 
 Create the file on the first instrumented change and extend it afterwards. Its shape:
 
-- `## Backend` — library and exporter, or `none yet — suggested: <x>`. With no backend, name the stack's natural default: Workers Analytics Engine on Cloudflare, the OpenTelemetry SDK elsewhere.
+- `## Backend` — library and exporter, or `none yet — suggested: <x>`. With no backend, name the stack's natural default: Workers Analytics Engine on Cloudflare, Google Cloud Monitoring on GCP, the OpenTelemetry SDK elsewhere. On Google Cloud, also record the ingestion route (Cloud Monitoring exporter, or OTLP / Managed Prometheus) and how it stores a dotted key; the routes and the default rule are in `references/backends.md`.
 - `## Namespace` — the metric name prefix.
 - `## Attributes` — table: key | closed values or source | metrics | meaning, plus a `slot` column on Workers Analytics Engine.
 - `## error.type values` — table: value | meaning | example cause.
