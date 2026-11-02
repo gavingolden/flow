@@ -199,7 +199,7 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 | [namespace.op.duration] | Histogram  | seconds | operation.outcome (ok, error) | [handler / job] |
 | [namespace.op.failures] | Counter    | none    | error.type ([listed values])  | [handler / job] |
 
-Estimated series: [n] per operation
+Estimated series: [n] per operation[; samples/month: [m] — per-sample backend only]
 
 **Attributes:** [reuses registered | new keys with their closed values, added as `.flow/metrics.md` `## Attributes` rows]
 
@@ -213,9 +213,9 @@ Estimated series: [n] per operation
 
 ### Alerts
 
-| Signal   | Condition   | Sustained for | Action        | Routes to | Dashboard |
-| -------- | ----------- | ------------- | ------------- | --------- | --------- |
-| [signal] | [threshold] | [duration]    | [page/notify] | [channel] | [link]    |
+| Signal   | Condition   | Sustained for | Action        | Routes to                                  | Dashboard |
+| -------- | ----------- | ------------- | ------------- | ------------------------------------------ | --------- |
+| [signal] | [threshold] | [duration]    | [page/notify] | [channel name, never a webhook URL or key] | [link]    |
 
 [or `burn-rate tiers only`]
 

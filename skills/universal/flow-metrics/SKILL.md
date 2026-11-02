@@ -33,7 +33,7 @@ Load the relevant reference on demand — do not read all of them up front:
 
 - `.flow/metrics.md` in the target repo — the repo's committed metrics contract. Read it as REQUIRED context when it exists; it is authoritative over the starter values in the references.
 - [Conventions](references/conventions.md) — OpenTelemetry naming, instruments, saturation and backlog signals, bounded-but-large dimensions, the closed `error.type` rule, the attribute registry, the cardinality budget, per-stage timing, the emission-test recipe.
-- [Backends](references/backends.md) — the OpenTelemetry to Prometheus to Datadog to Workers Analytics Engine mapping (levels included), detection signals, the helper's per-backend adapter shape and test recipe.
+- [Backends](references/backends.md) — the OpenTelemetry to Prometheus, Datadog, Workers Analytics Engine and Google Cloud Monitoring mapping (levels included), detection signals, the helper's per-backend adapter shape and test recipe.
 - [Dashboards, alerts and SLOs](references/dashboards-alerts-slos.md) — the panel spec, SLI/SLO spec, burn-rate and saturation alerts, dashboard links, and the as-code rule.
 
 # Instructions
@@ -50,7 +50,7 @@ On the first instrumented change, create one repo-local metrics helper — for e
 
 For each trigger surface in the change, record:
 
-- One duration histogram per operation, in seconds, split only by `operation.outcome` (`ok` | `error`).
+- One duration histogram per operation, in seconds, split by `operation.outcome` (`ok` | `error`), plus only the keys the instruments table in `references/conventions.md` allows for it.
 - One failures counter per operation, split by `error.type`.
 - A per-stage histogram with a closed `operation.stage` attribute for multi-stage operations.
 - One outbound-call histogram per dependency, split by `server.address` and `operation.outcome`.
@@ -64,11 +64,11 @@ Map each failure to a value from the repo's closed `error.type` list at one chok
 
 ## 5. Apply the cardinality budget
 
-State the estimated series total per operation (the formula is in `references/conventions.md`) and justify anything over 100. Route templates, never raw paths. A large dimension is allowed only when its value set is fixed by code or product (`references/conventions.md`, bounded-but-large dimensions).
+State the estimated series total per operation and, on a per-sample backend, samples per month (the formula is in `references/conventions.md`) and justify anything over 100. Route templates, never raw paths. A large dimension is allowed only when its value set is fixed by code or product (`references/conventions.md`, bounded-but-large dimensions).
 
 ## 6. Translate names per backend
 
-Translate the OpenTelemetry names for the repo's backend using `references/backends.md`: read the mapping table and only the section for the repo's `## Backend`, so a repo on one backend does not load another's detail. Do not change the semantics: unit in seconds, `operation.outcome`-split histogram, `error.type` on the failures counter only.
+Translate the OpenTelemetry names for the repo's backend using `references/backends.md`: read the mapping table and only the section for the repo's `## Backend`, so a repo on one backend does not load another's detail. Do not change the semantics: unit in seconds, `operation.outcome`-split histogram, `error.type` on the failures counter and never on a histogram.
 
 ## 7. Spec the dashboard, alert and SLO
 
@@ -89,7 +89,7 @@ Create the file on the first instrumented change and extend it afterwards. Its s
 - `## Helper` — path of the repo-local metrics helper.
 - `## Dashboard panels` — the repo's one accumulating panel table.
 - `## Dashboards` — table: name | URL | what it answers.
-- `## Alerts` — burn-rate tiers plus saturation threshold rows, defined once; each row carries a `page` or `notify` action, the channel it routes to and a dashboard link.
+- `## Alerts` — burn-rate tiers plus saturation threshold rows, defined once; each row carries a `page` or `notify` action, the channel it routes to (a name, never a webhook URL or key) and a dashboard link.
 - `## As-code` — paths of dashboard or alert files the repo keeps, or `spec-only`.
 - `## SLOs` — few, journey-based.
 - `## Coverage` — the operations instrumented so far, extended by each change, so a quiet graph is never mistaken for an unmeasured path.
@@ -111,7 +111,7 @@ With `backend: none yet`, only the PR that creates `.flow/metrics.md` carries th
 - Averaging percentiles on a dashboard instead of reading them from histograms.
 - A new SLO per change instead of rolling into an existing journey SLO.
 - A synonym of a registered attribute key instead of reusing it.
-- A per-entity ID (tenant, user) as a label on a series-billed backend.
+- A per-entity ID (tenant, user) as a label on a series-billed backend or Google Cloud Monitoring.
 - A `rate()` over a gauge.
 - A utilisation ratio emitted as a gauge; a ratio cannot be summed across instances.
 - An alert that opens a ticket instead of paging or notifying.
@@ -121,7 +121,7 @@ With `backend: none yet`, only the PR that creates `.flow/metrics.md` carries th
 
 - `.flow/metrics.md` exists and lists every operation the change instruments under `## Coverage`.
 - Every metric follows the naming and unit rules in `references/conventions.md`, every attribute key is listed in `## Attributes`, and every attribute value comes from a closed set.
-- Each new operation states its estimated series total.
+- Each new operation states its estimated series total (and samples per month on a per-sample backend).
 - Saturation signals for each queue consumer or pool are specced, or named as platform-native.
 - Every alert row names a channel and a dashboard link.
 - Emission tests cover one success, one failure per new `error.type` branch, and stage timings.

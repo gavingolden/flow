@@ -4470,7 +4470,44 @@ describe("flow-metrics wiring", () => {
       "references",
       "discovery-instrumentation.md",
     );
-    expect(reference).toContain("**Attributes:**");
+    expect(reference).toMatch(/^- An `\*\*Attributes:\*\*` line/m);
+  });
+
+  it.each([
+    [
+      "skills",
+      "pipeline",
+      "flow-product-planning",
+      "templates",
+      "prd-template.md",
+    ],
+    [
+      "skills",
+      "pipeline",
+      "flow-product-planning",
+      "references",
+      "example-prd.md",
+    ],
+    [
+      "skills",
+      "pipeline",
+      "flow-product-planning",
+      "references",
+      "discovery-instrumentation.md",
+    ],
+    [
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+      "performance.md",
+    ],
+    ["references", "consumer-repo-contract.md"],
+  ])("%s offers no pre-OpenTelemetry label name", (...segments) => {
+    expect(read(...segments)).not.toMatch(
+      /error_type|`(?:outcome|stage|dependency)`/,
+    );
   });
 
   it("the flow-metrics conventions carry the saturation, bounded-dimension and registry sections", () => {

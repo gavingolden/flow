@@ -39,16 +39,16 @@ Use multi-window multi-burn-rate alerts for a 30-day SLO (https://sre.google/wor
 | 6x        | 6h          | 30m          | page   |
 | 1x        | 3d          | 6h           | notify |
 
-Define the tiers once per SLO in `.flow/metrics.md` `## Alerts`. A plan or PR never restates them; it names the SLO it rolls into. A repo may drop the 1x tier.
+Define the tiers once per SLO in `.flow/metrics.md` `## Alerts`, where each tier row also carries `Routes to` and `Dashboard`, as the saturation rows do. A plan or PR never restates them; it names the SLO it rolls into. A repo may drop the 1x tier.
 
-Alerts only notify; no alert creates a ticket or issue. The two actions:
+Alerts only page or notify; no alert creates a ticket or issue. The two actions:
 
 - `page`: urgent, interrupts someone now.
 - `notify`: non-urgent, a message to a channel. A `notify` row carries a re-notify interval of at most once per 24 hours per alert, so a slow burn does not flood the channel.
 
 ## Saturation alerts
 
-Record threshold rows under `.flow/metrics.md` `## Alerts` as `Signal | Condition | Sustained for | Action | Routes to | Dashboard`. Starter values; each repo's own are authoritative:
+Record threshold rows under `.flow/metrics.md` `## Alerts` as `Signal | Condition | Sustained for | Action | Routes to | Dashboard`. `Routes to` is the channel's name or the backend's notification-channel resource name (`#ops-alerts`, `projects/<p>/notificationChannels/<id>`), never a webhook URL, integration key or token. Starter values; each repo's own are authoritative:
 
 | Signal             | Condition                  | Action                                                      |
 | ------------------ | -------------------------- | ----------------------------------------------------------- |

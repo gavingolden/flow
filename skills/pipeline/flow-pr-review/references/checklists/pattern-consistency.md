@@ -32,7 +32,7 @@ through every invariant the incumbent writer enforces (econ-data #633).
 - Metrics vocabulary: a new attribute key absent from `.flow/metrics.md` `## Attributes`; a
   registered concept under another word (`upstream` vs `server.address`); a key ignoring a
   fitting OpenTelemetry semantic-convention name; a tenant or customer ID as a label on a
-  series-billed backend; an alert action of ticket or with no channel. Confidence 80 or above.
+  series-billed backend or Google Cloud Monitoring; an alert action of ticket or with no channel. Confidence 80 or above.
 
 ## Prose Claims Must Match the Code They Describe
 
