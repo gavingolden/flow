@@ -7,10 +7,11 @@
  *
  * ACCEPTED RISK: once a rule applies, the classifier no longer reviews that
  * helper call — each helper's own argument validation is the only guard. The
- * list is named helper-by-helper (never a `Bash(flow-*)` wildcard). The two
- * comment helpers (`flow-post-findings`, `flow-reply-pr-comments`) publish
- * text to GitHub without classifier review; inside a pipeline each refuses any
- * PR that is not the pipeline's own. {@link FLOW_NEVER_ALLOW_HELPERS} never get
+ * list is named helper-by-helper (never a `Bash(flow-*)` wildcard). The
+ * GitHub-publishing helpers (`flow-post-findings` and `flow-reply-pr-comments`
+ * post text; `flow-pr-attach` uploads images and rewrites the PR body) publish
+ * without classifier review; inside a pipeline each refuses any PR that is not
+ * the pipeline's own. {@link FLOW_NEVER_ALLOW_HELPERS} never get
  * the routine bare + wildcard pair: `flow-merge-guard` carries its own rules,
  * and `flow-spawn` wraps arbitrary argv, so only the fixed-literal waiter
  * prefixes in {@link FLOW_NARROW_ALLOW_RULES} are allowed — any wildcard
@@ -54,6 +55,7 @@ export const FLOW_ROUTINE_HELPERS: readonly string[] = [
   "flow-review-finalize",
   "flow-pr-diff",
   "flow-inject-evidence",
+  "flow-pr-attach",
   "flow-checkpoint",
   "flow-browser-teardown",
   "flow-module-status",
