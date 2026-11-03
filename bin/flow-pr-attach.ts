@@ -20,7 +20,7 @@
  *   0  body pushed and every local image hosted (an outside-host note is stderr only)
  *   1  body not pushed
  *   2  bad arguments, or a PR that is not this pipeline's own
- *   3  body pushed but at least one local image stayed local-only
+ *   3  body pushed but at least one image is not natively hosted (a local image stayed local-only, or a same-repo image link is still in the body)
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -242,6 +242,12 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     return fail(
       3,
       "body pushed, but at least one image stayed local-only (a placeholder shows on the PR) — fix the cause named above and re-run",
+    );
+  }
+  if (counts.repoLinked > 0) {
+    return fail(
+      3,
+      `body pushed, but ${counts.repoLinked} same-repo image link(s) are still in the body — they load from the repo, so do not delete their branch; fix the cause named above and re-run`,
     );
   }
   return 0;

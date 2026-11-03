@@ -439,3 +439,57 @@ describe("hosted URL write-back", () => {
     expect(after).not.toContain("raw.githubusercontent.com");
   });
 });
+
+describe("same-repo image links left in the pushed body", () => {
+  const src = "https://github.com/me/repo/blob/main/x.png?raw=true";
+
+  function sameRepoExec(o: { contentsFails?: boolean; attachFails?: boolean }) {
+    const gh = fakeExec();
+    const exec = (argv: string[]): ExecResult => {
+      if (argv[1] === "api") {
+        if (o.contentsFails && argv[2].includes("/contents/")) {
+          return { stdout: "", stderr: "HTTP 404", exitCode: 1 };
+        }
+        return {
+          stdout: argv[2].includes("/contents/")
+            ? `${"a".repeat(40)}\n`
+            : Buffer.from("png").toString("base64"),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      if (argv.includes("url")) {
+        return {
+          stdout: "https://github.com/me/repo/pull/7\n",
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      if (o.attachFails && argv.includes("--attach")) {
+        return { stdout: "", stderr: "upload exploded", exitCode: 1 };
+      }
+      return gh.exec(argv);
+    };
+    return { exec, gh };
+  }
+
+  it("exits 3 when the contents fetch fails and the link stays in the body", async () => {
+    fs.mkdirSync(path.dirname(bodyFile), { recursive: true });
+    fs.writeFileSync(bodyFile, `![s](${src})\n`);
+    const { exec, gh } = sameRepoExec({ contentsFails: true });
+    const { code, err } = await attach(argvFor(), { exec });
+    expect(code).toBe(3);
+    expect(err).toContain("still in the body");
+    expect(err).toContain("load from the repo");
+    expect(gh.remote()).toContain(src);
+  });
+
+  it("exits 3 when the upload batch for a re-hosted link fails", async () => {
+    fs.mkdirSync(path.dirname(bodyFile), { recursive: true });
+    fs.writeFileSync(bodyFile, `![s](${src})\n`);
+    const { exec } = sameRepoExec({ attachFails: true });
+    const { code, err } = await attach(argvFor(), { exec });
+    expect(code).toBe(3);
+    expect(err).toContain("same-repo image link(s)");
+  });
+});

@@ -442,6 +442,7 @@ describe("pushBodyWithScreenshots", () => {
       "screenshots_external_host",
     );
     expect(bodyAfter(gh)).toContain(src);
+    expect(result.repoLinked).toBe(1);
   });
 
   it("reports gh too old when the only candidate is a same-repo raw link", () => {
@@ -449,9 +450,9 @@ describe("pushBodyWithScreenshots", () => {
       "![s](https://raw.githubusercontent.com/me/repo/main/x.png)\n",
       { version: "2.90.0" },
     );
-    expect(run(gh).skips.map((s) => s.step)).toContain(
-      "screenshots_gh_too_old",
-    );
+    const result = run(gh);
+    expect(result.skips.map((s) => s.step)).toContain("screenshots_gh_too_old");
+    expect(result.repoLinked).toBe(1);
   });
 
   it.each([
@@ -466,6 +467,7 @@ describe("pushBodyWithScreenshots", () => {
       "screenshots_external_host",
     ]);
     expect(result.rehosted).toBe(0);
+    expect(result.repoLinked).toBe(1);
     expect(attachEdits(gh)).toEqual([]);
     expect(gh.remote()).toContain(src);
   });
@@ -561,12 +563,25 @@ describe("pushBodyWithScreenshots", () => {
   });
 
   it("stops batching with a named skip when the live body has no room", () => {
-    const gh = makeGh("![a](img/a.png)\n", { remote: "x".repeat(65500) });
+    const gh = makeGh("![a](img/a.png)\n", { remote: "x".repeat(262100) });
     const result = run(gh);
     expect(attachEdits(gh)).toEqual([]);
     expect(result.skips.map((s) => s.step)).toEqual([
       "screenshots_body_too_large",
     ]);
+  });
+
+  it("uploads a 90,000-char body in one batch without a size skip", () => {
+    const gh = makeGh(`![a](img/a.png)\n${"y".repeat(90000)}\n`, {
+      remote: "x".repeat(90000),
+    });
+    const result = run(gh);
+    expect(result.batches).toBe(1);
+    expect(result.uploaded).toBe(1);
+    expect(result.repoLinked).toBe(0);
+    expect(result.skips.map((s) => s.step)).not.toContain(
+      "screenshots_body_too_large",
+    );
   });
 
   it("names screenshots outside the worktree and keeps the push going", () => {

@@ -14,6 +14,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   classifyExternalImages,
+  countRepoRawLinks,
   fetchRepoImage,
   hasRepoRawLinks,
 } from "./image-hosts";
@@ -43,9 +44,12 @@ export {
 export { classifyExternalImages } from "./image-hosts";
 
 /** Final-body guard: a body this long is pushed without uploading anything. */
-export const BODY_MAX_CHARS = 60000;
-/** GitHub's hard cap, used only to size a batch against the live body. */
-const TRANSIENT_BODY_MAX = 65536;
+export const BODY_MAX_CHARS = 250000;
+/**
+ * Sizes a batch against the live body. A live 98,572-char PR body proves the
+ * gh path accepts more than 65,536; gh's own rejection stays the authority.
+ */
+const TRANSIENT_BODY_MAX = 262144;
 const EMBED_COST_CHARS = 120;
 const ATTACH_MIN_VERSION = [2, 99, 0];
 
@@ -84,6 +88,8 @@ export type PushResult = {
   reused: number;
   rehosted: number;
   batches: number;
+  /** Unique same-repo image links still in the pushed body (they load from the repo). */
+  repoLinked: number;
   skips: Skip[];
   /** Hosted URL per body reference, so a caller can mirror the rewrite into its own copy. */
   urlByTarget: Map<string, string>;
@@ -334,9 +340,13 @@ function uploadBatches(ctx: Ctx, queue: LocalImage[], liveBody: string): void {
 }
 
 /** Re-host same-repo links, then upload every pending image in batches. Returns the flagged outside-host links. */
-function runUpload(ctx: Ctx, body: string, pending: LocalImage[]): string[] {
+function runUpload(
+  ctx: Ctx,
+  body: string,
+  pending: LocalImage[],
+  repo: string,
+): string[] {
   const { io, skips, stats } = ctx;
-  const repo = hasRepoRawLinks(body) ? prRepoOf(ctx) : "";
   const found = classifyExternalImages(body, repo);
   // A rehostable src stays flagged until a hosted URL replaces it (see stillFlagged).
   const flagged = new Set([
@@ -426,6 +436,9 @@ export function pushBodyWithScreenshots(
   const wantsUpload = pending.length > 0 || hasRepoRawLinks(body);
   let flagged = classifyExternalImages(body, "").flagged;
   let edit: ExecResult;
+  let repoLinked = 0;
+  let prRepo: string | undefined;
+  const repoOf = (): string => (prRepo ??= prRepoOf(ctx));
   try {
     const attachOk =
       wantsUpload &&
@@ -443,7 +456,12 @@ export function pushBodyWithScreenshots(
         reason: `body is ${body.length} chars (> ${BODY_MAX_CHARS}); screenshots are local-only`,
       });
     } else if (wantsUpload) {
-      flagged = runUpload(ctx, body, pending);
+      flagged = runUpload(
+        ctx,
+        body,
+        pending,
+        hasRepoRawLinks(body) ? repoOf() : "",
+      );
     }
   } finally {
     const finalBody = renderHostedBody(original, ctx.urlByTarget);
@@ -460,6 +478,13 @@ export function pushBodyWithScreenshots(
             args.bodyFile,
           ])
         : pushSibling(ctx, pushed);
+    if (hasRepoRawLinks(pushed)) {
+      const repo = repoOf();
+      repoLinked =
+        repo === ""
+          ? countRepoRawLinks(pushed)
+          : classifyExternalImages(pushed, repo).rehostable.length;
+    }
   }
   const stillFlagged = flagged.filter((src) => !ctx.urlByTarget.has(src));
   if (stillFlagged.length > 0) {
@@ -469,5 +494,11 @@ export function pushBodyWithScreenshots(
       reason: `${stillFlagged.length} image(s) still embedded from outside GitHub attachments (not private to the PR): ${shown}${stillFlagged.length > 3 ? ", …" : ""}`,
     });
   }
-  return { edit, ...ctx.stats, skips: ctx.skips, urlByTarget: ctx.urlByTarget };
+  return {
+    edit,
+    ...ctx.stats,
+    repoLinked,
+    skips: ctx.skips,
+    urlByTarget: ctx.urlByTarget,
+  };
 }
