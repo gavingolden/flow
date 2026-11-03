@@ -10924,7 +10924,7 @@ describe("pause-output contract wiring lint", () => {
     ).toEqual([]);
   });
 
-  it("no lens checklist exceeds the 250-line accretion tripwire", () => {
+  it("every lens checklist stays within the 200-line cap its header states", () => {
     const checklistsDir = path.join(
       REPO_ROOT,
       "skills",
@@ -10933,25 +10933,42 @@ describe("pause-output contract wiring lint", () => {
       "references",
       "checklists",
     );
-    const LINE_LIMIT = 250;
+    const LINE_LIMIT = 200;
+    const CAP_SENTENCE =
+      `Cap: ${LINE_LIMIT} lines, lint-enforced. Before an addition would ` +
+      `cross it: condense, fold instance entries into a class rule, re-home ` +
+      `an entry to the lens whose checklist owns its surface, automate ` +
+      `deterministic entries into lint, or move consumer-specific entries to ` +
+      `\`docs/consumer-review-patterns.md\`.`;
+    const STALE_CAP_RE = /soft[- ]?capped?|~\d+ lines each|accretion tripwire/i;
     const offenders: string[] = [];
     for (const name of fs.readdirSync(checklistsDir)) {
       if (!name.endsWith(".md")) continue;
-      const full = path.join(checklistsDir, name);
-      const lineCount = fs.readFileSync(full, "utf8").split("\n").length;
+      const content = fs.readFileSync(path.join(checklistsDir, name), "utf8");
+      if (STALE_CAP_RE.test(content)) {
+        offenders.push(`${name} (states a conflicting cap)`);
+      }
+      const lineCount = (content.match(/\n/g) ?? []).length;
       if (lineCount > LINE_LIMIT) {
         offenders.push(`${name} (${lineCount} lines)`);
+      }
+      if (!content.replace(/\s+/g, " ").includes(CAP_SENTENCE)) {
+        offenders.push(`${name} (header lacks the shared cap sentence)`);
       }
     }
     expect(
       offenders,
-      `The following lens checklist files exceed the ${LINE_LIMIT}-line ` +
-        `accretion tripwire: ${offenders.join(", ")}. Remediate in this order: ` +
-        `condense → merge duplicates → automate deterministic entries into ` +
-        `lint → move consumer-specific entries to the portable doc ` +
-        `(docs/consumer-review-patterns.md). Never split a lens file into ` +
-        `sub-files, and never delete a load-bearing pattern just for length.`,
+      `The following lens checklist files break the ${LINE_LIMIT}-line cap ` +
+        `contract: ${offenders.join(", ")}. Remediate in this order: ` +
+        `condense → fold instance entries into a class rule → re-home an ` +
+        `entry to the lens whose checklist owns its surface → automate ` +
+        `deterministic entries into lint → move consumer-specific entries to ` +
+        `the portable doc (docs/consumer-review-patterns.md). Never split a ` +
+        `lens file into sub-files, and never delete a load-bearing pattern ` +
+        `just for length.`,
     ).toEqual([]);
+    expect(prReviewContent).toContain(`capped at ${LINE_LIMIT} lines each`);
+    expect(prReviewContent).not.toMatch(STALE_CAP_RE);
   });
 
   it("every code-lens Process step walks every checklist entry", () => {

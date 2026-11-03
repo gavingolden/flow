@@ -1,7 +1,7 @@
 # Security Review Checklist
 
-Checks for the **security** lens. Soft cap: ~150 lines — condense, merge duplicates, automate deterministic entries into lint, or move
-consumer-specific entries to `docs/consumer-review-patterns.md` before adding new entries.
+Checks for the **security** lens. Cap: 200 lines, lint-enforced. Before an addition would cross it: condense, fold instance entries into a class rule, re-home an entry to the lens whose checklist owns its surface, automate deterministic entries into lint, or move consumer-specific entries to `docs/consumer-review-patterns.md`.
+
 New entries are captured via `flow-pr-review/SKILL.md` step 5 ("Capture the gap") — see that
 step for the two-destination contract; never edit this file at review time — step 5 routes
 generic gaps to a filed issue; edits land only via a maintainer PR against the flow repo.
