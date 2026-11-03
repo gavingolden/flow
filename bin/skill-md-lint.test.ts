@@ -10940,10 +10940,14 @@ describe("pause-output contract wiring lint", () => {
       `an entry to the lens whose checklist owns its surface, automate ` +
       `deterministic entries into lint, or move consumer-specific entries to ` +
       `\`docs/consumer-review-patterns.md\`.`;
+    const STALE_CAP_RE = /soft[- ]?capped?|~\d+ lines each|accretion tripwire/i;
     const offenders: string[] = [];
     for (const name of fs.readdirSync(checklistsDir)) {
       if (!name.endsWith(".md")) continue;
       const content = fs.readFileSync(path.join(checklistsDir, name), "utf8");
+      if (STALE_CAP_RE.test(content)) {
+        offenders.push(`${name} (states a conflicting cap)`);
+      }
       const lineCount = (content.match(/\n/g) ?? []).length;
       if (lineCount > LINE_LIMIT) {
         offenders.push(`${name} (${lineCount} lines)`);
@@ -10964,6 +10968,7 @@ describe("pause-output contract wiring lint", () => {
         `just for length.`,
     ).toEqual([]);
     expect(prReviewContent).toContain(`capped at ${LINE_LIMIT} lines each`);
+    expect(prReviewContent).not.toMatch(STALE_CAP_RE);
   });
 
   it("every code-lens Process step walks every checklist entry", () => {
