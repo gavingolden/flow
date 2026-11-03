@@ -247,8 +247,9 @@ Contents: Sub-agent rule: the rest of the flat-fan-out rationale · Load the Tas
 >
 > **Fallback:** exit `3` means the body was pushed but at least one image
 > stayed local-only (a visible "screenshot not uploaded" placeholder shows
-> on the PR). Fix the cause the stderr line names (an old `gh` needs
-> `brew upgrade gh`), then re-run; never improvise a host. Same-repo
+> on the PR), or a same-repo image link is still in the pushed body, so its
+> branch must not be deleted yet. Fix the cause the stderr line names (an
+> old `gh` needs `brew upgrade gh`), then re-run; never improvise a host. Same-repo
 > `?raw=true` / `raw.githubusercontent.com` links are re-hosted
 > automatically, and `flow-review-finalize` re-scans every pipeline PR body
 > at review, so an image left on another outside host is named at the gate.

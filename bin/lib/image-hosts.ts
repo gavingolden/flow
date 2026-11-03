@@ -88,6 +88,18 @@ export function hasRepoRawLinks(body: string): boolean {
   });
 }
 
+/** Unique GitHub-served repo-file image targets of any extension; any repo when `prRepo` is empty. */
+export function countRepoRawLinks(body: string, prRepo = ""): number {
+  const targets = new Set<string>();
+  for (const r of imageRefs(body)) {
+    const url = parseUrl(r.target);
+    const file = url === null ? null : parseRepoImage(url);
+    if (file !== null && (prRepo === "" || file.repo === prRepo.toLowerCase()))
+      targets.add(r.target);
+  }
+  return targets.size;
+}
+
 export function classifyExternalImages(
   body: string,
   prRepo: string,
