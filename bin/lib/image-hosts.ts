@@ -35,27 +35,34 @@ function decode(part: string): string {
   }
 }
 
+/** Splits `<ref>/<path…>`, honouring the `refs/heads/` and `refs/tags/` forms. */
+function splitRefAndPath(tail: string[]): { ref: string; path: string } | null {
+  if (
+    tail[0] === "refs" &&
+    (tail[1] === "heads" || tail[1] === "tags") &&
+    tail.length >= 4
+  ) {
+    return { ref: tail[2], path: tail.slice(3).join("/") };
+  }
+  if (tail.length >= 2) return { ref: tail[0], path: tail.slice(1).join("/") };
+  return null;
+}
+
 /** `owner/repo`, ref and path of a GitHub-served repo file, or null. */
 function parseRepoImage(url: URL): RepoImage | null {
   const parts = url.pathname.split("/").filter(Boolean).map(decode);
-  if (url.hostname === "raw.githubusercontent.com" && parts.length >= 4) {
-    return {
-      repo: `${parts[0]}/${parts[1]}`.toLowerCase(),
-      ref: parts[2],
-      path: parts.slice(3).join("/"),
-    };
+  const repo = `${parts[0]}/${parts[1]}`.toLowerCase();
+  if (url.hostname === "raw.githubusercontent.com") {
+    const split = splitRefAndPath(parts.slice(2));
+    return split ? { repo, ...split } : null;
   }
   if (
     url.hostname === "github.com" &&
-    parts.length >= 5 &&
     (parts[2] === "raw" ||
       (parts[2] === "blob" && url.searchParams.get("raw") === "true"))
   ) {
-    return {
-      repo: `${parts[0]}/${parts[1]}`.toLowerCase(),
-      ref: parts[3],
-      path: parts.slice(4).join("/"),
-    };
+    const split = splitRefAndPath(parts.slice(3));
+    return split ? { repo, ...split } : null;
   }
   return null;
 }

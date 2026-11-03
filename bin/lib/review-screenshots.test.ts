@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
-  batchImages,
   classifyExternalImages,
   collectLocalImages,
   harvestTokenUrls,
@@ -11,6 +14,7 @@ import {
   renderHostedBody,
   stripLocalImageRefs,
   uploadToken,
+  writeScratchBytes,
   type ExecResult,
 } from "./review-screenshots";
 
@@ -159,16 +163,21 @@ describe("collectLocalImages", () => {
     expect(found.outside).toEqual(["../x.png"]);
     expect(found.missing).toEqual(["m.png"]);
     expect(found.unattachable).toEqual(["dir#1/h.png"]);
+    expect(found.unsupported).toEqual(["n.svg"]);
+  });
+
+  it("trims the self-closing slash off an unquoted src", () => {
+    const body = "<img src=img/d.png/>";
+    expect(collectLocalImages(body, WT, hashFile).images[0].targets).toEqual([
+      "img/d.png",
+    ]);
+    expect(
+      renderHostedBody(body, new Map([["img/d.png", "https://h/d"]])),
+    ).toBe("<img src=https://h/d/>");
   });
 });
 
-describe("batchImages / uploadToken / harvestTokenUrls", () => {
-  it("splits 55 items into batches of 50 and 5", () => {
-    const items = Array.from({ length: 55 }, (_, i) => i);
-    expect(batchImages(items).map((b) => b.length)).toEqual([50, 5]);
-    expect(batchImages([])).toEqual([]);
-  });
-
+describe("uploadToken / harvestTokenUrls", () => {
   it("builds a 16-hex token", () => {
     expect(uploadToken("0123456789abcdef0123")).toBe(
       "flow-img-0123456789abcdef",
@@ -203,6 +212,10 @@ describe("classifyExternalImages", () => {
     "![e](https://i.imgur.com/q.png)",
     "![f](https://github.com/user-attachments/assets/ok)",
     "![g](https://img.shields.io/badge/x-y-green)",
+    "![h](https://github.com/me/repo/raw/main/w.png)",
+    "![i](https://github.com/me/repo/blob/main/v.png)",
+    "![j](https://raw.githubusercontent.com/me/repo/main/d.svg)",
+    "![k](https://raw.githubusercontent.com/me/repo/refs/heads/feat/x/k.png)",
   ].join("\n");
 
   it("re-hosts own-repo links and flags the other outside hosts", () => {
@@ -210,11 +223,15 @@ describe("classifyExternalImages", () => {
     expect(got.rehostable.map((r) => [r.ref, r.path])).toEqual([
       [SHA40, "static/x.png"],
       ["main", "docs/y.png"],
+      ["main", "w.png"],
+      ["feat", "x/k.png"],
     ]);
     expect(got.flagged).toEqual([
       "https://github.com/other/repo/blob/main/z.png?raw=true",
       "https://gist.githubusercontent.com/u/1/raw/g.png",
       "https://i.imgur.com/q.png",
+      "https://github.com/me/repo/blob/main/v.png",
+      "https://raw.githubusercontent.com/me/repo/main/d.svg",
     ]);
   });
 
@@ -241,6 +258,9 @@ function makeGh(
     landBeforeFail?: number;
     failView?: boolean;
     noWriteBytes?: boolean;
+    dropEmbeds?: boolean;
+    apiFails?: "contents" | "blob";
+    throwWriteBytes?: boolean;
   } = {},
 ): Gh {
   const files = new Map<string, string>([[`${WT}/body.md`, body]]);
@@ -255,7 +275,12 @@ function makeGh(
       return ok(`gh version ${o.version ?? "2.101.0"} (2026-09-15)\n`);
     }
     if (argv[1] === "api") {
-      if (argv[2].includes("/contents/")) return ok(`${SHA40}\n`);
+      const contents = argv[2].includes("/contents/");
+      if (o.apiFails === "contents" && contents) {
+        return { stdout: "", stderr: "HTTP 404", exitCode: 1 };
+      }
+      if (contents) return ok(`${SHA40}\n`);
+      if (o.apiFails === "blob") return ok("");
       return ok(PNG_BYTES.toString("base64").replace(/(.{4})/g, "$1\n"));
     }
     if (argv[2] === "view") {
@@ -272,6 +297,7 @@ function makeGh(
     }
     const attach = argv.filter((_, i) => argv[i - 1] === "--attach");
     attach.forEach((arg, i) => {
+      if (o.dropEmbeds) return;
       if (o.landBeforeFail !== undefined && i >= o.landBeforeFail) return;
       const token = arg.slice(arg.indexOf("#") + 1);
       remote += `\n![${token}](${HOSTED}u-${token.slice(9)})\n`;
@@ -293,7 +319,10 @@ function makeGh(
       hashFile,
       writeBytes: o.noWriteBytes
         ? undefined
-        : (p, b) => void written.set(p, Buffer.from(b)),
+        : (p, b) => {
+            if (o.throwWriteBytes) throw new Error("disk full");
+            written.set(p, Buffer.from(b));
+          },
     },
   };
 }
@@ -370,6 +399,75 @@ describe("pushBodyWithScreenshots", () => {
       result.skips.find((s) => s.step === "screenshots_upload_failed")?.reason,
     ).toContain("3 screenshot(s)");
     expect(result.edit.exitCode).toBe(0);
+  });
+
+  it("counts every queued image as failed and attempts no further batch after a failed one", () => {
+    const names = Array.from({ length: 55 }, (_, i) => `i${i}.png`);
+    const gh = makeGh(names.map((n) => `![${n}](img/${n})`).join("\n\n"), {
+      landBeforeFail: 0,
+    });
+    const result = run(gh);
+    expect(attachEdits(gh)).toHaveLength(1);
+    expect(result.uploaded).toBe(0);
+    expect(
+      result.skips.find((s) => s.step === "screenshots_upload_failed")?.reason,
+    ).toContain("55 screenshot(s)");
+  });
+
+  it("names unresolved uploads when gh succeeds but no embed comes back", () => {
+    const gh = makeGh("![a](img/a.png)\n", { dropEmbeds: true });
+    const result = run(gh);
+    expect(result.uploaded).toBe(0);
+    expect(result.skips.map((s) => s.step)).toEqual([
+      "screenshots_url_unresolved",
+    ]);
+    expect(gh.remote()).toContain(placeholderFor("a.png"));
+    expect(gh.remote()).not.toContain("flow-img-");
+  });
+
+  it("names an unsupported local image type", () => {
+    const gh = makeGh("![a](img/a.svg)\n");
+    const result = run(gh);
+    expect(result.skips.map((s) => s.step)).toContain(
+      "screenshots_file_unusable",
+    );
+    expect(result.skips[0].reason).toContain("unsupported image type");
+  });
+
+  it("still flags a same-repo link whose upload then fails, instead of calling it local-only", () => {
+    const src = "https://raw.githubusercontent.com/me/repo/main/x.png";
+    const gh = makeGh(`![s](${src})\n`, { landBeforeFail: 0 });
+    const result = run(gh);
+    expect(result.skips.map((s) => s.step)).toContain(
+      "screenshots_external_host",
+    );
+    expect(bodyAfter(gh)).toContain(src);
+  });
+
+  it("reports gh too old when the only candidate is a same-repo raw link", () => {
+    const gh = makeGh(
+      "![s](https://raw.githubusercontent.com/me/repo/main/x.png)\n",
+      { version: "2.90.0" },
+    );
+    expect(run(gh).skips.map((s) => s.step)).toContain(
+      "screenshots_gh_too_old",
+    );
+  });
+
+  it.each([
+    ["contents lookup fails", { apiFails: "contents" as const }],
+    ["blob download is empty", { apiFails: "blob" as const }],
+    ["the scratch write throws", { throwWriteBytes: true }],
+  ])("flags a same-repo link and still pushes when %s", (_name, opt) => {
+    const src = "https://raw.githubusercontent.com/me/repo/main/x.png";
+    const gh = makeGh(`![s](${src})\n`, opt);
+    const result = run(gh);
+    expect(result.skips.map((s) => s.step)).toEqual([
+      "screenshots_external_host",
+    ]);
+    expect(result.rehosted).toBe(0);
+    expect(attachEdits(gh)).toEqual([]);
+    expect(gh.remote()).toContain(src);
   });
 
   it("still pushes when the read-back fails, with every image a placeholder", () => {
@@ -482,5 +580,25 @@ describe("pushBodyWithScreenshots", () => {
       },
     ]);
     expect(gh.remote()).toContain(placeholderFor("shot.png"));
+  });
+});
+
+describe("writeScratchBytes", () => {
+  it("round-trips bytes under .flow-tmp and git-ignores that directory", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-scratch-"));
+    try {
+      execFileSync("git", ["init", "-q", dir]);
+      const target = path.join(dir, ".flow-tmp/pr-images/rehosted/x.png");
+      writeScratchBytes(dir, target, PNG_BYTES);
+      expect(fs.readFileSync(target).equals(PNG_BYTES)).toBe(true);
+      const ignored = execFileSync(
+        "git",
+        ["-C", dir, "check-ignore", "-q", ".flow-tmp/pr-images/rehosted/x.png"],
+        { stdio: "pipe" },
+      );
+      expect(ignored.toString()).toBe("");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

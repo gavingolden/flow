@@ -24,12 +24,12 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { FLOW_STATE_DIR } from "./lib/paths";
 import { checkOwnPipelinePr } from "./lib/pipeline-pr-ownership";
+import { resolveSlugAmbient } from "./lib/session-identity";
+import { readState } from "./lib/state";
 import {
-  collectLocalImages,
   hasLocalImageRefs,
-  ledgerPath,
-  parseLedger,
   pushBodyWithScreenshots,
   renderHostedBody,
   sha256File,
@@ -110,20 +110,22 @@ function defaultWriteBytes(p: string, bytes: Uint8Array): void {
   fs.writeFileSync(p, bytes);
 }
 
-/** Hosted URLs for the input body's own local references, from the ledger. */
-function hostedInput(
-  body: string,
-  worktree: string,
-  hashFile: (p: string) => string | null,
-  ledgerRaw: string | null,
-): string {
-  const ledger = parseLedger(ledgerRaw);
-  const urls = new Map<string, string>();
-  for (const image of collectLocalImages(body, worktree, hashFile).images) {
-    const url = ledger[image.sha];
-    if (url) for (const t of image.targets) urls.set(t, url);
-  }
-  return renderHostedBody(body, urls);
+/** Inside a pipeline, the upload root must be that pipeline's own worktree. */
+function worktreeNotOwned(worktree: string, deps: Deps): string | null {
+  const slug = resolveSlugAmbient({ env: deps.env });
+  if (slug === null) return null;
+  const owned = readState(slug, deps.stateDir ?? FLOW_STATE_DIR)?.worktree;
+  if (!owned) return null;
+  const real = (p: string): string => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  return real(worktree) === real(owned)
+    ? null
+    : `worktree-not-owned: ${worktree} is not this pipeline's worktree (${owned})`;
 }
 
 export async function run(argv: string[], deps: Deps = {}): Promise<number> {
@@ -168,6 +170,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
       return fail(2, "cannot find the worktree; pass --worktree <dir>");
     }
   }
+  const foreign = worktreeNotOwned(worktree, deps);
+  if (foreign !== null) return fail(2, foreign);
   try {
     ensureExcludes(worktree);
   } catch (err) {
@@ -197,7 +201,12 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   try {
     pushed = pushBodyWithScreenshots(
       { exec, readFile, writeFile, hashFile, writeBytes },
-      { prStr: String(parsed.pr), bodyFile: working, worktree },
+      {
+        prStr: String(parsed.pr),
+        bodyFile: working,
+        worktree,
+        retryHint: "re-run flow-pr-attach to retry",
+      },
     );
   } catch (err) {
     removeFile(working);
@@ -210,17 +219,12 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const localOnly = hasLocalImageRefs(readFile(working) ?? "");
   removeFile(working);
 
+  const { edit, urlByTarget, ...counts } = pushed;
   if (bodyPushed) {
-    const hosted = hostedInput(
-      original,
-      worktree,
-      hashFile,
-      readFile(ledgerPath(worktree)),
-    );
+    const hosted = renderHostedBody(original, urlByTarget);
     if (hosted !== original) writeFile(bodyFile, hosted);
   }
 
-  const { edit, ...counts } = pushed;
   if (parsed.json) {
     console.log(JSON.stringify({ bodyPushed, ...counts }));
   } else if (bodyPushed) {

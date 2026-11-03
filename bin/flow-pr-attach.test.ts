@@ -319,6 +319,73 @@ describe("run", () => {
   });
 });
 
+describe("safety guards", () => {
+  it("has the exec bit set", () => {
+    const file = path.join(import.meta.dirname, "flow-pr-attach.ts");
+    expect(fs.statSync(file).mode & 0o111).not.toBe(0);
+  });
+
+  it("git-ignores .flow-tmp before the first scratch write", async () => {
+    seedImages(["a.png"]);
+    fs.writeFileSync(bodyFile, `![a](${img("a.png")})\n`);
+    const order: string[] = [];
+    const gh = fakeExec();
+    await attach(argvFor(), {
+      exec: gh.exec,
+      ensureExcludes: (w) => void order.push(`excl:${w}`),
+      writeFile: (p, c) => {
+        order.push(`write:${p}`);
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, c);
+      },
+    });
+    expect(order[0]).toBe(`excl:${worktree}`);
+    expect(order.length).toBeGreaterThan(1);
+  });
+
+  it("exits 2 without calling gh when the worktree is not a git checkout", async () => {
+    seedImages(["a.png"]);
+    fs.writeFileSync(bodyFile, `![a](${img("a.png")})\n`);
+    const gh = fakeExec();
+    const { code, err } = await attach(argvFor(), {
+      exec: gh.exec,
+      ensureExcludes: () => {
+        throw new Error("not a repo");
+      },
+    });
+    expect(code).toBe(2);
+    expect(err).toContain("is not a git checkout");
+    expect(gh.calls).toEqual([]);
+  });
+
+  it("refuses a --worktree that is not the pipeline's own worktree", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "fpa-wt-"));
+    fs.writeFileSync(
+      path.join(stateDir, "slug-a.json"),
+      JSON.stringify({
+        slug: "slug-a",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-22T11:00:00Z",
+        pr: 5,
+        worktree: path.join(os.tmpdir(), "some-other-worktree"),
+      }),
+    );
+    seedImages(["a.png"]);
+    fs.writeFileSync(bodyFile, `![a](${img("a.png")})\n`);
+    const gh = fakeExec();
+    const refused = await attach(argvFor([], "5"), {
+      exec: gh.exec,
+      env: { FLOW_SLUG: "slug-a" },
+      stateDir,
+    });
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    expect(refused.code).toBe(2);
+    expect(refused.err).toContain("worktree-not-owned");
+    expect(gh.calls).toEqual([]);
+  });
+});
+
 describe("hosted URL write-back", () => {
   it("uses the content hash, so two copies of one image share a single upload", async () => {
     seedImages(["a.png"]);
@@ -339,5 +406,36 @@ describe("hosted URL write-back", () => {
       `#flow-img-${sha.slice(0, 16)}`,
     );
     expect(gh.remote().match(/user-attachments/g)).toHaveLength(2);
+  });
+
+  it("writes a re-hosted same-repo link's hosted URL back to the body file", async () => {
+    const src = "https://raw.githubusercontent.com/me/repo/main/x.png";
+    fs.mkdirSync(path.dirname(bodyFile), { recursive: true });
+    fs.writeFileSync(bodyFile, `![s](${src})\n`);
+    const gh = fakeExec();
+    const exec = (argv: string[]) => {
+      if (argv[1] === "api") {
+        return {
+          stdout: argv[2].includes("/contents/")
+            ? `${"a".repeat(40)}\n`
+            : Buffer.from("png").toString("base64"),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      if (argv.includes("url")) {
+        return {
+          stdout: "https://github.com/me/repo/pull/7\n",
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      return gh.exec(argv);
+    };
+    const { code } = await attach(argvFor(), { exec });
+    expect(code).toBe(0);
+    const after = fs.readFileSync(bodyFile, "utf8");
+    expect(after).toContain(HOSTED);
+    expect(after).not.toContain("raw.githubusercontent.com");
   });
 });

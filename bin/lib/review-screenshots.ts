@@ -32,7 +32,6 @@ import { ensureFlowExcludes } from "./worktree-marker";
 
 export {
   ATTACH_MAX_FILES,
-  batchImages,
   collectLocalImages,
   harvestTokenUrls,
   hasLocalImageRefs,
@@ -76,6 +75,8 @@ export type PushArgs = {
   worktree: string;
   /** Anything but `true` makes the engine probe `gh --version` itself when the body needs an upload. */
   attachSupported?: boolean;
+  /** Names what to re-run, since the reason also prints where "re-run" is ambiguous. */
+  retryHint?: string;
 };
 export type PushResult = {
   edit: ExecResult;
@@ -84,6 +85,8 @@ export type PushResult = {
   rehosted: number;
   batches: number;
   skips: Skip[];
+  /** Hosted URL per body reference, so a caller can mirror the rewrite into its own copy. */
+  urlByTarget: Map<string, string>;
 };
 
 export function ghSupportsAttach(versionOutput: string): boolean {
@@ -207,6 +210,12 @@ function unusableSkips(found: CollectedImages): Skip[] {
       reason: `${unusable.length} screenshot(s) could not be uploaded (file unreadable or '#' in its path): ${unusable[0]}`,
     });
   }
+  if (found.unsupported.length > 0) {
+    out.push({
+      step: "screenshots_file_unusable",
+      reason: `${found.unsupported.length} screenshot(s) have an unsupported image type (png/jpg/gif/webp only): ${found.unsupported[0]}`,
+    });
+  }
   return out;
 }
 
@@ -313,7 +322,7 @@ function uploadBatches(ctx: Ctx, queue: LocalImage[], liveBody: string): void {
   if (failed > 0) {
     skips.push({
       step: "screenshots_upload_failed",
-      reason: `${failed} screenshot(s) not uploaded and left local-only — re-run to retry (${failure})`,
+      reason: `${failed} screenshot(s) not uploaded and left local-only — ${args.retryHint ?? "re-run to retry"} (${failure})`,
     });
   }
   if (unresolved > 0) {
@@ -329,14 +338,15 @@ function runUpload(ctx: Ctx, body: string, pending: LocalImage[]): string[] {
   const { io, skips, stats } = ctx;
   const repo = hasRepoRawLinks(body) ? prRepoOf(ctx) : "";
   const found = classifyExternalImages(body, repo);
-  const flagged = new Set(found.flagged);
+  // A rehostable src stays flagged until a hosted URL replaces it (see stillFlagged).
+  const flagged = new Set([
+    ...found.flagged,
+    ...found.rehostable.map((r) => r.src),
+  ]);
   const rehostShas = new Set<string>();
   for (const r of found.rehostable) {
     const got = rehost(ctx, repo, r);
-    if (typeof got === "string") {
-      flagged.add(r.src);
-      continue;
-    }
+    if (typeof got === "string") continue;
     rehostShas.add(got.sha);
     const url = ctx.ledger[got.sha];
     if (url) {
@@ -353,7 +363,7 @@ function runUpload(ctx: Ctx, body: string, pending: LocalImage[]): string[] {
     if (view.exitCode !== 0) {
       skips.push({
         step: "screenshots_upload_failed",
-        reason: `${pending.length} screenshot(s) not uploaded and left local-only — could not read the PR body (${view.stderr.trim() || view.exitCode})`,
+        reason: `${pending.length} screenshot(s) not uploaded and left local-only — ${ctx.args.retryHint ?? "re-run to retry"}; could not read the PR body (${view.stderr.trim() || view.exitCode})`,
       });
     } else {
       let live = view.stdout;
@@ -422,13 +432,11 @@ export function pushBodyWithScreenshots(
       (args.attachSupported === true ||
         ghSupportsAttach(io.exec(["gh", "--version"]).stdout));
     if (wantsUpload && !attachOk) {
-      if (pending.length > 0) {
-        ctx.skips.push({
-          step: "screenshots_gh_too_old",
-          reason:
-            "gh is older than 2.99.0 (no --attach); screenshots are local-only — run `brew upgrade gh`",
-        });
-      }
+      ctx.skips.push({
+        step: "screenshots_gh_too_old",
+        reason:
+          "gh is older than 2.99.0 (no --attach); screenshots are local-only — run `brew upgrade gh`",
+      });
     } else if (wantsUpload && body.length > BODY_MAX_CHARS) {
       ctx.skips.push({
         step: "screenshots_body_too_large",
@@ -461,5 +469,5 @@ export function pushBodyWithScreenshots(
       reason: `${stillFlagged.length} image(s) still embedded from outside GitHub attachments (not private to the PR): ${shown}${stillFlagged.length > 3 ? ", …" : ""}`,
     });
   }
-  return { edit, ...ctx.stats, skips: ctx.skips };
+  return { edit, ...ctx.stats, skips: ctx.skips, urlByTarget: ctx.urlByTarget };
 }

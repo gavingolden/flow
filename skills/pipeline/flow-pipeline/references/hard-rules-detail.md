@@ -252,6 +252,9 @@ Contents: Sub-agent rule: the rest of the flat-fan-out rationale · Load the Tas
 > `?raw=true` / `raw.githubusercontent.com` links are re-hosted
 > automatically, and `flow-review-finalize` re-scans every pipeline PR body
 > at review, so an image left on another outside host is named at the gate.
+> A PR that auto-merged with placeholders loses nothing: fix the cause, then
+> re-run `flow-pr-attach --pr <n> --body-file <file>` against that PR number
+> (`gh pr edit` works on merged PRs) to put the pictures in.
 
 ## Anchor tmux self-queries on TMUX_PANE
 

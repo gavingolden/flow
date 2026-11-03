@@ -211,6 +211,7 @@ export async function runReviewFinalize(
             bodyFile: opts.bodyFile,
             worktree: opts.worktree,
             attachSupported,
+            retryHint: "re-run /flow-pr-review to retry",
           },
         );
         skips.push(...pushed.skips);

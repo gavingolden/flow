@@ -176,6 +176,8 @@ export type CollectedImages = {
   missing: string[];
   /** Targets whose absolute path holds `#`, ambiguous in gh's `file#alt` arg. */
   unattachable: string[];
+  /** Local targets that are not png/jpg/gif/webp, which gh cannot attach as images. */
+  unsupported: string[];
 };
 
 /** Local images grouped by content hash, so `./a.png` and `a.png` — or two
@@ -190,6 +192,7 @@ export function collectLocalImages(
     outside: [],
     missing: [],
     unattachable: [],
+    unsupported: [],
   };
   const bySha = new Map<string, LocalImage>();
   const seen = new Set<string>();
@@ -206,7 +209,10 @@ export function collectLocalImages(
       out.outside.push(ref.target);
       continue;
     }
-    if (!IMAGE_FILE_RE.test(abs)) continue;
+    if (!IMAGE_FILE_RE.test(abs)) {
+      out.unsupported.push(ref.target);
+      continue;
+    }
     if (abs.includes("#")) {
       out.unattachable.push(ref.target);
       continue;
@@ -231,13 +237,6 @@ export function collectLocalImages(
 /** The unique alt text `gh pr edit --attach <file>#<token>` embeds the upload under. */
 export function uploadToken(sha: string): string {
   return `flow-img-${sha.slice(0, 16)}`;
-}
-
-export function batchImages<T>(items: T[], size = ATTACH_MAX_FILES): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size)
-    out.push(items.slice(i, i + size));
-  return out;
 }
 
 /** Hosted URL per upload token, read from the embeds gh appended to the PR
