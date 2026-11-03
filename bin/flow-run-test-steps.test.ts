@@ -459,6 +459,25 @@ describe("runTestSteps", () => {
     expect(fs.readFileSync(bodyFile, "utf8")).toContain("- [x] Run `x`");
   });
 
+  it("defers a body whose only local image is an <img> tag to flow-review-finalize", async () => {
+    const body = bodyOf([
+      "- [ ] Run `x`",
+      "",
+      '<img src=".flow-tmp/shot.png" width="260">',
+    ]);
+    const h = harness(body);
+    const env = await runTestSteps({
+      pr: 1,
+      worktree,
+      budgetSec: 60,
+      exec: h.exec,
+      now: h.now,
+    });
+    expect(env.bodyPushed).toBe(false);
+    expect(env.pushSkippedReason).toBe("local-image-refs-deferred-to-finalize");
+    expect(edits(h.calls)).toHaveLength(0);
+  });
+
   it("relativizes worktree-absolute paths in evidence, in both the literal and realpath forms", async () => {
     const real = fs.realpathSync(worktree);
     const shot = ".flow-tmp/ui-evidence/review/9-tsm-strip-1280.png";

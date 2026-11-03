@@ -285,6 +285,9 @@ the user has something to judge. For each `capture` entry in `item_results[]`:
   braces: the helper refuses to tick a `SUBJECTIVE: ` / `DECISION: ` line
   whatever it is passed.
 
+  Ad-hoc screenshots outside the driver use `flow-pr-attach`; never an image
+  branch, gist, or outside host.
+
 - **`captured` with `reason: "partial: …"`** — inject as above and add an
   indented `partial: <precondition not met>` line under the item, so the user
   knows the picture is the nearest reachable state, not the exact one.

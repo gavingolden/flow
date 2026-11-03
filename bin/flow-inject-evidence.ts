@@ -28,8 +28,8 @@
  *
  * A line whose text starts `SUBJECTIVE: ` or `DECISION: ` is human-only and
  * is never ticked, whatever exit code is passed. `--image` (repeatable)
- * adds one worktree-relative image reference per screenshot — the form `gh
- * pr edit --attach` rewrites to an uploaded URL; no `file://` link is
+ * adds one worktree-relative image reference per screenshot — the form
+ * `flow-review-finalize` uploads and rewrites to a hosted URL; no `file://` link is
  * emitted because GitHub strips it. Screenshots named as
  * `.flow-tmp/ui-evidence/…` paths in `--output-file` are promoted to images
  * automatically. With at least one `--image`, `--output-file` and
