@@ -154,6 +154,7 @@ type Ctx = {
   skips: Skip[];
   ledger: Ledger;
   urlByTarget: Map<string, string>;
+  rehostErrors: Map<string, string>;
   hostedShas: Set<string>;
   stats: {
     uploaded: number;
@@ -356,7 +357,10 @@ function runUpload(
   const rehostShas = new Set<string>();
   for (const r of found.rehostable) {
     const got = rehost(ctx, repo, r);
-    if (typeof got === "string") continue;
+    if (typeof got === "string") {
+      ctx.rehostErrors.set(r.src, got);
+      continue;
+    }
     rehostShas.add(got.sha);
     const url = ctx.ledger[got.sha];
     if (url) {
@@ -416,6 +420,7 @@ export function pushBodyWithScreenshots(
     skips: [],
     ledger: parseLedger(io.readFile(ledgerPath(args.worktree))),
     urlByTarget: new Map(),
+    rehostErrors: new Map(),
     hostedShas: new Set(),
     stats: { uploaded: 0, reused: 0, rehosted: 0, batches: 0 },
   };
@@ -483,12 +488,18 @@ export function pushBodyWithScreenshots(
       repoLinked =
         repo === ""
           ? countRepoRawLinks(pushed)
-          : classifyExternalImages(pushed, repo).rehostable.length;
+          : countRepoRawLinks(pushed, repo);
     }
   }
   const stillFlagged = flagged.filter((src) => !ctx.urlByTarget.has(src));
   if (stillFlagged.length > 0) {
-    const shown = stillFlagged.slice(0, 3).join(", ");
+    const shown = stillFlagged
+      .slice(0, 3)
+      .map((src) => {
+        const err = ctx.rehostErrors.get(src);
+        return err ? `${src} (${err})` : src;
+      })
+      .join(", ");
     ctx.skips.push({
       step: "screenshots_external_host",
       reason: `${stillFlagged.length} image(s) still embedded from outside GitHub attachments (not private to the PR): ${shown}${stillFlagged.length > 3 ? ", …" : ""}`,

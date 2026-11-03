@@ -17,7 +17,7 @@
  * an unchanged image is never uploaded twice (sha256 ledger).
  *
  * Exit codes:
- *   0  body pushed and every local image hosted (an outside-host note is stderr only)
+ *   0  body pushed, every local image hosted, and no same-repo image link left (an outside-host note is stderr only)
  *   1  body not pushed
  *   2  bad arguments, or a PR that is not this pipeline's own
  *   3  body pushed but at least one image is not natively hosted (a local image stayed local-only, or a same-repo image link is still in the body)

@@ -412,26 +412,7 @@ describe("hosted URL write-back", () => {
     const src = "https://raw.githubusercontent.com/me/repo/main/x.png";
     fs.mkdirSync(path.dirname(bodyFile), { recursive: true });
     fs.writeFileSync(bodyFile, `![s](${src})\n`);
-    const gh = fakeExec();
-    const exec = (argv: string[]) => {
-      if (argv[1] === "api") {
-        return {
-          stdout: argv[2].includes("/contents/")
-            ? `${"a".repeat(40)}\n`
-            : Buffer.from("png").toString("base64"),
-          stderr: "",
-          exitCode: 0,
-        };
-      }
-      if (argv.includes("url")) {
-        return {
-          stdout: "https://github.com/me/repo/pull/7\n",
-          stderr: "",
-          exitCode: 0,
-        };
-      }
-      return gh.exec(argv);
-    };
+    const { exec } = sameRepoExec({});
     const { code } = await attach(argvFor(), { exec });
     expect(code).toBe(0);
     const after = fs.readFileSync(bodyFile, "utf8");
@@ -440,38 +421,38 @@ describe("hosted URL write-back", () => {
   });
 });
 
+function sameRepoExec(o: { contentsFails?: boolean; attachFails?: boolean }) {
+  const gh = fakeExec();
+  const exec = (argv: string[]): ExecResult => {
+    if (argv[1] === "api") {
+      if (o.contentsFails && argv[2].includes("/contents/")) {
+        return { stdout: "", stderr: "HTTP 404", exitCode: 1 };
+      }
+      return {
+        stdout: argv[2].includes("/contents/")
+          ? `${"a".repeat(40)}\n`
+          : Buffer.from("png").toString("base64"),
+        stderr: "",
+        exitCode: 0,
+      };
+    }
+    if (argv.includes("url")) {
+      return {
+        stdout: "https://github.com/me/repo/pull/7\n",
+        stderr: "",
+        exitCode: 0,
+      };
+    }
+    if (o.attachFails && argv.includes("--attach")) {
+      return { stdout: "", stderr: "upload exploded", exitCode: 1 };
+    }
+    return gh.exec(argv);
+  };
+  return { exec, gh };
+}
+
 describe("same-repo image links left in the pushed body", () => {
   const src = "https://github.com/me/repo/blob/main/x.png?raw=true";
-
-  function sameRepoExec(o: { contentsFails?: boolean; attachFails?: boolean }) {
-    const gh = fakeExec();
-    const exec = (argv: string[]): ExecResult => {
-      if (argv[1] === "api") {
-        if (o.contentsFails && argv[2].includes("/contents/")) {
-          return { stdout: "", stderr: "HTTP 404", exitCode: 1 };
-        }
-        return {
-          stdout: argv[2].includes("/contents/")
-            ? `${"a".repeat(40)}\n`
-            : Buffer.from("png").toString("base64"),
-          stderr: "",
-          exitCode: 0,
-        };
-      }
-      if (argv.includes("url")) {
-        return {
-          stdout: "https://github.com/me/repo/pull/7\n",
-          stderr: "",
-          exitCode: 0,
-        };
-      }
-      if (o.attachFails && argv.includes("--attach")) {
-        return { stdout: "", stderr: "upload exploded", exitCode: 1 };
-      }
-      return gh.exec(argv);
-    };
-    return { exec, gh };
-  }
 
   it("exits 3 when the contents fetch fails and the link stays in the body", async () => {
     fs.mkdirSync(path.dirname(bodyFile), { recursive: true });
@@ -481,6 +462,7 @@ describe("same-repo image links left in the pushed body", () => {
     expect(code).toBe(3);
     expect(err).toContain("still in the body");
     expect(err).toContain("load from the repo");
+    expect(err).toContain("HTTP 404");
     expect(gh.remote()).toContain(src);
   });
 

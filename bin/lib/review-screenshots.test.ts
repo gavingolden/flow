@@ -533,7 +533,28 @@ describe("pushBodyWithScreenshots", () => {
     expect(result.skips.map((s) => s.step)).toEqual([
       "screenshots_external_host",
     ]);
+    expect(result.repoLinked).toBe(1);
     expect(gh.remote()).toContain(src);
+  });
+
+  it("counts a repo-shaped link when the PR repo lookup fails", () => {
+    const src = "https://raw.githubusercontent.com/me/repo/main/x.png";
+    const gh = makeGh(`![s](${src})\n![t](${src})\n`, { failView: true });
+    expect(run(gh).repoLinked).toBe(1);
+  });
+
+  it("counts a same-repo non-raster link so the lookup outcome never changes the count", () => {
+    const src = "https://github.com/me/repo/blob/main/chart.svg?raw=true";
+    expect(run(makeGh(`![d](${src})\n`)).repoLinked).toBe(1);
+  });
+
+  it("does not count a link into another repo once the lookup succeeds", () => {
+    const src = "https://raw.githubusercontent.com/other/repo/main/x.png";
+    const result = run(makeGh(`![o](${src})\n`));
+    expect(result.repoLinked).toBe(0);
+    expect(result.skips.map((s) => s.step)).toContain(
+      "screenshots_external_host",
+    );
   });
 
   it("probes gh itself and degrades on an old CLI", () => {
