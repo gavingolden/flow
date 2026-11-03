@@ -138,7 +138,7 @@ Stay in-process for skills; shell out for scripts; never delegate.
 
 > **You write every scratch file under `$WORKTREE/.flow-tmp/`.**
 
-> **PR images go only as native attachments: never an image-hosting branch, gist, or outside host.**
+> **PR images: native attachments only (`flow-pr-attach`), no image-hosting branch, gist, or outside host.**
 
 > **You read flow's own docs with the Read tool, never awk or pattern-range sed.**
 > `grep -n` the heading, then Read with offset/limit (or `sed -n 'N,Mp'`).
