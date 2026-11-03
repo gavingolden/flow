@@ -58,7 +58,7 @@ Reference files (read on demand, not upfront):
 
 - `references/checklists/<lens>.md` — one per-lens checklist file (`security.md`,
   `performance.md`, `bug-detection.md`, `pattern-consistency.md`, `test-coverage.md`,
-  `supply-chain.md`), soft-capped at ~150 lines each. Read the lens-matching file at Step 3 when preparing
+  `supply-chain.md`, `product.md`), capped at 200 lines each (lint-enforced). Read the lens-matching file at Step 3 when preparing
   that agent's context. `docs/consumer-review-patterns.md` is a portable seed for consumer
   repos' `.flow/review-checklist.md` — not loaded here.
 - `references/conventional-comments.md` — labeling framework (praise/nitpick/suggestion/

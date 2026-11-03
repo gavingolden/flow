@@ -1,8 +1,7 @@
 # Bug-Detection Review Checklist
 
-Checks for the **bug-detection** lens. Soft cap: ~150 lines — condense, merge duplicates, automate deterministic entries into lint, or
-move consumer-specific entries to `docs/consumer-review-patterns.md` before adding new
-entries. New entries are captured via `flow-pr-review/SKILL.md` step 5 ("Capture the gap") —
+Checks for the **bug-detection** lens. Cap: 200 lines, lint-enforced. Before an addition would cross it: condense, fold instance entries into a class rule, re-home an entry to the lens whose checklist owns its surface, automate deterministic entries into lint, or move consumer-specific entries to `docs/consumer-review-patterns.md`.
+New entries are captured via `flow-pr-review/SKILL.md` step 5 ("Capture the gap") —
 see that step for the two-destination contract; never edit this file at review time — step 5 routes
 generic gaps to a filed issue; edits land only via a maintainer PR against the flow repo.
 
@@ -54,14 +53,19 @@ non-idempotent side effects; verify either the operation short-circuits on exist
 the retry is conditioned on failure classes that pre-date the side effect. On crash-recovery
 paths, branch on "did the side effect already happen?" before retrying.
 
-## Subprocess Wrapper Non-Throwing Contracts
+## Result-Returning Primitives That Still Throw or Exit
 
-A function whose return type encodes both success and failure (`{ ok, output }`,
-`Result<T, E>`) implies callers don't need try/catch — but underlying primitives (`execa`,
-`fetch`, `fs/promises`) can still throw on timeout, abort, spawn failure, or network error.
-`execa(..., { reject: false })` suppresses non-zero exit codes but **not** timeout/EPIPE/spawn
-failures. Trace each underlying primitive for throw conditions and confirm they land in a
-try/catch that maps onto the failure variant, preserving captured stdout/stderr.
+A function whose signature promises a result/failure variant (`{ ok, output }`, `Result<T, E>`)
+must not escape via throw or exit; callers rely on that contract.
+
+- Underlying primitives (`execa`, `fetch`, `fs/promises`) can still throw on timeout, abort,
+  spawn failure, or network error. `execa(..., { reject: false })` suppresses non-zero exit
+  codes but **not** timeout/EPIPE/spawn failures. Trace each primitive's throw conditions and
+  confirm they land in a try/catch mapping onto the failure variant, preserving captured
+  stdout/stderr.
+- `process.exit` bypasses any try/catch, and surfaces when a CLI primitive is reused from a
+  phase, orchestrator, or test harness. Grep result-returning functions for `process.exit`;
+  fix by throwing or returning a failure variant and leaving exit to the CLI entry point.
 
 ## Error-Message Portability in Cross-Context Code
 

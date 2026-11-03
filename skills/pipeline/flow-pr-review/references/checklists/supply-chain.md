@@ -1,8 +1,7 @@
 # Supply-Chain Review Checklist
 
-Checks for the **supply-chain** lens. Soft cap: ~150 lines — condense, merge duplicates, automate deterministic entries into lint, or
-move consumer-specific entries to `docs/consumer-review-patterns.md` before adding new
-entries. New entries are captured via `flow-pr-review/SKILL.md` step 5 ("Capture the gap") —
+Checks for the **supply-chain** lens. Cap: 200 lines, lint-enforced. Before an addition would cross it: condense, fold instance entries into a class rule, re-home an entry to the lens whose checklist owns its surface, automate deterministic entries into lint, or move consumer-specific entries to `docs/consumer-review-patterns.md`.
+New entries are captured via `flow-pr-review/SKILL.md` step 5 ("Capture the gap") —
 see that step for the two-destination contract; never edit this file at review time — step 5 routes
 generic gaps to a filed issue; edits land only via a maintainer PR against the flow repo.
 
@@ -41,3 +40,9 @@ executable shim.
 **General rule:** A `package.json` field deletion is half a change. The other half is the
 docs that previously assumed it. Cross-check every removed field against `README.md` install
 / quick-start sections before approving.
+
+## npm Lifecycle Script Environment Guards
+
+`prepare`/`postinstall`/`preinstall` run on every `npm install`/`npm ci`. A dependency on a
+non-Node tool (`git`, `bun`, `docker`) needs a `command -v` guard and a non-fatal failure path
+so installs in environments lacking the tool still succeed.
