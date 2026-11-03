@@ -25,9 +25,10 @@ import {
 import { validatePrReviewResult } from "./pr-review-result-schema";
 import {
   ghSupportsAttach,
-  hasLocalImageRefs,
+  needsAttach,
   pushBodyWithScreenshots,
   sha256File,
+  writeScratchBytes,
 } from "./review-screenshots";
 
 export { ghSupportsAttach };
@@ -122,6 +123,8 @@ export type ReviewFinalizeOptions = {
   writeFile?: (p: string, content: string) => void;
   /** sha256 of a file's bytes, or null when unreadable. */
   hashFile?: (p: string) => string | null;
+  /** Binary writer for same-repo images re-hosted at push time. */
+  writeBytes?: (p: string, bytes: Uint8Array) => void;
 };
 
 function defaultExec(argv: string[], opts?: { cwd?: string }): ExecResult {
@@ -161,6 +164,10 @@ export async function runReviewFinalize(
   const readFile = opts.readFile ?? defaultReadFile;
   const writeFile = opts.writeFile ?? defaultWriteFile;
   const hashFile = opts.hashFile ?? sha256File;
+  const writeBytes =
+    opts.writeBytes ??
+    ((p: string, bytes: Uint8Array) =>
+      writeScratchBytes(opts.worktree, p, bytes));
   const dir = path.join(opts.worktree, ".flow-tmp");
   const prStr = String(opts.pr);
   const skips: ReviewFinalizeSkip[] = [];
@@ -174,9 +181,9 @@ export async function runReviewFinalize(
   {
     // The version probe runs BEFORE body_repair so nothing sits between
     // flow-md-validate and gh pr edit, and only when there is a local image
-    // reference to upload.
+    // reference (or same-repo raw link) to upload.
     let attachSupported = false;
-    if (hasLocalImageRefs(readFile(opts.bodyFile) ?? "")) {
+    if (needsAttach(readFile(opts.bodyFile) ?? "")) {
       runStep(skips, "screenshots_probe", () => {
         attachSupported = ghSupportsAttach(exec(["gh", "--version"]).stdout);
       });
@@ -198,7 +205,7 @@ export async function runReviewFinalize(
     if (!bodyStale) {
       runStep(skips, "body_edit", () => {
         const pushed = pushBodyWithScreenshots(
-          { exec, readFile, writeFile, hashFile },
+          { exec, readFile, writeFile, hashFile, writeBytes },
           {
             prStr,
             bodyFile: opts.bodyFile,
