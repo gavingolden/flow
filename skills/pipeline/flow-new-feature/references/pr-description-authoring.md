@@ -315,3 +315,4 @@ confirmation before proceeding to implementation.
 - Leave a blank line after every line ending in `</summary>` and after every line ending
   in `</details>`. GitHub's renderer only re-enters markdown mode at a blank line — without
   one, the next bullet or `<details>` block gets absorbed as literal HTML text.
+- Put PR images in only via `flow-pr-attach --pr <n> --body-file <file>` (relative paths in `![]()` or `<img width>`); never an image-hosting branch, gist, or outside host.

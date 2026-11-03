@@ -2,7 +2,7 @@
 
 The elaboration of each hard rule in `SKILL.md`, moved unchanged. The bold rule sentence stays in `SKILL.md`; what followed it on the same line or in the lines after is here, under a heading naming the rule. This skill's verification list is parked at the end verbatim.
 
-Contents: Sub-agent rule: the rest of the flat-fan-out rationale · Load the Task tool at each spawn site · Detail of exemption 1 · Detail of exemption 2 · Detail of exemption 3 · Detail of exemption 4 · Detail of exemption 5 · Detail of exemption 6 · Detail of exemption 7 · Detail of exemption 8 · Gemini cross-model lens note · Step-3 cross-model plan review note · Step-3 blind method survey note · Headless Claude note · Never bypass the helper scripts · AskUserQuestion: the one named form · Auto-created GitHub issues · Never edit code in the main repo worktree · Never rename or switch branches · Scratch files under .flow-tmp · Anchor tmux self-queries on TMUX_PANE · Verification (this skill)
+Contents: Sub-agent rule: the rest of the flat-fan-out rationale · Load the Task tool at each spawn site · Detail of exemption 1 · Detail of exemption 2 · Detail of exemption 3 · Detail of exemption 4 · Detail of exemption 5 · Detail of exemption 6 · Detail of exemption 7 · Detail of exemption 8 · Gemini cross-model lens note · Step-3 cross-model plan review note · Step-3 blind method survey note · Headless Claude note · Never bypass the helper scripts · AskUserQuestion: the one named form · Auto-created GitHub issues · Never edit code in the main repo worktree · Never rename or switch branches · Scratch files under .flow-tmp · PR images: native upload only · Anchor tmux self-queries on TMUX_PANE · Verification (this skill)
 
 ## Sub-agent rule: the rest of the flat-fan-out rationale
 
@@ -224,6 +224,34 @@ Contents: Sub-agent rule: the rest of the flat-fan-out rationale · Load the Tas
 > in the worktree's per-checkout `.git/info/exclude` by
 > `flow-new-worktree`, so it stays untracked without polluting the
 > consumer repo's `.gitignore`.
+
+## PR images: native upload only
+
+> Any image an agent puts in a PR (a before/after gallery, a hand-built
+> screenshot table) goes through GitHub's native attachments and nothing
+> else.
+>
+> 1. Save each image under `$WORKTREE/.flow-tmp/pr-images/`.
+> 2. Reference it from the PR body file by relative path, as
+>    `![alt](.flow-tmp/pr-images/a.png)` or
+>    `<img src=".flow-tmp/pr-images/a.png" width="260">`.
+> 3. Run `flow-pr-attach --pr <n> --body-file <file>`. It uploads every
+>    local image (batches of 50), rewrites each reference to the hosted
+>    URL (an `<img>` tag keeps its `width`), and pushes the body once.
+>
+> **Forbidden:** an image-hosting branch, a gist, any outside image host,
+> and committing an image to the repo. Why: a private repo's screenshots
+> on a public host leak; deleting an image-hosting branch breaks the
+> merged PR's pictures, so the branch can never go; and a
+> commit-then-delete leaves the bytes in `refs/pull/N/head` forever.
+>
+> **Fallback:** exit `3` means the body was pushed but at least one image
+> stayed local-only (a visible "screenshot not uploaded" placeholder shows
+> on the PR). Fix the cause the stderr line names (an old `gh` needs
+> `brew upgrade gh`), then re-run; never improvise a host. Same-repo
+> `?raw=true` / `raw.githubusercontent.com` links are re-hosted
+> automatically, and `flow-review-finalize` re-scans every pipeline PR body
+> at review, so an image left on another outside host is named at the gate.
 
 ## Anchor tmux self-queries on TMUX_PANE
 
