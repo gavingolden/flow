@@ -128,15 +128,21 @@ describeLive("agy-guard against real processes", () => {
       ],
       { encoding: "utf8", timeout: 20_000 },
     );
+    expect(r.status).toBe(124);
     const agy = track(
       "agy.pid",
-      "the fake never reached its TERM trap before the 500ms deadline \u2014 startup outran the polite stop",
+      "the polite stop arrived before the fake reached its TERM trap (startup lost the 500ms race)",
     );
-    expect(r.status).toBe(124);
     expect(r.stderr).toContain(GUARD_DEADLINE_MARKER);
     expect(r.stderr).toContain("--print-timeout");
-    expect(await waitFor(() => !isAlive(agy), 7000)).toBe(true);
-    expect(fs.existsSync(path.join(dir, "survived-term"))).toBe(true);
+    expect(
+      await waitFor(() => !isAlive(agy), 7000),
+      "agy outlived the force-kill: the guard's SIGKILL escalation is broken",
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(dir, "survived-term")),
+      "the fake died at the polite stop, so the force-kill was never exercised",
+    ).toBe(true);
   }, 30_000);
 
   it("(3) survives a force-kill of the parent's whole process group and stops agy", async () => {
