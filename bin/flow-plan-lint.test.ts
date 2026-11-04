@@ -70,6 +70,10 @@ none — UI-only export button; no request handler, job, outbound call or pipeli
 
 - **Layers touched:** UI, domain.
 
+### Runtime design
+
+none — UI-only export button; no handler, job, queue consumer, scheduler or outbound call changes.
+
 ## Technical Constraints
 
 - none beyond repo-wide conventions
@@ -376,6 +380,104 @@ describe("lintPlan — always-present sections", () => {
       { planMdFile: EXAMPLE_PRD_PATH },
     );
     expect(misses.filter((m) => m.includes("Instrumentation"))).toEqual([]);
+  });
+
+  describe("### Runtime design", () => {
+    const rdMisses = (plan: string) =>
+      lintPlan(plan).misses.filter((m) => m.includes("Runtime design"));
+    const RD_NONE = /(### Runtime design\n\n)none[^\n]*\n/;
+    const SPEC =
+      "| Operation | Est. p99 | Execution model | Timeout / deadline | Retries | Idempotency key | Cost bound |\n| --- | --- | --- | --- | --- | --- | --- |\n| export | ~40 ms | inline — ~40 ms, timeout 2 s | 2 s | none | widget id | none |\n";
+
+    it("names a miss when '### Runtime design' is absent", () => {
+      const plan = CONFORMING_PLAN.replace(
+        /### Runtime design\n\nnone[^\n]*\n/,
+        "",
+      );
+      expect(rdMisses(plan).some((m) => m.includes("missing"))).toBe(true);
+    });
+
+    it("does not let a '### Runtime design' in the PR description draft satisfy the PRD check", () => {
+      const plan =
+        CONFORMING_PLAN.replace(/### Runtime design\n\nnone[^\n]*\n/, "") +
+        "\n### Runtime design\n\nnone — draft only\n";
+      expect(rdMisses(plan).some((m) => m.includes("missing"))).toBe(true);
+    });
+
+    it("names a miss when the body is empty", () => {
+      const plan = CONFORMING_PLAN.replace(RD_NONE, "$1<!-- placeholder -->\n");
+      expect(rdMisses(plan).some((m) => m.includes("is empty"))).toBe(true);
+    });
+
+    it("names a miss for a bare 'none' with no reason", () => {
+      const plan = CONFORMING_PLAN.replace(RD_NONE, "$1none\n");
+      expect(rdMisses(plan).some((m) => m.includes("no reason"))).toBe(true);
+    });
+
+    it("names a miss for a spec with no table row", () => {
+      const plan = CONFORMING_PLAN.replace(
+        RD_NONE,
+        "$1Queue it.\n\n**Proportionality:** none\n",
+      );
+      expect(rdMisses(plan).some((m) => m.includes("table row"))).toBe(true);
+    });
+
+    it("names a miss for a spec with no '**Proportionality:**' line", () => {
+      const plan = CONFORMING_PLAN.replace(RD_NONE, `$1${SPEC}`);
+      expect(rdMisses(plan).some((m) => m.includes("Proportionality"))).toBe(
+        true,
+      );
+    });
+
+    it("accepts a spec table with a Proportionality line", () => {
+      const plan = CONFORMING_PLAN.replace(
+        RD_NONE,
+        `$1${SPEC}\n**Proportionality:** no queue — single-row read\n`,
+      );
+      expect(rdMisses(plan)).toEqual([]);
+    });
+
+    it("names a 'none' whose task Files name a runtime path", () => {
+      const plan = CONFORMING_PLAN.replace(
+        "create src/ExportButton.svelte",
+        "create src/api/reports.ts",
+      );
+      expect(rdMisses(plan).some((m) => m.includes("runtime path"))).toBe(true);
+    });
+
+    it("accepts a runtime-path 'none' whose reason says refactor-only", () => {
+      const plan = CONFORMING_PLAN.replace(
+        "create src/ExportButton.svelte",
+        "create src/api/reports.ts",
+      ).replace(RD_NONE, "$1none — refactor-only, no behaviour change\n");
+      expect(rdMisses(plan)).toEqual([]);
+    });
+
+    it("names a 'none' while '## Instrumentation' is not none", () => {
+      const plan = CONFORMING_PLAN.replace(
+        /(## Instrumentation\n\n)none[^\n]*\n/,
+        "$1| Metric | Instrument |\n| --- | --- |\n| a.b | Histogram |\n\n**Attributes:** reuses registered\n",
+      );
+      expect(rdMisses(plan).some((m) => m.includes("metrics spec"))).toBe(true);
+    });
+
+    it("does not swallow a following '###' subsection inside Architecture Decisions", () => {
+      const plan = CONFORMING_PLAN.replace(
+        RD_NONE,
+        `$1${SPEC}\n### Other notes\n\n**Proportionality:** hidden below another heading\n`,
+      );
+      expect(rdMisses(plan).some((m) => m.includes("Proportionality"))).toBe(
+        true,
+      );
+    });
+
+    it("the shipped example-prd.md's '### Runtime design' passes its own check (drift pin)", () => {
+      const { misses } = lintPlan(
+        "# PRD\n\n" + readFileSync(EXAMPLE_PRD_PATH, "utf8"),
+        { planMdFile: EXAMPLE_PRD_PATH },
+      );
+      expect(misses.filter((m) => m.includes("Runtime design"))).toEqual([]);
+    });
   });
 
   it("does not miss a justified 'nothing' Cut list", () => {

@@ -1531,7 +1531,10 @@ describe("always-loaded context budget (helper-measured)", () => {
   const TEMPLATE_CORE_BUDGET = 8_000;
   // Raised 3_000 -> 3_050 (flow-metrics core skill): its always-loaded
   // description adds ~95 tokens (measured total 2954 -> 3049).
-  const SKILL_FRONTMATTER_BUDGET = 3_050;
+  // Raised 3_050 -> 3_183 (flow-system-design core skill): its always-loaded
+  // description adds ~114 tokens and the flow-metrics SKIP clause ~19 (measured
+  // total 3049 -> 3183).
+  const SKILL_FRONTMATTER_BUDGET = 3_183;
   // Token-scale counterpart to HEADROOM_CAP (which is char-scale, for the
   // two char-based budgets above): SKILL_FRONTMATTER_BUDGET is measured in
   // tokens, so it needs its own cap rather than reusing HEADROOM_CAP's
@@ -4309,6 +4312,10 @@ const DISCOVERY_REFERENCES: { file: string; headings: string[] }[] = [
     file: "discovery-instrumentation.md",
     headings: ["### Instrumentation"],
   },
+  {
+    file: "discovery-runtime-design.md",
+    headings: ["### Runtime design"],
+  },
   { file: "discovery-revision.md", headings: ["## Revision pass mode"] },
   { file: "discovery-survey-epic.md", headings: ["### Epic context"] },
   {
@@ -5890,12 +5897,17 @@ describe("pr-review include-by-reference structure", () => {
     // paths" paragraph hands the implementer the metrics skill paths when the
     // PRD's `## Instrumentation` is non-`none`. The file lands at 841 lines
     // as this test counts them; 842 leaves 1 line of headroom.
+    // Raised 842 -> 850 (2026-11-03, flow-system-design skill threading): the
+    // "System-design rule paths" paragraph hands the implementer the
+    // system-design skill paths when the PRD's `### Runtime design` is
+    // non-`none`. The file lands at 849 lines as this test counts them; 850
+    // leaves 1 line of headroom.
     expect(
       lineCount,
       `flow-new-feature/SKILL.md line count must stay under the post-diet ` +
-        `budget of 842 lines. Material regrowth past this ceiling would ` +
+        `budget of 850 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(842);
+    ).toBeLessThan(850);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {

@@ -75,6 +75,9 @@ or edits:
 - Instrumentation claims: a diff that adds or changes a request handler, job or queue
   consumer, outbound API call, multi-stage pipeline, or a connection or worker pool while the plan or PR
   `## Instrumentation` says `none` or is absent; flag at confidence 80 or above.
+- Runtime design claims: a diff that adds a runtime surface (handler, job, queue consumer,
+  scheduler, outbound call) while the plan's `### Runtime design` says `none` or is absent;
+  flag at confidence 80.
 
 ## New Rules That Contradict Their Neighbours
 

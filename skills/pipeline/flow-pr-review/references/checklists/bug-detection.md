@@ -43,7 +43,9 @@ including cross-file consumers (formatters, comparison logic) that reference the
 producer. Pay special attention to code comparing "what should be visible" against "what is
 rendered" — these silently mis-correlate when the two sides drift.
 
-## Retry Wrappers Around Non-Idempotent Operations
+## Durable Async Work
+
+Every check below fires only on lines the diff adds or changes, never on pre-existing untouched shapes.
 
 A generic retry wrapper (`retryOnce`, `withBackoff`) is safe only when the wrapped operation
 is idempotent. If the first attempt may already have produced an externally visible side
@@ -52,6 +54,15 @@ that state instead of recovering from a transient failure. Audit the wrapped fun
 non-idempotent side effects; verify either the operation short-circuits on existing state, or
 the retry is conditioned on failure classes that pre-date the side effect. On crash-recovery
 paths, branch on "did the side effect already happen?" before retrying.
+
+Also flag, with the confidence shown:
+
+- Work that must not be lost continuing after the response (detached goroutine or promise, timer, in-memory queue) on a request-billed platform: 85. Best-effort work with an explicit timeout in a bounded hook such as `waitUntil` is exempt.
+- A scheduled handler that runs the units itself instead of enqueuing one task per unit: 80.
+- An outbound call with no timeout: 80.
+- A retry loop with no cap, backoff or jitter, or retries stacked at two layers: 75-80.
+- A queue consumer whose side effect is not idempotent under redelivery: 85.
+- A new paid or external call path that bypasses the repo's existing spend cap: 80.
 
 ## Result-Returning Primitives That Still Throw or Exit
 

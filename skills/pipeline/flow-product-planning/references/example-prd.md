@@ -131,6 +131,16 @@ New journey SLO "view a shared dashboard": 99.5% availability over 30 days, with
 - **Pattern:** Follows standard domain module pattern. No Go proxy needed (no external API).
   The RPC function is a one-off pattern justified by the anonymous access requirement
 
+### Runtime design
+
+| Operation           | Est. p99 | Execution model              | Timeout / deadline | Retries                | Idempotency key            | Cost bound          |
+| ------------------- | -------- | ---------------------------- | ------------------ | ---------------------- | -------------------------- | ------------------- |
+| Share-link creation | ~40 ms   | inline — ~40 ms, timeout 2 s | 2 s                | none (client re-posts) | dashboard id + share token | none (no paid call) |
+
+**Platform:** other
+
+**Proportionality:** no queue — single-row insert
+
 ## Technical Constraints
 
 - RLS must enforce that only dashboard owners can create/manage share links — the

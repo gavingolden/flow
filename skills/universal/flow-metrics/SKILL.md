@@ -5,7 +5,8 @@ description: >-
   "add metrics", "instrument this", "add a dashboard", "set up alerts", "define
   an SLO", or a change that adds or alters a request handler, background job,
   outbound API call, or multi-stage pipeline. SKIP logging and tracing; writing
-  the tests goes to flow-testing.
+  the tests goes to flow-testing; execution model, retries, idempotency, cost
+  caps go to flow-system-design.
 ---
 
 # Goal
