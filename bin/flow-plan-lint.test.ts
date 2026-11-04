@@ -72,7 +72,7 @@ none — UI-only export button; no request handler, job, outbound call or pipeli
 
 ### Runtime design
 
-none — UI-only export button; no handler, job, queue consumer, scheduler or outbound call changes.
+none — UI-only export button; no handler, job, queue consumer, outbound call or worker pool changes.
 
 ## Technical Constraints
 

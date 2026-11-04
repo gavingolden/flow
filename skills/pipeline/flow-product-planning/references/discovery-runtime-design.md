@@ -6,7 +6,7 @@ This reference holds the discovery procedure for the always-present `### Runtime
 
 ### Runtime design
 
-**Gate: the plan touches a runtime surface.** The trigger surface is the same as Instrumentation's: a plan that adds or changes a request handler, a background job or queue consumer, an outbound API call, a scheduler, or a multi-stage pipeline. Decide the form from the plan's Task breakdown:
+**Gate: the plan touches a runtime surface.** The trigger surface is the same as Instrumentation's: a plan that adds or changes a request handler, a background job or queue consumer, an outbound API call, a multi-stage pipeline, or a connection or worker pool. Decide the form from the plan's Task breakdown:
 
 - **Fires (full form):** "add a `POST /reports` endpoint that calls the model API five times"; "refresh every saved report nightly"; "call the billing API when an order completes".
 - **Does NOT fire (`none` form):** docs-only, copy-only, style-only, test-only, dependency-bump and behaviour-preserving refactor plans; a UI-only change with no new request or job.
@@ -21,12 +21,12 @@ The subsection is always present. A missing heading is ambiguous and a `none` is
 
 **Full form.** Under `### Runtime design`, write:
 
-- A table `Operation | Est. p99 | Execution model | Timeout / deadline | Retries | Idempotency key | Cost bound`, one row per operation. An inline row may compress to `inline — <p99>, timeout <n>`. A cell that reuses a repo primitive names its repo-relative path, or `new: <path>`.
+- A table `Operation | Est. p99 | Execution model | Timeout / deadline | Retries | Idempotency key | Cost bound`, one row per operation. An inline row may compress to `inline — <p99>, timeout <n>`. A cell that reuses a repo primitive names it in plain words (for example `existing spend ledger`), or `new`; the path goes on the touching task's `**Inputs:**` line, not in the table.
 - A `**Platform:**` line: `gcp | cloudflare | aws | other`.
 - A `**Proportionality:**` line naming what was deliberately left out (no queue for a 50 ms call; no sharding pre-launch).
 
 **`none` form.** A single line `none — <reason>`, where the reason names why no runtime surface changes (for example `none — docs-only change` or `none — refactor-only, no behaviour change`). A bare `none` with no reason is a plan-lint miss, and so is a `none` whose tasks list runtime file paths without a refactor-only or no-behaviour-change reason, or a `none` while `## Instrumentation` is not `none`.
 
-**Task shape (full form only).** A task that adds a worker or queue consumer names its idempotency key and its timeout in its acceptance criterion. When a row reuses a primitive, the touching task lists that primitive's path under `**Inputs:**`, in addition to the path in the table cell.
+**Task shape (full form only).** A task that adds a worker or queue consumer names its idempotency key and its timeout in its acceptance criterion. When a row reuses a primitive, the touching task lists that primitive's repo-relative path under `**Inputs:**` (a new one reads `new: <path>`).
 
 **Forward pointer.** `flow-plan-lint` names a missing subsection, an empty body, a reason-less `none`, a table-less or Proportionality-less non-`none` body, and a `none` on runtime file paths; it is advisory, so the miss is named in the plan summary at approval. `/flow-new-feature` Step 5 reads the subsection and, when it is not `none`, threads the skill's paths into the implementer's `skill_docs`.

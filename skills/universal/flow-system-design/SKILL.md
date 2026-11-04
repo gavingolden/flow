@@ -43,7 +43,7 @@ The principles below are the portable core; each cites its authority:
 - Retrying at several layers multiplies load and turns a blip into an outage ([SRE book: cascading failures](https://sre.google/sre-book/addressing-cascading-failures/)).
 - Under overload, shed or cap work deliberately instead of queueing without bound ([SRE book: handling overload](https://sre.google/sre-book/handling-overload/)).
 - Reliability is a design input, not a later hardening pass ([Google Cloud reliability pillar](https://docs.cloud.google.com/architecture/framework/reliability); [AWS reliability pillar](https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/welcome.html)).
-- Users stop feeling "instant" at about 1 s and lose their flow at about 10 s, which is why the interactive budget defaults to 10 s ([NN/g: response times](https://www.nngroup.com/articles/response-times-3-important-limits/)).
+- Users lose the sense of an instant response past about 0.1 s, their flow of thought past about 1 s, and their attention past about 10 s, which is why the interactive budget defaults to 10 s ([NN/g: response times](https://www.nngroup.com/articles/response-times-3-important-limits/)).
 - Build only what today's requirement needs ([Fowler: YAGNI](https://martinfowler.com/bliki/Yagni.html)).
 
 # Instructions
@@ -111,7 +111,7 @@ The plan's `### Runtime design` section (under `## Architecture Decisions`) carr
 | --------- | -------- | --------------- | ------------------ | ------- | --------------- | ---------- |
 
 - An inline row may compress to `inline — <p99>, timeout <n>`.
-- A cell that reuses a repo primitive names its repo-relative path; a new one reads `new: <path>`.
+- A cell that reuses a repo primitive names it in plain words, or `new`; the touching task lists its repo-relative path under `**Inputs:**` (`new: <path>` for a new one).
 - A `**Platform:**` line (`gcp | cloudflare | aws | other`) and a `**Proportionality:**` line follow the table.
 - A change with no runtime surface writes `none — <reason>` instead.
 
@@ -123,6 +123,7 @@ The plan's `### Runtime design` section (under `## Architecture Decisions`) carr
 - Retries stacked at two layers (client, worker and queue each retrying).
 - A queue, worker and status table for a 50 ms call.
 - An idempotency key minted per attempt, which dedupes nothing.
+- A worker or webhook endpoint that runs paid or side-effecting work without authenticating its caller.
 
 # Verification
 

@@ -14,6 +14,12 @@
       "exists": true
     },
     {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
       "id": "plugin-loaded",
       "kind": "file",
       "file": "$STREAM",

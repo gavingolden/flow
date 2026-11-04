@@ -14,12 +14,14 @@ Read this on repos deployed to Google Cloud. It maps each principle in `../SKILL
 - The default dispatch deadline for an HTTP target handler is 10 minutes, with a maximum of 30 minutes. Keep the worker's own timeout below it. Source: https://docs.cloud.google.com/tasks/docs/creating-http-target-tasks
 - A named task is deduplicated on its name, which is the natural place for the business-identity key. Deduplication is not instant: a name can stay reserved after the task finishes, so do not rely on it alone; also dedupe at the consumer. Source: https://docs.cloud.google.com/tasks/docs/creating-http-target-tasks
 - Queue retry config sets max attempts, min and max backoff, and max doublings; rate and concurrency caps (`maxDispatchesPerSecond`, `maxConcurrentDispatches`) throttle the worker. Retry here and nowhere else. Source: https://docs.cloud.google.com/tasks/docs/configuring-queues
+- Give the HTTP target an OIDC token (`oidcToken.serviceAccountEmail`) and accept only that caller: deploy the worker as its own Cloud Run service with `--no-allow-unauthenticated` and grant the queue's service account `roles/run.invoker`, or verify the token's audience and email in the handler. A worker route on a public service lets anyone trigger paid work and skip the queue's rate and spend caps.
 - A handler that responds 2xx within the deadline completes the task; any other response retries it. This is the "worker invoked synchronously under the attempt deadline" shape.
 
 ## Pub/Sub
 
 - Use for fan-out events with several independent subscribers. For one worker doing one job per unit, Cloud Tasks gives more control (named dedupe, rate caps).
 - A subscription's acknowledgment deadline is 10 seconds by default, with a maximum of 600 seconds. Source: https://docs.cloud.google.com/pubsub/docs/subscription-properties
+- Use an authenticated push subscription (OIDC token from a service account) and accept only that caller on the worker endpoint; an open push endpoint lets anyone trigger paid work.
 - Attach a dead-letter topic with a bounded delivery-attempt count so a poison message becomes a visible failed state. The maximum push-endpoint response time beyond that ack deadline is unverified; check the page above before relying on it.
 
 ## Cloud Scheduler

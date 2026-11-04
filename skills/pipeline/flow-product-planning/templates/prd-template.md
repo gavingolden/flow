@@ -237,23 +237,6 @@ Estimated series: [n] per operation[; samples/month: [m] — per-sample backend 
 | Data flow      | [CRUD entity / external via proxy / computed]     |
 | Pattern        | [existing pattern name, or justification for new] |
 
-### Runtime design
-
-<!-- One row per runtime operation this plan adds or changes (handler, job,
-     queue consumer, scheduler, outbound call). An inline row may compress to
-     `inline — <p99>, timeout <n>`. A cell that reuses a repo primitive names
-     its repo-relative path, or `new: <path>`; the touching task lists that path
-     under **Inputs:**. A plan with no runtime surface writes a single
-     `none — <reason>` line instead. See references/discovery-runtime-design.md. -->
-
-| Operation   | Est. p99 | Execution model                            | Timeout / deadline | Retries               | Idempotency key         | Cost bound          |
-| ----------- | -------- | ------------------------------------------ | ------------------ | --------------------- | ----------------------- | ------------------- |
-| [operation] | [~n s]   | [inline / queue / scheduler-enqueue / job] | [n s]              | [layer, cap, backoff] | [business-identity key] | [ledger path / cap] |
-
-**Platform:** [gcp | cloudflare | aws | other]
-
-**Proportionality:** [what was deliberately left out, e.g. no queue for a 50 ms call]
-
 <!-- Add a Mermaid `flowchart` when data movement spans 3+ layers or branches
      non-obviously. Otherwise the table is enough.
      ```mermaid
@@ -263,6 +246,23 @@ Estimated series: [n] per operation[; samples/month: [m] — per-sample backend 
      ```
 
 -->
+
+### Runtime design
+
+<!-- One row per runtime operation this plan adds or changes (handler, job,
+     queue consumer, outbound call, worker pool). An inline row may compress to
+     `inline — <p99>, timeout <n>`. A cell that reuses a repo primitive names
+     it in plain words, or `new`; the touching task lists its repo-relative path
+     under **Inputs:**. A plan with no runtime surface writes a single
+     `none — <reason>` line instead. See references/discovery-runtime-design.md. -->
+
+| Operation   | Est. p99 | Execution model                            | Timeout / deadline | Retries               | Idempotency key         | Cost bound           |
+| ----------- | -------- | ------------------------------------------ | ------------------ | --------------------- | ----------------------- | -------------------- |
+| [operation] | [~n s]   | [inline / queue / scheduler-enqueue / job] | [n s]              | [layer, cap, backoff] | [business-identity key] | [spend ledger / cap] |
+
+**Platform:** [gcp | cloudflare | aws | other]
+
+**Proportionality:** [what was deliberately left out, e.g. no queue for a 50 ms call]
 
 ## Technical Constraints
 

@@ -87,7 +87,7 @@ function stripComments(text: string): string {
   return text.replace(/<!--[\s\S]*?-->/g, "");
 }
 
-/** Body after the heading at `match`, bounded at the next `#`, `##` or `###` heading. */
+/** Slice `text` from `startIdx` up to the next `#`, `##` or `###` heading. */
 function sliceToNextSubHeading(text: string, startIdx: number): string {
   const rest = text.slice(startIdx);
   const next = rest.search(/^#{1,3} /m);
@@ -145,7 +145,7 @@ export function checkRuntimeDesign(planText: string, misses: string[]): void {
   const reason = body.match(/^none\s*(?:—|–|--?|:)\s*(\S[\s\S]*)$/i);
   if (!reason) {
     misses.push(
-      "'### Runtime design' says 'none' with no reason — write 'none — <reason>' naming why no handler, job, queue consumer, scheduler or outbound call changes",
+      "'### Runtime design' says 'none' with no reason — write 'none — <reason>' naming why no handler, job, queue consumer, outbound call or worker pool changes",
     );
     return;
   }

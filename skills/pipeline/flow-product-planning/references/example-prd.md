@@ -133,13 +133,13 @@ New journey SLO "view a shared dashboard": 99.5% availability over 30 days, with
 
 ### Runtime design
 
-| Operation           | Est. p99 | Execution model              | Timeout / deadline | Retries                | Idempotency key            | Cost bound          |
-| ------------------- | -------- | ---------------------------- | ------------------ | ---------------------- | -------------------------- | ------------------- |
-| Share-link creation | ~40 ms   | inline — ~40 ms, timeout 2 s | 2 s                | none (client re-posts) | dashboard id + share token | none (no paid call) |
+| Operation           | Est. p99 | Execution model              | Timeout / deadline | Retries                | Idempotency key                                     | Cost bound          |
+| ------------------- | -------- | ---------------------------- | ------------------ | ---------------------- | --------------------------------------------------- | ------------------- |
+| Share-link creation | ~40 ms   | inline — ~40 ms, timeout 2 s | 2 s                | none (client re-posts) | dashboard_id (UNIQUE — re-post is a conflict no-op) | none (no paid call) |
 
 **Platform:** other
 
-**Proportionality:** no queue — single-row insert
+**Proportionality:** no queue — single-row insert; the shared-view load is a single indexed read by token, so it needs no row
 
 ## Technical Constraints
 

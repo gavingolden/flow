@@ -29,12 +29,21 @@ export function gradeTasks(
   const section = extractTaskBreakdown(text);
   if (section === null) throw new Error("no Task breakdown section");
   const re = new RegExp(pattern, "i");
+  // Presence mode is deliberately negation-blind: only --absent discounts negated matches.
   if (!absent) return re.test(section);
-  const affirmative = section
-    .split("\n")
-    .filter((l) => !NEGATION.test(l))
-    .join("\n");
-  return !re.test(affirmative);
+  const global = new RegExp(pattern, "gi");
+  const affirmativeHit = section.split("\n").some((line) => {
+    for (const m of line.matchAll(global)) {
+      const clause =
+        line
+          .slice(0, m.index)
+          .split(/[.;:,\u2014]|\b(?:so|because|but|and)\b/i)
+          .pop() ?? "";
+      if (!NEGATION.test(clause)) return true;
+    }
+    return false;
+  });
+  return !affirmativeHit;
 }
 
 if (import.meta.main) {

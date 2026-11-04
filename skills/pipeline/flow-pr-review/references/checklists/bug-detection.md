@@ -60,7 +60,7 @@ Also flag, with the confidence shown:
 - Work that must not be lost continuing after the response (detached goroutine or promise, timer, in-memory queue) on a request-billed platform: 85. Best-effort work with an explicit timeout in a bounded hook such as `waitUntil` is exempt.
 - A scheduled handler that runs the units itself instead of enqueuing one task per unit: 80.
 - An outbound call with no timeout: 80.
-- A retry loop with no cap, backoff or jitter, or retries stacked at two layers: 75-80.
+- A retry loop with no cap, backoff or jitter, or retries stacked at two layers: 80.
 - A queue consumer whose side effect is not idempotent under redelivery: 85.
 - A new paid or external call path that bypasses the repo's existing spend cap: 80.
 
