@@ -343,7 +343,7 @@ const DESCRIPTORS: Descriptor[] = [
   {
     key: "ui.critique",
     meaning:
-      "whether UI PRs with a look-and-feel sign-off get an automatic critique-and-fix round before review",
+      "whether every UI pull request gets an automatic design review (and one fix round) before review",
     resolve: (read) => strictFalseOptOut(read, "ui.critique"),
   },
   {

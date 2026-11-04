@@ -248,4 +248,30 @@ describe("fencedLineMask", () => {
       false,
     ]);
   });
+
+  it("unclosedIsCode runs an unclosed fence to EOF; default is unchanged", () => {
+    const lines = ["a", "```", "b", "c"];
+    expect(fencedLineMask(lines, { unclosedIsCode: true })).toEqual([
+      false,
+      true,
+      true,
+      true,
+    ]);
+    expect(fencedLineMask(lines)).toEqual([false, false, false, false]);
+  });
+
+  it("unclosedIsCode: a backtick line whose info string has a backtick is not an opener", () => {
+    const lines = ["```x``` tail", "b"];
+    expect(fencedLineMask(lines, { unclosedIsCode: true })).toEqual([
+      false,
+      false,
+    ]);
+    expect(fencedLineMask(lines)).toEqual([false, false]);
+  });
+
+  it("unclosedIsCode still treats a ~~~ opener with backticks in its info as a fence", () => {
+    expect(
+      fencedLineMask(["~~~ a`b", "x", "~~~"], { unclosedIsCode: true }),
+    ).toEqual([true, true, true]);
+  });
 });

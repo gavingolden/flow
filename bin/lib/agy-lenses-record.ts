@@ -13,12 +13,16 @@ export type DelegatedLensResult = {
   findingCount: number;
   decodedVia: string;
   durationSec: number;
+  // Absent on records written before the Gemini re-run rung existed.
+  model?: string;
+  reroutedFrom?: "agy-content-filtered";
 };
 
 export type FallbackLensResult = {
   lens: DelegatableLens;
   reason: string;
   skipClass?: string;
+  rerouteOutcome?: string;
 };
 
 export type AgyLensesEnvelope = {

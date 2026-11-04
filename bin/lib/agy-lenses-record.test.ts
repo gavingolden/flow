@@ -29,6 +29,24 @@ describe("parseAgyLensesRecord", () => {
   });
 });
 
+describe("parseAgyLensesRecord (older records)", () => {
+  it("parses a delegated entry without model / reroutedFrom", () => {
+    const r = rec({
+      delegated: [
+        {
+          lens: "bug-detection",
+          findingCount: 1,
+          decodedVia: "x",
+          durationSec: 3,
+        },
+      ],
+    });
+    const parsed = parseAgyLensesRecord(JSON.stringify(r));
+    expect(parsed?.delegated[0].model).toBeUndefined();
+    expect(parsed?.delegated[0].reroutedFrom).toBeUndefined();
+  });
+});
+
 describe("mergeAgyLensesRecord", () => {
   const first = rec({
     routes: [
@@ -78,5 +96,53 @@ describe("mergeAgyLensesRecord", () => {
     expect(mergeAgyLensesRecord(first, next)).toEqual(next);
     const unknown = rec({ review_started_at: null });
     expect(mergeAgyLensesRecord(first, unknown)).toEqual(unknown);
+  });
+
+  it("keeps model / reroutedFrom / rerouteOutcome across a two-wave round-trip", () => {
+    const wave1 = rec({
+      routes: [
+        { lens: "bug-detection", route: "agy" },
+        { lens: "security", route: "agy" },
+      ],
+      delegated: [
+        {
+          lens: "bug-detection",
+          findingCount: 2,
+          decodedVia: "structured-output",
+          durationSec: 40,
+          model: "Gemini 4 Argon (Medium)",
+          reroutedFrom: "agy-content-filtered",
+        },
+      ],
+      fallback: [
+        {
+          lens: "security",
+          reason: "agy-content-filtered",
+          rerouteOutcome: "skipped-no-time",
+        },
+      ],
+    });
+    const wave2 = rec({
+      routes: [{ lens: "pattern-consistency", route: "agy" }],
+      delegated: [
+        {
+          lens: "pattern-consistency",
+          findingCount: 0,
+          decodedVia: "response-parse",
+          durationSec: 5,
+          model: "Claude Opus 5.5 (High)",
+        },
+      ],
+    });
+    const merged = mergeAgyLensesRecord(wave1, wave2);
+    const roundTripped = parseAgyLensesRecord(JSON.stringify(merged));
+    const bug = roundTripped?.delegated.find((d) => d.lens === "bug-detection");
+    expect(bug?.model).toBe("Gemini 4 Argon (Medium)");
+    expect(bug?.reroutedFrom).toBe("agy-content-filtered");
+    expect(roundTripped?.fallback[0].rerouteOutcome).toBe("skipped-no-time");
+    expect(
+      roundTripped?.delegated.find((d) => d.lens === "pattern-consistency")
+        ?.model,
+    ).toBe("Claude Opus 5.5 (High)");
   });
 });

@@ -7,10 +7,11 @@
  *
  * ACCEPTED RISK: once a rule applies, the classifier no longer reviews that
  * helper call — each helper's own argument validation is the only guard. The
- * list is named helper-by-helper (never a `Bash(flow-*)` wildcard). The two
- * comment helpers (`flow-post-findings`, `flow-reply-pr-comments`) publish
- * text to GitHub without classifier review; inside a pipeline each refuses any
- * PR that is not the pipeline's own. {@link FLOW_NEVER_ALLOW_HELPERS} never get
+ * list is named helper-by-helper (never a `Bash(flow-*)` wildcard). The
+ * GitHub-publishing helpers (`flow-post-findings` and `flow-reply-pr-comments`
+ * post text; `flow-pr-attach` uploads images and rewrites the PR body) publish
+ * without classifier review; inside a pipeline each refuses any PR that is not
+ * the pipeline's own. {@link FLOW_NEVER_ALLOW_HELPERS} never get
  * the routine bare + wildcard pair: `flow-merge-guard` carries its own rules,
  * and `flow-spawn` wraps arbitrary argv, so only the fixed-literal waiter
  * prefixes in {@link FLOW_NARROW_ALLOW_RULES} are allowed — any wildcard
@@ -26,6 +27,12 @@
  *
  * Also accepted: `flow-ui-critique` spends model quota without classifier
  * review, bounded by its $3 per-call cap and its own once-per-phase refusal.
+ *
+ * Also accepted: `flow-ui-capture` runs the target repo's Playwright (repo
+ * code) and types the seeded test-account credentials into a local login
+ * form, under the same guards as `flow-ui-login test-account` (committed
+ * manifest, localhost-only targets); values reach only the child's env and
+ * are never printed, persisted or photographed.
  *
  * A rule only matches a standalone call; a `cd … &&` prefix or a chain of
  * helpers may still reach the classifier, so the supervisor calls helpers one
@@ -54,6 +61,7 @@ export const FLOW_ROUTINE_HELPERS: readonly string[] = [
   "flow-review-finalize",
   "flow-pr-diff",
   "flow-inject-evidence",
+  "flow-pr-attach",
   "flow-checkpoint",
   "flow-browser-teardown",
   "flow-module-status",
@@ -66,6 +74,8 @@ export const FLOW_ROUTINE_HELPERS: readonly string[] = [
   "flow-reply-pr-comments",
   "flow-plan-review-wait",
   "flow-ui-critique",
+  "flow-ui-capture",
+  "flow-coder-skills-check",
 ];
 
 export const FLOW_NEVER_ALLOW_HELPERS: readonly string[] = [

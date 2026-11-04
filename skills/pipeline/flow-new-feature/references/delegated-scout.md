@@ -4,8 +4,8 @@ When `delegate.models.scout` names an agy variant, `flow-agy-scout` runs the
 scout on the user's idle Google AI Ultra quota (Claude Opus via agy) and
 writes `scout.md` only from a complete report. The Claude Task scout in
 Step 1b item 3 is the fallback for every case it cannot deliver — the slot
-is unset, the Google plan is cooling down after a quota failure, or the
-agy run came back empty, incomplete or failed. This is a Bash fan-out, not
+is unset, the Google plan is cooling down after recent Google-plan failures, or the agy run came back empty, incomplete or
+failed. This is a Bash fan-out, not
 a new Task-tool exemption; the Task call below is the existing scout
 exemption.
 
@@ -55,7 +55,7 @@ The helper prints one JSON envelope. Branch on `.ran`, never the exit code:
 
   | `skipReason`                                                        | Say                                                                                         |
   | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-  | `agy-cooldown`                                                      | `scout: running on Claude — Google plan cooling down after a quota failure`                 |
+  | `agy-cooldown`                                                      | `scout: running on Claude — Google plan cooling down after recent Google-plan failures`     |
   | `scout-report-incomplete`, `scout-output-empty`                     | `scout: running on Claude — the Google-plan scout report was incomplete`                    |
   | `scout-tools-denied`                                                | `scout: running on Claude — the Google-plan scout tried a command it is not allowed to run` |
   | `scout-token-exhausted`                                             | `scout: running on Claude — the Google-plan scout ran out of output budget`                 |

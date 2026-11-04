@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -10,7 +11,6 @@ import {
   type ReviewFinalize,
   type ReviewFinalizeOptions,
 } from "./lib/review-finalize";
-import { hostedUrls, type AttachItem } from "./lib/review-screenshots";
 
 let worktree!: string;
 
@@ -529,44 +529,48 @@ describe("screenshot attach", () => {
   }
 
   /** Snapshot of the last `--body-file` target's content at exec time — the
-   * production code deletes the `.noimg.md` sibling right after `gh pr edit`
+   * production code deletes the `.pushed.md` sibling right after `gh pr edit`
    * returns, so tests must capture its content while it still exists. */
   let lastPushedBodyFileContent: string | null = null;
 
-  /** Wraps makeExec: answers `gh --version` / `gh pr view`, optionally fails an --attach edit. */
+  const PROBE_TOKEN = `flow-img-${createHash("sha256")
+    .update(fs.readFileSync(PROBE))
+    .digest("hex")
+    .slice(0, 16)}`;
+
+  /** Wraps makeExec with a stateful fake PR: `--attach` appends an embed per
+   * file, `--body-file` replaces the body, `gh pr view` reads it back. */
   function attachExec(
     calls: string[][],
-    o: { version: string; attachFails?: boolean },
+    o: { version: string; attachFails?: boolean; remote?: string },
   ) {
     const inner = makeExec(calls);
+    let remote = o.remote ?? "";
     return (argv: string[], execOpts?: { cwd?: string }): ExecResult => {
       if (argv[0] === "gh" && argv[1] === "--version") {
         calls.push(argv);
         return { stdout: `gh version ${o.version} (2026-09-15)\n`, ...OK };
       }
-      if (argv[0] === "gh" && argv[2] === "edit") {
-        const bodyFileArg = argv[argv.indexOf("--body-file") + 1];
-        if (bodyFileArg) {
-          lastPushedBodyFileContent = fs.readFileSync(bodyFileArg, "utf8");
-        }
-      }
       if (argv[0] === "gh" && argv[2] === "view") {
         calls.push(argv);
-        const pushed = fs.readFileSync(
-          path.join(worktree, ".flow-tmp", "body.md"),
-          "utf8",
-        );
-        return {
-          stdout: pushed.replace(
-            ".flow-tmp/ui-evidence/pricing-390.png",
-            HOSTED,
-          ),
-          ...OK,
-        };
+        return { stdout: remote, ...OK };
       }
-      if (o.attachFails && argv.includes("--attach")) {
-        calls.push(argv);
-        return { stdout: "", stderr: "upload failed", exitCode: 1 };
+      if (argv[0] === "gh" && argv[2] === "edit") {
+        const bodyFileArg = argv[argv.indexOf("--body-file") + 1];
+        if (argv.includes("--body-file")) {
+          lastPushedBodyFileContent = fs.readFileSync(bodyFileArg, "utf8");
+          remote = lastPushedBodyFileContent;
+        }
+        if (argv.includes("--attach")) {
+          calls.push(argv);
+          if (o.attachFails) {
+            return { stdout: "", stderr: "upload failed", exitCode: 1 };
+          }
+          for (const arg of argv.filter((_, i) => argv[i - 1] === "--attach")) {
+            remote += `\n![${arg.slice(arg.indexOf("#") + 1)}](${HOSTED})\n`;
+          }
+          return { stdout: "", ...OK };
+        }
       }
       return inner(argv, execOpts);
     };
@@ -584,7 +588,7 @@ describe("screenshot attach", () => {
     expect(ghSupportsAttach("")).toBe(false);
   });
 
-  it("attach: a new-enough CLI gets one --attach arg per new screenshot, probed before flow-md-validate", async () => {
+  it("attach: a new-enough CLI gets one token --attach arg per new screenshot, probed before flow-md-validate", async () => {
     seed();
     const calls: string[][] = [];
     const result = await runReviewFinalize({
@@ -593,8 +597,9 @@ describe("screenshot attach", () => {
     });
     const [edit] = edits(calls);
     expect(edit.filter((a) => a === "--attach")).toHaveLength(1);
+    expect(edit).not.toContain("--body-file");
     expect(edit[edit.indexOf("--attach") + 1]).toBe(
-      `${path.join(worktree, ".flow-tmp/ui-evidence/pricing-390.png")}#pricing phone`,
+      `${path.join(worktree, ".flow-tmp/ui-evidence/pricing-390.png")}#${PROBE_TOKEN}`,
     );
     const names = calls.map((c) => c.slice(0, 2).join(" "));
     expect(names.indexOf("gh --version")).toBeLessThan(
@@ -608,6 +613,22 @@ describe("screenshot attach", () => {
     expect(
       result.skips.filter((s) => s.step.startsWith("screenshots_")),
     ).toEqual([]);
+  });
+
+  it("attach: image syntax quoted in an inline code span is neither attached nor altered", async () => {
+    const QUOTED = "`![alt](.flow-tmp/ui-evidence/other.png)`";
+    seed(
+      `## Test Steps\n\n- [ ] SUBJECTIVE: ok\n\n${REF}\n\nWrite ${QUOTED} to embed.\n`,
+    );
+    const calls: string[][] = [];
+    const result = await runReviewFinalize({
+      ...baseOpts(calls),
+      exec: attachExec(calls, { version: "2.101.0" }),
+    });
+    const [edit] = edits(calls);
+    expect(edit.filter((a) => a === "--attach")).toHaveLength(1);
+    expect(result.screenshots_uploaded).toBe(1);
+    expect(fs.readFileSync(bodyPath(), "utf8")).toContain(QUOTED);
   });
 
   it("attach: a second pass uploads nothing already in the ledger and pushes the hosted URL", async () => {
@@ -655,16 +676,17 @@ describe("screenshot attach", () => {
     expect(edit).not.toContain("--attach");
     const pushed = lastPushedBodyFileContent ?? "";
     expect(pushed).not.toContain(REF);
+    expect(pushed).toContain("_(screenshot not uploaded: pricing-390.png)_");
     expect(pushed).toContain(LOCAL_LINK);
     expect(fs.readFileSync(bodyPath(), "utf8")).toContain(REF);
     expect(
       fs.existsSync(edit[edit.indexOf("--body-file") + 1]),
-      "the .noimg.md sibling must be cleaned up after the push",
+      "the .pushed.md sibling must be cleaned up after the push",
     ).toBe(false);
   });
 
-  it("attach: a body over 60000 chars records screenshots_body_too_large, strips image refs, keeps local links", async () => {
-    seed(`## Test Steps\n\n${REF}\n\n${LOCAL_LINK}\n\n${"x".repeat(60001)}\n`);
+  it("attach: a body over 250000 chars records screenshots_body_too_large, strips image refs, keeps local links and plain-text screenshot captions", async () => {
+    seed(`## Test Steps\n\n${REF}\n\n${LOCAL_LINK}\n\n${"x".repeat(250001)}\n`);
     const calls: string[][] = [];
     const result = await runReviewFinalize({
       ...baseOpts(calls),
@@ -713,7 +735,7 @@ describe("screenshot attach", () => {
     expect(edits(calls)[0]).toContain("--attach");
   });
 
-  it("attach: an upload failure retries the body write once without attachments and leaves the ledger empty", async () => {
+  it("attach: an upload failure still pushes the body once without image refs and leaves the ledger empty", async () => {
     seed();
     const calls: string[][] = [];
     const result = await runReviewFinalize({
@@ -723,7 +745,11 @@ describe("screenshot attach", () => {
     const all = edits(calls);
     expect(all).toHaveLength(2);
     expect(all[0]).toContain("--attach");
+    expect(all[0]).not.toContain("--body-file");
     expect(all[1]).not.toContain("--attach");
+    expect(all[1]).toContain("--body-file");
+    expect(lastPushedBodyFileContent).not.toContain(REF);
+    expect(fs.readFileSync(bodyPath(), "utf8")).toContain(REF);
     expect(result.body_updated).toBe(true);
     expect(result.screenshots_uploaded).toBe(0);
     expect(result.skips.map((s) => s.step)).toContain(
@@ -755,47 +781,29 @@ describe("screenshot attach", () => {
     ).toContain("brew upgrade gh");
   });
 
+  it("attach: an <img>-only body probes gh and uploads instead of recording a false screenshots_gh_too_old", async () => {
+    seed(
+      `## Test Steps\n\n<table><tr><td><img src=".flow-tmp/ui-evidence/pricing-390.png" width="260"></td></tr></table>\n`,
+    );
+    const calls: string[][] = [];
+    const result = await runReviewFinalize({
+      ...baseOpts(calls),
+      exec: attachExec(calls, { version: "2.101.0" }),
+    });
+    expect(calls.some((c) => c[1] === "--version")).toBe(true);
+    expect(result.screenshots_uploaded).toBe(1);
+    expect(
+      result.skips.filter((s) => s.step.startsWith("screenshots_")),
+    ).toEqual([]);
+    expect(fs.readFileSync(bodyPath(), "utf8")).toContain(
+      `<img src="${HOSTED}" width="260">`,
+    );
+  });
+
   it("attach: a body with no local image reference never probes gh --version", async () => {
     const calls: string[][] = [];
     await runReviewFinalize(baseOpts(calls));
     expect(calls.some((c) => c[1] === "--version")).toBe(false);
-  });
-});
-
-describe("hostedUrls", () => {
-  const attach: AttachItem[] = [
-    { target: "a.png", arg: "/w/a.png#a", sha: "sha-a" },
-    { target: "b.png", arg: "/w/b.png#b", sha: "sha-b" },
-  ];
-  const pushed = "![a](a.png)\n\n![b](b.png)\n";
-
-  it("pairs two local refs to their positional hosted URL", () => {
-    const remote =
-      "![a](https://github.com/user-attachments/assets/aaa)\n\n" +
-      "![b](https://github.com/user-attachments/assets/bbb)\n";
-    const urls = hostedUrls(pushed, remote, attach);
-    expect(urls.get("a.png")).toBe(
-      "https://github.com/user-attachments/assets/aaa",
-    );
-    expect(urls.get("b.png")).toBe(
-      "https://github.com/user-attachments/assets/bbb",
-    );
-  });
-
-  it("returns no pairs when the image count doesn't match", () => {
-    const remote = "![a](https://github.com/user-attachments/assets/aaa)\n";
-    const urls = hostedUrls(pushed, remote, attach);
-    expect(urls.size).toBe(0);
-  });
-
-  it("skips a ref whose remote counterpart is still a relative path", () => {
-    const remote =
-      "![a](a.png)\n\n![b](https://github.com/user-attachments/assets/bbb)\n";
-    const urls = hostedUrls(pushed, remote, attach);
-    expect(urls.has("a.png")).toBe(false);
-    expect(urls.get("b.png")).toBe(
-      "https://github.com/user-attachments/assets/bbb",
-    );
   });
 });
 

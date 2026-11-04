@@ -7,19 +7,20 @@
  */
 import * as path from "node:path";
 
-import { readUiCritiqueEnabled } from "./ui-critique-config";
 import {
   acceptRound,
-  decideGate,
   findingKey,
+  isGating,
   parseLoopLog,
   persistentDefects,
   type CritiqueFinding,
   type LoopLog,
   type RoundKind,
 } from "./ui-critique";
+import type { PlaywrightStatus } from "./playwright-resolve";
 import {
   appendLedger,
+  countsInLedger,
   decideDemotion,
   ledgerPath,
   readLedger,
@@ -27,8 +28,8 @@ import {
 } from "./ui-critique-ledger";
 import {
   renderUiReview,
-  residualDecisionItem,
   UI_REVIEW_CLOSE,
+  uiReviewDecisionItem,
   upsertUiReview,
 } from "./ui-critique-render";
 import { stripLocalImageRefs } from "./review-screenshots";
@@ -46,6 +47,9 @@ export type OpsDeps = {
   now: () => string;
   repo: (worktree: string) => string;
   slug: (worktree: string) => string;
+  /** The committed branch diff against the PR base; null when git fails. */
+  changedFiles: (worktree: string) => string[] | null;
+  resolvePlaywright: (worktree: string) => PlaywrightStatus;
 };
 
 export type Flags = Record<string, string | boolean | undefined>;
@@ -109,11 +113,11 @@ function ledgerAppend(
   );
 }
 
-function demotion(deps: OpsDeps): { demoted: boolean; reason: string } {
+export function demotion(deps: OpsDeps): { demoted: boolean; reason: string } {
   return decideDemotion(readLedger(deps.readFile(ledgerPath(deps.home))));
 }
 
-type DriverResult = {
+export type DriverResult = {
   ran?: boolean;
   ok?: boolean;
   skipped_reason?: string;
@@ -121,39 +125,11 @@ type DriverResult = {
   fix_context?: Record<string, unknown>[];
 };
 
-function readDriver(deps: OpsDeps, p: string): DriverResult | null {
+export function readDriver(deps: OpsDeps, p: string): DriverResult | null {
   const j = readJson(deps, p);
   return typeof j === "object" && j !== null && !Array.isArray(j)
     ? (j as DriverResult)
     : null;
-}
-
-export function opGate(f: Flags, deps: OpsDeps): OpResult {
-  const w = str(f.worktree);
-  const body = deps.readFile(str(f["body-file"]));
-  if (body === null) return failed("body-unreadable");
-  let ui = null;
-  if (typeof f["driver-result"] === "string") {
-    const d = readDriver(deps, f["driver-result"]);
-    ui = {
-      ran: d?.ran === true,
-      ok: d?.ok === true,
-      skippedReason: d ? (d.skipped_reason ?? null) : "driver-no-artifact",
-      sectionShots: d?.section_shots?.length ?? 0,
-    };
-  }
-  const enabled = readUiCritiqueEnabled(() =>
-    deps.readFile(path.join(deps.home, ".flow", "config.json")),
-  );
-  return {
-    ...decideGate({
-      body,
-      enabled,
-      ui,
-      log: readLog(deps, w),
-      demotion: demotion(deps),
-    }),
-  };
 }
 
 export function opRoundBegin(f: Flags, deps: OpsDeps): OpResult {
@@ -223,6 +199,8 @@ export function opRoundEnd(f: Flags, deps: OpsDeps): OpResult {
     costUsd: log.costUsd + cost,
     // The loop is one round, ever: closing it completes the log.
     completed: true,
+    // A kept round committed UI fixes the post-round critique then judged.
+    ...(keep ? { headSha: deps.gitHead(w) ?? log.headSha } : {}),
   };
   writeLog(deps, w, next);
   if (log.round.kind === "critique") {
@@ -257,8 +235,9 @@ export function opRecord(f: Flags, deps: OpsDeps): OpResult {
     ...(outcome === "skipped" ? { skip: str(f.reason) } : {}),
   };
   writeLog(deps, w, next);
-  if (outcome !== "skipped")
+  if (countsInLedger(outcome, str(f.reason))) {
     ledgerAppend(deps, w, { outcome, costUsd: next.costUsd });
+  }
   return { recorded: true, outcome };
 }
 
@@ -343,10 +322,7 @@ export function opRender(f: Flags, deps: OpsDeps): OpResult {
         ? demoted.reason || "recent critique rounds were reverted"
         : null,
   });
-  const decision = residualDecisionItem(
-    log.skip ? [] : log.residual,
-    log.persistent,
-  );
+  const decision = uiReviewDecisionItem(log);
   const next = upsertUiReview(body, section, decision);
   deps.writeFile(bodyFile, next);
   deps.writeFile(path.join(w, ".flow-tmp", "ui-review.md"), section + "\n");
@@ -361,9 +337,11 @@ export function opRender(f: Flags, deps: OpsDeps): OpResult {
   return {
     residualDefects: log.skip
       ? 0
-      : log.residual.filter((r) => r.severity === "defect").length,
+      : log.residual.filter((r) => r.severity === "defect" && isGating(r))
+          .length,
     persistentDefects: log.persistent.length,
     decisionAdded: decision !== null,
+    signoffFindings: log.signoff?.findings.length ?? 0,
   };
 }
 

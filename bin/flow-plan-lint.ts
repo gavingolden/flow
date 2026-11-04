@@ -3,16 +3,19 @@
  * Advisory plan-shape linter: checks a generated plan.md instance for the
  * always-present sections the plan-artifact contract requires — the Goal
  * line, Behavioral contrast (+ its Lost affirmation), Recommendation, Plan
- * risks, the Task breakdown heading, and a Contract block under every task.
+ * risks, Instrumentation (a spec table plus an `**Attributes:**` line, or a
+ * reasoned `none`), the Task breakdown heading, and a Contract block under
+ * every task.
  * Also cross-checks the machine-readable closed-path mirror
  * (excluded-paths.json) against the plan's `## Alternatives considered`
  * prose. Names a `## Problem Statement` whose lead is not plain prose
  * (opens with the premise check, a table, or a list, or carries an anchor
  * or a code path) and warns when the drafted PR `## TLDR` runs past 35
- * words or names no before-state. Run by discovery itself as a self-check
- * before returning (discovery-instructions.md `# Verification`) AND by the
- * `/flow-pipeline` supervisor as a step-3 advisory backstop, next to
- * `flow-candidate-issues --lint`.
+ * words or names no before-state, or writes a change bullet as a one-line
+ * arrow instead of a Before/After sub-bullet pair. Run by discovery itself
+ * as a self-check before returning (discovery-instructions.md
+ * `# Verification`) AND by the `/flow-pipeline` supervisor as a step-3
+ * advisory backstop, next to `flow-candidate-issues --lint`.
  *
  * Advisory by design: this NEVER blocks planning. A miss is named, never
  * enforced — the caller decides whether to surface it in chat and move on.
@@ -44,6 +47,7 @@
  * parse failure is reported as a named miss, not an uncaught exception.
  */
 
+import { parseUiReviewTargets, isRenderBearing } from "./lib/ui-review-scope";
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import {
@@ -54,6 +58,7 @@ import {
   SURVEY_VERDICTS,
 } from "./flow-step3-route";
 import { TLDR_MAX_WORDS } from "./lib/gate-summary-rows";
+import { findArrowDeltaBullets } from "./lib/pr-delta-bullets";
 import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 const CONFIDENCE_RE = /\[confidence:\s*(high|medium|low)\]/g;
@@ -175,10 +180,15 @@ function checkProblemStatementLead(planText: string, misses: string[]): void {
 const BEFORE_MARKER_RE =
   /\b(?:used to|no longer|was|were|had to|couldn't|could not|today|before|missing|without)\b/i;
 
-function checkDraftTldr(planText: string, misses: string[]): void {
+function draftSection(planText: string): string | null {
   const draft = planText.match(/^# PR description draft\s*$/m);
-  if (!draft) return;
-  const afterDraft = planText.slice((draft.index ?? 0) + draft[0].length);
+  if (!draft) return null;
+  return planText.slice((draft.index ?? 0) + draft[0].length);
+}
+
+function checkDraftTldr(planText: string, misses: string[]): void {
+  const afterDraft = draftSection(planText);
+  if (afterDraft === null) return;
   const heading = afterDraft.match(/^## TLDR\s*$/m);
   if (!heading) return;
   const tldr = sliceToNextHeading(
@@ -201,6 +211,12 @@ function checkDraftTldr(planText: string, misses: string[]): void {
       "warn: drafted PR TLDR names no before-state — say what was wrong or missing before",
     );
   }
+}
+
+function checkDraftDeltaBullets(planText: string, misses: string[]): void {
+  const afterDraft = draftSection(planText);
+  if (afterDraft === null) return;
+  misses.push(...findArrowDeltaBullets(afterDraft));
 }
 
 function checkHeadingPresent(
@@ -254,6 +270,81 @@ function checkCutListJustification(planText: string, misses: string[]): void {
   if (/^nothing\W*$/im.test(body)) {
     misses.push(
       "'## Cut list' asserts 'nothing' with no justification — say WHY nothing was cut (e.g. 'nothing — plan is already minimal')",
+    );
+  }
+}
+
+const RUNTIME_PATH_RE =
+  /(?<![\w-])(?:api|server|workers?|jobs?|queues?|cron)\/|\+server\.|\+(?:page|layout)\.server\.|hooks\.server\./;
+
+const NON_RUNTIME_FILE_RE = /\.(?:test|spec)\.[cm]?[jt]sx?$|\.md$/i;
+
+/**
+ * `## Instrumentation` is always-present inside the `# PRD` section: a spec
+ * table for a plan that touches a runtime surface, or one `none — <reason>`
+ * line. A spec must also carry an `**Attributes:**` line. Scoped to the PRD
+ * so the omit-when-none `## Instrumentation` in the `# PR description draft`
+ * never satisfies it. A `none` is cross-checked against the tasks'
+ * `**Files:**` lines for runtime paths.
+ */
+function checkInstrumentation(planText: string, misses: string[]): void {
+  const prdMatch = planText.match(/^# PRD\s*$/m);
+  if (!prdMatch) return;
+  const afterPrd = (prdMatch.index ?? 0) + prdMatch[0].length;
+  const prdBody = planText.slice(
+    afterPrd,
+    findPrdSectionEnd(planText, afterPrd),
+  );
+  const match = prdBody.match(/^## Instrumentation\s*$/m);
+  if (!match) {
+    misses.push(
+      "missing '## Instrumentation' heading — every plan must spec its metrics or affirm none with a reason",
+    );
+    return;
+  }
+  const body = sliceToNextHeading(prdBody, (match.index ?? 0) + match[0].length)
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .trim();
+  if (body === "") {
+    misses.push(
+      "'## Instrumentation' is empty — spec the metrics or write 'none — <reason>'",
+    );
+    return;
+  }
+  if (!/^none\b/i.test(body)) {
+    if (!/^\|/m.test(body)) {
+      misses.push(
+        "'## Instrumentation' names a spec but carries no markdown table row — add the '### Metrics' table",
+      );
+    }
+    if (!/^\*\*Attributes:\*\*/m.test(body)) {
+      misses.push(
+        "'## Instrumentation' names a spec but carries no '**Attributes:**' line — write 'reuses registered' or the new keys with their closed values",
+      );
+    }
+    return;
+  }
+  const reason = body.match(/^none\s*(?:—|–|--?|:)\s*(\S[\s\S]*)$/i);
+  if (!reason) {
+    misses.push(
+      "'## Instrumentation' says 'none' with no reason — write 'none — <reason>' naming why no request handler, job, outbound call or pipeline changes",
+    );
+    return;
+  }
+  if (/refactor-only|no behaviou?r change/i.test(reason[1])) return;
+  const runtimeFiles = [...planText.matchAll(/^\s*- \*\*Files:\*\*/gm)]
+    .map((m) => joinLogicalLine(planText, m.index ?? 0))
+    .flatMap((line) =>
+      line
+        .replace(/^- \*\*Files:\*\*\s*/, "")
+        .split(/[,;\s]+/)
+        .map((tok) => tok.replace(/^`|`$/g, ""))
+        .filter((tok) => !NON_RUNTIME_FILE_RE.test(tok)),
+    )
+    .filter((tok) => RUNTIME_PATH_RE.test(tok));
+  if (runtimeFiles.length > 0) {
+    misses.push(
+      "'## Instrumentation' says 'none' but a task's **Files:** names a runtime path (route, server, worker, job, queue or cron) — spec the metrics, or say the change is refactor-only / has no behaviour change",
     );
   }
 }
@@ -340,6 +431,32 @@ function checkTaskContracts(planText: string, misses: string[]): void {
         `warn: '${taskName}' acceptance criteria has no backtick-quoted runnable command`,
       );
     }
+  }
+}
+
+/**
+ * Advisory: a plan whose task `**Files:**` lists change a render-bearing file
+ * needs a `## UI review targets` section, so the verify-time design review
+ * photographs the screens that show the change.
+ */
+function checkUiReviewTargets(planText: string, misses: string[]): void {
+  const start = planText.search(/^# Task breakdown\s*$/m);
+  if (start < 0 || parseUiReviewTargets(planText).length > 0) return;
+  const files = planText
+    .slice(start)
+    .split("\n")
+    .filter((l) => l.includes("**Files:**"))
+    .flatMap((l) =>
+      l
+        .slice(l.indexOf("**Files:**") + "**Files:**".length)
+        .split(/[\s`,;()]+/)
+        .filter((tok) => tok.includes(".")),
+    );
+  const ui = files.find(isRenderBearing);
+  if (ui) {
+    misses.push(
+      `warn: ui-review-targets-missing — a task changes render-bearing file '${ui}' but the plan has no '## UI review targets' section`,
+    );
   }
 }
 
@@ -1230,7 +1347,9 @@ export function lintPlan(
       "every plan must name its unnecessary complexity (or affirm none)",
     );
     checkCutListJustification(planText, misses);
+    checkInstrumentation(planText, misses);
     checkTaskContracts(planText, misses);
+    checkUiReviewTargets(planText, misses);
     checkCandidateTable(planText, misses);
     checkPromptInterpretation(planText, misses);
     checkMethodSelection(planText, misses, { surveyRan: opts.surveyRan });
@@ -1242,6 +1361,7 @@ export function lintPlan(
     checkVerdictConfidence(planText, misses);
     checkExcludedPathsMirror(planText, opts.excludedPathsJson, misses);
     checkDraftTldr(planText, misses);
+    checkDraftDeltaBullets(planText, misses);
   } catch (e) {
     misses.push(
       `internal lint error (treated as advisory, non-blocking): ${e instanceof Error ? e.message : String(e)}`,

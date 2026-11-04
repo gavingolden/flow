@@ -3,8 +3,7 @@
 Checks for the **product** lens — the seventh, brief-gated lens. It runs only when
 `flow-product-brief` resolves a brief (repo `.flow/product.md` or the user-level
 `~/.flow/product.md` fallback); absent a brief it does not run at all, and its
-artifact (`agent-output-product.json`) is tolerated-absent downstream. Soft cap:
-~120 lines — condense before adding new entries.
+artifact (`agent-output-product.json`) is tolerated-absent downstream. Cap: 200 lines, lint-enforced. Before an addition would cross it: condense, fold instance entries into a class rule, re-home an entry to the lens whose checklist owns its surface, automate deterministic entries into lint, or move consumer-specific entries to `docs/consumer-review-patterns.md`.
 
 ## Scope: what counts as "user-read"
 

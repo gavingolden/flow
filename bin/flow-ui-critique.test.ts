@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { parseArgs, run } from "./flow-ui-critique";
 import {
   CRITIC_MAX_BUDGET_USD,
-  parseArgs,
-  run,
   type Deps,
   type HeadlessEnvelope,
-} from "./flow-ui-critique";
+} from "./lib/ui-critique-run";
 import { readLedger } from "./lib/ui-critique-ledger";
 
 const W = "/wt";
@@ -60,6 +59,8 @@ function harness(
     now: () => "2026-10-25T00:00:00.000Z",
     repo: () => "flow",
     slug: () => "slug",
+    changedFiles: () => ["src/routes/pricing/+page.svelte"],
+    resolvePlaywright: () => ({ status: "ok", modulePath: "/pw", hint: null }),
     spawnHeadless: (argv, opts) => {
       h.spawned.push({ argv, cwd: opts.cwd });
       return headless(argv);
@@ -130,11 +131,127 @@ describe("parseArgs", () => {
 
 describe("gate", () => {
   const args = ["gate", "--body-file", "/b.md", "--worktree", W];
+  const crit = `${W}/.flow-tmp/ui-critique`;
 
   it("is the pre-drive eligibility call without --driver-result", () => {
     const h = harness({ "/b.md": BODY });
     run(args, h.deps);
-    expect(result(h)).toMatchObject({ run: true, mode: "fix", reason: "run" });
+    expect(result(h)).toMatchObject({
+      run: true,
+      mode: "fix",
+      reason: "run",
+      required: true,
+      capture: "playwright",
+      loud: false,
+    });
+  });
+
+  it("runs on a UI diff whose body has no look-and-feel sign-off step", () => {
+    const h = harness({
+      "/b.md": "## Test Steps\n\n- [ ] `npm test` — pass\n",
+    });
+    run(args, h.deps);
+    expect(result(h)).toMatchObject({ run: true, reason: "run" });
+  });
+
+  it("persists the diff, the review targets and the requirement on the pre-drive call", () => {
+    const h = harness(
+      {
+        "/b.md": BODY,
+        "/plan.md":
+          "## UI review targets\n\n- `/analysis/AVGO` — empty state\n",
+        "/m.json": { routes: [{ path: "/pricing" }] },
+      },
+      { changedFiles: () => ["src/routes/pricing/+page.svelte", "README.md"] },
+    );
+    run([...args, "--plan", "/plan.md", "--manifest", "/m.json"], h.deps);
+    expect(h.files.get(`${crit}/changed-files.txt`)).toBe(
+      "src/routes/pricing/+page.svelte\nREADME.md\n",
+    );
+    const targets = JSON.parse(h.files.get(`${crit}/targets.json`)!);
+    expect(targets[0]).toEqual({
+      route: "/analysis/AVGO",
+      state: "empty state",
+      source: "plan",
+    });
+    expect(targets[1]).toMatchObject({
+      route: "/pricing",
+      source: "route-file",
+    });
+    expect(logOf(h)).toMatchObject({ required: true, targets });
+    expect(logOf(h).headSha).toBeUndefined();
+  });
+
+  it("reads the diff from --changed-files when given", () => {
+    const h = harness(
+      { "/b.md": BODY, "/c.txt": "src/routes/a/+page.svelte\n" },
+      {
+        changedFiles: () => {
+          throw new Error("git must not be consulted");
+        },
+      },
+    );
+    run([...args, "--changed-files", "/c.txt"], h.deps);
+    expect(result(h)).toMatchObject({ run: true, required: true });
+  });
+
+  it("a diff with no rendered file is not a review", () => {
+    const h = harness(
+      { "/b.md": BODY },
+      { changedFiles: () => ["bin/x.ts", "src/Panel.test.svelte"] },
+    );
+    run(args, h.deps);
+    expect(result(h)).toMatchObject({
+      run: false,
+      reason: "no-ui-change",
+      required: false,
+    });
+  });
+
+  it("a component-only diff with no plan target has no review target", () => {
+    const h = harness(
+      { "/b.md": BODY, "/m.json": { routes: [{ path: "/dashboard" }] } },
+      { changedFiles: () => ["src/lib/components/Panel.svelte"] },
+    );
+    run([...args, "--manifest", "/m.json"], h.deps);
+    expect(result(h)).toMatchObject({
+      run: false,
+      reason: "no-review-target",
+      required: true,
+    });
+    expect(logOf(h)).toMatchObject({ required: true, targets: [] });
+  });
+
+  it("warns loudly and records the warning when Playwright is missing", () => {
+    const warning = "UI review screenshots need Playwright in this repo";
+    const h = harness(
+      { "/b.md": BODY },
+      {
+        resolvePlaywright: () => ({
+          status: "missing",
+          modulePath: null,
+          hint: warning,
+        }),
+      },
+    );
+    run(args, h.deps);
+    const r = result(h);
+    expect(r).toMatchObject({ run: true, capture: "mcp", loud: true });
+    expect(r.warning).toContain(warning);
+    expect(logOf(h).playwrightWarning).toBe(r.warning);
+  });
+
+  it("falls back to the log's recorded requirement when the diff is unreadable", () => {
+    const h = harness(
+      { "/b.md": BODY, [`${crit}/log.json`]: { required: true } },
+      { changedFiles: () => null },
+    );
+    run([...args, "--plan", "/plan.md"], h.deps);
+    expect(result(h)).toMatchObject({ required: true });
+    const bare = harness({ "/b.md": BODY }, { changedFiles: () => null });
+    run(args, bare.deps);
+    expect(result(bare)).toMatchObject({ run: false, reason: "no-ui-change" });
+    expect(result(bare).detail).toContain("ui-review-check: diff unreadable");
   });
 
   it("honours a strict-false ui.critique", () => {
@@ -146,13 +263,16 @@ describe("gate", () => {
     expect(result(h).reason).toBe("disabled-by-config");
   });
 
-  it("post-drive needs a passing drive with section shots", () => {
+  it("post-drive needs section shots from the chosen capture path", () => {
     const withDriver = (d: unknown) => {
       const h = harness({ "/b.md": BODY, "/d.json": d });
       run([...args, "--driver-result", "/d.json"], h.deps);
       return result(h);
     };
     expect(withDriver({ ran: true, ok: true, section_shots: [{}] }).run).toBe(
+      true,
+    );
+    expect(withDriver({ ran: true, ok: false, section_shots: [{}] }).run).toBe(
       true,
     );
     expect(withDriver({ ran: true, ok: true }).reason).toBe("no-section-shots");
@@ -164,6 +284,21 @@ describe("gate", () => {
     expect(skipped.detail).toBe(
       "browser checks did not run (mcp-not-available)",
     );
+  });
+
+  it("post-drive reuses the persisted targets instead of re-deriving them", () => {
+    const h = harness(
+      {
+        "/b.md": BODY,
+        "/d.json": { ran: true, ok: true, section_shots: [{}] },
+        [`${crit}/targets.json`]: [
+          { route: "/analysis/AVGO", state: null, source: "plan" },
+        ],
+      },
+      { changedFiles: () => ["src/lib/components/Panel.svelte"] },
+    );
+    run([...args, "--driver-result", "/d.json"], h.deps);
+    expect(result(h)).toMatchObject({ run: true });
   });
 
   it("goes list-only after three reverted rounds in the ledger", () => {
@@ -282,6 +417,24 @@ describe("rounds", () => {
     expect(ledgerOf(h)[0].outcome).toBe("kept");
   });
 
+  it("round-end keep re-stamps the judged HEAD; revert leaves it", () => {
+    const stamp = (decision: string) => {
+      const h = harness({
+        ...seed(),
+        [`${tmp}/ui-critique/log.json`]: { headSha: "judged" },
+      });
+      run(["round-begin", "--worktree", W, "--kind", "critique"], h.deps);
+      h.deps.gitHead = () => "after-fix";
+      run(
+        ["round-end", "--worktree", W, "--decision", decision, "--reason", "r"],
+        h.deps,
+      );
+      return logOf(h).headSha;
+    };
+    expect(stamp("keep")).toBe("after-fix");
+    expect(stamp("revert")).toBe("judged");
+  });
+
   it("a smell round writes no ledger line, and ending with no open round is a named skip", () => {
     const h = harness(seed());
     run(["round-begin", "--worktree", W, "--kind", "smell"], h.deps);
@@ -299,6 +452,25 @@ describe("rounds", () => {
 });
 
 describe("record", () => {
+  it("a list-only for no-smoke-baseline leaves the demotion ledger alone", () => {
+    const h = harness();
+    run(
+      [
+        "record",
+        "--worktree",
+        W,
+        "--outcome",
+        "list-only",
+        "--reason",
+        "no-smoke-baseline",
+        "--complete",
+      ],
+      h.deps,
+    );
+    expect(logOf(h)).toMatchObject({ outcome: "list-only", completed: true });
+    expect(ledgerOf(h)).toEqual([]);
+  });
+
   it("clean and list-only append a ledger line; list-only sets the mode", () => {
     const h = harness();
     run(
@@ -452,6 +624,7 @@ describe("render", () => {
       residualDefects: 1,
       persistentDefects: 1,
       decisionAdded: true,
+      signoffFindings: 0,
     });
     const body = h.files.get("/b.md")!;
     expect(body).toContain("## UI review");
@@ -506,6 +679,31 @@ describe("render", () => {
     expect(body).not.toContain("mcp-not-available");
     expect(body).not.toContain("DECISION:");
     expect(result(h)).toMatchObject({ decisionAdded: false });
+  });
+});
+
+describe("render of a required review that did not run", () => {
+  it("adds the unchecked not-run DECISION item and a warning callout through opRender", () => {
+    const h = harness({
+      "/b.md": "## Summary\n\n## Test Steps\n\n- [ ] `npm test` — pass\n",
+      [`${W}/.flow-tmp/ui-critique/log.json`]: { required: true },
+    });
+    run(
+      [
+        "render",
+        "--worktree",
+        W,
+        "--body-file",
+        "/b.md",
+        "--skip",
+        "no-review-target",
+      ],
+      h.deps,
+    );
+    const body = h.files.get("/b.md")!;
+    expect(body).toContain("> [!WARNING]");
+    expect(body).toContain("- [ ] DECISION: the UI review did not run (");
+    expect(result(h)).toMatchObject({ decisionAdded: true });
   });
 });
 
@@ -1087,6 +1285,34 @@ describe("critique spend guard", () => {
     expect(logOf(h).costUsd).toBeCloseTo(2.5);
   });
 
+  it("stamps the judged HEAD at the round-0 critique, not at the post-round one", () => {
+    const h = harness(files(), {}, envelope);
+    run(args("round-0"), h.deps);
+    expect(logOf(h).headSha).toBe("head1");
+    h.deps.gitHead = () => "head2";
+    run(args("post-round"), h.deps);
+    expect(logOf(h).headSha).toBe("head1");
+  });
+
+  it("carries each target's state and the changed files into the prompt", () => {
+    const crit = `${W}/.flow-tmp/ui-critique`;
+    const h = harness(
+      {
+        ...files(),
+        [`${crit}/targets.json`]: [
+          { route: "/", state: "empty state", source: "plan" },
+        ],
+        [`${crit}/changed-files.txt`]: "src/lib/Panel.svelte\n",
+      },
+      {},
+      envelope,
+    );
+    run(args("round-0"), h.deps);
+    const prompt = h.files.get("/scratch/ui-critique-prompt.md") ?? "";
+    expect(prompt).toContain("expected state: empty state");
+    expect(prompt).toContain("- src/lib/Panel.svelte");
+  });
+
   it("a failed call still counts against the cap", () => {
     const h = harness(files(), {}, () => ({
       ran: false,
@@ -1124,5 +1350,143 @@ describe("critique spend guard", () => {
     );
     run(args("round-0"), h.deps);
     expect(logOf(h).omittedSections).toBeGreaterThan(0);
+  });
+});
+
+describe("critique --phase review-8c (advisory sign-off review)", () => {
+  const SHOT390 = `${W}/.flow-tmp/ui-evidence/menu-390.png`;
+  const SHOT1280 = `${W}/.flow-tmp/ui-evidence/menu-1280.png`;
+  const crit = `${W}/.flow-tmp/ui-critique`;
+  const files = () => ({
+    "/d.json": {
+      ran: true,
+      ok: true,
+      item_results: [
+        {
+          item: "SUBJECTIVE: the menu feels calm",
+          kind: "capture",
+          verdict: "captured",
+          screenshots: [SHOT390, SHOT1280],
+        },
+        {
+          item: "SUBJECTIVE: dialog",
+          kind: "capture",
+          verdict: "captured",
+          screenshots: [`${W}/.flow-tmp/ui-evidence/dlg-1280.png`],
+        },
+      ],
+      fix_context: [],
+    },
+    "/plan.md": "## Layout Intent\n\nx\n",
+    "/skills/flow-ui-ux/references/rendered-critique.md": "a",
+    "/skills/flow-ui-ux/references/visual-design.md": "b",
+    "/skills/flow-ui-ux/references/layout.md": "c",
+    "/skills/flow-ui-ux/references/accessibility.md": "d",
+    [`${crit}/log.json`]: {
+      completed: true,
+      outcome: "clean",
+      required: true,
+      headSha: "head1",
+      residual: [],
+      critiqueCalls: ["round-0"],
+    },
+  });
+  const args = [
+    "critique",
+    "--driver-result",
+    "/d.json",
+    "--plan",
+    "/plan.md",
+    "--phase",
+    "review-8c",
+    "--out",
+    "/out/8c.json",
+    "--worktree",
+    W,
+  ];
+  const finding = {
+    id: "f1",
+    severity: "defect",
+    route: "(sign-off)",
+    section: "SUBJECTIVE: the menu feels calm",
+    viewport: "phone",
+    shot: SHOT390,
+    observation: "menu clips",
+    rule: "layout.md",
+    fix: "widen",
+    introduced: true,
+  };
+  const envelope = (): HeadlessEnvelope => ({
+    ran: true,
+    artifact: "/child.json",
+    total_cost_usd: 0.5,
+  });
+
+  it("calls the critic once despite a completed log, stores signoff, and refuses a repeat", () => {
+    const h = harness(
+      {
+        ...files(),
+        "/child.json": { result: JSON.stringify({ findings: [finding] }) },
+      },
+      {},
+      envelope,
+    );
+    run(args, h.deps);
+    expect(result(h)).toMatchObject({ ran: true, counts: { defect: 1 } });
+    expect(h.spawned).toHaveLength(1);
+    const log = logOf(h);
+    expect(log.signoff).toMatchObject({ judgedSha: "head1" });
+    expect(log.signoff.findings).toHaveLength(1);
+    expect(log.critiqueCalls).toEqual(["round-0", "review-8c"]);
+    expect(log.residual).toEqual([]);
+    expect(log.persistent).toEqual([]);
+    expect(log.outcome).toBe("clean");
+    expect(log.completed).toBe(true);
+    run(args, h.deps);
+    expect(result(h)).toEqual({
+      ran: false,
+      skipReason: "phase-already-critiqued",
+    });
+    expect(h.spawned).toHaveLength(1);
+  });
+
+  it("still refuses round-0 and post-round once the log is completed", () => {
+    const h = harness(files(), {}, envelope);
+    run([...args.slice(0, 6), "post-round", ...args.slice(7)], h.deps);
+    expect(result(h).skipReason).toBe("already-ran");
+  });
+
+  it("returns no-signoff-captures when no item was captured", () => {
+    const f = files();
+    f["/d.json"].item_results = [];
+    const h = harness(f, {}, envelope);
+    run(args, h.deps);
+    expect(result(h)).toEqual({
+      ran: false,
+      skipReason: "no-signoff-captures",
+    });
+    expect(h.spawned).toHaveLength(0);
+  });
+
+  it("render lists the advice and adds no DECISION item", () => {
+    const h = harness(
+      {
+        ...files(),
+        "/child.json": { result: JSON.stringify({ findings: [finding] }) },
+        "/b.md": "## Test Steps\n\n- [ ] SUBJECTIVE: the menu feels calm\n",
+      },
+      {},
+      envelope,
+    );
+    run(args, h.deps);
+    run(["render", "--worktree", W, "--body-file", "/b.md"], h.deps);
+    const body = h.files.get("/b.md")!;
+    expect(body).toContain("Sign-off screenshots (advisory)");
+    expect(body).toContain("menu clips");
+    expect(body).not.toContain("DECISION:");
+    expect(result(h)).toMatchObject({
+      decisionAdded: false,
+      signoffFindings: 1,
+    });
   });
 });

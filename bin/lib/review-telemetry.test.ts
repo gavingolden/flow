@@ -110,6 +110,7 @@ describe("aggregateCounts", () => {
       findings_deferred: 0,
       engine: "task",
       agy_model: null,
+      rerouted_from: null,
       fallback_reason: null,
     });
   });
@@ -123,11 +124,13 @@ describe("aggregateCounts", () => {
         "bug-detection": {
           engine: "agy",
           agy_model: "Claude Opus 5.5 (High)",
+          rerouted_from: null,
           fallback_reason: null,
         },
         security: {
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: "agy-output-unparseable",
         },
       },
@@ -135,6 +138,7 @@ describe("aggregateCounts", () => {
     expect(counts["bug-detection"]).toMatchObject({
       engine: "agy",
       agy_model: "Claude Opus 5.5 (High)",
+      rerouted_from: null,
     });
     expect(counts.security).toMatchObject({
       engine: "task",
@@ -182,12 +186,49 @@ describe("readDelegationRecord", () => {
     expect(out["bug-detection"]).toEqual({
       engine: "agy",
       agy_model: "Claude Opus 5.5 (High)",
+      rerouted_from: null,
       fallback_reason: null,
     });
     expect(out.security).toEqual({
       engine: "task",
       agy_model: null,
+      rerouted_from: null,
       fallback_reason: "agy-output-unparseable",
+    });
+  });
+
+  it("prefers a lens's own model and surfaces rerouted_from; older records fall back to the record-wide model", () => {
+    const out = readDelegationRecord(
+      record({
+        delegated: [
+          {
+            lens: "bug-detection",
+            findingCount: 1,
+            decodedVia: "structured-output",
+            durationSec: 90,
+            model: "Gemini 4 Argon (Medium)",
+            reroutedFrom: "agy-content-filtered",
+          },
+          {
+            lens: "performance",
+            findingCount: 0,
+            decodedVia: "structured-output",
+            durationSec: 30,
+          },
+        ],
+      }),
+    );
+    expect(out["bug-detection"]).toEqual({
+      engine: "agy",
+      agy_model: "Gemini 4 Argon (Medium)",
+      rerouted_from: "agy-content-filtered",
+      fallback_reason: null,
+    });
+    expect(out.performance).toEqual({
+      engine: "agy",
+      agy_model: "Claude Opus 5.5 (High)",
+      rerouted_from: null,
+      fallback_reason: null,
     });
   });
 
@@ -527,12 +568,14 @@ describe("mergeTelemetry", () => {
           ...entry,
           engine: "agy",
           agy_model: "Claude Opus 5.5 (High)",
+          rerouted_from: null,
           fallback_reason: null,
         },
         security: {
           ...entry,
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: "agy-timeout",
         },
       },
@@ -543,6 +586,7 @@ describe("mergeTelemetry", () => {
     expect(t.lenses["bug-detection"]).toMatchObject({
       engine: "agy",
       agy_model: "Claude Opus 5.5 (High)",
+      rerouted_from: null,
       model: "Claude Opus 5.5 (High)",
     });
     expect(t.lenses.security).toMatchObject({
@@ -553,6 +597,7 @@ describe("mergeTelemetry", () => {
     expect(t.lenses.performance).toMatchObject({
       engine: "task",
       agy_model: null,
+      rerouted_from: null,
       fallback_reason: null,
     });
   });

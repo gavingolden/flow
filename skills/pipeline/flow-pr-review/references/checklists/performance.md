@@ -1,8 +1,7 @@
 # Performance Review Checklist
 
-Checks for the **performance** lens. Soft cap: ~150 lines — condense, merge duplicates, automate deterministic entries into lint, or
-move consumer-specific entries to `docs/consumer-review-patterns.md` before adding new
-entries. New entries are captured via `flow-pr-review/SKILL.md` step 5 ("Capture the gap") —
+Checks for the **performance** lens. Cap: 200 lines, lint-enforced. Before an addition would cross it: condense, fold instance entries into a class rule, re-home an entry to the lens whose checklist owns its surface, automate deterministic entries into lint, or move consumer-specific entries to `docs/consumer-review-patterns.md`.
+New entries are captured via `flow-pr-review/SKILL.md` step 5 ("Capture the gap") —
 see that step for the two-destination contract; never edit this file at review time — step 5 routes
 generic gaps to a filed issue; edits land only via a maintainer PR against the flow repo.
 
@@ -42,6 +41,38 @@ turn a 50ms page load into a 5-second one.
 **General rule:** Flag concrete, measurable performance issues — not hypothetical slowdowns.
 "This loop is O(n^2) over user data that can grow to 10K rows" is actionable. "This could
 be slow" is not.
+
+---
+
+## Metrics instrumentation
+
+A runtime change shipped without metrics blinds the owner; a label fed from an unbounded
+set multiplies series and the monitoring bill. The repo's `.flow/metrics.md` and the PR's
+`## Instrumentation` section are the contract; the `flow-metrics` skill holds the rules.
+
+### What to look for
+
+- A touched trigger surface (request handler, job or queue consumer, outbound API call,
+  multi-stage pipeline, connection or worker pool) with no emission matching the PR's
+  `## Instrumentation` section; check each surface in the diff against it
+- A metric recorded directly against a backend client instead of the repo's metrics helper
+  (confidence 80)
+- An attribute fed from an unbounded set: a raw error or exception message, a
+  user/request/session ID, or a raw URL path instead of a route template; trace each new
+  attribute's values to a closed list (confidence 85-90, unbounded series)
+- An `error.type` value absent from `.flow/metrics.md` `## error.type values`; grep that file
+  and the helper's union for each new value (confidence 80-85)
+- A duration recorded in milliseconds under a seconds unit (confidence 80-85)
+- Separate success and failure metrics, or summaries, where the backend aggregates histograms
+- A hand-written HTTP-edge metric duplicating what auto-instrumentation already emits
+  (confidence 75-80)
+- A gauge read with a rate (`rate()`, `increase()`): a level is read directly or with `max`
+  (confidence 80-85)
+- A utilisation ratio emitted as a gauge: a ratio cannot be summed or averaged across
+  instances; emit the used and max counts and compute the ratio in the query (confidence 80)
+
+**General rule:** Flag a concrete unbounded label or a missing emission on a named trigger
+surface, not a style preference about metric names.
 
 ---
 

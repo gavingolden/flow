@@ -216,6 +216,22 @@ never secrets; re-freeze is explicit-only. Deleting it degrades to
 fully-ephemeral. `spec.json` + reference snapshot stay pipeline-ephemeral
 under `.flow-tmp/design/`, never committed.
 
+## Metrics conventions
+
+`.flow/metrics.md` is a small human-legible contract for the repo's custom
+metrics — the backend (or `none yet`), the metric namespace, the attribute-key
+registry (`## Attributes`: each key with its closed values or source), the
+closed `error.type` list, the repo-local metrics helper path, the accumulating
+dashboard panel table, the dashboard list (`## Dashboards`: name, URL, what it
+answers), alert tiers, SLOs, and which operations are instrumented (full
+convention in the `flow-metrics` skill) — agent-maintained, committed. The
+first instrumented change creates it; later changes extend it. A key is never
+registered as a synonym of an existing one, and a key or `error.type` value
+that breaks the conventions is migrated — renamed, with every dashboard query
+and alert that reads it updated in the same change. Never secrets. Absent is a
+legitimate state: a repo with no runtime surface, or one that has not yet
+shipped an instrumented change, simply has no file.
+
 ## Product brief
 
 `.flow/product.md` is a small human-legible statement of what this repo's

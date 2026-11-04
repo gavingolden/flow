@@ -4,8 +4,7 @@
  * whether a fix round is kept, and which page-check defects are persistent.
  * No I/O, no LLM — the `flow-ui-critique` CLI wires these to files.
  */
-import { parseTestSteps } from "./test-steps-parse";
-import type { SectionShot } from "./ui-driver-schema";
+import type { UiReviewTarget } from "./ui-review-scope";
 
 export type CritiqueSeverity = "defect" | "major" | "minor";
 
@@ -19,7 +18,16 @@ export type CritiqueFinding = {
   observation: string;
   rule: string;
   fix: string;
+  /**
+   * Whether the defect sits on surface the PR changed. A reply without it
+   * parses as `true`, so an older critic never silently un-gates a defect.
+   */
+  introduced: boolean;
 };
+
+/** Only PR-introduced defects (and a target not showing its state) gate. */
+export const isGating = (f: Pick<CritiqueFinding, "introduced" | "rule">) =>
+  f.introduced !== false || f.rule === "state-mismatch";
 
 const SEVERITIES: readonly string[] = ["defect", "major", "minor"];
 const FINDING_FIELDS = [
@@ -83,18 +91,19 @@ export function validateFindings(
       dropped++;
       continue;
     }
-    findings.push(o as unknown as CritiqueFinding);
+    if (o.introduced !== undefined && typeof o.introduced !== "boolean") {
+      return {
+        ok: false,
+        reason: `findings[${i}].introduced must be a boolean`,
+      };
+    }
+    findings.push({
+      ...(o as unknown as CritiqueFinding),
+      introduced: o.introduced !== false,
+    });
   }
   return { ok: true, findings, dropped };
 }
-
-export type GateReason =
-  | "run"
-  | "already-ran"
-  | "no-subjective-item"
-  | "disabled-by-config"
-  | "no-ui-pass"
-  | "no-section-shots";
 
 export type RoundKind = "smell" | "critique";
 
@@ -122,6 +131,14 @@ export type LoopLog = {
   completed: boolean;
   critiqueCalls: string[];
   skip?: string;
+  /** The diff needed a review — recorded so the gate backstop can read it. */
+  required?: boolean;
+  /** HEAD the critic judged; stamped at critique and on a kept round. */
+  headSha?: string;
+  targets?: UiReviewTarget[];
+  playwrightWarning?: string;
+  /** Advisory judgment of the sign-off screenshots; never gates. */
+  signoff?: { findings: CritiqueFinding[]; judgedSha: string };
 };
 
 const OUTCOMES: readonly string[] = [
@@ -202,118 +219,34 @@ export function parseLoopLog(raw: string | null): LoopLog {
     );
   }
   if (typeof o.skip === "string") out.skip = o.skip;
+  if (typeof o.required === "boolean") out.required = o.required;
+  if (typeof o.headSha === "string") out.headSha = o.headSha;
+  if (typeof o.playwrightWarning === "string") {
+    out.playwrightWarning = o.playwrightWarning;
+  }
+  const so = o.signoff as { findings?: unknown; judgedSha?: unknown } | null;
+  if (
+    typeof so === "object" &&
+    so !== null &&
+    Array.isArray(so.findings) &&
+    typeof so.judgedSha === "string"
+  ) {
+    out.signoff = {
+      findings: so.findings.filter(
+        (f): f is CritiqueFinding => typeof f === "object" && f !== null,
+      ),
+      judgedSha: so.judgedSha,
+    };
+  }
+  if (Array.isArray(o.targets)) {
+    out.targets = o.targets.filter(
+      (t): t is UiReviewTarget =>
+        typeof t === "object" &&
+        t !== null &&
+        typeof (t as { route?: unknown }).route === "string",
+    );
+  }
   return out;
-}
-
-export type GateInput = {
-  body: string;
-  enabled: boolean;
-  ui: {
-    ran: boolean;
-    ok: boolean;
-    skippedReason: string | null;
-    sectionShots: number;
-  } | null;
-  log: LoopLog;
-  demotion: { demoted: boolean; reason: string };
-};
-
-export type GateDecision = {
-  run: boolean;
-  mode: "fix" | "list-only";
-  reason: GateReason;
-  detail: string;
-  openRound: { kind: RoundKind; preSha: string } | null;
-};
-
-/**
- * `ui: null` is the pre-drive call (`run` then means "capture sections in
- * the final drive"). Precedence: already-ran > no-subjective-item >
- * disabled-by-config > no-ui-pass > no-section-shots.
- */
-export function decideGate(i: GateInput): GateDecision {
-  const mode = i.demotion.demoted ? "list-only" : "fix";
-  const openRound =
-    i.log.round?.open === true
-      ? { kind: i.log.round.kind, preSha: i.log.round.preSha }
-      : null;
-  const decide = (reason: GateReason, detail: string): GateDecision => ({
-    run: reason === "run",
-    mode,
-    reason,
-    detail,
-    openRound,
-  });
-
-  if (i.log.completed) {
-    return decide(
-      "already-ran",
-      "the UI critique loop already ran for this pipeline",
-    );
-  }
-  const hasSubjective = parseTestSteps(i.body).steps.some(
-    (s) => s.kind === "subjective",
-  );
-  if (!hasSubjective) {
-    return decide(
-      "no-subjective-item",
-      "no look-and-feel sign-off step to critique",
-    );
-  }
-  if (!i.enabled) {
-    return decide("disabled-by-config", "ui.critique is set to false");
-  }
-  if (i.ui !== null) {
-    if (!i.ui.ran || !i.ui.ok) {
-      const why = !i.ui.ran
-        ? `browser checks did not run (${i.ui.skippedReason ?? "no reason recorded"})`
-        : "browser checks reported failures";
-      return decide("no-ui-pass", why);
-    }
-    if (i.ui.sectionShots < 1) {
-      return decide(
-        "no-section-shots",
-        "the browser drive captured no section screenshots",
-      );
-    }
-  }
-  return decide("run", i.demotion.demoted ? i.demotion.reason : "eligible");
-}
-
-export const GALLERY_MAX_SHOTS = 24;
-
-/**
- * Keeps whole sections (every viewport and start/end part together) in input
- * order — the driver lists touched routes first — and drops whole sections
- * from the end, so the dark shots of a kept section are never starved.
- */
-export function selectGallery(
-  shots: SectionShot[],
-  max: number = GALLERY_MAX_SHOTS,
-): { shots: SectionShot[]; omittedSections: number } {
-  const groups = new Map<string, SectionShot[]>();
-  for (const s of shots) {
-    const key = `${s.route}\u0000${s.section}`;
-    const g = groups.get(key);
-    if (g) g.push(s);
-    else groups.set(key, [s]);
-  }
-  const kept: SectionShot[] = [];
-  let omitted = 0;
-  let full = false;
-  for (const g of groups.values()) {
-    if (!full && kept.length + g.length <= max) {
-      kept.push(...g);
-      continue;
-    }
-    full = true;
-    omitted++;
-  }
-  if (kept.length === 0 && shots.length > 0) {
-    const first = groups.values().next().value as SectionShot[];
-    return { shots: first.slice(0, max), omittedSections: groups.size - 1 };
-  }
-  return { shots: kept, omittedSections: omitted };
 }
 
 const RANK: Record<CritiqueSeverity, number> = {
@@ -353,8 +286,8 @@ export function acceptRound(i: {
       "the page checks got worse (a new defect, more small layout problems, or lost content)",
     );
   }
-  const before = worstByKey(i.targeted);
-  const after = worstByKey(i.after);
+  const before = worstByKey(i.targeted.filter(isGating));
+  const after = worstByKey(i.after.filter(isGating));
   const targetedKeys = [...before].filter(([, rank]) => rank >= RANK.major);
   if (targetedKeys.length === 0) {
     return revert("no targeted defect or major finding to improve");

@@ -46,18 +46,22 @@ export type LensTelemetry = {
   // table layout is unchanged.
   engine: "agy" | "task";
   agy_model: string | null;
+  // "agy-content-filtered" when a Gemini re-run recovered a refused lens.
+  rerouted_from: string | null;
   fallback_reason: string | null;
 };
 
 export type LensDelegation = {
   engine: "agy" | "task";
   agy_model: string | null;
+  rerouted_from: string | null;
   fallback_reason: string | null;
 };
 
 const TASK_DEFAULT: LensDelegation = {
   engine: "task",
   agy_model: null,
+  rerouted_from: null,
   fallback_reason: null,
 };
 
@@ -99,7 +103,8 @@ export function readDelegationRecord(
   for (const d of rec.delegated) {
     out[d.lens] = {
       engine: "agy",
-      agy_model: rec.model,
+      agy_model: d.model ?? rec.model,
+      rerouted_from: d.reroutedFrom ?? null,
       fallback_reason: null,
     };
   }
@@ -172,6 +177,7 @@ type CountsEntry = Pick<
   | "skip_reason"
   | "engine"
   | "agy_model"
+  | "rerouted_from"
   | "fallback_reason"
 >;
 
@@ -433,6 +439,7 @@ export function mergeTelemetry(args: {
       findings_deferred: counts.findings_deferred,
       engine: counts.engine,
       agy_model: counts.agy_model,
+      rerouted_from: counts.rerouted_from,
       fallback_reason: counts.fallback_reason,
     };
   }

@@ -12,7 +12,7 @@
  * `<worktree>/.env` (both followed as symlinks — a worktree's `.env` is a
  * symlink to the canonical checkout per `bin/lib/worktree-fs.ts`).
  *
- * Internal import of `bin/flow-ui-login.ts` only, NOT PATH-registered.
+ * Imported by `bin/flow-ui-login.ts` and `ui-test-account.ts`, NOT PATH-registered.
  */
 
 import * as fs from "node:fs";

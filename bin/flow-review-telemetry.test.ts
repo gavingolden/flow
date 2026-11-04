@@ -214,6 +214,7 @@ describe("collect", () => {
       expect(lenses["bug-detection"]).toMatchObject({
         engine: "agy",
         agy_model: "Claude Opus 5.5 (High)",
+        rerouted_from: null,
         model: "Claude Opus 5.5 (High)",
         fallback_reason: null,
       });
@@ -224,6 +225,7 @@ describe("collect", () => {
       expect(lenses.performance).toMatchObject({
         engine: "task",
         agy_model: null,
+        rerouted_from: null,
         fallback_reason: null,
       });
     });
@@ -422,6 +424,7 @@ describe("print", () => {
           findings_deferred: 0,
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: null,
         },
       },
@@ -446,6 +449,7 @@ describe("print", () => {
           findings_deferred: 0,
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: null,
         },
       },
@@ -472,6 +476,7 @@ describe("print", () => {
           findings_deferred: 0,
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: null,
         },
       },
@@ -496,6 +501,7 @@ describe("print", () => {
           findings_deferred: 0,
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: null,
         },
         security: {
@@ -512,6 +518,7 @@ describe("print", () => {
           findings_deferred: 0,
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: null,
         },
       },

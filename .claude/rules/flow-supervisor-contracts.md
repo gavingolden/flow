@@ -120,8 +120,9 @@ done`'s heal): that one commit, never forced. Both contracts:
     `NEEDS HUMAN: task-tool-unavailable: <exemption-name>` rather than
     falling back inline. Enforced by `bin/skill-md-lint.test.ts`'s "Load
     the Task tool before spawning" check at all nine sites.
-  - **A `SendMessage` continuation of a partial agent stays inside its
-    exemption — not an eighth site** (`references/partial-result-continuation.md`).
+  - **A `SendMessage` continuation of a partial agent — or `/flow-coder`'s
+    single skills-check continuation — stays inside its exemption, not an
+    eighth site** (`references/partial-result-continuation.md`).
   - The `/flow-pr-review` Gemini lens, the cross-model intent guess
     (`flow-gemini-intent-guess`), the `/flow-pipeline` Step-3
     **cross-model plan review**, and the Step-3

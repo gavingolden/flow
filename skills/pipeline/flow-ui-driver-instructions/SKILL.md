@@ -39,6 +39,10 @@ The wrapper passes you these inputs in its spawn prompt:
   spawning you, so you only ever receive a drivable envelope).
 - `MANIFEST_PATH` — the absolute path to `.flow/ui-validation.json`.
 - `WORKTREE` — the absolute worktree path (your working directory).
+- `TARGETS_PATH` (optional) — the absolute path to the critique gate's
+  `.flow-tmp/ui-critique/targets.json`, an array of `{route, state, source}`.
+  Present with `SECTIONS: on`: the section capture iterates these entries
+  (at most 3) instead of choosing "touched" manifest routes.
 - `SLUG` — the pipeline slug, resolved by the caller from `FLOW_SLUG` /
   `~/.flow/state/<slug>.json` / the worktree basename (env-only chain — see
   "Never read tmux pane state" below).

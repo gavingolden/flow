@@ -15,6 +15,10 @@
  * `quota-exhausted`, not a bare `unknown` that discards the real cause. A
  * 0-byte artifact and "quota text was printed to stdout" are mutually
  * exclusive, so this case never reaches `agy-empty-artifact`.
+ *
+ * Order: quota, then rate-limit, then content-filter, then the skip-reason
+ * switch. A content-filter refusal (the model declined the prompt) proves the
+ * plan answered, so a quota or rate-limit notice alongside it still wins.
  */
 
 export const AGY_FAILURE_CLASSES = [
@@ -27,6 +31,7 @@ export const AGY_FAILURE_CLASSES = [
   "spawn-failed",
   "unknown",
   "model-unavailable",
+  "content-filtered",
 ] as const;
 
 export type AgyFailureClass = (typeof AGY_FAILURE_CLASSES)[number];
@@ -34,6 +39,12 @@ export type AgyFailureClass = (typeof AGY_FAILURE_CLASSES)[number];
 const QUOTA_PATTERN =
   /quota reached|upgrade your subscription|resource[_ ]exhausted|quota exceeded/i;
 const RATE_LIMIT_PATTERN = /rate limit|429|too many requests/i;
+const CONTENT_FILTER_PATTERN =
+  /blocked by content safety filters|compl(?:y|ies) with content policies/i;
+
+export function isContentFilterText(text: string): boolean {
+  return CONTENT_FILTER_PATTERN.test(text);
+}
 
 export function classifyAgyFailure(input: {
   skipReason: string;
@@ -54,6 +65,9 @@ export function classifyAgyFailure(input: {
   }
   for (const text of haystacks) {
     if (RATE_LIMIT_PATTERN.test(text)) return "rate-limited";
+  }
+  for (const text of haystacks) {
+    if (CONTENT_FILTER_PATTERN.test(text)) return "content-filtered";
   }
 
   switch (input.skipReason) {

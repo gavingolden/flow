@@ -285,6 +285,7 @@ the PATH-bound schema validators. Always installed.
 | `skills/universal/flow-refactoring`             | `flow-refactoring`      | behavior-preserving cleanup                                                |
 | `skills/universal/flow-checkpoint`              | `flow-checkpoint`       | conversational-state flush                                                 |
 | `skills/universal/flow-ui-ux`                   | `flow-ui-ux`            | stack-agnostic UI/UX judgment                                              |
+| `skills/universal/flow-metrics`                 | `flow-metrics`          | custom metrics, dashboards, alerts and SLOs                                |
 | `skills/universal/flow-skill-creator`           | `flow-skill-creator`    | authoring new skills                                                       |
 | `skills/universal/flow-backlog-triage`          | `flow-backlog-triage`   | GitHub issue + notes backlog triage                                        |
 | `skills/universal/flow-file-issue`              | `flow-file-issue`       | hand-file a GitHub issue against the value-prop rubric                     |

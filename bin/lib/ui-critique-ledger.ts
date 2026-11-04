@@ -36,6 +36,22 @@ const OUTCOMES: readonly string[] = [
   "skipped",
 ];
 
+/** `record --outcome list-only --reason` for a run with no smell baseline. */
+export const NO_SMOKE_BASELINE_REASON = "no-smoke-baseline";
+
+/**
+ * Whether a finished loop becomes a ledger line. A skip never does, and a
+ * list-only caused by having no smoke baseline says nothing about the critic's
+ * fix rounds, so it must not run down the demotion probation.
+ */
+export function countsInLedger(
+  outcome: LedgerOutcome,
+  reason: string,
+): boolean {
+  if (outcome === "skipped") return false;
+  return !(outcome === "list-only" && reason === NO_SMOKE_BASELINE_REASON);
+}
+
 export function ledgerPath(home: string = os.homedir()): string {
   return path.join(home, ".flow", "logs", "ui-critique.jsonl");
 }

@@ -2,9 +2,6 @@
 
 Contents: Checkpoint re-injection
 
-Step 0 (Echo the originating request) runs first on this re-entry path too,
-before the resume-mode detection below.
-
 The supervisor enters resume mode when the seed prompt begins with
 the literal prefix:
 

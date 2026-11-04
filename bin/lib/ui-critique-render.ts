@@ -5,24 +5,27 @@
  */
 import { testStepsSectionBounds } from "../flow-gate-decide";
 import { fencedLineMask } from "./md-block-structure";
-import type { CritiqueFinding, LoopLog } from "./ui-critique";
+import { isGating, type CritiqueFinding, type LoopLog } from "./ui-critique";
+import {
+  cell,
+  residualLines,
+  signoffLines,
+  targetLines,
+} from "./ui-critique-render-lists";
 import type { SectionShot } from "./ui-driver-schema";
 
 export const UI_REVIEW_OPEN = "<!-- flow:ui-review -->";
 export const UI_REVIEW_CLOSE = "<!-- /flow:ui-review -->";
 export const UI_REVIEW_DECISION_MARKER = "<!-- flow:ui-review-decision -->";
+/** Only on the not-run item: ticking a residual-defects item must not waive a review that never ran. */
+export const UI_REVIEW_NOT_RUN_MARKER = "<!-- flow:ui-review-not-run -->";
 
 const MAX_PAIRS = 8;
 const EVIDENCE = ".flow-tmp/ui-evidence/";
-const SEVERITY_ORDER = ["defect", "major", "minor"] as const;
 
 function relPath(p: string): string {
   const i = p.indexOf(EVIDENCE);
   return i >= 0 ? p.slice(i) : p;
-}
-
-function cell(s: string): string {
-  return s.replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
 }
 
 function shotKey(s: SectionShot): string {
@@ -40,6 +43,24 @@ const PLAIN_REASONS: Record<string, string> = {
   "claude-timeout": "the reviewer took too long and was stopped",
   "mcp-not-available": "the browser tools were not available",
   "claude-missing": "the reviewer is not installed on this machine",
+  "disabled-by-config": "turned off in flow config",
+  "no-review-target":
+    "no page in the plan or the diff shows the changed screen — add a `## UI review targets` entry",
+  "playwright-unavailable":
+    "the browser tool was unavailable and this repo has no Playwright — run `npm i -D @playwright/test && npx playwright install chromium`",
+  "playwright-browsers-missing":
+    "the browser tool was unavailable and Playwright's browser is not downloaded — run `npx playwright install chromium`",
+  "capture-failed": "the screenshot capture failed",
+  "login-failed": "the capture could not log in with the test account",
+  "credentials-unavailable": "the test-account credentials were not available",
+  "no-credential-env-vars":
+    "the manifest names no test-account credential variables",
+  "manifest-not-committed":
+    "the UI manifest is not committed, so its test account was not used",
+  "manifest-not-in-worktree":
+    "the UI manifest is outside this worktree, so its test account was not used",
+  "no-targets": "the plan names no pages to photograph",
+  "non-local-base-url": "the app or login URL is not a local address",
 };
 
 /** Skip and round reasons arrive as helper codes; the PR shows plain words. */
@@ -99,20 +120,15 @@ function comparison(
   ];
 }
 
-function residualLines(residual: CritiqueFinding[]): string[] {
-  const out: string[] = [];
-  for (const sev of SEVERITY_ORDER) {
-    const group = residual.filter((f) => f.severity === sev);
-    if (group.length === 0) continue;
-    out.push(`**Unresolved ${sev} findings:**`);
-    out.push(
-      ...group.map(
-        (f) => `- ${cell(f.section)} @ ${f.viewport} — ${cell(f.observation)}`,
-      ),
-    );
-    out.push("");
-  }
-  return out;
+const warning = (text: string): string[] => ["> [!WARNING]", `> ${text}`, ""];
+
+/** A review the diff required but that never ran, with the review still on. */
+function notRun(log: LoopLog): boolean {
+  return (
+    log.required === true &&
+    typeof log.skip === "string" &&
+    log.skip !== "disabled-by-config"
+  );
 }
 
 export function renderUiReview(i: {
@@ -123,13 +139,23 @@ export function renderUiReview(i: {
 }): string {
   const { log } = i;
   const lines = [UI_REVIEW_OPEN, "## UI review", ""];
-  if (log.skip) {
+  if (log.playwrightWarning) lines.push(...warning(log.playwrightWarning));
+  if (log.skip === "disabled-by-config") {
+    lines.push(`Off: ${plainReason(log.skip)}.`, "");
+  } else if (notRun(log)) {
+    lines.push(...warning(`UI review did not run: ${plainReason(log.skip!)}`));
+  } else if (log.skip) {
     lines.push(`Not run: ${plainReason(log.skip)}`, "");
   } else {
     lines.push(outcomeLine(log), "");
+    if (log.completed && log.headSha) {
+      lines.push(`Judged commit: \`${log.headSha.slice(0, 7)}\``, "");
+    }
+    lines.push(...targetLines(log.targets ?? []));
     lines.push(...comparison(i.before, i.after));
     lines.push(...residualLines(log.residual));
   }
+  lines.push(...signoffLines(log.signoff));
   if (log.persistent.length > 0) {
     lines.push(
       "**Persistent page-check defects** (unchanged through every verify attempt):",
@@ -151,12 +177,17 @@ export function renderUiReview(i: {
   return lines.join("\n");
 }
 
-/** `null` with no defect finding and no persistent defect. */
+/**
+ * `null` with no gating defect finding and no persistent defect. Pre-existing
+ * (not introduced) defects are listed in the section but never gate.
+ */
 export function residualDecisionItem(
   residual: CritiqueFinding[],
   persistent: string[],
 ): string | null {
-  const defects = residual.filter((f) => f.severity === "defect");
+  const defects = residual.filter(
+    (f) => f.severity === "defect" && isGating(f),
+  );
   const n = defects.length + persistent.length;
   if (n === 0) return null;
   const top = cell(
@@ -165,6 +196,21 @@ export function residualDecisionItem(
       : persistent[0],
   ).slice(0, 80);
   return `- [ ] DECISION: accept this UI with ${n} unresolved defect(s) listed under UI review (top: ${top}), or redirect to fix them`;
+}
+
+/**
+ * The one human-only item a review leaves: unresolved defects take precedence,
+ * else a review the diff required but that could not run asks the owner to
+ * accept merging without it.
+ */
+export function uiReviewDecisionItem(log: LoopLog): string | null {
+  const defects = residualDecisionItem(
+    log.skip ? [] : log.residual,
+    log.persistent,
+  );
+  if (defects !== null) return defects;
+  if (!notRun(log)) return null;
+  return `- [ ] DECISION: the UI review did not run (${cell(plainReason(log.skip!))}) — merge without a design review of the changed screens, or redirect to fix the cause ${UI_REVIEW_NOT_RUN_MARKER}`;
 }
 
 function findLine(
