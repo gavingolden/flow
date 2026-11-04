@@ -98,5 +98,8 @@ describe.skipIf(!PW_DIR)("flow-ui-capture against a real Playwright", () => {
     );
     expect(viewports.has("phone")).toBe(true);
     expect(viewports.has("desktop")).toBe(true);
+    expect(viewports.has("phone-dark")).toBe(true);
+    expect(viewports.has("desktop-dark")).toBe(true);
+    expect(artifact.route_snapshots.length).toBeGreaterThan(0);
   }, 120_000);
 });

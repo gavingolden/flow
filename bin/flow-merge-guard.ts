@@ -163,7 +163,7 @@ export function evaluateMergeGuard(
     parsed.kind === "no-unchecked" && uiReview && !uiReview.satisfied
       ? {
           kind: "has-unchecked" as const,
-          uncheckedItems: [uiReviewItem(uiReview.reason)],
+          uncheckedItems: [uiReviewItem(uiReview)],
         }
       : parsed;
 

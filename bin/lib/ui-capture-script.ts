@@ -120,11 +120,17 @@ async function captureTarget(browser, storageState, t) {
   } catch (e) {
     // ariaSnapshot needs a recent Playwright; the screenshots still go ahead.
   }
-  await first.ctx.close();
 
   let budget = cfg.maxShotsPerTarget;
-  for (const vp of probe.hasDarkScheme ? cfg.viewportsDark : cfg.viewportsLight) {
-    const { ctx, page } = await open(browser, storageState, vp, vp.colorScheme, url);
+  const vps = probe.hasDarkScheme ? cfg.viewportsDark : cfg.viewportsLight;
+  for (let v = 0; v < vps.length; v++) {
+    const vp = vps[v];
+    // Each viewport gets an even share of what is left, so a long page cannot
+    // starve the later (dark/desktop) viewports.
+    let share = Math.floor(budget / (vps.length - v));
+    const { ctx, page } = vp.name === "desktop"
+      ? first
+      : await open(browser, storageState, vp, vp.colorScheme, url);
     if (vp.colorScheme === "dark" && probe.darkSchemeClass) {
       await page.evaluate(applyDark, probe.darkSchemeClass);
     }
@@ -137,12 +143,13 @@ async function captureTarget(browser, storageState, t) {
       const s = plan[i];
       const parts = s.height > 1.5 * found.innerHeight ? [["start", "start"], ["end", "end"]] : [["whole", "start"]];
       for (const [part, block] of parts) {
-        if (budget <= 0) { out.omittedSections++; break; }
+        if (share <= 0) { out.omittedSections++; break; }
         if (s.selector) await page.evaluate(scrollTo, { sel: s.selector, block });
         const file = cfg.names[[t.route, i + 1, vp.name, part].join("|")];
         fs.mkdirSync(path.dirname(file), { recursive: true });
         await page.screenshot({ path: file, fullPage: false });
         budget--;
+        share--;
         out.shots.push({ route: t.route, section: s.section, viewport: vp.name, part, path: file });
       }
     }

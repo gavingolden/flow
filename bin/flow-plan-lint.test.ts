@@ -94,6 +94,10 @@ The export format might not match user expectations.
 
 nothing — plan is minimal.
 
+## UI review targets
+
+- \`/export\` — export button
+
 # Task breakdown
 
 ### Task 1: Add export button
@@ -2074,7 +2078,10 @@ describe("lintPlan — ui-review-targets-missing", () => {
     CONFORMING_PLAN.replace(
       "  - **Files:** create src/ExportButton.svelte",
       `  - **Files:** ${files}`,
-    ).replace("# Task breakdown", `${extra}# Task breakdown`);
+    ).replace(
+      "## UI review targets\n\n- `/export` — export button\n\n# Task breakdown",
+      `${extra}# Task breakdown`,
+    );
   const warns = (plan: string) =>
     lintPlan(plan).misses.some((m) => m.includes("ui-review-targets-missing"));
 

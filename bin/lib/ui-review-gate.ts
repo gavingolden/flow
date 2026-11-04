@@ -16,7 +16,7 @@ import {
 } from "./md-block-structure";
 import { parseLoopLog, type LoopLog } from "./ui-critique";
 import { readUiCritiqueEnabled } from "./ui-critique-config";
-import { plainReason, UI_REVIEW_DECISION_MARKER } from "./ui-critique-render";
+import { plainReason, UI_REVIEW_NOT_RUN_MARKER } from "./ui-critique-render";
 import { branchChangedFiles, changedSinceCommit } from "./ui-review-diff";
 import { isRenderBearing, uiReviewRequired } from "./ui-review-scope";
 
@@ -24,17 +24,22 @@ export type UiReviewGate = {
   required: boolean;
   satisfied: boolean;
   reason: string | null;
+  /** The review ran but the PR's own UI changed after it. */
+  stale?: boolean;
 };
 
 const COMPLETED: readonly string[] = ["clean", "kept", "reverted", "list-only"];
-const UNREADABLE = "ui-review-check: diff unreadable";
+const UNREADABLE =
+  "the design-review check was skipped because the branch diff could not be read, so this PR may merge without a design review";
 
 /**
- * The marker is an HTML comment, which the Test Steps parse strips, so it is
- * found in the RAW lines of the section — skipping fenced output and a span
- * GitHub renders as raw HTML, where a reviewer could not have ticked it.
+ * The not-run marker is an HTML comment, which the Test Steps parse strips,
+ * so it is found in the RAW lines of the section — skipping fenced output and
+ * a span GitHub renders as raw HTML, where a reviewer could not have ticked
+ * it. It is distinct from the residual-defects marker, so accepting defects
+ * never waives a review that did not run.
  */
-function decisionMarked(body: string): boolean {
+function notRunAccepted(body: string): boolean {
   const lines = body.split("\n");
   const bounds = testStepsSectionBounds(lines);
   if (bounds === null) return false;
@@ -45,7 +50,7 @@ function decisionMarked(body: string): boolean {
     (l, i) =>
       !fenced[bounds.start + 1 + i] &&
       !trapped.has(i) &&
-      l.includes(UI_REVIEW_DECISION_MARKER),
+      l.includes(UI_REVIEW_NOT_RUN_MARKER),
   );
 }
 
@@ -73,10 +78,9 @@ export function checkUiReviewGate(i: {
   if (!required) return ok(false);
   if (!i.enabled) return ok(true);
 
-  const marked = decisionMarked(i.body);
   const completed = i.log?.outcome != null && COMPLETED.includes(i.log.outcome);
   if (!completed) {
-    if (marked) return ok(true);
+    if (notRunAccepted(i.body)) return ok(true);
     const why = i.log?.skip
       ? plainReason(i.log.skip)
       : "no UI review record for this PR";
@@ -90,11 +94,19 @@ export function checkUiReviewGate(i: {
   const judged = i.log?.headSha;
   if (!judged) return ok(true);
   if (i.changedSinceReview === null) return ok(true, UNREADABLE);
-  if (i.changedSinceReview.some(isRenderBearing) && !marked) {
+  // After a base-branch merge the since-review diff also lists main's files;
+  // only the PR's own changes count.
+  const since =
+    i.changedFiles === null
+      ? i.changedSinceReview
+      : i.changedSinceReview.filter((f) => i.changedFiles!.includes(f));
+  const stale = since.find(isRenderBearing);
+  if (stale !== undefined) {
     return {
       required: true,
       satisfied: false,
-      reason: `UI changed after the design review (judged ${judged.slice(0, 7)})`,
+      stale: true,
+      reason: `the design review judged ${judged.slice(0, 7)}; later commits changed ${stale} without a re-review`,
     };
   }
   return ok(true);
@@ -163,8 +175,10 @@ export function computeUiReviewGate(
 }
 
 /** The human-only item an unsatisfied check stands in for in a verdict. */
-export const uiReviewItem = (reason: string | null): string =>
-  `DECISION: ${reason ?? "UI review did not run"} — merge without it, or redirect to fix`;
+export const uiReviewItem = (ui: UiReviewGate): string =>
+  ui.stale
+    ? `DECISION: ${ui.reason} — say merge to accept those changes as reviewed-enough, or redirect to re-check that screen`
+    : `DECISION: ${ui.reason ?? "UI review did not run"} — merge without it, or redirect to fix`;
 
 /**
  * Folds the check into a test-steps verdict: an unsatisfied check turns an
@@ -182,7 +196,7 @@ export function applyUiReview(
     if (ui.reason) out.reason = `${result.reason} (${ui.reason})`;
     return out;
   }
-  const item = uiReviewItem(ui.reason);
+  const item = uiReviewItem(ui);
   if (result.decision === "auto-merge") {
     return {
       ...out,

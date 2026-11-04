@@ -9,7 +9,8 @@
  * PascalCase component, a bare stylesheet) contributes nothing, because a
  * wrong URL 404s and burns a fix-loop attempt on a false negative.
  *
- * Internal import of `bin/flow-ui-validate.ts` only — sibling to
+ * Imported by `bin/flow-ui-validate.ts` and `ui-review-scope.ts` (design-review
+ * targets) — sibling to
  * `ui-validation-schema.ts`, NOT registered in `bin/lib/sources.ts`'s
  * `VALIDATOR_MODULES` allowlist (no pipeline skill invokes it by bare name).
  */

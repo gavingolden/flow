@@ -47,10 +47,7 @@
  * parse failure is reported as a named miss, not an uncaught exception.
  */
 
-import {
-  hasUiReviewTargetsSection,
-  isRenderBearing,
-} from "./lib/ui-review-scope";
+import { parseUiReviewTargets, isRenderBearing } from "./lib/ui-review-scope";
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import {
@@ -444,12 +441,17 @@ function checkTaskContracts(planText: string, misses: string[]): void {
  */
 function checkUiReviewTargets(planText: string, misses: string[]): void {
   const start = planText.search(/^# Task breakdown\s*$/m);
-  if (start < 0 || hasUiReviewTargetsSection(planText)) return;
+  if (start < 0 || parseUiReviewTargets(planText).length > 0) return;
   const files = planText
     .slice(start)
     .split("\n")
     .filter((l) => l.includes("**Files:**"))
-    .flatMap((l) => [...l.matchAll(/`([^`\s]+)`/g)].map((m) => m[1]));
+    .flatMap((l) =>
+      l
+        .slice(l.indexOf("**Files:**") + "**Files:**".length)
+        .split(/[\s`,;()]+/)
+        .filter((tok) => tok.includes(".")),
+    );
   const ui = files.find(isRenderBearing);
   if (ui) {
     misses.push(

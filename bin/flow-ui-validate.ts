@@ -472,7 +472,7 @@ export function run(argv: string[], deps: Deps = {}): number {
       ...(uiDiff
         ? {
             nudge:
-              "UI changed but the chrome-devtools browser tool is not connected — the design review still captures through the repo's Playwright; reconnect with /mcp for the page checks.",
+              "UI changed but the chrome-devtools browser tool is not connected — the design review uses the repo's Playwright when it is installed (otherwise it is reported as not run); reconnect with /mcp for the page checks.",
           }
         : {}),
     });

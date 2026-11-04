@@ -80,8 +80,14 @@ describe("planCapture caps and paths", () => {
   it("slugs the root route and drops the query string", () => {
     const { shotPath } = planCapture([target("/")], DIR, false);
     expect(shotPath("/", 1, "phone", "whole")).toBe(`${DIR}/root-1-phone.png`);
-    expect(shotPath("/a?tab=1#x", 1, "phone", "whole")).toBe(
-      `${DIR}/a-1-phone.png`,
-    );
+    expect(shotPath("/a#x", 1, "phone", "whole")).toBe(`${DIR}/a-1-phone.png`);
+  });
+
+  it("gives targets that differ only by query string distinct files", () => {
+    const { shotPath } = planCapture([target("/a")], DIR, false);
+    const a = shotPath("/a?state=empty", 1, "phone", "whole");
+    const b = shotPath("/a?state=loaded", 1, "phone", "whole");
+    expect(a).not.toBe(b);
+    expect(a).toMatch(/\/a-[0-9a-f]{6}-1-phone\.png$/);
   });
 });

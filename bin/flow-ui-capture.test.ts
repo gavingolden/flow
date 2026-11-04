@@ -307,6 +307,24 @@ describe("flow-ui-capture — test-account login", () => {
     });
   });
 
+  it("resolves a {{PORT}} login url against the launched base url instead of crashing", () => {
+    const h = harness(
+      {
+        [MANIFEST]: {
+          baseUrl: "http://localhost:{{PORT}}",
+          loginUrl: "http://localhost:{{PORT}}/login",
+          credentialEnvVars: { user: "U", pass: "P" },
+        },
+      },
+      { resolveTestAccount: () => account },
+    );
+    expect(run(ARGS, h.deps)).toBe(0);
+    const cfg = JSON.parse(
+      h.files.get(`${W}/.flow-tmp/ui-capture/run-1/config.json`)!,
+    );
+    expect(cfg.login).toEqual({ url: "http://localhost:5173/login" });
+  });
+
   it("refuses a login url that leaves the loopback host without resolving credentials", () => {
     let resolved = false;
     const h = harness(

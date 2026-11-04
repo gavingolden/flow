@@ -91,6 +91,13 @@ export function hasUiReviewTargetsSection(planMd: string): boolean {
   return planMd.split("\n").some((l) => TARGETS_HEADING.test(l));
 }
 
+/** A same-origin path: `//host` and `/\host` would resolve to another host. */
+export function isSafeRoute(route: string): boolean {
+  return (
+    route.startsWith("/") && !route.startsWith("//") && !route.includes("\\")
+  );
+}
+
 // Plan lines name a path, but an absolute origin is tolerated and reduced to
 // its path: base URLs carry per-run ports, so only the path is stable.
 function normalizeRoute(raw: string): string | null {
@@ -103,7 +110,7 @@ function normalizeRoute(raw: string): string | null {
       return null;
     }
   }
-  return route.startsWith("/") ? route : null;
+  return isSafeRoute(route) ? route : null;
 }
 
 export function parseUiReviewTargets(planMd: string): UiReviewTarget[] {

@@ -10,7 +10,8 @@ import {
 import type { DecisionResult } from "../flow-gate-decide";
 
 const UI = ["src/lib/components/Panel.svelte"];
-const MARKER = "<!-- flow:ui-review-decision -->";
+const MARKER = "<!-- flow:ui-review-not-run -->";
+const DEFECT_MARKER = "<!-- flow:ui-review-decision -->";
 const body = (steps: string) => `## Summary\n\n## Test Steps\n\n${steps}\n`;
 const log = (over: Partial<LoopLog> = {}): LoopLog => ({
   ...emptyLoopLog(),
@@ -53,7 +54,7 @@ describe("checkUiReviewGate — requirement", () => {
     expect(check({ changedFiles: null })).toEqual({
       required: false,
       satisfied: true,
-      reason: "ui-review-check: diff unreadable",
+      reason: expect.stringContaining("branch diff could not be read"),
     });
   });
 });
@@ -82,6 +83,21 @@ describe("checkUiReviewGate — a review that did not run", () => {
       body: body(`- [x] DECISION: the UI review did not run ${MARKER}`),
     });
     expect(r.satisfied).toBe(true);
+  });
+
+  it("is NOT satisfied by a ticked residual-defects item (a different acceptance)", () => {
+    const r = check({
+      log: log({
+        outcome: "skipped",
+        skip: "no-review-target",
+        persistent: ["x"],
+      }),
+      body: body(
+        `- [x] DECISION: accept this UI with 1 defect ${DEFECT_MARKER}`,
+      ),
+    });
+    expect(r.satisfied).toBe(false);
+    expect(r.reason).toContain("UI review did not run");
   });
 
   it("is NOT satisfied by a marker outside Test Steps", () => {
@@ -120,8 +136,18 @@ describe("checkUiReviewGate — a completed review", () => {
     });
     expect(r).toMatchObject({
       satisfied: false,
-      reason: "UI changed after the design review (judged abcdef0)",
+      stale: true,
+      reason: expect.stringContaining("the design review judged abcdef0"),
     });
+  });
+
+  it("ignores files that only came in from a merged base branch", () => {
+    const r = check({
+      log: log({ outcome: "clean", headSha: "abcdef0123" }),
+      changedFiles: ["src/a.svelte"],
+      changedSinceReview: ["src/other-pr.svelte"],
+    });
+    expect(r.satisfied).toBe(true);
   });
 
   it("a later commit changing only logic keeps it satisfied", () => {
@@ -132,13 +158,14 @@ describe("checkUiReviewGate — a completed review", () => {
     expect(r.satisfied).toBe(true);
   });
 
-  it("a decision marker accepts the post-review UI change", () => {
+  it("a ticked residual-defects marker does not accept a post-review UI change", () => {
     const r = check({
-      log: log({ outcome: "clean", headSha: "abcdef0" }),
+      log: log({ outcome: "list-only", headSha: "abcdef0" }),
+      changedFiles: ["a.svelte"],
       changedSinceReview: ["a.svelte"],
-      body: body(`- [x] DECISION: accept ${MARKER}`),
+      body: body(`- [x] DECISION: accept ${DEFECT_MARKER}`),
     });
-    expect(r.satisfied).toBe(true);
+    expect(r.satisfied).toBe(false);
   });
 
   it("an unreadable staleness diff is not stale, and is named", () => {
@@ -148,7 +175,7 @@ describe("checkUiReviewGate — a completed review", () => {
     });
     expect(r).toMatchObject({
       satisfied: true,
-      reason: "ui-review-check: diff unreadable",
+      reason: expect.stringContaining("branch diff could not be read"),
     });
   });
 });

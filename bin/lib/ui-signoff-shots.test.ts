@@ -41,10 +41,22 @@ describe("itemCapturesToShots", () => {
 
   it("takes the route from the matching fix_context entry", () => {
     const shots = itemCapturesToShots(
-      [item({ screenshots: ["a-1280.png"] })],
+      [item({ screenshots: [".flow-tmp/ui-evidence/a-1280.png"] })],
       [{ item: "SUBJECTIVE: the menu feels calm", route: "/analysis/AVGO" }],
     );
     expect(shots[0].route).toBe("/analysis/AVGO");
+  });
+
+  it("drops screenshot paths outside the evidence directory", () => {
+    const shots = itemCapturesToShots([
+      item({
+        screenshots: [
+          "/Users/u/.ssh/id_ed25519",
+          ".flow-tmp/ui-evidence/../x.png",
+        ],
+      }),
+    ]);
+    expect(shots).toEqual([]);
   });
 
   it("skips items that were not captured or are not capture items", () => {

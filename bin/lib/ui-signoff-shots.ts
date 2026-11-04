@@ -7,7 +7,11 @@
  * `-1280` filename suffix, and the route comes from the matching
  * `fix_context` entry.
  */
-import type { SectionShot, UiDriverItemResult } from "./ui-driver-schema";
+import {
+  isEvidencePath,
+  type SectionShot,
+  type UiDriverItemResult,
+} from "./ui-driver-schema";
 
 export const SIGNOFF_ROUTE = "(sign-off)";
 
@@ -25,6 +29,7 @@ export function itemCapturesToShots(
     const route =
       fixContext.find((c) => c.item === r.item)?.route ?? SIGNOFF_ROUTE;
     for (const p of r.screenshots) {
+      if (!isEvidencePath(p)) continue;
       out.push({
         route,
         section: r.item,

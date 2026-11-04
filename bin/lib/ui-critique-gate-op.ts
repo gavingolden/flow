@@ -73,7 +73,12 @@ export function opGate(f: Flags, deps: OpsDeps): OpResult {
     deriveReviewTargets({
       changedFiles: changed ?? [],
       planTargets: parseUiReviewTargets(deps.readFile(str(f.plan)) ?? ""),
-      manifestRoutes: manifestRoutes(deps, str(f.manifest)),
+      manifestRoutes: manifestRoutes(
+        deps,
+        f.manifest
+          ? str(f.manifest)
+          : path.join(w, ".flow", "ui-validation.json"),
+      ),
     });
 
   const enabled = readUiCritiqueEnabled(() =>
@@ -93,7 +98,11 @@ export function opGate(f: Flags, deps: OpsDeps): OpResult {
     enabled,
     uiRequired: required,
     targetCount: targets.length,
-    playwright: preDrive ? deps.resolvePlaywright(w).status : "ok",
+    // Probing spawns node, so skip it when the gate short-circuits before it.
+    playwright:
+      preDrive && required && enabled && !log.completed && targets.length > 0
+        ? deps.resolvePlaywright(w).status
+        : "ok",
     ui,
     log,
     demotion: demotion(deps),

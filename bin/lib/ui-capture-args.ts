@@ -2,7 +2,7 @@
  * Argument and input parsing for `flow-ui-capture`, split out so the CLI
  * stays a short orchestration.
  */
-import { MAX_REVIEW_TARGETS } from "./ui-review-scope";
+import { isSafeRoute, MAX_REVIEW_TARGETS } from "./ui-review-scope";
 
 export const USAGE =
   "usage: flow-ui-capture --worktree <w> --targets <p> --base-url <url> [--manifest <p>] --out <p>\n       flow-ui-capture --probe --worktree <w>";
@@ -45,8 +45,7 @@ export function readTargets(raw: string | null): Target[] | null {
     const j: unknown = JSON.parse(raw ?? "");
     if (!Array.isArray(j)) return null;
     const ok = j.filter(
-      (t): t is Target =>
-        typeof t?.route === "string" && t.route.startsWith("/"),
+      (t): t is Target => typeof t?.route === "string" && isSafeRoute(t.route),
     );
     return ok.slice(0, MAX_REVIEW_TARGETS);
   } catch {

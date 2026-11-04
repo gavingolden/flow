@@ -279,7 +279,7 @@ describe("a required review that did not run", () => {
   it("adds one unchecked DECISION item naming that reason", () => {
     const item = uiReviewDecisionItem(skipped());
     expect(item).toBe(
-      "- [ ] DECISION: the UI review did not run (the browser drive captured no section screenshots) — merge without a design review of the changed screens, or redirect to fix the cause",
+      "- [ ] DECISION: the UI review did not run (the browser drive captured no section screenshots) — merge without a design review of the changed screens, or redirect to fix the cause <!-- flow:ui-review-not-run -->",
     );
   });
 
@@ -304,7 +304,11 @@ describe("a required review that did not run", () => {
       "npm i -D @playwright/test && npx playwright install chromium",
     ],
     ["playwright-browsers-missing", "npx playwright install chromium"],
-    ["fallback-capture-failed", "the fallback capture failed"],
+    ["capture-failed", "the screenshot capture failed"],
+    ["login-failed", "could not log in"],
+    ["credentials-unavailable", "credentials were not available"],
+    ["no-targets", "names no pages"],
+    ["non-local-base-url", "not a local address"],
   ])("maps %s to a plain reason", (code, fragment) => {
     const l = skipped({ skip: code });
     expect(render(l)).toContain(fragment);

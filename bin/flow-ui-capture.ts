@@ -120,7 +120,13 @@ export function run(argv: string[], deps: Deps): number {
           : acct.reason,
       );
     }
-    login = { url: new URL(loginUrl, baseUrl).href };
+    const port = new URL(baseUrl).port;
+    login = {
+      url: new URL(
+        loginUrl.replace(/\{\{PORT(_[A-Z0-9_]+)?\}\}/g, port),
+        baseUrl,
+      ).href,
+    };
     env = {
       FLOW_CAPTURE_USER: acct.values.user,
       FLOW_CAPTURE_PASS: acct.values.pass,

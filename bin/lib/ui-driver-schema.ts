@@ -180,14 +180,14 @@ function validateCappedStrings(
 }
 
 const DATA_PRECONDITIONS_MAX_ITEMS = 10;
-const SECTION_SHOTS_MAX_ENTRIES = 48;
+export const SECTION_SHOTS_MAX_ENTRIES = 48;
 const ROUTE_SNAPSHOTS_MAX_ENTRIES = 3;
 const EVIDENCE_DIR = ".flow-tmp/ui-evidence/";
 
 // Evidence paths must stay inside the worktree's evidence directory: a
 // `..` segment or a different directory would let a crafted artifact point
 // later readers (the critic, the PR body) at an arbitrary file.
-function isEvidencePath(p: string): boolean {
+export function isEvidencePath(p: string): boolean {
   if (p.split(/[\\/]/).includes("..")) return false;
   const norm = p.replace(/\\/g, "/");
   return norm.startsWith(EVIDENCE_DIR) || norm.includes(`/${EVIDENCE_DIR}`);

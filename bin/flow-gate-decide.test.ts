@@ -989,9 +989,7 @@ describe("decide() — UI review backstop", () => {
       { required: true, outcome: "clean", headSha: "abcdef0123" },
     );
     expect(r.decision).toBe("gated");
-    expect(r.reason).toBe(
-      "UI changed after the design review (judged abcdef0)",
-    );
+    expect(r.reason).toContain("the design review judged abcdef0");
   });
 
   it("does not gate when ui.critique is off", () => {
@@ -1011,7 +1009,7 @@ describe("decide() — UI review backstop", () => {
 
   it("an unticked not-run item inside Test Steps already gates on its own", () => {
     const item =
-      "- [ ] DECISION: the UI review did not run (x) <!-- flow:ui-review-decision -->";
+      "- [ ] DECISION: the UI review did not run (x) <!-- flow:ui-review-decision --> <!-- flow:ui-review-not-run -->";
     const r = gate(
       {},
       { required: true, outcome: "skipped" },
