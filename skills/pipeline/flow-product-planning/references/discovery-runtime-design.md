@@ -2,6 +2,18 @@
 
 This reference holds the discovery procedure for the always-present `### Runtime design` subsection of `## Architecture Decisions`: the trigger surface, the full form, the `none — <reason>` form, the required pre-reads and the task shape. `discovery-instructions.md` step 5 names it at the gate site.
 
+## Runtime defaults
+
+Apply these to every full-form plan. A plan that departs from one names the departure and its reason on the `**Proportionality:**` line.
+
+- Durable work (anything that must survive the response, or a loop of paid or rate-limited calls) is queue-driven, not run in the request.
+- A scheduler tick only enqueues one task per unit; it never runs the units itself.
+- Every outbound call has an explicit timeout.
+- Queue consumers are idempotent under redelivery, keyed on business identity rather than a per-attempt random value.
+- All paid-call spend goes through one cap or ledger at a single choke point.
+
+The interactive budget behind "run in the request" is 10 s, never the platform's request timeout.
+
 ## Step 5 sub-sections
 
 ### Runtime design
@@ -16,7 +28,7 @@ The subsection is always present. A missing heading is ambiguous and a `none` is
 **Required pre-reads (full form only).**
 
 1. Read the skill at the path printed by `flow-module-status --skill-path flow-system-design`. A non-zero exit is a named skip, never a guessed path, and never a `bin/lib` import: discovery runs in the consumer worktree.
-2. Read `--ref references/<platform>.md` for the repo's platform when one exists (`gcp` today), and `--ref references/data.md` whenever the change persists state. Each is a separate `flow-module-status --skill-path flow-system-design --ref <path>` call; a non-zero exit is a named skip.
+2. Read `--ref references/<platform>.md` for the repo's platform (`gcp`, `cloudflare` or `aws`), then every other reference whose "read when" line in the skill's Context list matches the change (data, workflows, rollout, caching, recovery, realtime, api). Each is a separate `flow-module-status --skill-path flow-system-design --ref <path>` call; a non-zero exit is a named skip.
 3. Reuse the repo's existing primitives (queue, retry helper, spend ledger, idempotency table) before introducing new ones.
 
 **Full form.** Under `### Runtime design`, write:

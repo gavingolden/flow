@@ -1,0 +1,95 @@
+{
+  "id": "r8-aws",
+  "title": "AWS platform map: five slow paid calls behind API Gateway + Lambda",
+  "provenance": "Synthetic scenario for the system-design-references suite: measures whether the matching flow-system-design reference file changes the plan's Task breakdown.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture"
+  },
+  "graders": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "exists": true
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "sqs-or-sfn",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "\\bsqs\\b|step functions"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "dead-letter",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "dead[- ]letter|\\bdlq\\b|redrive|maxreceivecount|on-?failure destination"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "visibility-timeout",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "visibility timeout"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "concurrency-cap",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "reserved concurrency|maximum concurrency|max(?:imum)? ?concurrency|concurrency (?:cap|limit)"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

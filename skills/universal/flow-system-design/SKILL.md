@@ -30,10 +30,18 @@ Make every new piece of runtime work survive real traffic, retries and a bad day
 
 # Context
 
-Read only what applies:
+Read only what applies. Each line says when:
 
-- [GCP mapping](references/gcp.md) — read on GCP repos: Cloud Run, Cloud Tasks, Pub/Sub, Scheduler, Jobs, budgets, with their ceilings.
-- [Data patterns](references/data.md) — outbox, idempotency keys, claim/lease rows, enqueue-after-commit, expand/contract, retention, one spend ledger.
+- [GCP mapping](references/gcp.md): GCP repos. Cloud Run, Cloud Tasks, Pub/Sub, Scheduler, Jobs and budgets, with their ceilings.
+- [Cloudflare mapping](references/cloudflare.md): Cloudflare Workers repos. Workers, Queues, Cron Triggers, Workflows, Durable Objects, KV and D1, with their ceilings.
+- [AWS mapping](references/aws.md): AWS repos. API Gateway, Lambda, SQS, EventBridge Scheduler, Step Functions and Budgets, with their ceilings.
+- [Data patterns](references/data.md): the change persists state. Outbox, idempotency keys, claim/lease rows, enqueue-after-commit, expand/contract, retention, one spend ledger.
+- [Multi-step work](references/workflows.md): one request starts several steps or sections. Parent/child rows, fan-in, checkpointing, compensation, when to use a workflow engine.
+- [Rollout and rollback](references/rollout.md): the change alters a schema, a queue payload, a public API or a paid path. Reversible deploys, versioned payloads, canaries, flags.
+- [Caching](references/caching.md): the same expensive or paid result is read repeatedly. Cache-aside, TTLs, stampedes, CDN versus shared cache.
+- [Backup and recovery](references/recovery.md): the change adds a datastore, stores irreplaceable data, or deletes in bulk. RPO/RTO, PITR, restore drills.
+- [Progress and real-time updates](references/realtime.md): a client watches queued work or a stream. Polling, SSE, WebSockets, reconnects.
+- [API contracts](references/api.md): the change adds or alters an endpoint or webhook receiver. 202 + status, idempotency keys, errors, rate limits, pagination, versioning.
 
 The principles below are the portable core; each cites its authority:
 
@@ -58,18 +66,19 @@ For every operation the change adds, note: who waits for the result, an estimate
 
 ## 3. Pick the execution model
 
-The test is whether losing the work is acceptable, not whether it is async. Pick from this table:
+The test is whether losing the work is acceptable, not whether it is async. The interactive budget is 10 s. It is never the platform's request timeout: a 300 s Cloud Run limit means the request is killed at 300 s, not that a user will wait that long. Pick from this table:
 
-| Situation                                                                                                                                                                        | Execution model                                                                                                                                |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Caller waits, p99 under the interactive budget (default 10 s), no paid or rate-limited call loop                                                                                 | inline, with a timeout on every outbound call                                                                                                  |
-| Work whose loss is not acceptable and that outlives the request, runs over the budget, loops over paid or rate-limited calls with unbounded or variable cardinality, or fans out | durable queue + worker invoked synchronously under the queue's attempt deadline; respond 202 + a status resource                               |
-| Caller waits on a bounded set of paid calls whose aggregate p99 is under the budget                                                                                              | inline, with a timeout and the repo's spend cap at the call site                                                                               |
-| Model generation whose result is persisted, even when streamed to a watching user                                                                                                | queue; the client reads progress from the status resource                                                                                      |
-| Best-effort post-response work whose loss is acceptable (telemetry beacon, cache warm)                                                                                           | the platform's bounded post-response hook (e.g. Cloudflare `waitUntil`) with an explicit timeout; never for generation or billing side effects |
-| Periodic work                                                                                                                                                                    | the scheduler tick only enqueues one task per unit; it never runs the units itself                                                             |
-| One unit exceeds the queue attempt ceiling                                                                                                                                       | batch job, or split into checkpointed steps                                                                                                    |
-| Never                                                                                                                                                                            | work that must not be lost continuing after the response, in-memory queues, timers as job runners                                              |
+| Situation                                                                                                                                                                                    | Execution model                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Caller waits, p99 under the interactive budget, no paid or rate-limited call loop                                                                                                            | inline, with a timeout on every outbound call                                                                                                  |
+| Caller waits on a bounded set of paid calls whose aggregate p99 is under the interactive budget                                                                                              | inline, with a timeout and the repo's spend cap at the call site                                                                               |
+| Work whose loss is not acceptable and that outlives the request, runs over the interactive budget, loops over paid or rate-limited calls with unbounded or variable cardinality, or fans out | durable queue + worker invoked synchronously under the queue's attempt deadline; respond 202 + a status resource                               |
+| Model generation whose result is persisted, even when it would fit inside the request timeout or is streamed to a watching user                                                              | queue; the client reads progress from the status resource                                                                                      |
+| Multi-step or multi-section work (a report with several generated sections)                                                                                                                  | one queued task per step plus a parent status row ([workflows](references/workflows.md))                                                       |
+| Best-effort post-response work whose loss is acceptable (telemetry beacon, cache warm)                                                                                                       | the platform's bounded post-response hook (e.g. Cloudflare `waitUntil`) with an explicit timeout; never for generation or billing side effects |
+| Periodic work                                                                                                                                                                                | the scheduler tick only enqueues one task per unit; it never runs the units itself                                                             |
+| One unit exceeds the queue attempt ceiling                                                                                                                                                   | batch job, or split into checkpointed steps                                                                                                    |
+| Never                                                                                                                                                                                        | work that must not be lost continuing after the response, in-memory queues, timers as job runners                                              |
 
 ## 4. Make repeats safe
 

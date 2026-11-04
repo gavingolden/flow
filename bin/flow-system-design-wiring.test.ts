@@ -12,13 +12,54 @@ const exists = (...segments: string[]) =>
 const skillRoot = ["skills", "universal", "flow-system-design"];
 
 describe("flow-system-design wiring", () => {
-  it("SKILL.md exists with the skill name and links both existing references", () => {
+  it("SKILL.md links every reference file and every link resolves", () => {
     const skill = read(...skillRoot, "SKILL.md");
     expect(skill).toMatch(/^name: flow-system-design$/m);
-    for (const ref of ["gcp.md", "data.md"]) {
-      expect(skill).toContain(`references/${ref}`);
-      expect(exists(...skillRoot, "references", ref)).toBe(true);
+    const onDisk = fs
+      .readdirSync(path.resolve(HERE, "..", ...skillRoot, "references"))
+      .filter((f) => f.endsWith(".md"))
+      .sort();
+    const linked = [...skill.matchAll(/\]\(references\/([\w-]+\.md)\)/g)]
+      .map((m) => m[1])
+      .filter((f, i, all) => all.indexOf(f) === i)
+      .sort();
+    expect(linked).toEqual(onDisk);
+    for (const ref of [
+      "gcp.md",
+      "cloudflare.md",
+      "aws.md",
+      "data.md",
+      "workflows.md",
+    ]) {
+      expect(onDisk).toContain(ref);
     }
+  });
+
+  it("discovery-runtime-design.md carries the five runtime defaults", () => {
+    const ref = read(
+      "skills",
+      "pipeline",
+      "flow-product-planning",
+      "references",
+      "discovery-runtime-design.md",
+    );
+    expect(ref).toMatch(/^## Runtime defaults$/m);
+    for (const rule of [
+      "is queue-driven, not run in the request",
+      "A scheduler tick only enqueues one task per unit",
+      "Every outbound call has an explicit timeout",
+      "keyed on business identity",
+      "one cap or ledger at a single choke point",
+    ]) {
+      expect(ref).toContain(rule);
+    }
+  });
+
+  it("SKILL.md pins the interactive budget to 10 s, not the platform timeout", () => {
+    const skill = read(...skillRoot, "SKILL.md");
+    expect(skill).toMatch(
+      /interactive budget is 10 s\. It is never the platform's request timeout/,
+    );
   });
 
   it("SKILL.md carries a proportionality rule and an Execution model decision table", () => {
