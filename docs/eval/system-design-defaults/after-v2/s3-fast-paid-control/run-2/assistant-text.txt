@@ -1,0 +1,22 @@
+## The plan for `POST /reports/:id/title` is ready to review
+
+I wrote both files and checked that neither is empty. No source code changed, and I didn't start any later step.
+
+- **Problem:** Many saved reports have no title, so people write titles by hand. The service can already ask the model for a title, but no endpoint offers that. The service is also public, so a simple endpoint would let anyone set off a paid model call on every request.
+- **Tasks:** 4.
+  1. Add a timeout and failure checks to the existing title call to the model.
+  2. Add a metrics helper and the repo's first definition of which metrics it records.
+  3. Add a title module that remembers the suggestion for each report.
+  4. Add the `POST /reports/:id/title` route.
+- **Follow-up issues:** 1, marked to be filed when this merges: decide who may call paid endpoints and how often. That needs its own choice between Cloud Run's built-in access control (IAM) and an API key.
+- **Assumptions to check:**
+  - (medium confidence) The endpoint remembers the suggestion for a report until that report's sections change. A repeat request then costs nothing, but it can't produce a different title.
+  - (high confidence) The endpoint only returns the suggestion. It never saves it as the report's title, which matches "returns a suggested title".
+- **Web research:** Skipped. This isn't a question that web research would help with.
+- **Go/no-go:** Build it, on two conditions. The call to the model times out after 8 seconds, and suggestions are reused while a report's content is unchanged. A test counts calls to the model to confirm that a repeat request for an unchanged report makes no paid calls.
+
+Files:
+- `.flow-tmp/plan.md`
+- `.flow-tmp/pr-description-draft.md`
+
+**Next step:** Review the two assumptions in the plan's "Open Questions" section, especially reusing suggestions instead of generating a new one each time. Then run `/flow-new-feature add a \`POST /reports/:id/title\` endpoint that returns a suggested title for a saved report` to build it.

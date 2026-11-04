@@ -1,0 +1,26 @@
+## Plan ready: nightly refresh of saved reports
+
+The plan and the PR description draft are both written. Nothing was implemented and no source files changed.
+
+- **Problem:** Saved reports never change after they're first written, so they go stale and readers can't tell. Regenerating one takes five paid model calls of 20–60 s each, so a nightly refresh needs a spending limit or the bill grows with every saved report.
+- **Tasks:** 6, in order:
+  1. Refresh tables and a test setup.
+  2. A fix to the model client in `src/llm.ts`. Right now a provider error gets saved as an empty section, and there's no timeout.
+  3. A metrics helper.
+  4. The database queries and a daily spending cap.
+  5. The nightly job, plus a worker that regenerates queued sections.
+  6. Connecting it all in the deploy config.
+- **Candidates:** 1 possible follow-up, not ticked: only refresh reports that were viewed recently. It needs its own decision on what counts as recently viewed.
+- **Approach:** The nightly job only queues work, one task per section. Every model call first counts against a daily cap on paid calls. A report's sections are only replaced once all five have regenerated successfully.
+
+**Decisions for you:**
+1. **The five section titles aren't in this repo.** Nothing here creates reports. The plan uses one fixed list of five titles, in the stored order, for every report, and you need to supply them. If titles differ between reports, the first night would write every report's content into the wrong sections.
+2. **The daily cap of 500 paid calls is a placeholder.** That's about 100 reports a night. Set it to your real budget; setting it to 0 turns the refresh off.
+
+Web research was skipped because the Cloudflare limits the plan relies on are already documented in the planning skill. You can force it with `flow feature create --research`.
+
+**Next action:** Fill in the section titles and the daily cap, then run `/flow-new-feature refresh every saved report nightly by regenerating its five sections` to build it.
+
+Files are in `.flow-tmp/`:
+- plan.md
+- pr-description-draft.md

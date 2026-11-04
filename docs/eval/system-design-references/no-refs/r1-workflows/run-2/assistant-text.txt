@@ -1,0 +1,30 @@
+## Plan written for the due-diligence report
+
+Both `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md` are written and not empty. The plan's own checks passed. No source files changed and nothing was committed.
+
+- **Problem:** The service can store and share reports, but it has no way to create one. A six-section report takes six paid model calls of about 20–60 s each. If they all run inside one request:
+  - the caller can wait up to two minutes;
+  - paid work is lost if the service restarts;
+  - a retry by the caller pays for the calls again.
+- **Tasks:** 8, in this order:
+  1. Metrics helper.
+  2. Timeouts on model calls, plus the summary call.
+  3. A report store that survives restarts.
+  4. A Firestore adapter.
+  5. A task-queue client.
+  6. The generation flow: one queued task per section, then the summary.
+  7. The HTTP routes.
+  8. Deploy script changes.
+- **Candidates:** 1 follow-up issue, marked to be filed. Reading a report ignores its "shared" flag, so anyone who has a report's id can read it.
+- **Top assumptions:**
+  - **Needs your input:** the daily limit on new reports. The plan uses 50, which is 300 paid calls a day on first attempts and up to 900 with retries.
+  - **This is bigger than you asked for:**
+    - **Why:** reports are currently kept only in memory, and Cloud Run gives the service no CPU after it has sent a response. So the report can't be built reliably inside one request.
+    - **What it adds:** reports move to Firestore, which also moves existing reports there. It adds a Cloud Tasks queue, a second private Cloud Run service and one new runtime dependency.
+    - **Check before approving:** `AGENTS.md` asks for a reason before any new dependency, so this is worth a look.
+- **Research:** Web research was skipped because this isn't a question research would settle.
+- **Vetting verdict:** `adopt-with-conditions: generation runs off the request path as one queued task per section with a durable status the caller polls, and the summary prompt is restricted to the supplied section texts and names any section that failed`
+
+**Biggest risk:** we don't know the model API's input limit. If one prompt can't hold all five section texts, every executive summary will fail.
+
+**Next action:** Read `.flow-tmp/plan.md`, set the daily limit and decide whether to accept the Firestore and Cloud Tasks change. When you're ready, run `/flow-new-feature` with the same description to build it. I've stopped here as you asked.

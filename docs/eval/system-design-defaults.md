@@ -2,9 +2,26 @@
 
 Recorded 2026-11-04, `opus` / effort `high`, `--runs 2 --concurrency 3`, fresh `FLOW_RESEARCH_CACHE_DIR` per arm.
 
-Condition met: no
+Condition met: no (after-v2: strict 2/2 bar missed on s2 only; suite score matches rules-only)
 
-The after arm beats the before arm on s1 and s2 and keeps s3 inline, but it passes s1 in 0/2 runs and loses to the five-line rules-only snippet on both slow-work scenarios.
+The first after arm beat the before arm on s1 and s2 and kept s3 inline, but passed s1 in 0/2 runs and lost to the five-line rules-only snippet on both slow-work scenarios. That led to after-v2 below.
+
+## after-v2: rules on the planning path (6d5acba)
+
+After the first result, the five rules moved to the top of `discovery-runtime-design.md` (read on every plan), the skill's table pinned the interactive budget to 10 s instead of the platform timeout, and persisted generation and multi-section work were sent to the queue. Recorded 2026-11-04 with the same flags.
+
+| Scenario             | before      | rules-only  | after (v1)  | after-v2    |
+| -------------------- | ----------- | ----------- | ----------- | ----------- |
+| s1-report-endpoint   | 0/2 (0.571) | 1/2 (0.929) | 0/2 (0.714) | 2/2 (1.0)   |
+| s2-nightly-refresh   | 0/2 (0.563) | 1/2 (0.938) | 1/2 (0.875) | 1/2 (0.875) |
+| s3-fast-paid-control | 2/2 (1.0)   | 2/2 (1.0)   | 2/2 (1.0)   | 2/2 (1.0)   |
+| Suite score          | 0.711       | 0.955       | 0.863       | 0.958       |
+| Cost                 | $13.59      | $11.89      | $12.63      | $14.44      |
+
+- s1 now queues in both runs: the fix to the budget wording closed the escape hatch.
+- The s2 miss (run 1) planned one capped nightly Cloud Run Job instead of a scheduler enqueuing one task per report, flagged by the agent itself as a medium-confidence choice, and required a durable store first because the fixture keeps reports in memory.
+- `compare --fail-on-regression` against rules-only exits 1 on one regression: s2 (−0.063, one run). s1 gains +0.071. Against before it has no regressions. Cost per run is about 20% higher than rules-only, because the skill and its references are read.
+- Outputs: [`system-design-defaults/after-v2/`](system-design-defaults/after-v2/).
 
 ## Arms
 

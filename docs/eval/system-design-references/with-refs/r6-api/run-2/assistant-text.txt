@@ -1,0 +1,31 @@
+## Planning done: the plan suggests narrowing the scope before anyone builds this
+
+I wrote `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. Both files exist and aren't empty, and the plan's lint checks pass. Nothing has been implemented and no later pipeline phase was started.
+
+- **Problem:** Partners have no way to request or look up their own reports. Right now nothing in the service creates a report, reports have no owner and never show as finished, and anyone who has a report's id can read it. The route that makes the paid model calls is also open to the internet. Giving partners access to the service as it is would let anyone run up model costs.
+- **Tasks:** 10, in this order:
+  1. Database migration.
+  2. Metrics helper.
+  3. Rewrite the queue client so it can authenticate.
+  4. Add a timeout to model calls.
+  5. Worker skips finished sections and records status.
+  6. API-key auth, plus a script for operators to issue and revoke keys.
+  7. Database queries limited to the calling partner.
+  8. Three `/v1/reports` endpoints.
+  9. A private worker service and retry limits in `deploy.sh`.
+  10. A reference page for partners.
+
+  The plan's recommendation is **"Reconsider scope"**. The work is bigger than the request because the existing queue client has never been used and can't authenticate, and the worker route is public.
+- **Follow-up issues:** 2 suggestions, not yet filed:
+  - Completion webhooks, so partners don't have to keep checking whether a report is done.
+  - Remove the old unauthenticated report route once access logs show nobody uses it.
+- **Top assumptions:**
+  - **Which sections make up a partner report needs your input.** Nothing in the repo defines them, so the plan uses placeholders (`overview`, `market`, `risks`). This decides what partners get and how many paid model calls each report costs.
+  - **Daily limit:** 20 reports per partner per rolling 24 hours, changeable per partner without a deploy. This is the main cap on cost, and the plan is only moderately confident in the number.
+  - The old `GET /reports/:id` route stays for reports with no owner and returns "not found" for partner-owned ones.
+- **Research:** Web research was skipped because this isn't a question research would help answer. `flow feature create --research` turns it on.
+- **Verdict:** Go ahead, with two conditions that must ship in the same release that issues the first partner key:
+  - The section worker accepts calls only from the queue's own service account.
+  - A per-partner daily quota is enforced when a report is requested.
+
+**Next action:** Decide which sections a partner report contains and whether 20 reports a day is the right limit. Then either narrow the scope or approve the plan as written, and run `/flow-new-feature let partner companies request reports and list their past reports through a public API authenticated with an API key` to build it.

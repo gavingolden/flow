@@ -1,0 +1,23 @@
+## Planning finished: both files are written and no code was changed
+
+`.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md` both exist and aren't empty. I checked that neither file was empty, but I haven't read the plan itself. No tracked files changed (`git status` is clean); `.flow-tmp/` doesn't appear in it. No source files were changed, and no later pipeline step was started.
+
+The planning agent reported:
+
+- **Problem:** Reports are written one section at a time over several minutes, so readers keep reloading to see progress. A report's status also stays `queued` forever, so readers can't tell when it's finished. If a model call fails, the section can stay blank for good because nothing retries it.
+- **Tasks:** 6:
+  - an index so frequent report reads stay cheap;
+  - a 120 s timeout on model calls, plus a check on the response so a bad one gets retried instead of saved;
+  - the worker marking a report `complete` when its last section is saved;
+  - metrics for report reads, section generation and model calls, plus a new `.flow/metrics.md`;
+  - a written contract for how the report page should poll for updates.
+- **Follow-up issues:** 2.
+  - **Lock down the worker route (included):** right now anyone can call it and trigger paid model calls.
+  - **Failed state and retry limit for sections (not included):** show a visible failed state and cap how often a section is retried.
+- **Assumptions to check:**
+  - **This repo has no web page; you need to answer this one (Q1).** It's a JSON API, so the page that would poll lives in another repo. Readers won't see any change until someone there uses the polling contract.
+  - **Polling every 3 s instead of a live stream (medium confidence).** Sections arrive only every 20–60 s, so polling looks the same to readers. A stream would hold a billed Cloud Run request open for every watching reader for the whole report. This is why the plan's verdict says to narrow the request.
+- **Research:** Only the first search step finished; both cross-checking steps failed on this machine. So the Cloud Run timeout and billing figures haven't been checked against other sources. Whether Bun's built-in Postgres client supports Postgres's built-in change notifications (LISTEN/NOTIFY) is also unconfirmed, but the plan doesn't depend on it.
+- **Verdict (quoted from the plan):** "adopt-with-conditions: updates reach the page by re-reading the existing report every 3 s with no held-open stream, and every report whose sections all land reaches status `complete` within one section save"
+
+**Next action:** Read `.flow-tmp/plan.md` and answer Q1: where the report page lives and who will build the polling on it. After that, implementation can start with `/flow-new-feature users want to watch their report being written live, section by section, instead of refreshing the page`.

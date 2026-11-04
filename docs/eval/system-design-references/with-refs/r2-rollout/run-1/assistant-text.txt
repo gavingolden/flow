@@ -1,0 +1,28 @@
+Checking the plan with the plan linter. My first call used the wrong flag.
+## Plan ready, but it bundles in more than you asked for
+
+Both `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md` are written and non-empty. The plan linter printed no errors, though I captured the exit code of the pipe rather than the linter's own. The working tree is clean, and nothing was implemented.
+
+**Summary from the planning agent:**
+- **Problem:** The generate-section job finds its section by name. If two sections in a report share a name, they get the same text. If a section is renamed while its job is queued, the paid model output is thrown away. The `body` column also shares its name with HTTP payloads in the code.
+- **Tasks:** 6:
+  1. The rename migration, with the cutover order written in its header.
+  2. Saving and looking up sections by id.
+  3. A 120 s timeout on the model call, plus retrying on errors.
+  4. A metrics helper and metrics contract file.
+  5. The job carries the section id, and the worker also accepts the old name-based job shape.
+  6. The repo's first tests.
+- **Candidates:** 3 follow-up issues:
+  - Ticked: authenticate the worker route. It's on a public service, so anyone can currently trigger paid model calls.
+  - Ticked: remove the old name-based job path once the queue has drained.
+  - Unticked: don't regenerate a section when the same job is delivered twice.
+- **Top assumptions:**
+  - **Response field stays `body`:** the report endpoint keeps returning section text under `body`, aliased from the renamed column. Otherwise the database rename would also rename a public field without anyone noticing.
+  - **One-release cutover:** pause the queue, deploy with no traffic, run the migration, shift traffic, resume the queue.
+  - **Outside producers:** nothing in this repo enqueues jobs. Any outside producer of jobs, or outside query that reads `sections.body`, would break at the migration.
+- **Vetting verdict:** adopt with conditions. The worker must accept both the id-based and the name-based job (with a test for each). The report endpoint keeps its `body` field. The migration header carries the paused-queue cutover order.
+- **Research:** skipped; this isn't something web research would help with.
+
+**Scope warning:** tasks 3 (timeout and retry) and 4 (metrics) go beyond the column rename and the task-payload change. You may want to cut them, or split them into their own PR, before implementation. Task 6 (first tests) is fine, because the vetting conditions need those tests.
+
+**Next action:** review `.flow-tmp/plan.md` and decide on the extra tasks. Then hand off with `/flow-new-feature rename the \`body\` column on \`sections\` to \`content\`, and change the generate-section task to carry the section id instead of the section name`. As you instructed, I've stopped here.

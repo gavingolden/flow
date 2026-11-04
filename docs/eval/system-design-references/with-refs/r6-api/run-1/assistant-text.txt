@@ -1,0 +1,26 @@
+## Plan written, nothing implemented
+
+The plan is at `.flow-tmp/plan.md` and the PR description draft is at `.flow-tmp/pr-description-draft.md`. A separate planning agent wrote both, and I only checked that they exist and aren't empty.
+
+- **Problem:** Partners can't request reports, check on them, or see past ones. Nothing in the service creates a report today: the function that adds work to the job queue (`src/queue.ts`) is never called, and nothing saves reports or their sections to the database. The service also can't tell partners apart or limit how many paid model calls each one causes.
+- **Tasks:** 8:
+  - a database migration for partners
+  - a metrics helper
+  - database read/write code
+  - API-key checking plus a command to issue keys
+  - a rewrite of the queue code
+  - three `/v1/reports` routes
+  - hardening the worker and the model-API client
+  - moving the worker to its own private Cloud Run service in `deploy.sh`
+
+  The queue rewrite, the worker hardening and the private worker go beyond what you asked for. The planner included them because the feature doesn't work safely without them.
+- **Follow-up issue:** 1 suggested — lock down the existing `GET /reports/{id}` route, which has no authentication. Nobody knows who still calls it, so it's kept out of this change.
+- **Needs your input:**
+  - **Which sections a partner report contains.** The code doesn't define them anywhere. Until you answer, the plan uses placeholder sections `overview`, `financials` and `outlook`.
+  - **Settings for the new private worker service** (environment variables, secrets, service account). `deploy.sh` doesn't set them, so the real values only exist in the GCP project. This is the biggest risk in the plan: the path from queue to worker to model has never actually run, and local tests won't catch a missing setting.
+- **Decision to review:** the planner moved the paid worker to a separate private service instead of checking the queue's token inside the public service. Its reason is that anyone on the internet can currently trigger paid model calls through the worker, which would get around both the API key and the per-partner limit. The planner rated its confidence in this as medium.
+- **Planner's verdict:** go ahead, on two conditions. A direct call to the worker from the internet must return 403. And once a partner hits its daily limit, requests must get a 429 before any report is saved or any paid job is queued.
+- **Research:** skipped because the request didn't need web research.
+- **Testing:** The planner says the plan passes its two lint checks. Nothing was tested, because the plan's database tests need a temporary Postgres instance.
+
+**Next action:** answer the two questions above, then review the plan. When you're ready to build it, run `/flow-new-feature let partner companies request reports and list their past reports through a public API authenticated with an API key`.

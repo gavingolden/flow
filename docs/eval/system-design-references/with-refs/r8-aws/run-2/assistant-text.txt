@@ -1,0 +1,27 @@
+## Plan ready: `POST /reports` (planning only, nothing implemented)
+
+The plan is in `.flow-tmp/plan.md` and the PR description draft is in `.flow-tmp/pr-description-draft.md`. I checked that both files exist and aren't empty. I didn't read through the plan myself; the points below come from the planning agent's summary.
+
+- **The main problem:** generating the report inside the request, as you described it, won't work. Each of the five model calls takes about 20–60 seconds, and both Lambda functions and the REST API stop at 29 seconds. Every request would time out after already paying for the sections it had started.
+- **What the plan does instead:** `POST /reports` answers `202 Accepted` within a second, with a link to `GET /reports/{id}`, and makes no model call itself. Each of the five sections goes onto a queue as its own message, and a worker generates them. Callers poll `GET /reports/{id}` to see progress and get the finished report.
+- **Tasks (8):**
+  1. Build and test setup
+  2. A metrics helper
+  3. Timeout and error handling for model calls
+  4. The report model and storage
+  5. `POST /reports`, which queues the five sections
+  6. The section worker
+  7. `GET /reports/{id}` showing progress
+  8. Deploy template changes
+- **Two existing bugs are fixed as part of the plan:**
+  - The current `GET /reports/{id}` can't reach its table once deployed: it has no table-name variable and no read permission.
+  - `npm run build` and `npm test` don't run: there's no `tsconfig.json`, and `typescript` and `vitest` aren't installed.
+- **Two decisions need your input:**
+  - **Which five sections a report has.** The placeholder is overview, products and services, market and competitors, financial performance, and risks and outlook.
+  - **The spending cap.** The placeholder is 100 reports a day at 1 request per second, so at most 1,500 paid model calls a day. Both routes would need an API key, and that key's usage plan is the only limit on spending.
+- **Research:** the web research step was skipped because this isn't a question research would answer.
+- **The planner's verdict on the request:** go ahead, but with the queued design above rather than generating the report inside the POST.
+
+The plan passed `flow-plan-lint`, `flow-candidate-issues --lint` and `flow-test-steps-lint` with no findings.
+
+**Next action:** read `.flow-tmp/plan.md` and answer the two questions above (the five sections and the spending cap). When you're ready to build it, run `/flow-new-feature add a \`POST /reports\` endpoint that generates a company report by calling the model API once for each of five sections`. As you asked, I've stopped here and haven't started any later step.

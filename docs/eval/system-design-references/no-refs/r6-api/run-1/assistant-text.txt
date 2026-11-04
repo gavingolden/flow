@@ -1,0 +1,25 @@
+## Plan written, needs your answer on Q1
+
+The plan is in `.flow-tmp/plan.md` and the PR description draft is in `.flow-tmp/pr-description-draft.md`. I checked that both files exist and aren't empty. Nothing was implemented, and no later pipeline phase was started.
+
+- **Problem:** partners can't request reports or see their past ones, so every report goes through someone on our side. Each report makes several paid model calls of 20–60 seconds each. Opening that up to partners without a spending cap is a real cost risk.
+- **Tasks:** 9 in total.
+  - **The feature itself:** a database migration, API-key auth, report storage separated per partner, the three partner routes, and an operator script to issue and revoke keys.
+  - **Metrics:** a metrics helper and the repo's metrics contract file.
+  - **Existing gaps the feature needs fixed:**
+    - The code that queues report sections has never been called, and it sends no Cloud Tasks credentials.
+    - The section worker accepts anonymous callers.
+    - A report's status never moves past `queued`.
+    - The section queue has no limit on retries.
+- **Follow-up issue (1):** the existing `GET /reports/:id` route has no authentication and returns full report contents to anyone who has the id. The plan marks this to be filed as a separate issue at merge.
+- **Things to check:**
+  - **Q1 (needs your answer):** which sections make up a report? Nothing in the repo names them, and the number of sections sets the cost of every partner request.
+  - **Who `company` refers to:** the plan reads `company` in the request as the company the report is *about*, and identifies the requesting partner from the API key. It's fairly sure of this because the model prompt already treats `company` as the subject.
+  - **Daily limit:** 20 reports per partner per day by default. That number is a moderately confident guess.
+- **Web research:** skipped, since this didn't need outside lookup.
+- **Verdict:** go ahead, on three conditions before the partner routes go live:
+  - the worker rejects callers that don't have the task secret;
+  - section-queue retries are capped at 5;
+  - the per-partner daily quota is enforced when a report is created.
+
+**Next action:** read `.flow-tmp/plan.md`, answer Q1, and confirm or change the daily limit of 20. Then run `/flow-new-feature let partner companies request reports and list their past reports through a public API authenticated with an API key` to implement it.

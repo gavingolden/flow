@@ -1,0 +1,26 @@
+## Plan ready: nightly report refresh
+
+The plan is written and I stopped there. Nothing has been implemented, and no source files changed.
+
+- **The problem:** saved reports never change after they're first written, and refreshing one by hand costs one paid model call per section. Nothing in the Worker runs on a schedule. The model client has no timeout and doesn't check for errors, so a failed call would save a blank section.
+- **Tasks (7, in order):**
+  1. Database migrations.
+  2. Test setup.
+  3. Fix the model client (missing timeout and error check).
+  4. Metrics.
+  5. A daily cap on paid model calls.
+  6. A durable refresh run for each report.
+  7. The nightly trigger and config wiring.
+- **Verdict:** go ahead, with two conditions. Nightly paid model calls must stay under a configured daily cap, and a section whose regeneration fails keeps its previous text.
+- **Two decisions you need to make:**
+  - **The five section names aren't in the repo.** The plan has five placeholder slots that you need to fill in before deploying (Q1 in the plan).
+  - **A nightly rerun may only reword the same facts.** The prompt contains just the company name and the section name. Unless the model provider pulls in current data, each run produces new wording but no new information, while still costing up to the cap every night (Q2). This is the plan's biggest risk and worth settling before any code is written.
+- **Default cap:** 500 paid calls a night, which covers 100 reports. Reports beyond that are refreshed on later nights, oldest first.
+- **Research was incomplete:** the check against Cloudflare's own limits finished. The two cross-checks, including the one arguing against nightly refresh, failed on provider quota. So the platform limits in the plan haven't been independently confirmed.
+- **Two follow-up ideas, not filed:** keep old section versions so you can roll back, and only refresh reports someone actually reads.
+
+Files are in `.flow-tmp/`:
+- plan.md
+- pr-description-draft.md
+
+**Next action:** answer Q1 and Q2 in `.flow-tmp/plan.md`, then run `/flow-new-feature refresh every saved report nightly by regenerating its five sections`. If you're running this through `/flow-pipeline`, it picks up from here instead.

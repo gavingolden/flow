@@ -1,0 +1,32 @@
+## Planning complete: signed PDF contract uploads
+
+I wrote the plan and PR description draft and checked that both files exist and aren't empty. I didn't implement anything or start any later phase.
+
+- **Problem:** Customers sign contracts, but the service can't accept files and has no record of customers or contracts. It's also public with no sign-in, so it can't safely accept signed documents yet.
+- **Tasks:** 8, in order:
+  1. Add the `contracts` table.
+  2. Add database read and write functions for it.
+  3. Add a metrics helper.
+  4. Add a Google access-token helper and a Cloud Storage client, with no new dependency.
+  5. Add the upload and lookup handlers.
+  6. Connect the routes and add tests.
+  7. Set up the bucket in `deploy.sh`.
+  8. Fix `src/queue.ts`: it sends Cloud Tasks requests without an access token and ignores errors. Nothing calls it today, so this hasn't caused a failure yet.
+- **Follow-up issues:** 2.
+  - **Lock down `/tasks/generate-section` (marked to file):** right now anyone can call it and trigger paid model calls.
+  - **Downloading a stored contract (not marked):** listed as a possible later feature.
+- **Assumptions to check:**
+  - **Who uploads (medium confidence):** the plan assumes one trusted system, such as a customer portal or back office, calls the service with a shared token and passes `customer_id`. If customers' own apps will call it directly, task 5 has to use per-customer sign-in instead. This is the plan's biggest risk.
+  - **How files get to storage (medium confidence):** uploads pass through the service. They're capped at 20 MiB, with at most 4 at once per instance. The other option was signed URLs, where files go straight to the bucket. Scanned contracts over 20 MiB would be rejected.
+- **Research:** web research was skipped. The 32 MiB Cloud Run request limit behind the 20 MiB cap is from memory and hasn't been checked against current docs.
+- **Verdict on the request:** worth building, on four conditions:
+  - Requests without the configured token get a 401.
+  - Bodies over 20 MiB get a 413.
+  - More than 4 uploads at once per instance get a 503 with Retry-After.
+  - Files only go to a bucket that blocks public access.
+
+Files are in `.flow-tmp/`:
+- `plan.md`
+- `pr-description-draft.md`
+
+**Next action:** Decide on the two assumptions, especially who uploads, then run `/flow-new-feature let customers upload their signed PDF contracts; store the files in Cloud Storage and record each one in a new \`contracts\` table`.

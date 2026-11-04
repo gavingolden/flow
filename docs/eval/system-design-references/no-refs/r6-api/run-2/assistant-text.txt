@@ -1,0 +1,27 @@
+## Plan ready: partner reports API
+
+I wrote both files, `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. Nothing has been implemented and no later pipeline phase was started.
+
+- **The gap is bigger than an API:** partners can't request or list reports, but the service also can't produce a report yet. Nothing creates reports, the queue helper is never called, and report status never moves past `queued`. Each section is a paid model call that takes 20–60 s, and the route that makes those calls is open to anyone.
+- **Tasks: 10.**
+  1. Database tables for partners and their keys.
+  2. A metrics helper.
+  3. The API-key check.
+  4. An operator command that issues keys.
+  5. Working queue calls, plus timeouts on model calls.
+  6. Worker changes: skip sections already written, and mark reports `complete` or `failed`.
+  7. Report creation with a daily limit and protection against duplicate requests.
+  8. The three partner endpoints.
+  9. A private worker service.
+  10. Partner-facing docs.
+- **Follow-up issues: 3.** One is ticked: deciding what happens to the existing report address that anyone can read without a key. The other two, unticked, are webhooks when a report finishes and letting partners rotate their own keys.
+- **Assumptions that need your answer:**
+  - **Q1:** which sections a partner report should contain. The repo doesn't define any, and each section costs one model call per report.
+  - **Q2:** the daily limit per partner. The plan assumes 20 reports per rolling 24 hours.
+  - The plan also adds an endpoint to read a single report, which you didn't ask for. Without it, partners could list their reports but not open one.
+- **Verdict:** go ahead, but only with three conditions: a daily report limit per partner checked when a report is created; duplicate-safe report creation and section generation; and a worker route that accepts calls only from the queue's own service account.
+- **Biggest risk:** the deploy setup can't be covered by tests. The first real end-to-end proof will be the first deploy. If a permission is wrong there, every partner report stays `queued` until it fails after five attempts.
+
+Web research was skipped because this isn't a question research would help with.
+
+**Next action:** answer Q1 and Q2 in `.flow-tmp/plan.md`'s Open Questions, then run `/flow-new-feature let partner companies request reports and list their past reports through a public API authenticated with an API key`.

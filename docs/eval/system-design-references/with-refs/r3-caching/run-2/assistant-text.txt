@@ -1,0 +1,27 @@
+## The plan for cheaper report summaries is written
+
+Both files are in `.flow-tmp/`: `plan.md` and `pr-description-draft.md`. No source files were changed, and I stopped before implementation.
+
+- **Problem:** Each time someone opens a report's summary, the code calls the paid model, and each call takes 5–15 seconds. Popular reports are opened hundreds of times a day but rarely edited, so nearly every call summarizes content that hasn't changed. The code confirms this.
+- **Approach:**
+  - Save each summary along with a fingerprint of the report's content. A new model call only happens after the content changes.
+  - People who open the same report at the same moment share one model call.
+- **Tasks:** 4.
+  1. Add timeouts and error checks to the model client.
+  2. Add a small metrics helper.
+  3. Add the saved-summary layer.
+  4. Connect `GET /reports/:id/summary` to it and return a clear 502 error when the model fails.
+- **Possible follow-ups (2, not included in this plan):**
+  - Reports are kept only in server memory, so every deploy or restart erases them.
+  - The first open after an edit still waits 5–15 seconds. Removing that wait would mean an asynchronous API, which changes the contract for every client.
+- **Assumptions to check:**
+  - **The endpoint stays synchronous.** The first open after an edit still waits as it does today (medium confidence).
+  - **Summaries only regenerate when the report's content changes** (high confidence). If regeneration fails after an edit, the reader gets an error, not the previous summary, because the old one may no longer match the report.
+  - **Biggest risk:** saved summaries also live in each server instance's memory. If traffic spreads across many short-lived instances, each one pays for its own first call and the saving shrinks. The planned measurement of how often a saved summary is used would show this.
+- **Research:** The web research step was skipped because this isn't a question research can answer.
+- **Planning verdict:** Go ahead, with three conditions:
+  - The saved summary is tied to the report's full content, so any change triggers a new summary.
+  - Failed or malformed model responses are never saved.
+  - The measurement of how often saved summaries are used ships with the change, so the saving is measured rather than assumed.
+
+**Next action:** Review `.flow-tmp/plan.md`, especially the synchronous-endpoint assumption and the in-memory storage risk. When it looks right, run `/flow-new-feature` with the same description to implement it.
