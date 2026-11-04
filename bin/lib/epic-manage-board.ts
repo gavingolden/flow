@@ -170,10 +170,13 @@ export function renderManageBoard(model: BoardModel): string {
       v.action !== "launching" &&
       v.action !== "capacity",
   ).length;
+  const launching = guard.verdicts.filter(
+    (v) => v.action === "launching",
+  ).length;
   lines.push(
     model.final
       ? `**TLDR:** ${epic} is done — all ${total} features merged.`
-      : `**TLDR:** ${epic}: ${merged} of ${total} merged, ${running} running${waiting ? `, ${waiting} waiting on you` : ""}${held ? `, ${held} held back` : ""}.`,
+      : `**TLDR:** ${epic}: ${merged} of ${total} merged, ${running} running${launching ? `, ${launching} launching` : ""}${waiting ? `, ${waiting} waiting on you` : ""}${held ? `, ${held} held back` : ""}.`,
   );
 
   if (waiting > 0) {

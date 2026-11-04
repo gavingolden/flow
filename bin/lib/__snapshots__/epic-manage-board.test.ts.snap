@@ -67,7 +67,7 @@ exports[`renderManageBoard snapshots > launching: one flow epic launch in flight
 "### Epic my-epic — 0 / 2 merged — RUNNING
 features with no model in the plan: config · later executive calls: opus/high · autonomy observe · checkout abc1234 · updated 2026-10-26T12:00:00Z
 
-**TLDR:** my-epic: 0 of 2 merged, 0 running.
+**TLDR:** my-epic: 0 of 2 merged, 0 running, 1 launching.
 **In progress:**
 - launching: alpha — flow epic launch is still running
 - hold: beta — waiting for a free slot

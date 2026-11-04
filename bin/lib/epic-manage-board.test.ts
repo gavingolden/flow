@@ -419,6 +419,8 @@ describe("ownerNeededFor", () => {
 describe("renderManageBoard headline and sections", () => {
   const m = () => manifest(feat("alpha"), feat("beta"));
   const heading = (text: string): string => text.split("\n")[0]!;
+  const tldr = (text: string): string =>
+    text.split("\n").find((l) => l.startsWith("**TLDR:**")) ?? "";
 
   it("drift on an unbound feature alone asks for the owner", () => {
     const text = renderManageBoard(
@@ -487,6 +489,12 @@ describe("renderManageBoard headline and sections", () => {
     expect(text).toContain("**In progress:**");
     expect(text).toContain("launching: alpha");
     expect(text).toContain("hold: beta");
+    expect(tldr(text)).toContain("0 running, 1 launching");
+  });
+
+  it("a board with no launching verdict leaves launching out of the TLDR", () => {
+    const text = renderManageBoard(model({ result: reconciled(m(), {}, []) }));
+    expect(tldr(text)).not.toContain("launching");
   });
 
   it("global drift prints once, not once per ready feature", () => {
