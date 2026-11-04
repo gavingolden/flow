@@ -1,0 +1,28 @@
+## Plan written. It recommends reconsidering scope before any build
+
+Both files are written and non-empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. Nothing was implemented, no source files changed, and no later step was started.
+
+- **Problem:** The service keeps saved reports only in each server's memory, and nothing in it can create a report. A nightly refresh would therefore find nothing to refresh. Each refresh is also a slow, paid model call with no spending limit. So the plan recommends moving reports into shared cloud storage as part of this change, and requiring a nightly cap on model calls before anything is scheduled.
+- **Tasks:** 8, in this order:
+  1. Google access token
+  2. Durable report storage
+  3. Metrics helper
+  4. Timeouts on model calls
+  5. Refresh one report
+  6. Nightly schedule with the cap
+  7. Private refresh routes
+  8. Deploy wiring
+- **Follow-ups:** 3 suggested issues:
+  - Add a way to create reports (marked to file on merge).
+  - Enforce the "shared" flag when a report is read. Right now anyone with a report's id can read it (marked to file on merge).
+  - Send the refresh new inputs, such as a date or source data (not marked).
+- **Two questions only you can answer:**
+  - **Q1:** Does your model provider return newer facts when it gets the same prompt again? The refresh sends only the company and section name. If the provider has no live data, each night pays to reword text people have already read, and tasks 5–8 should be dropped.
+  - **Q2:** What should the nightly cap on model calls be? The plan ships no default, and deploy won't run until you set one.
+- **Research:** The optional web research step was skipped because it couldn't answer these questions. You can force it with `flow feature create --research`.
+- **Verdict:** Go ahead only if three conditions hold:
+  - Reports move to durable storage in this same change.
+  - Each night stays under the cap you set (Q2).
+  - Q1 is answered "yes" before implementation starts.
+
+**Next action:** Answer Q1 and Q2, then read through `.flow-tmp/plan.md`. If Q1 is "yes", implementation can start with `/flow-new-feature refresh every saved report nightly`. If it's "no", the nightly refresh isn't worth building, and the storage and access-control fixes are better done as separate changes.

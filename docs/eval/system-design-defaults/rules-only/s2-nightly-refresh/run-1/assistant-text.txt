@@ -1,0 +1,29 @@
+## Planning finished: nightly refresh of saved reports
+
+Both files are written and non-empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. Nothing has been implemented, and no later phase was started.
+
+- **Problem:** Saved reports never update after they're first generated, and the service has nothing that runs on a schedule. There's a bigger catch: saved reports exist only in server memory. Cloud Run clears that memory when it scales down, so by night there are usually no reports left to refresh.
+- **Tasks:** 7. They cover:
+  - new store fields and a spend ledger
+  - a metrics helper
+  - timeouts and a daily call limit in the model client
+  - a Cloud Tasks client
+  - the refresh logic: the nightly trigger only queues one task per report, and each task refreshes that one report
+  - two internal endpoints protected by a shared secret
+  - changes to the deploy script
+- **Candidates:** 3 possible follow-up issues:
+  - **Ticked for filing:** durable report storage (fixes the data loss above).
+  - **Ticked for filing:** access control on the public report endpoints. Right now anyone can read or share any report.
+  - **Not ticked:** skip reports nobody has opened recently.
+- **Top assumptions:**
+  - **Needs your input:** the daily limit on paid model calls. The plan uses 500 a day as a placeholder, and the code refuses every call if no limit is set.
+  - **Weakest guess (medium confidence):** a report's stored section list holds section names, not the generated text. If that's wrong, every refreshed report would be overwritten with the wrong content on the first night.
+- **Research:** No web research ran, because the design follows the repo's own rules in `AGENTS.md`. To force it, run `flow feature create --research`.
+- **Vetting verdict:** adopt-with-conditions, provided that:
+  - the nightly trigger makes no model calls and queues exactly one task per saved report
+  - every model call goes through the one daily limit
+  - a repeated task for a report already refreshed that night makes no model calls
+
+The overall recommendation is to **reconsider scope**. Until durable storage exists, the nightly run will only reach reports still in memory. The plan turns the schedule on anyway, because a missing report costs nothing to skip.
+
+**Next action:** Read `.flow-tmp/plan.md`. Set the daily call limit (Q1) and check the section-list guess. Then decide whether durable storage should come first. When you're ready to build, run `/flow-new-feature refresh every saved report nightly`.

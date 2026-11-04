@@ -1,0 +1,23 @@
+## Planning complete: `POST /reports/:id/title`
+
+I wrote the plan to `.flow-tmp/plan.md` and the PR description to `.flow-tmp/pr-description-draft.md`. No source files changed, and I stopped there as you asked.
+
+- **Problem:** Every saved report has an empty title. The service already has a function that asks the model for a title, but nothing calls it, so titles stay blank or get written by hand.
+- **Tasks:** 3.
+  1. Harden the existing title function in `src/llm.ts`. Right now it doesn't check the response status, has no timeout, and can return an empty string.
+  2. Add a small metrics helper.
+  3. Add the `POST /reports/:id/title` route, with tests.
+- **Follow-up issues:** 2.
+  - Limit how much model spend routes open to anyone can cause. The plan marks this to be filed when the PR merges.
+  - Add a way to create reports and store them durably. This one is listed but not marked to file.
+- **Assumptions to check:**
+  - **The suggestion is returned but not saved into the report.** This follows from your wording "returns a suggested title", and saving it could overwrite a title someone chose.
+    - Each request makes exactly one model call, and nothing is cached.
+    - An unknown report ID gets a 404, and a report with no section text gets a 422. Neither makes a model call.
+  - **This endpoint may return 404 for every real request.** Nothing in this repo creates reports. They're stored only in memory, and the only code that writes to that store re-saves a report that's already there. Unless something outside this repo fills the store, the new route will return "not found" every time, just as the existing read route does.
+- **Research:** Skipped. This isn't a question that web research would help with.
+- **Vetting verdict:** `adopt-with-conditions: at most one model call per request, zero calls for an unknown report or a report with no section text, and upstream failure or timeout answered with 502/504 rather than an unhandled 500 — each asserted by a test that counts stubbed upstream calls.`
+
+The planning step also wrote two small extra files to `.flow-tmp/`: `research-status.json` and `excluded-paths.json`.
+
+**Next action:** Read the "Open Questions" section of `.flow-tmp/plan.md`, especially the point about where reports come from. If the plan looks right, start implementation with `/flow-new-feature add a \`POST /reports/:id/title\` endpoint that returns a suggested title for a saved report`.

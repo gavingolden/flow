@@ -1,0 +1,20 @@
+## The plan for `POST /reports/:id/title` is written; nothing is implemented
+
+`.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md` are both written and not empty. No source files were changed, and no later pipeline phase was started.
+
+- **Problem:** Saved reports have a title field that nothing fills in. `src/llm.ts` already has a model client that could suggest a title, but no endpoint calls it. The service has no authentication, so a simple endpoint would let anyone run up model charges with no limit.
+- **Tasks:** 4, in order:
+  1. A metrics helper and the repo's first metrics contract.
+  2. A title model client with safeguards.
+  3. A title service that caches the suggestion per report.
+  4. The `POST /reports/:id/title` route and its tests.
+- **Follow-up issue candidates:** 1, not selected for filing. Saved reports are kept only in process memory on Cloud Run, and nothing in the repo shows whether that's the real store or a stand-in.
+- **Assumptions to check:**
+  - **Repeat requests reuse the cached title (medium confidence).** Asking again for the same report returns the same suggestion instead of calling the model again. This limits cost to one paid call per report on each running instance, but a user who wants a different suggestion won't get one.
+  - **The title is only returned, never saved (high confidence).** The endpoint doesn't write the suggestion into the report. This follows your wording, "returns a suggested title".
+- **Research:** Skipped, because this isn't a question web research would help with.
+- **Vetting verdict:** `adopt-with-conditions`. Each version of a report's content gets at most one paid title call (cached per instance). Every model call has a 10-second timeout, and upstream failures return 502 or 504.
+
+The planning agent reports that the plan passed `flow-plan-lint`, `flow-candidate-issues --lint` and `flow-test-steps-lint`.
+
+**Next action:** Read the plan's Open Questions, especially whether repeat requests should reuse the cached title. If it looks right, run `/flow-new-feature add a \`POST /reports/:id/title\` endpoint that returns a suggested title for a saved report` to implement it.

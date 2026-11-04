@@ -1,0 +1,18 @@
+## Plan ready: `POST /reports`
+
+I wrote `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. Neither file is empty, and no source files were changed. I didn't implement anything or start any later phase.
+
+- **Problem:** The service can show and share reports but has no way to create one. Each model call that builds a report takes 20–60 s and costs money. The service is deployed publicly with no auth.
+- **Tasks:** 4.
+  1. A metrics helper and its metrics contract.
+  2. Fix the model client, which has no timeout and currently saves error replies as the text `"undefined"`.
+  3. A generation module that runs the five section calls at the same time.
+  4. The `POST /reports` route, with auth and input validation.
+- **Candidates:** 1 follow-up, ticked: a durable report store with queued generation (the endpoint returns 202 and a status). Reports live only in process memory today, so every deploy wipes every report someone paid to generate.
+- **Top assumptions:**
+  - **Q1 needs your input:** what the five sections should be. The plan uses a placeholder list kept in one constant.
+  - The plan makes `POST /reports` require a `REPORTS_API_KEY` bearer token and refuse requests when it's not set. Until you set that secret on Cloud Run, the endpoint returns 503.
+- **Research:** Web research was skipped because this isn't a researchable question. You can force it next time with `flow feature create --research`.
+- **Vetting verdict:** - **Verdict:** adopt-with-conditions: the five section calls run concurrently with a 90 s per-call timeout (request p99 under 95 s), POST /reports requires an API key, and the durable queue + store path is filed as a ticked follow-up
+
+**Next action:** Answer Q1 (the five section names) and confirm the API-key requirement in `.flow-tmp/plan.md`. Then implement with `/flow-new-feature add a \`POST /reports\` endpoint that generates a company report by calling the model API once for each of five sections`.

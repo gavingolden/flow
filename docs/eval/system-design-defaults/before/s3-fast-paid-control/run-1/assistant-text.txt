@@ -1,0 +1,23 @@
+## Planning finished: plan and PR draft written
+
+Both files exist and are non-empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. Nothing has been implemented, and no later pipeline phase was started.
+
+- **Problem:** Every saved report has a title field, but nothing fills it in. The service already has a paid model call that suggests titles, but no route uses it. The service is also public with no login. If the endpoint simply called the model on every request, anyone who knows a report id could run up an unlimited bill. And if a model call failed, the endpoint would return success with no title.
+- **Tasks:** 4, in order:
+  1. Add a metrics helper and the service's first metrics contract.
+  2. Make the model client report failures and 10-second timeouts as errors.
+  3. Add a title module that reuses the last suggestion until the report's sections change.
+  4. Add the `POST /reports/:id/title` route, which returns `{"suggestedTitle": …}`.
+
+  Each task comes with tests.
+- **Follow-up issue:** 1 proposed. It's to decide how to add login or rate limiting to the whole service, which needs a separate session to choose the approach.
+- **Assumptions to check:**
+  - The endpoint returns the suggestion and never saves it as the report's title. Confidence is high, since your wording was "returns a suggested title."
+  - Asking again for an unchanged report returns the same suggestion rather than a new one. That caps how many paid calls can be made. Confidence is medium.
+  - No route in the service creates reports, and reports are only stored in the server's memory. So the endpoint can only be shown working with test data.
+- **Research:** Web research was skipped because this isn't something the web would answer. You can force it with `flow feature create --research`.
+- **Verdict:** go ahead, on two conditions:
+  - A repeat request for an unchanged report makes no extra model calls.
+  - A failed or timed-out model call returns a 502 error, not a 200 with no title.
+
+**Next action:** Review `.flow-tmp/plan.md`, especially the assumption that repeat requests return the same title. Then, when you're ready to build, run `/flow-new-feature add a \`POST /reports/:id/title\` endpoint that returns a suggested title for a saved report`.
