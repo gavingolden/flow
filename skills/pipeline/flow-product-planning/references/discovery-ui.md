@@ -103,6 +103,18 @@ The diagram is topology-only, not proportion — box sizes carry no meaning abou
 
 **Forward pointer.** The section is ratified by the user at `plan-pending-review` and threaded verbatim into `/flow-coder` edit-sets via the `DESIGN_CONTEXT` block (fenced ASCII diagrams stripped), so the implementer treats it as a constraint it cannot silently drop.
 
+### UI review targets
+
+Required for every plan whose tasks change a render-bearing file (`.svelte`, `.tsx`, `.jsx`, `.vue`, stylesheets, `tailwind.config.*`, Svelte runes modules, route loaders; tests, stubs, stories, mocks and `.d.ts` excluded). The verify-time design review photographs exactly these pages, so name the screens that show the change.
+
+Author a `## UI review targets` section of 1-3 lines, each ``- `<path>` — <state it shows and the local data that makes it render>``, for example ``- `/analysis/AVGO` — the empty state; AVGO has no numbers locally``. Rules:
+
+- Paths only (`/analysis/AVGO`), never absolute URLs: ports are allocated per run.
+- URL-reachable states only. A state reachable only by clicking or mocking a request stays a `Browser:` Test Step.
+- Name the data that makes the changed state render; a page that renders the wrong state is judged as a defect.
+
+**Placement.** After `## Layout Intent`, else after `## User Stories / Acceptance Criteria` when Layout Intent is absent. Omit the heading for plans that change no render-bearing file. `flow-plan-lint` warns `ui-review-targets-missing` when a render-bearing file is planned and the section is absent.
+
 ## Step 7 Test Steps: UI-only paragraphs
 
 These paragraphs sit inside step 7's PR-description template fence, inside its "Otherwise — populate with `- [ ]` items" list item, so they keep that fence and indentation here:

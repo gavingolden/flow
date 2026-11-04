@@ -47,6 +47,7 @@
  * parse failure is reported as a named miss, not an uncaught exception.
  */
 
+import { parseUiReviewTargets, isRenderBearing } from "./lib/ui-review-scope";
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import {
@@ -430,6 +431,32 @@ function checkTaskContracts(planText: string, misses: string[]): void {
         `warn: '${taskName}' acceptance criteria has no backtick-quoted runnable command`,
       );
     }
+  }
+}
+
+/**
+ * Advisory: a plan whose task `**Files:**` lists change a render-bearing file
+ * needs a `## UI review targets` section, so the verify-time design review
+ * photographs the screens that show the change.
+ */
+function checkUiReviewTargets(planText: string, misses: string[]): void {
+  const start = planText.search(/^# Task breakdown\s*$/m);
+  if (start < 0 || parseUiReviewTargets(planText).length > 0) return;
+  const files = planText
+    .slice(start)
+    .split("\n")
+    .filter((l) => l.includes("**Files:**"))
+    .flatMap((l) =>
+      l
+        .slice(l.indexOf("**Files:**") + "**Files:**".length)
+        .split(/[\s`,;()]+/)
+        .filter((tok) => tok.includes(".")),
+    );
+  const ui = files.find(isRenderBearing);
+  if (ui) {
+    misses.push(
+      `warn: ui-review-targets-missing — a task changes render-bearing file '${ui}' but the plan has no '## UI review targets' section`,
+    );
   }
 }
 
@@ -1322,6 +1349,7 @@ export function lintPlan(
     checkCutListJustification(planText, misses);
     checkInstrumentation(planText, misses);
     checkTaskContracts(planText, misses);
+    checkUiReviewTargets(planText, misses);
     checkCandidateTable(planText, misses);
     checkPromptInterpretation(planText, misses);
     checkMethodSelection(planText, misses, { surveyRan: opts.surveyRan });

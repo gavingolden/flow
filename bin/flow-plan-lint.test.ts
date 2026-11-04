@@ -94,6 +94,10 @@ The export format might not match user expectations.
 
 nothing — plan is minimal.
 
+## UI review targets
+
+- \`/export\` — export button
+
 # Task breakdown
 
 ### Task 1: Add export button
@@ -2066,5 +2070,42 @@ describe("lintPlan — drafted PR change bullets", () => {
         m.startsWith("warn: PR "),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("lintPlan — ui-review-targets-missing", () => {
+  const withFiles = (files: string, extra = "") =>
+    CONFORMING_PLAN.replace(
+      "  - **Files:** create src/ExportButton.svelte",
+      `  - **Files:** ${files}`,
+    ).replace(
+      "## UI review targets\n\n- `/export` — export button\n\n# Task breakdown",
+      `${extra}# Task breakdown`,
+    );
+  const warns = (plan: string) =>
+    lintPlan(plan).misses.some((m) => m.includes("ui-review-targets-missing"));
+
+  it("warns when a task changes a render-bearing file and no targets section exists", () => {
+    expect(warns(withFiles("`src/lib/components/A.svelte` (create)"))).toBe(
+      true,
+    );
+  });
+
+  it("stays quiet when the plan carries a '## UI review targets' section", () => {
+    const plan = withFiles(
+      "`src/lib/components/A.svelte`",
+      "## UI review targets\n\n- `/analysis/AVGO` — empty state\n\n",
+    );
+    expect(warns(plan)).toBe(false);
+  });
+
+  it("stays quiet for tests, stubs and non-rendering files", () => {
+    expect(
+      warns(
+        withFiles(
+          "`src/A.svelte.test.ts` (create), `src/__stubs__/H.svelte`, `bin/x.ts`",
+        ),
+      ),
+    ).toBe(false);
   });
 });

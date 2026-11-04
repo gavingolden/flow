@@ -28,6 +28,12 @@
  * Also accepted: `flow-ui-critique` spends model quota without classifier
  * review, bounded by its $3 per-call cap and its own once-per-phase refusal.
  *
+ * Also accepted: `flow-ui-capture` runs the target repo's Playwright (repo
+ * code) and types the seeded test-account credentials into a local login
+ * form, under the same guards as `flow-ui-login test-account` (committed
+ * manifest, localhost-only targets); values reach only the child's env and
+ * are never printed, persisted or photographed.
+ *
  * A rule only matches a standalone call; a `cd … &&` prefix or a chain of
  * helpers may still reach the classifier, so the supervisor calls helpers one
  * per Bash call.
@@ -68,6 +74,7 @@ export const FLOW_ROUTINE_HELPERS: readonly string[] = [
   "flow-reply-pr-comments",
   "flow-plan-review-wait",
   "flow-ui-critique",
+  "flow-ui-capture",
   "flow-coder-skills-check",
 ];
 

@@ -1197,3 +1197,141 @@ describe(evaluateMergePreconditions, () => {
     });
   });
 });
+
+// --- design-review backstop ------------------------------------------------
+
+describe("UI review backstop", () => {
+  const UNREVIEWED = {
+    required: true,
+    satisfied: false,
+    reason: "UI review did not run: no UI review record for this PR",
+  };
+  const token = (): PipelineState => ({
+    slug: "x",
+    phase: "gated",
+    repo: "/r",
+    updatedAt: "x",
+    pr: 5,
+    gateOverride: freshOverride(5),
+  });
+
+  it("blocks a no-unchecked body when the UI review check is unsatisfied", () => {
+    const r = evaluateMergeGuard(NO_UNCHECKED, null, 5, NOW, UNREVIEWED);
+    expect(r.decision).toBe("blocked");
+    expect(r.uncheckedItems).toHaveLength(1);
+    expect(r.uncheckedItems[0]).toContain("UI review did not run");
+  });
+
+  it("a fresh gate-override token clears it, like any unchecked item", () => {
+    const r = evaluateMergeGuard(NO_UNCHECKED, token(), 5, NOW, UNREVIEWED);
+    expect(r).toMatchObject({ decision: "clear", overrideApplied: true });
+  });
+
+  it("clears a satisfied or absent check", () => {
+    const ok = { required: true, satisfied: true, reason: null };
+    expect(evaluateMergeGuard(NO_UNCHECKED, null, 5, NOW, ok).decision).toBe(
+      "clear",
+    );
+    expect(evaluateMergeGuard(NO_UNCHECKED, null, 5, NOW).decision).toBe(
+      "clear",
+    );
+  });
+
+  it("merge-mode preconditions refuse an unreviewed UI diff", () => {
+    const r = evaluateMergePreconditions({
+      body: NO_UNCHECKED,
+      prState: "OPEN",
+      state: {
+        slug: "s",
+        phase: "gating",
+        repo: "/r",
+        updatedAt: "x",
+        pr: 5,
+      },
+      pr: 5,
+      checks: { kind: "all-passed" },
+      nowMs: NOW,
+      uiReview: UNREVIEWED,
+    });
+    expect(r).toMatchObject({ ok: false });
+    expect(r.ok === false && r.reason).toContain("gate-blocked");
+  });
+
+  it("run() merge mode computes the check from the worktree and refuses", () => {
+    const worktree = path.join(stateDir, "wt-ui");
+    fs.mkdirSync(worktree, { recursive: true });
+    seedState("ui", { pr: 5, repo: "/base/checkout", worktree });
+    const gh = vi.fn((argv: string[]) =>
+      argv[1] === "view"
+        ? {
+            stdout: JSON.stringify({
+              body: NO_UNCHECKED,
+              state: "OPEN",
+              url: "https://x/y/pull/5",
+              baseRefName: "release",
+            }),
+            stderr: "",
+            exitCode: 0,
+          }
+        : {
+            stdout: JSON.stringify([{ name: "verify", state: "SUCCESS" }]),
+            stderr: "",
+            exitCode: 0,
+          },
+    );
+    const bases: (string | null | undefined)[] = [];
+    const runMerge = vi.fn(() => ({ exitCode: 0, stderr: "" }));
+    const cap = captureStdout();
+    const exit = run(["merge", "5", "--slug", "ui"], {
+      gh,
+      stateDir,
+      now: () => NOW,
+      resolveSlug: () => null,
+      runMerge,
+      uiReview: {
+        changedFiles: (_w, base) => {
+          bases.push(base);
+          return ["src/routes/a/+page.svelte"];
+        },
+        home: "/home/none",
+      },
+    });
+    cap.restore();
+    expect(exit).toBe(1);
+    expect(bases).toEqual(["release"]);
+    expect(runMerge).not.toHaveBeenCalled();
+    const out = JSON.parse(cap.writes.join("").trim()) as MergeOutcome;
+    expect(out.decision).toBe("refused");
+    expect(out.uncheckedItems?.[0]).toContain("UI review did not run");
+  });
+
+  it("run() check mode blocks the same shape", () => {
+    const worktree = path.join(stateDir, "wt-ui2");
+    fs.mkdirSync(worktree, { recursive: true });
+    seedState("ui2", { pr: 5, worktree });
+    const gh = vi.fn(() => ({
+      stdout: JSON.stringify({
+        body: NO_UNCHECKED,
+        state: "OPEN",
+        url: "https://x/y/pull/5",
+      }),
+      stderr: "",
+      exitCode: 0,
+    }));
+    const cap = captureStdout();
+    const exit = run(["5", "--slug", "ui2"], {
+      gh,
+      stateDir,
+      now: () => NOW,
+      uiReview: {
+        changedFiles: () => ["a.svelte"],
+        home: "/home/none",
+      },
+    });
+    cap.restore();
+    expect(exit).toBe(1);
+    expect((JSON.parse(cap.writes.join("")) as GuardResult).decision).toBe(
+      "blocked",
+    );
+  });
+});

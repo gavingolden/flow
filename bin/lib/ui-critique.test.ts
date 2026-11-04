@@ -2,16 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import {
   acceptRound,
-  decideGate,
   emptyLoopLog,
-  GALLERY_MAX_SHOTS,
+  isGating,
   parseLoopLog,
   persistentDefects,
-  selectGallery,
   validateFindings,
   type CritiqueFinding,
-  type GateInput,
 } from "./ui-critique";
+import { GALLERY_MAX_SHOTS, selectGallery } from "./ui-critique-gallery";
+import { decideGate, type GateInput } from "./ui-critique-gate";
+import {
+  PLAYWRIGHT_BROWSERS_HINT,
+  PLAYWRIGHT_MISSING_HINT,
+} from "./playwright-resolve";
 import type { SectionShot } from "./ui-driver-schema";
 
 const finding = (over: Partial<CritiqueFinding> = {}): CritiqueFinding => ({
@@ -24,6 +27,7 @@ const finding = (over: Partial<CritiqueFinding> = {}): CritiqueFinding => ({
   observation: "cramped",
   rule: "layout.md",
   fix: "stack the columns",
+  introduced: true,
   ...over,
 });
 
@@ -68,11 +72,12 @@ describe("validateFindings", () => {
 });
 
 describe("decideGate", () => {
-  const body = "## Test Steps\n\n- [ ] SUBJECTIVE: the page feels calm\n";
   const ui = { ran: true, ok: true, skippedReason: null, sectionShots: 6 };
   const input = (over: Partial<GateInput> = {}): GateInput => ({
-    body,
     enabled: true,
+    uiRequired: true,
+    targetCount: 1,
+    playwright: "ok",
     ui,
     log: emptyLoopLog(),
     demotion: { demoted: false, reason: "" },
@@ -85,18 +90,20 @@ describe("decideGate", () => {
       mode: "fix",
       reason: "run",
       openRound: null,
+      required: true,
     });
   });
 
-  it("the pre-drive call (ui: null) runs without a UI result", () => {
+  it("runs on a UI diff with no look-and-feel sign-off step", () => {
+    // The gate no longer reads the PR body at all: the diff is the trigger.
     expect(decideGate(input({ ui: null })).run).toBe(true);
   });
 
-  it("applies the precedence already-ran > no-subjective > disabled > no-ui > no-shots", () => {
-    const none = { body: "## Test Steps\n\n- [ ] `npm test` — pass\n" };
+  it("applies the precedence already-ran > no-ui-change > disabled > no-target > no-ui > no-shots", () => {
     const everything = input({
-      ...none,
+      uiRequired: false,
       enabled: false,
+      targetCount: 0,
       ui: {
         ran: false,
         ok: false,
@@ -106,15 +113,26 @@ describe("decideGate", () => {
       log: { ...emptyLoopLog(), completed: true },
     });
     expect(decideGate(everything).reason).toBe("already-ran");
-    expect(decideGate({ ...everything, log: emptyLoopLog() }).reason).toBe(
-      "no-subjective-item",
-    );
-    const fresh = { ...everything, log: emptyLoopLog(), body };
-    expect(decideGate(fresh).reason).toBe("disabled-by-config");
-    expect(decideGate({ ...fresh, enabled: true }).reason).toBe("no-ui-pass");
+    const fresh = { ...everything, log: emptyLoopLog() };
+    expect(decideGate(fresh).reason).toBe("no-ui-change");
+    const required = { ...fresh, uiRequired: true };
+    expect(decideGate(required).reason).toBe("disabled-by-config");
+    const enabled = { ...required, enabled: true };
+    expect(decideGate(enabled).reason).toBe("no-review-target");
+    const targeted = { ...enabled, targetCount: 2 };
+    expect(decideGate(targeted).reason).toBe("no-ui-pass");
     expect(decideGate(input({ ui: { ...ui, sectionShots: 0 } })).reason).toBe(
       "no-section-shots",
     );
+  });
+
+  it("a diff that changes no rendered file never runs and is not required", () => {
+    const d = decideGate(input({ uiRequired: false }));
+    expect(d).toMatchObject({
+      run: false,
+      reason: "no-ui-change",
+      required: false,
+    });
   });
 
   it("names why the browser checks did not count", () => {
@@ -131,9 +149,60 @@ describe("decideGate", () => {
     expect(skipped.detail).toBe(
       "browser checks did not run (mcp-not-available)",
     );
-    const failed = decideGate(input({ ui: { ...ui, ok: false } }));
-    expect(failed.reason).toBe("no-ui-pass");
-    expect(failed.detail).toBe("browser checks reported failures");
+  });
+
+  it("captured section shots run the review even when the page checks failed", () => {
+    expect(decideGate(input({ ui: { ...ui, ok: false } }))).toMatchObject({
+      run: true,
+      reason: "run",
+    });
+  });
+
+  it("a capture artifact with zero section shots is no-section-shots", () => {
+    expect(decideGate(input({ ui: { ...ui, sectionShots: 0 } }))).toMatchObject(
+      { run: false, reason: "no-section-shots" },
+    );
+  });
+
+  describe("pre-drive capture path", () => {
+    it("chooses playwright when it resolves, with no warning", () => {
+      expect(decideGate(input({ ui: null, playwright: "ok" }))).toMatchObject({
+        run: true,
+        capture: "playwright",
+        loud: false,
+        warning: null,
+      });
+    });
+
+    it("falls back to the browser driver and warns loudly when Playwright is missing", () => {
+      const d = decideGate(input({ ui: null, playwright: "missing" }));
+      expect(d).toMatchObject({ run: true, capture: "mcp", loud: true });
+      expect(d.warning).toBe(PLAYWRIGHT_MISSING_HINT);
+      expect(d.warning).toContain(
+        "npm i -D @playwright/test && npx playwright install chromium",
+      );
+    });
+
+    it("names the browser install when only the browser is missing", () => {
+      const d = decideGate(input({ ui: null, playwright: "browsers-missing" }));
+      expect(d).toMatchObject({ capture: "mcp", loud: true });
+      expect(d.warning).toBe(PLAYWRIGHT_BROWSERS_HINT);
+    });
+
+    it("does not warn when the review is off or the diff has no UI", () => {
+      expect(
+        decideGate(input({ ui: null, playwright: "missing", enabled: false })),
+      ).toMatchObject({ loud: false, warning: null, capture: null });
+      expect(
+        decideGate(
+          input({ ui: null, playwright: "missing", uiRequired: false }),
+        ),
+      ).toMatchObject({ loud: false, warning: null });
+    });
+
+    it("reports no capture path on the post-capture call", () => {
+      expect(decideGate(input({ playwright: "missing" })).capture).toBeNull();
+    });
   });
 
   it("is list-only when demoted, and reports an open round whatever the decision", () => {
@@ -150,6 +219,70 @@ describe("decideGate", () => {
     expect(d.mode).toBe("list-only");
     expect(d.run).toBe(false);
     expect(d.openRound).toEqual({ kind: "critique", preSha: "abc" });
+  });
+});
+
+describe("introduced findings", () => {
+  const gallery = ["/wt/.flow-tmp/ui-evidence/a.png"];
+
+  it("a reply without `introduced` parses as introduced, so it still gates", () => {
+    const { introduced: _i, ...bare } = finding();
+    const r = validateFindings({ findings: [bare] }, gallery);
+    expect(r.ok && r.findings[0].introduced).toBe(true);
+  });
+
+  it("keeps an explicit introduced:false and rejects a non-boolean", () => {
+    const r = validateFindings(
+      { findings: [finding({ introduced: false })] },
+      gallery,
+    );
+    expect(r.ok && r.findings[0].introduced).toBe(false);
+    const bad = validateFindings(
+      { findings: [{ ...finding(), introduced: "yes" }] },
+      gallery,
+    );
+    expect(bad.ok).toBe(false);
+  });
+
+  it("gates on introduced defects and state-mismatch, not pre-existing ones", () => {
+    expect(isGating(finding())).toBe(true);
+    expect(isGating(finding({ introduced: false }))).toBe(false);
+    expect(
+      isGating(finding({ introduced: false, rule: "state-mismatch" })),
+    ).toBe(true);
+  });
+
+  it("a pre-existing defect neither blocks nor counts as a regression in a fix round", () => {
+    const targeted = [finding({ severity: "defect" })];
+    const preExisting = finding({
+      severity: "defect",
+      section: "Footer",
+      introduced: false,
+    });
+    const r = acceptRound({
+      regressed: false,
+      targeted,
+      after: [finding({ severity: "minor" }), preExisting],
+    });
+    expect(r.decision).toBe("keep");
+  });
+});
+
+describe("parseLoopLog keeps the review-gate fields", () => {
+  it("round-trips required, headSha, targets and playwrightWarning", () => {
+    const log = {
+      ...emptyLoopLog(),
+      required: true,
+      headSha: "abc",
+      targets: [{ route: "/a", state: "x", source: "plan" }],
+      playwrightWarning: "install it",
+    };
+    expect(parseLoopLog(JSON.stringify(log))).toMatchObject({
+      required: true,
+      headSha: "abc",
+      targets: [{ route: "/a", state: "x", source: "plan" }],
+      playwrightWarning: "install it",
+    });
   });
 });
 
@@ -315,5 +448,40 @@ describe("parseLoopLog", () => {
     expect(bad.round).toBeNull();
     expect(bad.outcome).toBeNull();
     expect(bad.persistent).toEqual(["y"]);
+  });
+});
+
+describe("selectGallery across targets", () => {
+  const shot = (route: string, section: string): SectionShot[] =>
+    (["phone", "desktop"] as const).map((viewport) => ({
+      route,
+      section,
+      viewport,
+      part: "whole" as const,
+      path: `/wt/${route.replace(/\W/g, "_")}-${section}-${viewport}.png`,
+    }));
+
+  it("gives every target a share of the cap instead of filling in input order", () => {
+    const a = ["a1", "a2", "a3", "a4", "a5", "a6"].flatMap((n) =>
+      shot("/a", n),
+    );
+    const b = ["b1", "b2", "b3"].flatMap((n) => shot("/b", n));
+    const c = ["c1", "c2"].flatMap((n) => shot("/c", n));
+    const r = selectGallery([...a, ...b, ...c], 12);
+    const routes = new Set(r.shots.map((x) => x.route));
+    expect(routes).toEqual(new Set(["/a", "/b", "/c"]));
+    expect(r.shots.length).toBeLessThanOrEqual(12);
+    expect(r.omittedSections).toBe(11 - r.shots.length / 2);
+  });
+
+  it("every target contributes within the 24-shot cap (3 targets x 6 sections)", () => {
+    const all = ["/a", "/b", "/c"].flatMap((route) =>
+      ["s1", "s2", "s3", "s4", "s5", "s6"].flatMap((n) => shot(route, n)),
+    );
+    const r = selectGallery(all);
+    expect(r.shots.length).toBeLessThanOrEqual(GALLERY_MAX_SHOTS);
+    for (const route of ["/a", "/b", "/c"]) {
+      expect(r.shots.some((s) => s.route === route)).toBe(true);
+    }
   });
 });

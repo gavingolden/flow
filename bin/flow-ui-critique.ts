@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Mechanics of the UI critique-and-fix loop that `/flow-verify` runs for UI
- * PRs with a look-and-feel sign-off. Every subcommand prints one JSON object
+ * Mechanics of the UI critique-and-fix loop that `/flow-verify` runs for every
+ * PR whose diff changes a rendered file. Every subcommand prints one JSON object
  * on stdout. Bad arguments exit 2; any runtime failure exits 0 with
  * `{"ran":false,"skipReason":…}` so the loop degrades to a named skip instead
  * of failing verify.
@@ -27,72 +27,41 @@ import {
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
-import { selectGallery, validateFindings } from "./lib/ui-critique";
+import { opGate } from "./lib/ui-critique-gate-op";
 import {
-  buildCritiquePrompt,
-  extractLayoutIntent,
-  parseJsonReply,
-} from "./lib/ui-critique-prompt";
-import {
-  critDir,
   opAccept,
-  opGate,
   opPersistent,
   opRecord,
   opRender,
   opRoundBegin,
   opRoundEnd,
-  readJson,
-  readLog,
-  writeLog,
   type Flags,
   type OpResult,
-  type OpsDeps,
 } from "./lib/ui-critique-ops";
-import type { SectionShot } from "./lib/ui-driver-schema";
-
-export const CRITIC_MODEL = "opus";
-export const CRITIC_EFFORT = "high";
-export const CRITIC_MAX_BUDGET_USD = 3;
-export const CRITIC_TIMEOUT_SEC = 600;
-const CRITIC_MAX_TURNS = 40;
-
-const RULE_REFS = [
-  "references/rendered-critique.md",
-  "references/visual-design.md",
-  "references/layout.md",
-  "references/accessibility.md",
-] as const;
-
-/** The `flow-claude-headless` stdout envelope, as far as we read it. */
-export type HeadlessEnvelope = {
-  ran?: boolean;
-  skipReason?: string;
-  artifact?: string;
-  total_cost_usd?: number;
-};
-
-export type Deps = OpsDeps & {
-  spawnHeadless: (argv: string[], opts: { cwd: string }) => HeadlessEnvelope;
-  mkdtemp: () => string;
-  removeDir: (dir: string) => void;
-  writeOut: (line: string) => void;
-  writeErr: (line: string) => void;
-};
+import {
+  critique,
+  type Deps,
+  type HeadlessEnvelope,
+} from "./lib/ui-critique-run";
+import { resolvePlaywright } from "./lib/playwright-resolve";
+import { branchChangedFiles } from "./lib/ui-review-diff";
 
 const USAGE = `usage: flow-ui-critique <subcommand> [flags]
-  gate        --body-file <p> --worktree <w> [--driver-result <p>]
+  gate        --body-file <p> --worktree <w> [--driver-result <p>] [--changed-files <p>] [--plan <p>] [--manifest <p>]
   round-begin --worktree <w> --kind smell|critique
   round-end   --worktree <w> --decision keep|revert --reason <text> [--cost <usd>] [--residual-file <p>]
   record      --worktree <w> --outcome clean|list-only|skipped --reason <text> [--residual-file <p>] [--omitted <n>] [--cost <usd>] [--complete]
   persistent  --worktree <w> (--record <driver-result> | --check)
-  critique    --driver-result <p> --plan <p> [--smells <p>] --phase round-0|post-round --out <p> [--worktree <w>]
+  critique    --driver-result <p> --plan <p> [--smells <p>] --phase round-0|post-round|review-8c --out <p> [--worktree <w>]
   accept      --compare <p> --targeted <p> [--after <p>] [--after-driver <p>]
   render      --worktree <w> --body-file <p> [--push-copy <p>] [--skip <reason>]`;
 
 const BOOLEAN_FLAGS = new Set(["complete", "check"]);
 const SPEC: Record<string, { required: string[]; optional: string[] }> = {
-  gate: { required: ["body-file", "worktree"], optional: ["driver-result"] },
+  gate: {
+    required: ["body-file", "worktree"],
+    optional: ["driver-result", "changed-files", "plan", "manifest"],
+  },
   "round-begin": { required: ["worktree", "kind"], optional: [] },
   "round-end": {
     required: ["worktree", "decision", "reason"],
@@ -144,150 +113,6 @@ export function parseArgs(
     return { error: "persistent needs exactly one of --record or --check" };
   }
   return { sub, flags };
-}
-
-function critique(f: Flags, deps: Deps): OpResult {
-  const w = typeof f.worktree === "string" ? f.worktree : process.cwd();
-  const phase = f.phase;
-  if (phase !== "round-0" && phase !== "post-round") {
-    return { ran: false, skipReason: "bad-phase" };
-  }
-  // The $3 per-call cap is enforced by the headless child; the call count
-  // lives here because this subcommand is pre-approved without classifier
-  // review, so a looping caller must not be able to re-spend.
-  const prior = readLog(deps, w);
-  if (prior.completed) return { ran: false, skipReason: "already-ran" };
-  if (prior.critiqueCalls.includes(phase)) {
-    return { ran: false, skipReason: "phase-already-critiqued" };
-  }
-  const driver = readJson(deps, String(f["driver-result"])) as {
-    section_shots?: SectionShot[];
-    route_snapshots?: { route: string; path: string }[];
-  } | null;
-  const gallery = selectGallery(driver?.section_shots ?? []);
-  if (gallery.shots.length === 0) {
-    return { ran: false, skipReason: "no-section-shots" };
-  }
-
-  // The headless critic may only be able to Read inside its working
-  // directory, so the rule docs are copied under the worktree and the
-  // copies' paths are what the prompt lists.
-  const rulesDir = path.join(critDir(w), "rules");
-  deps.mkdirp(rulesDir);
-  const ruleDocPaths: string[] = [];
-  for (const ref of RULE_REFS) {
-    const src = deps.resolveSkillPath("flow-ui-ux", ref);
-    if (src === null || !deps.fileExists(src)) {
-      return { ran: false, skipReason: "rule-doc-missing" };
-    }
-    const dest = path.join(rulesDir, path.basename(ref));
-    deps.copyFile(src, dest);
-    ruleDocPaths.push(dest);
-  }
-
-  const findings =
-    typeof f.smells === "string" ? readJson(deps, f.smells) : null;
-  const routes = (
-    findings as { routes?: { heuristicSmells?: string[] }[] } | null
-  )?.routes;
-  const prompt = buildCritiquePrompt({
-    shots: gallery.shots,
-    snapshots: driver?.route_snapshots ?? [],
-    layoutIntent: extractLayoutIntent(deps.readFile(String(f.plan)) ?? ""),
-    ruleDocPaths,
-    smells: (routes ?? []).flatMap((r) => r.heuristicSmells ?? []).slice(0, 40),
-    phase,
-  });
-
-  writeLog(deps, w, {
-    ...prior,
-    critiqueCalls: [...prior.critiqueCalls, phase],
-    omittedSections: Math.max(prior.omittedSections, gallery.omittedSections),
-  });
-  const recordSpend = (usd: unknown): void => {
-    if (typeof usd !== "number" || !(usd > 0)) return;
-    const cur = readLog(deps, w);
-    writeLog(deps, w, { ...cur, costUsd: cur.costUsd + usd });
-  };
-  const scratch = deps.mkdtemp();
-  const promptPath = path.join(scratch, "ui-critique-prompt.md");
-  const childOut = path.join(
-    w,
-    ".flow-tmp",
-    `headless-ui-critique-${phase}.json`,
-  );
-  let envelope: HeadlessEnvelope;
-  try {
-    deps.writeFile(promptPath, prompt);
-    deps.mkdirp(path.join(w, ".flow-tmp"));
-    envelope = deps.spawnHeadless(
-      [
-        "--prompt-file",
-        promptPath,
-        "--model",
-        CRITIC_MODEL,
-        "--effort",
-        CRITIC_EFFORT,
-        "--allowed-tools",
-        "Read",
-        "--max-budget-usd",
-        String(CRITIC_MAX_BUDGET_USD),
-        "--max-turns",
-        String(CRITIC_MAX_TURNS),
-        "--timeout-sec",
-        String(CRITIC_TIMEOUT_SEC),
-        "--task",
-        `ui-critique-${phase}`,
-        "--out",
-        childOut,
-      ],
-      { cwd: w },
-    );
-  } finally {
-    deps.removeDir(scratch);
-  }
-  recordSpend(envelope.total_cost_usd);
-  if (envelope.ran !== true) {
-    return { ran: false, skipReason: envelope.skipReason ?? "headless-error" };
-  }
-
-  const artifact = envelope.artifact ? readJson(deps, envelope.artifact) : null;
-  const text = (artifact as { result?: unknown } | null)?.result;
-  const validated = validateFindings(
-    typeof text === "string" ? parseJsonReply(text) : null,
-    gallery.shots.map((s) => s.path),
-  );
-  if (!validated.ok) {
-    return {
-      ran: false,
-      skipReason: "unparseable-result",
-      total_cost_usd: envelope.total_cost_usd,
-    };
-  }
-  const out = String(f.out);
-  deps.mkdirp(path.dirname(out));
-  deps.writeFile(
-    out,
-    JSON.stringify(
-      {
-        findings: validated.findings,
-        dropped: validated.dropped,
-        omittedSections: gallery.omittedSections,
-      },
-      null,
-      2,
-    ) + "\n",
-  );
-  const counts = { defect: 0, major: 0, minor: 0 };
-  for (const x of validated.findings) counts[x.severity]++;
-  return {
-    ran: true,
-    findingsPath: out,
-    counts,
-    dropped: validated.dropped,
-    omittedSections: gallery.omittedSections,
-    total_cost_usd: envelope.total_cost_usd,
-  };
 }
 
 const OPS: Record<string, (f: Flags, d: Deps) => OpResult> = {
@@ -362,6 +187,8 @@ export function defaultDeps(): Deps {
       return common ? path.basename(path.dirname(common)) : "unknown";
     },
     slug: (w) => process.env.FLOW_SLUG ?? path.basename(w),
+    changedFiles: (w) => branchChangedFiles(w),
+    resolvePlaywright: (w) => resolvePlaywright(w),
     spawnHeadless: (argv, opts) => {
       const r = Bun.spawnSync(["flow-claude-headless", ...argv], {
         cwd: opts.cwd,

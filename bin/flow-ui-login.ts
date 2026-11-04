@@ -36,122 +36,14 @@
  * a committed or published artifact.
  */
 
-import { spawnSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as path from "node:path";
-
-import { stubPortSentinels } from "./lib/ui-launch-infer";
-import { validateUiValidationManifest } from "./lib/ui-validation-schema";
 import { resolveCredentials } from "./lib/ui-credentials";
-
-type CredentialNames = { user: string; pass: string };
+import { readCredentialNames, resolveTestAccount } from "./lib/ui-test-account";
 
 export type MainDeps = {
   env?: NodeJS.ProcessEnv;
   /** True when the worktree's manifest is tracked and unmodified vs HEAD. */
   isManifestCommitted?: (worktree: string) => boolean;
 };
-
-const MANIFEST_REL = path.join(".flow", "ui-validation.json");
-
-function isManifestCommittedInGit(worktree: string): boolean {
-  const git = (args: string[]): number | null =>
-    spawnSync("git", ["-C", worktree, ...args], { stdio: "ignore" }).status;
-  return (
-    git(["ls-files", "--error-unmatch", "--", MANIFEST_REL]) === 0 &&
-    git(["diff", "--quiet", "HEAD", "--", MANIFEST_REL]) === 0
-  );
-}
-
-function realpathOrNull(p: string): string | null {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return null;
-  }
-}
-
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-
-/**
- * True only when `url` parses and its hostname is a loopback name. The
- * `{{PORT}}` placeholder is replaced with a dummy port first so a
- * manifest's templated `baseUrl` still parses.
- */
-export function isLocalBaseUrl(url: string): boolean {
-  try {
-    const u = new URL(stubPortSentinels(url));
-    return LOOPBACK_HOSTS.has(u.hostname);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * True when `loginUrl`, resolved against `baseUrl` the way a browser would
- * (so `//host`, `\\host` and leading whitespace all land on their real
- * host), points at a loopback name. A parse failure is a refusal.
- */
-function isLocalLoginUrl(baseUrl: string, loginUrl: string): boolean {
-  try {
-    const u = new URL(stubPortSentinels(loginUrl), stubPortSentinels(baseUrl));
-    return LOOPBACK_HOSTS.has(u.hostname);
-  } catch {
-    return false;
-  }
-}
-
-function isCredentialNames(v: unknown): v is CredentialNames {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    typeof (v as Record<string, unknown>).user === "string" &&
-    typeof (v as Record<string, unknown>).pass === "string"
-  );
-}
-
-/**
- * Reads `credentialEnvVars` NAMES out of the manifest.
- *
- * `strict: false` (the `check` default) prefers the full schema validator
- * but falls back to a minimal JSON read when the manifest is off-shape for
- * unrelated reasons (a work-in-progress bootstrap draft) as long as
- * `credentialEnvVars` itself is well-formed — `check` is exactly the tool
- * the bootstrap flow runs before the manifest is complete.
- *
- * `strict: true` (`test-account`) requires full schema validation and never
- * takes the lenient fallback. That only rejects a schema-INVALID manifest —
- * a hand-rolled schema-valid one still parses, which is why `test-account`
- * additionally pins the manifest to the committed worktree copy before
- * calling this.
- */
-function readCredentialNames(
-  manifestPath: string,
-  opts: { strict: boolean } = { strict: false },
-): CredentialNames | null {
-  let raw: string;
-  try {
-    raw = fs.readFileSync(manifestPath, "utf8");
-  } catch {
-    return null;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  const validated = validateUiValidationManifest(parsed);
-  if (validated.ok && validated.value.credentialEnvVars) {
-    return validated.value.credentialEnvVars;
-  }
-  if (opts.strict) return null;
-  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-    const c = (parsed as Record<string, unknown>).credentialEnvVars;
-    if (isCredentialNames(c)) return c;
-  }
-  return null;
-}
 
 function parseFlags(
   argv: string[],
@@ -199,23 +91,6 @@ async function runCheck(argv: string[], deps: MainDeps = {}): Promise<number> {
   return ok ? 0 : 3;
 }
 
-function readLoginTargets(
-  manifestPath: string,
-): { baseUrl: string; loginUrl?: string } | null {
-  try {
-    const validated = validateUiValidationManifest(
-      JSON.parse(fs.readFileSync(manifestPath, "utf8")),
-    );
-    if (!validated.ok) return null;
-    return {
-      baseUrl: validated.value.baseUrl,
-      loginUrl: validated.value.loginUrl,
-    };
-  } catch {
-    return null;
-  }
-}
-
 function refuse(reason: string): number {
   process.stdout.write(JSON.stringify({ ok: false, reason }) + "\n");
   return 2;
@@ -232,46 +107,30 @@ async function runTestAccount(
     );
     return 2;
   }
-  const worktree = realpathOrNull(flags.worktree ?? process.cwd());
-  const manifest = realpathOrNull(flags.manifest);
-  if (
-    !worktree ||
-    !manifest ||
-    manifest !== path.join(worktree, MANIFEST_REL)
-  ) {
-    return refuse("manifest-not-in-worktree");
-  }
-  const isCommitted = deps.isManifestCommitted ?? isManifestCommittedInGit;
-  if (!isCommitted(worktree)) return refuse("manifest-not-committed");
-
-  const names = readCredentialNames(manifest, { strict: true });
-  const targets = names ? readLoginTargets(manifest) : null;
-  if (!names || !targets) return refuse("no-credential-env-vars");
-  const loginUrl = targets.loginUrl;
-  if (
-    !isLocalBaseUrl(targets.baseUrl) ||
-    (loginUrl !== undefined && !isLocalLoginUrl(targets.baseUrl, loginUrl))
-  ) {
-    return refuse("non-local-base-url");
-  }
-
-  const env = deps.env ?? process.env;
-  const resolved = resolveCredentials(names, { worktree, env });
-  if (!resolved.values) {
+  const r = resolveTestAccount({
+    manifest: flags.manifest,
+    worktree: flags.worktree ?? process.cwd(),
+    env: deps.env ?? process.env,
+    isManifestCommitted: deps.isManifestCommitted,
+  });
+  if (r.ok) {
     process.stdout.write(
-      JSON.stringify({ ok: false, user: resolved.user, pass: resolved.pass }) +
+      JSON.stringify({ ok: true, user: r.values.user, pass: r.values.pass }) +
         "\n",
+    );
+    return 0;
+  }
+  if (r.reason === "credentials-missing" && r.presence) {
+    process.stdout.write(
+      JSON.stringify({
+        ok: false,
+        user: r.presence.user,
+        pass: r.presence.pass,
+      }) + "\n",
     );
     return 3;
   }
-  process.stdout.write(
-    JSON.stringify({
-      ok: true,
-      user: resolved.values.user,
-      pass: resolved.values.pass,
-    }) + "\n",
-  );
-  return 0;
+  return refuse(r.reason);
 }
 
 export async function main(

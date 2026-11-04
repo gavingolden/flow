@@ -452,6 +452,16 @@ describe("critique-loop artifact fields", () => {
     expect(r.ok).toBe(true);
   });
 
+  it("accepts a phone-dark section viewport and rejects an unknown one", () => {
+    const withShots = (viewport: string) =>
+      validateUiDriverResult({
+        ...VALID_FULL,
+        section_shots: [shot({ viewport })],
+      });
+    expect(withShots("phone-dark").ok).toBe(true);
+    expect(withShots("tablet").ok).toBe(false);
+  });
+
   it("caps data_preconditions at 10 items of 300 chars", () => {
     expect(
       withField(
