@@ -1,0 +1,100 @@
+{
+  "id": "s2-nightly-refresh",
+  "title": "Periodic fan-out over paid calls: nightly refresh of every saved report",
+  "provenance": "Synthetic scenario: a scheduler tick must only enqueue one task per saved report rather than run the refreshes itself.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture"
+  },
+  "graders": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "exists": true
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "queue",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "cloud tasks|pub/?sub|queue|enqueue"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "idempotency",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "idempoten"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "timeout",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "timeout|deadline"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "cost-bound",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "spend|budget|cost cap|ledger"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "scheduler-enqueues",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "scheduler[^\\n]*enqueue|enqueue[^\\n]*(per|each|one)[^\\n]*(report|task)|fan[- ]?out"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

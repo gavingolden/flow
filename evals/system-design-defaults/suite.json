@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "system-design-defaults",
+  "candidate": "flow-system-design-skill",
+  "description": "Measures whether /flow-product-planning discovery picks queue-driven, idempotent, time-bounded, cost-bounded designs for slow paid work (a five-call report endpoint, a nightly refresh over every saved report) while keeping a single fast paid call inline. Plan quality is deterministic: command graders regex the plan's Task breakdown; cost, turns and duration are non-gating metrics.",
+  "scenarios": [
+    "s1-report-endpoint",
+    "s2-nightly-refresh",
+    "s3-fast-paid-control"
+  ],
+  "defaults": {
+    "model": "opus",
+    "effort": "high",
+    "runs": 2,
+    "maxBudgetUsd": 6,
+    "timeoutSec": 2400
+  }
+}
