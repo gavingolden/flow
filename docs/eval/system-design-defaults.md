@@ -39,7 +39,7 @@ Failing gates per run:
 
 ## What the failures were
 
-- **after s1 (both runs):** the agent read `flow-system-design/SKILL.md` and still ran the five section calls concurrently inside the request (182 s worst case), treating Cloud Run's 300 s request timeout as the budget instead of the skill's 10 s interactive budget, and deferred the queue to a follow-up issue. The skill's "bounded set of paid calls, aggregate p99 under the budget" inline row was the escape hatch it used.
+- **after s1 (both runs):** the agent read `flow-system-design/SKILL.md` and still ran the five section calls concurrently inside the request (worst case 182 s in run 1, 95 s in run 2), treating Cloud Run's 300 s request timeout as the budget instead of the skill's 10 s interactive budget, and deferred the durable queue and store to a follow-up issue because the fixture keeps reports in memory. The skill's "bounded set of paid calls, aggregate p99 under the budget" inline row was the escape hatch it used.
 - **after s2 r1:** the agent pushed back (the fixture keeps reports in memory, so there is nothing durable to refresh) and planned a capped nightly batch job rather than a scheduler that enqueues one task per report. Defensible on the fixture, but it misses the graded shape.
 - **rules-only:** the only misses are idempotency keys, in one run of each slow scenario.
 
