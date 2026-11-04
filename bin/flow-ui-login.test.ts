@@ -3,7 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import { main, isLocalBaseUrl } from "./flow-ui-login";
+import { main } from "./flow-ui-login";
+import { isLocalBaseUrl } from "./lib/ui-test-account";
 
 const SENTINEL_USER = "sentinel-user@x";
 const SENTINEL_PASS = "sentinel-pass-9f3";

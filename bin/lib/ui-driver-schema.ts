@@ -81,7 +81,14 @@ export type UiDriverItemResult = {
   screenshots: string[];
 };
 
-export const SECTION_VIEWPORTS = ["phone", "desktop", "desktop-dark"] as const;
+// `phone-dark` is written only by the deterministic Playwright capture; the
+// browser driver's own section capture does not photograph it.
+export const SECTION_VIEWPORTS = [
+  "phone",
+  "phone-dark",
+  "desktop",
+  "desktop-dark",
+] as const;
 export const SECTION_PARTS = ["whole", "start", "end"] as const;
 
 // One screenshot of one page section, captured by the driver for the

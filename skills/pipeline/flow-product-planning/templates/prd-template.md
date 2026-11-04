@@ -183,6 +183,12 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 ```
 -->
 
+## UI review targets
+
+<!-- Omit this whole section when no task changes a render-bearing file. Authoring contract: discovery-ui.md "UI review targets". Do not inline the contract here. -->
+
+- `[/path]` — [the state this page shows and the local data that makes it render]
+
 ## Instrumentation
 
 <!-- Always present. Full form for a plan that adds or changes a request

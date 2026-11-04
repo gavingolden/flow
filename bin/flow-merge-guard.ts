@@ -88,6 +88,12 @@ import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { prNotOwnedReason } from "./lib/pipeline-pr-ownership";
 import { advancePhase } from "./lib/phase-advance";
+import {
+  computeUiReviewGate,
+  uiReviewItem,
+  type UiReviewDeps,
+  type UiReviewGate,
+} from "./lib/ui-review-gate";
 import { isValidSlug } from "./lib/slug";
 import {
   deriveCheckState,
@@ -148,8 +154,18 @@ export function evaluateMergeGuard(
   state: PipelineState | null,
   pr: number,
   nowMs: number,
+  uiReview?: UiReviewGate,
 ): GuardResult {
-  const section = parseTestStepsSection(body);
+  const parsed = parseTestStepsSection(body);
+  // An unreviewed UI diff counts as one unchecked item: only a fresh
+  // gate-override token clears it, like any other open step.
+  const section =
+    parsed.kind === "no-unchecked" && uiReview && !uiReview.satisfied
+      ? {
+          kind: "has-unchecked" as const,
+          uncheckedItems: [uiReviewItem(uiReview.reason)],
+        }
+      : parsed;
 
   if (section.kind === "missing") {
     // A missing `## Test Steps` heading is an upstream regression, not
@@ -258,6 +274,8 @@ export type Deps = {
   now?: () => number;
   /** Test seam for the squash merge; default shells `gh pr merge --squash <pr>` in `cwd`. */
   runMerge?: (pr: number, cwd: string) => { exitCode: number; stderr: string };
+  /** Test seam for the design-review backstop's git and config reads. */
+  uiReview?: UiReviewDeps;
 };
 
 // --- merge mode -------------------------------------------------------------
@@ -285,10 +303,11 @@ export function evaluateMergePreconditions(input: {
   pr: number;
   checks: CheckState;
   nowMs: number;
+  uiReview?: UiReviewGate;
 }):
   | { ok: true; overrideApplied: boolean; uncheckedCount: number }
   | { ok: false; reason: string; uncheckedItems?: string[] } {
-  const { body, prState, state, pr, checks, nowMs } = input;
+  const { body, prState, state, pr, checks, nowMs, uiReview } = input;
   if (!state) return { ok: false, reason: "no-state" };
   if (state.pr !== pr) {
     return {
@@ -298,7 +317,7 @@ export function evaluateMergePreconditions(input: {
   }
   if (prState !== "OPEN")
     return { ok: false, reason: `pr-not-open: ${prState}` };
-  const verdict = evaluateMergeGuard(body, state, pr, nowMs);
+  const verdict = evaluateMergeGuard(body, state, pr, nowMs, uiReview);
   if (verdict.decision !== "clear") {
     return {
       ok: false,
@@ -562,6 +581,16 @@ function mergePr(
     pr,
     checks: read?.kind === "ok" ? read.checks : { kind: "no-checks-reported" },
     nowMs: now(),
+    uiReview: state.worktree
+      ? computeUiReviewGate(
+          {
+            worktree: state.worktree,
+            base: fetched.baseRefName,
+            body: fetched.body,
+          },
+          deps.uiReview,
+        )
+      : undefined,
   });
   if (!pre.ok) return refuse(pre.reason, pre.uncheckedItems);
 
@@ -642,6 +671,7 @@ function checkGuard(
   stateDir: string,
   gh: GhRunner,
   now: () => number,
+  uiDeps?: UiReviewDeps,
 ): number {
   const fetched = fetchPrInputs(pr, gh);
   if (fetched.kind === "error") {
@@ -671,7 +701,17 @@ function checkGuard(
   // `recordOverrideToken` — that function serves the `--record-override`
   // fresh-confirmation path, not a pipeline transition, and its own
   // `writeState` would clobber an advance recorded there.
-  const result = evaluateMergeGuard(fetched.body, state, pr, now());
+  const uiReview = state?.worktree
+    ? computeUiReviewGate(
+        {
+          worktree: state.worktree,
+          base: fetched.baseRefName,
+          body: fetched.body,
+        },
+        uiDeps,
+      )
+    : undefined;
+  const result = evaluateMergeGuard(fetched.body, state, pr, now(), uiReview);
   // Out of `gated` (the gate-override path), `merging` lands only when the
   // guard clears — a blocked override must leave the pipeline visibly gated,
   // not parked at `merging` with nothing merging.
@@ -751,7 +791,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     }
     return recordOverrideToken(parsed.pr, slug, stateDir, now);
   }
-  return checkGuard(parsed.pr, slug, stateDir, gh, now);
+  return checkGuard(parsed.pr, slug, stateDir, gh, now, deps.uiReview);
 }
 
 if (import.meta.main) {

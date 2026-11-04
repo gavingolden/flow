@@ -59,6 +59,10 @@ import type {
 } from "./lib/ui-validation-schema";
 import { deriveRoutes } from "./lib/ui-route-infer";
 import {
+  isExcludedFromUiReview,
+  uiReviewRequired,
+} from "./lib/ui-review-scope";
+import {
   inferLaunch,
   allocFreePorts,
   collectPortSentinels,
@@ -188,7 +192,8 @@ Options:
   --manifest <path>       Path to the .flow/ui-validation.json manifest
                           (default ${DEFAULT_MANIFEST}).
   --mcp-absent            The chrome-devtools MCP is not available in this
-                          session; emit a quiet mcp-not-available skip.
+                          session; emit an mcp-not-available skip (loud when
+                          --changed-files names a rendered file).
   --browser-busy          Treat a busy/locked shared Chrome profile as a clean
                           skip; emit a loud browser-profile-busy skip with a
                           recovery nudge (another pipeline holds the profile).
@@ -308,6 +313,9 @@ const COMPONENT_EXTENSIONS = [".svelte", ".tsx", ".jsx", ".vue"];
 
 /** A changed path counts as a UI file by extension or by a UI path segment. */
 export function isUiFile(p: string): boolean {
+  // Tests, stubs, stories, mocks and type declarations render nothing, even
+  // under a components/ tree (the design-review rule's one exclusion list).
+  if (isExcludedFromUiReview(p)) return false;
   const lower = p.toLowerCase();
   if (UI_EXTENSIONS.some((ext) => lower.endsWith(ext))) return true;
   if (lower.includes("routes/")) return true;
@@ -448,12 +456,25 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 0;
   }
 
-  // --mcp-absent wins over every other mode: environment-level, quiet skip.
+  // --mcp-absent wins over every other mode. It is an environment-level skip,
+  // quiet unless the diff changes a rendered file: then the page checks are
+  // lost and the owner is told the design review has another capture path.
   if (parsed.mcpAbsent) {
+    const changedRaw =
+      parsed.changedFiles !== undefined ? readFile(parsed.changedFiles) : null;
+    const uiDiff =
+      changedRaw !== null &&
+      uiReviewRequired(parseChangedFiles(changedRaw)).required;
     return emit({
       ran: false,
-      loud: false,
+      loud: uiDiff,
       skipped_reason: "mcp-not-available",
+      ...(uiDiff
+        ? {
+            nudge:
+              "UI changed but the chrome-devtools browser tool is not connected — the design review still captures through the repo's Playwright; reconnect with /mcp for the page checks.",
+          }
+        : {}),
     });
   }
 

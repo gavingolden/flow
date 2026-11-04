@@ -85,8 +85,11 @@ function routeRootIndex(segments: string[]): number {
   return segments.indexOf("app");
 }
 
-/** Derive a single URL from one changed file, or null when none is confident. */
-function deriveRoute(changedFile: string): string | null {
+/**
+ * Route segments of one changed page-shaped file (route groups still present,
+ * dynamic segments untouched), or null when the file names no page.
+ */
+function routeSegmentsOf(changedFile: string): string[] | null {
   const segments = changedFile.split("/").filter((s) => s.length > 0);
   const rootIdx = routeRootIndex(segments);
   if (rootIdx === -1) return null; // not under a routes/app tree
@@ -97,7 +100,8 @@ function deriveRoute(changedFile: string): string | null {
   const leaf = after[after.length - 1];
   const dirSegments = after.slice(0, after.length - 1);
   const { stem, ext } = stripExtension(leaf);
-  const stemLower = stem.toLowerCase();
+  // SvelteKit server loaders (`+page.server.ts`) name the same page as `+page`.
+  const stemLower = stem.toLowerCase().replace(/\.server$/, "");
 
   // A leaf without a route-bearing extension (a bare `.css`/`.scss`/`.json`
   // etc.) never names a route on its own.
@@ -120,6 +124,14 @@ function deriveRoute(changedFile: string): string | null {
     const leafParts = stem.split(".").filter((p) => p.length > 0);
     routeSegments = [...dirSegments, ...leafParts];
   }
+
+  return routeSegments;
+}
+
+/** Derive a single URL from one changed file, or null when none is confident. */
+function deriveRoute(changedFile: string): string | null {
+  const routeSegments = routeSegmentsOf(changedFile);
+  if (routeSegments === null) return null;
 
   // Strip route groups; bail on any dynamic segment.
   const cleaned: string[] = [];
@@ -146,6 +158,56 @@ export function deriveRoutes(changedFiles: string[]): string[] {
     if (seen.has(route)) continue;
     seen.add(route);
     out.push(route);
+  }
+  return out;
+}
+
+const REST_SEGMENT = /^\[\.\.\.[^\]]+\]$/; // [...rest]
+const OPTIONAL_SEGMENT = /^\[\[[^\]]+\]\]$/; // [[optional]]
+const PARAM_SEGMENT = /^\[[^\][]+\]$/; // [param] and [id=matcher]
+
+function matchSegments(pattern: string[], actual: string[]): boolean {
+  if (pattern.length === 0) return actual.length === 0;
+  const [head, ...tail] = pattern;
+  if (REST_SEGMENT.test(head)) return true;
+  if (OPTIONAL_SEGMENT.test(head)) {
+    return (
+      matchSegments(tail, actual) ||
+      (actual.length > 0 && matchSegments(tail, actual.slice(1)))
+    );
+  }
+  if (actual.length === 0) return false;
+  if (PARAM_SEGMENT.test(head) || head === actual[0]) {
+    return matchSegments(tail, actual.slice(1));
+  }
+  return false;
+}
+
+/**
+ * Matchers for the dynamic routes a changed-files list touches: one predicate
+ * per changed page file whose route has a SvelteKit/Next bracket segment, true
+ * for any concrete URL path that route serves. Segment-wise, no regex
+ * compiler. Remix `$slug` and generic `:id` segments are not recognised, so
+ * such files contribute no matcher (the "no route rather than a wrong one"
+ * rule).
+ */
+export function deriveRoutePatterns(
+  changedFiles: string[],
+): ((route: string) => boolean)[] {
+  const out: ((route: string) => boolean)[] = [];
+  for (const file of changedFiles) {
+    const segs = routeSegmentsOf(file);
+    if (segs === null) continue;
+    const pattern = segs.filter((s) => !isGroupSegment(s));
+    if (!pattern.some((s) => s.includes("["))) continue;
+    if (pattern.some((s) => s.startsWith("$") || s.startsWith(":"))) continue;
+    out.push((route) => {
+      const path = route.split(/[?#]/)[0];
+      return matchSegments(
+        pattern,
+        path.split("/").filter((s) => s.length > 0),
+      );
+    });
   }
   return out;
 }

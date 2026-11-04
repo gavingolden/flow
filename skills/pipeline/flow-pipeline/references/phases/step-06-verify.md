@@ -48,10 +48,10 @@ Also echo the same line to the user in-session (a plain assistant-message
 line, not only the PR-body upsert above) so the gap is visible without
 opening the PR.
 
-**UI critique loop.** For a UI PR with a `SUBJECTIVE:` Test Step, the critique loop
+**UI critique loop.** For a PR whose diff changes a rendered file (decided by `flow-ui-critique gate`, no `SUBJECTIVE:` step needed), the critique loop
 ([ui-critique-loop.md](../ui-critique-loop.md)) runs inside `/flow-verify`
 after a clean pass — once per pipeline, outside the 3-attempt cap, never a `NEEDS HUMAN`.
-Echo its in-session `UI critique: …` line to the user as `/flow-verify` prints it.
+It photographs through the repo's Playwright (`flow-ui-capture`) and falls back to the browser driver only when Playwright is absent; a missing chrome-devtools MCP no longer ends it. A review that cannot run is recorded as an unchecked `DECISION:` item and pauses at the gate. Echo its in-session `UI critique: …` line, and any loud Playwright warning the gate returned, to the user as `/flow-verify` prints them, and carry the warning into the next pause's `**Needs attention:**`.
 
 **Surface UI screenshots.** Read `$WORKTREE/.flow-tmp/ui-driver-result.json`:
 `jq -r '.item_results[]?'` first — when any entry carries `screenshots[]`, print each such `item` on its own line followed by its `screenshots[]` — else fall back to `jq -r '.ui_screenshots[]?'` for the paths (the driver already applied the

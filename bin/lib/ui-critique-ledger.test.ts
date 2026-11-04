@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   appendLedger,
+  countsInLedger,
   decideDemotion,
   LEDGER_MAX_LINES,
   ledgerPath,
@@ -147,5 +148,22 @@ describe("decideDemotion", () => {
       line("reverted", { repo: "c" }),
     ];
     expect(decideDemotion(lines).demoted).toBe(true);
+  });
+});
+
+describe("countsInLedger", () => {
+  it("counts a finished loop but not a skip", () => {
+    expect(countsInLedger("kept", "")).toBe(true);
+    expect(countsInLedger("clean", "")).toBe(true);
+    expect(countsInLedger("skipped", "browser busy")).toBe(false);
+  });
+
+  it("does not count a list-only caused by a missing smoke baseline", () => {
+    expect(countsInLedger("list-only", "no-smoke-baseline")).toBe(false);
+  });
+
+  it("counts any other list-only, which runs down the probation", () => {
+    expect(countsInLedger("list-only", "demoted")).toBe(true);
+    expect(countsInLedger("list-only", "")).toBe(true);
   });
 });

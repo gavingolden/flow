@@ -7,7 +7,7 @@ The rubric for judging a page that has already been rendered and captured: a set
 You are handed, in this order of authority:
 
 1. **Each route's accessibility snapshot text** — primary for hierarchy, roles, names and reading order (SKILL.md §5). A finding about structure or order is grounded here.
-2. **A gallery of viewport-sized per-section shots** at phone 390, desktop 1280 and, when present, desktop-dark, with a start shot and an end shot for any section taller than the viewport. Supplementary: use them for spacing rhythm, alignment, hierarchy, contrast and density.
+2. **A gallery of viewport-sized per-section shots** at phone 390, desktop 1280 and, when present, phone-dark and desktop-dark, with a start shot and an end shot for any section taller than the viewport. Supplementary: use them for spacing rhythm, alignment, hierarchy, contrast and density.
 3. **The plan's `## Layout Intent`**, including its design-intent bullets (who, feel, the default this rejects, the polish bar, the judged scope). The polish bar names the qualities the finished page must show; judge against it.
 4. **The probe's smells**, as hints, not verdicts. A smell points at where to look; it is never a finding on its own, and a clean probe never excuses a visible problem.
 

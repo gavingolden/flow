@@ -12,6 +12,7 @@ import {
   UI_REVIEW_CLOSE,
   UI_REVIEW_DECISION_MARKER,
   UI_REVIEW_OPEN,
+  uiReviewDecisionItem,
   upsertUiReview,
 } from "./ui-critique-render";
 import type { SectionShot } from "./ui-driver-schema";
@@ -36,6 +37,7 @@ const finding = (over: Partial<CritiqueFinding> = {}): CritiqueFinding => ({
   observation: "text overlaps the price",
   rule: "visual-design.md",
   fix: "separate them",
+  introduced: true,
   ...over,
 });
 const log = (over: Partial<LoopLog> = {}): LoopLog => ({
@@ -252,5 +254,188 @@ describe("upsertUiReview", () => {
     const out = upsertUiReview("## TLDR\n\nx", section, decision);
     expect(out).toContain(UI_REVIEW_OPEN);
     expect(out).not.toContain("DECISION:");
+  });
+});
+
+describe("a required review that did not run", () => {
+  const skipped = (over: Partial<LoopLog> = {}) =>
+    log({
+      required: true,
+      outcome: "skipped",
+      skip: "the browser drive captured no section screenshots",
+      ...over,
+    });
+  const render = (l: LoopLog) =>
+    renderUiReview({ before: [], after: null, log: l, demotion: null });
+
+  it("renders a warning callout naming the reason instead of a one-line note", () => {
+    const out = render(skipped());
+    expect(out).toContain(
+      "> [!WARNING]\n> UI review did not run: the browser drive captured no section screenshots",
+    );
+    expect(out).not.toContain("Not run:");
+  });
+
+  it("adds one unchecked DECISION item naming that reason", () => {
+    const item = uiReviewDecisionItem(skipped());
+    expect(item).toBe(
+      "- [ ] DECISION: the UI review did not run (the browser drive captured no section screenshots) — merge without a design review of the changed screens, or redirect to fix the cause",
+    );
+  });
+
+  it("the item is one Test Steps line and the upsert is idempotent", () => {
+    const body = "## Summary\n\n## Test Steps\n\n- [ ] `npm test` — pass\n";
+    const l = skipped();
+    const section = render(l);
+    const once = upsertUiReview(body, section, uiReviewDecisionItem(l));
+    expect(once.match(/DECISION: the UI review did not run/g)).toHaveLength(1);
+    expect(once).toContain(UI_REVIEW_DECISION_MARKER);
+    expect(parseTestSteps(once).steps.filter((x) => !x.checked)).toHaveLength(
+      2,
+    );
+    const twice = upsertUiReview(once, section, uiReviewDecisionItem(l));
+    expect(twice).toBe(once);
+  });
+
+  it.each([
+    ["no-review-target", "add a `## UI review targets` entry"],
+    [
+      "playwright-unavailable",
+      "npm i -D @playwright/test && npx playwright install chromium",
+    ],
+    ["playwright-browsers-missing", "npx playwright install chromium"],
+    ["fallback-capture-failed", "the fallback capture failed"],
+  ])("maps %s to a plain reason", (code, fragment) => {
+    const l = skipped({ skip: code });
+    expect(render(l)).toContain(fragment);
+    expect(uiReviewDecisionItem(l)).toContain(fragment);
+  });
+
+  it("a residual-defect item keeps precedence over the not-run item", () => {
+    const l = skipped({ persistent: ["[xs] anchor: #x lands under chrome"] });
+    expect(uiReviewDecisionItem(l)).toContain("unresolved defect(s)");
+  });
+
+  it("a skip when the diff did not require a review stays a quiet note with no item", () => {
+    const l = log({ skip: "mcp-not-available", required: false });
+    expect(render(l)).toContain(
+      "Not run: the browser tools were not available",
+    );
+    expect(uiReviewDecisionItem(l)).toBeNull();
+    expect(uiReviewDecisionItem(log({ skip: "mcp-not-available" }))).toBeNull();
+  });
+
+  it("reads Off, with no item, when the owner turned the reviewer off", () => {
+    const l = skipped({ skip: "disabled-by-config" });
+    expect(render(l)).toContain("Off: turned off in flow config.");
+    expect(render(l)).not.toContain("[!WARNING]");
+    expect(uiReviewDecisionItem(l)).toBeNull();
+  });
+});
+
+describe("introduced and pre-existing findings", () => {
+  const preExisting = finding({
+    introduced: false,
+    section: "Footer",
+    observation: "old crowding",
+  });
+
+  it("lists a pre-existing defect under Pre-existing and adds no DECISION item", () => {
+    const l = log({ outcome: "list-only", residual: [preExisting] });
+    const out = renderUiReview({
+      before: [],
+      after: null,
+      log: l,
+      demotion: null,
+    });
+    expect(out).toContain("**Pre-existing (not gated):**");
+    expect(out).toContain("- Footer @ phone — old crowding (defect)");
+    expect(out).not.toContain("Unresolved defect");
+    expect(uiReviewDecisionItem(l)).toBeNull();
+  });
+
+  it("an introduced defect still gates and a state-mismatch gates even when flagged pre-existing", () => {
+    expect(
+      uiReviewDecisionItem(log({ residual: [finding(), preExisting] })),
+    ).toContain("1 unresolved defect(s)");
+    const mismatch = finding({ introduced: false, rule: "state-mismatch" });
+    expect(uiReviewDecisionItem(log({ residual: [mismatch] }))).toContain(
+      "1 unresolved defect(s)",
+    );
+  });
+});
+
+describe("review context lines", () => {
+  const render = (l: LoopLog) =>
+    renderUiReview({ before: [], after: null, log: l, demotion: null });
+
+  it("labels derived targets as not confirmed to show the change", () => {
+    const out = render(
+      log({
+        outcome: "clean",
+        targets: [
+          { route: "/analysis/AVGO", state: "empty state", source: "plan" },
+          { route: "/about", state: null, source: "route-file" },
+        ],
+      }),
+    );
+    expect(out).toContain("- /analysis/AVGO — empty state");
+    expect(out).toContain(
+      "- /about — derived — not confirmed to show the change",
+    );
+  });
+
+  it("names the judged commit on a completed review", () => {
+    const out = render(
+      log({ outcome: "clean", completed: true, headSha: "abcdef0123456789" }),
+    );
+    expect(out).toContain("Judged commit: `abcdef0`");
+  });
+
+  it("opens with the Playwright warning even when the browser agent completed the review", () => {
+    const out = render(
+      log({
+        outcome: "clean",
+        completed: true,
+        playwrightWarning: "UI review screenshots need Playwright in this repo",
+      }),
+    );
+    const lines = out.split("\n");
+    expect(lines[3]).toBe("> [!WARNING]");
+    expect(lines[4]).toBe(
+      "> UI review screenshots need Playwright in this repo",
+    );
+    expect(out).toContain("Clean: the critique found no defect");
+  });
+});
+
+describe("sign-off screenshots (advisory)", () => {
+  const render = (l: LoopLog) =>
+    renderUiReview({ before: [], after: null, log: l, demotion: null });
+  const signoff = (findings: CritiqueFinding[]) => ({
+    findings,
+    judgedSha: "abc",
+  });
+
+  it("lists introduced findings first and never adds a DECISION item", () => {
+    const l = log({
+      outcome: "clean",
+      completed: true,
+      signoff: signoff([
+        finding({ introduced: false, observation: "old", section: "Menu" }),
+        finding({ observation: "new clip", section: "Dialog" }),
+      ]),
+    });
+    const out = render(l);
+    expect(out).toContain("**Sign-off screenshots (advisory):**");
+    expect(out.indexOf("new clip")).toBeLessThan(out.indexOf("old"));
+    expect(out).toContain("(defect, pre-existing)");
+    expect(uiReviewDecisionItem(l)).toBeNull();
+  });
+
+  it("omits the list when the advisory review found nothing", () => {
+    expect(
+      render(log({ outcome: "clean", signoff: signoff([]) })),
+    ).not.toContain("Sign-off screenshots");
   });
 });

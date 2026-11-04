@@ -296,8 +296,22 @@ the user has something to judge. For each `capture` entry in `item_results[]`:
   there was no browser). That line is what keeps `flow-test-steps-lint
 --phase review` from reporting `subjective-no-image`.
 
-The wrapper never runs the ui-ux judgment on a `capture` item and never ticks
-it; the capture exists only so the human sign-off has a picture attached.
+The wrapper never ticks a `capture` item; the capture exists so the human
+sign-off has a picture attached. The shots are also judged, as advice only
+(`review-8c`): after the capture evidence is injected and the driver artifact
+(`.flow-tmp/ui-driver-result.json`, `caller: "review-8c"`) lists at least one
+`captured` item, run
+
+```text
+flow-ui-critique critique --driver-result .flow-tmp/ui-driver-result.json --plan .flow-tmp/plan.md --phase review-8c --out .flow-tmp/ui-critique/critique-review-8c.json --worktree "$WORKTREE"
+```
+
+then `flow-ui-critique render --worktree "$WORKTREE" --body-file .flow-tmp/body.md`.
+The critic runs once per pipeline even though the verify-time review is
+complete; with no `captured` item it returns `no-signoff-captures`. The
+findings land under "Sign-off screenshots (advisory)" in `## UI review` and
+never add a `DECISION:` item or a fix round. Print one in-session line:
+`Sign-off review: <n> finding(s), advisory`.
 
 ## Design-fidelity per-assertion walk (spec-gated)
 

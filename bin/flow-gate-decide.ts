@@ -69,6 +69,14 @@ import {
   type BrowserItemStatus,
   type OpenBrowserItem,
 } from "./lib/browser-items";
+import {
+  applyUiReview,
+  checkUiReviewGate,
+  collectUiReviewInputs,
+  readUiReviewLog,
+  type UiReviewDeps,
+  type UiReviewGate,
+} from "./lib/ui-review-gate";
 
 export type Decision =
   | "auto-merge"
@@ -88,6 +96,8 @@ export type DecisionResult = {
   autoRedriven?: boolean;
   reason: string;
   autoMerge: boolean;
+  /** Additive: the design-review backstop's verdict on an open PR. */
+  uiReview?: UiReviewGate;
 };
 
 export type GateInputs = {
@@ -97,6 +107,10 @@ export type GateInputs = {
   autoMerge: boolean;
   worktree?: string | null;
   headSha?: string | null;
+  /** Branch diff against the PR base; `undefined` means "not computed". */
+  changedFiles?: string[] | null;
+  changedSinceReview?: string[] | null;
+  uiCritiqueEnabled?: boolean;
 };
 
 const HEADING_RE = /^## Test Steps[ \t]*$/m;
@@ -249,6 +263,24 @@ export function decide(
   inputs: GateInputs,
   deps: { readFile?: (p: string) => string | null } = {},
 ): DecisionResult {
+  const result = decideTestSteps(inputs, deps);
+  if (inputs.changedFiles === undefined || !inputs.worktree) return result;
+  return applyUiReview(
+    result,
+    checkUiReviewGate({
+      changedFiles: inputs.changedFiles,
+      changedSinceReview: inputs.changedSinceReview ?? null,
+      log: readUiReviewLog(inputs.worktree, deps.readFile),
+      body: inputs.body,
+      enabled: inputs.uiCritiqueEnabled ?? true,
+    }),
+  );
+}
+
+function decideTestSteps(
+  inputs: GateInputs,
+  deps: { readFile?: (p: string) => string | null },
+): DecisionResult {
   const { body, state, url, autoMerge } = inputs;
 
   if (state === "MERGED") {
@@ -392,18 +424,30 @@ type FetchResult =
       body: string;
       state: "OPEN" | "MERGED" | "CLOSED";
       url: string;
+      baseRefName?: string;
     }
   | { kind: "error"; message: string };
 
 export function fetchPrInputs(prNumber: number, gh: GhRunner): FetchResult {
-  const r = gh(["pr", "view", String(prNumber), "--json", "body,state,url"]);
+  const r = gh([
+    "pr",
+    "view",
+    String(prNumber),
+    "--json",
+    "body,state,url,baseRefName",
+  ]);
   if (r.exitCode !== 0) {
     return {
       kind: "error",
       message: r.stderr.trim() || `gh pr view failed (${r.exitCode})`,
     };
   }
-  let parsed: { body?: string; state?: string; url?: string };
+  let parsed: {
+    body?: string;
+    state?: string;
+    url?: string;
+    baseRefName?: string;
+  };
   try {
     parsed = JSON.parse(r.stdout);
   } catch (e) {
@@ -429,6 +473,9 @@ export function fetchPrInputs(prNumber: number, gh: GhRunner): FetchResult {
     body: parsed.body,
     state: parsed.state,
     url: parsed.url,
+    ...(typeof parsed.baseRefName === "string" && parsed.baseRefName
+      ? { baseRefName: parsed.baseRefName }
+      : {}),
   };
 }
 
@@ -468,6 +515,7 @@ export type Deps = {
   resolveSlug?: () => string | null;
   readFile?: (p: string) => string | null;
   localHead?: (cwd: string) => string | null;
+  uiReview?: UiReviewDeps;
 };
 
 // LOCAL HEAD only, never `gh pr view` (head-sync stall: the PR object can
@@ -527,6 +575,14 @@ export function run(argv: string[], deps: Deps = {}): number {
   const headSha = worktree
     ? (deps.localHead ?? defaultLocalHead)(worktree)
     : null;
+  // The design-review backstop reads the local branch diff, never the PR
+  // object (head-sync stall), so it needs a worktree.
+  const ui = worktree
+    ? collectUiReviewInputs(worktree, fetched.baseRefName, {
+        readFile: deps.readFile,
+        ...deps.uiReview,
+      })
+    : null;
   const result = decide(
     {
       body: fetched.body,
@@ -535,6 +591,13 @@ export function run(argv: string[], deps: Deps = {}): number {
       autoMerge,
       worktree,
       headSha,
+      ...(ui
+        ? {
+            changedFiles: ui.changedFiles,
+            changedSinceReview: ui.changedSinceReview,
+            uiCritiqueEnabled: ui.enabled,
+          }
+        : {}),
     },
     { readFile: deps.readFile },
   );
