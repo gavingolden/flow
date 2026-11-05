@@ -67,7 +67,7 @@
         "bun",
         "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
         "$REPO/.flow-tmp/plan.md",
-        "visibility timeout"
+        "visibility[- ]?timeout"
       ],
       "cwd": "$REPO"
     },

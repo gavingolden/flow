@@ -196,6 +196,22 @@ describe("system-design-references widened graders", () => {
     expect(
       pass("r5-realtime", "reconnect", "Stream section text over SSE."),
     ).toBe(false);
+    expect(
+      pass("r5-realtime", "reconnect", "Task 5: Pollable report read"),
+    ).toBe(true);
+  });
+
+  it("r8 visibility-timeout accepts the CloudFormation spelling", () => {
+    expect(
+      pass(
+        "r8-aws",
+        "visibility-timeout",
+        "`AWS::SQS::Queue`, `VisibilityTimeout: 180`",
+      ),
+    ).toBe(true);
+    expect(
+      pass("r8-aws", "visibility-timeout", "Create an SQS queue for jobs."),
+    ).toBe(false);
   });
 });
 

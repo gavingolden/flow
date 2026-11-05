@@ -70,6 +70,7 @@ import {
   checkQueueCompanions,
   checkRecovery,
 } from "./lib/plan-runtime-companions";
+import { checkInlineBudget } from "./lib/plan-runtime-budget";
 import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 const CONFIDENCE_RE = /\[confidence:\s*(high|medium|low)\]/g;
@@ -1267,6 +1268,7 @@ export function lintPlan(
     checkRuntimeDesign(planText, misses);
     checkQueueCompanions(planText, misses);
     checkRecovery(planText, misses);
+    checkInlineBudget(planText, misses);
     checkTaskContracts(planText, misses);
     checkCandidateTable(planText, misses);
     checkPromptInterpretation(planText, misses);

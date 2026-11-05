@@ -442,6 +442,20 @@ describe("lintPlan — always-present sections", () => {
       );
     });
 
+    it("names the interactive-budget miss for an inline row with a ~65 s p99", () => {
+      const spec = SPEC.replace(
+        "| export | ~40 ms | inline — ~40 ms, timeout 2 s |",
+        "| export | ~65 s | inline, five-way fan-out |",
+      );
+      const plan = CONFORMING_PLAN.replace(
+        RD_NONE,
+        `$1${spec}\n**Proportionality:** none\n`,
+      );
+      expect(
+        lintPlan(plan).misses.some((m) => m.includes("interactive budget")),
+      ).toBe(true);
+    });
+
     it("accepts a spec table with a Proportionality line", () => {
       const plan = CONFORMING_PLAN.replace(
         RD_NONE,
