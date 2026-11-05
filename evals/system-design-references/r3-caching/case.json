@@ -14,6 +14,18 @@
       "exists": true
     },
     {
+      "id": "keep-plan",
+      "kind": "command",
+      "gate": false,
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/keep-plan.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "$ASSISTANT_TEXT"
+      ],
+      "cwd": "$REPO"
+    },
+    {
       "id": "no-agent-fallback",
       "kind": "file",
       "file": "$ASSISTANT_TEXT",
@@ -33,7 +45,7 @@
         "bun",
         "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
         "$REPO/.flow-tmp/plan.md",
-        "invalidat|\\bttl\\b|expir|stale|(?:regenerat|recomput)[^\\n]*(?:when|on|after)[^\\n]*(?:change|update|edit|regenerat)"
+        "invalidat|\\bttl\\b|expir|stale|(?:regenerat|recomput)[^\\n]*(?:when|on|after)[^\\n]*(?:change|update|edit|regenerat)|fingerprint|content[- ]?hash|\\bhash(?:ed)? of|keyed (?:on|by)[^\\n]*(?:hash|version|content|text)|until[^\\n]*(?:text|content|report|section)[^\\n]*chang"
       ],
       "cwd": "$REPO"
     },

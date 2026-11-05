@@ -127,6 +127,19 @@ function withoutSection(plan: string, heading: string): string {
   return plan.replace(re, "");
 }
 
+describe("lintPlan — queue companion settings", () => {
+  it("names the SQS visibility-timeout miss", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "# Task breakdown\n\n",
+      "# Task breakdown\n\n- Create the SQS queue with a dead-letter queue.\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some((m) => /SQS but no task sets its visibility timeout/.test(m)),
+    ).toBe(true);
+  });
+});
+
 describe("lintPlan — always-present sections", () => {
   it("returns zero misses for a conforming plan", () => {
     const { misses } = lintPlan(CONFORMING_PLAN);

@@ -23,6 +23,10 @@ An untested backup is a hope. Restore to a scratch instance on a schedule (at le
 - Bulk deletes and rewrites run as a job that first writes what it will change (or soft-deletes), so the change can be reversed without a full restore.
 - Take an on-demand backup immediately before an irreversible migration.
 
+## In the plan
+
+The plan's Runtime design carries a `**Recovery:**` line, and the task that creates the store sets up backups, point-in-time recovery or versioning plus a restore check. Reading this page is not enough: planners have read it and still left both out of the Task breakdown, and flow-plan-lint checks for them.
+
 ## Proportionality
 
 A pre-launch app needs automated backups plus PITR and one tested restore. Multi-region replicas and warm standby belong to RTOs of minutes, which few early products need.

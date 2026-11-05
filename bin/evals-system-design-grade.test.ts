@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadSuite } from "./lib/eval-suite";
@@ -5,6 +7,7 @@ import {
   extractTaskBreakdown,
   gradeTasks,
 } from "../evals/system-design-defaults/grade-tasks";
+import { keepPlan } from "../evals/system-design-defaults/keep-plan";
 
 const EVALS_ROOT = path.resolve(__dirname, "..", "evals");
 
@@ -155,5 +158,64 @@ describe("committed case.json graders", () => {
       "# Task breakdown\n\nFive calls exceed the 10 s interactive budget.\n";
     expect(verdicts("s1-report-endpoint", plan)["cost-bound"]).toBe(false);
     expect(verdicts("s2-nightly-refresh", plan)["cost-bound"]).toBe(false);
+  });
+});
+
+describe("system-design-references widened graders", () => {
+  const loaded = loadSuite(path.join(EVALS_ROOT, "system-design-references"));
+  if (!loaded.ok) throw new Error(loaded.reason);
+  const pass = (scenarioId: string, graderId: string, line: string) => {
+    const g = loaded.value.scenarios
+      .find((s) => s.id === scenarioId)
+      ?.graders.find((x) => x.id === graderId);
+    if (!g?.argv) throw new Error(`missing grader ${scenarioId}/${graderId}`);
+    return gradeTasks(`# Task breakdown\n\n${line}\n`, g.argv[3], false);
+  };
+
+  it("r3 invalidation accepts content-addressed reuse and rejects none", () => {
+    expect(
+      pass(
+        "r3-caching",
+        "invalidation",
+        "Save each summary with a fingerprint of the report's section text and keep serving it until that text changes.",
+      ),
+    ).toBe(true);
+    expect(
+      pass("r3-caching", "invalidation", "Summarise each section on request."),
+    ).toBe(false);
+  });
+
+  it("r5 reconnect accepts polling and rejects a bare SSE plan", () => {
+    expect(
+      pass(
+        "r5-realtime",
+        "reconnect",
+        "Return each section's status; the page polls GET /reports/:id with backoff.",
+      ),
+    ).toBe(true);
+    expect(
+      pass("r5-realtime", "reconnect", "Stream section text over SSE."),
+    ).toBe(false);
+  });
+});
+
+describe("keepPlan", () => {
+  it("copies the plan next to assistant-text and returns null when missing", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "keep-plan-"));
+    try {
+      const plan = path.join(dir, "src-plan.md");
+      fs.writeFileSync(plan, "# Task breakdown\n");
+      const outDir = path.join(dir, "out");
+      fs.mkdirSync(outDir);
+      const text = path.join(outDir, "assistant-text.txt");
+      const dest = keepPlan(plan, text);
+      expect(dest).toBe(path.join(outDir, "plan.md"));
+      expect(fs.readFileSync(dest as string, "utf8")).toBe(
+        "# Task breakdown\n",
+      );
+      expect(keepPlan(path.join(dir, "nope.md"), text)).toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

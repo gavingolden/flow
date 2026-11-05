@@ -13,6 +13,7 @@ Read this on repos deployed to Cloudflare Workers. It maps each principle in `..
 - A consumer invocation has a 15 minute wall-clock limit and the same configurable CPU limit as a Worker; batches hold up to 100 messages. Source: https://developers.cloudflare.com/queues/platform/limits/
 - Messages are at most 128 KB, so put large inputs in R2 or the database and enqueue a reference. Retention is configurable up to 14 days on Paid (fixed at 24 hours on Free). Same source.
 - Delivery is retried, by default 3 times, after which the message goes to the dead letter queue if one is configured; without a DLQ it is deleted permanently. Always configure a DLQ for work that must not be lost. Source: https://developers.cloudflare.com/queues/configuration/dead-letter-queues/
+- Must-set setting: the dead-letter queue belongs in the task that creates the queue; flow-plan-lint checks the Task breakdown for it.
 - Consumers must be idempotent: dedupe on a business-identity key in D1 or a Durable Object before the side effect.
 - Retry here (consumer `max_retries`, `retryDelay`) and nowhere else.
 

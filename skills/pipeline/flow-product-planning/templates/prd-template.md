@@ -263,6 +263,7 @@ Estimated series: [n] per operation[; samples/month: [m] — per-sample backend 
 **Platform:** [gcp | cloudflare | aws | other]
 
 **Proportionality:** [what was deliberately left out, e.g. no queue for a 50 ms call]
+**Recovery:** [how stored data comes back if lost — backups/PITR or versioning plus a restore check — or none — <why it is regenerable or already covered>; required when a task adds or changes a table, migration or bucket]
 
 ## Technical Constraints
 

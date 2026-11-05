@@ -66,6 +66,10 @@ import {
   listTaskRuntimeFiles,
   sliceToNextHeading,
 } from "./lib/plan-runtime-surface";
+import {
+  checkQueueCompanions,
+  checkRecovery,
+} from "./lib/plan-runtime-companions";
 import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 const CONFIDENCE_RE = /\[confidence:\s*(high|medium|low)\]/g;
@@ -1261,6 +1265,8 @@ export function lintPlan(
     checkCutListJustification(planText, misses);
     checkInstrumentation(planText, misses);
     checkRuntimeDesign(planText, misses);
+    checkQueueCompanions(planText, misses);
+    checkRecovery(planText, misses);
     checkTaskContracts(planText, misses);
     checkCandidateTable(planText, misses);
     checkPromptInterpretation(planText, misses);

@@ -14,6 +14,7 @@ Read this on repos deployed to AWS. It maps each principle in `../SKILL.md` to t
 - Standard queues deliver at least once; consumers must dedupe on a business-identity key.
 - FIFO queues deduplicate on `MessageDeduplicationId` only within a 5 minute window, so they do not replace consumer-side dedupe. Source: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/using-messagededuplicationid-property.html
 - Attach a dead-letter queue with a bounded `maxReceiveCount` so a poison message reaches a visible failed state.
+- Must-set settings: the visibility timeout and the dead-letter queue (with a bounded `maxReceiveCount`) belong in the task that creates the queue; flow-plan-lint checks the Task breakdown for them.
 - Cap the consumer with Lambda reserved concurrency (or the event source mapping's maximum concurrency) on any path that calls a paid API.
 
 ## Lambda asynchronous invocation
