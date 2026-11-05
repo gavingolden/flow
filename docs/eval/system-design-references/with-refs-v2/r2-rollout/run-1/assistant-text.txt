@@ -1,0 +1,19 @@
+## The plan and PR description draft are written
+
+Both files are in `.flow-tmp/`: `plan.md` and `pr-description-draft.md`. The planning agent says the plan and test-step lint checks passed. Nothing was implemented and no source files changed.
+
+- **Problem:** The worker finds a section by its name. If two sections in the same report share a name, both get the same text. If a section is renamed while its task is waiting in the queue, it never gets filled. Doing the column rename and the switch to section ids in one release would also break things during the deploy: report reads would fail for a while, queued sections would be left empty without any error, and paid model calls would be repeated with their results thrown away.
+- **Tasks:** 7. They add the new column through migrations, switch lookups and saves to the section id, add a small metrics helper, make the worker accept both the old and the new task format, set retry limits and timeouts, and add tests.
+- **Follow-up issues:** 2 are proposed.
+  - Lock down the worker route. Right now anyone on the internet can call it and trigger paid model calls.
+  - A second release that drops `body` and stops accepting tasks that carry a section name.
+- **Assumptions to check:**
+  - **This one needs your answer:** how migrations reach production. Nothing in the repo runs them, so the plan assumes someone runs them by hand in this order: add `content`, deploy, then copy the existing text from `body`.
+  - The public report response keeps the field name `body`; only the database column is renamed. The plan is only moderately confident about this.
+  - Nothing in this repo creates sections or queues their tasks, so that code lives in another service. The worker keeps accepting name-based tasks and counts them. When that count reaches zero, the second release is safe to ship.
+- **Research:** Web research was skipped because this change doesn't need outside sources. You can force it with `flow feature create --research`.
+- **Recommendation:** Go ahead, but in two releases:
+  1. This release adds `content` and fills it from `body` while still writing `body`, and the worker accepts both task formats.
+  2. A later release drops `body` and the name-based tasks, once the count of name-based tasks reads zero.
+
+**Next action:** Answer the migration question in `.flow-tmp/plan.md`, then run `/flow-new-feature rename the \`body\` column on \`sections\` to \`content\`, and change the generate-section task to carry the section id instead of the section name`. I've stopped here as you asked.

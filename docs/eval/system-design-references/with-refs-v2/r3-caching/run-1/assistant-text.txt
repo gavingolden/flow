@@ -1,0 +1,20 @@
+## The plan for cheaper report summaries is written
+
+Both files are written and non-empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. I checked only that they exist and have content; I haven't read them. Nothing was implemented and the working tree is unchanged.
+
+- **Problem:** Each time someone opens a report's summary, the service makes a new model call that takes 5–15 seconds, even if the report hasn't changed since the last reader. Popular reports open hundreds of times a day, so readers keep waiting and the service keeps paying for the same summary.
+- **Approach (4 tasks):**
+  1. Add a small metrics helper.
+  2. Add timeouts and error checks to the model calls.
+  3. Store one summary per report, tied to a fingerprint of the report's sections. When several people open a report for the first time at once, they share one model call.
+  4. Switch `GET /reports/:id/summary` over to the stored summary. If the model call fails, the route returns a 502 and the failure is never stored.
+- **Two follow-up issues are proposed, to be filed when this merges:**
+  - Move reports to durable shared storage. Right now they live only in one server instance's memory and are lost on every restart.
+  - Generate the summary as soon as a report's sections change, so the first reader after an edit doesn't wait.
+- **Assumptions to check:**
+  - **Biggest risk:** the stored summaries live on each server instance, the same way reports do now. Every Cloud Run instance and every cold start pays for one call per report version, so the real saving depends on how many instances serve traffic. The plan includes a metric for how often the stored summary is used, to measure this.
+  - The first open after an edit still waits 5–15 seconds (medium confidence). Generating summaries ahead of time would need the code that regenerates sections, and that code isn't in this repo.
+- **Research:** the optional web research step was skipped because this isn't a question research would answer.
+- **Verdict on the request:** worth doing, if four things are each proven by a `bun test` test: an unchanged report reopened on the same instance makes no model call, a section change causes exactly one new call, simultaneous first opens share one call, and a failed call is never stored.
+
+**Next action:** read `.flow-tmp/plan.md`, especially the per-instance storage risk and the Open Questions section. To build it, run `/flow-new-feature` with the same feature description.

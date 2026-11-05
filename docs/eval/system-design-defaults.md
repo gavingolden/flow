@@ -2,9 +2,26 @@
 
 Recorded 2026-11-04, `opus` / effort `high`, `--runs 2 --concurrency 3`, fresh `FLOW_RESEARCH_CACHE_DIR` per arm.
 
-Condition met: no (after-v2: strict 2/2 bar missed on s2 only; suite score matches rules-only)
+Condition met: no (after-v3: strict 2/2 bar missed on one s1 run; suite 0.976 beats rules-only 0.955 and before 0.711, no regressions against either)
 
-The first after arm beat the before arm on s1 and s2 and kept s3 inline, but passed s1 in 0/2 runs and lost to the five-line rules-only snippet on both slow-work scenarios. That led to after-v2 below.
+The first after arm beat the before arm on s1 and s2 and kept s3 inline, but passed s1 in 0/2 runs and lost to the five-line rules-only snippet on both slow-work scenarios. That led to after-v2 and after-v3 below.
+
+## after-v3: plan-lint checks the Task breakdown (8b16e32)
+
+8b16e32 added advisory plan-lint checks for queue must-set settings and a `**Recovery:**` line, and a non-gate grader that keeps each run's `plan.md`. Recorded 2026-11-05 with the same flags.
+
+| Scenario             | rules-only  | after-v2    | after-v3    |
+| -------------------- | ----------- | ----------- | ----------- |
+| s1-report-endpoint   | 1/2 (0.929) | 2/2 (1.0)   | 1/2 (0.929) |
+| s2-nightly-refresh   | 1/2 (0.938) | 1/2 (0.875) | 2/2 (1.0)   |
+| s3-fast-paid-control | 2/2 (1.0)   | 2/2 (1.0)   | 2/2 (1.0)   |
+| Suite score          | 0.955       | 0.958       | 0.976       |
+| Cost                 | $11.89      | $14.44      | $14.03      |
+
+- The s1 miss (run 1) kept `POST /reports` inline as a five-way parallel fan-out with a ~65 s p99 and a 160 s deadline, and named it as a departure on its Proportionality line. The plan's own table states the breach of the 10 s interactive budget, so a later commit adds a plan-lint check for an inline row whose Est. p99 is over 10 s. Run against this run's kept plan, it names the row. The check was added after the run, so its effect on the planner is not measured.
+- `compare --fail-on-regression` against rules-only: exit 0, no regressions (s2 +0.063, s1 equal). Against after-v2: exit 1 on s1 (−0.071, one run), with s2 +0.125. At two runs, s1 and s2 have each flipped one run between arms.
+- Cost per scenario is 10–22% above rules-only, because the skill and its references are read.
+- Outputs, including each run's `plan.md`: [`system-design-defaults/after-v3/`](system-design-defaults/after-v3/).
 
 ## after-v2: rules on the planning path (6d5acba)
 

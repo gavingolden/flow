@@ -1,0 +1,22 @@
+## Planning done: the plan says to narrow the scope first, and two questions need your answer
+
+I wrote `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md` and checked that both files exist and aren't empty. Following the skill, a separate planning agent wrote them and I haven't read them myself, so everything below is that agent's report. Nothing was implemented.
+
+- **Problem:** Saved reports never change after they're created, and each one costs slow, paid model calls to build. There's a bigger gap underneath: the service keeps reports only in one server's memory, and nothing in the code creates a report at all. A nightly refresh built on the current code would find no reports to refresh. So the plan adds durable storage first, then the nightly refresh, with a cap on model calls per night.
+- **Tasks:** 7, in order:
+  1. Durable report storage
+  2. Timeouts on model calls
+  3. Metrics
+  4. The nightly spend cap
+  5. The refresh worker
+  6. The nightly trigger and a private worker service
+  7. Infrastructure and recovery setup
+- **Follow-up issue:** 1 is ticked to file: add a way to create reports. Without it, the nightly refresh has nothing to work on.
+- **Your answers needed:**
+  - **Q1:** Where do saved reports come from? Nothing in this service creates them. If nothing ever will, the plan's recommendation changes to deferring the feature.
+  - **Q2:** What nightly budget do you want? The plan uses a placeholder of 500 calls per night. Each report costs one paid call per section every night, so 50 reports with 6 sections each would be 300 calls.
+  - The plan's other choices are rated medium or high confidence: Firestore for storage, a private worker service, and leaving report titles unchanged.
+- **Research:** Web research was skipped because this isn't a question the web can answer. You can force it with `flow feature create --research`.
+- **Request review:** "adopt-with-conditions: durable report storage lands before the job, and every nightly section call is reserved against one nightly call cap."
+
+**Next action:** Answer Q1 and Q2. If you approve the plan, run `/flow-new-feature refresh every saved report nightly`. I've stopped here as you asked.

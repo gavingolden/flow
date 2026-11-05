@@ -1,0 +1,30 @@
+## Planning done: due-diligence report
+
+I wrote both files, and nothing else in the repo changed:
+- `.flow-tmp/plan.md`
+- `.flow-tmp/pr-description-draft.md`
+
+Nothing has been built and no later phase was started. The planner also left two small support files in `.flow-tmp/`.
+
+- **Problem:** The service can store, read and share reports, but it can't create one. Making the six model calls inside a single request would cause three problems:
+  - each call takes 20–60 s, so the request would run for minutes;
+  - reports are only held in one server's memory, so a restart would lose the report;
+  - the service is public, so anyone could run up the model bill.
+- **Recommendation: reconsider the scope.** The plan widens the work beyond what you asked for, so it doesn't simply say "go ahead". Its condition for going ahead is: creating a report returns in under 2 s with no model call inside the request, each section runs as its own saved job in a queue, and every paid model call counts against one daily limit.
+- **Design:** A private worker service runs each section as a queued job. The executive summary runs once the other five sections are finished. Reports move to a real database, and creating a report needs an API key.
+- **Tasks:** 10, in this order:
+  1. the list of sections, plus a small metrics helper;
+  2. cloud setup scripts and a backup-restore check;
+  3. a storage interface;
+  4. the database-backed storage;
+  5. the daily spend limit;
+  6. more robust model calls, plus the summary call;
+  7. a client for the task queue;
+  8. the worker that writes sections;
+  9. the HTTP routes;
+  10. deploying the two services.
+- **Possible follow-ups:** 2. The plan recommends one: require login on the read and share routes, which today work for anyone who has a report id. The other, re-running a single failed section, isn't recommended for now.
+- **Decision for you:** The daily model-call limit. The plan uses 300 calls a day (about 50 reports) and refuses new reports once it's reached.
+- **Research:** Skipped, because this isn't a question web research would help with. You can force it with `flow feature create --research`.
+
+**Next action:** Read `.flow-tmp/plan.md` and decide whether to accept the wider scope and the 300-call limit. When you're ready, run `/flow-new-feature add a due-diligence report for a company with six sections, each written by a model call; the executive summary section is written from the other five sections`.

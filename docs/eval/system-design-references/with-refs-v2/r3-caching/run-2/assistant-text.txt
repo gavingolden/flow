@@ -1,0 +1,18 @@
+## The plan and PR description draft are written
+
+Both files exist and aren't empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. No source files were changed, and I stopped there as you asked. A separate planning agent did the reading and drafting. It says the plan, follow-up issue and test-step checks all passed.
+
+- **Problem:** Every time someone opens a report's summary, the service calls the model again and the reader waits 5–15 seconds, even though reports rarely change. A popular report pays for hundreds of identical summaries a day. The agent also found a related bug: when the model call fails, the reader gets a successful response with an empty summary.
+- **Tasks:** 4.
+  1. Add a metrics helper and define what it records.
+  2. Check the model API's response status and add a timeout to every model call. This fixes the empty-summary bug.
+  3. Cache each summary, keyed on the report's content. When several people open a report at the same moment for the first time, they share one model call.
+  4. Change the summary route so a model failure returns a 502 error instead of an empty summary.
+- **Follow-up issue:** 1. `deploy.sh` doesn't cap the number of Cloud Run instances, so there is no limit on model spend across all of them.
+- **Assumptions to check:**
+  - **Each instance keeps its own cache in memory; nothing is shared between instances** (high confidence). You'd pay for one model call per report edit per running instance. If you run many instances that restart often, the saving shrinks a lot.
+  - **After an edit, the first reader waits for a new summary rather than seeing the old one straight away** (medium confidence). The old summary would describe content the report no longer has.
+- **Research:** Web research was skipped because this isn't a question the web would answer. Run `flow feature create --research` to force it.
+- **Verdict:** adopt-with-conditions. A test must show exactly one model call across 50 opens in a row and 10 simultaneous opens of an unchanged report, and exactly one new call after its sections change.
+
+**Next action:** Read `.flow-tmp/plan.md`, especially the per-instance cache assumption. Then run `/flow-new-feature` with the original description to build it.
