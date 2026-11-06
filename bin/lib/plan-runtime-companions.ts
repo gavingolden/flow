@@ -93,6 +93,11 @@ export function checkQueueCompanions(planText: string, misses: string[]): void {
 const DATASTORE_RE =
   /\bmigrations?\b|\bcreate table\b|\bnew table\b|\bbuckets?\b|cloud storage|\bs3\b|\br2\b|firestore|dynamodb/i;
 const NEW_STORE_RE = /\bcreate table\b|\bnew table\b|\bbuckets?\b/i;
+const DB_STORE_RE =
+  /\bmigrations?\b|\bcreate table\b|\bnew table\b|firestore|dynamodb|\bdatabase\b/i;
+const BUCKET_STORE_RE = /\bbuckets?\b|cloud storage|\bs3\b|\br2\b/i;
+const DB_RECOVERY_RE = /backups?|point[- ]in[- ]time|\bpitr\b/i;
+const BUCKET_RECOVERY_RE = /versioning|backups?/i;
 const REGENERABLE_RE =
   /regenerab|derived|rebuil|cache|re-?run|recomput|already covered|existing backup/i;
 
@@ -130,10 +135,25 @@ export function checkRecovery(planText: string, misses: string[]): void {
     }
     return;
   }
-  if (!/backup|point[- ]in[- ]time|\bpitr\b|versioning/i.test(tasks)) {
+  const dbMiss = DB_STORE_RE.test(tasks) && !DB_RECOVERY_RE.test(tasks);
+  const bucketMiss =
+    BUCKET_STORE_RE.test(tasks) && !BUCKET_RECOVERY_RE.test(tasks);
+  if (dbMiss) {
     misses.push(
-      "'**Recovery:**' names a recovery path but no task sets up backups, point-in-time recovery or versioning",
+      "'**Recovery:**' names a recovery path but no task sets up backups or point-in-time recovery for the database — object versioning does not cover it. Make it a task such as 'verify backups/PITR are on, enable them if not' (parameterize unknown instance names, e.g. ${CLOUD_SQL_INSTANCE:?}), not an Open Question",
     );
+  }
+  if (bucketMiss) {
+    misses.push(
+      "'**Recovery:**' names a recovery path but no task enables versioning or backups for the bucket — make it a task, not an Open Question",
+    );
+  }
+  if (!DB_STORE_RE.test(tasks) && !BUCKET_STORE_RE.test(tasks)) {
+    if (!/backup|point[- ]in[- ]time|\bpitr\b|versioning/i.test(tasks)) {
+      misses.push(
+        "'**Recovery:**' names a recovery path but no task sets up backups, point-in-time recovery or versioning",
+      );
+    }
   }
   if (!/restor/i.test(tasks)) {
     misses.push(

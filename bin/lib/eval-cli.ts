@@ -445,6 +445,21 @@ async function runOneScenarioRun(
   }
 }
 
+export function selectScenarios<T extends { id: string }>(
+  all: T[],
+  wanted: string[] | undefined,
+): T[] {
+  if (!wanted) return all;
+  const known = new Set(all.map((s) => s.id));
+  const unknown = wanted.filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    throw new Error(
+      `flow-eval: unknown --scenario ${unknown.join(", ")} (suite has: ${[...known].join(", ")})`,
+    );
+  }
+  return all.filter((s) => wanted.includes(s.id));
+}
+
 async function runSuite(
   suiteDir: string,
   args: RunArgs,
@@ -461,7 +476,8 @@ async function runSuite(
       `flow-eval: ${loaded.reason}${loaded.path ? ` (${loaded.path})` : ""}`,
     );
   }
-  const { spec, scenarios } = loaded.value;
+  const { spec } = loaded.value;
+  const scenarios = selectScenarios(loaded.value.scenarios, args.scenarios);
 
   if (!args.dryRun && !availability.ok) {
     const scenarioRecords: ScenarioRecord[] = scenarios.map((s) =>

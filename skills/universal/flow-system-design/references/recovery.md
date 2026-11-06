@@ -25,7 +25,7 @@ An untested backup is a hope. Restore to a scratch instance on a schedule (at le
 
 ## In the plan
 
-The plan's Runtime design carries a `**Recovery:**` line, and the task that creates the store sets up backups, point-in-time recovery or versioning plus a restore check. Reading this page is not enough: planners have read it and still left both out of the Task breakdown, and flow-plan-lint checks for them.
+The plan's Runtime design carries a `**Recovery:**` line, and the task that creates the store sets up backups, point-in-time recovery or versioning plus a restore check. When the instance name is not in the repo, parameterize it (for example `${CLOUD_SQL_INSTANCE:?}`) and make "verify backups/PITR are on, enable them if not" a task, not an Open Question. Reading this page is not enough: planners have read it and still left both out of the Task breakdown, and flow-plan-lint checks for them.
 
 ## Proportionality
 

@@ -58,13 +58,28 @@ describe("checkInlineBudget", () => {
   it("is silent for a none Runtime design", () => {
     expect(run(plan("none — UI-only change."))).toEqual([]);
   });
-  it("is silent when the Est. p99 column is absent", () => {
-    expect(
-      run(
-        plan(
-          "| Operation | Execution model |\n| --- | --- |\n| x | inline, 60 s |",
-        ),
+  it("flags a table without the Est. p99 column", () => {
+    const m = run(
+      plan(
+        "| Operation | Execution model |\n| --- | --- |\n| x | inline, 60 s |",
       ),
-    ).toEqual([]);
+    );
+    expect(m).toHaveLength(1);
+    expect(m[0]).toMatch(/missing the 'Est\. p99' column/);
+  });
+  it("flags an inline row with no parseable p99", () => {
+    const m = run(row("x", "fast", "inline"));
+    expect(m).toHaveLength(1);
+    expect(m[0]).toMatch(/row 'x'.*no numeric p99/);
+  });
+  it("is silent for a refactor-only none Runtime design", () => {
+    expect(run(plan("none — refactor-only, no runtime surface."))).toEqual([]);
+  });
+  it("is silent for a queued row whose p99 is not a number", () => {
+    expect(run(row("generate", "varies", "queue"))).toEqual([]);
+  });
+  it("says a Proportionality note cannot waive the budget", () => {
+    const m = run(row("x", "30 s", "inline"));
+    expect(m[0]).toMatch(/Proportionality.*cannot waive/);
   });
 });

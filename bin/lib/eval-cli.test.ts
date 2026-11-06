@@ -6,6 +6,7 @@ import {
   ablationLeakGate,
   buildGraderContext,
   listTreeAgentFiles,
+  selectScenarios,
   type Deps,
 } from "./eval-cli";
 import type { MaterializedFixture } from "./eval-fixture";
@@ -214,5 +215,21 @@ describe("listTreeAgentFiles", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("selectScenarios — --scenario filter", () => {
+  const all = [{ id: "r2-rollout" }, { id: "r4-recovery" }, { id: "s1" }];
+
+  it("should return every scenario when no --scenario is given", () => {
+    expect(selectScenarios(all, undefined)).toEqual(all);
+  });
+
+  it("should keep only the named scenarios in suite order", () => {
+    expect(selectScenarios(all, ["s1", "r2-rollout"]).map((s) => s.id)).toEqual(["r2-rollout", "s1"]);
+  });
+
+  it("should throw naming the unknown id and the suite's ids", () => {
+    expect(() => selectScenarios(all, ["r2-rollout", "nope"])).toThrow(/unknown --scenario nope \(suite has: r2-rollout, r4-recovery, s1\)/);
   });
 });
