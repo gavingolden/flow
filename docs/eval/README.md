@@ -39,6 +39,8 @@ running eight committed suites, split by what each measures:
   rollout, caching, recovery, realtime, api, cloudflare, aws), graded on the
   plan's Task breakdown. About $19 per `--all` run. With / without references
   result: [`system-design-references.md`](system-design-references.md).
+  Rollback, backup and inline-budget plan-lint rules, targeted re-run:
+  [`system-design-rollback-rules.md`](system-design-rollback-rules.md).
 
 - One **plan-quality suite** (`discovery-plan-quality`, issue #891) — whether
   `/flow-product-planning`'s discovery sub-agent still writes a conforming
