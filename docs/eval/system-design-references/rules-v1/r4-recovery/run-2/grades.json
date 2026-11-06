@@ -1,0 +1,79 @@
+{
+  "grades": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "keep-plan",
+      "kind": "command",
+      "gate": false,
+      "pass": true
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "backup",
+      "kind": "command",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "restore",
+      "kind": "command",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "object-protection",
+      "kind": "command",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    }
+  ],
+  "metrics": {
+    "result.total_cost_usd": {
+      "value": 2.9349491999999997,
+      "direction": "lower"
+    },
+    "result.num_turns": {
+      "value": 6,
+      "direction": "lower"
+    },
+    "result.duration_ms": {
+      "value": 593548,
+      "direction": "lower"
+    }
+  },
+  "score": 1
+}

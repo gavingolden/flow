@@ -131,6 +131,17 @@ function withoutSection(plan: string, heading: string): string {
   return plan.replace(re, "");
 }
 
+describe("lintPlan — rollback advisory wiring", () => {
+  it("surfaces a missing Rollback line for a destructive task", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "# Task breakdown\n\n",
+      "# Task breakdown\n\n### Task 99: Migrate\n\n- alter table sections add column x text.\n\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => /'\*\*Rollback:\*\*' line/.test(m))).toBe(true);
+  });
+});
+
 describe("lintPlan — queue companion settings", () => {
   it("names the SQS visibility-timeout miss", () => {
     const plan = CONFORMING_PLAN.replace(

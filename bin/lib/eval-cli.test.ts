@@ -6,6 +6,8 @@ import {
   ablationLeakGate,
   buildGraderContext,
   listTreeAgentFiles,
+  assertScenariosKnown,
+  selectScenarios,
   type Deps,
 } from "./eval-cli";
 import type { MaterializedFixture } from "./eval-fixture";
@@ -214,5 +216,44 @@ describe("listTreeAgentFiles", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("selectScenarios — --scenario filter", () => {
+  const all = [{ id: "r2-rollout" }, { id: "r4-recovery" }, { id: "s1" }];
+
+  it("should return every scenario when no --scenario is given", () => {
+    expect(selectScenarios(all, undefined)).toEqual(all);
+  });
+
+  it("should keep only the named scenarios in suite order", () => {
+    expect(selectScenarios(all, ["s1", "r2-rollout"]).map((s) => s.id)).toEqual(
+      ["r2-rollout", "s1"],
+    );
+  });
+
+  it("should not throw when a wanted id belongs to another suite", () => {
+    expect(
+      selectScenarios(all, ["r2-rollout", "other-suite-id"]).map((s) => s.id),
+    ).toEqual(["r2-rollout"]);
+  });
+});
+
+describe("assertScenariosKnown — up-front multi-suite validation", () => {
+  const a = [{ id: "a-1" }];
+  const b = [{ id: "b-1" }];
+
+  it("should accept ids that each exist in some selected suite", () => {
+    expect(() => assertScenariosKnown([a, b], ["a-1", "b-1"])).not.toThrow();
+  });
+
+  it("should throw naming the unknown id and the known ids", () => {
+    expect(() => assertScenariosKnown([a, b], ["a-1", "nope"])).toThrow(
+      /unknown --scenario nope \(selected suites have: a-1, b-1\)/,
+    );
+  });
+
+  it("should do nothing when no --scenario is given", () => {
+    expect(() => assertScenariosKnown([a], undefined)).not.toThrow();
   });
 });

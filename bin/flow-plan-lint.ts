@@ -72,6 +72,7 @@ import {
   checkRecovery,
 } from "./lib/plan-runtime-companions";
 import { checkInlineBudget } from "./lib/plan-runtime-budget";
+import { checkRollback } from "./lib/plan-runtime-rollback";
 import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 const CONFIDENCE_RE = /\[confidence:\s*(high|medium|low)\]/g;
@@ -1295,6 +1296,7 @@ export function lintPlan(
     checkRuntimeDesign(planText, misses);
     checkQueueCompanions(planText, misses);
     checkRecovery(planText, misses);
+    checkRollback(planText, misses);
     checkInlineBudget(planText, misses);
     checkTaskContracts(planText, misses);
     checkUiReviewTargets(planText, misses);

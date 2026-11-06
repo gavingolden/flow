@@ -51,7 +51,17 @@ export function checkInlineBudget(planText: string, misses: string[]): void {
   const opIdx = header.indexOf("operation");
   const p99Idx = header.indexOf("est. p99");
   const execIdx = header.indexOf("execution model");
-  if (opIdx < 0 || p99Idx < 0 || execIdx < 0) return;
+  const missing = [
+    opIdx < 0 ? "Operation" : "",
+    p99Idx < 0 ? "Est. p99" : "",
+    execIdx < 0 ? "Execution model" : "",
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    misses.push(
+      `'### Runtime design' table is missing the ${missing.map((m) => `'${m}'`).join(", ")} column${missing.length > 1 ? "s" : ""} — the inline-budget check cannot run without them; add them so each operation states its p99 and execution model`,
+    );
+    return;
+  }
   for (const row of rows.slice(1)) {
     const c = cells(row);
     if (c.every((x) => /^:?-+:?$/.test(x))) continue;
@@ -60,12 +70,17 @@ export function checkInlineBudget(planText: string, misses: string[]): void {
     const dur =
       (c[p99Idx] ?? "").match(DURATION_RE) ??
       exec.slice("inline".length).match(DURATION_RE);
-    if (!dur) continue;
+    const op = (c[opIdx] ?? "").replace(/`/g, "").trim();
+    if (!dur) {
+      misses.push(
+        `'### Runtime design' row '${op}' runs inline with no numeric p99 — write an estimate such as '~800 ms' or '~12 s' so the ${BUDGET_S} s interactive budget can be checked`,
+      );
+      continue;
+    }
     const secs = toSeconds(dur);
     if (secs <= BUDGET_S) continue;
-    const op = (c[opIdx] ?? "").replace(/`/g, "").trim();
     misses.push(
-      `'### Runtime design' row '${op}' runs inline with an estimated p99 of ${secs} s, over the ${BUDGET_S} s interactive budget — queue it and return 202 plus a status resource, or bring the p99 under ${BUDGET_S} s`,
+      `'### Runtime design' row '${op}' runs inline with an estimated p99 of ${secs} s, over the ${BUDGET_S} s interactive budget — queue it and return 202 plus a status resource, or bring the p99 under ${BUDGET_S} s; a **Proportionality:** note cannot waive the ${BUDGET_S} s interactive budget`,
     );
   }
 }

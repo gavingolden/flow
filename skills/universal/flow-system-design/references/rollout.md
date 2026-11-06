@@ -25,3 +25,5 @@ Tasks enqueued by version N are delivered to version N+1, and on rollback, tasks
 ## Proportionality
 
 A solo-owner app with no live users can deploy straight to 100% with a tested rollback command. Canary analysis needs enough traffic to compare; below that, use a flag and watch the error rate by hand.
+
+The rollback step or check must be a plan task (named on the `**Rollback:**` line), not prose in the rollout notes.

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { checkQueueCompanions, checkRecovery } from "./plan-runtime-companions";
 
@@ -41,6 +42,27 @@ describe("checkQueueCompanions", () => {
   });
   it("is silent with no Task breakdown", () => {
     expect(queue("# PRD\n\nSQS everywhere.\n")).toEqual([]);
+  });
+});
+
+describe("checkRecovery — store detection", () => {
+  it("ignores token-bucket mentions as a datastore", () => {
+    const m = recovery(
+      plan(
+        "- Add migration and a token bucket rate limiter; enable PITR and verify a restore.",
+        "**Recovery:** PITR",
+      ),
+    );
+    expect(m).toEqual([]);
+  });
+  it("flags a dual-store plan where only database backups exist", () => {
+    const m = recovery(
+      plan(
+        "- Add migration; enable automated database backups.\n- Create a bucket for uploads.\n- Verify a restore.",
+        "**Recovery:** backups",
+      ),
+    );
+    expect(m.join("\n")).toMatch(/bucket/);
   });
 });
 
@@ -92,5 +114,51 @@ describe("checkRecovery", () => {
   });
   it("is silent with no datastore words", () => {
     expect(recovery(plan("- Rename a button."))).toEqual([]);
+  });
+  it("flags a new table covered only by versioning, backups left in Open Questions", () => {
+    const m = recovery(
+      plan(
+        "- Create table contracts.\n- Turn on bucket versioning.\n- Run a restore check.",
+        "**Recovery:** backups plus a restore check\n\n## Open Questions\n- Are backups enabled?",
+      ),
+    );
+    expect(m.some((x) => /database/.test(x))).toBe(true);
+  });
+  it("passes a new table with a verify-PITR-on task", () => {
+    expect(
+      recovery(
+        plan(
+          "- Create table contracts.\n- Verify PITR is on; enable it if not.\n- Run a restore check.",
+          "**Recovery:** PITR plus a restore check",
+        ),
+      ),
+    ).toEqual([]);
+  });
+  it("passes a bucket-only change covered by versioning", () => {
+    expect(
+      recovery(
+        plan(
+          "- Add a bucket with versioning on.\n- Run a restore check.",
+          "**Recovery:** object versioning plus a restore check",
+        ),
+      ),
+    ).toEqual([]);
+  });
+  it("requires both stores covered in a dual-store plan", () => {
+    const m = recovery(
+      plan(
+        "- Create table contracts and a bucket; enable PITR.\n- Run a restore check.",
+        "**Recovery:** PITR plus a restore check",
+      ),
+    );
+    expect(m).toHaveLength(1);
+    expect(m[0]).toMatch(/bucket/);
+  });
+  it("flags the kept r4-recovery eval plan", () => {
+    const text = readFileSync(
+      "docs/eval/system-design-references/with-refs-v2/r4-recovery/run-1/plan.md",
+      "utf8",
+    );
+    expect(recovery(text).some((x) => /database/.test(x))).toBe(true);
   });
 });
