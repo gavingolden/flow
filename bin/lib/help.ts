@@ -438,15 +438,16 @@ behind one count line, and --yes removes their empty registries; --json
 lists every pipeline.
 
 Options:
-  --slug <s>            scope the REGISTRY half of the sweep to one
-                        pipeline slug (default: every registered slug on
-                        the host) — --include-strays stays HOST-WIDE
-                        regardless of --slug; the shape-heuristic stray
-                        sweep has no per-slug identity to scope by
+  --slug <s>            scope the registry sweep and the worktree-leftover
+                        section to one pipeline slug (default: every
+                        registered slug on the host); the outside-every-
+                        worktree list is hidden; shape-heuristic and agy
+                        strays stay HOST-WIDE (no per-slug identity)
   --yes                 act on registered rows instead of only reporting
-  --include-strays      also act on shape-heuristic strays (requires --yes
-                        to actually signal anything; report-only alone;
-                        always host-wide, never scoped by --slug)
+  --include-strays      also act on shape-heuristic strays and agy runs
+                        (host-wide, never scoped by --slug) and on ended
+                        pipelines' worktree leftovers (requires --yes to
+                        actually signal anything; report-only alone)
   --json                emit machine-readable output ({registry, heuristic, agy,
                         worktreeOrphans, outsideOrphans})
 

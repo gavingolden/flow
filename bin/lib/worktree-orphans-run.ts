@@ -20,6 +20,7 @@ import {
 import {
   commandZero,
   groupStats,
+  ownerOf,
   prefilterCandidates,
   selectWorktreeOrphans,
   type OrphanProc,
@@ -87,7 +88,6 @@ function candidatesToRead(
     selfUid: deps.selfUid,
     registeredPids: reg.pids,
     registeredPgids: reg.pgids,
-    busyOnly,
   });
   if (!busyOnly) return { cands, toRead: cands };
   const stats = groupStats(cands, procs);
@@ -121,10 +121,10 @@ export function sweepWorktreeOrphans(
   if (procs === undefined) return emptyResult(opts, false, "ps-unavailable");
   const result = emptyResult(opts, true);
   const worktree = canonicalizeWorktree(opts.worktree);
-  const all = [...new Set([...deps.worktrees(), worktree])];
 
   const { cands, toRead } = candidatesToRead(procs, deps, opts.busyOnly);
   if (toRead.length === 0) return result;
+  const all = [...new Set([...deps.worktrees(), worktree])];
   const owned = selectWorktreeOrphans(withCwds(cands, toRead, deps), procs, {
     worktree,
     allWorktrees: all,
@@ -137,9 +137,13 @@ export function sweepWorktreeOrphans(
   const targets = [
     ...new Set(result.found.flatMap((o) => [o.pid, ...o.descendants])),
   ];
-  const started = new Map<number, number | null>(
-    targets.map((p) => [p, deps.startEpochOf(p)]),
-  );
+  // Each read forks `ps`; past the deadline the rest are left unread, which
+  // makes them unverifiable and so never signalled.
+  const started = new Map<number, number | null>();
+  for (const p of targets) {
+    if (deps.nowMs() >= deadlineAt) break;
+    started.set(p, deps.startEpochOf(p));
+  }
   // A pid whose start time could not be read at selection cannot be verified.
   const unchanged = (pid: number): boolean => {
     const was = started.get(pid);
@@ -167,7 +171,9 @@ export function sweepWorktreeOrphans(
     }
   };
 
-  const termed = targets.filter((p) => deps.alive(p) && send(p, "SIGTERM"));
+  const termed = targets.filter(
+    (p) => deps.nowMs() < deadlineAt && deps.alive(p) && send(p, "SIGTERM"),
+  );
   result.signalled = termed;
   waitUntilGone(termed, GRACE_MS);
 
@@ -178,7 +184,10 @@ export function sweepWorktreeOrphans(
   }
   result.killed = survivors.filter((p) => send(p, "SIGKILL"));
   waitUntilGone(result.killed, KILL_WAIT_MS);
-  result.stillAlive = survivors.filter(deps.alive);
+  // A recycled pid is a different process, not a survivor of ours.
+  result.stillAlive = survivors.filter(
+    (p) => deps.alive(p) && !result.skippedRecycled.includes(p),
+  );
   return result;
 }
 
@@ -204,7 +213,7 @@ export function findBusyOutsideWorktrees(
       (c) =>
         c.cwd !== null &&
         stats.get(c.pgid)?.busy === true &&
-        !wts.some((w) => c.cwd === w || c.cwd?.startsWith(`${w}/`)),
+        ownerOf(c.cwd, wts) === null,
     )
     .map((c) => ({
       pid: c.pid,
@@ -223,19 +232,22 @@ function isAlive(pid: number): boolean {
   }
 }
 
+/**
+ * `baseDir` roots the process registries, `stateDir` the pipeline states;
+ * both default to the same production directory.
+ */
 export function defaultOrphanSweepDeps(opts?: {
   stateDir?: string;
   baseDir?: string;
 }): OrphanSweepDeps {
-  const dir = opts?.stateDir ?? opts?.baseDir;
   return {
     listProcs: listOrphanProcs,
     cwdOf: readCwds,
     registered: () => {
       const pids = new Set<number>();
       const pgids = new Set<number>();
-      for (const slug of listRegistrySlugs(dir)) {
-        for (const row of readRows(slug, dir).rows) {
+      for (const slug of listRegistrySlugs(opts?.baseDir)) {
+        for (const row of readRows(slug, opts?.baseDir).rows) {
           pids.add(row.pid);
           pgids.add(row.pgid);
         }
@@ -243,7 +255,7 @@ export function defaultOrphanSweepDeps(opts?: {
       return { pids, pgids };
     },
     worktrees: () =>
-      listStates(dir).flatMap((s) =>
+      listStates(opts?.stateDir).flatMap((s) =>
         s.worktree ? [canonicalizeWorktree(s.worktree)] : [],
       ),
     startEpochOf: (pid) => pidStartEpoch(pid),
@@ -255,16 +267,88 @@ export function defaultOrphanSweepDeps(opts?: {
   };
 }
 
-export function renderOrphanSweepLine(r: WorktreeOrphanSweepResult): string {
+/**
+ * Reads the process table, registries and pipeline states, and each pid's cwd,
+ * at most once across every sweep that shares the result. Signalling still
+ * re-checks liveness and start time live, so a stale table cannot widen what
+ * is signalled.
+ */
+export function snapshotOrphanDeps(deps: OrphanSweepDeps): OrphanSweepDeps {
+  let procs: { v: OrphanProc[] | undefined } | undefined;
+  let reg: ReturnType<OrphanSweepDeps["registered"]> | undefined;
+  let wts: string[] | undefined;
+  const cwds = new Map<number, string>();
+  const asked = new Set<number>();
+  return {
+    ...deps,
+    listProcs: () => (procs ??= { v: deps.listProcs() }).v,
+    registered: () => (reg ??= deps.registered()),
+    worktrees: () => (wts ??= deps.worktrees()),
+    cwdOf: (pids) => {
+      const missing = pids.filter((p) => !asked.has(p));
+      if (missing.length > 0) {
+        for (const p of missing) asked.add(p);
+        for (const [pid, cwd] of deps.cwdOf(missing)) cwds.set(pid, cwd);
+      }
+      return new Map(
+        pids.flatMap((p) => (cwds.has(p) ? [[p, cwds.get(p) as string]] : [])),
+      );
+    },
+  };
+}
+
+/** The mid-run sweep both the Stop and PostToolUse hooks run: act, busy only. */
+export function sweepBusyLeftovers(
+  worktree: string,
+  deps: OrphanSweepDeps = defaultOrphanSweepDeps(),
+): WorktreeOrphanSweepResult {
+  return sweepWorktreeOrphans(deps, { worktree, act: true, busyOnly: true });
+}
+
+export function renderOrphanSweepLine(
+  r: WorktreeOrphanSweepResult,
+  opts: { held?: boolean } = {},
+): string {
   if (!r.ran) return `leftover processes: sweep did not run (${r.skipReason})`;
   const busy = r.found.filter((o) => o.busy).length;
   if (!r.act) {
-    return `leftover processes: ${r.found.length} found (${busy} busy), would stop`;
+    return `leftover processes: ${r.found.length} found (${busy} busy)${opts.held ? "" : ", would stop"}`;
   }
   const survivors = r.stillAlive.length
     ? `, ${r.stillAlive.length} still alive`
     : "";
   return `leftover processes: ${r.found.length} found (${busy} busy), ${stoppedCount(r)} stopped${survivors}`;
+}
+
+export const ORPHAN_GUIDANCE =
+  "A background job you poll should use the Bash tool's run_in_background (a server: flow-spawn --detach) so it is not left orphaned.";
+
+/**
+ * The one-line notice both in-run sweeps hand the agent, or null when nothing
+ * was stopped. Names the first commands so the agent knows what to restart.
+ */
+export function orphanNotice(
+  r: WorktreeOrphanSweepResult | null,
+  opts: { guidance?: string } = {},
+): string | null {
+  if (!r) return null;
+  const n = stoppedCount(r);
+  if (n === 0) return null;
+  const oldest = Math.max(1, ...r.found.map((o) => o.ageSec));
+  const names = [
+    ...new Set(
+      r.found.filter((o) => r.signalled.includes(o.pid)).map((o) => o.command0),
+    ),
+  ];
+  const shown = names.slice(0, 3).join(", ");
+  const named = shown
+    ? ` (${shown}${names.length > 3 ? ", …" : ""}; busy, oldest ${Math.round(oldest / 60) || 1} min)`
+    : ` (busy, oldest ${Math.round(oldest / 60) || 1} min)`;
+  const stuck = r.stillAlive.length
+    ? ` ${r.stillAlive.length} did not exit.`
+    : "";
+  const guidance = opts.guidance ? ` ${opts.guidance}` : "";
+  return `flow stopped ${n} leftover process${n === 1 ? "" : "es"} from this pipeline's worktree${named} — they had outlived the command that started them.${stuck}${guidance}`;
 }
 
 /** Adds to the slug's OWN running count; never touches another state file. */

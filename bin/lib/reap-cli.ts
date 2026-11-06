@@ -31,6 +31,7 @@ import { listStates, readState } from "./state";
 import { livenessOf, pidStartEpoch } from "./liveness";
 import {
   defaultOrphanSweepDeps,
+  snapshotOrphanDeps,
   findBusyOutsideWorktrees,
   renderOrphanSweepLine,
   stoppedCount,
@@ -378,9 +379,11 @@ export function renderTextReport(result: ReapCliResult): string {
   if (withFindings.length === 0) lines.push("  (none found)");
   for (const w of withFindings) {
     const held = w.sessionAlive
-      ? " — left to the live pipeline (session not confirmed ended)"
+      ? ", left to the live pipeline (session not confirmed ended)"
       : "";
-    lines.push(`  ${w.slug}: ${renderOrphanSweepLine(w.result)}${held}`);
+    lines.push(
+      `  ${w.slug}: ${renderOrphanSweepLine(w.result, { held: w.sessionAlive })}${held}`,
+    );
   }
   for (const o of result.outsideOrphans ?? []) {
     lines.push(
@@ -456,8 +459,16 @@ export function collectReapReport(opts: {
     yes: yes && includeStrays,
   });
 
-  const worktreeOrphans = sweepWorktrees(opts, yes && includeStrays);
-  const outsideOrphans = opts.slug === undefined ? outsideWorktrees(opts) : [];
+  // One read of the process table, registries and pipeline states for the
+  // whole report, however many pipelines it sweeps.
+  const orphanDeps = snapshotOrphanDeps(orphanDepsFor(opts));
+  const worktreeOrphans = sweepWorktrees(
+    opts,
+    orphanDeps,
+    yes && includeStrays,
+  );
+  const outsideOrphans =
+    opts.slug === undefined ? outsideWorktrees(orphanDeps) : [];
 
   const phases: Record<string, string> = {};
   for (const s of registry.slugs) {
@@ -481,18 +492,19 @@ export function collectReapReport(opts: {
 }
 
 function orphanDepsFor(opts: {
+  baseDir?: string;
   stateDir?: string;
   orphanDeps?: OrphanSweepDeps;
 }): OrphanSweepDeps {
-  return opts.orphanDeps ?? defaultOrphanSweepDeps({ stateDir: opts.stateDir });
+  return (
+    opts.orphanDeps ??
+    defaultOrphanSweepDeps({ stateDir: opts.stateDir, baseDir: opts.baseDir })
+  );
 }
 
-function outsideWorktrees(opts: {
-  stateDir?: string;
-  orphanDeps?: OrphanSweepDeps;
-}): OutsideOrphan[] {
+function outsideWorktrees(deps: OrphanSweepDeps): OutsideOrphan[] {
   try {
-    return findBusyOutsideWorktrees(orphanDepsFor(opts));
+    return findBusyOutsideWorktrees(deps);
   } catch {
     return [];
   }
@@ -509,22 +521,20 @@ function sweepWorktrees(
     slug?: string;
     stateDir?: string;
     deadlineMs?: number;
-    orphanDeps?: OrphanSweepDeps;
   },
+  deps: OrphanSweepDeps,
   act: boolean,
 ): ReapCliResult["worktreeOrphans"] {
-  const deps = orphanDepsFor(opts);
   const started = Date.now();
   const out: ReapCliResult["worktreeOrphans"] = [];
   for (const state of listStates(opts.stateDir)) {
     if (!state.worktree) continue;
     if (opts.slug !== undefined && state.slug !== opts.slug) continue;
-    if (
-      opts.deadlineMs !== undefined &&
-      Date.now() - started > opts.deadlineMs
-    ) {
-      break;
-    }
+    const remainingMs =
+      opts.deadlineMs === undefined
+        ? undefined
+        : opts.deadlineMs - (Date.now() - started);
+    if (remainingMs !== undefined && remainingMs <= 0) break;
     const liveness = livenessOf(state);
     const sessionAlive = liveness !== "dead" && liveness !== "stale";
     try {
@@ -535,6 +545,7 @@ function sweepWorktrees(
           worktree: state.worktree,
           act: act && !sessionAlive,
           busyOnly: false,
+          deadlineMs: remainingMs,
         }),
       });
     } catch {

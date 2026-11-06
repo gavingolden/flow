@@ -2,7 +2,8 @@
  * Pure selection of leftover processes a pipeline owns, behind the worktree
  * sweep (`worktree-orphans-run.ts` reads the process table and signals).
  *
- * A leftover is a root whose parent is gone (PPID 1), same user, no
+ * A leftover is a root whose parent is gone (PPID 1, or a per-user
+ * `systemd --user` subreaper that adopts orphans on a Linux desktop), same user, no
  * terminal, not recorded by `flow-spawn`, and whose process-group leader —
  * the Bash-tool shell that started it — has exited. Its owner is the
  * pipeline whose worktree is the longest path prefix of the root's working
@@ -76,29 +77,41 @@ export function commandZero(command: string): string {
   return first.slice(first.lastIndexOf("/") + 1);
 }
 
-/** Roots only; the busy gate runs later, on the group sum with descendants. */
+/** The per-user systemd manager: a subreaper that adopts orphans instead of init. */
+function isUserSubreaper(parent: OrphanProc | undefined): boolean {
+  return (
+    parent !== undefined &&
+    parent.ppid === 1 &&
+    /^systemd\s+--user(?:\s|$)/.test(
+      parent.command.trimStart().replace(/^\S*\//, ""),
+    )
+  );
+}
+
+/**
+ * Roots only; the busy gate runs later, on the group sum with descendants.
+ * No per-root age cut: a young root reparented into an old busy group must
+ * still count towards and be swept with that group.
+ */
 export function prefilterCandidates(
   procs: OrphanProc[],
   opts: {
     selfUid: number;
     registeredPids: Set<number>;
     registeredPgids: Set<number>;
-    busyOnly: boolean;
   },
 ): OrphanProc[] {
-  const live = new Set(procs.map((p) => p.pid));
+  const byPid = new Map(procs.map((p) => [p.pid, p]));
+  const live = new Set(byPid.keys());
   return procs.filter(
     (p) =>
-      p.ppid === 1 &&
+      (p.ppid === 1 || isUserSubreaper(byPid.get(p.ppid))) &&
       p.uid === opts.selfUid &&
       p.tty === null &&
       !opts.registeredPids.has(p.pid) &&
       !opts.registeredPgids.has(p.pgid) &&
       !isProtectedCommand(p.command) &&
-      leaderDead(p, live) &&
-      // The oldest member of a group is its root; a younger root cannot make
-      // the group old enough to be busy.
-      (!opts.busyOnly || p.ageSec >= BUSY_MIN_AGE_SEC),
+      leaderDead(p, live),
   );
 }
 

@@ -166,6 +166,7 @@ async function runStress(args: StressArgs): Promise<number> {
   let override: number | null = null;
   const stopCmd = (code: number): void => {
     if (override === null) override = code;
+    void terminateGroup(burner.pid);
     void terminateGroup(cmd.pid);
   };
   for (const [name, signo] of Object.entries(SIGNALS)) {

@@ -1481,6 +1481,29 @@ describe("runReapMode — worktree leftovers arm", () => {
     expect(reap?.ran).toBe(true);
   });
 
+  it("folds an earlier in-run stop count into the recorded CLEANUP row", () => {
+    seedState("orph-prior", {
+      orphanStops: { count: 4, lastAt: "2026-01-01T00:00:00.000Z" },
+    });
+    const env = runReapMode(
+      fakeDeps({
+        listProcs: () => [proc(sessionPid, 1, "claude --add-dir /w")],
+        selfPid: sessionPid,
+      }),
+      {
+        ...base,
+        dryRun: false,
+        slug: "orph-prior",
+        baseDir,
+        orphanDeps: orphanDeps().deps,
+      },
+    );
+    recordReapOutcome(env, { stateDir: baseDir });
+    expect(readState("orph-prior", baseDir)?.reap?.summary).toBe(
+      "2 leftover processes stopped, 4 earlier in the run",
+    );
+  });
+
   it("still runs the worktree arm when a registered MCP server covered the ancestry step", () => {
     seedState("orph-b");
     appendRow(

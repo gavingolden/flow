@@ -14,7 +14,7 @@ every exit path, at the site that opened it:
 - **chrome-devtools MCP pages/contexts** — the per-pipeline isolated page each browser pass opens is closed with `close_page` on completion and on every error/early-exit path, scoped to the page/context this pipeline opened. Contract in [references/ui-smoke-pass.md](../ui-smoke-pass.md) "Teardown" and `/flow-pr-review`'s `references/ui-validation-evidence.md` "Teardown".
 - **Playwright / headless browsers** — any repo headless browser an agent stood up (the Step 8c.iii fallback) exits when its Bash invocation returns.
 - **Background processes** — anything launched `run_in_background` (the bounded `flow-ci-wait` waiter is the canonical case) reaches a terminal exit or is reaped before the pipeline ends, via `flow-spawn`'s registry (the wrapper process itself is unregistered and lives only for the wait's duration).
-- **CPU-contention loops** — run them through `flow-stress --cpu <n> --max-sec <s> -- <cmd>`, never hand-rolled `&`-backgrounded busy loops: the Bash tool's zsh gives `$(jobs -p)` an empty job table, so `kill $(jobs -p)` kills nothing and the loops outlive the command. A PreToolUse guard (`flow-bg-loop-guard`) refuses that shape.
+- **CPU-contention loops** — run them through `flow-stress --cpu <n> --max-sec <s> -- <cmd>`, never hand-rolled `&`-backgrounded busy loops: the Bash tool's zsh gives `$(jobs -p)` an empty job table, so `kill $(jobs -p)` kills nothing and the loops outlive the command. A PreToolUse guard (`flow-bg-loop-guard`) refuses that shape (a backgrounded job cleaned up with `$(jobs -p)` in the same command).
 - **Agent-written env/config files** — any env/config file a browser/UI pass created is deleted on completion and on every error/early-exit path (see "Teardown" in [references/ui-smoke-pass.md](../ui-smoke-pass.md)).
 
 **Layer 2 — the guaranteed registry-first backstop.** `close_page`
@@ -43,8 +43,9 @@ Between terminal states, a throttled after-Bash-call check
 turn-end hook (`flow-stop-guard`) stop only CPU-busy leftover groups
 (at least 2 minutes old, at least 25% of a core summed across the
 group) within about two minutes and say so; idle leftovers (an owner's
-dev server) wait for the terminal sweep, and a server meant to outlive
-the pipeline is launched with `flow-spawn --detach`.
+dev server) wait for the terminal sweep, and a server the agent needs until
+the run ends is launched with `flow-spawn --detach` (registered, so the
+mid-run sweeps skip it; the terminal reap still stops it).
 
 **Layer 3 — `flow reap`, the crash-path net, never the
 primary.** `flow reap [--slug <s>] [--yes]` covers both registered

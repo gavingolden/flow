@@ -52,10 +52,11 @@ import {
 } from "./lib/stop-turn-tracking";
 import { finalizePhase } from "./lib/phase-advance";
 import {
-  defaultOrphanSweepDeps,
+  ORPHAN_GUIDANCE,
+  orphanNotice,
   recordOrphanStops,
   stoppedCount,
-  sweepWorktreeOrphans,
+  sweepBusyLeftovers,
   type WorktreeOrphanSweepResult,
 } from "./lib/worktree-orphans-run";
 import {
@@ -121,20 +122,6 @@ export type Deps = {
   recordStops?: (slug: string, stopped: number) => void;
 };
 
-/** One-line owner/agent notice for a sweep that stopped something, else null. */
-export function orphanNotice(
-  r: WorktreeOrphanSweepResult | null,
-): string | null {
-  if (!r) return null;
-  const n = stoppedCount(r);
-  if (n === 0) return null;
-  const oldest = Math.max(0, ...r.found.map((o) => o.ageSec));
-  const stuck = r.stillAlive.length
-    ? ` ${r.stillAlive.length} did not exit.`
-    : "";
-  return `flow stopped ${n} leftover process${n === 1 ? "" : "es"} from this pipeline's worktree (busy, oldest ${Math.max(1, Math.round(oldest / 60))} min) — they had outlived the command that started them.${stuck}`;
-}
-
 function sweepAndRecord(
   deps: Deps,
   slug: string,
@@ -151,7 +138,7 @@ function sweepAndRecord(
         // recording is best-effort; the stop decision must not depend on it
       }
     }
-    return orphanNotice(result);
+    return orphanNotice(result, { guidance: ORPHAN_GUIDANCE });
   } catch {
     return null;
   }
@@ -613,12 +600,7 @@ if (import.meta.main) {
       }
     },
     writeOut: (s) => process.stdout.write(s),
-    sweepOrphans: (worktree) =>
-      sweepWorktreeOrphans(defaultOrphanSweepDeps(), {
-        worktree,
-        act: true,
-        busyOnly: true,
-      }),
+    sweepOrphans: (worktree) => sweepBusyLeftovers(worktree),
     recordStops: (slug, n) => recordOrphanStops(slug, n),
   }).then((code) => process.exit(code));
 }

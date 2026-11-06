@@ -2027,7 +2027,9 @@ export function launchSettingsPermissions(): {
 /**
  * Idempotently writes the flow-scoped `claude --settings` file registering the
  * UserPromptSubmit seed-ingested hook, the PreToolUse flow-doc read guard
- * (Bash `sed`/`awk` only) and the SessionStart request-echo display hook
+ * (Bash `sed`/`awk` only) and endless-background-loop guard (every Bash
+ * call), the PostToolUse leftover-process sweep (Bash, throttled) and the
+ * SessionStart request-echo display hook
  * (`startup|compact` bare, `clear` with `--on-clear`) by absolute path.
  * Writes ONLY this
  * flow-owned file — NEVER the user's global ~/.claude/settings.json (the

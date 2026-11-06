@@ -1,3 +1,6 @@
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   backgroundsEndlessLoop,
@@ -95,5 +98,34 @@ describe("scanners", () => {
   it("should detect $(jobs -p) only outside single quotes", () => {
     expect(usesJobsPSubstitution("kill $(jobs -p)")).toBe(true);
     expect(usesJobsPSubstitution("echo '$(jobs -p)'")).toBe(false);
+  });
+});
+
+describe("flow-bg-loop-guard executable", () => {
+  const SCRIPT = fileURLToPath(
+    new URL("./flow-bg-loop-guard.ts", import.meta.url),
+  );
+  const run = (stdin: string) =>
+    spawnSync(SCRIPT, [], { input: stdin, encoding: "utf8" });
+
+  it("is executable", () => {
+    expect(() => fs.accessSync(SCRIPT, fs.constants.X_OK)).not.toThrow();
+  });
+
+  it("prints a PreToolUse deny decision and exits 0 for the incident shape", () => {
+    const r = run(JSON.stringify(bash("sleep 1 & kill $(jobs -p)")));
+    expect(r.status).toBe(0);
+    const out = JSON.parse(r.stdout);
+    expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
+    expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(out.hookSpecificOutput.permissionDecisionReason).toBeTruthy();
+  });
+
+  it("prints nothing and exits 0 for an ordinary command and for malformed stdin", () => {
+    for (const input of [JSON.stringify(bash("ls")), "not json{", ""]) {
+      const r = run(input);
+      expect(r.status).toBe(0);
+      expect(r.stdout).toBe("");
+    }
   });
 });

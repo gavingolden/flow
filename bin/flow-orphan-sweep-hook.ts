@@ -18,10 +18,11 @@ import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { readState } from "./lib/state";
 import {
-  defaultOrphanSweepDeps,
+  ORPHAN_GUIDANCE,
+  orphanNotice,
   recordOrphanStops,
   stoppedCount,
-  sweepWorktreeOrphans,
+  sweepBusyLeftovers,
   type WorktreeOrphanSweepResult,
 } from "./lib/worktree-orphans-run";
 
@@ -59,12 +60,10 @@ export function runHook(input: unknown, deps: HookDeps): string | null {
     const stopped = result ? stoppedCount(result) : 0;
     if (!result || stopped === 0) return null;
     deps.record(slug, stopped);
-    const oldest = Math.max(1, ...result.found.map((o) => o.ageSec));
-    const noun = `leftover process${stopped === 1 ? "" : "es"}`;
     return JSON.stringify({
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
-        additionalContext: `flow stopped ${stopped} ${noun} from this pipeline's worktree (busy, oldest ${Math.max(1, Math.round(oldest / 60))} min) — they had outlived the command that started them. A background job you poll should use the Bash tool's run_in_background (a server: flow-spawn --detach) so it is not left orphaned.`,
+        additionalContext: orphanNotice(result, { guidance: ORPHAN_GUIDANCE }),
       },
     });
   } catch {
@@ -94,12 +93,7 @@ export function defaultHookDeps(): HookDeps {
       });
       fs.writeFileSync(lastPath(slug), String(ms), { mode: 0o600 });
     },
-    sweep: (worktree) =>
-      sweepWorktreeOrphans(defaultOrphanSweepDeps(), {
-        worktree,
-        act: true,
-        busyOnly: true,
-      }),
+    sweep: (worktree) => sweepBusyLeftovers(worktree),
     record: (slug, n) => recordOrphanStops(slug, n),
     nowMs: () => Date.now(),
   };

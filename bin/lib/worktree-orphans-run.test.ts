@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readState, writeState } from "./state";
 import {
   findBusyOutsideWorktrees,
+  snapshotOrphanDeps,
+  sweepBusyLeftovers,
   recordOrphanStops,
   renderOrphanSweepLine,
   stoppedCount,
@@ -114,6 +116,65 @@ describe("sweepWorktreeOrphans", () => {
     expect(r.skippedRecycled).toEqual([10]);
   });
 
+  it("should not report a recycled pid as a survivor", () => {
+    const h = harness([proc({ pid: 10 })], {
+      cwd: { 10: WT },
+      stubborn: [10],
+      recycleAfterTerm: [10],
+    });
+    const r = sweepWorktreeOrphans(h.deps, run);
+    expect(r.skippedRecycled).toEqual([10]);
+    expect(r.stillAlive).toEqual([]);
+  });
+
+  it("should never signal a pid whose start time was unreadable at selection", () => {
+    const h = harness([proc({ pid: 10 })], { cwd: { 10: WT } });
+    h.deps.startEpochOf = () => null;
+    const r = sweepWorktreeOrphans(h.deps, run);
+    expect(h.signals).toEqual([]);
+    expect(r.skippedRecycled).toEqual([10]);
+  });
+
+  it("should not read pipeline states when there is no candidate", () => {
+    const h = harness([proc({ pid: 10, ppid: 77 })], { cwd: { 10: WT } });
+    const wts = vi.fn(() => [WT]);
+    h.deps.worktrees = wts;
+    sweepWorktreeOrphans(h.deps, run);
+    expect(wts).not.toHaveBeenCalled();
+  });
+
+  it("should stop reading start times and signalling once the deadline passes", () => {
+    const h = harness([proc({ pid: 10 }), proc({ pid: 11 })], {
+      cwd: { 10: WT, 11: WT },
+    });
+    const reads = vi.fn(h.deps.startEpochOf);
+    h.deps.startEpochOf = reads;
+    h.deps.nowMs = () => h.clock.ms + 1_000;
+    sweepWorktreeOrphans(h.deps, { ...run, deadlineMs: 0 });
+    expect(reads).not.toHaveBeenCalled();
+    expect(h.signals).toEqual([]);
+  });
+
+  it("should read the process table, registries and cwds once through a snapshot", () => {
+    const h = harness([proc({ pid: 10 })], { cwd: { 10: WT } });
+    const listProcs = vi.spyOn(h.deps, "listProcs");
+    const snap = snapshotOrphanDeps(h.deps);
+    sweepWorktreeOrphans(snap, { ...run, act: false });
+    sweepWorktreeOrphans(snap, { ...run, act: false });
+    expect(listProcs).toHaveBeenCalledTimes(1);
+    expect(h.cwdCalls).toHaveLength(1);
+  });
+
+  it("should act on busy leftovers only through sweepBusyLeftovers", () => {
+    const busy = proc({ pid: 10, cpuSec: 600 });
+    const idle = proc({ pid: 11, pgid: 9100, cpuSec: 1 });
+    const h = harness([busy, idle], { cwd: { 10: WT, 11: WT } });
+    const r = sweepBusyLeftovers(WT, h.deps);
+    expect(r.act).toBe(true);
+    expect(r.busyOnly).toBe(true);
+    expect(h.signals.map((s) => s[0])).toEqual([10]);
+  });
+
   it("should signal descendants of an owned root", () => {
     const procs = [proc({ pid: 10 }), proc({ pid: 11, ppid: 10 })];
     const h = harness(procs, { cwd: { 10: WT } });
@@ -127,6 +188,9 @@ describe("sweepWorktreeOrphans", () => {
     expect(h.signals).toEqual([]);
     expect(r.found).toHaveLength(1);
     expect(renderOrphanSweepLine(r)).toContain("would stop");
+    expect(renderOrphanSweepLine(r, { held: true })).not.toContain(
+      "would stop",
+    );
   });
 
   it("should report ps unavailable as ran:false", () => {

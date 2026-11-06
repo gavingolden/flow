@@ -31,7 +31,6 @@ const opts = {
   selfUid: UID,
   registeredPids: new Set<number>(),
   registeredPgids: new Set<number>(),
-  busyOnly: false,
 };
 
 describe("ownerOf / isUnderPath", () => {
@@ -111,12 +110,39 @@ describe("prefilterCandidates", () => {
     }
   });
 
-  it("should skip roots younger than the busy age in busyOnly mode", () => {
-    const young = proc({ pid: 10, ageSec: BUSY_MIN_AGE_SEC - 1 });
-    expect(prefilterCandidates([young], { ...opts, busyOnly: true })).toEqual(
-      [],
-    );
-    expect(prefilterCandidates([young], opts)).toEqual([young]);
+  it("should keep a young root reparented into an old busy group", () => {
+    const old = proc({ pid: 10, pgid: 9000, ageSec: BUSY_MIN_AGE_SEC + 60 });
+    const young = proc({ pid: 11, pgid: 9000, ageSec: 5 });
+    expect(prefilterCandidates([old, young], opts)).toEqual([old, young]);
+  });
+
+  it("should select a root adopted by a systemd --user subreaper, never by another live parent", () => {
+    const reaper = proc({
+      pid: 500,
+      ppid: 1,
+      pgid: 500,
+      command: "/usr/lib/systemd/systemd --user",
+    });
+    const orphan = proc({ pid: 10, ppid: 500, pgid: 9000 });
+    expect(prefilterCandidates([reaper, orphan], opts)).toEqual([orphan]);
+    const other = proc({ pid: 501, ppid: 1, pgid: 501, command: "bash" });
+    const child = proc({ pid: 11, ppid: 501, pgid: 9000 });
+    expect(prefilterCandidates([other, child], opts)).toEqual([]);
+  });
+
+  it("should keep the dead-leader, uid and tty checks for subreaper-adopted roots", () => {
+    const reaper = proc({
+      pid: 500,
+      ppid: 1,
+      pgid: 500,
+      command: "systemd --user",
+    });
+    const leader = proc({ pid: 9000, ppid: 500, pgid: 9000 });
+    const member = proc({ pid: 10, ppid: 500, pgid: 9000 });
+    expect(prefilterCandidates([reaper, leader, member], opts)).toEqual([]);
+    const other = proc({ pid: 12, ppid: 500, pgid: 9001, uid: UID + 1 });
+    const tty = proc({ pid: 13, ppid: 500, pgid: 9001, tty: "pts/1" });
+    expect(prefilterCandidates([reaper, other, tty], opts)).toEqual([]);
   });
 });
 

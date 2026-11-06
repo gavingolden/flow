@@ -940,5 +940,6 @@ describe("collectReapReport — worktree leftovers section", () => {
     expect(out).toContain("Leftover processes in pipeline worktrees");
     expect(out).toContain("left to the live pipeline");
     expect(out).toContain("leftover process");
+    expect(out).not.toMatch(/live-two: .*would stop/);
   });
 });

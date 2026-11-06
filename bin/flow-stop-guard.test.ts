@@ -9,7 +9,6 @@ import {
   hasWakingBackgroundWork,
   NEXT_STEP_BY_PHASE,
   nextStepLabel,
-  orphanNotice,
   run,
   type Deps,
 } from "./flow-stop-guard";
@@ -27,7 +26,10 @@ import {
 } from "./lib/stop-turn-tracking";
 import type { RepoState } from "./lib/epic-metadata-commit";
 import type { GuardCapability } from "./lib/base-branch-guard";
-import type { WorktreeOrphanSweepResult } from "./lib/worktree-orphans-run";
+import {
+  orphanNotice,
+  type WorktreeOrphanSweepResult,
+} from "./lib/worktree-orphans-run";
 
 const FROZEN_NOW = "2026-05-17T00:00:00.000Z";
 
@@ -1144,8 +1146,14 @@ describe("flow-stop-guard leftover sweep", () => {
 
   it("formats the notice and omits it when nothing was stopped", () => {
     expect(orphanNotice(sweepResult())).toContain(
-      "flow stopped 3 leftover processes from this pipeline's worktree (busy, oldest 12 min)",
+      "flow stopped 3 leftover processes from this pipeline's worktree (sleep; busy, oldest 12 min)",
     );
+    expect(orphanNotice(sweepResult({ stillAlive: [2] }))).toContain(
+      "1 did not exit.",
+    );
+    expect(
+      orphanNotice(sweepResult(), { guidance: "use run_in_background" }),
+    ).toContain("use run_in_background");
     expect(orphanNotice(sweepResult({ signalled: [] }))).toBeNull();
     expect(orphanNotice(null)).toBeNull();
   });

@@ -209,7 +209,7 @@ flow's launch-settings file, so it never reaches a consumer repo's
 Two sibling hooks register the same way (flow's launch-settings file only,
 never a consumer repo's settings): `bin/flow-bg-loop-guard.ts`, a
 PreToolUse deny-only, fail-open guard that refuses a Bash command which
-backgrounds an endless loop or cleans up with `$(jobs -p)` (empty in the
+backgrounds an endless loop, or backgrounds a job and then cleans up with `$(jobs -p)` (empty in the
 Bash tool's zsh, so the cleanup kills nothing); and
 `bin/flow-orphan-sweep-hook.ts`, a fail-open PostToolUse hook that, at most
 once a minute per pipeline, stops CPU-busy leftover processes whose working

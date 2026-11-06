@@ -27,11 +27,12 @@
  * `--reap` mode (opt-in): verifies and signals every row recorded in this
  * slug's process registry (`bin/lib/proc-registry.ts`) via
  * `bin/lib/reap.ts`'s asymmetric verify-then-signal engine, then falls back
- * to the ancestry walk above for anything the registry did not cover. Per-
- * class kill policy (including this file's own escalation, if any, for a
- * kill-uncooperative process group) lives entirely in `bin/lib/reap.ts` —
- * see that module for the exact signal sequence a `default`-class row
- * receives. Run with `--dry-run` first; it sends no signal at all.
+ * to the ancestry walk above for anything the registry did not cover, then
+ * sweeps leftover processes in the slug's worktree. Per-class kill policy
+ * for registry rows lives entirely in `bin/lib/reap.ts` — see that module
+ * for the exact signal sequence a `default`-class row receives; the worktree
+ * arm's own SIGTERM -> grace -> start-time re-check -> harder-signal
+ * escalation lives in `bin/lib/worktree-orphans-run.ts`. Run with `--dry-run` first; it sends no signal at all.
  * `--record` (with `--reap` only, never under `--dry-run`) additionally
  * writes the reap verdict to `~/.flow/state/<slug>.json` as `state.reap`
  * — a plain state write, never a phase transition; a failure there is
@@ -376,8 +377,9 @@ function toReapDeps(deps: Deps): ReapDeps {
 }
 
 /**
- * Registry-first reap: runs `runRegistryReap` against
- * `~/.flow/state/procs/<slug>.jsonl` first, then falls back to the
+ * Reap entry point: `reapRegistryAndFallback` (below) and then the worktree
+ * leftover arm, which runs on every path. The first arm runs `runRegistryReap`
+ * against `~/.flow/state/procs/<slug>.jsonl`, then falls back to the
  * mechanically-unchanged ancestry-walk `runTeardown` only when the registry
  * did not already cover the session's chrome-devtools-mcp server. The
  * fallback is provably skipped (never invisibly skipped): `fallback` is
@@ -410,7 +412,11 @@ export function runReapMode(
     return { ...base, orphans: null, orphansSkipReason: "no-worktree" };
   }
   const orphans = sweepWorktreeOrphans(
-    opts.orphanDeps ?? defaultOrphanSweepDeps({ stateDir: opts.baseDir }),
+    opts.orphanDeps ??
+      defaultOrphanSweepDeps({
+        stateDir: opts.baseDir,
+        baseDir: opts.baseDir,
+      }),
     { worktree: state.worktree, act: !opts.dryRun, busyOnly: false },
   );
   return { ...base, orphans, orphansSkipReason: null };
@@ -596,7 +602,8 @@ function orphanClause(stopped: number, earlier: number): string {
  * `still-alive`, `deadline-exceeded`, `skipped-dead-leader`,
  * `registry.malformed`, a non-empty ancestry-walk `fallback.stillAlive`, and
  * `fallbackSkipReason === "not-gated"` (the asymmetric-gate hole named in
- * `runReapMode`'s own comment). `already-dead`, `skipped-epoch-mismatch`,
+ * `runReapMode`'s own comment), and a worktree-leftover sweep's
+ * `orphans: still-alive`. `already-dead`, `skipped-epoch-mismatch`,
  * `skipped-unsafe-pgid`, and `skipped-foreign-member` are SAFETY REFUSALS —
  * the reap engine correctly declining to touch a process it can't safely
  * verify — and must never mark the verdict unclean.
@@ -1129,7 +1136,9 @@ function usage(): string {
     "",
     "--reap mode (opt-in) verifies and signals every row recorded in",
     "~/.flow/state/procs/<slug>.jsonl before falling back to the ancestry",
-    "walk above. --slug resolves explicitly, else FLOW_SLUG, else no slug.",
+    "walk above, then stops leftover processes in the slug's worktree",
+    "(SIGTERM, then a harder signal after a grace, start time re-checked).",
+    "--slug resolves explicitly, else FLOW_SLUG, else no slug.",
     "A default-class row escalates to a harder signal against its whole",
     "process group after a bounded grace wait; an mcp-server row is",
     "signalled once and never escalated, same policy as the default mode",
