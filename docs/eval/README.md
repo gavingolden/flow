@@ -27,6 +27,19 @@ running eight committed suites, split by what each measures:
   mechanical steps saves. Its before/after arms and per-fold verdict are in
   [`turn-folding/README.md`](turn-folding/README.md).
 
+- One **runtime-design suite** (`system-design-defaults`, PR #998) — whether
+  discovery picks queue-driven, idempotent, time-bounded and cost-bounded
+  designs for slow paid work (s1, s2) while keeping one fast paid call inline
+  (s3). Command graders read only the plan's Task breakdown. About $11 per
+  `--all` run. Before / rules-only / after result:
+  [`system-design-defaults.md`](system-design-defaults.md).
+
+- One **reference suite** (`system-design-references`, PR #998) — one
+  planning scenario per `flow-system-design` reference file (workflows,
+  rollout, caching, recovery, realtime, api, cloudflare, aws), graded on the
+  plan's Task breakdown. About $19 per `--all` run. With / without references
+  result: [`system-design-references.md`](system-design-references.md).
+
 - One **plan-quality suite** (`discovery-plan-quality`, issue #891) — whether
   `/flow-product-planning`'s discovery sub-agent still writes a conforming
   plan after its instruction file changes, plus what each run costs. Five

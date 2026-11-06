@@ -1,0 +1,30 @@
+## Planning done: the plan is ready for your review
+
+I wrote `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. Both files are non-empty, and no source files changed. Nothing was implemented and no later pipeline phase was started.
+
+- **Problem:** Partner companies can't request reports or see their past ones. Nothing in the service creates a report today. Any report can be read by its id without a credential, and anyone on the internet can trigger the paid generation step. So putting an API key on new routes isn't enough on its own to protect partner data or cap spending.
+- **Tasks:** 10, in this order:
+  1. A database migration
+  2. A metrics helper
+  3. The database queries
+  4. API-key authentication
+  5. A rewrite of the queue client, which as written could never authenticate
+  6. Hardening the worker and the model-API call
+  7. The partner routes
+  8. Splitting the deploy into a public API service and a private worker service
+  9. An operator script for issuing keys
+  10. Docs
+- **Possible follow-up issues:** 3. One is marked to file: locking down anonymous reads of internal reports, which first needs someone to find out who reads them today. The other two aren't marked: webhooks when a report finishes, and a self-service portal where partners manage their own keys.
+- **Assumptions to check:**
+  - **Two questions need your answer:**
+    - **Q1:** What sections a report has by default. The repo doesn't define any, so the plan ships a placeholder list, and each section costs one paid model call.
+    - **Q2:** Whether backups and point-in-time recovery are already on for the production database, and the instance's name.
+  - **Biggest risk is outside the repo:** Since nothing in the service creates reports, some outside process probably does. It may post straight to the worker route, which this plan moves behind the private service. The PR's Test Steps include a DECISION item asking you to accept that.
+- **Research:** The optional web research step was skipped because this isn't a question research would help with. You can force it with `flow feature create --research`.
+- **Vetting verdict:** Adopt with two conditions, both checked by tests in this PR:
+  - The section worker only accepts calls authenticated as coming from Cloud Tasks.
+  - Every route returns 404 for a partner-owned report unless the owning partner's key is sent.
+
+The discovery agent reported that the plan, follow-up-issue and Test Steps lint checks all passed.
+
+**Next action:** Answer Q1 and Q2 in `.flow-tmp/plan.md`, then run `/flow-new-feature let partner companies request reports and list their past reports through a public API authenticated with an API key` when you want to start building.

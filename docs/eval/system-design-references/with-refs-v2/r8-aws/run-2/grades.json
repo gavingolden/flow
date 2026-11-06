@@ -1,0 +1,85 @@
+{
+  "grades": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "keep-plan",
+      "kind": "command",
+      "gate": false,
+      "pass": true
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "sqs-or-sfn",
+      "kind": "command",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "dead-letter",
+      "kind": "command",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "visibility-timeout",
+      "kind": "command",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "concurrency-cap",
+      "kind": "command",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    }
+  ],
+  "metrics": {
+    "result.total_cost_usd": {
+      "value": 3.0274596000000007,
+      "direction": "lower"
+    },
+    "result.num_turns": {
+      "value": 6,
+      "direction": "lower"
+    },
+    "result.duration_ms": {
+      "value": 618500,
+      "direction": "lower"
+    }
+  },
+  "score": 1
+}

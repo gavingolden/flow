@@ -1,0 +1,16 @@
+## Plan written: `POST /reports`, but it doesn't return the finished report
+
+Both files are written: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. No source files were changed, and I stopped before implementation as you asked.
+
+- **Problem:** The service can read reports but can't create them. Each of the five sections takes 20–60 s from the model API and costs money. API Gateway cuts every request off at 29 s, so building the whole report during the request would fail partway through. The sections already generated would be paid for and wasted, and a retry would pay for them again.
+- **Approach (the plan pushes back on the request as written):** `POST /reports` returns `202` with a report id in under a second, and the caller polls `GET /reports/{id}` until it's ready. Each of the five sections runs as its own queued job, so a report is ready in about the time of the slowest section (20–60 s). Spend is capped by requiring an API key, with a suggested quota of 100 reports a day per key. At worst that's 15 paid calls per report, or 1,500 a day per key.
+- **Tasks:** 9, with a table showing which depend on which. Four of them fix existing problems found during planning:
+  - The model client in `src/llm.ts` has no timeout or error check, so a model error would be saved as an empty section.
+  - The existing `GET` endpoint is deployed without its table name or permission to read the table.
+  - The test and build tools were never installed, and the ESM imports would fail to load in Node once built.
+  - The `Reports` table gets point-in-time recovery and a written restore drill.
+- **Follow-up issues:** 2 suggested, neither filed: requiring an API key on the report read, and setting a retention window for stored reports.
+- **Needs your input (Q1):** which five sections a report has. The plan uses placeholders in a single constant: overview, products and services, market and competition, financial performance, and risks and outlook.
+- **Research:** skipped as not needed for this request. You can force it with `flow feature create --research`.
+
+**Next action:** Read `.flow-tmp/plan.md`, answer Q1, and decide whether the `202` + polling design is acceptable. When you're happy with it, run `/flow-new-feature add a POST /reports endpoint that generates a company report by calling the model API once for each of five sections`.

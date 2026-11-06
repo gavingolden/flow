@@ -391,6 +391,10 @@ become the "Architecture Decisions" section verbatim:
   elicited mid-discovery. When a user-elicited preference's LITERAL reading conflicts with
   that goal, challenge it explicitly rather than silently deferring to it, and surface the
   tension as an Open Question so the user can resolve it at `plan-pending-review`.
+- **Runtime design check:** for every runtime operation the plan adds or changes, decide the
+  execution model, timeout, retry layer, idempotency key and cost bound for the `### Runtime
+design` subsection (step 5). Before drafting a non-`none` subsection, do the skill pre-read
+  that `<SKILL_DIR>/references/discovery-runtime-design.md` requires.
 - **Decision-analysis check:** if any decision captured above is a _consequential_ open decision
   whose branches genuinely diverge, flag it for the omit-when-empty `## Decision analysis` PRD
   section (step 5), where each branch's downstream flow is simulated, exclusivity marked,
@@ -462,7 +466,7 @@ this, except the Problem Statement's plain-language lead, which is prose.
 - **Layout Intent** (omit-when-empty) — only when the plan touches UI: per-surface structural layout the user ratifies at plan-pending-review (see the `### Layout Intent` sub-section in `<SKILL_DIR>/references/discovery-ui.md`). Omit the heading entirely for non-UI plans.
 - **UI review targets** (omit-when-no-UI) — required when any task changes a render-bearing file: 1-3 path-only lines naming the pages that show the change and the state each shows (see the `### UI review targets` sub-section in `<SKILL_DIR>/references/discovery-ui.md`). Omit the heading entirely when no render-bearing file changes.
 - **Instrumentation** — always-present: the metrics, dashboard-panel and alert/SLO spec for every runtime surface the plan adds or changes (a request handler, background job or queue consumer, outbound API call, multi-stage pipeline, or connection or worker pool), or a single `none — <reason>` line. **MUST Read `<SKILL_DIR>/references/discovery-instrumentation.md` before authoring a non-`none` `## Instrumentation` section.**
-- **Architecture Decisions** — from the checkpoint above.
+- **Architecture Decisions** — from the checkpoint above. Its `### Runtime design` subsection is always present: **MUST Read `<SKILL_DIR>/references/discovery-runtime-design.md` before authoring it.**
 - **Technical Constraints** — every bullet binding and source-traceable (a named file,
   rule, or research finding); ambient repo-convention restatements are banned unless the
   plan turns on them; an explicit `none beyond repo-wide conventions` affirmation is
@@ -1533,7 +1537,7 @@ When the spawn prompt carries `REVISION: <n>`, **MUST Read `<SKILL_DIR>/referenc
 - A failed premise check surfaces as a `**Premise check:**` line in the Problem
   Statement and the `## Recommendation` verdict is non-`Proceed`; a sound premise
   carries no line.
-- `flow-plan-lint` already checks the Goal line, the Problem Statement lead, the drafted PR TLDR, the drafted PR change bullets, Behavioral contrast, Recommendation, Plan risks, Cut list, Instrumentation, Request vetting, Existing-code assessment, Method selection, the Open Questions resolution / confidence / stakes markers, task Contract blocks, and the `excluded-paths.json` mirror, and `flow-candidate-issues --lint` already checks the candidate follow-up value bars, references, and bundling — do not re-verify those by hand.
+- `flow-plan-lint` already checks the Goal line, the Problem Statement lead, the drafted PR TLDR, the drafted PR change bullets, Behavioral contrast, Recommendation, Plan risks, Cut list, Instrumentation, Runtime design (Recovery line, queue must-set settings, inline p99 budget), Request vetting, Existing-code assessment, Method selection, the Open Questions resolution / confidence / stakes markers, task Contract blocks, and the `excluded-paths.json` mirror, and `flow-candidate-issues --lint` already checks the candidate follow-up value bars, references, and bundling — do not re-verify those by hand.
 - **Self-check before returning:** run `flow-plan-lint --plan-md-file <the plan.md path>`
   by bare PATH name and fix every named miss. Tolerant: when the helper is missing
   from PATH, the check skips silently (same research-cache discipline as Step 1.5) —

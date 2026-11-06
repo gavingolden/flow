@@ -1,0 +1,617 @@
+{
+  "schemaVersion": 1,
+  "runner": {
+    "name": "flow-eval-headless",
+    "claudeVersion": "2.1.318",
+    "childArgvDigest": "e22b86db7a4796b6"
+  },
+  "tree": {
+    "gitHead": "31b49d8fb67a6bcfb9b78e6bed1818f711f3bd78",
+    "dirty": true
+  },
+  "suite": "system-design-defaults",
+  "candidate": "flow-system-design-skill",
+  "startedAt": "2026-11-04T18:28:39.617Z",
+  "finishedAt": "2026-11-04T18:43:53.589Z",
+  "scenarios": [
+    {
+      "id": "s1-report-endpoint",
+      "title": "Slow paid work in a request handler: five sequential 20-60 s model calls behind POST /reports (the prompt never says long-running)",
+      "status": "fail",
+      "score": 0.9285714285714286,
+      "runs": [
+        {
+          "run": 1,
+          "status": "fail",
+          "score": 0.8571428571428571,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "queue",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "idempotency",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /idempoten/i found in Task breakdown\n"
+            },
+            {
+              "id": "timeout",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "cost-bound",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 1.9743994,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 403351,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "cf1be7a8-5af9-4fe5-96ea-720105452262",
+          "costUsd": 1.9743994,
+          "durationMs": 403351,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "queue",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "idempotency",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "timeout",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "cost-bound",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.3402380000000003,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 504817,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "ef0a9f11-ea68-44f0-8237-1f5c2dbe56aa",
+          "costUsd": 2.3402380000000003,
+          "durationMs": 504817,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "result.total_cost_usd": {
+          "median": 2.1573187000000003,
+          "min": 1.9743994,
+          "max": 2.3402380000000003,
+          "direction": "lower",
+          "values": [1.9743994, 2.3402380000000003]
+        },
+        "result.num_turns": {
+          "median": 6,
+          "min": 6,
+          "max": 6,
+          "direction": "lower",
+          "values": [6, 6]
+        },
+        "result.duration_ms": {
+          "median": 454084,
+          "min": 403351,
+          "max": 504817,
+          "direction": "lower",
+          "values": [403351, 504817]
+        }
+      }
+    },
+    {
+      "id": "s2-nightly-refresh",
+      "title": "Periodic fan-out over paid calls: nightly refresh of every saved report",
+      "status": "fail",
+      "score": 0.9375,
+      "runs": [
+        {
+          "run": 1,
+          "status": "fail",
+          "score": 0.875,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "queue",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "idempotency",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /idempoten/i found in Task breakdown\n"
+            },
+            {
+              "id": "timeout",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "cost-bound",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "scheduler-enqueues",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.0721268000000004,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 428025,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "7c3485ad-d065-41b6-b6eb-baf1417ccbd5",
+          "costUsd": 2.0721268000000004,
+          "durationMs": 428025,
+          "numTurns": 7,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "queue",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "idempotency",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "timeout",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "cost-bound",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "scheduler-enqueues",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.1996018,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 509332,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "e037963e-cc64-4f1e-b8cf-35889a1df633",
+          "costUsd": 2.1996018,
+          "durationMs": 509332,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "result.total_cost_usd": {
+          "median": 2.1358643,
+          "min": 2.0721268000000004,
+          "max": 2.1996018,
+          "direction": "lower",
+          "values": [2.0721268000000004, 2.1996018]
+        },
+        "result.num_turns": {
+          "median": 6.5,
+          "min": 6,
+          "max": 7,
+          "direction": "lower",
+          "values": [7, 6]
+        },
+        "result.duration_ms": {
+          "median": 468678.5,
+          "min": 428025,
+          "max": 509332,
+          "direction": "lower",
+          "values": [428025, 509332]
+        }
+      }
+    },
+    {
+      "id": "s3-fast-paid-control",
+      "title": "Proportionality control: one 1-3 s paid suggestTitle call stays inline",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-queue",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 1.6787566,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 289282,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "f319b674-0b69-4a36-8446-62b319b34d76",
+          "costUsd": 1.6787566,
+          "durationMs": 289282,
+          "numTurns": 7,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-queue",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 1.6259623999999997,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 278927,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "de4d19a0-e903-488e-a434-3919e34067d5",
+          "costUsd": 1.6259623999999997,
+          "durationMs": 278927,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "result.total_cost_usd": {
+          "median": 1.6523594999999998,
+          "min": 1.6259623999999997,
+          "max": 1.6787566,
+          "direction": "lower",
+          "values": [1.6787566, 1.6259623999999997]
+        },
+        "result.num_turns": {
+          "median": 6.5,
+          "min": 6,
+          "max": 7,
+          "direction": "lower",
+          "values": [7, 6]
+        },
+        "result.duration_ms": {
+          "median": 284104.5,
+          "min": 278927,
+          "max": 289282,
+          "direction": "lower",
+          "values": [289282, 278927]
+        }
+      }
+    }
+  ],
+  "summary": {
+    "score": 0.9553571428571429,
+    "scenarios": 3,
+    "passed": 1,
+    "failed": 2,
+    "errored": 0,
+    "costUsd": 11.891085
+  }
+}

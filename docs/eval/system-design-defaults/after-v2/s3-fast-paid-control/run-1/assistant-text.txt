@@ -1,0 +1,22 @@
+## Plan ready: `POST /reports/:id/title`
+
+I wrote the plan and the PR description draft to `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`, and checked that both files exist and aren't empty. The planning step also left `excluded-paths.json` and `research-status.json` in `.flow-tmp/`. Nothing was implemented.
+
+- **Problem:** Saved reports often have no title. `src/llm.ts` can already ask the model for a title, but no endpoint calls it. Each call to the model costs money and the service has no authentication, so a simple version of this endpoint would let anyone run up charges.
+- **Recommendation:** Build it, with two conditions:
+  - Asking again for a report whose sections haven't changed returns the earlier suggestion without calling the model.
+  - Every model call gives up after 5 seconds.
+- **Tasks (4):**
+  1. A metrics helper, the first one in this repo.
+  2. Fix the title model client, which today has no timeout and doesn't check for errors.
+  3. A new module that saves one suggestion for each version of a report's content.
+  4. The `POST /reports/:id/title` route and its tests.
+- **Assumptions worth checking:**
+  - **The endpoint only returns a suggestion.** It never overwrites the report's saved title. (high confidence)
+  - **There's no way to ask for a different suggestion yet.** On a public endpoint, reusing the saved suggestion is the only limit on spending. Adding a "regenerate" option or dropping the reuse would need a spending cap or authentication first. (medium confidence)
+- **Proposed follow-up issues (2):**
+  - **Reports don't survive a restart:** they're kept only in memory, so every restart or deploy loses them.
+  - **No authentication:** anyone can read any report or mark it as shared, regardless of its `shared` setting.
+- **Research:** Skipped, because nothing here needed web research.
+
+**Next action:** Review `.flow-tmp/plan.md`, especially the two conditions and the assumptions above. When you're happy with it, run `/flow-new-feature add a \`POST /reports/:id/title\` endpoint that returns a suggested title for a saved report` to implement it.

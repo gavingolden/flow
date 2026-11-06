@@ -630,6 +630,14 @@ Decide whether to delegate edits to `/flow-coder` based on the **hybrid threshol
    when it exists to the `skill_docs` of every source-code edit-set entry and the
    `.flow/metrics.md` entry (not other docs, styles, images), except its creator.
 
+   **System-design rule paths (non-`none` `### Runtime design`).** When the PRD's
+   `### Runtime design` is not `none`, append (deduped) the flow-system-design
+   `SKILL.md`, plus `references/<platform>.md` when the `**Platform:**` line names
+   one that exists (from
+   `flow-module-status --skill-path flow-system-design [--ref references/<platform>.md]`;
+   a non-zero exit is a named skip), to the `skill_docs` of every source-code
+   edit-set entry. Paths only, never inlined text.
+
    Omit `DESIGN_CONTEXT` entirely only when the plan has NONE of a
    committed foundation, `## Visual Spec`, or `## Layout Intent` — non-UI
    pipelines see byte-identical spawn prompts. `/flow-new-feature` is

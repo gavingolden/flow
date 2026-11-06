@@ -1,0 +1,33 @@
+## Plan is ready: the page polls for new sections instead of using a push stream
+
+Both files are written and not empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. The git tree is still clean, so no source files changed. I stopped there, as you asked: nothing was implemented and no later step was started.
+
+**The plan doesn't do exactly what was asked.** Instead of pushing each section to the page as it's written, the page would check the existing report endpoint for new sections about every 3 seconds. The endpoint would also report progress, say when the report is finished or stuck, and answer "not modified" when nothing has changed. The reasoning:
+- Sections finish 20–60 seconds apart, so polling every 3 seconds looks the same to the user as a push.
+- An open push connection keeps a Cloud Run instance billed for every viewer, and Cloud Run cuts it off at 300 seconds.
+
+**Problem found along the way:** today the service never marks a report as finished. A section whose model call fails stays blank forever, so users can't tell a slow report from a done or stuck one. The page itself isn't in this repo, so the plan covers the service side plus a written description of how the page should poll.
+
+**6 tasks:**
+- **The feature (3):**
+  - add an index on sections;
+  - add a progress summary (total, done, complete, stuck);
+  - change the report endpoint to return that progress and answer "not modified" when nothing changed.
+- **Fixes bundled in (3):**
+  - model calls time out after 90 seconds and fail, so the queue retries them;
+  - a section, once written, is never regenerated or overwritten;
+  - add the service's first metrics, which the project's instrumentation rules require once the worker changes.
+
+**3 follow-ups:**
+- Two are marked to be filed after merge:
+  - the worker route can be called by anyone, which lets them trigger paid model calls;
+  - reports have no real status field and no "failed section" state.
+- One is not marked: writing text word by word within a section.
+
+**Decisions worth checking:**
+- **Polling rather than push.** This is the main change from your request (medium confidence).
+- **The stuck rule and write-once sections.** A report counts as stuck if it's still incomplete 30 minutes after it was created. Because sections become write-once, any "regenerate by re-queueing" flow outside this repo would stop working without any error (medium confidence).
+
+**Research was only partly done.** The research step gathered sources, but both checks that try to disprove them failed with an `agy-error`. The plan marks those findings as unchecked, and no decision rests on them alone.
+
+**Next action:** read the "Request vetting" section and the open questions in `.flow-tmp/plan.md`. If you're fine with polling instead of push, continue with `/flow-new-feature users want to watch their report being written live, section by section, instead of refreshing the page`.

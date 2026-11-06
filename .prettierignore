@@ -82,6 +82,11 @@ docs/eval/turn-folding/
 docs/eval/skill-split/before/
 docs/eval/skill-split/after/
 
+# system-design eval arms with each run's kept plan.md: the plans the graders
+# read, byte-exact, so a regrade sees what the planner wrote.
+docs/eval/system-design-defaults/after-v3/
+docs/eval/system-design-references/with-refs-v2/
+
 # flow-pipeline phase docs and hard-rules detail: text moved verbatim out of
 # SKILL.md (itself ignored above for a non-idempotent nested fence). Running
 # prettier --write would break the byte-exact moves that

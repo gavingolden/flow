@@ -1,0 +1,20 @@
+## Plan ready: `POST /reports/:id/title`
+
+I wrote `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md` and checked that both are non-empty. No code was changed and no later phase was started.
+
+- **Why the plan is bigger than one route:** saved reports have a title field that nothing fills, and the model client can already produce a title, but no endpoint calls it. That client has no timeout and no spending limit. The service is also deployed with unauthenticated public access, so adding only the route would let anyone run up an unbounded model bill. AGENTS.md requires a timeout on every outbound call and a single cap on paid spend.
+- **Tasks (4, in order), each with its own `bun test` file:**
+  1. A daily cap on paid model calls.
+  2. A metrics helper, plus the repo's first metrics contract.
+  3. One shared request path in the model client that applies timeouts, status checks and the cap.
+  4. The `POST /reports/:id/title` route.
+- **Decisions to check (medium confidence; none need your input to proceed):**
+  - **Spend cap:** 1000 calls per instance per UTC day, changeable with the `LLM_DAILY_CALL_CAP` env var. The cap is per instance, so real spend can reach the number of instances × 1000. That is the plan's main risk.
+  - **Suggestion only:** the endpoint returns a title but doesn't save it. Every request makes a new paid call, so asking again gives a different title.
+- **Verdict:** go ahead, on condition that every model call goes through an explicit timeout and one shared daily spend cap, both proven by `bun test`.
+- **Follow-up issues (2, recorded in the plan, not filed):**
+  - **Shared storage for reports:** reports are kept only in one instance's memory, so they're lost on restart and missing on other instances. That can make this endpoint return 404 for a report that was saved.
+  - **Authentication** for the service.
+- **Research:** the web research step was skipped because the question doesn't need it.
+
+**Next action:** read `.flow-tmp/plan.md`, then run `/flow-new-feature add a \`POST /reports/:id/title\` endpoint that returns a suggested title for a saved report` when you want to build it.

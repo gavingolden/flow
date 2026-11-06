@@ -1,0 +1,20 @@
+## Plan written: `POST /reports/:id/title`
+
+I wrote both files and checked they're non-empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. Nothing was implemented; `git status` shows no source changes.
+
+- **Problem:** Saved reports have an optional title, but nothing helps callers write one. The model client already has a title-suggestion call (it costs money per call), but no endpoint uses it.
+- **Tasks:** 4, in order:
+  1. Add a metrics helper and the service's first metrics definitions.
+  2. Make the model client safer: a 5-second timeout, a check on the response, and a daily limit on calls.
+  3. Add the endpoint and its tests.
+  4. Cap instances and concurrency in the deploy, and note the new modules.
+- **Follow-up issues:** 2.
+  - **Lasting report storage** will be filed when this merges. Reports are only kept in memory today, so every deploy or restart loses them all.
+  - **Requiring callers to sign in** is listed but not set to be filed. The repo doesn't show whether open access is intended.
+- **What you need to decide or check:**
+  - **The spend budget needs your answer.** The plan uses placeholder numbers: 500 model calls per instance per day (UTC) and at most 2 instances, so at most 1,000 title calls a day. Before merge, you'll be asked to accept these numbers or give your own.
+  - **The endpoint returns a suggestion and never saves it as the report's title.** The planner is confident about this, based on your wording "returns a suggested title". It's what lets the endpoint answer directly in about 1–3 seconds; saving the title would need a slower background design.
+- **Research:** Skipped, because the planner judged that this feature doesn't need outside research. You can force it with `flow feature create --research`.
+- **Planner's verdict on the request:** go ahead, on three conditions. The model call has a 5-second timeout, each instance has a daily call limit, and the deploy caps the number of instances. The worst-case calls per day (limit × instances) must be stated in the PR.
+
+**Next action:** I've stopped here as you asked. When you're ready, decide the spend budget, then run `/flow-new-feature add a POST /reports/:id/title endpoint that returns a suggested title for a saved report`.

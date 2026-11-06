@@ -83,6 +83,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-checkpoint",
       "flow-ui-ux",
       "flow-metrics",
+      "flow-system-design",
       "flow-skill-creator",
       "flow-testing",
       "flow-backlog-triage",

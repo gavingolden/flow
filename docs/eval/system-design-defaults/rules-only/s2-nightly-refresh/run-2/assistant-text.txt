@@ -1,0 +1,25 @@
+## The plan is ready: build the nightly refresh, though it won't reach real reports yet
+
+Both files are written and non-empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. Nothing has been implemented and I haven't started any later phase.
+
+The planning agent's verdict is to go ahead, but it narrows what the feature can do today. Reports are kept only in the running server's memory (`src/db.ts:9`), so they're lost whenever the service scales down (`deploy.sh:3`). Nothing in the service creates reports either, so in production the nightly job would find few or no reports to refresh.
+
+- **Problem:** Reports are generated once by slow, paid AI calls and never updated, so readers see stale analysis with no indication of its age.
+- **Tasks:** 7, in order:
+  1. A metrics helper.
+  2. Timeouts, error checks and a daily cap on paid calls in the AI client (`src/llm.ts`). The project rules require timeouts on every outbound call.
+  3. New fields on a report for the refreshed content, so a refresh never overwrites existing data.
+  4. A client for the Cloud Tasks queue.
+  5. The nightly job, which only queues one task per report, plus the job that refreshes a single report.
+  6. Internal routes that require login.
+  7. Queue and nightly-schedule setup in `deploy.sh`.
+- **Follow-up issues:** 2 proposed:
+  - durable storage for reports;
+  - access control on the routes that read and share reports. Today anyone can read any report, and the "shared" flag doesn't restrict anything.
+- **Decisions that need your input:**
+  - **What a report's `sections` holds.** The plan assumes each entry is a section name, not generated text. Nothing in the repo writes reports, so this couldn't be checked, and a second opinion was also unsure. If the guess is wrong, the cost is wasted spend, not lost data.
+  - **The daily cap on paid calls.** 500 calls a day is a placeholder, roughly 100 five-section reports.
+- **Research:** Skipped, because the request didn't need outside research.
+- **Conditions on going ahead:** Every paid call must go through one daily cap in the AI client. Each report is refreshed at most once per night, keyed on the report and the date, so a retried task doesn't pay twice. Tests must check both.
+
+**Next action:** Answer the two open questions in `.flow-tmp/plan.md`, then run `/flow-new-feature refresh every saved report nightly` when you want it built.

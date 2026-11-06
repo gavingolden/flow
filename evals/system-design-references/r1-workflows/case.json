@@ -1,0 +1,96 @@
+{
+  "id": "r1-workflows",
+  "title": "Multi-step work: six paid sections where the summary depends on the other five",
+  "provenance": "Synthetic scenario for the system-design-references suite: measures whether the matching flow-system-design reference file changes the plan's Task breakdown.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture"
+  },
+  "graders": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "exists": true
+    },
+    {
+      "id": "keep-plan",
+      "kind": "command",
+      "gate": false,
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/keep-plan.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "$ASSISTANT_TEXT"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "per-step-unit",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "(?:per|each|one)[^\\n]*(?:section|step)[^\\n]*(?:task|job|row|message)|(?:task|job|row|message)[^\\n]*(?:per|for each|each) section"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "fan-in",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "fan[- ]?in|finali[sz]e|assembl|when all|once all|after all|remaining (?:sections|steps)|done[- ]?count|last (?:section|step) to"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "partial-failure",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "partial|failed section|compensat|retr(?:y|ies) (?:only|just) the|re-?run(?:s)? only|without re-?running"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

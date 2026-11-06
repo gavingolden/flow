@@ -1,0 +1,26 @@
+## Plan is ready: contract PDF uploads
+
+The plan and PR description draft are written, and both files are non-empty. As you asked, I stopped there: nothing is implemented and no later phase was started.
+
+- **Problem:** customers have no way to hand us a signed contract, and nothing records whether one arrived or whose it is. The service also has no idea who its customers are; it accepts requests from anyone.
+- **Tasks:** 6, in order:
+  1. Database migration for the `contracts` table.
+  2. A metrics helper.
+  3. Writing files to Cloud Storage in a way that never overwrites an existing file.
+  4. Database queries, plus a script for issuing customer keys.
+  5. The upload and read endpoints, with tests.
+  6. Creating a private bucket in `deploy.sh`.
+- **Follow-up issues:** 2 proposed.
+  - Lock down the existing report-worker endpoint. Anyone can call it today, and each call costs money in model fees. This one is marked to file after merge.
+  - Let customers download a stored contract. This one is not marked.
+- **Assumptions to check:**
+  - **The plan goes beyond what you asked for.** Customers would prove who they are with their own API key, and the key decides who owns each contract. That adds a customer-keys table. A second-opinion check preferred this over one shared password, because a shared password is only safe if requests come through a trusted front end, and nothing shows one exists. If you already have one, say so and the plan can drop the key table.
+  - **Uploads go through the service, capped at 10 MiB.** Customers don't upload straight to Cloud Storage. Cloud Run's request-size limit (about 32 MiB from memory) couldn't be checked because web access was denied, so the plan marks it unverified. 10 MiB is well under it either way.
+- **Web research:** skipped as not needed for this feature.
+- **Planning verdict:** go ahead, on two conditions. Both new endpoints must reject a missing, unknown or revoked customer key with a 401, checked by `bun test src/contracts.test.ts`. And the bucket must be created with public access blocked.
+
+Files are in `.flow-tmp/`:
+- plan.md
+- pr-description-draft.md
+
+**Next action:** read the plan, especially the customer-key decision. Then run `/flow-new-feature let customers upload their signed PDF contracts; store the files in Cloud Storage and record each one in a new \`contracts\` table` to implement it.

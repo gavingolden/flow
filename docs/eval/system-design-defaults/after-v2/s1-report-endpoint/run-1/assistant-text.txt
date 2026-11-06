@@ -1,0 +1,27 @@
+## Planning finished: the plan is written, but it pushes back on the request
+
+Both files are written and non-empty:
+- `.flow-tmp/plan.md`
+- `.flow-tmp/pr-description-draft.md`
+
+Nothing was implemented and no later step was started. The points below come from the planning agent's summary. I haven't read the plan myself.
+
+- **Problem:** Nothing in the service can create a report yet. Each of the five sections is a paid model call that takes 20–60s, so all five in one request could take up to 300s. That is Cloud Run's default request timeout, and a cut-off request still pays for the calls that finished. Reports are also kept only in one server's memory, so they're lost on every deploy. The service is public, so anyone could start paid calls.
+- **Verdict: push back.** `POST /reports` returns 202 straight away instead of waiting for the finished report. One queued background task per report writes the five sections, saving each one as it finishes. The caller checks progress and gets the finished report from `GET /reports/{id}`.
+- **Tasks: 9.** They add:
+  - Firestore storage for reports.
+  - A Cloud Tasks queue.
+  - A private worker service.
+  - A daily cap on paid model calls.
+  - Timeouts on model calls.
+  - Metrics.
+  - Changes to `deploy.sh`.
+- **Follow-up issue: 1.** Anyone who knows a report id can currently read it or mark it shared, so the existing read and share routes need access control.
+- **Two questions need your answer.** The plan uses placeholders until you decide:
+  - **Q1:** Which five sections does a report have? Placeholder: overview, products, market, financials, risks.
+  - **Q2:** What's the daily limit on paid model calls? Placeholder: 250 a day, which is 50 reports.
+- **Research:** skipped, because this isn't a question web research would help with.
+
+The plan is much bigger than what you asked for. `AGENTS.md` says no new runtime dependencies without a reason, and this plan adds Firestore, Cloud Tasks and a second deployed service. The main reason is the claim that five calls in one request would hit the timeout. I haven't checked that claim, the 20–60s per call, or the in-memory storage against the code. Check them before accepting the bigger design.
+
+**Next action:** Review `.flow-tmp/plan.md` and answer Q1 and Q2. If you'd rather have the simpler version (five calls inside one request), say so and the plan can be revised. Otherwise, start implementation with `/flow-new-feature`.

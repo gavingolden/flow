@@ -1,0 +1,82 @@
+{
+  "grades": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "keep-plan",
+      "kind": "command",
+      "gate": false,
+      "pass": true
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "channel",
+      "kind": "command",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "reconnect",
+      "kind": "command",
+      "gate": true,
+      "pass": false,
+      "expected": 0,
+      "actual": 1,
+      "detail": "fail: /reconnect|last-event-id|resum|catch(?:es)?[- ]?up|re-?read|\\bpoll(?:s|ed|ing)?\\b/i found in Task breakdown\n"
+    },
+    {
+      "id": "generation-stays-queued",
+      "kind": "command",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    }
+  ],
+  "metrics": {
+    "result.total_cost_usd": {
+      "value": 3.2800284,
+      "direction": "lower"
+    },
+    "result.num_turns": {
+      "value": 6,
+      "direction": "lower"
+    },
+    "result.duration_ms": {
+      "value": 780686,
+      "direction": "lower"
+    }
+  },
+  "score": 0.8333333333333334
+}

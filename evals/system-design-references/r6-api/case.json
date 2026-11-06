@@ -1,0 +1,107 @@
+{
+  "id": "r6-api",
+  "title": "API contract: a partner-facing API that starts paid work",
+  "provenance": "Synthetic scenario for the system-design-references suite: measures whether the matching flow-system-design reference file changes the plan's Task breakdown.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture"
+  },
+  "graders": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "exists": true
+    },
+    {
+      "id": "keep-plan",
+      "kind": "command",
+      "gate": false,
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/keep-plan.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "$ASSISTANT_TEXT"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "async-contract",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "\\b202\\b|status (?:resource|endpoint|url|link)|location header"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "idempotency-key",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "idempoten"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "rate-limit",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "rate[- ]?limit|\\b429\\b|quota|throttl"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "pagination",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "paginat|cursor|page[_ ]?token|next[_ ]?page"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+## Plan ready: summary caching for `GET /reports/:id/summary`
+
+I wrote both files, and both are non-empty. Source files are unchanged: `git status` is clean. I stopped after planning and didn't implement anything.
+
+- **Problem:** Every request to `GET /reports/:id/summary` makes a paid model call that takes 5–15 seconds (`src/app.ts:14`), even when the report hasn't changed. Popular reports are opened hundreds of times a day.
+- **Approach:** Store each report's summary along with a fingerprint of its sections. The stored summary is reused only while the fingerprint still matches the report. If many people open a report at the same moment before a summary exists, they share one model call.
+- **Tasks (4):**
+  1. Add a timeout to model calls (30 seconds for summaries) and treat failed responses as errors.
+  2. Add an in-memory metrics helper and create `.flow/metrics.md`.
+  3. Build the stored-summary logic: the sections fingerprint and the shared first call.
+  4. Serve the summary endpoint from the stored summary, and return a 502 error when generating it fails.
+- **Assumptions to check:**
+  - After a report is edited, the first person to open it waits for a fresh summary. The plan doesn't show the old summary meanwhile, because it would describe content the report no longer has.
+  - There's no "regenerate summary" button. The service is deployed with `--allow-unauthenticated`, so anyone could use one to trigger paid calls and wipe out the saving.
+  - **Risk:** stored summaries live in each server instance's memory, like the reports do. Every Cloud Run instance pays for its own first call, so frequent restarts shrink the saving. The planned cache-hit metric will show how much is actually saved after deploy.
+- **Research:** Skipped. This is an internal caching change with nothing to look up externally. Running `flow feature create --research` would force it.
+- **Vetting verdict:** Adopt, on two conditions: a stored summary is served only when its sections fingerprint matches the current report, and failed, timed-out or empty model responses are never stored.
+
+Files are in `.flow-tmp/`:
+- `plan.md`
+- `pr-description-draft.md`
+
+**Next action:** Read `.flow-tmp/plan.md`, especially the open questions on the assumptions above. Once you approve it, implementation can start with `/flow-new-feature`.

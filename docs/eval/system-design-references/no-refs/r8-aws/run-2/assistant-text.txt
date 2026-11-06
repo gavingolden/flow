@@ -1,0 +1,28 @@
+## Planning complete: plan and PR draft written
+
+I wrote both files and changed nothing else. The working tree is clean and nothing was implemented.
+- `.flow-tmp/plan.md`
+- `.flow-tmp/pr-description-draft.md`
+
+**The plan changes what you asked for.** Each section takes about 20–60 seconds to generate, and `template.yaml` limits the function to 29 seconds, so five model calls can't finish inside one request. The plan makes `POST /reports` return a report id right away (HTTP 202). A queued worker then makes one model call per section, and you fetch the finished report with the existing `GET /reports/{id}`.
+
+- **Problem:** Nothing in the API can create a report today. Running five model calls inside a single request won't fit the time limit, and an open endpoint would let anyone run up model costs.
+- **Tasks:** 7, in order:
+  1. Fix the build and test setup. The planner says `npm run build` fails because there's no `tsconfig.json` and no TypeScript or test packages.
+  2. Add a metrics helper.
+  3. Add a 75-second timeout and error checking to the model client.
+  4. Add database writes for reports; the last section to finish marks the report complete.
+  5. Add the `POST /reports` handler.
+  6. Add the worker that generates each section, retrying up to 3 times.
+  7. Wire it all into `template.yaml`. This also fixes the existing GET function, which currently has no table name or table permission.
+- **Possible follow-up:** requiring an API key on `GET /reports/{id}`. It's left out because it would break existing readers.
+- **Decisions you need to make:**
+  - **The five sections:** your request doesn't name them. The plan uses placeholders: overview, products, market, financials, risks.
+  - **Spend limit:** 50 report requests per day, enforced by an API key on `POST` only. That key is the only cap on model costs, so dropping it means choosing another limit.
+  - **Biggest risk:** the API-key setup in `template.yaml` hasn't been checked with the SAM CLI. If SAM rejects it, the fallback gives the GET endpoint a new URL.
+- **Research:** skipped. The answer depends on limits in `template.yaml` and `src/llm.ts`, not on anything to look up online.
+- **Verdict:** adopt with conditions. `POST /reports` responds with a report id within 10 seconds, a queued worker generates each section, and the existing `GET /reports/{id}` returns the status plus the sections.
+
+**Two of the planner's claims are unconfirmed.** It says three plan checks (`flow-plan-lint`, `flow-candidate-issues --lint`, `flow-test-steps-lint`) passed and that `npm run build` fails today. But it seems to have had only file read and write tools, with no way to run commands. So the failing build is likely an inference from `package.json`, and the checks may never have run.
+
+**Next action:** settle the five section names, the 202 response, and the API-key limit. Then implementation can start with `/flow-new-feature add a POST /reports endpoint that generates a company report by calling the model API once for each of five sections`. I've stopped here as you asked.

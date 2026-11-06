@@ -1,0 +1,21 @@
+## Plan written, stopped before implementation
+
+Both files are written and non-empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. No source files changed (the git working tree is clean). As you asked, I stopped here and didn't implement anything or start a later phase.
+
+- **Problem:** Once a saved report's five sections are written, they never change, so readers see stale text with no warning. A nightly refresh costs five paid model calls per report, each taking 20–60 seconds. Two existing gaps make this riskier: nothing caps the spend, and `src/llm.ts` currently saves a blank section when a model call fails.
+- **Tasks:** 5, in this order:
+  1. Make failed model calls raise an error, and add a timeout to each call.
+  2. Add the section titles and a query that finds reports due for a refresh.
+  3. Add a metrics helper, the repo's first metrics file.
+  4. Build the nightly scheduler and the per-report refresh. Each report runs as one Cloudflare Workflow with one step per section, and its new sections are saved only if all five succeed.
+  5. Add the nightly trigger and the workflow to the Wrangler deploy config.
+- **Candidates:** 1 possible follow-up, left unticked: refresh only the reports readers actually open.
+- **Decisions you need to make:**
+  - **The five section titles:** the repo doesn't record them, so the plan can't be built until you list them in order.
+  - **The nightly cap:** the plan uses a placeholder of 50 reports per night. If every retry is used, that is up to 750 paid model calls a night. Please confirm or change it before deploying.
+- **Lower-confidence choice:** the plan uses Cloudflare Workflows rather than a queue, so that if the fifth section fails, only that section is retried and the first four aren't paid for again. This rests on platform limits found in one web research pass. A second pass to check them failed on a usage quota, so they haven't been verified.
+- **Vetting verdict:** adopt-with-conditions. There must be a nightly cap on reports refreshed (so paid calls per night never exceed 15 × the cap), enforced in one place, the scheduler. And if any section fails, the report's existing sections and `updated_at` stay as they were.
+
+The planning step also wrote `.flow-tmp/excluded-paths.json` (the two approaches it rejected) and `.flow-tmp/research-status.json`.
+
+**Next action:** Answer the two decisions above (in `plan.md`'s Open Questions), then run `/flow-new-feature refresh every saved report nightly by regenerating its five sections`, or hand the plan to `/flow-pipeline`.

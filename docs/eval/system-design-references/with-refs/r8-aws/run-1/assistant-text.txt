@@ -1,0 +1,20 @@
+## Plan written, with a push back: build `POST /reports` as an async endpoint
+
+The plan and PR description draft are both written in `.flow-tmp/`. I stopped there as asked, so nothing is implemented. The plan recommends changing the request: building the endpoint to return the finished report in one call can't work. One section's model call takes about 20–60 s, and API Gateway (REST) cuts every request off at 29 s.
+
+- **Verdict (verbatim):** "push back: return 202 with a report id and generate the five sections asynchronously, one queued task per section, polled through the existing GET /reports/{id}"
+- **What the plan proposes:** `POST /reports` returns a report id right away. Each of the five sections is then generated as its own queued task, which calls the model API once. The caller checks progress through the existing `GET /reports/{id}`.
+- **Tasks:** 7. Three of them fix things already broken in the repo:
+  - `template.yaml` gives the existing read endpoint no table name and no DynamoDB permissions.
+  - That endpoint's import fails when loaded as an ES module.
+  - There is no working test or build setup, so `npm test` can't run yet.
+- **Follow-up issues:** 2 proposed, neither filed yet: require an API key on `GET /reports/{id}`, and delete stored reports after a retention period.
+- **Questions only you can answer:**
+  - **Q1:** Which five sections a report contains. The plan uses a placeholder list.
+  - **Q2:** How many reports to allow per day. This is the spending limit; the placeholder is 100/day, and a report costs up to 10 paid model calls if every section is retried once.
+  - **Q3:** Whether the model API needs a credential and accepts 5 calls at once. The current client in `src/llm.ts` sends no credential.
+- **Research gap:** The AWS facts behind the async decision (the 29 s limit, the return-an-id-then-poll pattern, Lambda's retry behaviour) were not checked by a second model. Both of those checking steps failed because the research tool (agy) ran out of usage quota. The planner still rates the async decision as high confidence.
+
+The planner's checks on the plan, the follow-up issues and the PR's test steps all passed. I only confirmed that both files exist and aren't empty; I didn't read them.
+
+**Next action:** Read `.flow-tmp/plan.md`. Decide whether the async design is acceptable or whether you need a synchronous response, and answer Q1–Q3. Then start implementation with `/flow-new-feature add a POST /reports endpoint that generates a company report by calling the model API once for each of five sections`.

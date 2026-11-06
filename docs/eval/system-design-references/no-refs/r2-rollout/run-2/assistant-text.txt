@@ -1,0 +1,27 @@
+## Planning done: the plan recommends splitting the rename across two releases
+
+The plan and PR description draft are written, and the plan checkers passed with no findings. I stopped there: nothing is implemented and no later phase has started.
+
+- **Problem:** Each generate-section task looks up its section by title, and titles don't have to be unique within a report. One task can therefore overwrite several sections, or pay for a model call whose output isn't saved anywhere. Doing the rename and the task change in one release would also break the running service during deploy, because `./deploy.sh` doesn't run migrations. The report page would error, and tasks already in the queue would be dropped or run twice.
+- **Tasks:** 5.
+  1. A migration that adds `content` and copies existing `body` values into it.
+  2. Section save and lookup by id, writing to both columns.
+  3. A small metrics helper that counts tasks still keyed by name.
+  4. The worker and the enqueue helper switch to section ids, but still accept tasks keyed by name.
+  5. The repo's first tests.
+- **Follow-up issues proposed (3):**
+  - Drop `body` and the name-keyed task format once the queue has drained.
+  - The task endpoint can be called by anyone, so anyone can trigger paid model calls.
+  - The model call has no timeout, no failure check and no retry limit.
+- **Assumptions to check:**
+  - **The rename ships in two releases.** This PR adds `content` and keeps `body` in sync; a later PR removes `body`. That's why the plan recommends a narrower scope than the literal request. If brief downtime during deploy is acceptable, a single-step rename is simpler.
+  - **The report API keeps returning the field as `body`,** because the code that reads it lives outside this repo.
+  - **The biggest risk:** nothing in this repo calls the enqueue helper. Whatever actually queues these tasks lives somewhere else, and until it sends ids, name-keyed tasks keep arriving and `body` can't be dropped.
+- **Research:** skipped, since this didn't need web research.
+- **Vetting verdict:** adopt-with-conditions: no release both renames `body` and stops reading it, and the worker keeps accepting name-keyed tasks until none have arrived for 7 days in a row.
+
+Files are in `.flow-tmp/`:
+- plan.md
+- pr-description-draft.md
+
+**Next action:** Read the "Open Questions" section in `.flow-tmp/plan.md`, especially the two-release split. If you'd rather rename in one step, ask for a revision; otherwise run `/flow-new-feature` with the original description to implement it.

@@ -1,0 +1,16 @@
+## Plan ready: nightly refresh of saved reports
+
+Both files are written and non-empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. I didn't implement anything or start any later step, and `git status` shows no source changes.
+
+- **Problem:** Saved reports are written once and never updated, so they get older every day. The code that calls the model and writes sections already exists, but nothing calls it to regenerate a report.
+- **Tasks:** 9, in this order: database schema, deploy config, a metrics helper, making the model client more robust, saving to the database, the nightly scheduled run plus a queue that processes the reports, then three test tasks. Each night, every report gets its own job. Each section is saved as soon as it finishes, so a retry only pays again for the section that failed. A report is replaced only when all five new sections succeed. Every model call counts against a nightly call limit before it runs.
+- **Candidates:** 1 follow-up, not yet approved: skip refreshing reports nobody has opened recently.
+- **Top assumptions:**
+  - **Q3 (needs your input):** the model is sent only the company name and the section name. Unless the model provider pulls in live data, a nightly refresh just rewords the same facts, at about 150 paid calls per report per month. A blind second-opinion check agreed the code can't answer this, so it decides whether the feature is worth building.
+  - **Q1 and Q2 (need your input):** the names of the five sections, which appear nowhere in the code, and how high the nightly call limit should be.
+- **Research:** Skipped, because nothing needed looking up: the Cloudflare limits the plan depends on were already documented in the skill's reference files.
+- **Vetting verdict:** adopt with conditions. Nightly model calls never go over the configured limit, and a report is overwritten only when all five of its sections regenerated successfully that night.
+
+To keep to the two files you asked for, the planner skipped its optional extra files and deleted two scratch files it had created in `.flow-tmp/`. Two rejected approaches are recorded under Technical Constraints in the plan: doing the work directly inside the scheduled nightly run, or after a web response has been sent.
+
+**Next action:** answer Q1–Q3 in `.flow-tmp/plan.md`, starting with Q3. Then run `/flow-new-feature refresh every saved report nightly by regenerating its five sections` to build it.

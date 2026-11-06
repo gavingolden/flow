@@ -1,0 +1,96 @@
+{
+  "id": "r2-rollout",
+  "title": "Rollout: rename a column and change a queued task payload while tasks are in flight",
+  "provenance": "Synthetic scenario for the system-design-references suite: measures whether the matching flow-system-design reference file changes the plan's Task breakdown.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture"
+  },
+  "graders": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "exists": true
+    },
+    {
+      "id": "keep-plan",
+      "kind": "command",
+      "gate": false,
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/keep-plan.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "$ASSISTANT_TEXT"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "expand-contract",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "expand|contract|backfill|dual[- ]?(?:write|read)|both columns|(?:two|separate|later|follow-?up) (?:deploy|release|migration)"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "payload-compat",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "(?:old|previous|both|in-?flight|queued|existing)[^\\n]*(?:payload|task|message)s?[^\\n]*(?:accept|handle|support|drain|shape|format)|payload[^\\n]*version|version[^\\n]*payload|accepts? both"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "rollback",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "roll ?back|revert"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

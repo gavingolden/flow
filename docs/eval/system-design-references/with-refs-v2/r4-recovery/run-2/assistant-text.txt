@@ -1,0 +1,22 @@
+## Plan ready: contracts upload (planning only, no code written)
+
+The plan and PR description draft are written: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. No source files changed and nothing was committed. I stopped after planning, as you asked.
+
+- **Problem:** Customers have no way to give the service their signed contracts. The service also has no caller authentication today, so an upload route built exactly as described would let anyone on the internet store files in your Cloud Storage bucket.
+- **Tasks:** 7, in order:
+  1. A migration for the `contracts` table.
+  2. Database helpers in `src/db.ts`.
+  3. A metrics helper.
+  4. A Cloud Storage client module.
+  5. The upload handler and route.
+  6. Tests.
+  7. Bucket setup in `deploy.sh`, plus a check that database point-in-time recovery is on.
+- **Follow-up issues:** 3 suggested. One is ticked for filing: lock down the existing section-generation route, which lets anyone trigger paid model calls today. Two are unticked: a retention lock on the contracts bucket, and a way to list and download stored contracts.
+- **Two questions need your answer:**
+  - **Q1: who uploads?** The plan assumes a trusted app uploads using one shared key, with the customer id in the URL. If customers will upload straight from a browser, that key can't be given to them and the auth design has to change.
+  - **Q2: is point-in-time recovery on for the production Cloud SQL database?** The new check in `deploy.sh` fails if it isn't.
+- **Other assumptions:** files go through the service, capped at 25 MiB (Cloud Run refuses requests over 32 MiB). The PDF's digital signature is not verified.
+- **Research was only partly done:** the web research ran, but the step that cross-checks its findings hit a quota limit on both attempts. The plan marks those findings as unchecked.
+- **Verdict on the request:** go ahead, with conditions. The upload route must reject requests without the upload key (401) and files that aren't PDFs (415) before anything reaches Cloud Storage, and reject files over 25 MiB (413).
+
+**Next action:** answer Q1 and Q2 in `.flow-tmp/plan.md`, mainly Q1, since it decides the auth design. Then build it with `/flow-new-feature let customers upload their signed PDF contracts; store the files in Cloud Storage and record each one in a new \`contracts\` table`.

@@ -1,0 +1,35 @@
+## Planning complete: `POST /reports`
+
+The plan and the PR description draft are written. As you asked, I stopped there: no code was changed and no later phase was started. I checked that both files exist and aren't empty. I didn't read through the plan myself; this summary comes from the planning agent that wrote it.
+
+- **Problem:** The service can read and share company reports but can't create one. Each report takes five model calls of 20–60 seconds each, and every call costs money. The service is public and has no authentication, so how generation runs decides both how long callers wait and how much an abusive caller could spend.
+- **Tasks:** 6:
+  1. Harden the model client. Right now it has no timeout and turns API errors into blank section text.
+  2. Add one spend cap.
+  3. Add a metrics helper and define which metrics to report.
+  4. Build report generation, including detection of repeated requests.
+  5. Add the `POST /reports` route.
+  6. Update the deploy settings.
+- **Follow-up issues:** 2 suggested.
+  - Move generation to a queue and store reports in a database. This one is selected for filing, because reports are currently kept in memory and every deploy erases them.
+  - Decide who may read and share a report. This one isn't selected.
+- **Decisions to check:**
+  - **Two questions need your answer:**
+    - **Section names:** the plan uses a placeholder list of five.
+    - **Spend cap:** the plan uses 100 reports a day with at most 4 running at once, which is at most 500 model calls a day.
+  - **Main design choice (medium confidence):** the caller waits about a minute for the response while the five sections are generated in parallel. The alternative, returning a ticket the caller checks back on, would need a database and a task queue the repo doesn't have.
+  - **One server instance:** the service is limited to a single instance so the in-memory reports and the caps stay consistent. The cost is that it can't scale out.
+  - **API key:** the new endpoint requires one. Deploying will fail until a `reports-api-key` secret exists in Secret Manager.
+- **Research:** skipped, because this isn't a question web research would help with.
+- **Verdict:** go ahead with three conditions:
+  - The five section calls run in parallel, with a 160-second deadline for the whole report (under the 180-second request timeout).
+  - Every report goes through one shared cap on concurrent and daily reports.
+  - The service runs at most one instance.
+
+The plan passed its three automated format checks.
+
+Files are in `.flow-tmp/`:
+- `plan.md`
+- `pr-description-draft.md`
+
+**Next action:** answer the section-names and spend-cap questions in `plan.md`. Then run `/flow-new-feature add a \`POST /reports\` endpoint that generates a company report by calling the model API once for each of five sections` when you want to implement it.

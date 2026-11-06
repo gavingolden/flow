@@ -1,0 +1,26 @@
+## Planning done: plan written, and it pushes back on the request as stated
+
+Both files are written and non-empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. `git status` is clean, so no source files changed. I stopped there; nothing is implemented and no later phase has started.
+
+- **Problem:** The service can read and share reports but can't create one. Making five model calls one after another inside the request is risky. At 20–60 s per call, the request can run into Cloud Run's 300 s limit. A report kept in one server's memory is lost on restart and can't be seen from other instances. And the service is public with no limit on model spend.
+- **Tasks:** 7 in total:
+  1. A metrics helper.
+  2. A timeout and status check on the model client.
+  3. Durable storage in Firestore.
+  4. A Cloud Tasks queue client.
+  5. A background worker that saves each section as it finishes.
+  6. The `POST /reports` endpoint, plus changes to reading and sharing reports.
+  7. Deploy and Dockerfile changes.
+
+  The plan passed the three plan-format checks (`flow-plan-lint`, `flow-candidate-issues --lint`, `flow-test-steps-lint`).
+- **Top assumptions:**
+  - **Two questions need your answer.** Both ship with placeholders until you decide:
+    - **Q1, the five sections.** Placeholder: Overview / Products and Services / Market and Competition / Financial Highlights / Risks and Outlook.
+    - **Q2, the daily cap.** Placeholder: 50 reports per day, which is at most 750 model calls counting retries.
+  - **The biggest bet:** `POST /reports` answers `202` right away and the caller checks back with `GET /reports/:id`, instead of getting the finished report in the response. If your caller can't poll, the plan has a fallback that returns the report inline (Decision 1).
+- **Research:** Skipped; the planner judged this wasn't a question web research would help with. You can force it with `flow feature create --research`.
+- **Vetting verdict:** push back: accept the request with 202 and generate the five sections in one queued background task over a durable store, behind an API key and a daily report cap, with a status the caller polls
+
+This means the plan adds an API key, Firestore storage and a Cloud Tasks queue, which is more infrastructure than "add an endpoint" suggests. If you'd rather have the simple version, say so before implementation.
+
+**Next action:** Answer Q1 and Q2 and confirm the 202-and-poll approach. Then run `/flow-new-feature add a \`POST /reports\` endpoint that generates a company report by calling the model API once for each of five sections` to implement it.

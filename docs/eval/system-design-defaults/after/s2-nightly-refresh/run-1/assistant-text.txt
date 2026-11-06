@@ -1,0 +1,19 @@
+## Planning finished: the plan recommends waiting until reports can be saved
+
+I wrote `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`, and both are non-empty. No project source files were changed, and no later pipeline phase was started.
+
+- **Problem:** The service can't save a report yet. No route creates one, and reports are kept only in each server's memory, so they're lost on restart and every instance starts empty. A nightly refresh would find nothing to refresh.
+- **Tasks:** 6, in this order:
+  1. Make report storage durable (two tasks).
+  2. Add a timeout and failure handling to the model client in `src/llm.ts`.
+  3. Add metrics.
+  4. Build the nightly job: one run per night, oldest reports first, stopping when it reaches a cap on paid model calls.
+  5. Add the job and its schedule to `deploy.sh`.
+- **Follow-up issues:** 2 are proposed. One is adding a way to save reports, which the whole plan depends on. The other is adding a login check to the share action: right now anyone can call it to share any report.
+- **Questions you need to answer:**
+  - **Q1:** Does regenerating a section with the same prompt produce newer facts, or just new wording? The prompt has no date and no new input. If it's only new wording, the plan recommends dropping the feature rather than paying for it every night. A second, independent review couldn't settle this from the code either.
+  - **Q2:** What should the nightly cap on paid model calls be? The plan uses 500 for now.
+- **Research:** Web research was skipped because this isn't a question the web can answer. You can force it with `flow feature create --research`.
+- **Verdict:** `- **Verdict:** push back: land report saving on a durable store first, then ship this nightly refresh under a per-night paid-call ceiling`
+
+**Next action:** Answer Q1 and Q2 in `.flow-tmp/plan.md`. If you still want the feature, build report saving first; then run `/flow-new-feature refresh every saved report nightly`. I've stopped here as you asked.
