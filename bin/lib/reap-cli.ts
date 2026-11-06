@@ -1,6 +1,6 @@
 /**
  * `flow reap` — the user-facing verb backing a host-wide (or `--slug`
- * scoped) cleanup of processes left by dead pipelines. Composes THREE
+ * scoped) cleanup of processes left by dead pipelines. Composes FOUR
  * independently-authored sweeps behind one report:
  *
  *   - the registry sweep (`bin/lib/proc-sweep-run.ts`, verified pid+pgid+
@@ -12,7 +12,12 @@
  *     never widened by a bare `--yes` alone;
  *   - the agy stray sweep (`bin/lib/agy-strays.ts`, orphaned flow-launched
  *     agy runs, SIGTERM then SIGKILL with a start-time re-check before each
- *     signal) — behind the same `--include-strays` gate.
+ *     signal) — behind the same `--include-strays` gate;
+ *   - the worktree-leftover sweep (`bin/lib/worktree-orphans-run.ts`, every
+ *     unrecorded orphan whose cwd is inside a pipeline's worktree and whose
+ *     process-group leader is dead) — behind the same gate AND only for a
+ *     pipeline whose session has positively ended. Busy leftovers outside
+ *     every worktree are listed, never signalled.
  *
  * Report-only unless `--yes`. Never passes `--record` and never writes to
  * `~/.flow/state/<slug>.json` — a host-wide sweep touches OTHER pipelines'
@@ -22,8 +27,18 @@
 
 import { argsContainHelp, printVerbHelp } from "./help";
 import { isValidSlug } from "./slug";
-import { readState } from "./state";
-import { pidStartEpoch } from "./liveness";
+import { listStates, readState } from "./state";
+import { livenessOf, pidStartEpoch } from "./liveness";
+import {
+  defaultOrphanSweepDeps,
+  findBusyOutsideWorktrees,
+  renderOrphanSweepLine,
+  stoppedCount,
+  sweepWorktreeOrphans,
+  type OrphanSweepDeps,
+  type OutsideOrphan,
+  type WorktreeOrphanSweepResult,
+} from "./worktree-orphans-run";
 import type { ReapDeps } from "./reap";
 import { runProcSweep, type ProcSweepResult } from "./proc-sweep-run";
 import {
@@ -105,6 +120,14 @@ export type ReapCliResult = {
   registry: ProcSweepResult;
   heuristic: OrphanSweepResult;
   agy: AgyStraySweepResult;
+  /** One sweep per pipeline with a worktree; acted on only for an ended session. */
+  worktreeOrphans: Array<{
+    slug: string;
+    sessionAlive: boolean;
+    result: WorktreeOrphanSweepResult;
+  }>;
+  /** Busy leaderless orphans outside every worktree; report-only, never signalled. */
+  outsideOrphans: OutsideOrphan[];
   /** Recorded phase of each pipeline whose session is still open. */
   phases: Record<string, string>;
 };
@@ -171,6 +194,14 @@ function summarizeRegistry(result: ReapCliResult) {
     browsers: result.heuristic.found?.length ?? 0,
     servers: result.heuristic.foundServers?.length ?? 0,
     agyStrays: result.agy?.found?.length ?? 0,
+    leftovers: (result.worktreeOrphans ?? []).reduce(
+      (n, w) => n + (w.result.found?.length ?? 0),
+      0,
+    ),
+    leftoversStopped: (result.worktreeOrphans ?? []).reduce(
+      (n, w) => n + stoppedCount(w.result),
+      0,
+    ),
     running,
     totalRows,
   };
@@ -214,6 +245,15 @@ function summaryLine(
     parts.push(plural(m.servers, "stray mcp server", "stray mcp servers"));
   if (m.agyStrays > 0)
     parts.push(plural(m.agyStrays, "stray agy run", "stray agy runs"));
+  if (result.yes && m.leftoversStopped > 0) {
+    parts.push(
+      `stopped ${plural(m.leftoversStopped, "leftover process", "leftover processes")}`,
+    );
+  } else if (m.leftovers > 0) {
+    parts.push(
+      `${plural(m.leftovers, "leftover process", "leftover processes")} in pipeline worktrees`,
+    );
+  }
   if (m.investigate > 0)
     parts.push(
       `${m.investigate} ${m.investigate === 1 ? "needs" : "need"} investigation`,
@@ -224,7 +264,7 @@ function summaryLine(
   return `Summary: ${parts.join(", ")}`;
 }
 
-function renderTextReport(result: ReapCliResult): string {
+export function renderTextReport(result: ReapCliResult): string {
   const lines: string[] = [];
   const m = summarizeRegistry(result);
 
@@ -330,6 +370,26 @@ function renderTextReport(result: ReapCliResult): string {
 
   lines.push("");
   lines.push(
+    "Leftover processes in pipeline worktrees (unrecorded orphans whose working directory is in the worktree and whose launching shell has exited; acted on only with --yes --include-strays, and never while the pipeline's session is open):",
+  );
+  const withFindings = (result.worktreeOrphans ?? []).filter(
+    (w) => !w.result.ran || w.result.found.length > 0,
+  );
+  if (withFindings.length === 0) lines.push("  (none found)");
+  for (const w of withFindings) {
+    const held = w.sessionAlive
+      ? " — left to the live pipeline (session not confirmed ended)"
+      : "";
+    lines.push(`  ${w.slug}: ${renderOrphanSweepLine(w.result)}${held}`);
+  }
+  for (const o of result.outsideOrphans ?? []) {
+    lines.push(
+      `  outside every worktree (report-only, never signalled): pid ${o.pid} ${o.command0}, ${Math.round(o.groupCpuRatio * 100)}% of a core, running ${Math.round(o.ageSec / 60)} min`,
+    );
+  }
+
+  lines.push("");
+  lines.push(
     result.yes
       ? "Ran with --yes."
       : `Report-only. To act on registered rows: flow reap${result.slug ? ` --slug ${result.slug}` : ""} --yes` +
@@ -361,6 +421,7 @@ export function collectReapReport(opts: {
   baseDir?: string;
   stateDir?: string;
   deadlineMs?: number;
+  orphanDeps?: OrphanSweepDeps;
 }): ReapCliResult {
   const yes = opts.yes ?? false;
   const includeStrays = opts.includeStrays ?? false;
@@ -395,6 +456,9 @@ export function collectReapReport(opts: {
     yes: yes && includeStrays,
   });
 
+  const worktreeOrphans = sweepWorktrees(opts, yes && includeStrays);
+  const outsideOrphans = opts.slug === undefined ? outsideWorktrees(opts) : [];
+
   const phases: Record<string, string> = {};
   for (const s of registry.slugs) {
     if (!s.classified.some((c) => c.verdict === "alive")) continue;
@@ -410,8 +474,74 @@ export function collectReapReport(opts: {
     registry,
     heuristic,
     agy,
+    worktreeOrphans,
+    outsideOrphans,
     phases,
   };
+}
+
+function orphanDepsFor(opts: {
+  stateDir?: string;
+  orphanDeps?: OrphanSweepDeps;
+}): OrphanSweepDeps {
+  return opts.orphanDeps ?? defaultOrphanSweepDeps({ stateDir: opts.stateDir });
+}
+
+function outsideWorktrees(opts: {
+  stateDir?: string;
+  orphanDeps?: OrphanSweepDeps;
+}): OutsideOrphan[] {
+  try {
+    return findBusyOutsideWorktrees(orphanDepsFor(opts));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * One sweep per pipeline that recorded a worktree (one with `--slug`). Acts
+ * only when `act` and the state channel positively shows the session ended
+ * ("dead"/"stale"); an alive or unverifiable session is reported and held.
+ * Never writes any state file.
+ */
+function sweepWorktrees(
+  opts: {
+    slug?: string;
+    stateDir?: string;
+    deadlineMs?: number;
+    orphanDeps?: OrphanSweepDeps;
+  },
+  act: boolean,
+): ReapCliResult["worktreeOrphans"] {
+  const deps = orphanDepsFor(opts);
+  const started = Date.now();
+  const out: ReapCliResult["worktreeOrphans"] = [];
+  for (const state of listStates(opts.stateDir)) {
+    if (!state.worktree) continue;
+    if (opts.slug !== undefined && state.slug !== opts.slug) continue;
+    if (
+      opts.deadlineMs !== undefined &&
+      Date.now() - started > opts.deadlineMs
+    ) {
+      break;
+    }
+    const liveness = livenessOf(state);
+    const sessionAlive = liveness !== "dead" && liveness !== "stale";
+    try {
+      out.push({
+        slug: state.slug,
+        sessionAlive,
+        result: sweepWorktreeOrphans(deps, {
+          worktree: state.worktree,
+          act: act && !sessionAlive,
+          busyOnly: false,
+        }),
+      });
+    } catch {
+      // one pipeline's failed read must not hide the others
+    }
+  }
+  return out;
 }
 
 /**

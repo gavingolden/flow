@@ -190,6 +190,9 @@ export const MODULES: ModuleDefinition[] = [
       "flow-ui-capture",
       "flow-test-audit",
       "flow-skill-overlay",
+      "flow-stress",
+      "flow-bg-loop-guard",
+      "flow-orphan-sweep-hook",
     ],
     validators: [
       "flow-pr-review-result-schema",

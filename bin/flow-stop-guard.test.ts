@@ -9,6 +9,7 @@ import {
   hasWakingBackgroundWork,
   NEXT_STEP_BY_PHASE,
   nextStepLabel,
+  orphanNotice,
   run,
   type Deps,
 } from "./flow-stop-guard";
@@ -26,6 +27,7 @@ import {
 } from "./lib/stop-turn-tracking";
 import type { RepoState } from "./lib/epic-metadata-commit";
 import type { GuardCapability } from "./lib/base-branch-guard";
+import type { WorktreeOrphanSweepResult } from "./lib/worktree-orphans-run";
 
 const FROZEN_NOW = "2026-05-17T00:00:00.000Z";
 
@@ -1093,5 +1095,134 @@ describe("reminders name commands, not display labels", () => {
     expect(joined).not.toMatch(/NEEDS HUMAN|MERGED|GATED/);
     expect(joined).toContain("DO NOT END THE TURN");
     expect(joined).toContain("phase has not advanced");
+  });
+});
+
+describe("flow-stop-guard leftover sweep", () => {
+  function sweepResult(
+    over: Partial<WorktreeOrphanSweepResult> = {},
+  ): WorktreeOrphanSweepResult {
+    return {
+      ran: true,
+      act: true,
+      busyOnly: true,
+      found: [
+        {
+          pid: 1,
+          pgid: 9,
+          ageSec: 720,
+          groupCpuRatio: 0.9,
+          busy: true,
+          command0: "sleep",
+          descendants: [],
+        },
+      ],
+      signalled: [1, 2, 3],
+      killed: [],
+      stillAlive: [],
+      skippedRecycled: [],
+      ...over,
+    };
+  }
+
+  async function runWith(
+    state: PipelineState,
+    sweep: Deps["sweepOrphans"],
+    stdin = "",
+  ) {
+    const s = makeDeps({ slug: state.slug, state, stdin });
+    const outs: string[] = [];
+    const recorded: Array<[string, number]> = [];
+    const code = await run({
+      ...s.deps,
+      writeOut: (o) => outs.push(o),
+      sweepOrphans: sweep,
+      recordStops: (slug, n) => recorded.push([slug, n]),
+    });
+    return { code, outs, errs: s.errLines, recorded };
+  }
+
+  it("formats the notice and omits it when nothing was stopped", () => {
+    expect(orphanNotice(sweepResult())).toContain(
+      "flow stopped 3 leftover processes from this pipeline's worktree (busy, oldest 12 min)",
+    );
+    expect(orphanNotice(sweepResult({ signalled: [] }))).toBeNull();
+    expect(orphanNotice(null)).toBeNull();
+  });
+
+  it("emits one systemMessage on an exit-0 terminal stop and records the own slug's count", async () => {
+    const r = await runWith(fakeState("gated", { worktree: "/w/demo" }), () =>
+      sweepResult(),
+    );
+    expect(r.code).toBe(0);
+    expect(r.outs).toHaveLength(1);
+    expect(JSON.parse(r.outs[0]!).systemMessage).toContain(
+      "flow stopped 3 leftover processes",
+    );
+    expect(r.recorded).toEqual([["demo", 3]]);
+  });
+
+  it("writes a stderr line on an exit-2 block", async () => {
+    const r = await runWith(
+      fakeState("implementing", { worktree: "/w/demo" }),
+      () => sweepResult(),
+    );
+    expect(r.code).toBe(2);
+    expect(r.outs).toEqual([]);
+    expect(r.errs.join("")).toContain("flow stopped 3 leftover processes");
+  });
+
+  it("merges the notice into the single needs-human systemMessage", async () => {
+    const s = makeDeps({
+      slug: "demo",
+      state: fakeState("gating", { pr: 950, worktree: "/w/demo" }),
+      stdin: JSON.stringify({ stop_hook_active: true }),
+      turnTracking: fakeTracking({
+        blockCount: TURN_BLOCK_LIMIT + STAGNATION_PAUSE_LIMIT - 1,
+        lastPhase: "gating",
+      }),
+    });
+    const outs: string[] = [];
+    const code = await run({
+      ...s.deps,
+      writeOut: (o) => outs.push(o),
+      sweepOrphans: () => sweepResult(),
+      recordStops: () => {},
+    });
+    expect(code).toBe(0);
+    expect(outs).toHaveLength(1);
+    const msg = JSON.parse(outs[0]!).systemMessage as string;
+    expect(msg).toContain("flow paused this pipeline (needs-human)");
+    expect(msg).toContain("flow stopped 3 leftover processes");
+  });
+
+  it("stays silent and records nothing for an idle-only result", async () => {
+    const r = await runWith(fakeState("gated", { worktree: "/w/demo" }), () =>
+      sweepResult({ signalled: [], found: [] }),
+    );
+    expect(r.outs).toEqual([]);
+    expect(r.recorded).toEqual([]);
+  });
+
+  it("keeps the same exit code when the sweep throws", async () => {
+    const throwing = () => {
+      throw new Error("ps blew up");
+    };
+    const blocked = await runWith(
+      fakeState("implementing", { worktree: "/w/demo" }),
+      throwing,
+    );
+    const ended = await runWith(
+      fakeState("gated", { worktree: "/w/demo" }),
+      throwing,
+    );
+    expect([blocked.code, ended.code]).toEqual([2, 0]);
+    expect(ended.outs).toEqual([]);
+  });
+
+  it("does not sweep when the state has no worktree", async () => {
+    const sweep = vi.fn(() => sweepResult());
+    await runWith(fakeState("gated"), sweep);
+    expect(sweep).not.toHaveBeenCalled();
   });
 });

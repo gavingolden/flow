@@ -51,6 +51,13 @@ import {
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { isValidSlug } from "./lib/slug";
 import { readState, writeState, type ReapRecord } from "./lib/state";
+import {
+  defaultOrphanSweepDeps,
+  stoppedCount,
+  sweepWorktreeOrphans,
+  type OrphanSweepDeps,
+  type WorktreeOrphanSweepResult,
+} from "./lib/worktree-orphans-run";
 
 // --- Core types --------------------------------------------------------
 
@@ -337,6 +344,8 @@ export type ReapEnvelope = {
   fallback: TeardownResult | null;
   fallbackSkipReason: "registry-covered" | "not-gated" | "no-servers" | null;
   postRegistered: number;
+  orphans: WorktreeOrphanSweepResult | null;
+  orphansSkipReason: "no-slug" | "no-state" | "no-worktree" | null;
 };
 
 /**
@@ -382,8 +391,41 @@ export function runReapMode(
     timeoutMs: number;
     sessionPid?: number;
     baseDir?: string;
+    orphanDeps?: OrphanSweepDeps;
   },
 ): ReapEnvelope {
+  const base = reapRegistryAndFallback(deps, opts);
+  // The worktree arm runs on every path, including the one where a registered
+  // MCP server already covered the ancestry step.
+  const state = base.registry.slug
+    ? readState(base.registry.slug, opts.baseDir)
+    : null;
+  if (base.registry.slug === undefined) {
+    return { ...base, orphans: null, orphansSkipReason: "no-slug" };
+  }
+  if (state === null) {
+    return { ...base, orphans: null, orphansSkipReason: "no-state" };
+  }
+  if (!state.worktree) {
+    return { ...base, orphans: null, orphansSkipReason: "no-worktree" };
+  }
+  const orphans = sweepWorktreeOrphans(
+    opts.orphanDeps ?? defaultOrphanSweepDeps({ stateDir: opts.baseDir }),
+    { worktree: state.worktree, act: !opts.dryRun, busyOnly: false },
+  );
+  return { ...base, orphans, orphansSkipReason: null };
+}
+
+function reapRegistryAndFallback(
+  deps: Deps,
+  opts: {
+    dryRun: boolean;
+    slug?: string;
+    timeoutMs: number;
+    sessionPid?: number;
+    baseDir?: string;
+  },
+): Omit<ReapEnvelope, "orphans" | "orphansSkipReason"> {
   // `resolveSlugFromEnv` returns `null`, not `undefined` — `runRegistryReap`
   // keys its `skipReason: "no-slug"` branch on `undefined`, so this must be
   // normalised before the call.
@@ -502,7 +544,13 @@ export function summarizeReapEnvelope(envelope: ReapEnvelope): string {
   const fallbackLine = envelope.fallback
     ? `fallback: ran=true signalled=${envelope.fallback.signalled.length} stillAlive=${envelope.fallback.stillAlive.length}`
     : `fallback: ran=false fallbackSkipReason=${envelope.fallbackSkipReason ?? "none"}`;
-  return `flow-browser-teardown --reap: ${registryLine} | ${fallbackLine} | postRegistered=${envelope.postRegistered}`;
+  const o = envelope.orphans;
+  const orphansLine = o
+    ? o.ran
+      ? `orphans: found=${o.found.length} stopped=${stoppedCount(o)} stillAlive=${o.stillAlive.length}`
+      : `orphans: ran=false skipReason=${o.skipReason ?? "none"}`
+    : `orphans: ran=false skipReason=${envelope.orphansSkipReason ?? "none"}`;
+  return `flow-browser-teardown --reap: ${registryLine} | ${fallbackLine} | ${orphansLine} | postRegistered=${envelope.postRegistered}`;
 }
 
 /**
@@ -516,13 +564,30 @@ export function summarizeReapEnvelope(envelope: ReapEnvelope): string {
 export function shortReapSummary(
   envelope: ReapEnvelope,
   problems: string[],
+  earlierStopped = 0,
 ): string {
-  if (problems.length > 0) return problems.join("; ");
+  const clause = orphanClause(
+    envelope.orphans ? stoppedCount(envelope.orphans) : 0,
+    earlierStopped,
+  );
+  const withClause = (head: string): string =>
+    clause ? `${head}; ${clause}` : head;
+  if (problems.length > 0) return withClause(problems.join("; "));
   const c = envelope.registry.counts;
   const acted = c.reaped + c["already-dead"];
-  return acted === 0
-    ? "no live processes"
-    : `${c.reaped} reaped, ${c["already-dead"]} already dead`;
+  if (acted === 0) return clause || "no live processes";
+  return withClause(`${c.reaped} reaped, ${c["already-dead"]} already dead`);
+}
+
+function orphanClause(stopped: number, earlier: number): string {
+  const noun = (n: number): string =>
+    `${n} leftover process${n === 1 ? "" : "es"}`;
+  if (stopped > 0 && earlier > 0) {
+    return `${noun(stopped)} stopped, ${earlier} earlier in the run`;
+  }
+  if (stopped > 0) return `${noun(stopped)} stopped`;
+  if (earlier > 0) return `${noun(earlier)} stopped earlier in the run`;
+  return "";
 }
 
 /**
@@ -559,6 +624,9 @@ export function classifyReapEnvelope(envelope: ReapEnvelope): {
   if (envelope.fallbackSkipReason === "not-gated") {
     problems.push("fallback: not-gated");
   }
+  if (envelope.orphans && envelope.orphans.stillAlive.length > 0) {
+    problems.push(`orphans: still-alive=${envelope.orphans.stillAlive.length}`);
+  }
   return { status: problems.length > 0 ? "unclean" : "ok", problems };
 }
 
@@ -585,8 +653,15 @@ export function recordReapOutcome(
     const record: ReapRecord = {
       at: now.toISOString(),
       status,
-      summary: shortReapSummary(envelope, problems),
-      ran: envelope.registry.ran || envelope.fallback !== null,
+      summary: shortReapSummary(
+        envelope,
+        problems,
+        state.orphanStops?.count ?? 0,
+      ),
+      ran:
+        envelope.registry.ran ||
+        envelope.fallback !== null ||
+        envelope.orphans?.ran === true,
       ...(problems.length > 0 ? { problems } : {}),
     };
     writeState({ ...state, reap: record }, opts?.stateDir);

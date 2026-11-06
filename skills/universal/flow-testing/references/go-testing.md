@@ -76,3 +76,4 @@ func assertStatusOK(t *testing.T, rec *httptest.ResponseRecorder) {
 
 - Keep test helpers in the same `_test.go` file unless shared across packages.
 - Run: `cd backend && go test ./...`
+- Reproduce a timing-sensitive flake under CPU contention (never with hand-rolled background busy loops): `flow-stress --cpu 8 --max-sec 600 -- go test -race -count=200 ./handlers -run TestX`

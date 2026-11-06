@@ -322,6 +322,12 @@ export type PipelineState = {
    */
   reap?: ReapRecord;
   /**
+   * Running count of leftover worktree processes the turn-end and in-turn
+   * sweeps stopped for THIS pipeline (own slug only). Folded into the
+   * terminal CLEANUP row so mid-run stops never read as a clean run.
+   */
+  orphanStops?: { count: number; lastAt: string };
+  /**
    * Durable wall-clock anchors for the step-7 CI/Copilot wait, written by
    * `flow-ci-check` (`bin/flow-ci-check.ts`). A plain state write (like
    * `reap` above), never a `flow-state-update` phase transition —
@@ -872,6 +878,12 @@ function isCheckpointRecord(
   return true;
 }
 
+function isOrphanStops(x: unknown): x is { count: number; lastAt: string } {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
+  const o = x as Record<string, unknown>;
+  return typeof o.count === "number" && typeof o.lastAt === "string";
+}
+
 function isReapRecord(x: unknown): x is ReapRecord {
   if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
   const o = x as Record<string, unknown>;
@@ -1020,6 +1032,8 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.checkpoint !== undefined && !isCheckpointRecord(o.checkpoint))
     return false;
   if (o.reap !== undefined && !isReapRecord(o.reap)) return false;
+  if (o.orphanStops !== undefined && !isOrphanStops(o.orphanStops))
+    return false;
   if (o.ciWait !== undefined && !isCiWaitRecord(o.ciWait)) return false;
   if (o.planReview !== undefined && !isPlanReviewRecord(o.planReview))
     return false;

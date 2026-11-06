@@ -424,6 +424,14 @@ carrying flow's agy prompt preamble, past their own time limit): stopped
 with SIGTERM, then SIGKILL after a 5s grace, with the process's start time
 re-checked before each signal.
 
+A "Leftover processes in pipeline worktrees" section lists, per pipeline,
+unrecorded orphans (parent gone, no terminal, launching shell exited)
+whose working directory is inside that pipeline's worktree. --yes
+--include-strays stops them (SIGTERM, then SIGKILL after a 5s grace) only
+for a pipeline whose session has ended; a live pipeline's leftovers are
+listed as "left to the live pipeline". --slug scopes this section. Busy
+orphans outside every worktree are listed, never signalled.
+
 The report opens with a Summary: line (no leaked processes recorded, or
 what needs attention). Pipelines with no recorded processes are hidden
 behind one count line, and --yes removes their empty registries; --json
@@ -439,7 +447,8 @@ Options:
   --include-strays      also act on shape-heuristic strays (requires --yes
                         to actually signal anything; report-only alone;
                         always host-wide, never scoped by --slug)
-  --json                emit machine-readable output ({registry, heuristic, agy})
+  --json                emit machine-readable output ({registry, heuristic, agy,
+                        worktreeOrphans, outsideOrphans})
 
 Never passes --record and never writes to ~/.flow/state/<slug>.json — a
 host-wide sweep touches OTHER pipelines' slugs, and recording into a

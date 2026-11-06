@@ -36,7 +36,8 @@ the tmux-pane / port-override / post-commit-diff rules live in
   `~/.flow/state/<slug>.json` and surfaced as the gate summary's
   CLEANUP row; (3) `flow reap` as the crash-path net, never the
   primary — it covers both registered rows left by a crashed session
-  and shape-heuristic strays, and stays report-only without `--yes`.
+  and shape-heuristic strays, and leftover processes in pipeline worktrees,
+  and stays report-only without `--yes`.
   See `skills/pipeline/flow-pipeline/references/phases/resource-cleanup.md`.
 - Don't auto-commit or auto-push outside an explicit user instruction —
   this default always holds on `main` (or any base branch). **On a

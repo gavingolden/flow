@@ -40,6 +40,7 @@ vi.mock("../flow-browser-teardown", () => browserTeardownMock);
 
 const livenessMock = vi.hoisted(() => ({
   pidStartEpoch: vi.fn((_pid: number) => 1_234_567), // SECONDS, deliberately
+  livenessOf: vi.fn((): string => "unknown"),
 }));
 vi.mock("./liveness", () => livenessMock);
 
@@ -53,8 +54,19 @@ vi.mock("./agy-strays", async (importOriginal) => ({
   ...agyStraysMock,
 }));
 
-import { collectReapReport, runReapCli } from "./reap-cli";
+// Hermetic: the default deps' process-table reader is replaced by an empty
+// table, so `runReapCli` can never sweep the host's real processes.
+vi.mock("./worktree-orphans-run", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./worktree-orphans-run")>()),
+  defaultOrphanSweepDeps: vi.fn(() => ({
+    listProcs: () => [],
+  })),
+}));
+
+import { collectReapReport, renderTextReport, runReapCli } from "./reap-cli";
 import { writeState, type PipelineState } from "./state";
+import type { OrphanSweepDeps } from "./worktree-orphans-run";
+import type { OrphanProc } from "./worktree-orphans";
 
 const emptyAgy = () => ({
   ran: true,
@@ -81,6 +93,7 @@ beforeEach(() => {
     signalled: [],
   });
   agyStraysMock.sweepAgyStrays.mockReturnValue(emptyAgy());
+  livenessMock.livenessOf.mockReturnValue("unknown");
 });
 
 describe("runReapCli --help / -h short-circuit", () => {
@@ -796,5 +809,136 @@ describe("registry row wording (session state vs. process state)", () => {
         "Summary: no leaked processes recorded — 0 of 1 recorded processes still running",
       );
     });
+  });
+});
+
+describe("collectReapReport — worktree leftovers section", () => {
+  const WT = "/x/flow-leak";
+  let stateDir: string;
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-cli-orph-"));
+  });
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  const seed = (slug: string, worktree: string | undefined = WT) =>
+    writeState(
+      {
+        slug,
+        phase: "implementing",
+        repo: "/r",
+        updatedAt: "2026-01-01T00:00:00Z",
+        ...(worktree ? { worktree } : {}),
+      },
+      stateDir,
+    );
+
+  const orphan = (pid: number, cmd = "sleep 99"): OrphanProc => ({
+    pid,
+    ppid: 1,
+    pgid: 9000,
+    uid: 501,
+    tty: null,
+    ageSec: 600,
+    cpuSec: 600,
+    command: cmd,
+    cwd: null,
+  });
+
+  function orphanDeps(cwds: Record<number, string>, procs: OrphanProc[]) {
+    const signals: Array<[number, string]> = [];
+    const dead = new Set<number>();
+    const deps: OrphanSweepDeps = {
+      listProcs: () => procs,
+      cwdOf: (pids) =>
+        new Map(pids.flatMap((p) => (cwds[p] ? [[p, cwds[p]] as const] : []))),
+      registered: () => ({ pids: new Set(), pgids: new Set() }),
+      worktrees: () => [WT],
+      startEpochOf: () => 7,
+      kill: (pid, sig) => {
+        signals.push([pid, sig]);
+        dead.add(pid);
+      },
+      alive: (pid) => !dead.has(pid),
+      sleepMs: () => {},
+      nowMs: () => 0,
+      selfUid: 501,
+    };
+    return { deps, signals };
+  }
+
+  const collect = (
+    o: Partial<Parameters<typeof collectReapReport>[0]>,
+    deps: OrphanSweepDeps,
+  ) => collectReapReport({ stateDir, orphanDeps: deps, ...o });
+
+  it("stops leftovers of a dead session with --yes --include-strays", () => {
+    seed("dead-one");
+    livenessMock.livenessOf.mockReturnValue("stale");
+    const { deps, signals } = orphanDeps({ 10: `${WT}/b` }, [orphan(10)]);
+    const r = collect({ yes: true, includeStrays: true }, deps);
+    expect(signals.map((s) => s[0])).toEqual([10]);
+    expect(r.worktreeOrphans[0]).toMatchObject({
+      slug: "dead-one",
+      sessionAlive: false,
+    });
+  });
+
+  it("sends zero signals with --yes alone", () => {
+    seed("dead-two");
+    livenessMock.livenessOf.mockReturnValue("stale");
+    const { deps, signals } = orphanDeps({ 10: `${WT}/b` }, [orphan(10)]);
+    const r = collect({ yes: true }, deps);
+    expect(signals).toEqual([]);
+    expect(r.worktreeOrphans[0].result.found).toHaveLength(1);
+  });
+
+  it("leaves a live session's leftovers alone and says so in the report", () => {
+    seed("live-one");
+    livenessMock.livenessOf.mockReturnValue("alive");
+    const { deps, signals } = orphanDeps({ 10: `${WT}/b` }, [orphan(10)]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const r = collect({ yes: true, includeStrays: true }, deps);
+    expect(signals).toEqual([]);
+    expect(r.worktreeOrphans[0].sessionAlive).toBe(true);
+    log.mockRestore();
+  });
+
+  it("holds a session whose liveness is unknown", () => {
+    seed("unknown-one");
+    const { deps, signals } = orphanDeps({ 10: `${WT}/b` }, [orphan(10)]);
+    collect({ yes: true, includeStrays: true }, deps);
+    expect(signals).toEqual([]);
+  });
+
+  it("scopes the section to --slug", () => {
+    seed("one");
+    seed("two");
+    const { deps } = orphanDeps({}, []);
+    const r = collect({ slug: "two" }, deps);
+    expect(r.worktreeOrphans.map((w) => w.slug)).toEqual(["two"]);
+  });
+
+  it("lists a busy outside-worktree orphan, never signals it, and carries command0 only in JSON", () => {
+    seed("any");
+    const { deps, signals } = orphanDeps({ 20: "/tmp/elsewhere" }, [
+      orphan(20, "/bin/spin --token=hunter2"),
+    ]);
+    const r = collect({ yes: true, includeStrays: true }, deps);
+    expect(signals).toEqual([]);
+    expect(r.outsideOrphans).toHaveLength(1);
+    expect(JSON.stringify(r)).not.toContain("hunter2");
+  });
+
+  it("renders the 'left to the live pipeline' line in the text report", () => {
+    seed("live-two");
+    livenessMock.livenessOf.mockReturnValue("alive");
+    const { deps } = orphanDeps({ 10: `${WT}/b` }, [orphan(10)]);
+    const out = renderTextReport(collect({}, deps));
+    expect(out).toContain("Leftover processes in pipeline worktrees");
+    expect(out).toContain("left to the live pipeline");
+    expect(out).toContain("leftover process");
   });
 });
