@@ -23,6 +23,23 @@ describe("checkRollback", () => {
     expect(m).toHaveLength(1);
     expect(m[0]).toMatch(/Task 2.*no rollback step/);
   });
+  it("flags a rollback task with a verb but no mechanism", () => {
+    const t = `${MIGRATION}\n\n### Task 2: Rollback\n\nWe can revert if needed.`;
+    expect(run(plan(t, "**Rollback:** Task 2"))[0]).toMatch(/no rollback step/);
+  });
+  it("flags a rollback task with a mechanism but no rollback verb", () => {
+    const t = `${MIGRATION}\n\n### Task 2: Deploy\n\n- Run the migration script.`;
+    expect(run(plan(t, "**Rollback:** Task 2"))[0]).toMatch(/no rollback step/);
+  });
+  it("accepts a rollback split across several named tasks", () => {
+    const t = `${MIGRATION}\n\n### Task 2: Consumer\n\n- Dual-read.\n\n### Task 5: Script\n\n- Run the down migration and verify the column is gone.`;
+    expect(run(plan(t, "**Rollback:** Tasks 2 and Task 5"))).toEqual([]);
+  });
+  it("triggers on inflected alters/drops and accepts 'flag off'", () => {
+    const t = `### Task 1: Migration that alters the sections table and drops the old indexes.\n\n### Task 2: Flip\n\n- Turn the flag off and verify.`;
+    expect(run(plan(t))[0]).toMatch(/no '\*\*Rollback:\*\*' line/);
+    expect(run(plan(t, "**Rollback:** Task 2"))).toEqual([]);
+  });
   it("flags a Rollback line that names no task", () => {
     expect(run(plan(MIGRATION, "**Rollback:** we can undo it"))[0]).toMatch(
       /names no task/,

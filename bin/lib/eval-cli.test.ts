@@ -6,6 +6,7 @@ import {
   ablationLeakGate,
   buildGraderContext,
   listTreeAgentFiles,
+  assertScenariosKnown,
   selectScenarios,
   type Deps,
 } from "./eval-cli";
@@ -231,9 +232,28 @@ describe("selectScenarios — --scenario filter", () => {
     );
   });
 
-  it("should throw naming the unknown id and the suite's ids", () => {
-    expect(() => selectScenarios(all, ["r2-rollout", "nope"])).toThrow(
-      /unknown --scenario nope \(suite has: r2-rollout, r4-recovery, s1\)/,
+  it("should not throw when a wanted id belongs to another suite", () => {
+    expect(
+      selectScenarios(all, ["r2-rollout", "other-suite-id"]).map((s) => s.id),
+    ).toEqual(["r2-rollout"]);
+  });
+});
+
+describe("assertScenariosKnown — up-front multi-suite validation", () => {
+  const a = [{ id: "a-1" }];
+  const b = [{ id: "b-1" }];
+
+  it("should accept ids that each exist in some selected suite", () => {
+    expect(() => assertScenariosKnown([a, b], ["a-1", "b-1"])).not.toThrow();
+  });
+
+  it("should throw naming the unknown id and the known ids", () => {
+    expect(() => assertScenariosKnown([a, b], ["a-1", "nope"])).toThrow(
+      /unknown --scenario nope \(selected suites have: a-1, b-1\)/,
     );
+  });
+
+  it("should do nothing when no --scenario is given", () => {
+    expect(() => assertScenariosKnown([a], undefined)).not.toThrow();
   });
 });

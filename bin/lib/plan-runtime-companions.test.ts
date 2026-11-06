@@ -45,6 +45,27 @@ describe("checkQueueCompanions", () => {
   });
 });
 
+describe("checkRecovery — store detection", () => {
+  it("ignores token-bucket mentions as a datastore", () => {
+    const m = recovery(
+      plan(
+        "- Add migration and a token bucket rate limiter; enable PITR and verify a restore.",
+        "**Recovery:** PITR",
+      ),
+    );
+    expect(m).toEqual([]);
+  });
+  it("flags a dual-store plan where only database backups exist", () => {
+    const m = recovery(
+      plan(
+        "- Add migration; enable automated database backups.\n- Create a bucket for uploads.\n- Verify a restore.",
+        "**Recovery:** backups",
+      ),
+    );
+    expect(m.join("\n")).toMatch(/bucket/);
+  });
+});
+
 describe("checkRecovery", () => {
   it("flags a migration with no Recovery line", () => {
     expect(recovery(plan("- Add a migration for jobs."))[0]).toMatch(

@@ -445,18 +445,25 @@ async function runOneScenarioRun(
   }
 }
 
+export function assertScenariosKnown(
+  suites: { id: string }[][],
+  wanted: string[] | undefined,
+): void {
+  if (!wanted) return;
+  const known = new Set(suites.flat().map((s) => s.id));
+  const unknown = wanted.filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    throw new Error(
+      `flow-eval: unknown --scenario ${unknown.join(", ")} (selected suites have: ${[...known].join(", ")})`,
+    );
+  }
+}
+
 export function selectScenarios<T extends { id: string }>(
   all: T[],
   wanted: string[] | undefined,
 ): T[] {
   if (!wanted) return all;
-  const known = new Set(all.map((s) => s.id));
-  const unknown = wanted.filter((id) => !known.has(id));
-  if (unknown.length > 0) {
-    throw new Error(
-      `flow-eval: unknown --scenario ${unknown.join(", ")} (suite has: ${[...known].join(", ")})`,
-    );
-  }
   return all.filter((s) => wanted.includes(s.id));
 }
 
@@ -717,6 +724,22 @@ async function runVerb(args: RunArgs, deps: Deps): Promise<number> {
   const resolvedAvailability: ClaudeAvailability = availability.ok
     ? deps.probeClaude(args.claudeBin)
     : availability;
+
+  if (args.scenarios) {
+    const perSuite = suiteIds.map((suiteId) => {
+      const loaded = loadSuite(path.join(args.evalsDir, suiteId), {
+        readFile: nullTolerantReadFile(deps),
+        exists: deps.exists,
+      });
+      if (!loaded.ok) {
+        throw new Error(
+          `flow-eval: ${loaded.reason}${loaded.path ? ` (${loaded.path})` : ""}`,
+        );
+      }
+      return loaded.value.scenarios;
+    });
+    assertScenariosKnown(perSuite, args.scenarios);
+  }
 
   const reports: EvalReport[] = [];
   for (const suiteId of suiteIds) {

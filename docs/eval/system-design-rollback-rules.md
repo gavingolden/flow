@@ -2,9 +2,9 @@
 
 Three advisory `flow-plan-lint` rules, measured on the four scenarios they target:
 
-- **Rollback** (`bin/lib/plan-runtime-rollback.ts`): a schema change, backfill, expand/contract, dual-write or queue payload change needs a `**Rollback:**` line naming a task whose body carries the rollback step or check.
-- **Database backups** (`checkRecovery`): a database store needs a backup or PITR task. Bucket versioning no longer counts for a database.
-- **Inline budget fails closed** (`checkInlineBudget`): a missing column or an unreadable in-request p99 is a miss, and Proportionality cannot waive the 10 s budget.
+- **Rollback task required**: a schema change, backfill, expand/contract, dual-write or queue payload change needs a `**Rollback:**` line naming a task whose body carries the rollback step or check.
+- **Database backups required**: a database store needs a backup or PITR task. Bucket versioning no longer counts for a database.
+- **In-request time limit, now strict**: a missing column or an unreadable in-request p99 is a miss, and Proportionality cannot waive the 10 s budget.
 
 Candidate tree `5492fd077d8b`. Opus/high, same suite defaults as the recorded baselines. Kept outputs:
 
@@ -24,7 +24,7 @@ Before any paid run, the three rules ran over the 16 with-refs-v2 and 6 after-v3
 | Backups       | r4 run 1              | true positive (the recorded r4 miss)                                                                                                                    |
 | Inline budget | s1 run 1, r3 runs 1–2 | already flagged by the existing over-budget check; no new firing                                                                                        |
 
-"drop the cache", "dropdown" and "alter the copy" do not trigger the rollback rule. They are unit-test negatives in `bin/lib/plan-runtime-rollback.test.ts`.
+"drop the cache", "dropdown" and "alter the copy" do not trigger the rollback rule; each is a unit-test negative.
 
 ## Results
 
@@ -39,7 +39,7 @@ Per-run miss rate on the rule's own gate. The baseline is with-refs-v2 (regraded
 
 The r2 run 4 `payload-compat` fail is a grader wording false negative. The plan's Task 3 output is "the generate-section consumer accepting both shapes", and its Task 2 keeps the title "so a rolled-back consumer can still read the task". The gate's regex expects a payload word between "both" and "accept". Regraded, it passes. The plan also carries `**Rollback:** Task 1`.
 
-`checkInlineBudget` was never measured before this run, so the s1 gain cannot be split between Task 1's stricter check and the planner doc's narrowed Proportionality sentence.
+The in-request time check was never measured on its own before this run, so the report-endpoint (s1) improvement may come from the stricter check, from the planner guidance that now says the 10 s limit cannot be waived, or from both.
 
 No kept plan still argues past its own Runtime design table, so the paid-critic follow-up has no trigger.
 
@@ -47,6 +47,8 @@ Plan-lint called: 14/14 runs called `flow-plan-lint` at least once (3–5 calls 
 
 Cost: $35.26 total. r2 + r4 cost $20.29 (8 runs), s1 $11.04 (4 runs) and s3 $3.93 (2 runs). The rules add no per-plan cost.
 
-s3 inline: 2/2 runs kept the fast paid call inline.
+s3 inline: 2 of 2 runs kept the fast paid call inline (the control; nothing to improve).
 
-Ship decision: ship all three rules. Rollback (r2) went from 2/2 to 0/4 misses, backups (r4) from 1/2 to 0/4, and inline budget (s1) from 1/2 to 0/4. s3 is clean, and no target scenario is worse after regrading.
+Ship decision: ship all three rules. Rollback (r2) went from 2/2 to 0/4 misses, backups (r4) from 1/2 to 0/4, and inline budget (s1) from 1/2 to 0/4. The control (s3) stayed clean, and no target scenario is worse after regrading.
+
+Implementation: `bin/lib/plan-runtime-rollback.ts`, `checkRecovery` in `bin/lib/plan-runtime-companions.ts`, `checkInlineBudget` in `bin/lib/plan-runtime-budget.ts`.
