@@ -226,10 +226,14 @@ describe("selectScenarios — --scenario filter", () => {
   });
 
   it("should keep only the named scenarios in suite order", () => {
-    expect(selectScenarios(all, ["s1", "r2-rollout"]).map((s) => s.id)).toEqual(["r2-rollout", "s1"]);
+    expect(selectScenarios(all, ["s1", "r2-rollout"]).map((s) => s.id)).toEqual(
+      ["r2-rollout", "s1"],
+    );
   });
 
   it("should throw naming the unknown id and the suite's ids", () => {
-    expect(() => selectScenarios(all, ["r2-rollout", "nope"])).toThrow(/unknown --scenario nope \(suite has: r2-rollout, r4-recovery, s1\)/);
+    expect(() => selectScenarios(all, ["r2-rollout", "nope"])).toThrow(
+      /unknown --scenario nope \(suite has: r2-rollout, r4-recovery, s1\)/,
+    );
   });
 });

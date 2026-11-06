@@ -86,6 +86,8 @@ docs/eval/skill-split/after/
 # read, byte-exact, so a regrade sees what the planner wrote.
 docs/eval/system-design-defaults/after-v3/
 docs/eval/system-design-references/with-refs-v2/
+docs/eval/system-design-defaults/rules-v1/
+docs/eval/system-design-references/rules-v1/
 
 # flow-pipeline phase docs and hard-rules detail: text moved verbatim out of
 # SKILL.md (itself ignored above for a non-idempotent nested fence). Running
