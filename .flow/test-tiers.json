@@ -58,6 +58,7 @@
     "bin/flow-research-cache.test.ts",
     "bin/flow-review-scope.test.ts",
     "bin/flow-spawn.live.test.ts",
+    "bin/flow-stress.live.test.ts",
     "bin/lib/base-branch-guard.test.ts",
     "bin/lib/epic-guard-parity.test.ts",
     "bin/lib/epic-metadata-commit.test.ts",
@@ -67,7 +68,8 @@
     "bin/lib/hooks-target.test.ts",
     "bin/lib/md-block-structure.live.test.ts",
     "bin/lib/setup.test.ts",
-    "bin/lib/worktree-commit-hook.test.ts"
+    "bin/lib/worktree-commit-hook.test.ts",
+    "bin/lib/worktree-orphans-run.live.test.ts"
   ],
   "forceFullOn": [
     "vitest.config.ts",

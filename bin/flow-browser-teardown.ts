@@ -27,11 +27,12 @@
  * `--reap` mode (opt-in): verifies and signals every row recorded in this
  * slug's process registry (`bin/lib/proc-registry.ts`) via
  * `bin/lib/reap.ts`'s asymmetric verify-then-signal engine, then falls back
- * to the ancestry walk above for anything the registry did not cover. Per-
- * class kill policy (including this file's own escalation, if any, for a
- * kill-uncooperative process group) lives entirely in `bin/lib/reap.ts` —
- * see that module for the exact signal sequence a `default`-class row
- * receives. Run with `--dry-run` first; it sends no signal at all.
+ * to the ancestry walk above for anything the registry did not cover, then
+ * sweeps leftover processes in the slug's worktree. Per-class kill policy
+ * for registry rows lives entirely in `bin/lib/reap.ts` — see that module
+ * for the exact signal sequence a `default`-class row receives; the worktree
+ * arm's own SIGTERM -> grace -> start-time re-check -> harder-signal
+ * escalation lives in `bin/lib/worktree-orphans-run.ts`. Run with `--dry-run` first; it sends no signal at all.
  * `--record` (with `--reap` only, never under `--dry-run`) additionally
  * writes the reap verdict to `~/.flow/state/<slug>.json` as `state.reap`
  * — a plain state write, never a phase transition; a failure there is
@@ -51,6 +52,13 @@ import {
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { isValidSlug } from "./lib/slug";
 import { readState, writeState, type ReapRecord } from "./lib/state";
+import {
+  defaultOrphanSweepDeps,
+  stoppedCount,
+  sweepWorktreeOrphans,
+  type OrphanSweepDeps,
+  type WorktreeOrphanSweepResult,
+} from "./lib/worktree-orphans-run";
 
 // --- Core types --------------------------------------------------------
 
@@ -337,6 +345,8 @@ export type ReapEnvelope = {
   fallback: TeardownResult | null;
   fallbackSkipReason: "registry-covered" | "not-gated" | "no-servers" | null;
   postRegistered: number;
+  orphans: WorktreeOrphanSweepResult | null;
+  orphansSkipReason: "no-slug" | "no-state" | "no-worktree" | null;
 };
 
 /**
@@ -367,8 +377,9 @@ function toReapDeps(deps: Deps): ReapDeps {
 }
 
 /**
- * Registry-first reap: runs `runRegistryReap` against
- * `~/.flow/state/procs/<slug>.jsonl` first, then falls back to the
+ * Reap entry point: `reapRegistryAndFallback` (below) and then the worktree
+ * leftover arm, which runs on every path. The first arm runs `runRegistryReap`
+ * against `~/.flow/state/procs/<slug>.jsonl`, then falls back to the
  * mechanically-unchanged ancestry-walk `runTeardown` only when the registry
  * did not already cover the session's chrome-devtools-mcp server. The
  * fallback is provably skipped (never invisibly skipped): `fallback` is
@@ -382,8 +393,45 @@ export function runReapMode(
     timeoutMs: number;
     sessionPid?: number;
     baseDir?: string;
+    orphanDeps?: OrphanSweepDeps;
   },
 ): ReapEnvelope {
+  const base = reapRegistryAndFallback(deps, opts);
+  // The worktree arm runs on every path, including the one where a registered
+  // MCP server already covered the ancestry step.
+  const state = base.registry.slug
+    ? readState(base.registry.slug, opts.baseDir)
+    : null;
+  if (base.registry.slug === undefined) {
+    return { ...base, orphans: null, orphansSkipReason: "no-slug" };
+  }
+  if (state === null) {
+    return { ...base, orphans: null, orphansSkipReason: "no-state" };
+  }
+  if (!state.worktree) {
+    return { ...base, orphans: null, orphansSkipReason: "no-worktree" };
+  }
+  const orphans = sweepWorktreeOrphans(
+    opts.orphanDeps ??
+      defaultOrphanSweepDeps({
+        stateDir: opts.baseDir,
+        baseDir: opts.baseDir,
+      }),
+    { worktree: state.worktree, act: !opts.dryRun, busyOnly: false },
+  );
+  return { ...base, orphans, orphansSkipReason: null };
+}
+
+function reapRegistryAndFallback(
+  deps: Deps,
+  opts: {
+    dryRun: boolean;
+    slug?: string;
+    timeoutMs: number;
+    sessionPid?: number;
+    baseDir?: string;
+  },
+): Omit<ReapEnvelope, "orphans" | "orphansSkipReason"> {
   // `resolveSlugFromEnv` returns `null`, not `undefined` — `runRegistryReap`
   // keys its `skipReason: "no-slug"` branch on `undefined`, so this must be
   // normalised before the call.
@@ -502,7 +550,13 @@ export function summarizeReapEnvelope(envelope: ReapEnvelope): string {
   const fallbackLine = envelope.fallback
     ? `fallback: ran=true signalled=${envelope.fallback.signalled.length} stillAlive=${envelope.fallback.stillAlive.length}`
     : `fallback: ran=false fallbackSkipReason=${envelope.fallbackSkipReason ?? "none"}`;
-  return `flow-browser-teardown --reap: ${registryLine} | ${fallbackLine} | postRegistered=${envelope.postRegistered}`;
+  const o = envelope.orphans;
+  const orphansLine = o
+    ? o.ran
+      ? `orphans: found=${o.found.length} stopped=${stoppedCount(o)} stillAlive=${o.stillAlive.length}`
+      : `orphans: ran=false skipReason=${o.skipReason ?? "none"}`
+    : `orphans: ran=false skipReason=${envelope.orphansSkipReason ?? "none"}`;
+  return `flow-browser-teardown --reap: ${registryLine} | ${fallbackLine} | ${orphansLine} | postRegistered=${envelope.postRegistered}`;
 }
 
 /**
@@ -516,13 +570,30 @@ export function summarizeReapEnvelope(envelope: ReapEnvelope): string {
 export function shortReapSummary(
   envelope: ReapEnvelope,
   problems: string[],
+  earlierStopped = 0,
 ): string {
-  if (problems.length > 0) return problems.join("; ");
+  const clause = orphanClause(
+    envelope.orphans ? stoppedCount(envelope.orphans) : 0,
+    earlierStopped,
+  );
+  const withClause = (head: string): string =>
+    clause ? `${head}; ${clause}` : head;
+  if (problems.length > 0) return withClause(problems.join("; "));
   const c = envelope.registry.counts;
   const acted = c.reaped + c["already-dead"];
-  return acted === 0
-    ? "no live processes"
-    : `${c.reaped} reaped, ${c["already-dead"]} already dead`;
+  if (acted === 0) return clause || "no live processes";
+  return withClause(`${c.reaped} reaped, ${c["already-dead"]} already dead`);
+}
+
+function orphanClause(stopped: number, earlier: number): string {
+  const noun = (n: number): string =>
+    `${n} leftover process${n === 1 ? "" : "es"}`;
+  if (stopped > 0 && earlier > 0) {
+    return `${noun(stopped)} stopped, ${earlier} earlier in the run`;
+  }
+  if (stopped > 0) return `${noun(stopped)} stopped`;
+  if (earlier > 0) return `${noun(earlier)} stopped earlier in the run`;
+  return "";
 }
 
 /**
@@ -531,7 +602,8 @@ export function shortReapSummary(
  * `still-alive`, `deadline-exceeded`, `skipped-dead-leader`,
  * `registry.malformed`, a non-empty ancestry-walk `fallback.stillAlive`, and
  * `fallbackSkipReason === "not-gated"` (the asymmetric-gate hole named in
- * `runReapMode`'s own comment). `already-dead`, `skipped-epoch-mismatch`,
+ * `runReapMode`'s own comment), and a worktree-leftover sweep's
+ * `orphans: still-alive`. `already-dead`, `skipped-epoch-mismatch`,
  * `skipped-unsafe-pgid`, and `skipped-foreign-member` are SAFETY REFUSALS —
  * the reap engine correctly declining to touch a process it can't safely
  * verify — and must never mark the verdict unclean.
@@ -559,6 +631,9 @@ export function classifyReapEnvelope(envelope: ReapEnvelope): {
   if (envelope.fallbackSkipReason === "not-gated") {
     problems.push("fallback: not-gated");
   }
+  if (envelope.orphans && envelope.orphans.stillAlive.length > 0) {
+    problems.push(`orphans: still-alive=${envelope.orphans.stillAlive.length}`);
+  }
   return { status: problems.length > 0 ? "unclean" : "ok", problems };
 }
 
@@ -585,8 +660,15 @@ export function recordReapOutcome(
     const record: ReapRecord = {
       at: now.toISOString(),
       status,
-      summary: shortReapSummary(envelope, problems),
-      ran: envelope.registry.ran || envelope.fallback !== null,
+      summary: shortReapSummary(
+        envelope,
+        problems,
+        state.orphanStops?.count ?? 0,
+      ),
+      ran:
+        envelope.registry.ran ||
+        envelope.fallback !== null ||
+        envelope.orphans?.ran === true,
       ...(problems.length > 0 ? { problems } : {}),
     };
     writeState({ ...state, reap: record }, opts?.stateDir);
@@ -1054,7 +1136,9 @@ function usage(): string {
     "",
     "--reap mode (opt-in) verifies and signals every row recorded in",
     "~/.flow/state/procs/<slug>.jsonl before falling back to the ancestry",
-    "walk above. --slug resolves explicitly, else FLOW_SLUG, else no slug.",
+    "walk above, then stops leftover processes in the slug's worktree",
+    "(SIGTERM, then a harder signal after a grace, start time re-checked).",
+    "--slug resolves explicitly, else FLOW_SLUG, else no slug.",
     "A default-class row escalates to a harder signal against its whole",
     "process group after a bounded grace wait; an mcp-server row is",
     "signalled once and never escalated, same policy as the default mode",

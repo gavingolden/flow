@@ -159,6 +159,8 @@ import {
   ensureLaunchSettings,
   launchSettingsPermissions,
   flowPipelineResumeSeed,
+  resolveBgLoopGuardCommand,
+  resolveOrphanSweepHookCommand,
   resolveRequestEchoHookCommand,
   resolveSeedHookCommand,
   type FeatureOptions,
@@ -4228,6 +4230,8 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     );
     delete process.env.FLOW_SEED_HOOK_COMMAND;
     delete process.env.FLOW_DOC_READ_GUARD_COMMAND;
+    delete process.env.FLOW_BG_LOOP_GUARD_COMMAND;
+    delete process.env.FLOW_ORPHAN_SWEEP_HOOK_COMMAND;
     delete process.env.FLOW_REQUEST_ECHO_HOOK_COMMAND;
     installedGuardPath = installedHelperPath("flow-doc-read-guard");
     // Default-silence the divergence warning's stderr write across this
@@ -4243,6 +4247,8 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     fs.rmSync(installedEchoPath, { force: true });
     delete process.env.FLOW_SEED_HOOK_COMMAND;
     delete process.env.FLOW_DOC_READ_GUARD_COMMAND;
+    delete process.env.FLOW_BG_LOOP_GUARD_COMMAND;
+    delete process.env.FLOW_ORPHAN_SWEEP_HOOK_COMMAND;
     delete process.env.FLOW_REQUEST_ECHO_HOOK_COMMAND;
   });
 
@@ -4484,8 +4490,12 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(preToolUse).toHaveLength(1);
     expect(preToolUse[0]!.matcher).toBe("Bash");
     const hooks = preToolUse[0]!.hooks;
-    expect(hooks.map((h) => h.if)).toEqual(["Bash(sed *)", "Bash(awk *)"]);
-    for (const h of hooks) {
+    expect(hooks.map((h) => h.if)).toEqual([
+      "Bash(sed *)",
+      "Bash(awk *)",
+      undefined,
+    ]);
+    for (const h of hooks.slice(0, 2)) {
       expect(h.type).toBe("command");
       expect(h.command).toContain("flow-doc-read-guard");
     }
@@ -4498,7 +4508,47 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(readPreToolUse()[0]!.hooks.map((h) => h.command)).toEqual([
       "/custom/override/guard.sh",
       "/custom/override/guard.sh",
+      expect.stringContaining("flow-bg-loop-guard"),
     ]);
+  });
+
+  it("appends the bg-loop guard after the doc-read guard entries, never at index 0", () => {
+    ensureLaunchSettings(settingsPath);
+    const hooks = readPreToolUse()[0]!.hooks;
+    expect(hooks).toHaveLength(3);
+    expect(hooks[0]!.command).toContain("flow-doc-read-guard");
+    expect(hooks[2]).toEqual({
+      type: "command",
+      command: resolveBgLoopGuardCommand(),
+    });
+    expect(fs.existsSync(hooks[2]!.command)).toBe(true);
+  });
+
+  it("honors FLOW_BG_LOOP_GUARD_COMMAND verbatim", () => {
+    process.env.FLOW_BG_LOOP_GUARD_COMMAND = "/custom/bg-guard.sh";
+    ensureLaunchSettings(settingsPath);
+    expect(readPreToolUse()[0]!.hooks[2]!.command).toBe("/custom/bg-guard.sh");
+  });
+
+  it("registers the orphan sweep hook as a Bash PostToolUse entry", () => {
+    ensureLaunchSettings(settingsPath);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+      hooks: {
+        PostToolUse: Array<{
+          matcher: string;
+          hooks: Array<{ type: string; command: string }>;
+        }>;
+      };
+    };
+    expect(settings.hooks.PostToolUse).toEqual([
+      {
+        matcher: "Bash",
+        hooks: [{ type: "command", command: resolveOrphanSweepHookCommand() }],
+      },
+    ]);
+    expect(resolveOrphanSweepHookCommand()).toContain("flow-orphan-sweep-hook");
+    process.env.FLOW_ORPHAN_SWEEP_HOOK_COMMAND = "/custom/sweep.sh";
+    expect(resolveOrphanSweepHookCommand()).toBe("/custom/sweep.sh");
   });
 
   it("re-resolves the guard to the checkout path once the installed guard disappears", () => {
@@ -4544,7 +4594,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(fs.existsSync(moduleRelativeEchoPath)).toBe(true);
   });
 
-  it("writes the hooks keys in UserPromptSubmit, PreToolUse, SessionStart order", () => {
+  it("writes the hooks keys in UserPromptSubmit, PreToolUse, PostToolUse, SessionStart order", () => {
     ensureLaunchSettings(settingsPath);
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
       hooks: Record<string, unknown>;
@@ -4552,6 +4602,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(Object.keys(settings.hooks)).toEqual([
       "UserPromptSubmit",
       "PreToolUse",
+      "PostToolUse",
       "SessionStart",
     ]);
   });
