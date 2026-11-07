@@ -47,6 +47,7 @@ export async function computeCost(
   const merged = mergeWithPrior(
     collectRunAttribution(state, { projectsRoot }),
     latest,
+    state.phaseLog?.[0]?.at,
   );
   if (merged.sessions.length + merged.spawns.length === 0) return EMPTY_COST;
   const byModel: Record<string, number> = {};

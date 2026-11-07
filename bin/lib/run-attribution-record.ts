@@ -50,9 +50,13 @@ function asRow(line: string): RunAttributionRow | null {
   }
 }
 
-/** One read of the log; the last well-formed row per slug. Never throws. */
+/**
+ * One read of the log; the last well-formed row per slug. Never throws.
+ * `slugs` skips a line that cannot match before parsing it, so the cost stays
+ * proportional to the matching rows rather than every pipeline ever run.
+ */
 export function readLatestRunAttributions(
-  opts: { logPath?: string } = {},
+  opts: { logPath?: string; slugs?: ReadonlySet<string> } = {},
 ): Map<string, RunAttributionRow> {
   const out = new Map<string, RunAttributionRow>();
   let text: string;
@@ -61,8 +65,12 @@ export function readLatestRunAttributions(
   } catch {
     return out;
   }
+  const needles = opts.slugs
+    ? [...opts.slugs].map((s) => `"slug":${JSON.stringify(s)}`)
+    : null;
   for (const line of text.split("\n")) {
     if (!line) continue;
+    if (needles && !needles.some((n) => line.includes(n))) continue;
     const row = asRow(line);
     if (row) out.set(row.slug, row);
   }
@@ -72,15 +80,34 @@ export function readLatestRunAttributions(
 const delegatedKey = (d: DelegatedCall) => `${d.event}|${d.ts}|${d.task}`;
 
 /**
+ * A reused slug keys the earlier run's row too; its sessions are filtered out
+ * of `fresh` as stale, so without this guard they would read as "pruned" and
+ * be carried into the new run.
+ */
+function isEarlierRun(
+  fresh: RunAttribution,
+  prior: RunAttribution & { ts?: string },
+  startedAt?: string | null,
+): boolean {
+  if (prior.pr !== null && fresh.pr !== null && prior.pr !== fresh.pr) {
+    return true;
+  }
+  const startMs = Date.parse(startedAt ?? "");
+  const priorMs = Date.parse(prior.ts ?? "");
+  return !Number.isNaN(startMs) && !Number.isNaN(priorMs) && priorMs < startMs;
+}
+
+/**
  * A late terminal render must not lose sessions Claude Code has since pruned:
  * carry over prior sessions (with their spawns) and delegated calls absent
  * from the fresh collection, then recompute the totals from the union.
  */
 export function mergeWithPrior(
   fresh: RunAttribution,
-  prior: RunAttribution | null,
+  prior: (RunAttribution & { ts?: string }) | null,
+  startedAt?: string | null,
 ): RunAttribution {
-  if (!prior) return fresh;
+  if (!prior || isEarlierRun(fresh, prior, startedAt)) return fresh;
   const have = new Set(fresh.sessions.map((s) => s.session_id));
   const carried = prior.sessions.filter((s) => !have.has(s.session_id));
   const carriedIds = new Set(carried.map((s) => s.session_id));

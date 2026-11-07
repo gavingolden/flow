@@ -1277,13 +1277,20 @@ export function run(
         resolvedSlug === null ? null : readState(resolvedSlug, opts?.stateDir);
       if (resolvedSlug !== null && attrState) {
         const logPath = opts?.attributionLogPath;
-        const prior = readLatestRunAttributions({ logPath }).get(resolvedSlug);
+        const prior = readLatestRunAttributions({
+          logPath,
+          slugs: new Set([resolvedSlug]),
+        }).get(resolvedSlug);
         const fresh = collectRunAttribution(attrState, {
           projectsRoot: opts?.projectsRoot,
         });
         appendRunAttribution(
           {
-            ...mergeWithPrior(fresh, prior ?? null),
+            ...mergeWithPrior(
+              fresh,
+              prior ?? null,
+              attrState.phaseLog?.[0]?.at,
+            ),
             ts: new Date().toISOString(),
             status: parsed.status,
           },

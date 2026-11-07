@@ -9,6 +9,7 @@ import {
   type RunAttributionRow,
 } from "./run-attribution-record";
 import type {
+  DelegatedCall,
   RunAttribution,
   SpawnAttribution,
   UnitAttribution,
@@ -140,8 +141,68 @@ describe(mergeWithPrior, () => {
     expect(merged.totals.by_model_effort[0].turns).toBe(8);
   });
 
+  it("reads only the requested slugs", () => {
+    appendRunAttribution(row(attribution("a", [unit("s1", 1)])), {
+      logPath: log,
+    });
+    appendRunAttribution(row(attribution("b", [unit("s2", 2)])), {
+      logPath: log,
+    });
+    const got = readLatestRunAttributions({
+      logPath: log,
+      slugs: new Set(["b"]),
+    });
+    expect([...got.keys()]).toEqual(["b"]);
+  });
+
   it("does not double count a session present in both", () => {
     const a = attribution("a", [unit("s1", 1)]);
     expect(mergeWithPrior(a, a).totals.cost_usd).toBeCloseTo(1, 6);
+  });
+
+  it("ignores a prior row from an earlier run of a reused slug", () => {
+    const prior = {
+      ...attribution("a", [unit("old", 10)]),
+      ts: "2026-10-01T00:00:00Z",
+    };
+    const fresh = attribution("a", [unit("new", 1)]);
+    const merged = mergeWithPrior(fresh, prior, "2026-11-01T00:00:00Z");
+    expect(merged.sessions.map((s) => s.session_id)).toEqual(["new"]);
+    expect(merged.totals.cost_usd).toBeCloseTo(1, 6);
+    const same = mergeWithPrior(fresh, prior, "2026-09-01T00:00:00Z");
+    expect(same.sessions.map((s) => s.session_id)).toEqual(["old", "new"]);
+  });
+
+  it("ignores a prior row for a different PR", () => {
+    const prior = { ...attribution("a", [unit("old", 10)]), pr: 1 };
+    const fresh = { ...attribution("a", [unit("new", 1)]), pr: 2 };
+    expect(mergeWithPrior(fresh, prior).sessions).toHaveLength(1);
+  });
+
+  it("carries a prior-only delegated call and does not double count a shared one", () => {
+    const call = (ts: string, cost: number): DelegatedCall => ({
+      event: "deliberate.call",
+      task: null,
+      model: "opus",
+      effort: "high",
+      ran: true,
+      skip_reason: null,
+      ts,
+      cost_usd: cost,
+    });
+    const fresh = {
+      ...attribution("a", [unit("s1", 1)]),
+      delegated: [call("2026-11-06T01:00:00Z", 0.5)],
+    };
+    const prior = {
+      ...fresh,
+      delegated: [
+        call("2026-11-06T01:00:00Z", 0.5),
+        call("2026-11-06T00:00:00Z", 2),
+      ],
+    };
+    const merged = mergeWithPrior(fresh, prior);
+    expect(merged.delegated).toHaveLength(2);
+    expect(merged.totals.cost_usd).toBeCloseTo(1 + 0.5 + 2, 6);
   });
 });

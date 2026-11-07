@@ -335,11 +335,13 @@ export async function buildRows(
 
   const rows: Row[] = [];
 
-  // Compute costs for all pipelines in parallel — each call streams a JSONL
-  // and reads a directory, so sequential awaits would scale linearly with
-  // active pipelines (six concurrent windows is an expected case).
+  // Each pipeline's collection is synchronous, so these run one after another;
+  // the events log read is memoised across pipelines in run-attribution-events.
   const latest = opts.cost
-    ? readLatestRunAttributions({ logPath: opts.attributionLogPath })
+    ? readLatestRunAttributions({
+        logPath: opts.attributionLogPath,
+        slugs: new Set(states.map((s) => s.slug)),
+      })
     : null;
   const costs = opts.cost
     ? await Promise.all(
