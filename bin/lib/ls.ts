@@ -36,6 +36,7 @@ import {
   type CostBreakdown,
 } from "./cost";
 import { friendlyName } from "./cost-pricing";
+import { readLatestRunAttributions } from "./run-attribution-record";
 import { argsContainHelp, printVerbHelp } from "./help";
 import {
   listStates,
@@ -74,6 +75,8 @@ export type LsOptions = {
   cwd?: string;
   /** Override for tests; defaults to ~/.claude/projects/. */
   projectsRoot?: string;
+  /** Test seam: run-attribution.jsonl path for the pruned-session fallback. */
+  attributionLogPath?: string;
   /** Injectable for tests; defaults to the real read-only update check. */
   checkUpdate?: () => UpdateCheckResult;
   /** Required (no default): the real read-only install-drift check. */
@@ -339,8 +342,15 @@ export async function buildRows(
   // Compute costs for all pipelines in parallel — each call streams a JSONL
   // and reads a directory, so sequential awaits would scale linearly with
   // active pipelines (six concurrent windows is an expected case).
+  const latest = opts.cost
+    ? readLatestRunAttributions({ logPath: opts.attributionLogPath })
+    : null;
   const costs = opts.cost
-    ? await Promise.all(states.map((s) => computeCost(s, projectsRoot)))
+    ? await Promise.all(
+        states.map((s) =>
+          computeCost(s, projectsRoot, latest?.get(s.slug) ?? null),
+        ),
+      )
     : null;
 
   // The state↔window join keys off the @flow-slug user option (with a

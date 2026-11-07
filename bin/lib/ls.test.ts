@@ -20,6 +20,7 @@ import * as stateModule from "./state";
 import * as tmuxModule from "./tmux";
 import * as livenessModule from "./liveness";
 import { encodeProjectSegment } from "./cost";
+import { computeTotals } from "./run-attribution-unit";
 import type { PipelineState } from "./state";
 import type { TmuxWindow } from "./tmux";
 import type { InstallDriftResult } from "./install-drift";
@@ -705,6 +706,48 @@ describe("buildRows + cost", () => {
     );
     expect(rows[0].cost?.hasData).toBe(true);
     expect(rows[0].cost?.total).toBeCloseTo(3, 6);
+  });
+
+  it("falls back to the attribution row once the session logs are pruned", async () => {
+    const attributionLogPath = path.join(projectsRoot, "attr.jsonl");
+    const unit = {
+      session_id: "gone",
+      model: "claude-sonnet-4-6",
+      runs: [["claude-sonnet-4-6", "low", 1]],
+      run_costs: [4.5],
+      turns: 1,
+      tokens: {
+        input: 1,
+        cache_creation: 0,
+        cache_read: 0,
+        output: 0,
+        total: 1,
+      },
+      cost_usd: 4.5,
+    };
+    fs.writeFileSync(
+      attributionLogPath,
+      `${JSON.stringify({
+        version: 1,
+        slug: "csv-export",
+        pr: null,
+        repo: "/no/jsonl/here",
+        sessions: [unit],
+        spawns: [],
+        delegated: [],
+        totals: computeTotals([unit as never], [], 0),
+        ts: "2026-11-06T00:00:00Z",
+        status: "merged",
+      })}\n`,
+    );
+    const rows = await buildRows(
+      [state({ slug: "csv-export", repo: "/no/jsonl/here" })],
+      [window({ name: "csv-export" })],
+      NOW,
+      { cost: true, projectsRoot, attributionLogPath },
+    );
+    expect(rows[0].cost?.hasData).toBe(true);
+    expect(rows[0].cost?.total).toBeCloseTo(4.5, 6);
   });
 
   it("still populates the repo column when opts.cost is true", async () => {

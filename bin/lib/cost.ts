@@ -29,7 +29,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import { lookupModelPricing, priceUsage } from "./cost-pricing";
+import { collectRunAttribution } from "./run-attribution";
+import { mergeWithPrior } from "./run-attribution-record";
+import type { RunAttribution } from "./run-attribution-types";
 import { slugify } from "./slug";
 import type { PipelineState } from "./state";
 import {
@@ -52,15 +54,33 @@ export const EMPTY_COST: CostBreakdown = {
   hasData: false,
 };
 
+/**
+ * `flow ls --cost` projection of the run-attribution collector merged with
+ * the pipeline's latest durable row, so the cost column and `RAN ON:` always
+ * show the same figure and sessions Claude Code has since pruned keep their
+ * spend. `hasData` needs at least one session or spawn: an empty row stays
+ * `—`, never `$0.00`.
+ */
 export async function computeCost(
   state: PipelineState,
   projectsRoot = defaultProjectsRoot(),
+  latest: RunAttribution | null = null,
 ): Promise<CostBreakdown> {
-  const projectDir = path.join(projectsRoot, encodeProjectSegment(state.repo));
-  const jsonls = await findSessionJsonls(projectDir, state.slug);
-  if (jsonls.length === 0) return EMPTY_COST;
-  const partials = await Promise.all(jsonls.map(parseAndPrice));
-  return mergeBreakdowns(partials);
+  const merged = mergeWithPrior(
+    collectRunAttribution(state, { projectsRoot }),
+    latest,
+  );
+  if (merged.sessions.length + merged.spawns.length === 0) return EMPTY_COST;
+  const byModel: Record<string, number> = {};
+  for (const r of merged.totals.by_model_effort) {
+    if (r.cost_usd) byModel[r.model] = (byModel[r.model] ?? 0) + r.cost_usd;
+  }
+  return {
+    total: merged.totals.cost_usd,
+    byModel,
+    unknownModels: merged.totals.unpriced_models,
+    hasData: true,
+  };
 }
 
 export function defaultProjectsRoot(): string {
@@ -178,64 +198,6 @@ export function seedMatchesSlug(seed: string, slug: string): boolean {
   const match = seed.match(/\/flow-pipeline\b[^:]*:\s*([\s\S]+)/i);
   if (!match) return false;
   return slugify(match[1]) === slug;
-}
-
-async function parseAndPrice(jsonl: string): Promise<CostBreakdown> {
-  const stream = fs.createReadStream(jsonl);
-  const rl = readline.createInterface({ input: stream });
-  const byModel: Record<string, number> = {};
-  const unknown = new Set<string>();
-  const messages = new Map<string, { usage: unknown; model: string }>();
-  let total = 0;
-  for await (const line of rl) {
-    if (!line) continue;
-    const event = tryParse(line);
-    if (!event || event.type !== "assistant") continue;
-    const usage = event.message?.usage;
-    if (!usage) continue;
-    recordLastLine(messages, event.message?.id, {
-      usage,
-      model: event.message?.model ?? "",
-    });
-  }
-  for (const { usage, model } of messages.values()) {
-    const pricing = lookupModelPricing(model);
-    if (!pricing) {
-      if (model) unknown.add(model);
-      continue;
-    }
-    const cost = priceUsage(usage, pricing);
-    if (cost === 0) continue;
-    byModel[model] = (byModel[model] ?? 0) + cost;
-    total += cost;
-  }
-  return {
-    total,
-    byModel,
-    unknownModels: [...unknown].sort(),
-    hasData: true,
-  };
-}
-
-function mergeBreakdowns(parts: CostBreakdown[]): CostBreakdown {
-  const byModel: Record<string, number> = {};
-  const unknown = new Set<string>();
-  let total = 0;
-  let hasData = false;
-  for (const part of parts) {
-    if (part.hasData) hasData = true;
-    total += part.total;
-    for (const [model, dollars] of Object.entries(part.byModel)) {
-      byModel[model] = (byModel[model] ?? 0) + dollars;
-    }
-    for (const m of part.unknownModels) unknown.add(m);
-  }
-  return {
-    total,
-    byModel,
-    unknownModels: [...unknown].sort(),
-    hasData,
-  };
 }
 
 export type TranscriptUsage = {

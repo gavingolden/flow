@@ -30,9 +30,18 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v !== "" ? v : null;
 }
 
+// `flow ls --cost` collects once per pipeline from the same multi-MB log:
+// remember the last read, keyed on the file's identity and size.
+let memo: { key: string; lines: string[] } | null = null;
+
 export function readEventLines(eventsLogPath: string): string[] {
   try {
-    return fs.readFileSync(eventsLogPath, "utf8").split("\n");
+    const st = fs.statSync(eventsLogPath);
+    const key = `${eventsLogPath}|${st.mtimeMs}|${st.size}`;
+    if (memo?.key === key) return memo.lines;
+    const lines = fs.readFileSync(eventsLogPath, "utf8").split("\n");
+    memo = { key, lines };
+    return lines;
   } catch {
     return [];
   }

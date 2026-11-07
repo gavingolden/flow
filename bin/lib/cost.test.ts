@@ -12,6 +12,8 @@ import {
   sumTranscriptUsage,
 } from "./cost";
 import { lookupModelPricing, MODEL_PRICING, priceUsage } from "./cost-pricing";
+import type { RunAttribution } from "./run-attribution-types";
+import { computeTotals } from "./run-attribution-unit";
 import type { PipelineState } from "./state";
 
 const REPO = "/Users/test/code/me/flow";
@@ -650,5 +652,91 @@ describe("MODEL_PRICING", () => {
 
   it("attaches a friendly name to each pricing entry", () => {
     expect(MODEL_PRICING["claude-opus-4-7"]?.friendlyName).toBe("Opus 4.7");
+  });
+});
+
+describe("computeCost as a run-attribution projection", () => {
+  const ONE_MTOK = {
+    input_tokens: 1_000_000,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  };
+
+  function rowWith(sessionIds: string[], cost: number): RunAttribution {
+    const sessions = sessionIds.map((id) => ({
+      session_id: id,
+      model: "claude-sonnet-4-6",
+      runs: [["claude-sonnet-4-6", "low", 1]] as [string, string, number][],
+      run_costs: [cost],
+      turns: 1,
+      tokens: {
+        input: 1,
+        cache_creation: 0,
+        cache_read: 0,
+        output: 0,
+        total: 1,
+      },
+      cost_usd: cost,
+    }));
+    return {
+      version: 1,
+      slug: SLUG,
+      pr: null,
+      repo: REPO,
+      sessions,
+      spawns: [],
+      delegated: [],
+      totals: computeTotals(sessions, [], 0),
+    };
+  }
+
+  it("prices a fully pruned pipeline from the latest row alone", async () => {
+    const cost = await computeCost(state(), tmpRoot, rowWith(["gone"], 7));
+    expect(cost.hasData).toBe(true);
+    expect(cost.total).toBeCloseTo(7, 6);
+    expect(cost.byModel["claude-sonnet-4-6"]).toBeCloseTo(7, 6);
+  });
+
+  it("sums a row session with an on-disk session for a partly pruned pipeline", async () => {
+    writeJsonl("live.jsonl", [
+      seedEvent(),
+      assistant("claude-sonnet-4-6", ONE_MTOK),
+    ]);
+    const cost = await computeCost(state(), tmpRoot, rowWith(["gone"], 7));
+    // $7 from the pruned row session + $3 for 1M Sonnet 4.6 input tokens
+    expect(cost.total).toBeCloseTo(10, 6);
+  });
+
+  it("keeps an empty row at hasData:false so the cell renders a dash", async () => {
+    const cost = await computeCost(state(), tmpRoot, rowWith([], 0));
+    expect(cost).toEqual({
+      total: 0,
+      byModel: {},
+      unknownModels: [],
+      hasData: false,
+    });
+  });
+
+  it("counts sub-agent spend and lists unpriced models", async () => {
+    writeJsonl("session.jsonl", [
+      seedEvent(),
+      assistant("claude-sonnet-4-6", ONE_MTOK),
+    ]);
+    const sub = path.join(projectDir, "session", "subagents");
+    fs.mkdirSync(sub, { recursive: true });
+    fs.writeFileSync(
+      path.join(sub, "agent-1.jsonl"),
+      [
+        assistant("claude-opus-5-5", ONE_MTOK),
+        assistant("claude-haiku-5-5", ONE_MTOK),
+      ]
+        .map((l) => JSON.stringify(l))
+        .join("\n"),
+    );
+    const cost = await computeCost(state(), tmpRoot);
+    // $3 sonnet-4-6 + $4 opus-5-5; haiku-5-5 is unpriced
+    expect(cost.total).toBeCloseTo(7, 6);
+    expect(cost.unknownModels).toEqual(["claude-haiku-5-5"]);
   });
 });

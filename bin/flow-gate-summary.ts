@@ -83,6 +83,12 @@ import {
 } from "./lib/merge-allow-rule";
 import { userSettingsPath } from "./lib/claude-user-settings";
 import { recordEvent } from "./lib/telemetry";
+import { collectRunAttribution } from "./lib/run-attribution";
+import {
+  appendRunAttribution,
+  mergeWithPrior,
+  readLatestRunAttributions,
+} from "./lib/run-attribution-record";
 import {
   armCheckpoint,
   checkpointBodyPath,
@@ -1145,6 +1151,9 @@ export function run(
     homeDir?: string;
     stateDir?: string;
     read?: Parameters<typeof resolveLens>[1];
+    /** Test seams for the run-attribution row (default: real ~/.claude, ~/.flow). */
+    projectsRoot?: string;
+    attributionLogPath?: string;
   },
 ): number {
   const parsed = parseArgs(argv);
@@ -1257,6 +1266,30 @@ export function run(
         pr_url: parsed.prUrl ?? null,
         cleanup: cleanup ?? null,
       });
+    } catch {
+      // swallowed — telemetry must never affect this CLI's exit code.
+    }
+
+    // Durable run-attribution row, keyed on the gate summary's own resolved
+    // slug (event correlation drops the slug after a /clear). Prints nothing.
+    try {
+      const attrState =
+        resolvedSlug === null ? null : readState(resolvedSlug, opts?.stateDir);
+      if (resolvedSlug !== null && attrState) {
+        const logPath = opts?.attributionLogPath;
+        const prior = readLatestRunAttributions({ logPath }).get(resolvedSlug);
+        const fresh = collectRunAttribution(attrState, {
+          projectsRoot: opts?.projectsRoot,
+        });
+        appendRunAttribution(
+          {
+            ...mergeWithPrior(fresh, prior ?? null),
+            ts: new Date().toISOString(),
+            status: parsed.status,
+          },
+          { logPath },
+        );
+      }
     } catch {
       // swallowed — telemetry must never affect this CLI's exit code.
     }

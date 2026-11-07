@@ -135,6 +135,16 @@ export function flowTelemetryLogPath(homeDir: string = os.homedir()): string {
   return path.join(homeDir, ".flow", "telemetry", "events.jsonl");
 }
 
+/**
+ * Resolves `~/.flow/telemetry/run-attribution.jsonl` at call time, for the
+ * same HOME-sandbox reason as `flowTelemetryLogPath()`.
+ */
+export function flowRunAttributionLogPath(
+  homeDir: string = os.homedir(),
+): string {
+  return path.join(homeDir, ".flow", "telemetry", "run-attribution.jsonl");
+}
+
 export const FLOW_UPDATE_CACHE = path.join(FLOW_DIR, "update-check.json");
 export const SETUP_LOCK_PATH = path.join(FLOW_DIR, "setup.lock");
 export const FLOW_TEST_SEM_DIR = path.join(FLOW_DIR, "test-sem");
