@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { validateDag } from "../flow-epic-dag";
 import { readEpicMaxParallel } from "./epic-config";
-import { appendManagerLog } from "./epic-manager-log";
+import { appendManagerLog, SEQUENCER_LOG_LOCK } from "./epic-manager-log";
 import { iso, safely } from "./epic-manage-events";
 import { planLaunches, type GuardResult } from "./epic-manage-guard";
 import { expireHolds } from "./epic-manage-launch";
@@ -263,6 +263,7 @@ export async function plan(
               "its PR merged on GitHub (observed; launch record untouched)",
           },
           deps.stateDir,
+          SEQUENCER_LOG_LOCK,
         ),
       );
     }

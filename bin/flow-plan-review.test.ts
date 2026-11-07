@@ -2099,3 +2099,91 @@ describe("run — product brief threading", () => {
     expect(promptFor(withNull)).not.toContain("## Product brief");
   });
 });
+
+describe("--require-review", () => {
+  const START_REQUIRE = [
+    "--start",
+    "--require-review",
+    "--plan-file",
+    PLAN_FILE,
+    "--out",
+    OUT,
+    "--worktree",
+    WORKTREE,
+  ];
+
+  it("parseArgs accepts the valueless flag and defaults it to false", () => {
+    const on = parseArgs(["--require-review", ...BASE_ARGV]);
+    const off = parseArgs(BASE_ARGV);
+    expect("error" in on).toBe(false);
+    expect("error" in off).toBe(false);
+    expect((on as { requireReview: boolean }).requireReview).toBe(true);
+    expect((off as { requireReview: boolean }).requireReview).toBe(false);
+  });
+
+  it("default mode: runs the review on a plan with no Decision analysis", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_NO_SECTION);
+    expect(run(["--require-review", ...BASE_ARGV], deps)).toBe(0);
+    expect(envelope(deps).skipReason ?? null).toBeNull();
+    expect(envelope(deps).ran).toBe(true);
+    expect(
+      deps.calls.delegate.length + deps.calls.fanout.length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("--start: does not skip no-decision-analysis, and threads the flag into the worker argv", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_NO_SECTION);
+    expect(run(START_REQUIRE, deps)).toBe(0);
+    expect(deps.calls.spawnDetached).toHaveLength(1);
+    expect(deps.calls.spawnDetached[0]).toContain("--require-review");
+  });
+
+  it("--start without the flag spawns a worker with no --require-review", () => {
+    const deps = makeDeps();
+    expect(
+      run(
+        [
+          "--start",
+          "--plan-file",
+          PLAN_FILE,
+          "--out",
+          OUT,
+          "--worktree",
+          WORKTREE,
+        ],
+        deps,
+      ),
+    ).toBe(0);
+    expect(deps.calls.spawnDetached[0]).not.toContain("--require-review");
+  });
+
+  it("bypasses ONLY no-decision-analysis: every other gate still skips", () => {
+    const disabled = makeDeps({ readConfig: () => JSON.stringify({}) });
+    disabled.files.set(PLAN_FILE, PLAN_NO_SECTION);
+    run(START_REQUIRE, disabled);
+    expect(envelope(disabled)).toEqual({
+      ran: false,
+      skipReason: "plan-review-disabled",
+    });
+
+    const noTree = makeDeps();
+    noTree.files.set(PLAN_FILE, PLAN_NO_SECTION);
+    run(
+      ["--start", "--require-review", "--plan-file", PLAN_FILE, "--out", OUT],
+      noTree,
+    );
+    expect(envelope(noTree).skipReason).toBe("worktree-not-provided");
+
+    const unchanged = makeDeps();
+    const hash = computeDecisionHash(PLAN_NO_SECTION);
+    unchanged.files.set(
+      PLAN_FILE,
+      `${PLAN_NO_SECTION}\n<!-- flow-plan-review-hash: ${hash} -->\n`,
+    );
+    run(START_REQUIRE, unchanged);
+    expect(envelope(unchanged).skipReason).toBe("decision-analysis-unchanged");
+    expect(unchanged.calls.spawnDetached).toHaveLength(0);
+  });
+});

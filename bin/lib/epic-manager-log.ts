@@ -1,8 +1,8 @@
 /**
  * The shared per-epic manager directory (`~/.flow/state/managers/<epic>/`)
- * and its append-only `log.jsonl`. The sequencer (`flow epic manage`) and the
- * epic executive both write here; the names and base fields are the shared
- * contract, so whichever feature merges second changes imports, never data.
+ * and its append-only `log.jsonl`. The sequencer (f1) and the epic executive
+ * (f5) both write here; the names and base fields are the shared contract, so
+ * whichever feature merges second changes imports, never data.
  *
  * `managers/` is a subdirectory of the state dir: `listStates` reads only
  * top-level `*.json` files, so nothing here is mistaken for a pipeline state.
@@ -10,7 +10,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { withFileLockSync } from "./lock";
+import { withFileLockSync, type LockOptions } from "./lock";
 import { FLOW_STATE_DIR } from "./paths";
 
 export type ManagerLogKind =
@@ -75,8 +75,8 @@ export type ManagerLogEntry = {
   exec?: ExecLogPayload;
 };
 
-/** The sequencer loop appends from its tick, so the lock wait stays well under a second. */
-const LOG_LOCK = { timeoutMs: 500, pollMs: 25 } as const;
+/** The sequencer appends from its tick, so its lock wait stays well under a second (Ctrl-C exits promptly). */
+export const SEQUENCER_LOG_LOCK: LockOptions = { timeoutMs: 500, pollMs: 25 };
 
 export function managerDir(
   epicSlug: string,
@@ -93,6 +93,7 @@ export function appendManagerLog(
   epicSlug: string,
   entry: ManagerLogEntry,
   stateDir?: string,
+  lock: LockOptions = {},
 ): void {
   const dir = managerDir(epicSlug, stateDir);
   fs.mkdirSync(dir, { recursive: true });
@@ -104,7 +105,7 @@ export function appendManagerLog(
         `${JSON.stringify(entry)}\n`,
       );
     },
-    LOG_LOCK,
+    lock,
   );
 }
 

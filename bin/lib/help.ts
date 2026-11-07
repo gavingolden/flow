@@ -68,7 +68,7 @@ Usage:
                                         --slug uses an explicit slug instead of deriving one from the description;
                                         hard-fails if that slug's window already exists)
   flow feature resume <name> [<name> ...]  resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
-  flow epic <create|run|status|bind|launch|ls|done|manage> design and run an epic
+  flow epic <create|run|status|bind|launch|ls|done|manage|grant> design and run an epic
   flow config all [--slug <name>] [--json]
                                         show every resolved config.json setting across three
                                         timing-labelled sections (models, launch, settings);
@@ -188,6 +188,7 @@ Usage:
   flow epic ls [--all|-a] [--done] [--all-repos]
   flow epic done <slug> [--yes]
   flow epic manage <slug> [--model <alias>] [--effort <level>] [--autonomy observe]
+  flow epic grant <epic-slug> --autonomy high|off
 
 Subcommands:
   create "<prompt>"     design an epic — open a tmux window running /flow-epic-create.
@@ -229,6 +230,10 @@ Subcommands:
                         closing the window) stops it without touching launched
                         pipelines; a second start refuses and prints
                         \`flow attach manage-<slug>\`
+  grant <epic> ...      let the epic's executive approve plans on your behalf:
+                        \`--autonomy high\` (plain terminal only, never inside a
+                        Claude session) writes the grant; \`--autonomy off\`
+                        withdraws it from anywhere
 
 Options (create):
   --effort <low|medium|high|xhigh|max>

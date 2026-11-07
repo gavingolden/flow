@@ -12,6 +12,14 @@ Every chat-turn input falls into one of:
 - **Affirmative.** `approved`, `ok`, `looks good`, `go ahead`,
   `ship it`, `yes`, `lgtm`, `proceed`, `do it`. Means "continue
   what you were going to do."
+- **`accept`** (`plan-pending-review` only). Takes the epic executive's
+  one recommendation in a word, and only when the deferral offered it (its
+  `.recommendationAction` was set). It is not an Affirmative synonym and
+  means nothing anywhere else. `recommendationAction: approve` runs the
+  Affirmative branch; `redirect` becomes an Imperative redirect whose
+  payload is the recommendation text. Record it first with
+  `flow-exec-review outcome --reply accept`. See
+  `skills/pipeline/flow-pipeline/references/phases/step-04-approval.md`.
 - **Imperative redirect.** A non-approval message that contains a
   directive: `actually, also handle TSV`; `redo the plan with
 different scope`; `stop and rebuild against the new schema`;
@@ -247,6 +255,20 @@ bar — it only widens the door to the `AskUserQuestion` form so the bare
 "merge" case fires the conscious-confirmation surface rather than
 refusing it, and adds the live re-query so a self-cleared gate routes
 to auto-merge instead of a refused override.
+
+## After an executive approval
+
+When the plan was approved by the epic executive (a decision id sits in the
+checkpoint body or the PR draft's `Plan approved by the epic executive`
+stamp) and the owner later sends a redirect or cancel — at any phase — run
+`flow-exec-review outcome --slug "$FLOW_SLUG" --decision <id> --reply
+redirect|cancel` BEFORE acting on it. The output carries `wrongApproval:
+true` and an `offer`: show that offer to the owner verbatim, so a wrong
+approval can become a standing charter line
+(`flow-exec-review charter --add --decision <id> "<what the executive should
+have weighed>"`). The offer is only an offer: the owner's redirect or cancel
+proceeds regardless, and nothing is added to the charter without their
+words.
 
 ## Don't conflate redirect with retry
 

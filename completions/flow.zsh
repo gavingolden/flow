@@ -136,6 +136,9 @@ _flow() {
                             '--done[include completed epics]' \
                             '--all-repos[include epics from every repo]' \
                             '(--all -a)'{--all,-a}'[drop every default filter: done epics and every repo]'
+                    elif [[ "$line[2]" == grant ]]; then
+                        _arguments \
+                            '--autonomy[let the epic executive approve plans (high needs a plain terminal)]:level:(high off)'
                     else
                         local -a sub
                         sub=(
@@ -147,6 +150,7 @@ _flow() {
                             'ls:list epics with per-state feature counts'
                             'done:remove the per-machine run.json cache'
                             'manage:run the zero-token sequencer for an approved epic'
+                            'grant:let the epic executive approve plans for you'
                         )
                         _describe 'subcommand' sub
                     fi

@@ -11,7 +11,7 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { appendManagerLog } from "./epic-manager-log";
+import { appendManagerLog, SEQUENCER_LOG_LOCK } from "./epic-manager-log";
 import { resolveManagerModelEffort } from "./epic-manager-model";
 import {
   abortableSleep,
@@ -422,6 +422,7 @@ async function runForeground(
     slug,
     { ts: now, kind: "started", window: state.window },
     options.stateDir,
+    SEQUENCER_LOG_LOCK,
   );
 
   const isTty = Boolean(process.stdout.isTTY);

@@ -17,7 +17,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { validateDag } from "../flow-epic-dag";
 import { readEpicMaxParallel } from "./epic-config";
-import { appendManagerLog, readManagerLog } from "./epic-manager-log";
+import {
+  appendManagerLog,
+  SEQUENCER_LOG_LOCK,
+  readManagerLog,
+} from "./epic-manager-log";
 import { announce, iso, safely, type EventCtx } from "./epic-manage-events";
 import { githubFresh, headSha, observe, plan } from "./epic-manage-plan";
 import {
@@ -239,6 +243,7 @@ export async function tick(
             key: `launch:${verdict.id}@${now}`,
           },
           deps.stateDir,
+          SEQUENCER_LOG_LOCK,
         ),
       );
       guard = planned.replan();
@@ -367,6 +372,7 @@ export async function runManagerLoop(
         cfg.manager.epicSlug,
         { ts: iso(deps.now()), kind: "stopped" },
         deps.stateDir,
+        SEQUENCER_LOG_LOCK,
       ),
     );
     safely(() => removeManager(cfg.manager.epicSlug, deps.stateDir));

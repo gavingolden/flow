@@ -1,66 +1,69 @@
 import { describe, expect, it } from "vitest";
 import { resolveManagerModelEffort } from "./epic-manager-model";
 
-const cfg = (raw: unknown) => () => raw;
-
 describe("resolveManagerModelEffort", () => {
   it("defaults to opus/high with an empty featureFallback", () => {
-    expect(resolveManagerModelEffort({ read: cfg({}) })).toEqual({
+    expect(resolveManagerModelEffort({ read: () => undefined })).toEqual({
       model: "opus",
       effort: "high",
       featureFallback: {},
     });
   });
 
-  it("config.models.manager / config.efforts.manager beat the default but never reach featureFallback", () => {
-    expect(
-      resolveManagerModelEffort({
-        read: cfg({
-          models: { manager: "sonnet" },
-          efforts: { manager: "low" },
-        }),
-      }),
-    ).toEqual({ model: "sonnet", effort: "low", featureFallback: {} });
-  });
-
-  it("typed flags beat config and become the featureFallback", () => {
-    expect(
-      resolveManagerModelEffort({
-        flagModel: "haiku",
-        flagEffort: "medium",
-        read: cfg({
-          models: { manager: "sonnet" },
-          efforts: { manager: "low" },
-        }),
-      }),
-    ).toEqual({
-      model: "haiku",
+  it("config beats the default but never lands in featureFallback", () => {
+    const read = () => ({
+      models: { manager: "sonnet" },
+      efforts: { manager: "medium" },
+    });
+    expect(resolveManagerModelEffort({ read })).toEqual({
+      model: "sonnet",
       effort: "medium",
-      featureFallback: { model: "haiku", effort: "medium" },
+      featureFallback: {},
     });
   });
 
-  it("resolves each axis independently", () => {
+  it("flags beat config and populate featureFallback", () => {
+    const read = () => ({
+      models: { manager: "sonnet" },
+      efforts: { manager: "medium" },
+    });
     expect(
       resolveManagerModelEffort({
+        flagModel: "fable",
         flagEffort: "max",
-        read: cfg({ models: { manager: "fable" } }),
+        read,
       }),
     ).toEqual({
+      model: "fable",
+      effort: "max",
+      featureFallback: { model: "fable", effort: "max" },
+    });
+  });
+
+  it("resolves model and effort independently", () => {
+    const read = () => ({ efforts: { manager: "low" } });
+    expect(resolveManagerModelEffort({ flagModel: "haiku", read })).toEqual({
+      model: "haiku",
+      effort: "low",
+      featureFallback: { model: "haiku" },
+    });
+  });
+
+  it("resolves the other axis independently: config model, flag effort", () => {
+    const read = () => ({ models: { manager: "fable" } });
+    expect(resolveManagerModelEffort({ flagEffort: "max", read })).toEqual({
       model: "fable",
       effort: "max",
       featureFallback: { effort: "max" },
     });
   });
 
-  it("ignores an invalid configured alias or level", () => {
-    expect(
-      resolveManagerModelEffort({
-        read: cfg({
-          models: { manager: "gpt" },
-          efforts: { manager: "extreme" },
-        }),
-      }),
-    ).toMatchObject({ model: "opus", effort: "high" });
+  it("ignores invalid config values", () => {
+    const read = () => ({
+      models: { manager: "gpt" },
+      efforts: { manager: "turbo" },
+    });
+    expect(resolveManagerModelEffort({ read }).model).toBe("opus");
+    expect(resolveManagerModelEffort({ read }).effort).toBe("high");
   });
 });

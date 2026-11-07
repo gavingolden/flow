@@ -6,87 +6,116 @@ import {
   appendManagerLog,
   managerDir,
   readManagerLog,
+  SEQUENCER_LOG_LOCK,
   type ManagerLogEntry,
 } from "./epic-manager-log";
 
-let stateDir!: string;
-
+let dir: string;
 beforeEach(() => {
-  stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-manager-log-"));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "emlog-"));
 });
-
 afterEach(() => {
-  fs.rmSync(stateDir, { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 const entry = (over: Partial<ManagerLogEntry> = {}): ManagerLogEntry => ({
-  ts: "2026-10-26T00:00:00Z",
-  kind: "started",
+  ts: "2026-10-26T00:00:00.000Z",
+  kind: "launch",
+  featureId: "f1",
   ...over,
 });
 
-describe("managerDir", () => {
-  it("is <stateDir>/managers/<epic>", () => {
-    expect(managerDir("my-epic", "/s")).toBe(
-      path.join("/s", "managers", "my-epic"),
+describe("epic-manager-log", () => {
+  it("places the directory under <state>/managers/<epic>", () => {
+    expect(managerDir("e", dir)).toBe(path.join(dir, "managers", "e"));
+  });
+
+  it("reads an absent log as empty", () => {
+    expect(readManagerLog("e", dir)).toEqual([]);
+  });
+
+  it("appends and reads entries in order, creating the directory", () => {
+    appendManagerLog("e", entry(), dir);
+    appendManagerLog(
+      "e",
+      entry({ kind: "owner-needed", phase: "ci", window: "w1" }),
+      dir,
     );
+    const got = readManagerLog("e", dir);
+    expect(got.map((e) => e.kind)).toEqual(["launch", "owner-needed"]);
+    expect(got[1].phase).toBe("ci");
+    expect(got[1].window).toBe("w1");
+  });
+
+  it("round-trips an exec payload", () => {
+    appendManagerLog(
+      "e",
+      entry({
+        kind: "exec-owner-reply",
+        exec: {
+          decisionId: "plan-1",
+          reviewKind: "plan",
+          ownerReply: "redirect",
+          wrongApproval: true,
+        },
+      }),
+      dir,
+    );
+    expect(readManagerLog("e", dir)[0].exec?.wrongApproval).toBe(true);
+  });
+
+  it("releases the lock after each append", () => {
+    appendManagerLog("e", entry(), dir);
+    expect(fs.existsSync(path.join(managerDir("e", dir), "log.lock"))).toBe(
+      false,
+    );
+  });
+
+  it("passes unknown kinds through and skips garbage lines", () => {
+    appendManagerLog("e", entry(), dir);
+    const file = path.join(managerDir("e", dir), "log.jsonl");
+    fs.appendFileSync(
+      file,
+      'not json\n{"ts":"t","kind":"future-kind"}\n{"no":"shape"}\n\n',
+    );
+    const kinds = readManagerLog("e", dir).map((e) => e.kind as string);
+    expect(kinds).toEqual(["launch", "future-kind"]);
+  });
+
+  it("is exported by exactly one non-test module under bin/", () => {
+    const binDir = path.resolve(__dirname, "..");
+    const hits: string[] = [];
+    const walk = (d: string) => {
+      for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
+        if (ent.name === "node_modules" || ent.name === "__fixtures__")
+          continue;
+        const p = path.join(d, ent.name);
+        if (ent.isDirectory()) walk(p);
+        else if (p.endsWith(".ts") && !p.endsWith(".test.ts")) {
+          if (
+            /export function appendManagerLog\b/.test(
+              fs.readFileSync(p, "utf8"),
+            )
+          )
+            hits.push(path.relative(binDir, p));
+        }
+      }
+    };
+    walk(binDir);
+    expect(hits).toEqual(["lib/epic-manager-log.ts"]);
   });
 });
 
-describe("appendManagerLog / readManagerLog", () => {
-  it("round-trips entries in append order", () => {
-    appendManagerLog("e", entry(), stateDir);
-    appendManagerLog(
-      "e",
-      entry({ kind: "launch", featureId: "f1", slug: "f1", pr: 3 }),
-      stateDir,
-    );
-    const got = readManagerLog("e", stateDir);
-    expect(got.map((g) => g.kind)).toEqual(["started", "launch"]);
-    expect(got[1]).toMatchObject({ featureId: "f1", slug: "f1", pr: 3 });
-  });
-
-  it("returns [] when no log exists", () => {
-    expect(readManagerLog("nope", stateDir)).toEqual([]);
-  });
-
-  it("skips unparseable and shapeless lines", () => {
-    appendManagerLog("e", entry(), stateDir);
-    const file = path.join(managerDir("e", stateDir), "log.jsonl");
-    fs.appendFileSync(file, '{not json\n[1,2]\n{"kind":"started"}\n\n');
-    appendManagerLog("e", entry({ kind: "stopped" }), stateDir);
-    expect(readManagerLog("e", stateDir).map((g) => g.kind)).toEqual([
-      "started",
-      "stopped",
-    ]);
-  });
-
-  it("passes an unknown kind through unchanged", () => {
-    const file = path.join(managerDir("e", stateDir), "log.jsonl");
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(
-      file,
-      JSON.stringify({ ts: "t", kind: "future-kind", extra: 1 }) + "\n",
-    );
-    expect(readManagerLog("e", stateDir)).toEqual([
-      { ts: "t", kind: "future-kind", extra: 1 },
-    ]);
-  });
-
-  it("locks on <dir>/log.lock and leaves no lock file behind", () => {
-    appendManagerLog("e", entry(), stateDir);
-    expect(
-      fs.existsSync(path.join(managerDir("e", stateDir), "log.lock")),
-    ).toBe(false);
-  });
-
-  it("a live foreign lock holder makes the append fail fast (short timeout), not hang", () => {
-    const dir = managerDir("e", stateDir);
-    fs.mkdirSync(dir, { recursive: true });
+describe("sequencer lock wait", () => {
+  it("a live foreign lock holder makes a sequencer append fail fast, not hang", () => {
+    const d = managerDir("e", dir);
+    fs.mkdirSync(d, { recursive: true });
     // PID 1 is always alive, so the lock is never reclaimed as stale.
-    fs.writeFileSync(path.join(dir, "log.lock"), "1");
+    fs.writeFileSync(path.join(d, "log.lock"), "1");
     const started = Date.now();
-    expect(() => appendManagerLog("e", entry(), stateDir)).toThrow(/lock/);
+    expect(() =>
+      appendManagerLog("e", entry(), dir, SEQUENCER_LOG_LOCK),
+    ).toThrow(/lock/);
     expect(Date.now() - started).toBeLessThan(2000);
   });
 });
@@ -104,27 +133,5 @@ describe("zero model calls", () => {
       const text = fs.readFileSync(path.join(lib, f), "utf8");
       expect(text, f).not.toMatch(/["'](claude|flow-claude-headless)["']/);
     }
-  });
-});
-
-describe("single log module", () => {
-  it("exactly one non-test module under bin/ exports appendManagerLog", () => {
-    const binDir = path.resolve(__dirname, "..");
-    const hits: string[] = [];
-    const walk = (dir: string): void => {
-      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-        const p = path.join(dir, e.name);
-        if (e.isDirectory()) {
-          if (e.name !== "node_modules" && e.name !== "__snapshots__") walk(p);
-        } else if (e.name.endsWith(".ts") && !e.name.endsWith(".test.ts")) {
-          const text = fs.readFileSync(p, "utf8");
-          if (/export (function|const) appendManagerLog\b/.test(text)) {
-            hits.push(path.relative(binDir, p));
-          }
-        }
-      }
-    };
-    walk(binDir);
-    expect(hits).toEqual([path.join("lib", "epic-manager-log.ts")]);
   });
 });

@@ -7,7 +7,11 @@
  * and only for phases the pipeline does not already announce (`notify` flag).
  */
 
-import { appendManagerLog, type ManagerLogKind } from "./epic-manager-log";
+import {
+  appendManagerLog,
+  SEQUENCER_LOG_LOCK,
+  type ManagerLogKind,
+} from "./epic-manager-log";
 import type { GuardResult } from "./epic-manage-guard";
 import type { OwnerNeededLine } from "./epic-manage-board";
 
@@ -57,6 +61,7 @@ export function emit(ctx: EventCtx, deps: EventDeps, e: Emit): void {
       ctx.epic,
       { ts: iso(deps.now()), ...fields },
       deps.stateDir,
+      SEQUENCER_LOG_LOCK,
     ),
   );
   if (notify) {
@@ -152,6 +157,7 @@ export function announce(
               key: `${key}@${deps.now()}`,
             },
             deps.stateDir,
+            SEQUENCER_LOG_LOCK,
           ),
         );
       }

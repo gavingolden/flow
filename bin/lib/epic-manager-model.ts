@@ -1,45 +1,50 @@
 /**
- * The single model/effort resolver for the epic manager and every later
- * executive call. Precedence: typed flag > `config.models.manager` /
- * `config.efforts.manager` > the opus/high default. `featureFallback` carries
- * ONLY the typed flags — config and the default govern the manager's own
- * model calls, never a feature's unhinted launch, so `config.models.default`
- * still applies to features.
+ * One model source for the epic manager / executive: flag > config
+ * (`models.manager`, `efforts.manager`) > `opus` / `high`.
+ *
+ * `featureFallback` carries ONLY the explicitly passed flags (it fills a
+ * launched feature's missing manifest hint); config and the built-in default
+ * never land in it. The executive reads only `model` / `effort`.
  */
 
-import { readEffortsConfig } from "./efforts-config";
-import { defaultReadConfigFile, readPhaseModel } from "./models-config";
-import type { ReadConfigFile } from "./models-config";
-import type { EffortLevel, ModelAlias } from "./state";
+import {
+  readPhaseModel,
+  defaultReadConfigFile,
+  type ReadConfigFile,
+  extractTableKey,
+} from "./models-config";
+import { EFFORT_LEVELS, type EffortLevel, type ModelAlias } from "./state";
 
 export const MANAGER_DEFAULT_MODEL: ModelAlias = "opus";
 export const MANAGER_DEFAULT_EFFORT: EffortLevel = "high";
 
-export type ManagerModelEffort = {
+function asEffort(v: unknown): EffortLevel | undefined {
+  return typeof v === "string" &&
+    (EFFORT_LEVELS as readonly string[]).includes(v)
+    ? (v as EffortLevel)
+    : undefined;
+}
+
+export function resolveManagerModelEffort(
+  input: {
+    flagModel?: ModelAlias;
+    flagEffort?: EffortLevel;
+    read?: ReadConfigFile;
+  } = {},
+): {
   model: ModelAlias;
   effort: EffortLevel;
   featureFallback: { model?: ModelAlias; effort?: EffortLevel };
-};
-
-export function resolveManagerModelEffort(input: {
-  flagModel?: ModelAlias;
-  flagEffort?: EffortLevel;
-  read?: ReadConfigFile;
-}): ManagerModelEffort {
+} {
   const read = input.read ?? defaultReadConfigFile;
-  const configEffort = readEffortsConfig(read).manager;
+  const configModel = readPhaseModel("manager", read);
+  const configEffort = extractTableKey(read(), "efforts", "manager", asEffort);
+  const featureFallback: { model?: ModelAlias; effort?: EffortLevel } = {};
+  if (input.flagModel) featureFallback.model = input.flagModel;
+  if (input.flagEffort) featureFallback.effort = input.flagEffort;
   return {
-    model:
-      input.flagModel ??
-      readPhaseModel("manager", read) ??
-      MANAGER_DEFAULT_MODEL,
-    effort:
-      input.flagEffort ??
-      (typeof configEffort === "string" ? configEffort : undefined) ??
-      MANAGER_DEFAULT_EFFORT,
-    featureFallback: {
-      ...(input.flagModel ? { model: input.flagModel } : {}),
-      ...(input.flagEffort ? { effort: input.flagEffort } : {}),
-    },
+    model: input.flagModel ?? configModel ?? MANAGER_DEFAULT_MODEL,
+    effort: input.flagEffort ?? configEffort ?? MANAGER_DEFAULT_EFFORT,
+    featureFallback,
   };
 }
