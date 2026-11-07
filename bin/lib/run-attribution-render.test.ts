@@ -67,7 +67,7 @@ describe(renderRanOn, () => {
   it("names both models, both efforts in order and the list-price total in the pm lens", () => {
     const [line] = renderRanOn(attr, "pm");
     expect(line).toContain("Opus 5.5 at low (327 turns), then high (39)");
-    expect(line).toContain("Sonnet 5.5 at medium (coder)");
+    expect(line).toContain("sub-agents: Sonnet 5.5 at medium ×1");
     expect(line).toContain("$22.00 at list price");
     expect(line.indexOf("low")).toBeLessThan(line.indexOf("high"));
   });
@@ -102,6 +102,25 @@ describe(renderRanOn, () => {
     }
   });
 
+  it("omits unknown effort per run when only some units recorded it", () => {
+    const a = build(
+      [unit("s", [["claude-opus-5-5", "high", 3]])],
+      [
+        {
+          ...unit("agent-x", [["claude-sonnet-5-5", "unknown", 2]]),
+          role: "coder",
+          agent_type: null,
+          parent_session_id: "s",
+        },
+      ],
+    );
+    for (const lens of ["pm", "dev"] as const) {
+      const text = renderRanOn(a, lens).join("\n");
+      expect(text).not.toContain("unknown");
+    }
+    expect(renderRanOn(a, "pm")[0]).toContain("sub-agents: Sonnet 5.5 ×1");
+  });
+
   it("appends unpriced models and unreadable-log counts without hiding known spend", () => {
     const a = build(
       [
@@ -115,7 +134,9 @@ describe(renderRanOn, () => {
     const [line] = renderRanOn(a, "pm");
     expect(line).toContain("$4.00 at list price");
     expect(line).toContain("(+ unpriced: claude-haiku-5-5)");
-    expect(line).toContain("(+ 2 session logs too large to read)");
+    expect(line).toContain(
+      "(+ 2 transcripts not read: too large or unreadable)",
+    );
   });
 
   it("lists delegated models and skips calls that did not run", () => {

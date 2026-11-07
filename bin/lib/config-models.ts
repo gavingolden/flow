@@ -177,7 +177,7 @@ export type ModelRows = {
 
 /**
  * Pure(ish) row-builder over an already-resolved `read` + `state`: resolves
- * the session effort (state > `launch.effort` > built-in), reads every
+ * the session effort (state > `launch.effort` > unset), reads every
  * `models.*` and `efforts.*` grain, and feeds them into `resolveRouting`.
  * Extracted so `flow config all` can compose this section without
  * re-parsing `~/.flow/config.json`.
@@ -214,7 +214,7 @@ export function buildModelRows(
  * the SAME three source-string literals so the two audit views never describe
  * identical resolutions in different words. Once an explicit `--slug` resolved a state file, config
  * is no longer in the chain (same rule `config-launch.ts` documents) — an
- * absent `state.effort` there means "resolved to the built-in", never "go
+ * absent `state.effort` there means "flow passed no --effort (Claude Code's own setting applied)", never "go
  * re-read the live config".
  */
 function resolveSessionEffort(

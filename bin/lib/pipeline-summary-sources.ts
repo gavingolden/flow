@@ -690,9 +690,9 @@ function antiPatternDecisionLines(
 
 /**
  * Slimmed, un-fenced PR-comment block (NOT the scrollback block). A plain
- * `PIPELINE SNAPSHOT` title line (no `##`) over three 2-space-indented
+ * `PIPELINE SNAPSHOT` title line (no `##`) over 2-space-indented
  * labeled sections: CHANGES (the one-line diff summary, reusing
- * renderChanges), REVIEW (the review/findings disposition, reusing
+ * renderChanges), RAN ON (which model and effort ran each part), REVIEW (the review/findings disposition, reusing
  * renderFindings), and DECISIONS (deferred + rejected + anti-patterns), plus a conditional
  * INTENT section emitted only when the intent-resolution artifact is
  * present AND its verdict is non-`match` (an unparseable artifact drops the
@@ -844,8 +844,8 @@ function renderCommentPm(inputs: RenderCommentInputs): string {
 
 /**
  * Slimmed, un-fenced PR-comment block (NOT the scrollback block) — both
- * lenses: `pm` (CHANGES / REVIEW counts / DEVIATIONS / UNTRACKED, the
- * top-level fenced block) and `dev` (today's CHANGES / REVIEW narrative /
+ * lenses: `pm` (CHANGES / RAN ON / REVIEW counts / DEVIATIONS / UNTRACKED, the
+ * top-level fenced block) and `dev` (today's CHANGES / RAN ON / REVIEW narrative /
  * optional INTENT / DECISIONS, the `<details>`-collapsed developer block —
  * `buildCommentBody` composes the two). Pure over already-read inputs;
  * never reads files.

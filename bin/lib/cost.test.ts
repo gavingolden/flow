@@ -620,6 +620,15 @@ describe("price table", () => {
     expect(lookupModelPricing("claude-haiku-5-5")).toBeNull();
   });
 
+  it("lists the same models as the spend audit's PRICES apart from the pre-audit 4.x rows", () => {
+    const AUDIT_EXEMPT = new Set(["claude-opus-4-7", "claude-sonnet-4-6"]);
+    expect(Object.keys(PRICES).sort()).toEqual(
+      Object.keys(MODEL_PRICING)
+        .filter((k) => !AUDIT_EXEMPT.has(k))
+        .sort(),
+    );
+  });
+
   it("agrees with the spend audit's PRICES over the audit's keys", () => {
     for (const [model, [input, w5m, w1h, read, output]] of Object.entries(
       PRICES,
@@ -690,6 +699,29 @@ describe("computeCost as a run-attribution projection", () => {
       totals: computeTotals(sessions, [], 0),
     };
   }
+
+  it("carries a row's delegated headless spend so byModel + delegatedUsd sums to total", async () => {
+    const row = rowWith(["gone"], 7);
+    row.delegated = [
+      {
+        event: "deliberate.call",
+        task: "t",
+        model: "opus",
+        effort: null,
+        ran: true,
+        skip_reason: null,
+        ts: "2026-11-06T00:00:00Z",
+        cost_usd: 2,
+      },
+    ];
+    row.totals = computeTotals(row.sessions, row.delegated, 0);
+    const cost = await computeCost(state(), tmpRoot, row);
+    expect(cost.delegatedUsd).toBeCloseTo(2, 6);
+    const parts =
+      Object.values(cost.byModel).reduce((a, b) => a + b, 0) +
+      cost.delegatedUsd;
+    expect(parts).toBeCloseTo(cost.total, 6);
+  });
 
   it("prices a fully pruned pipeline from the latest row alone", async () => {
     const cost = await computeCost(state(), tmpRoot, rowWith(["gone"], 7));

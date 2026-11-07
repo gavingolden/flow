@@ -39,41 +39,34 @@ function formatRuns(
   const parts: string[] = [];
   let prevModel: string | null | undefined;
   runs.forEach(([model, effort, turns], i) => {
-    const at = hideEffort ? "" : ` at ${effort}`;
+    const noEffort = hideEffort || effort === "unknown";
+    const at = noEffort ? "" : ` at ${effort}`;
     const count =
       i === 0 ? `${turns} turn${turns === 1 ? "" : "s"}` : `${turns}`;
     if (i === 0 || model !== prevModel) {
       const head = `${modelName(model)}${at} (${count})`;
       parts.push(i === 0 ? head : `then ${head}`);
     } else {
-      parts.push(hideEffort ? `(${count})` : `then ${effort} (${count})`);
+      parts.push(noEffort ? `(${count})` : `then ${effort} (${count})`);
     }
     prevModel = model;
   });
   return parts.join(", ");
 }
 
-function roleLabel(roles: ReadonlyMap<string, number>): string {
-  return [...roles]
-    .map(([role, n]) => (n > 1 ? `${role} ×${n}` : role))
-    .join(", ");
-}
-
-/** Distinct sub-agent model/effort pairs with the roles that ran on them. */
+/** Distinct sub-agent model/effort pairs with how many sub-agents ran on each. */
 function spawnPairs(spawns: readonly SpawnAttribution[]): string[] {
-  const pairs = new Map<string, Map<string, number>>();
+  const pairs = new Map<string, number>();
   for (const s of spawns) {
     const seen = new Set<string>();
     for (const [m, e] of s.runs) {
-      const key = `${modelName(m)} at ${e}`;
+      const key = e === "unknown" ? modelName(m) : `${modelName(m)} at ${e}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const roles = pairs.get(key) ?? new Map<string, number>();
-      roles.set(s.role, (roles.get(s.role) ?? 0) + 1);
-      pairs.set(key, roles);
+      pairs.set(key, (pairs.get(key) ?? 0) + 1);
     }
   }
-  return [...pairs].map(([key, roles]) => `${key} (${roleLabel(roles)})`);
+  return [...pairs].map(([key, n]) => `${key} ×${n}`);
 }
 
 function delegatedLabel(attr: RunAttribution): string | null {
@@ -94,7 +87,8 @@ function totalLabel(attr: RunAttribution): string {
     out += ` (+ unpriced: ${t.unpriced_models.map(friendlyName).join(", ")})`;
   }
   if (t.skipped_files > 0) {
-    out += ` (+ ${t.skipped_files} session logs too large to read)`;
+    const n = t.skipped_files;
+    out += ` (+ ${n} transcript${n === 1 ? "" : "s"} not read: too large or unreadable)`;
   }
   return out;
 }
@@ -131,7 +125,7 @@ export function renderRanOn(
       delegated,
       totalLabel(attr),
     ];
-    return [parts.filter((p): p is string => p !== null).join("; ")];
+    return [parts.filter((p): p is string => Boolean(p)).join("; ")];
   }
   const lines: string[] = [];
   attr.sessions.forEach((s, i) => {

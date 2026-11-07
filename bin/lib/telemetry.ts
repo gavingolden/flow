@@ -90,7 +90,10 @@ export type CorrelationResult = {
  * `flow-open-pr.ts` at PR-open time) catches that case: on a MISMATCH the
  * event is recorded with slug/pr/repo nulled out and `attrs.unmatched_slug`
  * set to the inherited (wrong) slug, rather than silently misattributing
- * the event to a pipeline it didn't belong to.
+ * the event to a pipeline it didn't belong to. A post-`/clear` session of the
+ * SAME pipeline also mismatches and is tagged this way; the run-attribution
+ * collector deliberately treats `unmatched_slug` as membership of that slug
+ * (the two cases cannot be told apart yet).
  *
  * When either side's session id is simply ABSENT (no Claude Code harness,
  * or the state file predates `flow-open-pr`'s session-id capture) that is

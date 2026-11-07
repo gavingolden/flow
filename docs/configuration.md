@@ -344,7 +344,8 @@ never a guess; `totals.unattributed_effort_turns` counts them. The latest row
 per slug wins, and a later render merges with the prior row by session id so
 sessions Claude Code has since pruned are kept. `sessions[].session_id` is
 also the join key to `events.jsonl`: it recovers events logged with a null
-`slug` after a `/clear` (the slug rides in `attrs.unmatched_slug`).
+`slug` after a `/clear` (the slug rides in `attrs.unmatched_slug`; a leaked foreign session
+carrying the slug is counted too, until a follow-up can tell them apart).
 `flow ls --cost` uses the same collector and falls back to the row once the
 session logs are pruned. Its totals therefore changed: sub-agent spend,
 post-`/clear` sessions and current-model prices (the table in

@@ -142,7 +142,8 @@ export function runConfigLaunchCli(
 /**
  * Pure row-builder over an already-resolved `read` + `state`: this run's
  * frozen state > `launch.<key>` config > built-in, for each
- * `LAUNCH_CONFIG_KEYS` entry, plus the read-only `model` cross-reference row.
+ * `LAUNCH_CONFIG_KEYS` entry (effort: unset, Claude Code's own setting), plus
+ * the read-only `model` cross-reference row.
  * Extracted from `runConfigLaunchCli` so `flow config all` can compose this
  * section without re-parsing `~/.flow/config.json` or re-running the
  * stderr warning pass (which stays owned by the CLI shim).
