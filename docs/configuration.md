@@ -281,7 +281,9 @@ different unit and must not be summed with them. The change is a documented
 break in spend history. At the audit's price table, counting final output
 moves all transcripts since 2026-09-04 from $8,692 to $9,131 (+5.0%) and lens
 runs from $789.52 to $930.09 (+17.8%): $140.57, 15.1% of the actual lens
-dollars, was missing.
+dollars, was missing. Rows from version 4 add each lens's `effort`: the
+level with the most turns in the lens transcript, `null` for a delegated agy
+lens or a transcript that records no effort.
 
 Separately, a handful of helpers append one JSON line per event to
 `~/.flow/telemetry/events.jsonl` (`bin/lib/telemetry.ts`'s `recordEvent`),
@@ -289,7 +291,8 @@ covering six event names: `delegate.call` (one per `flow-delegate`
 invocation), `deliberate.call` (one per `flow-deliberate` blind
 second-opinion consult — carries the call's `total_cost_usd`, the
 anchor-derived `confidence`, and whether the judge's declared confidence was
-demoted; emitted on skips too, so judge spend and judge silence are both
+demoted, plus the `effort` the consult ran at (the headless
+envelope's, else the requested one); emitted on skips too, so judge spend and judge silence are both
 visible — the jq recipes deriving the judge's override rate from this event,
 and the kill criterion they feed, are in
 [deliberation-assessment.md](deliberation-assessment.md)), `phase.transition` (one per `flow-state-update` `--phase`
@@ -304,7 +307,16 @@ text), `run.terminal` (one per
 skipReason/model/effort/cost only — NEVER the judged text). Every event
 carries the same `slug` / `pr` / `repo` / `session_id` correlation
 quadruple (`resolveCorrelation` in `bin/lib/telemetry.ts`) so a reader can
-reconstruct one pipeline run by filtering on any one of the four. The log
+reconstruct one pipeline run by filtering on any one of the four. A fifth
+top-level field, `session_effort`, records the emitting agent's resolved
+effort at emit time, read from `CLAUDE_EFFORT` — Claude Code's resolved level
+even when flow passed no `--effort`, and a sub-agent's own level for helpers
+run from a sub-agent (for example `verify.attempt` from the edit-applier)
+(verified on Claude Code 2.1.319); `null` when absent. It samples effort only
+at helper calls, so the attribution row stays the authoritative per-turn
+source. The value is recorded verbatim (any non-empty string of at most 16
+characters), so a level a newer Claude Code adds is not dropped, and the event
+schema stays version 1 (additive, nullable). The log
 rotates by whole-slug-block compaction — `bin/lib/telemetry-rotate.ts`
 drops the oldest complete slug's lines once the file exceeds 32 MiB, and
 separately drops any slug block whose newest line is older than 180 days,
@@ -316,7 +328,31 @@ event is emitted by a helper at an existing chokepoint, and a signal an
 agent would otherwise have to remember to emit is instead DERIVED from an
 event a helper already writes.
 
-Two worked `jq` one-liners:
+Each terminal `flow-gate-summary` render (merged, gated, needs-human,
+cancelled) also appends one row to `~/.flow/telemetry/run-attribution.jsonl`
+(`bin/lib/run-attribution-record.ts`; no rotation in v1). It is derived from
+Claude Code's own session and sub-agent transcripts, so it records what
+actually ran: every supervisor session and every sub-agent spawn with its
+model, ordered model+effort runs (a mid-session `/effort` or `/model` switch
+shows as a new run), turns, tokens and list-price cost (priced turn by turn at
+each turn's own model; `cost_usd: null` for an unpriced model), a
+`totals.by_model_effort` rollup, and the pipeline's `delegate.call` /
+`deliberate.call` / `explain.judge` events as `delegated[]` (a headless call
+carries its recorded `total_cost_usd`; agy delegate calls spend subscription
+quota and stay `null`). An effort a transcript does not record is `"unknown"`,
+never a guess; `totals.unattributed_effort_turns` counts them. The latest row
+per slug wins, and a later render merges with the prior row by session id so
+sessions Claude Code has since pruned are kept. `sessions[].session_id` is
+also the join key to `events.jsonl`: it recovers events logged with a null
+`slug` after a `/clear` (the slug rides in `attrs.unmatched_slug`).
+`flow ls --cost` uses the same collector and falls back to the row once the
+session logs are pruned. Its totals therefore changed: sub-agent spend,
+post-`/clear` sessions and current-model prices (the table in
+`bin/lib/cost-pricing.ts`, 1-hour cache writes at their own rate) are now
+counted, so a figure noted before this change is not comparable. `state.json`'s
+`effort` is unchanged: it is what flow passed at launch, not what ran.
+
+Worked `jq` one-liners:
 
 ```sh
 # Reconstruct one pipeline run's full event timeline.
@@ -328,6 +364,17 @@ jq -c 'select(.slug == "csv-export")' ~/.flow/telemetry/events.jsonl
 # this counts).
 jq -c 'select(.event == "phase.transition" and .attrs.from == "plan-pending-review" and .attrs.to == "planning")' \
   ~/.flow/telemetry/events.jsonl | wc -l
+
+# Which model ran at which effort for one pipeline (latest row wins).
+jq -c 'select(.slug == "<slug>") | .totals.by_model_effort' \
+  ~/.flow/telemetry/run-attribution.jsonl | tail -1
+
+# A crashed run never reaches a terminal render, so it leaves no attribution
+# row — read its per-event effort trail instead. The `unmatched_slug` arm keeps
+# events written after a `/clear` (stored with a null slug).
+jq -c 'select(.slug == "<slug>" or .attrs.unmatched_slug == "<slug>")
+  | [.ts, .event, .session_id, .session_effort]' \
+  ~/.flow/telemetry/events.jsonl
 ```
 
 **Unwired pause sites.** `flow-explain-judge` is wired into exactly one
