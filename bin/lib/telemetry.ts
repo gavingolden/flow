@@ -20,6 +20,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { readLiveEffort } from "./claude-build";
 import { flowTelemetryLogPath, FLOW_STATE_DIR } from "./paths";
 import { resolveSlugAmbient } from "./session-identity";
 import { readState, type PipelineState } from "./state";
@@ -56,6 +57,8 @@ export type TelemetryEvent = {
   pr: number | null;
   repo: string | null;
   session_id: string | null;
+  /** The emitting agent's resolved effort (`CLAUDE_EFFORT`); null when absent. */
+  session_effort: string | null;
   attrs: Record<string, unknown>;
 };
 
@@ -69,6 +72,7 @@ export type CorrelationResult = {
   pr: number | null;
   repo: string | null;
   session_id: string | null;
+  session_effort: string | null;
   /** Extra attrs the guard wants merged into the emitted event's attrs. */
   attrs: Record<string, unknown>;
 };
@@ -100,6 +104,7 @@ export function resolveCorrelation(
   const env = opts.env ?? process.env;
   const slug = resolveSlugAmbient({ env });
   const sessionId = env.CLAUDE_CODE_SESSION_ID ?? null;
+  const sessionEffort = readLiveEffort(env);
 
   if (slug === null) {
     return {
@@ -107,6 +112,7 @@ export function resolveCorrelation(
       pr: null,
       repo: null,
       session_id: sessionId,
+      session_effort: sessionEffort,
       attrs: {},
     };
   }
@@ -129,10 +135,18 @@ export function resolveCorrelation(
         pr: null,
         repo: null,
         session_id: sessionId,
+        session_effort: sessionEffort,
         attrs: { unmatched_slug: slug },
       };
     }
-    return { slug, pr, repo, session_id: sessionId, attrs: {} };
+    return {
+      slug,
+      pr,
+      repo,
+      session_id: sessionId,
+      session_effort: sessionEffort,
+      attrs: {},
+    };
   }
 
   // Absent on either side — not a mismatch, keep attribution but mark it
@@ -142,6 +156,7 @@ export function resolveCorrelation(
     pr,
     repo,
     session_id: sessionId,
+    session_effort: sessionEffort,
     attrs: { slug_unverified: true },
   };
 }
@@ -227,6 +242,7 @@ export function recordEvent(
       pr: correlation.pr,
       repo: correlation.repo,
       session_id: correlation.session_id,
+      session_effort: correlation.session_effort,
       attrs: { ...attrs, ...correlation.attrs },
     };
     const line = serializeEvent(record);
