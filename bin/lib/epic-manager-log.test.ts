@@ -6,6 +6,7 @@ import {
   appendManagerLog,
   managerDir,
   readManagerLog,
+  SEQUENCER_LOG_LOCK,
   type ManagerLogEntry,
 } from "./epic-manager-log";
 
@@ -102,5 +103,35 @@ describe("epic-manager-log", () => {
     };
     walk(binDir);
     expect(hits).toEqual(["lib/epic-manager-log.ts"]);
+  });
+});
+
+describe("sequencer lock wait", () => {
+  it("a live foreign lock holder makes a sequencer append fail fast, not hang", () => {
+    const d = managerDir("e", dir);
+    fs.mkdirSync(d, { recursive: true });
+    // PID 1 is always alive, so the lock is never reclaimed as stale.
+    fs.writeFileSync(path.join(d, "log.lock"), "1");
+    const started = Date.now();
+    expect(() =>
+      appendManagerLog("e", entry(), dir, SEQUENCER_LOG_LOCK),
+    ).toThrow(/lock/);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+});
+
+describe("zero model calls", () => {
+  it("no sequencer module names claude or flow-claude-headless as a quoted command string", () => {
+    const lib = path.resolve(__dirname);
+    const files = fs
+      .readdirSync(lib)
+      .filter(
+        (f) => /^epic-manage(r)?(-.+)?\.ts$/.test(f) && !f.endsWith(".test.ts"),
+      );
+    expect(files.length).toBeGreaterThan(5);
+    for (const f of files) {
+      const text = fs.readFileSync(path.join(lib, f), "utf8");
+      expect(text, f).not.toMatch(/["'](claude|flow-claude-headless)["']/);
+    }
   });
 });

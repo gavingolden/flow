@@ -63,6 +63,15 @@ describe("readEffortsConfig", () => {
       "manager",
     ]);
   });
+
+  it("reads efforts.manager and does not warn on it as an unknown key", () => {
+    expect(readEffortsConfig(reader({ efforts: { manager: "low" } }))).toEqual({
+      manager: "low",
+    });
+    expect(
+      collectEffortConfigWarnings(reader({ efforts: { manager: "low" } })),
+    ).toEqual([]);
+  });
 });
 
 describe("collectEffortConfigWarnings", () => {

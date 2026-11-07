@@ -4,10 +4,12 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   deleteEpicRunState,
+  epicRunStateLockPath,
   epicRunStatePath,
   isEpicRunState,
   listEpicRunStates,
   readEpicRunState,
+  updateEpicRunRecord,
   writeEpicRunState,
   type EpicRunState,
 } from "./epic-run-state";
@@ -305,5 +307,74 @@ describe("epic-run-state", () => {
         .map((s) => s.epicSlug)
         .sort(),
     ).toEqual(["keep"]);
+  });
+});
+
+describe("updateEpicRunRecord", () => {
+  const now = () => "2026-07-01T00:00:00Z";
+
+  it("lock path sits beside run.json", () => {
+    expect(epicRunStateLockPath("watchlist", dir)).toBe(
+      path.join(dir, "watchlist", "run.json.lock"),
+    );
+  });
+
+  it("initialises run.json from init() when absent, setting only its own record", () => {
+    updateEpicRunRecord(
+      "watchlist",
+      () => fixture("watchlist"),
+      "schema",
+      { slug: "watchlist-schema", launchedAt: "x" },
+      { dir, now },
+    );
+    const state = readEpicRunState("watchlist", dir);
+    expect(state?.features.schema?.slug).toBe("watchlist-schema");
+    expect(state?.updatedAt).toBe(now());
+    expect(fs.existsSync(epicRunStateLockPath("watchlist", dir))).toBe(false);
+  });
+
+  it("re-reads the file inside the lock and merges only its own record over a concurrently-written file", () => {
+    writeEpicRunState(
+      fixture("watchlist", {
+        features: { other: { slug: "other-slug", launchedAt: "x" } },
+      }),
+      dir,
+    );
+    updateEpicRunRecord(
+      "watchlist",
+      () => {
+        throw new Error("init must not run when run.json exists");
+      },
+      "schema",
+      { slug: "watchlist-schema", launchedAt: "y" },
+      { dir, now },
+    );
+    const features = readEpicRunState("watchlist", dir)?.features;
+    expect(features?.other?.slug).toBe("other-slug");
+    expect(features?.schema?.slug).toBe("watchlist-schema");
+  });
+
+  it("two sequential writers for different features keep both bindings", () => {
+    for (const id of ["a", "b"]) {
+      updateEpicRunRecord(
+        "watchlist",
+        () => fixture("watchlist"),
+        id,
+        { slug: `${id}-slug`, launchedAt: "x" },
+        { dir, now },
+      );
+    }
+    const features = readEpicRunState("watchlist", dir)?.features;
+    expect(Object.keys(features ?? {}).sort()).toEqual(["a", "b"]);
+  });
+});
+
+describe("writeEpicRunState atomicity", () => {
+  it("writes via tmp + rename, leaving no tmp file behind", () => {
+    writeEpicRunState(fixture("watchlist"), dir);
+    writeEpicRunState(fixture("watchlist", { maxParallel: 9 }), dir);
+    const entries = fs.readdirSync(path.join(dir, "watchlist"));
+    expect(entries).toEqual(["run.json"]);
+    expect(readEpicRunState("watchlist", dir)?.maxParallel).toBe(9);
   });
 });

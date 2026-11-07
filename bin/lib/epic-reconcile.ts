@@ -5,7 +5,7 @@
  * reads each feature's live pipeline phase, it returns:
  *
  *   - `board`     — one ordered row per manifest feature with its status.
- *   - `summary`   — the ready/running/blocked/merged counts.
+ *   - `summary`   — the ready/waiting/running/blocked/merged counts.
  *   - `toLaunch`  — the frontier features to hand to `flow feature create` this tick,
  *                   capped at `maxParallel − runningCount`.
  *   - `epicStatus`— `done` (all merged) / `blocked` (frontier empty, nothing
@@ -25,6 +25,7 @@ import type { EpicStatusFile } from "./epic-status-schema";
 
 export type FeatureStatus =
   | "ready"
+  | "waiting"
   | "blocked"
   | "running"
   | "merged"
@@ -45,6 +46,8 @@ export type BoardRow = {
   pr?: number;
   phase?: string;
   dependsOn: string[];
+  /** The manifest's `waitFor` text, set only on a `waiting` row. */
+  waitFor?: string;
   /**
    * True when the row's `merged` status came from outside live pipeline
    * state: an external completion record (no live slug) or a committed
@@ -55,6 +58,7 @@ export type BoardRow = {
 
 export type ReconcileSummary = {
   ready: number;
+  waiting: number;
   running: number;
   blocked: number;
   merged: number;
@@ -261,6 +265,14 @@ export function reconcile(input: {
         external: true,
       };
     }
+    if (frontierIds.has(f.id) && f.waitFor) {
+      return {
+        id: f.id,
+        status: "waiting" as const,
+        dependsOn: f.dependsOn,
+        waitFor: f.waitFor,
+      };
+    }
     return {
       id: f.id,
       status: frontierIds.has(f.id) ? "ready" : "blocked",
@@ -268,8 +280,9 @@ export function reconcile(input: {
     };
   });
 
+  // A wait node is never launched, so it must not eat a launch slot either.
   const capacity = Math.max(0, maxParallel - runningCount);
-  const toLaunch = frontier.slice(0, capacity);
+  const toLaunch = frontier.filter((f) => !f.waitFor).slice(0, capacity);
 
   const done = completed.size === features.length;
   let epicStatus: EpicStatus;
@@ -283,6 +296,7 @@ export function reconcile(input: {
 
   const summary: ReconcileSummary = {
     ready: board.filter((r) => r.status === "ready").length,
+    waiting: board.filter((r) => r.status === "waiting").length,
     running: runningCount,
     blocked: board.filter((r) => r.status === "blocked").length,
     merged: completed.size,

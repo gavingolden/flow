@@ -1,5 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -131,6 +138,31 @@ describe("validateEpicManifest — wrong-type rejections", () => {
     expect(validateEpicManifest(42).ok).toBe(false);
   });
 
+  it.each(["x/../../evil", "../up", "-flag", "a b", "a/b", ".hidden"])(
+    "rejects the non-slug-shaped feature id %j",
+    (id) => {
+      const fixture = structuredClone(VALID_FULL) as {
+        features: { id: string }[];
+      };
+      fixture.features[0]!.id = id;
+      const result = validateEpicManifest(fixture);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toContain("slug-shaped");
+    },
+  );
+
+  it("accepts every committed epic manifest's feature ids", () => {
+    const epics = path.resolve(__dirname, "..", "..", ".flow", "epics");
+    for (const slug of readdirSync(epics)) {
+      const file = path.join(epics, slug, "manifest.json");
+      if (!existsSync(file)) continue;
+      expect(
+        validateEpicManifest(JSON.parse(readFileSync(file, "utf8"))).ok,
+        slug,
+      ).toBe(true);
+    }
+  });
+
   it("rejects features when it is not an array", () => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
     fixture.features = "not an array";
@@ -178,6 +210,35 @@ describe("validateEpicManifest — wrong-type rejections", () => {
     const result = validateEpicManifest(fixture);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("effort");
+  });
+
+  it("rejects flowNewHints.model with an unknown alias", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    (
+      (fixture.features as Array<Record<string, unknown>>)[0]
+        .flowNewHints as Record<string, unknown>
+    ).model = "gpt";
+    const result = validateEpicManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe(
+        "features[0].flowNewHints.model must be one of opus|haiku|sonnet|fable",
+      );
+    }
+  });
+
+  it("rejects an empty or non-string waitFor", () => {
+    for (const bad of ["", 3]) {
+      const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+      (fixture.features as Array<Record<string, unknown>>)[0].waitFor = bad;
+      const result = validateEpicManifest(fixture);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe(
+          "features[0].waitFor must be a non-empty string when present",
+        );
+      }
+    }
   });
 
   it("rejects a non-boolean mvp when present", () => {
@@ -287,6 +348,24 @@ describe("validateEpicManifest — optional-field acceptance", () => {
         .flowNewHints as Record<string, unknown>
     ).futureKnob = "experimental";
     expect(validateEpicManifest(fixture).ok).toBe(true);
+  });
+
+  it("accepts a valid model hint and a waitFor string", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    const f = (fixture.features as Array<Record<string, unknown>>)[0];
+    (f.flowNewHints as Record<string, unknown>).model = "sonnet";
+    f.waitFor = "the owner approves the rollout";
+    expect(validateEpicManifest(fixture).ok).toBe(true);
+  });
+
+  it("the committed re-design-epic-manager-agent manifest validates", () => {
+    const manifestPath = path.resolve(
+      __dirname,
+      "../../.flow/epics/re-design-epic-manager-agent/manifest.json",
+    );
+    const parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const result = validateEpicManifest(parsed);
+    expect(result.ok).toBe(true);
   });
 
   it("accepts an empty features array", () => {

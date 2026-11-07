@@ -188,6 +188,11 @@ done`'s heal): that one commit, never forced. Both contracts:
     a feature PR. On a granted epic its launch-next step 0 calls
     `flow-exec-review review --kind wave` — a Bash helper that runs
     `flow-claude-headless` internally, not a Task and not a form.
+  - **`flow epic manage` is a separate sanctioned sequencer process.**
+    `flow epic manage <slug>` is a separate sanctioned deterministic
+    sequencer process, not a Claude session: zero Task/Agent sub-agents,
+    zero `AskUserQuestion` forms, zero model calls, never merges a feature
+    PR, never repairs drift (it names `/flow-epic-run reconcile-drift`).
   - **`/flow-backlog-triage` is a separate sanctioned standalone
     session,** so `/flow-pipeline`'s exactly-7 and one-form rule are
     unaffected by its one named surface: One Task-tool fan-out (Phase-1

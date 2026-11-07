@@ -10,7 +10,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { withFileLockSync } from "./lock";
+import { withFileLockSync, type LockOptions } from "./lock";
 import { FLOW_STATE_DIR } from "./paths";
 
 export type ManagerLogKind =
@@ -75,6 +75,9 @@ export type ManagerLogEntry = {
   exec?: ExecLogPayload;
 };
 
+/** The sequencer appends from its tick, so its lock wait stays well under a second (Ctrl-C exits promptly). */
+export const SEQUENCER_LOG_LOCK: LockOptions = { timeoutMs: 500, pollMs: 25 };
+
 export function managerDir(
   epicSlug: string,
   stateDir: string = FLOW_STATE_DIR,
@@ -90,15 +93,20 @@ export function appendManagerLog(
   epicSlug: string,
   entry: ManagerLogEntry,
   stateDir?: string,
+  lock: LockOptions = {},
 ): void {
   const dir = managerDir(epicSlug, stateDir);
   fs.mkdirSync(dir, { recursive: true });
-  withFileLockSync(path.join(dir, "log.lock"), () => {
-    fs.appendFileSync(
-      logPath(epicSlug, stateDir),
-      `${JSON.stringify(entry)}\n`,
-    );
-  });
+  withFileLockSync(
+    path.join(dir, "log.lock"),
+    () => {
+      fs.appendFileSync(
+        logPath(epicSlug, stateDir),
+        `${JSON.stringify(entry)}\n`,
+      );
+    },
+    lock,
+  );
 }
 
 /** Tolerant: unparseable or shapeless lines are skipped; unknown kinds pass through. */

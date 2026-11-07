@@ -69,7 +69,7 @@ async function runVerb(verb: string, args: string[]): Promise<number> {
     case "feature":
       return runFeatureCli(args);
     case "epic":
-      return runEpicCli(args);
+      return await runEpicCli(args);
     case "config":
       return runConfigCli(args);
     case "attach":

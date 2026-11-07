@@ -28,7 +28,12 @@
  * here — that is F2's job.
  */
 
-import { EFFORT_LEVELS, type EffortLevel } from "./state";
+import {
+  EFFORT_LEVELS,
+  MODEL_ALIASES,
+  type EffortLevel,
+  type ModelAlias,
+} from "./state";
 
 /** A single node in the epic's feature DAG. */
 export interface Feature {
@@ -44,7 +49,10 @@ export interface Feature {
     // PipelineState.copilotReview field, not as a named exported type.
     copilotReview?: "auto" | "always" | "never";
     effort?: EffortLevel;
+    model?: ModelAlias;
   };
+  /** A wait node: never launched, completes only via `flow epic bind --external`. */
+  waitFor?: string;
   mvp?: boolean;
   sharedArtifacts?: string[];
 }
@@ -114,9 +122,14 @@ function validateFlowNewHints(
   ) {
     return err(`${path}.effort must be one of ${EFFORT_LEVELS.join("|")}`);
   }
+  if (h.model !== undefined && !MODEL_ALIASES.includes(h.model as ModelAlias)) {
+    return err(`${path}.model must be one of ${MODEL_ALIASES.join("|")}`);
+  }
   // Unknown extra keys are accepted permissively for forward-compat.
   return null;
 }
+
+const FEATURE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 function validateFeature(feature: unknown, path: string): ValidationErr | null {
   if (
@@ -129,6 +142,11 @@ function validateFeature(feature: unknown, path: string): ValidationErr | null {
   const f = feature as Record<string, unknown>;
   if (!isNonEmptyString(f.id)) {
     return err(`${path}.id must be a non-empty string`);
+  }
+  if (!FEATURE_ID_RE.test(f.id)) {
+    return err(
+      `${path}.id must be slug-shaped (letters, digits, '.', '_', '-'; starting with a letter or digit)`,
+    );
   }
   if (!isNonEmptyString(f.title)) {
     return err(`${path}.title must be a non-empty string`);
@@ -173,6 +191,9 @@ function validateFeature(feature: unknown, path: string): ValidationErr | null {
         );
       }
     }
+  }
+  if (f.waitFor !== undefined && !isNonEmptyString(f.waitFor)) {
+    return err(`${path}.waitFor must be a non-empty string when present`);
   }
   if (f.flowNewHints !== undefined) {
     const e = validateFlowNewHints(f.flowNewHints, `${path}.flowNewHints`);

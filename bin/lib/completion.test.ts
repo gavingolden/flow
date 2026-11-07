@@ -306,7 +306,7 @@ describe("completion scripts stay in sync with VERBS", () => {
       // pass even if this epic-subcommand entry were removed.
       const marker =
         shell === "bash"
-          ? 'compgen -W "create run status bind launch ls done grant"'
+          ? 'compgen -W "create run status bind launch ls done manage grant"'
           : "'done:remove the per-machine run.json cache'";
       expect(
         script.includes(marker),
@@ -428,6 +428,47 @@ describe("completion scripts stay in sync with VERBS", () => {
       expect(launchArm).toContain("opus haiku sonnet fable");
       expect(launchArm).toContain("low medium high xhigh max");
     }
+  });
+
+  it("both scripts complete the epic manage subcommand and its flags", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      const manageArm =
+        shell === "bash"
+          ? script.slice(
+              script.indexOf('esub" = "manage"'),
+              script.indexOf('esub" = "ls"'),
+            )
+          : script.slice(
+              script.indexOf('line[2]" == manage '),
+              script.indexOf('line[2]" == ls '),
+            );
+      expect(
+        manageArm.length,
+        `flow.${shell} must have a manage arm`,
+      ).toBeGreaterThan(0);
+      for (const token of [
+        "--model",
+        "--effort",
+        "--autonomy",
+        "--foreground",
+      ]) {
+        expect(manageArm).toContain(token);
+      }
+      expect(manageArm).toContain("observe");
+      expect(manageArm).toContain("opus haiku sonnet fable");
+      expect(manageArm).toContain("low medium high xhigh max");
+    }
+    const zsh = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.zsh"),
+      "utf8",
+    );
+    expect(zsh).toContain(
+      "'manage:run the zero-token sequencer for an approved epic'",
+    );
   });
 
   it("both scripts complete the feature create/resume subcommands and drop new/setup/migrate", () => {

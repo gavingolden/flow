@@ -49,6 +49,15 @@ describe("resolveManagerModelEffort", () => {
     });
   });
 
+  it("resolves the other axis independently: config model, flag effort", () => {
+    const read = () => ({ models: { manager: "fable" } });
+    expect(resolveManagerModelEffort({ flagEffort: "max", read })).toEqual({
+      model: "fable",
+      effort: "max",
+      featureFallback: { effort: "max" },
+    });
+  });
+
   it("ignores invalid config values", () => {
     const read = () => ({
       models: { manager: "gpt" },
