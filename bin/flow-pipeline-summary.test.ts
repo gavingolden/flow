@@ -12,7 +12,7 @@ import {
   SNAPSHOT_MARKER,
   type GhRunner,
 } from "./flow-pipeline-summary";
-import { encodeProjectSegment } from "./lib/cost";
+import { encodeProjectSegment } from "./lib/session-discovery";
 import { renderComment } from "./lib/pipeline-summary-sources";
 import type {
   RunAttribution,

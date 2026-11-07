@@ -29,12 +29,8 @@
 
 import * as path from "node:path";
 
-import {
-  computeCost,
-  defaultProjectsRoot,
-  EMPTY_COST,
-  type CostBreakdown,
-} from "./cost";
+import { computeCost, EMPTY_COST, type CostBreakdown } from "./cost";
+import { defaultProjectsRoot } from "./session-discovery";
 import { friendlyName } from "./cost-pricing";
 import { readLatestRunAttributions } from "./run-attribution-record";
 import { argsContainHelp, printVerbHelp } from "./help";
@@ -544,9 +540,11 @@ function printTable(rows: Row[], opts: LsOptions): void {
   for (const row of rows) console.log(line(cols.map((c) => c.get(row))));
 }
 
-function printDetail(rows: Row[]): void {
+export function printDetail(rows: Row[]): void {
   const detailRows = rows.filter(
-    (r) => r.cost?.hasData && Object.keys(r.cost.byModel).length > 0,
+    (r) =>
+      r.cost?.hasData &&
+      (Object.keys(r.cost.byModel).length > 0 || r.cost.delegatedUsd > 0),
   );
   if (detailRows.length === 0) return;
   console.log("");
@@ -557,6 +555,9 @@ function printDetail(rows: Row[]): void {
       .map(
         ([model, dollars]) => `${friendlyName(model)} $${dollars.toFixed(2)}`,
       );
+    if (row.cost!.delegatedUsd > 0) {
+      parts.push(`delegated (headless) $${row.cost!.delegatedUsd.toFixed(2)}`);
+    }
     console.log(`${row.name}: ${parts.join(" · ")}`);
   }
 }

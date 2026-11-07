@@ -3,15 +3,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PRICES } from "../../docs/eval/token-spend-audit";
+import { computeCost, sumTranscriptUsage } from "./cost";
+import { lookupModelPricing, MODEL_PRICING, priceUsage } from "./cost-pricing";
 import {
-  computeCost,
   encodeProjectSegment,
   findSessionJsonlsSync,
   isLocalCommandEcho,
   seedMatchesSlug,
-  sumTranscriptUsage,
-} from "./cost";
-import { lookupModelPricing, MODEL_PRICING, priceUsage } from "./cost-pricing";
+} from "./session-discovery";
 import type { RunAttribution } from "./run-attribution-types";
 import { computeTotals } from "./run-attribution-unit";
 import type { PipelineState } from "./state";
@@ -161,6 +160,7 @@ describe(computeCost, () => {
     expect(cost).toEqual({
       total: 0,
       byModel: {},
+      delegatedUsd: 0,
       unknownModels: [],
       hasData: false,
     });
@@ -713,6 +713,7 @@ describe("computeCost as a run-attribution projection", () => {
     expect(cost).toEqual({
       total: 0,
       byModel: {},
+      delegatedUsd: 0,
       unknownModels: [],
       hasData: false,
     });

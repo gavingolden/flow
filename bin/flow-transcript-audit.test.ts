@@ -9,7 +9,7 @@ import {
   estimateTokens,
   resolveSessionJsonls,
 } from "./lib/transcript-audit";
-import { encodeProjectSegment } from "./lib/cost";
+import { encodeProjectSegment } from "./lib/session-discovery";
 import { parseArgs, run } from "./flow-transcript-audit";
 
 const SAMPLE_FIXTURE = path.join(

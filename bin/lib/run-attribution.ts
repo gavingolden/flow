@@ -16,7 +16,7 @@ import {
   defaultProjectsRoot,
   encodeProjectSegment,
   findSessionJsonlsSync,
-} from "./cost";
+} from "./session-discovery";
 import { flowTelemetryLogPath } from "./paths";
 import { findSubagentsDir } from "./review-telemetry";
 import {

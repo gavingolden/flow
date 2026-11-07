@@ -10,6 +10,7 @@ import {
   formatKindCell,
   formatNameCell,
   formatRepoCell,
+  printDetail,
   printOrphanRecovery,
   runLs,
   runLsCli,
@@ -19,7 +20,7 @@ import {
 import * as stateModule from "./state";
 import * as tmuxModule from "./tmux";
 import * as livenessModule from "./liveness";
-import { encodeProjectSegment } from "./cost";
+import { encodeProjectSegment } from "./session-discovery";
 import { computeTotals } from "./run-attribution-unit";
 import type { PipelineState } from "./state";
 import type { TmuxWindow } from "./tmux";
@@ -779,6 +780,7 @@ describe(formatCostCell, () => {
       formatCostCell({
         total: 0,
         byModel: {},
+        delegatedUsd: 0,
         unknownModels: [],
         hasData: false,
       }),
@@ -790,6 +792,7 @@ describe(formatCostCell, () => {
       formatCostCell({
         total: 2.345,
         byModel: {},
+        delegatedUsd: 0,
         unknownModels: [],
         hasData: true,
       }),
@@ -801,6 +804,7 @@ describe(formatCostCell, () => {
       formatCostCell({
         total: 1.2,
         byModel: {},
+        delegatedUsd: 0,
         unknownModels: ["claude-experimental"],
         hasData: true,
       }),
@@ -1767,5 +1771,30 @@ describe("runLs — update notice seam", () => {
     });
     expect(code).toBe(0);
     expect(err).not.toHaveBeenCalled();
+  });
+});
+
+describe("printDetail", () => {
+  it("lists delegated headless spend so the parts sum to the total", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      printDetail([
+        {
+          name: "csv-export",
+          cost: {
+            total: 5,
+            byModel: { "claude-sonnet-4-6": 3 },
+            delegatedUsd: 2,
+            unknownModels: [],
+            hasData: true,
+          },
+        } as unknown as Row,
+      ]);
+      const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(out).toContain("csv-export:");
+      expect(out).toContain("delegated (headless) $2.00");
+    } finally {
+      log.mockRestore();
+    }
   });
 });

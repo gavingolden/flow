@@ -26,7 +26,7 @@ import {
   encodeProjectSegment,
   findSessionJsonls,
   recordLastLine,
-} from "./cost";
+} from "./session-discovery";
 
 export type Phase =
   | "supervisor"

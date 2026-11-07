@@ -18,7 +18,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ALL_LENS_NAMES } from "../../bin/lib/agent-finding-schema";
-import { recordLastLine } from "../../bin/lib/cost";
+import { recordLastLine } from "../../bin/lib/session-discovery";
 import { MODEL_PRICING, type ModelPricing } from "../../bin/lib/cost-pricing";
 import { lensFromMeta } from "../../bin/lib/review-telemetry";
 

@@ -11,7 +11,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { sumTranscriptUsage, defaultProjectsRoot } from "./cost";
+import { sumTranscriptUsage } from "./cost";
+import { defaultProjectsRoot } from "./session-discovery";
 import {
   ALL_LENS_NAMES,
   type ConsolidatorResult,
