@@ -15,6 +15,8 @@ import {
   normalizeParsedFindings,
   validateConsolidatorResult,
 } from "./agent-finding-schema";
+import { renderRanOn } from "./run-attribution-render";
+import type { RunAttribution } from "./run-attribution-types";
 import { formatDuration } from "./time";
 import {
   formatPlainText,
@@ -714,12 +716,18 @@ export type RenderCommentInputs = {
   artifactDir?: string;
   /** review-telemetry.json raw text, for the LENSES (dev) / lenses: (pm) sections. */
   reviewTelemetryRaw?: string;
+  /** Run attribution for the `RAN ON:` section; absent/null renders `none`. */
+  attribution?: RunAttribution | null;
 };
 
 function renderCommentDev(inputs: RenderCommentInputs): string {
   const lines: string[] = ["PIPELINE SNAPSHOT"];
   lines.push("CHANGES:");
   for (const ln of renderChanges(inputs.prChangesRaw)) lines.push(`  ${ln}`);
+  lines.push("RAN ON:");
+  for (const ln of renderRanOn(inputs.attribution ?? null, "dev")) {
+    lines.push(`  ${ln}`);
+  }
   lines.push("REVIEW:");
   for (const ln of renderFindings({
     prReviewRaw: inputs.prReviewRaw,
@@ -806,6 +814,10 @@ function renderCommentPm(inputs: RenderCommentInputs): string {
   const lines: string[] = ["PIPELINE SNAPSHOT"];
   lines.push("CHANGES:");
   for (const ln of renderChanges(inputs.prChangesRaw)) lines.push(`  ${ln}`);
+  lines.push("RAN ON:");
+  for (const ln of renderRanOn(inputs.attribution ?? null, "pm")) {
+    lines.push(`  ${ln}`);
+  }
   lines.push("REVIEW:");
   for (const ln of renderReviewCounts({
     prReviewRaw: inputs.prReviewRaw,

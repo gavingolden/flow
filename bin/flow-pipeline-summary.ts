@@ -70,7 +70,14 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { readState } from "./lib/state";
+import { readState, type PipelineState } from "./lib/state";
+import { collectRunAttribution } from "./lib/run-attribution";
+import {
+  mergeWithPrior,
+  readLatestRunAttributions,
+} from "./lib/run-attribution-record";
+import { renderRanOn } from "./lib/run-attribution-render";
+import type { RunAttribution } from "./lib/run-attribution-types";
 import { readEntries, runEntries, formatVerdict } from "./flow-followups";
 import { parsePrNumber } from "./flow-fetch-pr-review";
 import {
@@ -275,6 +282,8 @@ export type RenderInputs = {
   artifactDir?: string;
   /** review-telemetry.json raw text, for the LENSES (dev) / lenses: (pm) sections. */
   reviewTelemetryRaw?: string;
+  /** Run attribution for the `RAN ON:` section; absent/null renders `none`. */
+  attribution?: RunAttribution | null;
 };
 
 /**
@@ -295,6 +304,10 @@ export function render(inputs: RenderInputs): string {
   const lines: string[] = ["## PIPELINE SNAPSHOT"];
   lines.push("CHANGES:");
   for (const ln of renderChanges(inputs.prChangesRaw)) lines.push(`  ${ln}`);
+  lines.push("RAN ON:");
+  for (const ln of renderRanOn(inputs.attribution ?? null, pm ? "pm" : "dev")) {
+    lines.push(`  ${ln}`);
+  }
   if (pm) {
     lines.push("REVIEW:");
     for (const ln of renderReviewCounts({
@@ -577,9 +590,42 @@ function parseJsonOrUndefined(raw: string): unknown | undefined {
   }
 }
 
+/** Fresh collection merged with the slug's latest durable row; null when unavailable. Never throws. */
+function collectAttribution(
+  state: PipelineState | null,
+  deps: {
+    projectsRoot?: string;
+    eventsLogPath?: string;
+    attributionLogPath?: string;
+  },
+): RunAttribution | null {
+  if (!state) return null;
+  try {
+    const prior = readLatestRunAttributions({
+      logPath: deps.attributionLogPath,
+    }).get(state.slug);
+    return mergeWithPrior(
+      collectRunAttribution(state, {
+        projectsRoot: deps.projectsRoot,
+        eventsLogPath: deps.eventsLogPath,
+      }),
+      prior ?? null,
+    );
+  } catch {
+    return null;
+  }
+}
+
 export function run(
   argv: string[],
-  deps: { gh?: GhRunner; read?: Parameters<typeof resolveLens>[1] } = {},
+  deps: {
+    gh?: GhRunner;
+    read?: Parameters<typeof resolveLens>[1];
+    /** Test seams for `RAN ON:` (default: real ~/.claude, ~/.flow). */
+    projectsRoot?: string;
+    eventsLogPath?: string;
+    attributionLogPath?: string;
+  } = {},
 ): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -646,8 +692,10 @@ export function run(
     : parsed.followupsJsonl
       ? renderJsonlNoteOnly(parsed.followupsJsonl)
       : "";
+  const attribution = collectAttribution(state, deps);
   const block = render({
     prChangesRaw,
+    attribution,
     phaseLog: state?.phaseLog ?? null,
     prReviewRaw,
     fixApplierRaw,
@@ -712,6 +760,7 @@ export function run(
         untrackedBlock,
         artifactDir,
         reviewTelemetryRaw,
+        attribution,
       });
       const result = postSnapshotComment(
         prNumber,
