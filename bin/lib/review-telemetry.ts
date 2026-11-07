@@ -18,6 +18,7 @@ import {
 } from "./agent-finding-schema";
 import type { FixApplierResult } from "./fix-applier-schema";
 import { parseAgyLensesRecord } from "./agy-lenses-record";
+import type { EffortRun } from "./transcript-turns";
 
 export type TokenUsage = {
   total: number;
@@ -31,6 +32,9 @@ export type LensTelemetry = {
   ran: boolean;
   skip_reason: string | null;
   model: string | null;
+  // The effort level with the most turns in the lens transcript; null for no
+  // transcript, an agy-delegated lens, or a transcript with no recorded effort.
+  effort: string | null;
   tokens: TokenUsage | null;
   tokens_source: "subagent-transcript" | "unavailable";
   context_tokens: number | null;
@@ -112,7 +116,7 @@ export function readDelegationRecord(
 }
 
 export type ReviewTelemetry = {
-  version: 3;
+  version: 4;
   run_id: string;
   ts: string;
   repo: string;
@@ -265,7 +269,25 @@ type TranscriptEntry = {
   file: string;
   usage: TokenUsage;
   model: string | null;
+  effortRuns: EffortRun[];
 };
+
+/** The recorded effort level with the most turns; null when none was recorded. */
+export function dominantEffort(runs: readonly EffortRun[]): string | null {
+  const turns = new Map<string, number>();
+  for (const [effort, n] of runs) {
+    if (effort !== "unknown") turns.set(effort, (turns.get(effort) ?? 0) + n);
+  }
+  let best: string | null = null;
+  let bestN = 0;
+  for (const [effort, n] of turns) {
+    if (n > bestN) {
+      best = effort;
+      bestN = n;
+    }
+  }
+  return best;
+}
 
 export function lensFromMeta(meta: {
   agentType?: unknown;
@@ -352,7 +374,12 @@ export async function attributeTranscripts(
     for (let i = 1; i < files.length; i++) {
       if (files[i].mtime > files[newest].mtime) newest = i;
     }
-    out[lens] = { file: files[newest].file, usage, model: sums[newest].model };
+    out[lens] = {
+      file: files[newest].file,
+      usage,
+      model: sums[newest].model,
+      effortRuns: sums.flatMap((sum) => sum.effortRuns),
+    };
   }
 
   return out;
@@ -394,7 +421,10 @@ export function mergeTelemetry(args: {
   counts: Record<string, CountsEntry>;
   lensTokens: Record<string, number>;
   lensModels?: Record<string, string>;
-  transcripts: Record<string, { usage: TokenUsage; model: string | null }>;
+  transcripts: Record<
+    string,
+    { usage: TokenUsage; model: string | null; effortRuns?: EffortRun[] }
+  >;
   startedAt: string;
 }): ReviewTelemetry {
   const lenses: Record<string, LensTelemetry> = {};
@@ -429,6 +459,10 @@ export function mergeTelemetry(args: {
       ran: counts.ran,
       skip_reason: counts.skip_reason,
       model,
+      effort:
+        counts.engine === "agy"
+          ? null
+          : dominantEffort(transcript?.effortRuns ?? []),
       tokens,
       tokens_source,
       context_tokens: args.lensTokens[lens] ?? null,
@@ -445,7 +479,7 @@ export function mergeTelemetry(args: {
   }
 
   return {
-    version: 3,
+    version: 4,
     run_id: `${args.pr}:${args.scope.head_sha}:${args.startedAt}`,
     ts: new Date().toISOString(),
     repo: args.repo,
