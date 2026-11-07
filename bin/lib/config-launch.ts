@@ -44,9 +44,17 @@ export const LAUNCH_FOOTERS: readonly string[] = [
   "model is shown for reference — set it with models.default (there is no launch.model)",
 ];
 
+/**
+ * Source string for an effort flow did not set. Claude Code resolves it from
+ * its own chain, so "built-in" would misname it. Shared with
+ * `config-models.ts` so the two audit views use identical words.
+ */
+export const EFFORT_UNSET_SOURCE =
+  "not set by flow — Claude Code's own setting applies (your saved /effort level for the model, or the model default)";
+
 const BUILT_IN: Record<keyof LaunchDefaults, { value: string; note: string }> =
   {
-    effort: { value: "(none)", note: "no --effort passed" },
+    effort: { value: "(none)", note: "" },
     autoMerge: { value: "true", note: "auto-merge ON" },
     waitForCopilot: {
       value: "false",
@@ -174,7 +182,10 @@ export function buildLaunchRows(
     return {
       setting: entry.key,
       value: builtIn.value,
-      source: `built-in (${builtIn.note})`,
+      source:
+        entry.key === "effort"
+          ? EFFORT_UNSET_SOURCE
+          : `built-in (${builtIn.note})`,
     };
   });
 
