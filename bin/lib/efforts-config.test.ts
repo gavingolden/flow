@@ -60,6 +60,7 @@ describe("readEffortsConfig", () => {
       "uiDriver",
       "consolidator",
       "mergeResolver",
+      "manager",
     ]);
   });
 });

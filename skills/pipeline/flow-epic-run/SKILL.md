@@ -101,6 +101,10 @@ playbook is plain in-session judgment plus bare-name PATH helpers. This keeps
 invariants untouched: a different supervisor in a different window is a different
 session, and this one has zero named fan-out surfaces.
 
+The one helper that spends model quota, `flow-exec-review review --kind wave`,
+is a Bash call that runs `flow-claude-headless` internally. It is not a Task, not
+a sub-agent, and not a form, so everything above stays true.
+
 # Your hands (the bare-name PATH helpers)
 
 | Hand                                                                       | What it does                                                                                                                                                                                                                                                                                                                                                    |
@@ -116,6 +120,8 @@ session, and this one has zero named fan-out surfaces.
 | `flow epic ls` / `flow epic done <slug>`                                   | List epics (scoped to this repo, completed hidden by default; `--done`/`--all-repos` widen one axis each, `--all`/`-a` widen both) / remove the per-machine run.json cache.                                                                                                                                                                                     |
 | `flow feature create "<desc>"` / `flow feature resume <slug> --force`      | Launch a fresh pipeline / clean-respawn a stalled one (the sanctioned retry actuator).                                                                                                                                                                                                                                                                          |
 | `flow-epic-sync --epic-slug <epic> [--check] [--commit] [--push]`          | Derive the whole epic's committed status board from GitHub; `--check` exits non-zero on drift. `--epic-slug` is required here — this session's `$FLOW_SLUG` is the epic-run window's own slug, not the epic's, so a bare invocation resolves nothing. Add `--rederive` to rebuild the board from GitHub ignoring committed rows, when a committed row is wrong. |
+| `flow-exec-review review --kind wave --epic <slug>`                        | On an epic the owner granted (`flow epic grant`): one executive review per batch of newly merged features, as a Bash call with `timeout: 600000`. No grant, no model call.                                                                                                                                                                                      |
+| `flow-exec-review order --epic <slug> --frontier <ids>`                    | The frontier sorted by the newest applied reorder; unchanged when none was applied.                                                                                                                                                                                                                                                                             |
 | `gh`, `git`, `jq`                                                          | The truth probes + JSON extraction.                                                                                                                                                                                                                                                                                                                             |
 
 # The four recipes
@@ -181,6 +187,18 @@ clear it.
 Launch the next ready feature(s) — but only AFTER reconcile-drift and a
 duplicate-check.
 
+0. **Executive wave review (granted epics; skipped silently otherwise).** After
+   reconcile-drift synced the board, run `flow-exec-review review --kind wave
+--epic <slug>` as a Bash call with `timeout: 600000` — one call covers every
+   merge observed since the last review. Branch on its JSON line's `.ran` and
+   `.action`: `no-grant` / `nothing-new` ⇒ nothing changes; `continue` ⇒ proceed;
+   `reorder` ⇒ report the new order with its `decisionId`; `propose` ⇒ show the
+   proposal and rationale, launch nothing this step, and on the owner's yes route
+   it through amend-manifest (a proposal is never applied without that yes);
+   `escalate` ⇒ the escalation pause block above. Then order the frontier in
+   step 1 with `flow-exec-review order --epic <slug> --frontier <ids>` — always,
+   including after `no-grant`: a withdrawn grant leaves earlier reorders in the
+   epic's log, and `order` reports them truthfully.
 1. Compute the frontier from YOUR reconciled sets (not the raw cache):
    `flow-epic-dag --frontier <manifest> --completed <verified-done-ids>
 --launched <verified-in-flight-ids>`.
@@ -269,6 +287,9 @@ state.
 launch`.
 - It does **not author feature code**, run a tick loop, poll, or spawn a
   judgment sub-agent.
+- It does **not apply an executive proposal** (defer, cut, or add a feature, or
+  change the goal) without the owner's yes; only a reorder of not-yet-started
+  features is applied on its own, and that is reported with its decision id.
 - It does **not replay a checkpoint twice** — the `checkpoint.pending`
   marker is one-shot, retired by the same `flow-checkpoint --consume` that
   hands over the archived note on the re-entry that reads it.

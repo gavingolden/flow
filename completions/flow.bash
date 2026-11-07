@@ -201,9 +201,21 @@ _flow() {
                     # shellcheck disable=SC2207
                     COMPREPLY=( $(compgen -W "--all -a --done --all-repos" -- "$cur") )
                 fi
+            elif [ "$esub" = "grant" ]; then
+                case "$prev" in
+                    --autonomy)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -W "high off" -- "$cur") )
+                        return
+                        ;;
+                esac
+                if [[ "$cur" == -* ]]; then
+                    # shellcheck disable=SC2207
+                    COMPREPLY=( $(compgen -W "--autonomy" -- "$cur") )
+                fi
             else
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "create run status bind launch ls done" -- "$cur") )
+                COMPREPLY=( $(compgen -W "create run status bind launch ls done grant" -- "$cur") )
             fi
             ;;
         config)

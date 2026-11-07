@@ -731,7 +731,8 @@ async function runUnderLock(
     log,
   );
 
-  // Seed ~/.flow/product.md only when absent — deliberately untracked by the
+  // Seed ~/.flow/product.md when absent (an existing brief only gains the
+  // charter section, once) — deliberately untracked by the
   // manifest: a deleted brief is re-seeded on the next install, and the
   // supported way to turn the feature off is the `review.product: false`
   // kill switch, not deleting the seeded file.
@@ -743,6 +744,10 @@ async function runUnderLock(
   if (briefSeed.status === "created") {
     log(
       `  + ${briefSeed.path}  (seeded user-level product brief — edit it to state what you optimize for; a repo's own .flow/product.md wins)`,
+    );
+  } else if (briefSeed.status === "section-added") {
+    log(
+      `  + ${briefSeed.path}  (added the "Deciding on my behalf" section the epic executive reads)`,
     );
   } else if (
     briefSeed.status === "no-template" ||

@@ -1,0 +1,9 @@
+{
+  "ran": true,
+  "feedbackPath": ".flow-tmp/plan-review.md",
+  "skipReason": null,
+  "depth": "standard",
+  "reviewers": [
+    { "model": "Gemini 4 Argon (High)", "ran": true, "lensesEngaged": 7 }
+  ]
+}

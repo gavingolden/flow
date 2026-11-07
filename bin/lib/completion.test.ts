@@ -218,6 +218,27 @@ describe("completion scripts stay in sync with VERBS", () => {
     }
   });
 
+  it("both scripts offer `epic grant` with --autonomy high|off and no model/effort flags", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      const marker = shell === "bash" ? 'esub" = "grant"' : 'line[2]" == grant';
+      const armStart = script.indexOf(marker);
+      expect(
+        armStart,
+        `flow.${shell} must have an epic grant arm`,
+      ).toBeGreaterThan(-1);
+      const armEnd = script.indexOf("else", armStart);
+      const arm = script.slice(armStart, armEnd === -1 ? undefined : armEnd);
+      expect(arm).toContain("--autonomy");
+      expect(arm).toContain("high");
+      expect(arm).not.toContain("--model");
+      expect(arm).not.toContain("--effort");
+    }
+  });
+
   it("both scripts advertise --all/-a, --done, and --all-repos scoped to the `epic ls` arm", () => {
     for (const shell of ["bash", "zsh"] as const) {
       const script = fs.readFileSync(
@@ -285,7 +306,7 @@ describe("completion scripts stay in sync with VERBS", () => {
       // pass even if this epic-subcommand entry were removed.
       const marker =
         shell === "bash"
-          ? 'compgen -W "create run status bind launch ls done"'
+          ? 'compgen -W "create run status bind launch ls done grant"'
           : "'done:remove the per-machine run.json cache'";
       expect(
         script.includes(marker),
