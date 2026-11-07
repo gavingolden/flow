@@ -29,13 +29,10 @@
 
 import * as path from "node:path";
 
-import {
-  computeCost,
-  defaultProjectsRoot,
-  EMPTY_COST,
-  type CostBreakdown,
-} from "./cost";
+import { computeCost, EMPTY_COST, type CostBreakdown } from "./cost";
+import { defaultProjectsRoot } from "./session-discovery";
 import { friendlyName } from "./cost-pricing";
+import { readLatestRunAttributions } from "./run-attribution-record";
 import { argsContainHelp, printVerbHelp } from "./help";
 import {
   listStates,
@@ -74,6 +71,8 @@ export type LsOptions = {
   cwd?: string;
   /** Override for tests; defaults to ~/.claude/projects/. */
   projectsRoot?: string;
+  /** Test seam: run-attribution.jsonl path for the pruned-session fallback. */
+  attributionLogPath?: string;
   /** Injectable for tests; defaults to the real read-only update check. */
   checkUpdate?: () => UpdateCheckResult;
   /** Required (no default): the real read-only install-drift check. */
@@ -336,11 +335,20 @@ export async function buildRows(
 
   const rows: Row[] = [];
 
-  // Compute costs for all pipelines in parallel — each call streams a JSONL
-  // and reads a directory, so sequential awaits would scale linearly with
-  // active pipelines (six concurrent windows is an expected case).
+  // Each pipeline's collection is synchronous, so these run one after another;
+  // the events log read is memoised across pipelines in run-attribution-events.
+  const latest = opts.cost
+    ? readLatestRunAttributions({
+        logPath: opts.attributionLogPath,
+        slugs: new Set(states.map((s) => s.slug)),
+      })
+    : null;
   const costs = opts.cost
-    ? await Promise.all(states.map((s) => computeCost(s, projectsRoot)))
+    ? await Promise.all(
+        states.map((s) =>
+          computeCost(s, projectsRoot, latest?.get(s.slug) ?? null),
+        ),
+      )
     : null;
 
   // The state↔window join keys off the @flow-slug user option (with a
@@ -534,9 +542,11 @@ function printTable(rows: Row[], opts: LsOptions): void {
   for (const row of rows) console.log(line(cols.map((c) => c.get(row))));
 }
 
-function printDetail(rows: Row[]): void {
+export function printDetail(rows: Row[]): void {
   const detailRows = rows.filter(
-    (r) => r.cost?.hasData && Object.keys(r.cost.byModel).length > 0,
+    (r) =>
+      r.cost?.hasData &&
+      (Object.keys(r.cost.byModel).length > 0 || r.cost.delegatedUsd > 0),
   );
   if (detailRows.length === 0) return;
   console.log("");
@@ -547,6 +557,9 @@ function printDetail(rows: Row[]): void {
       .map(
         ([model, dollars]) => `${friendlyName(model)} $${dollars.toFixed(2)}`,
       );
+    if (row.cost!.delegatedUsd > 0) {
+      parts.push(`delegated (headless) $${row.cost!.delegatedUsd.toFixed(2)}`);
+    }
     console.log(`${row.name}: ${parts.join(" · ")}`);
   }
 }

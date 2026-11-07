@@ -2648,4 +2648,64 @@ describe("run (end-to-end CLI)", () => {
       expect(fs.existsSync(telemetryPath)).toBe(false);
     });
   });
+
+  describe("run-attribution row", () => {
+    function runMerged(slug: string, extra: object) {
+      return captureStdout(() =>
+        run(["--status", "merged", "--slug", slug], {
+          stateDir: tmpRoot,
+          ...extra,
+        }),
+      );
+    }
+
+    it("appends exactly one row per terminal render and keeps the sentinel last", () => {
+      const slug = "attribution-row-slug";
+      seedState(slug, { phase: "gating", pr: 7 });
+      const logPath = path.join(tmpRoot, "attr", "run-attribution.jsonl");
+      const { rc, out } = runMerged(slug, {
+        projectsRoot: path.join(tmpRoot, "no-projects"),
+        attributionLogPath: logPath,
+      });
+      expect(rc).toBe(0);
+      expect(out.trimEnd().split("\n").pop()).toBe("MERGED");
+      const rows = fs
+        .readFileSync(logPath, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        version: 1,
+        slug,
+        pr: 7,
+        status: "merged",
+      });
+      expect(typeof rows[0].ts).toBe("string");
+    });
+
+    it("leaves the exit code and stdout unchanged when the log path is unwritable", () => {
+      const slug = "attribution-unwritable-slug";
+      seedState(slug, { phase: "gating" });
+      const blocker = path.join(tmpRoot, "blocker");
+      fs.writeFileSync(blocker, "x");
+      const good = runMerged(slug, {
+        projectsRoot: path.join(tmpRoot, "no-projects"),
+        attributionLogPath: path.join(tmpRoot, "ok", "log.jsonl"),
+      });
+      seedState(slug, { phase: "gating" });
+      const bad = runMerged(slug, {
+        projectsRoot: blocker,
+        attributionLogPath: path.join(blocker, "sub", "log.jsonl"),
+      });
+      expect(bad.rc).toBe(0);
+      expect(bad.out).toBe(good.out);
+    });
+
+    it("writes no row when the slug has no state file", () => {
+      const logPath = path.join(tmpRoot, "attr2", "log.jsonl");
+      runMerged("attribution-no-state-slug", { attributionLogPath: logPath });
+      expect(fs.existsSync(logPath)).toBe(false);
+    });
+  });
 });

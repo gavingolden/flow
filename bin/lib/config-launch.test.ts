@@ -41,12 +41,11 @@ describe("runConfigLaunchCli", () => {
     errSpy.mockRestore();
   });
 
-  it("renders all five launch settings with SOURCE built-in (...) when config is empty", () => {
+  it("renders the four non-effort launch settings with SOURCE built-in (...) when config is empty", () => {
     const code = runConfigLaunchCli([], { read: reader({}) });
     expect(code).toBe(0);
     const table = out.join("\n");
     for (const setting of [
-      "effort",
       "autoMerge",
       "waitForCopilot",
       "forceResearch",
@@ -60,6 +59,18 @@ describe("runConfigLaunchCli", () => {
       expect(row).toBeDefined();
       expect(row).toMatch(/built-in \(/);
     }
+  });
+
+  it("describes an unset effort as Claude Code's own setting, in the same words as config models, never built-in", () => {
+    runConfigLaunchCli([], { read: reader({}) });
+    const row = out
+      .join("\n")
+      .split("\n")
+      .find((l) => l.startsWith("effort "));
+    expect(row).toContain(
+      "not set by flow — Claude Code's own setting applies (your saved /effort level for the model, or the model default)",
+    );
+    expect(row).not.toContain("built-in");
   });
 
   it("renders a configured key as config (launch.<key>) with its value", () => {
@@ -186,7 +197,7 @@ describe("runConfigLaunchCli", () => {
     });
     expect(code).toBe(0);
     expect(err.join("\n")).toMatch(/launch\.effort.*not valid/);
-    expect(out.join("\n")).toMatch(/effort\s+\(none\)\s+built-in \(/);
+    expect(out.join("\n")).toMatch(/effort\s+\(none\)\s+not set by flow/);
   });
 
   it("reads the config file only once per invocation", () => {

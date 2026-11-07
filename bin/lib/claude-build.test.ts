@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   detectClaudeBuild,
   MIN_SUBAGENT_EFFORT_VERSION,
+  readLiveEffort,
   readSessionEffort,
   supportsSubagentEffort,
 } from "./claude-build";
@@ -62,6 +63,22 @@ describe("readSessionEffort", () => {
     expect(readSessionEffort({}, null)).toBe("");
     expect(readSessionEffort({ CLAUDE_EFFORT: "bogus" }, { effort: "x" })).toBe(
       "",
+    );
+  });
+});
+
+describe("readLiveEffort", () => {
+  it("returns CLAUDE_EFFORT verbatim, including a level flow does not know", () => {
+    expect(readLiveEffort({ CLAUDE_EFFORT: "low" })).toBe("low");
+    expect(readLiveEffort({ CLAUDE_EFFORT: "ultra" })).toBe("ultra");
+  });
+
+  it("returns null when absent, empty, or longer than 16 characters", () => {
+    expect(readLiveEffort({})).toBeNull();
+    expect(readLiveEffort({ CLAUDE_EFFORT: "" })).toBeNull();
+    expect(readLiveEffort({ CLAUDE_EFFORT: "x".repeat(17) })).toBeNull();
+    expect(readLiveEffort({ CLAUDE_EFFORT: "x".repeat(16) })).toBe(
+      "x".repeat(16),
     );
   });
 });

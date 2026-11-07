@@ -26,6 +26,7 @@ let originalHome: string | undefined;
 let sandboxHome: string | undefined;
 let originalFlowSlug: string | undefined;
 let originalTmuxPane: string | undefined;
+let originalClaudeEffort: string | undefined;
 
 beforeAll(() => {
   originalHome = process.env.HOME;
@@ -51,6 +52,12 @@ beforeAll(() => {
   originalTmuxPane = process.env.TMUX_PANE;
   delete process.env.FLOW_SLUG;
   delete process.env.TMUX_PANE;
+
+  // Claude Code exports CLAUDE_EFFORT to every Bash call, and telemetry's
+  // `session_effort` reads it: a suite run from a Claude Code Bash call would
+  // otherwise inherit the ambient level (the same leak shape as FLOW_SLUG).
+  originalClaudeEffort = process.env.CLAUDE_EFFORT;
+  delete process.env.CLAUDE_EFFORT;
 });
 
 afterAll(() => {
@@ -63,4 +70,6 @@ afterAll(() => {
   else process.env.FLOW_SLUG = originalFlowSlug;
   if (originalTmuxPane === undefined) delete process.env.TMUX_PANE;
   else process.env.TMUX_PANE = originalTmuxPane;
+  if (originalClaudeEffort === undefined) delete process.env.CLAUDE_EFFORT;
+  else process.env.CLAUDE_EFFORT = originalClaudeEffort;
 });

@@ -16,6 +16,7 @@ import {
   type ReadConfigFile,
 } from "./models-config";
 import { resolveRouting, type ResolvedRow } from "./model-routing-table";
+import { EFFORT_UNSET_SOURCE } from "./config-launch";
 import { readConfigModels } from "./read-config-models";
 import { readEffortsConfig } from "./efforts-config";
 import {
@@ -176,7 +177,7 @@ export type ModelRows = {
 
 /**
  * Pure(ish) row-builder over an already-resolved `read` + `state`: resolves
- * the session effort (state > `launch.effort` > built-in), reads every
+ * the session effort (state > `launch.effort` > unset), reads every
  * `models.*` and `efforts.*` grain, and feeds them into `resolveRouting`.
  * Extracted so `flow config all` can compose this section without
  * re-parsing `~/.flow/config.json`.
@@ -209,11 +210,11 @@ export function buildModelRows(
 /**
  * Resolves the session's effort on the same precedence ladder
  * `config-launch.ts` uses for every other `launch.<key>`: this run's frozen
- * state > `launch.effort` > built-in. Reuses the SAME three source-string
- * literals so the two audit views never describe identical resolutions in
- * different words. Once an explicit `--slug` resolved a state file, config
+ * state > `launch.effort` > unset (Claude Code's own setting applies). Reuses
+ * the SAME three source-string literals so the two audit views never describe
+ * identical resolutions in different words. Once an explicit `--slug` resolved a state file, config
  * is no longer in the chain (same rule `config-launch.ts` documents) — an
- * absent `state.effort` there means "resolved to the built-in", never "go
+ * absent `state.effort` there means "flow passed no --effort (Claude Code's own setting applied)", never "go
  * re-read the live config".
  */
 function resolveSessionEffort(
@@ -227,7 +228,7 @@ function resolveSessionEffort(
         source: "this run (fixed at launch)",
       };
     }
-    return { value: "(none)", source: "built-in (no --effort passed)" };
+    return { value: "(none)", source: EFFORT_UNSET_SOURCE };
   }
   const launchDefaults = readLaunchDefaults(read);
   if (launchDefaults.effort !== undefined) {
@@ -236,7 +237,7 @@ function resolveSessionEffort(
       source: "config (launch.effort)",
     };
   }
-  return { value: "(none)", source: "built-in (no --effort passed)" };
+  return { value: "(none)", source: EFFORT_UNSET_SOURCE };
 }
 
 function printTable(rows: ResolvedRow[], sessionKnown: boolean): void {
