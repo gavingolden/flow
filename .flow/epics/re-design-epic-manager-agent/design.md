@@ -1,4 +1,4 @@
-# Epic design — epic manager: an executive that decides on the owner's behalf, a zero-token sequencer per epic, and sibling coordination
+# Epic design — one global manager: an executive that decides on the owner's behalf across every pipeline, a zero-token sequencer per epic, and coordination of the things that matter
 
 Supersedes `manager-agent-flow-event-driven` (designed 2026-08-25 in PR #674,
 0/6 features started). That epic's directory is deleted in this design PR; its
@@ -12,7 +12,210 @@ reconciled changes are listed under `## Decision analysis` →
 deterministic Bun process, not a Claude session, and delegated answers are
 decided by the pipeline itself at its own pause.
 
-**Amended 2026-10-26:** see the next section — the executive (f5) is now a root and f3 wires it to the sequencer.
+**Amended 2026-10-26:** see "Amendment (2026-10-26)" — the executive (f5) is now a root.
+
+**Amended 2026-11-07:** see the next section — one global manager over every
+pipeline replaces the per-epic manager; f2 and f3 are re-scoped, f6 and f7 are
+new. Where this amendment and older text disagree, this amendment wins.
+
+## Amendment (2026-11-07) — one global manager, selectively scoped
+
+**What the owner decided** (conversation with the `/flow-epic-run` session,
+2026-10-29 … 2026-11-07, informed by the econ-data driver agent's ten days of
+running this role by hand):
+
+- **One manager, not one per epic.** A single global manager watches every
+  pipeline in every repo and is scoped by the owner to pipelines, epics, or
+  repos. Loose pipelines with no epic (a batch of bug fixes) are fully in
+  scope. An epic is a _group_ that adds launch order and a plan review after
+  each merge.
+  - _Why:_ on 2026-10-29, 9 of the 14 unmerged pipelines on the owner's
+    machine were waiting on the owner, and only 2 belonged to this epic
+    (read from `~/.flow/state/*.json`). A per-epic manager would have been
+    blind to the other 7.
+  - _Synergies kept:_ launch order, the epic goal as decision context, the
+    post-merge wave review, and sibling context all survive as group
+    behaviour. A loose pipeline gets less context, so the executive is less
+    confident and asks more often — correct, not a loss.
+- **The manager is a long-running conversational Claude session** the owner
+  can talk to (`flow manage` opens window `manager`; `/flow-manage` is the
+  front door). This reverses D1's "not a model session" for the _manager_;
+  f1's zero-token sequencer stays as the board, the change detector, and the
+  epic launcher. Idle cost and forgetting — the reasons D1 rejected a session
+  — are answered by waking only on change and keeping memory on disk:
+  - **Wake on change.** A zero-token background waiter exits, waking the
+    session, only on a per-pipeline _transition_ into a decision point
+    (precedent: `flow-plan-review-wait`). A pipeline already `gated` never
+    re-fires; CI waits never wake it; pipelines are discovered from state
+    files on every poll, never from a fixed list. A configurable heartbeat
+    (one GitHub query, no model call) catches merges made in the browser.
+    Optional `--stop-when-idle`. _Field evidence (econ-data driver):_ its
+    first waiter fired on "already gated", and its fixed slug list missed two
+    new windows.
+  - **Memory on disk.** Every decision is written the moment it is made;
+    `/flow-checkpoint` runs at the end of each wake (a new `manager` pane
+    kind); the owner `/clear`s whenever they like.
+- **Reads the important bits, like a human manager.** PR body sections (TLDR,
+  User-facing changes, System changes, Deviations from plan, Test Steps),
+  `plan.md` Open Questions and candidate follow-ups, the pipeline's last pause
+  block (Unsolved / Needs attention / Manual action / Untracked), and phase +
+  age. No diffs; a raw transcript only for a pipeline stuck with no pause
+  block. Targeted read-only checks are allowed (PR screenshots, one file
+  between two SHAs, a grep) — the driver needed these for about 10% of
+  sign-offs.
+- **Coordinates big things only.** Carrying one pipeline's discovery into
+  another's plan, bundling follow-ups, catching a design gone stale after a
+  sibling merged, shared-resource conflicts (a DB reset vs a seed), manual
+  steps. Overlapping code is the pipelines' job (they already resolve merge
+  conflicts).
+- **No committed coordination file.** f2's `.flow/coordination-notes.json`,
+  the per-repo generated coordination file, and diff-overlap ownership are
+  cut (owner: committed notes "grow unbounded and quickly become stale").
+  Lasting repo rules go in that repo's AGENTS.md, which every pipeline reads
+  and which has a size budget. Transient coordination lives in manager notes
+  that expire with the pipelines they name.
+- **Authority.** Non-authority messages (`continue`, context, warnings) are
+  plain peer messages. Authority messages (approve, redirect) are a ruling
+  file under the owner's grant that the _pipeline_ verifies before acting; a
+  bare peer message is never consent (premise 1 below still holds). The scope
+  is saved on disk and checked before every send. `send-keys` is retired. The
+  owner's words in the manager window are owner approval.
+- **Gated PRs.** The manager may tick a `SUBJECTIVE:` item it verified, with
+  an `agent-verified: <evidence>` note. UI-taste items need a non-Claude
+  second review — Gemini 4 Argon (High) via agy (f4). The manager adds a
+  cross-pipeline consistency check (siblings, epic design direction) instead
+  of repeating the pipeline's own UI/UX taste review: a same-model second
+  look mostly repeats the first (Huang et al., ICLR 2024,
+  https://arxiv.org/abs/2310.01798).
+- **Merging (new f7).** The owner wants the manager able to merge "where
+  appropriate" and left the scope to this design. A merge grant lets the
+  merge guard accept a manager ruling in place of the owner's override when
+  every step is ticked with evidence, no `DECISION:` is open, CI and review
+  are done, Argon agreed, and the PR is not a one-way door. See "Merge grant
+  and one-way doors" below.
+- **Follow-ups (new f6).** The manager files and manages GitHub issues on its
+  own judgement in the owner's repos. Epic changes — add, cut, defer, goal —
+  are always _proposed_ and the owner approves; reordering unstarted features
+  stays autonomous.
+- **Interviews and clarifications.** The manager drafts a recommended answer;
+  the owner accepts with one word. It never answers alone.
+- **Owner surface.** A waiting age on every needs-you item, and a daily
+  reminder while any is older than one day. _Why:_ f1's and f5's PRs waited
+  11 days for the owner with nothing showing how long.
+- **Spend.** f5's $3 cap per executive call, plus a daily cap (default $20)
+  that degrades every decision to the owner and alerts once.
+
+### What happens to each feature
+
+| Feature                                        | Verdict                   | Change                                                                                                                                                                |
+| ---------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| f1-epic-sequencer                              | **kept** (built, PR #978) | Becomes the zero-token board, change detector and epic launcher under the manager. Its log moves home in f2.                                                          |
+| f5-executive-judgment                          | **kept** (built, PR #977) | Its charter, confidence scale, grant and `flow-exec-review` are what the manager judges with. Its log moves home and its grant gains scopes in f2.                    |
+| f2-repo-coordination → **f2-manager-home**     | **re-scoped**             | Coordination file, notes file and diff ownership cut. Now: manager home, scoped grants, expiring notes, scope-free log, rule-based pruning, `--context-file` rulings. |
+| f3-sequencer-executive → **f3-global-manager** | **re-scoped**             | From "the sequencer calls the executive" to the conversational global manager: waiter, reads, rulings, scope check, checkpoint, digest, reminders, daily cap.         |
+| f4-delegated-ui-signoff                        | **kept, amended**         | Argon named as the non-Claude reviewer; agy outages degrade to the owner; scoped grant; reads the manager's consistency note. Now also depends on f2.                 |
+| **f6-followup-routing**                        | **new**                   | Epic proposal / issue / logged drop; issue management; owner-approved epic amendments written in a separate worktree.                                                 |
+| **f7-merge-grant**                             | **new**                   | Merge grant, one-way-door detector, hard-rule rewrite.                                                                                                                |
+| w1-managed-wave, w2-ui-review-section          | **kept**                  | w1 now gates f3-global-manager. w2's condition is already met (PR #973 merged 2026-10-26); bind it after f1 merges.                                                   |
+
+Ids f2 and f3 were renamed (neither was ever launched, so no `run.json`
+binding exists). The committed status board is re-derived after this PR
+merges with
+`flow-epic-sync --epic-slug re-design-epic-manager-agent --rederive --commit --push`.
+
+### Manager files and pruning
+
+Nothing is committed. Everything is under `~/.flow/manager/` (outside
+`~/.flow/state/`, so it is never listed as a pipeline).
+
+| File             | Holds                                                                     | Written by                                                        | Cleanup (a rule, never model discretion)           |
+| ---------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------- |
+| `scope.json`     | what the manager may act on                                               | `flow manage --scope`, or the owner's words in the manager window | owner edits                                        |
+| `grants.json`    | autonomy / `--delegate-ui` / `--merge` grants per pipeline, epic or repo  | the owner only, in a TTY (`flow grant`)                           | optional `--expires`; `flow grant … off`           |
+| `log.jsonl`      | every decision, with slug, repo, epic, outcome                            | f1, f5, the manager — append-only                                 | after 90 days rolled into per-month counts by kind |
+| `notes.jsonl`    | transient coordination ("Z waits for W's seed")                           | the manager                                                       | dropped when every pipeline it names is terminal   |
+| `proposals.json` | open proposals: epic changes, stale-pipeline cancels, interview drafts    | the manager                                                       | removed only when the owner answers                |
+| `rulings/`       | authority messages a pipeline verifies                                    | the manager, under a grant                                        | expire with the phase they answer                  |
+| `status.md`      | regenerated table: pipeline, repo, epic, phase, owner action, waiting age | the manager waiter                                                | rebuilt every pass                                 |
+
+The owner's charter stays in `~/.flow/product.md` (f5). Corrections become
+charter lines the manager _proposes_; the owner accepts.
+
+### Merge grant and one-way doors
+
+`flow grant repo:<name> --merge` (TTY-only). "Deploys to production" is the
+wrong line, because in econ-data almost everything deploys. Of its last 40
+merged PRs (sampled 2026-11-07), 20 touched `backend/` (Cloud Run deploy on
+push to `master`), 21 the frontend (`src/`, `static/`, Cloudflare Pages), 5
+`supabase/migrations/` (`deploy-migrations.yml` applies on push), and 11
+`infrastructure/terraform|monitoring/` (`terraform-plan-apply.yml` applies on
+push). App code already ships through auto-merge without the owner today and
+rolls back with a revert, so it stays mergeable. The line is the **one-way
+door**: migrations, infrastructure applies, secrets / IAM, billing, usage
+counters, shared or production data. It is detected from the repo's own
+workflow files (push-to-default-branch triggers whose jobs apply migrations or
+infrastructure), built-in path patterns, and the PR's `## System changes`; an
+unparseable workflow fails closed. Chosen scope: flow fully; econ-data minus
+one-way doors. The merge still runs in the pipeline's own step 10 and posts
+today's override disclosure comment plus the ruling id. The hard rules "never
+merge on its own instruction" (charter, AGENTS.md) and `/flow-epic-run`'s
+"Never merge a feature PR" become "never merge without the owner's merge
+grant"; `flow-merge-guard --record-override` stays owner-only.
+
+### Argon (agy) resilience
+
+Every non-Claude check (f4 UI ticks, f7 merge evidence) goes through
+`flow-delegate` and reuses `bin/lib/agy-cooldown.ts` (one shared marker that
+holds until the quota window resets) and `bin/lib/delegate-skip-class.ts`.
+Argon unavailable — quota, outage, timeout, content refusal — degrades to the
+owner (the item stays unticked, the merge stays the owner's), never to a
+Claude-only approval. The manager retries once the cooldown ends if the item
+is still waiting, and names the outage in its digest.
+
+### Permissions (allow rules)
+
+The auto-mode classifier blocked the econ-data driver's housekeeping
+(`flow done` as Interfere With Workloads, `flow epic done` as Modify Shared
+Resources). The owner's global allow rules live in the owner's dotfiles repo
+(symlinked into `~/.claude`), so they are changed by a separate dotfiles
+pipeline at opus medium/high once this list is final — not by any feature
+here.
+
+Manager actions that need a global allow rule:
+
+1. `flow done <slug>` and `flow epic done <slug>` — cleanup of finished work.
+2. `flow epic launch …`, `flow epic bind …`, `flow feature create …` — launches inside the saved scope.
+3. `flow-create-issue …`, `gh issue edit|close|comment …` — issue management in the owner's repos (f6).
+4. `gh pr comment …`, `gh pr edit <n> --body-file …` — evidence comments and `agent-verified:` ticks.
+5. `git worktree add`, `git push` of `flow-epic-amend/*` branches, `gh pr create` — owner-approved epic amendments (f6).
+6. `gh pr merge` of a manifest-only amendment PR, only after `flow-merge-guard` accepts the ruling (f7).
+7. `flow-epic-sync --commit --push`, `flow-checkpoint`, `flow-notify`, and the `flow-manager-*` helpers.
+
+Never allow-listed (owner-run only):
+
+- `flow grant …` / `flow epic grant …` (TTY-only by design).
+- `flow-merge-guard --record-override`.
+- Production: workflow dispatches that deploy or apply (terraform, migrations), production reads or writes.
+- Shared local DB resets or re-seeds, usage-counter resets.
+- Force-push, history rewrites, branch or data deletion.
+
+Feature merges are not on the list: they run inside each pipeline's own step 10.
+
+### Superseded by this amendment
+
+- **R5** (generated coordination file, three read points) — cut; see f2-manager-home.
+- **R8** "never merge a PR on its own instruction" — now "never without the owner's merge grant" (f7). The rest of R8 stands.
+- **D1** "not a model session" — holds for f1 only; the manager is a session (f3-global-manager).
+- **D4** (coordination file + committed notes) — cut.
+- **Open Questions** marked "Superseded 2026-11-07" inline in §6.
+- **Cross-model review O2** ("let the owner answer in the manager window", overridden then) — now adopted: the owner's words in the manager window are owner approval.
+
+**Lost:** D1's "nothing to compact" guarantee for the manager (mitigated by
+disk-first decisions and `/flow-checkpoint`); the coordination file's
+pull-based briefs at plan, implement and merge time (pipelines now get
+rulings at launch and messages from the manager instead); the hard rule that
+no agent merges a `gated` PR (now: only under an owner merge grant, never a
+one-way door).
 
 ## Amendment (2026-10-26) — the manager is an executive, not just a sequencer
 
@@ -89,7 +292,9 @@ f5 stores this in the owner's product brief (`~/.flow/product.md`, a new
 
 Hard rules are unchanged: never merge on its own instruction, never override
 a gated verdict, never touch production or shared resources without the
-owner, never type into a pipeline's window.
+owner, never type into a pipeline's window. _(Amended 2026-11-07: "never
+merge on its own instruction" becomes "never merge without the owner's merge
+grant, and never a one-way door" — f7.)_
 
 ### Challenges and expansions to the owner's framing (adopted)
 
@@ -543,7 +748,7 @@ check`: grant live; the cross-model plan review ran with a non-Claude
 
 ## 4. Feature decomposition
 
-Four features plus two wait nodes. Each feature is one `flow feature create`
+Seven features plus two wait nodes. Each feature is one `flow feature create`
 pipeline, one PR-sized vertical slice that passes its own gate. Wait nodes are
 never launched; they are bound by the owner. Ids, titles, and edges match
 `manifest.json`. Every node carries `model: opus`, `effort: high` per the
@@ -574,39 +779,51 @@ owner's ruling.
   protocol; the wave-review step in `/flow-epic-run`; PR stamp and log
   entries.
 
-### f2-repo-coordination · A generated per-repo coordination file every pipeline reads, fed by the sequencer — **[MVP]**
+### f2-manager-home · One manager home: scope, scoped grants, expiring notes, a scope-free decision log, and launch rulings — **[MVP]**
 
-- **Secret hidden (D4):** ownership derivation, yield rules, the notes
-  format, and the three read points.
-- **Depends on:** **f1-epic-sequencer** — _edge artifact: the sequencer's
-  per-pass dispatch and board that f2 adds refresh, hold-back, and conflict
-  lines to, and the `flow epic launch` call site that gains `--context-file`._
-- **Produces:** `flow-coord refresh|brief|log`; `.flow/coordination-notes.json`
-  - consumer-repo contract entry; `flow epic launch --context-file`; planned
-    paths in state; the `/flow-pipeline` reads at planning, implementation start,
-    and before merge.
+_Re-scoped 2026-11-07 from f2-repo-coordination; the coordination file,
+committed notes and diff ownership are cut._
+
+- **Secret hidden:** where the manager's memory lives and how it is pruned,
+  and how authority is scoped (pipeline / epic / repo).
+- **Depends on:** **f1-epic-sequencer** and **f5-executive-judgment** —
+  _both write the shared decision log this feature moves to a scope-free
+  home; f5's grant is the one this feature gives scopes._
+- **Produces:** `~/.flow/manager/` (`scope.json`, `grants.json`,
+  `log.jsonl`, `notes.jsonl`, `proposals.json`, `status.md`);
+  `flow grant <scope> --autonomy high|off [--delegate-ui] [--expires]` with
+  `flow epic grant` as its alias; `flow-manager-note`; `flow-manager-prune`;
+  `flow epic launch --context-file` (rulings binding on product calls, open to
+  evidence-based technical correction).
 
 ### w1-managed-wave · Wait node: the sequencer has driven one real wave
 
-- **Waits for:** one feature (this epic's f2, or any econ-data epic feature)
-  launched by `flow epic manage` and merged, with no hand launch or bind and
-  no drift halt left unexplained in `log.jsonl`. Bound by the owner with
+- **Waits for:** one feature (this epic's f2-manager-home, or any econ-data
+  epic feature) launched by `flow epic manage` and merged, with no hand
+  launch or bind and no drift halt left unexplained in the sequencer's log.
+  Bound by the owner with
   `flow epic bind re-design-epic-manager-agent w1-managed-wave --external "<PR>"`.
 - **Depends on:** **f1-epic-sequencer** — _the sequencer whose wave this
   records, and the `waitFor` refusal that keeps this node from launching._
 
-### f3-sequencer-executive · The sequencer runs the executive: wave reviews at every merge, decisions on the board, a digest for the owner
+### f3-global-manager · `flow manage`: one conversational manager over every pipeline, woken only when something changes
 
-- **Secret hidden (D8, loop side):** how the zero-token loop hands decision
-  points to the executive without becoming judgment itself.
-- **Depends on:** **f1-epic-sequencer** — _the loop, board and log;_
-  **f5-executive-judgment** — _the grant and `flow-exec-review`;_
-  **w1-managed-wave** — _evidence the sequencer works before it gets
-  autonomy._
-- **Produces:** `flow epic manage --autonomy high`; one wave review per
-  observed merge, applying reorders of unstarted features only and showing
-  every reshape as a proposal; the decision digest and per-feature decision
-  lines on the board.
+_Re-scoped 2026-11-07 from f3-sequencer-executive._
+
+- **Secret hidden:** how one long-running conversational manager stays cheap
+  (zero tokens idle; wakes on transitions only), safe (scope check, rulings
+  the pipeline verifies, no `send-keys`), and forgettable (decisions on disk,
+  `/flow-checkpoint` each wake).
+- **Depends on:** **f2-manager-home** — _scope, grants, log, notes,
+  proposals;_ **w1-managed-wave** — _evidence the sequencer works before the
+  manager drives it._
+- **Produces:** `flow manage` and window `manager`; the `/flow-manage` skill;
+  the `flow-manager-wait` transition waiter; rulings and
+  `flow-exec-review ruling`; the `manager` pane kind for `/flow-checkpoint`;
+  the status table with waiting ages, the digest, the daily reminder, the
+  daily spend cap; drafted interview answers; stale-pipeline proposals; the
+  cross-pipeline UI consistency note; the post-merge wave review for epic
+  groups.
 
 ### w2-ui-review-section · Wait node: the `## UI review` section has shipped
 
@@ -621,56 +838,89 @@ owner's ruling.
 
 - **Secret hidden (D6):** the UI evidence bar, the cross-model agreement
   check, and the non-override gate re-check.
-- **Depends on:** **f5-executive-judgment** — _the grant file,
-  `flow-exec-review`, and the log + PR stamp;_ **w2-ui-review-section**
-  — _the `## UI review` section the evidence bar reads._
+- **Depends on:** **f5-executive-judgment** — _`flow-exec-review`, and the
+  log + PR stamp;_ **w2-ui-review-section** — _the `## UI review` section the
+  evidence bar reads;_ **f2-manager-home** — _the scoped grant store that
+  holds `--delegate-ui`._
 - **Produces:** the `subjective` class and `--delegate-ui`; the evidence block
-  in the GATED render; the tick-with-evidence recipe; the non-override
-  re-check branch in `step-09-gate.md`; the narrowed AGENTS.md /
+  in the GATED render; the tick-with-evidence recipe; Gemini 4 Argon (High)
+  as the non-Claude reviewer with agy-outage fallback to the owner; the
+  non-override re-check branch in `step-09-gate.md`; the narrowed AGENTS.md /
   output-style / manual-test-rubric rule.
 
-The walking-skeleton root is **f1**: everything hangs off its loop, and it is
-useful on its own the day it merges (it can drive econ-data's remaining
-features). The MVP the owner asked for (Q1: launches with coordination
-context, detects sibling conflicts, surfaces gated PRs) is f1 + f2. The
-owner's top ask (amendment 2026-10-26) is f5, a second root that runs in
-parallel with f1; f3 and f4 extend its autonomy once w1 and w2 are bound.
+### f6-followup-routing · Follow-ups land in exactly one place: an epic proposal, a GitHub issue the manager files, or a logged drop
+
+_New 2026-11-07._
+
+- **Secret hidden:** the routing rule between epic proposals, issues, and
+  drops, and the amendment recipe the manager runs after an owner yes.
+- **Depends on:** **f3-global-manager** — _the manager session that makes
+  the routing call, and its proposals._
+- **Produces:** follow-up capture (including unticked plan candidates, which
+  today die with the worktree); issue filing through `flow-create-issue` with
+  dedupe, links, the `flow-manager` label and close-on-merge; epic-change
+  proposals; amendments written in a separate worktree as manifest-only PRs.
+
+### f7-merge-grant · A merge grant: the manager can merge a verified PR in place of the owner's override, never a one-way door
+
+_New 2026-11-07._
+
+- **Secret hidden:** the merge-grant check and the one-way-door detector.
+- **Depends on:** **f3-global-manager** — _the ruling the merge guard
+  accepts;_ **f4-delegated-ui-signoff** — _the Argon evidence check this
+  reuses._
+- **Produces:** `flow grant repo:<name> --merge`; manager rulings accepted by
+  `bin/flow-merge-guard.ts`; one-way-door detection from workflow files, path
+  patterns and `## System changes`; the rewritten hard rules; auto-merge-on
+  launches under the grant.
+
+The walking-skeleton root is still **f1**, with **f5** as the second root;
+both are built (PRs #978, #977). The MVP of the global manager is f2 + f3:
+f2 is deterministic and testable alone, f3 is the session the owner talks to.
+f4 and f7 widen autonomy last, and f7 — the highest blast radius — is the
+final node.
 
 ## 5. Dependency DAG
 
 ```mermaid
 graph TD
-  f1[f1-epic-sequencer<br/>MVP · walking-skeleton root]
-  f5[f5-executive-judgment<br/>root · owner's top ask]
-  f2[f2-repo-coordination<br/>MVP]
+  f1[f1-epic-sequencer<br/>root · built]
+  f5[f5-executive-judgment<br/>root · built]
+  f2[f2-manager-home<br/>MVP]
   w1([w1-managed-wave<br/>wait node])
-  f3[f3-sequencer-executive]
+  f3[f3-global-manager<br/>MVP]
   w2([w2-ui-review-section<br/>wait node])
   f4[f4-delegated-ui-signoff]
-  f1 -->|dispatch + board + launch call site| f2
+  f6[f6-followup-routing]
+  f7[f7-merge-grant]
+  f1 -->|log| f2
+  f5 -->|log + grant| f2
   f1 -->|sequencer + waitFor refusal| w1
-  f1 -->|loop + board + log| f3
-  f5 -->|grant + flow-exec-review| f3
+  f2 -->|scope + grants + memory| f3
   w1 -->|wave evidence| f3
   f1 -->|waitFor refusal| w2
-  f5 -->|grant + executive review + log| f4
+  f5 -->|executive review + log| f4
   w2 -->|UI review section| f4
+  f2 -->|scoped grant store| f4
+  f3 -->|manager session + proposals| f6
+  f3 -->|rulings| f7
+  f4 -->|Argon evidence check| f7
 ```
 
-- **Build order:** `(f1 ∥ f5) → (f2 ∥ [w1 → f3]) → [w2] → f4`; wait nodes are
-  bound, not built.
-- **MVP path:** f1 → f2 (two PRs); the owner's top ask, f5, lands in parallel.
-- **Well-formedness:** 7 nodes, 8 edges, no cycle — `flow-epic-dag --validate`
+- **Build order:** `(f1 ∥ f5) → f2 → ([w1] → f3 ∥ [w2] → f4) → (f6 ∥ f7)`;
+  f7 also waits for f4. Wait nodes are bound, not built.
+- **MVP path:** f2 → f3 (two PRs after the two built roots merge).
+- **Well-formedness:** 9 nodes, 12 edges, no cycle — `flow-epic-dag --validate`
   exit 0.
 
 ## 6. Open Questions
 
-- **Fleet-wide autonomy (the old epic's goal).** **Recommended:** cut from this
+- **Fleet-wide autonomy (the old epic's goal).** _Superseded 2026-11-07: one global manager covers every pipeline in every repo, scoped by the owner (f3-global-manager)._ Original text: **Recommended:** cut from this
   epic; revisit only after f3's log shows how often delegated approvals are
   reversed [confidence: high] [anchor: owner clarification Q1 "EPIC-FIRST,
   FLEET LATER"]. **Stakes:** user — unmanaged pipelines keep waiting on the
   owner as today.
-- **One manager per epic or per repo?** **Recommended:** one per epic. The
+- **One manager per epic or per repo?** _Superseded 2026-11-07: one global manager, selectively scoped by pipeline, epic or repo._ Original text: **Recommended:** one per epic. The
   coordination file is generated from live state under a file lock, so two
   epics' sequencers in one repo write the same content safely [confidence:
   high] [anchor: bin/lib/lock.ts `withFileLockSync`]. **Stakes:** system.
@@ -696,7 +946,7 @@ graph TD
   verifies `flow-delegate` can read image files in the worktree; if not, the
   `subjective` class fails closed and only the one-action default ships
   [confidence: medium] [anchor: bin/flow-delegate.ts]. **Stakes:** user.
-- **May delegation extend to merging?** **Recommended:** no. Nothing merges on
+- **May delegation extend to merging?** _Superseded 2026-11-07: yes, under a TTY-typed merge grant, never for a one-way door (f7-merge-grant)._ Original text: **Recommended:** no. Nothing merges on
   its own instruction or records an override; with `autoMerge: false` the
   owner says "merge" in the pipeline window, where the confirmation form lives
   [confidence: high] [anchor:
@@ -706,16 +956,16 @@ graph TD
 - **`DECISION:` items.** **Recommended:** never delegated — they are judgment
   calls by definition [confidence: medium] [anchor: bin/flow-gate-decide.ts
   human-only `SUBJECTIVE:`/`DECISION:` classification]. **Stakes:** user.
-- **Interviews.** **Recommended:** not delegated. Epic launches skip the
+- **Interviews.** _Superseded 2026-11-07: the manager drafts a recommended answer; the owner accepts with one word; it never answers alone._ Original text: **Recommended:** not delegated. Epic launches skip the
   interview; the rare one that still fires (solution-fit override) waits for
   the owner [confidence: high] [anchor:
   skills/pipeline/flow-pipeline/references/interview-playbook.md
   "Epic-launched"]. **Stakes:** user.
-- **Answering for non-epic siblings.** **Recommended:** none; they get
+- **Answering for non-epic siblings.** _Superseded 2026-11-07: loose pipelines are fully in scope for the manager, under a grant covering them._ Original text: **Recommended:** none; they get
   coordination briefs at their own read points only [confidence: high]
   [anchor: owner clarification Q3 scopes siblings to conflict detection].
   **Stakes:** user — sibling questions still wait for the owner.
-- **How shared resources are known.** **Recommended:** an optional committed
+- **How shared resources are known.** _Superseded 2026-11-07: no committed notes file; lasting rules go in the repo's AGENTS.md, transient ones in expiring manager notes (f2-manager-home)._ Original text: **Recommended:** an optional committed
   `.flow/coordination-notes.json` per consumer repo, a list of
   `{ rule, paths? }` in plain words; the first managed econ-data run drafts it
   from the wave file [confidence: medium] [anchor:
@@ -732,7 +982,7 @@ graph TD
   `--max-budget-usd`; the board shows the count [confidence: medium] [anchor:
   skills/pipeline/flow-pipeline/references/headless-claude.md]. **Stakes:**
   system.
-- **Steering a running sequencer.** **Recommended:** stop it (Ctrl-C),
+- **Steering a running sequencer.** _Superseded 2026-11-07: the owner steers by talking to the manager (f3-global-manager); f1 is still stopped with Ctrl-C._ Original text: **Recommended:** stop it (Ctrl-C),
   act through `/flow-epic-run` or the pipeline window, restart; no hold list
   in the MVP [confidence: medium] [anchor: PR #420 "user cannot steer"
   complaint]. **Stakes:** user.
@@ -752,7 +1002,7 @@ graph TD
   `run.json`, no state file, 0/6 started); PR #674 keeps its text
   [confidence: high] [anchor: `flow epic ls --all` on 2026-10-25]. **Stakes:**
   system.
-- **Collisions with the running `add-ui-ux-critique-improve` pipeline.**
+- **Collisions with the running `add-ui-ux-critique-improve` pipeline.** _Superseded 2026-11-07: moot — it merged as PR #973 on 2026-10-26._ Original text:
   **Recommended:** f1–f3 touch the epic CLI, step 3/4/5/10 prose, and new
   helpers, not its files; new helpers also register in `bin/lib/modules.ts` /
   `bin/lib/pipeline-allow-rules.ts`, so rebase across it; f4 waits on w2
@@ -773,6 +1023,22 @@ graph TD
 - **Right-sizing.** **Recommended:** four PRs plus two bound wait nodes.
   f1 is the largest; if its plan runs past one review, split the GitHub poll
   out first [confidence: medium] [anchor: §4]. **Stakes:** system.
+
+- **Does an owner instruction in the manager window reach a pipeline as
+  approval?** **Recommended:** only under a live grant covering that
+  pipeline: the manager writes a ruling with `source: owner` that the
+  pipeline verifies; without a grant it names the window to answer in. A
+  ruling file is written by an agent, so it is trusted only as far as the
+  grant and the deny rules on the grant store (f5 N2) [confidence: medium]
+  [anchor: premise 1, the 2026-10-26 relayed-approval refusal]. **Stakes:**
+  both — no grant means the owner still types in the pipeline window.
+- **Daily spend cap value.** **Recommended:** $20 default in
+  `config.manager.dailyBudgetUsd`, revisited after two weeks of log data
+  [confidence: low] [anchor: no volume data yet]. **Stakes:** system.
+- **Who merges the dotfiles allow-rule change.** **Recommended:** a separate
+  dotfiles pipeline at opus medium/high, launched once this design's
+  Permissions list is approved; its merge is the owner's [confidence: high]
+  [anchor: owner instruction 2026-11-07]. **Stakes:** system.
 
 ## Request vetting
 
