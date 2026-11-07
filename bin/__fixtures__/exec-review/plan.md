@@ -73,6 +73,16 @@ The weakest assumption is that one line per step is enough detail; if users want
 
 - No `--quiet` counterpart — nobody has asked for less output than the default.
 
+## Architecture Decisions
+
+### Runtime design
+
+none — a local CLI flag that only prints extra lines; no handler, job, queue consumer, outbound call or worker pool changes.
+
+## Instrumentation
+
+none — a local CLI flag with no runtime service to measure.
+
 # Task breakdown
 
 ### Task 1: Add the flag

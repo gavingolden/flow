@@ -1,0 +1,18 @@
+## Planning done: `POST /reports` plan written
+
+Both files are written and non-empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. `git status` is clean, so no source files changed. Nothing was implemented, and I stopped before any later phase.
+
+- **Problem:** The service can read and share reports but has no way to create them. Writing the five sections one after another would usually run past Cloud Run's 300-second request limit, after the model calls had already been paid for.
+- **Tasks:** 4.
+  1. Add a time limit and error checks to the model client in `src/llm.ts`.
+  2. Add a metrics helper and `.flow/metrics.md`.
+  3. Generate the five sections at the same time, with a limit on how many reports one instance works on at once.
+  4. Add the `POST /reports` route. It requires a key from the caller, drops idle connections after 255 seconds, and `./deploy.sh` caps the service at 3 instances.
+- **Follow-up issue (1, marked for filing):** store reports durably and generate them as queued jobs that save progress as they go. Right now reports live only in one instance's memory and are lost when the service scales to zero.
+- **Assumptions to check:**
+  - **The five section names need your input.** The plan uses placeholder names, kept in one constant.
+  - **All five section calls run at once inside one request** (medium confidence). That takes about a minute normally and 182 seconds at worst. The biggest risk is that the model API throttles five simultaneous calls per report. If it does, the queued design has to come first instead of being a follow-up.
+- **Vetting verdict:** `- **Verdict:** adopt-with-conditions: the five section calls run concurrently with a 90 s limit per attempt and at most one retry (worst case 182 s, inside Cloud Run's 300 s), behind a caller key and a cap of 4 in-flight reports per instance and 3 instances`
+- **Research:** Web research only partly ran. It gathered sources, but both cross-checks were skipped because a usage limit was hit, so the plan marks those findings as not cross-checked.
+
+**Next action:** Give the five section names (Q1 in the plan's Open Questions) and decide whether to accept five simultaneous model calls per report. Then run `/flow-new-feature add a \`POST /reports\` endpoint that generates a company report by calling the model API once for each of five sections` to build it.

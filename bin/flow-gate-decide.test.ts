@@ -930,3 +930,165 @@ describe("run() — phase advance", () => {
     errSpy.mockRestore();
   });
 });
+
+// --- design-review backstop ------------------------------------------------
+
+describe("decide() — UI review backstop", () => {
+  const WT = "/wt";
+  const LOG = `${WT}/.flow-tmp/ui-critique/log.json`;
+  const CLEAN_BODY = "## Test Steps\n\n- [x] `npm test` — pass\n";
+  const UI = ["src/lib/components/Panel.svelte"];
+  const gate = (
+    over: Partial<Parameters<typeof decide>[0]> = {},
+    log: unknown = undefined,
+    body = CLEAN_BODY,
+  ) =>
+    decide(
+      {
+        body,
+        state: "OPEN",
+        url: "https://x/y/pull/1",
+        autoMerge: true,
+        worktree: WT,
+        headSha: "head",
+        changedFiles: UI,
+        ...over,
+      },
+      {
+        readFile: (p) =>
+          p === LOG && log !== undefined ? JSON.stringify(log) : null,
+      },
+    );
+
+  it("gates the econ-data #1066 shape: UI diff, skipped log, no not-run item", () => {
+    const r = gate(
+      {},
+      { required: true, outcome: "skipped", skip: "no-review-target" },
+    );
+    expect(r.decision).toBe("gated");
+    expect(r.reason).toContain("UI review did not run");
+    expect(r.validationItems?.[0]).toContain("DECISION:");
+    expect(r.uiReview).toMatchObject({ required: true, satisfied: false });
+  });
+
+  it("gates a UI diff with no review record at all", () => {
+    const r = gate();
+    expect(r.decision).toBe("gated");
+    expect(r.reason).toContain("no UI review record for this PR");
+  });
+
+  it("auto-merges a UI diff with a completed review", () => {
+    const r = gate({}, { required: true, outcome: "clean", headSha: "a" });
+    expect(r.decision).toBe("auto-merge");
+    expect(r.uiReview).toMatchObject({ satisfied: true });
+  });
+
+  it("gates a completed review that went stale", () => {
+    const r = gate(
+      { changedSinceReview: ["src/lib/components/Panel.svelte"] },
+      { required: true, outcome: "clean", headSha: "abcdef0123" },
+    );
+    expect(r.decision).toBe("gated");
+    expect(r.reason).toContain("the design review judged abcdef0");
+  });
+
+  it("does not gate when ui.critique is off", () => {
+    const r = gate({ uiCritiqueEnabled: false });
+    expect(r.decision).toBe("auto-merge");
+  });
+
+  it("does not gate a diff with no rendered file", () => {
+    expect(gate({ changedFiles: ["bin/x.ts"] }).decision).toBe("auto-merge");
+  });
+
+  it("leaves the verdict alone when the diff was not computed", () => {
+    const r = gate({ changedFiles: undefined });
+    expect(r.decision).toBe("auto-merge");
+    expect(r.uiReview).toBeUndefined();
+  });
+
+  it("an unticked not-run item inside Test Steps already gates on its own", () => {
+    const item =
+      "- [ ] DECISION: the UI review did not run (x) <!-- flow:ui-review-decision --> <!-- flow:ui-review-not-run -->";
+    const r = gate(
+      {},
+      { required: true, outcome: "skipped" },
+      `## Test Steps\n\n${item}\n`,
+    );
+    expect(r.decision).toBe("gated");
+  });
+});
+
+describe("fetchPrInputs — baseRefName", () => {
+  const ok = (extra: object) =>
+    vi.fn((_argv: string[]) => ({
+      stdout: JSON.stringify({
+        body: "b",
+        state: "OPEN",
+        url: "u",
+        ...extra,
+      }),
+      stderr: "",
+      exitCode: 0,
+    }));
+
+  it("requests and returns the PR base branch when present", () => {
+    const gh = ok({ baseRefName: "release" });
+    const r = fetchPrInputs(1, gh);
+    expect(gh.mock.calls[0][0]).toContain("body,state,url,baseRefName");
+    expect(r).toMatchObject({ kind: "ok", baseRefName: "release" });
+  });
+
+  it("keeps baseRefName optional so older responses still validate", () => {
+    expect(fetchPrInputs(1, ok({}))).toEqual({
+      kind: "ok",
+      body: "b",
+      state: "OPEN",
+      url: "u",
+    });
+  });
+});
+
+describe("run() — UI review backstop", () => {
+  it("diffs against the PR base and gates a UI diff with no review", () => {
+    seedState("ui", true, 7);
+    const sp = path.join(stateDir, "ui.json");
+    const st = JSON.parse(fs.readFileSync(sp, "utf8"));
+    fs.writeFileSync(sp, JSON.stringify({ ...st, worktree: "/wt" }) + "\n");
+    const gh = vi.fn(() => ({
+      stdout: JSON.stringify({
+        body: "## Test Steps\n\n- [x] done\n",
+        state: "OPEN",
+        url: "https://x/y/pull/7",
+        baseRefName: "release",
+      }),
+      stderr: "",
+      exitCode: 0,
+    }));
+    const bases: (string | null | undefined)[] = [];
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((c) => {
+      writes.push(c.toString());
+      return true;
+    });
+    const exit = run(["7", "--slug", "ui"], {
+      gh,
+      stateDir,
+      localHead: () => "head",
+      readFile: () => null,
+      uiReview: {
+        changedFiles: (_w, base) => {
+          bases.push(base);
+          return ["src/routes/a/+page.svelte"];
+        },
+        home: "/home/none",
+      },
+    });
+    spy.mockRestore();
+    expect(exit).toBe(0);
+    expect(bases).toEqual(["release"]);
+    const r = JSON.parse(writes.join("")) as DecisionResult;
+    expect(r.decision).toBe("gated");
+    expect(r.uiReview).toMatchObject({ required: true, satisfied: false });
+  });
+});

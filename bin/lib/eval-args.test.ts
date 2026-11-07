@@ -52,3 +52,19 @@ describe("parseArgs 'run' --autocompact", () => {
     expect((parsed as RunArgs).autocompact).toBeUndefined();
   });
 });
+
+describe("parseArgs 'run' --scenario", () => {
+  it("leaves scenarios undefined when the flag is omitted", () => {
+    expect((parseArgs(baseRunArgv()) as RunArgs).scenarios).toBeUndefined();
+  });
+
+  it("collects every repeated --scenario id in order", () => {
+    const parsed = parseArgs(
+      baseRunArgv(["--scenario", "r2-rollout", "--scenario", "r4-recovery"]),
+    );
+    expect((parsed as RunArgs).scenarios).toEqual([
+      "r2-rollout",
+      "r4-recovery",
+    ]);
+  });
+});

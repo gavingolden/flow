@@ -25,6 +25,7 @@ import {
   resolveSessionPid,
   runOrphanSweep,
   runReapMode,
+  shortReapSummary,
   runTeardown,
   selectMcpServers,
   selectOrphanBrowsers,
@@ -38,6 +39,8 @@ import { appendRow } from "./lib/proc-registry";
 import { pidStartEpoch } from "./lib/liveness";
 import { readState, writeState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
+import type { OrphanSweepDeps } from "./lib/worktree-orphans-run";
+import type { OrphanProc } from "./lib/worktree-orphans";
 
 const mockedPidStartEpoch = vi.mocked(pidStartEpoch);
 
@@ -101,6 +104,8 @@ function cleanEnvelope(slug: string): ReapEnvelope {
     fallback: null,
     fallbackSkipReason: "registry-covered",
     postRegistered: 0,
+    orphans: null,
+    orphansSkipReason: null,
   };
 }
 
@@ -1331,6 +1336,8 @@ describe("summarizeReapEnvelope — summary", () => {
       fallback: null,
       fallbackSkipReason: "not-gated",
       postRegistered: 0,
+      orphans: null,
+      orphansSkipReason: null,
     };
     const line = summarizeReapEnvelope(envelope);
     expect(line).toContain("failed=1");
@@ -1370,9 +1377,279 @@ describe("summarizeReapEnvelope — summary", () => {
       },
       fallbackSkipReason: null,
       postRegistered: 0,
+      orphans: null,
+      orphansSkipReason: null,
     };
     const line = summarizeReapEnvelope(envelope);
     expect(line).toContain("fallback: ran=true");
     expect(line).not.toContain("fallbackSkipReason");
+  });
+});
+
+describe("runReapMode — worktree leftovers arm", () => {
+  const WT = "/x/flow-reap-wt";
+  let baseDir: string;
+
+  beforeEach(() => {
+    baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-teardown-orph-"));
+    mockedPidStartEpoch.mockReset();
+    mockedPidStartEpoch.mockReturnValue(1_000);
+  });
+  afterEach(() => {
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  function orphanProc(pid: number): OrphanProc {
+    return {
+      pid,
+      ppid: 1,
+      pgid: 9000,
+      uid: 501,
+      tty: null,
+      ageSec: 600,
+      cpuSec: 1,
+      command: "sleep 99",
+      cwd: null,
+    };
+  }
+
+  function orphanDeps(o: { stubborn?: boolean } = {}) {
+    const signals: Array<[number, string]> = [];
+    const dead = new Set<number>();
+    const deps: OrphanSweepDeps = {
+      listProcs: () => [orphanProc(7001), orphanProc(7002)],
+      cwdOf: (pids) => new Map(pids.map((p) => [p, `${WT}/sub`])),
+      registered: () => ({ pids: new Set(), pgids: new Set() }),
+      worktrees: () => [WT],
+      startEpochOf: () => 42,
+      kill: (pid, sig) => {
+        signals.push([pid, sig]);
+        if (
+          !(o.stubborn && sig === "SIGTERM") &&
+          !(o.stubborn && sig === "SIGKILL")
+        )
+          dead.add(pid);
+      },
+      alive: (pid) => !dead.has(pid),
+      sleepMs: () => {},
+      nowMs: () => 0,
+      selfUid: 501,
+    };
+    return { deps, signals };
+  }
+
+  function seedState(slug: string, extra: Record<string, unknown> = {}) {
+    writeState(
+      {
+        slug,
+        phase: "implementing",
+        repo: "/r",
+        updatedAt: "2026-01-01T00:00:00Z",
+        worktree: WT,
+        ...extra,
+      },
+      baseDir,
+    );
+  }
+
+  const base = { timeoutMs: 1000 } as const;
+  const sessionPid = 100;
+
+  it("stops leftovers and records the count with no registry rows", () => {
+    seedState("orph-a");
+    const { deps, signals } = orphanDeps();
+    const env = runReapMode(
+      fakeDeps({
+        listProcs: () => [proc(sessionPid, 1, "claude --add-dir /w")],
+        selfPid: sessionPid,
+      }),
+      {
+        ...base,
+        dryRun: false,
+        slug: "orph-a",
+        baseDir,
+        orphanDeps: deps,
+      },
+    );
+    expect(signals.map((s) => s[0]).sort()).toEqual([7001, 7002]);
+    expect(env.orphans?.signalled).toHaveLength(2);
+    const rec = recordReapOutcome(env, { stateDir: baseDir });
+    expect(rec.written).toBe(true);
+    const reap = readState("orph-a", baseDir)?.reap;
+    expect(reap?.summary).toBe("2 leftover processes stopped");
+    expect(reap?.status).toBe("ok");
+    expect(reap?.ran).toBe(true);
+  });
+
+  it("folds an earlier in-run stop count into the recorded CLEANUP row", () => {
+    seedState("orph-prior", {
+      orphanStops: { count: 4, lastAt: "2026-01-01T00:00:00.000Z" },
+    });
+    const env = runReapMode(
+      fakeDeps({
+        listProcs: () => [proc(sessionPid, 1, "claude --add-dir /w")],
+        selfPid: sessionPid,
+      }),
+      {
+        ...base,
+        dryRun: false,
+        slug: "orph-prior",
+        baseDir,
+        orphanDeps: orphanDeps().deps,
+      },
+    );
+    recordReapOutcome(env, { stateDir: baseDir });
+    expect(readState("orph-prior", baseDir)?.reap?.summary).toBe(
+      "2 leftover processes stopped, 4 earlier in the run",
+    );
+  });
+
+  it("still runs the worktree arm when a registered MCP server covered the ancestry step", () => {
+    seedState("orph-b");
+    appendRow(
+      {
+        pgid: 500,
+        pid: 500,
+        startEpoch: 1_000,
+        slug: "orph-b",
+        class: "mcp-server",
+        argv: ["chrome-devtools-mcp"],
+        recordedAt: 0,
+        sessionPid: null,
+        sessionStartEpoch: null,
+      },
+      baseDir,
+    );
+    const { deps } = orphanDeps();
+    const env = runReapMode(fakeDeps({ alive: () => true }), {
+      ...base,
+      dryRun: true,
+      slug: "orph-b",
+      baseDir,
+      orphanDeps: deps,
+    });
+    expect(env.fallbackSkipReason).toBe("registry-covered");
+    expect(env.orphans?.ran).toBe(true);
+    expect(env.orphans?.found).toHaveLength(2);
+  });
+
+  it("sends no signals under --dry-run", () => {
+    seedState("orph-c");
+    const { deps, signals } = orphanDeps();
+    const env = runReapMode(fakeDeps({ env: {} }), {
+      ...base,
+      dryRun: true,
+      slug: "orph-c",
+      baseDir,
+      orphanDeps: deps,
+    });
+    expect(signals).toEqual([]);
+    expect(env.orphans?.found).toHaveLength(2);
+  });
+
+  it("reads unclean with an orphans problem when a leftover survives SIGKILL", () => {
+    seedState("orph-d");
+    const { deps } = orphanDeps({ stubborn: true });
+    const env = runReapMode(fakeDeps({ env: {} }), {
+      ...base,
+      dryRun: false,
+      slug: "orph-d",
+      baseDir,
+      orphanDeps: deps,
+    });
+    const c = classifyReapEnvelope(env);
+    expect(c.status).toBe("unclean");
+    expect(c.problems).toContain("orphans: still-alive=2");
+  });
+
+  it("names a skip reason with no slug, no state, or no worktree", () => {
+    const run = (slug: string | undefined) =>
+      runReapMode(fakeDeps({ env: {} }), {
+        ...base,
+        dryRun: false,
+        slug,
+        baseDir,
+        orphanDeps: orphanDeps().deps,
+      });
+    expect(run(undefined).orphansSkipReason).toBe("no-slug");
+    expect(run("ghost-slug").orphansSkipReason).toBe("no-state");
+    writeState(
+      {
+        slug: "nowt",
+        phase: "implementing",
+        repo: "/r",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+      baseDir,
+    );
+    expect(run("nowt").orphansSkipReason).toBe("no-worktree");
+  });
+
+  it("records ran:true when only the worktree arm ran", () => {
+    seedState("orph-e");
+    const env = cleanEnvelope("orph-e");
+    env.registry.ran = false;
+    env.orphans = {
+      ran: true,
+      act: true,
+      busyOnly: false,
+      found: [],
+      signalled: [],
+      killed: [],
+      stillAlive: [],
+      skippedRecycled: [],
+    };
+    recordReapOutcome(env, { stateDir: baseDir });
+    expect(readState("orph-e", baseDir)?.reap?.ran).toBe(true);
+  });
+});
+
+describe("shortReapSummary — leftover clause", () => {
+  const withStopped = (n: number): ReapEnvelope => {
+    const e = cleanEnvelope("s");
+    e.orphans = {
+      ran: true,
+      act: true,
+      busyOnly: false,
+      found: [],
+      signalled: Array.from({ length: n }, (_, i) => i + 1),
+      killed: [],
+      stillAlive: [],
+      skippedRecycled: [],
+    };
+    return e;
+  };
+
+  it("folds the earlier in-run count into every branch", () => {
+    expect(shortReapSummary(withStopped(78), [], 0)).toBe(
+      "78 leftover processes stopped",
+    );
+    expect(shortReapSummary(withStopped(2), [], 5)).toBe(
+      "2 leftover processes stopped, 5 earlier in the run",
+    );
+    expect(shortReapSummary(cleanEnvelope("s"), [], 5)).toBe(
+      "5 leftover processes stopped earlier in the run",
+    );
+    expect(shortReapSummary(cleanEnvelope("s"), [], 0)).toBe(
+      "no live processes",
+    );
+  });
+
+  it("keeps the stopped count alongside an unrelated problem and registry counts", () => {
+    expect(shortReapSummary(withStopped(1), ["registry: failed=1"], 0)).toBe(
+      "registry: failed=1; 1 leftover process stopped",
+    );
+    const e = withStopped(3);
+    e.registry.counts.reaped = 1;
+    e.registry.counts["already-dead"] = 2;
+    expect(shortReapSummary(e, [], 0)).toBe(
+      "1 reaped, 2 already dead; 3 leftover processes stopped",
+    );
+  });
+
+  it("appears in the verbose summary line", () => {
+    expect(summarizeReapEnvelope(withStopped(2))).toContain(
+      "orphans: found=0 stopped=2 stillAlive=0",
+    );
   });
 });

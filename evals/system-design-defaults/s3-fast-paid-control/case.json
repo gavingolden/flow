@@ -1,0 +1,75 @@
+{
+  "id": "s3-fast-paid-control",
+  "title": "Proportionality control: one 1-3 s paid suggestTitle call stays inline",
+  "provenance": "Synthetic control scenario: a single fast paid call must not be given a queue. The grader fails only on affirmative queue shapes in the Task breakdown.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture"
+  },
+  "graders": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "exists": true
+    },
+    {
+      "id": "keep-plan",
+      "kind": "command",
+      "gate": false,
+      "argv": [
+        "bun",
+        "$FIXTURE/../keep-plan.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "$ASSISTANT_TEXT"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "no-queue",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "enqueue|cloud tasks|pub/?sub|queue (consumer|worker|handler|task)|job queue|background job",
+        "--absent"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

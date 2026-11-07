@@ -1,0 +1,24 @@
+## Planning finished: plan says reconsider scope
+
+Both files are written and non-empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. Nothing was implemented and no source files changed. The planning agent did the codebase reading in its own context, so I haven't read the plan myself; the points below are its summary.
+
+- **Problem:** this service doesn't store reports anywhere durable. They live only in one server's memory and disappear on every deploy or restart, and nothing in the service creates a report. So there's nothing lasting to refresh each night. The plan recommends **reconsidering scope**: add durable storage first, then a nightly refresh with a cap on paid model calls.
+- **Tasks (8):**
+  1. Move reports to storage that survives restarts, with backups.
+  2. Add a timeout and failure handling to the model client.
+  3. Add metrics.
+  4. Add a nightly cap on paid model calls.
+  5. Add a private worker that regenerates one section at a time and keeps the old text if regeneration fails.
+  6. Add a nightly trigger that queues one job per section, shared reports first.
+  7. Set up the queue and schedule; the schedule starts paused.
+  8. Deploy the worker as its own private service.
+- **Follow-up (1):** a way to create reports. Until that exists, the nightly refresh has nothing to work on in production.
+- **Assumptions to check:**
+  - **Needs your input:** how many paid section regenerations to allow per night. The plan assumes 100 (each takes 20–60 seconds and is billed per call). The PR test steps ask you to confirm this.
+  - **High confidence (backed by a second-opinion check):** the code can't tell whether a nightly rerun produces newer information or just rewords the same facts, because the prompt has no date and no source material. That's why the schedule starts paused: you resume it once you've confirmed the model provider returns current information.
+- **Research:** web research was skipped as not relevant. You can force it with `flow feature create --research`.
+- **Vetting verdict:** adopt-with-conditions: reports move to durable storage first, every nightly model call passes one nightly cap (default 100 section regenerations), a failed regeneration keeps the previous content, and the nightly schedule ships paused until the owner confirms the provider returns current information.
+
+The agent also left three working files in `.flow-tmp/`: `research-status.json`, `excluded-paths.json` and `deliberation-oq1.md`.
+
+**Next action:** review `.flow-tmp/plan.md` and decide whether to accept the expanded scope (durable storage plus the refresh) and the 100-per-night cap. If so, start implementing with `/flow-new-feature refresh every saved report nightly`. I've stopped here as you asked.

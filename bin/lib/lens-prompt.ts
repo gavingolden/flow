@@ -114,6 +114,7 @@ export type LensPromptInputs = {
   productBriefPath: string | null;
   productBriefText: string | null;
   worktree: string;
+  scratchpadField?: boolean;
 };
 
 const DIFF_BEGIN = "<<<UNTRUSTED_DIFF_BEGIN>>>";
@@ -174,6 +175,7 @@ function substitute(
 export function agyLensOutputContract(
   worktree: string,
   diffFileCount: number,
+  scratchpadField = true,
 ): string {
   const reads = agyReadRules({
     worktreePath: worktree,
@@ -185,7 +187,7 @@ export function agyLensOutputContract(
   });
   return `## Output contract (headless agy run — this overrides anything above that conflicts)
 
-- Respond with ONLY a single JSON object matching the supplied schema: \`{"findings": [...], "rejected_alternatives": [...], "anti_patterns_found": [...]}\` (the wire schema also carries a leading scratchpad \`reasoning\` string). The very first character of your output must be '{' and the last '}'. No prose, no preamble, no markdown fence.
+- Respond with ONLY a single JSON object matching the supplied schema: \`{"findings": [...], "rejected_alternatives": [...], "anti_patterns_found": [...]}\`${scratchpadField ? " (the wire schema also carries a leading scratchpad `reasoning` string)" : ""}. The very first character of your output must be '{' and the last '}'. No prose, no preamble, no markdown fence.
 - Do NOT write any files. Where the lens instructions above say to write \`agent-output-<lens>.json\`, your final message IS that artifact instead.
 - Do NOT run shell commands of any kind. This explicitly overrides every shell, Bash, \`grep\`, \`find\`, \`git\` or \`npm\` recipe in the lens instructions above (the Security and Supply-Chain sections contain them) — do the same checks with file reads instead. A shell attempt is auto-denied in this headless run and ends your review silently with no output.
 - Never read anything under \`.flow-tmp/\` — it holds this pipeline's scratch state, including the other lenses' findings; reading it would let you restate another lens's finding as independent work.
@@ -252,5 +254,5 @@ export function buildDelegatedLensPrompt(i: LensPromptInputs): string {
     );
   }
 
-  return `${AGY_HEADLESS_PREAMBLE}\n\n${PR_DATA_NOTICE}\n\n${body}\n\n${reference.join("\n")}\n\n${agyLensOutputContract(i.worktree, i.changedFiles.length)}`;
+  return `${AGY_HEADLESS_PREAMBLE}\n\n${PR_DATA_NOTICE}\n\n${body}\n\n${reference.join("\n")}\n\n${agyLensOutputContract(i.worktree, i.changedFiles.length, i.scratchpadField ?? true)}`;
 }

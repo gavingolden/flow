@@ -1,8 +1,7 @@
 # Bug-Detection Review Checklist
 
-Checks for the **bug-detection** lens. Soft cap: ~150 lines — condense, merge duplicates, automate deterministic entries into lint, or
-move consumer-specific entries to `docs/consumer-review-patterns.md` before adding new
-entries. New entries are captured via `flow-pr-review/SKILL.md` step 5 ("Capture the gap") —
+Checks for the **bug-detection** lens. Cap: 200 lines, lint-enforced. Before an addition would cross it: condense, fold instance entries into a class rule, re-home an entry to the lens whose checklist owns its surface, automate deterministic entries into lint, or move consumer-specific entries to `docs/consumer-review-patterns.md`.
+New entries are captured via `flow-pr-review/SKILL.md` step 5 ("Capture the gap") —
 see that step for the two-destination contract; never edit this file at review time — step 5 routes
 generic gaps to a filed issue; edits land only via a maintainer PR against the flow repo.
 
@@ -44,7 +43,9 @@ including cross-file consumers (formatters, comparison logic) that reference the
 producer. Pay special attention to code comparing "what should be visible" against "what is
 rendered" — these silently mis-correlate when the two sides drift.
 
-## Retry Wrappers Around Non-Idempotent Operations
+## Durable Async Work
+
+Every check below fires only on lines the diff adds or changes, never on pre-existing untouched shapes.
 
 A generic retry wrapper (`retryOnce`, `withBackoff`) is safe only when the wrapped operation
 is idempotent. If the first attempt may already have produced an externally visible side
@@ -54,14 +55,28 @@ non-idempotent side effects; verify either the operation short-circuits on exist
 the retry is conditioned on failure classes that pre-date the side effect. On crash-recovery
 paths, branch on "did the side effect already happen?" before retrying.
 
-## Subprocess Wrapper Non-Throwing Contracts
+Also flag, with the confidence shown:
 
-A function whose return type encodes both success and failure (`{ ok, output }`,
-`Result<T, E>`) implies callers don't need try/catch — but underlying primitives (`execa`,
-`fetch`, `fs/promises`) can still throw on timeout, abort, spawn failure, or network error.
-`execa(..., { reject: false })` suppresses non-zero exit codes but **not** timeout/EPIPE/spawn
-failures. Trace each underlying primitive for throw conditions and confirm they land in a
-try/catch that maps onto the failure variant, preserving captured stdout/stderr.
+- Work that must not be lost continuing after the response (detached goroutine or promise, timer, in-memory queue) on a request-billed platform: 85. Best-effort work with an explicit timeout in a bounded hook such as `waitUntil` is exempt.
+- A scheduled handler that runs the units itself instead of enqueuing one task per unit: 80.
+- An outbound call with no timeout: 80.
+- A retry loop with no cap, backoff or jitter, or retries stacked at two layers: 80.
+- A queue consumer whose side effect is not idempotent under redelivery: 85.
+- A new paid or external call path that bypasses the repo's existing spend cap: 80.
+
+## Result-Returning Primitives That Still Throw or Exit
+
+A function whose signature promises a result/failure variant (`{ ok, output }`, `Result<T, E>`)
+must not escape via throw or exit; callers rely on that contract.
+
+- Underlying primitives (`execa`, `fetch`, `fs/promises`) can still throw on timeout, abort,
+  spawn failure, or network error. `execa(..., { reject: false })` suppresses non-zero exit
+  codes but **not** timeout/EPIPE/spawn failures. Trace each primitive's throw conditions and
+  confirm they land in a try/catch mapping onto the failure variant, preserving captured
+  stdout/stderr.
+- `process.exit` bypasses any try/catch, and surfaces when a CLI primitive is reused from a
+  phase, orchestrator, or test harness. Grep result-returning functions for `process.exit`;
+  fix by throwing or returning a failure variant and leaving exit to the CLI entry point.
 
 ## Error-Message Portability in Cross-Context Code
 

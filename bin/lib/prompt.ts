@@ -5,8 +5,8 @@
  * `~/.flow/state/<slug>.request.md` (via `requestFilePath`) and renders them
  * through `bin/lib/request-echo.ts`'s pure `renderRequestEcho`. Never
  * escalates, never throws — every degraded path returns non-zero with a
- * named stderr reason and EMPTY stdout, so a caller (e.g. `/flow-pipeline`
- * Step 0) can safely treat any non-zero exit as "could not read the
+ * named stderr reason and EMPTY stdout, so a caller (e.g. a user in another
+ * terminal) can safely treat any non-zero exit as "could not read the
  * request" and move on.
  *
  * Slug resolution: the first positional argument, else `resolveSlugAmbient`

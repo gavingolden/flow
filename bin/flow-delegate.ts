@@ -74,7 +74,11 @@
  * stdout is always a one-line JSON envelope:
  *   success: {"ran":true,"task":..,"model":..,"artifactPath":..,"exitCode":0,"durationMs":..}
  *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-model-unavailable"|"agy-timeout"|"agy-canceled"|"agy-error"|"agy-empty-artifact"|"spawn-failed",..}
- *            (every skip envelope from a dispatched agy call may also carry
+ *            (every skip envelope from a dispatched agy call also carries
+ *            `durationMs` and `model` (null when no --model was passed) so
+ *            telemetry can attribute a failure to a model and a latency —
+ *            pre-dispatch skips (agy-not-found, spawn-failed) carry neither —
+ *            and may also carry
  *            `exitCode`, a redacted <=2000-byte `stderrTail` (tail-most, when
  *            agy's stderr was non-empty), `agyStatus` (the json-mode
  *            envelope's `status` field), and `agyError` (its `error` field,
@@ -818,7 +822,9 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
           agyStatus,
         }),
         task: parsed.task,
+        model: parsed.model ?? null,
         exitCode: result.exitCode,
+        durationMs: deps.now() - start,
         ...(tail ? { stderrTail: tail } : {}),
         // Capped the same way as agyError/stderrTail (redact + short cap) so
         // a future agy version that stuffs prose into `status` (today always

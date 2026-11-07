@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveRoutes } from "./ui-route-infer";
+import { deriveRoutePatterns, deriveRoutes } from "./ui-route-infer";
 
 // One changed file → its single derived route (or undefined when none).
 function route(file: string): string | undefined {
@@ -96,5 +96,61 @@ describe("deriveRoutes — edge cases", () => {
 
   it("empty input yields no routes", () => {
     expect(deriveRoutes([])).toEqual([]);
+  });
+});
+
+describe("deriveRoutePatterns", () => {
+  const matches = (file: string, url: string): boolean =>
+    deriveRoutePatterns([file]).some((m) => m(url));
+
+  it("a [param] segment matches exactly one segment", () => {
+    const file = "src/routes/analysis/[symbol]/+page.svelte";
+    expect(matches(file, "/analysis/AAPL")).toBe(true);
+    expect(matches(file, "/analysis/AAPL?tab=x")).toBe(true);
+    expect(matches(file, "/analysis")).toBe(false);
+    expect(matches(file, "/analysis/AAPL/extra")).toBe(false);
+    expect(matches(file, "/dashboard")).toBe(false);
+  });
+
+  it("a [...rest] segment matches any tail", () => {
+    const file = "src/routes/docs/[...path]/+page.svelte";
+    expect(matches(file, "/docs/a/b/c")).toBe(true);
+    expect(matches(file, "/guides/a")).toBe(false);
+  });
+
+  it("a [[optional]] segment matches with or without the segment", () => {
+    const file = "src/routes/blog/[[page]]/+page.svelte";
+    expect(matches(file, "/blog")).toBe(true);
+    expect(matches(file, "/blog/2")).toBe(true);
+    expect(matches(file, "/blog/2/3")).toBe(false);
+  });
+
+  it("a [id=matcher] segment matches one segment", () => {
+    const file = "src/routes/user/[id=integer]/+page.svelte";
+    expect(matches(file, "/user/42")).toBe(true);
+  });
+
+  it("route groups do not count as URL segments", () => {
+    const file = "app/(shop)/items/[sku]/page.tsx";
+    expect(matches(file, "/items/abc")).toBe(true);
+  });
+
+  it("a route loader names the same pattern as its page", () => {
+    expect(
+      matches("src/routes/analysis/[symbol]/+page.server.ts", "/analysis/X"),
+    ).toBe(true);
+  });
+
+  it("static routes, layouts and non-route files yield no matcher", () => {
+    expect(deriveRoutePatterns(["src/routes/about/+page.svelte"])).toEqual([]);
+    expect(deriveRoutePatterns(["src/routes/[id]/+layout.svelte"])).toEqual([]);
+    expect(deriveRoutePatterns(["src/lib/util.ts"])).toEqual([]);
+  });
+
+  // Named non-goals: Remix `$slug` and generic `:id` dynamic segments are not
+  // recognised, so they contribute no matcher rather than a wrong one.
+  it("Remix $slug and generic :id segments are non-goals", () => {
+    expect(deriveRoutePatterns(["app/routes/posts/$slug.tsx"])).toEqual([]);
+    expect(deriveRoutePatterns(["routes/:id/page.tsx"])).toEqual([]);
   });
 });

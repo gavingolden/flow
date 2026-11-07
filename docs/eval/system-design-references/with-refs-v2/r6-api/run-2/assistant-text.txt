@@ -1,0 +1,25 @@
+## Planning done: partner reports API
+
+I wrote `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`, and both are non-empty. A separate planning agent did the codebase reading, so I haven't opened either file myself. Nothing has been implemented and no later phase has started.
+
+- **Problem:** No code lets anyone create or list reports today. Putting that on the public internet as-is would start paid model calls with no sign-in, no separation between partners and no spending limit.
+- **Tasks:** 10. Five of them fix existing problems the feature depends on:
+  - The code that queues report sections has never been called and sends no credentials, so its first real call would be rejected.
+  - The worker endpoint that starts paid generation is open to anyone today.
+  - If a queued task is delivered twice, the paid model call runs twice.
+  - A section that keeps failing never gets marked as failed, and a report's status never moves past `queued`.
+  - Database backups need setting up, and partners need a reference doc to build against.
+- **Follow-ups:** 1, not yet approved: notifying partners when a report finishes. For now, partners check the status themselves.
+- **Questions for you:**
+  - **Which sections does a report contain?** The code doesn't define this anywhere, so the plan uses a placeholder list (`summary`, `financials`, `risks`) for you to confirm or replace.
+  - **Does anything outside this repo use the existing public report link?** The plan's default keeps that link working for older reports but doesn't show reports that partners request. A second opinion on this came back unsure, so the answer matters.
+  - **Two defaults to check:**
+    - A limit of 50 reports per partner per day, which allows up to 500 paid model calls.
+    - Running the worker as a separate service the internet can't reach.
+- **Web research:** Skipped, because the request didn't need it.
+- **Planning verdict:** Go ahead, with conditions. Before the partner endpoints go live:
+  - Only an authenticated caller can trigger the worker.
+  - Each partner's daily report limit is enforced in one place.
+  - A section delivered twice never triggers a second paid call.
+
+**Next step:** Answer the two questions in `.flow-tmp/plan.md`. When you're ready to build, run `/flow-new-feature let partner companies request reports and list their past reports through a public API authenticated with an API key`.

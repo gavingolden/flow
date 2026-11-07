@@ -596,9 +596,9 @@ function findStepHeadings(lines: string[]): string[] {
 }
 
 describe("flow-pipeline SKILL.md structural lint", () => {
-  it("ships exactly 13 numbered step headings (0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 11)", () => {
+  it("ships exactly 12 numbered step headings (1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 11)", () => {
     const headings = findStepHeadings(content.split("\n"));
-    expect(headings.length).toBe(13);
+    expect(headings.length).toBe(12);
   });
 
   it("step 3 documents ## Request vetting rendering and routing", () => {
@@ -1529,7 +1529,12 @@ describe("always-loaded context budget (helper-measured)", () => {
    * rather than raising this budget.
    */
   const TEMPLATE_CORE_BUDGET = 8_000;
-  const SKILL_FRONTMATTER_BUDGET = 3_000;
+  // Raised 3_000 -> 3_050 (flow-metrics core skill): its always-loaded
+  // description adds ~95 tokens (measured total 2954 -> 3049).
+  // Raised 3_050 -> 3_183 (flow-system-design core skill): its always-loaded
+  // description adds ~114 tokens and the flow-metrics SKIP clause ~19 (measured
+  // total 3049 -> 3183).
+  const SKILL_FRONTMATTER_BUDGET = 3_183;
   // Token-scale counterpart to HEADROOM_CAP (which is char-scale, for the
   // two char-based budgets above): SKILL_FRONTMATTER_BUDGET is measured in
   // tokens, so it needs its own cap rather than reusing HEADROOM_CAP's
@@ -4303,6 +4308,14 @@ const DISCOVERY_REFERENCES: { file: string; headings: string[] }[] = [
     file: "discovery-ui.md",
     headings: ["### Visual Spec", "### Layout Intent"],
   },
+  {
+    file: "discovery-instrumentation.md",
+    headings: ["### Instrumentation"],
+  },
+  {
+    file: "discovery-runtime-design.md",
+    headings: ["### Runtime design"],
+  },
   { file: "discovery-revision.md", headings: ["## Revision pass mode"] },
   { file: "discovery-survey-epic.md", headings: ["### Epic context"] },
   {
@@ -4384,6 +4397,188 @@ describe("discovery reference reachability", () => {
     ).not.toMatch(
       /discovery-instructions\.md ("Revision pass mode"|step 1\.8)/,
     );
+  });
+});
+
+describe("flow-metrics wiring", () => {
+  const read = (...segments: string[]) =>
+    fs.readFileSync(path.resolve(HERE, "..", ...segments), "utf8");
+  const metricsRoot = ["skills", "universal", "flow-metrics"];
+
+  it("flow-new-feature step 5 threads the flow-metrics paths behind the non-none Instrumentation gate", () => {
+    const skill = read("skills", "pipeline", "flow-new-feature", "SKILL.md");
+    expect(skill).toContain("flow-module-status --skill-path flow-metrics");
+    expect(
+      skill,
+      "step 5 must gate the metrics skill_docs on the PRD's `## Instrumentation` being non-`none`",
+    ).toMatch(/`## Instrumentation`[^]*?not\s+`none`/);
+  });
+
+  it("pr-description-authoring.md carries the omit-when-none ## Instrumentation section", () => {
+    expect(
+      read(
+        "skills",
+        "pipeline",
+        "flow-new-feature",
+        "references",
+        "pr-description-authoring.md",
+      ),
+    ).toMatch(/^## Instrumentation$/m);
+  });
+
+  it("flow-pr-review step 11a carries the **Instrumentation** bullet", () => {
+    expect(read("skills", "pipeline", "flow-pr-review", "SKILL.md")).toContain(
+      "- **Instrumentation** — omit-when-none",
+    );
+  });
+
+  it("the performance checklist carries ## Metrics instrumentation and the error.type rule", () => {
+    const checklist = read(
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+      "performance.md",
+    );
+    expect(checklist).toMatch(/^## Metrics instrumentation$/m);
+    expect(checklist).toContain("error.type");
+  });
+
+  it("the pattern-consistency checklist flags a runtime diff under a none Instrumentation section", () => {
+    const checklist = read(
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+      "pattern-consistency.md",
+    );
+    expect(checklist).toMatch(/`## Instrumentation` says `none` or is absent/);
+  });
+
+  it("the pattern-consistency checklist checks new attribute keys against the ## Attributes registry", () => {
+    const checklist = read(
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+      "pattern-consistency.md",
+    );
+    expect(checklist).toContain("## Attributes");
+  });
+
+  it("the discovery instrumentation reference asks for an **Attributes:** line", () => {
+    const reference = read(
+      "skills",
+      "pipeline",
+      "flow-product-planning",
+      "references",
+      "discovery-instrumentation.md",
+    );
+    expect(reference).toMatch(/^- An `\*\*Attributes:\*\*` line/m);
+  });
+
+  it.each([
+    [
+      "skills",
+      "pipeline",
+      "flow-product-planning",
+      "templates",
+      "prd-template.md",
+    ],
+    [
+      "skills",
+      "pipeline",
+      "flow-product-planning",
+      "references",
+      "example-prd.md",
+    ],
+    [
+      "skills",
+      "pipeline",
+      "flow-product-planning",
+      "references",
+      "discovery-instrumentation.md",
+    ],
+    [
+      "skills",
+      "pipeline",
+      "flow-pr-review",
+      "references",
+      "checklists",
+      "performance.md",
+    ],
+    ["references", "consumer-repo-contract.md"],
+  ])("%s offers no pre-OpenTelemetry label name", (...segments) => {
+    expect(read(...segments)).not.toMatch(
+      /error_type|`(?:outcome|stage|dependency)`/,
+    );
+  });
+
+  it("the flow-metrics conventions carry the saturation, bounded-dimension and registry sections", () => {
+    const conventions = read(...metricsRoot, "references", "conventions.md");
+    for (const heading of [
+      "## Saturation and backlog signals",
+      "## Bounded-but-large dimensions",
+      "## Attribute registry",
+    ]) {
+      expect(conventions.split("\n")).toContain(heading);
+    }
+    expect(conventions).toContain("error.type");
+    expect(conventions).toContain("operation.outcome");
+  });
+
+  it("the flow-metrics backends reference carries the gauge and Google Cloud Monitoring sections", () => {
+    const backends = read(...metricsRoot, "references", "backends.md");
+    expect(backends).toContain("no native gauge");
+    expect(backends).toMatch(/^## Google Cloud Monitoring$/m);
+    expect(backends).toContain("samples per month");
+  });
+
+  it("the flow-metrics dashboards reference carries saturation alerts and dashboard links and no ticket action", () => {
+    const dashboards = read(
+      ...metricsRoot,
+      "references",
+      "dashboards-alerts-slos.md",
+    );
+    expect(dashboards).toMatch(/^## Saturation alerts$/m);
+    expect(dashboards).toMatch(/^## Dashboards and links$/m);
+    expect(dashboards).toContain("Routes to");
+    expect(dashboards).not.toMatch(/\|\s*ticket\s*\|/);
+  });
+
+  it("flow-metrics SKILL.md step 9 names the Attributes and Dashboards sections and the GCP default", () => {
+    const skill = read(...metricsRoot, "SKILL.md");
+    expect(skill).toContain("`## Attributes`");
+    expect(skill).toContain("`## Dashboards`");
+    expect(skill).toContain("Google Cloud Monitoring on GCP");
+  });
+
+  it("consumer-repo-contract.md documents ## Metrics conventions and .flow/metrics.md", () => {
+    const contract = read("references", "consumer-repo-contract.md");
+    expect(contract).toMatch(/^## Metrics conventions$/m);
+    expect(contract).toContain(".flow/metrics.md");
+  });
+
+  it("the flow-metrics SKILL.md links all three references and every linked reference exists", () => {
+    const skill = read(...metricsRoot, "SKILL.md");
+    const linked = Array.from(
+      skill.matchAll(/\]\((references\/[a-z-]+\.md)\)/g),
+      (m) => m[1],
+    );
+    expect(linked.sort()).toEqual([
+      "references/backends.md",
+      "references/conventions.md",
+      "references/dashboards-alerts-slos.md",
+    ]);
+    for (const ref of linked) {
+      expect(
+        fs.existsSync(path.resolve(HERE, "..", ...metricsRoot, ref)),
+        `${ref} is linked from flow-metrics/SKILL.md but missing on disk`,
+      ).toBe(true);
+    }
   });
 });
 
@@ -4601,6 +4796,7 @@ describe("Plan-artifact section anchors (discovery-instructions.md ↔ prd-templ
     "## Cut list",
     "## Request vetting",
     "## Existing-code assessment",
+    "## Instrumentation",
   ];
   const MIRROR_SITES: Array<[string, string]> = [
     ["discovery-instructions.md", discoveryInstructionsContent],
@@ -5593,12 +5789,22 @@ describe("pr-review include-by-reference structure", () => {
     // sites each gain a FIX_APPLIER_EFFORT / CONSOLIDATOR_EFFORT resolve
     // paragraph — the `flow-spawn-effort` recipe, one per effort-threaded
     // site. The file lands at 1916 lines as this test counts them.
+    //
+    // Raised 1920 -> 1925 (Before/After sub-bullets): the 11d Accuracy Sync
+    // and 11e Drafting-conventions preserve-the-shape clauses add three
+    // lines; the file lands at 1922 as this test counts them.
+    //
+    // Kept at 1925 (merge of origin/main into the flow-metrics branch):
+    // this branch's Step 11a Structure Check `**Instrumentation**` bullet
+    // (its own 1920 -> 1921 raise) lands on top of the Before/After
+    // clauses. The merged file is their union at 1923 lines as this test
+    // counts them; 1925 leaves 2 lines of headroom.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1920 lines. Material regrowth past this ceiling would ` +
+        `budget of 1925 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1920);
+    ).toBeLessThan(1925);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md routes Step 8c's runnable items through flow-run-test-steps with an explicit Bash timeout", () => {
@@ -5643,7 +5849,7 @@ describe("pr-review include-by-reference structure", () => {
   // is a core plus per-step docs and the structural cases in "flow-pipeline
   // skill split structure" below guard it. The core budget there comes from the
   // compaction re-attach window (docs/eval/supervisor-skill-payload-baseline-2026-10.md).
-  // flow-pr-review (1920) and flow-new-feature (810) keep their ceilings until
+  // flow-pr-review (1925) and flow-new-feature (810) keep their ceilings until
   // their own splits, the follow-up candidates in this change's plan.
 
   // Ceiling kept until flow-new-feature gets the core-plus-step-docs split (follow-up candidate).
@@ -5683,13 +5889,25 @@ describe("pr-review include-by-reference structure", () => {
     // the implementer `skill_docs` paths and, for UI edit-sets, the flow-ui-ux
     // rule paths, and checks them against the artifact's `skills_read`.
     // Those lines are load-bearing contract (a UI diff that skips the design
-    // rules is the failure this prevents); 835 leaves 4 lines of headroom over the 831 it lands at.
+    // rules is the failure this prevents). #981 moved the UI rule paths onto
+    // per-entry `skill_docs` and swapped the log-only check for the
+    // flow-coder-skills-check registration, net-neutral: still lands at 831,
+    // so < 835 leaves 3 lines of headroom.
+    // Raised 835 -> 842 (flow-metrics skill threading): the "Metrics rule
+    // paths" paragraph hands the implementer the metrics skill paths when the
+    // PRD's `## Instrumentation` is non-`none`. The file lands at 841 lines
+    // as this test counts them; 842 leaves 1 line of headroom.
+    // Raised 842 -> 850 (2026-11-03, flow-system-design skill threading): the
+    // "System-design rule paths" paragraph hands the implementer the
+    // system-design skill paths when the PRD's `### Runtime design` is
+    // non-`none`. The file lands at 849 lines as this test counts them; 850
+    // leaves 1 line of headroom.
     expect(
       lineCount,
       `flow-new-feature/SKILL.md line count must stay under the post-diet ` +
-        `budget of 835 lines. Material regrowth past this ceiling would ` +
+        `budget of 850 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(835);
+    ).toBeLessThan(850);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
@@ -6893,6 +7111,54 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
+  it("all three PR-body authoring sites render a changed behavior as a Before/After sub-bullet pair", () => {
+    const discoveryLines = discoveryInstructionsContent.split("\n");
+    const step7Index = discoveryLines.findIndex((line) =>
+      line.startsWith("## 7. Draft PR Description"),
+    );
+    const step8Index = discoveryLines.findIndex((line) =>
+      line.startsWith("## 8. Persist"),
+    );
+    const discoveryStep7 = discoveryLines
+      .slice(step7Index + 1, step8Index)
+      .join("\n");
+    for (const [label, content] of [
+      ["pr-description-authoring.md", prDescriptionAuthoringContent],
+      ["discovery-instructions.md Step 7", discoveryStep7],
+      [".github/PULL_REQUEST_TEMPLATE.md", pullRequestTemplateContent],
+    ] as const) {
+      expect(
+        content.includes("**Before:**") && content.includes("**After:**"),
+        `${label} must teach a changed behavior as an outcome parent bullet ` +
+          "with nested `- **Before:**` / `- **After:**` sub-bullets. The rule " +
+          "is mirrored across pr-description-authoring.md, discovery " +
+          "Step 7, and the PR template — update all three together.",
+      ).toBe(true);
+      expect(
+        /^\s*- Before → After:/m.test(content),
+        `${label} still shows the one-line \`- Before → After:\` bullet ` +
+          "that renders as a wrapped paragraph on GitHub. Replace it with the " +
+          "nested Before/After pair and keep the three sites in sync.",
+      ).toBe(false);
+    }
+  });
+
+  it("the chat-summary sites render a changed decision as **Before:** / **After:**, never before→after", () => {
+    for (const rel of [
+      "skills/pipeline/flow-pipeline/references/pause-output-contract.md",
+      "skills/pipeline/flow-pipeline/references/phases/step-03-plan.md",
+      "references/output-style.md",
+    ]) {
+      const content = fs.readFileSync(path.resolve(HERE, "..", rel), "utf8");
+      expect(
+        /before→after|\(before: /.test(content),
+        `${rel} brought back the 'before→after' / '(before: ' chat-summary ` +
+          "form. Write a replaced behavior as the one-line bold pair " +
+          "`**Before:** <old>; **After:** <new>`.",
+      ).toBe(false);
+    }
+  });
+
   it("all four prose sites name the '## TLDR' lead section", () => {
     for (const [label, content] of [
       [
@@ -7884,7 +8150,7 @@ describe("browser-driven UI-validation structural anchors", () => {
     expect(
       reportTemplateContent.includes("For a ticked **visual-appearance** item"),
       "report-template.md must document the visual-appearance evidence rows " +
-        "(a11y-snapshot primary, screenshot referenced by path).",
+        "(a11y-snapshot primary, screenshot embedded and named in the evidence block).",
     ).toBe(true);
   });
 
@@ -10670,7 +10936,7 @@ describe("pause-output contract wiring lint", () => {
     ).toEqual([]);
   });
 
-  it("no lens checklist exceeds the 250-line accretion tripwire", () => {
+  it("every lens checklist stays within the 200-line cap its header states", () => {
     const checklistsDir = path.join(
       REPO_ROOT,
       "skills",
@@ -10679,25 +10945,42 @@ describe("pause-output contract wiring lint", () => {
       "references",
       "checklists",
     );
-    const LINE_LIMIT = 250;
+    const LINE_LIMIT = 200;
+    const CAP_SENTENCE =
+      `Cap: ${LINE_LIMIT} lines, lint-enforced. Before an addition would ` +
+      `cross it: condense, fold instance entries into a class rule, re-home ` +
+      `an entry to the lens whose checklist owns its surface, automate ` +
+      `deterministic entries into lint, or move consumer-specific entries to ` +
+      `\`docs/consumer-review-patterns.md\`.`;
+    const STALE_CAP_RE = /soft[- ]?capped?|~\d+ lines each|accretion tripwire/i;
     const offenders: string[] = [];
     for (const name of fs.readdirSync(checklistsDir)) {
       if (!name.endsWith(".md")) continue;
-      const full = path.join(checklistsDir, name);
-      const lineCount = fs.readFileSync(full, "utf8").split("\n").length;
+      const content = fs.readFileSync(path.join(checklistsDir, name), "utf8");
+      if (STALE_CAP_RE.test(content)) {
+        offenders.push(`${name} (states a conflicting cap)`);
+      }
+      const lineCount = (content.match(/\n/g) ?? []).length;
       if (lineCount > LINE_LIMIT) {
         offenders.push(`${name} (${lineCount} lines)`);
+      }
+      if (!content.replace(/\s+/g, " ").includes(CAP_SENTENCE)) {
+        offenders.push(`${name} (header lacks the shared cap sentence)`);
       }
     }
     expect(
       offenders,
-      `The following lens checklist files exceed the ${LINE_LIMIT}-line ` +
-        `accretion tripwire: ${offenders.join(", ")}. Remediate in this order: ` +
-        `condense → merge duplicates → automate deterministic entries into ` +
-        `lint → move consumer-specific entries to the portable doc ` +
-        `(docs/consumer-review-patterns.md). Never split a lens file into ` +
-        `sub-files, and never delete a load-bearing pattern just for length.`,
+      `The following lens checklist files break the ${LINE_LIMIT}-line cap ` +
+        `contract: ${offenders.join(", ")}. Remediate in this order: ` +
+        `condense → fold instance entries into a class rule → re-home an ` +
+        `entry to the lens whose checklist owns its surface → automate ` +
+        `deterministic entries into lint → move consumer-specific entries to ` +
+        `the portable doc (docs/consumer-review-patterns.md). Never split a ` +
+        `lens file into sub-files, and never delete a load-bearing pattern ` +
+        `just for length.`,
     ).toEqual([]);
+    expect(prReviewContent).toContain(`capped at ${LINE_LIMIT} lines each`);
+    expect(prReviewContent).not.toMatch(STALE_CAP_RE);
   });
 
   it("every code-lens Process step walks every checklist entry", () => {
@@ -11359,78 +11642,6 @@ describe("REQUEST_FILE seed-pointer contract — both supervisor SKILL.md files"
         `skills/pipeline/flow-epic-create/SKILL.md must contain '${literal}'. ` +
           `Dropping it breaks the seed's REQUEST_FILE contract; restore it or ` +
           `update this anchor in lockstep.`,
-      ).toBe(true);
-    },
-  );
-});
-
-describe("Step 0 request echo contract — both supervisor SKILL.md files", () => {
-  // Mechanical pin against a skipped prose step: `flow prompt`'s
-  // verbatim-echo block is only exercised by the supervisor's own prose
-  // instructions (there is no runtime code path that enforces it), so this
-  // is the only guard against a future edit silently dropping Step 0.
-  // Reads flow-epic-create/SKILL.md fresh (rather than reusing the sibling
-  // describe block's `epicCreateContent`, scoped inside that block's own
-  // callback) to stay standalone.
-  const epicCreateContent = fs.readFileSync(
-    path.resolve(
-      HERE,
-      "..",
-      "skills",
-      "pipeline",
-      "flow-epic-create",
-      "SKILL.md",
-    ),
-    "utf8",
-  );
-
-  const REQUIRED_LITERALS = [
-    "## Step 0 — Echo the originating request",
-    "flow prompt",
-    "VERBATIM",
-  ];
-
-  // Slice out just the Step 0 section before asserting: "VERBATIM" alone
-  // appears dozens more times file-wide in flow-pipeline/SKILL.md, so a
-  // file-wide `.includes` check stays green even with the Step 0 section
-  // deleted entirely. Bound the slice at the next `## ` heading (or EOF when
-  // the section is the last one), and assert byte-exact case (unlike the
-  // two sibling blocks above) since all three literals are written in their
-  // canonical case in the source.
-  function step0Section(fullContent: string): string {
-    const start = fullContent.indexOf(
-      "## Step 0 — Echo the originating request",
-    );
-    if (start === -1) return "";
-    const nextHeadingRel = fullContent.slice(start + 1).search(/\n## /);
-    const end =
-      nextHeadingRel === -1 ? fullContent.length : start + 1 + nextHeadingRel;
-    return fullContent.slice(start, end);
-  }
-
-  const pipelineStep0 = step0Section(content);
-  const epicCreateStep0 = step0Section(epicCreateContent);
-
-  it.each(REQUIRED_LITERALS)(
-    "flow-pipeline/SKILL.md's Step 0 section contains the load-bearing literal %j",
-    (literal) => {
-      expect(
-        pipelineStep0.includes(literal),
-        `skills/pipeline/flow-pipeline/SKILL.md's Step 0 section must contain ` +
-          `'${literal}'. Dropping it breaks the Step 0 request-echo contract; ` +
-          `restore it or update this anchor in lockstep.`,
-      ).toBe(true);
-    },
-  );
-
-  it.each(REQUIRED_LITERALS)(
-    "flow-epic-create/SKILL.md's Step 0 section contains the load-bearing literal %j",
-    (literal) => {
-      expect(
-        epicCreateStep0.includes(literal),
-        `skills/pipeline/flow-epic-create/SKILL.md's Step 0 section must contain ` +
-          `'${literal}'. Dropping it breaks the Step 0 request-echo contract; ` +
-          `restore it or update this anchor in lockstep.`,
       ).toBe(true);
     },
   );
@@ -12750,5 +12961,73 @@ describe("executive review anchors", () => {
     expect(supervisorRulesContent).toMatch(
       /not a\s+proof against a session that rewrites its own environment/,
     );
+  });
+});
+
+describe("coder design-reading enforcement (#981)", () => {
+  const skill = (name: string) =>
+    fs.readFileSync(
+      path.resolve(HERE, "..", "skills", "pipeline", name, "SKILL.md"),
+      "utf8",
+    );
+  const walk = (dir: string): string[] =>
+    fs
+      .readdirSync(dir, { withFileTypes: true })
+      .flatMap((e) =>
+        e.isDirectory()
+          ? walk(path.join(dir, e.name))
+          : e.name.endsWith(".md")
+            ? [path.join(dir, e.name)]
+            : [],
+      );
+
+  it("flow-coder waits on the completion notification, then runs the skills check with one SendMessage", () => {
+    const coder = skill("flow-coder");
+    expect(coder).toContain("completion notification");
+    expect(coder).toContain("never counts as completion");
+    const start = coder.indexOf("**Skills check (entries with skill_docs).**");
+    expect(start).toBeGreaterThan(-1);
+    const block = coder.slice(start, coder.indexOf("\n\n## ", start));
+    expect(block).toContain("flow-coder-skills-check");
+    expect(block).toContain("SendMessage");
+    expect(block).toContain("exactly ONE continuation");
+    expect(block).toContain("one skills continuation");
+    expect(coder).not.toContain("falling back to a bounded Monitor");
+  });
+
+  it("flow-pr-review's fix-applier wait no longer treats an artifact poll as completion", () => {
+    expect(skill("flow-pr-review")).not.toContain(
+      "falling back to a bounded Monitor",
+    );
+  });
+
+  it("flow-coder-instructions makes skill-docs reading a Read-tool pre-check and complete the final write", () => {
+    const instructions = skill("flow-coder-instructions");
+    expect(instructions).toContain("Skill-docs pre-check");
+    expect(instructions).toContain("Read tool");
+    expect(instructions).toContain("skills_read_late");
+    expect(instructions).toContain("final artifact write");
+  });
+
+  it("flow-new-feature step 5 puts UI rule paths on skill_docs and registers via the helper", () => {
+    const nf = skill("flow-new-feature");
+    const start = nf.indexOf(
+      "**UI rule paths (any edit-set touching UI files).**",
+    );
+    expect(start).toBeGreaterThan(-1);
+    const paragraph = nf.slice(start, nf.indexOf("\n\n", start));
+    expect(paragraph).toContain("`skill_docs`");
+    expect(nf).toContain("flow-coder-skills-check");
+    for (const s of [skill("flow-coder"), nf]) {
+      expect(s).toContain(".flow-tmp/coder-edit-set.json");
+    }
+    expect(nf).toContain("one `--design <path>` flag per UI rule path");
+  });
+
+  it("no skill under skills/ still emits the bare-skill-name wording", () => {
+    const offenders = walk(path.resolve(HERE, "..", "skills")).filter((p) =>
+      fs.readFileSync(p, "utf8").includes("skill not applied"),
+    );
+    expect(offenders).toEqual([]);
   });
 });

@@ -75,6 +75,8 @@ class FenceTracker {
   private openChar: "`" | "~" | null = null;
   private openLen = 0;
 
+  constructor(private readonly backtickInfoIsNotFence = false) {}
+
   get isOpen(): boolean {
     return this.openChar !== null;
   }
@@ -87,6 +89,13 @@ class FenceTracker {
     const m = text.match(FENCE_OPEN_RE);
     if (this.openChar === null) {
       if (m) {
+        if (
+          this.backtickInfoIsNotFence &&
+          m[1][0] === "`" &&
+          text.slice(m[0].length).includes("`")
+        ) {
+          return false;
+        }
         this.openChar = m[1][0] as "`" | "~";
         this.openLen = m[1].length;
         return true;
@@ -211,12 +220,19 @@ export function findUnterminatedHtmlBlockLines(body: string): Set<number> {
 
 /**
  * Per-line fenced mask: true for every line inside a CLOSED fence,
- * delimiters included. Lines from an unclosed opener to EOF are false
- * (fail-closed: an unterminated fence must not hide later content from
- * readers that skip fenced lines).
+ * delimiters included. By default lines from an unclosed opener to EOF
+ * are false (fail-closed: an unterminated fence must not hide later
+ * content from readers that skip fenced lines). With `unclosedIsCode`
+ * the mask follows CommonMark instead: an unclosed fence runs to EOF,
+ * and a backtick opener whose info string holds a backtick (a line
+ * starting with an inline span) is not a fence.
  */
-export function fencedLineMask(lines: string[]): boolean[] {
-  const fence = new FenceTracker();
+export function fencedLineMask(
+  lines: string[],
+  opts?: { unclosedIsCode?: boolean },
+): boolean[] {
+  const unclosedIsCode = opts?.unclosedIsCode === true;
+  const fence = new FenceTracker(unclosedIsCode);
   const mask: boolean[] = [];
   let openerAt = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -224,7 +240,7 @@ export function fencedLineMask(lines: string[]): boolean[] {
     mask.push(fence.feed(lines[i]));
     if (!wasOpen && fence.isOpen) openerAt = i;
   }
-  if (fence.isOpen) {
+  if (fence.isOpen && !unclosedIsCode) {
     for (let i = openerAt; i < mask.length; i++) mask[i] = false;
   }
   return mask;

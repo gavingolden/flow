@@ -1,0 +1,24 @@
+The plan is ready. Both files are in `.flow-tmp/` and neither is empty: `plan.md` and `pr-description-draft.md`. I stopped there, so no code is written and the repo has no changes.
+
+- **Problem:** The service can store, read and share company reports but can't create one. Each of the five sections means a 20–60 s paid model call. Bun's server cuts off any request that is still open after 10 s, so a plain version of this endpoint would fail on every request.
+- **Tasks (4):**
+  1. Add a metrics helper.
+  2. Fix the model client: check the response status, add a 90 s timeout and a typed error.
+  3. Add a new module that makes the five model calls at the same time.
+  4. Add the `POST /reports` route, raising the server timeout to 120 s for that request only.
+- **Follow-up issues (2), to be filed after merge:**
+  - The deploy lets anyone call the service without logging in, so anyone could trigger five paid calls.
+  - Reports are kept only in one server's memory and are lost on restart.
+- **Assumptions to check:**
+  - **Needs your input:** you didn't name the five sections, so the plan uses placeholders: Company overview, Products and services, Market and competition, Financial highlights, Risks and outlook.
+  - The request waits for the finished report rather than returning early and having the caller check back later. Checking back would break, because the follow-up request could reach a different server that doesn't have the report.
+- **Research:** skipped. The planner treated the Bun timeout as the only fact that mattered and said it settled it by testing locally.
+- **Verdict:** go ahead, on the conditions above: the five calls run at the same time, each with a 90 s timeout and a status check. Only `POST /reports` gets the 120 s server timeout, so the worst case stays under 120 s.
+
+**Some of the planner's claims are unverified.** It said it reproduced the 10 s cutoff on Bun 1.3.11 and that its plan checks passed. But it used only file search, read and write tools, never the shell, so it couldn't have run either. The version does match the Bun installed here (1.3.11). Before relying on the 120 s design, re-check that the default really is 10 s.
+
+It also said it saved a memory note about the Bun timeout, but this project's memory folder is empty, so the note either landed somewhere else or wasn't written.
+
+Besides the two files you asked for, it wrote `excluded-paths.json` and `research-status.json` to `.flow-tmp/`; later pipeline steps read these.
+
+**Next action:** read `.flow-tmp/plan.md` and decide on the section names (the one open question). Then implement with `/flow-new-feature add a POST /reports endpoint that generates a company report by calling the model API once for each of five sections`, or by continuing `/flow-pipeline`.

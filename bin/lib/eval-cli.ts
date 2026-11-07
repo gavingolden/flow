@@ -445,6 +445,28 @@ async function runOneScenarioRun(
   }
 }
 
+export function assertScenariosKnown(
+  suites: { id: string }[][],
+  wanted: string[] | undefined,
+): void {
+  if (!wanted) return;
+  const known = new Set(suites.flat().map((s) => s.id));
+  const unknown = wanted.filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    throw new Error(
+      `flow-eval: unknown --scenario ${unknown.join(", ")} (selected suites have: ${[...known].join(", ")})`,
+    );
+  }
+}
+
+export function selectScenarios<T extends { id: string }>(
+  all: T[],
+  wanted: string[] | undefined,
+): T[] {
+  if (!wanted) return all;
+  return all.filter((s) => wanted.includes(s.id));
+}
+
 async function runSuite(
   suiteDir: string,
   args: RunArgs,
@@ -461,7 +483,8 @@ async function runSuite(
       `flow-eval: ${loaded.reason}${loaded.path ? ` (${loaded.path})` : ""}`,
     );
   }
-  const { spec, scenarios } = loaded.value;
+  const { spec } = loaded.value;
+  const scenarios = selectScenarios(loaded.value.scenarios, args.scenarios);
 
   if (!args.dryRun && !availability.ok) {
     const scenarioRecords: ScenarioRecord[] = scenarios.map((s) =>
@@ -701,6 +724,22 @@ async function runVerb(args: RunArgs, deps: Deps): Promise<number> {
   const resolvedAvailability: ClaudeAvailability = availability.ok
     ? deps.probeClaude(args.claudeBin)
     : availability;
+
+  if (args.scenarios) {
+    const perSuite = suiteIds.map((suiteId) => {
+      const loaded = loadSuite(path.join(args.evalsDir, suiteId), {
+        readFile: nullTolerantReadFile(deps),
+        exists: deps.exists,
+      });
+      if (!loaded.ok) {
+        throw new Error(
+          `flow-eval: ${loaded.reason}${loaded.path ? ` (${loaded.path})` : ""}`,
+        );
+      }
+      return loaded.value.scenarios;
+    });
+    assertScenariosKnown(perSuite, args.scenarios);
+  }
 
   const reports: EvalReport[] = [];
   for (const suiteId of suiteIds) {

@@ -1,0 +1,809 @@
+{
+  "schemaVersion": 1,
+  "runner": {
+    "name": "flow-eval-headless",
+    "claudeVersion": "2.1.319",
+    "childArgvDigest": "e22b86db7a4796b6"
+  },
+  "tree": {
+    "gitHead": "5492fd077d8bf0e374262bc8b5caaa3f73161943",
+    "dirty": false
+  },
+  "suite": "system-design-references",
+  "candidate": "flow-system-design-skill",
+  "startedAt": "2026-11-06T15:53:37.029Z",
+  "finishedAt": "2026-11-06T17:08:51.643Z",
+  "scenarios": [
+    {
+      "id": "r2-rollout",
+      "title": "Rollout: rename a column and change a queued task payload while tasks are in flight",
+      "status": "fail",
+      "score": 0.9583333333333334,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "keep-plan",
+              "kind": "command",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "expand-contract",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "payload-compat",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "rollback",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.6666819999999998,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 557634,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "42bbf043-dd41-44d1-acae-5a8433cd516b",
+          "costUsd": 2.6666819999999998,
+          "durationMs": 557634,
+          "numTurns": 7,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "keep-plan",
+              "kind": "command",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "expand-contract",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "payload-compat",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "rollback",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.0647344000000003,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 443565,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "6dfdb073-b4f7-4ad3-b715-9754d703e62a",
+          "costUsd": 2.0647344000000003,
+          "durationMs": 443565,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "keep-plan",
+              "kind": "command",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "expand-contract",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "payload-compat",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "rollback",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.5583202,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 545965,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "0825e26a-5a7b-448e-9298-ec85aed77bcd",
+          "costUsd": 2.5583202,
+          "durationMs": 545965,
+          "numTurns": 7,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 4,
+          "status": "fail",
+          "score": 0.8333333333333334,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "keep-plan",
+              "kind": "command",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "expand-contract",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "payload-compat",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /(?:old|previous|both|in-?flight|queued|existing)[^\\n]*(?:payload|task|message)s?[^\\n]*(?:accept|handle|support|drain|shape|format)|payload[^\\n]*version|version[^\\n]*payload|accepts? both/i found in Task breakdown\n"
+            },
+            {
+              "id": "rollback",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.4668684,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 542280,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "ec75660c-3ce3-4f30-90d1-b0a7f39ba66b",
+          "costUsd": 2.4668684,
+          "durationMs": 542280,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "result.total_cost_usd": {
+          "median": 2.5125943,
+          "min": 2.0647344000000003,
+          "max": 2.6666819999999998,
+          "direction": "lower",
+          "values": [
+            2.6666819999999998,
+            2.0647344000000003,
+            2.5583202,
+            2.4668684
+          ]
+        },
+        "result.num_turns": {
+          "median": 6.5,
+          "min": 6,
+          "max": 7,
+          "direction": "lower",
+          "values": [
+            7,
+            6,
+            7,
+            6
+          ]
+        },
+        "result.duration_ms": {
+          "median": 544122.5,
+          "min": 443565,
+          "max": 557634,
+          "direction": "lower",
+          "values": [
+            557634,
+            443565,
+            545965,
+            542280
+          ]
+        }
+      }
+    },
+    {
+      "id": "r4-recovery",
+      "title": "Recovery: storing irreplaceable customer uploads",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "keep-plan",
+              "kind": "command",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "backup",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "restore",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "object-protection",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.9198861999999997,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 724115,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "a8043278-6f12-45b4-b0df-4935b93fa7eb",
+          "costUsd": 2.9198861999999997,
+          "durationMs": 724115,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "keep-plan",
+              "kind": "command",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "backup",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "restore",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "object-protection",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.9349491999999997,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 593548,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "283a47c6-efa6-4513-9e9e-5305a6195844",
+          "costUsd": 2.9349491999999997,
+          "durationMs": 593548,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 3,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "keep-plan",
+              "kind": "command",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "backup",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "restore",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "object-protection",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.456639,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 7,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 644974,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "b0acc810-3e10-411e-873f-e49b5d33d6f6",
+          "costUsd": 2.456639,
+          "durationMs": 644974,
+          "numTurns": 7,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 4,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "keep-plan",
+              "kind": "command",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "backup",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "restore",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "object-protection",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.2201304,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 456468,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "a05c0ef6-10a2-4412-99d2-758a62729766",
+          "costUsd": 2.2201304,
+          "durationMs": 456468,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "result.total_cost_usd": {
+          "median": 2.6882626,
+          "min": 2.2201304,
+          "max": 2.9349491999999997,
+          "direction": "lower",
+          "values": [
+            2.9198861999999997,
+            2.9349491999999997,
+            2.456639,
+            2.2201304
+          ]
+        },
+        "result.num_turns": {
+          "median": 6,
+          "min": 6,
+          "max": 7,
+          "direction": "lower",
+          "values": [
+            6,
+            6,
+            7,
+            6
+          ]
+        },
+        "result.duration_ms": {
+          "median": 619261,
+          "min": 456468,
+          "max": 724115,
+          "direction": "lower",
+          "values": [
+            724115,
+            593548,
+            644974,
+            456468
+          ]
+        }
+      }
+    }
+  ],
+  "summary": {
+    "score": 0.9791666666666667,
+    "scenarios": 2,
+    "passed": 1,
+    "failed": 1,
+    "errored": 0,
+    "costUsd": 20.288209799999997
+  }
+}

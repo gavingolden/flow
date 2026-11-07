@@ -1,0 +1,82 @@
+{
+  "grades": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "per-step-unit",
+      "kind": "command",
+      "gate": true,
+      "pass": false,
+      "expected": 0,
+      "actual": 1,
+      "detail": "fail: /(?:per|each|one)[^\\n]*(?:section|step)[^\\n]*(?:task|job|row|message)|(?:task|job|row|message)[^\\n]*(?:per|for each|each) section/i found in Task breakdown\n"
+    },
+    {
+      "id": "fan-in",
+      "kind": "command",
+      "gate": true,
+      "pass": false,
+      "expected": 0,
+      "actual": 1,
+      "detail": "fail: /fan[- ]?in|finali[sz]e|assembl|when all|once all|after all|remaining (?:sections|steps)|done[- ]?count|last (?:section|step) to/i found in Task breakdown\n"
+    },
+    {
+      "id": "partial-failure",
+      "kind": "command",
+      "gate": true,
+      "pass": false,
+      "expected": 0,
+      "actual": 1,
+      "detail": "fail: /partial|failed section|compensat|retr(?:y|ies) (?:only|just) the|re-?run(?:s)? only|without re-?running/i found in Task breakdown\n"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    }
+  ],
+  "metrics": {
+    "result.total_cost_usd": {
+      "value": 2.0655400000000004,
+      "direction": "lower"
+    },
+    "result.num_turns": {
+      "value": 6,
+      "direction": "lower"
+    },
+    "result.duration_ms": {
+      "value": 424667,
+      "direction": "lower"
+    }
+  },
+  "score": 0.5
+}

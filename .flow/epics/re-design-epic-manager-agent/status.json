@@ -5,16 +5,22 @@
     "f1-epic-sequencer": {
       "status": "not-started"
     },
-    "f2-repo-coordination": {
+    "f2-manager-home": {
       "status": "not-started"
     },
-    "f3-sequencer-executive": {
+    "f3-global-manager": {
       "status": "not-started"
     },
     "f4-delegated-ui-signoff": {
       "status": "not-started"
     },
     "f5-executive-judgment": {
+      "status": "not-started"
+    },
+    "f6-followup-routing": {
+      "status": "not-started"
+    },
+    "f7-merge-grant": {
       "status": "not-started"
     },
     "w1-managed-wave": {

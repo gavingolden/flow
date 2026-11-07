@@ -1,0 +1,20 @@
+## Plan ready: `POST /reports/:id/title`
+
+The plan and PR description draft are written, and nothing has been implemented. Both files exist and aren't empty. The planning agent says its plan, follow-up-issue and test-steps checkers all passed on the final files.
+
+- **Problem:** The service already has a paid model call that turns a report's sections into a title, but no request can reach it, so titles are typed by hand or left empty. The service is also open to anyone on the internet, so exposing that call carelessly would let anyone run up model costs.
+- **Tasks:** 4, in order:
+  1. A small metrics helper and a file describing the metrics.
+  2. A fix to the existing title model call: an 8-second time limit, and errors or badly formed answers become clear failures.
+  3. The new endpoint, which reuses one suggestion per report version.
+  4. Tests.
+- **Follow-up issue:** 1, marked to be filed: require callers to sign in to the service. Choosing between Cloud Run's built-in access control and an app-level API key needs its own discussion.
+- **Assumptions to check:**
+  - Asking again for an unchanged report returns the same saved suggestion, so there's no "try another" option. That reuse is the only cap on spending while the endpoint is open to anyone. A "try another" option could be added once sign-in exists.
+  - The suggestion is only returned, never saved, so a title someone typed is never overwritten.
+- **Research:** Web research was skipped because this isn't a question the web can answer. You can force it with `flow feature create --research`.
+- **Verdict:** `adopt-with-conditions: at most one paid model call per report content version per running instance (concurrent and repeat requests share it), zero for missing or empty reports, and every model call bounded by an 8 s timeout.`
+
+Both files are in `.flow-tmp/`: `plan.md` and `pr-description-draft.md`.
+
+**Next action:** Review `.flow-tmp/plan.md`, especially the "try another" decision. When you're happy with it, start implementation with `/flow-new-feature add a \`POST /reports/:id/title\` endpoint that returns a suggested title for a saved report`.

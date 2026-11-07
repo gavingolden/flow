@@ -1,0 +1,70 @@
+{
+  "grades": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "invalidation",
+      "kind": "command",
+      "gate": true,
+      "pass": false,
+      "expected": 0,
+      "actual": 1,
+      "detail": "fail: /invalidat|\\bttl\\b|expir|stale|(?:regenerat|recomput)[^\\n]*(?:when|on|after)[^\\n]*(?:change|update|edit|regenerat)/i found in Task breakdown\n"
+    },
+    {
+      "id": "stampede",
+      "kind": "command",
+      "gate": true,
+      "pass": true
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "pass": true
+    }
+  ],
+  "metrics": {
+    "result.total_cost_usd": {
+      "value": 2.3058752,
+      "direction": "lower"
+    },
+    "result.num_turns": {
+      "value": 6,
+      "direction": "lower"
+    },
+    "result.duration_ms": {
+      "value": 379879,
+      "direction": "lower"
+    }
+  },
+  "score": 0.8
+}

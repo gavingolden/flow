@@ -1,0 +1,24 @@
+## Plan written, with a recommendation to change scope
+
+The plan is in `.flow-tmp/plan.md` and the PR description draft is in `.flow-tmp/pr-description-draft.md`. Both files exist and aren't empty, and `git status` shows no source files changed. I stopped there: nothing is implemented and no later pipeline step was started.
+
+- **Problem:** A nightly refresh would do nothing as the service stands. Reports live only in the memory of whichever server instance is running, so a restart or idle shutdown wipes them, and nothing in the service creates a report. Once reports do exist, refreshing all of them every night means paid model calls of 20–60 s each with no spending limit, on a service that's open to the internet.
+- **Tasks:** 6:
+  - a shared metrics helper
+  - making the model client raise an error when a call fails or is slow
+  - a durable report store using Firestore, which also needs an install step in the container image
+  - the refresh logic, with a nightly limit
+  - a separate nightly job
+  - that job's schedule in `deploy.sh`
+- **Follow-up issues:** 2.
+  - "Add a route that creates and stores a report" is marked to be filed when this work merges. Without it the nightly job has nothing to refresh.
+  - "Decide access control for the public read and share routes" is left open.
+- **Assumptions to check:**
+  - **Reports live only in server memory and nothing creates them.** A separate review agreed with high confidence. If reports are actually stored somewhere else, the Firestore task becomes a connector to that store instead.
+  - **"Every saved report" is capped.** The plan refreshes only reports not updated in the last 20 hours, at most 100 a night, oldest first, with an alert when the cap is hit. Below 100 reports that matches your wording; above it, it caps the spend.
+- **Web research:** skipped as not useful here. You can force it with `flow feature create --research`.
+- **Verdict:** push back: make reports durable first, then run a capped nightly refresh of stale reports as a scheduled Cloud Run Job with no public trigger.
+
+The plan's overall recommendation is to reconsider the scope rather than build "refresh every saved report nightly" as worded. Its automated format checks passed.
+
+**Next action:** Read the plan's Open Questions section and decide whether to accept the reduced scope, starting with whether reports really only live in memory. Then run `/flow-new-feature refresh every saved report nightly`, or ask for a revised plan.

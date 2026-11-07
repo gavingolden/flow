@@ -1,0 +1,21 @@
+## The plan is written. One question needs your answer.
+
+Both files are in `.flow-tmp/` and are non-empty: `plan.md` and `pr-description-draft.md`. `git status` shows no changes to source files. Nothing was implemented and no later step was started.
+
+- **Problem:** Each report section takes 20–60 s to write. Today viewers only see new sections if they refresh the page themselves. Nothing shows how many sections are left or when the report is finished. Also, if a job runs twice, it can silently replace a section the viewer is already reading.
+- **Tasks:** 4.
+  1. Add a metrics helper and a contract file describing how the page should poll.
+  2. Give the paid model call a 90 s limit and check it for errors.
+  3. Skip a repeated job when its section already has text.
+  4. Make the report endpoint return progress and a "finished" signal, let the page skip unchanged reports, and cap reads at 5 s.
+- **Follow-up issues:** 2, both marked to be filed after merge.
+  - The section-generation route has no access check, so anyone can call it and trigger paid model calls.
+  - Sections that fail for good should show as failed instead of looking stuck.
+- **Assumptions to check:**
+  - **Needs your answer (Q1):** This repo has no page or frontend. The plan only covers the server side plus a written polling contract. Viewers will see no change until someone adds a 2-second polling loop to the page.
+  - The plan recommends having the page check every 2 s rather than holding a live stream open (medium confidence). With sections taking 20–60 s, viewers can't tell the difference. On Cloud Run, an open stream is billed for its whole life and is cut off at the request timeout.
+- **Verdict on the request:** push back: automatic polling of the existing report endpoint, made cheap with change detection and a completion signal, instead of a held-open live stream
+
+The web research only partly ran: the tool ran out of quota before its fact-checking pass, so those findings are marked unrefuted in the plan.
+
+**Next action:** Read `.flow-tmp/plan.md` and answer Q1: who owns the page that will do the polling? Then run `/flow-new-feature users want to watch their report being written live, section by section, instead of refreshing the page` when you want to build it.

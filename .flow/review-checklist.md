@@ -55,3 +55,8 @@ names WHAT to look for; entries never suppress findings.
   failed, so the failed action (push, PR open) is retried before later steps
   that need its output (`$PR`) run. What to look for: added "re-enter step N" /
   "loop back" prose without a retry-the-original-action clause.
+
+## Vendor-platform claims in skill references (PR #991)
+
+- **A vendor fact a consumer agent will act on needs an official-doc anchor or a confidence mark.** When a skill reference names a vendor role, default, exporter, prefix, quota or price (an IAM role's data access, an exporter's default metric prefix or deprecation status, a detection signal list), check it against the vendor's official docs; flag an unanchored claim, a role that grants configuration but not data, or a detection list missing a route the same file documents.
+- **A sampler that reads process-local state must run where that state lives.** A recipe that samples a helper-local counter from a scheduled or separate runtime (a Cron Trigger isolate, a sidecar) reports zero while the real workers are busy; restrict such samplers to externally readable levels.

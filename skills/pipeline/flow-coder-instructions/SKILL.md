@@ -56,7 +56,12 @@ edit-set entry is processed (applied, rejected-alternatives / anti-patterns
 recorded), refresh that entry's disposition in the artifact with a short,
 targeted `Edit` — never a full rewrite of the file. `status` moves to
 `"complete"` only once every entry has been attempted and `verify_status`
-is `"pass"`; otherwise it stays `"partial"`.
+is `"pass"`; otherwise it stays `"partial"`. Writing `status: "complete"`
+is your final artifact write — record `skills_read`, `skills_read_late`,
+`rejected_alternatives` and `anti_patterns_found` before it, and never edit
+the artifact after it unless a continuation message from the wrapper asks
+you to; then set `status` back to `partial` first, make targeted edits, and
+write `complete` last again.
 
 ## 1. Load context
 
@@ -88,14 +93,6 @@ Before drafting any edit, load the inputs:
   apply the best conforming approximation and record the deviation in
   `anti_patterns_found`, same discipline as the foundation/spec sentence
   above.
-- **Skill docs and design rules.** Read every path in an entry's
-  `skill_docs` and every rule path the Design context block names (the
-  flow-ui-ux `SKILL.md` and `references/*.md`, the stack UI skill) BEFORE
-  that entry's first edit, apply them while writing, and record each path
-  you actually read in the artifact's top-level `skills_read` array (absolute
-  paths). A path that cannot be read is noted in `anti_patterns_found`, never
-  silently skipped. There is no self-critique pass: rendered judgment happens
-  in verify's probe and smell-repair round, not here.
 - For each edit-set entry, read the named file enough times to understand
   the surrounding context (typically ±20 lines around the area the intent
   describes). These reads stay in your context — they are read-only
@@ -116,7 +113,21 @@ You are in **fix-now mode** — you MUST attempt the edits. Specifically:
 For each entry in the edit-set:
 
 1. Open the named file at the location the intent describes.
-2. **Contract pre-check (entries with a `contract` field).** The
+2. **Skill-docs pre-check (entries with skill_docs).** Before the entry's
+   first edit, Read each `skill_docs` path not already in `skills_read`
+   with the Read tool, one file per call, in full — never `cat`, `sed`,
+   `head`, or `>/dev/null`: piped or ranged output is truncated or
+   discarded, and a discarded read is not a read. Add each path to
+   `skills_read` with a targeted artifact `Edit` at once, and apply the
+   docs while writing. A path that cannot be read goes to
+   `anti_patterns_found`, never silently skipped. A doc read only AFTER
+   edits it governs already landed is ALSO added to `skills_read_late`
+   (the wrapper re-prompts on it) and obliges rechecking those edits
+   against it, recording any unfixable deviation in `anti_patterns_found`;
+   remove the path from `skills_read_late` only once that recheck is done.
+   There is no self-critique pass: rendered judgment happens in verify's
+   probe and smell-repair round, not here.
+3. **Contract pre-check (entries with a `contract` field).** The
    contract is a strong prior, not a straitjacket — honor it via a
    MECHANICAL PRE-CHECK, not a judgment call: check the contract's named
    files, symbols, and signatures against the actual code. On match,
@@ -130,10 +141,10 @@ For each entry in the edit-set:
    Entries without a `contract` field skip this pre-check; either way,
    the defensible-assumption fallback still governs genuinely
    unspecified gaps.
-3. Make the `Edit` / `Write` tool call. Match the project's conventions
+4. Make the `Edit` / `Write` tool call. Match the project's conventions
    (commit-body style, comment policy, formatter preferences from
    `AGENTS.md`).
-4. `acceptance` is task-grained, not per-edit-grained: a task naming
+5. `acceptance` is task-grained, not per-edit-grained: a task naming
    several files splits into several edit-set entries sharing one
    `acceptance`, attached only to the task's final entry (`flow-new-feature/SKILL.md`
    Step 5 composes it this way). When the CURRENT entry carries an
@@ -153,18 +164,18 @@ For each entry in the edit-set:
    `true` when the tool call itself succeeded — the pre-commit run in
    "3. Run pre-commit verification" below is the artifact-level failure
    channel).
-5. Record the per-edit disposition for the artifact's `edits[]`:
+6. Record the per-edit disposition for the artifact's `edits[]`:
    - `file`, `intent`, `expected_outcome` — copied verbatim from the
      edit-set entry.
    - `applied` — `true` when the tool call succeeded, `false` otherwise.
    - `tool_error` — verbatim Edit/Write tool error excerpt when
      `applied` is `false`, empty string `""` otherwise.
-6. If you considered an alternative approach for an edit and rolled it
+7. If you considered an alternative approach for an edit and rolled it
    back (or rejected it on inspection), record it in
    `rejected_alternatives` with `file`, `considered_approach`, and
    `why_rejected`. **This is a load-bearing slot — populate it whenever
    you considered more than one approach. Silence is not the default.**
-7. If you observe a related anti-pattern in the surrounding code that
+8. If you observe a related anti-pattern in the surrounding code that
    the edit-set didn't ask you to fix but the next session should know
    about, record it in `anti_patterns_found` with `location`, `pattern`,
    `recommendation`, and `introduced_by_this_pr`. **Same rule as
@@ -239,8 +250,8 @@ from scratch.
 
 Write the artifact at the absolute path the wrapper passed you (typically
 `<worktree>/.flow-tmp/coder-result.json`). The wrapper has already
-created the parent directory; you only need to write the file. Overwrite
-any prior artifact; do not append (single-shot semantics).
+created the parent directory. Keep one JSON object: refresh it with
+targeted edits on the step-0 skeleton, never append a second object.
 
 The artifact MUST conform to this JSON schema:
 
@@ -272,7 +283,8 @@ The artifact MUST conform to this JSON schema:
       "introduced_by_this_pr": false
     }
   ],
-  "skills_read": ["<absolute path of each skill_docs / DESIGN_CONTEXT rule file actually Read; optional>"],
+  "skills_read": ["<absolute path of each skill_docs file actually Read with the Read tool; optional>"],
+  "skills_read_late": ["<absolute path read only after edits it governs had landed; optional>"],
   "summary": "<3–5 sentence both-sides return summary; see step 5>"
 }
 ```

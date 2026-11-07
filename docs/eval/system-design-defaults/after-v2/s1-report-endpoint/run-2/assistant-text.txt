@@ -1,0 +1,28 @@
+## Plan written; not implemented
+
+The plan is in `.flow-tmp/plan.md` and the PR description draft is in `.flow-tmp/pr-description-draft.md`. I checked that both files exist and aren't empty, but I didn't read them. The lint checks passed with no findings, according to the planning agent. No source files changed.
+
+**The main thing to look at:** the plan builds more than you asked for, and it says so ("Reconsider scope"). You described an endpoint that calls the model API five times and returns the report. The plan doesn't do that, for three reasons:
+- Each section takes 20–60 s, so the caller would wait several minutes.
+- Reports would only be kept in one server's memory, so a restart would lose paid work.
+- The service is open to the internet, so anyone could run up the bill.
+
+Instead, `POST /reports` replies right away (202 with a report id). Each section runs as its own queued Cloud Tasks job, results are saved to Firestore, and creating a report requires an API key and is limited by a daily cap. That adds Firestore, Cloud Tasks and a one-time GCP setup script. The planning agent rated this design medium confidence.
+
+- **Tasks:** 8, in this order:
+  1. Metrics helper
+  2. Model client with a 90 s timeout and retry/give-up error handling
+  3. Report model with an in-memory store
+  4. Firestore store
+  5. Cloud Tasks section queue
+  6. Private section worker
+  7. `POST /reports` endpoint and wiring
+  8. Deploy script plus the one-time GCP setup script
+- **Needs your input:**
+  - **The five section names.** The plan uses placeholders.
+  - **The daily cap.** It's set to 20 reports per day for now, which is at most 300 paid calls per day counting retries. Setting it to 0 turns paid generation off. The right number depends on the model's price and your budget, which aren't in the repo.
+- **Follow-up issue (1, ticked):** access control for reading and sharing reports. This needs its own decision on who owns a report.
+- **Research:** web research was skipped. The Cloud Run and Cloud Tasks limits the plan relies on were already in an installed reference doc. You can force research with `flow feature create --research`.
+- **Planning agent's verdict:** go ahead, on the condition that `POST /reports` replies with 202 within 1 s, each section runs as its own queued task saved to a durable store, and creating a report needs an API key and stays under a daily cap.
+
+**Next step:** if the larger design is what you want, fill in the section names and the cap in the plan and run `/flow-new-feature`. If you want the simple version that waits for the whole report, revise the plan first.

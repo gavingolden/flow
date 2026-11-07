@@ -101,6 +101,18 @@ describe("isUiFile signal", () => {
     expect(isUiFile(p)).toBe(true);
   });
 
+  it.each([
+    "src/lib/components/Button.test.svelte",
+    "src/lib/components/Button.svelte.test.ts",
+    "src/lib/components/__stubs__/Header.svelte",
+    "src/lib/components/__tests__/Button.svelte",
+    "app/components/Nav.spec.tsx",
+    "src/lib/components/Button.stories.svelte",
+    "src/lib/components/types.d.ts",
+  ])("treats test/stub/story/declaration '%s' as a non-UI file", (p) => {
+    expect(isUiFile(p)).toBe(false);
+  });
+
   it.each(["bin/flow-pre-commit.ts", "README.md", "src/lib/util.ts"])(
     "treats '%s' as a non-UI file",
     (p) => {
@@ -146,11 +158,38 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
     expect(e.loud).toBe(false);
   });
 
-  it("--mcp-absent + UI diff + no manifest stays a quiet skip, never bootstraps", () => {
+  it("--mcp-absent on a UI diff is LOUD and names the Playwright fallback", () => {
+    const c = drive(["--mcp-absent", "--changed-files", "changed.txt"], {
+      "changed.txt": "src/lib/components/Panel.svelte\n",
+    });
+    expect(c.code).toBe(0);
+    const e = envelope(c);
+    expect(e.ran).toBe(false);
+    expect(e.loud).toBe(true);
+    expect(e.skipped_reason).toBe("mcp-not-available");
+    expect(e.nudge).toContain("repo's Playwright");
+    expect(e.nudge).toContain("/mcp");
+  });
+
+  it("--mcp-absent on a non-UI diff stays quiet", () => {
+    const c = drive(["--mcp-absent", "--changed-files", "changed.txt"], {
+      "changed.txt": "bin/x.ts\nsrc/lib/components/Panel.test.ts\n",
+    });
+    const e = envelope(c);
+    expect(e.loud).toBe(false);
+    expect(e.nudge).toBeUndefined();
+  });
+
+  it("--mcp-absent without --changed-files stays quiet", () => {
+    const e = envelope(drive(["--mcp-absent"], {}));
+    expect(e.loud).toBe(false);
+  });
+
+  it("--mcp-absent + UI diff + no manifest skips loudly, never bootstraps", () => {
     // The bootstrap verdict's precondition is "MCP present", enforced only by
     // ordering: --mcp-absent returns early above the manifest===null branch.
     // Guard that a bootstrap-eligible UI diff under --mcp-absent still yields a
-    // quiet mcp-not-available skip and leaks no inferred launch/route/cred
+    // mcp-not-available skip and leaks no inferred launch/route/cred
     // payload, so a future reorder of the early-return guard is caught.
     const c = drive(["--mcp-absent", "--changed-files", "changed.txt"], {
       "changed.txt": "src/routes/about/+page.svelte\n",
@@ -160,7 +199,7 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
     expect(c.code).toBe(0);
     const e = envelope(c);
     expect(e.ran).toBe(false);
-    expect(e.loud).toBe(false);
+    expect(e.loud).toBe(true);
     expect(e.skipped_reason).toBe("mcp-not-available");
     expect(e.action).toBeUndefined();
     expect(e.launch).toBeUndefined();

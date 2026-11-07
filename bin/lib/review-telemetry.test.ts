@@ -5,12 +5,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   aggregateCounts,
   attributeTranscripts,
-  findSubagentsDir,
   mergeTelemetry,
   parseLensModels,
   parseLensTokens,
   readDelegationRecord,
 } from "./review-telemetry";
+import { findSubagentsDir } from "./session-discovery";
 import type { ConsolidatorResult } from "./agent-finding-schema";
 import type { FixApplierResult } from "./fix-applier-schema";
 
@@ -110,6 +110,7 @@ describe("aggregateCounts", () => {
       findings_deferred: 0,
       engine: "task",
       agy_model: null,
+      rerouted_from: null,
       fallback_reason: null,
     });
   });
@@ -123,11 +124,13 @@ describe("aggregateCounts", () => {
         "bug-detection": {
           engine: "agy",
           agy_model: "Claude Opus 5.5 (High)",
+          rerouted_from: null,
           fallback_reason: null,
         },
         security: {
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: "agy-output-unparseable",
         },
       },
@@ -135,6 +138,7 @@ describe("aggregateCounts", () => {
     expect(counts["bug-detection"]).toMatchObject({
       engine: "agy",
       agy_model: "Claude Opus 5.5 (High)",
+      rerouted_from: null,
     });
     expect(counts.security).toMatchObject({
       engine: "task",
@@ -182,12 +186,49 @@ describe("readDelegationRecord", () => {
     expect(out["bug-detection"]).toEqual({
       engine: "agy",
       agy_model: "Claude Opus 5.5 (High)",
+      rerouted_from: null,
       fallback_reason: null,
     });
     expect(out.security).toEqual({
       engine: "task",
       agy_model: null,
+      rerouted_from: null,
       fallback_reason: "agy-output-unparseable",
+    });
+  });
+
+  it("prefers a lens's own model and surfaces rerouted_from; older records fall back to the record-wide model", () => {
+    const out = readDelegationRecord(
+      record({
+        delegated: [
+          {
+            lens: "bug-detection",
+            findingCount: 1,
+            decodedVia: "structured-output",
+            durationSec: 90,
+            model: "Gemini 4 Argon (Medium)",
+            reroutedFrom: "agy-content-filtered",
+          },
+          {
+            lens: "performance",
+            findingCount: 0,
+            decodedVia: "structured-output",
+            durationSec: 30,
+          },
+        ],
+      }),
+    );
+    expect(out["bug-detection"]).toEqual({
+      engine: "agy",
+      agy_model: "Gemini 4 Argon (Medium)",
+      rerouted_from: "agy-content-filtered",
+      fallback_reason: null,
+    });
+    expect(out.performance).toEqual({
+      engine: "agy",
+      agy_model: "Claude Opus 5.5 (High)",
+      rerouted_from: null,
+      fallback_reason: null,
     });
   });
 
@@ -288,6 +329,35 @@ describe("attributeTranscripts", () => {
     expect(out["bug-detection"].usage.total).toBe(50);
     expect(out.security.usage.total).toBe(50);
     expect(out["bug-detection"].model).toBe("claude-x");
+  });
+
+  it("carries the ordered effort runs read from the transcript", async () => {
+    const dir = makeSubagentsDir();
+    fs.writeFileSync(
+      path.join(dir, "agent-x.meta.json"),
+      JSON.stringify({ agentType: "flow-review-bug-detection" }),
+    );
+    fs.writeFileSync(
+      path.join(dir, "agent-x.jsonl"),
+      ["low", "low", "medium"]
+        .map((effort, i) =>
+          JSON.stringify({
+            type: "assistant",
+            effort,
+            message: {
+              id: `m${i}`,
+              model: "claude-x",
+              usage: { input_tokens: 1 },
+            },
+          }),
+        )
+        .join("\n"),
+    );
+    const out = await attributeTranscripts(dir, new Date(Date.now() - 60_000));
+    expect(out["bug-detection"].effortRuns).toEqual([
+      ["low", 2],
+      ["medium", 1],
+    ]);
   });
 
   it("ignores files older than since", async () => {
@@ -527,12 +597,14 @@ describe("mergeTelemetry", () => {
           ...entry,
           engine: "agy",
           agy_model: "Claude Opus 5.5 (High)",
+          rerouted_from: null,
           fallback_reason: null,
         },
         security: {
           ...entry,
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: "agy-timeout",
         },
       },
@@ -543,6 +615,7 @@ describe("mergeTelemetry", () => {
     expect(t.lenses["bug-detection"]).toMatchObject({
       engine: "agy",
       agy_model: "Claude Opus 5.5 (High)",
+      rerouted_from: null,
       model: "Claude Opus 5.5 (High)",
     });
     expect(t.lenses.security).toMatchObject({
@@ -553,18 +626,65 @@ describe("mergeTelemetry", () => {
     expect(t.lenses.performance).toMatchObject({
       engine: "task",
       agy_model: null,
+      rerouted_from: null,
       fallback_reason: null,
     });
   });
 
-  it("tags rows version 3", () => {
+  it("tags rows version 4", () => {
     const t = mergeTelemetry({
       ...baseArgs,
       counts: {},
       lensTokens: {},
       transcripts: {},
     });
-    expect(t.version).toBe(3);
+    expect(t.version).toBe(4);
+  });
+
+  it("records the effort level with the most turns, and null without a usable transcript or on an agy lens", () => {
+    const entry = {
+      ran: true,
+      skip_reason: null,
+      findings_emitted: 0,
+      findings_survived: 0,
+      findings_dropped: 0,
+      findings_acted: 0,
+      findings_deferred: 0,
+      agy_model: null,
+      rerouted_from: null,
+      fallback_reason: null,
+    };
+    const usage = { total: 1, input: 1, output: 0 };
+    const t = mergeTelemetry({
+      ...baseArgs,
+      counts: {
+        "bug-detection": { ...entry, engine: "task" },
+        security: { ...entry, engine: "task" },
+        performance: { ...entry, engine: "agy", agy_model: "Gemini" },
+      },
+      lensTokens: {},
+      transcripts: {
+        "bug-detection": {
+          usage,
+          model: "claude-x",
+          effortRuns: [
+            ["low", 2],
+            ["unknown", 9],
+            ["high", 5],
+          ],
+        },
+        security: { usage, model: "claude-x", effortRuns: [["unknown", 3]] },
+        performance: {
+          usage,
+          model: "claude-x",
+          effortRuns: [["high", 3]],
+        },
+      },
+    });
+    expect(t.lenses["bug-detection"].effort).toBe("high");
+    expect(t.lenses.security.effort).toBeNull();
+    expect(t.lenses.performance.effort).toBeNull();
+    expect(t.lenses.correctness?.effort ?? null).toBeNull();
   });
 
   it("builds run_id as `<pr>:<head_sha>:<started_at>`", () => {

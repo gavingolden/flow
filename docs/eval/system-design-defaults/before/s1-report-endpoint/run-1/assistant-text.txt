@@ -1,0 +1,23 @@
+## Planning done: `POST /reports` plan written
+
+I wrote both files and they are non-empty. No source code was changed, and I stopped before implementation.
+- `.flow-tmp/plan.md`
+- `.flow-tmp/pr-description-draft.md`
+
+- **Problem:** The service can't create reports yet. It only has routes to read and share them, and nothing calls the model client. Each of the five sections is a paid model call taking 20–60 s, and the service is public. So the new route needs a cap on how long a request can take and a limit on who can trigger the cost.
+- **Tasks (4, in order):**
+  1. Make the model client safer: check the response status and body, cap each call at 120 s, and return clear error types.
+  2. Add a small metrics helper and the repo's first `.flow/metrics.md`.
+  3. Add the report module and the `POST /reports` route, and raise the server's idle timeout to 255 s.
+  4. Add end-to-end tests.
+- **Follow-up (1):** Reports are stored in memory on each instance. A report someone paid to generate can come back "not found" on a later request or disappear when the service scales down. Choosing a permanent store needs its own design discussion, so the plan lists it as a follow-up issue.
+- **Decisions only you can make:**
+  - **Q1:** The five section names in the plan are placeholders. Please supply the real ones.
+  - **Q2:** Someone has to set the production service key. Until then the new route answers `503`.
+- **Medium-confidence assumptions:**
+  - Only callers with a shared service key can use the new route. The existing routes stay public.
+  - The five model calls run at the same time. Run one after another, they could take up to 300 s, which is exactly Cloud Run's default request timeout.
+- **Research caveat:** Web research found that Bun closes a connection that has been quiet for 10 s by default. The step that double-checks research findings failed because a model quota ran out, so those findings are unconfirmed.
+- **Planner's verdict:** Build it, on conditions: the five calls run at the same time with a 120 s cap each and a 255 s idle timeout, so the worst case finishes under 300 s; requests without the service key are rejected before any model call.
+
+**Next action:** Answer Q1 (section names) and Q2 (service key) in `.flow-tmp/plan.md`. Then, when you want to build it, run `/flow-new-feature add a POST /reports endpoint that generates a company report by calling the model API once for each of five sections`.

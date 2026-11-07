@@ -90,6 +90,14 @@ skill.
 - Run the project's test command scoped to the file (`npm run test -- <file>`,
   `go test ./...`, etc.) to verify the test passes.
 - Confirm no unintended test failures in adjacent files.
+- Reproduce a timing-sensitive flake under CPU contention with
+  `flow-stress --cpu <n> --max-sec <s> -- <test command>`; it always removes
+  the load when the command ends, times out, or is interrupted. Never
+  background hand-rolled busy loops: in the Bash tool's non-interactive zsh
+  `$(jobs -p)` is empty, so `kill $(jobs -p)` kills nothing and the loops keep
+  running after the command. Without `flow-stress` on PATH, run the loops and
+  the test inside one `bash -c` and kill its own background jobs (or use
+  `kill %1` / `p=$!; kill $p`).
 - On a standalone (user-invoked) run, format the final test report — the
   turn-ending message — per the cross-skill
   `flow-pipeline/references/pause-output-contract.md` (labeled slots, no open

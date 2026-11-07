@@ -6,7 +6,14 @@
  * AGY_COOLDOWN_MINUTES, so a dry quota window costs one failed attempt, not
  * one per review. When agy's quota error names its reset ("Resets in
  * 4h44m12s" — Ultra windows are five hours), the marker holds until then
- * instead, so a dry window is not retried, and failed, every hour.
+ * instead, so a dry window is not retried, and failed, every hour. The
+ * delegated scout also arms it, when one scout run is classed quota-exhausted
+ * or rate-limited.
+ *
+ * A content-filter refusal proves the Google plan answered, so it is never a
+ * quota signal: it is ignored when deciding, arms only next to a real
+ * quota-exhausted or rate-limited sibling, and a wave that is nothing but
+ * refusals (or refusals plus timeout/unknown/empty-artifact) never arms.
  *
  * The marker lives in `FLOW_CACHE_DIR`, NOT `~/.flow/state/`: that directory
  * is the pipeline-state store, and a `<slug>.json` there is read as a
@@ -60,9 +67,16 @@ export function readCooldown(
 }
 
 export function shouldArmCooldown(classes: string[]): boolean {
+  const rest = classes.filter((c) => c !== "content-filtered");
+  if (
+    rest.length === 0 ||
+    !rest.every((c) => COOLDOWN_ARMING_CLASSES.includes(c))
+  ) {
+    return false;
+  }
   return (
-    classes.length > 0 &&
-    classes.every((c) => COOLDOWN_ARMING_CLASSES.includes(c))
+    rest.length === classes.length ||
+    rest.some((c) => c === "quota-exhausted" || c === "rate-limited")
   );
 }
 

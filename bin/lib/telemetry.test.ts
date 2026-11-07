@@ -23,6 +23,7 @@ function makeEvent(overrides: Partial<TelemetryEvent> = {}): TelemetryEvent {
     pr: 42,
     repo: "me/flow",
     session_id: "sess-1",
+    session_effort: null,
     attrs: {},
     ...overrides,
   };
@@ -215,6 +216,107 @@ describe("resolveCorrelation", () => {
     expect(result.repo).toBeNull();
     expect(result.session_id).toBe("sess-DIFFERENT");
     expect(result.attrs.unmatched_slug).toBe("my-slug");
+  });
+});
+
+describe("session_effort", () => {
+  let stateDir: string;
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "telemetry-effort-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  function seed(sessionId?: string): void {
+    writeState(
+      {
+        slug: "my-slug",
+        phase: "implementing",
+        repo: "me/flow",
+        pr: 7,
+        effort: "high",
+        ...(sessionId ? { sessionId } : {}),
+        updatedAt: "2026-09-05T00:00:00.000Z",
+      },
+      stateDir,
+    );
+  }
+
+  it("carries CLAUDE_EFFORT on the no-slug path", () => {
+    expect(
+      resolveCorrelation({ env: { CLAUDE_EFFORT: "low" }, stateDir })
+        .session_effort,
+    ).toBe("low");
+  });
+
+  it("carries CLAUDE_EFFORT on the matched-slug path", () => {
+    seed("sess-abc");
+    const r = resolveCorrelation({
+      env: {
+        FLOW_SLUG: "my-slug",
+        CLAUDE_CODE_SESSION_ID: "sess-abc",
+        CLAUDE_EFFORT: "low",
+      },
+      stateDir,
+    });
+    expect(r.slug).toBe("my-slug");
+    expect(r.session_effort).toBe("low");
+  });
+
+  it("carries CLAUDE_EFFORT on the unverified-slug path", () => {
+    seed();
+    const r = resolveCorrelation({
+      env: { FLOW_SLUG: "my-slug", CLAUDE_EFFORT: "low" },
+      stateDir,
+    });
+    expect(r.attrs.slug_unverified).toBe(true);
+    expect(r.session_effort).toBe("low");
+  });
+
+  it("carries CLAUDE_EFFORT on the unmatched_slug path", () => {
+    seed("sess-abc");
+    const r = resolveCorrelation({
+      env: {
+        FLOW_SLUG: "my-slug",
+        CLAUDE_CODE_SESSION_ID: "sess-OTHER",
+        CLAUDE_EFFORT: "low",
+      },
+      stateDir,
+    });
+    expect(r.attrs.unmatched_slug).toBe("my-slug");
+    expect(r.session_effort).toBe("low");
+  });
+
+  it("is null when absent, empty, or over 16 chars, and never falls back to state.effort", () => {
+    seed();
+    for (const CLAUDE_EFFORT of [undefined, "", "x".repeat(17)]) {
+      const r = resolveCorrelation({
+        env: {
+          FLOW_SLUG: "my-slug",
+          ...(CLAUDE_EFFORT === undefined ? {} : { CLAUDE_EFFORT }),
+        },
+        stateDir,
+      });
+      expect(r.session_effort).toBeNull();
+    }
+  });
+
+  it("recordEvent writes session_effort after session_id and keeps the schema at version 1", () => {
+    const logPath = path.join(stateDir, "events.jsonl");
+    recordEvent(
+      "verify.attempt",
+      {},
+      { logPath, env: { CLAUDE_EFFORT: "ultra" }, stateDir },
+    );
+    const line = fs.readFileSync(logPath, "utf8").trim();
+    const record = JSON.parse(line);
+    expect(record.session_effort).toBe("ultra");
+    expect(record.version).toBe(1);
+    const keys = Object.keys(record);
+    expect(keys.indexOf("session_effort")).toBe(keys.indexOf("session_id") + 1);
   });
 });
 

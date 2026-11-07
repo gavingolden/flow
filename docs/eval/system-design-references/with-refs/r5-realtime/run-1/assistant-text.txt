@@ -1,0 +1,25 @@
+## Plan ready: live report progress
+
+I wrote the plan and the PR description draft. The planning subagent says its three lint checks passed; I only checked that both files exist and aren't empty. Nothing was implemented and no later phase was started.
+
+- **Problem:** People reload the page again and again while a report takes minutes to write. If a section fails, it stays blank forever, so the report never finishes and the reader isn't told why. This service only returns JSON; the page itself is in a different codebase.
+- **Tasks:** 7, in this order:
+  1. A migration that adds a status to each section, plus an index.
+  2. A timeout on the model call, so a failed call is reported instead of hanging.
+  3. A metrics helper and a new `.flow/metrics.md`.
+  4. A progress summary, and saving each section's status as it changes.
+  5. Worker changes: skip sections that are already done, and mark a section failed on its last attempt.
+  6. Set the queue's retry limits explicitly in `deploy.sh`.
+  7. Return each section's status and a `progress` object when the report is read, and stop that response from being cached.
+- **Follow-up issues:** 3 proposed.
+  - Selected for filing: the worker route accepts requests from anyone, so anyone can trigger paid model calls.
+  - Not selected: a spending cap for the whole service, and streaming each section's text word by word.
+- **Assumptions to check:**
+  - **The page polls for updates instead of the server pushing them (medium confidence).** Sections take 20–60 s each, and the worker runs on a different Cloud Run instance than the one serving the page. A push connection would still have to poll the database behind the scenes.
+  - **This is the biggest risk:** the team that owns the page has to switch from manual reload to polling the new fields. Until that change ships in their codebase, readers won't see any difference.
+- **Research:** Web research was skipped because this isn't a question outside research would answer.
+- **Verdict:** adopt-with-conditions. Build it as a section-by-section progress contract that the page polls: a saved section shows up within one poll (5 s or less), and every section ends up either done or failed within 3 attempts.
+
+Files are in `.flow-tmp/`: `plan.md` and `pr-description-draft.md`, plus `excluded-paths.json` and `research-status.json`.
+
+**Next action:** Review `.flow-tmp/plan.md`, especially the polling-versus-push decision and the dependency on the page's own codebase. Then run `/flow-new-feature users want to watch their report being written live, section by section, instead of refreshing the page` when you want to start building.

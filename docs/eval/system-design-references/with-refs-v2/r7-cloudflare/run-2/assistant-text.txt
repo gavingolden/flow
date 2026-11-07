@@ -1,0 +1,23 @@
+## Planning complete: nightly report refresh
+
+I wrote both files (`.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`) and confirmed neither is empty. Nothing has been implemented and no later pipeline phase has started.
+
+- **Problem:** Saved reports never change after they're first written. Refreshing them nightly would mean five slow (20–60 s), paid model calls per report with no spending limit. Also, the current model client in `src/llm.ts` would write error responses straight into a report.
+- **Tasks:** 6:
+  1. Make the model client reject error responses.
+  2. Add a metrics helper.
+  3. Add database migrations and a test setup.
+  4. Add a table that tracks refreshes, plus a way to rewrite one section at a time.
+  5. Add the nightly schedule and a queue worker to do the rewrites.
+  6. Wire up the config and write a runbook.
+- **Candidates:** 1 possible follow-up issue, not selected: whether the report read endpoints should require login.
+- **Top assumptions:**
+  - **The five section names aren't written down anywhere in the repo.** The plan leaves that list for you to fill in when you review it.
+  - **It's unclear whether re-running a report brings in anything new.** The prompt only sends the company name and the section name. If your model provider has no live data, each night just re-words the same content at full cost. In that case the better choice is a much lower nightly limit or not building this at all.
+  - The default limit is 500 section rewrites a night, about 100 reports. Above that, the reports refreshed longest ago go first and the rest wait for later nights.
+- **Research:** skipped, because the question wasn't one web research would help with.
+- **Vetting verdict:** go ahead, with two conditions:
+  - Nightly model calls must never go over `REFRESH_MAX_SECTIONS_PER_NIGHT`, and that limit is checked in one place.
+  - A failed, empty or too-short rewrite never replaces a stored section.
+
+**Next action:** Review `.flow-tmp/plan.md`. Fill in the five section names and decide whether repeated runs really produce fresher content. Then run `/flow-new-feature refresh every saved report nightly by regenerating its five sections` when you're ready to build it.

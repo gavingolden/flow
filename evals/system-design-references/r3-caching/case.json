@@ -1,0 +1,85 @@
+{
+  "id": "r3-caching",
+  "title": "Caching: a paid summary recomputed on every view of a hot report",
+  "provenance": "Synthetic scenario for the system-design-references suite: measures whether the matching flow-system-design reference file changes the plan's Task breakdown.",
+  "prompt": "prompt.md",
+  "fixture": {
+    "repo": "fixture"
+  },
+  "graders": [
+    {
+      "id": "plan-written",
+      "kind": "file",
+      "file": "$REPO/.flow-tmp/plan.md",
+      "exists": true
+    },
+    {
+      "id": "keep-plan",
+      "kind": "command",
+      "gate": false,
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/keep-plan.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "$ASSISTANT_TEXT"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "no-agent-fallback",
+      "kind": "file",
+      "file": "$ASSISTANT_TEXT",
+      "notMatches": "NOTICE — agent-fallback:"
+    },
+    {
+      "id": "plugin-loaded",
+      "kind": "file",
+      "file": "$STREAM",
+      "contains": "flow-module-core",
+      "withOnly": true
+    },
+    {
+      "id": "invalidation",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "invalidat|\\bttl\\b|expir|stale|(?:regenerat|recomput)[^\\n]*(?:when|on|after)[^\\n]*(?:change|update|edit|regenerat)|fingerprint|content[- ]?hash|\\bhash(?:ed)? of|keyed (?:on|by)[^\\n]*(?:hash|version|content|text)|until[^\\n]*(?:text|content|report|section)[^\\n]*chang"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "stampede",
+      "kind": "command",
+      "argv": [
+        "bun",
+        "$FIXTURE/../../system-design-defaults/grade-tasks.ts",
+        "$REPO/.flow-tmp/plan.md",
+        "stampede|single[- ]?flight|\\block\\b|concurrent[^\\n]*(?:miss|request|caller)|coalesc|in-?flight|dedupe? concurrent"
+      ],
+      "cwd": "$REPO"
+    },
+    {
+      "id": "result.total_cost_usd",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.total_cost_usd",
+      "direction": "lower"
+    },
+    {
+      "id": "result.num_turns",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.num_turns",
+      "direction": "lower"
+    },
+    {
+      "id": "result.duration_ms",
+      "kind": "metric",
+      "gate": false,
+      "source": "result.duration_ms",
+      "direction": "lower"
+    }
+  ]
+}

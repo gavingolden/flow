@@ -1,0 +1,25 @@
+## Planning finished: the plan recommends changing the scope before building
+
+The plan and the PR description draft are in `.flow-tmp/`, and both files are non-empty. Nothing was implemented, and no later step was started. I haven't read the plan myself. The points below are the planning agent's report, and I didn't check its claims about the codebase.
+
+- **Problem:** the service has no customer table and no login, and it is deployed open to the internet. Building "let customers upload" exactly as written would let anyone store files under any company's name. The plan therefore only accepts uploads that carry a caller token, and the calling front end says which company is uploading. Its recommendation is "Reconsider scope", not "Proceed".
+- **Tasks:** 8:
+  - the new `contracts` table
+  - a metrics helper
+  - an access-token helper and a Cloud Storage client
+  - saving contract records
+  - the upload and lookup endpoints
+  - creating the bucket in `deploy.sh`
+  - tests
+  - one bundled fix: the jobs queued for section generation currently send no credential to Cloud Tasks, and the code ignores it when Cloud Tasks rejects them.
+- **Follow-up issues (3):**
+  - **Marked to file:** the section-worker callback accepts requests without a credential. Anyone who knows a report id can trigger paid model calls and overwrite report sections.
+  - **Not marked:** downloading and listing contracts.
+  - **Not marked:** a retention lock on the bucket, which waits on a legal decision about how long contracts must be kept.
+- **Decisions to look at:**
+  - **Needs your answer:** who calls the upload endpoint? A trusted front end that knows which customer is signed in can use a shared caller token. If customers' browsers call it directly, each customer needs their own credential.
+  - **20 MiB size limit** (the agent's confidence is medium): files go through the service rather than straight to the bucket, because Cloud Run rejects requests over 32 MiB. Scanned contracts larger than 20 MiB would be rejected.
+- **Research:** the web search ran, but both fact-checking passes failed with an agent error. The four research findings in the plan come from one source each and haven't been checked.
+- **Vetting verdict:** `adopt-with-conditions: the upload and read endpoints return 401 without the configured caller token, and an upload above 20 MiB returns 413`
+
+**Next action:** answer the question about who calls the upload endpoint, then review `.flow-tmp/plan.md`. When it looks right, run `/flow-new-feature let customers upload their signed PDF contracts; store the files in Cloud Storage and record each one in a new \`contracts\` table`.

@@ -102,6 +102,44 @@ describe("buildCritiquePrompt", () => {
     );
   });
 
+  it("the review-8c prompt frames the shots as advice on sign-off states", () => {
+    const p = buildCritiquePrompt({ ...input, phase: "review-8c" });
+    expect(p).toContain("sign-off screenshots");
+    expect(p).toContain("nothing will be fixed");
+    expect(p).not.toContain("Judge the rendered page below");
+  });
+
+  it("pairs each target's expected state with its shots and names state-mismatch", () => {
+    const p = buildCritiquePrompt({
+      ...input,
+      targets: [{ route: "/", state: "empty state with no numbers" }],
+    });
+    const shotLine = p
+      .split("\n")
+      .find((l) => l.startsWith(input.shots[0].path));
+    expect(shotLine).toContain("expected state: empty state with no numbers");
+    expect(p).toContain("state-mismatch");
+    expect(p).toContain("- /: empty state with no numbers");
+  });
+
+  it("omits the state block when no target names a state", () => {
+    const p = buildCritiquePrompt({
+      ...input,
+      targets: [{ route: "/", state: null }],
+    });
+    expect(p).not.toContain("state-mismatch");
+    expect(p).not.toContain("expected state");
+  });
+
+  it("lists the changed files and asks for an introduced flag", () => {
+    const p = buildCritiquePrompt({
+      ...input,
+      changedFiles: ["src/lib/Panel.svelte"],
+    });
+    expect(p).toContain("- src/lib/Panel.svelte");
+    expect(p).toContain('"introduced":true|false');
+  });
+
   it("the post-round prompt is blind: fresh framing and no earlier findings", () => {
     const p = buildCritiquePrompt({ ...input, phase: "post-round" });
     expect(p).toContain("as if you had never seen it before");

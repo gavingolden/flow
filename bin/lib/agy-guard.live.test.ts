@@ -6,10 +6,14 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { GUARD_DEADLINE_MARKER } from "./agy-guard";
 
-// Real process groups, real signals, fake `agy` shell scripts in a temp
-// dir: the facts no injected seam in agy-guard.test.ts can prove. POSIX
-// only. Every signal below targets a pid or group this test started;
-// nothing here ever touches a real `agy`.
+// Real process groups, real signals, fake `agy` processes: the facts no
+// injected seam in agy-guard.test.ts can prove. POSIX only. Every signal
+// below targets a pid or group this test started; nothing here ever
+// touches a real `agy`.
+// Fakes are inline `sh -c` bodies, never freshly written script files:
+// macOS charges a one-time assessment on a new file's first exec (~110ms,
+// ~400ms under contention). Test (2) has a 500ms deadline and test (4) is
+// stopped by the guard's 1s parent-watch poll, not its 60s deadline.
 const hasBun =
   spawnSync("bun", ["--version"], { stdio: "ignore" }).status === 0;
 const describeLive =
@@ -78,62 +82,77 @@ function readPid(name: string): number | undefined {
   }
 }
 
-function track(name: string): number {
+function track(name: string, hint?: string): number {
   const pid = readPid(name);
-  if (pid === undefined) throw new Error(`pid file ${name} missing`);
+  if (pid === undefined) {
+    throw new Error(`pid file ${name} missing${hint ? `: ${hint}` : ""}`);
+  }
   tracked.add(pid);
   return pid;
-}
-
-function writeFake(name: string, body: string): string {
-  const p = path.join(dir, name);
-  fs.writeFileSync(p, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-  return p;
 }
 
 const FORKING_LOOP = (d: string) =>
   `echo $$ > ${d}/agy.pid\nsleep 300 &\necho $! > ${d}/helper.pid\nwhile :; do sleep 1; done`;
 
+// The output redirect stops a surviving fake holding spawnSync's pipes open
+// for the 20s timeout; the trap precedes the pid write so a pid file proves
+// TERM was already ignored; the heartbeat lands >=1s after spawn, strictly
+// after the 500ms SIGTERM, so its existence proves the fake outlived it.
+const TERM_IGNORING_AGY = (d: string) =>
+  `exec >/dev/null 2>&1; trap '' TERM; echo $$ > ${d}/agy.pid; while :; do sleep 1; : > ${d}/survived-term; done`;
+
 describeLive("agy-guard against real processes", () => {
   it("(1) sweeps a helper left behind after agy exits", async () => {
-    const fake = writeFake(
-      "agy",
-      `sleep 300 &\necho $! > ${dir}/helper.pid\nexit 1`,
+    const body = `sleep 300 &\necho $! > ${dir}/helper.pid\nexit 1`;
+    const r = spawnSync(
+      "bun",
+      [GUARD, "--deadline-ms", "60000", "--", "/bin/sh", "-c", body],
+      { encoding: "utf8", timeout: 20_000 },
     );
-    const r = spawnSync("bun", [GUARD, "--deadline-ms", "60000", "--", fake], {
-      encoding: "utf8",
-      timeout: 20_000,
-    });
     const helper = track("helper.pid");
     expect(r.status).toBe(1);
     expect(await waitFor(() => !isAlive(helper), 2000)).toBe(true);
   }, 30_000);
 
   it("(2) force-kills an agy that ignores the polite stop at the deadline", async () => {
-    const fake = writeFake(
-      "agy",
-      `echo $$ > ${dir}/agy.pid\ntrap '' TERM\nwhile :; do sleep 1; done`,
+    const r = spawnSync(
+      "bun",
+      [
+        GUARD,
+        "--deadline-ms",
+        "500",
+        "--",
+        "/bin/sh",
+        "-c",
+        TERM_IGNORING_AGY(dir),
+      ],
+      { encoding: "utf8", timeout: 20_000 },
     );
-    const r = spawnSync("bun", [GUARD, "--deadline-ms", "500", "--", fake], {
-      encoding: "utf8",
-      timeout: 20_000,
-    });
-    const agy = track("agy.pid");
     expect(r.status).toBe(124);
+    const agy = track(
+      "agy.pid",
+      "the polite stop arrived before the fake reached its TERM trap (startup lost the 500ms race)",
+    );
     expect(r.stderr).toContain(GUARD_DEADLINE_MARKER);
     expect(r.stderr).toContain("--print-timeout");
-    expect(await waitFor(() => !isAlive(agy), 7000)).toBe(true);
+    expect(
+      await waitFor(() => !isAlive(agy), 7000),
+      "agy outlived the force-kill: the guard's SIGKILL escalation is broken",
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(dir, "survived-term")),
+      "the fake died at the polite stop, so the force-kill was never exercised",
+    ).toBe(true);
   }, 30_000);
 
   it("(3) survives a force-kill of the parent's whole process group and stops agy", async () => {
-    const fake = writeFake("agy", FORKING_LOOP(dir));
     const parent = path.join(dir, "parent.ts");
     fs.writeFileSync(
       parent,
       `import { openSync } from "node:fs";
-const [bun, guard, fake, out] = process.argv.slice(2);
+const [bun, guard, body, out] = process.argv.slice(2);
 const fd = openSync(out, "w");
-Bun.spawnSync([bun, guard, "--deadline-ms", "60000", "--", fake], {
+Bun.spawnSync([bun, guard, "--deadline-ms", "60000", "--", "/bin/sh", "-c", body], {
   stdin: "ignore",
   stdout: fd,
   stderr: "pipe",
@@ -143,7 +162,7 @@ Bun.spawnSync([bun, guard, "--deadline-ms", "60000", "--", fake], {
     );
     const p = spawn(
       "bun",
-      [parent, "bun", GUARD, fake, path.join(dir, "out.txt")],
+      [parent, "bun", GUARD, FORKING_LOOP(dir), path.join(dir, "out.txt")],
       { detached: true, stdio: "ignore" },
     );
     const parentPid = p.pid as number;
@@ -168,11 +187,16 @@ Bun.spawnSync([bun, guard, "--deadline-ms", "60000", "--", fake], {
   }, 30_000);
 
   it("(4) stops agy when an intermediate shell starts the guard and exits", async () => {
-    const fake = writeFake("agy", FORKING_LOOP(dir));
-    spawnSync("sh", ["-c", `bun ${GUARD} --deadline-ms 60000 -- ${fake} &`], {
-      stdio: "ignore",
-      timeout: 10_000,
-    });
+    spawnSync(
+      "sh",
+      [
+        "-c",
+        'bun "$0" --deadline-ms 60000 -- /bin/sh -c "$1" &',
+        GUARD,
+        FORKING_LOOP(dir),
+      ],
+      { stdio: "ignore", timeout: 10_000 },
+    );
     expect(
       await waitFor(() => readPid("helper.pid") !== undefined, 10_000),
     ).toBe(true);

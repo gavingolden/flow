@@ -2,13 +2,17 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { PRICES } from "../../docs/eval/token-spend-audit";
+import { computeCost, sumTranscriptUsage } from "./cost";
+import { lookupModelPricing, MODEL_PRICING, priceUsage } from "./cost-pricing";
 import {
-  computeCost,
   encodeProjectSegment,
+  findSessionJsonlsSync,
+  isLocalCommandEcho,
   seedMatchesSlug,
-  sumTranscriptUsage,
-} from "./cost";
-import { MODEL_PRICING } from "./cost-pricing";
+} from "./session-discovery";
+import type { RunAttribution } from "./run-attribution-types";
+import { computeTotals } from "./run-attribution-unit";
 import type { PipelineState } from "./state";
 
 const REPO = "/Users/test/code/me/flow";
@@ -60,6 +64,12 @@ describe(encodeProjectSegment, () => {
   it("replaces every / with - so the leading slash becomes a leading dash", () => {
     expect(encodeProjectSegment("/Users/me/code/flow")).toBe(
       "-Users-me-code-flow",
+    );
+  });
+
+  it("maps dots and other non-alphanumerics to dashes like Claude Code", () => {
+    expect(encodeProjectSegment("/Users/me/code/.flow-tmp/a_b")).toBe(
+      "-Users-me-code--flow-tmp-a-b",
     );
   });
 
@@ -150,6 +160,7 @@ describe(computeCost, () => {
     expect(cost).toEqual({
       total: 0,
       byModel: {},
+      delegatedUsd: 0,
       unknownModels: [],
       hasData: false,
     });
@@ -476,6 +487,7 @@ describe(sumTranscriptUsage, () => {
       output: 44,
       total: 110,
       model: "claude-opus-4-7",
+      effortRuns: [["unknown", 2]],
     });
   });
 
@@ -511,7 +523,132 @@ describe(sumTranscriptUsage, () => {
       output: 0,
       total: 0,
       model: null,
+      effortRuns: [],
     });
+  });
+
+  it("reports ordered effort runs", async () => {
+    const jsonlPath = path.join(projectDir, "eff.jsonl");
+    fs.writeFileSync(
+      jsonlPath,
+      [
+        { ...(assistant("claude-opus-5-5", {}, "a") as object), effort: "low" },
+        {
+          ...(assistant("claude-opus-5-5", {}, "b") as object),
+          effort: "high",
+        },
+      ]
+        .map((l) => JSON.stringify(l))
+        .join("\n"),
+    );
+    expect((await sumTranscriptUsage(jsonlPath)).effortRuns).toEqual([
+      ["low", 1],
+      ["high", 1],
+    ]);
+  });
+});
+
+describe("/clear-aware session discovery", () => {
+  const BRACKET =
+    "[pipeline-slug: add-csv-export] Use the /flow-pipeline skill.";
+
+  it("matches a session whose first lines are isMeta and a /clear echo", () => {
+    writeJsonl("cleared.jsonl", [
+      {
+        type: "user",
+        isMeta: true,
+        message: { role: "user", content: "meta" },
+      },
+      seedEvent("<command-name>/clear</command-name>\n<command-message>clear"),
+      seedEvent("<local-command-stdout></local-command-stdout>"),
+      seedEvent(BRACKET),
+    ]);
+    expect(findSessionJsonlsSync(projectDir, SLUG)).toEqual([
+      path.join(projectDir, "cleared.jsonl"),
+    ]);
+  });
+
+  it("finds the first real message behind a multi-chunk prefix", () => {
+    const filler = { type: "attachment", blob: "x".repeat(200_000) };
+    writeJsonl("big.jsonl", [filler, filler, seedEvent(BRACKET)]);
+    expect(findSessionJsonlsSync(projectDir, SLUG)).toHaveLength(1);
+  });
+
+  it("does not match when the first real message names another slug", () => {
+    writeJsonl("other.jsonl", [
+      seedEvent("<command-name>/clear</command-name>"),
+      seedEvent("[pipeline-slug: other] Use the /flow-pipeline skill."),
+    ]);
+    expect(findSessionJsonlsSync(projectDir, SLUG)).toEqual([]);
+  });
+
+  it("classifies echoes", () => {
+    expect(isLocalCommandEcho({ isMeta: true })).toBe(true);
+    expect(
+      isLocalCommandEcho({ message: { content: "<command-name>/x" } }),
+    ).toBe(true);
+    expect(isLocalCommandEcho({ message: { content: "hello" } })).toBe(false);
+  });
+});
+
+describe("price table", () => {
+  it("prices 5m and 1h cache writes per bucket for opus-5-5", () => {
+    const p = lookupModelPricing("claude-opus-5-5");
+    expect(p).not.toBeNull();
+    const usage = {
+      cache_creation_input_tokens: 2_000_000,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 1_000_000,
+        ephemeral_1h_input_tokens: 1_000_000,
+      },
+    };
+    // $5 (5m) + $8 (1h)
+    expect(priceUsage(usage, p!)).toBeCloseTo(13, 6);
+  });
+
+  it("prices all cache writes at the 5m rate when no split is present", () => {
+    const p = MODEL_PRICING["claude-opus-5-5"];
+    expect(
+      priceUsage({ cache_creation_input_tokens: 1_000_000 }, p),
+    ).toBeCloseTo(5, 6);
+  });
+
+  it("resolves a dated model id to its undated entry", () => {
+    expect(lookupModelPricing("claude-opus-5-5-20261101")).toBe(
+      MODEL_PRICING["claude-opus-5-5"],
+    );
+    expect(lookupModelPricing("claude-haiku-5-5")).toBeNull();
+  });
+
+  it("lists the same models as the spend audit's PRICES apart from the pre-audit 4.x rows", () => {
+    const AUDIT_EXEMPT = new Set(["claude-opus-4-7", "claude-sonnet-4-6"]);
+    expect(Object.keys(PRICES).sort()).toEqual(
+      Object.keys(MODEL_PRICING)
+        .filter((k) => !AUDIT_EXEMPT.has(k))
+        .sort(),
+    );
+  });
+
+  it("agrees with the spend audit's PRICES over the audit's keys", () => {
+    for (const [model, [input, w5m, w1h, read, output]] of Object.entries(
+      PRICES,
+    )) {
+      expect(MODEL_PRICING[model], model).toMatchObject({
+        input,
+        cacheCreation: w5m,
+        cacheCreation1h: w1h,
+        cacheRead: read,
+        output,
+      });
+    }
+  });
+
+  it("keeps a 1h write rate of 2x input on the 4.x entries", () => {
+    for (const id of ["claude-opus-4-7", "claude-sonnet-4-6"]) {
+      expect(MODEL_PRICING[id].cacheCreation1h).toBe(
+        MODEL_PRICING[id].input * 2,
+      );
+    }
   });
 });
 
@@ -524,5 +661,115 @@ describe("MODEL_PRICING", () => {
 
   it("attaches a friendly name to each pricing entry", () => {
     expect(MODEL_PRICING["claude-opus-4-7"]?.friendlyName).toBe("Opus 4.7");
+  });
+});
+
+describe("computeCost as a run-attribution projection", () => {
+  const ONE_MTOK = {
+    input_tokens: 1_000_000,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  };
+
+  function rowWith(sessionIds: string[], cost: number): RunAttribution {
+    const sessions = sessionIds.map((id) => ({
+      session_id: id,
+      model: "claude-sonnet-4-6",
+      runs: [["claude-sonnet-4-6", "low", 1]] as [string, string, number][],
+      run_costs: [cost],
+      turns: 1,
+      tokens: {
+        input: 1,
+        cache_creation: 0,
+        cache_read: 0,
+        output: 0,
+        total: 1,
+      },
+      cost_usd: cost,
+    }));
+    return {
+      version: 1,
+      slug: SLUG,
+      pr: null,
+      repo: REPO,
+      sessions,
+      spawns: [],
+      delegated: [],
+      totals: computeTotals(sessions, [], 0),
+    };
+  }
+
+  it("carries a row's delegated headless spend so byModel + delegatedUsd sums to total", async () => {
+    const row = rowWith(["gone"], 7);
+    row.delegated = [
+      {
+        event: "deliberate.call",
+        task: "t",
+        model: "opus",
+        effort: null,
+        ran: true,
+        skip_reason: null,
+        ts: "2026-11-06T00:00:00Z",
+        cost_usd: 2,
+      },
+    ];
+    row.totals = computeTotals(row.sessions, row.delegated, 0);
+    const cost = await computeCost(state(), tmpRoot, row);
+    expect(cost.delegatedUsd).toBeCloseTo(2, 6);
+    const parts =
+      Object.values(cost.byModel).reduce((a, b) => a + b, 0) +
+      cost.delegatedUsd;
+    expect(parts).toBeCloseTo(cost.total, 6);
+  });
+
+  it("prices a fully pruned pipeline from the latest row alone", async () => {
+    const cost = await computeCost(state(), tmpRoot, rowWith(["gone"], 7));
+    expect(cost.hasData).toBe(true);
+    expect(cost.total).toBeCloseTo(7, 6);
+    expect(cost.byModel["claude-sonnet-4-6"]).toBeCloseTo(7, 6);
+  });
+
+  it("sums a row session with an on-disk session for a partly pruned pipeline", async () => {
+    writeJsonl("live.jsonl", [
+      seedEvent(),
+      assistant("claude-sonnet-4-6", ONE_MTOK),
+    ]);
+    const cost = await computeCost(state(), tmpRoot, rowWith(["gone"], 7));
+    // $7 from the pruned row session + $3 for 1M Sonnet 4.6 input tokens
+    expect(cost.total).toBeCloseTo(10, 6);
+  });
+
+  it("keeps an empty row at hasData:false so the cell renders a dash", async () => {
+    const cost = await computeCost(state(), tmpRoot, rowWith([], 0));
+    expect(cost).toEqual({
+      total: 0,
+      byModel: {},
+      delegatedUsd: 0,
+      unknownModels: [],
+      hasData: false,
+    });
+  });
+
+  it("counts sub-agent spend and lists unpriced models", async () => {
+    writeJsonl("session.jsonl", [
+      seedEvent(),
+      assistant("claude-sonnet-4-6", ONE_MTOK),
+    ]);
+    const sub = path.join(projectDir, "session", "subagents");
+    fs.mkdirSync(sub, { recursive: true });
+    fs.writeFileSync(
+      path.join(sub, "agent-1.jsonl"),
+      [
+        assistant("claude-opus-5-5", ONE_MTOK),
+        assistant("claude-haiku-5-5", ONE_MTOK),
+      ]
+        .map((l) => JSON.stringify(l))
+        .join("\n"),
+    );
+    const cost = await computeCost(state(), tmpRoot);
+    // $3 sonnet-4-6 + $4 opus-5-5; haiku-5-5 is unpriced
+    expect(cost.total).toBeCloseTo(7, 6);
+    expect(cost.unknownModels).toEqual(["claude-haiku-5-5"]);
   });
 });

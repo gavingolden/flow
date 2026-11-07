@@ -161,6 +161,9 @@ import {
   ensureLaunchSettings,
   launchSettingsPermissions,
   flowPipelineResumeSeed,
+  resolveBgLoopGuardCommand,
+  resolveOrphanSweepHookCommand,
+  resolveRequestEchoHookCommand,
   resolveSeedHookCommand,
   type FeatureOptions,
 } from "./feature";
@@ -4213,9 +4216,11 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   let settingsPath!: string;
   let moduleRelativeHookPath!: string;
   let installedGuardPath!: string;
+  let installedEchoPath!: string;
 
   beforeEach(() => {
     installedHookPath = installedHelperPath("flow-seed-ingested-hook");
+    installedEchoPath = installedHelperPath("flow-request-echo-hook");
     settingsPath = path.join(stateDir, "hook-launch-settings.json");
     // Derive the module-relative fallback the same way hookScriptPath() does
     // (bin/lib/feature.ts -> ../flow-seed-ingested-hook.ts), without
@@ -4227,6 +4232,9 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     );
     delete process.env.FLOW_SEED_HOOK_COMMAND;
     delete process.env.FLOW_DOC_READ_GUARD_COMMAND;
+    delete process.env.FLOW_BG_LOOP_GUARD_COMMAND;
+    delete process.env.FLOW_ORPHAN_SWEEP_HOOK_COMMAND;
+    delete process.env.FLOW_REQUEST_ECHO_HOOK_COMMAND;
     installedGuardPath = installedHelperPath("flow-doc-read-guard");
     // Default-silence the divergence warning's stderr write across this
     // block's fixtures that happen to diverge (installHook()'s default
@@ -4238,8 +4246,12 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   afterEach(() => {
     fs.rmSync(installedHookPath, { force: true });
     fs.rmSync(installedGuardPath, { force: true });
+    fs.rmSync(installedEchoPath, { force: true });
     delete process.env.FLOW_SEED_HOOK_COMMAND;
     delete process.env.FLOW_DOC_READ_GUARD_COMMAND;
+    delete process.env.FLOW_BG_LOOP_GUARD_COMMAND;
+    delete process.env.FLOW_ORPHAN_SWEEP_HOOK_COMMAND;
+    delete process.env.FLOW_REQUEST_ECHO_HOOK_COMMAND;
   });
 
   type PreToolUseEntry = {
@@ -4252,6 +4264,18 @@ describe("ensureLaunchSettings hook-command resolution", () => {
       hooks: { PreToolUse: PreToolUseEntry[] };
     };
     return settings.hooks.PreToolUse;
+  }
+
+  type SessionStartEntry = {
+    matcher: string;
+    hooks: Array<{ type: string; command: string }>;
+  };
+
+  function readSessionStart(): SessionStartEntry[] {
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+      hooks: { SessionStart: SessionStartEntry[] };
+    };
+    return settings.hooks.SessionStart;
   }
 
   function readRecordedCommand(): string {
@@ -4483,8 +4507,12 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(preToolUse).toHaveLength(1);
     expect(preToolUse[0]!.matcher).toBe("Bash");
     const hooks = preToolUse[0]!.hooks;
-    expect(hooks.map((h) => h.if)).toEqual(["Bash(sed *)", "Bash(awk *)"]);
-    for (const h of hooks) {
+    expect(hooks.map((h) => h.if)).toEqual([
+      "Bash(sed *)",
+      "Bash(awk *)",
+      undefined,
+    ]);
+    for (const h of hooks.slice(0, 2)) {
       expect(h.type).toBe("command");
       expect(h.command).toContain("flow-doc-read-guard");
     }
@@ -4497,7 +4525,47 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(readPreToolUse()[0]!.hooks.map((h) => h.command)).toEqual([
       "/custom/override/guard.sh",
       "/custom/override/guard.sh",
+      expect.stringContaining("flow-bg-loop-guard"),
     ]);
+  });
+
+  it("appends the bg-loop guard after the doc-read guard entries, never at index 0", () => {
+    ensureLaunchSettings(settingsPath);
+    const hooks = readPreToolUse()[0]!.hooks;
+    expect(hooks).toHaveLength(3);
+    expect(hooks[0]!.command).toContain("flow-doc-read-guard");
+    expect(hooks[2]).toEqual({
+      type: "command",
+      command: resolveBgLoopGuardCommand(),
+    });
+    expect(fs.existsSync(hooks[2]!.command)).toBe(true);
+  });
+
+  it("honors FLOW_BG_LOOP_GUARD_COMMAND verbatim", () => {
+    process.env.FLOW_BG_LOOP_GUARD_COMMAND = "/custom/bg-guard.sh";
+    ensureLaunchSettings(settingsPath);
+    expect(readPreToolUse()[0]!.hooks[2]!.command).toBe("/custom/bg-guard.sh");
+  });
+
+  it("registers the orphan sweep hook as a Bash PostToolUse entry", () => {
+    ensureLaunchSettings(settingsPath);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+      hooks: {
+        PostToolUse: Array<{
+          matcher: string;
+          hooks: Array<{ type: string; command: string }>;
+        }>;
+      };
+    };
+    expect(settings.hooks.PostToolUse).toEqual([
+      {
+        matcher: "Bash",
+        hooks: [{ type: "command", command: resolveOrphanSweepHookCommand() }],
+      },
+    ]);
+    expect(resolveOrphanSweepHookCommand()).toContain("flow-orphan-sweep-hook");
+    process.env.FLOW_ORPHAN_SWEEP_HOOK_COMMAND = "/custom/sweep.sh";
+    expect(resolveOrphanSweepHookCommand()).toBe("/custom/sweep.sh");
   });
 
   it("re-resolves the guard to the checkout path once the installed guard disappears", () => {
@@ -4518,6 +4586,78 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     process.env.FLOW_SEED_HOOK_COMMAND = "";
     ensureLaunchSettings(settingsPath);
     expect(readRecordedCommand()).toBe(installedHookPath);
+  });
+
+  it("registers the request-echo hook as two matcher-scoped SessionStart entries", () => {
+    ensureLaunchSettings(settingsPath);
+    const sessionStart = readSessionStart();
+    const moduleRelativeEchoPath = path.join(
+      __dirname,
+      "..",
+      "flow-request-echo-hook.ts",
+    );
+    expect(sessionStart).toEqual([
+      {
+        matcher: "startup|compact",
+        hooks: [{ type: "command", command: moduleRelativeEchoPath }],
+      },
+      {
+        matcher: "clear",
+        hooks: [
+          { type: "command", command: `${moduleRelativeEchoPath} --on-clear` },
+        ],
+      },
+    ]);
+    expect(fs.existsSync(moduleRelativeEchoPath)).toBe(true);
+  });
+
+  it("writes the hooks keys in UserPromptSubmit, PreToolUse, PostToolUse, SessionStart order", () => {
+    ensureLaunchSettings(settingsPath);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+      hooks: Record<string, unknown>;
+    };
+    expect(Object.keys(settings.hooks)).toEqual([
+      "UserPromptSubmit",
+      "PreToolUse",
+      "PostToolUse",
+      "SessionStart",
+    ]);
+  });
+
+  it("prefers the installed request-echo helper when it exists on disk", () => {
+    fs.mkdirSync(path.dirname(installedEchoPath), { recursive: true });
+    fs.writeFileSync(installedEchoPath, "installed-echo\n");
+    fs.chmodSync(installedEchoPath, 0o755);
+    ensureLaunchSettings(settingsPath);
+    const sessionStart = readSessionStart();
+    expect(sessionStart[0]!.hooks[0]!.command).toBe(installedEchoPath);
+    expect(sessionStart[1]!.hooks[0]!.command).toBe(
+      `${installedEchoPath} --on-clear`,
+    );
+  });
+
+  it("warns to stderr when the installed request-echo helper diverges from the module-relative script", () => {
+    fs.mkdirSync(path.dirname(installedEchoPath), { recursive: true });
+    fs.writeFileSync(installedEchoPath, "this differs from the script\n");
+    const writeSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    resolveRequestEchoHookCommand();
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(writeSpy.mock.calls[0]![0]).toContain(
+      "your local edits to bin/flow-request-echo-hook.ts will not be exercised",
+    );
+    writeSpy.mockRestore();
+  });
+
+  it("honors FLOW_REQUEST_ECHO_HOOK_COMMAND verbatim, with the --on-clear suffix on the clear entry", () => {
+    process.env.FLOW_REQUEST_ECHO_HOOK_COMMAND = "bun /custom/echo.ts";
+    ensureLaunchSettings(settingsPath);
+    const sessionStart = readSessionStart();
+    expect(sessionStart[0]!.hooks[0]!.command).toBe("bun /custom/echo.ts");
+    expect(sessionStart[1]!.hooks[0]!.command).toBe(
+      "bun /custom/echo.ts --on-clear",
+    );
   });
 });
 

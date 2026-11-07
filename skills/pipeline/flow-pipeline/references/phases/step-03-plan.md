@@ -103,8 +103,9 @@ suffix is chat-only: not counted against the cap, never passed to
 `**Unsolved:** <open answer-sheet items with their `(high)`/`(medium)`
 tag and recommended default inline, anchors omitted>` / `**Needs
 attention:** <high-stakes decisions read from `## Decision analysis` +
-`## Architecture Decisions`, each stated as before→after (from
-`## Behavioral contrast`) plus the option chosen and why, plus every
+`## Architecture Decisions`, each stated as the decision and why (when it replaces an existing behavior, name the delta on
+the same line with bold `**Before:** <old>; **After:** <new>` labels, no arrow; from
+`## Behavioral contrast`) plus the option chosen, plus every
 crucial-and-uncertain item (`[confidence: low]` or `**Needs user
 input:**`, each carrying the stable `Q<n>` id discovery's numbering rule
 assigns to both) as `Q<n> (low): <question> — default: <recommended>`

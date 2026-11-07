@@ -1,8 +1,7 @@
 # Pattern-Consistency Review Checklist
 
-Checks for the **pattern-consistency** lens. Soft cap: ~150 lines — condense, merge
-duplicates, automate deterministic entries into lint, or move consumer-specific entries to
-`docs/consumer-review-patterns.md` before adding new entries. New entries are captured via `flow-pr-review/SKILL.md` step 5 ("Capture
+Checks for the **pattern-consistency** lens. Cap: 200 lines, lint-enforced. Before an addition would cross it: condense, fold instance entries into a class rule, re-home an entry to the lens whose checklist owns its surface, automate deterministic entries into lint, or move consumer-specific entries to `docs/consumer-review-patterns.md`.
+New entries are captured via `flow-pr-review/SKILL.md` step 5 ("Capture
 the gap") — see that step for the two-destination contract; never edit this file at review time — step 5 routes
 generic gaps to a filed issue; edits land only via a maintainer PR against the flow repo.
 
@@ -29,6 +28,11 @@ branch probably should too.
 A second source of truth for existing state (a new writer, cache, or index) must route
 through every invariant the incumbent writer enforces (econ-data #633).
 
+- Metrics vocabulary: a new attribute key absent from `.flow/metrics.md` `## Attributes`; a
+  registered concept under another word (`upstream` vs `server.address`); a key ignoring a
+  fitting OpenTelemetry semantic-convention name; a tenant or customer ID as a label on a
+  series-billed backend or Google Cloud Monitoring; an alert action of ticket or with no channel. Confidence 80 or above.
+
 ## Prose Claims Must Match the Code They Describe
 
 Applies to a doc, comment, or agent-prompt sentence the diff adds or edits that states what
@@ -48,6 +52,10 @@ code does. Open the code it names and check:
 - Trigger claims: compare the predicate's real trigger set with the narrower scenario the
   comment names; the narrow wording hides the other states that reach the branch (flow PR #461).
 
+- Member notation: a comment citing an instance or private member as `Class.method` implies
+  a public static API; write `Class#method`, and flag a cross-module citation of a private
+  member (econ-data PR #577).
+
 ## Claims the Diff Contradicts
 
 Applies to PR-body, runbook, README, evidence, and in-code-rationale sentences the diff adds
@@ -64,6 +72,12 @@ or edits:
   (flow PR #748, econ-data #840).
 - In-code rationale for not doing a promised thing: a constraint the same PR authored is
   self-imposed; flag it (econ-data #690).
+- Instrumentation claims: a diff that adds or changes a request handler, job or queue
+  consumer, outbound API call, multi-stage pipeline, or a connection or worker pool while the plan or PR
+  `## Instrumentation` says `none` or is absent; flag at confidence 80 or above.
+- Runtime design claims: a diff that adds a runtime surface (handler, job, queue consumer,
+  outbound call, multi-stage pipeline, connection or worker pool) while the plan's `### Runtime design` says `none` or is absent;
+  flag at confidence 80.
 
 ## New Rules That Contradict Their Neighbours
 
@@ -72,36 +86,9 @@ the doc, and its consuming SKILL.md. Flag a later floor overriding a named carve
 output format requiring what the gate exists to avoid (flow PRs #637, #748). Confirm each newly
 cited sibling path resolves in the skill it names, not a neighbouring skill (flow PR #637).
 
-## npm Lifecycle Script Environment Guards
-
-`prepare`/`postinstall`/`preinstall` scripts run automatically during `npm install`/`npm ci`.
-If they depend on non-Node tools (`git`, `bun`, `docker`) without a guard, they break installs
-in environments lacking those tools. For each lifecycle script, identify external tool
-dependencies, verify each is guarded with `command -v`/`which`, and verify failure is
-non-fatal (doesn't block `npm install`).
-
 ## Branch Staleness vs. Main-Integrated Behaviour
 
-A PR's branch can pass its own CI while cut from a stale `main`, because CI exercises the
-branch in isolation, not the post-squash-merge tree. This matters most when the PR adds a
-phase/hook/step that _composes_ with modules changed on `main` since the cut — even when the
-PR's own diff doesn't touch those files, and especially when the PR's tests mock the
-changed-on-main module (suppressing the only signal that would catch drift). Check
-`git log <branch>..origin/main` for commits touching integration partners; if the PR's
-tests mock those partners, recommend a rebase + full re-run before merge. Bar:
-`suggestion (non-blocking)` unless there's a concrete file-level conflict or known
-contract change.
-
-## `process.exit` Inside Result-Returning Primitives
-
-A function whose return type encodes success/failure (`{ ok, ... }`, a domain enum) is a
-contract that callers can wrap in try/catch — but `process.exit(...)` inside it bypasses that
-contract entirely; a try/catch cannot catch an exit. This surfaces only when a CLI primitive
-built assuming it only runs from `main()` gets reused from a non-CLI caller (a phase, an
-orchestrator, a test harness). For each result-returning primitive used outside a CLI entry
-point, grep it (and its helpers) for `process.exit`; enumerate whether the new caller's
-argument set can reach it. The fix is not "wrap in try/catch" — refactor the primitive to
-throw or return a failure variant, pushing the exit decision back to the CLI entry point.
+CI's merge-ref run reflects `main` only as of the last push, so a PR cut from a stale `main` can pass while a phase/hook/step it adds composes badly with modules changed on `main` since. Highest risk when the PR's tests mock those integration partners. Check `git log <branch>..origin/main` for commits touching them; if mocked, recommend a rebase + full re-run. Bar: `suggestion (non-blocking)` unless a concrete conflict or known contract change.
 
 ## Exact-String Anchor Gating Between Producer and Consumer Docs
 
@@ -122,21 +109,3 @@ location naming the moved/renamed group by enumeration and count how many member
 actually names. "The omission is pre-existing" is not a valid dismissal once the PR changes
 what the reference points at — the omission was harmless while all members lived together
 and became a real gap the moment the PR moved the group.
-
-## Git-Grep Audit Guards Must Use Deterministic Pathspec Magic
-
-An audit-guard test that shells out to `git grep`/`git ls-files` with a bare `**` glob
-pathspec relies on git's default glob interpretation, which differs by pathspec settings and
-silently false-passes when the pattern matches nothing. Guards exist to fail loudly; a guard
-whose selector can quietly select zero files never detects anything. Flag bare `**` pathspecs
-in grep-based invariants: use explicit `:(glob)` pathspec magic, or assert the selector
-matches a known-present sentinel file so an empty selection fails.
-
-## JSDoc/Comment Cross-Reference to an Instance Member Written as `Class.method` (PR #577)
-
-A doc comment citing an instance method with dot notation (`Graph.isInterpolatedAnchorUsable`)
-implies a public static API when the member is actually private/instance. The correct
-notation is `Class#method`, which is also what JSDoc/TypeDoc resolve as an instance-member
-link. Check any cross-file comment naming a method on another class: is it static
-(`Class.method`) or instance (`Class#method`), and is it even exported — citing a private
-method from another module's comment is itself a smell worth flagging.

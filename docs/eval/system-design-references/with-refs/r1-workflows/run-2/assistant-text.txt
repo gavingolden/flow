@@ -1,0 +1,28 @@
+## Plan ready, with conditions on scope
+
+I wrote the plan and the PR description draft. Both files are in place and contain text. Nothing was implemented, no source files changed, and no later pipeline phase was started.
+
+- **Problem:** Each model-written section takes 20–60 seconds and costs money, and the executive summary can't start until the other five are done. Right now reports are only held in the server's memory and the service has no authentication. If the report were written during the request itself, callers would wait for minutes, a restart would throw away work already paid for, and nothing would limit spending.
+- **Verdict:** adopt with conditions. The five sections run at the same time, and the executive summary runs only after all five are saved. All of this happens in a queued background job, not in the request. Creating a report requires authentication and is limited by a daily cap.
+- **Tasks:** 8:
+  1. Add a timeout and the summary call to the model client.
+  2. Add a metrics helper.
+  3. Make report storage durable (two tasks).
+  4. Write the report-generation logic.
+  5. Add a task-queue client.
+  6. Add the create and worker routes.
+  7. Update deployment.
+- **Possible follow-up issues:** 2, neither selected yet:
+  - Re-run only the failed sections of a partial report.
+  - Add ownership and authentication to the existing read and share routes.
+- **Assumptions to check:**
+  - **You need to decide the daily cap.** The plan assumes 20 reports a day, which is 120 paid model calls normally and 480 in the worst case.
+  - **The background job is the plan's choice, made with medium confidence.** It uses Firestore and a separate private worker service. If you're fine with losing an in-progress report when the service restarts, about half the PR could be dropped.
+  - **The 60,000-character input limit for the summary is a placeholder.** Nothing in the repo states the model's real limit. The plan sets one overall size limit and shrinks the sections proportionally only when they don't fit.
+- **Research:** web research was skipped because the question wasn't one research would answer.
+
+Files are in `.flow-tmp/`:
+- `plan.md`
+- `pr-description-draft.md`
+
+**Next action:** Go through the open questions in `.flow-tmp/plan.md`, especially the daily cap and whether you want the background-job design. Then run `/flow-new-feature add a due-diligence report for a company with six sections, each written by a model call; the executive summary section is written from the other five sections` when you want to implement it.

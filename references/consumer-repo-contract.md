@@ -206,6 +206,17 @@ flow's launch-settings file, so it never reaches a consumer repo's
 `.claude/settings.json` or the user's global `~/.claude/settings.json`, and
 `flow-claude-headless` sessions do not carry it.
 
+Two sibling hooks register the same way (flow's launch-settings file only,
+never a consumer repo's settings): `bin/flow-bg-loop-guard.ts`, a
+PreToolUse deny-only, fail-open guard that refuses a Bash command which
+backgrounds an endless loop, or backgrounds a job and then cleans up with `$(jobs -p)` (empty in the
+Bash tool's zsh, so the cleanup kills nothing); and
+`bin/flow-orphan-sweep-hook.ts`, a fail-open PostToolUse hook that, at most
+once a minute per pipeline, stops CPU-busy leftover processes whose working
+directory is inside the pipeline's worktree and tells the agent how many.
+`flow-stress --cpu <n> --max-sec <s> -- <cmd>` is the supported way to add
+CPU contention to a test.
+
 ## Design foundation
 
 `.flow/design/foundation.md` is a small human-legible contract —
@@ -215,6 +226,22 @@ agent-maintained, committed (full convention in
 never secrets; re-freeze is explicit-only. Deleting it degrades to
 fully-ephemeral. `spec.json` + reference snapshot stay pipeline-ephemeral
 under `.flow-tmp/design/`, never committed.
+
+## Metrics conventions
+
+`.flow/metrics.md` is a small human-legible contract for the repo's custom
+metrics — the backend (or `none yet`), the metric namespace, the attribute-key
+registry (`## Attributes`: each key with its closed values or source), the
+closed `error.type` list, the repo-local metrics helper path, the accumulating
+dashboard panel table, the dashboard list (`## Dashboards`: name, URL, what it
+answers), alert tiers, SLOs, and which operations are instrumented (full
+convention in the `flow-metrics` skill) — agent-maintained, committed. The
+first instrumented change creates it; later changes extend it. A key is never
+registered as a synonym of an existing one, and a key or `error.type` value
+that breaks the conventions is migrated — renamed, with every dashboard query
+and alert that reads it updated in the same change. Never secrets. Absent is a
+legitimate state: a repo with no runtime surface, or one that has not yet
+shipped an instrumented change, simply has no file.
 
 ## Product brief
 

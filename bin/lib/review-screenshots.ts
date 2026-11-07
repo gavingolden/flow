@@ -1,28 +1,99 @@
 /**
- * Screenshot upload planning for `flow-review-finalize`'s body write.
+ * Upload-then-render screenshot push for `flow-review-finalize` and
+ * `flow-pr-attach`.
  *
- * `gh pr edit --attach <file>#<alt>` (gh >= 2.99.0) uploads a local image
- * and rewrites the body's matching `![alt](relative/path)` reference to the
- * hosted URL — but only in the PR, never in the local body file. The ledger
- * therefore stores sha256 → hosted URL, so a later review pass in the same
- * worktree substitutes the URL instead of re-uploading.
+ * `gh pr edit <pr> --attach <abs>#<token>` (gh >= 2.99.0) uploads a local
+ * image and, with no body flag, appends `![token](hosted-url)` to the PR body.
+ * gh is used only as the uploader: flow reads each hosted URL back by its
+ * unique token, rewrites markdown and `<img src>` references itself, and
+ * pushes the final body once. The sha256 → URL ledger keeps a later pass in
+ * the same worktree from re-uploading.
  */
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import {
+  classifyExternalImages,
+  countRepoRawLinks,
+  fetchRepoImage,
+  hasRepoRawLinks,
+} from "./image-hosts";
+import {
+  ATTACH_MAX_FILES,
+  collectLocalImages,
+  harvestTokenUrls,
+  hasLocalImageRefs,
+  renderHostedBody,
+  stripLocalImageRefs,
+  uploadToken,
+  type CollectedImages,
+  type LocalImage,
+} from "./image-refs";
+import { ensureFlowExcludes } from "./worktree-marker";
 
-export const BODY_MAX_CHARS = 60000;
-export const ATTACH_MAX_FILES = 50;
+export {
+  ATTACH_MAX_FILES,
+  collectLocalImages,
+  harvestTokenUrls,
+  hasLocalImageRefs,
+  renderHostedBody,
+  stripLocalImageRefs,
+  uploadToken,
+  type LocalImage,
+} from "./image-refs";
+export { classifyExternalImages } from "./image-hosts";
+
+/** Final-body guard: a body this long is pushed without uploading anything. */
+export const BODY_MAX_CHARS = 250000;
+/**
+ * Sizes a batch against the live body. A live 98,572-char PR body proves the
+ * gh path accepts more than 65,536; gh's own rejection stays the authority.
+ */
+const TRANSIENT_BODY_MAX = 262144;
+const EMBED_COST_CHARS = 120;
 const ATTACH_MIN_VERSION = [2, 99, 0];
-const IMAGE_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
 
 export type Ledger = Record<string, string>;
-export type AttachItem = { target: string; arg: string; sha: string };
 export type ScreenshotSkip =
   | "screenshots_gh_too_old"
   | "screenshots_body_too_large"
-  | "screenshots_too_many"
-  | "screenshots_outside_worktree";
+  | "screenshots_outside_worktree"
+  | "screenshots_file_unusable"
+  | "screenshots_upload_failed"
+  | "screenshots_url_unresolved"
+  | "screenshots_external_host";
+type Skip = { step: ScreenshotSkip; reason: string };
+
+export type ExecResult = { stdout: string; stderr: string; exitCode: number };
+export type ScreenshotIo = {
+  exec: (argv: string[]) => ExecResult;
+  readFile: (p: string) => string | null;
+  writeFile: (p: string, content: string) => void;
+  hashFile: (p: string) => string | null;
+  /** Binary writer for re-hosted bytes; without it, same-repo links are only flagged. */
+  writeBytes?: (p: string, bytes: Uint8Array) => void;
+};
+export type PushArgs = {
+  prStr: string;
+  bodyFile: string;
+  worktree: string;
+  /** Anything but `true` makes the engine probe `gh --version` itself when the body needs an upload. */
+  attachSupported?: boolean;
+  /** Names what to re-run, since the reason also prints where "re-run" is ambiguous. */
+  retryHint?: string;
+};
+export type PushResult = {
+  edit: ExecResult;
+  uploaded: number;
+  reused: number;
+  rehosted: number;
+  batches: number;
+  /** Unique same-repo image links still in the pushed body (they load from the repo). */
+  repoLinked: number;
+  skips: Skip[];
+  /** Hosted URL per body reference, so a caller can mirror the rewrite into its own copy. */
+  urlByTarget: Map<string, string>;
+};
 
 export function ghSupportsAttach(versionOutput: string): boolean {
   const m = versionOutput.match(/gh version (\d+)\.(\d+)\.(\d+)/);
@@ -61,302 +132,384 @@ export function sha256File(p: string): string | null {
   }
 }
 
-function isLocalTarget(target: string): boolean {
-  return !/^[a-z][a-z0-9+.-]*:/i.test(target) && !target.startsWith("#");
+/** Writes re-hosted bytes under the gitignored `.flow-tmp/` scratch dir only. */
+export function writeScratchBytes(
+  worktree: string,
+  p: string,
+  bytes: Uint8Array,
+): void {
+  ensureFlowExcludes(worktree);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, bytes);
 }
 
-const IMAGE_FILE_RE = /\.(png|jpe?g|gif|webp)$/i;
-
-/** Resolve a local image target, rejecting anything that escapes the worktree or isn't an image file. */
-function resolveLocalImage(worktree: string, target: string): string | null {
-  const abs = path.resolve(worktree, decodeURI(target));
-  const rel = path.relative(worktree, abs);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
-  if (!IMAGE_FILE_RE.test(abs)) return null;
-  return abs;
+/** True when the body holds anything the engine would upload or re-host. */
+export function needsAttach(body: string): boolean {
+  return hasLocalImageRefs(body) || hasRepoRawLinks(body);
 }
 
-/** Local image targets that point outside the worktree (never uploadable). */
-function outsideWorktreeTargets(body: string, worktree: string): string[] {
-  const seen = new Set<string>();
-  for (const m of body.matchAll(IMAGE_RE)) {
-    if (!isLocalTarget(m[2])) continue;
-    const rel = path.relative(
-      worktree,
-      path.resolve(worktree, decodeURI(m[2])),
-    );
-    if (rel.startsWith("..") || path.isAbsolute(rel)) seen.add(m[2]);
-  }
-  return [...seen];
-}
-
-export function hasLocalImageRefs(body: string): boolean {
-  return [...body.matchAll(IMAGE_RE)].some((m) => isLocalTarget(m[2]));
-}
-
-/** Drop local image references (whole line when alone on it); links stay. */
-export function stripLocalImageRefs(body: string): string {
-  return body
-    .split("\n")
-    .filter((line) => {
-      const m = line.trim().match(/^!\[[^\]]*\]\(([^)\s]+)\)$/);
-      return !(m && isLocalTarget(m[1]));
-    })
-    .join("\n")
-    .replace(IMAGE_RE, (whole, _alt, target) =>
-      isLocalTarget(target) ? "" : whole,
-    );
-}
-
-export type ScreenshotPlan = {
-  /** Body with ledger-known references swapped for their hosted URLs. */
-  body: string;
-  /** Same, with every remaining local image reference removed. */
-  bodyWithoutImages: string;
-  attach: AttachItem[];
-  skip?: { step: ScreenshotSkip; reason: string };
-  /** Non-blocking findings: reported, but the upload still proceeds. */
-  notes?: { step: ScreenshotSkip; reason: string }[];
+type Ctx = {
+  io: ScreenshotIo;
+  args: PushArgs;
+  skips: Skip[];
+  ledger: Ledger;
+  urlByTarget: Map<string, string>;
+  rehostErrors: Map<string, string>;
+  hostedShas: Set<string>;
+  stats: {
+    uploaded: number;
+    reused: number;
+    rehosted: number;
+    batches: number;
+  };
 };
 
-export function planScreenshots(input: {
-  body: string;
-  worktree: string;
-  attachSupported: boolean;
-  ledger: Ledger;
-  hashFile: (p: string) => string | null;
-}): ScreenshotPlan {
-  const shaByTarget = new Map<string, string>();
-  for (const m of input.body.matchAll(IMAGE_RE)) {
-    if (!isLocalTarget(m[2]) || shaByTarget.has(m[2])) continue;
-    const abs = resolveLocalImage(input.worktree, m[2]);
-    if (abs === null) continue;
-    const sha = input.hashFile(abs);
-    if (sha !== null) shaByTarget.set(m[2], sha);
-  }
-
-  const body = input.body.replace(IMAGE_RE, (whole, alt, target) => {
-    const url = input.ledger[shaByTarget.get(target) ?? ""];
-    return url ? `![${alt}](${url})` : whole;
-  });
-  const bodyWithoutImages = stripLocalImageRefs(body);
-
-  const attach: AttachItem[] = [];
-  for (const m of body.matchAll(IMAGE_RE)) {
-    const sha = shaByTarget.get(m[2]);
-    if (sha === undefined || attach.some((a) => a.target === m[2])) continue;
-    const abs = resolveLocalImage(input.worktree, m[2]);
-    if (abs === null) continue;
-    const alt = m[1].replace(/#/g, " ");
-    attach.push({ target: m[2], arg: alt ? `${abs}#${alt}` : abs, sha });
-  }
-
-  // Computed before the early return below: a body whose only screenshots sit
-  // outside the worktree has nothing to attach, and would otherwise report
-  // `screenshots_uploaded: 0` with no reason.
-  const outside = outsideWorktreeTargets(body, input.worktree);
-  const outsideNote =
-    outside.length > 0
-      ? {
-          step: "screenshots_outside_worktree" as const,
-          reason: `${outside.length} screenshot(s) outside the worktree were not uploaded: ${outside[0]}`,
-        }
-      : undefined;
-
-  if (attach.length === 0) {
-    return outsideNote
-      ? { body, bodyWithoutImages, attach, skip: outsideNote }
-      : { body, bodyWithoutImages, attach };
-  }
-  if (attach.length > ATTACH_MAX_FILES) {
-    return {
-      body,
-      bodyWithoutImages,
-      attach: [],
-      skip: {
-        step: "screenshots_too_many",
-        reason: `${attach.length} screenshots (> ${ATTACH_MAX_FILES}); image references left out, screenshots are local-only`,
-      },
-    };
-  }
-  if (!input.attachSupported) {
-    return {
-      body,
-      bodyWithoutImages,
-      attach: [],
-      skip: {
-        step: "screenshots_gh_too_old",
-        reason:
-          "gh is older than 2.99.0 (no --attach); screenshots are local-only — run `brew upgrade gh`",
-      },
-    };
-  }
-  if (body.length > BODY_MAX_CHARS) {
-    return {
-      body,
-      bodyWithoutImages,
-      attach: [],
-      skip: {
-        step: "screenshots_body_too_large",
-        reason: `body is ${body.length} chars (> ${BODY_MAX_CHARS}); image references left out, screenshots are local-only`,
-      },
-    };
-  }
-  return outsideNote
-    ? { body, bodyWithoutImages, attach, notes: [outsideNote] }
-    : { body, bodyWithoutImages, attach };
+function host(ctx: Ctx, image: LocalImage, url: string): void {
+  ctx.hostedShas.add(image.sha);
+  for (const t of image.targets) ctx.urlByTarget.set(t, url);
 }
 
-/**
- * After a successful attach, pair each local reference with the hosted URL
- * gh wrote in its place. gh keeps image order and alt text, so the n-th
- * image in the pushed body is the n-th image in the PR body. Any shape
- * surprise returns no pairs — the file is simply re-uploaded next pass.
- */
-export function hostedUrls(
-  pushedBody: string,
-  remoteBody: string,
-  attach: AttachItem[],
-): Map<string, string> {
-  const local = [...pushedBody.matchAll(IMAGE_RE)];
-  const remote = [...remoteBody.matchAll(IMAGE_RE)];
-  const out = new Map<string, string>();
-  if (local.length !== remote.length) return out;
-  local.forEach((m, i) => {
-    const url = remote[i][2];
-    if (attach.some((a) => a.target === m[2]) && /^https:\/\//.test(url)) {
-      out.set(m[2], url);
-    }
-  });
+function viewBody(ctx: Ctx): ExecResult {
+  return ctx.io.exec([
+    "gh",
+    "pr",
+    "view",
+    ctx.args.prStr,
+    "--json",
+    "body",
+    "--jq",
+    ".body",
+  ]);
+}
+
+/** Pushes `content` through a sibling file so the local body keeps its references. */
+function pushSibling(ctx: Ctx, content: string): ExecResult {
+  const sibling = `${ctx.args.bodyFile}.pushed.md`;
+  ctx.io.writeFile(sibling, content);
+  const result = ctx.io.exec([
+    "gh",
+    "pr",
+    "edit",
+    ctx.args.prStr,
+    "--body-file",
+    sibling,
+  ]);
+  try {
+    fs.rmSync(sibling, { force: true });
+  } catch {
+    // best-effort cleanup — a leftover sibling file is harmless
+  }
+  return result;
+}
+
+function unusableSkips(found: CollectedImages): Skip[] {
+  const out: Skip[] = [];
+  if (found.outside.length > 0) {
+    out.push({
+      step: "screenshots_outside_worktree",
+      reason: `${found.outside.length} screenshot(s) outside the worktree were not uploaded: ${found.outside[0]}`,
+    });
+  }
+  const unusable = [...found.missing, ...found.unattachable];
+  if (unusable.length > 0) {
+    out.push({
+      step: "screenshots_file_unusable",
+      reason: `${unusable.length} screenshot(s) could not be uploaded (file unreadable or '#' in its path): ${unusable[0]}`,
+    });
+  }
+  if (found.unsupported.length > 0) {
+    out.push({
+      step: "screenshots_file_unusable",
+      reason: `${found.unsupported.length} screenshot(s) have an unsupported image type (png/jpg/gif/webp only): ${found.unsupported[0]}`,
+    });
+  }
   return out;
 }
 
-export function applyHostedUrls(
-  body: string,
-  urls: Map<string, string>,
-): string {
-  return body.replace(IMAGE_RE, (whole, alt, target) => {
-    const url = urls.get(target);
-    return url ? `![${alt}](${url})` : whole;
-  });
+function prRepoOf(ctx: Ctx): string {
+  const r = ctx.io.exec([
+    "gh",
+    "pr",
+    "view",
+    ctx.args.prStr,
+    "--json",
+    "url",
+    "--jq",
+    ".url",
+  ]);
+  const m = r.stdout
+    .trim()
+    .match(/^https:\/\/[^/]+\/([^/]+\/[^/]+)\/pull\/\d+/);
+  return r.exitCode === 0 && m ? m[1] : "";
 }
 
-type ExecResult = { stdout: string; stderr: string; exitCode: number };
+/** Fetch a same-repo image into `.flow-tmp/pr-images/rehosted/` for native upload. */
+function rehost(
+  ctx: Ctx,
+  repo: string,
+  r: { src: string; ref: string; path: string },
+): LocalImage | string {
+  if (!ctx.io.writeBytes) return "no binary writer available";
+  const got = fetchRepoImage(ctx.io.exec, repo, r);
+  if ("error" in got) return got.error;
+  const sha = createHash("sha256").update(got.bytes).digest("hex");
+  const name = path.basename(r.path).replace(/[^\w.-]/g, "_");
+  const abs = path.join(
+    ctx.args.worktree,
+    ".flow-tmp",
+    "pr-images",
+    "rehosted",
+    `${sha.slice(0, 16)}-${name}`,
+  );
+  try {
+    ctx.io.writeBytes(abs, got.bytes);
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  return { targets: [r.src], abs, sha };
+}
 
-/**
- * The `body_edit` write: push the body, attaching each not-yet-uploaded
- * screenshot. The body is always written — every screenshot problem
- * degrades to a named skip plus a push without image references.
- */
-export function pushBodyWithScreenshots(
-  io: {
-    exec: (argv: string[]) => ExecResult;
-    readFile: (p: string) => string | null;
-    writeFile: (p: string, content: string) => void;
-    hashFile: (p: string) => string | null;
-  },
-  args: {
-    prStr: string;
-    bodyFile: string;
-    worktree: string;
-    attachSupported: boolean;
-  },
-): {
-  edit: ExecResult;
-  uploaded: number;
-  skips: { step: string; reason: string }[];
-} {
-  const original = io.readFile(args.bodyFile) ?? "";
-  const ledgerFile = ledgerPath(args.worktree);
-  const ledger = parseLedger(io.readFile(ledgerFile));
-  const plan = planScreenshots({
-    body: original,
-    worktree: args.worktree,
-    attachSupported: args.attachSupported,
-    ledger,
-    hashFile: io.hashFile,
-  });
-  const skips: { step: string; reason: string }[] = [];
-  let uploaded = 0;
-  if (plan.skip) skips.push(plan.skip);
-  skips.push(...(plan.notes ?? []));
-  if (plan.body !== original) io.writeFile(args.bodyFile, plan.body);
-
-  // A body pushed without its images goes through a sibling file so
-  // the local body keeps its references for a later pass.
-  const noImagesFile = `${args.bodyFile}.noimg.md`;
-  const pushWithoutImages = (): ExecResult => {
-    io.writeFile(noImagesFile, plan.bodyWithoutImages);
-    const result = io.exec([
-      "gh",
-      "pr",
-      "edit",
-      args.prStr,
-      "--body-file",
-      noImagesFile,
-    ]);
-    try {
-      fs.rmSync(noImagesFile, { force: true });
-    } catch {
-      // best-effort cleanup — a leftover sibling file is harmless
+function uploadBatches(ctx: Ctx, queue: LocalImage[], liveBody: string): void {
+  const { io, args, skips, stats } = ctx;
+  let live = liveBody;
+  let failed = 0;
+  let unresolved = 0;
+  let failure = "";
+  while (queue.length > 0) {
+    const room = Math.floor(
+      (TRANSIENT_BODY_MAX - live.length) / EMBED_COST_CHARS,
+    );
+    if (room <= 0) {
+      skips.push({
+        step: "screenshots_body_too_large",
+        reason: `PR body is ${live.length} chars, leaving no room to attach ${queue.length} more screenshot(s); they stay local-only`,
+      });
+      break;
     }
-    return result;
-  };
-
-  let edit: ExecResult;
-  if (plan.skip) {
-    edit = pushWithoutImages();
-  } else {
-    edit = io.exec([
+    const batch = queue.splice(0, Math.min(ATTACH_MAX_FILES, room));
+    stats.batches++;
+    const up = io.exec([
       "gh",
       "pr",
       "edit",
       args.prStr,
-      "--body-file",
-      args.bodyFile,
-      ...plan.attach.flatMap((a) => ["--attach", a.arg]),
+      ...batch.flatMap((i) => ["--attach", `${i.abs}#${uploadToken(i.sha)}`]),
     ]);
-    if (edit.exitCode !== 0 && plan.attach.length > 0) {
-      // gh may have written the body with only some attachments; the
-      // retry makes the PR body deterministic again.
+    // Read back even after a failed upload: gh may have attached some files.
+    const view = viewBody(ctx);
+    const urls =
+      view.exitCode === 0
+        ? harvestTokenUrls(
+            view.stdout,
+            batch.map((i) => uploadToken(i.sha)),
+          )
+        : new Map<string, string>();
+    if (view.exitCode === 0) live = view.stdout;
+    for (const image of batch) {
+      const url = urls.get(uploadToken(image.sha));
+      if (url) {
+        ctx.ledger[image.sha] = url;
+        host(ctx, image, url);
+        stats.uploaded++;
+      } else if (up.exitCode === 0) {
+        unresolved++;
+      } else {
+        failed++;
+      }
+    }
+    if (up.exitCode !== 0 || view.exitCode !== 0) {
+      failure =
+        up.stderr.trim() ||
+        view.stderr.trim() ||
+        "gh pr edit --attach / gh pr view failed";
+      failed += queue.length;
+      queue.length = 0;
+    }
+  }
+  if (failed > 0) {
+    skips.push({
+      step: "screenshots_upload_failed",
+      reason: `${failed} screenshot(s) not uploaded and left local-only — ${args.retryHint ?? "re-run to retry"} (${failure})`,
+    });
+  }
+  if (unresolved > 0) {
+    skips.push({
+      step: "screenshots_url_unresolved",
+      reason: `could not find ${unresolved} uploaded screenshot(s) in the PR body; they will re-upload next pass`,
+    });
+  }
+}
+
+/** Re-host same-repo links, then upload every pending image in batches. Returns the flagged outside-host links. */
+function runUpload(
+  ctx: Ctx,
+  body: string,
+  pending: LocalImage[],
+  repo: string,
+): string[] {
+  const { io, skips, stats } = ctx;
+  const found = classifyExternalImages(body, repo);
+  // A rehostable src stays flagged until a hosted URL replaces it (see stillFlagged).
+  const flagged = new Set([
+    ...found.flagged,
+    ...found.rehostable.map((r) => r.src),
+  ]);
+  const rehostShas = new Set<string>();
+  for (const r of found.rehostable) {
+    const got = rehost(ctx, repo, r);
+    if (typeof got === "string") {
+      ctx.rehostErrors.set(r.src, got);
+      continue;
+    }
+    rehostShas.add(got.sha);
+    const url = ctx.ledger[got.sha];
+    if (url) {
+      host(ctx, got, url);
+      stats.reused++;
+      continue;
+    }
+    const twin = pending.find((p) => p.sha === got.sha);
+    if (twin) twin.targets.push(...got.targets);
+    else pending.push(got);
+  }
+  if (pending.length > 0) {
+    const view = viewBody(ctx);
+    if (view.exitCode !== 0) {
       skips.push({
         step: "screenshots_upload_failed",
-        reason: `screenshots are local-only — re-run review to retry (${edit.stderr || "gh pr edit --attach failed"})`,
+        reason: `${pending.length} screenshot(s) not uploaded and left local-only — ${ctx.args.retryHint ?? "re-run to retry"}; could not read the PR body (${view.stderr.trim() || view.exitCode})`,
       });
-      edit = pushWithoutImages();
-    } else if (edit.exitCode === 0 && plan.attach.length > 0) {
-      uploaded = plan.attach.length;
-      const view = io.exec([
-        "gh",
-        "pr",
-        "view",
-        args.prStr,
-        "--json",
-        "body",
-        "--jq",
-        ".body",
-      ]);
-      const urls =
-        view.exitCode === 0
-          ? hostedUrls(plan.body, view.stdout, plan.attach)
-          : new Map<string, string>();
-      if (urls.size > 0) {
-        for (const a of plan.attach) {
-          const url = urls.get(a.target);
-          if (url) ledger[a.sha] = url;
-        }
-        io.writeFile(ledgerFile, JSON.stringify(ledger, null, 2) + "\n");
-        io.writeFile(args.bodyFile, applyHostedUrls(plan.body, urls));
-      } else {
-        skips.push({
-          step: "screenshots_url_unresolved",
-          reason:
-            view.exitCode === 0
-              ? "could not match hosted URLs in the PR body; screenshots will re-upload next pass"
-              : `gh pr view failed (${view.stderr.trim() || view.exitCode}); screenshots will re-upload next pass`,
-        });
+    } else {
+      let live = view.stdout;
+      // gh rewrites a body reference to an attached file in place instead of
+      // appending an embed, so start from a body with no local references.
+      if (hasLocalImageRefs(live)) {
+        const reset = stripLocalImageRefs(
+          renderHostedBody(body, ctx.urlByTarget),
+        );
+        const result = pushSibling(ctx, reset);
+        if (result.exitCode === 0) live = reset;
+      }
+      uploadBatches(ctx, pending, live);
+      if (stats.uploaded > 0) {
+        io.writeFile(
+          ledgerPath(ctx.args.worktree),
+          JSON.stringify(ctx.ledger, null, 2) + "\n",
+        );
       }
     }
   }
-  return { edit, uploaded, skips };
+  stats.rehosted = [...rehostShas].filter((s) => ctx.hostedShas.has(s)).length;
+  return [...flagged];
+}
+
+/**
+ * The `body_edit` write: upload each not-yet-hosted screenshot, render the
+ * hosted URLs into the body, and push it once. The final push always runs, so
+ * no raw upload token stays on the PR; every screenshot problem degrades to a
+ * named skip plus a visible placeholder where the image would have been.
+ */
+export function pushBodyWithScreenshots(
+  io: ScreenshotIo,
+  args: PushArgs,
+): PushResult {
+  const original = io.readFile(args.bodyFile) ?? "";
+  const ctx: Ctx = {
+    io,
+    args,
+    skips: [],
+    ledger: parseLedger(io.readFile(ledgerPath(args.worktree))),
+    urlByTarget: new Map(),
+    rehostErrors: new Map(),
+    hostedShas: new Set(),
+    stats: { uploaded: 0, reused: 0, rehosted: 0, batches: 0 },
+  };
+  const found = collectLocalImages(original, args.worktree, io.hashFile);
+  ctx.skips.push(...unusableSkips(found));
+  const pending: LocalImage[] = [];
+  for (const image of found.images) {
+    const url = ctx.ledger[image.sha];
+    if (url) {
+      host(ctx, image, url);
+      ctx.stats.reused++;
+    } else {
+      pending.push(image);
+    }
+  }
+
+  const body = renderHostedBody(original, ctx.urlByTarget);
+  const wantsUpload = pending.length > 0 || hasRepoRawLinks(body);
+  let flagged = classifyExternalImages(body, "").flagged;
+  let edit: ExecResult;
+  let repoLinked = 0;
+  let prRepo: string | undefined;
+  const repoOf = (): string => (prRepo ??= prRepoOf(ctx));
+  try {
+    const attachOk =
+      wantsUpload &&
+      (args.attachSupported === true ||
+        ghSupportsAttach(io.exec(["gh", "--version"]).stdout));
+    if (wantsUpload && !attachOk) {
+      ctx.skips.push({
+        step: "screenshots_gh_too_old",
+        reason:
+          "gh is older than 2.99.0 (no --attach); screenshots are local-only — run `brew upgrade gh`",
+      });
+    } else if (wantsUpload && body.length > BODY_MAX_CHARS) {
+      ctx.skips.push({
+        step: "screenshots_body_too_large",
+        reason: `body is ${body.length} chars (> ${BODY_MAX_CHARS}); screenshots are local-only`,
+      });
+    } else if (wantsUpload) {
+      flagged = runUpload(
+        ctx,
+        body,
+        pending,
+        hasRepoRawLinks(body) ? repoOf() : "",
+      );
+    }
+  } finally {
+    const finalBody = renderHostedBody(original, ctx.urlByTarget);
+    if (finalBody !== original) io.writeFile(args.bodyFile, finalBody);
+    const pushed = stripLocalImageRefs(finalBody);
+    edit =
+      pushed === finalBody
+        ? io.exec([
+            "gh",
+            "pr",
+            "edit",
+            args.prStr,
+            "--body-file",
+            args.bodyFile,
+          ])
+        : pushSibling(ctx, pushed);
+    if (hasRepoRawLinks(pushed)) {
+      const repo = repoOf();
+      repoLinked =
+        repo === ""
+          ? countRepoRawLinks(pushed)
+          : countRepoRawLinks(pushed, repo);
+    }
+  }
+  const stillFlagged = flagged.filter((src) => !ctx.urlByTarget.has(src));
+  if (stillFlagged.length > 0) {
+    const shown = stillFlagged
+      .slice(0, 3)
+      .map((src) => {
+        const err = ctx.rehostErrors.get(src);
+        return err ? `${src} (${err})` : src;
+      })
+      .join(", ");
+    ctx.skips.push({
+      step: "screenshots_external_host",
+      reason: `${stillFlagged.length} image(s) still embedded from outside GitHub attachments (not private to the PR): ${shown}${stillFlagged.length > 3 ? ", …" : ""}`,
+    });
+  }
+  return {
+    edit,
+    ...ctx.stats,
+    repoLinked,
+    skips: ctx.skips,
+    urlByTarget: ctx.urlByTarget,
+  };
 }

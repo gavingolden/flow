@@ -1,0 +1,26 @@
+## Plan ready: nightly refresh of saved reports (needs your input on two questions)
+
+I wrote both files and checked that neither is empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. I stopped there and haven't implemented anything.
+
+- **Problem:** Once a saved report is written, its text never changes, so readers act on stale analysis and can't tell how old it is. Regenerating one by hand takes five paid model calls of 20–60 s each, so nobody does it.
+- **Tasks:** 7, in this order:
+  1. D1 migrations.
+  2. A test harness and typecheck.
+  3. A timeout and error handling in the model client. Right now a 500 reply from the model API would be saved as `undefined` in a section.
+  4. Persistence plus a daily limit on model calls.
+  5. A metrics helper.
+  6. A nightly job that refreshes each report.
+  7. Wiring for the scheduled trigger and the queue.
+- **Possible follow-up (1, not included):** refresh only reports that people have read recently. Nothing records report reads yet, so the saving is a guess.
+- **Approach:** the plan goes ahead with two conditions:
+  - Every model call counts against a limit that resets each UTC day, and is checked before the call is made.
+  - A report's saved sections change only if all five regenerate successfully.
+- **Research:** no web research was done; this wasn't a question that needed it.
+
+**Two questions I need you to answer:**
+- **Q1: What are the five section names, and in what order?** They aren't anywhere in the repo, and a second, independent check found the same thing. Task 6 can't ship without them, because placeholder names would overwrite real reports overnight.
+- **Q2: What should the daily model-call limit be?** The plan uses 500 for now, which covers 100 reports a night. Setting it to `0` turns the refresh off.
+
+The plan also assumes every report has the same five sections.
+
+**Next action:** answer Q1 and Q2, then run `/flow-new-feature refresh every saved report nightly by regenerating its five sections` to start building.

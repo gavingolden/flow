@@ -391,6 +391,10 @@ become the "Architecture Decisions" section verbatim:
   elicited mid-discovery. When a user-elicited preference's LITERAL reading conflicts with
   that goal, challenge it explicitly rather than silently deferring to it, and surface the
   tension as an Open Question so the user can resolve it at `plan-pending-review`.
+- **Runtime design check:** for every runtime operation the plan adds or changes, decide the
+  execution model, timeout, retry layer, idempotency key and cost bound for the `### Runtime
+design` subsection (step 5). Before drafting a non-`none` subsection, do the skill pre-read
+  that `<SKILL_DIR>/references/discovery-runtime-design.md` requires.
 - **Decision-analysis check:** if any decision captured above is a _consequential_ open decision
   whose branches genuinely diverge, flag it for the omit-when-empty `## Decision analysis` PRD
   section (step 5), where each branch's downstream flow is simulated, exclusivity marked,
@@ -460,7 +464,9 @@ this, except the Problem Statement's plain-language lead, which is prose.
 - **User Stories / Acceptance Criteria** — testable criteria as "Given/When/Then". Each acceptance criterion must name an externally-failable check — something that can fail without a human looking at it: `a test that runs`, `a file in the expected shape`, or `a command exit code`. "It looks right" is not a check — a criterion a machine cannot falsify provides no regression signal and degrades into manual prose at the `## Test Steps` gate (step 7). This is a strong default, not an absolute MUST: it defers to the genuinely-manual carve-out one stage downstream (subjective UX, cross-browser rendering, performance-under-load criteria are legitimately human-judgment and cannot name an exit code — see the manual-prose carve-out in step 7's automation test), so do not force an author to fake an exit-code check for an irreducibly subjective item.
 - **Visual Spec** (omit-when-empty) — only when the step 1.6 design-artifact gate fired: per-surface element-level assertion bullets, each tagged with its `spec.json` assertion id and `mechanical`/`judged` tier, placed immediately after User Stories / Acceptance Criteria. See the "Visual Spec" sub-section in `<SKILL_DIR>/references/discovery-ui.md` for the full contract; omit the heading entirely otherwise.
 - **Layout Intent** (omit-when-empty) — only when the plan touches UI: per-surface structural layout the user ratifies at plan-pending-review (see the `### Layout Intent` sub-section in `<SKILL_DIR>/references/discovery-ui.md`). Omit the heading entirely for non-UI plans.
-- **Architecture Decisions** — from the checkpoint above.
+- **UI review targets** (omit-when-no-UI) — required when any task changes a render-bearing file: 1-3 path-only lines naming the pages that show the change and the state each shows (see the `### UI review targets` sub-section in `<SKILL_DIR>/references/discovery-ui.md`). Omit the heading entirely when no render-bearing file changes.
+- **Instrumentation** — always-present: the metrics, dashboard-panel and alert/SLO spec for every runtime surface the plan adds or changes (a request handler, background job or queue consumer, outbound API call, multi-stage pipeline, or connection or worker pool), or a single `none — <reason>` line. **MUST Read `<SKILL_DIR>/references/discovery-instrumentation.md` before authoring a non-`none` `## Instrumentation` section.**
+- **Architecture Decisions** — from the checkpoint above. Its `### Runtime design` subsection is always present: **MUST Read `<SKILL_DIR>/references/discovery-runtime-design.md` before authoring it.**
 - **Technical Constraints** — every bullet binding and source-traceable (a named file,
   rule, or research finding); ambient repo-convention restatements are banned unless the
   plan turns on them; an explicit `none beyond repo-wide conventions` affirmation is
@@ -1183,11 +1189,17 @@ each one verifiable. When step 1.9 resolved a brief, frame each
 bullet in its ranked priorities and `Use` vocabulary; on `{"found":false}`
 change nothing.
 
-Format: freeform bullets. For renames or removals, use a `Before → After` bullet so
-the delta reads at a glance. Example:
+Format: freeform bullets. A bullet about anything that worked differently before (a changed
+behavior, default, or output, a rename, a removal) is a parent bullet that states the
+user-visible outcome as a clause (never a bare topic label like "The chat summary:"), plus two
+nested sub-bullets, `- **Before:** <one sentence>` and `- **After:** <one sentence>`, with no
+arrow, so each side reads on its own line. A purely new capability stays one plain bullet.
+Example:
 
 - New flag: `flow ls --cost` adds a `$` column summed across the supervisor session.
-- Before → After: `flow install` (removed) → `flow install` (global install via symlink).
+- Starting a pipeline now takes the feature subcommand:
+  - **Before:** you ran `flow add "<desc>"`.
+  - **After:** you run `flow feature create "<desc>"`.
 
 If the PRD describes a pure-internal change (refactor, infra, no user-observable
 delta), write the literal word `none` under the heading. Never delete the heading —
@@ -1197,9 +1209,11 @@ between "no change" and "author forgot".>
 ## System changes
 
 <Any internal change worth a reviewer's attention: a subsystem boundary that moved, a
-public contract that changed, a performance characteristic, or an ongoing cost. Derive
-Before → After bullets from plan.md's `### System flow` subsection when that
-subsection is non-`none`, and phrase each deliverable as a capability, not a file
+public contract that changed, a performance characteristic, or an ongoing cost. Derive changed-behavior
+bullets, in the same parent + `**Before:**` / `**After:**` shape, from plan.md's
+`### System flow` subsection when that subsection is non-`none` (a System-flow pair
+copied into the PR gains an outcome parent bullet; a top-level `**Before:**` is
+flagged), and phrase each deliverable as a capability, not a file
 path. When the change moves an ongoing cost — API calls, CI time, token spend — name
 the direction and rough size; stay silent about cost when the change does not move one.
 
@@ -1230,6 +1244,15 @@ that a reviewer might wonder about. Also list each bundled task (every task
 carrying a `- **Bundled:**` bullet in the task breakdown) as its own
 `Bundled: <one-line origin>` bullet, so a reviewer can see why the diff is larger
 than the requested feature alone.>
+
+## Instrumentation
+
+<Omit-when-none — only when the plan's `## Instrumentation` section is not
+`none`: the metrics, dashboard panels and alert/SLO spec, distilled from the plan
+section per `<SKILL_DIR>/references/discovery-instrumentation.md`. It links the
+dashboard URL from `.flow/metrics.md` `## Dashboards` and names the panels the
+change adds, or says `spec-only` when no URL exists yet; never a per-panel URL.
+Omit the heading entirely when the plan section is `none`.>
 
 ## Deviations from plan
 
@@ -1500,7 +1523,7 @@ When the spawn prompt carries `REVISION: <n>`, **MUST Read `<SKILL_DIR>/referenc
 - PR description draft follows the standardized format (TLDR / User-facing
   changes / System changes / Why / Key decisions / Test Steps), with both
   `## User-facing changes` and `## System changes` always present — `none` when
-  empty — and the latter drawing Before → After bullets from the plan's
+  empty — and the latter drawing Before/After pairs from the plan's
   `### System flow` subsection when that subsection is non-`none`.
 - Both `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md` were written
   at the absolute paths the wrapper passed you, with parent directory created on
@@ -1514,7 +1537,7 @@ When the spawn prompt carries `REVISION: <n>`, **MUST Read `<SKILL_DIR>/referenc
 - A failed premise check surfaces as a `**Premise check:**` line in the Problem
   Statement and the `## Recommendation` verdict is non-`Proceed`; a sound premise
   carries no line.
-- `flow-plan-lint` already checks the Goal line, the Problem Statement lead, the drafted PR TLDR, Behavioral contrast, Recommendation, Plan risks, Cut list, Request vetting, Existing-code assessment, Method selection, the Open Questions resolution / confidence / stakes markers, task Contract blocks, and the `excluded-paths.json` mirror, and `flow-candidate-issues --lint` already checks the candidate follow-up value bars, references, and bundling — do not re-verify those by hand.
+- `flow-plan-lint` already checks the Goal line, the Problem Statement lead, the drafted PR TLDR, the drafted PR change bullets, Behavioral contrast, Recommendation, Plan risks, Cut list, Instrumentation, Runtime design (Recovery line, queue must-set settings, inline p99 budget), Request vetting, Existing-code assessment, Method selection, the Open Questions resolution / confidence / stakes markers, task Contract blocks, and the `excluded-paths.json` mirror, and `flow-candidate-issues --lint` already checks the candidate follow-up value bars, references, and bundling — do not re-verify those by hand.
 - **Self-check before returning:** run `flow-plan-lint --plan-md-file <the plan.md path>`
   by bare PATH name and fix every named miss. Tolerant: when the helper is missing
   from PATH, the check skips silently (same research-cache discipline as Step 1.5) —

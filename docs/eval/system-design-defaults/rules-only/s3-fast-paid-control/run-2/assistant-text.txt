@@ -1,0 +1,18 @@
+## Plan ready for `POST /reports/:id/title`
+
+The plan is written to `.flow-tmp/plan.md` and the PR description draft to `.flow-tmp/pr-description-draft.md`. Both files exist and are non-empty. Nothing has been implemented and no later pipeline phase was started.
+
+- **Problem:** Saved reports have a title field, but nothing in the service suggests one. The model call that writes titles already exists, but no route uses it. That call also has no timeout and no spend limit, and the service accepts anonymous callers.
+- **Tasks:** 4, in this order:
+  1. A metrics helper and the repo's first metrics contract.
+  2. A daily cap on paid model calls, counted separately on each running copy of the service. It is the single place all paid-call spend goes through, as AGENTS.md requires.
+  3. A timeout and response checks on both model calls.
+  4. The new route and its tests.
+- **Follow-up issues:** 2 proposed. One is recommended to file: "Require caller identity on the service", because the deploy allows anonymous callers. The other, "Accept a suggested title onto the report", is not recommended to file yet.
+- **Assumptions to check:**
+  - **Decision needed from you:** how many paid calls per day should the cap allow? The plan uses 500 as a placeholder. Each running copy of the service keeps its own count in memory, so the real daily limit is that number times the number of copies.
+  - **The title is only returned, never saved to the report.** This comes from your wording, "returns a suggested title", and I'm confident in it.
+- **Research:** skipped, because this wasn't a question web research would help with. It can be forced with `flow feature create --research`.
+- **Verdict on the request:** adopt it, on two conditions. Every title suggestion must go through the daily cap and a 10-second timeout on the outbound call. That is checked by `bun test src/spend.test.ts src/llm.test.ts` exiting 0.
+
+**Next action:** Decide the daily cap (the 500 placeholder) in `.flow-tmp/plan.md`. Then, when you want implementation, run `/flow-new-feature add a \`POST /reports/:id/title\` endpoint that returns a suggested title for a saved report`.

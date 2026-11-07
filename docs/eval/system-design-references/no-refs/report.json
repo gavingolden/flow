@@ -1,0 +1,1644 @@
+{
+  "schemaVersion": 1,
+  "runner": {
+    "name": "flow-eval-headless",
+    "claudeVersion": "2.1.318",
+    "childArgvDigest": "e22b86db7a4796b6"
+  },
+  "tree": {
+    "gitHead": "6d5acba625fc275a5d943ffb0da6bc7dd0332144",
+    "dirty": true
+  },
+  "suite": "system-design-references",
+  "candidate": "flow-system-design-skill",
+  "startedAt": "2026-11-04T19:51:49.578Z",
+  "finishedAt": "2026-11-04T20:42:07.857Z",
+  "scenarios": [
+    {
+      "id": "r1-workflows",
+      "title": "Multi-step work: six paid sections where the summary depends on the other five",
+      "status": "fail",
+      "score": 0.75,
+      "runs": [
+        {
+          "run": 1,
+          "status": "fail",
+          "score": 0.5,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "per-step-unit",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /(?:per|each|one)[^\\n]*(?:section|step)[^\\n]*(?:task|job|row|message)|(?:task|job|row|message)[^\\n]*(?:per|for each|each) section/i found in Task breakdown\n"
+            },
+            {
+              "id": "fan-in",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /fan[- ]?in|finali[sz]e|assembl|when all|once all|after all|remaining (?:sections|steps)|done[- ]?count|last (?:section|step) to/i found in Task breakdown\n"
+            },
+            {
+              "id": "partial-failure",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /partial|failed section|compensat|retr(?:y|ies) (?:only|just) the|re-?run(?:s)? only|without re-?running/i found in Task breakdown\n"
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.0655400000000004,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 424667,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "68e782ff-01f2-4809-9889-9bf9c946b148",
+          "costUsd": 2.0655400000000004,
+          "durationMs": 424667,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "per-step-unit",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "fan-in",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "partial-failure",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.592761,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 547148,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "b7e19e36-efc1-4a5e-b493-31ba15874cd9",
+          "costUsd": 2.592761,
+          "durationMs": 547148,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "result.total_cost_usd": {
+          "median": 2.3291505,
+          "min": 2.0655400000000004,
+          "max": 2.592761,
+          "direction": "lower",
+          "values": [2.0655400000000004, 2.592761]
+        },
+        "result.num_turns": {
+          "median": 6,
+          "min": 6,
+          "max": 6,
+          "direction": "lower",
+          "values": [6, 6]
+        },
+        "result.duration_ms": {
+          "median": 485907.5,
+          "min": 424667,
+          "max": 547148,
+          "direction": "lower",
+          "values": [424667, 547148]
+        }
+      }
+    },
+    {
+      "id": "r2-rollout",
+      "title": "Rollout: rename a column and change a queued task payload while tasks are in flight",
+      "status": "fail",
+      "score": 0.75,
+      "runs": [
+        {
+          "run": 1,
+          "status": "fail",
+          "score": 0.8333333333333334,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "expand-contract",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "payload-compat",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "rollback",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /roll ?back|revert/i found in Task breakdown\n"
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 1.7467830000000002,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 315030,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "af116988-ecc7-44dc-9cbe-c4b6f89e2471",
+          "costUsd": 1.7467830000000002,
+          "durationMs": 315030,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "fail",
+          "score": 0.6666666666666666,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "expand-contract",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "payload-compat",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /(?:old|previous|both|in-?flight|queued|existing)[^\\n]*(?:payload|task|message)s?[^\\n]*(?:accept|handle|support|drain|shape|format)|payload[^\\n]*version|version[^\\n]*payload|accepts? both/i found in Task breakdown\n"
+            },
+            {
+              "id": "rollback",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /roll ?back|revert/i found in Task breakdown\n"
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.1968555999999997,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 452861,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "268e6a1a-1a1b-40c9-9039-e313bf87822e",
+          "costUsd": 2.1968555999999997,
+          "durationMs": 452861,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "result.total_cost_usd": {
+          "median": 1.9718193,
+          "min": 1.7467830000000002,
+          "max": 2.1968555999999997,
+          "direction": "lower",
+          "values": [1.7467830000000002, 2.1968555999999997]
+        },
+        "result.num_turns": {
+          "median": 6,
+          "min": 6,
+          "max": 6,
+          "direction": "lower",
+          "values": [6, 6]
+        },
+        "result.duration_ms": {
+          "median": 383945.5,
+          "min": 315030,
+          "max": 452861,
+          "direction": "lower",
+          "values": [315030, 452861]
+        }
+      }
+    },
+    {
+      "id": "r3-caching",
+      "title": "Caching: a paid summary recomputed on every view of a hot report",
+      "status": "fail",
+      "score": 0.8,
+      "runs": [
+        {
+          "run": 1,
+          "status": "fail",
+          "score": 0.8,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "invalidation",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /invalidat|\\bttl\\b|expir|stale|(?:regenerat|recomput)[^\\n]*(?:when|on|after)[^\\n]*(?:change|update|edit|regenerat)/i found in Task breakdown\n"
+            },
+            {
+              "id": "stampede",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.3058752,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 379879,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "6970be12-c12e-4c88-8c40-1c6e1b6f6fbe",
+          "costUsd": 2.3058752,
+          "durationMs": 379879,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "fail",
+          "score": 0.8,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "invalidation",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /invalidat|\\bttl\\b|expir|stale|(?:regenerat|recomput)[^\\n]*(?:when|on|after)[^\\n]*(?:change|update|edit|regenerat)/i found in Task breakdown\n"
+            },
+            {
+              "id": "stampede",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 1.6370525999999999,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 290217,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "58912e37-08d6-4760-b169-185a491b578b",
+          "costUsd": 1.6370525999999999,
+          "durationMs": 290217,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "result.total_cost_usd": {
+          "median": 1.9714638999999998,
+          "min": 1.6370525999999999,
+          "max": 2.3058752,
+          "direction": "lower",
+          "values": [2.3058752, 1.6370525999999999]
+        },
+        "result.num_turns": {
+          "median": 6,
+          "min": 6,
+          "max": 6,
+          "direction": "lower",
+          "values": [6, 6]
+        },
+        "result.duration_ms": {
+          "median": 335048,
+          "min": 290217,
+          "max": 379879,
+          "direction": "lower",
+          "values": [379879, 290217]
+        }
+      }
+    },
+    {
+      "id": "r4-recovery",
+      "title": "Recovery: storing irreplaceable customer uploads",
+      "status": "fail",
+      "score": 0.5,
+      "runs": [
+        {
+          "run": 1,
+          "status": "fail",
+          "score": 0.5,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "backup",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /backup|point[- ]in[- ]time|\\bpitr\\b/i found in Task breakdown\n"
+            },
+            {
+              "id": "restore",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /restor/i found in Task breakdown\n"
+            },
+            {
+              "id": "object-protection",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /object versioning|bucket versioning|versioning|retention (?:policy|lock|period)|soft[- ]delete|object (?:lock|hold)|bucket lock/i found in Task breakdown\n"
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.3528864,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 599575,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "fa46b33c-ce71-46c6-b74a-d2b957e153c1",
+          "costUsd": 2.3528864,
+          "durationMs": 599575,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "fail",
+          "score": 0.5,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "backup",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /backup|point[- ]in[- ]time|\\bpitr\\b/i found in Task breakdown\n"
+            },
+            {
+              "id": "restore",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /restor/i found in Task breakdown\n"
+            },
+            {
+              "id": "object-protection",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /object versioning|bucket versioning|versioning|retention (?:policy|lock|period)|soft[- ]delete|object (?:lock|hold)|bucket lock/i found in Task breakdown\n"
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.300741,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 584833,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "ed1acac3-5f28-44fc-9301-15a04c9cbc3e",
+          "costUsd": 2.300741,
+          "durationMs": 584833,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "result.total_cost_usd": {
+          "median": 2.3268136999999998,
+          "min": 2.300741,
+          "max": 2.3528864,
+          "direction": "lower",
+          "values": [2.3528864, 2.300741]
+        },
+        "result.num_turns": {
+          "median": 6,
+          "min": 6,
+          "max": 6,
+          "direction": "lower",
+          "values": [6, 6]
+        },
+        "result.duration_ms": {
+          "median": 592204,
+          "min": 584833,
+          "max": 599575,
+          "direction": "lower",
+          "values": [599575, 584833]
+        }
+      }
+    },
+    {
+      "id": "r5-realtime",
+      "title": "Real-time: users want to watch a queued report being written",
+      "status": "fail",
+      "score": 0.8333333333333334,
+      "runs": [
+        {
+          "run": 1,
+          "status": "fail",
+          "score": 0.8333333333333334,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "channel",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "reconnect",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /reconnect|last-event-id|resum|catch(?:es)?[- ]?up|re-?read/i found in Task breakdown\n"
+            },
+            {
+              "id": "generation-stays-queued",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.4056039999999994,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 672040,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "f9670be5-de09-41c4-9b6e-120369fd47d2",
+          "costUsd": 2.4056039999999994,
+          "durationMs": 672040,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "fail",
+          "score": 0.8333333333333334,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "channel",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "reconnect",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /reconnect|last-event-id|resum|catch(?:es)?[- ]?up|re-?read/i found in Task breakdown\n"
+            },
+            {
+              "id": "generation-stays-queued",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.7005679999999996,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 766298,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "bff0026d-88eb-401a-90dd-24dfa4089dc9",
+          "costUsd": 2.7005679999999996,
+          "durationMs": 766298,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "result.total_cost_usd": {
+          "median": 2.5530859999999995,
+          "min": 2.4056039999999994,
+          "max": 2.7005679999999996,
+          "direction": "lower",
+          "values": [2.4056039999999994, 2.7005679999999996]
+        },
+        "result.num_turns": {
+          "median": 6,
+          "min": 6,
+          "max": 6,
+          "direction": "lower",
+          "values": [6, 6]
+        },
+        "result.duration_ms": {
+          "median": 719169,
+          "min": 672040,
+          "max": 766298,
+          "direction": "lower",
+          "values": [672040, 766298]
+        }
+      }
+    },
+    {
+      "id": "r6-api",
+      "title": "API contract: a partner-facing API that starts paid work",
+      "status": "pass",
+      "score": 1,
+      "runs": [
+        {
+          "run": 1,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "async-contract",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "idempotency-key",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "rate-limit",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "pagination",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.2077064,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 463944,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "1ee59c5a-9fb3-4b3a-8c18-826959983aea",
+          "costUsd": 2.2077064,
+          "durationMs": 463944,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "pass",
+          "score": 1,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "async-contract",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "idempotency-key",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "rate-limit",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "pagination",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.300446,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 479235,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "7151a6b7-c6d0-404d-9dc9-1d18fa53f153",
+          "costUsd": 2.300446,
+          "durationMs": 479235,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "result.total_cost_usd": {
+          "median": 2.2540762,
+          "min": 2.2077064,
+          "max": 2.300446,
+          "direction": "lower",
+          "values": [2.2077064, 2.300446]
+        },
+        "result.num_turns": {
+          "median": 6,
+          "min": 6,
+          "max": 6,
+          "direction": "lower",
+          "values": [6, 6]
+        },
+        "result.duration_ms": {
+          "median": 471589.5,
+          "min": 463944,
+          "max": 479235,
+          "direction": "lower",
+          "values": [463944, 479235]
+        }
+      }
+    },
+    {
+      "id": "r7-cloudflare",
+      "title": "Cloudflare platform map: nightly refresh on Workers",
+      "status": "fail",
+      "score": 0.7142857142857143,
+      "runs": [
+        {
+          "run": 1,
+          "status": "fail",
+          "score": 0.7142857142857143,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "cron",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "queue",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /\\bqueues?\\b|enqueue/i found in Task breakdown\n"
+            },
+            {
+              "id": "dead-letter",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /dead[- ]letter|\\bdlq\\b/i found in Task breakdown\n"
+            },
+            {
+              "id": "no-waituntil-for-work",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 3.3622283999999993,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 892680,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "dd10ae55-340f-4817-97a2-81c01cc34ba8",
+          "costUsd": 3.3622283999999993,
+          "durationMs": 892680,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "fail",
+          "score": 0.7142857142857143,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "cron",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "queue",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /\\bqueues?\\b|enqueue/i found in Task breakdown\n"
+            },
+            {
+              "id": "dead-letter",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /dead[- ]letter|\\bdlq\\b/i found in Task breakdown\n"
+            },
+            {
+              "id": "no-waituntil-for-work",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 3.0104922,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 733228,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "fe108d24-70d0-4b5b-90fd-d16e4daf18a8",
+          "costUsd": 3.0104922,
+          "durationMs": 733228,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "result.total_cost_usd": {
+          "median": 3.1863602999999996,
+          "min": 3.0104922,
+          "max": 3.3622283999999993,
+          "direction": "lower",
+          "values": [3.3622283999999993, 3.0104922]
+        },
+        "result.num_turns": {
+          "median": 6,
+          "min": 6,
+          "max": 6,
+          "direction": "lower",
+          "values": [6, 6]
+        },
+        "result.duration_ms": {
+          "median": 812954,
+          "min": 733228,
+          "max": 892680,
+          "direction": "lower",
+          "values": [892680, 733228]
+        }
+      }
+    },
+    {
+      "id": "r8-aws",
+      "title": "AWS platform map: five slow paid calls behind API Gateway + Lambda",
+      "status": "fail",
+      "score": 0.8571428571428571,
+      "runs": [
+        {
+          "run": 1,
+          "status": "fail",
+          "score": 0.8571428571428571,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "sqs-or-sfn",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "dead-letter",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "visibility-timeout",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /visibility timeout/i found in Task breakdown\n"
+            },
+            {
+              "id": "concurrency-cap",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.2507691999999997,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 486143,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "d489790f-58f7-4c4f-b76d-e4a3e81bb5bd",
+          "costUsd": 2.2507691999999997,
+          "durationMs": 486143,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        },
+        {
+          "run": 2,
+          "status": "fail",
+          "score": 0.8571428571428571,
+          "grades": [
+            {
+              "id": "plan-written",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "no-agent-fallback",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "plugin-loaded",
+              "kind": "file",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "sqs-or-sfn",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "dead-letter",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "visibility-timeout",
+              "kind": "command",
+              "gate": true,
+              "pass": false,
+              "expected": 0,
+              "actual": 1,
+              "detail": "fail: /visibility timeout/i found in Task breakdown\n"
+            },
+            {
+              "id": "concurrency-cap",
+              "kind": "command",
+              "gate": true,
+              "pass": true
+            },
+            {
+              "id": "result.total_cost_usd",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.num_turns",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            },
+            {
+              "id": "result.duration_ms",
+              "kind": "metric",
+              "gate": false,
+              "pass": true
+            }
+          ],
+          "metrics": {
+            "result.total_cost_usd": {
+              "value": 2.0253304,
+              "direction": "lower"
+            },
+            "result.num_turns": {
+              "value": 6,
+              "direction": "lower"
+            },
+            "result.duration_ms": {
+              "value": 393181,
+              "direction": "lower"
+            }
+          },
+          "sessionId": "f232ef76-a5f2-4709-b5df-5c2e398a4fbb",
+          "costUsd": 2.0253304,
+          "durationMs": 393181,
+          "numTurns": 6,
+          "childArgvDigest": "b3957553bb7b63c5"
+        }
+      ],
+      "metrics": {
+        "result.total_cost_usd": {
+          "median": 2.1380498,
+          "min": 2.0253304,
+          "max": 2.2507691999999997,
+          "direction": "lower",
+          "values": [2.2507691999999997, 2.0253304]
+        },
+        "result.num_turns": {
+          "median": 6,
+          "min": 6,
+          "max": 6,
+          "direction": "lower",
+          "values": [6, 6]
+        },
+        "result.duration_ms": {
+          "median": 439662,
+          "min": 393181,
+          "max": 486143,
+          "direction": "lower",
+          "values": [486143, 393181]
+        }
+      }
+    }
+  ],
+  "summary": {
+    "score": 0.775595238095238,
+    "scenarios": 8,
+    "passed": 1,
+    "failed": 7,
+    "errored": 0,
+    "costUsd": 37.4616394
+  }
+}

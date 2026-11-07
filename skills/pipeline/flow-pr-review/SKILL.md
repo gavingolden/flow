@@ -58,7 +58,7 @@ Reference files (read on demand, not upfront):
 
 - `references/checklists/<lens>.md` — one per-lens checklist file (`security.md`,
   `performance.md`, `bug-detection.md`, `pattern-consistency.md`, `test-coverage.md`,
-  `supply-chain.md`), soft-capped at ~150 lines each. Read the lens-matching file at Step 3 when preparing
+  `supply-chain.md`, `product.md`), capped at 200 lines each (lint-enforced). Read the lens-matching file at Step 3 when preparing
   that agent's context. `docs/consumer-review-patterns.md` is a portable seed for consumer
   repos' `.flow/review-checklist.md` — not loaded here.
 - `references/conventional-comments.md` — labeling framework (praise/nitpick/suggestion/
@@ -210,11 +210,12 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
    the artifact is genuinely missing or invalid, never on a well-formed
    `partial`.
 
-   **Waiting for the agent.** The spawn is asynchronous; wake on its
-   completion notification, falling back to a bounded Monitor `until`
-   loop on the completeness check above — never a foreground `sleep`
-   loop (see `../flow-pipeline/references/polling-protocol.md` "What this
-   wait means for the harness-native wake").
+   **Waiting for the agent.** The spawn is asynchronous; wake only on its
+   completion notification (or handback). An artifact poll may detect a
+   hang but never counts as completion — the agent writes interim
+   artifacts; never a foreground `sleep` loop (see
+   `../flow-pipeline/references/polling-protocol.md` "What this wait means
+   for the harness-native wake").
 
 5. Continue to Step 8c (the wrapper's post-spawn verification-item run),
    then Step 9 onwards.
@@ -1144,7 +1145,7 @@ become a runnable bucket** rather than not-runnable — no hand-authored
 self-completes + commits (names/config only, never a secret value — see the manifest-less bootstrap flow in [references/ui-validation-evidence.md](references/ui-validation-evidence.md)). A
 `SUBJECTIVE: `-prefixed item is never validated into a tick, only photographed. The bucket holds **three kinds** — `appearance`, `behavior` (`Browser: ` items), `capture` (`SUBJECTIVE: ` items) — sent to the one spawn as a tagged `MODE: items` list; tick only on `pass`, leave `fail` / `not-drivable` / no-browser open with the reason (`browser-unavailable`, never `subjective UX`), and inject captures via `flow-inject-evidence --no-tick --image`: see "Three item kinds, one spawn" and "Capture-only evidence for SUBJECTIVE items" in [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
 
-**Preflight, then drive — never pre-decide.** Whenever a `Browser: ` item is open, run `flow-ui-preflight --worktree "$WORKTREE"` (Bash `timeout: 600000`) after `flow-ui-validate` and before the driver spawn. Its envelope (`.flow-tmp/ui-preflight.json`, with the recorded load and dependency snapshot) is the ONLY readiness verdict: an ad-hoc probe (`curl`, a port check) is never a veto, no browser item's outcome may be decided before 8c.iii runs, and `browser-unavailable` may be emitted only with that recorded snapshot. Tag each item in the `MODE: items` list with its 1-based index across ALL checklist items; the driver echoes it in `item_results[]` and stamps `headSha` + `caller: "review-8c"` into its artifact. Evidence detail: [references/ui-validation-evidence.md](references/ui-validation-evidence.md) "Three item kinds, one spawn".
+**Preflight, then drive — never pre-decide.** Whenever a `Browser: ` item is open, run `flow-ui-preflight --worktree "$WORKTREE"` (Bash `timeout: 600000`) after `flow-ui-validate` and before the driver spawn. Its envelope (`.flow-tmp/ui-preflight.json`, with the recorded load and dependency snapshot) is the ONLY readiness verdict: an ad-hoc probe (`curl`, a port check) is never a veto, no browser item's outcome may be decided before 8c.iii runs, and `browser-unavailable` may be emitted only with that recorded snapshot. Tag each item in the `MODE: items` list with its 1-based index across ALL checklist items; the driver echoes it in `item_results[]` and stamps `headSha` + `caller: "review-8c"` into its artifact. Evidence detail: [references/ui-validation-evidence.md](references/ui-validation-evidence.md) "Three item kinds, one spawn". After the `capture` evidence is injected, run the advisory `review-8c` critique and `flow-ui-critique render` per that reference (no second body push; finalize re-renders `## UI review`), then print `Sign-off review: <n> finding(s), advisory`.
 
 The MCP-present path spawns the **UI-driver Subagent** — the same eighth
 Task-tool exemption `/flow-verify`'s Optional UI-smoke pass uses, a second
@@ -1173,7 +1174,8 @@ route set `/flow-verify` drives. Each route is still captured **per viewport**
 the per-viewport **`## UI traits to verify`** rubric to each while
 `flow-ui-validate` gates the mechanical geometry assertions automatically. The
 a11y `take_snapshot` is the primary evidence (injected via 8c.i's unchanged
-`flow-inject-evidence`), the screenshot supplementary and referenced by path.
+`flow-inject-evidence`), the screenshot supplementary and attached as `--image`
+(uploaded into the PR by `flow-review-finalize`).
 
 The ui-ux subjective judgment for each item **stays in the wrapper**: it reads
 the returned artifact's `ui_screenshots[]` paths and `fix_context[]` a11y /
@@ -1398,10 +1400,11 @@ should capture rationale inline (per `AGENTS.md` Committing rules).
 Check whether the PR description follows the standardized format with these sections:
 
 - **TLDR** — one sentence, 35 words or fewer, naming the user-visible outcome in the surface the reader uses (no file, function, or line number), then what was wrong or missing before and what is true now; on a fix-shaped PR it states the failure and the causal resolution together
-- **User-facing changes** — concrete user-observable deltas (or the literal `none` for pure-internal PRs); the heading is mandatory
-- **System changes** — any internal change worth a reviewer's attention: a subsystem boundary that moved, a public contract that changed, performance, or ongoing spend (or the literal `none`); the heading is mandatory, exactly like User-facing changes
+- **User-facing changes** — concrete user-observable deltas (or the literal `none` for pure-internal PRs), a changed behavior as an outcome-stating parent bullet with `**Before:**` / `**After:**` sub-bullets (see pr-description-authoring.md); the heading is mandatory
+- **System changes** — any internal change worth a reviewer's attention: a subsystem boundary that moved, a public contract that changed, performance, or ongoing spend (or the literal `none`), a changed behavior as an outcome-stating parent bullet with `**Before:**` / `**After:**` sub-bullets (see pr-description-authoring.md); the heading is mandatory, exactly like User-facing changes
 - **Why** — problem statement and motivation
 - **Key decisions** — non-obvious choices with rationale
+- **Instrumentation** — omit-when-none; the metrics, dashboard panels and alert/SLO spec for a runtime change: keep it in place and never restate it in other sections
 - **Deviations from plan** — omit-when-empty; one bullet per meaningful deviation between the approved plan and what shipped (see `flow-pipeline/references/pause-output-contract.md` `## Definitions`), populated by 11d below, immediately before Test Steps
 - **Test Steps** — verification steps for reviewers, automated and manual (also the auto-merge gate signal: zero unchecked `- [ ]` items ⇒ auto-merge, one or more ⇒ gated)
 - **UI review** — `## UI review` (between the `flow:ui-review` markers) is machine-written by verify: leave it in place and never restate it in other sections
@@ -1490,6 +1493,8 @@ the Fix-Applier Subagent — already parsed at Step 9) against the description:
 - Architectural approach that differs from what was described (e.g., description says
   "client-side only" but implementation adds a server endpoint)
 
+Keep (or, when redrafting, produce) changed-behavior bullets as the `**Before:**` / `**After:**` pair; after writing `.flow-tmp/body.md`, run `flow-md-validate --fix-pr-body .flow-tmp/body.md` as its own Bash call and reshape any bullet a `warn:` names (`flow-review-finalize` re-runs it but discards its stderr).
+
 When any of the above rises to a Q5-class meaningful deviation (per
 `flow-pipeline/references/pause-output-contract.md` `## Definitions`:
 user-visible behavior differs from the plan, scope dropped/added, an
@@ -1510,6 +1515,7 @@ new command is needed here) plus an unchecked
 **Drafting conventions** (apply to every drafted/edited description in this step):
 
 - Render "Test Steps" items as `- [ ]` markdown checkboxes.
+- Keep (or, when redrafting, produce) changed-behavior bullets as the `**Before:**` / `**After:**` pair; after writing `.flow-tmp/body.md`, run `flow-md-validate --fix-pr-body .flow-tmp/body.md` as its own Bash call and reshape any bullet a `warn:` names (`flow-review-finalize` re-runs it but discards its stderr).
 - Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
   and let the renderer wrap it. GitHub renders one long line as one flowing paragraph;
   hard wraps go ragged the moment a sentence is edited and add no value.

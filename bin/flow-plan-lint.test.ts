@@ -62,9 +62,17 @@ none — no existing surface touched
 
 - [ ] Given a widget, when exported, then a CSV downloads.
 
+## Instrumentation
+
+none — UI-only export button; no request handler, job, outbound call or pipeline changes.
+
 ## Architecture Decisions
 
 - **Layers touched:** UI, domain.
+
+### Runtime design
+
+none — UI-only export button; no handler, job, queue consumer, outbound call or worker pool changes.
 
 ## Technical Constraints
 
@@ -89,6 +97,10 @@ The export format might not match user expectations.
 ## Cut list
 
 nothing — plan is minimal.
+
+## UI review targets
+
+- \`/export\` — export button
 
 # Task breakdown
 
@@ -118,6 +130,30 @@ function withoutSection(plan: string, heading: string): string {
   );
   return plan.replace(re, "");
 }
+
+describe("lintPlan — rollback advisory wiring", () => {
+  it("surfaces a missing Rollback line for a destructive task", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "# Task breakdown\n\n",
+      "# Task breakdown\n\n### Task 99: Migrate\n\n- alter table sections add column x text.\n\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => /'\*\*Rollback:\*\*' line/.test(m))).toBe(true);
+  });
+});
+
+describe("lintPlan — queue companion settings", () => {
+  it("names the SQS visibility-timeout miss", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "# Task breakdown\n\n",
+      "# Task breakdown\n\n- Create the SQS queue with a dead-letter queue.\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some((m) => /SQS but no task sets its visibility timeout/.test(m)),
+    ).toBe(true);
+  });
+});
 
 describe("lintPlan — always-present sections", () => {
   it("returns zero misses for a conforming plan", () => {
@@ -204,6 +240,286 @@ describe("lintPlan — always-present sections", () => {
     expect(
       misses.some((m) => m.includes("Cut list") && m.includes("nothing")),
     ).toBe(true);
+  });
+
+  it("names a miss when '## Instrumentation' is absent", () => {
+    const plan = withoutSection(CONFORMING_PLAN, "## Instrumentation");
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some((m) => m.includes("missing '## Instrumentation' heading")),
+    ).toBe(true);
+  });
+
+  it("does not let an '## Instrumentation' in the PR description draft satisfy the PRD check", () => {
+    const plan =
+      withoutSection(CONFORMING_PLAN, "## Instrumentation") +
+      "\n## Instrumentation\n\n| Metric | Instrument |\n| --- | --- |\n| a.b | Histogram |\n";
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some((m) => m.includes("missing '## Instrumentation' heading")),
+    ).toBe(true);
+  });
+
+  it("names a miss when '## Instrumentation' is empty", () => {
+    const plan = CONFORMING_PLAN.replace(
+      /## Instrumentation\n\nnone[^\n]*\n/,
+      "## Instrumentation\n\n<!-- placeholder -->\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some((m) => m.includes("'## Instrumentation' is empty")),
+    ).toBe(true);
+  });
+
+  it("names a miss when '## Instrumentation' says a bare 'none' with no reason", () => {
+    const plan = CONFORMING_PLAN.replace(
+      /(## Instrumentation\n\n)none[^\n]*\n/,
+      "$1none\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) => m.includes("Instrumentation") && m.includes("no reason"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not miss a reasoned 'none' or a spec table in '## Instrumentation'", () => {
+    expect(
+      lintPlan(CONFORMING_PLAN).misses.filter((m) =>
+        m.includes("Instrumentation"),
+      ),
+    ).toEqual([]);
+    const withTable = CONFORMING_PLAN.replace(
+      /(## Instrumentation\n\n)none[^\n]*\n/,
+      "$1**Contract:** `.flow/metrics.md` create\n\n### Metrics\n\n| Metric | Instrument |\n| --- | --- |\n| export.duration | Histogram |\n\n**Attributes:** reuses registered\n",
+    );
+    expect(
+      lintPlan(withTable).misses.filter((m) => m.includes("Instrumentation")),
+    ).toEqual([]);
+  });
+
+  it("names a miss when a non-none '## Instrumentation' carries no table row", () => {
+    const plan = CONFORMING_PLAN.replace(
+      /(## Instrumentation\n\n)none[^\n]*\n/,
+      "$1Record request latency for the export endpoint.\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("no markdown table row"))).toBe(true);
+  });
+
+  it("names a miss when a non-none '## Instrumentation' carries no '**Attributes:**' line", () => {
+    const plan = CONFORMING_PLAN.replace(
+      /(## Instrumentation\n\n)none[^\n]*\n/,
+      "$1**Contract:** `.flow/metrics.md` create\n\n### Metrics\n\n| Metric | Instrument |\n| --- | --- |\n| export.duration | Histogram |\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) => m.includes("Instrumentation") && m.includes("Attributes"),
+      ),
+    ).toBe(true);
+  });
+
+  it("names a 'none' Instrumentation whose task Files name a runtime path", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "create src/ExportButton.svelte",
+      "create src/routes/api/export/+server.ts",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) => m.includes("Instrumentation") && m.includes("runtime path"),
+      ),
+    ).toBe(true);
+  });
+
+  const planWithFiles = (files: string) =>
+    CONFORMING_PLAN.replace("create src/ExportButton.svelte", files);
+  const instrumentationMisses = (plan: string) =>
+    lintPlan(plan).misses.filter((m) => m.includes("Instrumentation"));
+
+  it.each([
+    "src/lib/server/db.ts",
+    "src/worker/sync.ts",
+    "src/workers/sync.ts",
+    "src/job/nightly.ts",
+    "src/jobs/nightly.ts",
+    "src/queue/email.ts",
+    "src/queues/email.ts",
+    "src/cron/cleanup.ts",
+    "src/routes/x/+page.server.ts",
+    "src/routes/x/+layout.server.ts",
+    "src/hooks.server.ts",
+    "src/routes/x/+server.ts",
+  ])("flags a 'none' Instrumentation when Files names %s", (file) => {
+    expect(
+      instrumentationMisses(planWithFiles(`create ${file}`)).some((m) =>
+        m.includes("runtime path"),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    "src/webserver/x.ts",
+    "src/my-api/x.ts",
+    "src/jobs/export.test.ts",
+    "src/routes/api/export/+server.spec.ts",
+    "docs/api/README.md",
+  ])("does not flag a 'none' Instrumentation for %s", (file) => {
+    expect(instrumentationMisses(planWithFiles(`create ${file}`))).toEqual([]);
+  });
+
+  it("flags a runtime path on a soft-wrapped Files line", () => {
+    const plan = planWithFiles(
+      "create src/ExportButton.svelte,\n    src/jobs/export.ts",
+    );
+    expect(
+      instrumentationMisses(plan).some((m) => m.includes("runtime path")),
+    ).toBe(true);
+  });
+
+  it("accepts a runtime-path 'none' whose reason says refactor-only", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "create src/ExportButton.svelte",
+      "src/jobs/export.ts",
+    ).replace(
+      /(## Instrumentation\n\n)none[^\n]*\n/,
+      "$1none — refactor-only, no behaviour change\n",
+    );
+    expect(
+      lintPlan(plan).misses.filter((m) => m.includes("Instrumentation")),
+    ).toEqual([]);
+  });
+
+  it("keeps a UI-only SvelteKit page plan clean under 'none'", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "create src/ExportButton.svelte",
+      "create src/routes/x/+page.svelte",
+    );
+    expect(
+      lintPlan(plan).misses.filter((m) => m.includes("Instrumentation")),
+    ).toEqual([]);
+  });
+
+  it("the shipped example-prd.md's '## Instrumentation' passes its own check (drift pin)", () => {
+    const { misses } = lintPlan(
+      "# PRD\n\n" + readFileSync(EXAMPLE_PRD_PATH, "utf8"),
+      { planMdFile: EXAMPLE_PRD_PATH },
+    );
+    expect(misses.filter((m) => m.includes("Instrumentation"))).toEqual([]);
+  });
+
+  describe("### Runtime design", () => {
+    const rdMisses = (plan: string) =>
+      lintPlan(plan).misses.filter((m) => m.includes("Runtime design"));
+    const RD_NONE = /(### Runtime design\n\n)none[^\n]*\n/;
+    const SPEC =
+      "| Operation | Est. p99 | Execution model | Timeout / deadline | Retries | Idempotency key | Cost bound |\n| --- | --- | --- | --- | --- | --- | --- |\n| export | ~40 ms | inline — ~40 ms, timeout 2 s | 2 s | none | widget id | none |\n";
+
+    it("names a miss when '### Runtime design' is absent", () => {
+      const plan = CONFORMING_PLAN.replace(
+        /### Runtime design\n\nnone[^\n]*\n/,
+        "",
+      );
+      expect(rdMisses(plan).some((m) => m.includes("missing"))).toBe(true);
+    });
+
+    it("does not let a '### Runtime design' in the PR description draft satisfy the PRD check", () => {
+      const plan =
+        CONFORMING_PLAN.replace(/### Runtime design\n\nnone[^\n]*\n/, "") +
+        "\n### Runtime design\n\nnone — draft only\n";
+      expect(rdMisses(plan).some((m) => m.includes("missing"))).toBe(true);
+    });
+
+    it("names a miss when the body is empty", () => {
+      const plan = CONFORMING_PLAN.replace(RD_NONE, "$1<!-- placeholder -->\n");
+      expect(rdMisses(plan).some((m) => m.includes("is empty"))).toBe(true);
+    });
+
+    it("names a miss for a bare 'none' with no reason", () => {
+      const plan = CONFORMING_PLAN.replace(RD_NONE, "$1none\n");
+      expect(rdMisses(plan).some((m) => m.includes("no reason"))).toBe(true);
+    });
+
+    it("names a miss for a spec with no table row", () => {
+      const plan = CONFORMING_PLAN.replace(
+        RD_NONE,
+        "$1Queue it.\n\n**Proportionality:** none\n",
+      );
+      expect(rdMisses(plan).some((m) => m.includes("table row"))).toBe(true);
+    });
+
+    it("names a miss for a spec with no '**Proportionality:**' line", () => {
+      const plan = CONFORMING_PLAN.replace(RD_NONE, `$1${SPEC}`);
+      expect(rdMisses(plan).some((m) => m.includes("Proportionality"))).toBe(
+        true,
+      );
+    });
+
+    it("names the interactive-budget miss for an inline row with a ~65 s p99", () => {
+      const spec = SPEC.replace(
+        "| export | ~40 ms | inline — ~40 ms, timeout 2 s |",
+        "| export | ~65 s | inline, five-way fan-out |",
+      );
+      const plan = CONFORMING_PLAN.replace(
+        RD_NONE,
+        `$1${spec}\n**Proportionality:** none\n`,
+      );
+      expect(
+        lintPlan(plan).misses.some((m) => m.includes("interactive budget")),
+      ).toBe(true);
+    });
+
+    it("accepts a spec table with a Proportionality line", () => {
+      const plan = CONFORMING_PLAN.replace(
+        RD_NONE,
+        `$1${SPEC}\n**Proportionality:** no queue — single-row read\n`,
+      );
+      expect(rdMisses(plan)).toEqual([]);
+    });
+
+    it("names a 'none' whose task Files name a runtime path", () => {
+      const plan = CONFORMING_PLAN.replace(
+        "create src/ExportButton.svelte",
+        "create src/api/reports.ts",
+      );
+      expect(rdMisses(plan).some((m) => m.includes("runtime path"))).toBe(true);
+    });
+
+    it("accepts a runtime-path 'none' whose reason says refactor-only", () => {
+      const plan = CONFORMING_PLAN.replace(
+        "create src/ExportButton.svelte",
+        "create src/api/reports.ts",
+      ).replace(RD_NONE, "$1none — refactor-only, no behaviour change\n");
+      expect(rdMisses(plan)).toEqual([]);
+    });
+
+    it("names a 'none' while '## Instrumentation' is not none", () => {
+      const plan = CONFORMING_PLAN.replace(
+        /(## Instrumentation\n\n)none[^\n]*\n/,
+        "$1| Metric | Instrument |\n| --- | --- |\n| a.b | Histogram |\n\n**Attributes:** reuses registered\n",
+      );
+      expect(rdMisses(plan).some((m) => m.includes("metrics spec"))).toBe(true);
+    });
+
+    it("does not swallow a following '###' subsection inside Architecture Decisions", () => {
+      const plan = CONFORMING_PLAN.replace(
+        RD_NONE,
+        `$1${SPEC}\n### Other notes\n\n**Proportionality:** hidden below another heading\n`,
+      );
+      expect(rdMisses(plan).some((m) => m.includes("Proportionality"))).toBe(
+        true,
+      );
+    });
+
+    it("the shipped example-prd.md's '### Runtime design' passes its own check (drift pin)", () => {
+      const { misses } = lintPlan(
+        "# PRD\n\n" + readFileSync(EXAMPLE_PRD_PATH, "utf8"),
+        { planMdFile: EXAMPLE_PRD_PATH },
+      );
+      expect(misses.filter((m) => m.includes("Runtime design"))).toEqual([]);
+    });
   });
 
   it("does not miss a justified 'nothing' Cut list", () => {
@@ -1869,5 +2185,67 @@ describe("lintPlan — drafted PR TLDR", () => {
         m.includes("drafted PR TLDR"),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("lintPlan — drafted PR change bullets", () => {
+  const withBullet = (bullet: string): string =>
+    CONFORMING_PLAN.replace(
+      "# PR description draft\n",
+      `# PR description draft\n\n## User-facing changes\n\n${bullet}\n`,
+    );
+
+  it("warns when the draft writes a Before → After arrow bullet", () => {
+    const misses = lintPlan(withBullet("- Before → After: x → y")).misses;
+    expect(
+      misses.some((m) => m.startsWith("warn: PR '## User-facing changes'")),
+    ).toBe(true);
+  });
+
+  it("stays silent for a nested Before/After pair in the draft", () => {
+    const pair =
+      "- Starting is now explicit:\n  - **Before:** you ran x.\n  - **After:** you run y.";
+    expect(
+      lintPlan(withBullet(pair)).misses.filter((m) =>
+        m.startsWith("warn: PR "),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("lintPlan — ui-review-targets-missing", () => {
+  const withFiles = (files: string, extra = "") =>
+    CONFORMING_PLAN.replace(
+      "  - **Files:** create src/ExportButton.svelte",
+      `  - **Files:** ${files}`,
+    ).replace(
+      "## UI review targets\n\n- `/export` — export button\n\n# Task breakdown",
+      `${extra}# Task breakdown`,
+    );
+  const warns = (plan: string) =>
+    lintPlan(plan).misses.some((m) => m.includes("ui-review-targets-missing"));
+
+  it("warns when a task changes a render-bearing file and no targets section exists", () => {
+    expect(warns(withFiles("`src/lib/components/A.svelte` (create)"))).toBe(
+      true,
+    );
+  });
+
+  it("stays quiet when the plan carries a '## UI review targets' section", () => {
+    const plan = withFiles(
+      "`src/lib/components/A.svelte`",
+      "## UI review targets\n\n- `/analysis/AVGO` — empty state\n\n",
+    );
+    expect(warns(plan)).toBe(false);
+  });
+
+  it("stays quiet for tests, stubs and non-rendering files", () => {
+    expect(
+      warns(
+        withFiles(
+          "`src/A.svelte.test.ts` (create), `src/__stubs__/H.svelte`, `bin/x.ts`",
+        ),
+      ),
+    ).toBe(false);
   });
 });

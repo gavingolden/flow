@@ -13,8 +13,8 @@
  * writes and renders ONLY sourced facts; every empty category prints an
  * explicit `none`, never a fabricated "looks like it passed."
  *
- * Seven sections: CHANGES (commits/diff size), PHASES (state.json phaseLog),
- * INTENT (the Step 3.6 intent-mismatch resolution verdict), FINDINGS (review
+ * Eight sections: CHANGES (commits/diff size), RAN ON (which model and effort
+ * ran each part, list-price spend), PHASES (state.json phaseLog), INTENT (the Step 3.6 intent-mismatch resolution verdict), FINDINGS (review
  * verdict + fix-applier + consolidator + CI/Copilot), FORECLOSED PATHS
  * (fix-applier + consolidator foreclosed-path prose — rejected alternatives
  * + anti-patterns), FOLLOW-UP ISSUES (filed sweep URLs + pr-review
@@ -27,7 +27,7 @@
  * `(unreadable)` rather than crashing the whole snapshot.
  *
  * Durable persistence (`--post-comment <PR>`): on the MERGED status only, a
- * SLIMMED snapshot (renderComment — CHANGES / REVIEW / DECISIONS only, no
+ * SLIMMED snapshot (renderComment — CHANGES / RAN ON / REVIEW / DECISIONS only, no
  * PHASES or MANUAL STEPS) is ALSO posted as a top-level PR issue-comment so a
  * merged PR carries its own pipeline provenance beyond the transient tmux
  * scrollback. The posted body wraps the slim block in a ```text code fence;
@@ -54,8 +54,8 @@
  *
  * `--lens` (flag > `output.lens` config > `pm`) switches the scrollback
  * render and the posted comment's top-level fenced block between `pm`
- * (CHANGES / REVIEW counts / DEVIATIONS / UNTRACKED [/ MANUAL STEPS for the
- * scrollback]) and `dev` (today's seven-section scrollback plus a trailing
+ * (CHANGES / RAN ON / REVIEW counts / DEVIATIONS / UNTRACKED [/ MANUAL STEPS
+ * for the scrollback]) and `dev` (today's eight-section scrollback plus a trailing
  * DEVIATIONS section). The posted comment ALWAYS carries both — `pm` at the
  * top level, `dev` collapsed under `<details><summary>Developer
  * detail</summary>`. `--scout-file` feeds `DEVIATIONS:`'s `PLAN-DEVIATION:`
@@ -70,7 +70,14 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { readState } from "./lib/state";
+import { readState, type PipelineState } from "./lib/state";
+import { collectRunAttribution } from "./lib/run-attribution";
+import {
+  mergeWithPrior,
+  readLatestRunAttributions,
+} from "./lib/run-attribution-record";
+import { renderRanOn } from "./lib/run-attribution-render";
+import type { RunAttribution } from "./lib/run-attribution-types";
 import { readEntries, runEntries, formatVerdict } from "./flow-followups";
 import { parsePrNumber } from "./flow-fetch-pr-review";
 import {
@@ -259,7 +266,7 @@ export type RenderInputs = {
    * discipline as `bin/flow-gate-summary.ts`'s `GateSummaryInputs.lens`.
    * `run()` always resolves and passes a concrete lens; only a direct
    * `render()` call that omits it (every pre-existing test) falls back to
-   * `dev`, reproducing today's seven-section shape unchanged.
+   * `dev`, reproducing today's eight-section shape unchanged.
    */
   lens?: OutputLens;
   /** scout.md raw text, for `DEVIATIONS:`' `PLAN-DEVIATION:` bullets. */
@@ -275,6 +282,8 @@ export type RenderInputs = {
   artifactDir?: string;
   /** review-telemetry.json raw text, for the LENSES (dev) / lenses: (pm) sections. */
   reviewTelemetryRaw?: string;
+  /** Run attribution for the `RAN ON:` section; absent/null renders `none`. */
+  attribution?: RunAttribution | null;
 };
 
 /**
@@ -282,8 +291,8 @@ export type RenderInputs = {
  * path, which readState owns) and produces the snapshot block. The block's
  * last line is NEVER a stop-guard sentinel — that is gate-summary's job.
  *
- * `pm`: CHANGES / REVIEW (counts) / DEVIATIONS / UNTRACKED / MANUAL STEPS
- * only. `dev`: today's seven sections plus a trailing DEVIATIONS section.
+ * `pm`: CHANGES / RAN ON / REVIEW (counts) / DEVIATIONS / UNTRACKED / MANUAL
+ * STEPS only. `dev`: today's eight sections plus a trailing DEVIATIONS section.
  */
 export function render(inputs: RenderInputs): string {
   const pm = (inputs.lens ?? "dev") === "pm";
@@ -295,6 +304,10 @@ export function render(inputs: RenderInputs): string {
   const lines: string[] = ["## PIPELINE SNAPSHOT"];
   lines.push("CHANGES:");
   for (const ln of renderChanges(inputs.prChangesRaw)) lines.push(`  ${ln}`);
+  lines.push("RAN ON:");
+  for (const ln of renderRanOn(inputs.attribution ?? null, pm ? "pm" : "dev")) {
+    lines.push(`  ${ln}`);
+  }
   if (pm) {
     lines.push("REVIEW:");
     for (const ln of renderReviewCounts({
@@ -577,9 +590,44 @@ function parseJsonOrUndefined(raw: string): unknown | undefined {
   }
 }
 
+/** Fresh collection merged with the slug's latest durable row; null when unavailable. Never throws. */
+function collectAttribution(
+  state: PipelineState | null,
+  deps: {
+    projectsRoot?: string;
+    eventsLogPath?: string;
+    attributionLogPath?: string;
+  },
+): RunAttribution | null {
+  if (!state) return null;
+  try {
+    const prior = readLatestRunAttributions({
+      logPath: deps.attributionLogPath,
+      slugs: new Set([state.slug]),
+    }).get(state.slug);
+    return mergeWithPrior(
+      collectRunAttribution(state, {
+        projectsRoot: deps.projectsRoot,
+        eventsLogPath: deps.eventsLogPath,
+      }),
+      prior ?? null,
+      state.phaseLog?.[0]?.at,
+    );
+  } catch {
+    return null;
+  }
+}
+
 export function run(
   argv: string[],
-  deps: { gh?: GhRunner; read?: Parameters<typeof resolveLens>[1] } = {},
+  deps: {
+    gh?: GhRunner;
+    read?: Parameters<typeof resolveLens>[1];
+    /** Test seams for `RAN ON:` (default: real ~/.claude, ~/.flow). */
+    projectsRoot?: string;
+    eventsLogPath?: string;
+    attributionLogPath?: string;
+  } = {},
 ): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -646,8 +694,10 @@ export function run(
     : parsed.followupsJsonl
       ? renderJsonlNoteOnly(parsed.followupsJsonl)
       : "";
+  const attribution = collectAttribution(state, deps);
   const block = render({
     prChangesRaw,
+    attribution,
     phaseLog: state?.phaseLog ?? null,
     prReviewRaw,
     fixApplierRaw,
@@ -712,6 +762,7 @@ export function run(
         untrackedBlock,
         artifactDir,
         reviewTelemetryRaw,
+        attribution,
       });
       const result = postSnapshotComment(
         prNumber,

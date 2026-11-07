@@ -20,6 +20,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { readLiveEffort } from "./claude-build";
 import { flowTelemetryLogPath, FLOW_STATE_DIR } from "./paths";
 import { resolveSlugAmbient } from "./session-identity";
 import { readState, type PipelineState } from "./state";
@@ -57,6 +58,8 @@ export type TelemetryEvent = {
   pr: number | null;
   repo: string | null;
   session_id: string | null;
+  /** The emitting agent's resolved effort (`CLAUDE_EFFORT`); null when absent. */
+  session_effort: string | null;
   attrs: Record<string, unknown>;
 };
 
@@ -70,6 +73,7 @@ export type CorrelationResult = {
   pr: number | null;
   repo: string | null;
   session_id: string | null;
+  session_effort: string | null;
   /** Extra attrs the guard wants merged into the emitted event's attrs. */
   attrs: Record<string, unknown>;
 };
@@ -87,7 +91,10 @@ export type CorrelationResult = {
  * `flow-open-pr.ts` at PR-open time) catches that case: on a MISMATCH the
  * event is recorded with slug/pr/repo nulled out and `attrs.unmatched_slug`
  * set to the inherited (wrong) slug, rather than silently misattributing
- * the event to a pipeline it didn't belong to.
+ * the event to a pipeline it didn't belong to. A post-`/clear` session of the
+ * SAME pipeline also mismatches and is tagged this way; the run-attribution
+ * collector deliberately treats `unmatched_slug` as membership of that slug
+ * (the two cases cannot be told apart yet).
  *
  * When either side's session id is simply ABSENT (no Claude Code harness,
  * or the state file predates `flow-open-pr`'s session-id capture) that is
@@ -101,6 +108,7 @@ export function resolveCorrelation(
   const env = opts.env ?? process.env;
   const slug = resolveSlugAmbient({ env });
   const sessionId = env.CLAUDE_CODE_SESSION_ID ?? null;
+  const sessionEffort = readLiveEffort(env);
 
   if (slug === null) {
     return {
@@ -108,6 +116,7 @@ export function resolveCorrelation(
       pr: null,
       repo: null,
       session_id: sessionId,
+      session_effort: sessionEffort,
       attrs: {},
     };
   }
@@ -130,10 +139,18 @@ export function resolveCorrelation(
         pr: null,
         repo: null,
         session_id: sessionId,
+        session_effort: sessionEffort,
         attrs: { unmatched_slug: slug },
       };
     }
-    return { slug, pr, repo, session_id: sessionId, attrs: {} };
+    return {
+      slug,
+      pr,
+      repo,
+      session_id: sessionId,
+      session_effort: sessionEffort,
+      attrs: {},
+    };
   }
 
   // Absent on either side — not a mismatch, keep attribution but mark it
@@ -143,6 +160,7 @@ export function resolveCorrelation(
     pr,
     repo,
     session_id: sessionId,
+    session_effort: sessionEffort,
     attrs: { slug_unverified: true },
   };
 }
@@ -228,6 +246,7 @@ export function recordEvent(
       pr: correlation.pr,
       repo: correlation.repo,
       session_id: correlation.session_id,
+      session_effort: correlation.session_effort,
       attrs: { ...attrs, ...correlation.attrs },
     };
     const line = serializeEvent(record);

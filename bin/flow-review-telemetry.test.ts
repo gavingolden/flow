@@ -95,7 +95,7 @@ describe("collect", () => {
         "utf8",
       ),
     );
-    expect(telemetry.version).toBe(3);
+    expect(telemetry.version).toBe(4);
     expect(telemetry.lenses["bug-detection"].context_tokens).toBe(999);
     expect(telemetry.lenses["bug-detection"].tokens).toBeNull();
     expect(telemetry.lenses["bug-detection"].tokens_source).toBe("unavailable");
@@ -214,6 +214,7 @@ describe("collect", () => {
       expect(lenses["bug-detection"]).toMatchObject({
         engine: "agy",
         agy_model: "Claude Opus 5.5 (High)",
+        rerouted_from: null,
         model: "Claude Opus 5.5 (High)",
         fallback_reason: null,
       });
@@ -224,6 +225,7 @@ describe("collect", () => {
       expect(lenses.performance).toMatchObject({
         engine: "task",
         agy_model: null,
+        rerouted_from: null,
         fallback_reason: null,
       });
     });
@@ -392,7 +394,7 @@ describe("print", () => {
     overrides: Partial<ReviewTelemetry> = {},
   ): ReviewTelemetry {
     return {
-      version: 3,
+      version: 4,
       run_id: "10:abc:2026",
       ts: "2026-01-01T00:00:00.000Z",
       repo: "flow",
@@ -412,6 +414,7 @@ describe("print", () => {
           ran: true,
           skip_reason: null,
           model: null,
+          effort: null,
           tokens: { total: 100 },
           tokens_source: "subagent-transcript",
           context_tokens: null,
@@ -422,6 +425,7 @@ describe("print", () => {
           findings_deferred: 0,
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: null,
         },
       },
@@ -436,6 +440,7 @@ describe("print", () => {
           ran: true,
           skip_reason: null,
           model: null,
+          effort: null,
           tokens: null,
           tokens_source: "unavailable",
           context_tokens: null,
@@ -446,6 +451,7 @@ describe("print", () => {
           findings_deferred: 0,
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: null,
         },
       },
@@ -462,6 +468,7 @@ describe("print", () => {
           ran: false,
           skip_reason: "docs-only",
           model: null,
+          effort: null,
           tokens: null,
           tokens_source: "unavailable",
           context_tokens: null,
@@ -472,6 +479,7 @@ describe("print", () => {
           findings_deferred: 0,
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: null,
         },
       },
@@ -486,6 +494,7 @@ describe("print", () => {
           ran: true,
           skip_reason: null,
           model: "opus",
+          effort: null,
           tokens: { total: 100 },
           tokens_source: "subagent-transcript",
           context_tokens: null,
@@ -496,12 +505,14 @@ describe("print", () => {
           findings_deferred: 0,
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: null,
         },
         security: {
           ran: true,
           skip_reason: null,
           model: null,
+          effort: null,
           tokens: { total: 50 },
           tokens_source: "subagent-transcript",
           context_tokens: null,
@@ -512,6 +523,7 @@ describe("print", () => {
           findings_deferred: 0,
           engine: "task",
           agy_model: null,
+          rerouted_from: null,
           fallback_reason: null,
         },
       },

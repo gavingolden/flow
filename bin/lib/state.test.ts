@@ -862,6 +862,38 @@ describe("state", () => {
     expect(readState("reap-malformed", dir)).toBeNull();
   });
 
+  it("readState round-trips a valid orphanStops record", () => {
+    const withStops: PipelineState = {
+      slug: "with-orphan-stops",
+      phase: "implementing",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      orphanStops: { count: 3, lastAt: "2026-05-17T00:01:00Z" },
+    };
+    writeState(withStops, dir);
+    expect(readState("with-orphan-stops", dir)).toEqual(withStops);
+  });
+
+  it("readState returns null when orphanStops is malformed", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [slug, bad] of [
+      ["stops-bad-count", { count: "3", lastAt: "2026-05-17T00:01:00Z" }],
+      ["stops-bad-at", { count: 3, lastAt: 5 }],
+    ] as const) {
+      fs.writeFileSync(
+        path.join(dir, `${slug}.json`),
+        JSON.stringify({
+          slug,
+          phase: "implementing",
+          repo: "/tmp/repo",
+          updatedAt: "2026-05-17T00:00:00Z",
+          orphanStops: bad,
+        }),
+      );
+      expect(readState(slug, dir)).toBeNull();
+    }
+  });
+
   it("readState round-trips a valid seed and seedIngest through writeState", () => {
     const withSeedIngest: PipelineState = {
       slug: "with-seed-ingest",

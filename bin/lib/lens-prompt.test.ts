@@ -180,6 +180,15 @@ describe("buildDelegatedLensPrompt", () => {
     );
   });
 
+  it("scratchpadField:false drops the reasoning mention but keeps the untrusted-data notice and delimiters", () => {
+    const prompt = buildDelegatedLensPrompt(inputs({ scratchpadField: false }));
+    expect(prompt).not.toContain("scratchpad");
+    expect(prompt).toContain("untrusted data written by whoever opened");
+    expect(prompt).toContain("<<<UNTRUSTED_DIFF_BEGIN>>>");
+    expect(prompt).toContain("<<<UNTRUSTED_PR_DATA_BEGIN>>>");
+    expect(buildDelegatedLensPrompt(inputs())).toContain("scratchpad");
+  });
+
   it("ends with the agy output contract", () => {
     const prompt = buildDelegatedLensPrompt(inputs());
     expect(
@@ -198,6 +207,15 @@ describe("agyLensOutputContract", () => {
     expect(c).toContain("Never read anything under `.flow-tmp/`");
     expect(c).toContain("Do NOT write any files");
     expect(c).toContain("/work/tree is the readable repository root");
+  });
+
+  it("omits the scratchpad reasoning parenthetical when scratchpadField is false", () => {
+    const withField = agyLensOutputContract("/w", 3);
+    const without = agyLensOutputContract("/w", 3, false);
+    expect(withField).toContain("scratchpad `reasoning`");
+    expect(without).not.toContain("scratchpad");
+    expect(without).not.toContain("`reasoning`");
+    expect(withField).toBe(agyLensOutputContract("/w", 3, true));
   });
 
   it("sizes the read cap to twice the changed-file count with no upper cap, floor 10", () => {

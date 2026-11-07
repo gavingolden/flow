@@ -183,6 +183,54 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 ```
 -->
 
+## UI review targets
+
+<!-- Omit this whole section when no task changes a render-bearing file. Authoring contract: discovery-ui.md "UI review targets". Do not inline the contract here. -->
+
+- `[/path]` — [the state this page shows and the local data that makes it render]
+
+## Instrumentation
+
+<!-- Always present. Full form for a plan that adds or changes a request
+     handler, background job or queue consumer, outbound API call,
+     multi-stage pipeline, or connection or worker pool; otherwise a single `none — <reason>` line. See
+     references/discovery-instrumentation.md for the contract. -->
+
+**Contract:** [.flow/metrics.md create | extend]
+
+### Metrics
+
+| Metric                  | Instrument | Unit    | Attributes (closed values)    | Emitted at      |
+| ----------------------- | ---------- | ------- | ----------------------------- | --------------- |
+| [namespace.op.duration] | Histogram  | seconds | operation.outcome (ok, error) | [handler / job] |
+| [namespace.op.failures] | Counter    | none    | error.type ([listed values])  | [handler / job] |
+
+Estimated series: [n] per operation[; samples/month: [m] — per-sample backend only]
+
+**Attributes:** [reuses registered | new keys with their closed values, added as `.flow/metrics.md` `## Attributes` rows]
+
+### Error types
+
+[new error.type values with meaning, or `reuses existing`]
+
+### Dashboard panels
+
+[panels added to `.flow/metrics.md` `## Dashboard panels`, each naming the dashboard it lands on]
+
+### Alerts
+
+| Signal   | Condition   | Sustained for | Action        | Routes to                                  | Dashboard |
+| -------- | ----------- | ------------- | ------------- | ------------------------------------------ | --------- |
+| [signal] | [threshold] | [duration]    | [page/notify] | [channel name, never a webhook URL or key] | [link]    |
+
+[or `burn-rate tiers only`]
+
+### SLO
+
+[rolls into <SLO name>, or a new user-journey SLO with its SLI and target]
+
+**As-code:** [paths of dashboard or alert files updated | spec-only — <why>]
+
 ## Architecture Decisions
 
 <!-- Name the existing pattern, or justify a new one. Load
@@ -204,6 +252,24 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
      ```
 
 -->
+
+### Runtime design
+
+<!-- One row per runtime operation this plan adds or changes (handler, job,
+     queue consumer, outbound call, worker pool). An inline row may compress to
+     `inline — <p99>, timeout <n>`. A cell that reuses a repo primitive names
+     it in plain words, or `new`; the touching task lists its repo-relative path
+     under **Inputs:**. A plan with no runtime surface writes a single
+     `none — <reason>` line instead. See references/discovery-runtime-design.md. -->
+
+| Operation   | Est. p99 | Execution model                            | Timeout / deadline | Retries               | Idempotency key         | Cost bound           |
+| ----------- | -------- | ------------------------------------------ | ------------------ | --------------------- | ----------------------- | -------------------- |
+| [operation] | [~n s]   | [inline / queue / scheduler-enqueue / job] | [n s]              | [layer, cap, backoff] | [business-identity key] | [spend ledger / cap] |
+
+**Platform:** [gcp | cloudflare | aws | other]
+
+**Proportionality:** [what was deliberately left out, e.g. no queue for a 50 ms call]
+**Recovery:** [how stored data comes back if lost — backups/PITR or versioning plus a restore check — or none — <why it is regenerable or already covered>; required when a task adds or changes a table, migration or bucket]
 
 ## Technical Constraints
 

@@ -1,0 +1,22 @@
+## Planning done: "refresh every saved report nightly"
+
+Both files are written and non-empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. I stopped there. Nothing is implemented and no later phase was started.
+
+- **The main finding:** saved reports are kept only in the server's memory. A Cloud Run restart or an idle shutdown wipes them, so a 3 a.m. job built as asked would find an empty store and refresh nothing. The service also has no way to create a report yet.
+- **Tasks:** 8, and storing reports durably comes first. The plan recommends Firestore over Cloud SQL (medium confidence) because it has no always-on cost. The remaining tasks:
+  - timeouts and error handling for model calls
+  - metrics
+  - a daily spending cap
+  - a worker that refreshes one report at a time
+  - a 3 a.m. trigger that queues one task per report
+  - worker-only routes on a private service
+  - setup and deploy scripts
+- **Scope:** the plan says to **reconsider scope**, since this is much more than adding a nightly job. Its verdict: go ahead only if reports move to a durable store before the nightly refresh ships, and the refresh stops at a daily cap on paid model calls.
+- **Follow-up:** one issue is marked to be filed: add a way to create reports. Without it the nightly refresh has nothing to work on.
+- **Web research:** skipped, because this didn't need outside research. You can force it with `flow feature create --research`.
+
+**Decisions for you:**
+1. **The daily cap on paid model calls (Q1).** The plan doesn't pick a number, and the nightly refresh won't run at all until one is set.
+2. **Where reports really live.** The plan assumes this service's in-memory store is the only one. If reports are created and stored somewhere outside this repo, the first two tasks (moving storage to Firestore) are the wrong work.
+
+**Next action:** read `.flow-tmp/plan.md`, set the cap and confirm where reports are stored, then run `/flow-new-feature refresh every saved report nightly` when you want to start building.

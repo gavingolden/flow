@@ -148,7 +148,8 @@ export type FanoutResult = {
 };
 
 // The one-line JSON envelope flow-delegate writes to stdout; the per-entry
-// record is a projection of this. Skip envelopes omit artifactPath/durationMs.
+// record is a projection of this. Skip envelopes omit artifactPath, and
+// pre-dispatch skips (agy-not-found, spawn-failed) omit durationMs too.
 export type DelegateEnvelope = {
   ran: boolean;
   task: string;
@@ -370,8 +371,9 @@ async function runPool(
       let record: EntryResult;
       try {
         const envelope = await deps.runDelegate(entry, outPath);
-        // Measure wall-clock in the pool (covers skips too) rather than
-        // passing the envelope's durationMs through — skip envelopes have none.
+        // Measure wall-clock in the pool (covers every skip) rather than
+        // passing the envelope's durationMs through — pre-dispatch skips
+        // have none.
         const durationMs = Date.now() - start;
         record = {
           task: entry.task,

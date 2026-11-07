@@ -1,0 +1,23 @@
+## Plan ready: `POST /reports/:id/title`
+
+The plan and the PR description draft are written. Nothing was implemented, no source files changed, and no later pipeline phase was started.
+
+- **Problem:** Saved reports have an empty title field, and the service has no way to fill it. The model call that would write a title is already paid for but nothing calls it. The service is publicly reachable, so the new endpoint has to cap how many paid calls it can trigger.
+- **Tasks:** 3, in order:
+  1. A metrics helper, plus the repo's first metrics contract.
+  2. A 5-second timeout and error checks on the title model call, with its answer cached per report content.
+  3. The `POST /reports/:id/title` route and its tests.
+- **Candidates:** 2 follow-up issues:
+  - Service-wide authentication (ticked): every route is anonymous today, including this new paid one.
+  - An endpoint to accept or set a title (not ticked).
+- **Top assumptions:**
+  - Asking again for a report whose sections haven't changed returns the same cached title and makes no new paid call (medium confidence). That cache is the only limit on spend for a public endpoint, but it also means a "suggest another" button would keep showing the same title.
+  - The title is only returned, never saved into the report (high confidence, from "returns a suggested title").
+- **Research:** Skipped, because this isn't a question web research would help with. Use `flow feature create --research` to force it.
+- **Vetting verdict:** `- **Verdict:** adopt-with-conditions: the model call is bounded by a 5 s timeout, and a repeat request for a report whose sections have not changed makes zero additional paid calls (asserted by a test that counts upstream calls).`
+
+The planning agent reports that the plan, follow-up-issue and test-steps checks all pass.
+
+Files are in `.flow-tmp/`: `plan.md` and `pr-description-draft.md`, plus `excluded-paths.json` and `research-status.json`.
+
+**Next action:** Read `.flow-tmp/plan.md`, and check the caching assumption in particular. When you're happy with it, run `/flow-new-feature add a \`POST /reports/:id/title\` endpoint that returns a suggested title for a saved report` to start building.

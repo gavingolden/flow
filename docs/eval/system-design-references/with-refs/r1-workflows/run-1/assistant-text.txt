@@ -1,0 +1,26 @@
+## Plan ready for review
+
+The discovery step wrote both files, and both exist and are non-empty:
+- `.flow-tmp/plan.md`
+- `.flow-tmp/pr-description-draft.md`
+
+Nothing was implemented, and no later step of the pipeline was started.
+
+- **Problem:** The service can't create reports today. It can only read or share reports that are already stored, and those live in each instance's memory. A simple version would make the caller wait several minutes, and every retry or deploy would pay for all six model calls again (20–60 s each).
+- **Tasks:** 7, in this order:
+  1. Add a timeout to the model client and a call that writes the summary.
+  2. Add metrics.
+  3. Move storage to Firestore, with a record that counts usage against a daily limit.
+  4. Add a client for a Cloud Tasks queue.
+  5. Write the code that generates the five sections and then the summary.
+  6. Add routes to create a report, check its progress and run the work.
+  7. Update `deploy.sh` to deploy a second, private Cloud Run service and the queue.
+- **Top assumptions:**
+  - **The five sections need your choice (Q1).** The plan's default is company overview, financial health, market and competitive position, management and governance, and legal/regulatory/risk, with the executive summary written last from those five.
+  - **Reports are generated in the background.** Creating a report returns a link in under a second, and the caller checks that link until the report is done. If one section keeps failing, the summary is written from the other four and the report is marked `partial`. The discovery step was only moderately confident about this choice.
+- **Research:** Web research was skipped because this isn't a question the web can answer. You can force it with `flow feature create --research`.
+- **Vetting verdict:** - **Verdict:** adopt-with-conditions: generation runs off the request path — creating a report answers in under 1 s with a status link, and a retried or redelivered section never calls the model again once its text is stored.
+
+The plan is much bigger than what you asked for. It adds Firestore, a Cloud Tasks queue, a second Cloud Run service and a new runtime dependency (`@google-cloud/firestore`). `AGENTS.md` says new dependencies need a reason. The plan's reason is that per-instance memory and running everything inside the request can't support six slow model calls. If you'd rather start with a smaller first version, say so before implementation.
+
+**Next action:** Answer Q1 and check the Firestore and Cloud Tasks setup in `.flow-tmp/plan.md`. Then run `/flow-new-feature add a due-diligence report for a company with six sections, each written by a model call; the executive summary section is written from the other five sections`.
