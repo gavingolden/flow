@@ -16,9 +16,9 @@ import {
   defaultProjectsRoot,
   encodeProjectSegment,
   findSessionJsonlsSync,
+  findSubagentsDir,
 } from "./session-discovery";
 import { flowTelemetryLogPath } from "./paths";
-import { findSubagentsDir } from "./review-telemetry";
 import {
   delegatedCalls,
   readEventLines,
@@ -34,10 +34,6 @@ import { collectSpawns } from "./run-attribution-spawns";
 import { attributeTurns, computeTotals } from "./run-attribution-unit";
 import type { PipelineState } from "./state";
 import { readTranscriptTurns, type TranscriptTurn } from "./transcript-turns";
-
-export { roleFromMeta } from "./run-attribution-spawns";
-export { RUN_ATTRIBUTION_VERSION } from "./run-attribution-types";
-export type * from "./run-attribution-types";
 
 const STALE_GRACE_MS = 5 * 60 * 1000;
 

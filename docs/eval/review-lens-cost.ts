@@ -12,14 +12,19 @@
  * wins) while tool calls are counted across every line.
  * Cells are per-run means. Dollars use MODEL_PRICING, falling back to the
  * model family's priced entry; `--model-prices` overrides with a JSON map
- * { "<model>": { input, cacheCreation, cacheRead, output } } in $/MTok.
+ * { "<model>": { input, cacheCreation, cacheRead, output } } in $/MTok (an omitted
+ * cacheCreation1h defaults to cacheCreation).
  */
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ALL_LENS_NAMES } from "../../bin/lib/agent-finding-schema";
-import { recordLastLine } from "../../bin/lib/session-discovery";
-import { MODEL_PRICING, type ModelPricing } from "../../bin/lib/cost-pricing";
+import { recordLastLine } from "../../bin/lib/transcript-turns";
+import {
+  MODEL_PRICING,
+  priceUsage,
+  type ModelPricing,
+} from "../../bin/lib/cost-pricing";
 import { lensFromMeta } from "../../bin/lib/review-telemetry";
 
 export type RunStats = {
@@ -37,6 +42,8 @@ type Prices = Record<string, ModelPricing>;
 
 export function priceFor(model: string, prices: Prices): ModelPricing | null {
   if (prices[model]) return prices[model];
+  const stripped = model.replace(/-\d{8}$/, "");
+  if (prices[stripped]) return prices[stripped];
   for (const family of ["opus", "sonnet", "haiku"]) {
     if (!model.includes(family)) continue;
     const key = Object.keys(prices).find((k) => k.includes(family));
@@ -94,14 +101,7 @@ export function statsFromJsonl(raw: string, prices: Prices): RunStats {
     s.cacheRead += cr;
     s.output += out;
     const p = priceFor(model, prices);
-    if (p) {
-      s.dollars +=
-        (n(u.input_tokens) * p.input +
-          cw * p.cacheCreation +
-          cr * p.cacheRead +
-          out * p.output) /
-        1_000_000;
-    }
+    if (p) s.dollars += priceUsage(u, p);
   }
   return s;
 }
@@ -235,10 +235,20 @@ function main(argv: string[]): number {
         i++;
         break;
       }
-      case "--model-prices":
-        prices = { ...prices, ...JSON.parse(fs.readFileSync(v, "utf8")) };
+      case "--model-prices": {
+        const override: Prices = JSON.parse(fs.readFileSync(v, "utf8"));
+        for (const [m, p] of Object.entries(override)) {
+          prices = {
+            ...prices,
+            [m]: {
+              ...p,
+              cacheCreation1h: p.cacheCreation1h ?? p.cacheCreation,
+            },
+          };
+        }
         i++;
         break;
+      }
       case "--json":
         json = true;
         break;

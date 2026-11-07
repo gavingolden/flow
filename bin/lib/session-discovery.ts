@@ -1,28 +1,17 @@
 /**
- * Per-pipeline $ spend, derived from Claude Code's per-session JSONL.
+ * Which Claude Code session JSONLs belong to a pipeline.
  *
- * Pipeline → JSONL match: `flow feature create <description>` seeds the
- * supervisor with a single control-char-free line carrying the RESOLVED
- * slug directly — `[pipeline-slug: <slug>] Use the /flow-pipeline skill.
- * REQUEST_FILE: <path>` (the description no longer rides the seed at all).
- * We scan `~/.claude/projects/<encoded-cwd>/` for the supervisor's starting
- * cwd (state.repo) and pick every JSONL whose first user-message
- * extracts back to the same slug — matched directly against the
- * `[pipeline-slug: ...]` bracket, not a slugify(description) round-trip.
- * Each pipeline's seed is unique by construction (slugs are unique window
- * names), so concurrent pipelines don't alias. A legacy free-text
- * `Use the /flow-pipeline skill for: <description>` seed (pre-migration
- * transcripts) is still matched as a slugify(description) fallback — see
- * `seedMatchesSlug` below.
+ * `flow feature create` seeds the supervisor with one line carrying the
+ * resolved slug (`[pipeline-slug: <slug>] Use the /flow-pipeline skill. ...`).
+ * A JSONL belongs to a pipeline when its first real user message (after
+ * `isMeta` entries and local-command echoes, read from a bounded prefix)
+ * extracts back to that slug. A legacy free-text seed still matches as a
+ * slugify(description) fallback — see `seedMatchesSlug`.
  *
- * Why "every" not "first": `flow feature resume` spawns a fresh Claude
- * session — and therefore a fresh JSONL — that also seed-matches the
- * same slug (resume's seed is `Use the /flow-pipeline skill in
- * --resume mode for: <slug>`, which the regex below also accepts).
- * After a single resume there are at least two matching JSONLs for
- * the same pipeline; only summing across all of them reports the
- * true cost. The same applies to repeated `flow feature create <same desc>`
- * after `flow done` — old JSONLs accumulate in `~/.claude/projects/`.
+ * A pipeline maps to many JSONLs: `flow feature resume` starts a fresh
+ * session whose seed also matches the slug, and a repeated
+ * `flow feature create <same desc>` after `flow done` leaves old JSONLs in
+ * `~/.claude/projects/` (callers drop stale ones by time).
  */
 
 import * as fs from "node:fs";
@@ -147,31 +136,30 @@ export function seedMatchesSlug(seed: string, slug: string): boolean {
   return slugify(match[1]) === slug;
 }
 
-/**
- * Records `value` as the line for message `id`, replacing any earlier line
- * with the same id (the last one carries the final usage) while keeping the
- * message's first-seen position. Id-less lines each count individually.
- * Callers pass only usage-bearing lines, so a usage-less last line never
- * erases an earlier one's usage.
- */
-export function recordLastLine<T>(
-  messages: Map<string, T>,
-  id: unknown,
-  value: T,
-): void {
-  const key = typeof id === "string" && id ? id : `\0line${messages.size}`;
-  messages.set(key, value);
+/** The `<projects>/<encoded-cwd>/<sessionId>/subagents` dir, or null. */
+export function findSubagentsDir(
+  sessionId: string,
+  projectsRoot: string = defaultProjectsRoot(),
+): string | null {
+  let projectDirs: string[];
+  try {
+    projectDirs = fs
+      .readdirSync(projectsRoot, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch {
+    return null;
+  }
+  for (const dir of projectDirs) {
+    const candidate = path.join(projectsRoot, dir, sessionId, "subagents");
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 type JsonlEvent = {
   type?: string;
-  message?: {
-    id?: string;
-    role?: string;
-    model?: string;
-    content?: unknown;
-    usage?: unknown;
-  };
+  message?: { content?: unknown };
 };
 
 function tryParse(line: string): JsonlEvent | null {

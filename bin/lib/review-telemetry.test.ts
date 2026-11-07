@@ -5,12 +5,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   aggregateCounts,
   attributeTranscripts,
-  findSubagentsDir,
   mergeTelemetry,
   parseLensModels,
   parseLensTokens,
   readDelegationRecord,
 } from "./review-telemetry";
+import { findSubagentsDir } from "./session-discovery";
 import type { ConsolidatorResult } from "./agent-finding-schema";
 import type { FixApplierResult } from "./fix-applier-schema";
 

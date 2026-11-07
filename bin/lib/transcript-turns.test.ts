@@ -108,6 +108,18 @@ describe(readTranscriptTurns, () => {
     expect(readTranscriptTurns(file)).toHaveLength(2);
   });
 
+  it("reads every turn across chunk boundaries, including multi-byte text", () => {
+    const pad = "é".repeat(500);
+    const lines = Array.from({ length: 4000 }, (_, i) =>
+      line(`m${i}`, "claude-a", { pad }),
+    );
+    const file = write(lines);
+    expect(fs.statSync(file).size).toBeGreaterThan(1 << 21);
+    const turns = readTranscriptTurns(file);
+    expect(turns).toHaveLength(4000);
+    expect(turns?.[3999].id).toBe("m3999");
+  });
+
   it("returns null over maxBytes and for an unreadable path", () => {
     const file = write([line("m1", "claude-a")]);
     expect(readTranscriptTurns(file, { maxBytes: 5 })).toBeNull();

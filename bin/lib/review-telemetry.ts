@@ -386,26 +386,6 @@ export async function attributeTranscripts(
   return out;
 }
 
-export function findSubagentsDir(
-  sessionId: string,
-  projectsRoot: string = defaultProjectsRoot(),
-): string | null {
-  let projectDirs: string[];
-  try {
-    projectDirs = fs
-      .readdirSync(projectsRoot, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
-  } catch {
-    return null;
-  }
-  for (const dir of projectDirs) {
-    const candidate = path.join(projectsRoot, dir, sessionId, "subagents");
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
 export function mergeTelemetry(args: {
   pr: number;
   repo: string;

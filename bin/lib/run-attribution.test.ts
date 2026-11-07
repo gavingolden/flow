@@ -3,7 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encodeProjectSegment } from "./session-discovery";
-import { collectRunAttribution, roleFromMeta } from "./run-attribution";
+import { collectRunAttribution } from "./run-attribution";
+import { roleFromMeta } from "./run-attribution-spawns";
 import type { PipelineState } from "./state";
 
 const REPO = "/Users/test/code/me/flow";
@@ -173,6 +174,29 @@ describe(collectRunAttribution, () => {
     );
     expect(sonnet).toMatchObject({ turns: 3, cost_usd: 6 });
     expect(t.unpriced_models).toEqual([]);
+  });
+
+  it("keeps a slug-tagged delegated call from an uncollected session and drops one from before the run", () => {
+    seedFixture();
+    writeLines(eventsLog, [
+      {
+        ts: "2026-11-06T11:00:00Z",
+        event: "explain.judge",
+        slug: SLUG,
+        session_id: "sess-pruned",
+        attrs: { site: "pr", ran: true, total_cost_usd: 1 },
+      },
+      {
+        ts: "2026-11-01T10:00:00Z",
+        event: "deliberate.call",
+        slug: SLUG,
+        session_id: "sess-old",
+        attrs: { task: "old", ran: true, total_cost_usd: 9 },
+      },
+    ]);
+    const a = collect();
+    expect(a.delegated.map((d) => d.task)).toEqual(["pr"]);
+    expect(a.totals.cost_usd).toBeCloseTo(27, 6);
   });
 
   it("joins a null-slug delegated call on a collected session id and carries its cost", () => {
