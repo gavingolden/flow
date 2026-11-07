@@ -70,11 +70,12 @@ The supervisor is one Claude Code chat session; sub-skills load in-process
 via `Skill`; `bin/` scripts are Bash calls. It never spawns `Task`/`Agent`
 and never invokes a raw `claude -p` subprocess (headless Claude only via
 `flow-claude-headless`), **with eight narrowly-named exceptions** —
-enumerated as named bullets in
+the named bullets in
 `.claude/rules/flow-supervisor-contracts.md` `## Don'ts`. Logic needing a
-separate LLM session belongs in an in-process sub-skill or a non-LLM
-helper, not here — except a fixed-model, fixed-effort leaf review or
-judgment call, which goes through `flow-claude-headless`.
+separate LLM session belongs in an in-process sub-skill or non-LLM helper
+(`flow epic manage` is one: no model, no Task/forms, never merges), except
+a fixed-model, fixed-effort leaf review or judgment call via
+`flow-claude-headless`.
 
 ## Compact Instructions
 

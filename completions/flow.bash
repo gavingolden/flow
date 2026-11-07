@@ -196,6 +196,28 @@ _flow() {
                     # shellcheck disable=SC2207
                     COMPREPLY=( $(compgen -W "--force --model --effort" -- "$cur") )
                 fi
+            elif [ "$esub" = "manage" ]; then
+                case "$prev" in
+                    --model)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -W "opus haiku sonnet fable" -- "$cur") )
+                        return
+                        ;;
+                    --effort)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )
+                        return
+                        ;;
+                    --autonomy)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -W "observe" -- "$cur") )
+                        return
+                        ;;
+                esac
+                if [[ "$cur" == -* ]]; then
+                    # shellcheck disable=SC2207
+                    COMPREPLY=( $(compgen -W "--model --effort --autonomy --foreground" -- "$cur") )
+                fi
             elif [ "$esub" = "ls" ]; then
                 if [[ "$cur" == -* ]]; then
                     # shellcheck disable=SC2207
@@ -203,7 +225,7 @@ _flow() {
                 fi
             else
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "create run status bind launch ls done" -- "$cur") )
+                COMPREPLY=( $(compgen -W "create run status bind launch ls done manage" -- "$cur") )
             fi
             ;;
         config)

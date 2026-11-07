@@ -32,9 +32,10 @@ function renderTable<T>(
 
 /**
  * The `flow epic status` board: one row per feature, then the
- * `ready/running/blocked/merged X / N` summary line. The WAITS ON column shows
- * a feature's unmet dependencies only while it is `blocked` (a launched or
- * ready feature has nothing left to wait on), matching the worked UX example.
+ * `ready/waiting/running/blocked/merged X / N` summary line. The WAITS ON column
+ * shows a feature's unmet dependencies only while it is `blocked` (a launched
+ * or ready feature has nothing left to wait on), matching the worked UX
+ * example, and a `waiting` node's `waitFor` text.
  */
 export function renderBoard(
   board: BoardRow[],
@@ -52,15 +53,17 @@ export function renderBoard(
       { header: "PHASE", get: (r) => r.phase ?? DASH },
       {
         header: "WAITS ON",
-        get: (r) =>
-          r.status === "blocked" && r.dependsOn.length > 0
+        get: (r) => {
+          if (r.status === "waiting" && r.waitFor) return r.waitFor;
+          return r.status === "blocked" && r.dependsOn.length > 0
             ? r.dependsOn.join(", ")
-            : DASH,
+            : DASH;
+        },
       },
     ],
     board,
   );
-  const summaryLine = `ready: ${summary.ready}   running: ${summary.running}   blocked: ${summary.blocked}   merged: ${summary.merged} / ${summary.total}`;
+  const summaryLine = `ready: ${summary.ready}   waiting: ${summary.waiting}   running: ${summary.running}   blocked: ${summary.blocked}   merged: ${summary.merged} / ${summary.total}`;
   return `${table}\n${summaryLine}`;
 }
 

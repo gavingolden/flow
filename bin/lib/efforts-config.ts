@@ -39,6 +39,7 @@ export const EFFORT_CONFIG_KEYS: readonly string[] = [
   "uiDriver",
   "consolidator",
   "mergeResolver",
+  "manager",
 ];
 
 const UNSUPPORTED_GROUP_KEYS: readonly string[] = ["review", "implement"];

@@ -250,7 +250,30 @@ describe("buildFeatureCreateArgs", () => {
     ]);
   });
 
-  it("overrides.model appends --model (no manifest hint equivalent)", () => {
+  it("flowNewHints.model emits --model when no override is given", () => {
+    const args = buildFeatureCreateArgs(
+      feat({ flowNewHints: { model: "sonnet" } }),
+      EPIC_SLUG,
+    );
+    expect(args.filter((a) => a === "--model")).toHaveLength(1);
+    expect(args[args.indexOf("--model") + 1]).toBe("sonnet");
+  });
+
+  it("overrides.model replaces the hint — exactly one --model", () => {
+    const args = buildFeatureCreateArgs(
+      feat({ flowNewHints: { model: "sonnet" } }),
+      EPIC_SLUG,
+      { model: "opus" },
+    );
+    expect(args.filter((a) => a === "--model")).toHaveLength(1);
+    expect(args[args.indexOf("--model") + 1]).toBe("opus");
+  });
+
+  it("emits no --model when neither a hint nor an override names one", () => {
+    expect(buildFeatureCreateArgs(feat(), EPIC_SLUG)).not.toContain("--model");
+  });
+
+  it("overrides.model appends --model when the manifest has no hint", () => {
     expect(
       buildFeatureCreateArgs(feat(), EPIC_SLUG, { model: "opus" }),
     ).toEqual([

@@ -3,7 +3,8 @@
   "epicId": "re-design-epic-manager-agent",
   "features": {
     "f1-epic-sequencer": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 978
     },
     "f2-repo-coordination": {
       "status": "not-started"

@@ -14,7 +14,8 @@
  * collision applies only to its no-`--slug` derived-slug path, NOT the epic
  * path — an explicit `--slug` collision hard-fails rather than drifting the slug
  * away from the id the reconciler expects. A re-derived slug that drifts from
- * the real one silently stalls the watch loop forever.
+ * the real one silently stalls the `flow epic manage` sequencer (and
+ * `/flow-epic-run`) forever.
  */
 
 import { spawnSync as nodeSpawnSync } from "node:child_process";
@@ -64,10 +65,10 @@ function withEpicPointer(
  * a `launch.autoMerge: false` config default too); absent ⇒ no flag, letting
  * `launch.autoMerge` config or the built-in default (auto-merge ON) supply
  * it. `copilotReview` → `--copilot-review <value>`; `effort` → `--effort
- * <value>`. `overrides` (see
+ * <value>`; `model` → `--model <value>`. `overrides` (see
  * `LaunchOverrides`) apply on top: `overrides.effort` REPLACES `hints.effort`
- * (never both — exactly one `--effort` reaches the argv); `overrides.model`
- * has no manifest-hint equivalent, so it is a plain append when present.
+ * and `overrides.model` REPLACES `hints.model` (never both — exactly one
+ * `--effort` and one `--model` reach the argv).
  * `--epic <epicSlug>/<feature.id>` threads deterministic epic membership into
  * pipeline state (see `bin/lib/feature.ts`'s `--epic` parse); it is pushed
  * after the hint/override flags and before `--slug`. A trailing
@@ -96,7 +97,8 @@ export function buildFeatureCreateArgs(
   } else if (hints.effort) {
     args.push("--effort", hints.effort);
   }
-  if (overrides?.model) args.push("--model", overrides.model);
+  const model = overrides?.model ?? hints.model;
+  if (model) args.push("--model", model);
   // feature.ts's `--epic` parse splits on exactly one `/`, so a raw
   // feature.id containing a `/` would corrupt that split. Downstream
   // reconciliation (`flow epic bind`/`flow epic launch`) matches manifest
@@ -116,8 +118,9 @@ export function buildFeatureCreateArgs(
   // description-derived slug (whose token cap can collide across sibling ids).
   args.push("--slug", slugify(feature.id));
   // Epic-launched features run under the tmux launcher deterministically —
-  // the epic orchestrator's watch loop needs windows, and the child `flow
-  // feature create` must never fall back to a plain foreground launch.
+  // `flow epic manage` and `/flow-epic-run` address each pipeline by its
+  // window, and the child `flow feature create` must never fall back to a
+  // plain foreground launch.
   args.push("--tmux");
   return args;
 }
@@ -162,7 +165,7 @@ function parseMintedSlug(stdout: string): string | null {
 /**
  * Spawn `flow feature create` for a feature and return the minted slug. A
  * non-zero exit (a `windowExists` collision, a launch failure) is SURFACED as
- * `{ ok: false, error }` — never swallowed — so the watch loop can report it
+ * `{ ok: false, error }` — never swallowed — so `flow epic manage` can report it
  * rather than silently dropping the feature. On success the slug comes from the
  * `flow:<slug>` stdout line; `slugify(feature.id)` is the fallback only when
  * that line is absent (a non-standard `flow feature create` build) — matching
