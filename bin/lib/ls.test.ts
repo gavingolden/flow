@@ -10,6 +10,7 @@ import {
   formatKindCell,
   formatNameCell,
   formatRepoCell,
+  printDetail,
   printOrphanRecovery,
   runLs,
   runLsCli,
@@ -21,7 +22,8 @@ import * as tmuxModule from "./tmux";
 import * as livenessModule from "./liveness";
 import * as manageStateModule from "./epic-manage-state";
 import type { ManagerState } from "./epic-manage-state";
-import { encodeProjectSegment } from "./cost";
+import { encodeProjectSegment } from "./session-discovery";
+import { computeTotals } from "./run-attribution-unit";
 import type { PipelineState } from "./state";
 import type { TmuxWindow } from "./tmux";
 import type { InstallDriftResult } from "./install-drift";
@@ -812,6 +814,48 @@ describe("buildRows + cost", () => {
     expect(rows[0].cost?.total).toBeCloseTo(3, 6);
   });
 
+  it("falls back to the attribution row once the session logs are pruned", async () => {
+    const attributionLogPath = path.join(projectsRoot, "attr.jsonl");
+    const unit = {
+      session_id: "gone",
+      model: "claude-sonnet-4-6",
+      runs: [["claude-sonnet-4-6", "low", 1]],
+      run_costs: [4.5],
+      turns: 1,
+      tokens: {
+        input: 1,
+        cache_creation: 0,
+        cache_read: 0,
+        output: 0,
+        total: 1,
+      },
+      cost_usd: 4.5,
+    };
+    fs.writeFileSync(
+      attributionLogPath,
+      `${JSON.stringify({
+        version: 1,
+        slug: "csv-export",
+        pr: null,
+        repo: "/no/jsonl/here",
+        sessions: [unit],
+        spawns: [],
+        delegated: [],
+        totals: computeTotals([unit as never], [], 0),
+        ts: "2026-11-06T00:00:00Z",
+        status: "merged",
+      })}\n`,
+    );
+    const rows = await buildRows(
+      [state({ slug: "csv-export", repo: "/no/jsonl/here" })],
+      [window({ name: "csv-export" })],
+      NOW,
+      { cost: true, projectsRoot, attributionLogPath },
+    );
+    expect(rows[0].cost?.hasData).toBe(true);
+    expect(rows[0].cost?.total).toBeCloseTo(4.5, 6);
+  });
+
   it("still populates the repo column when opts.cost is true", async () => {
     const rows = await buildRows(
       [state({ slug: "widget-pipeline", repo: "/a/b/widget" })],
@@ -841,6 +885,7 @@ describe(formatCostCell, () => {
       formatCostCell({
         total: 0,
         byModel: {},
+        delegatedUsd: 0,
         unknownModels: [],
         hasData: false,
       }),
@@ -852,6 +897,7 @@ describe(formatCostCell, () => {
       formatCostCell({
         total: 2.345,
         byModel: {},
+        delegatedUsd: 0,
         unknownModels: [],
         hasData: true,
       }),
@@ -863,6 +909,7 @@ describe(formatCostCell, () => {
       formatCostCell({
         total: 1.2,
         byModel: {},
+        delegatedUsd: 0,
         unknownModels: ["claude-experimental"],
         hasData: true,
       }),
@@ -1898,5 +1945,30 @@ describe("runLs — update notice seam", () => {
     });
     expect(code).toBe(0);
     expect(err).not.toHaveBeenCalled();
+  });
+});
+
+describe("printDetail", () => {
+  it("lists delegated headless spend so the parts sum to the total", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      printDetail([
+        {
+          name: "csv-export",
+          cost: {
+            total: 5,
+            byModel: { "claude-sonnet-4-6": 3 },
+            delegatedUsd: 2,
+            unknownModels: [],
+            hasData: true,
+          },
+        } as unknown as Row,
+      ]);
+      const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(out).toContain("csv-export:");
+      expect(out).toContain("delegated (headless) $2.00");
+    } finally {
+      log.mockRestore();
+    }
   });
 });

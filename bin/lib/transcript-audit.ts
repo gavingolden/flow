@@ -25,8 +25,8 @@ import {
   defaultProjectsRoot,
   encodeProjectSegment,
   findSessionJsonls,
-  recordLastLine,
-} from "./cost";
+} from "./session-discovery";
+import { recordLastLine } from "./transcript-turns";
 
 export type Phase =
   | "supervisor"

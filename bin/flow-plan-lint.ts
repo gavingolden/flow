@@ -4,8 +4,9 @@
  * always-present sections the plan-artifact contract requires — the Goal
  * line, Behavioral contrast (+ its Lost affirmation), Recommendation, Plan
  * risks, Instrumentation (a spec table plus an `**Attributes:**` line, or a
- * reasoned `none`), the Task breakdown heading, and a Contract block under
- * every task.
+ * reasoned `none`), Runtime design (a spec table plus a `**Proportionality:**`
+ * line, or a reasoned `none`), the Task breakdown heading, and a Contract
+ * block under every task.
  * Also cross-checks the machine-readable closed-path mirror
  * (excluded-paths.json) against the plan's `## Alternatives considered`
  * prose. Names a `## Problem Statement` whose lead is not plain prose
@@ -59,6 +60,19 @@ import {
 } from "./flow-step3-route";
 import { TLDR_MAX_WORDS } from "./lib/gate-summary-rows";
 import { findArrowDeltaBullets } from "./lib/pr-delta-bullets";
+import {
+  checkRuntimeDesign,
+  findPrdSectionEnd,
+  joinLogicalLine,
+  listTaskRuntimeFiles,
+  sliceToNextHeading,
+} from "./lib/plan-runtime-surface";
+import {
+  checkQueueCompanions,
+  checkRecovery,
+} from "./lib/plan-runtime-companions";
+import { checkInlineBudget } from "./lib/plan-runtime-budget";
+import { checkRollback } from "./lib/plan-runtime-rollback";
 import { extractPathAnchors, resolveAnchorRepoRoot } from "./lib/value-anchors";
 
 const CONFIDENCE_RE = /\[confidence:\s*(high|medium|low)\]/g;
@@ -77,32 +91,6 @@ type ExcludedPathsFile = {
   version?: number;
   excluded?: Array<{ id?: string; path?: string; reason?: string }>;
 };
-
-/** Slice `text` from `startIdx` up to (but not including) the next top-level
- * (`# `) or second-level (`## `) heading — whichever comes first. Bounds a
- * section body without assuming a specific closing heading. */
-function sliceToNextHeading(text: string, startIdx: number): string {
-  const rest = text.slice(startIdx);
-  const next = rest.search(/^#{1,2} /m);
-  return next === -1 ? rest : rest.slice(0, next);
-}
-
-/**
- * The `# PRD` top-level section wraps the whole structured PRD, which
- * itself opens with a nested `# [Feature Name]` heading (per
- * discovery-instructions.md step 8) — so bounding "the PRD section" by
- * "the next `# ` heading" would false-negative on that nested title. Bound
- * instead by the next KNOWN sibling top-level section
- * (`# Candidate follow-up issues` / `# Task breakdown` /
- * `# PR description draft`), or end-of-file when none is present.
- */
-function findPrdSectionEnd(planText: string, startIdx: number): number {
-  const rest = planText.slice(startIdx);
-  const siblingRe =
-    /^# (?:Candidate follow-up issues|Task breakdown|PR description draft)\s*$/m;
-  const m = rest.match(siblingRe);
-  return m ? startIdx + (m.index ?? rest.length) : planText.length;
-}
 
 function checkGoalLine(planText: string, misses: string[]): void {
   const prdMatch = planText.match(/^# PRD\s*$/m);
@@ -274,11 +262,6 @@ function checkCutListJustification(planText: string, misses: string[]): void {
   }
 }
 
-const RUNTIME_PATH_RE =
-  /(?<![\w-])(?:api|server|workers?|jobs?|queues?|cron)\/|\+server\.|\+(?:page|layout)\.server\.|hooks\.server\./;
-
-const NON_RUNTIME_FILE_RE = /\.(?:test|spec)\.[cm]?[jt]sx?$|\.md$/i;
-
 /**
  * `## Instrumentation` is always-present inside the `# PRD` section: a spec
  * table for a plan that touches a runtime surface, or one `none — <reason>`
@@ -332,16 +315,7 @@ function checkInstrumentation(planText: string, misses: string[]): void {
     return;
   }
   if (/refactor-only|no behaviou?r change/i.test(reason[1])) return;
-  const runtimeFiles = [...planText.matchAll(/^\s*- \*\*Files:\*\*/gm)]
-    .map((m) => joinLogicalLine(planText, m.index ?? 0))
-    .flatMap((line) =>
-      line
-        .replace(/^- \*\*Files:\*\*\s*/, "")
-        .split(/[,;\s]+/)
-        .map((tok) => tok.replace(/^`|`$/g, ""))
-        .filter((tok) => !NON_RUNTIME_FILE_RE.test(tok)),
-    )
-    .filter((tok) => RUNTIME_PATH_RE.test(tok));
+  const runtimeFiles = listTaskRuntimeFiles(planText);
   if (runtimeFiles.length > 0) {
     misses.push(
       "'## Instrumentation' says 'none' but a task's **Files:** names a runtime path (route, server, worker, job, queue or cron) — spec the metrics, or say the change is refactor-only / has no behaviour change",
@@ -839,35 +813,6 @@ function checkRequestVetting(
 }
 
 /**
- * Joins a sub-bullet's soft-wrapped continuation lines into one logical
- * line: starting at `startIndex` within `text`, consume lines up to (but
- * not including) the next line that starts a new sub-bullet (`/^\s*- /`),
- * the next markdown heading line (`/^#{1,6} /`), or the end of the text, and
- * join them with single spaces. Markdown in
- * this repo is routinely soft-wrapped (see `example-prd.md`'s
- * `**Recommended:**` and `## Recommendation` verdict entries), so matching
- * only the first physical line misses a trailing tag pair that lands on a
- * later wrapped line.
- */
-function joinLogicalLine(text: string, startIndex: number): string {
-  const rest = text.slice(startIndex);
-  // Match a NEW bullet line, i.e. one preceded by a newline — `^` under the
-  // `m` flag also matches index 0 of `rest` (the current bullet's own start),
-  // which would end the join before it begins.
-  const nextBulletMatch = rest.match(/\n\s*- |\n#{1,6} /);
-  const end =
-    nextBulletMatch && nextBulletMatch.index !== undefined
-      ? nextBulletMatch.index
-      : rest.length;
-  return rest
-    .slice(0, end)
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .join(" ");
-}
-
-/**
  * Same join as `joinLogicalLine`, but bounded by the next blank line
  * (paragraph break) instead of the next sub-bullet — used for `Verdict:` /
  * `## Recommendation` lines, which are prose paragraphs rather than
@@ -1348,6 +1293,11 @@ export function lintPlan(
     );
     checkCutListJustification(planText, misses);
     checkInstrumentation(planText, misses);
+    checkRuntimeDesign(planText, misses);
+    checkQueueCompanions(planText, misses);
+    checkRecovery(planText, misses);
+    checkRollback(planText, misses);
+    checkInlineBudget(planText, misses);
     checkTaskContracts(planText, misses);
     checkUiReviewTargets(planText, misses);
     checkCandidateTable(planText, misses);

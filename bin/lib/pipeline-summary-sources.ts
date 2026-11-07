@@ -15,6 +15,8 @@ import {
   normalizeParsedFindings,
   validateConsolidatorResult,
 } from "./agent-finding-schema";
+import { renderRanOn } from "./run-attribution-render";
+import type { RunAttribution } from "./run-attribution-types";
 import { formatDuration } from "./time";
 import {
   formatPlainText,
@@ -688,9 +690,9 @@ function antiPatternDecisionLines(
 
 /**
  * Slimmed, un-fenced PR-comment block (NOT the scrollback block). A plain
- * `PIPELINE SNAPSHOT` title line (no `##`) over three 2-space-indented
+ * `PIPELINE SNAPSHOT` title line (no `##`) over 2-space-indented
  * labeled sections: CHANGES (the one-line diff summary, reusing
- * renderChanges), REVIEW (the review/findings disposition, reusing
+ * renderChanges), RAN ON (which model and effort ran each part), REVIEW (the review/findings disposition, reusing
  * renderFindings), and DECISIONS (deferred + rejected + anti-patterns), plus a conditional
  * INTENT section emitted only when the intent-resolution artifact is
  * present AND its verdict is non-`match` (an unparseable artifact drops the
@@ -714,12 +716,18 @@ export type RenderCommentInputs = {
   artifactDir?: string;
   /** review-telemetry.json raw text, for the LENSES (dev) / lenses: (pm) sections. */
   reviewTelemetryRaw?: string;
+  /** Run attribution for the `RAN ON:` section; absent/null renders `none`. */
+  attribution?: RunAttribution | null;
 };
 
 function renderCommentDev(inputs: RenderCommentInputs): string {
   const lines: string[] = ["PIPELINE SNAPSHOT"];
   lines.push("CHANGES:");
   for (const ln of renderChanges(inputs.prChangesRaw)) lines.push(`  ${ln}`);
+  lines.push("RAN ON:");
+  for (const ln of renderRanOn(inputs.attribution ?? null, "dev")) {
+    lines.push(`  ${ln}`);
+  }
   lines.push("REVIEW:");
   for (const ln of renderFindings({
     prReviewRaw: inputs.prReviewRaw,
@@ -806,6 +814,10 @@ function renderCommentPm(inputs: RenderCommentInputs): string {
   const lines: string[] = ["PIPELINE SNAPSHOT"];
   lines.push("CHANGES:");
   for (const ln of renderChanges(inputs.prChangesRaw)) lines.push(`  ${ln}`);
+  lines.push("RAN ON:");
+  for (const ln of renderRanOn(inputs.attribution ?? null, "pm")) {
+    lines.push(`  ${ln}`);
+  }
   lines.push("REVIEW:");
   for (const ln of renderReviewCounts({
     prReviewRaw: inputs.prReviewRaw,
@@ -832,8 +844,8 @@ function renderCommentPm(inputs: RenderCommentInputs): string {
 
 /**
  * Slimmed, un-fenced PR-comment block (NOT the scrollback block) — both
- * lenses: `pm` (CHANGES / REVIEW counts / DEVIATIONS / UNTRACKED, the
- * top-level fenced block) and `dev` (today's CHANGES / REVIEW narrative /
+ * lenses: `pm` (CHANGES / RAN ON / REVIEW counts / DEVIATIONS / UNTRACKED, the
+ * top-level fenced block) and `dev` (today's CHANGES / RAN ON / REVIEW narrative /
  * optional INTENT / DECISIONS, the `<details>`-collapsed developer block —
  * `buildCommentBody` composes the two). Pure over already-read inputs;
  * never reads files.

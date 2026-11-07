@@ -1,0 +1,29 @@
+## Plan ready: `POST /reports` (planning only, nothing implemented)
+
+The plan and PR description draft are written to `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. I only checked that both files exist and aren't empty; I didn't read them. The summary below comes from the planning agent.
+
+- **Problem:** Nothing in the service can create a company report today. A report needs five paid model calls of about 20–60 s each. Running them inside one request has three problems:
+  - callers would wait minutes for a response;
+  - a failure partway through still costs money;
+  - anyone could use the endpoint to spend money, because the service is deployed without authentication (`--allow-unauthenticated`) and model calls have no timeout or spending cap.
+- **Tasks:** 9, in this order:
+  1. A metrics helper.
+  2. Timeouts, plus one shared gate in the model client that every paid call goes through.
+  3. A helper to get GCP access tokens.
+  4. Move stored reports from the in-memory map to Firestore.
+  5. A daily spending cap.
+  6. A Cloud Tasks queue that gives each task a fixed name, so the same section isn't queued twice.
+  7. A section worker that is safe to run twice on the same task.
+  8. The HTTP routes: `POST /reports` returns 202 with an id, and callers poll for the result.
+  9. Infrastructure setup and deploy changes.
+- **Candidates:** 1 follow-up issue. Report reads ignore the `shared` flag, so anyone with a report's id can read it. Who owns a report needs its own decision.
+- **Top assumptions:**
+  - **Two things need your input:**
+    - **Setup (Q1):** someone with access to the project has to run the setup script that creates Firestore, the `report-sections` queue and two secrets.
+    - **Daily cap (Q2):** you need to set the daily spending cap. Until it's set, every report request is rejected with a 429.
+  - Generating reports in the background, with callers polling for the result, is a high-confidence choice. Moving reports to Firestore in this PR is medium confidence.
+  - **Weakest point:** the Cloud Tasks and Firestore API details weren't checked against current docs, so they need verifying during implementation.
+- **Research:** skipped (the planning agent judged web research unnecessary).
+- **Vetting verdict:** adopt-with-conditions: generation runs as five queued per-section tasks (POST returns 202 with an id), every model call has a timeout, and every paid call passes one shared daily cap before it is made.
+
+**Next action:** Review `.flow-tmp/plan.md` and answer Q1 and Q2. Then start implementation with `/flow-new-feature add a \`POST /reports\` endpoint that generates a company report by calling the model API once for each of five sections`. As you asked, I've stopped here and haven't started any later phase.

@@ -1,0 +1,22 @@
+## Plan ready: caching the report summary endpoint
+
+I wrote the plan and the PR description draft, and stopped there. No source files changed (`git status` is clean), and no later pipeline phase was started.
+
+- **Problem:** Every time someone opens a report, `GET /reports/:id/summary` calls the model again, even if the report hasn't changed. Popular reports are opened hundreds of times a day, so the service pays for the same summary over and over. Readers also wait 5–15 seconds each time.
+- **Tasks (4):**
+  1. Give the model's summary call a 30-second timeout and make it fail with an error. Today a failed response quietly becomes an empty summary, and a cache would store that empty summary.
+  2. Add the service's first metrics helper and a metrics file.
+  3. Add a summary cache keyed on a fingerprint of the report's content. When several people open the same report before its summary exists, they share one model call.
+  4. Send the summary endpoint through that cache. It returns a 502 when the model call fails.
+- **Follow-up ideas (3, none filed):** generate the summary when a report is saved; cap the number of Cloud Run instances; share cached summaries across servers.
+- **Assumptions to check:**
+  - **Each server keeps its own copy of the summaries in memory, and that's enough for now** (medium confidence). The saving shrinks as more instances run, and `./deploy.sh` doesn't cap the instance count. A new cache hit/miss counter will show whether this matters.
+  - **When the model fails, readers get a 502 instead of the last summary that worked** (medium confidence). An older summary would describe text the report no longer contains.
+- **Research:** Web research was skipped because this question doesn't need it. You can force it with `flow feature create --research`.
+- **Verdict:** go ahead, on one condition. The endpoint must never return a summary for a version of the report other than the current one. The plan enforces this by keying each summary on the content fingerprint. A test edits a report, reads it again, and must see a new model call.
+
+Files are in `.flow-tmp/`:
+- `plan.md`
+- `pr-description-draft.md`
+
+**Next action:** review the two assumptions above, especially the in-memory one. Then run `/flow-new-feature` with the original description to implement the plan.

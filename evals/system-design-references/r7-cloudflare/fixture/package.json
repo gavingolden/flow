@@ -1,0 +1,14 @@
+{
+  "name": "reports-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "test": "vitest"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0",
+    "vitest": "^3.0.0"
+  }
+}

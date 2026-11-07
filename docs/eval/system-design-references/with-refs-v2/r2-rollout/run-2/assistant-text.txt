@@ -1,0 +1,27 @@
+## Plan ready: rename `body` to `content` and switch the task to section ids
+
+Both files are written: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. A planning agent explored the code and wrote them. I only checked that both files exist and aren't empty, so what follows is its summary, not my own reading of the plan. Nothing has been implemented.
+
+- **Main recommendation: stage the rename instead of doing it in one step.** This PR would add `content`, write to both columns, and teach the worker to accept both the old task (by name) and the new one (by id). Dropping `body` and the old task format would come in a later PR. The reason given: migrations here are applied by hand, separately from `./deploy.sh`, and tasks queued before a deploy can run after it. Doing both changes at once would break report reads and drop or repeat paid model calls during the rollout.
+- **Why the id change matters:** tasks currently look up their section by name, and names aren't unique within a report. So a task can update several sections, or none, and still report success.
+- **Tasks:** 7. Besides the migration, id-based saves, the new task format and the worker that accepts both, the plan adds work you didn't ask for:
+  - a 120 s timeout on the model call, which currently saves blank text when it errors;
+  - a deadline and a 5-attempt retry limit on the queue;
+  - skipping the paid call when the section was deleted;
+  - a first set of metrics;
+  - the repo's first tests.
+
+  Cut any of these if you want a smaller PR.
+- **Follow-up issues:** 3 proposed. Two are marked to be filed when this merges:
+  - The task endpoint is on a public, unauthenticated service, so anyone can trigger paid calls.
+  - The second phase: drop `body` and the old task format once no old-format tasks remain.
+
+  The third, not marked, is skipping regeneration when the same task is delivered twice.
+- **Assumptions to check:** none need your input. Three are medium confidence:
+  - stage the rename rather than renaming in place;
+  - the report API keeps returning section text under the `body` key, now read from `content`;
+  - for one release, new tasks still carry the section name next to the id, so a rollback still works. This goes slightly against "instead of the section name".
+- **Research:** skipped, because this didn't need web research.
+- **Verdict:** go ahead with conditions. Ship only the first phase: add `content` and write to both columns, keep the API key unchanged, and have the worker accept both task formats. The goal is zero failed section reads during rollout. Dropping `body` and the old format waits for the follow-up.
+
+**Next action:** read `.flow-tmp/plan.md`, especially the staged rollout and the extra work, and decide whether to keep or cut it. Then run `/flow-new-feature rename the \`body\` column on \`sections\` to \`content\`, and change the generate-section task to carry the section id instead of the section name` to implement it.

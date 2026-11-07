@@ -1,0 +1,27 @@
+## Plan ready: nightly refresh needs durable storage first
+
+I wrote the plan and the PR description draft and stopped there. Nothing was implemented and no later pipeline phase was started.
+
+- **Problem:** As the service stands, a nightly refresh would have nothing to work on:
+  - Reports live only in one server's memory (`src/db.ts:9`), and Cloud Run shuts idle servers down. So reports are lost on every restart or idle period.
+  - No route creates a report today.
+  - Each refresh is a paid model call taking 20–60 seconds per section, and nothing caps the nightly spend.
+- **Tasks (6, in order):**
+  1. A metrics helper.
+  2. Time limits and error handling on the two model calls.
+  3. An async store interface. Sharing a report then updates only its share flag, so it can't clash with a refresh running at the same time.
+  4. Firestore as the durable store, called over its web API so no new dependency is added.
+  5. The refresh logic, with a nightly spend cap and a once-per-day key so a retried run doesn't pay twice.
+  6. A scheduled Cloud Run Job (separate from the public service) plus the matching `deploy.sh` changes.
+- **Top assumptions:**
+  - **Nightly cap (needs your input):** the plan assumes 200 paid model calls a night. Reports that don't fit go first the next night.
+  - **Biggest risk:** creating reports stays out of this PR. Unless that gets built somewhere, the nightly job will refresh zero reports.
+  - Firestore over Cloud SQL, and one batch job rather than a queue with one task per report, are medium-confidence choices.
+- **Research:** web research was skipped because this isn't a question the web can answer.
+- **Verdict:** adopt with conditions. Reports must move to a durable store first, and every nightly run must stop at a configurable cap on paid calls (default 200).
+
+Files are in `.flow-tmp/`:
+- `plan.md`
+- `pr-description-draft.md`
+
+**Next action:** Read `.flow-tmp/plan.md`. Decide the nightly cap, and decide whether report creation should be built before or alongside this. When you're ready to build, run `/flow-new-feature refresh every saved report nightly`.

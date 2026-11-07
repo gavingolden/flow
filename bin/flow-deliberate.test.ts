@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_EFFORT,
   DEFAULT_MAX_BUDGET_USD,
   DEFAULT_MAX_TURNS,
   DEFAULT_MODEL,
@@ -322,6 +323,44 @@ describe("run — success path", () => {
       event: "deliberate.call",
       attrs: { ran: true, confidence: "high", total_cost_usd: 0.42 },
     });
+  });
+});
+
+describe("run — effort on the deliberate.call event", () => {
+  it("records the requested effort on a skip", () => {
+    const h = harness();
+    run(BASE_ARGV, h.deps);
+    expect(h.events[0]).toMatchObject({
+      attrs: { ran: false, effort: DEFAULT_EFFORT },
+    });
+  });
+
+  it("records an explicit --effort on a skip", () => {
+    const h = harness();
+    run([...BASE_ARGV, "--effort", "low"], h.deps);
+    expect(h.events[0]).toMatchObject({ attrs: { effort: "low" } });
+  });
+
+  it("records the requested effort on success when the envelope carries none", () => {
+    const h = harness({ files: BASE_FILES });
+    run([...BASE_ARGV, "--effort", "medium"], h.deps);
+    expect(h.events[0]).toMatchObject({
+      attrs: { ran: true, effort: "medium" },
+    });
+  });
+
+  it("prefers the envelope's effort over the requested one", () => {
+    const h = harness({
+      files: BASE_FILES,
+      headless: {
+        ran: true,
+        artifact: "/wt/.flow-tmp/headless-deliberate-t.json",
+        effort: "max",
+        total_cost_usd: 0.1,
+      },
+    });
+    run([...BASE_ARGV, "--effort", "low"], h.deps);
+    expect(h.events[0]).toMatchObject({ attrs: { ran: true, effort: "max" } });
   });
 });
 

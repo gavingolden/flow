@@ -250,7 +250,11 @@ describe("resolveRouting — efforts config and env override", () => {
     const rows = resolveRouting({
       state: null,
       config: {},
-      effort: { value: "(none)", source: "built-in (no --effort passed)" },
+      effort: {
+        value: "(none)",
+        source:
+          "not set by flow — Claude Code's own setting applies (your saved /effort level for the model, or the model default)",
+      },
     });
     expect(row(rows, "fix-applier").effort).toBe("medium");
     expect(row(rows, "session").effort).toBe("(none)");

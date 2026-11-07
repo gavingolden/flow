@@ -242,13 +242,14 @@ describe("runConfigModelsCli", () => {
     expect(table).toMatch(/^effort: high — this run \(fixed at launch\)/m);
   });
 
-  it("with no state and no launch.effort configured, the session effort renders `(none)` / built-in", () => {
+  it("with no state and no launch.effort configured, the session effort says flow did not set it", () => {
     const code = runConfigModelsCli([], { read: reader(undefined) });
     expect(code).toBe(0);
     const table = out.join("\n");
-    expect(table).toMatch(
-      /^effort: \(none\) — built-in \(no --effort passed\)/m,
+    expect(table).toContain(
+      "effort: (none) — not set by flow — Claude Code's own setting applies (your saved /effort level for the model, or the model default)",
     );
+    expect(table).not.toMatch(/^effort:.*built-in/m);
   });
 
   it("the table still has exactly four columns", () => {
@@ -360,7 +361,8 @@ describe("runConfigModelsCli", () => {
     );
     expect(session).toMatchObject({
       effort: "(none)",
-      effortSource: "built-in (no --effort passed)",
+      effortSource:
+        "not set by flow — Claude Code's own setting applies (your saved /effort level for the model, or the model default)",
     });
   });
 

@@ -1,0 +1,22 @@
+## Plan written for review
+
+I wrote both files, `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`, and checked that neither is empty. I didn't implement anything or start any later step.
+
+- **Problem:** Each time someone opens a report's summary, the endpoint asks the model to write it again, even if the report hasn't changed. A popular report pays for hundreds of identical summaries a day, and each reader waits 5–15 seconds.
+- **Tasks:** 4
+  1. Add a small metrics helper.
+  2. Give the model client a timeout, and treat error responses from the model as failures. Today a failed call is returned as a 200 with an empty summary.
+  3. Save each summary along with a fingerprint of the report's section text, and keep serving it until that text changes. If several requests for the same summary arrive at once, they share one model call.
+  4. Point `GET /reports/:id/summary` at the saved summaries, and return a 502 "summary unavailable" error when the model fails.
+- **Follow-up issues:** 2 suggested, neither selected yet:
+  - Write the summary when a report is edited, so the first reader after an edit doesn't wait either.
+  - Cap how many server instances Cloud Run can start.
+- **Assumptions to check:**
+  - **Where summaries are stored (medium confidence):** they go alongside the reports in `src/db.ts`. That storage is in memory and separate on each server instance, so the real saving depends on how many instances stay running. The new reuse-rate metric will show this.
+  - **Error behaviour (high confidence):** when the model fails, the endpoint returns a 502 instead of a 200 with an empty body, and the failure is never saved. Any client that treats every 200 as success will now show an error instead of a blank summary.
+- **Research:** No web research was done because this didn't need any. You can force it with `flow feature create --research`.
+- **Verdict:** "adopt-with-conditions: the model is called at most once per report version per server instance, including under concurrent first opens — proven by a test firing 20 concurrent plus 20 sequential summary requests for one unchanged report and asserting exactly one model call."
+
+The planner also left two small extra files in `.flow-tmp/`: `research-status.json` and `excluded-paths.json`.
+
+**Next action:** Read `.flow-tmp/plan.md`, starting with its Open Questions. Then run `/flow-new-feature` with the same description, or approve the plan in the pipeline.

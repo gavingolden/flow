@@ -23,10 +23,10 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { findSubagentsDir } from "./lib/session-discovery";
 import {
   aggregateCounts,
   attributeTranscripts,
-  findSubagentsDir,
   mergeTelemetry,
   parseLensModels,
   parseLensTokens,
@@ -34,6 +34,7 @@ import {
   type ReviewTelemetry,
   type TokenUsage,
 } from "./lib/review-telemetry";
+import type { EffortRun } from "./lib/transcript-turns";
 import {
   ALL_LENS_NAMES,
   type ConsolidatorResult,
@@ -305,8 +306,10 @@ async function runCollect(args: CollectArgs, deps: Deps): Promise<number> {
 
   const sessionId = args.sessionId ?? deps.env.CLAUDE_CODE_SESSION_ID ?? null;
 
-  let transcripts: Record<string, { usage: TokenUsage; model: string | null }> =
-    {};
+  let transcripts: Record<
+    string,
+    { usage: TokenUsage; model: string | null; effortRuns?: EffortRun[] }
+  > = {};
   if (sessionId) {
     const subagentsDir = findSubagentsDir(sessionId);
     if (subagentsDir) {

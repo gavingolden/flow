@@ -1,0 +1,25 @@
+## Planning complete: due-diligence report
+
+I've written the plan and the PR description draft, and I stopped there as you asked: nothing is implemented and no later pipeline phase was started. A separate planning agent did the work and checked its own output; I confirmed both files exist and aren't empty but didn't read them.
+
+- **Problem:** The service can read and share reports but can't create one. A due-diligence report takes six paid model calls of 20–60 s each. The design has to keep the caller's wait short and must not pay again for finished sections when something fails.
+- **Tasks:** 8, in this order:
+  1. Harden the model client and add the summary call.
+  2. Add a metrics helper.
+  3. Replace the in-memory report store with Firestore.
+  4. Add a daily cap on model calls.
+  5. Build the six-section generator, saving each section as it finishes.
+  6. Add a Cloud Tasks queue client.
+  7. Add the routes: create, retry, a private worker, and reads that check progress.
+  8. Update deploy and provisioning.
+- **Follow-up issue:** 1 proposed — require authentication to create and share reports. The service is public and anyone can share any report.
+- **Questions for you:**
+  - **Q1:** Which five body sections should the report have? The plan defaults to company overview, financial performance, market and competition, management and governance, and legal/regulatory/key risks.
+  - **Q2:** What daily cap on model calls? The default is 600 calls, which is 100 reports.
+- **Biggest design choice:** Reports are generated outside the create request. Creating a report returns an id right away and the caller checks back later. Doing it all inside the request would hold it open 40–120 s, and a dropped connection would waste every paid call.
+- **Main risk:** The Google Cloud client libraries may not run under Bun. Tasks 3 and 6 each start with a check that fails on day one if they don't.
+- **Planning agent's verdict:** go ahead on two conditions. Generation runs outside the create request, so create answers in under 1 s with a status link. Each finished section is saved before the next one starts, so a retry never pays again for a finished section.
+
+The plan is much bigger than your request: it replaces the store with Firestore and adds a task queue (tasks 3 and 6). That follows from the async design, but if you'd accept a simpler first version, cutting those two tasks is the first thing to consider.
+
+**Next action:** Answer Q1 and Q2 and decide on the async design, then run `/flow-new-feature` with the same description to implement. The plan is in `.flow-tmp/plan.md` and the PR draft is in `.flow-tmp/pr-description-draft.md`.

@@ -12,7 +12,14 @@ import {
   SNAPSHOT_MARKER,
   type GhRunner,
 } from "./flow-pipeline-summary";
+import { encodeProjectSegment } from "./lib/session-discovery";
 import { renderComment } from "./lib/pipeline-summary-sources";
+import type {
+  RunAttribution,
+  SpawnAttribution,
+  UnitAttribution,
+} from "./lib/run-attribution-types";
+import { computeTotals } from "./lib/run-attribution-unit";
 import { writeState, type PipelineState } from "./lib/state";
 import type { ReadConfigFile } from "./lib/modules-config";
 
@@ -137,11 +144,12 @@ describe("parseArgs", () => {
 });
 
 describe("render — explicit none discipline", () => {
-  it("prints all seven sections with `none` when every source is empty", () => {
+  it("prints all eight sections with `none` when every source is empty", () => {
     const out = render(EMPTY_RENDER);
     expect(out).toContain("## PIPELINE SNAPSHOT");
     for (const header of [
       "CHANGES:",
+      "RAN ON:",
       "PHASES:",
       "INTENT:",
       "FINDINGS:",
@@ -557,10 +565,11 @@ describe("render — DEVIATIONS (dev lens)", () => {
 });
 
 describe("render — pm lens", () => {
-  it("has exactly CHANGES / REVIEW / DEVIATIONS / UNTRACKED / MANUAL STEPS — no PHASES, no FORECLOSED PATHS, no INTENT, no FINDINGS", () => {
+  it("has exactly CHANGES / RAN ON / REVIEW / DEVIATIONS / UNTRACKED / MANUAL STEPS — no PHASES, no FORECLOSED PATHS, no INTENT, no FINDINGS", () => {
     const out = render({ ...EMPTY_RENDER, lens: "pm" });
     for (const header of [
       "CHANGES:",
+      "RAN ON:",
       "REVIEW:",
       "DEVIATIONS:",
       "UNTRACKED:",
@@ -773,6 +782,58 @@ describe("run — end-to-end", () => {
     expect(planningIdx).toBeGreaterThan(0);
     expect(mergingIdx).toBeGreaterThan(planningIdx);
     expect(lastNonEmptyLine(out)).not.toBe("MERGED");
+  });
+
+  it("fills RAN ON: from the pipeline's session logs when --state-file reads", () => {
+    const repo = "/tmp/ran-on-repo";
+    const projectsRoot = path.join(tmpRoot, "projects");
+    const dir = path.join(projectsRoot, encodeProjectSegment(repo));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "sess-1.jsonl"),
+      [
+        {
+          type: "user",
+          message: {
+            content: "[pipeline-slug: ran-on] Use the /flow-pipeline skill.",
+          },
+        },
+        {
+          type: "assistant",
+          effort: "high",
+          message: {
+            id: "m1",
+            model: "claude-opus-5-5",
+            usage: { input_tokens: 1_000_000, output_tokens: 0 },
+          },
+        },
+      ]
+        .map((l) => JSON.stringify(l))
+        .join("\n"),
+    );
+    writeState(
+      { slug: "ran-on", phase: "merged", repo, updatedAt: "t" },
+      tmpRoot,
+    );
+    const out = captureStdout(() => {
+      const code = run(
+        [
+          "--status",
+          "merged",
+          "--state-file",
+          path.join(tmpRoot, "ran-on.json"),
+        ],
+        {
+          read: DEV_LENS_READ,
+          projectsRoot,
+          eventsLogPath: path.join(tmpRoot, "none-events.jsonl"),
+          attributionLogPath: path.join(tmpRoot, "none-attr.jsonl"),
+        },
+      );
+      expect(code).toBe(0);
+    });
+    expect(out).toContain("Opus 5.5 at high (1 turn)");
+    expect(out).toContain("$4.00 at list price");
   });
 
   it("renders `PHASES: none` when the state file is absent", () => {
@@ -1791,11 +1852,12 @@ describe("renderComment — slim PR-comment block (dev)", () => {
 });
 
 describe("renderComment — slim PR-comment block (pm)", () => {
-  it("has exactly CHANGES / REVIEW / DEVIATIONS / UNTRACKED, never the review: narrative", () => {
+  it("has exactly CHANGES / RAN ON / REVIEW / DEVIATIONS / UNTRACKED, never the review: narrative", () => {
     const block = renderComment(POPULATED_COMMENT_INPUTS).pm;
     expect(block.startsWith("PIPELINE SNAPSHOT")).toBe(true);
     expect(block).toContain("CHANGES:");
     expect(block).toContain("3 commits, +40/-7 across 5 files");
+    expect(block).toContain("RAN ON:");
     expect(block).toContain("REVIEW:");
     expect(block).toContain("partial — 0 findings fixed, 1 deferred");
     expect(block).not.toContain("review: partial — two findings open");
@@ -1812,6 +1874,7 @@ describe("renderComment — slim PR-comment block (pm)", () => {
 
   it("renders `none` for empty REVIEW/DEVIATIONS/UNTRACKED", () => {
     const block = renderComment(EMPTY_COMMENT_INPUTS).pm;
+    expect(block).toMatch(/RAN ON:\n\s+none/);
     expect(block).toMatch(/REVIEW:\n\s+none/);
     expect(block).toMatch(/DEVIATIONS:\n\s+none/);
     expect(block).toMatch(/UNTRACKED:\n\s+none/);
@@ -1875,5 +1938,67 @@ describe("run — slim comment vs unchanged scrollback", () => {
     expect(createBody).toContain(SNAPSHOT_MARKER);
     expect(createBody).not.toContain("PHASES:");
     expect(createBody).not.toContain("MANUAL STEPS:");
+  });
+});
+
+describe("RAN ON: section", () => {
+  const unit = (
+    id: string,
+    runs: [string, string, number][],
+  ): UnitAttribution => ({
+    session_id: id,
+    model: runs[0][0],
+    runs,
+    run_costs: runs.map((_, i) => (i === 0 ? 10 : 0)),
+    turns: runs.reduce((n, r) => n + r[2], 0),
+    tokens: { input: 0, cache_creation: 0, cache_read: 0, output: 0, total: 0 },
+    cost_usd: 10,
+  });
+  const coder: SpawnAttribution = {
+    ...unit("agent-1", [["claude-sonnet-5-5", "medium", 4]]),
+    role: "coder",
+    agent_type: null,
+    parent_session_id: "sess-1",
+  };
+  const sessions = [
+    unit("sess-1", [
+      ["claude-opus-5-5", "low", 6],
+      ["claude-opus-5-5", "high", 2],
+    ]),
+  ];
+  const attribution: RunAttribution = {
+    version: 1,
+    slug: "s",
+    pr: null,
+    repo: "/r",
+    sessions,
+    spawns: [coder],
+    delegated: [],
+    totals: computeTotals([...sessions, coder], [], 0),
+  };
+
+  it("renders after CHANGES: in both lenses of the terminal snapshot", () => {
+    for (const lens of ["pm", "dev"] as const) {
+      const out = render({ ...EMPTY_RENDER, lens, attribution });
+      expect(out.indexOf("CHANGES:")).toBeLessThan(out.indexOf("RAN ON:"));
+      expect(out).toContain("Opus 5.5 at low (6 turns), then high (2)");
+      expect(out).toContain("Sonnet 5.5 at medium");
+      expect(out).toContain("at list price");
+    }
+  });
+
+  it("renders after CHANGES: in both comment variants", () => {
+    const block = renderComment({ ...EMPTY_COMMENT_INPUTS, attribution });
+    for (const text of [block.pm, block.dev]) {
+      expect(text.indexOf("CHANGES:")).toBeLessThan(text.indexOf("RAN ON:"));
+      expect(text).toContain("Opus 5.5 at low");
+      expect(text).toContain("at list price");
+    }
+  });
+
+  it("renders none without an attribution", () => {
+    expect(render({ ...EMPTY_RENDER, lens: "pm" })).toContain(
+      "RAN ON:\n  none",
+    );
   });
 });

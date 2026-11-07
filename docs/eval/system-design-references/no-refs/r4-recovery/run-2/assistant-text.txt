@@ -1,0 +1,22 @@
+## Plan ready: signed-contract uploads
+
+I wrote the plan and the PR description draft and stopped there. Nothing is implemented. Both files exist and aren't empty. As this skill requires, I haven't opened the plan myself, so the summary below comes from the planning agent.
+
+- **Problem:** Customers can't return a signed contract through the reports service. Signed copies end up in email, and the system can't tell which company has returned one.
+- **Tasks (7):** create the `contracts` table, add a metrics helper, add a Cloud Storage client, write the database functions, build the upload and lookup handler, add the routes, and update the deploy setup for the storage bucket and access token.
+- **Suggested follow-up issues (2):**
+  - **Selected:** lock down the existing section-generation callback route. It's open to anyone today, so anyone can trigger a paid model call. This is an existing problem, not something this feature adds.
+  - **Not selected:** let customers download and list their contracts.
+- **Assumptions to check:**
+  - **Q1, needs your answer:** the plan assumes uploads come from a server-side app that can hold a shared upload token. If customers' browsers call the upload endpoint directly, that access-control design won't work and has to change.
+  - **Q5:** uploads are capped at 20 MiB, because files pass through the service rather than going straight to storage, and Cloud Run rejects request bodies over 32 MiB.
+- **Research:** only partly worked. The search step ran, but both steps that check its findings failed with a tool error. None of the research findings are checked, and the plan relies on one only where the code backs it up.
+- **Review verdict:** go ahead on three conditions: every contract route rejects requests without the configured token, uploads over 20 MiB are refused, and each instance handles at most 4 uploads at once.
+
+The planning step cost about $2.24 of the $6 budget.
+
+**Next action:** answer Q1 first, since the access-control design depends on it. Then review `.flow-tmp/plan.md` and, when you're ready, start implementing with `/flow-new-feature let customers upload their signed PDF contracts; store the files in Cloud Storage and record each one in a new contracts table`.
+
+Files are in `.flow-tmp/`:
+- plan.md
+- pr-description-draft.md

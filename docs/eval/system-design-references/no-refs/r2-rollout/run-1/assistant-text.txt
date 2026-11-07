@@ -1,0 +1,21 @@
+## Plan written: rename `body` → `content` and key section jobs by id
+
+I wrote both files and checked that neither is empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. Nothing has been implemented, and no source files changed.
+
+- **Problem:** Section-generation jobs find their section by display name, but section names aren't unique within a report. One job can overwrite several sections, or miss a section that was renamed. The column rename is part of the same change. Done carelessly, switching the job format would strand jobs already in the queue, and retries would pay for the 20–60 s model call again.
+- **Tasks (4):**
+  1. A migration that renames `sections.body` to `content`.
+  2. Update `src/db.ts` to use `content` and to look up and save sections by id.
+  3. Change the job to carry `{ reportId, sectionId }`; the worker accepts both the old and new formats.
+  4. Unit tests for the worker and the queue code (the repo has none yet).
+- **Proposed follow-up issues (3):**
+  - **Worker route is public (security):** anyone on the internet can trigger paid generations through it.
+  - **Retried jobs pay twice:** a redelivered job calls the model again even when the section already has text.
+  - **Fallback cleanup:** remove the old name-based job handling once no old-format jobs remain.
+- **Assumptions to check:**
+  - **The API still returns `body`:** the report response keeps `body` as an alias, since you only asked to rename the column. I'm not sure about this one because nothing in the repo shows who reads that endpoint.
+  - **One-release cutover:** for one release the worker still handles jobs that carry a section name, because nothing in this repo calls the enqueue helper, so some other service may be sending jobs. The rollout pauses the queue, deploys with no traffic, runs the migration, then switches traffic over. I chose this over a two-release add-then-drop column change. The main risk is something outside this repo reading `sections.body` directly.
+- **Research:** web research was skipped because this isn't a question the web can answer.
+- **Verdict:** go ahead, on two conditions: the worker keeps accepting name-based jobs for one release, and the migration runs between the no-traffic deploy and the traffic switch while the sections queue is paused.
+
+**Next action:** review the two assumptions above in `.flow-tmp/plan.md`, especially keeping `body` in the API response. When you're ready to build it, run `/flow-new-feature rename the \`body\` column on \`sections\` to \`content\`, and change the generate-section task to carry the section id instead of the section name`.

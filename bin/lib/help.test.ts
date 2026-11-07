@@ -209,6 +209,14 @@ describe("HELP_TEXT", () => {
     expect(HELP_TEXT.reap).toMatch(/empty registries/i);
   });
 
+  it("HELP_TEXT.reap documents the worktree-leftover section and its gate", () => {
+    expect(HELP_TEXT.reap).toContain(
+      "Leftover processes in pipeline worktrees",
+    );
+    expect(HELP_TEXT.reap).toContain("left to the live pipeline");
+    expect(HELP_TEXT.reap).toMatch(/--yes\s+--include-strays stops them/);
+  });
+
   it("HELP_TEXT.ls documents --all-repos and the repo-scoped default", () => {
     expect(HELP_TEXT.ls).toContain("--all-repos");
     expect(HELP_TEXT.ls).toMatch(/scoped to the current repo/i);

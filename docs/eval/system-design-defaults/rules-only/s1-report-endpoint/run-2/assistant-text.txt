@@ -1,0 +1,26 @@
+## Plan ready, but it pushes back on running the five calls inside the request
+
+Both files are written: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. I stopped there and didn't implement anything.
+
+- **Problem:** Nothing in the service can create a company report yet, so every report lookup returns "not found". A report takes five paid model calls of about 20–60 seconds each. Inside one web request, a timeout would throw away calls already paid for, and the current in-memory storage loses every report on restart.
+- **Main change from your request:** the plan doesn't make the five calls inside the request, which AGENTS.md rules out for loops of paid calls. Instead:
+  - `POST /reports` answers 202 right away and queues one background task per section.
+  - Callers check progress with `GET /reports/{id}`.
+  - Finished sections are saved to Firestore so they survive restarts.
+
+  That means adding Firestore and Cloud Tasks (Google Cloud's task queue). Swapping the storage is the main reason the change is bigger than you asked for.
+- **Tasks:** 7, in order:
+  1. Metrics helper
+  2. Firestore client
+  3. Durable report store, which rewrites the in-memory store
+  4. Cloud Tasks queue client
+  5. A daily spend limit, with one entry point for every model call, each call having a timeout
+  6. The create, per-section task and status routes
+  7. Deploy wiring
+- **Two answers needed from you:**
+  - **Q1:** Which five sections does a report have? The plan uses placeholders: overview, products and services, market and competition, financials, risks and outlook.
+  - **Q2:** What's the daily limit on paid model calls? The placeholder is 300 calls a day, about 60 reports.
+- **Follow-up issue:** 1 proposed. The report endpoints are open to anyone, and who calls them and how they should authenticate needs its own decision.
+- **Web research:** skipped, because this isn't a question outside research would help with.
+
+**Next action:** answer Q1 and Q2, and say whether you accept the background-queue design or want a smaller scope. Then run `/flow-new-feature add a \`POST /reports\` endpoint that generates a company report by calling the model API once for each of five sections` to build it.

@@ -52,6 +52,14 @@ import {
 } from "./lib/stop-turn-tracking";
 import { finalizePhase } from "./lib/phase-advance";
 import {
+  ORPHAN_GUIDANCE,
+  orphanNotice,
+  recordOrphanStops,
+  stoppedCount,
+  sweepBusyLeftovers,
+  type WorktreeOrphanSweepResult,
+} from "./lib/worktree-orphans-run";
+import {
   dirtyEpicMetadata as defaultDirtyEpicPaths,
   repoCommitState as defaultRepoCommitState,
   type RepoState,
@@ -103,7 +111,38 @@ export type Deps = {
    * tests that do not assert on it need not supply it.
    */
   writeOut?: (s: string) => void;
+  /**
+   * Busy-only leftover sweep of the pipeline's worktree (production:
+   * `sweepWorktreeOrphans`). Optional so tests that do not exercise it never
+   * touch the process table. A throw is swallowed: the stop decision is
+   * independent of it.
+   */
+  sweepOrphans?: (worktree: string) => WorktreeOrphanSweepResult | null;
+  /** Adds to the slug's own `state.orphanStops` (production: `recordOrphanStops`). */
+  recordStops?: (slug: string, stopped: number) => void;
 };
+
+function sweepAndRecord(
+  deps: Deps,
+  slug: string,
+  state: PipelineState,
+): string | null {
+  if (!state.worktree || !deps.sweepOrphans) return null;
+  try {
+    const result = deps.sweepOrphans(state.worktree);
+    const stopped = result ? stoppedCount(result) : 0;
+    if (stopped > 0) {
+      try {
+        deps.recordStops?.(slug, stopped);
+      } catch {
+        // recording is best-effort; the stop decision must not depend on it
+      }
+    }
+    return orphanNotice(result, { guidance: ORPHAN_GUIDANCE });
+  } catch {
+    return null;
+  }
+}
 
 function dedupe(items: string[]): string[] {
   return Array.from(new Set(items));
@@ -205,7 +244,46 @@ export function epicMetadataBlockIsSatisfiable(
   );
 }
 
+/**
+ * Sweeps leftover busy processes first, then decides the stop. The notice
+ * reaches the model on an exit-2 block (stderr) and the owner on an exit-0
+ * stop (one `systemMessage`, merged with any pause message).
+ */
 export async function run(deps: Deps): Promise<number> {
+  let notice: string | null = null;
+  let pausedOut: string | null = null;
+  const code = await runCore(
+    { ...deps, writeOut: (s) => (pausedOut = s) },
+    (slug, state) => {
+      notice = sweepAndRecord(deps, slug, state);
+    },
+  );
+  if (code === 2) {
+    if (notice) deps.writeErr(`flow-stop-guard: ${notice}\n`);
+    return code;
+  }
+  if (!notice) {
+    if (pausedOut) deps.writeOut?.(pausedOut);
+    return code;
+  }
+  let message: string = notice;
+  if (pausedOut) {
+    try {
+      const prior = (JSON.parse(pausedOut) as { systemMessage?: string })
+        .systemMessage;
+      if (prior) message = `${prior} ${notice}`;
+    } catch {
+      // keep the notice alone
+    }
+  }
+  deps.writeOut?.(JSON.stringify({ systemMessage: message }) + "\n");
+  return code;
+}
+
+async function runCore(
+  deps: Deps,
+  onLoaded: (slug: string, state: PipelineState) => void,
+): Promise<number> {
   let input: HookInput = {};
   try {
     const raw = (await deps.readStdin()).trim();
@@ -224,6 +302,7 @@ export async function run(deps: Deps): Promise<number> {
 
   const state = deps.loadState(slug);
   if (!state) return 0;
+  onLoaded(slug, state);
 
   const now = deps.nowIso();
   const prior = deps.readTurn(slug);
@@ -521,5 +600,7 @@ if (import.meta.main) {
       }
     },
     writeOut: (s) => process.stdout.write(s),
+    sweepOrphans: (worktree) => sweepBusyLeftovers(worktree),
+    recordStops: (slug, n) => recordOrphanStops(slug, n),
   }).then((code) => process.exit(code));
 }

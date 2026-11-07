@@ -1926,6 +1926,30 @@ export function resolveDocReadGuardCommand(): string {
 }
 
 /**
+ * Same resolution order as `resolveDocReadGuardCommand`, for the PreToolUse
+ * endless-background-loop guard (`FLOW_BG_LOOP_GUARD_COMMAND` override).
+ */
+export function resolveBgLoopGuardCommand(): string {
+  return resolveHookCommand(
+    "flow-bg-loop-guard",
+    "FLOW_BG_LOOP_GUARD_COMMAND",
+    false,
+  );
+}
+
+/**
+ * Same resolution order, for the PostToolUse leftover-process sweep hook
+ * (`FLOW_ORPHAN_SWEEP_HOOK_COMMAND` override).
+ */
+export function resolveOrphanSweepHookCommand(): string {
+  return resolveHookCommand(
+    "flow-orphan-sweep-hook",
+    "FLOW_ORPHAN_SWEEP_HOOK_COMMAND",
+    false,
+  );
+}
+
+/**
  * Same resolution order as `resolveSeedHookCommand`, for the SessionStart
  * request-echo display hook (`FLOW_REQUEST_ECHO_HOOK_COMMAND` override).
  * Warns on divergence: a stale installed copy would silently hide local edits.
@@ -2003,7 +2027,9 @@ export function launchSettingsPermissions(): {
 /**
  * Idempotently writes the flow-scoped `claude --settings` file registering the
  * UserPromptSubmit seed-ingested hook, the PreToolUse flow-doc read guard
- * (Bash `sed`/`awk` only) and the SessionStart request-echo display hook
+ * (Bash `sed`/`awk` only) and endless-background-loop guard (every Bash
+ * call), the PostToolUse leftover-process sweep (Bash, throttled) and the
+ * SessionStart request-echo display hook
  * (`startup|compact` bare, `clear` with `--on-clear`) by absolute path.
  * Writes ONLY this
  * flow-owned file — NEVER the user's global ~/.claude/settings.json (the
@@ -2033,6 +2059,18 @@ export function ensureLaunchSettings(
               hooks: [
                 { type: "command", command: guardCommand, if: "Bash(sed *)" },
                 { type: "command", command: guardCommand, if: "Bash(awk *)" },
+                { type: "command", command: resolveBgLoopGuardCommand() },
+              ],
+            },
+          ],
+          PostToolUse: [
+            {
+              matcher: "Bash",
+              hooks: [
+                {
+                  type: "command",
+                  command: resolveOrphanSweepHookCommand(),
+                },
               ],
             },
           ],

@@ -1,0 +1,42 @@
+## Planning complete: the plan recommends narrowing the scope
+
+I wrote both files and stopped there. No code, migrations or tests were changed, and the working tree is still clean.
+
+The main finding is that this service has no customer identity at all. There are no customers, logins or accounts, and it's deployed open to the public. A request to let "customers upload" therefore runs into a missing piece first. The plan recommends a narrower first version: upload only, with each contract tied to a report.
+
+- **Problem:** The service has nowhere to accept or store a signed contract, and it can't tell who is sending one. Today, anyone who knows a report's id can read that report.
+- **Tasks:** 8:
+  - the new `contracts` table
+  - database functions
+  - a Cloud Storage client
+  - basic metrics
+  - the upload route
+  - two sets of tests
+  - `deploy.sh` changes
+
+  The plan also includes one small existing fix: the Cloud Tasks enqueue call sends no credentials and has no timeout.
+- **Follow-up issues:** 2.
+  - **Marked to file:** the existing route that triggers paid model generation is open to anyone on the internet.
+  - **Not marked yet:** reading contracts back (listing and downloading them). This waits on question 1 below.
+- **Decisions for you:**
+  1. **Who uploads, and how do they prove they're allowed?** It could be the customer's browser or one of your own services. Until you decide, knowing the report id is the only check. That's the same rule reading a report uses now, and it's why the plan has no list or download route.
+  2. **Are database backups and point-in-time recovery on in production?** This needs someone with production access to check. If the database were lost, every contract record would go with it, although the files would remain in the bucket.
+  3. **Upload path (a default you may want to revisit):** files pass through the service rather than going straight to storage via signed links. Each file is capped at 20 MiB, with at most 8 uploads at once per instance.
+- **Vetting verdict:** adopt-with-conditions:
+  - upload only, with no list or download route
+  - 20 MiB cap
+  - a check that the file starts with `%PDF-`
+  - a private bucket that only allows creating files, with public access blocked
+  - at most 8 uploads at once per instance
+  - question 1 answered before any read-back route is built
+
+**Things to be aware of:**
+- **Unchecked sources:** the web research collected sources, but both cross-checks failed. The Google and OWASP facts cited in the plan come from original sources but weren't independently checked.
+- **Files edited during the run:** the planning agent reported that something else edited both files while it worked. It kept those edits, which it described as consistent rewording. A quick read is worthwhile before relying on them.
+- **Section left out:** "Alternatives considered" is missing because it would have meant writing a third file. The rejected options are covered under "Decision analysis" in the plan.
+
+Files are in `.flow-tmp/`:
+- `plan.md`
+- `pr-description-draft.md`
+
+**Next action:** answer questions 1 and 2 in `.flow-tmp/plan.md`, then run `/flow-new-feature` with the original description when you want to start building.

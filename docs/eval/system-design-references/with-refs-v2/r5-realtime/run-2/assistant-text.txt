@@ -1,0 +1,28 @@
+## Plan ready: live section-by-section report progress
+
+I wrote both files and stopped there. Nothing is implemented and no later pipeline phase was started. Both files are non-empty, and the planning agent says they pass the plan and follow-up lint checks.
+
+- **Problem:** Readers refresh the page to see each new section. Each section takes 20–60 s, and nothing tells the page when a section finishes or when the report is done. The page itself isn't in this repo.
+- **Tasks (6):**
+  1. A metrics contract and helper.
+  2. Raise the server's idle limit, which currently cuts off slow requests at 10 s.
+  3. Add a 90 s timeout and an error check to the model call.
+  4. When a section job is sent again, skip the paid model call and keep the saved text.
+  5. The report read returns a "sections done out of total" count, and an empty 304 reply when nothing has changed.
+  6. Cap queue retries at 5 attempts, with a 300 s deadline per job.
+- **Follow-up issues (2):**
+  - Anyone can call the worker endpoint and trigger paid model calls.
+  - Sections have no "failed" state, so a failed section looks the same as a slow one.
+- **Assumptions to check:**
+  - **Users won't see anything new from this PR alone.** It only covers the service side plus a written contract for how the page should check for updates. Readers see live progress only after whoever owns the page adds that check.
+  - **The page checks every 3 s rather than holding a live connection open.** Sections take 20–60 s, so a 3 s delay isn't noticeable. A live connection would keep a Cloud Run instance billed the whole time and would need keep-alive messages and reconnect handling.
+  - **The 10 s cutoff hasn't been confirmed in production.** It was reproduced locally on Bun 1.3.11, but it isn't verified that it breaks section jobs in production.
+- **Planning verdict (verbatim):** "adopt-with-conditions: the report read answers an unchanged check with an empty 304 reply and reports sections done out of total, so a page checking every 3 s can stop when the report completes"
+
+The plan's Open Questions section lists every assumption with a recommended answer.
+
+Files are in `.flow-tmp/`:
+- `plan.md`
+- `pr-description-draft.md`
+
+**Next action:** read `.flow-tmp/plan.md`, especially the decision to check every 3 s instead of a live connection, and the note that the page lives outside this repo. When you're ready to build it, run `/flow-new-feature users want to watch their report being written live, section by section, instead of refreshing the page`.

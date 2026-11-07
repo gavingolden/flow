@@ -9,6 +9,8 @@ import * as path from "node:path";
 export type RunArgs = {
   verb: "run";
   suites: string[] | "all";
+  /** Repeatable `--scenario <id>`: run only these scenario ids. */
+  scenarios?: string[];
   out: string;
   runs?: number;
   model?: string;
@@ -158,6 +160,7 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
 
   // run
   const suites: string[] = [];
+  const scenarios: string[] = [];
   let allSuites = false;
   let out: string | undefined;
   let runs: number | undefined;
@@ -207,6 +210,9 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
     switch (flag) {
       case "--suite":
         suites.push(v);
+        break;
+      case "--scenario":
+        scenarios.push(v);
         break;
       case "--out":
         out = v;
@@ -270,6 +276,7 @@ export function parseArgs(argv: string[]): ParsedArgs | { error: string } {
   return {
     verb: "run",
     suites: allSuites ? "all" : suites,
+    ...(scenarios.length > 0 ? { scenarios } : {}),
     out,
     runs,
     model,

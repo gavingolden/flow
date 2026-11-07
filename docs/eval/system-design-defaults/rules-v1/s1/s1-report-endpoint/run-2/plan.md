@@ -1,0 +1,487 @@
+# PRD
+
+> [!NOTE]
+> Web-grounded research (discovery Step 1.5): skipped — not a researchable question (the platform limits it turns on are already cited in the installed system-design guide, retrieved 2026-11-03); force with `flow feature create --research`.
+
+# Company report generation (`POST /reports`)
+
+**Goal:** A caller asks for a five-section company report, gets a report id back within a second, and sees it finish within minutes, with model spend capped per day.
+
+## Problem Statement
+
+This service is meant to produce written company reports, but today nothing can create one: callers can look a report up or mark it shared, yet no report can ever exist, so every lookup answers "not found". Writing a report means five calls to a paid model service, each taking 20 to 60 seconds, so a naive version would either keep the caller waiting for minutes or lose paid work whenever a connection drops or the service restarts. The cost of getting this wrong lands on the two priorities that matter most here: a caller stuck waiting with no progress, and model spend with no ceiling on a service anyone on the internet can call.
+
+Evidence:
+
+| Fact | What it means for this feature | Anchor |
+| ---- | ------------------------------ | ------ |
+| Each section call takes 20–60 s and is billed per call | Five sections is 100–300 s sequential, 20–60 s in parallel — far past a 10 s interactive wait | src/llm.ts:1 |
+| Reports live in a per-process in-memory map | A report created on one Cloud Run instance is invisible to another and vanishes on restart or deploy, so it cannot serve as a progress record | src/db.ts:9 |
+| No code path creates a report; the only write is the share toggle | The existing lookup and share endpoints are unreachable in practice; changing the report's shape breaks no stored data | src/app.ts:20 |
+| The service is deployed open to unauthenticated callers | A new endpoint that triggers paid calls would let anyone spend the model budget | deploy.sh:3 |
+| The model client sets no timeout and never checks the HTTP status | A hung or failing model call stalls the caller or stores `undefined` as section text | src/llm.ts:6 |
+| A `title` field and a title-suggestion call already exist | A title is possible, but it would be a sixth paid call the user did not ask for | src/llm.ts:14 |
+
+## Request vetting
+
+- **Hypothesis:** One model call per section can produce a reliable report at a bounded cost if each section runs as its own retryable unit outside the caller's request, with progress kept in a durable record.
+- **Case against:** Read literally — five calls made inside the POST — the caller waits 20–60 s even in parallel [anchor: src/llm.ts:1], a dropped connection discards paid work and a retry pays again, and Cloud Run throttles CPU once the response is sent, so a fire-and-forget background loop stalls (https://docs.cloud.google.com/run/docs/configuring/billing-settings); results would land in a per-instance in-memory map another instance cannot read [anchor: src/db.ts:9]; and the service is public, so any caller can trigger paid calls [anchor: deploy.sh:3].
+- **Sources:** https://docs.cloud.google.com/run/docs/configuring/billing-settings and https://docs.cloud.google.com/run/docs/configuring/request-timeout (cited by the installed system-design guide's GCP mapping, retrieved 2026-11-03)
+- **Verdict:** adopt-with-conditions: generation runs off the request — the POST answers 202 with a report id in under 1 s, each section is its own queued unit with a 90 s model-call timeout and at most 3 attempts, and model calls stop at a configurable daily cap.
+
+## Existing-code assessment
+
+- **src/db.ts (report persistence):** rewrite — an in-memory map cannot be the status record a caller polls across Cloud Run instances and restarts; replace it with a store interface, a Firestore adapter for production and the existing map logic kept as the in-memory adapter for tests and local runs (bundled as Tasks 3–4, a prerequisite) [anchor: src/db.ts:9]
+- **src/llm.ts (model client):** simplify — add a timeout and an HTTP-status check with typed errors before building retries on top of it (bundled as Task 1) [anchor: src/llm.ts:6]
+- **src/app.ts (HTTP router):** keep — the regex router extends with two routes; the existing lookup and share handlers only gain `await` on the now-async store [anchor: src/app.ts:9]
+- **deploy.sh (deploy script):** keep — extend from one public service to a public API service plus a private worker service, with instance caps and env/secret wiring [anchor: deploy.sh:3]
+- **package.json (dependencies):** keep — gains the two Google client libraries named in Technical Constraints [anchor: package.json:1]
+
+## Scope Boundary
+
+**In scope:**
+
+- `POST /reports` taking `{"company": "<name>"}`, authenticated by an API key, answering `202 Accepted` with the report id and a `Location` header pointing at the existing `GET /reports/{id}`.
+- Five fixed sections per report, each generated by exactly one model call per attempt, run by a private worker service fed by a Cloud Tasks queue (one task per section).
+- Durable report storage in Firestore, shared by the new endpoint and the existing lookup and share endpoints.
+- Per-section and overall progress (`queued`, `running`, `done`, `failed`, `partial`) visible through `GET /reports/{id}`.
+- Safe repeats: an optional `Idempotency-Key` header on the POST, and a worker that never re-pays for a finished section.
+- One daily cap on model calls, enforced at a single choke point; setting it to 0 is the kill switch.
+- Model-client hardening (timeout, status check) and a metrics helper plus `.flow/metrics.md`.
+- Infra setup script: Firestore with point-in-time recovery and a daily backup schedule, the queue with its retry settings, service accounts and IAM, the API-key secret.
+
+**Out of scope:**
+
+- A report title (the user asked for one call per section; a title is a sixth call — see Open Questions).
+- Caller-chosen section lists, per-section re-runs, streaming or push notifications (polling the status record is enough for a job of a few minutes).
+- Report ownership or access control on the existing lookup and share endpoints (candidate follow-up).
+- A metrics backend, dashboards or alerts as code (spec-only).
+
+## Behavioral contrast
+
+### User flow
+
+| Before | After |
+| ------ | ----- |
+| There is no way to request a report; every lookup answers "not found" | A caller sends a company name with the API key and gets a report id and status link back in under a second |
+| — | Polling the status link shows each of the five sections move from queued to done; a finished report typically arrives in 1–3 minutes |
+| — | Sending the same request again with the same idempotency key returns the same report instead of paying for a second one |
+| — | When the day's model-call budget is used up, the caller gets "try again later" with the time to retry, and nothing is charged |
+| — | A section that still fails after 3 attempts is shown as failed while the other sections stay readable |
+
+### System flow
+
+- **Before:**
+  - Reports live in one process's memory and disappear on restart; no model calls are ever made.
+  - One public Cloud Run service; no queue, no spend ceiling.
+- **After:**
+  - Reports live in Firestore with point-in-time recovery and daily backups.
+  - The public API service validates, reserves budget, writes the report and enqueues five tasks; a private worker service (reachable only by the queue's service account) makes one model call per task.
+  - Each report costs 5 model calls, up to 15 when every section uses all 3 attempts, all counted against one daily ledger.
+
+**Lost:** the plain-text shape of a report's `sections` field, which becomes a list of section records with a status each — no report could be created before, so no stored data or known consumer is affected.
+
+## User Stories / Acceptance Criteria
+
+### Story 1: Request a report
+
+- [ ] Given a valid API key and `{"company":"Acme"}`, when the caller POSTs `/reports`, then the response is `202` with `Location: /reports/<id>`, the body carries `status: "queued"`, and exactly five section tasks are enqueued — `bun test src/app.test.ts`
+- [ ] Given a missing, empty or over-200-character company, when the caller POSTs, then the response is `400` and no task is enqueued and no budget is reserved — `bun test src/app.test.ts`
+- [ ] Given a missing or wrong API key, when the caller POSTs, then the response is `401` and nothing is enqueued — `bun test src/app.test.ts`
+- [ ] Given the same `Idempotency-Key` sent twice with the same company, then both responses carry the same report id and budget is reserved once; with a different company the second response is `422` — `bun test src/app.test.ts`
+- [ ] Given the daily cap would be exceeded, when the caller POSTs, then the response is `429` with a `Retry-After` header and nothing is enqueued — `bun test src/app.test.ts`
+
+### Story 2: Watch progress
+
+- [ ] Given a report whose sections are partly done, when the caller GETs `/reports/<id>`, then each of the five sections shows its own status and the report status is `running` — `bun test src/db.test.ts`
+- [ ] Given all five sections done, then the report status is `done` and section texts appear in the fixed order — `bun test src/db.test.ts`
+- [ ] Given four sections done and one failed, then the report status is `partial` and the four texts are readable — `bun test src/db.test.ts`
+
+### Story 3: Section generation is safe to repeat and bounded
+
+- [ ] Given a section already `done`, when its task is delivered again, then no model call is made and the worker answers `200` — `bun test src/worker.test.ts`
+- [ ] Given a transient model failure (5xx, 429, timeout) on a non-final attempt, then the section returns to `queued`, the worker answers `503` so the queue retries, and the retry reserves one extra call — `bun test src/worker.test.ts`
+- [ ] Given a permanent model failure (other 4xx) or a failure on the final attempt, then the section is `failed` with its `error.type` and the worker answers `200` — `bun test src/worker.test.ts`
+- [ ] Given a model call that has not answered after 90 s, then it is aborted and classified `upstream_timeout` — `bun test src/llm.test.ts`
+
+### Story 4: The worker cannot be triggered publicly
+
+- [ ] Given the service runs in the `api` role, when anyone POSTs to the internal section route, then the response is `404` — `bun test src/app.test.ts`
+- [ ] Given the deploy script, then the worker service is deployed with `--no-allow-unauthenticated` — `grep -q -- '--no-allow-unauthenticated' deploy.sh`
+
+## Instrumentation
+
+**Contract:** `.flow/metrics.md` create
+
+### Metrics
+
+| Metric | Instrument | Unit | Attributes (closed values) | Emitted at |
+| ------ | ---------- | ---- | -------------------------- | ---------- |
+| `reports.create.duration` | Histogram | seconds | `operation.outcome` (`ok`, `error`) | report-request handler |
+| `reports.create.failures` | Counter | none | `error.type` (`invalid_input`, `unauthorized`, `rate_limited`, `internal`, `_OTHER`) | report-request handler |
+| `reports.section.duration` | Histogram (bounds `[1, 5, 10, 20, 30, 45, 60, 90, 120]`) | seconds | `operation.outcome` (`ok`, `error`) | section worker |
+| `reports.section.failures` | Counter | none | `error.type` (`upstream_error`, `upstream_timeout`, `rate_limited`, `internal`, `_OTHER`), `report.section` (5 section names) | section worker |
+| `reports.llm.duration` | Histogram (same bounds) | seconds | `server.address` (`api.example-llm.com`), `operation.outcome` (`ok`, `error`) | model client |
+| `reports.llm.failures` | Counter | none | `error.type` (`upstream_error`, `upstream_timeout`, `_OTHER`), `server.address` (`api.example-llm.com`) | model client |
+| Request count and latency for `GET /reports/{id}` | — | — | — | platform-native (Cloud Run request metrics) |
+| Queue depth for `report-sections` | — | — | — | platform-native (Cloud Tasks `queue/depth`) |
+
+Estimated series: 39 per operation for `reports.create` (histogram 2 × 17, plus 5 failure types)
+Estimated series: 49 per operation for `reports.section` (histogram 2 × 12, plus 5 failure types × 5 sections)
+Estimated series: 27 per operation for `reports.llm` (histogram 1 host × 2 × 12, plus 3 failure types × 1 host)
+
+Samples per month on the suggested Google Cloud Monitoring OTLP route at a 60 s export interval: about 115 series-points × 43,200 ≈ 5.0 million per instance, roughly $0.30 a month per instance (pricing medium confidence per the metrics guide).
+
+**Attributes:** registers `operation.outcome`, `error.type`, `server.address` (closed host list: `api.example-llm.com`) and a new key `report.section` (closed values: `overview`, `products`, `market`, `financials`, `outlook` — fixed by code), added as `.flow/metrics.md` `## Attributes` rows.
+
+### Error types
+
+New list, seeded from the starter values: `_OTHER`, `internal`, `invalid_input` (client-caused), `not_found` (client-caused), `rate_limited` (daily cap reached, or the model API throttled), `unauthorized` (client-caused), `upstream_error` (model API answered with a failure), `upstream_timeout` (model API did not answer within 90 s). Client-caused values are excluded from the availability SLO.
+
+### Dashboard panels
+
+On a new "Reports overview" dashboard (spec-only): report requests per minute with failures by `error.type`; section latency p50/p95/p99; section failures by `report.section` and `error.type`; model calls per day (from the `reports.llm.duration` count) against the daily cap; Cloud Tasks queue depth.
+
+### Alerts
+
+| Signal | Condition | Sustained for | Action | Routes to | Dashboard |
+| ------ | --------- | ------------- | ------ | --------- | --------- |
+| Cloud Tasks `queue/depth` for `report-sections` | > 50 tasks | 15 min | notify | reports-owner email channel | Reports overview (spec-only) |
+| Model calls today | > 80% of the daily cap | 5 min | notify | reports-owner email channel | Reports overview (spec-only) |
+
+Plus the standard burn-rate tiers for the SLO below.
+
+### SLO
+
+New journey SLO "generate a company report": 99% of accepted reports reach `done` within 5 minutes, over 30 days; client-caused rejections excluded.
+
+**As-code:** spec-only — the repo keeps no dashboard or alert config.
+
+## Architecture Decisions
+
+| Aspect | Decision |
+| ------ | -------- |
+| Layers touched | Integration (model client, queue client), persistence (store interface + Firestore adapter + daily spend ledger), HTTP handlers, deploy/infra |
+| Domain modules | Existing: `src/app.ts`, `src/db.ts`, `src/llm.ts`. New single-purpose modules: `src/db-firestore.ts`, `src/queue.ts`, `src/spend.ts`, `src/worker.ts`, `src/metrics.ts`; new `infra/setup.sh` |
+| Data flow | Caller POST → API service validates, reserves 5 calls, writes the report (5 sections `queued`) and enqueues 5 named tasks → Cloud Tasks calls the private worker once per section → worker claims the section, calls the model, writes the text and re-derives the report status in one transaction → caller polls the existing lookup |
+| Pattern | New: parent record with one child per step plus one queued task per step (the installed system-design guide's multi-step pattern); same image deployed as two Cloud Run services split by a role env var |
+| Binary-framing check | Request is not framed as A-or-B; the execution-model fork (inline / same-instance background / queue) is simulated in Decision analysis |
+| Goal anchor | "back within a second" rules out inline generation; "spend capped per day" rules out uncapped retries |
+
+### Runtime design
+
+| Operation | Est. p99 | Execution model | Timeout / deadline | Retries | Idempotency key | Cost bound |
+| --------- | -------- | --------------- | ------------------ | ------- | --------------- | ---------- |
+| Accept a report request (`POST /reports`) | ~400 ms | inline — ~400 ms, timeout 5 s | 5 s for the handler; 2 s per Firestore and Cloud Tasks call | none server-side; the caller re-posts with the same `Idempotency-Key` | `Idempotency-Key` header, hashed into the report id; replay re-enqueues still-queued sections under the same task names | new daily spend ledger: reserves 5 calls before any task is enqueued |
+| Generate one section (worker) | ~65 s | queue — one Cloud Tasks task per section, worker invoked synchronously under the dispatch deadline | worker Cloud Run timeout 200 s ≥ dispatch deadline 180 s > section lease 150 s > model call 90 s | Cloud Tasks only: max attempts 3, backoff 10–60 s; no retry in the client or worker | task name `<reportId>-<section>` plus a Firestore claim on the section (skip if `done`, back off if leased) | new daily spend ledger: retry attempts reserve 1 call each before calling the model |
+| Model API call | ~60 s | queue — runs inside the section worker's task, never in a caller's request | 90 s (`AbortSignal.timeout`) | none at this layer | covered by the worker's section claim | counted by the worker's reservation |
+| Look up a report (`GET /reports/{id}`) | ~150 ms | inline — ~150 ms, timeout 5 s | 2 s Firestore read | none | read-only | none (no paid call) |
+
+Deadline order note: the worker service's Cloud Run request timeout (200 s) is set above the dispatch deadline (180 s) so the queue, not the platform, ends a stuck attempt; inside it the lease (150 s) outlives the model call (90 s).
+
+**Platform:** gcp
+
+**Proportionality:** no workflow engine (fixed five-step fan-out); no outbox (named tasks plus idempotent replay cover a failed enqueue, and a non-replayed enqueue failure marks the unenqueued sections `failed`); no streaming or push (polling suits a 1–3 minute job); no dead-letter destination (a section's `failed` status is the visible failed state); no per-caller rate limiter (one API key means one caller — the daily cap and instance caps bound spend); no canary rollout (no live users yet).
+
+**Recovery:** Firestore database `(default)`: point-in-time recovery on (7-day window) plus a daily backup schedule kept 7 days, both set and verified by Task 8; the restore check is `gcloud firestore databases describe` showing PITR enabled and `gcloud firestore backups schedules list` returning a schedule. Report text is regenerable at a known cost (5–15 model calls per report); the spend ledger is a daily counter that resets each day.
+
+**Rollback:** Task 8 — `deploy.sh rollback` shifts both services' traffic back to their previous revisions (`gcloud run services update-traffic … --to-revisions=<previous>=100`), and setting the daily cap to 0 stops all new paid work without a code change.
+
+## Technical Constraints
+
+- **New dependencies, with the reason AGENTS.md asks for:** `@google-cloud/firestore` (durable store with transactions) and `@google-cloud/tasks` (queue). No other runtime dependency — the worker is authenticated by Cloud Run IAM, so no token-verification library is added. Source: AGENTS.md "No new runtime dependencies without a reason".
+- **Bun transport:** construct the Firestore client with `preferRest: true` and the Cloud Tasks client with `fallback: true` (HTTP/REST transport) so neither depends on gRPC under Bun; Task 4's and Task 5's acceptance includes a `bun build` of the importing module. Source: Plan risks.
+- **No work after the response:** the API handler returns only after the report is written and the tasks are enqueued; nothing runs post-response. Source: https://docs.cloud.google.com/run/docs/configuring/billing-settings.
+- **Deadline ordering:** worker Cloud Run timeout 200 s ≥ dispatch deadline 180 s > section lease 150 s > model-call timeout 90 s; queue `--max-attempts=3` must equal the worker's `REPORTS_SECTION_MAX_ATTEMPTS`. Source: Runtime design table.
+- **Final-attempt detection:** the worker reads Cloud Tasks' `X-CloudTasks-TaskRetryCount` header (0 on the first attempt); attempt `retryCount >= maxAttempts - 1` is final.
+- **Prompt input:** the company name is interpolated into the model prompt (src/llm.ts:8); it is trimmed and capped at 200 characters before any budget is reserved.
+- **Cost:** each accepted report costs 5 paid model calls, up to 15 with retries, plus negligible Firestore and Cloud Tasks usage; the daily cap is the ceiling. Latency: a report completes in ~20–60 s of model time per section, run in parallel up to the queue's 10 concurrent dispatches.
+- **Tests run offline:** `bun test` must not touch the network; the store, queue, model `fetch` and metrics recorder are injected, with in-memory implementations for tests.
+
+## Open Questions
+
+- [ ] Where should the section generation run — inside the request, in the background on the same instance, or as queued tasks? — redirect to inline drops Tasks 4, 5 and the worker half of Task 8 and makes the POST answer `200` after ~60 s
+  - **Stakes:** both — the caller's wait (20–60 s vs under 1 s) and duplicate charges on a dropped connection
+  - **Recommended:** one queued task per section with a 202 and a pollable status — the only branch where a dropped connection or a deploy loses no paid work (see Decision analysis) [confidence: medium] [anchor: weighing: risk — five 20–60 s paid calls per report (src/llm.ts:1) cannot survive a dropped connection or a Cloud Run CPU throttle in the other branches]
+- [ ] Q1: What daily cap on model calls should ship? — redirect changes one env value in Task 8's deploy script
+  - **Stakes:** both — too low rejects legitimate reports with "try again later"; too high leaves real money exposed if the API key leaks
+  - **Needs user input:** a user-held preference (the acceptable daily model spend). The plan ships `REPORTS_DAILY_CALL_CAP=500` (100 reports a day at 5 calls each) as a placeholder to confirm or change.
+- [ ] Which durable store holds reports — Firestore or Cloud SQL Postgres? — redirect to Cloud SQL replaces Task 4's adapter, adds a schema migration and connection pooling, and changes Task 8's recovery setup
+  - **Stakes:** system — an always-on database instance is a standing monthly cost for a low-volume service
+  - **Recommended:** Firestore — serverless with no always-on instance, transactional updates on one document per report match the record's shape, and PITR plus scheduled backups cover recovery [confidence: medium] [anchor: weighing: footprint — the report is one self-contained record (src/db.ts:1) with no joins, so a document store needs no schema migration]
+- [ ] Which five sections, in what order? — redirect changes only the section constant and its prompt labels
+  - **Stakes:** user — the section list is the report's content
+  - **Recommended:** a fixed list of five defined in code — `overview` (company overview), `products` (products and services), `market` (market and competition), `financials` (financial performance), `outlook` (risks and outlook) — callers cannot choose sections in v1 [confidence: high] [anchor: user: "calling the model API once for each of five sections"]
+- [ ] Should the report also get a generated title? — redirect adds a sixth model call after the last section finishes, a finalize step guarded against double assembly, and one more call per report against the cap
+  - **Stakes:** both — a title improves the report's readability but costs one extra paid call per report
+  - **Recommended:** no title in v1; `title` stays `null` — the user scoped the model calls to the five sections [confidence: high] [anchor: user: "calling the model API once for each of five sections"]
+- [ ] When one section fails for good, should the report show the other four or fail as a whole? — redirect to all-or-nothing changes the status rule in Task 3 and hides finished text
+  - **Stakes:** user — all-or-nothing discards up to four already-paid sections
+  - **Recommended:** show the finished sections and mark the report `partial`, with the failed section's error class visible [confidence: medium] [anchor: weighing: risk — hiding paid, finished sections turns one failed call into a full re-run of five]
+- [ ] How is the new endpoint protected from anonymous callers? — redirect to "no auth" removes the API-key check and secret from Tasks 7–8; redirect to IAM-only flips the public service to `--no-allow-unauthenticated`, which also closes the existing lookup and share endpoints
+  - **Stakes:** both — an open endpoint lets anyone spend the model budget; IAM-only changes how every existing caller reaches the service
+  - **Recommended:** a single API key in an `x-api-key` header on `POST /reports` only, stored in Secret Manager and compared in constant time; lookup and share stay as they are [confidence: medium] [anchor: weighing: risk — the service is public (deploy.sh:3) and the new endpoint is the only one that spends money]
+- [ ] How is the queue-facing worker route authenticated? — redirect to in-handler token verification removes the second Cloud Run service but adds a token-verification dependency
+  - **Stakes:** system — a worker route reachable on the public service lets anyone bypass the cap and the queue's rate limits
+  - **Recommended:** deploy the same image a second time as a private `reports-worker` service (`--no-allow-unauthenticated`, invoker granted only to the queue's service account) and serve the worker route only when `REPORTS_ROLE=worker` [confidence: medium] [anchor: weighing: footprint — platform IAM does the check, so no JWT library is needed under AGENTS.md's dependency rule]
+- [ ] Use Google's client libraries or hand-written REST calls for Firestore and Cloud Tasks? — redirect to REST drops both dependencies but adds a metadata-server token helper and hand-built Firestore transaction calls to Tasks 4–5
+  - **Stakes:** system — hand-built transactions are the riskiest code in the plan
+  - **Recommended:** the official libraries on their REST transports — Firestore transactions and named-task dedupe come tested, and REST transport avoids gRPC under Bun [confidence: medium] [anchor: weighing: risk — the section claim and status derivation depend on correct transactions]
+- [ ] Should `Idempotency-Key` be required or optional? — redirect to required turns a missing header into `400` in Task 7
+  - **Stakes:** system — without a key, a caller's retried POST creates and pays for a second report
+  - **Recommended:** optional; when present, replays return the same report and never reserve budget twice [confidence: medium] [anchor: weighing: convention — the IETF Idempotency-Key draft defines it as a client-supplied, optional header]
+
+## Decision analysis
+
+**Decision A — where does section generation run?** Mutually exclusive branches; each simulated end to end for one report request.
+
+| Branch | What the caller sees and does | System behaviour | Friction |
+| ------ | ----------------------------- | ---------------- | -------- |
+| A1 — inline, five calls in parallel inside the POST | Sends the request, waits 20–60 s (up to ~90 s at the model timeout) with the connection open, then gets the full report | A dropped connection or deploy mid-wait discards up to five paid calls; a client retry pays for five more; the result still needs durable storage for lookup and share | 1 blocking wait of 20–90 s per report |
+| A2 — answer 202, keep generating on the same instance in the background | Gets an id immediately, polls | Only works with CPU always allocated (instance-based billing, a standing cost) and a single instance so the in-memory map stays coherent; any scale-in or deploy silently loses in-flight sections | 0 interruptions; polls until done |
+| A3 — answer 202, one queued task per section, Firestore status record | Gets an id in under 1 s, polls `GET /reports/{id}` (each poll ~150 ms) and sees sections arrive one by one | Each section retries on its own (≤3 attempts), finished sections are never re-paid, deploys and restarts lose nothing, spend is capped daily | 0 interruptions; polls until done |
+
+Ranked: A3 > A1 > A2. A1 is the cheapest to build but fails on the top two brief priorities (user experience: a minute-long blocking wait; cost: re-paid calls on retry). A2 adds an always-on instance cost and loses work silently.
+
+Verdict: **A3 — queued task per section with a 202 and a pollable status record** — the only branch that keeps the caller's wait under a second and never re-pays for finished work [confidence: medium] [anchor: weighing: risk — A1 and A2 both lose paid work on a dropped connection or deploy, given 20–60 s calls (src/llm.ts:1) and a per-instance store (src/db.ts:9)].
+
+## Alternatives considered
+
+- **Run the five calls one after another inside the POST** — rejected: 5 × up to 60 s (src/llm.ts:1) is up to 300 s, the Cloud Run 5-minute default request timeout (https://docs.cloud.google.com/run/docs/configuring/request-timeout), so the caller is cut off mid-report.
+- **One model call that writes the whole report** — rejected: the model client exposes only a per-section call (src/llm.ts:2), and the user asked for the model API "once for each of five sections".
+- **Orchestrate with Google Cloud Workflows** — rejected: a fixed, branch-free five-step fan-out with no external waits is fully covered by a queue plus one status record; a workflow engine adds a second managed service for no new capability.
+
+## Recommendation
+
+**Reconsider scope** — build the endpoint, widened from "an endpoint that calls the model five times" to a queue-driven worker, durable Firestore storage (rewriting the in-memory store), a daily spend cap, API-key auth and a hardened model client (simplify), because the literal inline reading fails the caller's wait and the cost ceiling (Decision A; first Open Question; Q1 sets the cap) [confidence: medium] [anchor: weighing: risk — five 20–60 s paid calls (src/llm.ts:1) on a public service (deploy.sh:3) with a per-instance store (src/db.ts:9)]
+
+**Redundancy:** none found — no code path creates a report today; the store's only write is the share toggle (src/app.ts:20), and the title-suggestion call is unrelated to section generation.
+
+## Plan risks
+
+The plan assumes Google's Firestore and Cloud Tasks Node libraries work under Bun on their REST transports; if either fails at import or at its first call, Tasks 4–5 fall back to hand-written REST calls with metadata-server tokens, roughly doubling those tasks and putting the section-claim transaction in hand-built code.
+
+## Cut list
+
+- The `report.section` attribute on the section failures counter (20 of the operation's 49 series) — drop it if per-section failure breakdown is not needed; overall section failures by `error.type` would remain.
+- The second (worker) Cloud Run service could collapse into the public one if the user accepts in-handler token verification and its dependency — kept because it is the zero-dependency way to keep paid work off the public surface.
+
+# Candidate follow-up issues
+
+| Candidate | Value | Complexity | Rationale | Relation to current request | Pull into this pipeline? |
+| --------- | ----- | ---------- | --------- | --------------------------- | ------------------------ |
+| Reports have no owner | Medium | Medium | needs its own design/decision session: the open decision is what identity owns a report (one API-key tenant, or end users) and who may read or share it — once this feature ships, reports with paid content become real and the open lookup exposes them | adjacent — this plan creates the first reports that the open lookup and share endpoints would expose | No |
+| Re-run one failed section | Medium | Small | needs its own design/decision session: the open decision is whether a re-run counts against the daily cap and who may trigger it — today a failed section can only be recovered by a new report costing five calls | follow-on — builds on this plan's per-section status and queue | No |
+
+- [x] Reports have no owner — any caller holding a report id can read the report or mark it shared; decide the identity model and gate lookup and share on it.
+  - **UX:** none
+  - **Problem:** the lookup and share endpoints check only that the id exists, with no caller identity [anchor: src/app.ts:12]
+  - **Stability/efficiency:** none
+  - **Value rank:** 2 — an unfired latent exposure that becomes live as soon as this feature creates real reports [anchor: src/app.ts:16]
+  - **Complexity:** Medium — store schema, both existing handlers, and the auth model
+  - **Risk:** Medium — changes how every existing caller reaches lookup and share
+  - **If never done:** every generated report is readable and shareable by anyone who learns its id
+  - **Verdict:** clears bar — paid, generated report content behind only an id outweighs a Medium change that needs its own identity decision
+- [ ] Re-run one failed section — add a way to re-queue a section whose status is `failed` without creating a new report.
+  - **UX:** a caller whose report came back `partial` can fix it in one request instead of starting over [anchor: user: "calling the model API once for each of five sections"]
+  - **Problem:** recovering one failed section today means a new report and five new paid calls [anchor: src/llm.ts:1]
+  - **Stability/efficiency:** none
+  - **Value rank:** 2 — a single-instance annoyance until the failures counter shows how often sections fail after 3 attempts [anchor: src/llm.ts:1]
+  - **Complexity:** Small — one handler route and one store transition
+  - **Risk:** Low
+  - **If never done:** each permanently failed section costs a full five-call re-run to recover
+  - **Verdict:** below bar — the post-retry section failure rate is unmeasured; revisit once the section failures counter has a month of data
+
+# Task breakdown
+
+### Task 1: Harden the model client
+
+- **Skill:** `flow-system-design`
+- **Bundled:** the missing timeout and unchecked HTTP status in the model client surfaced during discovery
+- **Description:** Give both model calls a 90 s timeout via `AbortSignal.timeout`, check `res.ok`, and throw a typed `LlmError` whose `kind` separates permanent from transient failures. Take the section's display label (not its code name) as the prompt input. Emit `reports.llm.duration` / `reports.llm.failures` through the metrics helper once Task 2 lands (this task leaves a single `observe` hook that Task 2 wires).
+- **Inputs:** src/llm.ts
+- **Outputs:** a model client that never hangs past 90 s and never returns `undefined` text
+- **Contract:**
+  - **Files:** edit `src/llm.ts`; create `src/llm.test.ts`
+  - **Interfaces:** `export type LlmErrorKind = "timeout" | "rate_limited" | "upstream_5xx" | "upstream_4xx" | "bad_response"`; `export class LlmError extends Error { readonly kind: LlmErrorKind; readonly status: number | null; get transient(): boolean }` (transient = `timeout | rate_limited | upstream_5xx`); `export const MODEL_CALL_TIMEOUT_MS = 90_000`; `export async function generateSection(company: string, sectionLabel: string, opts?: { fetch?: typeof fetch; timeoutMs?: number }): Promise<string>`; `suggestTitle` gains the same `opts` and error handling
+  - **Call-site edits:** none yet (first consumer is Task 6)
+- **Acceptance criteria:** `bun test src/llm.test.ts` — specs for ok, 429 → `rate_limited`, 503 → `upstream_5xx`, 400 → `upstream_4xx` (not transient), missing `text` → `bad_response`, and a stalled fetch aborted at a short injected `timeoutMs` → `timeout` all pass
+
+### Task 2: Metrics helper and metrics contract
+
+- **Skill:** `flow-metrics`
+- **Description:** Create the repo-local metrics helper with a swappable recorder (in-memory by default, no backend) and the closed `ErrorType` union, and create `.flow/metrics.md` with Backend (`none yet — suggested: Google Cloud Monitoring via OTLP`, 60 s export interval), Namespace `reports`, Attributes, error.type values, Helper, Dashboard panels, Dashboards (Reports overview, no URL yet), Alerts, As-code (`spec-only`), SLOs and Coverage (`reports.create`, `reports.section`, `reports.llm`). Metrics and error types are exactly those in the PRD's Instrumentation section. Wire Task 1's hook to `reports.llm.*`.
+- **Inputs:** Task 1's `src/llm.ts`
+- **Outputs:** `instrument()` usable by the handler and worker; the committed metrics contract
+- **Contract:**
+  - **Files:** create `src/metrics.ts`, `src/metrics.test.ts`, `.flow/metrics.md`; edit `src/llm.ts` (wire the hook)
+  - **Interfaces:** `export type ErrorType = "_OTHER" | "internal" | "invalid_input" | "not_found" | "rate_limited" | "unauthorized" | "upstream_error" | "upstream_timeout"`; `export type Operation = "reports.create" | "reports.section" | "reports.llm"`; `export type Attributes = { "operation.outcome"?: "ok" | "error"; "error.type"?: ErrorType; "report.section"?: "overview" | "products" | "market" | "financials" | "outlook"; "server.address"?: "api.example-llm.com" }`; `export interface Recorder { histogram(name: string, seconds: number, attrs: Attributes): void; counter(name: string, attrs: Attributes): void }`; `export function createMemoryRecorder(): Recorder & { histograms: Array<{ name: string; seconds: number; attrs: Attributes }>; counters: Array<{ name: string; attrs: Attributes }> }`; `export function setRecorder(r: Recorder): void`; `export function recordOutcome(op: Operation, seconds: number, outcome: { ok: true } | { ok: false; errorType: ErrorType }, attrs?: Attributes): void`; `export async function instrument<T>(op: Operation, fn: () => Promise<T>, classify: (e: unknown) => ErrorType, attrs?: Attributes): Promise<T>`; `export function toErrorType(value: string): ErrorType` (unlisted → `_OTHER`)
+  - **Call-site edits:** `src/llm.ts` — `generateSection` and `suggestTitle` record via `instrument("reports.llm", …)` with `server.address`
+- **Acceptance criteria:** `bun test src/metrics.test.ts src/llm.test.ts && test -f .flow/metrics.md && grep -q 'upstream_timeout' .flow/metrics.md` — success emits one `operation.outcome=ok` observation and no failure; each `LlmError` kind emits one `error` observation plus one failure with the mapped `error.type`; an unlisted value maps to `_OTHER`
+
+### Task 3: Report store interface and in-memory adapter
+
+- **Skill:** `flow-system-design`
+- **Description:** Rewrite `src/db.ts` into the report model, an async `ReportStore` interface, the status-derivation rule, and an in-memory adapter (the existing map logic) used by tests and local runs. Include the daily spend-ledger operation in the interface so the ledger and reports share one store. `getStore()` picks the adapter from `REPORTS_STORE` (`memory` default; `firestore` loads Task 4's adapter).
+- **Inputs:** src/db.ts
+- **Outputs:** the store contract every later task codes against
+- **Contract:**
+  - **Files:** edit `src/db.ts`; create `src/db.test.ts`
+  - **Interfaces:** `export const SECTIONS = [{ name: "overview", label: "Company overview" }, { name: "products", label: "Products and services" }, { name: "market", label: "Market and competition" }, { name: "financials", label: "Financial performance" }, { name: "outlook", label: "Risks and outlook" }] as const`; `export type SectionName = (typeof SECTIONS)[number]["name"]`; `export type SectionStatus = "queued" | "running" | "done" | "failed"`; `export type ReportSection = { name: SectionName; status: SectionStatus; text: string | null; error: ErrorType | null; leaseUntil: string | null }`; `export type ReportStatus = "queued" | "running" | "partial" | "failed" | "done"`; `export type Report = { id: string; company: string; status: ReportStatus; sections: ReportSection[]; title: string | null; shared: boolean; createdAt: string; idempotencyKey: string | null }`; `export function deriveStatus(sections: ReportSection[]): ReportStatus`; `export type ClaimResult = "claimed" | "done" | "busy" | "missing"`; `export interface ReportStore { getReport(id: string): Promise<Report | undefined>; saveReport(report: Report): Promise<void>; createReport(report: Report): Promise<{ created: true } | { created: false; existing: Report }>; claimSection(id: string, section: SectionName, now: Date, leaseMs: number): Promise<ClaimResult>; finishSection(id: string, section: SectionName, result: { text: string } | { error: ErrorType }): Promise<Report>; releaseSection(id: string, section: SectionName): Promise<void>; reserveCalls(day: string, n: number, cap: number): Promise<boolean> }`; `export function createMemoryStore(): ReportStore`; `export function getStore(): ReportStore`
+  - **Call-site edits:** `src/app.ts` — the existing lookup and share handlers `await` `getStore().getReport` / `saveReport`
+- **Acceptance criteria:** `bun test src/db.test.ts` — status derivation (all queued → `queued`; some done → `running`; all done → `done`; done+failed → `partial`; all failed → `failed`), claim returns `done` for a finished section and `busy` inside an unexpired lease, `createReport` returns `existing` on a duplicate id, and `reserveCalls` refuses once `count + n > cap` (and always at cap 0) all pass
+
+### Task 4: Firestore store adapter
+
+- **Skill:** `flow-system-design`
+- **Description:** Implement `ReportStore` on Firestore: one document per report in `reports/{id}`, `createReport` via `doc.create()` (ALREADY_EXISTS → `existing`), claim/finish/release inside `runTransaction` with the status re-derived in the same transaction, and the ledger as `spend/{yyyy-mm-dd}` incremented in a transaction only when `count + n <= cap`. Client built with `preferRest: true`. Every call carries a 2 s timeout.
+- **Inputs:** Task 3's `ReportStore` in src/db.ts; new: src/db-firestore.ts
+- **Outputs:** the production store
+- **Contract:**
+  - **Files:** create `src/db-firestore.ts`; edit `package.json` (add `@google-cloud/firestore`)
+  - **Interfaces:** `export function createFirestoreStore(opts?: { projectId?: string; databaseId?: string }): ReportStore`
+  - **Call-site edits:** `src/db.ts` `getStore()` — `REPORTS_STORE=firestore` returns `createFirestoreStore()`
+- **Acceptance criteria:** `bun install && bun build src/db-firestore.ts --target=bun --outdir /tmp/reports-build-db && bun test src/db.test.ts` — the adapter bundles under Bun with its dependency resolved and the store contract tests still pass
+
+### Task 5: Section queue
+
+- **Skill:** `flow-system-design`
+- **Description:** A queue interface with a Cloud Tasks adapter and an in-memory adapter. The Cloud Tasks adapter creates one HTTP task per section named `<reportId>-<section>`, `dispatchDeadline` 180 s, an OIDC token for the queue's service account with the worker URL as audience, and a versioned JSON payload; ALREADY_EXISTS is treated as success. Client built with `fallback: true`; each enqueue call has a 2 s timeout.
+- **Inputs:** Task 3's `SectionName`; new: src/queue.ts
+- **Outputs:** `enqueue()` for the POST handler
+- **Contract:**
+  - **Files:** create `src/queue.ts`, `src/queue.test.ts`; edit `package.json` (add `@google-cloud/tasks`)
+  - **Interfaces:** `export type SectionTask = { version: 1; reportId: string; section: SectionName }`; `export interface SectionQueue { enqueue(task: SectionTask): Promise<void> }`; `export const DISPATCH_DEADLINE_SECONDS = 180`; `export function taskName(task: SectionTask): string`; `export function createMemoryQueue(): SectionQueue & { tasks: SectionTask[] }`; `export function createCloudTasksQueue(cfg: { project: string; location: string; queue: string; workerUrl: string; serviceAccountEmail: string }): SectionQueue`; `export function getQueue(): SectionQueue` (`REPORTS_QUEUE=cloudtasks|memory`)
+  - **Call-site edits:** none yet (first consumer is Task 7)
+- **Acceptance criteria:** `bun test src/queue.test.ts && bun build src/queue.ts --target=bun --outdir /tmp/reports-build-queue && grep -q 'DISPATCH_DEADLINE_SECONDS = 180' src/queue.ts` — task names are `<reportId>-<section>`, payloads carry `version: 1`, the memory queue records tasks, and the module bundles under Bun
+
+### Task 6: Section worker and spend choke point
+
+- **Skill:** `flow-system-design`
+- **Description:** The worker logic for one task: claim the section (150 s lease); `done` → no-op 200; `busy` → 503; on a retry attempt (`retryCount > 0`) reserve 1 call through the spend choke point, and if refused mark the section failed `rate_limited` (200); call the model with the section label; on success finish with text (200); on a transient error release the section and answer 503, unless this is the final attempt (`retryCount >= maxAttempts - 1`), in which case finish with the mapped error (200); on a permanent error finish with the mapped error (200). Record `reports.section.*` with `report.section` on failures. `src/spend.ts` is the single choke point for all model-call reservations.
+- **Inputs:** Tasks 1, 2, 3 (src/llm.ts, src/metrics.ts, src/db.ts); new: src/spend.ts, src/worker.ts
+- **Outputs:** `runSectionTask()` for the worker route
+- **Contract:**
+  - **Files:** create `src/spend.ts`, `src/worker.ts`, `src/worker.test.ts`
+  - **Interfaces:** `export function dailyCallCap(env?: Record<string, string | undefined>): number` (reads `REPORTS_DAILY_CALL_CAP`, default 500, invalid → 0); `export async function reserveModelCalls(store: ReportStore, n: number, now: Date, cap: number): Promise<boolean>`; `export function secondsUntilUtcMidnight(now: Date): number`; `export const SECTION_LEASE_MS = 150_000`; `export type WorkerDeps = { store: ReportStore; generate: (company: string, label: string) => Promise<string>; now: () => Date; cap: number; maxAttempts: number }`; `export async function runSectionTask(task: SectionTask, retryCount: number, deps: WorkerDeps): Promise<{ status: 200 | 503; outcome: "done" | "skipped" | "failed" | "retry" }>`
+  - **Call-site edits:** none yet (first consumer is Task 7)
+- **Acceptance criteria:** `bun test src/worker.test.ts` — re-delivery of a `done` section makes zero model calls; a transient error on attempt 1 of 3 answers 503 and leaves the section `queued`; the same error on the final attempt answers 200 and marks it `failed` with `upstream_error`/`upstream_timeout`; a 4xx marks it `failed` immediately; a refused retry reservation marks it `failed` with `rate_limited` and makes no model call; four done plus one failed derives `partial`; and the in-memory recorder shows one `reports.section.duration` observation per run with the matching `operation.outcome`
+
+### Task 7: HTTP handlers
+
+- **Skill:** `flow-system-design`
+- **Description:** Turn `handle` into a dependency-injected handler. `POST /reports` (role `api`): check `x-api-key` against `REPORTS_API_KEY` in constant time (401); parse JSON, trim `company`, require 1–200 chars (400); with an `Idempotency-Key`, derive the id as the first 32 hex chars of SHA-256 of the key and, on an existing report, return it as 202 (422 if the company differs) after re-enqueueing any still-`queued` sections — never reserving again; otherwise random UUID; reserve 5 calls (429 + `Retry-After` until UTC midnight if refused); create the report with five `queued` sections; enqueue five tasks (on enqueue failure mark the unenqueued sections `failed` `internal` and answer 503); answer 202 with `Location` and the public report. `POST /internal/reports/{id}/sections/{name}` (role `worker` only, 404 otherwise): read `X-CloudTasks-TaskRetryCount`, call `runSectionTask`. `GET /reports/{id}` returns the public report (no `idempotencyKey` or `leaseUntil`). Record `reports.create.*`.
+- **Inputs:** Tasks 2–6
+- **Outputs:** the user-facing endpoint and the worker route
+- **Contract:**
+  - **Files:** edit `src/app.ts`; create `src/app.test.ts`
+  - **Interfaces:** `export type AppDeps = { store: ReportStore; queue: SectionQueue; now: () => Date; env: Record<string, string | undefined>; generate: (company: string, label: string) => Promise<string> }`; `export function createHandler(deps: AppDeps): (req: Request) => Promise<Response>`; `export const handle: (req: Request) => Promise<Response>` (built from `getStore()`, `getQueue()`, `process.env`, `generateSection`); `export function toPublicReport(r: Report): Omit<Report, "idempotencyKey" | "sections"> & { sections: Array<Pick<ReportSection, "name" | "status" | "text" | "error">> }`; env keys `REPORTS_ROLE` (`api` | `worker`), `REPORTS_API_KEY`, `REPORTS_DAILY_CALL_CAP`, `REPORTS_SECTION_MAX_ATTEMPTS` (default 3)
+  - **Call-site edits:** `src/app.ts` `Bun.serve` — `fetch: handle` unchanged in shape; existing GET and share routes go through the injected store
+- **Acceptance criteria:** `bun test src/app.test.ts` — 202 with `Location` and five memory-queue tasks; 400 for empty and 201-char company with zero tasks and zero reserved calls; 401 without the key; same `Idempotency-Key` twice → same id and one reservation, different company → 422; cap reached → 429 with `Retry-After`; worker route → 404 in the `api` role and runs the task in the `worker` role; GET omits internal fields; the in-memory recorder shows `reports.create.failures` with `invalid_input`, `unauthorized` and `rate_limited` on those paths
+
+### Task 8: Infra setup, deploy and rollback
+
+- **Skill:** `flow-system-design`
+- **Description:** A rerunnable infra script and a two-service deploy with a rollback command. All `gcloud` flags should be re-checked against current docs when the script is first run.
+- **Inputs:** Task 7; deploy.sh; new: infra/setup.sh
+- **Outputs:** a reproducible environment, recovery settings verified, a rollback path
+- **Contract:** _(config / infra change type — exact file + key + before → after)_
+  - **Files:** create `infra/setup.sh`; edit `deploy.sh`
+  - **Interfaces:** `infra/setup.sh` (parameterized `PROJECT=${PROJECT:?}`, `REGION=${REGION:-us-central1}`) runs: `gcloud firestore databases create --location=$REGION` (skip if present); `gcloud firestore databases update --database='(default)' --enable-pitr`; `gcloud firestore backups schedules create --database='(default)' --recurrence=daily --retention=7d` (skip if present); `gcloud tasks queues create report-sections --location=$REGION --max-attempts=3 --min-backoff=10s --max-backoff=60s --max-concurrent-dispatches=10 --max-dispatches-per-second=1` (`update` if present); create service accounts `reports-api` and `reports-tasks`; grant `reports-api` `roles/datastore.user`, `roles/cloudtasks.enqueuer` and `roles/iam.serviceAccountUser` on `reports-tasks`; grant `reports-tasks` `roles/run.invoker` on `reports-worker`; `gcloud secrets create reports-api-key` (the user adds the value); ends with a verify step that fails unless `gcloud firestore databases describe` reports PITR enabled and `gcloud firestore backups schedules list` is non-empty. `deploy.sh` before: one `gcloud run deploy reports-service --source . --region us-central1 --allow-unauthenticated`. After: `reports-worker` deployed `--no-allow-unauthenticated --timeout=200 --max-instances=2 --concurrency=10 --set-env-vars REPORTS_ROLE=worker,REPORTS_STORE=firestore,REPORTS_DAILY_CALL_CAP=500,REPORTS_SECTION_MAX_ATTEMPTS=3`; then `reports-service` deployed `--allow-unauthenticated --max-instances=3 --set-env-vars REPORTS_ROLE=api,REPORTS_STORE=firestore,REPORTS_QUEUE=cloudtasks,REPORTS_TASKS_QUEUE=report-sections,REPORTS_TASKS_LOCATION=us-central1,REPORTS_WORKER_URL=<worker url read from gcloud run services describe>,REPORTS_TASKS_SA=reports-tasks@$PROJECT.iam.gserviceaccount.com,REPORTS_DAILY_CALL_CAP=500 --set-secrets REPORTS_API_KEY=reports-api-key:latest`; `deploy.sh rollback` runs `gcloud run services update-traffic <service> --region us-central1 --to-revisions=<previous revision>=100` for both services, the previous revision read from `gcloud run revisions list --limit=2`
+  - **Call-site edits:** none
+- **Acceptance criteria:** `bash -n infra/setup.sh && bash -n deploy.sh && grep -q -- '--max-attempts=3' infra/setup.sh && grep -q -- '--enable-pitr' infra/setup.sh && grep -q 'backups schedules create' infra/setup.sh && grep -q -- '--no-allow-unauthenticated' deploy.sh && grep -q 'update-traffic' deploy.sh && grep -q 'REPORTS_DAILY_CALL_CAP' deploy.sh` — scripts parse and carry the queue retry cap, recovery settings, private worker and rollback command
+
+| Task | Depends on |
+| ---- | ---------- |
+| 1 | — |
+| 2 | 1 |
+| 3 | 2 |
+| 4 | 3 |
+| 5 | 3 |
+| 6 | 1, 2, 3 |
+| 7 | 3, 4, 5, 6 |
+| 8 | 7 |
+
+### Skills Summary
+
+| Skill | Recommended? | Reason |
+| ----- | ------------ | ------ |
+| `flow-system-design` | Yes (Tasks 1, 3–8) | New paid fan-out: execution model, timeouts, single retry layer, idempotency, spend cap, GCP queue and recovery settings |
+| `flow-metrics` | Yes (Task 2) | First instrumented change: creates the helper and `.flow/metrics.md` |
+| `flow-testing` | No (folded into each task) | Each task ships its own `bun test` file as its acceptance check |
+| `flow-refactoring` | No | The store rewrite is a prerequisite of the feature, not a behaviour-preserving refactor |
+| `flow-ui-ux` | No | No UI surface; the caller is an API client |
+
+# PR description draft
+
+## TLDR
+
+Callers can now request a five-section company report and get its id within a second; before, no report could be created, and now sections generate in the background under a daily spend cap.
+
+## User-facing changes
+
+- New endpoint: sending a company name to the report-request endpoint with the service API key returns "accepted", a report id and a status link within a second.
+- The existing report lookup now shows progress: each of the five sections (company overview, products and services, market and competition, financial performance, risks and outlook) moves from queued to done, and a finished report typically arrives in 1–3 minutes.
+- Re-sending a request with the same idempotency key returns the same report instead of creating and paying for a second one; the same key with a different company is rejected.
+- When the day's model-call budget is used up, a new request gets "try again later" with the number of seconds to wait, and nothing is charged.
+- A section that still fails after 3 attempts is shown as failed with its failure class, while the other sections stay readable and the report is marked partial.
+- A report's sections now come back as records with a name, status and text each:
+  - **Before:** a report's sections were a plain list of text (no report could actually be created).
+  - **After:** each section carries its own status, so a caller can show progress and partial results.
+
+## System changes
+
+- Reports now survive restarts and are visible from every instance:
+  - **Before:** reports lived in one process's memory and disappeared on restart or deploy.
+  - **After:** reports live in Firestore with point-in-time recovery and a daily backup kept 7 days.
+- Paid generation moved off the caller's request onto a queue:
+  - **Before:** one public service, no queue, no model calls made.
+  - **After:** the public service accepts requests and enqueues one task per section; a private worker service, reachable only by the queue, makes one model call per task with a 90-second timeout and at most 3 attempts.
+- Model spend has a ceiling:
+  - **Before:** nothing bounded model calls, on a service anyone can call.
+  - **After:** every model call is counted against one daily cap (500 calls by default, about 100 reports); setting it to 0 stops all new paid work.
+- Ongoing cost: each report costs 5 paid model calls, up to 15 if every section needs all 3 attempts, plus small Firestore and Cloud Tasks usage and a second (scale-to-zero) Cloud Run service.
+
+## Why
+
+The service exists to produce company reports, but no report could ever be created, so every lookup answered "not found". Each report needs five paid model calls of 20–60 seconds each, so a caller cannot be asked to wait for them, paid work must not be lost when a connection drops or the service restarts, and an open service must not be able to run up an unbounded model bill.
+
+## Key decisions
+
+- **One queued task per section, answered with "accepted" and a status link,** instead of making the five calls inside the request: the caller waits under a second instead of up to a minute, and a dropped connection, deploy or restart never discards or re-pays finished sections. Generating in the background on the same instance was rejected because Cloud Run throttles work after the response and an in-memory store loses it on scale-in.
+- **Firestore as the durable store** instead of Cloud SQL: no always-on database instance to pay for, and one document per report fits the record's shape.
+- **A private worker service** (same image, second deployment) instead of verifying queue tokens in code: the platform's access control keeps paid work off the public surface with no extra dependency.
+- **An API key on the new endpoint only:** it is the only endpoint that spends money; report lookup and sharing stay as they are (report ownership is tracked as a follow-up).
+- **Partial reports are shown,** not discarded: one failed section never hides four finished, paid ones.
+- **No report title:** the request scoped the model calls to the five sections; a title would be a sixth call per report.
+- **Two new runtime dependencies** (Google's Firestore and Cloud Tasks clients, on their REST transports for Bun), stated per the repo's dependency rule.
+- Bundled: the model client's missing timeout and unchecked HTTP status, fixed before retries were built on it.
+
+## Instrumentation
+
+This PR creates the repo's metrics contract. Metrics are recorded in memory for now; graphs need a metrics backend choice first (suggested: Google Cloud Monitoring via OTLP, about $0.30 a month per instance at a 60-second export interval). Status lives in the metrics contract's Backend section.
+
+- Metrics: report-request latency and failures by class; section-generation latency and failures by class and section; model-call latency and failures. Report lookup and queue depth come from the platform's own metrics.
+- Dashboard: "Reports overview" (spec-only, no URL yet) — request rate and failures, section latency percentiles, section failures by section, model calls per day against the cap, queue depth.
+- Alerts: notify when the section queue holds more than 50 tasks for 15 minutes, and when model calls reach 80% of the daily cap; plus burn-rate tiers.
+- SLO: new journey "generate a company report" — 99% of accepted reports finish within 5 minutes over 30 days.
+
+## Test Steps
+
+<!-- flow:authoring-rubric — for each checkbox item below, the three-question
+automation test from manual-test-rubric.md is: (a) named fixture/setup,
+(b) deterministic assertion(s), (c) exit condition. If all three are answerable
+without subjective human judgment, it must be a runnable item. Source of truth:
+skills/pipeline/flow-pr-review/references/manual-test-rubric.md. -->
+
+- [ ] Run `bun test src/llm.test.ts` — timeout, throttling, server-error, client-error and malformed-response cases are classified correctly.
+- [ ] Run `bun test src/metrics.test.ts` — success and failure emissions carry the right outcome and failure class, and unlisted values fall back to `_OTHER`.
+- [ ] Run `bun test src/db.test.ts` — report status is derived correctly for queued, running, done, partial and failed reports, and the daily cap refuses reservations past the limit.
+- [ ] Run `bun test src/queue.test.ts` — task names are `<reportId>-<section>` and payloads carry `version: 1`.
+- [ ] Run `bun test src/worker.test.ts` — a re-delivered finished section makes no model call, transient failures retry, final-attempt and permanent failures mark the section failed, and a refused retry budget makes no call.
+- [ ] Run `bun test src/app.test.ts` — the request endpoint answers 202 with five tasks, 400/401/422/429 on the rejection paths, and the worker route answers 404 on the public role.
+- [ ] Run `bun install && bun build src/app.ts --target=bun --outdir /tmp/reports-build` — the service, including both Google client libraries, bundles under Bun.
+- [ ] Run `bash -n infra/setup.sh && bash -n deploy.sh` — both scripts parse.
+- [ ] Run `grep -q -- '--max-attempts=3' infra/setup.sh && grep -q -- '--enable-pitr' infra/setup.sh && grep -q 'backups schedules create' infra/setup.sh` — the queue retry cap and database recovery settings are in the setup script.
+- [ ] Run `grep -q -- '--no-allow-unauthenticated' deploy.sh && grep -q 'update-traffic' deploy.sh` — the worker is private and a rollback command exists.
+- [ ] DECISION: you accept a default daily cap of 500 model calls (about 100 reports a day) before the first deploy, or name a different number.

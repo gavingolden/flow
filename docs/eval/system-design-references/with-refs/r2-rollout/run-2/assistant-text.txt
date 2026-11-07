@@ -1,0 +1,24 @@
+## Plan written: the change is split into two releases
+
+I wrote the plan and the PR description draft and stopped there. No code was changed and no later pipeline step was started. Both files are in `.flow-tmp/` and are not empty.
+
+- **Problem:** The section-writing job finds its section by display name, but names don't have to be unique within a report. So one job can overwrite another section's text. Renaming the column and changing the task in a single release would break either the live service or jobs already in the queue. Each broken job either loses a section or pays for a model call that's wasted.
+- **Plan: 6 tasks, in order:**
+  1. Add the `content` column.
+  2. Update the database code.
+  3. Add metrics.
+  4. Add a timeout to the model call.
+  5. Change the worker.
+  6. Change the code that queues the task.
+- **Follow-ups (3, filed as separate issues later):**
+  - The worker endpoint doesn't check who is calling it, so anyone can trigger paid model calls.
+  - The second release: drop the old `body` column and stop accepting tasks that carry a section name.
+  - Skip the model call when the same task is delivered twice.
+- **Decisions to check:**
+  - **Two releases (medium confidence):** This PR adds `content` alongside `body` and writes to both. The worker accepts both the old and new task shapes. `body` is dropped in a later release, once a new counter shows no old-shape tasks are left in the queue.
+  - **API key stays `body` (medium confidence):** The report response keeps returning `body`, because renaming it would break clients outside this repo.
+  - **Something outside this repo queues these tasks (high confidence):** Nothing in this repo calls the code that queues them. That's why the worker has to keep accepting the old task shape.
+- **Web research:** skipped, because the change only needed the code in this repo.
+- **Verdict:** go ahead, with two conditions. No single release both changes the column and stops using `body`. The worker keeps accepting name-carrying tasks until the counter of old-shape tasks reads 0 for as long as the queue keeps tasks.
+
+**Next action:** Read `.flow-tmp/plan.md`, especially the two-release approach, which is more than you asked for. If you'd rather do the full rename in one PR, say so and I'll revise the plan. Otherwise, implementation can start from the plan with `/flow-new-feature`.

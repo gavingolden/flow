@@ -1,0 +1,20 @@
+## The plan is written, and it changes how `POST /reports` works
+
+Both files are in place: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. No source files were changed and no later phase was started.
+
+The plan changes your request in one important way. `POST /reports` won't return the finished report. It answers `202` right away with a link to check status, and a queued worker makes the five model calls, one task per section. The reason is time: each model call takes 20–60 seconds, and API Gateway cuts requests off at 29 seconds. Generating the report inside the request would time out after the calls had already been paid for. A handler test will check that the endpoint itself makes no model calls.
+
+- **Size:** 10 tasks. Three of them fix existing problems that would otherwise block this work:
+  - The compiler, test runner and tsconfig that `npm test` and `npm run build` call aren't installed.
+  - The existing function that reads reports is deployed without its table name or permission to read the table, so checking a report's status would fail.
+  - The read handler's import has no file extension, so it fails when loaded as an ES module.
+- **Two things need your answer:**
+  - **Which five sections a report has.** The plan uses placeholder titles kept in one constant.
+  - **The daily limit on model calls.** The plan defaults to 500 calls, about 100 reports.
+- **Follow-up issues:** 2 proposed.
+  - **Caller authentication:** marked to file after merge, because right now anyone can start a paid report without logging in.
+  - **Running the database tests against a local DynamoDB:** not marked for filing.
+- **Research:** the web research step was skipped because the question didn't need it. `flow feature create --research` forces it on.
+- **Vetting verdict:** adopt-with-conditions. The endpoint must reply in under a second and make no model call itself, and the five section calls run in the queued worker.
+
+**Next action:** answer the two questions above, then run `/flow-new-feature add a POST /reports endpoint that generates a company report by calling the model API once for each of five sections` to implement it.

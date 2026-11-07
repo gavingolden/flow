@@ -1,0 +1,17 @@
+## Plan written, with a recommendation to defer
+
+Both files are written and non-empty: `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md`. I stopped there and implemented nothing.
+
+- **Verdict: push back.** As the code stands, a nightly refresh would have nothing to work on. Saved reports are only kept in the server's memory, so every deploy, restart or idle shutdown wipes them. Nothing in the code saves a report in the first place. Reports need to be stored durably first.
+- **The plan has 4 tasks, meant to start once storage is fixed:**
+  1. A metrics helper.
+  2. Fixes to the model client in `src/llm.ts`. Today it has no timeout, and a failed call leaves the section blank.
+  3. The refresh itself. A report is only saved if every section regenerates, and edits made during the run (like sharing) are kept.
+  4. A Cloud Run Job started nightly by Cloud Scheduler, with a cap on model calls per run and no retries.
+- **One follow-up is ticked as the blocker:** store reports durably (Firestore, Cloud SQL or Cloud Storage, which still needs choosing) and add a way to save them.
+- **I couldn't settle two questions from the repo:**
+  - **Q1:** Does re-running generation produce newer facts, or just new wording? The prompt only contains the company and section name. If it's just new wording, I'd recommend dropping the feature, because the nightly model spend would only change the text.
+  - **Q2:** What should the nightly cap on paid model calls be? The repo doesn't record the per-call price, so I couldn't pick a number.
+- **Web research was skipped** because this isn't a question research would answer.
+
+**Next action:** Answer Q1 first, since it decides whether this feature is worth building. If it is, start with the durable-storage follow-up, then run `/flow-new-feature refresh every saved report nightly` against this plan.

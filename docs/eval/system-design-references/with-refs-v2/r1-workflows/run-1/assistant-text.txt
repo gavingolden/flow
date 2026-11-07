@@ -1,0 +1,30 @@
+## Plan ready: due-diligence report
+
+I wrote both files and implemented nothing. No source files changed.
+
+- **What the plan addresses:** the service can't create reports yet. A six-section report means six paid model calls of about 20–60 seconds each, and the executive summary has to wait for the other five. Running them inside one request would make the caller wait up to about two minutes, and a disconnect or restart would throw away work already paid for. Reports are also kept only in one server's memory, so a restart loses them.
+- **Approach:** each section runs as its own queued task, and finished sections are saved to a database that survives restarts. When all five content sections are done, the executive summary call runs with their finished text as its input. A daily cap limits how many model calls can be made.
+- **Tasks (8, in order):**
+  1. A metrics helper.
+  2. A sturdier model client (it currently has no timeout or error checks), plus the summary call.
+  3. The report data shape and a daily spend counter.
+  4. Storing reports in Firestore.
+  5. A Cloud Tasks queue client.
+  6. A section worker that starts the summary once all five sections finish.
+  7. The HTTP routes.
+  8. Deploy-script changes that add a private worker service and the queue.
+- **Two follow-up issues:**
+  - Recommended: write sections from real source material. Right now every section would be written from the company name alone, which is the plan's biggest risk.
+  - Optional: decide who may read and share reports.
+- **Decisions that need you:**
+  - **Which five content sections to include.** The plan uses Overview, Financials, Market, Management and Risks unless you choose otherwise.
+  - **The daily cap on model calls.** The plan uses 300, which is 50 reports.
+  - The plan also assumes one shared service key protects the "start a report" action, because the service is publicly deployed and each report costs six paid calls. I'm moderately confident in that choice.
+- **Research:** web research was skipped as not needed here. You can force it with `flow feature create --research`.
+- **Verdict:** go ahead, on three conditions: each section runs as a queued task rather than inside the caller's request, finished sections are saved durably, and a daily model-call cap is in place.
+
+Files are in `.flow-tmp/`:
+- `plan.md`
+- `pr-description-draft.md`
+
+**Next action:** answer the section-list and daily-cap questions in `plan.md`, then run `/flow-new-feature add a due-diligence report for a company with six sections, each written by a model call; the executive summary section is written from the other five sections` when you want to build it.

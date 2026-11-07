@@ -10,6 +10,7 @@
 
 import * as path from "node:path";
 import { EFFORT_LEVELS, type EffortLevel } from "./state";
+import { normalizeEffort } from "./transcript-turns";
 
 export const MIN_SUBAGENT_EFFORT_VERSION = "2.1.292";
 
@@ -64,4 +65,16 @@ export function readSessionEffort(
   state: { effort?: unknown } | null | undefined,
 ): EffortLevel | "" {
   return asEffortLevel(env.CLAUDE_EFFORT) || asEffortLevel(state?.effort);
+}
+
+/**
+ * The emitting agent's live effort, for telemetry: `CLAUDE_EFFORT` verbatim
+ * when it is a non-empty string of at most 16 characters, else null. Unlike
+ * `readSessionEffort` (which feeds the spawn ceiling) it does NOT validate
+ * against `EFFORT_LEVELS` — a level a newer Claude Code adds is recorded
+ * as-is — and never falls back to `state.effort`, which is what flow passed
+ * at launch, not what ran.
+ */
+export function readLiveEffort(env: NodeJS.ProcessEnv): string | null {
+  return normalizeEffort(env.CLAUDE_EFFORT);
 }

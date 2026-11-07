@@ -445,22 +445,32 @@ carrying flow's agy prompt preamble, past their own time limit): stopped
 with SIGTERM, then SIGKILL after a 5s grace, with the process's start time
 re-checked before each signal.
 
+A "Leftover processes in pipeline worktrees" section lists, per pipeline,
+unrecorded orphans (parent gone, no terminal, launching shell exited)
+whose working directory is inside that pipeline's worktree. --yes
+--include-strays stops them (SIGTERM, then SIGKILL after a 5s grace) only
+for a pipeline whose session has ended; a live pipeline's leftovers are
+listed as "left to the live pipeline". --slug scopes this section. Busy
+orphans outside every worktree are listed, never signalled.
+
 The report opens with a Summary: line (no leaked processes recorded, or
 what needs attention). Pipelines with no recorded processes are hidden
 behind one count line, and --yes removes their empty registries; --json
 lists every pipeline.
 
 Options:
-  --slug <s>            scope the REGISTRY half of the sweep to one
-                        pipeline slug (default: every registered slug on
-                        the host) — --include-strays stays HOST-WIDE
-                        regardless of --slug; the shape-heuristic stray
-                        sweep has no per-slug identity to scope by
+  --slug <s>            scope the registry sweep and the worktree-leftover
+                        section to one pipeline slug (default: every
+                        registered slug on the host); the outside-every-
+                        worktree list is hidden; shape-heuristic and agy
+                        strays stay HOST-WIDE (no per-slug identity)
   --yes                 act on registered rows instead of only reporting
-  --include-strays      also act on shape-heuristic strays (requires --yes
-                        to actually signal anything; report-only alone;
-                        always host-wide, never scoped by --slug)
-  --json                emit machine-readable output ({registry, heuristic, agy})
+  --include-strays      also act on shape-heuristic strays and agy runs
+                        (host-wide, never scoped by --slug) and on ended
+                        pipelines' worktree leftovers (requires --yes to
+                        actually signal anything; report-only alone)
+  --json                emit machine-readable output ({registry, heuristic, agy,
+                        worktreeOrphans, outsideOrphans})
 
 Never passes --record and never writes to ~/.flow/state/<slug>.json — a
 host-wide sweep touches OTHER pipelines' slugs, and recording into a

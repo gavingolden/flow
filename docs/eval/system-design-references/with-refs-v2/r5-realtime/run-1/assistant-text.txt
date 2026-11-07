@@ -1,0 +1,24 @@
+## Planning complete: live section-by-section report view
+
+The plan is written to `.flow-tmp/plan.md` and the PR description draft to `.flow-tmp/pr-description-draft.md`. I didn't change any source files, and the git tree is still clean.
+
+- **Problem:** Users have to refresh by hand to see new sections. A blank section could be still in progress, failed, or never coming, and there's no way to tell which. The report's status also never moves past "queued", so a page that polls for updates would never know when to stop.
+- **Tasks:** 9:
+  - a schema migration
+  - queries to track each section's status
+  - a 90-second timeout on the model call
+  - a metrics helper and its contract
+  - a rewritten worker
+  - queue settings
+  - a longer report-read response
+  - unit tests and a database integration test
+- **Candidates:** 1 follow-up issue, marked to be filed. Anyone can reach the worker endpoint, so anyone can trigger paid model calls. It needs a separate decision: move the worker to a private service, or check the queue's token inside the handler.
+- **Top assumptions:**
+  - **The report page isn't in this repo** (high confidence). This service only returns JSON, so the plan covers the server side only. Users won't see a difference until the page's polling loop is updated wherever the page lives. This is the plan's biggest risk.
+  - **"Live" means the page checks for updates every 3 seconds, not a push stream** (medium confidence). Each section takes 20–60 seconds and arrives in one piece. A push stream would save at most about 3 seconds per section, and it would hold a billed server request open for every tab watching.
+- **Research:** The web research step was skipped because the request isn't a research question. You can force it with `flow feature create --research`.
+- **Vetting verdict:** adopt-with-conditions. Deliver "live" by polling the report read, not with a push stream, on two conditions: a newly written section shows up within one poll, and every report ends in a final status (complete, partial, or failed) so polling stops.
+
+The plan recommends you **reconsider scope**, for the two reasons above: it uses polling instead of a push stream, and it leaves out the page itself. Its built-in checks on the plan, the follow-up issue and the test steps all passed. The planning agent couldn't fetch the Cloud Run or Cloud Tasks docs because web access was denied, so the plan relies on its local reference notes for those. Because it couldn't confirm that Cloud Tasks sends a retry-count header, it counts attempts in the database instead.
+
+**Next action:** Check the two top assumptions in `.flow-tmp/plan.md`, especially where the report page lives. If they hold, run `/flow-new-feature users want to watch their report being written live, section by section, instead of refreshing the page`. I've stopped here as you asked.

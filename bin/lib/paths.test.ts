@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   AGENT_MEMORY_DIRNAME,
   AGENT_MEMORY_RELPATH,
+  flowRunAttributionLogPath,
   flowTelemetryLogPath,
   repoCacheKey,
 } from "./paths";
@@ -119,6 +120,20 @@ describe("flowTelemetryLogPath", () => {
   it("defaults to os.homedir() when no homeDir is passed", () => {
     expect(flowTelemetryLogPath()).toBe(
       path.join(os.homedir(), ".flow", "telemetry", "events.jsonl"),
+    );
+  });
+});
+
+describe("flowRunAttributionLogPath", () => {
+  it("resolves under the passed homeDir", () => {
+    expect(flowRunAttributionLogPath("/tmp/h")).toBe(
+      path.join("/tmp/h", ".flow", "telemetry", "run-attribution.jsonl"),
+    );
+  });
+
+  it("defaults to os.homedir() when no homeDir is passed", () => {
+    expect(flowRunAttributionLogPath()).toBe(
+      path.join(os.homedir(), ".flow", "telemetry", "run-attribution.jsonl"),
     );
   });
 });

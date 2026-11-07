@@ -253,6 +253,24 @@ Estimated series: [n] per operation[; samples/month: [m] — per-sample backend 
 
 -->
 
+### Runtime design
+
+<!-- One row per runtime operation this plan adds or changes (handler, job,
+     queue consumer, outbound call, worker pool). An inline row may compress to
+     `inline — <p99>, timeout <n>`. A cell that reuses a repo primitive names
+     it in plain words, or `new`; the touching task lists its repo-relative path
+     under **Inputs:**. A plan with no runtime surface writes a single
+     `none — <reason>` line instead. See references/discovery-runtime-design.md. -->
+
+| Operation   | Est. p99 | Execution model                            | Timeout / deadline | Retries               | Idempotency key         | Cost bound           |
+| ----------- | -------- | ------------------------------------------ | ------------------ | --------------------- | ----------------------- | -------------------- |
+| [operation] | [~n s]   | [inline / queue / scheduler-enqueue / job] | [n s]              | [layer, cap, backoff] | [business-identity key] | [spend ledger / cap] |
+
+**Platform:** [gcp | cloudflare | aws | other]
+
+**Proportionality:** [what was deliberately left out, e.g. no queue for a 50 ms call]
+**Recovery:** [how stored data comes back if lost — backups/PITR or versioning plus a restore check — or none — <why it is regenerable or already covered>; required when a task adds or changes a table, migration or bucket]
+
 ## Technical Constraints
 
 <!-- Every bullet binding and source-traceable (a named file, rule, or research

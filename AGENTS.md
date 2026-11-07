@@ -68,8 +68,7 @@ length to task, fenced blocks only for runnable code, etc.).
 
 The supervisor is one Claude Code chat session; sub-skills load in-process
 via `Skill`; `bin/` scripts are Bash calls. It never spawns `Task`/`Agent`
-and never invokes a raw `claude -p` subprocess (headless Claude only via
-`flow-claude-headless`), **with eight narrowly-named exceptions** —
+and never invokes a raw `claude -p` subprocess, **with eight narrowly-named exceptions** —
 the named bullets in
 `.claude/rules/flow-supervisor-contracts.md` `## Don'ts`. Logic needing a
 separate LLM session belongs in an in-process sub-skill or non-LLM helper
@@ -134,7 +133,7 @@ No `npm run build` — flow ships `bin/flow` via Bun, no compile step.
 - Don't leave spawned resources running: (1) point-of-use teardown first;
   (2) `flow-browser-teardown --reap --record` as the guaranteed
   registry-driven backstop, never `|| true`-swallowed; (3) `flow reap` as
-  the crash-path net, never primary. See `skills/pipeline/flow-pipeline/references/phases/resource-cleanup.md`.
+  the crash-path net (incl. worktree leftovers), never primary. See `skills/pipeline/flow-pipeline/references/phases/resource-cleanup.md`.
 - Don't auto-commit/push outside explicit instruction on `main`; on a
   feature/PR branch, invoking a code-editing skill IS the instruction to
   commit that branch's edits. Named exemptions are enumerated in

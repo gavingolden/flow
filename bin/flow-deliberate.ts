@@ -170,6 +170,7 @@ export type HeadlessEnvelope = {
   skipReason?: string;
   artifact?: string;
   model?: string;
+  effort?: string;
   total_cost_usd?: number;
   stderrTail?: string;
 };
@@ -202,6 +203,7 @@ function emit(deps: Deps, envelope: Record<string, unknown>): number {
 function skip(
   deps: Deps,
   task: string,
+  effort: string,
   skipReason: SkipReason,
   extra: Record<string, unknown> = {},
   costUsd?: number,
@@ -209,6 +211,7 @@ function skip(
   deps.recordEvent("deliberate.call", {
     task,
     ran: false,
+    effort,
     skip_reason: skipReason,
     ...(costUsd === undefined ? {} : { total_cost_usd: costUsd }),
   });
@@ -233,7 +236,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   try {
     return runInner(parsed, deps);
   } catch (e) {
-    return skip(deps, parsed.task, "headless-error", {
+    return skip(deps, parsed.task, parsed.effort, "headless-error", {
       stderrTail: e instanceof Error ? e.message : String(e),
     });
   }
@@ -241,20 +244,20 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
 
 function runInner(args: Args, deps: Deps): number {
   if (!deps.fileExists(args.questionFile)) {
-    return skip(deps, args.task, "question-unreadable");
+    return skip(deps, args.task, args.effort, "question-unreadable");
   }
   let question: string;
   try {
     question = deps.readFile(args.questionFile).trim();
   } catch {
-    return skip(deps, args.task, "question-unreadable");
+    return skip(deps, args.task, args.effort, "question-unreadable");
   }
   if (question.length === 0) {
-    return skip(deps, args.task, "question-unreadable");
+    return skip(deps, args.task, args.effort, "question-unreadable");
   }
 
   if (!deps.dirExists(args.worktree)) {
-    return skip(deps, args.task, "worktree-not-found");
+    return skip(deps, args.task, args.effort, "worktree-not-found");
   }
 
   // Blindness guard. A question carrying a verbatim run of the caller's own
@@ -262,7 +265,7 @@ function runInner(args: Args, deps: Deps): number {
   // caller repairs the question rather than paying for an echo.
   if (args.blindToFile) {
     if (!deps.fileExists(args.blindToFile)) {
-      return skip(deps, args.task, "question-unreadable", {
+      return skip(deps, args.task, args.effort, "question-unreadable", {
         stderrTail: `--blind-to-file not found: ${args.blindToFile}`,
       });
     }
@@ -270,12 +273,12 @@ function runInner(args: Args, deps: Deps): number {
     try {
       corpus = deps.readFile(args.blindToFile);
     } catch {
-      return skip(deps, args.task, "question-unreadable", {
+      return skip(deps, args.task, args.effort, "question-unreadable", {
         stderrTail: `--blind-to-file unreadable: ${args.blindToFile}`,
       });
     }
     if (deps.briefLeaksCorpus(question, corpus)) {
-      return skip(deps, args.task, "question-not-blind");
+      return skip(deps, args.task, args.effort, "question-not-blind");
     }
   }
 
@@ -334,7 +337,7 @@ function runInner(args: Args, deps: Deps): number {
     )
       ? (envelope.skipReason as SkipReason)
       : "headless-error";
-    return skip(deps, args.task, forwarded, {
+    return skip(deps, args.task, envelope.effort ?? args.effort, forwarded, {
       ...(envelope.stderrTail ? { stderrTail: envelope.stderrTail } : {}),
     });
   }
@@ -344,6 +347,7 @@ function runInner(args: Args, deps: Deps): number {
     return skip(
       deps,
       args.task,
+      envelope.effort ?? args.effort,
       "unparseable-result",
       { total_cost_usd: envelope.total_cost_usd },
       envelope.total_cost_usd,
@@ -355,6 +359,7 @@ function runInner(args: Args, deps: Deps): number {
     return skip(
       deps,
       args.task,
+      envelope.effort ?? args.effort,
       "unparseable-result",
       { total_cost_usd: envelope.total_cost_usd },
       envelope.total_cost_usd,
@@ -396,6 +401,7 @@ function runInner(args: Args, deps: Deps): number {
     task: args.task,
     ran: true,
     model: envelope.model ?? model,
+    effort: envelope.effort ?? args.effort,
     confidence,
     declared_confidence: deliberation.confidence,
     anchor_demoted: demoted,

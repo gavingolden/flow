@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "system-design-references",
+  "candidate": "flow-system-design-skill",
+  "description": "Measures whether each flow-system-design reference file (workflows, rollout, caching, recovery, realtime, api, cloudflare, aws) changes what /flow-product-planning discovery puts in the plan's Task breakdown. One scenario per reference; command graders regex the Task breakdown; cost, turns and duration are non-gating metrics.",
+  "scenarios": [
+    "r1-workflows",
+    "r2-rollout",
+    "r3-caching",
+    "r4-recovery",
+    "r5-realtime",
+    "r6-api",
+    "r7-cloudflare",
+    "r8-aws"
+  ],
+  "defaults": {
+    "model": "opus",
+    "effort": "high",
+    "runs": 2,
+    "maxBudgetUsd": 6,
+    "timeoutSec": 2400
+  }
+}
