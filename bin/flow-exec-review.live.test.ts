@@ -7,7 +7,10 @@
  * temp worktree — nothing under the real ~/.flow is read or written except the
  * optional model config.
  *
- *   FLOW_LIVE_EXEC_REVIEW=1 npx vitest run bin/flow-exec-review.live.test.ts
+ *   FLOW_LIVE_EXEC_REVIEW=1 bunx --bun vitest run bin/flow-exec-review.live.test.ts
+ *
+ * Run it under Bun (`bunx --bun`): the real spawn uses `Bun.spawnSync`, which
+ * `npx vitest` (Node) does not provide.
  */
 
 import * as fs from "node:fs";
