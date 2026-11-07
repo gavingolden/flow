@@ -29,9 +29,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import { MODEL_PRICING, type ModelPricing } from "./cost-pricing";
+import { lookupModelPricing, priceUsage } from "./cost-pricing";
 import { slugify } from "./slug";
 import type { PipelineState } from "./state";
+import {
+  type EffortRun,
+  effortRunsOf,
+  readTranscriptTurns,
+} from "./transcript-turns";
 
 export type CostBreakdown = {
   total: number;
@@ -63,51 +68,100 @@ export function defaultProjectsRoot(): string {
 }
 
 /**
- * Claude Code's project-dir encoding: replace every `/` in the absolute
- * cwd with `-`. The leading slash becomes a leading `-` for free.
+ * Claude Code's project-dir encoding: every character outside
+ * `[A-Za-z0-9-]` in the absolute cwd becomes `-` (observed: `.flow-tmp`
+ * paths land in `--flow-tmp-` dirs). The leading slash becomes a leading
+ * `-` for free.
  */
 export function encodeProjectSegment(absPath: string): string {
-  return absPath.replace(/\//g, "-");
+  return absPath.replace(/[^A-Za-z0-9-]/g, "-");
 }
 
 export async function findSessionJsonls(
   projectDir: string,
   slug: string,
 ): Promise<string[]> {
+  return findSessionJsonlsSync(projectDir, slug);
+}
+
+export function findSessionJsonlsSync(
+  projectDir: string,
+  slug: string,
+): string[] {
   let entries: fs.Dirent[];
   try {
-    entries = await fs.promises.readdir(projectDir, { withFileTypes: true });
+    entries = fs.readdirSync(projectDir, { withFileTypes: true });
   } catch {
     return [];
   }
-  const candidates = entries
+  return entries
     .filter((e) => e.isFile() && e.name.endsWith(".jsonl"))
-    .map((e) => path.join(projectDir, e.name));
-  const matches = await Promise.all(
-    candidates.map(async (file) =>
-      (await jsonlMatchesSlug(file, slug)) ? file : null,
-    ),
-  );
-  return matches.filter((f): f is string => f !== null);
+    .map((e) => path.join(projectDir, e.name))
+    .filter((file) => jsonlMatchesSlug(file, slug));
 }
 
-async function jsonlMatchesSlug(file: string, slug: string): Promise<boolean> {
-  const stream = fs.createReadStream(file);
-  const rl = readline.createInterface({ input: stream });
+/**
+ * A user entry that is not a real message: Claude Code's own `isMeta`
+ * entries and the local-command echoes (`/clear` writes `<command-name>` and
+ * `<local-command-stdout>` entries before the user's first real message).
+ */
+export function isLocalCommandEcho(entry: Record<string, unknown>): boolean {
+  if (entry.isMeta === true) return true;
+  const content = (entry.message as { content?: unknown } | undefined)?.content;
+  if (typeof content !== "string") return false;
+  const head = content.trimStart();
+  return (
+    head.startsWith("<command-name>") || head.startsWith("<local-command-")
+  );
+}
+
+const PREFIX_CHUNK_BYTES = 64 * 1024;
+const PREFIX_MAX_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Tests the first real user message against the slug while reading only a
+ * bounded prefix, in chunks: project dirs hold hundreds of MB of transcripts
+ * and the first real message can sit behind large attachment/hook lines.
+ */
+function jsonlMatchesSlug(file: string, slug: string): boolean {
+  let fd: number;
   try {
-    for await (const line of rl) {
-      if (!line) continue;
-      const event = tryParse(line);
-      if (!event || event.type !== "user") continue;
-      const content = event.message?.content;
-      if (typeof content !== "string") continue;
-      return seedMatchesSlug(content, slug);
-    }
-  } finally {
-    rl.close();
-    stream.destroy();
+    fd = fs.openSync(file, "r");
+  } catch {
+    return false;
   }
-  return false;
+  try {
+    const chunk = Buffer.alloc(PREFIX_CHUNK_BYTES);
+    let pending = "";
+    let read = 0;
+    for (;;) {
+      const n = fs.readSync(fd, chunk, 0, chunk.length, read);
+      const eof = n === 0;
+      read += n;
+      pending += chunk.toString("utf8", 0, n);
+      const lines = pending.split("\n");
+      pending = eof ? "" : (lines.pop() ?? "");
+      for (const line of lines) {
+        const verdict = firstMessageVerdict(line, slug);
+        if (verdict !== null) return verdict;
+      }
+      if (eof || read >= PREFIX_MAX_BYTES) return false;
+    }
+  } catch {
+    return false;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function firstMessageVerdict(line: string, slug: string): boolean | null {
+  if (!line) return null;
+  const event = tryParse(line);
+  if (!event || event.type !== "user") return null;
+  if (isLocalCommandEcho(event as Record<string, unknown>)) return null;
+  const content = event.message?.content;
+  if (typeof content !== "string") return null;
+  return seedMatchesSlug(content, slug);
 }
 
 export function seedMatchesSlug(seed: string, slug: string): boolean {
@@ -145,7 +199,7 @@ async function parseAndPrice(jsonl: string): Promise<CostBreakdown> {
     });
   }
   for (const { usage, model } of messages.values()) {
-    const pricing = MODEL_PRICING[model];
+    const pricing = lookupModelPricing(model);
     if (!pricing) {
       if (model) unknown.add(model);
       continue;
@@ -191,19 +245,16 @@ export type TranscriptUsage = {
   output: number;
   total: number;
   model: string | null;
+  effortRuns: EffortRun[];
 };
 
 /**
  * Reusable transcript-usage summer for a single JSONL: sums every
- * assistant event's `message.usage` fields and tracks the last-seen
- * `message.model`. Never throws — malformed lines are skipped, a missing
- * file yields all-zero counts with `model: null`. Kept separate from
- * `parseAndPrice` (module-private, priced in dollars) so a review-telemetry
- * consumer gets raw token counts. Both summers share the same dedupe: a
- * message the transcript repeats (one line per content block) counts once,
- * and the LAST occurrence wins by `message.id` — only the last line of a
- * message carries its final `output_tokens`; earlier lines hold a streaming
- * placeholder (input and cache fields never differ between repeats).
+ * assistant turn's `message.usage` fields, tracks the last-seen
+ * `message.model` and the ordered effort runs. Never throws — malformed
+ * lines are skipped, a missing/oversized file yields all-zero counts with
+ * `model: null`. Dedupe (last line per `message.id` wins) lives in
+ * `readTranscriptTurns`. Stays async because review telemetry awaits it.
  */
 export async function sumTranscriptUsage(
   jsonlPath: string,
@@ -215,64 +266,24 @@ export async function sumTranscriptUsage(
     output: 0,
     total: 0,
     model: null,
+    effortRuns: [],
   };
-  let stream: fs.ReadStream;
-  try {
-    stream = fs.createReadStream(jsonlPath);
-  } catch {
-    return out;
-  }
-  const rl = readline.createInterface({ input: stream });
-  const messages = new Map<string, Record<string, unknown>>();
-  try {
-    for await (const line of rl) {
-      if (!line) continue;
-      const event = tryParse(line);
-      if (!event || event.type !== "assistant") continue;
-      const usage = event.message?.usage;
-      if (!usage || typeof usage !== "object") continue;
-      recordLastLine(
-        messages,
-        event.message?.id,
-        usage as Record<string, unknown>,
-      );
-      const model = event.message?.model;
-      if (typeof model === "string" && model) out.model = model;
-    }
-  } catch {
-    // stream error mid-read (e.g. ENOENT surfaced async) — return partial/zero
-  } finally {
-    rl.close();
-    stream.destroy();
-  }
-  for (const u of messages.values()) {
-    const input = num(u.input_tokens);
-    const cacheCreation = num(u.cache_creation_input_tokens);
-    const cacheRead = num(u.cache_read_input_tokens);
-    const output = num(u.output_tokens);
+  const turns = readTranscriptTurns(jsonlPath);
+  if (!turns) return out;
+  for (const t of turns) {
+    const input = num(t.usage.input_tokens);
+    const cacheCreation = num(t.usage.cache_creation_input_tokens);
+    const cacheRead = num(t.usage.cache_read_input_tokens);
+    const output = num(t.usage.output_tokens);
     out.input += input;
     out.cache_creation += cacheCreation;
     out.cache_read += cacheRead;
     out.output += output;
     out.total += input + cacheCreation + cacheRead + output;
+    if (t.model) out.model = t.model;
   }
+  out.effortRuns = effortRunsOf(turns);
   return out;
-}
-
-function priceUsage(usage: unknown, p: ModelPricing): number {
-  if (!usage || typeof usage !== "object") return 0;
-  const u = usage as Record<string, unknown>;
-  const input = num(u.input_tokens);
-  const cacheCreation = num(u.cache_creation_input_tokens);
-  const cacheRead = num(u.cache_read_input_tokens);
-  const output = num(u.output_tokens);
-  return (
-    (input * p.input +
-      cacheCreation * p.cacheCreation +
-      cacheRead * p.cacheRead +
-      output * p.output) /
-    1_000_000
-  );
 }
 
 /**

@@ -2,13 +2,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { PRICES } from "../../docs/eval/token-spend-audit";
 import {
   computeCost,
   encodeProjectSegment,
+  findSessionJsonlsSync,
+  isLocalCommandEcho,
   seedMatchesSlug,
   sumTranscriptUsage,
 } from "./cost";
-import { MODEL_PRICING } from "./cost-pricing";
+import { lookupModelPricing, MODEL_PRICING, priceUsage } from "./cost-pricing";
 import type { PipelineState } from "./state";
 
 const REPO = "/Users/test/code/me/flow";
@@ -60,6 +63,12 @@ describe(encodeProjectSegment, () => {
   it("replaces every / with - so the leading slash becomes a leading dash", () => {
     expect(encodeProjectSegment("/Users/me/code/flow")).toBe(
       "-Users-me-code-flow",
+    );
+  });
+
+  it("maps dots and other non-alphanumerics to dashes like Claude Code", () => {
+    expect(encodeProjectSegment("/Users/me/code/.flow-tmp/a_b")).toBe(
+      "-Users-me-code--flow-tmp-a-b",
     );
   });
 
@@ -476,6 +485,7 @@ describe(sumTranscriptUsage, () => {
       output: 44,
       total: 110,
       model: "claude-opus-4-7",
+      effortRuns: [["unknown", 2]],
     });
   });
 
@@ -511,7 +521,123 @@ describe(sumTranscriptUsage, () => {
       output: 0,
       total: 0,
       model: null,
+      effortRuns: [],
     });
+  });
+
+  it("reports ordered effort runs", async () => {
+    const jsonlPath = path.join(projectDir, "eff.jsonl");
+    fs.writeFileSync(
+      jsonlPath,
+      [
+        { ...(assistant("claude-opus-5-5", {}, "a") as object), effort: "low" },
+        {
+          ...(assistant("claude-opus-5-5", {}, "b") as object),
+          effort: "high",
+        },
+      ]
+        .map((l) => JSON.stringify(l))
+        .join("\n"),
+    );
+    expect((await sumTranscriptUsage(jsonlPath)).effortRuns).toEqual([
+      ["low", 1],
+      ["high", 1],
+    ]);
+  });
+});
+
+describe("/clear-aware session discovery", () => {
+  const BRACKET =
+    "[pipeline-slug: add-csv-export] Use the /flow-pipeline skill.";
+
+  it("matches a session whose first lines are isMeta and a /clear echo", () => {
+    writeJsonl("cleared.jsonl", [
+      {
+        type: "user",
+        isMeta: true,
+        message: { role: "user", content: "meta" },
+      },
+      seedEvent("<command-name>/clear</command-name>\n<command-message>clear"),
+      seedEvent("<local-command-stdout></local-command-stdout>"),
+      seedEvent(BRACKET),
+    ]);
+    expect(findSessionJsonlsSync(projectDir, SLUG)).toEqual([
+      path.join(projectDir, "cleared.jsonl"),
+    ]);
+  });
+
+  it("finds the first real message behind a multi-chunk prefix", () => {
+    const filler = { type: "attachment", blob: "x".repeat(200_000) };
+    writeJsonl("big.jsonl", [filler, filler, seedEvent(BRACKET)]);
+    expect(findSessionJsonlsSync(projectDir, SLUG)).toHaveLength(1);
+  });
+
+  it("does not match when the first real message names another slug", () => {
+    writeJsonl("other.jsonl", [
+      seedEvent("<command-name>/clear</command-name>"),
+      seedEvent("[pipeline-slug: other] Use the /flow-pipeline skill."),
+    ]);
+    expect(findSessionJsonlsSync(projectDir, SLUG)).toEqual([]);
+  });
+
+  it("classifies echoes", () => {
+    expect(isLocalCommandEcho({ isMeta: true })).toBe(true);
+    expect(
+      isLocalCommandEcho({ message: { content: "<command-name>/x" } }),
+    ).toBe(true);
+    expect(isLocalCommandEcho({ message: { content: "hello" } })).toBe(false);
+  });
+});
+
+describe("price table", () => {
+  it("prices 5m and 1h cache writes per bucket for opus-5-5", () => {
+    const p = lookupModelPricing("claude-opus-5-5");
+    expect(p).not.toBeNull();
+    const usage = {
+      cache_creation_input_tokens: 2_000_000,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 1_000_000,
+        ephemeral_1h_input_tokens: 1_000_000,
+      },
+    };
+    // $5 (5m) + $8 (1h)
+    expect(priceUsage(usage, p!)).toBeCloseTo(13, 6);
+  });
+
+  it("prices all cache writes at the 5m rate when no split is present", () => {
+    const p = MODEL_PRICING["claude-opus-5-5"];
+    expect(
+      priceUsage({ cache_creation_input_tokens: 1_000_000 }, p),
+    ).toBeCloseTo(5, 6);
+  });
+
+  it("resolves a dated model id to its undated entry", () => {
+    expect(lookupModelPricing("claude-opus-5-5-20261101")).toBe(
+      MODEL_PRICING["claude-opus-5-5"],
+    );
+    expect(lookupModelPricing("claude-haiku-5-5")).toBeNull();
+  });
+
+  it("agrees with the spend audit's PRICES over the audit's keys", () => {
+    for (const [model, [input, w5m, w1h, read, output]] of Object.entries(
+      PRICES,
+    )) {
+      expect(MODEL_PRICING[model], model).toMatchObject({
+        input,
+        cacheCreation: w5m,
+        cacheCreation1h: w1h,
+        cacheRead: read,
+        output,
+      });
+    }
+  });
+
+  it("keeps a 1h write rate of 2x input on the 4.x entries", () => {
+    for (const id of ["claude-opus-4-7", "claude-sonnet-4-6"]) {
+      expect(MODEL_PRICING[id].cacheCreation1h).toBe(
+        MODEL_PRICING[id].input * 2,
+      );
+    }
   });
 });
 
