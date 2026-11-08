@@ -156,10 +156,7 @@ function ensureSharedHookShim(): string {
   const shimPath = sharedHookShimPath();
   if (shimFileIsCurrent(shimPath)) return shimPath;
   fs.mkdirSync(path.dirname(shimPath), { recursive: true });
-  const tmpPath = tmpSibling(shimPath);
-  fs.writeFileSync(tmpPath, CHAIN_HOOK_SHIM, { encoding: "utf8", mode: 0o755 });
-  fs.chmodSync(tmpPath, 0o755);
-  fs.renameSync(tmpPath, shimPath);
+  installHookCopy(shimPath);
   return shimPath;
 }
 

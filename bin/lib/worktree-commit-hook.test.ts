@@ -11,17 +11,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CHAIN_HOOK_SHIM,
   FLOW_HOOK_NAMES,
   installWorktreeHooks,
   repairFlowWorktreeHooks,
+  sharedHookShimPath,
 } from "./worktree-commit-hook";
-import { sharedHookShimPath } from "./worktree-commit-hook";
 import nodeFs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { vi } from "vitest";
 
 // Fixture git calls must not read the host's global/system config (a global
 // core.hooksPath or commit-signing setup would change what these cases prove).
@@ -458,6 +457,27 @@ describe("shared hook shim layout", () => {
     mustGit(["worktree", "add", "-b", "second", dir], fx.repoDir);
     return dir;
   }
+
+  it("leaves current links untouched and relinks one pointing at a stale shim", () => {
+    installWorktreeHooks(fx.worktreeDir);
+    const hooksDir = hooksDirOf(fx.worktreeDir);
+    const linkInodes = () =>
+      FLOW_HOOK_NAMES.map((n) => fs.lstatSync(path.join(hooksDir, n)).ino);
+    const before = linkInodes();
+    installWorktreeHooks(fx.worktreeDir);
+    expect(linkInodes()).toEqual(before);
+
+    const stale = path.join(
+      path.dirname(sharedHookShimPath()),
+      "worktree-chain-shim-000000000000.sh",
+    );
+    fs.writeFileSync(stale, "#!/bin/sh\n", { mode: 0o755 });
+    const prePush = path.join(hooksDir, "pre-push");
+    fs.rmSync(prePush);
+    fs.symlinkSync(stale, prePush);
+    installWorktreeHooks(fx.worktreeDir);
+    expect(fs.readlinkSync(prePush)).toBe(sharedHookShimPath());
+  });
 
   it("links every hook name in two worktrees to the one machine-wide shim", () => {
     const second = secondWorktree();

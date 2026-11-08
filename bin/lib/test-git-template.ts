@@ -12,10 +12,18 @@ const EXCLUDE_BODY = `# git ls-files --others --exclude-from=.git/info/exclude
 # *~
 `;
 
+/** Rejects a pre-created squat in a shared tmp dir: a symlink, another owner, a group/other-writable dir, or any planted hook. */
 function isCurrent(dir: string): boolean {
   try {
+    const st = fs.lstatSync(dir);
+    const ownedByUs =
+      process.getuid === undefined || st.uid === process.getuid();
+    if (!st.isDirectory() || !ownedByUs || (st.mode & 0o022) !== 0) {
+      return false;
+    }
     return (
       fs.statSync(path.join(dir, "hooks")).isDirectory() &&
+      fs.readdirSync(path.join(dir, "hooks")).length === 0 &&
       fs.readFileSync(path.join(dir, "info", "exclude"), "utf8") ===
         EXCLUDE_BODY
     );

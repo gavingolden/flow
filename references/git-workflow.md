@@ -23,8 +23,12 @@ session ID also reaches `git log` / `git blame` as a
 `Claude-Code-Session-Id:` trailer — but via a per-commit git hook, not
 step 10. `flow-new-worktree` installs a worktree-private hooks folder
 (scoped via `extensions.worktreeConfig` + a worktree-scoped
-`core.hooksPath` so it never fires for the user's primary repo) holding
-one identical chaining shim per client-side git hook name. Each shim finds
+`core.hooksPath` so it never fires for the user's primary repo) holding,
+for each client-side git hook name, a symlink to one machine-global chaining shim,
+`~/.flow/hooks/worktree-chain-shim-<hash>.sh` (per-name copies where the
+filesystem refuses symlinks). Deleting that file disables hooks in existing
+flow worktrees until the next `flow-new-worktree` launch or `--repair-hooks`
+rewrites it. The shim finds
 the consumer's own hook of that name at run time — the shared
 `core.hooksPath` (a relative value resolves against the worktree root),
 else the repo's default hooks folder — and runs it, so the repo's own

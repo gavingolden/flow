@@ -5,7 +5,7 @@ import { ensureMinimalGitTemplate } from "./bin/lib/test-git-template";
 // vitest >= 4 workers no longer set a process title; the preload now covers nested Node children (npm/npx) the suite spawns.
 Object.assign(process.env, withNoProctitlePreload(process.env));
 
-// Every `git init` in the suite copies this minimal template instead of git's 15 sample files; set unconditionally so an ambient developer value cannot leak in.
+// Every `git init` in the suite copies this minimal template instead of git's 14 sample hooks and description file; set unconditionally so an ambient developer value cannot leak in.
 process.env.GIT_TEMPLATE_DIR = ensureMinimalGitTemplate();
 
 export default defineConfig({

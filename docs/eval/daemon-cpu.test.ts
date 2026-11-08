@@ -135,4 +135,26 @@ describe("main", () => {
     expect(out.medianWallSec).toBe(0.5);
     expect(out.host.loadAvg1AtStart).toBe(1.5);
   });
+
+  it("sleeps the idle control for the run's wall time", async () => {
+    const cpu = [0, 10, 10, 11, 11, 21, 21, 22];
+    let i = 0;
+    const sample = () => [
+      { daemon: "syspolicyd" as const, pid: 1, cpuSec: cpu[i++] },
+    ];
+    const slept: number[] = [];
+    let clock = 0;
+    await main(["--repeat", "2", "--control", "--", "cmd"], {
+      platform: "darwin",
+      sample,
+      spawn: () => 0,
+      sleep: (s) => {
+        slept.push(s);
+      },
+      now: () => (clock += 500),
+      loadAvg1: () => 1.5,
+      write: () => {},
+    });
+    expect(slept).toEqual([0.5, 0.5]);
+  });
 });

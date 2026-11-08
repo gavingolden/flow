@@ -90,3 +90,23 @@ describe("suite-wide GIT_TEMPLATE_DIR", () => {
     }
   });
 });
+
+describe("squatted template dir", () => {
+  it("refuses a pre-created dir that carries a planted hook", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "flow-git-tpl-squat-"));
+    try {
+      const finalDir = path.join(root, GIT_TEMPLATE_DIRNAME);
+      ensureMinimalGitTemplate(root);
+      fs.writeFileSync(
+        path.join(finalDir, "hooks", "pre-commit"),
+        "#!/bin/sh\n",
+        {
+          mode: 0o755,
+        },
+      );
+      expect(() => ensureMinimalGitTemplate(root)).toThrow();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

@@ -2,7 +2,7 @@
 
 How much macOS background daemon CPU one full flow test run causes, what drives it, and what this branch changed (flow#1010). Measured on 2026-11-08.
 
-**Bottom line:** the two shipped levers remove work that is countable without noise: about 65 fewer first-run security scans and about 14,500 fewer file creations per full run. That is an estimated −0.7 s of `syspolicyd` and −1.6 s of `fseventsd` per run, about 5% of the ~45 s total. The CPU deltas could not confirm it. Host load from other pipelines swung between 4 and 199 during measurement, and run-to-run noise (8–22 s `syspolicyd` for the same tree) was larger than the effect.
+**Bottom line:** the two shipped levers remove work that is countable without noise: about 65 fewer first-run security scans and about 14,500 fewer file creations per full run. That is an estimated −0.7 s of `syspolicyd` and −1.6 s of `fseventsd` per run, about 6% of the ~39 s that `syspolicyd`, `fseventsd` and `kernel_task` take together (9.3 + 12.1 + 17.5 s medians on `main`). The CPU deltas could not confirm it, and they did not move the expected way: across 6 interleaved pairs the branch median was 1.7 s higher for `syspolicyd` (11.0 s vs 9.3 s) and 2.7 s higher for `kernel_task` (20.2 s vs 17.5 s), and 0.8 s lower for `fseventsd` (11.3 s vs 12.1 s), all inside the run-to-run spread; the one 3-suites-at-once pair came out lower (29.1 s vs 26.1 s `syspolicyd`). Host load from other pipelines swung between 4 and 199 during measurement, and run-to-run noise (8–22 s `syspolicyd` for the same tree) was larger than the effect.
 
 ## Method
 
