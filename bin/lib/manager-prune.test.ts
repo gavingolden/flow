@@ -197,11 +197,12 @@ describe("pipeline grants", () => {
         .map((g) => g.scope)
         .sort(),
     ).toEqual(["pipeline:live", "repo:flow"]);
-    expect(
-      readManagerLog({}, home).filter(
-        (e) => e.kind === "grant-withdrawn" && e.reason === "pipeline-finished",
-      ),
-    ).toHaveLength(2);
+    const withdrawn = readManagerLog({}, home).filter(
+      (e) => e.kind === "grant-withdrawn" && e.reason === "pipeline-finished",
+    );
+    expect(withdrawn).toHaveLength(2);
+    expect(withdrawn.find((e) => e.slug === "done")?.repo).toBe("flow");
+    expect(withdrawn.find((e) => e.slug === "gone")?.repo).toBe("unknown");
     expect(prune().grantsDropped).toBe(0);
   });
 });

@@ -21,6 +21,7 @@ import {
   type ManagerLogEntry,
 } from "./manager-log";
 import { dropNotes, isNoteExpired, readNotes } from "./manager-notes";
+import { identityForState } from "./manager-scope";
 import { readProposals } from "./manager-proposals";
 import { renderManagerStatus } from "./manager-status";
 import { FINISHED_PHASE_SET, listStates, readState } from "./state";
@@ -58,7 +59,7 @@ function dropDeadPipelineGrants(
         ts: now.toISOString(),
         kind: "grant-withdrawn",
         scope: g.scope,
-        repo: prior?.repo ?? "unknown",
+        repo: st ? identityForState(st).repo : (prior?.repo ?? "unknown"),
         slug,
         reason: "pipeline-finished",
       },
