@@ -22,6 +22,7 @@ import picomatch from "picomatch";
 import { resolveChecks, npmRunCheck, type CheckDef } from "./lib/stack-table";
 import { checkKey, isReadOnlyVerifier, runDeduped } from "./lib/check-dedupe";
 import { withoutGitLocalEnv } from "./lib/git-local-env";
+import { withNoProctitlePreload } from "./lib/no-proctitle-env";
 import {
   discardVerifiedTree,
   readVerifiedTree,
@@ -356,13 +357,20 @@ export function registryArgv(
   return ["flow-spawn", "--class", "default", "--", ...argv];
 }
 
+/** Env every check runs with: git-local vars stripped, macOS process-title preload applied. */
+export function checkRunEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  return withNoProctitlePreload(withoutGitLocalEnv(env));
+}
+
 /** `runCheck`'s default `Runner` — routes every check command through `registryArgv`. */
 export function runViaRegistry(argv: string[]): {
   stdout: string;
   stderr: string;
   exitCode: number;
 } {
-  return run(registryArgv(argv), withoutGitLocalEnv(process.env));
+  return run(registryArgv(argv), checkRunEnv());
 }
 
 // --- Scope Detection ---
@@ -1624,6 +1632,11 @@ Check mapping:
   backend:        go vet -C backend ./..., go test -C backend ./...
   root-fallback:  npm run typecheck, npm run test, npm run lint
                   (fires for files no other scope claimed)
+
+On macOS every check runs with a Node preload (plus libuv's
+UV_PROCESS_TITLE_USE_LAUNCH_SERVICES=0 opt-out) that stops each Node process
+registering with the OS's app services (a major source of machine-wide stutter
+when many suites run at once).
 
 With a valid .flow/test-tiers.json manifest AND a declared 'test:related'
 npm script, 'npm run test' above narrows to a tiered selection: the
