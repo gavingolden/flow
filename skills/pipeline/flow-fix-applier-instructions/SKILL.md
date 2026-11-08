@@ -333,9 +333,9 @@ what the reviewer sees on the PR. Surface a one-line digest in your
 return summary so the wrapper's caller can preview the disposition,
 but the load-bearing record is the artifact field, not the summary.
 
-## 5. Mark-shipped sweep (roadmap + epic board)
+## 5. Mark-shipped sweep (roadmap + epic manifests)
 
-Two independent halves: 5a-5c (roadmap) and 5d (epic status board). They
+Two independent halves: 5a-5c (roadmap) and 5d (epic manifest validation). They
 gate on different preconditions — the roadmap-absent skip below covers only
 5a-5c, never 5d.
 
@@ -393,24 +393,14 @@ produces:
   count in the commit body: `Also swept N drifted row(s) for PRs already
 merged on main: #X, #Y`.
 
-### 5d. Sync the epic status board
+### 5d. Validate the epic manifests
 
 Runs unconditionally when step 5 is entered, whether or not `docs/roadmap.md`
 exists — the roadmap-absent skip above applies only to 5a-5c.
 
-Probe `command -v flow-epic-sync` first. If it's absent, take a named skip
-(the AGENTS.md optional-module degrade rule) and move on to step 6 — not
-every consumer repo carries the epic-orchestration module.
-
-Otherwise run it with no `--slug` argument:
-
-```bash
-flow-epic-sync
-```
-
-It resolves the epic slug ambiently ($FLOW_SLUG / the launch env) and is a
-no-op for a non-epic PR; it also exits 0 when `gh` is unavailable, so it
-never blocks this step.
+This step writes no epic status board row: the PR's own row is written when
+the PR opens (`flow-open-pr`) and re-checked before the gate, so there is no
+board sync to run here.
 
 **Validate the epic manifests against this PR's diff.** This fires whether
 or not the diff touches a manifest — that is what catches a forgotten
@@ -453,17 +443,6 @@ A non-zero exit is recorded via the `epic-dag: manifest validation FAILED`
 line above, which the result artifact's summary and the step's return
 summary both surface, and fixed in this PR (add the producer entry + edge to
 the manifest) — never `|| true`-swallowed.
-
-When it modifies `.flow/epics/<epic-slug>/status.json`, bundle the edit
-into the fix commit you are already making (steps 3–4 / 5a–5b). If it is
-the only change this run produced, use commit message `chore(epic): sync
-<epic-slug> status board (pr-review #$PR_NUMBER)`.
-
-This in-PR invocation deliberately passes NEITHER `--commit` NOR `--push`:
-the edit rides the fix commit, which `/flow-pr-review`'s own auto-push
-exemption already pushes — so this in-band route and the out-of-band
-`--commit --push` route (`/flow-epic-run`'s reconcile-drift recipe) can
-never be conflated or double-push the same change.
 
 ### 5e. Checklist-append from the retrospective
 

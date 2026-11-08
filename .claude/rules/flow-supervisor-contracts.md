@@ -67,6 +67,11 @@ the tmux-pane / port-override / post-commit-diff rules live in
   - **Auto-push exemption: `flow-epic-sync --push`** (and `flow epic
 done`'s heal): that one commit, never forced. Both contracts:
     [git-workflow.md](../../references/git-workflow.md).
+  - **Auto-commit and push exemption: `flow-epic-self-mark --commit
+    --push`.** One status.json path, the pipeline's own row only, on its
+    feature branch only (refuses on the base branch), pushed with `git push
+    origin HEAD`, never forced. Contract:
+    [git-workflow.md](../../references/git-workflow.md).
   - **Auto-merge exemption: `/flow-pipeline` step 10.** Exempt for one
     narrow, named operation: the squash merge of `<PR>` inside step 10
     (a bare `gh pr merge --squash <PR>` run by `flow-merge-guard merge <PR>`),
