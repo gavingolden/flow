@@ -12,6 +12,10 @@ import {
   checkLeakedProcesses,
   LEAKED_PROCESSES_META,
 } from "./doctor-processes";
+import {
+  checkWorktreeIndexing,
+  WORKTREE_INDEXING_META,
+} from "./doctor-spotlight";
 import { checkStaleWorktrees, STALE_WORKTREES_META } from "./doctor-resources";
 import {
   checkClaude,
@@ -61,6 +65,7 @@ export const DOCTOR_PROBES: DoctorProbe[] = [
   ),
   guarded(TOOLS_AGY_META, (deps) => checkAgy(deps)),
   guarded(STALE_WORKTREES_META, (deps) => checkStaleWorktrees(deps)),
+  guarded(WORKTREE_INDEXING_META, (deps) => checkWorktreeIndexing(deps)),
   guarded(PIPELINE_RECORDS_META, (deps) => checkPipelineState(deps)),
   guarded(LEAKED_PROCESSES_META, (deps) => checkLeakedProcesses(deps)),
 ];

@@ -81,6 +81,7 @@ function healthyDeps(): DoctorDeps {
       if (cmd === "gh" || cmd === "claude") return { status: 0, stdout: "ok" };
       if (cmd === "git" && args.includes("worktree"))
         return { status: 0, stdout: "" };
+      if (cmd === "mdfind") return { status: 0, stdout: "0" };
       return undefined;
     }),
   });
@@ -251,6 +252,7 @@ describe("runDoctorCli full probe run in a sandbox", () => {
         "tools-pipeline-permissions",
         "tools-agy",
         "leftovers-worktrees",
+        "leftovers-worktree-indexing",
         "leftovers-processes",
       ]),
     );

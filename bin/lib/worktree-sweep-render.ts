@@ -3,7 +3,7 @@
  * explanation of each reason a folder was kept (shared with `flow doctor`).
  */
 
-import * as path from "node:path";
+import { isFlowWorktreePath } from "./worktree-slot";
 import type { HoldReason, HuskCause } from "./worktree-sweep-rules";
 import type { SweepItem, SweepResult } from "./worktree-sweep-state";
 
@@ -84,7 +84,7 @@ function mainCheckoutFor(
   source: string,
 ): string | undefined {
   return [...new Set(result.items.map((i) => i.repo))].find((repo) =>
-    source.startsWith(path.join(path.dirname(repo), `${path.basename(repo)}-`)),
+    isFlowWorktreePath(repo, source),
   );
 }
 

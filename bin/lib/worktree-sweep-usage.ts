@@ -7,8 +7,8 @@
  * container can hold a mount, so those sweep normally.
  */
 
-import * as path from "node:path";
 import { isUnderPath } from "./worktree-orphans";
+import { isFlowWorktreePath } from "./worktree-slot";
 import type { OrphanProc } from "./worktree-orphans";
 import {
   canonicalizeWorktree,
@@ -149,8 +149,8 @@ export function buildUsageIndex(deps: FactDeps): UsageIndex {
 }
 
 /**
- * Containers bind-mounting a flow-style sibling folder (`<repo>-*` beside a
- * known repo) that no longer exists or is a leftover folder: Docker recreates
+ * Containers bind-mounting a flow worktree folder (old sibling spot or the
+ * flow-worktrees.noindex container) that no longer exists or is a leftover folder: Docker recreates
  * the folder on start, which is how leftovers keep coming back.
  */
 export function danglingContainerMounts(
@@ -159,19 +159,10 @@ export function danglingContainerMounts(
   existing: (p: string) => boolean,
   leftovers: string[],
 ): Array<{ container: string; source: string }> {
-  const siblingRoots = repos.map((r) => ({
-    parent: path.dirname(r),
-    prefix: `${path.basename(r)}-`,
-  }));
-  const isSibling = (s: string) =>
-    siblingRoots.some((r) => {
-      const rel = path.relative(r.parent, s);
-      return !rel.startsWith("..") && rel.split("/")[0].startsWith(r.prefix);
-    });
   const out: Array<{ container: string; source: string }> = [];
   for (const m of usage.mounts) {
     for (const source of m.sources) {
-      if (!isSibling(source)) continue;
+      if (!repos.some((r) => isFlowWorktreePath(r, source))) continue;
       if (!existing(source) || leftovers.some((l) => isUnderPath(source, l))) {
         out.push({ container: m.container, source });
       }

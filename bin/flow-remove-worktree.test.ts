@@ -26,6 +26,7 @@ import {
   resolveTargetInput,
 } from "./flow-remove-worktree";
 import { salvageAgentMemory } from "./lib/worktree-fs";
+import { worktreeContainerDir } from "./lib/worktree-slot";
 import { readState, writeState } from "./lib/state";
 
 /** Computes the SAME `repoCacheKey` value as `./lib/paths.ts`'s
@@ -1019,7 +1020,10 @@ describe("flow-remove-worktree (integration: scratch cleanup)", () => {
   afterEach(() => fx.cleanup());
 
   it("removes a worktree whose only untracked content is .flow-tmp/, no --force needed", async () => {
-    const wtDir = path.join(path.dirname(fx.repoDir), "repo-feature-foo");
+    const wtDir = path.join(
+      worktreeContainerDir(fx.repoDir),
+      "repo-feature-foo",
+    );
     mustGit(["worktree", "add", "-b", "feature-foo", wtDir], fx.repoDir);
 
     // Drop pipeline scratch: plan.md and pr-description-draft.md inside .flow-tmp/.
@@ -1053,7 +1057,10 @@ describe("flow-remove-worktree (integration: scratch cleanup)", () => {
   });
 
   it("still refuses when the worktree has other untracked files outside .flow-tmp/", async () => {
-    const wtDir = path.join(path.dirname(fx.repoDir), "repo-feature-bar");
+    const wtDir = path.join(
+      worktreeContainerDir(fx.repoDir),
+      "repo-feature-bar",
+    );
     mustGit(["worktree", "add", "-b", "feature-bar", wtDir], fx.repoDir);
 
     // Untracked file the user dropped at the worktree root — NOT under .flow-tmp/.
@@ -1072,7 +1079,10 @@ describe("flow-remove-worktree (integration: scratch cleanup)", () => {
     // partially cleaned (scratch gone, user-dropped files preserved). The contract
     // is acceptable — scratch is transient by design — but the test exists to make
     // the behaviour explicit so a future refactor doesn't silently invert it.
-    const wtDir = path.join(path.dirname(fx.repoDir), "repo-feature-baz");
+    const wtDir = path.join(
+      worktreeContainerDir(fx.repoDir),
+      "repo-feature-baz",
+    );
     mustGit(["worktree", "add", "-b", "feature-baz", wtDir], fx.repoDir);
 
     const flowTmp = path.join(wtDir, ".flow-tmp");
@@ -1185,7 +1195,7 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
     expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
       0,
     );
-    const wtDir = path.join(path.dirname(fx.repoDir), "repo-feat");
+    const wtDir = path.join(worktreeContainerDir(fx.repoDir), "repo-feat");
 
     // The marker file exists (flow-state-update's branch-mismatch guard reads it).
     expect(fs.existsSync(path.join(wtDir, ".flow-branch"))).toBe(true);
@@ -1223,7 +1233,7 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
     expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
       0,
     );
-    const wtDir = path.join(path.dirname(fx.repoDir), "repo-feat");
+    const wtDir = path.join(worktreeContainerDir(fx.repoDir), "repo-feat");
     expect(fs.existsSync(wtDir)).toBe(true);
 
     const remove = await runHelper(["feat"], fx.repoDir);
@@ -1248,7 +1258,7 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
     async (input, phase, cleared) => {
       const create = await runNewWorktree(["fin"], fx.repoDir);
       expect(create.exitCode, `stderr: ${create.stderr}`).toBe(0);
-      const wtDir = path.join(path.dirname(fx.repoDir), "repo-fin");
+      const wtDir = path.join(worktreeContainerDir(fx.repoDir), "repo-fin");
       const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-rm-home-"));
       try {
         const stateDir = path.join(fakeHome, ".flow", "state");
@@ -1285,7 +1295,7 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
     expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
       0,
     );
-    const wtDir = path.join(path.dirname(fx.repoDir), "repo-probe-mem");
+    const wtDir = path.join(worktreeContainerDir(fx.repoDir), "repo-probe-mem");
     expect(fs.existsSync(wtDir)).toBe(true);
 
     const link = path.join(wtDir, ".claude", "agent-memory-local");
@@ -1351,7 +1361,10 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
     expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
       0,
     );
-    const wtDir = path.join(path.dirname(fx.repoDir), "repo-legacy-feat");
+    const wtDir = path.join(
+      worktreeContainerDir(fx.repoDir),
+      "repo-legacy-feat",
+    );
 
     // Simulate an older worktree whose common dir's exclude file does NOT yet
     // list `.flow-branch`. Strip every `.flow-branch` line from
@@ -1410,7 +1423,10 @@ describe(
         create.exitCode,
         `flow-new-worktree stderr: ${create.stderr}`,
       ).toBe(0);
-      const wtDir = path.join(path.dirname(fx.repoDir), "repo-merged-feat");
+      const wtDir = path.join(
+        worktreeContainerDir(fx.repoDir),
+        "repo-merged-feat",
+      );
 
       // Commit on the per-task branch from inside the worktree.
       fs.writeFileSync(path.join(wtDir, "feature.txt"), "shipped\n");
@@ -1440,7 +1456,10 @@ describe(
         create.exitCode,
         `flow-new-worktree stderr: ${create.stderr}`,
       ).toBe(0);
-      const wtDir = path.join(path.dirname(fx.repoDir), "repo-unmerged-feat");
+      const wtDir = path.join(
+        worktreeContainerDir(fx.repoDir),
+        "repo-unmerged-feat",
+      );
 
       // Commit on the per-task branch but DO NOT push — origin/main stays at the
       // initial commit, so the branch tip is unreachable from origin/main.
@@ -1463,7 +1482,10 @@ describe(
         create.exitCode,
         `flow-new-worktree stderr: ${create.stderr}`,
       ).toBe(0);
-      const wtDir = path.join(path.dirname(fx.repoDir), "repo-flag-feat");
+      const wtDir = path.join(
+        worktreeContainerDir(fx.repoDir),
+        "repo-flag-feat",
+      );
 
       // No new commits — branch tip equals origin/main, so `git branch -d`
       // would succeed anyway. The point of this spec is that the legacy
@@ -1488,7 +1510,10 @@ describe(
         create.exitCode,
         `flow-new-worktree stderr: ${create.stderr}`,
       ).toBe(0);
-      const wtDir = path.join(path.dirname(fx.repoDir), "repo-squash-feat");
+      const wtDir = path.join(
+        worktreeContainerDir(fx.repoDir),
+        "repo-squash-feat",
+      );
 
       // Commit on the per-task branch but DO NOT push/merge into origin/main, so
       // its tip is unreachable from origin/main and `git branch -d` would refuse
@@ -1546,14 +1571,20 @@ describe(
       // Sibling pipeline: bare slot, branch `reskin`, dir `repo-reskin`.
       const sibling = await runNewWorktree([slug], fx.repoDir);
       expect(sibling.exitCode, `sibling stderr: ${sibling.stderr}`).toBe(0);
-      const siblingDir = path.join(path.dirname(fx.repoDir), `repo-${slug}`);
+      const siblingDir = path.join(
+        worktreeContainerDir(fx.repoDir),
+        `repo-${slug}`,
+      );
       expect(fs.existsSync(siblingDir)).toBe(true);
 
       // This pipeline: same slug collides → auto-suffixed to `reskin-2` /
       // `repo-reskin-2`. The warning fires on stderr (Task 3).
       const own = await runNewWorktree([slug], fx.repoDir);
       expect(own.exitCode, `own stderr: ${own.stderr}`).toBe(0);
-      const ownDir = path.join(path.dirname(fx.repoDir), `repo-${slug}-2`);
+      const ownDir = path.join(
+        worktreeContainerDir(fx.repoDir),
+        `repo-${slug}-2`,
+      );
       expect(fs.existsSync(ownDir), `expected -2 worktree at ${ownDir}`).toBe(
         true,
       );

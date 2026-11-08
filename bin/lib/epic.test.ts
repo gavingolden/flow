@@ -4500,8 +4500,8 @@ describe("epic launches reserve the worktree folder (real reservation)", () => {
     );
   }
 
-  const siblingOf = (slug: string): string =>
-    path.join(path.dirname(repoDir), `${path.basename(repoDir)}-${slug}`);
+  const reservedPathFor = (slug: string): string =>
+    deriveWorktreePath(repoDir, slug);
 
   it("create: the first --add-dir is an existing empty folder recorded as reservedWorktree", () => {
     gitInit();
@@ -4654,7 +4654,7 @@ describe("epic launches reserve the worktree folder (real reservation)", () => {
 
   it("resume: prefers state.worktree over state.reservedWorktree", () => {
     const recorded = path.join(os.tmpdir(), "flow-epic-recorded-wt");
-    const reserved = siblingOf("pref-epic");
+    const reserved = reservedPathFor("pref-epic");
     reservedToClean.push(reserved);
     seedState("pref-epic", { worktree: recorded, reservedWorktree: reserved });
     tmuxMock.windowExists.mockReturnValue(true);
@@ -4667,7 +4667,7 @@ describe("epic launches reserve the worktree folder (real reservation)", () => {
   });
 
   it("resume: re-creates a vanished reserved folder", () => {
-    const reserved = siblingOf("vanished-epic");
+    const reserved = reservedPathFor("vanished-epic");
     reservedToClean.push(reserved);
     seedState("vanished-epic", { reservedWorktree: reserved });
     tmuxMock.windowExists.mockReturnValue(true);
@@ -4909,7 +4909,7 @@ describe("epic launches reserve the worktree folder (real reservation)", () => {
   it("run: a recorded reservedWorktree whose folder vanished is re-created, nothing newly reserved", () => {
     gitInit();
     writeRunManifest("run-vanished-epic");
-    const reserved = siblingOf("run-vanished-epic");
+    const reserved = reservedPathFor("run-vanished-epic");
     reservedToClean.push(reserved);
     seedState("run-vanished-epic", {
       phase: "epic-approved",
@@ -4934,7 +4934,7 @@ describe("epic launches reserve the worktree folder (real reservation)", () => {
   it("run: a state.worktree missing on disk falls through to the recorded reservedWorktree", () => {
     gitInit();
     writeRunManifest("run-stale-wt-epic");
-    const reserved = siblingOf("run-stale-wt-epic");
+    const reserved = reservedPathFor("run-stale-wt-epic");
     reservedToClean.push(reserved);
     const gone = path.join(os.tmpdir(), "flow-epic-gone-wt-does-not-exist");
     seedState("run-stale-wt-epic", {
