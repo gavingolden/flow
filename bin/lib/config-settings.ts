@@ -373,7 +373,10 @@ const DESCRIPTORS: Descriptor[] = [
             value: String(minutes),
             source: "config (power.keepAwakeMaxMinutes)",
           }
-        : { value: String(minutes), source: `built-in (${KEEP_AWAKE_DEFAULT_MINUTES})` };
+        : {
+            value: String(minutes),
+            source: `built-in (${KEEP_AWAKE_DEFAULT_MINUTES})`,
+          };
     },
   },
   {
