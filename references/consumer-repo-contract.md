@@ -82,6 +82,25 @@ in `~/.flow/test-sem/`, so parallel pipelines stop oversubscribing cores.
 Only the test check is throttled (others run unthrottled). Override `K`
 via `FLOW_TEST_CONCURRENCY`; on acquire timeout the test runs anyway.
 
+## macOS process-title preload
+
+On macOS every check `flow-pre-commit` launches gets
+`--require=<flow checkout>/bin/lib/no-proctitle.cjs` appended to `NODE_OPTIONS`
+(an existing value is kept; skipped when the file is missing) and
+`UV_PROCESS_TITLE_USE_LAUNCH_SERVICES=0` when the repo has not set it (a repo
+that sets the variable itself keeps its value). Why: naming a Node process on
+macOS registers it with LaunchServices, and vitest 3 and earlier name every
+per-file worker, so a busy suite run keeps the system daemons busy and the
+whole machine stutters. The preload is idempotent, so a repo-local title
+preload composes with it. What is lost: on macOS, process titles set by Node
+processes under flow checks are visible only inside the process (not to `ps`
+or Activity Monitor), and there is currently no per-repo opt-out. Off macOS
+nothing changes; Bun ignores
+`NODE_OPTIONS`. See
+[https://github.com/libuv/libuv/pull/5370](https://github.com/libuv/libuv/pull/5370)
+and
+[https://github.com/libuv/libuv/issues/5300](https://github.com/libuv/libuv/issues/5300).
+
 ## Host-wide research cache
 
 `flow-research-cache` caches synthesis at `~/.flow/research-cache/`, keyed
