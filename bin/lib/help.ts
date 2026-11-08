@@ -218,8 +218,9 @@ Subcommands:
                         --all-repos widens the repo axis, and --all/-a drop
                         both. Outside a git repo, the default listing is
                         empty with a printed reason.
-  done <slug>           remove the recomputable per-machine ~/.flow/epics/<slug>/
-                        runtime state (does NOT close the design window or
+  done <slug>           remove the per-machine ~/.flow/epics/<slug>/ runtime
+                        state; recorded merges are lost until \`flow epic bind\`
+                        restores them (does NOT close the design window or
                         pipeline state — use \`flow done <slug>\` for those)
   manage <slug>         open tmux window manage-<slug> running the zero-token
                         sequencer: it launches each ready feature as soon as it
@@ -388,6 +389,11 @@ Pass two or more <name>s to close several pipelines in one confirm-once sweep
 (an unknown name warns and forces a non-zero exit while the rest still close).
 When both --merged and --orphans are passed, the sweep unions the two filters
 and tags each preview row 'merged', 'orphan', or 'merged+orphan'.
+
+Epic board: before anything is closed, a pipeline bound to an epic feature has
+its phase and PR recorded on the epic board entry, so a merged feature
+stays merged on the board after its state file is gone. If that record cannot
+be written, the pipeline is kept open and the command exits 1; re-run it.
 
 Best-effort side effect: closing a pipeline whose session is still alive also
 SIGTERMs that session's own chrome-devtools-mcp browser server (via

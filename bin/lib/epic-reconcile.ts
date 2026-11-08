@@ -119,7 +119,10 @@ export type ReadFeatureState = (slug: string) => PipelineState | null;
  * Classify a launched feature from its live pipeline phase. `merged` ⇒ done;
  * the other terminal phases (`gated`/`needs-human`/`cancelled`) surface as
  * themselves and halt their subtree; a null state is an `orphan` (launched but
- * no state file yet / lost); anything non-terminal is `running`.
+ * no state file yet / lost); anything non-terminal is `running`. `reconcile`
+ * overrides a null-state `orphan` to `merged` when the launch record's
+ * `lastStatus` already latched `merged` (the state file was removed by
+ * `flow done` after the merge).
  */
 function classifyLaunched(state: PipelineState | null): FeatureStatus {
   if (state === null) return "orphan";
@@ -187,7 +190,10 @@ export function reconcile(input: {
     }
     const state = record.slug ? readFeatureState(record.slug) : null;
     liveState.set(f.id, state);
-    const classified = classifyLaunched(state);
+    const classified =
+      state === null && record.lastStatus === "merged"
+        ? "merged"
+        : classifyLaunched(state);
     if (
       classified === "orphan" &&
       committedStatus?.features[f.id]?.status === "merged"

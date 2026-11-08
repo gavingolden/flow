@@ -412,3 +412,10 @@ describe("runHelpVerb", () => {
     },
   );
 });
+
+describe("HELP_TEXT.done epic-board record", () => {
+  it("documents the launch-record write and the keep-open/exit-1 behaviour", () => {
+    expect(HELP_TEXT.done).toContain("epic board entry");
+    expect(HELP_TEXT.done).toContain("kept open and the command exits 1");
+  });
+});

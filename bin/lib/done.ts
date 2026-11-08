@@ -40,6 +40,11 @@ import { plainTerminate } from "./launcher";
 import { releaseReservedWorktree } from "./worktree-slot";
 import { dim } from "./color";
 import { compact, readRows } from "./proc-registry";
+import {
+  formatLatchNote,
+  latchEpicBinding,
+  type EpicLatchResult,
+} from "./epic-merge-latch";
 
 const TERMINAL_PHASES = new Set(["merged", "cancelled"]);
 
@@ -83,6 +88,13 @@ export type DoneOptions = {
    */
   registryReap?: (slug: string) => void;
   /**
+   * Epic launch-record latch seam (test only) — defaults to
+   * `latchEpicBinding`. Runs before any teardown, kill, reap or state
+   * delete, and unlike those it is NOT swallowed: a failure keeps the
+   * pipeline open so the merge is never lost with the state file.
+   */
+  epicLatch?: (state: PipelineState) => EpicLatchResult[];
+  /**
    * Clock seam for the `sweep()` cumulative registry-reap budget (test
    * only) — defaults to `Date.now`. Lets a test exercise the
    * `DONE_REAP_BUDGET_MS` skip branch deterministically instead of
@@ -121,6 +133,27 @@ function safeBrowserTeardown(slug: string, options: DoneOptions): void {
     (options.browserTeardown ?? defaultBrowserTeardown)(slug);
   } catch {
     // Best-effort — see the doc comment above.
+  }
+}
+
+/**
+ * Records the pipeline's phase/PR on its epic launch record(s) before the
+ * state file that proves a merge is deleted. Returns false (after printing the
+ * keep-open line) when the record could not be written.
+ */
+function latchBeforeClose(state: PipelineState, options: DoneOptions): boolean {
+  try {
+    for (const r of (options.epicLatch ?? latchEpicBinding)(state)) {
+      const note = formatLatchNote(r, state.slug);
+      if (note) console.log(dim(`  ${note}`));
+    }
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `  kept '${state.slug}' open: could not record its epic board entry (${message}) — re-run 'flow done ${state.slug}'`,
+    );
+    return false;
   }
 }
 
@@ -325,6 +358,9 @@ export function runDone(
     }
   }
 
+  if (hasState && !latchBeforeClose(readState(name) ?? recordedState, options))
+    return 1;
+
   safeBrowserTeardown(name, options);
 
   let warned = false;
@@ -464,7 +500,15 @@ function sweep(
   // without it, N stale pipelines ahead of a slow reap could stall the
   // sweep for up to N x REAP_TIMEOUT_MS.
   const reapDeadline = now() + DONE_REAP_BUDGET_MS;
+  let latchFailed = false;
   for (const s of states) {
+    if (
+      s.phase !== "unknown" &&
+      !latchBeforeClose(readState(s.slug) ?? s, options)
+    ) {
+      latchFailed = true;
+      continue;
+    }
     safeBrowserTeardown(s.slug, options);
     if (findWindowBySlug(windows, s.slug)) {
       killWindow(s.slug);
@@ -497,5 +541,5 @@ function sweep(
     deleteCheckpointDir(s.slug);
     console.log(`closed: ${s.slug}`);
   }
-  return 0;
+  return latchFailed ? 1 : 0;
 }

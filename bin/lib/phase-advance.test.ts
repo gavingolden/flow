@@ -35,13 +35,18 @@ const tmuxMock = vi.hoisted(() => ({
 vi.mock("./tmux", () => tmuxMock);
 
 let stateDir!: string;
+let stateRoot!: string;
 
+// Nested so the default epic latch's sibling `epics/` dir lands inside the
+// per-test root, not the host-shared $TMPDIR/epics.
 beforeEach(() => {
-  stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "phase-advance-"));
+  stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), "phase-advance-"));
+  stateDir = path.join(stateRoot, "state");
+  fs.mkdirSync(stateDir);
 });
 
 afterEach(() => {
-  fs.rmSync(stateDir, { recursive: true, force: true });
+  fs.rmSync(stateRoot, { recursive: true, force: true });
 });
 
 function seedState(
@@ -990,4 +995,70 @@ describe("TERMINAL_PHASE_EMITTERS", () => {
       cancelled: "flow-gate-summary",
     });
   });
+});
+
+describe("finalizePhase — epic launch-record latch", () => {
+  let root!: string;
+  let rootState!: string;
+  const runJson = () => path.join(root, "epics", "e", "run.json");
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "phase-advance-latch-"));
+    rootState = path.join(root, "state");
+    fs.mkdirSync(rootState);
+    fs.mkdirSync(path.join(root, "epics", "e"), { recursive: true });
+    fs.writeFileSync(
+      path.join(rootState, "s.json"),
+      JSON.stringify({
+        slug: "s",
+        phase: "gating",
+        repo: "/tmp/repo",
+        pr: 9,
+        updatedAt: "2026-04-30T12:00:00Z",
+      }) + "\n",
+    );
+    fs.writeFileSync(
+      runJson(),
+      JSON.stringify({
+        epicSlug: "e",
+        repo: "/tmp/repo",
+        manifestPath: "/tmp/m.json",
+        manifestSha: "sha",
+        createdAt: "x",
+        updatedAt: "x",
+        features: { f: { slug: "s", launchedAt: "x" } },
+      }) + "\n",
+    );
+  });
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("merging latches lastStatus and pr onto the binding in the sibling epics dir", () => {
+    const result = finalizePhase("merged", { slug: "s", dir: rootState });
+    expect(result.advanced).toBe(true);
+    const f = JSON.parse(fs.readFileSync(runJson(), "utf8")).features.f;
+    expect(f).toMatchObject({ slug: "s", lastStatus: "merged", pr: 9 });
+  });
+
+  it("a throwing latch never changes the result", () => {
+    const result = finalizePhase("merged", {
+      slug: "s",
+      dir: rootState,
+      epicLatch: () => {
+        throw new Error("boom");
+      },
+    });
+    expect(result.advanced).toBe(true);
+    expect(readState("s", rootState)?.phase).toBe("merged");
+  });
+
+  it.each(["gated", "needs-human"] as const)(
+    "finalizePhase(%s) never calls the latch",
+    (target) => {
+      const epicLatch = vi.fn();
+      finalizePhase(target, { slug: "s", dir: rootState, epicLatch });
+      expect(epicLatch).not.toHaveBeenCalled();
+    },
+  );
 });

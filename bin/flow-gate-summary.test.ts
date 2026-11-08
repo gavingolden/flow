@@ -26,13 +26,18 @@ import {
 } from "./lib/gate-summary-rows";
 
 let tmpRoot!: string;
+let tmpBase!: string;
 
+// Nested so finalizePhase's default epic latch (dirname(stateDir)/epics) stays
+// inside the per-test dir, not the host-shared $TMPDIR/epics.
 beforeEach(() => {
-  tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "flow-gate-summary-test-"));
+  tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), "flow-gate-summary-test-"));
+  tmpRoot = path.join(tmpBase, "state");
+  fs.mkdirSync(tmpRoot);
 });
 
 afterEach(() => {
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
+  fs.rmSync(tmpBase, { recursive: true, force: true });
 });
 
 // Universal sentinel-line invariant: every non-awaiting-approval status
