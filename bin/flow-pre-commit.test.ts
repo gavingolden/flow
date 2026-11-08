@@ -3839,19 +3839,22 @@ describe("cross-scope dedupe", () => {
 describe("checkRunEnv", () => {
   it("should strip git-local vars and apply the preload env without mutating input", async () => {
     const { checkRunEnv } = await import("./flow-pre-commit");
-    const { withNoProctitlePreload } = await import("./lib/no-proctitle-env");
-    const { withoutGitLocalEnv } = await import("./lib/git-local-env");
     const input: NodeJS.ProcessEnv = {
       GIT_DIR: "/x/.git",
       GIT_INDEX_FILE: "/x/idx",
       PATH: "/bin",
       FOO: "bar",
     };
-    const out = checkRunEnv(input);
+    const out = checkRunEnv(input, {
+      platform: "darwin",
+      preloadPath: "/p/no-proctitle.cjs",
+      exists: () => true,
+    });
     expect(out).not.toHaveProperty("GIT_DIR");
     expect(out).not.toHaveProperty("GIT_INDEX_FILE");
     expect(out.FOO).toBe("bar");
-    expect(out).toEqual(withNoProctitlePreload(withoutGitLocalEnv(input)));
+    expect(out.NODE_OPTIONS).toBe("--require=/p/no-proctitle.cjs");
+    expect(out.UV_PROCESS_TITLE_USE_LAUNCH_SERVICES).toBe("0");
     expect(input.GIT_DIR).toBe("/x/.git");
   });
 });

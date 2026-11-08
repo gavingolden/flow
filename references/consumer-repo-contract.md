@@ -92,7 +92,10 @@ that sets the variable itself keeps its value). Why: naming a Node process on
 macOS registers it with LaunchServices, and vitest 3 and earlier name every
 per-file worker, so a busy suite run keeps the system daemons busy and the
 whole machine stutters. The preload is idempotent, so a repo-local title
-preload composes with it. Off macOS nothing changes; Bun ignores
+preload composes with it. What is lost: on macOS, process titles set by Node
+processes under flow checks are visible only inside the process (not to `ps`
+or Activity Monitor), and there is currently no per-repo opt-out. Off macOS
+nothing changes; Bun ignores
 `NODE_OPTIONS`. See
 [https://github.com/libuv/libuv/pull/5370](https://github.com/libuv/libuv/pull/5370)
 and

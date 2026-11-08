@@ -360,8 +360,9 @@ export function registryArgv(
 /** Env every check runs with: git-local vars stripped, macOS process-title preload applied. */
 export function checkRunEnv(
   env: NodeJS.ProcessEnv = process.env,
+  preloadOpts?: Parameters<typeof withNoProctitlePreload>[1],
 ): NodeJS.ProcessEnv {
-  return withNoProctitlePreload(withoutGitLocalEnv(env));
+  return withNoProctitlePreload(withoutGitLocalEnv(env), preloadOpts);
 }
 
 /** `runCheck`'s default `Runner` — routes every check command through `registryArgv`. */
@@ -1633,10 +1634,10 @@ Check mapping:
   root-fallback:  npm run typecheck, npm run test, npm run lint
                   (fires for files no other scope claimed)
 
-On macOS every check runs with a Node preload (plus libuv's
-UV_PROCESS_TITLE_USE_LAUNCH_SERVICES=0 opt-out) that stops each Node process
-registering with the OS's app services (a major source of machine-wide stutter
-when many suites run at once).
+On macOS, checks no longer make the machine stutter when several test suites
+run at once: Node processes they start keep their names to themselves instead
+of registering with macOS. What is lost: those processes show as plain 'node'
+in Activity Monitor.
 
 With a valid .flow/test-tiers.json manifest AND a declared 'test:related'
 npm script, 'npm run test' above narrows to a tiered selection: the
