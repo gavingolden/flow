@@ -179,6 +179,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-epic-judge-context",
       "flow-epic-membership",
       "flow-epic-sync",
+      "flow-epic-self-mark",
       "flow-module-status",
       "flow-transcript-audit",
       "flow-context-budget",
