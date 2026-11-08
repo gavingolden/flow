@@ -61,11 +61,9 @@ export type KeepAwakeOutcome = {
 const RELEASE_POLL_MS = 20;
 const RELEASE_WAIT_MS = 200;
 
-const defaultDeps: KeepAwakeDeps = {
+const defaultDeps: Omit<KeepAwakeDeps, "enabled" | "maxSec"> = {
   platform: process.platform,
   envOff: () => process.env.FLOW_KEEP_AWAKE === "0",
-  enabled: () => readKeepAwakeSettings().enabled,
-  maxSec: () => readKeepAwakeSettings().maxSec,
   nowMs: Date.now,
   hasCaffeinate: () => fs.existsSync(CAFFEINATE_PATH),
   pidLive: (pid) => {
@@ -128,13 +126,14 @@ export function syncKeepAwake(
   state: PipelineState,
   deps: Partial<KeepAwakeDeps> = {},
 ): KeepAwakeOutcome {
-  const d = { ...defaultDeps, ...deps };
-  if (!deps.enabled || !deps.maxSec) {
-    let snapshot: ReturnType<typeof readKeepAwakeSettings> | undefined;
-    const settings = () => (snapshot ??= readKeepAwakeSettings());
-    d.enabled = deps.enabled ?? (() => settings().enabled);
-    d.maxSec = deps.maxSec ?? (() => settings().maxSec);
-  }
+  let snapshot: ReturnType<typeof readKeepAwakeSettings> | undefined;
+  const settings = () => (snapshot ??= readKeepAwakeSettings());
+  const d: KeepAwakeDeps = {
+    enabled: () => settings().enabled,
+    maxSec: () => settings().maxSec,
+    ...defaultDeps,
+    ...deps,
+  };
   try {
     if (d.envOff()) return { action: "none", skip: "env-off" };
     const holders = d
