@@ -11,16 +11,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CHAIN_HOOK_SHIM,
   FLOW_HOOK_NAMES,
   installWorktreeHooks,
   repairFlowWorktreeHooks,
-  sharedHookShimPath,
 } from "./worktree-commit-hook";
-import nodeFs from "node:fs";
-import { syncBuiltinESMExports } from "node:module";
 
 // Fixture git calls must not read the host's global/system config (a global
 // core.hooksPath or commit-signing setup would change what these cases prove).
@@ -436,160 +433,5 @@ describe(repairFlowWorktreeHooks, () => {
     expect(result.repaired.map((d) => fs.realpathSync(d))).toEqual([
       fs.realpathSync(fx.worktreeDir),
     ]);
-  });
-});
-
-describe("shared hook shim layout", () => {
-  let fx: Fixture;
-  beforeEach(() => {
-    fx = makeFixture();
-  });
-  afterEach(() => {
-    vi.restoreAllMocks();
-    syncBuiltinESMExports();
-    fx.cleanup();
-  });
-
-  function hooksDirOf(worktreeDir: string): string {
-    const raw = mustGit(["rev-parse", "--git-dir"], worktreeDir);
-    const gitDir = path.isAbsolute(raw) ? raw : path.join(worktreeDir, raw);
-    return path.join(gitDir, "flow-hooks");
-  }
-
-  function secondWorktree(): string {
-    const dir = path.join(path.dirname(fx.worktreeDir), "repo-second");
-    mustGit(["worktree", "add", "-b", "second", dir], fx.repoDir);
-    return dir;
-  }
-
-  it("leaves current links untouched and relinks one pointing at a stale shim", () => {
-    installWorktreeHooks(fx.worktreeDir);
-    const hooksDir = hooksDirOf(fx.worktreeDir);
-    const linkInodes = () =>
-      FLOW_HOOK_NAMES.map((n) => fs.lstatSync(path.join(hooksDir, n)).ino);
-    const before = linkInodes();
-    installWorktreeHooks(fx.worktreeDir);
-    expect(linkInodes()).toEqual(before);
-
-    const stale = path.join(
-      path.dirname(sharedHookShimPath()),
-      "worktree-chain-shim-000000000000.sh",
-    );
-    fs.writeFileSync(stale, "#!/bin/sh\n", { mode: 0o755 });
-    const prePush = path.join(hooksDir, "pre-push");
-    fs.rmSync(prePush);
-    fs.symlinkSync(stale, prePush);
-    installWorktreeHooks(fx.worktreeDir);
-    expect(fs.readlinkSync(prePush)).toBe(sharedHookShimPath());
-  });
-
-  it("links every hook name in two worktrees to the one machine-wide shim", () => {
-    const second = secondWorktree();
-    installWorktreeHooks(fx.worktreeDir);
-    installWorktreeHooks(second);
-
-    const shim = fs.realpathSync(sharedHookShimPath());
-    for (const wt of [fx.worktreeDir, second]) {
-      const hooksDir = hooksDirOf(wt);
-      expect(fs.readdirSync(hooksDir).sort()).toEqual(
-        [...FLOW_HOOK_NAMES].sort(),
-      );
-      for (const name of FLOW_HOOK_NAMES) {
-        const hookPath = path.join(hooksDir, name);
-        expect(fs.lstatSync(hookPath).isSymbolicLink()).toBe(true);
-        expect(fs.realpathSync(hookPath)).toBe(shim);
-      }
-    }
-    expect(fs.readFileSync(shim, "utf8")).toBe(CHAIN_HOOK_SHIM);
-    expect(fs.statSync(shim).mode & 0o777).toBe(0o755);
-  });
-
-  it("resolves the shared shim path at call time under the sandbox $HOME", () => {
-    expect(sharedHookShimPath()).toContain("flow-vitest-home-");
-    expect(sharedHookShimPath()).toBe(
-      path.join(
-        os.homedir(),
-        ".flow",
-        "hooks",
-        path.basename(sharedHookShimPath()),
-      ),
-    );
-  });
-
-  it("converts an older layout of standalone copies into links", () => {
-    installWorktreeHooks(fx.worktreeDir);
-    const hooksDir = hooksDirOf(fx.worktreeDir);
-    for (const name of FLOW_HOOK_NAMES) {
-      const hookPath = path.join(hooksDir, name);
-      fs.rmSync(hookPath);
-      fs.writeFileSync(hookPath, CHAIN_HOOK_SHIM, { mode: 0o755 });
-    }
-
-    installWorktreeHooks(fx.worktreeDir);
-
-    for (const name of FLOW_HOOK_NAMES) {
-      expect(fs.lstatSync(path.join(hooksDir, name)).isSymbolicLink()).toBe(
-        true,
-      );
-    }
-    expect(fs.readdirSync(hooksDir).sort()).toEqual(
-      [...FLOW_HOOK_NAMES].sort(),
-    );
-  });
-
-  it("rewrites a shared shim corrupted through a hook link", () => {
-    installWorktreeHooks(fx.worktreeDir);
-    const hooksDir = hooksDirOf(fx.worktreeDir);
-    fs.writeFileSync(path.join(hooksDir, "pre-push"), "#!/bin/sh\nexit 1\n");
-    expect(fs.readFileSync(sharedHookShimPath(), "utf8")).not.toBe(
-      CHAIN_HOOK_SHIM,
-    );
-
-    installWorktreeHooks(fx.worktreeDir);
-
-    for (const name of FLOW_HOOK_NAMES) {
-      expect(fs.readFileSync(path.join(hooksDir, name), "utf8")).toBe(
-        CHAIN_HOOK_SHIM,
-      );
-    }
-    expect(fs.statSync(sharedHookShimPath()).mode & 0o777).toBe(0o755);
-  });
-
-  it("falls back to copies with exactly one stderr warning when symlinks are refused", () => {
-    const eperm = Object.assign(new Error("operation not permitted"), {
-      code: "EPERM",
-    });
-    // The namespace is frozen, so spy on the CJS object and re-sync the ESM
-    // view that worktree-commit-hook.ts imports.
-    vi.spyOn(nodeFs, "symlinkSync").mockImplementation(() => {
-      throw eperm;
-    });
-    syncBuiltinESMExports();
-    const warn = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-
-    installWorktreeHooks(fx.worktreeDir);
-
-    const hooksDir = hooksDirOf(fx.worktreeDir);
-    for (const name of FLOW_HOOK_NAMES) {
-      const hookPath = path.join(hooksDir, name);
-      expect(fs.lstatSync(hookPath).isSymbolicLink()).toBe(false);
-      expect(fs.readFileSync(hookPath, "utf8")).toBe(CHAIN_HOOK_SHIM);
-      expect(fs.statSync(hookPath).mode & 0o777).toBe(0o755);
-    }
-    const warnings = warn.mock.calls
-      .map((c) => String(c[0]))
-      .filter((s) => s.includes("symlinks unavailable"));
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain(hooksDir);
-  });
-
-  it("still stamps the session trailer on a commit through the linked shim", () => {
-    installWorktreeHooks(fx.worktreeDir);
-    const message = commitAndReadMessage(
-      fx.worktreeDir,
-      "shared.txt",
-      "sess-shared",
-    );
-    expect(message.trimEnd()).toMatch(/\nClaude-Code-Session-Id: sess-shared$/);
   });
 });

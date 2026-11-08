@@ -1,6 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { git } from "./git";
 
@@ -113,91 +111,23 @@ function readConfig(args: string[], cwd: string): string | null {
   }
 }
 
-/**
- * Machine-wide home of the one shim file every flow worktree's hook names
- * link to, so macOS scans that file once instead of once per hook copy per
- * worktree. The path embeds a hash of the shim body: a body change lands in a
- * new file, and old-hash files are left behind. Resolves `os.homedir()` at
- * call time (never `paths.ts` constants, which freeze at import) so a test
- * sandbox's `$HOME` is honoured.
- */
-export function sharedHookShimPath(homeDir: string = os.homedir()): string {
-  const hash = createHash("sha256")
-    .update(CHAIN_HOOK_SHIM)
-    .digest("hex")
-    .slice(0, 12);
-  return path.join(homeDir, ".flow", "hooks", `worktree-chain-shim-${hash}.sh`);
-}
-
-function tmpSibling(target: string): string {
-  const rand = randomBytes(4).toString("hex");
-  return path.join(
-    path.dirname(target),
-    `.${path.basename(target)}.${process.pid}.${rand}.tmp`,
-  );
-}
-
-function shimFileIsCurrent(shimPath: string): boolean {
+function shimIsCurrent(hookPath: string): boolean {
   try {
     return (
-      fs.readFileSync(shimPath, "utf8") === CHAIN_HOOK_SHIM &&
-      (fs.statSync(shimPath).mode & 0o777) === 0o755
+      fs.readFileSync(hookPath, "utf8") === CHAIN_HOOK_SHIM &&
+      (fs.statSync(hookPath).mode & 0o777) === 0o755
     );
   } catch {
     return false;
   }
-}
-
-/**
- * Temp file + rename, never an in-place write: a write-through via a hook
- * link can corrupt the shared inode, and rename detaches it.
- */
-function ensureSharedHookShim(): string {
-  const shimPath = sharedHookShimPath();
-  if (shimFileIsCurrent(shimPath)) return shimPath;
-  fs.mkdirSync(path.dirname(shimPath), { recursive: true });
-  installHookCopy(shimPath);
-  return shimPath;
-}
-
-function copyIsCurrent(hookPath: string): boolean {
-  try {
-    return (
-      !fs.lstatSync(hookPath).isSymbolicLink() && shimFileIsCurrent(hookPath)
-    );
-  } catch {
-    return false;
-  }
-}
-
-function linkIsCurrent(hookPath: string, shimPath: string): boolean {
-  try {
-    return (
-      fs.lstatSync(hookPath).isSymbolicLink() &&
-      fs.readlinkSync(hookPath) === shimPath
-    );
-  } catch {
-    return false;
-  }
-}
-
-const NO_SYMLINK_CODES = new Set(["ENOTSUP", "EPERM", "EOPNOTSUPP", "ENOSYS"]);
-
-function installHookCopy(hookPath: string): void {
-  const tmpPath = tmpSibling(hookPath);
-  fs.writeFileSync(tmpPath, CHAIN_HOOK_SHIM, { encoding: "utf8", mode: 0o755 });
-  fs.chmodSync(tmpPath, 0o755);
-  fs.renameSync(tmpPath, hookPath);
 }
 
 /**
  * Installs the chaining shims into a single flow worktree, scoped so they
- * never fire for the user's primary repo or other worktrees. Each hook name
- * is an absolute symlink to the one shared shim (`sharedHookShimPath`);
- * where the filesystem refuses symlinks it falls back to a per-name copy.
- * Idempotent — `git config` set is idempotent and every link or copy is
- * replaced atomically (temp + rename) because a live pipeline may fire a
- * hook while another launch rewrites the folder. Removes nothing else.
+ * never fire for the user's primary repo or other worktrees. Idempotent —
+ * `git config` set is idempotent and every shim is rewritten atomically
+ * (temp file + rename, mode 0755) because a live pipeline may fire a hook
+ * while another launch rewrites the folder. Removes nothing else.
  *
  * Resolves the hooks dir via `git rev-parse --git-dir` run *from the
  * worktree* — the per-worktree `.git/worktrees/<name>/` path, NOT
@@ -232,27 +162,16 @@ export function installWorktreeHooks(worktreeDir: string): void {
     git(["config", "--worktree", "core.hooksPath", hooksDir], worktreeDir);
   }
 
-  const shimPath = ensureSharedHookShim();
   fs.mkdirSync(hooksDir, { recursive: true });
-  let warned = false;
   for (const name of FLOW_HOOK_NAMES) {
     const hookPath = path.join(hooksDir, name);
-    if (linkIsCurrent(hookPath, shimPath)) continue;
-    const tmpPath = tmpSibling(hookPath);
-    try {
-      fs.symlinkSync(shimPath, tmpPath);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (!code || !NO_SYMLINK_CODES.has(code)) throw err;
-      if (!warned) {
-        process.stderr.write(
-          `flow: symlinks unavailable in ${hooksDir}; installed hook copies instead (each copy is scanned by macOS separately)\n`,
-        );
-        warned = true;
-      }
-      if (!copyIsCurrent(hookPath)) installHookCopy(hookPath);
-      continue;
-    }
+    if (shimIsCurrent(hookPath)) continue;
+    const tmpPath = path.join(hooksDir, `.${name}.${process.pid}.tmp`);
+    fs.writeFileSync(tmpPath, CHAIN_HOOK_SHIM, {
+      encoding: "utf8",
+      mode: 0o755,
+    });
+    fs.chmodSync(tmpPath, 0o755);
     fs.renameSync(tmpPath, hookPath);
   }
 }
