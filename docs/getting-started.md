@@ -14,7 +14,7 @@ Follow the Quickstart in the [README](../README.md#quickstart): clone, `npm inst
 flow feature create "add CSV export"
 ```
 
-Claude Code launches as a foreground process in your terminal (the plain shell is the default; tmux is a separate opt-in — see [the README's power-users section](../README.md#power-users-the-tmux-launcher)). The supervisor triages the request, drafts a plan, and — because this is feature work — pauses for your approval before it writes any code. Type `approved`, type a redirection to reshape the plan, or type `cancel` to stop.
+Claude Code launches as a foreground process in your terminal (the plain shell is the default; tmux is a separate opt-in — see [the tmux guide](tmux.md)). The supervisor triages the request, drafts a plan, and — because this is feature work — pauses for your approval before it writes any code. Type `approved`, type a redirection to reshape the plan, or type `cancel` to stop.
 
 Expect more than one pause. Before the planning pause, the adaptive intent interview may ask one or more rounds of clarifying questions when your description leaves something load-bearing unspecified — it can fire on any intent, not just feature work, and it is on by default; `flow feature create --no-interview` skips it for a single run, and [configuration.md](configuration.md) carries the authoritative default and the config key.
 
@@ -109,6 +109,6 @@ See [configuration.md](configuration.md#process-registry) for the full registry 
 ## Next steps
 
 - **Tune models and config** — route expensive models to planning and cheap ones to verify: [configuration.md](configuration.md)
-- **Run pipelines in parallel / walk away** — the opt-in tmux launcher: [README](../README.md#power-users-the-tmux-launcher)
+- **Run pipelines in parallel / walk away** — the opt-in tmux launcher: [tmux guide](tmux.md)
 - **Bigger than one PR?** — `flow epic create` designs a multi-pipeline epic and `flow epic run` drives it; see `flow help`
 - **Working on flow itself** — [CONTRIBUTING.md](../CONTRIBUTING.md)
