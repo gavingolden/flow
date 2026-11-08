@@ -153,6 +153,27 @@ describe("state", () => {
     expect(readState("bad-worktree", dir)).toBeNull();
   });
 
+  it("readState round-trips a string createdAt and rejects a non-string one", () => {
+    writeState(
+      fixture("created", { createdAt: "2026-11-08T00:00:00.000Z" }),
+      dir,
+    );
+    expect(readState("created", dir)?.createdAt).toBe(
+      "2026-11-08T00:00:00.000Z",
+    );
+    fs.writeFileSync(
+      path.join(dir, "bad-created.json"),
+      JSON.stringify({
+        slug: "bad-created",
+        phase: "starting",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        createdAt: 5,
+      }),
+    );
+    expect(readState("bad-created", dir)).toBeNull();
+  });
+
   it("readState round-trips reservedWorktree and rejects a non-string one", () => {
     writeState(
       fixture("reserved", { reservedWorktree: "/tmp/repo-reserved" }),

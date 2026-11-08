@@ -62,8 +62,10 @@ import {
 import {
   dirtyEpicMetadata as defaultDirtyEpicPaths,
   repoCommitState as defaultRepoCommitState,
+  onBaseBranch,
   type RepoState,
 } from "./lib/epic-metadata-commit";
+import { defaultGit } from "./lib/resume-probes";
 
 type HookInput = {
   stop_hook_active?: boolean;
@@ -98,6 +100,13 @@ export type Deps = {
   repoCommitState: (repoRoot: string) => RepoState;
   /** Installed pre-commit hook capability probe (test seam; production: base-branch-guard.ts). */
   guardCapability: (repoRoot: string) => GuardCapability;
+  /**
+   * Whether the root is on its base branch (or detached) rather than a
+   * feature branch (test seam; production: `epic-metadata-commit.ts`'s
+   * branch predicates). A feature-branch root takes the `flow-epic-self-mark`
+   * route; `flow-epic-sync --commit` refuses off the base branch.
+   */
+  rootOnBase: (repoRoot: string) => boolean;
   /**
    * Records the bounded `needs-human` pause (test seam; production:
    * `finalizePhase`, so its epic/finished/pr/branch guards apply). Runs
@@ -151,7 +160,9 @@ function dedupe(items: string[]): string[] {
 /**
  * SATISFIABLE-ROUTE INVARIANT: may only name routes the session can execute
  * IN THIS TURN. A status.json board is committable on the base branch via
- * the v4 allowlist (`flow-epic-sync --commit --push`); any other
+ * the v4 allowlist (`flow-epic-sync --commit --push`) and on a feature
+ * branch as the pipeline's own row (`flow-epic-self-mark --commit --push`);
+ * any other
  * `.flow/epics/**` path (manifest.json, design.md, ...) needs the full
  * switch-commit-switch-back sequence — the base-branch guard refuses only
  * when HEAD IS the default branch, so switching off it first makes the
@@ -169,6 +180,8 @@ export function buildEpicMetadataReminder(
      * true — an optional default would silently reintroduce the optimistic
      * assumption this predicate exists to kill. */
     statusRouteWorks: (root: string) => boolean;
+    /** Whether a root is on its base branch; a feature-branch root's dirty board goes through `flow-epic-self-mark`. */
+    rootOnBase: (root: string) => boolean;
   },
 ): string[] {
   const lines = [
@@ -184,7 +197,12 @@ export function buildEpicMetadataReminder(
     // flow-epic-sync route when the installed hook would just refuse it
     // (a foreign hook, or an un-self-healable legacy one) would name a
     // route the session cannot execute in this turn.
-    if (isCommittableOnBaseBranch([p]) && ctx.statusRouteWorks(root)) {
+    if (isCommittableOnBaseBranch([p]) && !ctx.rootOnBase(root)) {
+      lines.push(
+        `  ${p}: run \`(cd ${root} && flow-epic-self-mark --commit --push)\` — this checkout is on a feature branch, which writes only its own row.`,
+        `    if that exits 0 with no output (not epic-bound) or refuses no-pr (no PR opened yet), commit the file directly instead: \`git -C ${root} add -- ${p} && git -C ${root} commit -m "chore(epic): commit ${p}" -- ${p}\`.`,
+      );
+    } else if (isCommittableOnBaseBranch([p]) && ctx.statusRouteWorks(root)) {
       const epicMatch = p.match(/^\.flow\/epics\/([^/]+)\/status\.json$/);
       const slug = epicMatch?.[1];
       // Root-anchored: these commands must always operate on `root`, never
@@ -238,9 +256,13 @@ export function buildEpicMetadataReminder(
 export function epicMetadataBlockIsSatisfiable(
   entries: { root: string; path: string }[],
   statusRouteWorks: (root: string) => boolean,
+  rootOnBase: (root: string) => boolean,
 ): boolean {
   return entries.some(
-    (e) => !isCommittableOnBaseBranch([e.path]) || statusRouteWorks(e.root),
+    (e) =>
+      !isCommittableOnBaseBranch([e.path]) ||
+      !rootOnBase(e.root) ||
+      statusRouteWorks(e.root),
   );
 }
 
@@ -361,7 +383,13 @@ async function runCore(
       const capability = deps.guardCapability(root);
       return capability.allowsStatusBoard || capability.selfHealable;
     };
-    if (!epicMetadataBlockIsSatisfiable(dirtyEntries, statusRouteWorks)) {
+    if (
+      !epicMetadataBlockIsSatisfiable(
+        dirtyEntries,
+        statusRouteWorks,
+        deps.rootOnBase,
+      )
+    ) {
       const affectedRoots = dedupe(dirtyEntries.map((e) => e.root));
       const hookSummary = affectedRoots
         .map((root) => {
@@ -399,6 +427,7 @@ async function runCore(
       buildEpicMetadataReminder(dirtyEntries, {
         onBaseBranch,
         statusRouteWorks,
+        rootOnBase: deps.rootOnBase,
       }).join("\n") + "\n",
     );
     return 2;
@@ -590,6 +619,7 @@ if (import.meta.main) {
     dirtyEpicPaths: (repoRoot) => defaultDirtyEpicPaths({ repoRoot }),
     repoCommitState: (repoRoot) => defaultRepoCommitState({ repoRoot }),
     guardCapability: (repoRoot) => installedGuardCapability(repoRoot),
+    rootOnBase: (repoRoot) => onBaseBranch(repoRoot, defaultGit),
     writePause: (state, outcome) => {
       try {
         return finalizePhase("needs-human", { slug: state.slug, outcome })

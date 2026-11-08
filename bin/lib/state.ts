@@ -90,6 +90,12 @@ export type PipelineState = {
    */
   prUrl?: string;
   repo: string;
+  /**
+   * ISO timestamp set by `flow feature create` with the initial state. Absent
+   * on pipelines created before this field existed. A tmux launch retry may
+   * re-stamp it, always before `flow feature create` returns.
+   */
+  createdAt?: string;
   worktree?: string;
   /**
    * The empty folder `flow feature create` reserved at launch and passed to
@@ -975,6 +981,8 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (typeof o.phase !== "string") return false;
   if (typeof o.repo !== "string") return false;
   if (typeof o.updatedAt !== "string") return false;
+  if (o.createdAt !== undefined && typeof o.createdAt !== "string")
+    return false;
   if (o.pr !== undefined && typeof o.pr !== "number") return false;
   if (o.prUrl !== undefined && typeof o.prUrl !== "string") return false;
   if (o.worktree !== undefined && typeof o.worktree !== "string") return false;

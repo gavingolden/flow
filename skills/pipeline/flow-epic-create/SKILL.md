@@ -326,7 +326,13 @@ into a design/manifest divergence.
 
 ## Step 5 — Commit + open the design PR
 
-Run `flow-state-update --phase epic-pr-open`. Commit the two artifacts on the per-pipeline
+Run `flow-state-update --phase epic-pr-open`. Seed the epic's status board
+first, from the worktree, as its own Bash call (bare command name on `PATH`,
+no `cd` or `&&` prefix): `flow-epic-self-mark --seed --epic-slug <slug>`. It
+writes `.flow/epics/<slug>/status.json` with every feature `not-started` (and
+leaves an existing board alone), so the board exists on the base branch before
+wave 1 and no first-wave feature PR hits an add/add conflict creating it.
+Commit the seeded board together with the two artifacts on the per-pipeline
 branch (conventional commit, e.g. `feat(epic): design <slug>`), compose the PR
 body under `$WORKTREE/.flow-tmp/`, and open the design PR via `flow-open-pr`:
 

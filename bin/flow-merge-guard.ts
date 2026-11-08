@@ -95,6 +95,9 @@ import {
   type UiReviewGate,
 } from "./lib/ui-review-gate";
 import { isValidSlug } from "./lib/slug";
+import { resolveEpicBinding, type EpicBinding } from "./lib/epic-binding";
+import { epicStatusRelPath } from "./lib/epic-metadata-commit";
+import { validateEpicStatus } from "./lib/epic-status-schema";
 import {
   deriveCheckState,
   PASSED_CHECK_STATES,
@@ -276,7 +279,98 @@ export type Deps = {
   runMerge?: (pr: number, cwd: string) => { exitCode: number; stderr: string };
   /** Test seam for the design-review backstop's git and config reads. */
   uiReview?: UiReviewDeps;
+  /** Test seam for the epic-binding scan; defaults beside `stateDir`. */
+  epicsDir?: string;
+  /** Test seam: reads the epic board as committed at the PR's GitHub-side head. */
+  readHeadBoard?: (input: {
+    gh: GhRunner;
+    path: string;
+    ref: string;
+  }) => HeadBoard;
 };
+
+export type HeadBoard =
+  | { kind: "ok"; text: string }
+  | { kind: "absent" }
+  | { kind: "error"; detail: string };
+
+const HEAD_BOARD_TIMEOUT_MS = 30_000;
+
+/** A 404 is told apart from other failures by `HTTP 404` on stderr, never stdout (the JSON 404 body lands there). */
+const defaultReadHeadBoard: NonNullable<Deps["readHeadBoard"]> = ({
+  gh,
+  path: boardPath,
+  ref,
+}) => {
+  const r = gh([
+    "api",
+    "-H",
+    "Accept: application/vnd.github.raw",
+    `repos/{owner}/{repo}/contents/${boardPath}?ref=${ref}`,
+  ]);
+  if (r.exitCode === 0) return { kind: "ok", text: r.stdout };
+  if (/HTTP 404/.test(r.stderr)) return { kind: "absent" };
+  return {
+    kind: "error",
+    detail: r.stderr.trim() || `gh api failed (exit ${r.exitCode})`,
+  };
+};
+
+/**
+ * Pure verdict on an epic-bound PR's own board row at its head commit. A
+ * non-epic PR (`binding.kind === "none"`) always passes. Only `merged` counts;
+ * the `pr` number is not compared (the hand-bound and repaired rows differ).
+ */
+export function evaluateEpicRow(input: {
+  binding: EpicBinding;
+  board: HeadBoard;
+  slug?: string;
+}): { ok: true } | { ok: false; reason: string } {
+  const { binding, board } = input;
+  if (binding.kind === "none") return { ok: true };
+  if (binding.kind === "conflict") {
+    return { ok: false, reason: `epic-binding-conflict: ${binding.detail}` };
+  }
+  const who = `${binding.epicSlug}/${binding.featureId}`;
+  const missing = {
+    ok: false as const,
+    reason: `epic-row-missing: ${who} — run flow-epic-self-mark --slug ${input.slug ?? "<slug>"} --commit --push`,
+  };
+  if (board.kind === "absent") return missing;
+  if (board.kind === "error") {
+    return { ok: false, reason: `epic-row-unverifiable: ${board.detail}` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(board.text);
+  } catch {
+    return {
+      ok: false,
+      reason: `epic-row-unverifiable: board at head is not valid JSON (${who})`,
+    };
+  }
+  const shape = validateEpicStatus(parsed);
+  if (!shape.ok) {
+    return {
+      ok: false,
+      reason: `epic-row-unverifiable: board at head is invalid: ${shape.reason}`,
+    };
+  }
+  return shape.value.features[binding.featureId]?.status === "merged"
+    ? { ok: true }
+    : missing;
+}
+
+const ghInRepoTimed =
+  (cwd: string, timeout: number): GhRunner =>
+  (argv) => {
+    const r = spawnSync("gh", argv, { cwd, encoding: "utf8", timeout });
+    return {
+      stdout: r.stdout ?? "",
+      stderr: r.stderr ?? "",
+      exitCode: r.status ?? -1,
+    };
+  };
 
 // --- merge mode -------------------------------------------------------------
 
@@ -593,6 +687,24 @@ function mergePr(
       : undefined,
   });
   if (!pre.ok) return refuse(pre.reason, pre.uncheckedItems);
+
+  const binding = resolveEpicBinding({
+    slug,
+    stateDir,
+    epicsDir: deps.epicsDir ?? path.join(path.dirname(stateDir), "epics"),
+  });
+  let board: HeadBoard = { kind: "absent" };
+  if (binding.kind === "bound") {
+    board = fetched.headRefOid
+      ? (deps.readHeadBoard ?? defaultReadHeadBoard)({
+          gh: deps.gh ?? ghInRepoTimed(state.repo, HEAD_BOARD_TIMEOUT_MS),
+          path: epicStatusRelPath(binding.epicSlug),
+          ref: fetched.headRefOid,
+        })
+      : { kind: "error", detail: "gh pr view returned no headRefOid" };
+  }
+  const epicRow = evaluateEpicRow({ binding, board, slug });
+  if (!epicRow.ok) return refuse(epicRow.reason);
 
   const advance = advancePhase("merging", {
     slug,

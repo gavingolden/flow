@@ -1,11 +1,19 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { formatLatchNote, latchEpicBinding } from "./epic-merge-latch";
+import {
+  describeLatchFailure,
+  formatLatchNote,
+  latchEpicBinding,
+} from "./epic-merge-latch";
+import { LockTimeoutError } from "./lock";
 import { reconcile, type ReadFeatureState } from "./epic-reconcile";
 import {
   epicRunStatePath,
+  INVALID_LAUNCH_RECORD_PREFIX,
+  mutateEpicRunRecord,
   readEpicRunState,
   writeEpicRunState,
   type EpicRunState,
@@ -182,6 +190,170 @@ describe("latchEpicBinding", () => {
     const state = st("b", "merged", 3);
     expect(state.epic).toBeUndefined();
     expect(latchEpicBinding(state, { epicsDir: dir, now })).toHaveLength(1);
+  });
+});
+
+describe("latchEpicBinding — slug reuse and repo guards", () => {
+  const latch = (state: PipelineState) =>
+    latchEpicBinding(state, { epicsDir: dir, now });
+  const created = "2026-11-08T12:00:00.000Z";
+  const withCreated = (createdAt?: string): PipelineState => ({
+    ...st("email-delivery", "merged", 5),
+    ...(createdAt ? { createdAt } : {}),
+  });
+  const gitRepo = (): string => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "flow-latch-repo-"));
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: d });
+    return d;
+  };
+  const tempRepos: string[] = [];
+  afterEach(() => {
+    for (const d of tempRepos.splice(0)) {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  it("slug reuse: an older unmerged binding is untouched", () => {
+    writeEpicRunState(
+      run("email-epic", {
+        f1: {
+          slug: "email-delivery",
+          launchedAt: "2026-08-03T03:16:42.218Z",
+        },
+      }),
+      dir,
+    );
+    const before = raw("email-epic");
+    const results = latch(withCreated(created));
+    expect(raw("email-epic")).toBe(before);
+    expect(results).toEqual([
+      {
+        epicSlug: "email-epic",
+        featureId: "f1",
+        lastStatus: "",
+        wrote: false,
+        skipped: "predates-pipeline",
+      },
+    ]);
+    const note = formatLatchNote(results[0]!, "email-delivery");
+    expect(note).toContain("email-epic/f1");
+    expect(note).toContain("belongs to an earlier pipeline");
+  });
+
+  it("latches an epic launch whose createdAt is seconds before launchedAt", () => {
+    writeEpicRunState(
+      run("e", {
+        b: { slug: "email-delivery", launchedAt: "2026-11-08T12:00:08.800Z" },
+      }),
+      dir,
+    );
+    expect(latch(withCreated(created))[0]?.wrote).toBe(true);
+    expect(feature("e", "b")?.lastStatus).toBe("merged");
+  });
+
+  it("latches a hand bind made hours after the pipeline was created", () => {
+    writeEpicRunState(
+      run("e", {
+        b: { slug: "email-delivery", launchedAt: "2026-11-08T18:00:00.000Z" },
+      }),
+      dir,
+    );
+    expect(latch(withCreated(created))[0]?.wrote).toBe(true);
+  });
+
+  it("latches as today when the state has no createdAt", () => {
+    writeEpicRunState(
+      run("e", {
+        b: { slug: "email-delivery", launchedAt: "2026-08-03T00:00:00.000Z" },
+      }),
+      dir,
+    );
+    expect(latch(withCreated())[0]?.wrote).toBe(true);
+  });
+
+  it("latches as today when launchedAt is unparseable", () => {
+    writeEpicRunState(run("e", { b: bound("email-delivery") }), dir);
+    expect(latch(withCreated(created))[0]?.wrote).toBe(true);
+  });
+
+  it("other-repo: a binding in an unrelated git repo is skipped and not written", () => {
+    const epicRepo = gitRepo();
+    const pipelineRepo = gitRepo();
+    tempRepos.push(epicRepo, pipelineRepo);
+    writeEpicRunState(
+      { ...run("e", { b: bound("email-delivery") }), repo: epicRepo },
+      dir,
+    );
+    const before = raw("e");
+    const results = latch({
+      ...withCreated(),
+      repo: pipelineRepo,
+    });
+    expect(raw("e")).toBe(before);
+    expect(results[0]).toMatchObject({ wrote: false, skipped: "other-repo" });
+    expect(formatLatchNote(results[0]!, "email-delivery")).toBe(
+      "did not mark e/b merged: its epic is in a different repo",
+    );
+  });
+
+  it("latches when run.repo and state.repo are the same string, without git", () => {
+    writeEpicRunState(
+      { ...run("e", { b: bound("email-delivery") }), repo: "/nonexistent/x" },
+      dir,
+    );
+    expect(latch({ ...withCreated(), repo: "/nonexistent/x" })[0]?.wrote).toBe(
+      true,
+    );
+  });
+
+  it("fails open when state.repo no longer exists on disk", () => {
+    const epicRepo = gitRepo();
+    tempRepos.push(epicRepo);
+    writeEpicRunState(
+      { ...run("e", { b: bound("email-delivery") }), repo: epicRepo },
+      dir,
+    );
+    expect(
+      latch({ ...withCreated(), repo: "/nonexistent/moved" })[0]?.wrote,
+    ).toBe(true);
+  });
+});
+
+describe("describeLatchFailure", () => {
+  it("explains a lock timeout without the lock path", () => {
+    const text = describeLatchFailure(
+      new LockTimeoutError("/home/u/.flow/epics/e/run.json.lock", 5000),
+    );
+    expect(text).toContain("still updating the epic board");
+    expect(text).not.toContain("run.json.lock");
+  });
+
+  it("explains permission, disk-full and malformed-record failures", () => {
+    const errno = (code: string) =>
+      Object.assign(new Error(`${code}: raw`), { code });
+    expect(describeLatchFailure(errno("EACCES"))).toContain("permissions");
+    expect(describeLatchFailure(errno("EPERM"))).toContain("permissions");
+    expect(describeLatchFailure(errno("EROFS"))).toContain("permissions");
+    expect(describeLatchFailure(errno("ENOSPC"))).toBe("the disk is full");
+    writeEpicRunState(run("e", { a: bound("a-slug") }), dir);
+    let thrown: unknown;
+    try {
+      mutateEpicRunRecord("e", "a", () => ({ pr: 1 }) as FeatureRunRecord, {
+        dir,
+        now,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect((thrown as Error).message).toContain(INVALID_LAUNCH_RECORD_PREFIX);
+    expect(describeLatchFailure(thrown)).toBe(
+      "the epic board entry would have been malformed",
+    );
+  });
+
+  it("falls back to the raw message", () => {
+    expect(describeLatchFailure(new Error("boom"))).toBe("boom");
+    expect(describeLatchFailure("odd")).toBe("odd");
   });
 });
 

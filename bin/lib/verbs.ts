@@ -9,6 +9,7 @@ export const VERBS = [
   "install",
   "feature",
   "epic",
+  "grant",
   "config",
   "ls",
   "attach",

@@ -1,23 +1,25 @@
 /**
  * `flow-exec-review review --kind plan`: orchestrate one executive review of a
- * granted epic feature's plan. Grant scope and the charter gate the work;
+ * granted pipeline's plan (an epic feature or a loose pipeline). A grant and
+ * the charter gate the work;
  * mechanical preconditions run before any spend; one budget-capped headless
  * call returns an envelope that `exec-review-envelope.ts` normalizes into
- * approve / challenge / defer. Every outcome is logged to the shared epic log;
+ * approve / challenge / defer. Every outcome is logged to the manager log;
  * an approval also stamps the draft PR body.
  */
 
 import * as path from "node:path";
 import { manifestNeighbourhood } from "../flow-epic-judge-context";
 import { resolveProductBrief } from "../flow-product-brief";
-import { grantScopeForSlug, loadManifestFromRepo } from "./epic-grant";
+import { grantForSlug } from "./manager-grants";
 import {
   appendManagerLog,
   readManagerLog,
   type ExecLogPayload,
   type ManagerLogEntry,
-} from "./epic-manager-log";
-import { epicDirRelative } from "./epic-manifest-schema";
+} from "./manager-log";
+import { identityForState, repoNameForPath } from "./manager-scope";
+import { epicDirRelative, loadManifestFromRepo } from "./epic-manifest-schema";
 import { readCharter } from "./exec-charter";
 import {
   normalizePlan,
@@ -49,7 +51,7 @@ import {
   skipTextFor,
   UNANCHORED_APPROVE_DEFER_TEXT,
 } from "./exec-review-skip-text";
-import { listStates, readState } from "./state";
+import { FINISHED_PHASE_SET, listStates, readState } from "./state";
 
 export type PlanReviewResult =
   | {
@@ -83,10 +85,14 @@ export type PlanReviewResult =
     };
 
 export function runPlanReview(
-  input: { slug: string; epic: string },
+  input: { slug: string; epic?: string },
   deps: ExecReviewDeps,
 ): PlanReviewResult {
   const decisionId = makeDecisionId("plan", deps);
+  const state = readState(input.slug, deps.stateDir);
+  const epic = state?.epic?.slug;
+  const repo = state ? repoNameForPath(state.repo) : "unknown";
+  const who = { ...(epic ? { epic } : {}), repo };
   const skip = (
     skipReason: string,
     extra: { failedPrecondition?: PreconditionId; detail?: string } = {},
@@ -96,10 +102,10 @@ export function runPlanReview(
   ): PlanReviewResult => {
     if (log) {
       appendManagerLog(
-        input.epic,
         {
           ts: deps.now().toISOString(),
           kind: "exec-skip",
+          ...who,
           slug: input.slug,
           reason: skipReason,
           exec: {
@@ -109,7 +115,7 @@ export function runPlanReview(
             ...(cost ? { costUsd: cost } : {}),
           },
         },
-        deps.stateDir,
+        { home: deps.managerHome },
       );
       deps.recordEvent("exec.review", {
         kind: "plan",
@@ -131,13 +137,14 @@ export function runPlanReview(
     };
   };
 
-  const scope = grantScopeForSlug(input.slug, {
+  const scope = grantForSlug(input.slug, {
     stateDir: deps.stateDir,
+    home: deps.managerHome,
+    now: deps.now,
     expectedEpic: input.epic,
   });
   if (!scope.granted) return skip(scope.reason, {}, false);
 
-  const state = readState(input.slug, deps.stateDir);
   const worktree = state?.worktree;
   if (!worktree)
     return skip("plan-unreadable", { detail: "no worktree in state" });
@@ -180,20 +187,23 @@ export function runPlanReview(
     });
   }
 
-  const log = readManagerLog(input.epic, deps.stateDir);
+  const log = readManagerLog(epic ? { epic } : { repo }, deps.managerHome);
   const { round, priorChallenges } = derivePlanRound(log, input.slug);
   const priorBlockingIds = priorChallenges.map((c) => c.id);
 
-  const manifest = loadManifestFromRepo(input.epic, worktree);
-  if (!manifest)
-    return skip("plan-unreadable", { detail: "epic manifest not found" });
+  let manifest: ReturnType<typeof loadManifestFromRepo> = null;
   let designText: string | null = null;
-  try {
-    designText = deps.readFile(
-      path.join(worktree, epicDirRelative(input.epic), "design.md"),
-    );
-  } catch {
-    designText = null;
+  if (epic) {
+    manifest = loadManifestFromRepo(epic, worktree);
+    if (!manifest)
+      return skip("plan-unreadable", { detail: "epic manifest not found" });
+    try {
+      designText = deps.readFile(
+        path.join(worktree, epicDirRelative(epic), "design.md"),
+      );
+    } catch {
+      designText = null;
+    }
   }
   const brief = resolveProductBrief({
     cwd: worktree,
@@ -208,13 +218,25 @@ export function runPlanReview(
   }
 
   const siblings = listStates(deps.stateDir)
-    .filter((s) => s.epic?.slug === input.epic && s.slug !== input.slug)
+    .filter((s) =>
+      s.slug === input.slug
+        ? false
+        : epic
+          ? s.epic?.slug === epic
+          : !FINISHED_PHASE_SET.has(s.phase) &&
+            identityForState(s).repo === repo,
+    )
     .map((s) => ({
-      featureId: s.epic?.featureId ?? "?",
+      featureId: s.epic?.featureId ?? "loose",
       slug: s.slug,
       phase: s.phase,
       pr: s.pr ?? null,
     }));
+
+  const epicCtx =
+    manifest && scope.featureId
+      ? { manifest, featureId: scope.featureId }
+      : null;
 
   let packet: string;
   try {
@@ -222,8 +244,12 @@ export function runPlanReview(
       prompt: loadReviewPrompt(deps.readFile),
       charter: charter.text,
       brief: brief.found ? brief.text : null,
-      designExcerpt: designExcerpt(designText, scope.featureId),
-      neighbourhood: manifestNeighbourhood(manifest, scope.featureId),
+      designExcerpt: epicCtx
+        ? designExcerpt(designText, epicCtx.featureId)
+        : null,
+      neighbourhood: epicCtx
+        ? manifestNeighbourhood(epicCtx.manifest, epicCtx.featureId)
+        : null,
       siblings,
       priorDecisions: log,
       priorChallenges,
@@ -238,7 +264,7 @@ export function runPlanReview(
     });
   }
 
-  const { model, effort } = resolveExecModel(input.epic, deps);
+  const { model, effort } = resolveExecModel(epic, deps);
   const out = path.join(flowTmp, `exec-review-${decisionId}.json`);
   const scratch = deps.mkdtemp();
   let envelope: HeadlessEnvelope;
@@ -296,8 +322,8 @@ export function runPlanReview(
   }
   const ts = deps.now().toISOString();
   const base = { decisionId, reviewKind: "plan" as const, round };
-  const line = (e: ManagerLogEntry) =>
-    appendManagerLog(input.epic, e, deps.stateDir);
+  const line = (e: Omit<ManagerLogEntry, "repo">) =>
+    appendManagerLog({ ...who, ...e }, { home: deps.managerHome });
 
   for (const p of env.priorChallenges ?? []) {
     if (!priorBlockingIds.includes(p.id)) continue;
@@ -335,7 +361,7 @@ export function runPlanReview(
     ts,
     kind: "exec-decision",
     slug: input.slug,
-    featureId: scope.featureId,
+    ...(scope.featureId ? { featureId: scope.featureId } : {}),
     exec: payload,
   });
 
@@ -380,7 +406,7 @@ export function runPlanReview(
           rationale: env.rationale,
           undo: env.undo,
           slug: input.slug,
-          epic: input.epic,
+          scope: scope.scope,
         }),
       ),
     );

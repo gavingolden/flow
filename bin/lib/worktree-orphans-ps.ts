@@ -98,8 +98,10 @@ export function readCwds(pids: number[]): Map<number, string> {
   try {
     const r = Bun.spawnSync(
       ["lsof", "-a", "-d", "cwd", "-p", pids.join(","), "-Fpn"],
-      { stdout: "pipe", stderr: "pipe" },
+      { stdout: "pipe", stderr: "pipe", timeout: 15_000 },
     );
+    // A killed lsof prints a truncated list; an empty answer is the caller's "unreadable".
+    if (r.exitedDueToTimeout) return out;
     // lsof exits 1 when some pids vanished yet still prints the rest.
     return parseLsofCwd(r.stdout.toString());
   } catch {

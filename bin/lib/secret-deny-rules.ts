@@ -69,20 +69,32 @@ export const FLOW_CREATE_ISSUE_ALLOW_RULES: readonly string[] = [
 ];
 
 /**
- * Keeps a flow-launched session from granting the epic executive autonomy:
- * denies the high-autonomy grant command (space and `=` forms, and an `env`
- * launderer) and any write to `~/.flow/state/managers/**`, where `grant.json`
- * lives. A guard, not a proof — the CLI itself also refuses a non-TTY or
- * `CLAUDECODE` caller; a forged grant still shows on first use in the PR stamp
- * and the log line.
+ * Keeps a flow-launched session from granting the executive autonomy: denies
+ * the high-autonomy grant command (`flow grant` and its `flow epic grant`
+ * alias; space and `=` forms, and an `env` launderer), any Bash touching
+ * `~/.flow/manager/grants.json`, and Write/Edit of the grant file, the
+ * decision log (a forged `grant` line would move the wave-review baseline) and
+ * the sequencer's `~/.flow/state/managers/**`. A guard, not a proof — the CLI
+ * itself also refuses a non-TTY or `CLAUDECODE` caller; a forged grant still
+ * shows on first use in the PR stamp and the log line. `--autonomy off` and
+ * `--list` are deliberately not denied.
  */
-export const EPIC_GRANT_DENY_RULES: readonly string[] = [
+export const GRANT_DENY_RULES: readonly string[] = [
   "Bash(*flow epic grant * --autonomy high*)",
   "Bash(*flow epic grant * --autonomy=high*)",
   "Bash(*flow epic grant --autonomy high*)",
   "Bash(*flow epic grant --autonomy=high*)",
   "Bash(env * flow epic grant *)",
-  "Bash(*managers/*grant.json*)",
+  "Bash(*flow grant * --autonomy high*)",
+  "Bash(*flow grant * --autonomy=high*)",
+  "Bash(*flow grant --autonomy high*)",
+  "Bash(*flow grant --autonomy=high*)",
+  "Bash(env * flow grant *)",
+  "Bash(*manager/grants.json*)",
+  "Write(~/.flow/manager/grants.json)",
+  "Edit(~/.flow/manager/grants.json)",
+  "Write(~/.flow/manager/log.jsonl)",
+  "Edit(~/.flow/manager/log.jsonl)",
   "Write(~/.flow/state/managers/**)",
   "Edit(~/.flow/state/managers/**)",
 ];

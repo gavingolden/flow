@@ -2,8 +2,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeGrant } from "./epic-grant";
-import { managerDir, readManagerLog } from "./epic-manager-log";
+import { managerDir } from "./epic-manage-state";
+import { upsertGrant } from "./manager-grants";
+import { readManagerLog } from "./manager-log";
 import { computeDecisionHash } from "../flow-plan-review";
 import {
   derivePlanRound,
@@ -53,6 +54,7 @@ const CHARTER =
 let root: string;
 let home: string;
 let stateDir: string;
+let managerHome: string;
 let wt: string;
 let calls: Array<{ argv: string[]; cwd: string; prompt: string }>;
 let events: Array<Record<string, unknown>>;
@@ -79,6 +81,7 @@ function deps(over: Partial<ExecReviewDeps> = {}): ExecReviewDeps {
   return {
     ...base,
     stateDir,
+    managerHome,
     homeDir: home,
     readConfig: () => undefined,
     now: () => new Date(Date.UTC(2026, 9, 26, 1, 2, 3 + tick++)),
@@ -127,6 +130,7 @@ beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), "execplan-"));
   home = path.join(root, "home");
   stateDir = path.join(root, "state");
+  managerHome = path.join(root, "manager");
   wt = path.join(root, "wt");
   calls = [];
   events = [];
@@ -164,15 +168,14 @@ beforeEach(() => {
     },
     stateDir,
   );
-  writeGrant(
+  upsertGrant(
     {
-      version: 1,
-      epic: "e1",
+      scope: "epic:e1",
       classes: ["plan"],
       grantedAt: "t",
       grantedBy: "owner-cli",
     },
-    stateDir,
+    managerHome,
   );
 });
 afterEach(() => {
@@ -180,15 +183,15 @@ afterEach(() => {
 });
 
 const run = (d = deps()) => runPlanReview({ slug: "feat", epic: "e1" }, d);
-const log = () => readManagerLog("e1", stateDir);
+const log = () => readManagerLog({ epic: "e1" }, managerHome);
 
 describe("grant scope", () => {
   it("makes zero calls, logs nothing, and records no telemetry without a grant", () => {
-    fs.rmSync(managerDir("e1", stateDir), { recursive: true });
+    fs.rmSync(path.join(managerHome, "grants.json"));
     const r = run();
     expect(r).toMatchObject({ ran: false, skipReason: "no-grant" });
     expect(calls).toHaveLength(0);
-    expect(fs.existsSync(managerDir("e1", stateDir))).toBe(false);
+    expect(fs.existsSync(path.join(managerHome, "log.jsonl"))).toBe(false);
     expect(events).toHaveLength(0);
   });
 
@@ -203,6 +206,87 @@ describe("grant scope", () => {
       ran: false,
       skipReason: "state-missing",
     });
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("loose pipeline under a pipeline grant", () => {
+  const loose = () => runPlanReview({ slug: "loose" }, deps());
+
+  beforeEach(() => {
+    writeState(
+      {
+        slug: "loose",
+        phase: "planning",
+        repo: root,
+        worktree: wt,
+        updatedAt: "2026-10-26T00:00:00.000Z",
+      },
+      stateDir,
+    );
+    writeState(
+      {
+        slug: "sibling",
+        phase: "implementing",
+        repo: root,
+        updatedAt: "2026-10-26T00:00:00.000Z",
+      },
+      stateDir,
+    );
+    writeState(
+      {
+        slug: "shipped",
+        phase: "merged",
+        repo: root,
+        updatedAt: "2026-10-26T00:00:00.000Z",
+      },
+      stateDir,
+    );
+    writeState(
+      {
+        slug: "elsewhere",
+        phase: "implementing",
+        repo: "/other/proj",
+        updatedAt: "2026-10-26T00:00:00.000Z",
+      },
+      stateDir,
+    );
+    fs.rmSync(path.join(managerHome, "grants.json"));
+    upsertGrant(
+      {
+        scope: "pipeline:loose",
+        classes: ["plan"],
+        grantedAt: "t",
+        grantedBy: "owner-cli",
+      },
+      managerHome,
+    );
+  });
+
+  it("omits the design and manifest, lists same-repo siblings, and logs slug + repo with no epic", () => {
+    const r = loose();
+    expect(r).toMatchObject({ ran: true, action: "approve" });
+    const prompt = calls[0].prompt;
+    expect(prompt).toContain("none — loose pipeline (no epic)");
+    expect(prompt).not.toContain("epic goal");
+    expect(prompt).toContain("- loose (sibling) phase=implementing pr=none");
+    expect(prompt).not.toContain("(shipped)");
+    expect(prompt).not.toContain("elsewhere");
+    expect(prompt).toContain("(feat)");
+    const entries = readManagerLog({ slug: "loose" }, managerHome);
+    const d = entries.find((e) => e.kind === "exec-decision");
+    expect(d).toMatchObject({ slug: "loose", repo: path.basename(root) });
+    expect(d?.epic).toBeUndefined();
+    const draft = fs.readFileSync(
+      path.join(wt, ".flow-tmp", "pr-description-draft.md"),
+      "utf8",
+    );
+    expect(draft).toContain("flow grant pipeline:loose --autonomy off.");
+  });
+
+  it("skips with no-grant when the pipeline grant is withdrawn", () => {
+    fs.rmSync(path.join(managerHome, "grants.json"));
+    expect(loose()).toMatchObject({ ran: false, skipReason: "no-grant" });
     expect(calls).toHaveLength(0);
   });
 });
@@ -396,7 +480,7 @@ describe("approve", () => {
     );
     expect(draft).toContain("Undo: redirect the plan.");
     expect(draft).toContain(
-      "To stop future approvals: flow epic grant e1 --autonomy off.",
+      "To withdraw this grant: flow grant epic:e1 --autonomy off.",
     );
     expect(draft.indexOf("Plan approved")).toBeGreaterThan(
       draft.indexOf("- existing"),
@@ -568,6 +652,7 @@ describe("derivePlanRound", () => {
   const dec = (slug: string, action: string, id: string) => ({
     ts: "t",
     kind: "exec-decision" as const,
+    repo: "r",
     slug,
     exec: { decisionId: id, reviewKind: "plan" as const, action },
   });
@@ -593,7 +678,7 @@ describe("stamp helpers", () => {
     rationale: "r\nx",
     undo: "undo it",
     slug: "s",
-    epic: "e",
+    scope: "repo:r",
   });
   it("replaces a prior stamp instead of duplicating, and creates the section when absent", () => {
     const once = upsertStamp("## Key decisions\n\n- a\n", bullet);

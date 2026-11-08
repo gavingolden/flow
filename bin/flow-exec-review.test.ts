@@ -3,8 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { run } from "./flow-exec-review";
-import { writeGrant } from "./lib/epic-grant";
-import { appendManagerLog, readManagerLog } from "./lib/epic-manager-log";
+import { upsertGrant } from "./lib/manager-grants";
+import { appendManagerLog, readManagerLog } from "./lib/manager-log";
 import { defaultExecDeps, type ExecReviewDeps } from "./lib/exec-review-shared";
 import { writeState } from "./lib/state";
 
@@ -14,6 +14,7 @@ const CHARTER =
 let root: string;
 let home: string;
 let stateDir: string;
+let managerHome: string;
 let printed: string[];
 let errors: string[];
 let spawns: number;
@@ -26,6 +27,7 @@ function w(p: string, c: string) {
 const deps = (): Partial<ExecReviewDeps> => ({
   ...defaultExecDeps(),
   stateDir,
+  managerHome,
   homeDir: home,
   now: () => new Date(Date.UTC(2026, 9, 26, 3, 0, 0)),
   recordEvent: () => {},
@@ -59,6 +61,7 @@ beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), "execcli-"));
   home = path.join(root, "home");
   stateDir = path.join(root, "state");
+  managerHome = path.join(root, "manager");
   spawns = 0;
   w(path.join(home, ".flow", "product.md"), CHARTER);
   vi.spyOn(console, "log").mockImplementation(
@@ -119,21 +122,20 @@ describe("status", () => {
     });
     expect(call(["status", "--slug", "solo"]).json).toEqual({
       granted: false,
-      reason: "not-epic",
+      reason: "no-grant",
     });
     expect(call(["status", "--slug", "feat"]).json).toEqual({
       granted: false,
       reason: "no-grant",
     });
-    writeGrant(
+    upsertGrant(
       {
-        version: 1,
-        epic: "e1",
+        scope: "epic:e1",
         classes: ["plan"],
         grantedAt: "t",
         grantedBy: "owner-cli",
       },
-      stateDir,
+      managerHome,
     );
     expect(call(["status", "--slug", "other", "--epic", "e1"]).json).toEqual({
       granted: false,
@@ -141,13 +143,42 @@ describe("status", () => {
     });
     expect(call(["status", "--slug", "feat", "--epic", "e1"]).json).toEqual({
       granted: true,
+      scope: "epic:e1",
+      classes: ["plan"],
       epic: "e1",
       featureId: "f1",
     });
   });
+
+  it("reports a loose pipeline under a pipeline grant with its scope and no epic", () => {
+    seedFeature("solo");
+    upsertGrant(
+      {
+        scope: "pipeline:solo",
+        classes: ["plan"],
+        grantedAt: "t",
+        grantedBy: "owner-cli",
+      },
+      managerHome,
+    );
+    const r = call(["status", "--slug", "solo"]).json;
+    expect(r).toMatchObject({ granted: true, scope: "pipeline:solo" });
+    expect(r.epic).toBeUndefined();
+  });
 });
 
 describe("review", () => {
+  it("accepts review --kind plan --slug with no --epic (a loose pipeline)", () => {
+    seedFeature("solo");
+    const r = call(["review", "--kind", "plan", "--slug", "solo"]);
+    expect(r.code).toBe(0);
+    expect(r.json).toMatchObject({
+      ran: false,
+      kind: "plan",
+      skipReason: "no-grant",
+    });
+  });
+
   it("prints one JSON line, exits 0, and spends nothing without a grant", () => {
     seedFeature("feat", { slug: "e1", featureId: "f1" });
     const r = call([
@@ -184,10 +215,11 @@ describe("review", () => {
 describe("order", () => {
   it("returns the frontier in the newest applied order", () => {
     appendManagerLog(
-      "e1",
       {
         ts: "t",
         kind: "exec-decision",
+        epic: "e1",
+        repo: "r",
         exec: {
           decisionId: "d",
           reviewKind: "wave",
@@ -195,7 +227,7 @@ describe("order", () => {
           order: ["b", "a"],
         },
       },
-      stateDir,
+      { home: managerHome },
     );
     expect(call(["order", "--epic", "e1", "--frontier", "a,b,c"]).json).toEqual(
       { order: ["b", "a", "c"] },
@@ -210,30 +242,32 @@ describe("outcome", () => {
   beforeEach(() => {
     seedFeature("feat", { slug: "e1", featureId: "f1" });
     appendManagerLog(
-      "e1",
       {
         ts: "t",
         kind: "exec-decision",
+        epic: "e1",
+        repo: "r",
         slug: "feat",
         exec: { decisionId: "plan-1", reviewKind: "plan", action: "approve" },
       },
-      stateDir,
+      { home: managerHome },
     );
     appendManagerLog(
-      "e1",
       {
         ts: "t",
         kind: "exec-decision",
+        epic: "e1",
+        repo: "r",
         slug: "feat",
         exec: { decisionId: "plan-2", reviewKind: "plan", action: "defer" },
       },
-      stateDir,
+      { home: managerHome },
     );
   });
   const reply = (decision: string, r: string) =>
     call(["outcome", "--slug", "feat", "--decision", decision, "--reply", r]);
   const lastReply = () =>
-    readManagerLog("e1", stateDir)
+    readManagerLog({ epic: "e1" }, managerHome)
       .filter((e) => e.kind === "exec-owner-reply")
       .at(-1);
 
@@ -274,7 +308,53 @@ describe("outcome", () => {
     expect(r.json.offer).toBeUndefined();
   });
 
-  it("reports an unknown decision or a non-epic slug without writing", () => {
+  it("records an owner reply for a loose pipeline's decision, taking repo from state", () => {
+    seedFeature("solo");
+    appendManagerLog(
+      {
+        ts: "t",
+        kind: "exec-decision",
+        repo: "r",
+        slug: "solo",
+        exec: { decisionId: "plan-7", reviewKind: "plan", action: "approve" },
+      },
+      { home: managerHome },
+    );
+    expect(
+      call([
+        "outcome",
+        "--slug",
+        "solo",
+        "--decision",
+        "plan-7",
+        "--reply",
+        "redirect",
+      ]).json,
+    ).toMatchObject({ ok: true, wrongApproval: true });
+    const last = readManagerLog({ slug: "solo" }, managerHome).at(-1);
+    expect(last).toMatchObject({
+      kind: "exec-owner-reply",
+      repo: path.basename(root),
+    });
+    expect(last?.epic).toBeUndefined();
+  });
+
+  it("does not match a sibling feature's decision in the same epic", () => {
+    seedFeature("sib", { slug: "e1", featureId: "f2" });
+    expect(
+      call([
+        "outcome",
+        "--slug",
+        "sib",
+        "--decision",
+        "plan-1",
+        "--reply",
+        "accept",
+      ]).json,
+    ).toEqual({ ok: false, reason: "decision-not-found" });
+  });
+
+  it("reports an unknown decision or a slug with no such decision without writing", () => {
     expect(reply("nope", "accept").json).toEqual({
       ok: false,
       reason: "decision-not-found",
@@ -292,10 +372,12 @@ describe("outcome", () => {
       ]).json,
     ).toEqual({
       ok: false,
-      reason: "not-epic",
+      reason: "decision-not-found",
     });
     expect(
-      readManagerLog("e1", stateDir).some((e) => e.kind === "exec-owner-reply"),
+      readManagerLog({ epic: "e1" }, managerHome).some(
+        (e) => e.kind === "exec-owner-reply",
+      ),
     ).toBe(false);
   });
 });
@@ -375,28 +457,30 @@ describe("stamp-check", () => {
     fs.writeFileSync(body, "nothing");
     expect(check().json).toEqual({ ok: true, decisionId: null });
     appendManagerLog(
-      "e1",
       {
         ts: "t",
         kind: "exec-decision",
+        epic: "e1",
+        repo: "r",
         slug: "feat",
         exec: { decisionId: "plan-0", reviewKind: "plan", action: "defer" },
       },
-      stateDir,
+      { home: managerHome },
     );
     expect(check().json).toEqual({ ok: true, decisionId: null });
   });
 
   it("fails when the PR body lacks the decision id and passes when it carries it", () => {
     appendManagerLog(
-      "e1",
       {
         ts: "t",
         kind: "exec-decision",
+        epic: "e1",
+        repo: "r",
         slug: "feat",
         exec: { decisionId: "plan-9", reviewKind: "plan", action: "approve" },
       },
-      stateDir,
+      { home: managerHome },
     );
     fs.writeFileSync(body, "## Key decisions\n\n- other\n");
     expect(check().json).toEqual({ ok: false, decisionId: "plan-9" });
@@ -406,28 +490,30 @@ describe("stamp-check", () => {
 
   it("treats an unreadable body file as missing the stamp", () => {
     appendManagerLog(
-      "e1",
       {
         ts: "t",
         kind: "exec-decision",
+        epic: "e1",
+        repo: "r",
         slug: "feat",
         exec: { decisionId: "plan-9", reviewKind: "plan", action: "approve" },
       },
-      stateDir,
+      { home: managerHome },
     );
     expect(check().json).toEqual({ ok: false, decisionId: "plan-9" });
   });
 
   const approve = (id: string) =>
     appendManagerLog(
-      "e1",
       {
         ts: "t",
         kind: "exec-decision",
+        epic: "e1",
+        repo: "r",
         slug: "feat",
         exec: { decisionId: id, reviewKind: "plan", action: "approve" },
       },
-      stateDir,
+      { home: managerHome },
     );
 
   it("stops demanding the stamp once the owner redirected or cancelled that approval", () => {
@@ -435,9 +521,10 @@ describe("stamp-check", () => {
     approve("plan-1");
     expect(check().json).toEqual({ ok: false, decisionId: "plan-1" });
     appendManagerLog(
-      "e1",
       {
         ts: "t",
+        epic: "e1",
+        repo: "r",
         kind: "exec-owner-reply",
         slug: "feat",
         exec: {
@@ -447,7 +534,7 @@ describe("stamp-check", () => {
           wrongApproval: true,
         },
       },
-      stateDir,
+      { home: managerHome },
     );
     expect(check().json).toEqual({ ok: true, decisionId: null });
   });
@@ -457,14 +544,15 @@ describe("stamp-check", () => {
     approve("plan-1");
     const reply = (id: string, ownerReply: "redirect" | "cancel") =>
       appendManagerLog(
-        "e1",
         {
           ts: "t",
+          epic: "e1",
+          repo: "r",
           kind: "exec-owner-reply",
           slug: "feat",
           exec: { decisionId: id, reviewKind: "plan", ownerReply },
         },
-        stateDir,
+        { home: managerHome },
       );
     reply("plan-1", "redirect");
     approve("plan-2");
@@ -477,15 +565,16 @@ describe("stamp-check", () => {
     fs.writeFileSync(body, "no stamp");
     approve("plan-1");
     appendManagerLog(
-      "e1",
       {
         ts: "t",
+        epic: "e1",
+        repo: "r",
         kind: "exec-skip",
         slug: "feat",
         reason: "precondition-failed",
         exec: { decisionId: "plan-2", reviewKind: "plan" },
       },
-      stateDir,
+      { home: managerHome },
     );
     expect(check().json).toEqual({ ok: true, decisionId: null });
   });
@@ -494,9 +583,10 @@ describe("stamp-check", () => {
     fs.writeFileSync(body, "no stamp");
     approve("plan-1");
     appendManagerLog(
-      "e1",
       {
         ts: "t",
+        epic: "e1",
+        repo: "r",
         kind: "exec-owner-reply",
         slug: "feat",
         exec: {
@@ -506,18 +596,19 @@ describe("stamp-check", () => {
           accepted: true,
         },
       },
-      stateDir,
+      { home: managerHome },
     );
     appendManagerLog(
-      "e1",
       {
         ts: "t",
+        epic: "e1",
+        repo: "r",
         kind: "exec-skip",
         slug: "other",
         reason: "x",
         exec: { decisionId: "plan-9", reviewKind: "plan" },
       },
-      stateDir,
+      { home: managerHome },
     );
     expect(check().json).toEqual({ ok: false, decisionId: "plan-1" });
   });

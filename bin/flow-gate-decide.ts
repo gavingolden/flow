@@ -425,6 +425,7 @@ type FetchResult =
       state: "OPEN" | "MERGED" | "CLOSED";
       url: string;
       baseRefName?: string;
+      headRefOid?: string;
     }
   | { kind: "error"; message: string };
 
@@ -434,7 +435,7 @@ export function fetchPrInputs(prNumber: number, gh: GhRunner): FetchResult {
     "view",
     String(prNumber),
     "--json",
-    "body,state,url,baseRefName",
+    "body,state,url,baseRefName,headRefOid",
   ]);
   if (r.exitCode !== 0) {
     return {
@@ -447,6 +448,7 @@ export function fetchPrInputs(prNumber: number, gh: GhRunner): FetchResult {
     state?: string;
     url?: string;
     baseRefName?: string;
+    headRefOid?: string;
   };
   try {
     parsed = JSON.parse(r.stdout);
@@ -475,6 +477,9 @@ export function fetchPrInputs(prNumber: number, gh: GhRunner): FetchResult {
     url: parsed.url,
     ...(typeof parsed.baseRefName === "string" && parsed.baseRefName
       ? { baseRefName: parsed.baseRefName }
+      : {}),
+    ...(typeof parsed.headRefOid === "string" && parsed.headRefOid
+      ? { headRefOid: parsed.headRefOid }
       : {}),
   };
 }

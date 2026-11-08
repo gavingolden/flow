@@ -102,6 +102,7 @@ flow done --orphans        # clean up state left behind by dead runs
 flow reap                          # report-only: what would be cleaned up
 flow reap --yes                    # act on verified registry rows
 flow reap --yes --include-strays   # also sweep shape-heuristic browser/mcp-server strays
+flow reap --worktrees              # preview removing finished worktrees and leftover folders (--yes to act)
 ```
 
 See [configuration.md](configuration.md#process-registry) for the full registry + `--reap` contract.

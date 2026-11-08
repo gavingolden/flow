@@ -11,7 +11,8 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { appendManagerLog, SEQUENCER_LOG_LOCK } from "./epic-manager-log";
+import { appendManagerLog, SEQUENCER_LOG_LOCK } from "./manager-log";
+import { repoNameForPath } from "./manager-scope";
 import { resolveManagerModelEffort } from "./epic-manager-model";
 import {
   abortableSleep,
@@ -419,10 +420,14 @@ async function runForeground(
   );
   if (!claim.ok) return refuseRunning(slug);
   appendManagerLog(
-    slug,
-    { ts: now, kind: "started", window: state.window },
-    options.stateDir,
-    SEQUENCER_LOG_LOCK,
+    {
+      ts: now,
+      kind: "started",
+      epic: slug,
+      repo: repoNameForPath(repo),
+      window: state.window,
+    },
+    { home: options.managerHome, lock: SEQUENCER_LOG_LOCK },
   );
 
   const isTty = Boolean(process.stdout.isTTY);
@@ -435,6 +440,7 @@ async function runForeground(
     write: (t) => void process.stdout.write(t),
     isTty,
     stateDir: options.stateDir,
+    managerHome: options.managerHome,
     epicsDir: options.epicsDir,
     readMaxParallel: options.readMaxParallel,
     waitForEnter: isTty ? waitForEnter : undefined,

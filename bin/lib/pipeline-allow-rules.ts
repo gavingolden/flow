@@ -83,6 +83,7 @@ export const FLOW_ROUTINE_HELPERS: readonly string[] = [
   "flow-ui-critique",
   "flow-ui-capture",
   "flow-coder-skills-check",
+  "flow-epic-self-mark",
 ];
 
 export const FLOW_NEVER_ALLOW_HELPERS: readonly string[] = [

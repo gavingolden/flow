@@ -1,8 +1,8 @@
 /**
  * `~/.flow/state/managers/<epic>/manager.json` — the liveness record of one
- * `flow epic manage` sequencer. The directory itself (and `log.jsonl`) belong
- * to `epic-manager-log.ts`; this module owns only the state file: typed
- * read/write/remove/list, the singleton claim, and health classification.
+ * `flow epic manage` sequencer. This module owns the directory and the state
+ * file: typed read/write/remove/list, the singleton claim, and health
+ * classification. The decision log lives in the manager home (`manager-log.ts`).
  *
  * Writes are atomic (tmp + rename) under a short-timeout lock so the loop's
  * heartbeat never blocks Ctrl-C and a reader never sees a torn file.
@@ -10,9 +10,9 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { managerDir } from "./epic-manager-log";
 import { livenessOf, type LivenessDeps } from "./liveness";
 import { withFileLockSync } from "./lock";
+import { FLOW_STATE_DIR } from "./paths";
 import { relativeTime } from "./time";
 import { EFFORT_LEVELS, MODEL_ALIASES } from "./state";
 import type { EffortLevel, ModelAlias } from "./state";
@@ -39,6 +39,13 @@ export type ManagerState = {
   status: "running" | "done";
   launching: { featureId: string; startedAt: string } | null;
 };
+
+export function managerDir(
+  epicSlug: string,
+  stateDir: string = FLOW_STATE_DIR,
+): string {
+  return path.join(stateDir, "managers", epicSlug);
+}
 
 export function managerWindowName(epicSlug: string): string {
   return `manage-${epicSlug}`;

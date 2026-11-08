@@ -44,6 +44,13 @@ describe("skipTextFor", () => {
     }
   });
 
+  it("words no-grant scope-neutrally and has no not-epic entry", () => {
+    expect(skipTextFor("no-grant")).toBe(
+      "you have not granted the executive autonomy over this pipeline",
+    );
+    expect(skipTextFor("not-epic")).toContain("could not run");
+  });
+
   it("falls back to a readable sentence for an unmapped skip reason", () => {
     expect(skipTextFor("some-new-reason")).toContain("some-new-reason");
     expect(skipTextFor("charter-missing")).not.toBe("charter-missing");

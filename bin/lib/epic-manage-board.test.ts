@@ -199,6 +199,7 @@ describe("renderManageBoard snapshots", () => {
           ownerNeeded: ownerNeededFor(
             result.board,
             new Map(states.map((s) => [s.slug, s])),
+            {},
           ),
           guard: noGuard,
           notifyOn: false,
@@ -382,6 +383,7 @@ describe("ownerNeededFor", () => {
     const lines = ownerNeededFor(
       result.board,
       new Map(states.map((s) => [s.slug, s])),
+      {},
     );
     expect(lines.map((l) => [l.id, l.phase, l.window, l.notify])).toEqual([
       ["alpha", "plan-pending-review", "alpha", true],
@@ -531,11 +533,26 @@ describe("renderManageBoard headline and sections", () => {
       stateOf("alpha", "gated", { pr: 4 }),
     ]);
     const states = new Map([["alpha", stateOf("alpha", "gated", { pr: 4 })]]);
-    expect(ownerNeededFor(result.board, states)).toHaveLength(1);
+    expect(ownerNeededFor(result.board, states, {})).toHaveLength(1);
     const merged = result.board.map((r) => ({
       ...r,
       status: "merged" as const,
     }));
-    expect(ownerNeededFor(merged, states)).toEqual([]);
+    expect(ownerNeededFor(merged, states, {})).toEqual([]);
+  });
+
+  it("ignores a newer same-name pipeline's gated state under the old feature id", () => {
+    const mm = manifest(feat("alpha"));
+    const foreign = stateOf("alpha", "gated", {
+      pr: 4,
+      createdAt: "2026-11-08T00:00:00.000Z",
+    });
+    const records = {
+      alpha: { slug: "alpha", launchedAt: "2026-08-03T00:00:00.000Z" },
+    };
+    const result = reconciled(mm, { alpha: "alpha" }, [foreign]);
+    const states = new Map([["alpha", foreign]]);
+    expect(ownerNeededFor(result.board, states, records)).toEqual([]);
+    expect(ownerNeededFor(result.board, states, {})).toHaveLength(1);
   });
 });

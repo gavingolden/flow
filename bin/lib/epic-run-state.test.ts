@@ -3,16 +3,20 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  bindingPredatesPipeline,
   deleteEpicRunState,
   epicRunStateLockPath,
   epicRunStatePath,
   isEpicRunState,
+  isLatchedMerge,
   listEpicRunStates,
   mutateEpicRunRecord,
+  ownedState,
   readEpicRunState,
   updateEpicRunRecord,
   writeEpicRunState,
   type EpicRunState,
+  type FeatureRunRecord,
 } from "./epic-run-state";
 
 let dir!: string;
@@ -426,5 +430,87 @@ describe("writeEpicRunState atomicity", () => {
     const entries = fs.readdirSync(path.join(dir, "watchlist"));
     expect(entries).toEqual(["run.json"]);
     expect(readEpicRunState("watchlist", dir)?.maxParallel).toBe(9);
+  });
+});
+
+describe("isLatchedMerge", () => {
+  const merged: FeatureRunRecord = {
+    slug: "a",
+    launchedAt: "2026-08-03T00:00:00.000Z",
+    lastStatus: "merged",
+  };
+
+  it("is true for a merged record with no live state", () => {
+    expect(isLatchedMerge(merged, null)).toBe(true);
+    expect(isLatchedMerge(merged, undefined)).toBe(true);
+  });
+
+  it("is false when live state exists, the record is not merged, or absent", () => {
+    expect(isLatchedMerge(merged, { phase: "running" })).toBe(false);
+    expect(isLatchedMerge({ ...merged, lastStatus: "running" }, null)).toBe(
+      false,
+    );
+    expect(isLatchedMerge(undefined, null)).toBe(false);
+  });
+});
+
+describe("bindingPredatesPipeline", () => {
+  const created = "2026-11-08T12:00:00.000Z";
+  const at = (offsetMs: number): FeatureRunRecord => ({
+    slug: "a",
+    launchedAt: new Date(Date.parse(created) + offsetMs).toISOString(),
+  });
+
+  it("is true for a binding launched months before the pipeline", () => {
+    const rec = { slug: "a", launchedAt: "2026-08-03T03:16:42.218Z" };
+    expect(bindingPredatesPipeline(rec, { createdAt: created })).toBe(true);
+  });
+
+  it("is false for a binding launched after the pipeline was created", () => {
+    expect(bindingPredatesPipeline(at(8_800), { createdAt: created })).toBe(
+      false,
+    );
+  });
+
+  it("tolerates up to 60 s of clock skew", () => {
+    expect(bindingPredatesPipeline(at(-59_000), { createdAt: created })).toBe(
+      false,
+    );
+    expect(bindingPredatesPipeline(at(-61_000), { createdAt: created })).toBe(
+      true,
+    );
+  });
+
+  it("is false when either timestamp is missing or unparseable", () => {
+    expect(bindingPredatesPipeline(at(-1e9), {})).toBe(false);
+    expect(
+      bindingPredatesPipeline(
+        { slug: "a", launchedAt: "x" },
+        { createdAt: created },
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("ownedState", () => {
+  const rec: FeatureRunRecord = {
+    slug: "a",
+    launchedAt: "2026-08-03T00:00:00.000Z",
+  };
+
+  it("returns null for a state created after the binding was launched", () => {
+    expect(
+      ownedState(rec, { createdAt: "2026-11-08T00:00:00.000Z" }),
+    ).toBeNull();
+  });
+
+  it("returns the state unchanged when owned", () => {
+    const state = { createdAt: "2026-08-03T00:00:00.000Z", phase: "x" };
+    expect(ownedState(rec, state)).toBe(state);
+  });
+
+  it("passes null and undefined through", () => {
+    expect(ownedState(rec, null)).toBeNull();
+    expect(ownedState(rec, undefined)).toBeUndefined();
   });
 });

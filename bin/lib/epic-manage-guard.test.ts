@@ -464,6 +464,53 @@ describe("planLaunches — bound PR merged in the GitHub UI", () => {
     expect(out.observedMerged).toEqual(["alpha"]);
   });
 
+  it("a newer same-name pipeline's merged PR is not the old binding's own PR", () => {
+    const m = manifestOf(feat("alpha"));
+    const runState = runStateOf({
+      alpha: { slug: "alpha", launchedAt: "2026-08-03T00:00:00.000Z" },
+    });
+    const out = planLaunches(
+      input(m, {
+        runState,
+        states: [
+          tagged("alpha", "alpha", {
+            phase: "gated",
+            pr: 7,
+            createdAt: "2026-11-08T00:00:00.000Z",
+          }),
+        ],
+        github: ghOk(pr(7, "alpha", "MERGED")),
+      }),
+    );
+    expect(out.observedMerged).toEqual([]);
+  });
+
+  it("a latched-merged binding still counts as merged beside a newer same-name state", () => {
+    const m = manifestOf(feat("alpha"));
+    const runState = runStateOf({
+      alpha: {
+        slug: "alpha",
+        launchedAt: "2026-08-03T00:00:00.000Z",
+        lastStatus: "merged",
+        pr: 7,
+      },
+    });
+    const out = planLaunches(
+      input(m, {
+        runState,
+        states: [
+          tagged("alpha", "alpha", {
+            phase: "gated",
+            pr: 7,
+            createdAt: "2026-11-08T00:00:00.000Z",
+          }),
+        ],
+        github: ghOk(pr(7, "alpha", "MERGED")),
+      }),
+    );
+    expect(out.observedMerged).toEqual([]);
+  });
+
   it("a feature whose state already says merged is not re-reported", () => {
     const m = manifestOf(feat("alpha"));
     const runState = runStateOf({ alpha: { slug: "alpha", launchedAt: "x" } });

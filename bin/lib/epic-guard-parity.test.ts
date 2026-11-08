@@ -131,6 +131,7 @@ function namesSyncRouteFor(repoRoot: string): boolean {
   const lines = buildEpicMetadataReminder([{ root: repoRoot, path: rel }], {
     onBaseBranch: true,
     statusRouteWorks,
+    rootOnBase: () => true,
   });
   return lines
     .join("\n")
@@ -162,6 +163,7 @@ async function driveRun(repoRoot: string, rel: string): Promise<number> {
     dirtyEpicPaths: () => [rel],
     repoCommitState: () => "clean",
     guardCapability: (root) => installedGuardCapability(root),
+    rootOnBase: () => true,
     writePause: () => true,
   };
   return run(deps);

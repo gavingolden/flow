@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
 import { resolveRepoRoot } from "./repo-root";
 import { slugify, isValidSlug } from "./slug";
+import { startBackgroundWorktreeSweep } from "./worktree-sweep-launch";
 import { confirmStdin } from "./confirm";
 import {
   toDirSuffix,
@@ -74,7 +75,7 @@ import { sanitizeSeedLine } from "./seed-delivery";
 import { appendLaunchRecord } from "./launch-log";
 import { dim } from "./color";
 import {
-  EPIC_GRANT_DENY_RULES,
+  GRANT_DENY_RULES,
   FLOW_CREATE_ISSUE_ALLOW_RULES,
   FLOW_UI_LOGIN_ALLOW_RULES,
   SECRET_FILE_DENY_RULES,
@@ -192,6 +193,8 @@ export type FeatureOptions = {
     slug: string,
     repo: string,
   ) => { branchName: string; worktreeDir: string };
+  /** Starts the automatic worktree cleanup (test seam; default is the real detached starter). */
+  startWorktreeSweep?: () => void;
   /** Override the command launched in the window. */
   command?: string[];
   /** Resume a crashed pipeline rather than start a new one. */
@@ -853,6 +856,8 @@ function runFresh(
     return 1;
   }
 
+  (options.startWorktreeSweep ?? startBackgroundWorktreeSweep)();
+
   // Resolve the final slug BEFORE any state write so the persist-then-verify-
   // then-delete-on-failure no-orphan ordering below writes exactly one file for
   // it. An explicit --slug is used verbatim and still hard-fails on collision (a
@@ -1108,6 +1113,7 @@ function runFresh(
     epic: options.epic,
     launcher,
     kind: "feature",
+    createdAt: existing?.createdAt ?? nowIso(),
     updatedAt: nowIso(),
   });
   const existing = readState(slug, options.stateDir);
@@ -2014,7 +2020,7 @@ export function launchSettingsPermissions(): {
   allow: string[];
 } {
   return {
-    deny: [...SECRET_FILE_DENY_RULES, ...EPIC_GRANT_DENY_RULES],
+    deny: [...SECRET_FILE_DENY_RULES, ...GRANT_DENY_RULES],
     allow: [
       ...FLOW_UI_LOGIN_ALLOW_RULES,
       ...FLOW_CREATE_ISSUE_ALLOW_RULES,

@@ -75,6 +75,7 @@ describe("HELP_TEXT", () => {
   const REQUIRED_VERBS = [
     "feature",
     "epic",
+    "grant",
     "ls",
     "attach",
     "done",
@@ -187,7 +188,7 @@ describe("HELP_TEXT", () => {
       "epic run <slug> [--model <alias>] [--effort <level>]",
     );
     expect(HELP_TEXT.epic).toContain(
-      "epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--force]",
+      "epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--context-file <path>] [--force]",
     );
   });
 
@@ -215,6 +216,16 @@ describe("HELP_TEXT", () => {
     );
     expect(HELP_TEXT.reap).toContain("left to the live pipeline");
     expect(HELP_TEXT.reap).toMatch(/--yes\s+--include-strays stops them/);
+  });
+
+  it("HELP_TEXT.reap and the top-level help document --worktrees", () => {
+    expect(HELP_TEXT.reap).toContain("flow reap --worktrees [--yes] [--json]");
+    expect(HELP_TEXT.reap).toContain("cleanup.worktrees");
+    expect(HELP_TOP).toContain("flow reap --worktrees");
+  });
+
+  it("HELP_TEXT.doctor describes leftovers as what the last cleanup kept", () => {
+    expect(HELP_TEXT.doctor).toContain("what the last worktree cleanup kept");
   });
 
   it("HELP_TEXT.ls documents --all-repos and the repo-scoped default", () => {
