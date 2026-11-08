@@ -48,6 +48,13 @@ const CHAIN_HOOK_MARKER = "# flow:worktree-hook-chain v1";
  * `Claude-Code-Session-Id:` trailer (`--if-exists doNothing` keeps an amend
  * idempotent). An absent hook is a no-op.
  *
+ * Fast path: for the two highest-frequency names (reference-transaction,
+ * post-index-change) a sibling `<hooksDir>.skip-<name>` marker, written at
+ * install when the consumer has no such hook, makes the shim exit 0 before
+ * launching any git process. Trade-off: a consumer hook of either name added
+ * AFTER install is skipped until the next install/repair (every
+ * `flow feature create` re-runs the repair across the repo's worktrees).
+ *
  * NEVER resolve the folder with `git rev-parse --git-path hooks`: inside a
  * flow worktree that answers the flow folder itself and would loop. A
  * resolved folder equal to the flow folder is skipped for the same reason.
@@ -60,6 +67,7 @@ const CHAIN_HOOK_MARKER = "# flow:worktree-hook-chain v1";
 export const CHAIN_HOOK_SHIM = `#!/bin/sh
 ${CHAIN_HOOK_MARKER}
 name=\${0##*/}
+case "$0" in */*) case "$name" in reference-transaction|post-index-change) [ -e "\${0%/*}.skip-$name" ] && exit 0 ;; esac ;; esac
 case "$0" in */*) own=\${0%/*} ;; *) own=. ;; esac
 own=$(cd "$own" 2>/dev/null && pwd -P)
 
@@ -127,6 +135,67 @@ export function sharedHookShimPath(homeDir: string = os.homedir()): string {
     .digest("hex")
     .slice(0, 12);
   return path.join(homeDir, ".flow", "hooks", `worktree-chain-shim-${hash}.sh`);
+}
+
+export const SKIP_WHEN_ABSENT_HOOK_NAMES: readonly string[] = [
+  "reference-transaction",
+  "post-index-change",
+];
+
+export function skipMarkerPath(hooksDir: string, name: string): string {
+  return `${hooksDir}.skip-${name}`;
+}
+
+function realpathOrNull(p: string): string | null {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return null;
+  }
+}
+
+/** Mirrors the shim's consumer-hooks-folder resolution. */
+function consumerHooksDir(
+  worktreeDir: string,
+  hooksDir: string,
+): string | null {
+  const out = readConfig(
+    ["--type=path", "--show-scope", "--get-all", "core.hooksPath"],
+    worktreeDir,
+  );
+  let last = "";
+  for (const line of (out ?? "").split("\n")) {
+    const i = line.indexOf("\t");
+    if (i < 0) continue;
+    if (line.slice(0, i) !== "worktree") last = line.slice(i + 1);
+  }
+  let dir: string;
+  if (last) {
+    dir = path.isAbsolute(last) ? last : path.join(worktreeDir, last);
+  } else {
+    try {
+      const common = git(
+        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        worktreeDir,
+      );
+      dir = path.join(common, "hooks");
+    } catch {
+      return null;
+    }
+  }
+  const real = realpathOrNull(dir);
+  if (!real || real === realpathOrNull(hooksDir)) return null;
+  return real;
+}
+
+function isExecutableFile(p: string): boolean {
+  try {
+    if (!fs.statSync(p).isFile()) return false;
+    fs.accessSync(p, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function tmpSibling(target: string): string {
@@ -257,6 +326,16 @@ export function installWorktreeHooks(worktreeDir: string): void {
       continue;
     }
     fs.renameSync(tmpPath, hookPath);
+  }
+
+  const consumerDir = consumerHooksDir(worktreeDir, hooksDir);
+  for (const name of SKIP_WHEN_ABSENT_HOOK_NAMES) {
+    const marker = skipMarkerPath(hooksDir, name);
+    if (consumerDir && isExecutableFile(path.join(consumerDir, name))) {
+      fs.rmSync(marker, { force: true });
+    } else if (!fs.existsSync(marker)) {
+      fs.writeFileSync(marker, "");
+    }
   }
 }
 

@@ -569,3 +569,92 @@ describe("shared hook shim layout", () => {
     expect(message.trimEnd()).toMatch(/\nClaude-Code-Session-Id: sess-shared$/);
   });
 });
+
+describe("skip markers for absent hot hooks", () => {
+  let fx: Fixture;
+  beforeEach(() => {
+    fx = makeFixture();
+  });
+  afterEach(() => fx.cleanup());
+
+  const HOT = ["reference-transaction", "post-index-change"];
+
+  function hooksDirFor(dir: string): string {
+    const raw = mustGit(["rev-parse", "--git-dir"], dir);
+    return path.join(
+      path.isAbsolute(raw) ? raw : path.join(dir, raw),
+      "flow-hooks",
+    );
+  }
+
+  function countGitStarts(dir: string): number {
+    const trace = path.join(
+      fx.worktreeDir,
+      "..",
+      `trace-${Math.random()}.json`,
+    );
+    mustGit(["commit", "--allow-empty", "-m", "traced"], dir, {
+      ...ISOLATED_ENV,
+      GIT_TRACE2_EVENT: trace,
+    });
+    const count = fs
+      .readFileSync(trace, "utf8")
+      .split("\n")
+      .filter((l) => l.includes('"event":"start"')).length;
+    fs.rmSync(trace, { force: true });
+    return count;
+  }
+
+  it("writes sibling markers (never inside the hooks folder) when the consumer has no such hooks", () => {
+    installWorktreeHooks(fx.worktreeDir);
+    const hooksDir = hooksDirFor(fx.worktreeDir);
+    for (const name of HOT) {
+      expect(fs.existsSync(`${hooksDir}.skip-${name}`), name).toBe(true);
+    }
+    expect(fs.readdirSync(hooksDir).sort()).toEqual(
+      [...FLOW_HOOK_NAMES].sort(),
+    );
+  });
+
+  it("launches fewer git processes per commit with the skip markers present than after deleting them", () => {
+    installWorktreeHooks(fx.worktreeDir);
+    const hooksDir = hooksDirFor(fx.worktreeDir);
+    const withMarkers = countGitStarts(fx.worktreeDir);
+    for (const name of HOT) fs.rmSync(`${hooksDir}.skip-${name}`);
+    const withoutMarkers = countGitStarts(fx.worktreeDir);
+    expect(withMarkers).toBeLessThan(withoutMarkers);
+  });
+
+  it("removes the marker and still runs a consumer hook that exists at install time", () => {
+    const consumerHooks = path.join(fx.repoDir, ".git", "hooks");
+    const log = path.join(fx.repoDir, "..", "ref-tx.log");
+    fs.mkdirSync(consumerHooks, { recursive: true });
+    const hook = path.join(consumerHooks, "reference-transaction");
+    fs.writeFileSync(hook, `#!/bin/sh\necho "$1" >> "${log}"\n`);
+    fs.chmodSync(hook, 0o755);
+
+    installWorktreeHooks(fx.worktreeDir);
+    const hooksDir = hooksDirFor(fx.worktreeDir);
+    expect(fs.existsSync(`${hooksDir}.skip-reference-transaction`)).toBe(false);
+    expect(fs.existsSync(`${hooksDir}.skip-post-index-change`)).toBe(true);
+
+    mustGit(["commit", "--allow-empty", "-m", "ran"], fx.worktreeDir);
+    expect(fs.readFileSync(log, "utf8").length).toBeGreaterThan(0);
+  });
+
+  it("leaves a marker's mtime unchanged on a no-op reinstall", () => {
+    installWorktreeHooks(fx.worktreeDir);
+    const marker = `${hooksDirFor(fx.worktreeDir)}.skip-reference-transaction`;
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(marker, old, old);
+    const before = fs.statSync(marker).mtimeMs;
+    installWorktreeHooks(fx.worktreeDir);
+    expect(fs.statSync(marker).mtimeMs).toBe(before);
+  });
+
+  it("still stamps the session trailer with the markers present", () => {
+    installWorktreeHooks(fx.worktreeDir);
+    const message = commitAndReadMessage(fx.worktreeDir, "m.txt", "sess-skip");
+    expect(message.trimEnd()).toMatch(/\nClaude-Code-Session-Id: sess-skip$/);
+  });
+});
