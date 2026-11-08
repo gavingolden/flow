@@ -95,6 +95,16 @@ export function sampleDaemons(): DaemonSample[] {
   return kernel ? [...samples, kernel] : samples;
 }
 
+type Run = {
+  wallSec: number;
+  loadAvg1: number;
+  exitCode: number;
+  daemons: PerDaemon;
+  pidExited: boolean;
+  control?: { wallSec: number; daemons: PerDaemon; pidExited: boolean };
+  net: PerDaemon;
+};
+
 type Deps = {
   platform?: NodeJS.Platform;
   sample?: () => DaemonSample[];
@@ -151,7 +161,7 @@ export async function main(argv: string[], deps: Deps = {}): Promise<number> {
   const now = deps.now ?? (() => performance.now());
   const loadAvg1 = deps.loadAvg1 ?? (() => os.loadavg()[0]);
 
-  const runs = [];
+  const runs: Run[] = [];
   for (let i = 0; i < args.repeat; i++) {
     const load = loadAvg1();
     const before = sample();
