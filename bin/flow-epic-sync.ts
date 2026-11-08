@@ -49,9 +49,8 @@ import { resolveSlugFromEnv } from "./lib/session-identity";
 import { defaultGh, defaultGit, type GhRunner } from "./lib/resume-probes";
 import {
   commitEpicStatus,
-  currentBranch,
   epicStatusLockPath,
-  resolveDefaultBranch,
+  onBaseBranch,
   pushEpicStatusFromWrittenPath,
   resolveContainedRepoRoot,
   type CommitSkipReason,
@@ -341,8 +340,7 @@ function onFeatureBranch(
   const root = resolveRepoRoot(epicDirAbs);
   if (!root) return false;
   const run = git ?? defaultGit;
-  const branch = currentBranch(root, run);
-  return branch !== null && branch !== resolveDefaultBranch(root, run);
+  return !onBaseBranch(root, run);
 }
 
 export function main(argv: string[], deps: Deps = {}): number {

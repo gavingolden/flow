@@ -41,17 +41,18 @@ call). Read that file, never a stdout capture, and branch on `.decision`:
   place. Route on the `.reason` prefix: `checks-pending` / `checks-unreadable`
   — CI has not settled, re-enter step 7, then steps 9 and 10; `checks-failed`
   — the step 7 `ci-failed` path; `gate-blocked` — escalate
-  `gate-override-without-confirmation`; anything else (`pr-not-owned`,
+  `gate-override-without-confirmation`; `epic-row-missing` — the PR's own
+  epic board row is not on its GitHub head: run
+  `flow-epic-self-mark --slug "$FLOW_SLUG" --commit --push` as its own
+  standalone Bash call (no `cd` or `&&` prefix), then re-enter step 7 and
+  return straight to step 10 (not step 9: the helper pushes only a board-only
+  commit, so no gate input changed and an owner-approved PR is not
+  re-gated); if the helper refuses, escalate `merge-refused` with the
+  helper's refusal reason in `GUARD_REASON`; anything else
+  (`epic-row-unverifiable`, `epic-binding-conflict`, `pr-not-owned`,
   `pr-not-open`, `auto-merge-disabled`, `phase-not-advanceable`,
   `checks-unrecognised`, `error`, a missing helper) — escalate
-  `merge-refused`; `epic-row-missing` — the PR's own epic board row is not on
-  its GitHub head: run `flow-epic-self-mark --slug "$FLOW_SLUG" --commit --push`
-  as its own standalone Bash call (no `cd` or `&&` prefix), then re-enter
-  step 7 and return straight to step 10 (not step 9: a board-only commit
-  changes no gate input, so an owner-approved PR is not re-gated); if the
-  helper refuses, escalate `NEEDS HUMAN: epic-row-missing` naming its reason.
-  `epic-row-unverifiable` and `epic-binding-conflict` fall into the
-  `merge-refused` escalation. Both escalations render the same block:
+  `merge-refused`. Both escalations render the same block:
 
   ```bash
   TAG=merge-refused  # or gate-override-without-confirmation, per the routing above

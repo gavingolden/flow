@@ -341,6 +341,12 @@ const defaultPushGit: GitRunner = (argv, cwd) => {
   };
 };
 
+/** True on the base branch or a detached HEAD; the one predicate every board-route decision shares. */
+export function onBaseBranch(repoRoot: string, git: GitRunner): boolean {
+  const branch = currentBranch(repoRoot, git);
+  return branch === null || branch === resolveDefaultBranch(repoRoot, git);
+}
+
 export function resolveDefaultBranch(repoRoot: string, git: GitRunner): string {
   const symbolic = git(
     ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],

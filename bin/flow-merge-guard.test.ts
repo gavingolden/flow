@@ -1221,6 +1221,66 @@ describe("run() — merge mode", () => {
       expect(spy).toHaveBeenCalledOnce();
     });
 
+    describe("default head-board reader (gh api)", () => {
+      const ghApi = (api: string[][], reply: Record<string, unknown>) => {
+        const head = ghHead();
+        return vi.fn((argv: string[]) => {
+          if (argv[0] !== "api") return head(argv);
+          api.push(argv);
+          return reply as { stdout: string; stderr: string; exitCode: number };
+        });
+      };
+
+      it("reads the board raw at the head commit; HTTP 404 on stderr is epic-row-missing", () => {
+        seedEpic("e7");
+        const api: string[][] = [];
+        const gh = ghApi(api, {
+          stdout: '{"message":"Not Found"}',
+          stderr: "gh: Not Found (HTTP 404)",
+          exitCode: 1,
+        });
+        const spy = vi.fn(okMerge);
+        const { out } = runMerge(["merge", "5", "--slug", "e7"], {
+          gh,
+          runMerge: spy,
+        });
+        expect(api[0]).toEqual([
+          "api",
+          "-H",
+          "Accept: application/vnd.github.raw",
+          "repos/{owner}/{repo}/contents/.flow/epics/demo/status.json?ref=deadbeef",
+        ]);
+        expect(out.reason).toContain("epic-row-missing");
+        expect(spy).not.toHaveBeenCalled();
+      });
+
+      it("treats a non-404 failure as epic-row-unverifiable, not missing", () => {
+        seedEpic("e8");
+        const gh = ghApi([], { stdout: "", stderr: "HTTP 502", exitCode: 1 });
+        const { out } = runMerge(["merge", "5", "--slug", "e8"], {
+          gh,
+          runMerge: vi.fn(okMerge),
+        });
+        expect(out.reason).toContain("epic-row-unverifiable");
+      });
+
+      it("merges when the raw board read returns the merged row", () => {
+        seedEpic("e9");
+        const gh = ghApi([], {
+          stdout: boardWith("merged"),
+          stderr: "",
+          exitCode: 0,
+        });
+        const spy = vi.fn(okMerge);
+        const { exit } = runMerge(["merge", "5", "--slug", "e9"], {
+          gh,
+          runMerge: spy,
+        });
+        expect(exit).toBe(0);
+        expect(spy).toHaveBeenCalledOnce();
+      });
+    });
+
     it("refuses epic-row-unverifiable on a read failure", () => {
       seedEpic("e4");
       const spy = vi.fn(okMerge);

@@ -24,6 +24,8 @@ import {
   type SelfMarkResult,
 } from "./lib/epic-self-mark";
 import { resolveSlugFromEnv } from "./lib/session-identity";
+import { isValidSlug } from "./lib/slug";
+import { resolveEpicBinding } from "./lib/epic-binding";
 import {
   defaultGh,
   defaultGit,
@@ -47,6 +49,10 @@ const REMEDY: Record<SelfMarkRefusal, string> = {
     "run from the pipeline's feature branch, not the base branch",
   "detached-head": "check out the pipeline's branch",
   "no-pr": "open the PR first or pass --pr",
+  "no-binding":
+    "pass --slug <the pipeline's slug> (or run with FLOW_SLUG set) so the conflict resolves against its own row",
+  "extra-local-commits":
+    "push the branch normally (`git push`) so the gate sees the extra commits, then rerun",
   "pr-not-merged": "the PR must be MERGED or this branch's own open PR",
   "unknown-feature": "the feature id is not in the epic manifest",
   "manifest-unreadable":
@@ -109,6 +115,7 @@ function parseArgs(argv: string[]): Args | string {
     else if (a === "--slug" || a === "--epic-slug" || a === "--feature") {
       const v = value();
       if (v === undefined) return `${a} requires a value`;
+      if (a !== "--feature" && !isValidSlug(v)) return `invalid ${a} '${v}'`;
       if (a === "--slug") out.slug = v;
       else if (a === "--epic-slug") out.epicSlug = v;
       else out.feature = v;
@@ -179,6 +186,33 @@ export function main(argv: string[], deps: Deps = {}): number {
   const git = deps.git ?? defaultGit;
   const gh = deps.gh ?? defaultGh;
   const baseCwd = deps.cwd ?? process.cwd();
+  const ambient = resolveSlugFromEnv(deps.env ?? process.env);
+
+  // Inside a pipeline the helper is pre-approved (no classifier review), so it
+  // must refuse to act for any pipeline or feature other than its own.
+  if (ambient && !parsed.seed) {
+    if (parsed.slug && parsed.slug !== ambient) {
+      return refuseUsage(
+        `--slug ${parsed.slug} is not this pipeline (${ambient})`,
+      );
+    }
+    if (parsed.epicSlug) {
+      const own = resolveEpicBinding({
+        slug: ambient,
+        stateDir: deps.stateDir,
+        epicsDir: deps.epicsDir,
+      });
+      if (
+        own.kind !== "bound" ||
+        own.epicSlug !== parsed.epicSlug ||
+        own.featureId !== parsed.feature
+      ) {
+        return refuseUsage(
+          `${parsed.epicSlug}/${parsed.feature} is not this pipeline's own feature; the explicit form is a manual repair, run it from a plain terminal`,
+        );
+      }
+    }
+  }
 
   if (parsed.seed) {
     return report(
@@ -192,7 +226,7 @@ export function main(argv: string[], deps: Deps = {}): number {
     push: parsed.push,
     resolveConflict: parsed.resolveConflict,
     gh,
-    git,
+    git: deps.git,
     stateDir: deps.stateDir,
     epicsDir: deps.epicsDir,
   };
@@ -211,8 +245,21 @@ export function main(argv: string[], deps: Deps = {}): number {
     );
   }
 
-  const slug = parsed.slug ?? resolveSlugFromEnv(deps.env ?? process.env);
-  if (!slug) return report(notBound(), parsed.json);
+  const slug = parsed.slug ?? ambient;
+  if (!slug) {
+    return parsed.resolveConflict
+      ? report(
+          {
+            outcome: "refused",
+            reason: "no-binding",
+            detail: "no pipeline slug to bind for --resolve-conflict",
+            committed: false,
+            pushed: false,
+          },
+          parsed.json,
+        )
+      : report(notBound(), parsed.json);
+  }
   const state = readState(slug, deps.stateDir ?? FLOW_STATE_DIR);
   const cwd =
     state?.worktree && fs.existsSync(state.worktree) ? state.worktree : baseCwd;
@@ -223,6 +270,11 @@ export function main(argv: string[], deps: Deps = {}): number {
     if (pr !== undefined) result = selfMarkEpicRow({ ...base, pr });
   }
   return report(result, parsed.json);
+}
+
+function refuseUsage(msg: string): number {
+  process.stderr.write(`flow-epic-self-mark: refused: ${msg}\n`);
+  return 2;
 }
 
 function notBound(): SelfMarkResult {

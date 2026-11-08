@@ -60,10 +60,9 @@ import {
   type WorktreeOrphanSweepResult,
 } from "./lib/worktree-orphans-run";
 import {
-  currentBranch,
   dirtyEpicMetadata as defaultDirtyEpicPaths,
   repoCommitState as defaultRepoCommitState,
-  resolveDefaultBranch,
+  onBaseBranch,
   type RepoState,
 } from "./lib/epic-metadata-commit";
 import { defaultGit } from "./lib/resume-probes";
@@ -201,6 +200,7 @@ export function buildEpicMetadataReminder(
     if (isCommittableOnBaseBranch([p]) && !ctx.rootOnBase(root)) {
       lines.push(
         `  ${p}: run \`(cd ${root} && flow-epic-self-mark --commit --push)\` — this checkout is on a feature branch, which writes only its own row.`,
+        `    if that exits 0 with no output (not epic-bound) or refuses no-pr (no PR opened yet), commit the file directly instead: \`git -C ${root} add -- ${p} && git -C ${root} commit -m "chore(epic): commit ${p}" -- ${p}\`.`,
       );
     } else if (isCommittableOnBaseBranch([p]) && ctx.statusRouteWorks(root)) {
       const epicMatch = p.match(/^\.flow\/epics\/([^/]+)\/status\.json$/);
@@ -619,12 +619,7 @@ if (import.meta.main) {
     dirtyEpicPaths: (repoRoot) => defaultDirtyEpicPaths({ repoRoot }),
     repoCommitState: (repoRoot) => defaultRepoCommitState({ repoRoot }),
     guardCapability: (repoRoot) => installedGuardCapability(repoRoot),
-    rootOnBase: (repoRoot) => {
-      const branch = currentBranch(repoRoot, defaultGit);
-      return (
-        branch === null || branch === resolveDefaultBranch(repoRoot, defaultGit)
-      );
-    },
+    rootOnBase: (repoRoot) => onBaseBranch(repoRoot, defaultGit),
     writePause: (state, outcome) => {
       try {
         return finalizePhase("needs-human", { slug: state.slug, outcome })

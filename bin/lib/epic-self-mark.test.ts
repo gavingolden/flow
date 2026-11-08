@@ -7,6 +7,7 @@ import { applySelfRow, seedEpicBoard, selfMarkEpicRow } from "./epic-self-mark";
 import { serializeEpicStatus, type EpicStatusFile } from "./epic-status-schema";
 import { writeEpicRunState } from "./epic-run-state";
 import { writeState } from "./state";
+import type { GitRunner } from "./resume-probes";
 
 let root!: string;
 let repo!: string;
@@ -263,43 +264,110 @@ describe("selfMarkEpicRow", () => {
     });
   });
 
-  it("should push with `git push origin HEAD`, never forced", () => {
-    const calls: string[][] = [];
-    const real = (argv: string[], cwd: string) => {
-      if (argv[0] === "push") {
-        calls.push(argv);
-        return { stdout: "", stderr: "To origin\n", exitCode: 0 };
-      }
+  function addRemote(pushBranch = true) {
+    const bare = path.join(root, "remote.git");
+    spawnSync("git", ["init", "-q", "--bare", bare]);
+    git(["remote", "add", "origin", bare]);
+    if (pushBranch) git(["push", "-q", "origin", "main", "feat-a"]);
+    return bare;
+  }
+
+  const wrap =
+    (onPush: (argv: string[]) => ReturnType<GitRunner> | null): GitRunner =>
+    (argv, cwd) => {
+      const hit = argv.includes("push") ? onPush(argv) : null;
+      if (hit) return hit;
       const r = gitTry(argv, cwd);
-      return {
-        stdout: r.stdout,
-        stderr: r.stderr,
-        exitCode: r.status ?? -1,
-      };
+      return { stdout: r.stdout, stderr: r.stderr, exitCode: r.status ?? -1 };
     };
+
+  it("should push with `git push origin HEAD`, never forced", () => {
+    addRemote();
+    const calls: string[][] = [];
+    const real = wrap((argv) => {
+      calls.push(argv);
+      return { stdout: "", stderr: "To origin\n", exitCode: 0 };
+    });
     const r = mark({ slug: "feat-a", pr: 4, push: true, git: real });
-    expect(calls).toEqual([["push", "origin", "HEAD"]]);
+    expect(calls).toEqual([["-c", "core.askPass=", "push", "origin", "HEAD"]]);
     expect(r).toMatchObject({ committed: true, pushed: true });
   });
 
   it("should report push-failed with the commit kept", () => {
-    const real = (argv: string[], cwd: string) => {
-      if (argv[0] === "push") {
-        return { stdout: "", stderr: "denied\n", exitCode: 1 };
-      }
-      const r = gitTry(argv, cwd);
-      return {
-        stdout: r.stdout,
-        stderr: r.stderr,
-        exitCode: r.status ?? -1,
-      };
-    };
+    addRemote();
+    const real = wrap(() => ({ stdout: "", stderr: "denied\n", exitCode: 1 }));
     expect(
       mark({ slug: "feat-a", pr: 4, push: true, git: real }),
     ).toMatchObject({
       outcome: "refused",
       reason: "push-failed",
       committed: true,
+    });
+  });
+
+  it("should push a branch with no remote ref yet", () => {
+    addRemote(false);
+    const r = mark({ slug: "feat-a", pr: 4, push: true });
+    expect(r).toMatchObject({ outcome: "written", pushed: true });
+    expect(git(["ls-remote", "--heads", "origin", "feat-a"])).toContain(
+      "refs/heads/feat-a",
+    );
+  });
+
+  it("should refuse to push when an unpushed commit touches more than the board", () => {
+    addRemote();
+    fs.writeFileSync(path.join(repo, "code.ts"), "export {};\n");
+    commitAll("unreviewed work");
+    const before = git(["ls-remote", "--heads", "origin", "feat-a"]);
+    const r = mark({ slug: "feat-a", pr: 4, push: true });
+    expect(r).toMatchObject({
+      outcome: "refused",
+      reason: "extra-local-commits",
+      committed: true,
+      pushed: false,
+    });
+    expect(r.detail).toContain("code.ts");
+    expect(git(["ls-remote", "--heads", "origin", "feat-a"])).toBe(before);
+  });
+
+  it("should write on the first push, then report unchanged when nothing new is sent", () => {
+    addRemote();
+    expect(mark({ slug: "feat-a", pr: 4, push: true })).toMatchObject({
+      outcome: "written",
+      committed: true,
+      pushed: true,
+    });
+    expect(mark({ slug: "feat-a", pr: 4, push: true })).toMatchObject({
+      outcome: "unchanged",
+      committed: false,
+      pushed: true,
+    });
+  });
+
+  it("should report written when a rerun finally sends a row committed by a failed push", () => {
+    addRemote();
+    const failing = wrap(() => ({
+      stdout: "",
+      stderr: "denied\n",
+      exitCode: 1,
+    }));
+    expect(
+      mark({ slug: "feat-a", pr: 4, push: true, git: failing }),
+    ).toMatchObject({ reason: "push-failed" });
+    expect(mark({ slug: "feat-a", pr: 4, push: true })).toMatchObject({
+      outcome: "written",
+      committed: false,
+      pushed: true,
+    });
+  });
+
+  it("should refuse --resolve-conflict when the pipeline is not epic-bound", () => {
+    expect(
+      mark({ slug: "nobody", resolveConflict: true, commit: false }),
+    ).toMatchObject({ outcome: "refused", reason: "no-binding" });
+    expect(mark({ resolveConflict: true, commit: false })).toMatchObject({
+      outcome: "refused",
+      reason: "no-binding",
     });
   });
 });

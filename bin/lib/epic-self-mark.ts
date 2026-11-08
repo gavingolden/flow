@@ -55,7 +55,9 @@ export type SelfMarkRefusal =
   | "epic-id-mismatch"
   | "not-conflicted"
   | "commit-failed"
-  | "push-failed";
+  | "push-failed"
+  | "extra-local-commits"
+  | "no-binding";
 
 export type SelfMarkResult = {
   outcome: "not-bound" | "unchanged" | "written" | "refused";
@@ -213,16 +215,74 @@ function verifyPr(
   }
 }
 
+type PushOutcome =
+  | { ok: true; upToDate: boolean }
+  | {
+      ok: false;
+      reason: "push-failed" | "extra-local-commits";
+      detail: string;
+    };
+
+/**
+ * Pushes the branch's HEAD, but only when everything it would publish is the
+ * board path: step 10 returns straight to the merge without re-gating on the
+ * premise that this push is board-only. A branch with no remote ref yet has
+ * nothing to compare against, so it is pushed as-is.
+ */
 function pushHead(
   repoRoot: string,
   git: GitRunner,
-): { ok: boolean; upToDate: boolean; detail: string } {
-  const r = git(["push", "origin", "HEAD"], repoRoot);
-  return {
-    ok: r.exitCode === 0,
-    upToDate: /up-to-date/i.test(r.stderr + r.stdout),
-    detail: firstLine(r.stderr || r.stdout),
-  };
+  branch: string,
+  boardRel: string,
+): PushOutcome {
+  const ls = git(
+    [
+      "-c",
+      "core.askPass=",
+      "ls-remote",
+      "--exit-code",
+      "--heads",
+      "origin",
+      branch,
+    ],
+    repoRoot,
+  );
+  if (ls.exitCode !== 0 && ls.exitCode !== 2) {
+    return {
+      ok: false,
+      reason: "push-failed",
+      detail: firstLine(ls.stderr || ls.stdout),
+    };
+  }
+  const remoteSha = ls.exitCode === 0 ? ls.stdout.trim().split(/\s+/)[0] : "";
+  if (remoteSha) {
+    const changed = git(
+      ["diff", "--no-renames", "--name-only", `${remoteSha}..HEAD`],
+      repoRoot,
+    );
+    if (changed.exitCode === 0) {
+      const extra = changed.stdout
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0 && l !== boardRel);
+      if (extra.length > 0) {
+        return {
+          ok: false,
+          reason: "extra-local-commits",
+          detail: `unpushed commits touch more than ${boardRel} (${extra.slice(0, 3).join(", ")}); push the branch normally so the gate sees them`,
+        };
+      }
+    }
+  }
+  const r = git(["-c", "core.askPass=", "push", "origin", "HEAD"], repoRoot);
+  if (r.exitCode !== 0) {
+    return {
+      ok: false,
+      reason: "push-failed",
+      detail: firstLine(r.stderr || r.stdout),
+    };
+  }
+  return { ok: true, upToDate: /up-to-date/i.test(r.stderr + r.stdout) };
 }
 
 function resolveConflictRow(
@@ -278,7 +338,12 @@ export function selfMarkEpicRow(opts: {
     ({ epicSlug, featureId } = opts.explicit);
   } else {
     if (!opts.slug) {
-      return { outcome: "not-bound", committed: false, pushed: false };
+      return opts.resolveConflict
+        ? refuse(
+            "no-binding",
+            "no pipeline slug to bind for --resolve-conflict",
+          )
+        : { outcome: "not-bound", committed: false, pushed: false };
     }
     const binding = resolveEpicBinding({
       slug: opts.slug,
@@ -286,7 +351,12 @@ export function selfMarkEpicRow(opts: {
       epicsDir: opts.epicsDir,
     });
     if (binding.kind === "none") {
-      return { outcome: "not-bound", committed: false, pushed: false };
+      return opts.resolveConflict
+        ? refuse(
+            "no-binding",
+            `slug ${opts.slug} is not bound to an epic feature`,
+          )
+        : { outcome: "not-bound", committed: false, pushed: false };
     }
     if (binding.kind === "conflict") {
       return refuse("binding-conflict", binding.detail);
@@ -390,9 +460,9 @@ export function selfMarkEpicRow(opts: {
   let pushed = false;
   let pushedNew = false;
   if (opts.push) {
-    const p = pushHead(repoRoot, opts.git ?? pushGit);
+    const p = pushHead(repoRoot, opts.git ?? pushGit, branch, rel);
     if (!p.ok) {
-      return refuse("push-failed", p.detail, { ...withIds, committed });
+      return refuse(p.reason, p.detail, { ...withIds, committed });
     }
     pushed = true;
     pushedNew = !p.upToDate;

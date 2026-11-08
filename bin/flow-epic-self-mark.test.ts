@@ -180,6 +180,63 @@ describe("flow-epic-self-mark explicit form", () => {
   });
 });
 
+describe("flow-epic-self-mark inside a pipeline ($FLOW_SLUG set)", () => {
+  const explicit = (feature: string) => [
+    "--epic-slug",
+    "demo",
+    "--feature",
+    feature,
+    "--pr",
+    "3",
+  ];
+  const merged = { gh: ghReply({ state: "MERGED", headRefName: "x" }) };
+
+  it("should refuse a --slug that is not its own pipeline", () => {
+    bind({ pr: 5 });
+    expect(
+      run(["--slug", "other", "--commit"], { env: { FLOW_SLUG: "feat-a" } }),
+    ).toBe(2);
+    expect(err.join("")).toContain("not this pipeline");
+    expect(fs.existsSync(path.join(repo, BOARD))).toBe(false);
+  });
+
+  it("should refuse the explicit form for another pipeline's feature", () => {
+    bind({ pr: 5 });
+    expect(
+      run(explicit("b"), { ...merged, env: { FLOW_SLUG: "feat-a" } }),
+    ).toBe(2);
+    expect(err.join("")).toContain("not this pipeline's own feature");
+    expect(fs.existsSync(path.join(repo, BOARD))).toBe(false);
+  });
+
+  it("should allow the explicit form for its own bound feature", () => {
+    bind({ pr: 5 });
+    expect(
+      run(explicit("a"), { ...merged, env: { FLOW_SLUG: "feat-a" } }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(repo, BOARD))).toBe(true);
+  });
+
+  it("should leave the explicit form usable from a plain terminal", () => {
+    expect(run(explicit("b"), merged)).toBe(0);
+  });
+});
+
+describe("flow-epic-self-mark argument hardening", () => {
+  it.each([[["--slug", "../x"]], [["--epic-slug", "a/b", "--seed"]]])(
+    "should exit 2 for the invalid slug %j",
+    (argv) => {
+      expect(run(argv)).toBe(2);
+      expect(err.join("")).toContain("invalid");
+    },
+  );
+
+  it("should refuse --resolve-conflict with no slug to bind instead of exiting 0", () => {
+    expect(run(["--resolve-conflict"])).toBe(1);
+    expect(err.join("")).toContain("no-binding");
+  });
+});
+
 describe("flow-epic-self-mark --seed", () => {
   it("should write the all-not-started board and nothing else", () => {
     expect(run(["--seed", "--epic-slug", "demo"])).toBe(0);

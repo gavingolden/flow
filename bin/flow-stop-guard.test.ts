@@ -877,6 +877,9 @@ describe("buildEpicMetadataReminder — feature-branch roots", () => {
       },
     ).join("\n");
     expect(joined).toContain("(cd /wt && flow-epic-self-mark --commit --push)");
+    expect(joined).toContain(
+      "git -C /wt add -- .flow/epics/e1/status.json && git -C /wt commit -m",
+    );
     expect(joined).not.toContain("flow-epic-sync");
   });
 

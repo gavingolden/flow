@@ -1257,7 +1257,14 @@ describe("flow-open-pr epic board self-mark", () => {
     );
     const r = openWith(selfMark);
     expect(selfMark).toHaveBeenCalledWith(
-      expect.objectContaining({ slug: "epic-a", pr: 301 }),
+      expect.objectContaining({
+        slug: "epic-a",
+        pr: 301,
+        commit: true,
+        push: true,
+        stateDir,
+        epicsDir: path.join(path.dirname(stateDir), "epics"),
+      }),
     );
     expect(r.exit).toBe(0);
     expect(r.stderr).toContain("demo/a");
@@ -1284,7 +1291,9 @@ describe("flow-open-pr epic board self-mark", () => {
     expect(r.exit).toBe(0);
     expect(r.stderr).toContain("WARNING");
     expect(r.stderr).toContain("push-failed");
-    expect(r.stderr).toContain("flow-epic-self-mark --commit --push");
+    expect(r.stderr).toContain(
+      "flow-epic-self-mark --slug epic-a --commit --push",
+    );
     expect(r.stdout).toEqual(["https://github.com/x/y/pull/301"]);
   });
 
