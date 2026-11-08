@@ -1371,6 +1371,38 @@ describe("kind: 'feature' stamped + @flow-kind published (Task 2 / Task 4)", () 
     expect(Number.isNaN(Date.parse(createdAt ?? ""))).toBe(false);
   });
 
+  it("keeps the prior createdAt when a launch overwrites an existing same-slug state", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    // The state file appears between the collision probe and the base-state
+    // read (the external reset path), so runFresh sees a prior pipeline.
+    tmuxMock.windowExists
+      .mockReset()
+      .mockImplementationOnce(() => {
+        writeState(
+          {
+            slug: "csv-export",
+            phase: "gated",
+            repo: repoDir,
+            createdAt: "2020-01-01T00:00:00.000Z",
+            updatedAt: "2020-01-01T00:00:00.000Z",
+          },
+          stateDir,
+        );
+        return false;
+      })
+      .mockReturnValue(true);
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      slug: "csv-export",
+    });
+    expect(code).toBe(0);
+    expect(readState("csv-export", stateDir)?.createdAt).toBe(
+      "2020-01-01T00:00:00.000Z",
+    );
+  });
+
   it("republishes @flow-kind on a tmux resume, preserving the persisted kind", () => {
     // Seeded WITH kind already set (as a prior `flow feature create` would
     // have stamped it) — runResume's writeState sites spread the existing

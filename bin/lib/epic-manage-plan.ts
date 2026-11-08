@@ -168,7 +168,7 @@ export function observe(ctx: LoopContext, deps: LoopDeps): Observation {
  * as completed IN MEMORY: the seam reports `merged` for those slugs, so
  * `reconcile()` itself is unchanged and run.json / the state file stay untouched.
  */
-function reconcileWith(
+export function reconcileWith(
   ctx: LoopContext,
   deps: LoopDeps,
   o: Observation,
@@ -188,8 +188,10 @@ function reconcileWith(
       const s = readState(slug, deps.stateDir);
       const id = idBySlug.get(slug);
       if (id === undefined || !merged.has(id)) return s;
-      return s
-        ? { ...s, phase: "merged" }
+      const rec = o.runState.features[id];
+      const own = rec ? ownedState(rec, s) : s;
+      return own
+        ? { ...own, phase: "merged" }
         : {
             slug,
             phase: "merged",
@@ -301,7 +303,7 @@ export async function plan(
   };
   const boundBranchCheck = result.board.some((r) => {
     const rec = o.runState.features[r.id];
-    const s = rec?.slug ? bySlug.get(rec.slug) : undefined;
+    const s = rec?.slug ? ownedState(rec, bySlug.get(rec.slug)) : undefined;
     return Boolean(s?.worktree && (s.pr ?? rec?.pr) !== undefined);
   });
   let gitFresh = true;

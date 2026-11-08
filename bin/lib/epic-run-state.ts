@@ -200,6 +200,9 @@ export function updateEpicRunRecord(
  * from nothing beyond what `decide` returns: a missing run.json returns false
  * without touching the filesystem. Returns true only when a write happened.
  */
+/** Message prefix of the error mutateEpicRunRecord throws for a malformed record. */
+export const INVALID_LAUNCH_RECORD_PREFIX = "invalid launch record";
+
 export function mutateEpicRunRecord(
   slug: string,
   featureId: string,
@@ -217,7 +220,7 @@ export function mutateEpicRunRecord(
       const next = decide(state.features[featureId]);
       if (next === null) return false;
       if (!isFeatureRunRecord(next)) {
-        throw new Error(`invalid launch record for ${featureId}`);
+        throw new Error(`${INVALID_LAUNCH_RECORD_PREFIX} for ${featureId}`);
       }
       writeEpicRunState(
         {

@@ -1108,7 +1108,7 @@ function runFresh(
     epic: options.epic,
     launcher,
     kind: "feature",
-    createdAt: nowIso(),
+    createdAt: existing?.createdAt ?? nowIso(),
     updatedAt: nowIso(),
   });
   const existing = readState(slug, options.stateDir);

@@ -9,6 +9,7 @@
 
 import * as fs from "node:fs";
 import {
+  INVALID_LAUNCH_RECORD_PREFIX,
   bindingPredatesPipeline,
   isLatchedMerge,
   listEpicRunStates,
@@ -131,10 +132,10 @@ export function formatLatchNote(
   slug: string,
 ): string | null {
   if (r.skipped === "predates-pipeline") {
-    return `left ${r.epicSlug}/${r.featureId} unlatched: its launch record predates this pipeline`;
+    return `did not mark ${r.epicSlug}/${r.featureId} merged: that board entry belongs to an earlier pipeline with the same name`;
   }
   if (r.skipped === "other-repo") {
-    return `left ${r.epicSlug}/${r.featureId} unlatched: its epic belongs to a different repo`;
+    return `did not mark ${r.epicSlug}/${r.featureId} merged: its epic is in a different repo`;
   }
   if (r.lastStatus !== "merged") return null;
   return `kept ${slug} merged on epic ${r.epicSlug}${r.pr !== undefined ? ` (PR #${r.pr})` : ""}`;
@@ -150,7 +151,10 @@ export function describeLatchFailure(err: unknown): string {
   }
   if (code === "ENOSPC") return "the disk is full";
   const message = err instanceof Error ? err.message : String(err);
-  if (err instanceof Error && message.startsWith("invalid launch record")) {
+  if (
+    err instanceof Error &&
+    message.startsWith(INVALID_LAUNCH_RECORD_PREFIX)
+  ) {
     return "the epic board entry would have been malformed";
   }
   return message;

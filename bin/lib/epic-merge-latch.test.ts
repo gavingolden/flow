@@ -12,6 +12,8 @@ import { LockTimeoutError } from "./lock";
 import { reconcile, type ReadFeatureState } from "./epic-reconcile";
 import {
   epicRunStatePath,
+  INVALID_LAUNCH_RECORD_PREFIX,
+  mutateEpicRunRecord,
   readEpicRunState,
   writeEpicRunState,
   type EpicRunState,
@@ -235,7 +237,7 @@ describe("latchEpicBinding — slug reuse and repo guards", () => {
     ]);
     const note = formatLatchNote(results[0]!, "email-delivery");
     expect(note).toContain("email-epic/f1");
-    expect(note).toContain("predates this pipeline");
+    expect(note).toContain("belongs to an earlier pipeline");
   });
 
   it("latches an epic launch whose createdAt is seconds before launchedAt", () => {
@@ -290,7 +292,7 @@ describe("latchEpicBinding — slug reuse and repo guards", () => {
     expect(raw("e")).toBe(before);
     expect(results[0]).toMatchObject({ wrote: false, skipped: "other-repo" });
     expect(formatLatchNote(results[0]!, "email-delivery")).toBe(
-      "left e/b unlatched: its epic belongs to a different repo",
+      "did not mark e/b merged: its epic is in a different repo",
     );
   });
 
@@ -333,7 +335,18 @@ describe("describeLatchFailure", () => {
     expect(describeLatchFailure(errno("EPERM"))).toContain("permissions");
     expect(describeLatchFailure(errno("EROFS"))).toContain("permissions");
     expect(describeLatchFailure(errno("ENOSPC"))).toBe("the disk is full");
-    expect(describeLatchFailure(new Error("invalid launch record for x"))).toBe(
+    writeEpicRunState(run("e", { a: bound("a-slug") }), dir);
+    let thrown: unknown;
+    try {
+      mutateEpicRunRecord("e", "a", () => ({ pr: 1 }) as FeatureRunRecord, {
+        dir,
+        now,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect((thrown as Error).message).toContain(INVALID_LAUNCH_RECORD_PREFIX);
+    expect(describeLatchFailure(thrown)).toBe(
       "the epic board entry would have been malformed",
     );
   });
