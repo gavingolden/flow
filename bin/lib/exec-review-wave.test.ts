@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeGrant } from "./epic-grant";
-import { appendManagerLog, readManagerLog } from "./epic-manager-log";
+import { upsertGrant } from "./manager-grants";
+import { appendManagerLog, readManagerLog } from "./manager-log";
 import { defaultExecDeps, type ExecReviewDeps } from "./exec-review-shared";
 import { orderFrontier, runWaveReview } from "./exec-review-wave";
 import { writeState } from "./state";
@@ -14,6 +14,7 @@ let root: string;
 let repo: string;
 let home: string;
 let stateDir: string;
+let managerHome: string;
 let epicsDir: string;
 let calls: string[];
 let replyJson: object;
@@ -47,6 +48,7 @@ function deps(over: Partial<ExecReviewDeps> = {}): ExecReviewDeps {
   return {
     ...defaultExecDeps(),
     stateDir,
+    managerHome,
     homeDir: home,
     epicsDir,
     readConfig: () => undefined,
@@ -83,6 +85,7 @@ beforeEach(() => {
   repo = path.join(root, "repo");
   home = path.join(root, "home");
   stateDir = path.join(root, "state");
+  managerHome = path.join(root, "manager");
   epicsDir = path.join(root, "epics");
   calls = [];
   headlessEnv = { ran: true, total_cost_usd: 0.4 };
@@ -112,24 +115,24 @@ beforeEach(() => {
   );
   w(path.join(repo, ".flow/epics/e1/design.md"), "**Goal:** the epic goal\n");
   board(["f1", "f2"]);
-  writeGrant(
+  upsertGrant(
     {
-      version: 1,
-      epic: "e1",
+      scope: "epic:e1",
       classes: ["plan"],
       grantedAt: "t",
       grantedBy: "owner-cli",
     },
-    stateDir,
+    managerHome,
   );
   appendManagerLog(
-    "e1",
     {
       ts: "t0",
       kind: "grant",
+      epic: "e1",
+      repo: "repo",
       exec: { decisionId: "g", reviewKind: "plan", baselineMerged: ["f1"] },
     },
-    stateDir,
+    { home: managerHome },
   );
   // f2 merged since the grant; f4 is already launched (live state).
   writeState(
@@ -153,7 +156,7 @@ const manifestBytes = () =>
 
 describe("runWaveReview", () => {
   it("makes no call without a grant", () => {
-    fs.rmSync(path.join(stateDir, "managers"), { recursive: true });
+    fs.rmSync(path.join(managerHome, "grants.json"));
     expect(run()).toEqual({ ran: false, skipReason: "no-grant" });
     expect(calls).toHaveLength(0);
   });
@@ -186,7 +189,7 @@ describe("runWaveReview", () => {
     expect(calls[0]).toContain(
       "unstarted feature ids (the only ids a reorder may contain): f3, f5",
     );
-    const d = readManagerLog("e1", stateDir).find(
+    const d = readManagerLog({ epic: "e1" }, managerHome).find(
       (e) => e.kind === "exec-decision",
     );
     expect(d?.exec).toMatchObject({
@@ -195,7 +198,7 @@ describe("runWaveReview", () => {
       mergedFeatureIds: ["f2"],
       order: ["f5", "f3"],
     });
-    expect(orderFrontier("e1", ["f3", "f5", "f9"], stateDir)).toEqual([
+    expect(orderFrontier("e1", ["f3", "f5", "f9"], managerHome)).toEqual([
       "f5",
       "f3",
       "f9",
@@ -205,7 +208,10 @@ describe("runWaveReview", () => {
   it("escalates a reorder that names a started or wait feature", () => {
     replyJson = good({ order: ["f5", "f3", "f4"] });
     expect(run()).toMatchObject({ ran: true, action: "escalate" });
-    expect(orderFrontier("e1", ["f3", "f5"], stateDir)).toEqual(["f3", "f5"]);
+    expect(orderFrontier("e1", ["f3", "f5"], managerHome)).toEqual([
+      "f3",
+      "f5",
+    ]);
   });
 
   it("a proposal is logged and never changes the manifest", () => {
@@ -221,10 +227,13 @@ describe("runWaveReview", () => {
       proposal: { kind: "cut", featureId: "f5" },
     });
     expect(manifestBytes()).toBe(before);
-    expect(readManagerLog("e1", stateDir).at(-1)?.exec?.proposal?.text).toBe(
-      "drop f5",
-    );
-    expect(orderFrontier("e1", ["f3", "f5"], stateDir)).toEqual(["f3", "f5"]);
+    expect(
+      readManagerLog({ epic: "e1" }, managerHome).at(-1)?.exec?.proposal?.text,
+    ).toBe("drop f5");
+    expect(orderFrontier("e1", ["f3", "f5"], managerHome)).toEqual([
+      "f3",
+      "f5",
+    ]);
   });
 
   it("continues, and records the batch so the next run is nothing-new", () => {
@@ -236,7 +245,10 @@ describe("runWaveReview", () => {
   it("downgrades a medium-confidence reorder to continue", () => {
     replyJson = good({ confidence: "medium", order: ["f5", "f3"] });
     expect(run()).toMatchObject({ ran: true, action: "continue" });
-    expect(orderFrontier("e1", ["f3", "f5"], stateDir)).toEqual(["f3", "f5"]);
+    expect(orderFrontier("e1", ["f3", "f5"], managerHome)).toEqual([
+      "f3",
+      "f5",
+    ]);
   });
 
   it("a headless failure logs a skip and leaves the batch pending", () => {
@@ -250,7 +262,7 @@ describe("runWaveReview", () => {
       skipReason: "budget-exceeded",
       mergedFeatureIds: ["f2"],
     });
-    expect(readManagerLog("e1", stateDir).at(-1)).toMatchObject({
+    expect(readManagerLog({ epic: "e1" }, managerHome).at(-1)).toMatchObject({
       kind: "exec-skip",
       reason: "budget-exceeded",
     });
@@ -273,17 +285,18 @@ describe("runWaveReview", () => {
 
   it("a re-grant keeps the earliest baseline so merges during a withdrawal are reviewed", () => {
     appendManagerLog(
-      "e1",
       {
         ts: "t9",
         kind: "grant",
+        epic: "e1",
+        repo: "repo",
         exec: {
           decisionId: "g2",
           reviewKind: "plan",
           baselineMerged: ["f1", "f2"],
         },
       },
-      stateDir,
+      { home: managerHome },
     );
     expect(run()).toMatchObject({ ran: true, mergedFeatureIds: ["f2"] });
   });
@@ -308,7 +321,7 @@ describe("runWaveReview", () => {
 
 describe("orderFrontier", () => {
   it("returns the frontier unchanged when no reorder was applied", () => {
-    expect(orderFrontier("e1", ["b", "a"], stateDir)).toEqual(["b", "a"]);
+    expect(orderFrontier("e1", ["b", "a"], managerHome)).toEqual(["b", "a"]);
   });
 
   it("uses the newest applied reorder", () => {
@@ -317,10 +330,11 @@ describe("orderFrontier", () => {
       ["b", "a"],
     ].entries()) {
       appendManagerLog(
-        "e1",
         {
           ts: `t${i}`,
           kind: "exec-decision",
+          epic: "e1",
+          repo: "repo",
           exec: {
             decisionId: `d${i}`,
             reviewKind: "wave",
@@ -328,9 +342,9 @@ describe("orderFrontier", () => {
             order,
           },
         },
-        stateDir,
+        { home: managerHome },
       );
     }
-    expect(orderFrontier("e1", ["a", "b"], stateDir)).toEqual(["b", "a"]);
+    expect(orderFrontier("e1", ["a", "b"], managerHome)).toEqual(["b", "a"]);
   });
 });

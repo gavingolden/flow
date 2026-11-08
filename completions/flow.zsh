@@ -27,6 +27,7 @@ _flow() {
                 'install:install skills, agents, helpers globally'
                 'feature:start or resume a pipeline'
                 'epic:design or run an epic'
+                'grant:let the executive approve plans for you'
                 'config:inspect flow configuration'
                 'ls:list active pipelines'
                 'attach:attach to a pipeline window'
@@ -182,6 +183,13 @@ _flow() {
                         )
                         _describe 'subcommand' sub
                     fi
+                    ;;
+                grant)
+                    _arguments \
+                        '--autonomy[let the executive approve plans (high needs a plain terminal)]:level:(high off)' \
+                        '--delegate-ui[also let the executive judge subjective UI steps]' \
+                        '--expires[lapse after n hours, days or weeks (e.g. 7d)]:duration:' \
+                        '--list[print live grants, then expired ones]'
                     ;;
                 ls)
                     _arguments \

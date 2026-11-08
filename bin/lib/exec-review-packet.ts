@@ -15,7 +15,7 @@ import * as path from "node:path";
 import type { Neighbourhood } from "../flow-epic-judge-context";
 import type { Challenge } from "./exec-review-envelope";
 import type { EpicManifest } from "./epic-manifest-schema";
-import type { ManagerLogEntry } from "./epic-manager-log";
+import type { ManagerLogEntry } from "./manager-log";
 import { resolveFlowSource } from "./paths";
 
 export const PACKET_CHAR_LIMIT = 90_000;
@@ -26,6 +26,8 @@ const PLAN_EXCERPT_CHAR_LIMIT = 45_000;
 const BRIEF_CHAR_LIMIT = 4_000;
 const PRIOR_DECISION_COUNT = 20;
 const PROMPT_RELATIVE = path.join("references", "executive-review.md");
+
+const NO_EPIC_SECTION = "none — loose pipeline (no epic)";
 
 type Section = { name: string; body: string; neverCut?: boolean };
 
@@ -144,8 +146,10 @@ export function buildPlanPacket(input: {
   prompt: string;
   charter: string;
   brief: string | null;
-  designExcerpt: string;
-  neighbourhood: Neighbourhood;
+  /** null for a loose pipeline (no epic). */
+  designExcerpt: string | null;
+  /** null for a loose pipeline (no epic). */
+  neighbourhood: Neighbourhood | null;
   siblings: Array<{
     featureId: string;
     slug: string;
@@ -173,11 +177,17 @@ export function buildPlanPacket(input: {
     },
     {
       name: "epic-goal-and-design",
-      body: clip(input.designExcerpt, DESIGN_CHAR_LIMIT, "design excerpt"),
+      body:
+        input.designExcerpt === null
+          ? NO_EPIC_SECTION
+          : clip(input.designExcerpt, DESIGN_CHAR_LIMIT, "design excerpt"),
     },
     {
       name: "manifest-neighbourhood",
-      body: JSON.stringify(input.neighbourhood, null, 2),
+      body:
+        input.neighbourhood === null
+          ? NO_EPIC_SECTION
+          : JSON.stringify(input.neighbourhood, null, 2),
     },
     {
       name: "sibling-pipelines",

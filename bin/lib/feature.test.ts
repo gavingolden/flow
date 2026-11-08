@@ -153,7 +153,7 @@ import {
   FLOW_NEVER_ALLOW_HELPERS,
   FLOW_ROUTINE_ALLOW_RULES,
 } from "./pipeline-allow-rules";
-import { EPIC_GRANT_DENY_RULES } from "./secret-deny-rules";
+import { GRANT_DENY_RULES } from "./secret-deny-rules";
 import {
   runNew as runNewReal,
   runFeatureCli as runFeatureCliReal,
@@ -4436,11 +4436,11 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     }
   });
 
-  it("writes the epic grant deny rules and pre-approves only the narrow exec-review subcommands", () => {
+  it("writes the grant deny rules and pre-approves only the narrow exec-review subcommands", () => {
     ensureLaunchSettings(settingsPath);
     const { deny, allow } = readPermissions();
-    expect(EPIC_GRANT_DENY_RULES.length).toBeGreaterThan(0);
-    for (const rule of EPIC_GRANT_DENY_RULES) expect(deny).toContain(rule);
+    expect(GRANT_DENY_RULES.length).toBeGreaterThan(0);
+    for (const rule of GRANT_DENY_RULES) expect(deny).toContain(rule);
     for (const rule of FLOW_EXEC_REVIEW_ALLOW_RULES)
       expect(allow).toContain(rule);
     expect(allow.filter((r) => r.startsWith("Bash(flow-exec-review"))).toEqual([

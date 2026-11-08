@@ -4,15 +4,15 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   appendManagerLog,
-  managerDir,
+  logPath,
   readManagerLog,
   SEQUENCER_LOG_LOCK,
   type ManagerLogEntry,
-} from "./epic-manager-log";
+} from "./manager-log";
 
 let dir: string;
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "emlog-"));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "mlog-"));
 });
 afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
@@ -21,36 +21,56 @@ afterEach(() => {
 const entry = (over: Partial<ManagerLogEntry> = {}): ManagerLogEntry => ({
   ts: "2026-10-26T00:00:00.000Z",
   kind: "launch",
+  repo: "flow",
   featureId: "f1",
   ...over,
 });
 
-describe("epic-manager-log", () => {
-  it("places the directory under <state>/managers/<epic>", () => {
-    expect(managerDir("e", dir)).toBe(path.join(dir, "managers", "e"));
+describe("manager-log", () => {
+  it("places the log at <home>/log.jsonl", () => {
+    expect(logPath(dir)).toBe(path.join(dir, "log.jsonl"));
   });
 
   it("reads an absent log as empty", () => {
-    expect(readManagerLog("e", dir)).toEqual([]);
+    expect(readManagerLog({ epic: "e" }, dir)).toEqual([]);
   });
 
   it("appends and reads entries in order, creating the directory", () => {
-    appendManagerLog("e", entry(), dir);
+    const home = path.join(dir, "nested", "manager");
+    appendManagerLog(entry({ epic: "e" }), { home });
     appendManagerLog(
-      "e",
-      entry({ kind: "owner-needed", phase: "ci", window: "w1" }),
-      dir,
+      entry({ epic: "e", kind: "owner-needed", phase: "ci", window: "w1" }),
+      { home },
     );
-    const got = readManagerLog("e", dir);
+    const got = readManagerLog({ epic: "e" }, home);
     expect(got.map((e) => e.kind)).toEqual(["launch", "owner-needed"]);
     expect(got[1].phase).toBe("ci");
     expect(got[1].window).toBe("w1");
   });
 
+  it("filters by epic, slug and repo; every entry carries repo", () => {
+    appendManagerLog(entry({ epic: "e", slug: "s1" }), { home: dir });
+    appendManagerLog(entry({ epic: "other", slug: "s2" }), { home: dir });
+    appendManagerLog(
+      entry({ kind: "grant", scope: "repo:flow", repo: "flow" }),
+      { home: dir },
+    );
+    appendManagerLog(entry({ repo: "econ", slug: "s3" }), { home: dir });
+    expect(readManagerLog({ epic: "e" }, dir).map((e) => e.slug)).toEqual([
+      "s1",
+    ]);
+    expect(readManagerLog({ slug: "s2" }, dir)).toHaveLength(1);
+    expect(readManagerLog({ repo: "econ" }, dir)).toHaveLength(1);
+    expect(readManagerLog({ repo: "flow", epic: "e" }, dir)).toHaveLength(1);
+    expect(
+      readManagerLog({}, dir).every((e) => typeof e.repo === "string"),
+    ).toBe(true);
+  });
+
   it("round-trips an exec payload", () => {
     appendManagerLog(
-      "e",
       entry({
+        epic: "e",
         kind: "exec-owner-reply",
         exec: {
           decisionId: "plan-1",
@@ -59,30 +79,43 @@ describe("epic-manager-log", () => {
           wrongApproval: true,
         },
       }),
-      dir,
+      { home: dir },
     );
-    expect(readManagerLog("e", dir)[0].exec?.wrongApproval).toBe(true);
+    expect(readManagerLog({ epic: "e" }, dir)[0].exec?.wrongApproval).toBe(
+      true,
+    );
+  });
+
+  it("round-trips a rollup line", () => {
+    appendManagerLog(
+      entry({
+        kind: "rollup",
+        month: "2026-07",
+        counts: { launch: { none: 3 } },
+      }),
+      { home: dir },
+    );
+    expect(readManagerLog({ repo: "flow" }, dir)[0].counts).toEqual({
+      launch: { none: 3 },
+    });
   });
 
   it("releases the lock after each append", () => {
-    appendManagerLog("e", entry(), dir);
-    expect(fs.existsSync(path.join(managerDir("e", dir), "log.lock"))).toBe(
-      false,
-    );
+    appendManagerLog(entry(), { home: dir });
+    expect(fs.existsSync(path.join(dir, "log.lock"))).toBe(false);
   });
 
   it("passes unknown kinds through and skips garbage lines", () => {
-    appendManagerLog("e", entry(), dir);
-    const file = path.join(managerDir("e", dir), "log.jsonl");
+    appendManagerLog(entry(), { home: dir });
     fs.appendFileSync(
-      file,
+      logPath(dir),
       'not json\n{"ts":"t","kind":"future-kind"}\n{"no":"shape"}\n\n',
     );
-    const kinds = readManagerLog("e", dir).map((e) => e.kind as string);
+    const kinds = readManagerLog({}, dir).map((e) => e.kind as string);
     expect(kinds).toEqual(["launch", "future-kind"]);
   });
 
-  it("is exported by exactly one non-test module under bin/", () => {
+  it("appendManagerLog is exported by exactly one non-test module under bin/", () => {
     const binDir = path.resolve(__dirname, "..");
     const hits: string[] = [];
     const walk = (d: string) => {
@@ -102,19 +135,16 @@ describe("epic-manager-log", () => {
       }
     };
     walk(binDir);
-    expect(hits).toEqual(["lib/epic-manager-log.ts"]);
+    expect(hits).toEqual(["lib/manager-log.ts"]);
   });
 });
 
 describe("sequencer lock wait", () => {
   it("a live foreign lock holder makes a sequencer append fail fast, not hang", () => {
-    const d = managerDir("e", dir);
-    fs.mkdirSync(d, { recursive: true });
-    // PID 1 is always alive, so the lock is never reclaimed as stale.
-    fs.writeFileSync(path.join(d, "log.lock"), "1");
+    fs.writeFileSync(path.join(dir, "log.lock"), "1");
     const started = Date.now();
     expect(() =>
-      appendManagerLog("e", entry(), dir, SEQUENCER_LOG_LOCK),
+      appendManagerLog(entry(), { home: dir, lock: SEQUENCER_LOG_LOCK }),
     ).toThrow(/lock/);
     expect(Date.now() - started).toBeLessThan(2000);
   });

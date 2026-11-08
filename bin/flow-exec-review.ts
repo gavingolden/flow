@@ -3,7 +3,7 @@
  * flow-exec-review — the epic executive's PATH helper.
  *
  *   status      --slug <s> [--epic <e>]
- *   review      --kind plan --epic <e> --slug <s>
+ *   review      --kind plan --slug <s> [--epic <e>]
  *   review      --kind wave --epic <e> [--repo-root <dir>]
  *   order       --epic <e> --frontier <id,id,...>
  *   outcome     --slug <s> --decision <id> --reply accept|approve|redirect|cancel
@@ -15,8 +15,9 @@
  */
 
 import * as fs from "node:fs";
-import { grantScopeForSlug } from "./lib/epic-grant";
-import { appendManagerLog, readManagerLog } from "./lib/epic-manager-log";
+import { grantForSlug } from "./lib/manager-grants";
+import { appendManagerLog, readManagerLog } from "./lib/manager-log";
+import { repoNameForPath } from "./lib/manager-scope";
 import { addCorrection } from "./lib/exec-charter";
 import { runPlanReview } from "./lib/exec-review-plan";
 import { defaultExecDeps, type ExecReviewDeps } from "./lib/exec-review-shared";
@@ -26,7 +27,7 @@ import { readState } from "./lib/state";
 
 const USAGE = `usage: flow-exec-review <subcommand> [flags]
   status      --slug <s> [--epic <e>]
-  review      --kind plan --epic <e> --slug <s>
+  review      --kind plan --slug <s> [--epic <e>]
   review      --kind wave --epic <e> [--repo-root <dir>]
   order       --epic <e> --frontier <id,id,...>
   outcome     --slug <s> --decision <id> --reply accept|approve|redirect|cancel
@@ -145,8 +146,10 @@ export function run(
       const p = parse(rest, ["slug", "epic"]);
       if ("error" in p) return usage(p.error);
       if (!p.flags.slug) return usage("status requires --slug");
-      const scope = grantScopeForSlug(p.flags.slug, {
+      const scope = grantForSlug(p.flags.slug, {
         stateDir: deps.stateDir,
+        home: deps.managerHome,
+        now: deps.now,
         expectedEpic: p.flags.epic,
       });
       out(scope);
@@ -158,9 +161,8 @@ export function run(
       if ("error" in p) return usage(p.error);
       const { kind, epic, slug } = p.flags;
       if (kind === "plan") {
-        if (!epic || !slug)
-          return usage("review --kind plan requires --epic and --slug");
-        out(runPlanReview({ slug, epic }, deps));
+        if (!slug) return usage("review --kind plan requires --slug");
+        out(runPlanReview({ slug, ...(epic ? { epic } : {}) }, deps));
         return 0;
       }
       if (kind === "wave") {
@@ -184,7 +186,7 @@ export function run(
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
-      out({ order: orderFrontier(p.flags.epic, frontier, deps.stateDir) });
+      out({ order: orderFrontier(p.flags.epic, frontier, deps.managerHome) });
       return 0;
     }
 
@@ -198,12 +200,12 @@ export function run(
       if (!(REPLIES as readonly string[]).includes(reply)) {
         return usage(`--reply must be one of ${REPLIES.join("|")}`);
       }
-      const epic = readState(slug, deps.stateDir)?.epic?.slug;
-      if (!epic) {
-        out({ ok: false, reason: "not-epic" });
-        return 0;
-      }
-      const prior = readManagerLog(epic, deps.stateDir).find(
+      const state = readState(slug, deps.stateDir);
+      const epic = state?.epic?.slug;
+      const prior = readManagerLog(
+        epic ? { epic } : { slug },
+        deps.managerHome,
+      ).find(
         (e) => e.kind === "exec-decision" && e.exec?.decisionId === decision,
       );
       if (!prior?.exec) {
@@ -215,10 +217,11 @@ export function run(
         prior.exec.action === "approve" &&
         (reply === "redirect" || reply === "cancel");
       appendManagerLog(
-        epic,
         {
           ts: deps.now().toISOString(),
           kind: "exec-owner-reply",
+          ...(epic ? { epic } : {}),
+          repo: state ? repoNameForPath(state.repo) : prior.repo,
           slug,
           exec: {
             decisionId: decision,
@@ -228,7 +231,7 @@ export function run(
             ...(wrongApproval ? { wrongApproval: true } : {}),
           },
         },
-        deps.stateDir,
+        { home: deps.managerHome },
       );
       out({
         ok: true,
@@ -261,8 +264,7 @@ export function run(
       if (!p.flags.slug || !p.flags["body-file"]) {
         return usage("stamp-check requires --slug and --body-file");
       }
-      const epic = readState(p.flags.slug, deps.stateDir)?.epic?.slug;
-      const log = epic ? readManagerLog(epic, deps.stateDir) : [];
+      const log = readManagerLog({ slug: p.flags.slug }, deps.managerHome);
       const latest = log
         .filter(
           (e) =>

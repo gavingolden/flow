@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { RULINGS_END } from "./epic-launch";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock tmux primitives so the create/resume paths don't shell out. Mirrors
@@ -3463,6 +3464,66 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(code).toBe(0);
     const rec = readEpicRunState("launch-posn", epicsDir)?.features["feat-c"];
     expect(rec?.slug).toBe("feat-c-minted");
+  });
+
+  describe("launch --context-file", () => {
+    const launch = (slug: string, ctxArgs: string[]) => {
+      gitInit();
+      writeManifest(slug, [{ id: "feat-c" }]);
+      const spawn = okSpawn("feat-c-minted");
+      const code = runEpicCli(["launch", slug, "feat-c", ...ctxArgs], {
+        cwd: repoDir,
+        epicsDir,
+        spawn,
+      });
+      return { code, spawn };
+    };
+    const ctxFile = (name: string, text: string | Buffer) => {
+      const f = path.join(repoDir, name);
+      fs.writeFileSync(f, text);
+      return f;
+    };
+
+    it("seeds the rulings block before the pointer and records the binding", () => {
+      gitInit();
+      const f = ctxFile("rulings.md", "DECIDED: keep it flat.\n");
+      const { code, spawn } = launch("ctx-ok", ["--context-file", f]);
+      expect(code).toBe(0);
+      const seed = (spawn.mock.calls[0]![1] as string[])[2];
+      expect(seed).toContain("DECIDED: keep it flat.");
+      expect(seed.split("\n").at(-1)).toMatch(/^Part of epic `ctx-ok`/);
+      expect(
+        readEpicRunState("ctx-ok", epicsDir)?.features["feat-c"]?.slug,
+      ).toBe("feat-c-minted");
+    });
+
+    it("refuses a missing, empty, over-16 KB or end-delimiter-bearing file with exit 2 and launches nothing", () => {
+      gitInit();
+      const cases: Array<[string, string]> = [
+        ["ctx-missing", path.join(repoDir, "nope.md")],
+        ["ctx-empty", ctxFile("empty.md", "  \n")],
+        ["ctx-big", ctxFile("big.md", "x".repeat(16 * 1024 + 1))],
+        ["ctx-delim", ctxFile("delim.md", `a\n${RULINGS_END}\nb`)],
+      ];
+      for (const [slug, file] of cases) {
+        const { code, spawn } = launch(slug, ["--context-file", file]);
+        expect(code, slug).toBe(2);
+        expect(spawn, slug).not.toHaveBeenCalled();
+        expect(
+          readEpicRunState(slug, epicsDir)?.features["feat-c"],
+          slug,
+        ).toBeUndefined();
+      }
+    });
+
+    it("a --context-file with no value, or given twice, exits 2; the path is never a positional", () => {
+      const f = ctxFile("two.md", "DECIDED: x");
+      expect(launch("ctx-noval", ["--context-file"]).code).toBe(2);
+      expect(
+        launch("ctx-dup", ["--context-file", f, "--context-file", f]).code,
+      ).toBe(2);
+      expect(launch("ctx-posn", ["--context-file", f]).code).toBe(0);
+    });
   });
 
   it("launch: a flag value colliding with a positional still resolves both positionals (index-based stripping)", () => {
