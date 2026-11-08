@@ -829,7 +829,7 @@ describe("run — diversity guard", () => {
     const manifest = JSON.parse(manifestWrite.contents);
     expect(manifest[1].model).not.toBe(manifest[0].model);
     expect(manifest[1].model).toBe(MODEL_B);
-    const warned = errSpy.mock.calls.some((c) =>
+    const warned = errSpy.mock.calls.some((c: unknown[]) =>
       String(c[0]).includes("blindSurveySecond resolved equal to blindSurvey"),
     );
     expect(warned).toBe(true);
@@ -850,7 +850,7 @@ describe("run — diversity guard", () => {
     expect(manifest[0].model).toBe(MODEL_B);
     expect(manifest[1].model).toBe(MODEL_A);
     expect(manifest[1].model).not.toBe(manifest[0].model);
-    const warned = errSpy.mock.calls.some((c) =>
+    const warned = errSpy.mock.calls.some((c: unknown[]) =>
       String(c[0]).includes("blindSurveySecond resolved equal to blindSurvey"),
     );
     expect(warned).toBe(true);

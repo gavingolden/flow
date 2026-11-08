@@ -32,7 +32,7 @@ when you Read/Edit a matching file (Bash touches don't load them).
 
 ## Code conventions
 
-- **Runtime:** Bun for everything under `bin/`. `package.json`'s `engines.node >= 20` keeps `npm install`/`npm run test` (vitest) working; no shipped code is Node-specific.
+- **Runtime:** Bun for everything under `bin/`. `package.json`'s `engines.node >= 22.12` keeps `npm install`/`npm run test` (vitest) working; no shipped code is Node-specific.
 - **Style:** small, single-purpose modules. Target < 200 lines/file.
 - **Comments:** default to none. Add one only when the *why* is non-obvious. Don't restate what the code does.
 - **Errors:** validate at boundaries (CLI args, subprocess output, parsed YAML). Trust internal callers.

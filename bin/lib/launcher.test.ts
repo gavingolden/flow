@@ -75,9 +75,9 @@ describe("plainLaunch", () => {
 
     // ordering: contract line (stdout) before the spawn; idle hint on stderr
     expect(logSpy).toHaveBeenCalledWith("flow:my-feature");
-    expect(errSpy.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
-      PLAIN_IDLE_HINT,
-    );
+    expect(
+      errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n"),
+    ).toContain(PLAIN_IDLE_HINT);
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.argv).toEqual([
@@ -202,9 +202,9 @@ describe("plainLaunch", () => {
     );
     expect(result.status).toBe("failed");
     expect(calls).toHaveLength(0);
-    expect(errSpy.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
-      "needs an interactive terminal",
-    );
+    expect(
+      errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n"),
+    ).toContain("needs an interactive terminal");
   });
 
   it("deletes the orphaned starting-phase state when the TTY guard fires before any spawn", async () => {
@@ -292,9 +292,9 @@ describe("plainLaunch", () => {
     );
     expect(result.status).toBe("failed");
     expect(result.stderr).toContain("ENOENT: claude");
-    expect(errSpy.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
-      "check your Claude Code install",
-    );
+    expect(
+      errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n"),
+    ).toContain("check your Claude Code install");
     expect(readState("my-feature", stateDir)).toBeNull();
   });
 });
@@ -386,9 +386,9 @@ describe("plainResume", () => {
     );
     expect(result.status).toBe("failed");
     expect(calls).toHaveLength(0);
-    expect(errSpy.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
-      PLAIN_RESUME_REFUSAL_NOTICE,
-    );
+    expect(
+      errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n"),
+    ).toContain(PLAIN_RESUME_REFUSAL_NOTICE);
   });
 
   it("relaunches (no delete-on-fast-fail) when the recorded process is gone", async () => {

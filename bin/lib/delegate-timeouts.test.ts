@@ -202,7 +202,7 @@ describe("resolveDelegateTimeout", () => {
     fresh.resolveDelegateTimeout("intentGuess", cfg);
     fresh.resolveDelegateTimeout("intentGuess", cfg);
     fresh.resolveDelegateTimeout("intentGuess", cfg);
-    const overrideCalls = stderrSpy.mock.calls.filter((c) =>
+    const overrideCalls = stderrSpy.mock.calls.filter((c: unknown[]) =>
       String(c[0]).includes("config override active"),
     );
     expect(overrideCalls.length).toBe(1);
@@ -214,7 +214,7 @@ describe("resolveDelegateTimeout", () => {
     const cfg = reader({ delegate: { timeouts: { intentGuess: "30m" } } });
     fresh.resolveDelegateTimeout("intentGuess", cfg);
     fresh.resolveDelegateTimeout("intentGuess", cfg);
-    const clampCalls = stderrSpy.mock.calls.filter((c) =>
+    const clampCalls = stderrSpy.mock.calls.filter((c: unknown[]) =>
       String(c[0]).includes("sanity bound"),
     );
     expect(clampCalls.length).toBe(1);

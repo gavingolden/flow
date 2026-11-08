@@ -111,7 +111,7 @@ describe("resolveDelegateModel", () => {
     resolveDelegateModel("reviewLens", cfg);
     resolveDelegateModel("reviewLens", cfg);
     resolveDelegateModel("reviewLens", cfg);
-    const overrideCalls = stderrSpy.mock.calls.filter((c) =>
+    const overrideCalls = stderrSpy.mock.calls.filter((c: unknown[]) =>
       String(c[0]).includes("config override active"),
     );
     expect(overrideCalls.length).toBe(1);
