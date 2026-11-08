@@ -437,13 +437,13 @@ in a feature plan's calibration appendix).
 > because a slept process needs a durable start time. Risk: two
 > binaries instead of one.
 > **Next action:** `approve` · `redirect: …` · `answer: …` · `cancel`
-> — plan: /Users/gavingolden/code/me/flow-f3-ci-check-split/.flow-tmp/plan.md
+> — plan: /Users/gavingolden/code/me/flow-worktrees.noindex/flow-f3-ci-check-split/.flow-tmp/plan.md
 > (safe to `/clear`)
 >
 > ```
 > STATUS: AWAITING APPROVAL
 > NEXT ACTION: reply approve / redirect <new direction> / cancel
->   - /Users/gavingolden/code/me/flow-f3-ci-check-split/.flow-tmp/plan.md
+>   - /Users/gavingolden/code/me/flow-worktrees.noindex/flow-f3-ci-check-split/.flow-tmp/plan.md
 > ```
 
 **GATED, judgment needed (calibration sample 3):**

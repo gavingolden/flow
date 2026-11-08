@@ -158,6 +158,7 @@ import {
   runNew as runNewReal,
   runFeatureCli as runFeatureCliReal,
   deriveWorktreePath,
+  resumeWorktree,
   ensureLaunchSettings,
   launchSettingsPermissions,
   flowPipelineResumeSeed,
@@ -1602,9 +1603,9 @@ describe("runFresh — launch concurrency semaphore (Task 8)", () => {
 });
 
 describe("deriveWorktreePath", () => {
-  it("mirrors flow-new-worktree's <repo-parent>/<repoName>-<slug> rule for a slash-free slug", () => {
+  it("places the worktree in <repo-parent>/flow-worktrees.noindex/<repoName>-<slug> for a slash-free slug", () => {
     expect(deriveWorktreePath("/Users/me/code/flow", "csv-export")).toBe(
-      "/Users/me/code/flow-csv-export",
+      "/Users/me/code/flow-worktrees.noindex/flow-csv-export",
     );
   });
 
@@ -1612,8 +1613,29 @@ describe("deriveWorktreePath", () => {
     // slugify never emits slashes, but the derivation reuses toDirSuffix so it
     // cannot drift from flow-new-worktree.ts if that invariant ever changes.
     expect(deriveWorktreePath("/a/b/repo", "feature/foo")).toBe(
-      "/a/b/repo-feature-foo",
+      "/a/b/flow-worktrees.noindex/repo-feature-foo",
     );
+  });
+});
+
+describe("resumeWorktree", () => {
+  it("re-creates a reserved folder whose flow-worktrees.noindex container is gone", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "resume-wt-"));
+    try {
+      const reserved = path.join(root, "flow-worktrees.noindex", "repo-x");
+      const state = {
+        slug: "x",
+        phase: "starting",
+        repo: path.join(root, "repo"),
+        reservedWorktree: reserved,
+        updatedAt: new Date().toISOString(),
+      } as PipelineState;
+      expect(fs.existsSync(path.dirname(reserved))).toBe(false);
+      expect(resumeWorktree(state, "x")).toBe(reserved);
+      expect(fs.statSync(reserved).isDirectory()).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

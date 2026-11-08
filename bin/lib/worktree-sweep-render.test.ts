@@ -85,6 +85,34 @@ describe("renderWorktreeSweepText", () => {
     );
   });
 
+  it("attributes a mount under the container to its own repo, never to a repo named flow", () => {
+    const out = renderWorktreeSweepText(
+      result([kept], {
+        danglingMounts: [
+          {
+            container: "supabase_db",
+            source: "/code/flow-worktrees.noindex/repo-x/supabase",
+          },
+        ],
+      }),
+    );
+    expect(out).toContain(
+      "`supabase stop` then `supabase start` from /code/repo",
+    );
+    expect(
+      renderWorktreeSweepText(
+        result([{ ...kept, repo: "/code/flow" }], {
+          danglingMounts: [
+            {
+              container: "supabase_db",
+              source: "/code/flow-worktrees.noindex/econ-data-x/supabase",
+            },
+          ],
+        }),
+      ),
+    ).not.toContain("from /code/flow");
+  });
+
   it("explains skips and the checks it could not make", () => {
     expect(
       renderWorktreeSweepText(result([], { skipped: "disabled" })),

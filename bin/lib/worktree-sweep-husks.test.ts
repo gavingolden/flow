@@ -237,6 +237,24 @@ describe("gatherHuskFacts", () => {
     expect(gatherHuskFacts([repo()], deps(), NO_USAGE)).toEqual([]);
   });
 
+  it("finds a husk inside the flow-worktrees.noindex container as well as the old spot", () => {
+    fs.mkdirSync(path.join(tmp, "repo-old"));
+    fs.mkdirSync(path.join(tmp, "flow-worktrees.noindex", "repo-new"), {
+      recursive: true,
+    });
+    const found = gatherHuskFacts([repo()], deps(), NO_USAGE).map((f) =>
+      path.basename(f.path),
+    );
+    expect(found.sort()).toEqual(["repo-new", "repo-old"]);
+  });
+
+  it("never reports the container itself for a repo named flow", () => {
+    const flow = path.join(tmp, "flow");
+    fs.mkdirSync(flow);
+    fs.mkdirSync(path.join(tmp, "flow-worktrees.noindex"));
+    expect(gatherHuskFacts([flow], deps(), NO_USAGE)).toEqual([]);
+  });
+
   it("stops at the entry cap and reports the scan as truncated", () => {
     const husk = path.join(tmp, "repo-big");
     fs.mkdirSync(husk);
@@ -365,6 +383,18 @@ describe("danglingContainerMounts", () => {
     expect(out).toEqual([
       { container: "supabase_db", source: gone },
       { container: "supabase_kong", source: left },
+    ]);
+  });
+
+  it("flags a mount under the flow-worktrees.noindex container", () => {
+    const repo = path.join(tmp, "repo");
+    const gone = path.join(tmp, "flow-worktrees.noindex", "repo-x", "supabase");
+    const usage: UsageIndex = {
+      ...NO_USAGE,
+      mounts: [{ container: "supabase_db", sources: [gone] }],
+    };
+    expect(danglingContainerMounts(usage, [repo], () => false, [])).toEqual([
+      { container: "supabase_db", source: gone },
     ]);
   });
 });

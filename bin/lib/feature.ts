@@ -23,7 +23,7 @@ import { slugify, isValidSlug } from "./slug";
 import { startBackgroundWorktreeSweep } from "./worktree-sweep-launch";
 import { confirmStdin } from "./confirm";
 import {
-  toDirSuffix,
+  worktreeDirFor,
   MAX_SUFFIX_ATTEMPTS,
   releaseReservedWorktree,
   reserveWorktreeSlot,
@@ -187,7 +187,7 @@ export type FeatureOptions = {
   /**
    * Reserves the worktree folder at launch (test seam). Production uses
    * `reserveWorktreeSlot(slug, deriveWorktreePath(repo, slug), repo)`, which
-   * creates the empty folder so it exists when Claude starts.
+   * creates the container and the empty folder so it exists when Claude starts.
    */
   reserveWorktree?: (
     slug: string,
@@ -1744,10 +1744,10 @@ function runResume(
 }
 
 /**
- * Derive the deterministic worktree path for this slug. Mirrors
- * `flow-new-worktree.ts`'s rule (`path.dirname(repo)/<repoName>-<toDirSuffix(branch)>`,
- * with `branch === slug`); `toDirSuffix` is a no-op for a slash-free slug but
- * is reused here so the two derivations cannot drift. This is the COMMON-CASE
+ * Derive the deterministic worktree path for this slug:
+ * `<repo-parent>/flow-worktrees.noindex/<repoName>-<slug>`, the rule shared with
+ * `flow-new-worktree.ts` via `worktreeDirFor` so the two cannot drift. Paths
+ * recorded in state (older sibling-layout worktrees) still win on resume. This is the COMMON-CASE
  * path only — when `<repo>-<slug>` already exists (parallel pipelines, stale
  * worktrees), `findAvailableSlot` auto-suffixes (`-2`/`-3`/…). `flow feature
  * create` reserves whichever slot wins (`reserveWorktreeSlot`) and
@@ -1757,10 +1757,7 @@ function runResume(
  * no state file keeps this derived path and creates no folder).
  */
 export function deriveWorktreePath(repo: string, slug: string): string {
-  return path.join(
-    path.dirname(repo),
-    `${path.basename(repo)}-${toDirSuffix(slug)}`,
-  );
+  return worktreeDirFor(repo, slug);
 }
 
 /**
@@ -1773,7 +1770,7 @@ export function resumeWorktree(state: PipelineState, slug: string): string {
   if (state.reservedWorktree) {
     try {
       if (!fs.existsSync(state.reservedWorktree)) {
-        fs.mkdirSync(state.reservedWorktree);
+        fs.mkdirSync(state.reservedWorktree, { recursive: true });
       }
     } catch {
       // best-effort: a missing folder only costs the --add-dir pre-authorization

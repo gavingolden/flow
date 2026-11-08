@@ -4500,8 +4500,7 @@ describe("epic launches reserve the worktree folder (real reservation)", () => {
     );
   }
 
-  const siblingOf = (slug: string): string =>
-    path.join(path.dirname(repoDir), `${path.basename(repoDir)}-${slug}`);
+  const siblingOf = (slug: string): string => deriveWorktreePath(repoDir, slug);
 
   it("create: the first --add-dir is an existing empty folder recorded as reservedWorktree", () => {
     gitInit();

@@ -38,7 +38,7 @@ $ flow feature create "add CSV export"
 MERGED
 ```
 
-Everything happens in a dedicated git worktree in a sibling directory (`<repo>-<slug>`), so your own checkout is never touched and parallel pipelines stay isolated. Non-feature changes (a bugfix, a docs tweak) usually skip the plan-approval pause, but nothing runs start to finish untouched by guarantee: the intent interview can pause any intent, so can a method checkpoint when flow's survey of approaches disagrees with the one you asked for, and a plan whose approach diverges from what you asked for still stops for your approval.
+Everything happens in a dedicated git worktree in `flow-worktrees.noindex/<repo>-<slug>` beside your checkout — the `.noindex` name keeps Spotlight from indexing it, while your main checkout stays searchable, so your own checkout is never touched and parallel pipelines stay isolated. Non-feature changes (a bugfix, a docs tweak) usually skip the plan-approval pause, but nothing runs start to finish untouched by guarantee: the intent interview can pause any intent, so can a method checkpoint when flow's survey of approaches disagrees with the one you asked for, and a plan whose approach diverges from what you asked for still stops for your approval.
 
 ## Reading the run
 

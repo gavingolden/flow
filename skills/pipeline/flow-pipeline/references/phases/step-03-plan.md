@@ -426,8 +426,8 @@ only and the helper exact-matches against them. The blind survey's
   STATUS: AWAITING APPROVAL
   WHY: plan ready for review (intent=feature)
   NEXT ACTION: reply approve / redirect <new direction> / cancel
-    - /Users/you/code/me/flow-my-feature
-    - /Users/you/code/me/flow-my-feature/.flow-tmp/plan.md
+    - /Users/you/code/me/flow-worktrees.noindex/flow-my-feature
+    - /Users/you/code/me/flow-worktrees.noindex/flow-my-feature/.flow-tmp/plan.md
   ```
 
   **Plan-review clear point (auto-checkpoint arm).** After writing

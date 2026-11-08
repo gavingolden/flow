@@ -489,7 +489,7 @@ Options:
                         actually signal anything; report-only alone)
   --worktrees           instead of processes, preview the cleanup of finished
                         worktrees (merged or closed PR, nothing uncommitted,
-                        nothing running) and leftover sibling folders; --yes
+                        nothing running) and leftover worktree folders; --yes
                         removes them, --json prints the result. Cannot be
                         combined with --slug or --include-strays. The
                         automatic version (cleanup.worktrees in

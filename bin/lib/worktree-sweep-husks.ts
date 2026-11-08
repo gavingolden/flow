@@ -1,5 +1,6 @@
 /**
- * Leftover-folder scan: sibling `<repo>-*` directories with no `.git` entry,
+ * Leftover-folder scan: `<repo>-*` directories (beside the repo or in its
+ * `flow-worktrees.noindex` container) with no `.git` entry,
  * walked without following symlinks, with the facts the husk rules need.
  */
 
@@ -8,6 +9,7 @@ import * as path from "node:path";
 import { isUnderPath } from "./worktree-orphans";
 import { canonicalizeWorktree } from "./worktree-orphans-ps";
 import { FINISHED_PHASE_SET } from "./state";
+import { WORKTREE_CONTAINER_NAME, worktreeContainerDir } from "./worktree-slot";
 import { listWorktrees, type FactDeps } from "./worktree-sweep-facts";
 import { HUSK_SCAN_CAP, type HuskFacts } from "./worktree-sweep-rules";
 import type { UsageIndex } from "./worktree-sweep-usage";
@@ -97,44 +99,47 @@ export function gatherHuskFacts(
   const seen = new Set<string>();
   const out: HuskFacts[] = [];
   for (const repo of repos) {
-    const parent = path.dirname(repo);
     const prefix = `${path.basename(repo)}-`;
-    let names: string[] = [];
-    try {
-      names = fs.readdirSync(parent);
-    } catch {
-      continue;
-    }
-    for (const name of names.filter((n) => n.startsWith(prefix))) {
-      const dir = path.join(parent, name);
-      let st: fs.Stats;
+    for (const root of [path.dirname(repo), worktreeContainerDir(repo)]) {
+      let names: string[] = [];
       try {
-        st = fs.lstatSync(dir);
+        names = fs.readdirSync(root);
       } catch {
         continue;
       }
-      if (!st.isDirectory() || exists(path.join(dir, ".git"))) continue;
-      const canon = canonicalizeWorktree(dir);
-      if (seen.has(canon)) continue;
-      seen.add(canon);
-      const w = walk(dir);
-      out.push({
-        path: canon,
-        repo,
-        files: w.files,
-        topLevel: w.topLevel,
-        scanTruncated: w.truncated,
-        newestMtimeMs: w.newestMtimeMs,
-        nowMs: deps.nowMs(),
-        registered: registered.has(canon),
-        reservedByActive: reserved.has(canon),
-        processesInside: usage.processesInside(canon),
-        processesUnknown: usage.processesSkipped !== undefined,
-        containsLaunchDir: isUnderPath(launchDir, canon),
-        containersMounting: usage.containersUnknown
-          ? "unknown"
-          : usage.containersMounting(canon),
-      });
+      for (const name of names.filter(
+        (n) => n.startsWith(prefix) && n !== WORKTREE_CONTAINER_NAME,
+      )) {
+        const dir = path.join(root, name);
+        let st: fs.Stats;
+        try {
+          st = fs.lstatSync(dir);
+        } catch {
+          continue;
+        }
+        if (!st.isDirectory() || exists(path.join(dir, ".git"))) continue;
+        const canon = canonicalizeWorktree(dir);
+        if (seen.has(canon)) continue;
+        seen.add(canon);
+        const w = walk(dir);
+        out.push({
+          path: canon,
+          repo,
+          files: w.files,
+          topLevel: w.topLevel,
+          scanTruncated: w.truncated,
+          newestMtimeMs: w.newestMtimeMs,
+          nowMs: deps.nowMs(),
+          registered: registered.has(canon),
+          reservedByActive: reserved.has(canon),
+          processesInside: usage.processesInside(canon),
+          processesUnknown: usage.processesSkipped !== undefined,
+          containsLaunchDir: isUnderPath(launchDir, canon),
+          containersMounting: usage.containersUnknown
+            ? "unknown"
+            : usage.containersMounting(canon),
+        });
+      }
     }
   }
   return out;

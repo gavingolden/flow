@@ -11,7 +11,7 @@
  * resolution logic.
  *
  * Examples:
- *   flow-remove-worktree ../flow-agent-improve-tooltips
+ *   flow-remove-worktree ../flow-worktrees.noindex/flow-agent-improve-tooltips
  *   flow-remove-worktree agent/improve-tooltips
  *   flow-remove-worktree                            # slug from $FLOW_SLUG
  */
@@ -324,7 +324,7 @@ Options:
   --delete-branch            Also delete the branch after removing the worktree.
 
 Examples:
-  flow-remove-worktree ../flow-agent-improve-tooltips
+  flow-remove-worktree ../flow-worktrees.noindex/flow-agent-improve-tooltips
   flow-remove-worktree agent/improve-tooltips --delete-branch
   flow-remove-worktree                # slug from \$FLOW_SLUG
   `);

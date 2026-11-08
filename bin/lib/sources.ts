@@ -458,9 +458,9 @@ export function entryToRecord(
  * non-`--source` common case), and when `source` does not live under
  * `flowSource` (`path.relative` escapes with a leading `..`, or is absolute —
  * e.g. the `flow` wrapper, which is already `installRoot`-anchored). The
- * `..`-guard hardens what previously worked only because
- * `flow-new-worktree` guarantees canonical/worktree are same-depth siblings;
- * a non-sibling layout would otherwise produce a wrong `path.join` result.
+ * `path.relative` rebase is depth-agnostic, so it holds for any worktree
+ * layout; the `..`-guard keeps an escaping path from producing a wrong
+ * `path.join` result.
  */
 export function rebaseOntoInstallRoot(
   source: string,
