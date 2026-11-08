@@ -135,7 +135,7 @@ object across Steps 4–7.
 
 This skill spawns one **Fix-Applier Subagent** via the Task tool at Step 8 to
 handle the per-finding address loop — Steps 6 (Address Agent Findings), 7
-(Address Each Review Comment), 7.5 (Roadmap Mark-Shipped Sweep), plus the
+(Address Each Review Comment), 7.5 (Roadmap Mark-Shipped Sweep and epic manifest validation), plus the
 pre-commit / commit / push that Step 8 used to own. The subagent does the
 heavy lifting in its own isolated context: opening each cited file, drafting
 fixes, running `flow-pre-commit`, committing, pushing, and re-running
@@ -956,15 +956,15 @@ when valid (or pushes back when incorrect), and records the disposition in
 the artifact (`commits[].reasoning` for addressed comments, `deferred[]`
 for skipped ones). Step 9 reads those dispositions to draft inline replies.
 
-## 7.5. Mark-Shipped Sweep (Roadmap + Epic Board)
+## 7.5. Mark-Shipped Sweep (Roadmap + Epic Manifests)
 
 Delegated to the Fix-Applier Subagent (see § Fix-Applier Subagent above). The
 subagent self-marks the current PR's row and sweeps drifted prior-PR rows in
-`docs/roadmap.md` (when one exists), and syncs the epic status board via
-`flow-epic-sync` (no-op for a non-epic PR; named skip when absent), and validates
-every epic manifest against the PR's diff with `flow-epic-dag --touched-files`
-(plus `flow-epic-dag --validate` for any manifest the diff touches) — bundling
-either edit into the same fix commit as Steps 6/7. Full contract:
+`docs/roadmap.md` (when one exists), and validates every epic manifest against
+the PR's diff with `flow-epic-dag --touched-files` (plus `flow-epic-dag
+--validate` for any manifest the diff touches) — bundling any roadmap edit into
+the same fix commit as Steps 6/7. The PR's own epic board row is not written
+here: `flow-open-pr` writes it when the PR opens and the merge guard re-checks it. Full contract:
 `../flow-fix-applier-instructions/SKILL.md` step 5; `.claude/rules/flow-supervisor-contracts.md`'s `Auto-push exemption: pr-review` clause covers the commit + push.
 
 ## 8. Spawn Fix-Applier Subagent and Run Verification Items
@@ -1871,7 +1871,7 @@ a real review rather than a metadata-triage skip. The marker file's read site li
   durable tracker.**
 - When inline review comments existed: every comment is addressed or explicitly skipped with reason, replies are posted, and the retrospective + checklist update appear in the report (or the report records "No reviewer comments to retrospect against" when none existed)
 - Findings posted as individual inline review comments via `gh api` on every invocation, including PRs that already have reviewer comments
-- Roadmap self-mark + sweep performed (Step 7.5): when `docs/roadmap.md` exists, the current PR's row is flipped to `✅ shipped (#$PR)` if a row exists, and any `🚧 in review (#N)` rows whose PR is already MERGED are flipped in the same diff; the epic status board is synced via `flow-epic-sync` (no-op for a non-epic PR, named skip when the helper is absent)
+- Roadmap self-mark + sweep performed (Step 7.5): when `docs/roadmap.md` exists, the current PR's row is flipped to `✅ shipped (#$PR)` if a row exists, and any `🚧 in review (#N)` rows whose PR is already MERGED are flipped in the same diff
 - Pre-commit checks pass (run individually, not chained)
 - PR description quality check completed
 - Structured report produced using the template format

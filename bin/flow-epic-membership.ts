@@ -15,7 +15,7 @@
  */
 
 import * as path from "node:path";
-import { readState } from "./lib/state";
+import { resolveEpicBinding } from "./lib/epic-binding";
 import { readEpicRunState, type EpicRunState } from "./lib/epic-run-state";
 import { reconcile } from "./lib/epic-reconcile";
 import type { ReconcileResult } from "./lib/epic-reconcile";
@@ -46,8 +46,9 @@ function degradationBlock(epicSlug: string): string {
 /**
  * CONSTRAINT: this helper is invoked at the four terminal sites of
  * flow-pipeline/SKILL.md, cwd'd INSIDE THE FEATURE WORKTREE. A naive
- * committed-board read there picks up THIS PR's own optimistic `merged`
- * self-mark (written by `flow-epic-sync`'s selfFeatureId branch) and would
+ * committed-board read there picks up THIS PR's own `merged`
+ * row (written onto the branch by `flow-epic-self-mark`, which is only true
+ * once the PR lands) and would
  * render the feature as merged even at a `gated` / `needs-human` /
  * `cancelled` terminal state — the exact failure the design's "read the
  * board from the base branch, never from an in-flight feature worktree"
@@ -146,10 +147,9 @@ export function main(argv: string[]): number {
   }
   const { slug, terminalState } = parsed;
 
-  const state = readState(slug);
-  const epicSlug = state?.epic?.slug;
-  if (!epicSlug) return 0; // non-epic feature: silent no-op
-  const selfFeatureId = state?.epic?.featureId;
+  const binding = resolveEpicBinding({ slug });
+  if (binding.kind !== "bound") return 0; // non-epic feature: silent no-op
+  const { epicSlug, featureId: selfFeatureId } = binding;
 
   const runState = readEpicRunState(epicSlug);
 

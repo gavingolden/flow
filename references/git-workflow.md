@@ -287,6 +287,45 @@ before `deleteEpicRunState` drops the per-machine run-state cache that
 both writers depend on. Neither the commit nor the push can block the
 archive; only the reported message degrades.
 
+### Auto-commit and push exemption: flow-epic-self-mark
+
+The feature-branch counterpart of the exemption above. `flow-epic-self-mark
+--commit --push` writes **one** path, `.flow/epics/<epic>/status.json`, and
+within it **only the pipeline's own row**: every other row is carried through
+byte-identically, so two sibling epic PRs flipping different rows merge
+without a conflict. It runs only on a pipeline's **feature branch** and
+refuses on the base branch and on a detached HEAD (the base-branch side is
+`flow-epic-sync`'s). The push is always `git push origin HEAD` — never a bare
+`git push` (a worktree branch's upstream is `origin/<base>`), never forced,
+never `-u`, 120 s timeout, `GIT_TERMINAL_PROMPT=0`, `-c core.askPass=`. It
+refuses to push (`extra-local-commits`) when the commits between
+`origin/<branch>` and `HEAD` touch anything beyond the board path, so a
+step-10 recovery push can never publish ungated code; a branch with no remote
+ref yet is pushed as-is. The commit is path-scoped
+(`chore(epic): mark <id> merged on the <epic> board (#<pr>)`). Inside a
+pipeline (`$FLOW_SLUG` set) it acts only for that pipeline: `--slug` must equal
+`$FLOW_SLUG` and the explicit `--epic-slug/--feature/--pr` form is accepted
+only for the pipeline's own bound feature; from a plain terminal the explicit
+form works for any feature. `--resolve-conflict` with no epic binding refuses
+(`no-binding`) rather than exiting 0 with the conflict unresolved.
+
+`flow-open-pr` calls it in-process when the PR opens, and `/flow-pipeline`
+steps 9 and 10 re-run it when a row is missing (the merge guard reads the
+board at the PR's GitHub head and refuses `epic-row-missing`). A merge
+conflict on the board mid-`git merge origin/<base>` is resolved only by
+`flow-epic-self-mark --resolve-conflict`: it takes the incoming base side,
+applies the own row, stages the file, and never commits. `--seed --epic-slug
+<e>` (used by `/flow-epic-create`) writes the all-`not-started` board once, so
+the board exists on the base branch before wave 1.
+
+`flow-epic-sync --commit/--push` now acts on the base branch only (it
+reports `not-base-branch` elsewhere). A later `flow-epic-sync --rederive` on
+the base branch cannot derive a row for a PR whose head branch differs from
+the feature id's slug, and would drop such a row; repair it with
+`flow-epic-self-mark --epic-slug <e> --feature <id> --pr <n>` from a plain
+terminal (which requires the PR to be merged, or to be this branch's own open
+PR) rather than by hand.
+
 ## Inline intent annotations
 
 Review-time-scoped per-hunk rationale from `/flow-new-feature` Step 5b as

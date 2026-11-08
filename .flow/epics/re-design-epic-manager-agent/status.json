@@ -7,7 +7,8 @@
       "pr": 978
     },
     "f2-manager-home": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 1012
     },
     "f3-global-manager": {
       "status": "not-started"
@@ -16,7 +17,8 @@
       "status": "not-started"
     },
     "f5-executive-judgment": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 977
     },
     "f6-followup-routing": {
       "status": "not-started"
@@ -28,7 +30,8 @@
       "status": "not-started"
     },
     "w2-ui-review-section": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 973
     }
   }
 }

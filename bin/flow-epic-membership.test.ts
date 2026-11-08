@@ -327,6 +327,45 @@ describe("flow-epic-membership CLI", () => {
     assertNoStopGuardSentinel(result.stdout);
   });
 
+  it("[Story 1b] a hand-bound pipeline (run.json record, no state epic tag) still renders the epic block", () => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-membership-"));
+    const stateDir = path.join(tmpHome, ".flow", "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, "my-feature.json"),
+      JSON.stringify({
+        slug: "my-feature",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-06-28T00:00:00Z",
+      } satisfies PipelineState),
+    );
+    const epicDir = path.join(tmpHome, ".flow", "epics", "e");
+    fs.mkdirSync(epicDir, { recursive: true });
+    const manifestPath = path.join(epicDir, "manifest.json");
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest([feat("a")])));
+    const rs: EpicRunState = {
+      epicSlug: "e",
+      repo: "/tmp/repo",
+      manifestPath,
+      manifestSha: "sha",
+      maxParallel: 1,
+      createdAt: "2026-06-28T00:00:00Z",
+      updatedAt: "2026-06-28T00:00:00Z",
+      features: {
+        a: { slug: "my-feature", launchedAt: "2026-06-28T00:00:00Z" },
+      },
+    };
+    fs.writeFileSync(path.join(epicDir, "run.json"), JSON.stringify(rs));
+
+    const result = run(
+      ["--slug", "my-feature", "--terminal-state", "merged"],
+      tmpHome,
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("epic e");
+  });
+
   it("[Story 6] committed status.json + no run.json renders the committed board instead of degradationBlock", () => {
     tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-membership-"));
     const repoDir = fs.mkdtempSync(
