@@ -44,7 +44,16 @@ describe("docs/tmux-tree.conf", () => {
   });
 
   it("should reference only options flow publishes", () => {
-    expect(PUBLISHED.size).toBe(7);
+    for (const o of [
+      "@flow-slug",
+      "@flow-phase",
+      "@flow-phase-short",
+      "@flow-repo",
+      "@flow-epic",
+      "@flow-kind",
+      "@flow-pr",
+    ])
+      expect(PUBLISHED.has(o), o).toBe(true);
     const used = line.match(/@[a-z][a-z-]*/g) ?? [];
     expect(used.length).toBeGreaterThan(0);
     for (const opt of used) expect(PUBLISHED.has(opt), opt).toBe(true);
@@ -74,8 +83,35 @@ describe("docs/tmux-tree.conf", () => {
   });
 });
 
+describe("recipe column widths", () => {
+  const width = (token: string): number =>
+    Number(line.match(new RegExp(`#\\{p(\\d+):[^ ]*${token}`))?.[1]);
+
+  it("should pad the phase column to the longest PHASE_SHORT value", () => {
+    const longest = Math.max(
+      ...Object.values(PHASE_SHORT).map((v) => v.length),
+    );
+    expect(width("@flow-phase-short")).toBeGreaterThanOrEqual(longest);
+  });
+
+  it("should pad the PR column to # plus five digits", () => {
+    expect(width("@flow-pr")).toBeGreaterThanOrEqual(6);
+  });
+
+  it("should keep a pane row branch so split windows render", () => {
+    expect(line).toContain("#{?pane_format,");
+  });
+});
+
 describe("docs/demo/tmux.tape", () => {
-  it("should load the documented recipe file", () => {
-    expect(read("docs/demo/tmux.tape")).toContain("docs/tmux-tree.conf");
+  it("should type the README's source-file step and reload", () => {
+    const echo = read("README.md").match(
+      /^\s*(echo 'source-file [^']+tmux-tree\.conf' >> ~\/\.tmux\.conf)$/m,
+    )?.[1];
+    expect(echo).toBeDefined();
+    const tape = read("docs/demo/tmux.tape");
+    expect(tape).toContain(`Type "${echo}"`);
+    expect(tape).toContain('Type "tmux source-file ~/.tmux.conf"');
+    expect(read("docs/tmux.md")).toContain(echo!);
   });
 });

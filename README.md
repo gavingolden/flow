@@ -85,14 +85,12 @@ Start as many pipelines as you like, walk away, and see them all in one view.
 
 ![Several flow pipelines in a tmux tree view](docs/demo/tmux.gif)
 
-1. **Turn it on.** One time, add the tree view to your tmux config (adjust the path if you cloned elsewhere), then reload if tmux is already running:
+1. **Turn it on.** Run `flow config launcher set tmux`, or pass `--tmux` on each run. Optional, for the tree view in the clip: add it to your tmux config (adjust the path if you cloned elsewhere), then reload if tmux is already running:
 
    ```sh
    echo 'source-file ~/code/flow/docs/tmux-tree.conf' >> ~/.tmux.conf
    tmux source-file ~/.tmux.conf
    ```
-
-   Then run `flow config launcher set tmux`, or pass `--tmux` on each run.
 
 2. **Create.** Run `flow feature create "<description>"` as often as you like. Each call returns at once and runs in its own window.
 3. **View.** Run `flow attach`, then press `Ctrl-b w`. A `!` marks pipelines waiting for you. `flow ls` works with no tmux setup. Detach with `Ctrl-b d`; the runs keep going.

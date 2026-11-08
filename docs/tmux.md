@@ -32,10 +32,10 @@ Out of the box, `Ctrl-b w` lists windows by name only. This recipe turns it into
 The file `docs/tmux-tree.conf` holds exactly this binding:
 
 ```sh
-bind-key w choose-tree -Zw -F "#{?window_format,#{?@flow-slug,#{?#{||:#{m:*[?],#{@flow-phase-short}},#{||:#{==:#{@flow-phase-short},human},#{==:#{@flow-phase-short},gated}}},#[fg=yellow]!#[default], } #{?#{m:epic*,#{@flow-kind}},epic,feat} #{p10:#{=10:@flow-repo}} #{p22:#{=22:@flow-slug}} #{p14:#{?#{@flow-epic},#{=14:@flow-epic},—}} #{p4:#{?#{@flow-pr},###{@flow-pr},—}} #{p6:#{@flow-phase-short}}  #W,#W#{window_flags} (#{window_panes} panes)},#{session_windows} windows#{?session_attached, (attached),}}"
+bind-key w choose-tree -Zw -F "#{?pane_format,#{pane_current_command}#{?pane_active,*,}#{?#{pane_title}, #{pane_title},},#{?window_format,#{?@flow-slug,#{?#{||:#{m:*[?],#{@flow-phase-short}},#{||:#{==:#{@flow-phase-short},human},#{==:#{@flow-phase-short},gated}}},#[fg=yellow]!#[default], } #{?#{m:epic*,#{@flow-kind}},epic,feat} #{p10:#{=10:@flow-repo}} #{p22:#{=22:@flow-slug}} #{p14:#{?#{@flow-epic},#{=14:@flow-epic},—}} #{p6:#{?#{@flow-pr},###{@flow-pr},—}} #{p7:#{@flow-phase-short}}  #W,#W#{window_flags} (#{window_panes} panes)},#{session_windows} windows#{?session_attached, (attached),}}}"
 ```
 
-Prefer `source-file` over pasting the line yourself: a pasted copy goes stale when flow's phases change, while the sourced file stays current whenever you update flow.
+Prefer `source-file` over pasting the line yourself: a pasted copy goes stale when flow's phases change, while the sourced file stays current when you update flow. Run `tmux source-file ~/.tmux.conf` (or restart tmux) to pick up the new version.
 
 What each column shows, left to right:
 
@@ -52,7 +52,7 @@ What each column shows, left to right:
 
 Windows that flow did not create keep their stock `Ctrl-b w` row, so the recipe is safe in a session that mixes flow and everything else. Sessions show their window count.
 
-To keep the stock `Ctrl-b w` and use this view on `W` instead, change `bind-key w` to `bind-key W` in your own copy of the line.
+To keep the stock `Ctrl-b w` and use this view on `W` instead, paste the line into `~/.tmux.conf` with `bind-key W`, and drop the `source-file` line. You will need to re-copy it when flow updates.
 
 Tested on tmux 3.6a. flow never writes your tmux config: you add the `source-file` line yourself.
 

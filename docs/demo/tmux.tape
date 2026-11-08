@@ -16,7 +16,7 @@ Set Padding 20
 Set TypingSpeed 40ms
 
 Hide
-Type@1ms `unset TMUX TMUX_PANE FLOW_SLUG; R=$PWD; export HOME=$(mktemp -d); mkdir -p $HOME/code; ln -s $R $HOME/code/flow; PS1='$ '; export TERM=xterm-256color`
+Type@1ms `unset TMUX TMUX_PANE FLOW_SLUG; R="$PWD"; D=$(mktemp -d) || exit; export HOME="$D"; mkdir -p "$HOME/code"; ln -s "$R" "$HOME/code/flow"; PS1='$ '; export TERM=xterm-256color`
 Enter
 Type@1ms `tmux() { command tmux -L flow-demo "$@"; }; tmux kill-server 2>/dev/null`
 Enter
@@ -78,6 +78,6 @@ Hide
 Ctrl+B
 Type "d"
 Sleep 500ms
-Type@1ms `tmux kill-server 2>/dev/null; rm -rf $HOME`
+Type@1ms `tmux kill-server 2>/dev/null; rm -rf "${D:?}"`
 Enter
 Sleep 500ms

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateFile } from "./flow-md-validate";
 
 /**
- * Every doc under docs/ must be reachable from the root README or the docs
- * index, so a new doc cannot ship orphaned. fs reads only.
+ * Every top-level docs/*.md and every docs/<dir>/README.md must be linked
+ * from the root README or docs/README.md; each subdir README owns its own
+ * children. fs reads only.
  */
 
 const REPO_ROOT = path.resolve(
@@ -57,5 +59,23 @@ describe("docs reachability", () => {
     const head = rootReadme.split("\n").slice(0, 40).join("\n");
     expect(head).toContain("docs/README.md");
     expect(head).toContain("docs/tmux.md");
+  });
+
+  it("should keep the README under its word cap and links valid", () => {
+    // Counting rule: whitespace-separated tokens (matches `wc -w`).
+    expect(rootReadme.split(/\s+/).filter(Boolean).length).toBeLessThanOrEqual(
+      1000,
+    );
+    expect(rootReadme).toContain("docs/demo/tmux.gif");
+    expect(
+      fs.statSync(path.join(REPO_ROOT, "docs/demo/tmux.gif")).size,
+    ).toBeLessThan(1_500_000);
+    for (const f of [
+      "README.md",
+      "docs/README.md",
+      "docs/tmux.md",
+      "docs/getting-started.md",
+    ])
+      expect(validateFile(path.join(REPO_ROOT, f)), f).toEqual([]);
   });
 });

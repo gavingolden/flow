@@ -1,6 +1,6 @@
 # flow documentation
 
-Every doc outside the root [README](../README.md), grouped by what you are trying to do.
+Every top-level doc and doc set outside the root [README](../README.md), grouped by what you are trying to do.
 
 ## Using flow
 
