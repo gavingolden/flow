@@ -130,6 +130,7 @@ vi.mock("./epic-merge-latch", async () => {
 });
 
 import { runDone, runDoneCli, REAP_TIMEOUT_MS } from "./done";
+import { LockTimeoutError } from "./lock";
 
 const state = (overrides: {
   slug: string;
@@ -1280,7 +1281,7 @@ describe("epic launch-record latch", () => {
     );
   });
 
-  it("multiple names (`flow done a b`): each pipeline is latched before the first delete", () => {
+  it("multiple names: each pipeline is latched before its own state delete", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     stateMock.readState.mockImplementation((slug: string) =>
       state({ slug, phase: "merged", pr: 1 }),
@@ -1288,13 +1289,59 @@ describe("epic launch-record latch", () => {
     tmuxMock.listWindows.mockReturnValue([window("lt-a"), window("lt-b")]);
     expect(runDoneCli(["lt-a", "lt-b", "--yes"])).toBe(0);
     expect(latchMock.latchEpicBinding).toHaveBeenCalledTimes(2);
-    expect(firstOrder(latchMock.latchEpicBinding)).toBeLessThan(
-      firstOrder(stateMock.deleteState),
+    for (const slug of ["lt-a", "lt-b"]) {
+      const latchIdx = latchMock.latchEpicBinding.mock.calls.findIndex(
+        (c) => (c[0] as { slug: string }).slug === slug,
+      );
+      const deleteIdx = stateMock.deleteState.mock.calls.findIndex(
+        (c) => c[0] === slug,
+      );
+      expect(latchIdx).toBeGreaterThanOrEqual(0);
+      expect(deleteIdx).toBeGreaterThanOrEqual(0);
+      expect(
+        latchMock.latchEpicBinding.mock.invocationCallOrder[latchIdx]!,
+      ).toBeLessThan(
+        stateMock.deleteState.mock.invocationCallOrder[deleteIdx]!,
+      );
+    }
+    log.mockRestore();
+  });
+
+  it("skips the epic latch for a registry-only name — latches only the state-backed pipeline", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    stateMock.readState.mockImplementation((slug: string) =>
+      slug === "lt-a" ? state({ slug, phase: "merged", pr: 1 }) : null,
+    );
+    procRegistryMock.readRows.mockImplementation((slug: string) => ({
+      rows: slug === "lt-r" ? [{ pid: 1 }] : [],
+      malformed: 0,
+    }));
+    tmuxMock.listWindows.mockReturnValue([window("lt-a")]);
+    expect(runDoneCli(["lt-a", "lt-r", "--yes"])).toBe(0);
+    expect(latchMock.latchEpicBinding).toHaveBeenCalledTimes(1);
+    expect(latchMock.latchEpicBinding).toHaveBeenCalledWith(
+      expect.objectContaining({ slug: "lt-a" }),
     );
     log.mockRestore();
   });
 
-  it("--merged sweep: latches before teardown, kill/terminate and deleteState", () => {
+  it("a lock timeout from the latch is reported in plain language without the lock path", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "lt-lock", phase: "merged" }),
+    );
+    const epicLatch = vi.fn(() => {
+      throw new LockTimeoutError("/home/u/.flow/epics/e/run.json.lock", 5000);
+    });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(runDone("lt-lock", { yes: true, epicLatch })).toBe(1);
+    const out = err.mock.calls.flat().join("\n");
+    expect(out).toContain("still updating the epic board");
+    expect(out).not.toContain("run.json.lock");
+    err.mockRestore();
+  });
+
+  it("--merged sweep: latches a pipeline before its own teardown, kill/terminate and deleteState", () => {
     const a = state({ slug: "lt-sw", phase: "merged" });
     stateMock.listStates.mockReturnValue([a]);
     stateMock.readState.mockReturnValue(a);

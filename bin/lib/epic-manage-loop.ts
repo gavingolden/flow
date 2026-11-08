@@ -202,7 +202,7 @@ export async function tick(
   let { guard } = planned;
 
   const states = new Map(o.repoStates.map((s) => [s.slug, s]));
-  const ownerNeeded = ownerNeededFor(result.board, states);
+  const ownerNeeded = ownerNeededFor(result.board, states, o.runState.features);
   const done = result.epicStatus === "done" && ctx.inFlight === null;
   const failure =
     ctx.github && !ctx.github.ok && !githubFresh(ctx, now)

@@ -67,6 +67,7 @@ function phases(map: Record<string, string>): ReadFeatureState {
 
 const ids = (features: Feature[]): string[] => features.map((f) => f.id);
 const noState: ReadFeatureState = () => null;
+const manifestAB = manifest([feat("a"), feat("b", ["a"])]);
 
 describe("reconcile — Story 3: parallel launch up to the cap", () => {
   it("2 independent ready features + cap 3 + 0 running → both launch", () => {
@@ -249,6 +250,66 @@ describe("reconcile — a recorded merge outlives the state file", () => {
       manifest: m,
       runState: runState({ a: { slug: "a", lastStatus: "merged" } }),
       readFeatureState: phases({ a: "implementing" }),
+      maxParallel: 3,
+    });
+    expect(result.board.find((r) => r.id === "a")!.status).toBe("running");
+  });
+
+  const live = (
+    slug: string,
+    phase: string,
+    createdAt?: string,
+    pr?: number,
+  ): ReadFeatureState => {
+    return () => ({
+      slug,
+      phase,
+      repo: "/tmp/repo",
+      updatedAt: "2026-11-08T00:00:00Z",
+      ...(createdAt ? { createdAt } : {}),
+      ...(pr !== undefined ? { pr } : {}),
+    });
+  };
+
+  it("a newer same-name merged pipeline neither merges the old binding nor unblocks its dependents", () => {
+    const result = reconcile({
+      manifest: manifestAB,
+      runState: runState({
+        a: { slug: "a", launchedAt: "2026-08-03T00:00:00.000Z" },
+      }),
+      readFeatureState: live("a", "merged", "2026-11-08T00:00:00.000Z", 5),
+      maxParallel: 3,
+    });
+    const rowA = result.board.find((r) => r.id === "a")!;
+    expect(rowA.status).toBe("orphan");
+    expect(rowA.pr).toBeUndefined();
+    expect(result.board.find((r) => r.id === "b")!.status).not.toBe("ready");
+    expect(ids(result.toLaunch)).not.toContain("b");
+  });
+
+  it("a latched-merged binding stays merged beside a newer same-name running pipeline", () => {
+    const result = reconcile({
+      manifest: manifestAB,
+      runState: runState({
+        a: {
+          slug: "a",
+          launchedAt: "2026-08-03T00:00:00.000Z",
+          lastStatus: "merged",
+        },
+      }),
+      readFeatureState: live("a", "running", "2026-11-08T00:00:00.000Z"),
+      maxParallel: 3,
+    });
+    expect(result.board.find((r) => r.id === "a")!.status).toBe("merged");
+  });
+
+  it("a live state without createdAt is still read", () => {
+    const result = reconcile({
+      manifest: manifestAB,
+      runState: runState({
+        a: { slug: "a", launchedAt: "2026-08-03T00:00:00.000Z" },
+      }),
+      readFeatureState: live("a", "implementing"),
       maxParallel: 3,
     });
     expect(result.board.find((r) => r.id === "a")!.status).toBe("running");

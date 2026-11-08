@@ -1358,6 +1358,19 @@ describe("kind: 'feature' stamped + @flow-kind published (Task 2 / Task 4)", () 
     expect(tmuxMock.setPaneKind).toHaveBeenCalledWith("csv-export", "feature");
   });
 
+  it("stamps a parseable createdAt on a fresh launch", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    const createdAt = readState("csv-export", stateDir)?.createdAt;
+    expect(Number.isNaN(Date.parse(createdAt ?? ""))).toBe(false);
+  });
+
   it("republishes @flow-kind on a tmux resume, preserving the persisted kind", () => {
     // Seeded WITH kind already set (as a prior `flow feature create` would
     // have stamped it) — runResume's writeState sites spread the existing

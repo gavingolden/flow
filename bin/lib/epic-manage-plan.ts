@@ -28,7 +28,13 @@ import {
   type EpicManifest,
 } from "./epic-manifest-schema";
 import { reconcile, type ReconcileResult } from "./epic-reconcile";
-import { readEpicRunState, type EpicRunState } from "./epic-run-state";
+import {
+  isLatchedMerge,
+  ownedState,
+  readEpicRunState,
+  type EpicRunState,
+  type FeatureRunRecord,
+} from "./epic-run-state";
 import { readCommittedStatus } from "./epic-status-schema";
 import { deriveWorktreePath } from "./feature";
 import { slugify } from "./slug";
@@ -81,7 +87,7 @@ async function withBeat<T>(
 async function refreshGithub(
   ctx: LoopContext,
   deps: LoopDeps,
-  watchedPrs: number[],
+  prs: number[],
   branches: string[],
 ): Promise<void> {
   const now = deps.now();
@@ -93,7 +99,7 @@ async function refreshGithub(
     ? await fetchGithubSnapshot({
         repo: ctx.cfg.manager.repo,
         ...ctx.repoRef,
-        watchedPrs,
+        watchedPrs: prs,
         branches,
         exec: deps.exec,
         now: deps.now,
@@ -194,6 +200,23 @@ function reconcileWith(
   });
 }
 
+/** PRs worth polling on GitHub: bound, owned by the binding's own pipeline, not yet merged. */
+export function watchedPrs(
+  features: Record<string, FeatureRunRecord>,
+  repoStates: readonly PipelineState[],
+): number[] {
+  const bySlug = new Map(repoStates.map((s) => [s.slug, s]));
+  const watched = new Set<number>();
+  for (const rec of Object.values(features)) {
+    if (rec.external) continue;
+    const state = ownedState(rec, rec.slug ? bySlug.get(rec.slug) : undefined);
+    if (isLatchedMerge(rec, state)) continue;
+    const pr = state?.pr ?? rec.pr;
+    if (pr !== undefined && state?.phase !== "merged") watched.add(pr);
+  }
+  return [...watched];
+}
+
 export async function plan(
   ctx: LoopContext,
   deps: LoopDeps,
@@ -209,17 +232,12 @@ export async function plan(
   reprobe: () => Promise<GuardResult>;
 }> {
   const bySlug = new Map(o.repoStates.map((s) => [s.slug, s]));
-  const watched = new Set<number>();
-  for (const rec of Object.values(o.runState.features)) {
-    const s = rec.slug ? bySlug.get(rec.slug) : undefined;
-    const pr = s?.pr ?? rec.pr;
-    if (pr !== undefined && s?.phase !== "merged") watched.add(pr);
-  }
+  const watched = watchedPrs(o.runState.features, o.repoStates);
   const branches = o.manifest.features
     .filter((f) => !o.runState.features[f.id])
     .map((f) => slugify(f.id));
   await withBeat(ctx, hooks.beat, () =>
-    refreshGithub(ctx, deps, [...watched], branches),
+    refreshGithub(ctx, deps, watched, branches),
   );
   hooks.beat();
 
