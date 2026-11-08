@@ -7,6 +7,8 @@
 Shipping a small change still costs you a whole afternoon of plan → branch → code → test → PR → CI → review → merge.
 **flow ships a change end-to-end from one command** — a [Claude Code](https://docs.claude.com/en/docs/claude-code) supervisor drives the entire pipeline while you watch or walk away.
 
+[Quickstart](#quickstart) · [Run pipelines in parallel (tmux)](docs/tmux.md) · [Getting started](docs/getting-started.md) · [Configuration](docs/configuration.md) · [All docs](docs/README.md)
+
 ![flow demo](docs/demo/demo.gif)
 
 The transcript below is **illustrative — not exact output**; it shows the shape of a run, not its real verbosity.
@@ -49,7 +51,15 @@ Every run works in its own git worktree (your checkout is never touched), pauses
    flow feature create "add CSV export"
    ```
 
-`flow install` symlinks a **selected set of modules** — the pipeline core plus whichever stack/integration skills you pick. `core` is always installed; everything else (Svelte, Tailwind/shadcn, Supabase, Cloudflare Pages, GitHub Copilot review, AI-Ultra research tooling) is opt-in via an interactive Q&A. Each selected module is also materialized as a Claude Code skills-dir plugin root, laying the groundwork for collision-proof namespacing and a per-module token-cost inventory on top of the symlinks — see [docs/configuration.md](docs/configuration.md#plugin-materialization) for the detail (skills stay flat for now, so it currently reports `Skills (0)` / `~0 tok`). Selection flags, upgrades (`flow install --upgrade`), and the standalone skills home are covered in [docs/configuration.md](docs/configuration.md); setup internals live in [CONTRIBUTING.md](CONTRIBUTING.md). `flow ls` / `flow version` / `flow install` also surface a dimmed `install drift issue(s)` line if any managed symlink goes missing, dangling, or stale, or an unexpected entry (a stray file or directory inside a flow-managed plugin root) or a foreign entry (a live `bin/` symlink resolving outside the flow source tree, inside a flow-managed plugin root) turns up — `flow install --upgrade` repairs the symlink kinds and automatically removes a foreign entry, while an unexpected entry must be removed by hand.
+`flow install` sets up the core pipeline plus the optional modules you pick; module flags, upgrades, and install internals are in [docs/configuration.md](docs/configuration.md).
+
+## Documentation
+
+- **Your first pipeline, step by step:** [docs/getting-started.md](docs/getting-started.md)
+- **Run pipelines in parallel:** [docs/tmux.md](docs/tmux.md)
+- **Config, models, install flags, upgrades:** [docs/configuration.md](docs/configuration.md)
+- **Working on flow itself:** [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md)
+- **Everything else:** [docs/README.md](docs/README.md)
 
 ## Everyday commands
 
@@ -69,11 +79,25 @@ Run `flow help` for the full command reference (`epic`, `config`, `attach`, `com
 
 New here? The full first-run walkthrough — reading a run, resuming, cleaning up — is at [docs/getting-started.md](docs/getting-started.md).
 
-## Power users: the tmux launcher
+## Run pipelines in parallel with tmux
 
-Reach for the tmux launcher when you want to run several pipelines at once from one place, or start a pipeline and walk away, re-attaching from anywhere later. Opt in per run with `flow feature create --tmux "<description>"`, answer "yes" to the tmux question `flow install` asks on an interactive install, or set it as your default with `flow config launcher set tmux`. Agent- or script-driven `flow feature create` (anything without a TTY) must pass `--tmux`: the default plain launcher refuses non-interactive launches by design (since PR #457).
+Start as many pipelines as you like, walk away, and see them all in one view.
 
-Under the tmux launcher, your first `flow feature create` starts the pipeline in a tmux window but doesn't drop you into it — run `flow attach` (no args) to pop into the flow session, or `flow attach <name>` (alias `flow a <name>`) to jump to a specific one. To step away without stopping the run, detach with `Ctrl-b d` — the pipeline keeps running, and you come back with `flow attach`. Forgot exactly what you asked for? Each pipeline window shows your request under the Claude banner when it starts (and again after `/clear` or a compaction, unless the pipeline has finished, which stays clear), and `flow prompt [<slug>]` prints it back verbatim from any other terminal.
+![Several flow pipelines in a tmux tree view](docs/demo/tmux.gif)
+
+1. **Turn it on.** One time, add the tree view to your tmux config (adjust the path if you cloned elsewhere), then reload if tmux is already running:
+
+   ```sh
+   echo 'source-file ~/code/flow/docs/tmux-tree.conf' >> ~/.tmux.conf
+   tmux source-file ~/.tmux.conf
+   ```
+
+   Then run `flow config launcher set tmux`, or pass `--tmux` on each run.
+
+2. **Create.** Run `flow feature create "<description>"` as often as you like. Each call returns at once and runs in its own window.
+3. **View.** Run `flow attach`, then press `Ctrl-b w`. A `!` marks pipelines waiting for you. `flow ls` works with no tmux setup. Detach with `Ctrl-b d`; the runs keep going.
+
+More in the [tmux guide](docs/tmux.md).
 
 ## Per-phase models
 
@@ -84,18 +108,6 @@ You can route different Claude models to different pipeline phases (an expensive
 flow runs the `flow-pre-commit` verify gate before every push. **Single-package repos and monorepos work with zero config** — it auto-detects scope from the diff and runs your declared `npm run` scripts (plus per-package scripts in `apps/<pkg>/` and `packages/<pkg>/`). For a non-conventional layout, drop in a `.flow/pre-commit.json` escape hatch. Full detail is in [`references/consumer-repo-contract.md`](references/consumer-repo-contract.md).
 
 [`semgrep`](https://semgrep.dev) is an optional tool: when it is on `PATH`, `/flow-pr-review` runs the static-analysis security lens; without it, that lens is skipped (everything else still runs).
-
-## Learn more
-
-| You want                                                                                                       | Read                                                                               |
-| -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Your first pipeline, step by step                                                                              | [docs/getting-started.md](docs/getting-started.md)                                 |
-| Config, models, install flags, upgrades                                                                        | [docs/configuration.md](docs/configuration.md)                                     |
-| Which tests earn their cost, and why                                                                           | [docs/test-quality-methodology.md](docs/test-quality-methodology.md)               |
-| A blind second opinion on one logical question (`/flow-deliberate "<question>"`, from any Claude Code session) | [docs/deliberation-assessment.md](docs/deliberation-assessment.md)                 |
-| Working on flow itself                                                                                         | [CONTRIBUTING.md](CONTRIBUTING.md)                                                 |
-| The supervisor skill itself                                                                                    | [`skills/pipeline/flow-pipeline/SKILL.md`](skills/pipeline/flow-pipeline/SKILL.md) |
-| Project rules for agents working on flow                                                                       | [`AGENTS.md`](AGENTS.md)                                                           |
 
 ## License
 
