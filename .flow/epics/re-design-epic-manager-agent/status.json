@@ -29,7 +29,8 @@
       "status": "not-started"
     },
     "w2-ui-review-section": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 973
     }
   }
 }
