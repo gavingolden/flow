@@ -32,7 +32,7 @@ Type@1ms `tmux -f /dev/null new-session -d -s flow -n scratch -x 140 -y 34 "exec
 Enter
 Type@1ms `mkwin add-csv-export acme-api implementing impl "" "" feature; mkwin fix-oauth-redirect web-app plan-pending-review "plan?" "" "" feature; mkwin billing-rework acme-api implementing impl 118 billing-epic epic-run; mkwin rate-limit-api acme-api gated gated 131 "" feature; mkwin tidy-readme web-app merged merged 127 "" feature`
 Enter
-Type@1ms `t() { tmux rename-window -t flow:$1 "$2"; }; t add-csv-export 'CSV export'; t fix-oauth-redirect 'OAuth redirect'; t billing-rework 'Billing rework'; t rate-limit-api 'API rate limits'; t tidy-readme 'README tidy'; tmux kill-window -t flow:scratch; tmux move-window -r -t flow:; tmux set-option -g status-left-length 20`
+Type@1ms `t() { tmux rename-window -t flow:$1 "$2"; }; t add-csv-export 'CSV export'; t fix-oauth-redirect 'OAuth redirect'; t billing-rework 'Billing rework'; t rate-limit-api 'API rate limits'; t tidy-readme 'README tidy'; tmux kill-window -t flow:scratch; tmux move-window -r -t flow:; tmux set-option -g status-left-length 20; tmux set-option -g status-right ''`
 Enter
 Type "clear"
 Enter
