@@ -31,10 +31,9 @@ describe("buildInteractiveLaunchArgv", () => {
 
   it("defaults to FLOW_CLAUDE_HOME when no home is passed", () => {
     // pluginRootsScan pinned to () => [] — FLOW_CLAUDE_HOME derives from
-    // paths.ts's import-time `HOME = os.homedir()`, which vitest.setup.ts
-    // explicitly does NOT sandbox, so an unpinned scan would read the
-    // developer's real ~/.flow/claude-home/.claude/skills and go red the
-    // moment `flow install` has materialized any plugin root there.
+    // paths.ts's import-time `HOME = os.homedir()`, which now captures the
+    // vitest.setup.ts sandbox; pinning keeps the test independent of whatever
+    // plugin roots that sandbox happens to hold.
     expect(buildInteractiveLaunchArgv(undefined, () => [])).toEqual([
       "claude",
       "--add-dir",

@@ -495,11 +495,10 @@ describe("installBaseBranchGuard", () => {
   });
 
   it("resolves the sidecar path at CALL TIME, honouring the test sandbox's $HOME", () => {
-    // Regression lock for the module-scope os.homedir() hazard: HOME is
-    // captured at import time (before vitest.setup.ts swaps it for a
-    // sandbox), so an eager module-scope constant would resolve against the
-    // developer's real home instead of the sandbox vitest.setup.ts creates
-    // (prefixed "flow-vitest-home-").
+    // Regression lock for the module-scope os.homedir() hazard: vitest.setup.ts
+    // now swaps HOME for a sandbox (prefixed "flow-vitest-home-") at load, so
+    // even an eager constant would see it, but call-time resolution keeps
+    // working in a process where HOME changes after import.
     expect(baseBranchGuardSidecarPath()).toContain("flow-vitest-home-");
   });
 });

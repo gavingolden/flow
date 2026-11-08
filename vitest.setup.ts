@@ -1,7 +1,12 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeAll } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
+import {
+  ORIGINAL_ENV_KEY,
+  homeSandboxViolation,
+  realAccountHome,
+} from "./bin/lib/hermetic-test-path";
 
 // Sandboxed $HOME for the entire test suite. A test that calls into code
 // reading os.homedir() — most often setup-rc.ts editing shell rc files —
@@ -9,40 +14,67 @@ import { afterAll, beforeAll } from "vitest";
 // ~/.bash_profile. Per-test homeDir overrides remain the precise fix; this
 // is the global net.
 //
-// Coverage: this only protects code that reads os.homedir() / process.env.HOME
-// *lazily* (at function-call time). Modules that capture HOME at import time —
-// notably bin/lib/paths.ts (`HOME = os.homedir()` at module scope, with the
-// derived FLOW_DIR / FLOW_STATE_DIR / etc constants frozen) — are imported
-// before vitest evaluates this file, so their captured value is the real
-// $HOME. setup-rc.ts (the rc-editing path that motivated this file) reads
-// homedir lazily and is fully covered. The `~/.flow/config.json` readers
-// (models-config, copilot-config, epic-config, update-check) are covered too:
-// they resolve the path via paths.ts's `flowConfigPath()` at call time rather
-// than an import-time constant. A test that consumes another
-// paths.ts default like `dir = FLOW_STATE_DIR` without a DI override would
-// still touch the real ~/.flow/; tightening the remaining constants to lazy
-// evaluation is tracked as a followup in PR #86.
-let originalHome: string | undefined;
-let sandboxHome: string | undefined;
+// Coverage: HOME is swapped at module load, before the test file's imports
+// and collection, and stays on the sandbox until the worker exits (it is
+// never restored to the real home). Import-time constants such as
+// bin/lib/paths.ts's HOME / FLOW_DIR / FLOW_STATE_DIR therefore capture the
+// sandbox, and so does module-scope test code. The sandbox is emptied (not
+// removed) after each file so those captured paths stay valid under
+// --no-isolate. A global beforeEach/afterEach tripwire fails the first test
+// that replaces process.env or desyncs os.homedir() from HOME. A vitest
+// launch that skips vitest.config.ts gets no sandbox at all.
+const realHome = realAccountHome();
+process.env.FLOW_TEST_REAL_HOME ??= realHome;
+
+const SANDBOX_PREFIX = "flow-vitest-home-";
+// Reuse is limited to the process that created the sandbox (vitest re-imports
+// this file per test file). A child process — a nested vitest a test spawns —
+// inherits HOME and must get its own sandbox, or its afterAll would empty the
+// parent worker's home mid-test.
+const OWNER_PID_KEY = "FLOW_VITEST_HOME_OWNER_PID";
+let sandboxHome: string;
+{
+  const existing = process.env.HOME;
+  if (
+    existing &&
+    process.env[OWNER_PID_KEY] === String(process.pid) &&
+    path.basename(existing).startsWith(SANDBOX_PREFIX) &&
+    path.dirname(existing) === os.tmpdir() &&
+    fs.existsSync(existing)
+  ) {
+    sandboxHome = existing;
+  } else {
+    sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), SANDBOX_PREFIX));
+    process.env.HOME = sandboxHome;
+    process.env[OWNER_PID_KEY] = String(process.pid);
+    process.on("exit", () => {
+      fs.rmSync(sandboxHome, { recursive: true, force: true });
+    });
+  }
+}
+
+const g = globalThis as Record<string, unknown>;
+g[ORIGINAL_ENV_KEY] ??= process.env;
+
+const OFFENDER_KEY = "__flowFirstHomeSandboxOffender";
+
+function assertSandbox(): void {
+  const violation = homeSandboxViolation();
+  if (violation === null) return;
+  const { testPath, currentTestName } = expect.getState();
+  g[OFFENDER_KEY] ??= `${testPath ?? "?"} > ${currentTestName ?? "?"}`;
+  throw new Error(
+    `HOME sandbox violated: ${violation}. First offending test in this worker: ${String(g[OFFENDER_KEY])}`,
+  );
+}
+
 let originalFlowSlug: string | undefined;
 let originalTmuxPane: string | undefined;
 let originalClaudeEffort: string | undefined;
 let originalKeepAwake: string | undefined;
 
 beforeAll(() => {
-  originalHome = process.env.HOME;
-  sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-vitest-home-"));
-  process.env.HOME = sandboxHome;
-
-  // Seam for credential-needing live tests (`bin/*.live.test.ts`). The
-  // sandbox above hands every spawned subprocess a credential-free $HOME, so
-  // a live `agy` call would come back `agy-not-authenticated` rather than
-  // exercising the code under test. Such a test spawns with
-  // `env: { ...process.env, HOME: process.env.FLOW_TEST_REAL_HOME }` to opt
-  // back into the real home for that one subprocess. Deliberately NOT a
-  // general escape hatch: unit tests must keep using the sandbox.
-  if (originalHome !== undefined)
-    process.env.FLOW_TEST_REAL_HOME = originalHome;
+  if (process.env.HOME !== sandboxHome) process.env.HOME = sandboxHome;
 
   // After f4 (env/state-only session identity), FLOW_SLUG is the sole
   // identity carrier — no tmux pane fallback remains. An ambient FLOW_SLUG /
@@ -67,11 +99,16 @@ beforeAll(() => {
   process.env.FLOW_KEEP_AWAKE = "0";
 });
 
+beforeEach(assertSandbox);
+afterEach(assertSandbox);
+
 afterAll(() => {
-  if (originalHome === undefined) delete process.env.HOME;
-  else process.env.HOME = originalHome;
-  if (sandboxHome) fs.rmSync(sandboxHome, { recursive: true, force: true });
-  delete process.env.FLOW_TEST_REAL_HOME;
+  // Seam for credential-needing live tests (`bin/*.live.test.ts`) is
+  // FLOW_TEST_REAL_HOME, set above and never deleted.
+  for (const entry of fs.readdirSync(sandboxHome)) {
+    fs.rmSync(path.join(sandboxHome, entry), { recursive: true, force: true });
+  }
+  process.env.HOME = sandboxHome;
 
   if (originalFlowSlug === undefined) delete process.env.FLOW_SLUG;
   else process.env.FLOW_SLUG = originalFlowSlug;
