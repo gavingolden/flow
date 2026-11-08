@@ -12,6 +12,7 @@
  * not-bound, 1 on a refusal, 2 on usage.
  */
 
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import { readState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
@@ -218,7 +219,7 @@ export function main(argv: string[], deps: Deps = {}): number {
   const base = { ...common, cwd, slug };
   let result = selfMarkEpicRow({ ...base, pr: parsed.pr ?? state?.pr });
   if (result.reason === "no-pr") {
-    const pr = lookupPr(gh, git, cwd);
+    const pr = lookupPr(deps.gh ?? ghIn(cwd), git, cwd);
     if (pr !== undefined) result = selfMarkEpicRow({ ...base, pr });
   }
   return report(result, parsed.json);
@@ -227,6 +228,17 @@ export function main(argv: string[], deps: Deps = {}): number {
 function notBound(): SelfMarkResult {
   return { outcome: "not-bound", committed: false, pushed: false };
 }
+
+const ghIn =
+  (cwd: string): GhRunner =>
+  (argv) => {
+    const r = spawnSync("gh", argv, { cwd, encoding: "utf8" });
+    return {
+      stdout: r.stdout ?? "",
+      stderr: r.stderr ?? "",
+      exitCode: r.status ?? -1,
+    };
+  };
 
 function lookupPr(
   gh: GhRunner,

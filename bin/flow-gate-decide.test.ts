@@ -1035,7 +1035,9 @@ describe("fetchPrInputs — baseRefName", () => {
   it("requests and returns the PR base branch when present", () => {
     const gh = ok({ baseRefName: "release" });
     const r = fetchPrInputs(1, gh);
-    expect(gh.mock.calls[0][0]).toContain("body,state,url,baseRefName,headRefOid");
+    expect(gh.mock.calls[0][0]).toContain(
+      "body,state,url,baseRefName,headRefOid",
+    );
     expect(r).toMatchObject({ kind: "ok", baseRefName: "release" });
   });
 
