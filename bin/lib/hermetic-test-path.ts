@@ -57,12 +57,12 @@ export function assertHermeticTestPath(target: string): void {
 export function homeSandboxViolation(
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
-  const recorded = (globalThis as Record<string, unknown>)[ORIGINAL_ENV_KEY];
-  if (recorded !== undefined && env !== recorded)
-    return "process.env was replaced with a different object (os.homedir() can desync)";
   const home = os.homedir();
   if (env.HOME !== home)
     return `process.env.HOME (${env.HOME}) differs from os.homedir() (${home})`;
+  const recorded = (globalThis as Record<string, unknown>)[ORIGINAL_ENV_KEY];
+  if (recorded !== undefined && env !== recorded)
+    return "process.env was replaced with a different object (os.homedir() can desync)";
   const resolved = resolveNearest(home);
   if (!isUnder(resolved, tmpReal()) && isUnder(resolved, homeReal()))
     return `os.homedir() (${home}) resolves inside the real account home`;

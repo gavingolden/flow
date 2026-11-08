@@ -681,9 +681,9 @@ async function runUnderLock(
     options.oldAgentsDir ??
     path.join(options.homeDir ?? os.homedir(), ".claude", "agents");
   // `os.homedir()` read LAZILY here (call-time, not import-time) — safe
-  // under `vitest.setup.ts`'s global $HOME sandbox net, unlike
-  // `state.ts`'s own `FLOW_STATE_DIR` default, which freezes the REAL
-  // home at import time (documented gap, PR #86 followup). Passing an
+  // under `vitest.setup.ts`'s global $HOME sandbox net, and
+  // `state.ts`'s import-time `FLOW_STATE_DIR` default also sees the sandbox
+  // HOME. Passing an
   // explicit `stateDir` derived from `options.homeDir` here, rather than
   // relying on `listStates`'s own default, keeps every test in this suite
   // off the developer's/CI runner's real `~/.flow/state/`.

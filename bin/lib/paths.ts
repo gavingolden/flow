@@ -66,10 +66,9 @@ export const FLOW_MANIFEST = path.join(FLOW_DIR, "installed.json");
 
 /**
  * Resolves `~/.flow/config.json` at call time rather than import time. `HOME`
- * above is captured when this module is first imported — which happens
- * before vitest's setup file swaps `$HOME` for a sandbox — so an eager
- * `path.join(FLOW_DIR, "config.json")` constant would still point at the
- * developer's real `~/.flow/config.json`. Every reader of the config file
+ * above is captured when this module is first imported, so an eager
+ * `path.join(FLOW_DIR, "config.json")` constant would ignore a per-test
+ * `vi.stubEnv("HOME", ...)` and keep pointing at the import-time home. Every reader of the config file
  * must go through this function, or the test suite silently depends on
  * whatever the author happens to have configured globally.
  */
@@ -80,9 +79,9 @@ export function flowConfigPath(): string {
 /**
  * Host-wide epic-status lock directory, resolved at call time — same
  * rationale as `flowConfigPath()` above: `HOME` is captured at import time,
- * before vitest's setup file swaps `$HOME` for a sandbox, so an eager const
- * (the `SETUP_LOCK_PATH` pattern below) would leak the developer's real
- * `~/.flow` into every test that acquires an epic-status lock.
+ * so an eager const (the `SETUP_LOCK_PATH` pattern below) would ignore a
+ * per-test `vi.stubEnv("HOME", ...)` for every test that acquires an
+ * epic-status lock.
  */
 export function epicStatusLockDir(): string {
   return path.join(os.homedir(), ".flow", "locks", "epic-status");
@@ -101,10 +100,9 @@ export function flowOverlaysDir(): string {
 
 /**
  * Resolves `~/.local/bin/<name>` at call time, same rationale as
- * `flowConfigPath()` above: `HOME` is captured at import time, before
- * vitest's setup file swaps `$HOME` for a sandbox, so an eager
- * `path.join(LOCAL_BIN_DIR, name)` would resolve against the developer's
- * real home directory under tests.
+ * `flowConfigPath()` above: `HOME` is captured at import time, so an
+ * eager `path.join(LOCAL_BIN_DIR, name)` would ignore a per-test
+ * `vi.stubEnv("HOME", ...)` under tests.
  */
 export function installedHelperPath(name: string): string {
   return path.join(os.homedir(), ".local", "bin", name);
@@ -126,10 +124,10 @@ export function configuredFlowSource(
 
 /**
  * Resolves `~/.flow/telemetry/events.jsonl` at call time, same rationale as
- * `flowConfigPath()` above: `HOME` is captured at import time, before
- * vitest's setup file swaps `$HOME` for a sandbox, so an eager
- * `path.join(FLOW_DIR, "telemetry", "events.jsonl")` constant would leak the
- * developer's real `~/.flow` into every test that records a telemetry event.
+ * `flowConfigPath()` above: `HOME` is captured at import time, so an
+ * eager `path.join(FLOW_DIR, "telemetry", "events.jsonl")` constant would
+ * ignore a per-test `vi.stubEnv("HOME", ...)` for every test that records a
+ * telemetry event.
  */
 export function flowTelemetryLogPath(homeDir: string = os.homedir()): string {
   return path.join(homeDir, ".flow", "telemetry", "events.jsonl");

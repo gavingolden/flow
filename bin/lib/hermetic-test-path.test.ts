@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   assertHermeticTestPath,
   homeSandboxViolation,
@@ -53,11 +53,22 @@ describe("homeSandboxViolation", () => {
   it("flags an env whose HOME differs from os.homedir()", () => {
     expect(
       homeSandboxViolation({ ...process.env, HOME: "/somewhere/else" }),
-    ).not.toBeNull();
+    ).toMatch(/differs from os\.homedir/);
   });
 
   it("flags a plain-object copy of process.env", () => {
-    expect(homeSandboxViolation({ ...process.env })).not.toBeNull();
+    expect(homeSandboxViolation({ ...process.env })).toMatch(
+      /replaced with a different object/,
+    );
+  });
+
+  it("flags a HOME that points into the real account home", () => {
+    vi.stubEnv("HOME", realAccountHome());
+    try {
+      expect(homeSandboxViolation()).toMatch(/inside the real account home/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("is null for process.env in the normal sandbox", () => {

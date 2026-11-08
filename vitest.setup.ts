@@ -24,6 +24,8 @@ import {
 // that replaces process.env or desyncs os.homedir() from HOME. A vitest
 // launch that skips vitest.config.ts gets no sandbox at all.
 const realHome = realAccountHome();
+// Seam for credential-needing *.live.test.ts only; deliberately not a general
+// escape hatch for tests that want the real home.
 process.env.FLOW_TEST_REAL_HOME ??= realHome;
 
 const SANDBOX_PREFIX = "flow-vitest-home-";

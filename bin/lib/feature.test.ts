@@ -180,8 +180,8 @@ import { assertHermeticTestPath } from "./hermetic-test-path";
 // regardless of what plugin roots happen to be materialized on the machine
 // running the suite (the real default, `scanPluginRoots()`, reads
 // `FLOW_CLAUDE_HOME_SKILLS_DIR` — captured eagerly at import time, which now
-// sees vitest.setup.ts's sandbox HOME, but the sandbox may hold whatever a
-// prior file left in it). Individual specs override it to exercise the
+// sees vitest.setup.ts's sandbox HOME, but earlier tests in this file may
+// materialize plugin roots into it). Individual specs override it to exercise the
 // roots-present cases.
 //
 // `reserveWorktree` is stubbed the same way: the real reservation mkdirs a
@@ -4398,8 +4398,8 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   }
 
   function installHook(content = "installed-hook-content\n"): void {
-    fs.mkdirSync(path.dirname(installedHookPath), { recursive: true });
     assertHermeticTestPath(installedHookPath);
+    fs.mkdirSync(path.dirname(installedHookPath), { recursive: true });
     fs.writeFileSync(installedHookPath, content);
     fs.chmodSync(installedHookPath, 0o755);
   }
@@ -4457,8 +4457,8 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   it("falls back to the module-relative script when the installed path is a dangling symlink", () => {
-    fs.mkdirSync(path.dirname(installedHookPath), { recursive: true });
     assertHermeticTestPath(installedHookPath);
+    fs.mkdirSync(path.dirname(installedHookPath), { recursive: true });
     fs.symlinkSync("/nonexistent/gone", installedHookPath);
     ensureLaunchSettings(settingsPath);
     expect(readRecordedCommand()).toBe(moduleRelativeHookPath);
@@ -4684,8 +4684,8 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   it("re-resolves the guard to the checkout path once the installed guard disappears", () => {
-    fs.mkdirSync(path.dirname(installedGuardPath), { recursive: true });
     assertHermeticTestPath(installedGuardPath);
+    fs.mkdirSync(path.dirname(installedGuardPath), { recursive: true });
     fs.writeFileSync(installedGuardPath, "installed-guard\n");
     fs.chmodSync(installedGuardPath, 0o755);
     ensureLaunchSettings(settingsPath);
@@ -4742,8 +4742,8 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   it("prefers the installed request-echo helper when it exists on disk", () => {
-    fs.mkdirSync(path.dirname(installedEchoPath), { recursive: true });
     assertHermeticTestPath(installedEchoPath);
+    fs.mkdirSync(path.dirname(installedEchoPath), { recursive: true });
     fs.writeFileSync(installedEchoPath, "installed-echo\n");
     fs.chmodSync(installedEchoPath, 0o755);
     ensureLaunchSettings(settingsPath);
@@ -4755,8 +4755,8 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   it("warns to stderr when the installed request-echo helper diverges from the module-relative script", () => {
-    fs.mkdirSync(path.dirname(installedEchoPath), { recursive: true });
     assertHermeticTestPath(installedEchoPath);
+    fs.mkdirSync(path.dirname(installedEchoPath), { recursive: true });
     fs.writeFileSync(installedEchoPath, "this differs from the script\n");
     const writeSpy = vi
       .spyOn(process.stderr, "write")

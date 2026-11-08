@@ -28,8 +28,8 @@ beforeEach(() => {
   origNoColor = process.env.NO_COLOR;
   origNoHyperlinks = process.env.FLOW_NO_HYPERLINKS;
   origForceColor = process.env.FORCE_COLOR;
-  vi.stubEnv("NO_COLOR", undefined);
-  vi.stubEnv("FLOW_NO_HYPERLINKS", undefined);
+  delete process.env.NO_COLOR;
+  delete process.env.FLOW_NO_HYPERLINKS;
   delete process.env.FORCE_COLOR;
 });
 
@@ -240,8 +240,8 @@ describe("applyLinkModeOptOut", () => {
   });
 
   it("leaves terminal mode alone when neither opt-out is set", () => {
-    vi.stubEnv("FLOW_NO_HYPERLINKS", undefined);
-    vi.stubEnv("NO_COLOR", undefined);
+    delete process.env.FLOW_NO_HYPERLINKS;
+    delete process.env.NO_COLOR;
     expect(applyLinkModeOptOut("terminal")).toBe("terminal");
   });
 
