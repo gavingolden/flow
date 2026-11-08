@@ -115,6 +115,20 @@ const livenessMock = vi.hoisted(() => ({
 }));
 vi.mock("./liveness", () => livenessMock);
 
+// Mocked so no test reads the real ~/.flow/epics (FLOW_EPICS_DIR is frozen to
+// $HOME at import). The factory keeps the real note formatter and defaults the
+// latch to "no bindings".
+const latchMock = vi.hoisted(() => ({
+  latchEpicBinding: vi.fn((_state: unknown) => [] as unknown[]),
+}));
+vi.mock("./epic-merge-latch", async () => {
+  const actual =
+    await vi.importActual<typeof import("./epic-merge-latch")>(
+      "./epic-merge-latch",
+    );
+  return { ...actual, latchEpicBinding: latchMock.latchEpicBinding };
+});
+
 import { runDone, runDoneCli, REAP_TIMEOUT_MS } from "./done";
 
 const state = (overrides: {
@@ -153,6 +167,7 @@ beforeEach(() => {
   );
   stateMock.listStates.mockReturnValue([]);
   stateMock.readState.mockReturnValue(null);
+  latchMock.latchEpicBinding.mockReturnValue([]);
   procRegistryMock.readRows.mockReturnValue({ rows: [], malformed: 0 });
   livenessMock.livenessOf.mockImplementation(
     (s: { pid?: number; procStartedAt?: number }) =>
@@ -1222,5 +1237,141 @@ describe("registryReap seam", () => {
       "flow done: no window or state for 'truly-nothing'.",
     );
     err.mockRestore();
+  });
+});
+
+describe("epic launch-record latch", () => {
+  const firstOrder = (m: { mock: { invocationCallOrder: number[] } }) =>
+    m.mock.invocationCallOrder[0]!;
+
+  it("single name: latches the re-read state before teardown, window kill and deleteState", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    const snapshot = state({ slug: "lt-one", phase: "gating" });
+    const fresh = state({ slug: "lt-one", phase: "merged", pr: 9 });
+    stateMock.readState.mockReturnValueOnce(snapshot).mockReturnValue(fresh);
+    const epicLatch = vi.fn((_s: unknown) => []);
+    const browserTeardown = vi.fn();
+    expect(runDone("lt-one", { yes: true, epicLatch, browserTeardown })).toBe(
+      0,
+    );
+    expect(epicLatch).toHaveBeenCalledWith(fresh);
+    expect(firstOrder(epicLatch)).toBeLessThan(firstOrder(browserTeardown));
+    expect(firstOrder(epicLatch)).toBeLessThan(firstOrder(tmuxMock.killWindow));
+    expect(firstOrder(epicLatch)).toBeLessThan(
+      firstOrder(stateMock.deleteState),
+    );
+  });
+
+  it("multiple names (`flow done a b`): each pipeline is latched before the first delete", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    stateMock.readState.mockImplementation((slug: string) =>
+      state({ slug, phase: "merged", pr: 1 }),
+    );
+    tmuxMock.listWindows.mockReturnValue([window("lt-a"), window("lt-b")]);
+    expect(runDoneCli(["lt-a", "lt-b", "--yes"])).toBe(0);
+    expect(latchMock.latchEpicBinding).toHaveBeenCalledTimes(2);
+    expect(firstOrder(latchMock.latchEpicBinding)).toBeLessThan(
+      firstOrder(stateMock.deleteState),
+    );
+    log.mockRestore();
+  });
+
+  it("--merged sweep: latches before teardown, kill/terminate and deleteState", () => {
+    const a = state({ slug: "lt-sw", phase: "merged" });
+    stateMock.listStates.mockReturnValue([a]);
+    stateMock.readState.mockReturnValue(a);
+    const epicLatch = vi.fn((_s: unknown) => []);
+    const browserTeardown = vi.fn();
+    const terminate = vi.fn(() => ({ terminated: true }));
+    const code = runDone(undefined, {
+      merged: true,
+      yes: true,
+      epicLatch,
+      browserTeardown,
+      terminate,
+    });
+    expect(code).toBe(0);
+    expect(epicLatch).toHaveBeenCalledWith(a);
+    expect(firstOrder(epicLatch)).toBeLessThan(firstOrder(browserTeardown));
+    expect(firstOrder(epicLatch)).toBeLessThan(firstOrder(terminate));
+    expect(firstOrder(epicLatch)).toBeLessThan(
+      firstOrder(stateMock.deleteState),
+    );
+  });
+
+  it("a throwing latch on a single name keeps the pipeline open: no teardown, kill or delete, exit 1", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "lt-bad", phase: "merged" }),
+    );
+    const epicLatch = vi.fn(() => {
+      throw new Error("lock timeout");
+    });
+    const browserTeardown = vi.fn();
+    const registryReap = vi.fn();
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(
+      runDone("lt-bad", {
+        yes: true,
+        epicLatch,
+        browserTeardown,
+        registryReap,
+      }),
+    ).toBe(1);
+    expect(browserTeardown).not.toHaveBeenCalled();
+    expect(registryReap).not.toHaveBeenCalled();
+    expect(tmuxMock.killWindow).not.toHaveBeenCalled();
+    expect(stateMock.deleteState).not.toHaveBeenCalled();
+    expect(err.mock.calls.flat().join("\n")).toMatch(
+      /kept 'lt-bad' open: could not record its epic board entry \(lock timeout\)/,
+    );
+    err.mockRestore();
+  });
+
+  it("sweep: one throwing latch still closes the others and returns 1", () => {
+    const bad = state({ slug: "lt-sbad", phase: "merged" });
+    const ok = state({ slug: "lt-sok", phase: "merged" });
+    stateMock.listStates.mockReturnValue([bad, ok]);
+    stateMock.readState.mockImplementation((slug: string) =>
+      slug === "lt-sbad" ? bad : ok,
+    );
+    const epicLatch = vi.fn((s: { slug: string }) => {
+      if (s.slug === "lt-sbad") throw new Error("nope");
+      return [];
+    });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runDone(undefined, {
+      merged: true,
+      yes: true,
+      epicLatch,
+      terminate: vi.fn(() => ({ terminated: true })),
+      registryReap: vi.fn(),
+      browserTeardown: vi.fn(),
+    });
+    expect(code).toBe(1);
+    expect(stateMock.deleteState).toHaveBeenCalledTimes(1);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("lt-sok");
+    err.mockRestore();
+  });
+
+  it("prints the `kept … merged` line for a merged result", () => {
+    stateMock.readState.mockReturnValue(
+      state({ slug: "lt-note", phase: "merged", pr: 977 }),
+    );
+    const epicLatch = vi.fn(() => [
+      {
+        epicSlug: "e",
+        featureId: "b",
+        lastStatus: "merged",
+        pr: 977,
+        wrote: true,
+      },
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    runDone("lt-note", { yes: true, epicLatch, registryReap: vi.fn() });
+    expect(log.mock.calls.flat().join("\n")).toContain(
+      "kept lt-note merged on epic e (PR #977)",
+    );
+    log.mockRestore();
   });
 });

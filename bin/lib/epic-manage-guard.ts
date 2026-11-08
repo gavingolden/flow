@@ -153,7 +153,9 @@ export function planLaunches(input: GuardInput): GuardResult {
     if (!record?.slug || input.launching.has(row.id)) continue;
     const state = statesBySlug.get(record.slug);
     const ownPr = state?.pr ?? record.pr;
+    const latchedMerged = state === undefined && record.lastStatus === "merged";
     if (
+      !latchedMerged &&
       state?.phase !== "merged" &&
       ownPr !== undefined &&
       prs.some((p) => p.number === ownPr && p.state === "MERGED")

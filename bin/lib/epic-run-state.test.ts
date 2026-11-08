@@ -1,13 +1,14 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteEpicRunState,
   epicRunStateLockPath,
   epicRunStatePath,
   isEpicRunState,
   listEpicRunStates,
+  mutateEpicRunRecord,
   readEpicRunState,
   updateEpicRunRecord,
   writeEpicRunState,
@@ -366,6 +367,55 @@ describe("updateEpicRunRecord", () => {
     }
     const features = readEpicRunState("watchlist", dir)?.features;
     expect(Object.keys(features ?? {}).sort()).toEqual(["a", "b"]);
+  });
+});
+
+describe("mutateEpicRunRecord", () => {
+  const now = () => "2026-07-02T00:00:00Z";
+  const bound = { slug: "a-slug", launchedAt: "x" };
+
+  it("returns false and creates no run.json or dir when the launch record is absent", () => {
+    const ran = vi.fn(() => bound);
+    expect(mutateEpicRunRecord("ghost", "a", ran, { dir, now })).toBe(false);
+    expect(ran).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(dir, "ghost"))).toBe(false);
+  });
+
+  it("leaves the file byte-identical when decide returns null", () => {
+    writeEpicRunState(fixture("e", { features: { a: bound } }), dir);
+    const before = fs.readFileSync(epicRunStatePath("e", dir), "utf8");
+    expect(mutateEpicRunRecord("e", "a", () => null, { dir, now })).toBe(false);
+    expect(fs.readFileSync(epicRunStatePath("e", dir), "utf8")).toBe(before);
+  });
+
+  it("throws on an invalid record and leaves the file byte-identical", () => {
+    writeEpicRunState(fixture("e", { features: { a: bound } }), dir);
+    const before = fs.readFileSync(epicRunStatePath("e", dir), "utf8");
+    expect(() =>
+      mutateEpicRunRecord("e", "a", () => ({ pr: 1 }), { dir, now }),
+    ).toThrow(/invalid launch record for a/);
+    expect(fs.readFileSync(epicRunStatePath("e", dir), "utf8")).toBe(before);
+  });
+
+  it("preserves other features and bumps updatedAt on a write", () => {
+    const other = { slug: "b-slug", launchedAt: "y" };
+    writeEpicRunState(fixture("e", { features: { a: bound, b: other } }), dir);
+    const wrote = mutateEpicRunRecord(
+      "e",
+      "a",
+      (prev) => ({ ...prev!, lastStatus: "merged", pr: 5 }),
+      { dir, now },
+    );
+    expect(wrote).toBe(true);
+    const state = readEpicRunState("e", dir);
+    expect(state?.features.a).toEqual({
+      ...bound,
+      lastStatus: "merged",
+      pr: 5,
+    });
+    expect(state?.features.b).toEqual(other);
+    expect(state?.updatedAt).toBe(now());
+    expect(fs.existsSync(epicRunStateLockPath("e", dir))).toBe(false);
   });
 });
 

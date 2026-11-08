@@ -441,6 +441,29 @@ describe("planLaunches — bound PR merged in the GitHub UI", () => {
     expect(verdictOf(second.verdicts, "beta")?.action).toBe("launch");
   });
 
+  it("a binding whose merge was latched on the launch record (state file gone) is not re-reported", () => {
+    const m = manifestOf(feat("alpha"));
+    const runState = runStateOf({
+      alpha: { slug: "alpha", launchedAt: "x", lastStatus: "merged", pr: 7 },
+    });
+    const out = planLaunches(
+      input(m, { runState, github: ghOk(pr(7, "alpha", "MERGED")) }),
+    );
+    expect(out.observedMerged).toEqual([]);
+    expect(out.boundDrift).toEqual([]);
+  });
+
+  it("a binding with a merged PR but no latched lastStatus is still observedMerged", () => {
+    const m = manifestOf(feat("alpha"));
+    const runState = runStateOf({
+      alpha: { slug: "alpha", launchedAt: "x", pr: 7 },
+    });
+    const out = planLaunches(
+      input(m, { runState, github: ghOk(pr(7, "alpha", "MERGED")) }),
+    );
+    expect(out.observedMerged).toEqual(["alpha"]);
+  });
+
   it("a feature whose state already says merged is not re-reported", () => {
     const m = manifestOf(feat("alpha"));
     const runState = runStateOf({ alpha: { slug: "alpha", launchedAt: "x" } });

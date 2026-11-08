@@ -8,11 +8,12 @@
  * `listEpicRunStates` enumerates SUBDIRS that contain a `run.json`, not bare
  * `*.json` files.
  *
- * This is the recomputable runtime cache (feature id → launched slug + last
- * seen status). Truth is the committed manifest + each feature's
- * `~/.flow/state/<slug>.json`; this file is never committed and can be removed
- * by hand. The orchestrator records `manifestPath` + `manifestSha` to detect
- * drift against the committed design artifact it reads read-only.
+ * This is the runtime cache (feature id → launched slug + last seen status).
+ * Truth is the committed manifest + each feature's `~/.flow/state/<slug>.json`;
+ * once that state file is gone (`flow done`), this file is the only per-machine
+ * record that a slug-bound feature merged. It is never committed. The
+ * orchestrator records `manifestPath` + `manifestSha` to detect drift against
+ * the committed design artifact it reads read-only.
  */
 
 import * as fs from "node:fs";
@@ -186,6 +187,46 @@ export function updateEpicRunRecord(
       state.features[featureId] = record;
       state.updatedAt = opts.now();
       writeEpicRunState(state, dir);
+    },
+    { timeoutMs: 5_000, pollMs: 25 },
+  );
+}
+
+/**
+ * Conditionally update ONE existing feature record under the run.json lock.
+ * `decide` sees the current record (undefined when absent) and returns the
+ * replacement, or null for no change. Never creates a run.json or a record
+ * from nothing beyond what `decide` returns: a missing run.json returns false
+ * without touching the filesystem. Returns true only when a write happened.
+ */
+export function mutateEpicRunRecord(
+  slug: string,
+  featureId: string,
+  decide: (prev: FeatureRunRecord | undefined) => FeatureRunRecord | null,
+  opts: { dir?: string; now: () => string },
+): boolean {
+  const dir = opts.dir ?? FLOW_EPICS_DIR;
+  // withFileLockSync mkdirs the lock's parent dir, so probe before locking.
+  if (!fs.existsSync(epicRunStatePath(slug, dir))) return false;
+  return withFileLockSync(
+    epicRunStateLockPath(slug, dir),
+    () => {
+      const state = readEpicRunState(slug, dir);
+      if (!state) return false;
+      const next = decide(state.features[featureId]);
+      if (next === null) return false;
+      if (!isFeatureRunRecord(next)) {
+        throw new Error(`invalid launch record for ${featureId}`);
+      }
+      writeEpicRunState(
+        {
+          ...state,
+          features: { ...state.features, [featureId]: next },
+          updatedAt: opts.now(),
+        },
+        dir,
+      );
+      return true;
     },
     { timeoutMs: 5_000, pollMs: 25 },
   );

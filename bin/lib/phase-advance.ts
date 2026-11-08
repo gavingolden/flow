@@ -27,6 +27,7 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import {
   readState,
   writeState,
@@ -45,6 +46,7 @@ import { FLOW_STATE_DIR } from "./paths";
 import { checkWorktreeBranch } from "./worktree-marker";
 import { publishStateBadges } from "./tmux";
 import { recordEvent } from "./telemetry";
+import { latchEpicBinding } from "./epic-merge-latch";
 
 export type PhaseAdvanceReason =
   | "advanced"
@@ -80,6 +82,14 @@ export type AdvancePhaseOpts = {
    * alter `advanced`/`reason`/the exit code. Tests inject a stub.
    */
   publishBadges?: (state: PipelineState) => void;
+  /**
+   * Best-effort epic launch-record latch fired by `finalizePhase` when the
+   * target is `merged`, so the merge outlives the state file `flow done`
+   * deletes. Defaults to `latchEpicBinding` against the epics dir beside `dir`
+   * (the sibling of the state dir). A throw never alters the result. Tests
+   * inject a stub.
+   */
+  epicLatch?: (state: PipelineState) => void;
   /**
    * Explicit opt-in required to let `advancePhase` exit `needs-human`
    * (the `gated` terminal-exit allowlist entries need no opt-in — only
@@ -518,6 +528,19 @@ export function finalizePhase(
     publishBadges(written);
   } catch {
     // swallowed — see comment above.
+  }
+  if (target === "merged") {
+    const epicLatch =
+      opts.epicLatch ??
+      ((s: PipelineState) =>
+        void latchEpicBinding(s, {
+          epicsDir: path.join(path.dirname(dir), "epics"),
+        }));
+    try {
+      epicLatch(written);
+    } catch {
+      // best-effort: `flow done` re-runs the latch before deleting state.
+    }
   }
   // Durable phase-trace telemetry, same best-effort idiom as the
   // publishBadges block above.

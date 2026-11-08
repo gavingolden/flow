@@ -389,6 +389,11 @@ Pass two or more <name>s to close several pipelines in one confirm-once sweep
 When both --merged and --orphans are passed, the sweep unions the two filters
 and tags each preview row 'merged', 'orphan', or 'merged+orphan'.
 
+Epic board: before anything is closed, a pipeline bound to an epic feature has
+its phase and PR recorded on the epic's launch record, so a merged feature
+stays merged on the board after its state file is gone. If that record cannot
+be written, the pipeline is kept open and the command exits 1; re-run it.
+
 Best-effort side effect: closing a pipeline whose session is still alive also
 SIGTERMs that session's own chrome-devtools-mcp browser server (via
 'flow-browser-teardown --session-pid <pid>') so its shutdown() handler reaps

@@ -3207,6 +3207,60 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(rec?.lastStatus).toBe("reviewing");
   });
 
+  it("bind --force: a merged record rebound to a different slug drops the merged lastStatus and pr", () => {
+    gitInit();
+    const manifestPath = writeManifest("bind-merged", [{ id: "feat-a" }]);
+    writeEpicRunState(
+      seedRunState("bind-merged", manifestPath, {
+        features: {
+          "feat-a": {
+            slug: "old-slug",
+            launchedAt: "x",
+            pr: 77,
+            lastStatus: "merged",
+          },
+        },
+      }),
+      epicsDir,
+    );
+    const code = runEpicCli(
+      ["bind", "bind-merged", "feat-a", "new-slug", "--force"],
+      { cwd: repoDir, epicsDir, stateDir },
+    );
+    expect(code).toBe(0);
+    const rec = readEpicRunState("bind-merged", epicsDir)?.features["feat-a"];
+    expect(rec?.slug).toBe("new-slug");
+    expect(rec?.lastStatus).toBeUndefined();
+    expect(rec?.pr).toBeUndefined();
+  });
+
+  it("bind --force: re-binding the same slug keeps a merged lastStatus and pr", () => {
+    gitInit();
+    const manifestPath = writeManifest("bind-same", [{ id: "feat-a" }]);
+    writeEpicRunState(
+      seedRunState("bind-same", manifestPath, {
+        features: {
+          "feat-a": {
+            slug: "same-slug",
+            launchedAt: "x",
+            pr: 77,
+            lastStatus: "merged",
+          },
+        },
+      }),
+      epicsDir,
+    );
+    const code = runEpicCli(
+      ["bind", "bind-same", "feat-a", "same-slug", "--force"],
+      { cwd: repoDir, epicsDir, stateDir },
+    );
+    expect(code).toBe(0);
+    const rec = readEpicRunState("bind-same", epicsDir)?.features["feat-a"];
+    expect(rec?.slug).toBe("same-slug");
+    expect(rec?.lastStatus).toBe("merged");
+    expect(rec?.pr).toBe(77);
+  });
+
   it("bind: refuses a target slug with no pipeline state unless --force (typo guard)", () => {
     gitInit();
     writeManifest("bind-typo", [{ id: "feat-a" }]);

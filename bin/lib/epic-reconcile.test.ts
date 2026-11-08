@@ -215,6 +215,46 @@ describe("reconcile — Story 6: terminal classification (done / blocked)", () =
   });
 });
 
+describe("reconcile — a recorded merge outlives the state file", () => {
+  const m = manifest([feat("a"), feat("b")]);
+
+  it("slug-bound record with lastStatus merged and no state reads merged, unblocking dependents", () => {
+    const result = reconcile({
+      manifest: manifest([feat("b"), feat("c", ["b"])]),
+      runState: runState({ b: { slug: "b", lastStatus: "merged", pr: 977 } }),
+      readFeatureState: noState,
+      maxParallel: 3,
+    });
+    const rowB = result.board.find((r) => r.id === "b")!;
+    expect(rowB.status).toBe("merged");
+    expect(rowB.slug).toBe("b");
+    expect(rowB.pr).toBe(977);
+    expect(rowB.external).toBeUndefined();
+    expect(result.board.find((r) => r.id === "c")!.status).toBe("ready");
+    expect(result.summary.merged).toBe(1);
+  });
+
+  it("a recorded non-merged lastStatus with no state stays an orphan", () => {
+    const result = reconcile({
+      manifest: m,
+      runState: runState({ a: { slug: "a", lastStatus: "gated", pr: 7 } }),
+      readFeatureState: noState,
+      maxParallel: 3,
+    });
+    expect(result.board.find((r) => r.id === "a")!.status).toBe("orphan");
+  });
+
+  it("live state beats a recorded merged lastStatus", () => {
+    const result = reconcile({
+      manifest: m,
+      runState: runState({ a: { slug: "a", lastStatus: "merged" } }),
+      readFeatureState: phases({ a: "implementing" }),
+      maxParallel: 3,
+    });
+    expect(result.board.find((r) => r.id === "a")!.status).toBe("running");
+  });
+});
+
 describe("classifyEvent — the /flow-epic-run event taxonomy (derived from ReconcileResult)", () => {
   it("green: in-flight/ready work, nothing halted", () => {
     const m = manifest([feat("a"), feat("b")]);
