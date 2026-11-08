@@ -92,7 +92,7 @@ equal-length idle `--control` so the delta holds up on a loaded host:
 `bun docs/eval/daemon-cpu.ts --repeat 3 --control -- npm run test`. It prints
 one JSON object (`runs[]`, `medianNet`) and prints `{"skipped":"not-macos"}`
 elsewhere. Results:
-`docs/eval/daemon-cpu-2026-11.md`.
+[daemon-cpu-2026-11.md](daemon-cpu-2026-11.md).
 
 The token-spend audit, `docs/eval/token-spend-audit.ts`, measures where the
 whole Claude quota goes: spend by repo, model, sub-agent type and in-process
