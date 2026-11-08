@@ -52,6 +52,7 @@ import {
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { isValidSlug } from "./lib/slug";
 import { readState, writeState, type ReapRecord } from "./lib/state";
+import { syncKeepAwake } from "./lib/keep-awake";
 import {
   defaultOrphanSweepDeps,
   stoppedCount,
@@ -394,9 +395,29 @@ export function runReapMode(
     sessionPid?: number;
     baseDir?: string;
     orphanDeps?: OrphanSweepDeps;
+    /**
+     * Re-acquires the keep-awake holder after a real reap: the registry reap
+     * SIGTERMs every row for the slug, and this reap also runs mid-run while
+     * the phase is still a hold phase. No-ops outside hold phases. Defaults
+     * to reading the slug's state and calling `syncKeepAwake`; best-effort.
+     */
+    syncKeepAwake?: (slug: string) => void;
   },
 ): ReapEnvelope {
   const base = reapRegistryAndFallback(deps, opts);
+  if (!opts.dryRun && base.registry.slug !== undefined) {
+    try {
+      const sync =
+        opts.syncKeepAwake ??
+        ((slug: string) => {
+          const s = readState(slug, opts.baseDir);
+          if (s) syncKeepAwake(s);
+        });
+      sync(base.registry.slug);
+    } catch {
+      // best-effort — a keep-awake hiccup must never break the reap
+    }
+  }
   // The worktree arm runs on every path, including the one where a registered
   // MCP server already covered the ancestry step.
   const state = base.registry.slug

@@ -46,6 +46,7 @@ import { FLOW_STATE_DIR } from "./paths";
 import { checkWorktreeBranch } from "./worktree-marker";
 import { publishStateBadges } from "./tmux";
 import { recordEvent } from "./telemetry";
+import { syncKeepAwake } from "./keep-awake";
 import { latchEpicBinding } from "./epic-merge-latch";
 
 export type PhaseAdvanceReason =
@@ -82,6 +83,13 @@ export type AdvancePhaseOpts = {
    * alter `advanced`/`reason`/the exit code. Tests inject a stub.
    */
   publishBadges?: (state: PipelineState) => void;
+  /**
+   * Best-effort reconcile of the per-pipeline keep-awake holder against the
+   * freshly-written state, fired right after `publishBadges` on every
+   * successful write. Defaults to the real `syncKeepAwake`. A throw never
+   * alters the result. Tests inject a stub.
+   */
+  syncKeepAwake?: (state: PipelineState) => void;
   /**
    * Best-effort epic launch-record latch fired by `finalizePhase` when the
    * target is `merged`, so the merge outlives the state file `flow done`
@@ -379,6 +387,11 @@ export function advancePhase(
   } catch {
     // swallowed — see comment above.
   }
+  try {
+    (opts.syncKeepAwake ?? ((s) => void syncKeepAwake(s)))(written);
+  } catch {
+    // swallowed — best-effort, state.json is already durable.
+  }
   // Durable phase-trace telemetry, same best-effort idiom as the
   // publishBadges block above — advancePhase bypasses flow-state-update
   // entirely for the six PHASE_EMITTERS phases, so this is the only place
@@ -528,6 +541,11 @@ export function finalizePhase(
     publishBadges(written);
   } catch {
     // swallowed — see comment above.
+  }
+  try {
+    (opts.syncKeepAwake ?? ((s) => void syncKeepAwake(s)))(written);
+  } catch {
+    // swallowed — best-effort, state.json is already durable.
   }
   if (target === "merged") {
     const epicLatch =

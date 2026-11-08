@@ -27,6 +27,7 @@ let sandboxHome: string | undefined;
 let originalFlowSlug: string | undefined;
 let originalTmuxPane: string | undefined;
 let originalClaudeEffort: string | undefined;
+let originalKeepAwake: string | undefined;
 
 beforeAll(() => {
   originalHome = process.env.HOME;
@@ -58,6 +59,12 @@ beforeAll(() => {
   // otherwise inherit the ambient level (the same leak shape as FLOW_SLUG).
   originalClaudeEffort = process.env.CLAUDE_EFFORT;
   delete process.env.CLAUDE_EFFORT;
+
+  // Makes the keep-awake holder inert for the whole suite: phase writes call
+  // syncKeepAwake, which would otherwise spawn a real `caffeinate` and write
+  // to the real ~/.flow procs registry.
+  originalKeepAwake = process.env.FLOW_KEEP_AWAKE;
+  process.env.FLOW_KEEP_AWAKE = "0";
 });
 
 afterAll(() => {
@@ -72,4 +79,6 @@ afterAll(() => {
   else process.env.TMUX_PANE = originalTmuxPane;
   if (originalClaudeEffort === undefined) delete process.env.CLAUDE_EFFORT;
   else process.env.CLAUDE_EFFORT = originalClaudeEffort;
+  if (originalKeepAwake === undefined) delete process.env.FLOW_KEEP_AWAKE;
+  else process.env.FLOW_KEEP_AWAKE = originalKeepAwake;
 });

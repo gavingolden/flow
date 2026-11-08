@@ -498,7 +498,7 @@ flow-pre-commit --pr "$PR_NUMBER"
 
 The helper auto-detects changed areas and does not format; it runs each
 check separately with structured pass/fail output. A non-zero exit means
-a check failed — investigate, fix, and re-run.
+a check failed — investigate, fix, and re-run. A check with `slept.rerun` of `passed` or `slept-again` is a system-sleep artefact, not a code failure; do not edit code for it (see flow-verify's Interpret Results).
 
 **Verify-fix round cap.** At most 5 verify-fix rounds per run. After the
 fifth failing round, record the failure excerpt in the affected

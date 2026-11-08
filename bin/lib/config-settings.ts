@@ -347,6 +347,12 @@ const DESCRIPTORS: Descriptor[] = [
     resolve: (read) => strictFalseOptOut(read, "ui.critique"),
   },
   {
+    key: "power.keepAwake",
+    meaning:
+      "whether the Mac is kept from idle-sleeping on mains power while a pipeline is working (no effect on battery)",
+    resolve: (read) => strictFalseOptOut(read, "power.keepAwake"),
+  },
+  {
     key: "modules",
     meaning: "which optional flow modules this install has selected",
     resolve: (read) => {
