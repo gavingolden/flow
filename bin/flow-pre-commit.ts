@@ -787,8 +787,8 @@ export function parseScopes(
  * also the profile most likely to misbehave under shared module state, so
  * it runs isolated from the start rather than paying a near-certain retry
  * — plus a `test:related` check for the rest, when there are related
- * inputs to feed it. `vitest run --related <f>` is NOT a flag on the
- * pinned vitest 2.1.9 (`related` is a subcommand — see package.json's
+ * inputs to feed it. `vitest run --related <f>` is NOT a flag on vitest
+ * (still true on 5.1: `related` is a subcommand — see package.json's
  * `test:related` script), so this always goes through `npm run
  * test:related`, never a hand-built `--related` flag.
  */

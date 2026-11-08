@@ -16,7 +16,7 @@ There is no `npm run build` — flow ships `bin/flow` directly via Bun, so there
 
 ## Code conventions
 
-Everything under `bin/` runs on Bun (`#!/usr/bin/env bun`, gated by `import.meta.main`); `package.json` declares `engines.node >= 20` only so `npm install` and the vitest suite still work. Keep modules small and single-purpose (target < 200 lines), default to no comments (add one only when the _why_ is non-obvious), validate at boundaries, and avoid premature abstractions and backwards-compat shims. [`AGENTS.md`](AGENTS.md) is the canonical and complete statement of these rules — this paragraph is a summary, not a substitute.
+Everything under `bin/` runs on Bun (`#!/usr/bin/env bun`, gated by `import.meta.main`); `package.json` declares `engines.node >= 22.12` only so `npm install` and the vitest suite still work. Keep modules small and single-purpose (target < 200 lines), default to no comments (add one only when the _why_ is non-obvious), validate at boundaries, and avoid premature abstractions and backwards-compat shims. [`AGENTS.md`](AGENTS.md) is the canonical and complete statement of these rules — this paragraph is a summary, not a substitute.
 
 ## Architecture
 

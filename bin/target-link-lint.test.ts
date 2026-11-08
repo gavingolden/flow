@@ -67,9 +67,9 @@ function scanBinTs(root: string): string[] {
       if (!d.isFile()) return false;
       if (!d.name.endsWith(".ts")) return false;
       if (d.name.endsWith(".test.ts")) return false;
-      // `Dirent.parentPath` landed in Node 20.12; `engines.node` declares
-      // `>=20`, so fall back to the older `.path` the way every sibling walk
-      // in this repo does (bin/pane-read-lint.test.ts, bin/lib/setup.test.ts).
+      // `Dirent.parentPath` exists in every allowed Node (the engines.node
+      // floor is 22.12); the `.path` fallback matches every sibling walk in
+      // this repo (bin/pane-read-lint.test.ts, bin/lib/setup.test.ts).
       const dirName = (d.parentPath ?? d.path ?? "").split(path.sep);
       if (dirName.includes("fixtures")) return false;
       return true;
