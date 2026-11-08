@@ -10,6 +10,7 @@ import {
   run as runOpenPr,
   type Deps,
 } from "./flow-open-pr";
+import type { SelfMarkResult } from "./lib/epic-self-mark";
 import { runUpdate } from "./flow-state-update";
 
 let scratch!: string;
@@ -53,8 +54,14 @@ function readState(slug: string) {
  * `~/.flow/state` (plan.md Contract adjustment #2).
  */
 function run(argv: string[], deps: Deps = {}) {
-  return runOpenPr(argv, { stateDir, ...deps });
+  return runOpenPr(argv, { stateDir, selfMark: notBound, ...deps });
 }
+
+const notBound = (): SelfMarkResult => ({
+  outcome: "not-bound",
+  committed: false,
+  pushed: false,
+});
 
 /** A test updater that delegates to the real runUpdate but against the test stateDir. */
 function makeUpdater() {
@@ -1205,6 +1212,88 @@ describe("flow-open-pr run()", () => {
       expect(written.phase).toBe("implementing");
       expect(written.phaseLog ?? []).toHaveLength(0);
     });
+  });
+});
+
+describe("flow-open-pr epic board self-mark", () => {
+  function openWith(selfMark: Deps["selfMark"]) {
+    seedState("epic-a");
+    const { updater } = makeUpdater();
+    const gh = () => ({
+      stdout: JSON.stringify({
+        number: 301,
+        url: "https://github.com/x/y/pull/301",
+      }),
+      stderr: "",
+      exitCode: 0,
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = run(["epic-a", "--body-file", bodyFile], {
+      gh,
+      updater,
+      selfMark,
+    });
+    const result = {
+      exit,
+      stdout: logSpy.mock.calls.map((c) => c.join(" ")),
+      stderr: errSpy.mock.calls.map((c) => c.join(" ")).join("\n"),
+    };
+    logSpy.mockRestore();
+    errSpy.mockRestore();
+    return result;
+  }
+
+  it("should self-mark an epic-bound PR with its number and say so on stderr", () => {
+    const selfMark = vi.fn(
+      (): SelfMarkResult => ({
+        outcome: "written",
+        epicSlug: "demo",
+        featureId: "a",
+        pr: 301,
+        committed: true,
+        pushed: true,
+      }),
+    );
+    const r = openWith(selfMark);
+    expect(selfMark).toHaveBeenCalledWith(
+      expect.objectContaining({ slug: "epic-a", pr: 301 }),
+    );
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toContain("demo/a");
+    expect(r.stdout).toEqual(["https://github.com/x/y/pull/301"]);
+  });
+
+  it("should stay silent for a non-epic PR", () => {
+    const r = openWith(notBound);
+    expect(r.exit).toBe(0);
+    expect(r.stderr).not.toContain("epic");
+    expect(r.stdout).toEqual(["https://github.com/x/y/pull/301"]);
+  });
+
+  it("should warn loudly on a refusal yet keep exit 0 and a URL-only stdout", () => {
+    const r = openWith(() => ({
+      outcome: "refused",
+      reason: "push-failed",
+      detail: "denied",
+      epicSlug: "demo",
+      featureId: "a",
+      committed: true,
+      pushed: false,
+    }));
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toContain("WARNING");
+    expect(r.stderr).toContain("push-failed");
+    expect(r.stderr).toContain("flow-epic-self-mark --commit --push");
+    expect(r.stdout).toEqual(["https://github.com/x/y/pull/301"]);
+  });
+
+  it("should warn but still exit 0 when the self-mark throws", () => {
+    const r = openWith(() => {
+      throw new Error("boom");
+    });
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toContain("boom");
   });
 });
 

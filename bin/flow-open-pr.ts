@@ -35,6 +35,7 @@ import { type GitRunner, defaultGit } from "./lib/resume-probes";
 import { normalizeDetailsBlocks } from "./lib/md-block-structure";
 import { advancePhase } from "./lib/phase-advance";
 import { FLOW_STATE_DIR } from "./lib/paths";
+import { selfMarkEpicRow, type SelfMarkResult } from "./lib/epic-self-mark";
 
 type Args = {
   /** undefined when omitted — caller falls back to resolveSlugAmbient(). */
@@ -263,7 +264,28 @@ export type Deps = {
    * tmp-`stateDir` test harness observe the `advancePhase` write instead of
    * the developer's real `~/.flow/state`. */
   stateDir?: string;
+  /** Test seam: the epic-board self-mark. Production binds `selfMarkEpicRow`. */
+  selfMark?: (opts: {
+    cwd: string;
+    slug: string;
+    pr: number;
+  }) => SelfMarkResult;
 };
+
+function reportSelfMark(r: SelfMarkResult): void {
+  if (r.outcome === "not-bound" || r.outcome === "unchanged") return;
+  if (r.outcome === "written") {
+    console.error(
+      `flow-open-pr: marked ${r.epicSlug}/${r.featureId} merged on the epic board (#${r.pr})`,
+    );
+    return;
+  }
+  console.error(
+    `flow-open-pr: WARNING: the epic board row for ${r.epicSlug ?? "?"}/${r.featureId ?? "?"} was not written or pushed (${r.reason}: ${r.detail ?? ""}).\n` +
+      "  the PR is open, but flow-merge-guard will refuse to merge it until the row lands:\n" +
+      "  run `flow-epic-self-mark --commit --push` in the worktree.",
+  );
+}
 
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
@@ -402,6 +424,22 @@ export function run(argv: string[], deps: Deps = {}): number {
   // this asymmetry by adding a guard — there is nothing yet to match
   // against (plan.md Q4).
   advancePhase("implementing", { slug, dir: stateDir });
+
+  const selfMark =
+    deps.selfMark ??
+    ((o) =>
+      selfMarkEpicRow({
+        ...o,
+        commit: true,
+        push: true,
+        stateDir,
+        epicsDir: path.join(path.dirname(stateDir), "epics"),
+      }));
+  try {
+    reportSelfMark(selfMark({ cwd: process.cwd(), slug, pr: pr.number }));
+  } catch (err) {
+    console.error(`flow-open-pr: WARNING: epic board self-mark threw: ${err}`);
+  }
 
   console.log(pr.url);
   return 0;
