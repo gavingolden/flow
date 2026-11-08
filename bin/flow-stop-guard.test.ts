@@ -65,6 +65,7 @@ function makeDeps(opts: {
   dirtyEpicPaths?: (repoRoot: string) => string[];
   repoCommitState?: (repoRoot: string) => RepoState;
   guardCapability?: (repoRoot: string) => GuardCapability;
+  rootOnBase?: (repoRoot: string) => boolean;
 }): Stub {
   const errLines: string[] = [];
   const loadCalls: string[] = [];
@@ -90,6 +91,7 @@ function makeDeps(opts: {
     dirtyEpicPaths: opts.dirtyEpicPaths ?? (() => []),
     repoCommitState: repoCommitStateSpy,
     guardCapability: opts.guardCapability ?? (() => ALWAYS_ALLOWS_CAPABILITY),
+    rootOnBase: opts.rootOnBase ?? (() => true),
     writePause,
   };
   return {
@@ -781,7 +783,11 @@ describe("buildEpicMetadataReminder", () => {
   it("names the executable flow-epic-sync route for a status.json path, root-anchored", () => {
     const lines = buildEpicMetadataReminder(
       [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
-      { onBaseBranch: true, statusRouteWorks: () => true },
+      {
+        onBaseBranch: true,
+        statusRouteWorks: () => true,
+        rootOnBase: () => true,
+      },
     );
     expect(lines.join("\n")).toContain(
       "(cd /repo && flow-epic-sync --epic-slug e1 --commit --push)",
@@ -791,7 +797,11 @@ describe("buildEpicMetadataReminder", () => {
   it("names the full switch-commit-switch-back sequence for any other path, root-anchored, never just 'open a PR'", () => {
     const lines = buildEpicMetadataReminder(
       [{ root: "/repo", path: ".flow/epics/e1/design.md" }],
-      { onBaseBranch: true, statusRouteWorks: () => true },
+      {
+        onBaseBranch: true,
+        statusRouteWorks: () => true,
+        rootOnBase: () => true,
+      },
     );
     const joined = lines.join("\n");
     expect(joined).toContain("git -C /repo switch -c flow-epic-amend/e1");
@@ -802,7 +812,11 @@ describe("buildEpicMetadataReminder", () => {
   it("falls back to the generic route when the slug segment fails isValidSlug", () => {
     const lines = buildEpicMetadataReminder(
       [{ root: "/repo", path: ".flow/epics/../status.json" }],
-      { onBaseBranch: true, statusRouteWorks: () => true },
+      {
+        onBaseBranch: true,
+        statusRouteWorks: () => true,
+        rootOnBase: () => true,
+      },
     );
     const joined = lines.join("\n");
     expect(joined).not.toContain("--epic-slug ..");
@@ -811,7 +825,11 @@ describe("buildEpicMetadataReminder", () => {
   it("names the upgrade path instead of the sync route when the installed hook cannot honor it", () => {
     const lines = buildEpicMetadataReminder(
       [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
-      { onBaseBranch: true, statusRouteWorks: () => false },
+      {
+        onBaseBranch: true,
+        statusRouteWorks: () => false,
+        rootOnBase: () => true,
+      },
     );
     const joined = lines.join("\n");
     expect(joined).not.toContain("flow-epic-sync --epic-slug e1");
@@ -822,7 +840,11 @@ describe("buildEpicMetadataReminder", () => {
   it("omits the base-branch note when no entry actually took the sync route", () => {
     const lines = buildEpicMetadataReminder(
       [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
-      { onBaseBranch: true, statusRouteWorks: () => false },
+      {
+        onBaseBranch: true,
+        statusRouteWorks: () => false,
+        rootOnBase: () => true,
+      },
     );
     expect(lines.join("\n")).not.toContain(
       "the status.json route above applies directly there",
@@ -832,11 +854,48 @@ describe("buildEpicMetadataReminder", () => {
   it("includes the base-branch note when at least one entry took the sync route", () => {
     const lines = buildEpicMetadataReminder(
       [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
-      { onBaseBranch: true, statusRouteWorks: () => true },
+      {
+        onBaseBranch: true,
+        statusRouteWorks: () => true,
+        rootOnBase: () => true,
+      },
     );
     expect(lines.join("\n")).toContain(
       "the status.json route above applies directly there",
     );
+  });
+});
+
+describe("buildEpicMetadataReminder — feature-branch roots", () => {
+  it("routes a dirty board in a feature-branch root to flow-epic-self-mark, root-anchored", () => {
+    const joined = buildEpicMetadataReminder(
+      [{ root: "/wt", path: ".flow/epics/e1/status.json" }],
+      {
+        onBaseBranch: false,
+        statusRouteWorks: () => false,
+        rootOnBase: () => false,
+      },
+    ).join("\n");
+    expect(joined).toContain("(cd /wt && flow-epic-self-mark --commit --push)");
+    expect(joined).not.toContain("flow-epic-sync");
+  });
+
+  it("keeps the flow-epic-sync route for the base-branch root while a feature root gets the self-mark route", () => {
+    const joined = buildEpicMetadataReminder(
+      [
+        { root: "/repo", path: ".flow/epics/e1/status.json" },
+        { root: "/wt", path: ".flow/epics/e1/status.json" },
+      ],
+      {
+        onBaseBranch: true,
+        statusRouteWorks: () => true,
+        rootOnBase: (root) => root === "/repo",
+      },
+    ).join("\n");
+    expect(joined).toContain(
+      "(cd /repo && flow-epic-sync --epic-slug e1 --commit --push)",
+    );
+    expect(joined).toContain("(cd /wt && flow-epic-self-mark --commit --push)");
   });
 });
 
@@ -846,6 +905,7 @@ describe("epicMetadataBlockIsSatisfiable", () => {
       epicMetadataBlockIsSatisfiable(
         [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
         () => false,
+        () => true,
       ),
     ).toBe(false);
   });
@@ -854,6 +914,7 @@ describe("epicMetadataBlockIsSatisfiable", () => {
     expect(
       epicMetadataBlockIsSatisfiable(
         [{ root: "/repo", path: ".flow/epics/e1/status.json" }],
+        () => true,
         () => true,
       ),
     ).toBe(true);
@@ -866,6 +927,17 @@ describe("epicMetadataBlockIsSatisfiable", () => {
           { root: "/repo", path: ".flow/epics/e1/status.json" },
           { root: "/repo", path: ".flow/epics/e1/design.md" },
         ],
+        () => false,
+        () => true,
+      ),
+    ).toBe(true);
+  });
+
+  it("is true for a feature-branch root even when its hook cannot honor the base-branch route (flow-epic-self-mark never needs it)", () => {
+    expect(
+      epicMetadataBlockIsSatisfiable(
+        [{ root: "/wt", path: ".flow/epics/e1/status.json" }],
+        () => false,
         () => false,
       ),
     ).toBe(true);

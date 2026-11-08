@@ -77,6 +77,10 @@ function ghForHeads(
   };
 }
 
+/** Fake `git symbolic-ref`: the origin default branch vs. the checked-out branch. */
+const headRef = (argv: string[], branch: string) =>
+  argv.includes("refs/remotes/origin/HEAD") ? "origin/main\n" : `${branch}\n`;
+
 const ghFailing: GhRunner = () => ({ stdout: "", stderr: "boom", exitCode: 1 });
 
 describe("deriveBoard — pure whole-epic reconcile", () => {
@@ -110,20 +114,6 @@ describe("deriveBoard — pure whole-epic reconcile", () => {
     };
     const { file } = deriveBoard({ manifest: MANIFEST, existing, gh });
     expect(file.features["feature-a"]).toEqual({ status: "merged", pr: 101 });
-  });
-
-  it("optimistically marks the self row merged even when GitHub reports it OPEN, without touching siblings", () => {
-    const gh = ghForHeads({}, { "feature-b": 77 });
-    const { file, derived } = deriveBoard({
-      manifest: MANIFEST,
-      existing: null,
-      gh,
-      selfFeatureId: "feature-b",
-    });
-    expect(derived).toBe(true);
-    expect(file.features["feature-b"]).toEqual({ status: "merged", pr: 77 });
-    expect(file.features["feature-a"]).toEqual({ status: "not-started" });
-    expect(file.features["feature-c"]).toEqual({ status: "not-started" });
   });
 
   it("quiet-diff: open, closed-unmerged, and no-PR-at-all all derive the same board", () => {
@@ -162,7 +152,7 @@ describe("deriveBoard — pure whole-epic reconcile", () => {
     expect(derived).toBe(false);
   });
 
-  it("skips the gh query for a row already committed merged+pr (latch would discard it anyway), but still queries not-started rows and the self row", () => {
+  it("skips the gh query for a row already committed merged+pr (latch would discard it anyway), but still queries not-started rows", () => {
     let queriedHeads: string[] = [];
     const gh: GhRunner = (argv) => {
       const headIdx = argv.indexOf("--head");
@@ -178,7 +168,6 @@ describe("deriveBoard — pure whole-epic reconcile", () => {
       manifest: MANIFEST,
       existing,
       gh,
-      selfFeatureId: "feature-c",
     });
     expect(derived).toBe(true);
     expect(queriedHeads).not.toContain(slugify("feature-a"));
@@ -222,28 +211,6 @@ describe("deriveBoard — pure whole-epic reconcile", () => {
     });
     expect(file.features["feature-a"]).toEqual({ status: "merged", pr: 9999 });
     expect(regressed).toEqual([]);
-  });
-
-  it("--rederive still applies the optimistic self-mark", () => {
-    const gh = ghForHeads({}, {});
-    const existing = {
-      version: 1 as const,
-      epicId: "watchlist",
-      features: {
-        "feature-b": { status: "merged" as const, pr: 9999 },
-      },
-    };
-    const { file } = deriveBoard({
-      manifest: MANIFEST,
-      existing,
-      gh,
-      selfFeatureId: "feature-b",
-      rederive: true,
-    });
-    expect(file.features["feature-b"]).toEqual({
-      status: "merged",
-      pr: undefined,
-    });
   });
 
   it("--rederive still marks derived:false when gh fails, without writing", () => {
@@ -318,22 +285,7 @@ describe("main — CLI epic resolution + write disposition", () => {
     });
   });
 
-  it("--epic-feature overrides the self-mark id when paired with --epic-slug (optimistic self-mark even without an open PR)", () => {
-    seedRunState();
-    const gh = ghForHeads({}, {}); // no PR at all for feature-b
-    const exit = main(
-      ["--epic-slug", "watchlist", "--epic-feature", "feature-b"],
-      { gh, epicsDir, cwd: repoDir },
-    );
-    expect(exit).toBe(0);
-    const status = readCommittedStatus(path.dirname(manifestPath));
-    expect(status?.features["feature-b"]).toEqual({
-      status: "merged",
-      pr: undefined,
-    });
-  });
-
-  it("resolves the epic via --slug -> state.epic.slug -> selfFeatureId (the production /flow-pipeline invocation path, no --epic-slug)", () => {
+  it("resolves the epic via --slug -> state.epic.slug (the production /flow-pipeline invocation path, no --epic-slug)", () => {
     const s: PipelineState = {
       slug: "epic-feature-slug",
       phase: "review",
@@ -772,7 +724,7 @@ describe("main — CLI epic resolution + write disposition", () => {
       if (argv[0] === "status")
         return { stdout: " M .flow/epics/watchlist/status.json\n" };
       if (argv[0] === "rev-parse") return { stdout: "main\n" };
-      if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+      if (argv[0] === "symbolic-ref") return { stdout: headRef(argv, "main") };
       return { exitCode: 0 };
     });
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -798,6 +750,34 @@ describe("main — CLI epic resolution + write disposition", () => {
       expect(printed.pushed).toBe(true);
     } finally {
       logSpy.mockRestore();
+    }
+  });
+
+  it("--commit on a feature branch skips the whole-board write: not-base-branch, nothing written or committed", () => {
+    seedRunState();
+    spawnSync("git", ["checkout", "-q", "-b", "feat/some-feature"], {
+      cwd: repoDir,
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const exit = main(["--epic-slug", "watchlist", "--commit", "--json"], {
+        gh: ghForHeads({ "feature-a": 101 }),
+        epicsDir,
+        cwd: repoDir,
+      });
+      expect(exit).toBe(0);
+      const printed = JSON.parse(logSpy.mock.calls[0][0] as string);
+      expect(printed.written).toBe(false);
+      expect(printed.committed).toBe(false);
+      expect(printed.commitSkipReason).toBe("not-base-branch");
+      expect(errSpy.mock.calls.join("\n")).toContain("flow-epic-self-mark");
+      expect(
+        fs.existsSync(path.join(path.dirname(manifestPath), "status.json")),
+      ).toBe(false);
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
     }
   });
 
@@ -846,12 +826,17 @@ describe("main — CLI epic resolution + write disposition", () => {
       const { exit, printed, calls } = runPush((argv) => {
         if (argv[0] === "status") return { stdout: " M x\n" };
         if (argv[0] === "rev-parse") return { stdout: "feat/x\n" };
-        if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+        if (argv[0] === "symbolic-ref")
+          return { stdout: headRef(argv, "feat/x") };
         return { exitCode: 0 };
       });
       expect(exit).toBe(0);
       expect(printed.pushed).toBe(false);
-      expect(printed.pushSkipReason).toBe("not-base-branch");
+      expect(printed.committed).toBe(false);
+      expect(printed.written).toBe(false);
+      expect(printed.commitSkipReason).toBe("not-base-branch");
+      expect(printed.pushSkipReason).toBe("not-committed");
+      expect(calls.some((c) => c.includes("commit"))).toBe(false);
       expect(calls.some((c) => c.includes("push"))).toBe(false);
     }
 
@@ -860,7 +845,8 @@ describe("main — CLI epic resolution + write disposition", () => {
       const { exit, printed, calls } = runPush((argv) => {
         if (argv[0] === "status") return { stdout: " M x\n" };
         if (argv[0] === "rev-parse") return { stdout: "main\n" };
-        if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+        if (argv[0] === "symbolic-ref")
+          return { stdout: headRef(argv, "main") };
         if (argv[0] === "remote") return { exitCode: 1 };
         return { exitCode: 0 };
       });
@@ -875,7 +861,8 @@ describe("main — CLI epic resolution + write disposition", () => {
       const { exit, printed, calls } = runPush((argv) => {
         if (argv[0] === "status") return { stdout: " M x\n" };
         if (argv[0] === "rev-parse") return { stdout: "main\n" };
-        if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+        if (argv[0] === "symbolic-ref")
+          return { stdout: headRef(argv, "main") };
         if (argv[0] === "remote") return { exitCode: 0 };
         if (argv.includes("ls-remote")) return { exitCode: 1 };
         return { exitCode: 0 };
@@ -891,7 +878,8 @@ describe("main — CLI epic resolution + write disposition", () => {
       const { exit, printed } = runPush((argv) => {
         if (argv[0] === "status") return { stdout: " M x\n" };
         if (argv[0] === "rev-parse") return { stdout: "main\n" };
-        if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+        if (argv[0] === "symbolic-ref")
+          return { stdout: headRef(argv, "main") };
         if (argv[0] === "remote") return { exitCode: 0 };
         if (argv.includes("ls-remote")) return { exitCode: 0 };
         if (argv.includes("push")) {
@@ -909,7 +897,8 @@ describe("main — CLI epic resolution + write disposition", () => {
       const { exit, printed } = runPush((argv) => {
         if (argv[0] === "status") return { stdout: " M x\n" };
         if (argv[0] === "rev-parse") return { stdout: "main\n" };
-        if (argv[0] === "symbolic-ref") return { stdout: "origin/main\n" };
+        if (argv[0] === "symbolic-ref")
+          return { stdout: headRef(argv, "main") };
         if (argv[0] === "remote") return { exitCode: 0 };
         if (argv.includes("ls-remote")) return { exitCode: 0 };
         if (argv.includes("push")) return { exitCode: 1, stderr: "fatal: x\n" };

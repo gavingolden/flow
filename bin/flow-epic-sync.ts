@@ -14,9 +14,14 @@
  * slug resolves env-first from `FLOW_SLUG` — never a tmux pane option (AGENTS.md:
  * "don't make tmux pane state load-bearing").
  *
- * ONE-WAY LATCH: every row (including the optimistic self-mark) runs through
- * `advanceStatus` from `./lib/epic-status-schema` — a shipped row never
- * regresses, so concurrent sibling epic PRs converge in any merge order.
+ * ONE-WAY LATCH: every row runs through `advanceStatus` from
+ * `./lib/epic-status-schema` — a shipped row never regresses, so concurrent
+ * sibling epic PRs converge in any merge order.
+ *
+ * BASE BRANCH ONLY for `--commit`/`--push`: this whole-board derive re-queries
+ * GitHub for every sibling row, so committing it from a feature branch would
+ * freeze that branch's point-in-time view. A feature branch writes only its
+ * own row, via `flow-epic-self-mark`.
  */
 
 import * as fs from "node:fs";
@@ -41,10 +46,12 @@ import {
 } from "./lib/epic-status-schema";
 import { slugify } from "./lib/slug";
 import { resolveSlugFromEnv } from "./lib/session-identity";
-import { defaultGh, type GhRunner } from "./lib/resume-probes";
+import { defaultGh, defaultGit, type GhRunner } from "./lib/resume-probes";
 import {
   commitEpicStatus,
+  currentBranch,
   epicStatusLockPath,
+  resolveDefaultBranch,
   pushEpicStatusFromWrittenPath,
   resolveContainedRepoRoot,
   type CommitSkipReason,
@@ -74,31 +81,23 @@ function loadManifest(manifestPath: string): EpicManifest | null {
 
 // --- deriveBoard: pure, no disk/network -------------------------------------
 
-/**
- * Query a feature's PR head branch. `merged` rows filter `--state merged` at
- * the gh level; the optimistic self-row query carries no state filter so it
- * can recover the PR number even while the PR is still open.
- */
+/** Query a feature's merged PR by head branch. */
 function fetchPrNumber(
   gh: GhRunner,
   head: string,
-  filterMerged: boolean,
 ): { ok: true; number?: number } | { ok: false } {
-  const args = filterMerged
-    ? [
-        "pr",
-        "list",
-        "--head",
-        head,
-        "--state",
-        "merged",
-        "--json",
-        "number",
-        "--limit",
-        "10",
-      ]
-    : ["pr", "list", "--head", head, "--json", "number", "--limit", "10"];
-  const result = gh(args);
+  const result = gh([
+    "pr",
+    "list",
+    "--head",
+    head,
+    "--state",
+    "merged",
+    "--json",
+    "number",
+    "--limit",
+    "10",
+  ]);
   if (result.exitCode !== 0) return { ok: false };
   try {
     const rows = JSON.parse(result.stdout) as Array<{ number?: number }>;
@@ -121,46 +120,32 @@ export function deriveBoard(input: {
   manifest: EpicManifest;
   existing: EpicStatusFile | null;
   gh: GhRunner;
-  selfFeatureId?: string;
   rederive?: boolean;
 }): { file: EpicStatusFile; derived: boolean; regressed: string[] } {
-  const { manifest, existing, gh, selfFeatureId, rederive = false } = input;
+  const { manifest, existing, gh, rederive = false } = input;
   const existingFeatures = existing?.features ?? {};
   const features: Record<string, CommittedFeatureRow> = {};
   const regressed: string[] = [];
   let sawFailure = false;
 
   for (const f of manifest.features) {
-    const isSelf = f.id === selfFeatureId;
     const existingRow = existingFeatures[f.id];
     // ONE-WAY LATCH SKIP: a row already committed `merged` with a `pr`
     // number can never regress through `advanceStatus`, so re-querying gh
     // for it can only reproduce the same row (or get discarded by the
-    // latch if it somehow didn't). Skip the query — but self and
-    // `not-started` rows are still queried unconditionally: self needs a
-    // fresh PR number every run (the claim isn't committed until this PR
-    // lands), and `not-started` is the whole point of the out-of-band
-    // backstop this sweep exists to provide. Under `--rederive` this skip
-    // is disabled entirely: the whole point of the escape hatch is to
-    // re-query a row the operator suspects is wrong.
-    if (
-      !rederive &&
-      !isSelf &&
-      existingRow?.status === "merged" &&
-      existingRow.pr
-    ) {
+    // latch if it somehow didn't). Skip the query — `not-started` rows are
+    // still queried unconditionally: that is the whole point of the
+    // out-of-band backstop this sweep exists to provide. Under `--rederive`
+    // this skip is disabled entirely: the whole point of the escape hatch is
+    // to re-query a row the operator suspects is wrong.
+    if (!rederive && existingRow?.status === "merged" && existingRow.pr) {
       features[f.id] = existingRow;
       continue;
     }
-    const fetched = fetchPrNumber(gh, slugify(f.id), !isSelf);
+    const fetched = fetchPrNumber(gh, slugify(f.id));
     let derivedRow: CommittedFeatureRow = { status: "not-started" };
     if (!fetched.ok) {
       sawFailure = true;
-    } else if (isSelf) {
-      // OPTIMISTIC SELF-MARK: the claim exists only on the PR branch, so it
-      // becomes true the instant this PR lands and never reaches the base
-      // branch if the PR is closed. Scoped to exactly this row.
-      derivedRow = { status: "merged", pr: fetched.number };
     } else if (fetched.number !== undefined) {
       derivedRow = { status: "merged", pr: fetched.number };
     }
@@ -172,7 +157,7 @@ export function deriveBoard(input: {
     // Widened beyond a status downgrade: `regressed` is the only channel
     // telling the operator a --rederive write will cost something, so it
     // must also catch a still-`merged` row silently losing its committed
-    // `pr` (e.g. the optimistic self-mark re-deriving `pr: undefined`).
+    // `pr`.
     // Deliberately NOT flagging a `pr` that merely changes value — that is
     // the repair --rederive exists to perform.
     if (
@@ -198,7 +183,6 @@ export function deriveBoard(input: {
 type ParsedArgs = {
   slug?: string;
   epicSlug?: string;
-  epicFeature?: string;
   check: boolean;
   json: boolean;
   help: boolean;
@@ -233,8 +217,6 @@ function parseArgs(argv: string[]): ParsedArgs {
       out.slug = takeValue();
     } else if (a === "--epic-slug") {
       out.epicSlug = takeValue();
-    } else if (a === "--epic-feature") {
-      out.epicFeature = takeValue();
     } else if (a === "--check") {
       out.check = true;
     } else if (a === "--json") {
@@ -261,10 +243,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 const USAGE =
-  "usage: flow-epic-sync [--slug <feature-slug>] [--epic-slug <epic>] [--epic-feature <id>] [--check] [--json] [--rederive] [--commit] [--push]\n" +
-  "  --epic-feature <id>  override the self-mark feature id when it can't be\n" +
-  "                       derived from state (paired with --epic-slug; the\n" +
-  "                       ambient --slug path derives it from state.epic.featureId)\n" +
+  "usage: flow-epic-sync [--slug <feature-slug>] [--epic-slug <epic>] [--check] [--json] [--rederive] [--commit] [--push]\n" +
   "  --rederive           rebuild the board from GitHub, ignoring committed rows\n" +
   "                       (repairs a wrong row instead of hand-editing status.json)\n" +
   "  --commit  commit the written status board (base-branch-safe via the guard allowlist)\n" +
@@ -355,6 +334,17 @@ function remedyFor(reason: PushSkipReason): string {
   }
 }
 
+function onFeatureBranch(
+  epicDirAbs: string,
+  git: GitRunner | undefined,
+): boolean {
+  const root = resolveRepoRoot(epicDirAbs);
+  if (!root) return false;
+  const run = git ?? defaultGit;
+  const branch = currentBranch(root, run);
+  return branch !== null && branch !== resolveDefaultBranch(root, run);
+}
+
 export function main(argv: string[], deps: Deps = {}): number {
   const parsed = parseArgs(argv);
   if (parsed.help) {
@@ -369,7 +359,6 @@ export function main(argv: string[], deps: Deps = {}): number {
   const env = deps.env ?? process.env;
 
   let epicSlug = parsed.epicSlug;
-  let selfFeatureId = parsed.epicFeature;
   if (!epicSlug) {
     const featureSlug = parsed.slug ?? resolveSlugFromEnv(env) ?? undefined;
     if (!featureSlug) return 0; // no epic resolvable: silent no-op
@@ -377,7 +366,6 @@ export function main(argv: string[], deps: Deps = {}): number {
     const epic = state?.epic;
     if (!epic?.slug) return 0; // non-epic feature: silent no-op
     epicSlug = epic.slug;
-    if (!selfFeatureId) selfFeatureId = epic.featureId;
   }
 
   const runState = readEpicRunState(epicSlug, epicsDir);
@@ -465,7 +453,6 @@ export function main(argv: string[], deps: Deps = {}): number {
     manifest,
     existing,
     gh,
-    selfFeatureId,
     rederive: parsed.rederive,
   });
 
@@ -548,7 +535,6 @@ export function main(argv: string[], deps: Deps = {}): number {
       manifest: lockedManifest,
       existing: lockedExisting,
       gh,
-      selfFeatureId,
       rederive: parsed.rederive,
     });
     // A re-derivation that comes back underived (gh snapshot unusable for
@@ -598,7 +584,17 @@ export function main(argv: string[], deps: Deps = {}): number {
     const containmentBlocked = !!(
       preWriteContainment && !preWriteContainment.ok
     );
-    if (containmentBlocked && preWriteContainment) {
+    const baseBlocked =
+      parsed.commit &&
+      !containmentBlocked &&
+      onFeatureBranch(epicDirAbs, deps.git);
+    if (baseBlocked) {
+      written = false;
+      commitSkipReason = "not-base-branch";
+      console.error(
+        "warn: skipping status board write (not-base-branch): --commit/--push act on the base branch only; a feature branch writes its own row with `flow-epic-self-mark --commit --push`",
+      );
+    } else if (containmentBlocked && preWriteContainment) {
       written = false;
       commitSkipReason = preWriteContainment.reason;
       console.error(
@@ -622,7 +618,12 @@ export function main(argv: string[], deps: Deps = {}): number {
     // is on disk (either just written, or already there and byte-identical),
     // `commitEpicStatus` still runs and short-circuits to `nothing-staged` via
     // its own `git status --porcelain` probe if the tree really is clean.
-    if (!containmentBlocked && parsed.commit && fs.existsSync(writtenPath)) {
+    if (
+      !containmentBlocked &&
+      !baseBlocked &&
+      parsed.commit &&
+      fs.existsSync(writtenPath)
+    ) {
       const commitResult = commitEpicStatus({
         writtenPath,
         epicSlug,
