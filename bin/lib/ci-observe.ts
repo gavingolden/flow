@@ -95,7 +95,8 @@ export function defaultReadClaimDeadline(): number | undefined {
  * directly instead of through the `flow-spawn` wrapper. `baseDir` has no
  * default other than the real `FLOW_STATE_DIR`, so a caller that forgets to
  * sandbox it in a test reads the developer's actual `~/.flow/state/procs/`
- * (see vitest.setup.ts's documented HOME-sandbox gap) — pass an explicit
+ * (the vitest.setup.ts sandbox HOME covers it, but an explicit value keeps
+ * the test hermetic) — pass an explicit
  * `baseDir` from every test.
  *
  * A registry FILE that doesn't exist at all is deliberately treated as

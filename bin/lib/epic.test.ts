@@ -130,8 +130,8 @@ import { writeManager, type ManagerState } from "./epic-manage-state";
 // it: this file's exact-argv assertions predate --plugin-dir and must stay
 // byte-identical regardless of what plugin roots happen to be materialized
 // on the machine running the suite (the real default, `scanPluginRoots()`,
-// reads `FLOW_CLAUDE_HOME_SKILLS_DIR` — captured eagerly from the REAL,
-// unsandboxed HOME, so it is NOT covered by vitest.setup.ts's sandbox).
+// reads `FLOW_CLAUDE_HOME_SKILLS_DIR` — captured eagerly at import time, which
+// sees vitest.setup.ts's sandbox HOME).
 // Individual specs override it to exercise the roots-present cases.
 //
 // `reserveWorktree` is stubbed too: the real reservation mkdirs a sibling of

@@ -973,11 +973,15 @@ function runFresh(
 
   // Lazy prune of dead pipelines' private skill copies (cheap no-op when the
   // overlays dir is absent), with the SAME stateDir this launch reads.
+  // A caller-injected stateDir with the default (host-wide) overlays dir would
+  // read every real overlay as a dead pipeline, so skip rather than prune.
   try {
-    pruneStaleOverlays({
-      overlaysDir: options.overlaysDir,
-      stateDir: options.stateDir,
-    });
+    if (!options.stateDir || options.overlaysDir) {
+      pruneStaleOverlays({
+        overlaysDir: options.overlaysDir,
+        stateDir: options.stateDir,
+      });
+    }
   } catch (err) {
     console.error(
       dim(

@@ -168,6 +168,7 @@ import {
   type FeatureOptions,
 } from "./feature";
 import { reserveWorktreeSlot } from "./worktree-slot";
+import { assertHermeticTestPath } from "./hermetic-test-path";
 
 // The launcher backend now defaults to PLAIN (flag > state > config >
 // default); this file's specs exercise the tmux path, so the wrappers pin
@@ -178,15 +179,18 @@ import { reserveWorktreeSlot } from "./worktree-slot";
 // exact-argv assertions predate --plugin-dir and must stay byte-identical
 // regardless of what plugin roots happen to be materialized on the machine
 // running the suite (the real default, `scanPluginRoots()`, reads
-// `FLOW_CLAUDE_HOME_SKILLS_DIR` — captured eagerly from the REAL, unsandboxed
-// HOME per paths.ts's own documented caveat, so it is NOT covered by
-// vitest.setup.ts's sandbox). Individual specs override it to exercise the
+// `FLOW_CLAUDE_HOME_SKILLS_DIR` — captured eagerly at import time, which now
+// sees vitest.setup.ts's sandbox HOME, but earlier tests in this file may
+// materialize plugin roots into it). Individual specs override it to exercise the
 // roots-present cases.
 //
 // `reserveWorktree` is stubbed the same way: the real reservation mkdirs a
 // sibling of the repo in the shared os.tmpdir(), outside every per-test temp
 // dir, so the default returns the deterministic slot without creating anything.
 // Reservation specs opt in with `realReserve`.
+// Per-test temp overlays dir the wrappers default to, so no launch in this
+// file can prune or read the host-wide overlays dir against a temp stateDir.
+let defaultOverlaysDir: string;
 const stubReserve: NonNullable<FeatureOptions["reserveWorktree"]> = (
   slug,
   repo,
@@ -197,6 +201,7 @@ const runNew = (input: string, options: FeatureOptions = {}) =>
     tmuxOnPath: () => true,
     pluginRootsScan: () => [],
     reserveWorktree: stubReserve,
+    overlaysDir: defaultOverlaysDir,
     startWorktreeSweep: () => undefined,
     ...options,
   });
@@ -206,6 +211,7 @@ const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
     tmuxOnPath: () => true,
     pluginRootsScan: () => [],
     reserveWorktree: stubReserve,
+    overlaysDir: defaultOverlaysDir,
     startWorktreeSweep: () => undefined,
     ...options,
   });
@@ -215,6 +221,7 @@ const runFeatureCliStubbedReserve = (
 ) =>
   runFeatureCliReal(args, {
     reserveWorktree: stubReserve,
+    overlaysDir: defaultOverlaysDir,
     startWorktreeSweep: () => undefined,
     ...options,
   });
@@ -245,6 +252,9 @@ const realReserve: NonNullable<FeatureOptions["reserveWorktree"]> = (
 
 beforeEach(() => {
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-"));
+  defaultOverlaysDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "flow-new-overlays-"),
+  );
   repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-repo-"));
   // Redirect the host-wide launch semaphore off the real ~/.flow so the whole
   // suite's launches stay hermetic (feature.ts honors this env override).
@@ -324,6 +334,7 @@ afterEach(() => {
   fs.rmSync(stateDir, { recursive: true, force: true });
   fs.rmSync(repoDir, { recursive: true, force: true });
   fs.rmSync(semDir, { recursive: true, force: true });
+  fs.rmSync(defaultOverlaysDir, { recursive: true, force: true });
   for (const d of reservedToClean)
     fs.rmSync(d, { recursive: true, force: true });
   reservedToClean = [];
@@ -981,6 +992,29 @@ describe("runNew (fresh)", () => {
     const code = runNew("", { stateDir });
     expect(code).toBe(1);
     expect(errors[0]).toMatch(/description is required/);
+  });
+
+  it("does not prune the host-wide overlays dir when only stateDir is injected", () => {
+    // Regression: a temp stateDir with the default overlays dir made every
+    // overlay older than the grace look like a dead pipeline and deleted it.
+    const stale = path.join(os.homedir(), ".flow", "overlays", "stale-slug");
+    assertHermeticTestPath(stale);
+    fs.mkdirSync(stale, { recursive: true });
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    fs.utimesSync(stale, old, old);
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runNewReal("CSV export", {
+      launcher: "tmux",
+      tmuxOnPath: () => true,
+      pluginRootsScan: () => [],
+      reserveWorktree: stubReserve,
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    expect(fs.existsSync(stale)).toBe(true);
   });
 
   it("falls back to a deterministic task-<hash8> slug for purely-punctuation input", () => {
@@ -4280,9 +4314,11 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
 });
 
 describe("ensureLaunchSettings hook-command resolution", () => {
-  // These fixtures live under the REAL (sandboxed, per vitest.setup.ts) home
-  // directory — os.homedir() is read lazily by resolveSeedHookCommand(), so
-  // the sandbox HOME swap covers it. `fs` here is the module import, which
+  // These fixtures write through installedHelperPath(), which follows
+  // os.homedir(). The global sandbox alone is not enough (a real
+  // ~/.local/bin symlink was once written through), so each test stubs HOME to
+  // its own temp dir and assertHermeticTestPath() refuses any write that
+  // resolves outside tmpdir. `fs` here is the module import, which
   // vi.mock at the top of this file only overrides `readSync` on — every
   // other member (mkdirSync/writeFileSync/existsSync/symlinkSync/statSync)
   // passes through to the real implementation.
@@ -4291,8 +4327,11 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   let moduleRelativeHookPath!: string;
   let installedGuardPath!: string;
   let installedEchoPath!: string;
+  let suiteHome!: string;
 
   beforeEach(() => {
+    suiteHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-hook-home-"));
+    vi.stubEnv("HOME", suiteHome);
     installedHookPath = installedHelperPath("flow-seed-ingested-hook");
     installedEchoPath = installedHelperPath("flow-request-echo-hook");
     settingsPath = path.join(stateDir, "hook-launch-settings.json");
@@ -4318,9 +4357,8 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   afterEach(() => {
-    fs.rmSync(installedHookPath, { force: true });
-    fs.rmSync(installedGuardPath, { force: true });
-    fs.rmSync(installedEchoPath, { force: true });
+    vi.unstubAllEnvs();
+    fs.rmSync(suiteHome, { recursive: true, force: true });
     delete process.env.FLOW_SEED_HOOK_COMMAND;
     delete process.env.FLOW_DOC_READ_GUARD_COMMAND;
     delete process.env.FLOW_BG_LOOP_GUARD_COMMAND;
@@ -4360,6 +4398,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   }
 
   function installHook(content = "installed-hook-content\n"): void {
+    assertHermeticTestPath(installedHookPath);
     fs.mkdirSync(path.dirname(installedHookPath), { recursive: true });
     fs.writeFileSync(installedHookPath, content);
     fs.chmodSync(installedHookPath, 0o755);
@@ -4403,6 +4442,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(readRecordedCommand()).toBe(installedHookPath);
     // Delete the installed target out from under an already-correct settings
     // file — the byte-identical `desired` string would otherwise short-circuit.
+    assertHermeticTestPath(installedHookPath);
     fs.rmSync(installedHookPath, { force: true });
     ensureLaunchSettings(settingsPath);
     expect(fs.existsSync(readRecordedCommand())).toBe(true);
@@ -4417,6 +4457,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   it("falls back to the module-relative script when the installed path is a dangling symlink", () => {
+    assertHermeticTestPath(installedHookPath);
     fs.mkdirSync(path.dirname(installedHookPath), { recursive: true });
     fs.symlinkSync("/nonexistent/gone", installedHookPath);
     ensureLaunchSettings(settingsPath);
@@ -4643,11 +4684,13 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   it("re-resolves the guard to the checkout path once the installed guard disappears", () => {
+    assertHermeticTestPath(installedGuardPath);
     fs.mkdirSync(path.dirname(installedGuardPath), { recursive: true });
     fs.writeFileSync(installedGuardPath, "installed-guard\n");
     fs.chmodSync(installedGuardPath, 0o755);
     ensureLaunchSettings(settingsPath);
     expect(readPreToolUse()[0]!.hooks[0]!.command).toBe(installedGuardPath);
+    assertHermeticTestPath(installedGuardPath);
     fs.rmSync(installedGuardPath, { force: true });
     ensureLaunchSettings(settingsPath);
     const recorded = readPreToolUse()[0]!.hooks[0]!.command;
@@ -4699,6 +4742,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   it("prefers the installed request-echo helper when it exists on disk", () => {
+    assertHermeticTestPath(installedEchoPath);
     fs.mkdirSync(path.dirname(installedEchoPath), { recursive: true });
     fs.writeFileSync(installedEchoPath, "installed-echo\n");
     fs.chmodSync(installedEchoPath, 0o755);
@@ -4711,6 +4755,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   it("warns to stderr when the installed request-echo helper diverges from the module-relative script", () => {
+    assertHermeticTestPath(installedEchoPath);
     fs.mkdirSync(path.dirname(installedEchoPath), { recursive: true });
     fs.writeFileSync(installedEchoPath, "this differs from the script\n");
     const writeSpy = vi

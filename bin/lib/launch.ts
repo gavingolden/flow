@@ -44,8 +44,8 @@ function argvFor(claudeHome: string, roots: readonly string[]): string[] {
  * developer's real `~/.flow`. `pluginRootsScan` is the same injectable
  * scan seam `feature.ts`/`epic.ts` give their launch-argv builders — a
  * test that calls this with no args must not scan the developer's real
- * `FLOW_CLAUDE_HOME` skills dir, which `vitest.setup.ts`'s HOME sandbox
- * does not reach (paths.ts captures HOME at import time).
+ * `FLOW_CLAUDE_HOME` skills dir, so a sandbox-less run would read the
+ * real home (`vitest.setup.ts` sandboxes HOME before paths.ts is imported).
  */
 export function buildInteractiveLaunchArgv(
   claudeHome: string = FLOW_CLAUDE_HOME,
