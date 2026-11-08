@@ -44,10 +44,10 @@ import {
   makeSameRepository,
 } from "./repo-root";
 import {
-  FLOW_CLAUDE_HOME,
-  FLOW_LAUNCH_SEM_DIR,
-  FLOW_LAUNCH_SETTINGS_PATH,
-  FLOW_EPICS_DIR,
+  flowClaudeHome,
+  flowLaunchSemDir,
+  flowLaunchSettingsPath,
+  flowEpicsDir,
 } from "./paths";
 import {
   pluginDirArgs,
@@ -284,7 +284,7 @@ export type EpicOptions = {
   /**
    * Path to the flow-scoped `claude --settings` file the launch argv references
    * and `ensureLaunchSettings` writes. Test seam only — production uses
-   * FLOW_LAUNCH_SETTINGS_PATH; tests point it at a temp file to avoid touching
+   * flowLaunchSettingsPath(); tests point it at a temp file to avoid touching
    * the real ~/.flow and to assert the argv path.
    */
   launchSettingsPath?: string;
@@ -292,7 +292,7 @@ export type EpicOptions = {
    * Plugin-root scanner seam threaded into `launchArgv`'s `--plugin-dir`
    * argv AND its `env` PATH prefix (mirrors `feature.ts`'s same-named
    * option — the two builders must never drift). Defaults to the real
-   * `scanPluginRoots` (`FLOW_CLAUDE_HOME_SKILLS_DIR`) — tests override so a
+   * `scanPluginRoots` (`flowClaudeHomeSkillsDir()`) — tests override so a
    * fixture never scans the developer's real `~/.flow/claude-home`.
    */
   pluginRootsScan?: () => string[];
@@ -2439,7 +2439,7 @@ Options:
     return 2;
   }
 
-  const epicsDir = options.epicsDir ?? FLOW_EPICS_DIR;
+  const epicsDir = options.epicsDir ?? flowEpicsDir();
   const target = path.join(epicsDir, slug);
   if (!fs.existsSync(target)) {
     console.error(`flow epic done: no run-state for '${slug}'.`);
@@ -2542,7 +2542,7 @@ function launchArgv(
     "--add-dir",
     worktree,
     "--add-dir",
-    FLOW_CLAUDE_HOME,
+    flowClaudeHome(),
     ...pluginDirArgs(roots),
   ];
   const withModel = model ? [...base, "--model", model] : base;
@@ -2569,7 +2569,7 @@ function launchSettingsPathFor(options: EpicOptions): string {
   return (
     options.launchSettingsPath ??
     process.env.FLOW_LAUNCH_SETTINGS_PATH ??
-    FLOW_LAUNCH_SETTINGS_PATH
+    flowLaunchSettingsPath()
   );
 }
 
@@ -2655,7 +2655,7 @@ function withLaunchSlot(
   launch: () => VerifiedLaunchResult,
   options: EpicOptions,
 ): VerifiedLaunchResult {
-  const semDir = process.env.FLOW_LAUNCH_SEM_DIR ?? FLOW_LAUNCH_SEM_DIR;
+  const semDir = process.env.FLOW_LAUNCH_SEM_DIR ?? flowLaunchSemDir();
   const slots = resolveLaunchConcurrency(process.env);
   const semOpts =
     options.launchSemTimeoutMs !== undefined

@@ -24,7 +24,7 @@ import {
   type StreamEvent,
 } from "./eval-transcript";
 import { pluginBinPath, pluginDirArgs } from "./plugin-root";
-import { LOCAL_BIN_DIR } from "./paths";
+import { localBinDir } from "./paths";
 import { statePath } from "./state";
 import { checkpointBodyPath } from "./checkpoint-freshness";
 import type { Arm } from "./eval-report";
@@ -365,7 +365,7 @@ export function buildChildEnv(
   // (append-only) is the right shape for a live flow session's own PATH
   // extension elsewhere; a hermetic eval child needs the opposite order.
   // The `"without"` arm drops the plugin-bin segment AND strips
-  // `LOCAL_BIN_DIR` (`~/.local/bin`) from the inherited PATH — `flow
+  // `localBinDir()` (`~/.local/bin`) from the inherited PATH — `flow
   // install` symlinks every flow helper there (`bin/lib/paths.ts`), and
   // `runVerb` gates the eval run on a completed `flow install`
   // (`probeFlowInstall`), so that directory is on the maintainer's PATH on
@@ -381,7 +381,7 @@ export function buildChildEnv(
     arm === "without"
       ? (base.PATH ?? "")
           .split(path.delimiter)
-          .filter((seg) => seg !== LOCAL_BIN_DIR)
+          .filter((seg) => seg !== localBinDir())
           .join(path.delimiter)
       : (base.PATH ?? "");
   env.PATH = [fixture.shimDir, pluginBin, inheritedPath]
@@ -489,7 +489,7 @@ export async function runScenarioOnce(
   const prompt = renderPrompt(scenario, fixture, readFile);
   fs.writeFileSync(path.join(opts.outDir, "prompt.txt"), prompt);
 
-  // The "without" arm strips `LOCAL_BIN_DIR` (`~/.local/bin`) from PATH
+  // The "without" arm strips `localBinDir()` (`~/.local/bin`) from PATH
   // below (buildChildEnv) to ablate flow helper discovery — but `claude`
   // itself also lives in `~/.local/bin` on a typical install. A bare
   // `"claude"` argv[0] would silently fail to spawn (ENOENT/exit 127)

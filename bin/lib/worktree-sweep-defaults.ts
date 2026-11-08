@@ -11,7 +11,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { livenessOf } from "./liveness";
 import { cachedConfigRead, defaultReadConfigFile } from "./models-config";
-import { FLOW_STATE_DIR, resolveFlowSource } from "./paths";
+import { flowStateDir, resolveFlowSource } from "./paths";
 import { listStates } from "./state";
 import { windowExists } from "./tmux";
 import { canonicalizeWorktree } from "./worktree-orphans-ps";
@@ -104,7 +104,7 @@ export function defaultSweepDeps(cwd: string = process.cwd()): SweepDeps {
     removeDir: (p) => fs.rmSync(p, { recursive: true, force: true }),
     sizeBytes,
     readConfig: cachedConfigRead(defaultReadConfigFile),
-    stateDir: FLOW_STATE_DIR,
+    stateDir: flowStateDir(),
     logPath: path.join(os.homedir(), ".flow", "logs", "worktree-sweep.jsonl"),
     pid: process.pid,
   };

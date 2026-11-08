@@ -13,19 +13,29 @@ import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 
-export const HOME = os.homedir();
-export const FLOW_DIR = path.join(HOME, ".flow");
-export const FLOW_STATE_DIR = path.join(FLOW_DIR, "state");
+/**
+ * Every home-derived path below resolves at call time through this one
+ * function, so a per-test `vi.stubEnv("HOME", ...)` (and the vitest sandbox
+ * HOME) is always honoured instead of whatever HOME was at import time.
+ */
+// prettier-ignore
+export function currentHome(): string { return process.env.HOME || os.homedir(); }
+
+export function flowDir(): string {
+  return path.join(currentHome(), ".flow");
+}
+export function flowStateDir(): string {
+  return path.join(flowDir(), "state");
+}
 /**
  * Per-repo cache root for artifacts that must survive a worktree's removal
- * (e.g. the agent-memory-local handoff) — distinct from `FLOW_STATE_DIR`
+ * (e.g. the agent-memory-local handoff) — distinct from `flowStateDir()`
  * (per-pipeline state) and `~/.flow/research-cache` (the only cache dir
- * that exists on a host today). Callers that need a test-visible path
- * still take a `cacheRoot` parameter defaulting to this constant, rather
- * than reading it eagerly inside test-sensitive logic — same HOME-capture
- * hazard `flowConfigPath()` below documents.
+ * that exists on a host today).
  */
-export const FLOW_CACHE_DIR = path.join(FLOW_DIR, "cache");
+export function flowCacheDir(): string {
+  return path.join(flowDir(), "cache");
+}
 
 /**
  * Single path segment shared by every agent-memory-local call site
@@ -60,98 +70,80 @@ export function repoCacheKey(primaryDir: string): string {
  * Physically distinct from the repo's committed `.flow/epics/<slug>/` (manifest +
  * design) — that is the design-vs-runtime split. Never committed, recomputable.
  */
-export const FLOW_EPICS_DIR = path.join(FLOW_DIR, "epics");
-export const FLOW_COMPLETIONS_DIR = path.join(FLOW_DIR, "completions");
-export const FLOW_MANIFEST = path.join(FLOW_DIR, "installed.json");
+export function flowEpicsDir(): string {
+  return path.join(flowDir(), "epics");
+}
+export function flowCompletionsDir(): string {
+  return path.join(flowDir(), "completions");
+}
+export function flowManifestPath(): string {
+  return path.join(flowDir(), "installed.json");
+}
 
-/**
- * Resolves `~/.flow/config.json` at call time rather than import time. `HOME`
- * above is captured when this module is first imported, so an eager
- * `path.join(FLOW_DIR, "config.json")` constant would ignore a per-test
- * `vi.stubEnv("HOME", ...)` and keep pointing at the import-time home. Every reader of the config file
- * must go through this function, or the test suite silently depends on
- * whatever the author happens to have configured globally.
- */
+/** Resolves `~/.flow/config.json`. Every reader of the config file must go through this function. */
 export function flowConfigPath(): string {
-  return path.join(os.homedir(), ".flow", "config.json");
+  return path.join(flowDir(), "config.json");
 }
 
-/**
- * Host-wide epic-status lock directory, resolved at call time — same
- * rationale as `flowConfigPath()` above: `HOME` is captured at import time,
- * so an eager const (the `SETUP_LOCK_PATH` pattern below) would ignore a
- * per-test `vi.stubEnv("HOME", ...)` for every test that acquires an
- * epic-status lock.
- */
+/** Host-wide epic-status lock directory. */
 export function epicStatusLockDir(): string {
-  return path.join(os.homedir(), ".flow", "locks", "epic-status");
+  return path.join(flowDir(), "locks", "epic-status");
 }
 
 /**
- * Per-pipeline private skill copies root (`~/.flow/overlays/<slug>/`),
- * resolved at call time — same rationale as `flowConfigPath()` above: an
- * eager const would resolve against the developer's real `~/.flow` under
- * vitest, and pruning it against a test's tmp state dir would delete live
- * pipelines' copies.
+ * Per-pipeline private skill copies root (`~/.flow/overlays/<slug>/`).
+ * Pruning it against a test's tmp state dir would delete live pipelines'
+ * copies, so it must follow the sandbox HOME.
  */
 export function flowOverlaysDir(): string {
-  return path.join(os.homedir(), ".flow", "overlays");
+  return path.join(flowDir(), "overlays");
 }
 
-/**
- * Resolves `~/.local/bin/<name>` at call time, same rationale as
- * `flowConfigPath()` above: `HOME` is captured at import time, so an
- * eager `path.join(LOCAL_BIN_DIR, name)` would ignore a per-test
- * `vi.stubEnv("HOME", ...)` under tests.
- */
+/** Resolves `~/.local/bin/<name>`. */
 export function installedHelperPath(name: string): string {
-  return path.join(os.homedir(), ".local", "bin", name);
+  return path.join(localBinDir(), name);
 }
 
 /**
- * Resolves the `source` field from `~/.flow/config.json` at call time, for
- * the same reason as `flowConfigPath()` and `installedHelperPath()` above:
- * defaulting `homeDir` to the eager `HOME` constant would read the
- * developer's real config under vitest's sandbox HOME. Returns `null` when
- * the field is absent or the config is malformed/unreadable.
+ * Resolves the `source` field from `~/.flow/config.json`. Returns `null`
+ * when the field is absent or the config is malformed/unreadable.
  */
 export function configuredFlowSource(
-  homeDir: string = os.homedir(),
+  homeDir: string = currentHome(),
 ): string | null {
   const config = readConfig(homeDir);
   return config.source ?? null;
 }
 
-/**
- * Resolves `~/.flow/telemetry/events.jsonl` at call time, same rationale as
- * `flowConfigPath()` above: `HOME` is captured at import time, so an
- * eager `path.join(FLOW_DIR, "telemetry", "events.jsonl")` constant would
- * ignore a per-test `vi.stubEnv("HOME", ...)` for every test that records a
- * telemetry event.
- */
-export function flowTelemetryLogPath(homeDir: string = os.homedir()): string {
+/** Resolves `~/.flow/telemetry/events.jsonl`. */
+export function flowTelemetryLogPath(homeDir: string = currentHome()): string {
   return path.join(homeDir, ".flow", "telemetry", "events.jsonl");
 }
 
-/**
- * Resolves `~/.flow/telemetry/run-attribution.jsonl` at call time, for the
- * same HOME-sandbox reason as `flowTelemetryLogPath()`.
- */
+/** Resolves `~/.flow/telemetry/run-attribution.jsonl`. */
 export function flowRunAttributionLogPath(
-  homeDir: string = os.homedir(),
+  homeDir: string = currentHome(),
 ): string {
   return path.join(homeDir, ".flow", "telemetry", "run-attribution.jsonl");
 }
 
-export const FLOW_UPDATE_CACHE = path.join(FLOW_DIR, "update-check.json");
-export const SETUP_LOCK_PATH = path.join(FLOW_DIR, "setup.lock");
-export const FLOW_TEST_SEM_DIR = path.join(FLOW_DIR, "test-sem");
+export function flowUpdateCachePath(): string {
+  return path.join(flowDir(), "update-check.json");
+}
+export function setupLockPath(): string {
+  return path.join(flowDir(), "setup.lock");
+}
+export function flowTestSemDir(): string {
+  return path.join(flowDir(), "test-sem");
+}
 /**
  * Counting-semaphore slot dir for the host-wide `flow feature create` launch concurrency
- * cap (mirrors FLOW_TEST_SEM_DIR). Overridable for tests via the
+ * cap (mirrors flowTestSemDir). Overridable for tests via the
  * `FLOW_LAUNCH_SEM_DIR` env var so unit launches stay off the real ~/.flow.
  */
-export const FLOW_LAUNCH_SEM_DIR = path.join(FLOW_DIR, "launch-sem");
+export function flowLaunchSemDir(): string {
+  return path.join(flowDir(), "launch-sem");
+}
 /**
  * Flow-scoped Claude Code settings file passed to `claude --settings` on the
  * launch argv. Registers the UserPromptSubmit seed-ingested hook for
@@ -159,10 +151,9 @@ export const FLOW_LAUNCH_SEM_DIR = path.join(FLOW_DIR, "launch-sem");
  * ~/.claude/settings.json still applies), so this file NEVER mutates global
  * settings.
  */
-export const FLOW_LAUNCH_SETTINGS_PATH = path.join(
-  FLOW_DIR,
-  "launch-settings.json",
-);
+export function flowLaunchSettingsPath(): string {
+  return path.join(flowDir(), "launch-settings.json");
+}
 
 /**
  * Standalone skills home. flow links its skills under here instead of the
@@ -176,16 +167,22 @@ export const FLOW_LAUNCH_SETTINGS_PATH = path.join(
  * `research-cache/` to a prompt-injected session. Nesting at
  * `~/.flow/claude-home/` keeps the grant to the `.claude/` subtree only.
  */
-export const FLOW_CLAUDE_HOME = path.join(FLOW_DIR, "claude-home");
-export const FLOW_CLAUDE_HOME_SKILLS_DIR = path.join(
-  FLOW_CLAUDE_HOME,
-  ".claude",
-  "skills",
-);
+export function flowClaudeHome(): string {
+  return path.join(flowDir(), "claude-home");
+}
+export function flowClaudeHomeSkillsDir(): string {
+  return path.join(flowClaudeHome(), ".claude", "skills");
+}
 
-export const CLAUDE_AGENTS_DIR = path.join(HOME, ".claude", "agents");
-export const CLAUDE_SETTINGS_PATH = path.join(HOME, ".claude", "settings.json");
-export const LOCAL_BIN_DIR = path.join(HOME, ".local", "bin");
+export function claudeAgentsDir(): string {
+  return path.join(currentHome(), ".claude", "agents");
+}
+export function claudeSettingsPath(): string {
+  return path.join(currentHome(), ".claude", "settings.json");
+}
+export function localBinDir(): string {
+  return path.join(currentHome(), ".local", "bin");
+}
 
 type FlowConfig = { source?: string };
 
@@ -211,7 +208,7 @@ function readConfig(homeDir: string): FlowConfig {
  * `~/.flow/config.json` and exercise the production resolution path. Same
  * pattern as `applyShellRcCompletions` in `setup-rc.ts`.
  */
-export function resolveFlowSource(homeDir: string = HOME): string {
+export function resolveFlowSource(homeDir: string = currentHome()): string {
   const config = readConfig(homeDir);
   if (config.source) return path.resolve(config.source.replace(/^~/, homeDir));
   return path.resolve(path.dirname(modulePath()), "..", "..");

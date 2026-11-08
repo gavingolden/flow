@@ -1017,6 +1017,7 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
           encoding: "utf8",
           env: {
             ...baseEnv(),
+            HOME: process.env.HOME,
             CLAUDE_CODE_SESSION_ID: "sess-1",
             FLOW_SLUG: "csv-export",
           } as NodeJS.ProcessEnv,

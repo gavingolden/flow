@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { livenessOf, type LivenessDeps } from "./liveness";
 import { withFileLockSync } from "./lock";
-import { FLOW_STATE_DIR } from "./paths";
+import { flowStateDir } from "./paths";
 import { relativeTime } from "./time";
 import { EFFORT_LEVELS, MODEL_ALIASES } from "./state";
 import type { EffortLevel, ModelAlias } from "./state";
@@ -42,7 +42,7 @@ export type ManagerState = {
 
 export function managerDir(
   epicSlug: string,
-  stateDir: string = FLOW_STATE_DIR,
+  stateDir: string = flowStateDir(),
 ): string {
   return path.join(stateDir, "managers", epicSlug);
 }

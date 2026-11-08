@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { git } from "./git";
-import { AGENT_MEMORY_DIRNAME, FLOW_CACHE_DIR, repoCacheKey } from "./paths";
+import { AGENT_MEMORY_DIRNAME, flowCacheDir, repoCacheKey } from "./paths";
 
 /** Files symlinked from the primary repo into each new worktree. */
 export const SYMLINK_FILES = [".env", ".claude/settings.local.json"];
@@ -111,7 +111,7 @@ export function symlinkSharedFiles(
 export function linkAgentMemory(
   worktreeDir: string,
   primaryDir: string,
-  cacheRoot: string = FLOW_CACHE_DIR,
+  cacheRoot: string = flowCacheDir(),
 ): void {
   const target = path.join(worktreeDir, ".claude", AGENT_MEMORY_DIRNAME);
   const cacheDir = path.join(
@@ -162,7 +162,7 @@ export function linkAgentMemory(
 export function salvageAgentMemory(
   worktreeDir: string,
   primaryDir: string,
-  cacheRoot: string = FLOW_CACHE_DIR,
+  cacheRoot: string = flowCacheDir(),
 ): void {
   const target = path.join(worktreeDir, ".claude", AGENT_MEMORY_DIRNAME);
   try {

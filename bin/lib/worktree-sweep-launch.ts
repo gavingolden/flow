@@ -10,7 +10,7 @@ import { spawn as nodeSpawn } from "node:child_process";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultReadConfigFile, type ReadConfigFile } from "./models-config";
-import { FLOW_STATE_DIR } from "./paths";
+import { flowStateDir } from "./paths";
 import {
   cleanChildEnv,
   isAutoSweepEnabled,
@@ -46,7 +46,7 @@ export function startBackgroundWorktreeSweep(
     }
     const age = stampAgeMs(
       (deps.nowMs ?? Date.now)(),
-      deps.stateDir ?? FLOW_STATE_DIR,
+      deps.stateDir ?? flowStateDir(),
     );
     if (age !== null && age < WORKTREE_SWEEP_THROTTLE_MS) return "throttled";
 

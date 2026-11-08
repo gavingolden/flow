@@ -15,7 +15,7 @@
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import { readState } from "./lib/state";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { currentBranch } from "./lib/epic-metadata-commit";
 import {
   seedEpicBoard,
@@ -260,7 +260,7 @@ export function main(argv: string[], deps: Deps = {}): number {
         )
       : report(notBound(), parsed.json);
   }
-  const state = readState(slug, deps.stateDir ?? FLOW_STATE_DIR);
+  const state = readState(slug, deps.stateDir ?? flowStateDir());
   const cwd =
     state?.worktree && fs.existsSync(state.worktree) ? state.worktree : baseCwd;
   const base = { ...common, cwd, slug };

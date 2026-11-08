@@ -125,7 +125,7 @@ import { classifyEngagement } from "./lib/plan-review-engagement";
 import { resolveDelegateModel } from "./lib/delegate-models";
 import { godurToSec } from "./lib/delegate-timeouts";
 import { readState, writeState, type PlanReviewRecord } from "./lib/state";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { isLive, pidStartEpoch } from "./lib/liveness";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { stderrTail as redactedStderrTail } from "./flow-delegate";
@@ -1550,16 +1550,16 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     probeStartEpoch: o?.probeStartEpoch ?? ((pid) => pidStartEpoch(pid)),
     readStateRecord:
       o?.readStateRecord ??
-      ((slug) => readState(slug, FLOW_STATE_DIR)?.planReview),
+      ((slug) => readState(slug, flowStateDir())?.planReview),
     writeStateRecord:
       o?.writeStateRecord ??
       ((slug, rec) => {
-        const base = readState(slug, FLOW_STATE_DIR);
+        const base = readState(slug, flowStateDir());
         // Fail-open, mirroring flow-ci-check's persistRecord: no readable
         // state file means this call's anchors simply do not persist —
         // never a crash, never a fabricated state file.
         if (base === null) return;
-        writeState({ ...base, planReview: rec }, FLOW_STATE_DIR);
+        writeState({ ...base, planReview: rec }, flowStateDir());
       }),
     isAlive:
       o?.isAlive ??

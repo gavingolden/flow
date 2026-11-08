@@ -1448,21 +1448,29 @@ describe("flow-delegate (subprocess, agy absent from PATH)", () => {
   const agyInSkipPath =
     spawnSync("sh", ["-c", "which agy"], {
       encoding: "utf8",
-      env: { PATH: SKIP_PATH },
+      env: { ...process.env, PATH: SKIP_PATH },
     }).status === 0;
 
   it.skipIf(agyInSkipPath)(
     "exits 0 with {ran:false,skipReason:'agy-not-found'} when agy is off PATH",
     () => {
+      const telemetryDir = path.join(
+        process.env.HOME as string,
+        ".flow",
+        "telemetry",
+      );
+      rmSync(telemetryDir, { recursive: true, force: true });
       const r = spawnSync(bunPath, ["run", HELPER, "--prompt", "x"], {
         encoding: "utf8",
-        env: { PATH: SKIP_PATH },
+        env: { ...process.env, PATH: SKIP_PATH },
       });
       expect(r.status).toBe(0);
       expect(JSON.parse(r.stdout.trim())).toMatchObject({
         ran: false,
         skipReason: "agy-not-found",
       });
+      const log = readFileSync(path.join(telemetryDir, "events.jsonl"), "utf8");
+      expect(log).toContain('"skip_reason":"agy-not-found"');
     },
   );
 });

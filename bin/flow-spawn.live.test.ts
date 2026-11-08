@@ -200,7 +200,7 @@ describeOnPosix("flow-spawn (live end-to-end)", () => {
       ],
       {
         cwd: repoRoot,
-        env: { ...launchEnv(), ...inheritedEnv },
+        env: { ...launchEnv(), ...inheritedEnv, HOME: home },
         encoding: "utf8",
       },
     );

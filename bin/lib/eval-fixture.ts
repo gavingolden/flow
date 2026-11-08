@@ -4,7 +4,7 @@
  * `flow-pre-commit`'s merge-base scope detection resolves with no network),
  * a materialized `flow-module-core` plugin root, seeded pipeline state
  * (optionally an armed checkpoint), and copied shims — plus a teardown
- * that removes every trace under the real `FLOW_STATE_DIR`, mirroring
+ * that removes every trace under the real `flowStateDir()`, mirroring
  * `bin/lib/done.ts`'s full per-slug teardown set.
  */
 
@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { evalSlug, type ResolvedScenario } from "./eval-suite";
 import type { Arm } from "./eval-report";
 import { isValidSlug } from "./slug";
-import { FLOW_STATE_DIR } from "./paths";
+import { flowStateDir } from "./paths";
 import { writeState, deleteState, type PipelineState } from "./state";
 import {
   checkpointBodyPath,
@@ -129,7 +129,7 @@ export function materializeFixture(
   } = {},
 ): MaterializedFixture {
   const flowSource = opts.flowSource ?? ownCheckoutRoot();
-  const stateDir = opts.stateDir ?? FLOW_STATE_DIR;
+  const stateDir = opts.stateDir ?? flowStateDir();
   const now = opts.now ?? (() => new Date());
   const git = opts.git ?? defaultGit;
 

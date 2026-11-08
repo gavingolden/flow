@@ -6,7 +6,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_MANIFEST } from "./paths";
+import { flowManifestPath } from "./paths";
 
 export type SymlinkKind =
   | "skill"
@@ -32,7 +32,7 @@ export type Manifest = {
 
 const EMPTY: Manifest = { version: 1, symlinks: [] };
 
-export function readManifest(manifestPath = FLOW_MANIFEST): Manifest {
+export function readManifest(manifestPath = flowManifestPath()): Manifest {
   try {
     const raw = fs.readFileSync(manifestPath, "utf8");
     const parsed = JSON.parse(raw) as Manifest;
@@ -45,7 +45,7 @@ export function readManifest(manifestPath = FLOW_MANIFEST): Manifest {
 
 export function writeManifest(
   manifest: Manifest,
-  manifestPath = FLOW_MANIFEST,
+  manifestPath = flowManifestPath(),
 ): void {
   fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");

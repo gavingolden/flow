@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
+import { currentHome } from "./paths";
 import * as path from "node:path";
 import { git } from "./git";
 import { dimStderr } from "./color";
@@ -136,13 +136,13 @@ export function classifyPreCommitHook(
 
 /**
  * Machine-global sidecar path, resolved at CALL TIME (never a module-scope
- * const) — `HOME` is captured at import time, before vitest.setup.ts swaps
- * `$HOME` for a sandbox, so an eager constant would make the test suite
- * write into the developer's real `~/.flow/hooks/`. Mirrors `flowConfigPath`
- * in `bin/lib/paths.ts`.
+ * const) — an eager constant would freeze `$HOME` before vitest.setup.ts
+ * swaps it for a sandbox and make the test suite write into the developer's
+ * real `~/.flow/hooks/`. Resolves HOME the same way as
+ * `flowConfigPath` (`currentHome()` in `bin/lib/paths.ts`).
  */
 export function baseBranchGuardSidecarPath(): string {
-  return path.join(os.homedir(), ".flow", "hooks", "base-branch-guard.sh");
+  return path.join(currentHome(), ".flow", "hooks", "base-branch-guard.sh");
 }
 
 /**

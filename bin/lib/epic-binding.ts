@@ -10,7 +10,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { listEpicRunStates } from "./epic-run-state";
-import { FLOW_EPICS_DIR, FLOW_STATE_DIR } from "./paths";
+import { flowEpicsDir, flowStateDir } from "./paths";
 import { readState } from "./state";
 
 export type EpicBinding =
@@ -36,12 +36,12 @@ export function resolveEpicBinding(input: {
   stateDir?: string;
   epicsDir?: string;
 }): EpicBinding {
-  const stateDir = input.stateDir ?? FLOW_STATE_DIR;
+  const stateDir = input.stateDir ?? flowStateDir();
   const epicsDir =
     input.epicsDir ??
     (input.stateDir
       ? path.join(path.dirname(input.stateDir), "epics")
-      : FLOW_EPICS_DIR);
+      : flowEpicsDir());
   const state = readState(input.slug, stateDir);
   const stateRepo = state?.repo ? realpathOrSelf(state.repo) : undefined;
 

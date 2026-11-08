@@ -1,4 +1,4 @@
-import { FLOW_STATE_DIR } from "./paths";
+import { flowStateDir } from "./paths";
 import { resolveSlugAmbient } from "./session-identity";
 import { readState } from "./state";
 
@@ -21,7 +21,7 @@ export function checkOwnPipelinePr(
 ): { ok: true } | { ok: false; reason: string } {
   const slug = resolveSlugAmbient({ env: deps.env });
   if (slug === null) return { ok: true };
-  const state = readState(slug, deps.stateDir ?? FLOW_STATE_DIR);
+  const state = readState(slug, deps.stateDir ?? flowStateDir());
   if (state === null)
     return { ok: false, reason: `no-pipeline-state: ${slug}` };
   if (state.pr !== pr) {

@@ -4,8 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const spawnSync = vi.fn();
 vi.mock("node:child_process", () => ({ spawnSync }));
-vi.mock("./paths", () => ({
-  FLOW_STATE_DIR: "/nonexistent/flow-state",
+vi.mock("./paths", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./paths")>()),
+  flowStateDir: () => "/nonexistent/flow-state",
   resolveFlowSource: () => "/elsewhere",
 }));
 

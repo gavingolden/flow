@@ -1,6 +1,8 @@
 /**
  * Direct, independently-derived contract tests for `bin/lib/paths.ts`'s
- * `repoCacheKey` plus a rename tripwire for the agent-memory constants.
+ * `repoCacheKey`, a rename tripwire for the agent-memory constants, and the
+ * call-time HOME resolution of every home-derived accessor (the repo-wide
+ * load-time-capture scan lives in bin/home-capture-lint.test.ts).
  *
  * Every expectation below is computed inline from `node:crypto` /
  * `node:path` — never by calling `repoCacheKey` to build the expected
@@ -13,7 +15,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as paths from "./paths";
+import { DEFAULT_TARGETS } from "./sources";
 import {
   AGENT_MEMORY_DIRNAME,
   AGENT_MEMORY_RELPATH,
@@ -117,7 +121,7 @@ describe("flowTelemetryLogPath", () => {
     }
   });
 
-  it("defaults to os.homedir() when no homeDir is passed", () => {
+  it("defaults to the current home when no homeDir is passed", () => {
     expect(flowTelemetryLogPath()).toBe(
       path.join(os.homedir(), ".flow", "telemetry", "events.jsonl"),
     );
@@ -131,9 +135,74 @@ describe("flowRunAttributionLogPath", () => {
     );
   });
 
-  it("defaults to os.homedir() when no homeDir is passed", () => {
+  it("defaults to the current home when no homeDir is passed", () => {
     expect(flowRunAttributionLogPath()).toBe(
       path.join(os.homedir(), ".flow", "telemetry", "run-attribution.jsonl"),
     );
+  });
+});
+
+const loadTimeHome = process.env.HOME as string;
+
+const HOME_ACCESSORS = Object.entries(paths)
+  .filter(
+    ([name, value]) => typeof value === "function" && name !== "repoCacheKey",
+  )
+  .map(([name]) => name);
+
+const pathFns = paths as unknown as Record<string, (...a: never[]) => unknown>;
+
+const NOT_HOME_PATHS = new Set([
+  "configuredFlowSource",
+  "resolveFlowSource",
+  "currentHome",
+]);
+
+const ZERO_ARG_ACCESSORS = HOME_ACCESSORS.filter(
+  (name) => !NOT_HOME_PATHS.has(name) && pathFns[name].length === 0,
+);
+
+describe("home-derived paths resolve at call time", () => {
+  let laterHome!: string;
+
+  beforeEach(() => {
+    laterHome = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "paths-later-home-")),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    fs.rmSync(laterHome, { recursive: true, force: true });
+  });
+
+  it("follows a HOME change made after import", () => {
+    vi.stubEnv("HOME", laterHome);
+
+    for (const name of ZERO_ARG_ACCESSORS) {
+      const resolved = pathFns[name]() as string;
+      expect(resolved.startsWith(laterHome + path.sep), name).toBe(true);
+    }
+    expect(paths.installedHelperPath("flow").startsWith(laterHome)).toBe(true);
+    expect(paths.resolveFlowSource()).toBeTypeOf("string");
+    expect(paths.flowTelemetryLogPath().startsWith(laterHome)).toBe(true);
+    for (const [key, value] of Object.entries(DEFAULT_TARGETS)) {
+      expect(value.startsWith(laterHome + path.sep), key).toBe(true);
+    }
+  });
+
+  it("currentHome follows a HOME change made after import", () => {
+    vi.stubEnv("HOME", laterHome);
+    expect(paths.currentHome()).toBe(laterHome);
+  });
+
+  it("exports no value captured from the import-time home", () => {
+    for (const [name, value] of Object.entries(paths)) {
+      if (typeof value !== "string") continue;
+      expect(
+        path.isAbsolute(value) && value.startsWith(loadTimeHome),
+        name,
+      ).toBe(false);
+    }
   });
 });

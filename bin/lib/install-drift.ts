@@ -36,7 +36,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  FLOW_MANIFEST,
+  flowManifestPath,
   configuredFlowSource,
   resolveFlowSource,
 } from "./paths";
@@ -157,7 +157,7 @@ export function checkInstallDrift(
     const targets = opts.targets ?? DEFAULT_TARGETS;
     const discover = opts.discover ?? discoverAll;
     const readManifestFn = opts.readManifest ?? readManifestFile;
-    const manifestPath = opts.manifestPath ?? FLOW_MANIFEST;
+    const manifestPath = opts.manifestPath ?? flowManifestPath();
     const scanPluginRoots = opts.scanPluginRoots ?? scanPluginRootsReal;
 
     const entries: DriftEntry[] = [];

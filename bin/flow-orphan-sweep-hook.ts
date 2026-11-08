@@ -18,7 +18,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { readState } from "./lib/state";
 import { syncKeepAwake } from "./lib/keep-awake";
@@ -84,7 +84,7 @@ export function runHook(input: unknown, deps: HookDeps): string | null {
 }
 
 const lastPath = (slug: string): string =>
-  path.join(FLOW_STATE_DIR, "orphan-sweep", `${slug}.last`);
+  path.join(flowStateDir(), "orphan-sweep", `${slug}.last`);
 
 export function defaultHookDeps(): HookDeps {
   return {

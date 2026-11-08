@@ -61,7 +61,7 @@ import {
   appendPhaseLog,
   type PipelineState,
 } from "./lib/state";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { publishStateBadges } from "./lib/tmux";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { recordEvent } from "./lib/telemetry";
@@ -300,7 +300,7 @@ export type RunUpdateDeps = {
 
 export function runUpdate(
   argv: string[],
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
   deps: RunUpdateDeps = {},
 ): number {
   const parsed = parseArgs(argv);

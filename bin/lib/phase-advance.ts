@@ -42,7 +42,7 @@ import {
   type PipelineState,
 } from "./state";
 import { resolveSlugAmbient } from "./session-identity";
-import { FLOW_STATE_DIR } from "./paths";
+import { flowStateDir } from "./paths";
 import { checkWorktreeBranch } from "./worktree-marker";
 import { publishStateBadges } from "./tmux";
 import { recordEvent } from "./telemetry";
@@ -257,7 +257,7 @@ export function advancePhase(
   target: PipelinePhase,
   opts: AdvancePhaseOpts = {},
 ): PhaseAdvanceResult {
-  const dir = opts.dir ?? FLOW_STATE_DIR;
+  const dir = opts.dir ?? flowStateDir();
   const resolveSlug = opts.resolveSlug ?? (() => resolveSlugAmbient());
   const slug = opts.slug ?? resolveSlug();
   if (!slug) {
@@ -450,7 +450,7 @@ export function finalizePhase(
   target: PipelinePhase,
   opts: AdvancePhaseOpts = {},
 ): PhaseAdvanceResult {
-  const dir = opts.dir ?? FLOW_STATE_DIR;
+  const dir = opts.dir ?? flowStateDir();
   const resolveSlug = opts.resolveSlug ?? (() => resolveSlugAmbient());
   const slug = opts.slug ?? resolveSlug();
   if (!slug) {

@@ -408,7 +408,7 @@ describe(checkPluginContract, () => {
       const skillsDir = path.join(tmpRoot, "real-registry");
       const root = path.join(skillsDir, pluginRootName("core"));
       // `resolveFlowSource()` reads ~/.flow/config.json's 'source' key against
-      // an import-time HOME (the vitest.setup.ts sandbox) — passing a directory
+      // the process HOME (the vitest.setup.ts sandbox) — passing a directory
       // with no .flow/config.json
       // forces the deterministic module-path branch, so this test can't
       // silently materialize a different checkout on a host that has run

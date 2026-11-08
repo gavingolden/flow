@@ -142,7 +142,7 @@ vi.mock("./liveness", async () => {
   };
 });
 
-import { FLOW_CLAUDE_HOME, installedHelperPath } from "./paths";
+import { flowClaudeHome, installedHelperPath } from "./paths";
 import {
   FLOW_MERGE_ALLOW_RULE,
   FLOW_OVERRIDE_ALLOW_RULES,
@@ -180,7 +180,7 @@ import { assertHermeticTestPath } from "./hermetic-test-path";
 // exact-argv assertions predate --plugin-dir and must stay byte-identical
 // regardless of what plugin roots happen to be materialized on the machine
 // running the suite (the real default, `scanPluginRoots()`, reads
-// `FLOW_CLAUDE_HOME_SKILLS_DIR` — captured eagerly at import time, which now
+// the claude-home skills dir — resolved at call time, which now
 // sees vitest.setup.ts's sandbox HOME, but earlier tests in this file may
 // materialize plugin roots into it). Individual specs override it to exercise the
 // roots-present cases.
@@ -542,7 +542,7 @@ describe("runNew --resume", () => {
       "--add-dir",
       deriveWorktreePath(repoDir, "crashed"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -1183,7 +1183,7 @@ describe("runNew (fresh)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -1230,7 +1230,7 @@ describe("runNew (fresh)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -1264,7 +1264,7 @@ describe("runNew (fresh)", () => {
       "--add-dir",
       worktree,
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--plugin-dir",
       "/roots/flow-module-core",
       "--plugin-dir",
@@ -1943,7 +1943,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--effort",
       "high",
       "--settings",
@@ -1977,7 +1977,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -2069,7 +2069,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "--add-dir",
       deriveWorktreePath(repoDir, "saved-effort"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--effort",
       "max",
       "--settings",
@@ -2099,7 +2099,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
         "--add-dir",
         deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
         "--add-dir",
-        FLOW_CLAUDE_HOME,
+        flowClaudeHome(),
         "--model",
         alias,
         "--settings",
@@ -2133,7 +2133,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--model",
       "opus",
       "--effort",
@@ -2449,7 +2449,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "--add-dir",
       deriveWorktreePath(repoDir, "saved-model"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--model",
       "opus",
       "--settings",
@@ -2493,7 +2493,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "--add-dir",
       recordedWorktree,
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -5086,7 +5086,7 @@ describe("private skill copy (flow-self and --skills-from launches)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--plugin-dir",
       sharedRoot,
       "--settings",

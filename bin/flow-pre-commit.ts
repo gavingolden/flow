@@ -32,7 +32,7 @@ import {
 } from "./lib/verified-tree";
 import { withTestSemaphore } from "./lib/lock";
 import { withSleepRerun, type SleptRecord } from "./lib/sleep-detect";
-import { FLOW_TEST_SEM_DIR } from "./lib/paths";
+import { flowTestSemDir } from "./lib/paths";
 import { detectStrayEnvFiles, strayEnvWarning } from "./lib/stray-env-file";
 import {
   parseTestTiers,
@@ -1709,7 +1709,7 @@ function executeScopedCheck(
   // semaphore; typecheck/lint/md-validate/actionlint/go take no slot.
   const run = (name: string, argv: string[]) =>
     isTest
-      ? withTestSemaphore(FLOW_TEST_SEM_DIR, testConcurrency, () =>
+      ? withTestSemaphore(flowTestSemDir(), testConcurrency, () =>
           runCheck(name, argv, scope),
         )
       : { result: runCheck(name, argv, scope), throttled: true }; // no slot to acquire; suppresses the timeout note

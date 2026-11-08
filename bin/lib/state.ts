@@ -10,7 +10,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_STATE_DIR } from "./paths";
+import { flowStateDir } from "./paths";
 import { CHECKPOINT_SITES } from "./checkpoint-freshness";
 import { isSeedIngest, type SeedIngest } from "./seed-ingest";
 
@@ -847,11 +847,11 @@ export function shortPhase(phase: string): string {
   return (PHASE_SHORT as Record<string, string | undefined>)[phase] ?? phase;
 }
 
-export function statePath(slug: string, dir = FLOW_STATE_DIR): string {
+export function statePath(slug: string, dir = flowStateDir()): string {
   return path.join(dir, `${slug}.json`);
 }
 
-export function requestFilePath(slug: string, dir = FLOW_STATE_DIR): string {
+export function requestFilePath(slug: string, dir = flowStateDir()): string {
   return path.join(dir, `${slug}.request.md`);
 }
 
@@ -1071,7 +1071,7 @@ function isPipelineState(x: unknown): x is PipelineState {
 
 export function readState(
   slug: string,
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): PipelineState | null {
   const file = statePath(slug, dir);
   try {
@@ -1098,7 +1098,7 @@ export function readState(
   }
 }
 
-export function writeState(state: PipelineState, dir = FLOW_STATE_DIR): void {
+export function writeState(state: PipelineState, dir = flowStateDir()): void {
   // 0o700 / 0o600: `state.seed` now persists the verbatim launch prompt, the
   // same data class `proc-registry.ts` already restricts for the same reason
   // (argv/prompt text routinely carries secrets passed as flags). `mode` only
@@ -1116,7 +1116,7 @@ export function writeState(state: PipelineState, dir = FLOW_STATE_DIR): void {
 export function writeRequestFile(
   slug: string,
   text: string,
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): void {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(requestFilePath(slug, dir), text, { mode: 0o600 });
@@ -1199,7 +1199,7 @@ export function pausedPhase(
   return undefined;
 }
 
-export function deleteState(slug: string, dir = FLOW_STATE_DIR): boolean {
+export function deleteState(slug: string, dir = flowStateDir()): boolean {
   try {
     fs.unlinkSync(requestFilePath(slug, dir));
   } catch {
@@ -1220,7 +1220,7 @@ export function isMainStateFile(name: string): boolean {
   return /^[^.]+\.json$/.test(name);
 }
 
-export function listStates(dir = FLOW_STATE_DIR): PipelineState[] {
+export function listStates(dir = flowStateDir()): PipelineState[] {
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });

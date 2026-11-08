@@ -57,7 +57,7 @@ import {
   MODULES,
   type ModuleId,
 } from "./lib/modules";
-import { FLOW_CLAUDE_HOME_SKILLS_DIR } from "./lib/paths";
+import { flowClaudeHomeSkillsDir } from "./lib/paths";
 import { overlaySkillsDir } from "./lib/skill-overlay";
 import type { Manifest } from "./lib/manifest";
 
@@ -206,7 +206,7 @@ function resolveSkillPath(
       ? overlay
       : (deps.homeSkillsDir ??
         process.env.FLOW_CLAUDE_HOME_SKILLS_DIR ??
-        FLOW_CLAUDE_HOME_SKILLS_DIR);
+        flowClaudeHomeSkillsDir());
   const target = path.join(
     root,
     `flow-module-${id}`,

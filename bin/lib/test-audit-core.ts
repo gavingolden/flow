@@ -75,6 +75,8 @@ export const FORCE_FULL_ON = [
 export const REQUIRED_LINTERS: readonly string[] = [
   "bin/skill-md-lint.test.ts",
   "bin/pane-read-lint.test.ts",
+  "bin/home-capture-lint.test.ts",
+  "bin/test-subprocess-home-lint.test.ts",
   "bin/slug-flag-contract-lint.test.ts",
   "bin/failure-docs-lint.test.ts",
   "bin/flow-backlog-triage-skill-lint.test.ts",

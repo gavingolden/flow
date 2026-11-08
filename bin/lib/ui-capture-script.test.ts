@@ -85,6 +85,7 @@ function runScript(targets: Target[], withLogin: boolean) {
     encoding: "utf8",
     env: {
       PATH: process.env.PATH,
+      HOME: process.env.HOME,
       FLOW_CAPTURE_CONFIG: cfgPath,
       FAKE_LOG: logPath,
       ...(withLogin
