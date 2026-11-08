@@ -3858,3 +3858,56 @@ describe("checkRunEnv", () => {
     expect(input.GIT_DIR).toBe("/x/.git");
   });
 });
+
+describe("slept rendering", () => {
+  const slept = {
+    sleptAt: new Date(2026, 0, 1, 9, 5).toISOString(),
+    wokeAt: new Date(2026, 0, 1, 9, 41).toISOString(),
+    rerun: "passed" as const,
+  };
+  const failing: CheckResult = {
+    name: "test",
+    scope: "src",
+    passed: false,
+    durationMs: 10,
+    output: "boom",
+  };
+  const report = (r: CheckResult): CheckReport => ({
+    scopes: ["src"],
+    results: [r],
+    allPassed: r.passed,
+  });
+
+  it("should print the slept line with times and outcome, never 'load'", () => {
+    const out = formatReport(report({ ...failing, slept }));
+    expect(out).toContain(
+      "test (re-run after sleep): the Mac slept from 09:05 to 09:41 during this check",
+    );
+    expect(out).toContain("re-run passed");
+    expect(out.toLowerCase()).not.toContain("load");
+  });
+
+  it("should render unknown wake time and 'slept again'", () => {
+    const out = formatReport(
+      report({
+        ...failing,
+        slept: { ...slept, wokeAt: null, rerun: "slept-again" },
+      }),
+    );
+    expect(out).toContain("to unknown");
+    expect(out).toContain("re-run slept again");
+  });
+
+  it("should not print a slept line for a result without slept", () => {
+    expect(formatReport(report(failing))).not.toContain("re-run after sleep");
+  });
+
+  it("should copy slept into the JSON report only when present", () => {
+    const withSlept = JSON.parse(
+      formatJsonReport(report({ ...failing, slept })),
+    );
+    expect(withSlept.results[0].slept).toEqual(slept);
+    const without = JSON.parse(formatJsonReport(report(failing)));
+    expect(without.results[0]).not.toHaveProperty("slept");
+  });
+});

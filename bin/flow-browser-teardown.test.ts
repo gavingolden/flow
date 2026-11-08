@@ -897,6 +897,46 @@ describe("runReapMode — fallback", () => {
     expect(listProcs).not.toHaveBeenCalled();
   });
 
+  it("re-syncs keep-awake after a real reap, not a dry run, and swallows a throw", () => {
+    const sync = vi.fn();
+    const mk = () =>
+      fakeDeps({
+        listProcs: serverProcs,
+        selfPid: sessionPid,
+        alive: () => false,
+      });
+    runReapMode(mk(), {
+      dryRun: false,
+      slug: "ka-slug",
+      timeoutMs: 1000,
+      baseDir,
+      syncKeepAwake: sync,
+    });
+    expect(sync).toHaveBeenCalledWith("ka-slug");
+
+    sync.mockClear();
+    runReapMode(mk(), {
+      dryRun: true,
+      slug: "ka-slug",
+      timeoutMs: 1000,
+      baseDir,
+      syncKeepAwake: sync,
+    });
+    expect(sync).not.toHaveBeenCalled();
+
+    expect(() =>
+      runReapMode(mk(), {
+        dryRun: false,
+        slug: "ka-slug",
+        timeoutMs: 1000,
+        baseDir,
+        syncKeepAwake: () => {
+          throw new Error("boom");
+        },
+      }),
+    ).not.toThrow();
+  });
+
   it("an unsatisfied FLOW_PIPELINE / --session-pid gate reports not-gated", () => {
     const deps = fakeDeps({
       env: {}, // FLOW_PIPELINE unset, no explicit sessionPid passed below

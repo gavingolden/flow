@@ -31,6 +31,7 @@ import {
   workingTreeId,
 } from "./lib/verified-tree";
 import { withTestSemaphore } from "./lib/lock";
+import { withSleepRerun, type SleptRecord } from "./lib/sleep-detect";
 import { FLOW_TEST_SEM_DIR } from "./lib/paths";
 import { detectStrayEnvFiles, strayEnvWarning } from "./lib/stray-env-file";
 import {
@@ -106,6 +107,8 @@ export type CheckResult = {
   /** Set on a result copied from an identical earlier run in this
    * invocation; names the scope that physically executed it. */
   dedupedFrom?: ScopeName;
+  /** Set when the Mac slept during the first run and the check was re-run. */
+  slept?: SleptRecord;
 };
 
 export type CheckReport = {
@@ -166,6 +169,7 @@ export type JsonResult = {
   failure?: FailureExcerpt;
   skipReason?: "actionlint-not-installed" | "go-not-installed";
   dedupedFrom?: ScopeName;
+  slept?: SleptRecord;
 };
 
 export type JsonReport = {
@@ -1342,6 +1346,17 @@ export function resolveDefaultScopeFiles(
 
 // --- Output ---
 
+function localHm(iso: string | null): string {
+  if (!iso) return "unknown";
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatSleptLine(name: string, s: SleptRecord): string {
+  const outcome = s.rerun === "slept-again" ? "slept again" : s.rerun;
+  return `  ${name} (re-run after sleep): the Mac slept from ${localHm(s.sleptAt)} to ${localHm(s.wokeAt)} during this check \u2014 re-run ${outcome}`;
+}
+
 /** Formats a CheckReport as human-readable output. */
 export function formatReport(report: CheckReport): string {
   const lines: string[] = [];
@@ -1411,6 +1426,7 @@ export function formatReport(report: CheckReport): string {
     const label = result.dedupedFrom
       ? `reused from ${reusedFrom}`
       : formatDuration(result.durationMs);
+    if (result.slept) lines.push(formatSleptLine(result.name, result.slept));
     lines.push(`  ${icon}  ${result.name} (${label})`);
 
     if (result.dedupedFrom) {
@@ -1576,6 +1592,7 @@ export function formatJsonReport(report: CheckReport): string {
         }
       }
       if (r.skipReason) result.skipReason = r.skipReason;
+      if (r.slept) result.slept = r.slept;
       if (r.dedupedFrom) {
         result.dedupedFrom =
           r.dedupedFrom === EARLIER_RUN_SCOPE ? "earlier-run" : r.dedupedFrom;
@@ -1671,15 +1688,18 @@ function executeScopedCheck(
   opts: { json: boolean; testConcurrency: number },
 ): CheckResult {
   const { json, testConcurrency } = opts;
+  const startMs = Date.now();
+  const isTest = isTestCheck(check.argv);
   // Throttle ONLY the test check (root `npm run test` and the workspace
   // variant `npm run test -w <pkg>`) through the host-wide counting
   // semaphore; typecheck/lint/md-validate/actionlint/go run unthrottled.
-  if (!isTestCheck(check.argv)) return runCheck(check.name, check.argv, scope);
-  const { result, throttled } = withTestSemaphore(
-    FLOW_TEST_SEM_DIR,
-    testConcurrency,
-    () => runCheck(check.name, check.argv, scope),
-  );
+  const run = (name: string, argv: string[]) =>
+    isTest
+      ? withTestSemaphore(FLOW_TEST_SEM_DIR, testConcurrency, () =>
+          runCheck(name, argv, scope),
+        )
+      : { result: runCheck(name, argv, scope), throttled: true };
+  const { result, throttled } = run(check.name, check.argv);
   if (!throttled) {
     // Acquire deadline elapsed: the test ran without holding a slot, so
     // the host-wide cap was momentarily exceeded. Route to stderr in
@@ -1689,6 +1709,15 @@ function executeScopedCheck(
     if (json) console.error(note);
     else console.log(note);
   }
+  // A failure whose run spanned a system sleep is re-run once: the sleep, not
+  // the code, inflated its wall-clock time.
+  const slept = withSleepRerun(
+    result,
+    startMs,
+    () => run(check.name, check.argv).result,
+  );
+  const base: CheckResult = slept ?? result;
+  if (!isTest) return base;
   // Isolation retry: a `--no-isolate` tiered check that FAILS gets one
   // isolated re-run of the same file list before being reported red —
   // `--no-isolate` can produce a false RED (cross-file shared-module
@@ -1698,19 +1727,20 @@ function executeScopedCheck(
   // result that stays red under isolation is a real failure either
   // way. False greens are the case this retry cannot detect — that's
   // what isolated CI is for.
-  if (!result.passed && check.argv.includes("--no-isolate")) {
+  const retryable = slept ? slept.slept.rerun === "failed" : !result.passed;
+  if (retryable && check.argv.includes("--no-isolate")) {
     const isolatedArgv = check.argv.filter((a) => a !== "--no-isolate");
-    const { result: isolatedResult } = withTestSemaphore(
-      FLOW_TEST_SEM_DIR,
-      testConcurrency,
-      () => runCheck(`${check.name} (isolated retry)`, isolatedArgv, scope),
+    const { result: isolatedResult } = run(
+      `${check.name} (isolated retry)`,
+      isolatedArgv,
     );
     return {
       ...isolatedResult,
-      durationMs: result.durationMs + isolatedResult.durationMs,
+      ...(slept ? { slept: slept.slept } : {}),
+      durationMs: base.durationMs + isolatedResult.durationMs,
     };
   }
-  return result;
+  return base;
 }
 
 /**
@@ -2015,6 +2045,7 @@ async function main(): Promise<void> {
       duration_ms: Date.now() - startedAt,
       json_mode: json,
       reused_checks: reusedChecks,
+      slept: results.some((r) => r.slept !== undefined),
     });
   } catch {
     // swallowed — telemetry must never affect this CLI's exit code.
