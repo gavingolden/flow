@@ -47,14 +47,31 @@ function withEpicPointer(
   description: string,
   epicSlug: string,
   featureId: string,
+  context?: string,
 ): string {
   const pointer = `Part of epic \`${epicSlug}\` (feature \`${featureId}\`) — design at \`.flow/epics/${epicSlug}/design.md\`.`;
   // Match ONLY this epic/feature's exact pointer sentence, not any loose
   // "Part of epic" substring — a description mentioning a DIFFERENT epic (or
   // prose that happens to contain that phrase) must still get this feature's
   // pointer appended, not be skipped.
-  if (description.includes(pointer)) return description;
-  return `${description.trimEnd()}\n\n${pointer}`;
+  if (context === undefined) {
+    if (description.includes(pointer)) return description;
+    return `${description.trimEnd()}\n\n${pointer}`;
+  }
+  // With a rulings block the pointer moves to the very end, so strip the
+  // exact pointer first and re-append it after the block.
+  const manifestText = description.split(pointer).join("").trimEnd();
+  return `${manifestText}\n\n${rulingsBlock(context)}\n\n${pointer}`;
+}
+
+export const RULINGS_BEGIN = "--- Rulings and context ---";
+export const RULINGS_END = "--- End of rulings and context ---";
+
+const RULINGS_INTRO =
+  "Rulings marked DECIDED below are binding on product calls. They stay open to evidence-based technical correction: when code or evidence contradicts one, follow the evidence and report every deviation in the PR's `## Deviations from plan`.";
+
+function rulingsBlock(context: string): string {
+  return `${RULINGS_BEGIN}\n${RULINGS_INTRO}\n\n${context.trim()}\n${RULINGS_END}`;
 }
 
 /**
@@ -78,11 +95,13 @@ export function buildFeatureCreateArgs(
   feature: Feature,
   epicSlug: string,
   overrides?: LaunchOverrides,
+  context?: string,
 ): string[] {
   const description = withEpicPointer(
     feature.description,
     epicSlug,
     feature.id,
+    context,
   );
   const args = ["feature", "create", description];
   const hints = feature.flowNewHints ?? {};
@@ -180,6 +199,8 @@ export function launchFeature(
     spawn?: SpawnFn;
     epicSlug: string;
     overrides?: LaunchOverrides;
+    /** Owner rulings and context (`--context-file`): a delimited block seeded before the epic pointer. */
+    context?: string;
     /** tmux-on-PATH probe seam for the launcher guard (test only). */
     tmuxOnPath?: () => boolean;
   },
@@ -202,7 +223,12 @@ export function launchFeature(
     };
   }
   const spawn = opts.spawn ?? defaultSpawn;
-  const args = buildFeatureCreateArgs(feature, opts.epicSlug, opts.overrides);
+  const args = buildFeatureCreateArgs(
+    feature,
+    opts.epicSlug,
+    opts.overrides,
+    opts.context,
+  );
   const r = spawn("flow", args);
   if (r.status !== 0) {
     const detail = (r.stderr || r.stdout || "").trim();

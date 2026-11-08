@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildFeatureCreateArgs,
+  RULINGS_BEGIN,
+  RULINGS_END,
   launchFeature,
   type SpawnFn,
   type SpawnResult,
@@ -224,6 +226,52 @@ describe("buildFeatureCreateArgs", () => {
       );
       expect(args[2]).toBe(designerPointer);
       expect(args[2].match(/Part of epic/g)).toHaveLength(1);
+    });
+  });
+
+  describe("--context-file rulings block", () => {
+    const CONTEXT = "DECIDED: keep the schema flat.\n";
+
+    it("places the rulings block between the manifest text and the pointer, pointer last", () => {
+      const args = buildFeatureCreateArgs(
+        feat(),
+        EPIC_SLUG,
+        undefined,
+        CONTEXT,
+      );
+      const seed = args[2];
+      expect(seed.startsWith("add the watchlist schema\n\n")).toBe(true);
+      expect(seed.indexOf(RULINGS_BEGIN)).toBeGreaterThan(
+        seed.indexOf("add the watchlist schema"),
+      );
+      expect(seed.indexOf(RULINGS_END)).toBeGreaterThan(
+        seed.indexOf("DECIDED: keep the schema flat."),
+      );
+      expect(seed.indexOf(POINTER)).toBeGreaterThan(seed.indexOf(RULINGS_END));
+      expect(seed.endsWith(POINTER)).toBe(true);
+      expect(seed.match(/Part of epic/g)).toHaveLength(1);
+      expect(seed).toContain("binding on product calls");
+      expect(seed).toContain("## Deviations from plan");
+    });
+
+    it("moves an embedded exact pointer to the end instead of duplicating it", () => {
+      const args = buildFeatureCreateArgs(
+        feat({ description: DESCRIPTION_WITH_POINTER }),
+        EPIC_SLUG,
+        undefined,
+        CONTEXT,
+      );
+      expect(args[2].endsWith(POINTER)).toBe(true);
+      expect(args[2].match(/Part of epic/g)).toHaveLength(1);
+      expect(args[2].indexOf(RULINGS_BEGIN)).toBeLessThan(
+        args[2].indexOf(POINTER),
+      );
+    });
+
+    it("without a context the seed is unchanged", () => {
+      expect(buildFeatureCreateArgs(feat(), EPIC_SLUG)[2]).toBe(
+        DESCRIPTION_WITH_POINTER,
+      );
     });
   });
 

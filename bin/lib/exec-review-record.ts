@@ -3,7 +3,7 @@
  * PR-body stamp for an approval, and the challenge memo handed to discovery.
  */
 
-import type { ManagerLogEntry } from "./epic-manager-log";
+import type { ManagerLogEntry } from "./manager-log";
 import type { Challenge } from "./exec-review-envelope";
 
 type PriorState = {
@@ -64,14 +64,15 @@ export function stampBullet(args: {
   rationale: string;
   undo: string;
   slug: string;
-  epic: string;
+  /** The resolved grant scope (`pipeline:x` / `epic:e` / `repo:r`), named in the withdraw command. */
+  scope: string;
 }): string {
   const one = (s: string) => s.replace(/\s+/g, " ").trim();
   const undo = one(args.undo).replace(/[.\s]*$/, ".");
   return (
     `${STAMP_PREFIX} under your grant (decision ${args.decisionId}):** ${one(args.rationale)} — confidence high, two-way door. ` +
     `Undo: ${undo} To stop it: reply redirect or cancel in the feature window (flow attach ${args.slug}); the PR still goes through review and the gate. ` +
-    `To stop future approvals: flow epic grant ${args.epic} --autonomy off.`
+    `To withdraw this grant: flow grant ${args.scope} --autonomy off.`
   );
 }
 

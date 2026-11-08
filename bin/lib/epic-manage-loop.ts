@@ -21,7 +21,8 @@ import {
   appendManagerLog,
   SEQUENCER_LOG_LOCK,
   readManagerLog,
-} from "./epic-manager-log";
+} from "./manager-log";
+import { repoNameForPath } from "./manager-scope";
 import { announce, iso, safely, type EventCtx } from "./epic-manage-events";
 import { githubFresh, headSha, observe, plan } from "./epic-manage-plan";
 import {
@@ -84,6 +85,8 @@ export type LoopDeps = {
   write: (text: string) => void;
   isTty: boolean;
   stateDir?: string;
+  /** Override the manager home (`~/.flow/manager`) — test seam. */
+  managerHome?: string;
   epicsDir?: string;
   readMaxParallel?: () => number;
   headSha?: () => Promise<string | null>;
@@ -141,6 +144,7 @@ export function createLoopContext(
   const sameRepo = deps.sameRepo ?? makeStrictSameRepository(cfg.manager.repo);
   const ctx: LoopContext = {
     epic,
+    repo: repoNameForPath(cfg.manager.repo),
     runId: cfg.manager.startedAt,
     failed: new Map(),
     launching: new Map(),
@@ -161,7 +165,7 @@ export function createLoopContext(
     gitRefs: null,
     startedAtMs: deps.now(),
   };
-  for (const e of readManagerLog(epic, deps.stateDir)) {
+  for (const e of readManagerLog({ epic }, deps.managerHome)) {
     if (e.key) ctx.notified.add(e.key);
   }
   seedLaunching(ctx, deps.now(), cfg.manager.launching, deps.stateDir);
@@ -232,18 +236,18 @@ export async function tick(
       heartbeat(ctx, deps);
       safely(() =>
         appendManagerLog(
-          ctx.epic,
           {
             ts: iso(now),
             kind: "launch",
+            epic: ctx.epic,
+            repo: ctx.repo,
             featureId: verdict.id,
             slug: slugify(verdict.id),
             window: verdict.id,
             reason: `flow ${args.join(" ")}`,
             key: `launch:${verdict.id}@${now}`,
           },
-          deps.stateDir,
-          SEQUENCER_LOG_LOCK,
+          { home: deps.managerHome, lock: SEQUENCER_LOG_LOCK },
         ),
       );
       guard = planned.replan();
@@ -369,10 +373,13 @@ export async function runManagerLoop(
     persistMarker(ctx, deps.stateDir);
     safely(() =>
       appendManagerLog(
-        cfg.manager.epicSlug,
-        { ts: iso(deps.now()), kind: "stopped" },
-        deps.stateDir,
-        SEQUENCER_LOG_LOCK,
+        {
+          ts: iso(deps.now()),
+          kind: "stopped",
+          epic: cfg.manager.epicSlug,
+          repo: ctx.repo,
+        },
+        { home: deps.managerHome, lock: SEQUENCER_LOG_LOCK },
       ),
     );
     safely(() => removeManager(cfg.manager.epicSlug, deps.stateDir));
