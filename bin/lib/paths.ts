@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
  * HOME) is always honoured instead of whatever HOME was at import time.
  */
 // prettier-ignore
-function currentHome(): string { return process.env.HOME || os.homedir(); }
+export function currentHome(): string { return process.env.HOME || os.homedir(); }
 
 export function flowDir(): string {
   return path.join(currentHome(), ".flow");

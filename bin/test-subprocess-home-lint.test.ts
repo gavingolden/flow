@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { maskLiterals } from "./lib/source-mask";
 
 /**
  * A test that launches a child with an explicit `env: { ... }` literal that
@@ -20,8 +21,8 @@ import { fileURLToPath } from "node:url";
 export type HomelessChildEnv = { file: string; line: number; text: string };
 
 const SPAWN_CALL_RE =
-  /(?<![\w$])(?:Bun\.spawnSync|Bun\.spawn|spawnSync|spawn|execFileSync|execFile|execSync|exec|fork|execa)\s*\(/g;
-const SELF = "bin/test-subprocess-home-lint.test.ts";
+  /(?:(?<![\w$.])Bun\.spawn(?:Sync)?|(?<![\w$.])(?:child_process\.)?(?:spawnSync|spawn|execFileSync|execFile|execSync|exec|fork)|(?<![\w$.])execa)\s*\(/g;
+const SELF = path.join("bin", "test-subprocess-home-lint.test.ts");
 
 function matchingClose(text: string, open: number): number {
   let depth = 0;
@@ -32,28 +33,31 @@ function matchingClose(text: string, open: number): number {
   return text.length - 1;
 }
 
-function envLiteralBodies(call: string): string[] {
+/** Structure is found in `masked`; the body text returned is from `call` (same offsets). */
+function envLiteralBodies(call: string, masked: string): string[] {
   const bodies: string[] = [];
   const re = /(?<![\w$.])env\s*:\s*\{/g;
-  for (let m = re.exec(call); m; m = re.exec(call)) {
+  for (let m = re.exec(masked); m; m = re.exec(masked)) {
     const open = m.index + m[0].length - 1;
-    bodies.push(call.slice(open + 1, matchingClose(call, open)));
+    bodies.push(call.slice(open + 1, matchingClose(masked, open)));
   }
   return bodies;
 }
 
 function lacksHome(body: string): boolean {
-  const homeValue = /(?<![\w$.])HOME\s*:\s*([^,}\n]*)/.exec(body);
-  const spreadsEnv = /\.\.\.\s*process\.env\b/.test(body);
-  if (homeValue) {
-    const value = homeValue[1].trim();
-    return value === "undefined" || value === '""' || value === "''";
+  const homeProp = /(?<![\w$.])HOME(?:\s*:\s*([^,}\n]*)|\s*(?:,|$))/.exec(body);
+  if (homeProp) {
+    if (homeProp[1] === undefined) return false;
+    const value = homeProp[1].trim();
+    return (
+      value === "" ||
+      value === "undefined" ||
+      value === '""' ||
+      value === "''" ||
+      value === "``"
+    );
   }
-  return !spreadsEnv;
-}
-
-function homeSetToEmpty(body: string): boolean {
-  return /(?<![\w$.])HOME\s*:\s*(undefined|""|'')\s*(,|$)/.test(body.trim());
+  return !/\.\.\.\s*process\.env\b/.test(body);
 }
 
 export function findHomelessChildEnvs(
@@ -62,11 +66,14 @@ export function findHomelessChildEnvs(
 ): HomelessChildEnv[] {
   const hits: HomelessChildEnv[] = [];
   const lines = source.split("\n");
-  for (let m = SPAWN_CALL_RE.exec(source); m; m = SPAWN_CALL_RE.exec(source)) {
+  const masked = maskLiterals(source);
+  SPAWN_CALL_RE.lastIndex = 0;
+  for (let m = SPAWN_CALL_RE.exec(masked); m; m = SPAWN_CALL_RE.exec(masked)) {
     const open = m.index + m[0].length - 1;
-    const call = source.slice(open, matchingClose(source, open) + 1);
-    for (const body of envLiteralBodies(call)) {
-      if (lacksHome(body) || homeSetToEmpty(body)) {
+    const end = matchingClose(masked, open) + 1;
+    const call = source.slice(open, end);
+    for (const body of envLiteralBodies(call, masked.slice(open, end))) {
+      if (lacksHome(body)) {
         const line = source.slice(0, m.index).split("\n").length;
         hits.push({ file, line, text: lines[line - 1].trim() });
       }
@@ -117,6 +124,22 @@ describe("findHomelessChildEnvs", () => {
     expect(
       scan('spawnSync("bun", [], { env: { PATH: "/bin", HOME: h } });'),
     ).toEqual([]);
+  });
+
+  it("accepts shorthand HOME and ignores RegExp.exec and spawn text in comments/strings", () => {
+    expect(
+      scan('spawnSync("bun", [], { env: { HOME, PATH: "/bin" } });'),
+    ).toEqual([]);
+    expect(scan("re.exec(x); foo({ env: { PATH: 1 } });")).toEqual([]);
+    expect(scan('// spawnSync("a", { env: { PATH: 1 } })')).toEqual([]);
+  });
+
+  it("is not thrown off by unbalanced parens inside string args", () => {
+    expect(
+      scan(
+        'spawnSync("sh", ["-c", "case $x in a) ;; esac"], { env: { PATH: "/bin" } });',
+      ),
+    ).toHaveLength(1);
   });
 
   it("ignores non-literal env values and non-spawn calls", () => {

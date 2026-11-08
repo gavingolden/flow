@@ -134,9 +134,9 @@ const livenessMock = vi.hoisted(() => ({
 }));
 vi.mock("./liveness", () => livenessMock);
 
-// Mocked so no test reads the real ~/.flow/epics (flowEpicsDir() is frozen to
-// $HOME at import). The factory keeps the real note formatter and defaults the
-// latch to "no bindings".
+// Mocked so no test reads ~/.flow/epics under the shared sandbox HOME
+// (flowEpicsDir() resolves from HOME at call time). The factory keeps the real
+// note formatter and defaults the latch to "no bindings".
 const latchMock = vi.hoisted(() => ({
   latchEpicBinding: vi.fn((_state: unknown) => [] as unknown[]),
 }));
