@@ -85,6 +85,15 @@ Reads, Greps, distinct files, cache and output tokens, dollars per lens
 run, de-duplicated per `message.id`); its committed before-state table is
 `docs/eval/review-lens-cost-baseline.md`.
 
+`docs/eval/daemon-cpu.ts` reports the CPU-seconds each macOS daemon
+(`syspolicyd`, `fseventsd`, `mds`, `mds_stores`, `kernel_task`,
+`launchservicesd`) spends while a command runs, with `--repeat N` and an
+equal-length idle `--control` so the delta holds up on a loaded host:
+`bun docs/eval/daemon-cpu.ts --repeat 3 --control -- npm run test`. It prints
+one JSON object (`runs[]`, `medianNet`) and prints `{"skipped":"not-macos"}`
+elsewhere. Results:
+[daemon-cpu-2026-11.md](daemon-cpu-2026-11.md).
+
 The token-spend audit, `docs/eval/token-spend-audit.ts`, measures where the
 whole Claude quota goes: spend by repo, model, sub-agent type and in-process
 skill segment, joined to flow's telemetry for per-pipeline cost, latency and

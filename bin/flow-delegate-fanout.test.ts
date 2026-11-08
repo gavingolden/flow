@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, rmSync } from "node:fs";
+import fs, { readFileSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import {
   entryOutPath,
   entryToDelegateArgv,
@@ -951,8 +952,8 @@ describe("flow-delegate-fanout (subprocess, agy absent from PATH)", () => {
   it.skipIf(agyInSkipPath)(
     "reports allSkipped + exit 0 when agy is off PATH",
     () => {
-      const tmpDir = path.join(__dirname, "..", ".flow-tmp");
-      spawnSync("mkdir", ["-p", tmpDir]);
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-fanout-"));
+      onTestFinished(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
       const manifestPath = path.join(tmpDir, "fanout-test-manifest.json");
       const outPath = path.join(tmpDir, "fanout-test-result.json");
       const manifest = JSON.stringify([
