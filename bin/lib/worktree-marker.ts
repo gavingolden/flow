@@ -13,7 +13,7 @@ export const FLOW_TMP_DIRNAME = ".flow-tmp/";
 /** Paths that flow writes into each worktree but doesn't track in git. The
  * third entry (no trailing slash — it's a symlink, and git's exclude
  * matches a symlink as a file) is the `linkAgentMemory` handoff target. */
-const FLOW_EXCLUDE_PATHS = [
+export const FLOW_EXCLUDE_PATHS = [
   BRANCH_MARKER_FILENAME,
   FLOW_TMP_DIRNAME,
   AGENT_MEMORY_RELPATH,

@@ -19,6 +19,7 @@ import {
   parseWorktreeListOutput,
   removeWorktreeWithFallback,
   resolveInput,
+  slugsOwningWorktree,
   stateSlugForInput,
   type RemoveWorktreeDeps,
   type WorktreeListEntry,
@@ -114,6 +115,33 @@ describe(parseWorktreeListOutput, () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].path).toBe("/repo");
     expect(entries[0].branch).toBeUndefined();
+    expect(entries[0].detached).toBe(true);
+  });
+
+  it.each(["locked", "locked on a usb stick"])(
+    "flags a `%s` line as locked",
+    (line) => {
+      const raw = ["worktree /repo-a", "HEAD abc", "detached", line, ""].join(
+        "\n",
+      );
+      expect(parseWorktreeListOutput(raw)[0].locked).toBe(true);
+    },
+  );
+
+  it.each(["prunable", "prunable gitdir file points to non-existent location"])(
+    "flags a `%s` line as prunable",
+    (line) => {
+      const raw = ["worktree /repo-a", "HEAD abc", line, ""].join("\n");
+      expect(parseWorktreeListOutput(raw)[0].prunable).toBe(true);
+    },
+  );
+
+  it("leaves locked/prunable/detached undefined when the lines are absent", () => {
+    const raw = ["worktree /repo", "branch refs/heads/main", ""].join("\n");
+    const entry = parseWorktreeListOutput(raw)[0];
+    expect(entry.locked).toBeUndefined();
+    expect(entry.prunable).toBeUndefined();
+    expect(entry.detached).toBeUndefined();
   });
 });
 
@@ -332,6 +360,57 @@ describe(matchWorktree, () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+// --- slugsOwningWorktree ----------------------------------------------------
+
+describe(slugsOwningWorktree, () => {
+  let stateDir!: string;
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "owning-wt-state-"));
+  });
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  function seed(slug: string, phase: string, worktree: string): void {
+    writeState(
+      {
+        slug,
+        phase,
+        repo: "/tmp/repo",
+        worktree,
+        updatedAt: "2026-04-30T12:00:00Z",
+      },
+      stateDir,
+    );
+  }
+
+  it("returns only the records naming the removed directory", () => {
+    seed("done-one", "merged", "/tmp/wt/done-one");
+    seed("live-one", "implementing", "/tmp/wt/live-one");
+    expect(slugsOwningWorktree("/tmp/wt/done-one", stateDir)).toEqual([
+      "done-one",
+    ]);
+  });
+
+  it("clears a merged record's worktree for a path input and leaves a live record untouched", () => {
+    seed("done-one", "merged", "/tmp/wt/shared");
+    seed("live-one", "implementing", "/tmp/wt/shared");
+
+    for (const s of slugsOwningWorktree("/tmp/wt/shared", stateDir)) {
+      forgetRemovedWorktree(s, "/tmp/wt/shared", stateDir);
+    }
+
+    expect(readState("done-one", stateDir)?.worktree).toBeUndefined();
+    expect(readState("live-one", stateDir)?.worktree).toBe("/tmp/wt/shared");
+  });
+
+  it("returns an empty list for a missing state dir", () => {
+    expect(
+      slugsOwningWorktree("/tmp/wt/x", path.join(stateDir, "nope")),
+    ).toEqual([]);
   });
 });
 

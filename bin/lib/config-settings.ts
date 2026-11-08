@@ -341,6 +341,12 @@ const DESCRIPTORS: Descriptor[] = [
     resolve: (read) => strictFalseOptOut(read, "product.judge"),
   },
   {
+    key: "cleanup.worktrees",
+    meaning:
+      "whether flow feature create starts the automatic background cleanup of finished worktrees and leftover folders",
+    resolve: (read) => strictFalseOptOut(read, "cleanup.worktrees"),
+  },
+  {
     key: "ui.critique",
     meaning:
       "whether every UI pull request gets an automatic design review (and one fix round) before review",
