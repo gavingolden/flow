@@ -24,7 +24,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { checkOwnPipelinePr } from "./lib/pipeline-pr-ownership";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { readState } from "./lib/state";
@@ -114,7 +114,7 @@ function defaultWriteBytes(p: string, bytes: Uint8Array): void {
 function worktreeNotOwned(worktree: string, deps: Deps): string | null {
   const slug = resolveSlugAmbient({ env: deps.env });
   if (slug === null) return null;
-  const owned = readState(slug, deps.stateDir ?? FLOW_STATE_DIR)?.worktree;
+  const owned = readState(slug, deps.stateDir ?? flowStateDir())?.worktree;
   if (!owned) return null;
   const real = (p: string): string => {
     try {

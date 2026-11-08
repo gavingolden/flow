@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { RULINGS_END } from "./epic-launch";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock tmux primitives so the create/resume paths don't shell out. Mirrors
@@ -129,8 +130,8 @@ import { writeManager, type ManagerState } from "./epic-manage-state";
 // it: this file's exact-argv assertions predate --plugin-dir and must stay
 // byte-identical regardless of what plugin roots happen to be materialized
 // on the machine running the suite (the real default, `scanPluginRoots()`,
-// reads `FLOW_CLAUDE_HOME_SKILLS_DIR` — captured eagerly from the REAL,
-// unsandboxed HOME, so it is NOT covered by vitest.setup.ts's sandbox).
+// reads the claude-home skills dir — resolved at call time, which
+// sees vitest.setup.ts's sandbox HOME).
 // Individual specs override it to exercise the roots-present cases.
 //
 // `reserveWorktree` is stubbed too: the real reservation mkdirs a sibling of
@@ -153,7 +154,7 @@ const runEpicCli = (args: string[], options: EpicOptions = {}) =>
   );
 import { deriveWorktreePath } from "./feature";
 import { reserveWorktreeSlot } from "./worktree-slot";
-import { FLOW_CLAUDE_HOME } from "./paths";
+import { flowClaudeHome } from "./paths";
 import {
   readState,
   requestFilePath,
@@ -337,7 +338,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(command[3]).toBe("claude");
     expect(command[4]).toBe("--add-dir");
     expect(command[6]).toBe("--add-dir");
-    expect(command[7]).toBe(FLOW_CLAUDE_HOME);
+    expect(command[7]).toBe(flowClaudeHome());
     expect(command[8]).toBe("--settings");
     expect(
       command.some((a) => a.includes("Use the /flow-epic-create skill")),
@@ -587,7 +588,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -646,7 +647,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
         "--add-dir",
         worktree,
         "--add-dir",
-        FLOW_CLAUDE_HOME,
+        flowClaudeHome(),
         "--plugin-dir",
         root,
         "--settings",
@@ -672,7 +673,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
-    const addDirEndIdx = command.lastIndexOf(FLOW_CLAUDE_HOME) + 1;
+    const addDirEndIdx = command.lastIndexOf(flowClaudeHome()) + 1;
     const modelIdx = command.indexOf("--model");
     expect(command.slice(addDirEndIdx, modelIdx)).toEqual([
       "--plugin-dir",
@@ -711,7 +712,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -902,7 +903,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--effort",
       "high",
       "--settings",
@@ -938,7 +939,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
         "--add-dir",
         deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
         "--add-dir",
-        FLOW_CLAUDE_HOME,
+        flowClaudeHome(),
         "--model",
         alias,
         "--settings",
@@ -970,7 +971,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--model",
       "opus",
       "--effort",
@@ -1280,7 +1281,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
       "--add-dir",
       deriveWorktreePath(repoDir, "saved-flags-epic"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--model",
       "opus",
       "--effort",
@@ -1333,7 +1334,7 @@ describe("runEpicCli create --resume", () => {
     expect(command[1]).toBe("FLOW_PIPELINE=1");
     expect(command[2]).toBe("FLOW_SLUG=crashed-epic");
     expect(command[6]).toBe("--add-dir");
-    expect(command[7]).toBe(FLOW_CLAUDE_HOME);
+    expect(command[7]).toBe(flowClaudeHome());
     expect(command[8]).toBe("--settings");
     expect(
       command.some((a) => a.includes("Use the /flow-epic-create skill")),
@@ -3178,9 +3179,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     },
   );
 
-  it("bind --force: carries pr + lastStatus forward onto the rebound record", () => {
-    // A rebind must not blank the board's PR/PHASE columns — the audit fields
-    // survive the repoint.
+  it("bind --force: a rebind to a different slug drops pr and lastStatus", () => {
     gitInit();
     const manifestPath = writeManifest("bind-carry", [{ id: "feat-a" }]);
     writeEpicRunState(
@@ -3190,7 +3189,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
             slug: "old-slug",
             launchedAt: "x",
             pr: 77,
-            lastStatus: "reviewing",
+            lastStatus: "cancelled",
           },
         },
       }),
@@ -3203,8 +3202,31 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(code).toBe(0);
     const rec = readEpicRunState("bind-carry", epicsDir)?.features["feat-a"];
     expect(rec?.slug).toBe("new-slug");
-    expect(rec?.pr).toBe(77);
-    expect(rec?.lastStatus).toBe("reviewing");
+    expect(rec?.pr).toBeUndefined();
+    expect(rec?.lastStatus).toBeUndefined();
+    expect(rec?.priorSlugs).toContain("old-slug");
+  });
+
+  it("bind --force: an external record rebound to a pipeline slug drops pr and lastStatus", () => {
+    gitInit();
+    const manifestPath = writeManifest("bind-ext", [{ id: "feat-a" }]);
+    writeEpicRunState(
+      seedRunState("bind-ext", manifestPath, {
+        features: {
+          "feat-a": { external: "PR#8", pr: 8, lastStatus: "merged" },
+        },
+      }),
+      epicsDir,
+    );
+    const code = runEpicCli(
+      ["bind", "bind-ext", "feat-a", "new-slug", "--force"],
+      { cwd: repoDir, epicsDir, stateDir },
+    );
+    expect(code).toBe(0);
+    const rec = readEpicRunState("bind-ext", epicsDir)?.features["feat-a"];
+    expect(rec?.slug).toBe("new-slug");
+    expect(rec?.pr).toBeUndefined();
+    expect(rec?.lastStatus).toBeUndefined();
   });
 
   it("bind --force: a merged record rebound to a different slug drops the merged lastStatus and pr", () => {
@@ -3517,6 +3539,66 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(code).toBe(0);
     const rec = readEpicRunState("launch-posn", epicsDir)?.features["feat-c"];
     expect(rec?.slug).toBe("feat-c-minted");
+  });
+
+  describe("launch --context-file", () => {
+    const launch = (slug: string, ctxArgs: string[]) => {
+      gitInit();
+      writeManifest(slug, [{ id: "feat-c" }]);
+      const spawn = okSpawn("feat-c-minted");
+      const code = runEpicCli(["launch", slug, "feat-c", ...ctxArgs], {
+        cwd: repoDir,
+        epicsDir,
+        spawn,
+      });
+      return { code, spawn };
+    };
+    const ctxFile = (name: string, text: string | Buffer) => {
+      const f = path.join(repoDir, name);
+      fs.writeFileSync(f, text);
+      return f;
+    };
+
+    it("seeds the rulings block before the pointer and records the binding", () => {
+      gitInit();
+      const f = ctxFile("rulings.md", "DECIDED: keep it flat.\n");
+      const { code, spawn } = launch("ctx-ok", ["--context-file", f]);
+      expect(code).toBe(0);
+      const seed = (spawn.mock.calls[0]![1] as string[])[2];
+      expect(seed).toContain("DECIDED: keep it flat.");
+      expect(seed.split("\n").at(-1)).toMatch(/^Part of epic `ctx-ok`/);
+      expect(
+        readEpicRunState("ctx-ok", epicsDir)?.features["feat-c"]?.slug,
+      ).toBe("feat-c-minted");
+    });
+
+    it("refuses a missing, empty, over-16 KB or end-delimiter-bearing file with exit 2 and launches nothing", () => {
+      gitInit();
+      const cases: Array<[string, string]> = [
+        ["ctx-missing", path.join(repoDir, "nope.md")],
+        ["ctx-empty", ctxFile("empty.md", "  \n")],
+        ["ctx-big", ctxFile("big.md", "x".repeat(16 * 1024 + 1))],
+        ["ctx-delim", ctxFile("delim.md", `a\n${RULINGS_END}\nb`)],
+      ];
+      for (const [slug, file] of cases) {
+        const { code, spawn } = launch(slug, ["--context-file", file]);
+        expect(code, slug).toBe(2);
+        expect(spawn, slug).not.toHaveBeenCalled();
+        expect(
+          readEpicRunState(slug, epicsDir)?.features["feat-c"],
+          slug,
+        ).toBeUndefined();
+      }
+    });
+
+    it("a --context-file with no value, or given twice, exits 2; the path is never a positional", () => {
+      const f = ctxFile("two.md", "DECIDED: x");
+      expect(launch("ctx-noval", ["--context-file"]).code).toBe(2);
+      expect(
+        launch("ctx-dup", ["--context-file", f, "--context-file", f]).code,
+      ).toBe(2);
+      expect(launch("ctx-posn", ["--context-file", f]).code).toBe(0);
+    });
   });
 
   it("launch: a flag value colliding with a positional still resolves both positionals (index-based stripping)", () => {
@@ -4418,8 +4500,8 @@ describe("epic launches reserve the worktree folder (real reservation)", () => {
     );
   }
 
-  const siblingOf = (slug: string): string =>
-    path.join(path.dirname(repoDir), `${path.basename(repoDir)}-${slug}`);
+  const reservedPathFor = (slug: string): string =>
+    deriveWorktreePath(repoDir, slug);
 
   it("create: the first --add-dir is an existing empty folder recorded as reservedWorktree", () => {
     gitInit();
@@ -4572,7 +4654,7 @@ describe("epic launches reserve the worktree folder (real reservation)", () => {
 
   it("resume: prefers state.worktree over state.reservedWorktree", () => {
     const recorded = path.join(os.tmpdir(), "flow-epic-recorded-wt");
-    const reserved = siblingOf("pref-epic");
+    const reserved = reservedPathFor("pref-epic");
     reservedToClean.push(reserved);
     seedState("pref-epic", { worktree: recorded, reservedWorktree: reserved });
     tmuxMock.windowExists.mockReturnValue(true);
@@ -4585,7 +4667,7 @@ describe("epic launches reserve the worktree folder (real reservation)", () => {
   });
 
   it("resume: re-creates a vanished reserved folder", () => {
-    const reserved = siblingOf("vanished-epic");
+    const reserved = reservedPathFor("vanished-epic");
     reservedToClean.push(reserved);
     seedState("vanished-epic", { reservedWorktree: reserved });
     tmuxMock.windowExists.mockReturnValue(true);
@@ -4827,7 +4909,7 @@ describe("epic launches reserve the worktree folder (real reservation)", () => {
   it("run: a recorded reservedWorktree whose folder vanished is re-created, nothing newly reserved", () => {
     gitInit();
     writeRunManifest("run-vanished-epic");
-    const reserved = siblingOf("run-vanished-epic");
+    const reserved = reservedPathFor("run-vanished-epic");
     reservedToClean.push(reserved);
     seedState("run-vanished-epic", {
       phase: "epic-approved",
@@ -4852,7 +4934,7 @@ describe("epic launches reserve the worktree folder (real reservation)", () => {
   it("run: a state.worktree missing on disk falls through to the recorded reservedWorktree", () => {
     gitInit();
     writeRunManifest("run-stale-wt-epic");
-    const reserved = siblingOf("run-stale-wt-epic");
+    const reserved = reservedPathFor("run-stale-wt-epic");
     reservedToClean.push(reserved);
     const gone = path.join(os.tmpdir(), "flow-epic-gone-wt-does-not-exist");
     seedState("run-stale-wt-epic", {

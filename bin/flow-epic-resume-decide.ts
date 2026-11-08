@@ -58,7 +58,7 @@ import {
   type PipelineState,
   TERMINAL_PHASES,
 } from "./lib/state";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import {
   probeWorktree,
@@ -389,7 +389,7 @@ export function gatherInputs(
   state: PipelineState,
   gh: GhRunner,
   git: GitRunner,
-  stateDir = FLOW_STATE_DIR,
+  stateDir = flowStateDir(),
 ): Inputs {
   // Terminal phases short-circuit the gh/git I/O: decide() returns terminal
   // from the phase check alone, so probing a completed epic's remote state is
@@ -424,7 +424,7 @@ export function gatherInputs(
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const git = deps.git ?? defaultGit;
-  const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
+  const stateDir = deps.stateDir ?? flowStateDir();
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
 
   const parsed = parseArgs(argv);

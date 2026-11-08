@@ -28,6 +28,10 @@ import {
 import { readEpicMaxParallel, DEFAULT_MAX_PARALLEL } from "./epic-config";
 import { isOutputLens } from "./output-lens";
 import {
+  KEEP_AWAKE_DEFAULT_MINUTES,
+  resolveKeepAwakeMaxMinutes,
+} from "./keep-awake-config";
+import {
   DELEGATE_MODEL_DEFAULTS,
   DEFAULT_DELEGATED_LENSES,
   resolveDelegatedLenses,
@@ -341,10 +345,39 @@ const DESCRIPTORS: Descriptor[] = [
     resolve: (read) => strictFalseOptOut(read, "product.judge"),
   },
   {
+    key: "cleanup.worktrees",
+    meaning:
+      "whether flow feature create starts the automatic background cleanup of finished worktrees and leftover folders",
+    resolve: (read) => strictFalseOptOut(read, "cleanup.worktrees"),
+  },
+  {
     key: "ui.critique",
     meaning:
       "whether every UI pull request gets an automatic design review (and one fix round) before review",
     resolve: (read) => strictFalseOptOut(read, "ui.critique"),
+  },
+  {
+    key: "power.keepAwake",
+    meaning:
+      "whether the Mac is kept from idle-sleeping on mains power while a pipeline is working (no effect on battery)",
+    resolve: (read) => strictFalseOptOut(read, "power.keepAwake"),
+  },
+  {
+    key: "power.keepAwakeMaxMinutes",
+    meaning:
+      "how long a pipeline's sleep hold lasts after its last activity before the Mac may sleep (renewed every 15 minutes while the pipeline keeps working)",
+    resolve: (read) => {
+      const { minutes, source } = resolveKeepAwakeMaxMinutes(read);
+      return source === "config"
+        ? {
+            value: String(minutes),
+            source: "config (power.keepAwakeMaxMinutes)",
+          }
+        : {
+            value: String(minutes),
+            source: `built-in (${KEEP_AWAKE_DEFAULT_MINUTES})`,
+          };
+    },
   },
   {
     key: "modules",

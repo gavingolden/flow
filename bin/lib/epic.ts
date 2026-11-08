@@ -44,10 +44,10 @@ import {
   makeSameRepository,
 } from "./repo-root";
 import {
-  FLOW_CLAUDE_HOME,
-  FLOW_LAUNCH_SEM_DIR,
-  FLOW_LAUNCH_SETTINGS_PATH,
-  FLOW_EPICS_DIR,
+  flowClaudeHome,
+  flowLaunchSemDir,
+  flowLaunchSettingsPath,
+  flowEpicsDir,
 } from "./paths";
 import {
   pluginDirArgs,
@@ -56,7 +56,7 @@ import {
   scanPluginRoots,
 } from "./plugin-root";
 import { slugify } from "./slug";
-import { runEpicGrant } from "./epic-grant-cli";
+import { runGrantCli } from "./grant-cli";
 import { confirmStdin } from "./confirm";
 import {
   epicDirRelative,
@@ -144,6 +144,7 @@ import {
 } from "./epic-reconcile";
 import {
   launchFeature,
+  RULINGS_END,
   type SpawnFn,
   type LaunchOverrides,
 } from "./epic-launch";
@@ -245,6 +246,8 @@ export type EpicOptions = {
   resume?: boolean;
   /** Override the state directory (test seam). */
   stateDir?: string;
+  /** Override the manager home (`~/.flow/manager`) — test seam. */
+  managerHome?: string;
   /**
    * Dead field: no production caller sets it and no reader consumes it
    * (epic-run's effort now flows through the explicit `runEffort` parameter
@@ -281,7 +284,7 @@ export type EpicOptions = {
   /**
    * Path to the flow-scoped `claude --settings` file the launch argv references
    * and `ensureLaunchSettings` writes. Test seam only — production uses
-   * FLOW_LAUNCH_SETTINGS_PATH; tests point it at a temp file to avoid touching
+   * flowLaunchSettingsPath(); tests point it at a temp file to avoid touching
    * the real ~/.flow and to assert the argv path.
    */
   launchSettingsPath?: string;
@@ -289,7 +292,7 @@ export type EpicOptions = {
    * Plugin-root scanner seam threaded into `launchArgv`'s `--plugin-dir`
    * argv AND its `env` PATH prefix (mirrors `feature.ts`'s same-named
    * option — the two builders must never drift). Defaults to the real
-   * `scanPluginRoots` (`FLOW_CLAUDE_HOME_SKILLS_DIR`) — tests override so a
+   * `scanPluginRoots` (`flowClaudeHomeSkillsDir()`) — tests override so a
    * fixture never scans the developer's real `~/.flow/claude-home`.
    */
   pluginRootsScan?: () => string[];
@@ -373,7 +376,7 @@ export function runEpicCli(
     case "manage":
       return runEpicManage(args.slice(1), options);
     case "grant":
-      return runEpicGrant(args.slice(1), options);
+      return runEpicGrantAlias(args.slice(1), options);
     case undefined:
       console.error("flow epic: a subcommand is required.");
       console.error(
@@ -427,6 +430,66 @@ export function parseEnumValueFlag<T extends string>(
     return { error: true };
   }
   return { value: value as T, valueToken: value, flagIndex: idx };
+}
+
+/**
+ * Free-string sibling of `parseEnumValueFlag`: same once-only and
+ * missing-value guards and the same `flagIndex`, but any non-`--` token is
+ * accepted as the value (a path, say) — so the caller can strip BOTH tokens by
+ * index and never mistake the value for a positional.
+ */
+function parseStringValueFlag(
+  rest: string[],
+  flag: string,
+  verb: string,
+  expected: string,
+): { value?: string; flagIndex?: number; error?: true } {
+  const idx = rest.indexOf(flag);
+  if (idx < 0) return {};
+  if (rest.indexOf(flag, idx + 1) >= 0) {
+    console.error(`flow epic ${verb}: ${flag} may only be specified once.`);
+    return { error: true };
+  }
+  const value = rest[idx + 1];
+  if (value === undefined || value.startsWith("--")) {
+    console.error(`flow epic ${verb}: ${flag} requires a value.`);
+    console.error(`  expected: ${expected}`);
+    return { error: true };
+  }
+  return { value, flagIndex: idx };
+}
+
+const CONTEXT_FILE_MAX_BYTES = 16 * 1024;
+
+/** Reads `--context-file`; prints the refusal and returns null when unusable. */
+function readContextFile(file: string, cwd: string): string | null {
+  const full = path.resolve(cwd, file);
+  let text: string;
+  try {
+    text = fs.readFileSync(full, "utf8");
+  } catch {
+    console.error(
+      `flow epic launch: --context-file ${full} could not be read.`,
+    );
+    return null;
+  }
+  if (text.trim() === "") {
+    console.error(`flow epic launch: --context-file ${full} is empty.`);
+    return null;
+  }
+  if (Buffer.byteLength(text, "utf8") > CONTEXT_FILE_MAX_BYTES) {
+    console.error(
+      `flow epic launch: --context-file ${full} is over ${CONTEXT_FILE_MAX_BYTES / 1024} KB.`,
+    );
+    return null;
+  }
+  if (text.includes(RULINGS_END)) {
+    console.error(
+      `flow epic launch: --context-file ${full} contains the block's end delimiter '${RULINGS_END}'.`,
+    );
+    return null;
+  }
+  return text;
 }
 
 function runCreate(rest: string[], options: EpicOptions): number {
@@ -1576,6 +1639,24 @@ function loadOrInitRunState(
   };
 }
 
+/** `flow epic grant <epic> …` is an alias for `flow grant epic:<epic> …`. */
+function runEpicGrantAlias(rest: string[], options: EpicOptions): number {
+  const [slug, ...flags] = rest;
+  if (slug === undefined || slug.startsWith("-")) {
+    if (argsContainHelp(rest)) return runGrantCli(rest);
+    console.error(
+      "flow epic grant: exactly one valid <epic-slug> is required.",
+    );
+    console.error("usage: flow epic grant <epic-slug> --autonomy high|off");
+    return 2;
+  }
+  return runGrantCli([`epic:${slug}`, ...flags], {
+    cwd: options.cwd,
+    stateDir: options.stateDir,
+    home: options.managerHome,
+  });
+}
+
 function runEpicBind(rest: string[], options: EpicOptions): number {
   if (argsContainHelp(rest)) {
     console.log(`flow epic bind — repoint or adopt a feature's run.json binding
@@ -1731,15 +1812,15 @@ Options:
     }
     const priorSlugs = [...(record?.priorSlugs ?? [])];
     if (record?.slug && record.slug !== slug) priorSlugs.push(record.slug);
-    // A merged record rebound to a different pipeline must not hand its merged
-    // PR/status to the new one, or the sequencer would count it merged at once.
-    const dropMerged = record?.lastStatus === "merged" && record.slug !== slug;
+    // A record rebound to a different pipeline must not carry the old
+    // pipeline's PR/status onto the new one.
+    const rebound = record !== undefined && record.slug !== slug;
     next = {
       slug,
       launchedAt: now(),
       ...(priorSlugs.length > 0 ? { priorSlugs } : {}),
-      ...(record?.pr !== undefined && !dropMerged ? { pr: record.pr } : {}),
-      ...(record?.lastStatus !== undefined && !dropMerged
+      ...(record?.pr !== undefined && !rebound ? { pr: record.pr } : {}),
+      ...(record?.lastStatus !== undefined && !rebound
         ? { lastStatus: record.lastStatus }
         : {}),
     };
@@ -1776,14 +1857,14 @@ function waitNodeRefusal(
 }
 
 const LAUNCH_USAGE =
-  "usage: flow epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--force]";
+  "usage: flow epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--context-file <path>] [--force]";
 
 function runEpicLaunch(rest: string[], options: EpicOptions): number {
   if (argsContainHelp(rest)) {
     console.log(`flow epic launch — atomically create + bind a feature
 
 Usage:
-  flow epic launch <epic-slug> <feature-id> [--model <opus|haiku|sonnet|fable>] [--effort <low|medium|high|xhigh|max>] [--force]
+  flow epic launch <epic-slug> <feature-id> [--model <opus|haiku|sonnet|fable>] [--effort <low|medium|high|xhigh|max>] [--context-file <path>] [--force]
 
 Reads the committed manifest, resolves the feature node, spawns
 \`flow feature create\` for it, and records the minted slug in run.json before
@@ -1798,6 +1879,12 @@ Options:
   --effort <low|medium|high|xhigh|max>
                         per-launch reasoning-effort override — wins over the
                         manifest's flowNewHints for this one launch
+  --context-file <path>
+                        owner rulings and context (non-empty, at most 16 KB) seeded
+                        into the feature's prompt as a delimited block just before
+                        the epic pointer; refused (exit 2, nothing launched) when
+                        the file is missing, empty, too large, or contains the
+                        block's end delimiter
   --force               relaunch even when the feature is already bound`);
     return 0;
   }
@@ -1823,6 +1910,22 @@ Options:
     "low, medium, high, xhigh, max",
   );
   if (effortResult.error) return 2;
+  const contextResult = parseStringValueFlag(
+    rest,
+    "--context-file",
+    "launch",
+    "a path to a rulings file",
+  );
+  if (contextResult.error) return 2;
+  let context: string | undefined;
+  if (contextResult.value !== undefined) {
+    const text = readContextFile(
+      contextResult.value,
+      options.cwd ?? process.cwd(),
+    );
+    if (text === null) return 2;
+    context = text;
+  }
 
   const consumedIndices = new Set<number>();
   if (modelResult.flagIndex !== undefined) {
@@ -1832,6 +1935,11 @@ Options:
   if (effortResult.flagIndex !== undefined) {
     consumedIndices.add(effortResult.flagIndex);
     consumedIndices.add(effortResult.flagIndex + 1);
+  }
+
+  if (contextResult.flagIndex !== undefined) {
+    consumedIndices.add(contextResult.flagIndex);
+    consumedIndices.add(contextResult.flagIndex + 1);
   }
 
   const force = rest.includes("--force");
@@ -1887,6 +1995,7 @@ Options:
     spawn: options.spawn,
     epicSlug,
     overrides,
+    ...(context !== undefined ? { context } : {}),
     tmuxOnPath: options.tmuxOnPath,
   });
   if (!lr.ok) {
@@ -2330,7 +2439,7 @@ Options:
     return 2;
   }
 
-  const epicsDir = options.epicsDir ?? FLOW_EPICS_DIR;
+  const epicsDir = options.epicsDir ?? flowEpicsDir();
   const target = path.join(epicsDir, slug);
   if (!fs.existsSync(target)) {
     console.error(`flow epic done: no run-state for '${slug}'.`);
@@ -2433,7 +2542,7 @@ function launchArgv(
     "--add-dir",
     worktree,
     "--add-dir",
-    FLOW_CLAUDE_HOME,
+    flowClaudeHome(),
     ...pluginDirArgs(roots),
   ];
   const withModel = model ? [...base, "--model", model] : base;
@@ -2460,7 +2569,7 @@ function launchSettingsPathFor(options: EpicOptions): string {
   return (
     options.launchSettingsPath ??
     process.env.FLOW_LAUNCH_SETTINGS_PATH ??
-    FLOW_LAUNCH_SETTINGS_PATH
+    flowLaunchSettingsPath()
   );
 }
 
@@ -2546,7 +2655,7 @@ function withLaunchSlot(
   launch: () => VerifiedLaunchResult,
   options: EpicOptions,
 ): VerifiedLaunchResult {
-  const semDir = process.env.FLOW_LAUNCH_SEM_DIR ?? FLOW_LAUNCH_SEM_DIR;
+  const semDir = process.env.FLOW_LAUNCH_SEM_DIR ?? flowLaunchSemDir();
   const slots = resolveLaunchConcurrency(process.env);
   const semOpts =
     options.launchSemTimeoutMs !== undefined

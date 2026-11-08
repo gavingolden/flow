@@ -18,12 +18,13 @@
  *   exits 2 (`slug-mismatch:`).
  */
 
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { git } from "./lib/git";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { readState } from "./lib/state";
-import { findAvailableSlot, toDirSuffix } from "./lib/worktree-slot";
+import { findAvailableSlot, worktreeDirFor } from "./lib/worktree-slot";
 import { ensureFlowExcludes, writeBranchMarker } from "./lib/worktree-marker";
 import {
   installWorktreeHooks,
@@ -117,8 +118,8 @@ function printHelp(): void {
 Usage: flow-new-worktree [<branch-name>] [base-branch] [--reuse]
        flow-new-worktree --repair-hooks
 
-Creates a git worktree for parallel agent development as a sibling
-directory of this repo. Branch name is converted to a directory-safe
+Creates a git worktree for parallel agent development inside
+<repo-parent>/flow-worktrees.noindex/ (Spotlight skips it). Branch name is converted to a directory-safe
 suffix; deps are installed; .env and .claude/settings.local.json are
 symlinked. Without --reuse, auto-suffixes (<slug>-2, -3, ...) on
 collision so concurrent calls return distinct paths.
@@ -168,16 +169,40 @@ export function parseArgs(
   }
   const branchName = pick.branchName;
   const repoDir = git(["rev-parse", "--show-toplevel"]);
-  const repoName = path.basename(repoDir);
-  const worktreeDir = path.join(
-    path.dirname(repoDir),
-    `${repoName}-${toDirSuffix(branchName)}`,
-  );
+  const worktreeDir = worktreeDirFor(repoDir, branchName);
   const baseBranch = positional[1] ?? detectDefaultBranch(repoDir);
   return {
     kind: "ok",
     config: { branchName, baseBranch, repoDir, worktreeDir, reuse },
   };
+}
+
+/**
+ * `--reuse` target: the derived container path, else the pre-container
+ * sibling path when only that one exists.
+ */
+export function resolveReuseDir(
+  repoDir: string,
+  worktreeDir: string,
+  exists: (p: string) => boolean = fs.existsSync,
+): string {
+  if (exists(worktreeDir)) return worktreeDir;
+  const legacy = path.join(path.dirname(repoDir), path.basename(worktreeDir));
+  return exists(legacy) ? legacy : worktreeDir;
+}
+
+/**
+ * Adopts the launch reservation by its parent folder plus the derived
+ * basename — never the reserved path itself, because findAvailableSlot pairs
+ * branch and dir suffixes by index (a `-2` reservation would become `-2-2`).
+ */
+export function resolveInitialDir(
+  worktreeDir: string,
+  reserved: string | undefined,
+): string {
+  return reserved
+    ? path.join(path.dirname(reserved), path.basename(worktreeDir))
+    : worktreeDir;
 }
 
 function preflight(config: WorktreeConfig): void {
@@ -304,19 +329,23 @@ function main(): void {
 
   let chosen: { branchName: string; worktreeDir: string };
   if (config.reuse) {
-    validateReusable(config.worktreeDir, config.branchName);
-    chosen = { branchName: config.branchName, worktreeDir: config.worktreeDir };
+    const reuseDir = resolveReuseDir(config.repoDir, config.worktreeDir);
+    validateReusable(reuseDir, config.branchName);
+    chosen = { branchName: config.branchName, worktreeDir: reuseDir };
     console.log(`♻️  Reusing existing worktree at: ${chosen.worktreeDir}`);
     log.info(`Branch: ${chosen.branchName}`);
   } else {
+    const reserved = readState(config.branchName)?.reservedWorktree;
+    const initialDir = resolveInitialDir(config.worktreeDir, reserved);
+    fs.mkdirSync(path.dirname(initialDir), { recursive: true });
     chosen = createWorktreeWithRetry(
       config.branchName,
-      config.worktreeDir,
+      initialDir,
       config.baseBranch,
       config.repoDir,
       undefined,
       undefined,
-      readState(config.branchName)?.reservedWorktree,
+      reserved,
     );
     console.log("📦 Installing dependencies...");
     run(["npm", "install", "--silent"], chosen.worktreeDir);

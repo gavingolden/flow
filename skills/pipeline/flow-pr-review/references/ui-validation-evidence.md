@@ -288,6 +288,8 @@ the user has something to judge. For each `capture` entry in `item_results[]`:
   Ad-hoc screenshots outside the driver use `flow-pr-attach`; never an image
   branch, gist, or outside host.
 
+  Never attach a frame from a screencast as phone or desktop evidence; `flow-inject-evidence` refuses a phone-labelled image that is wider than 500 px and wider than it is tall — re-take it at 390 px with `emulate` + `take_screenshot`.
+
 - **`captured` with `reason: "partial: …"`** — inject as above and add an
   indented `partial: <precondition not met>` line under the item, so the user
   knows the picture is the nearest reachable state, not the exact one.
@@ -463,7 +465,7 @@ of scope here.
 ## Screenshot save-path cascade
 
 `flow feature create` now pre-authorizes the per-pipeline worktree as an MCP workspace
-root at launch (`claude --add-dir <repo-parent>/<repo>-<slug>`, where the reserved
+root at launch (`claude --add-dir <repo-parent>/flow-worktrees.noindex/<repo>-<slug>`, where the reserved
 folder may carry a `-2`/`-3` suffix after a collision): the launch reserves that
 folder itself and step 2's `flow-new-worktree` fills it, so the launch passes the
 reserved worktree folder itself (issue #317). So the PREFERRED branch below is now expected to

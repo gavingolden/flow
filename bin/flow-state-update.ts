@@ -61,10 +61,11 @@ import {
   appendPhaseLog,
   type PipelineState,
 } from "./lib/state";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { publishStateBadges } from "./lib/tmux";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { recordEvent } from "./lib/telemetry";
+import { syncKeepAwake } from "./lib/keep-awake";
 import {
   BRANCH_MARKER_FILENAME,
   checkWorktreeBranch,
@@ -288,11 +289,18 @@ export type RunUpdateDeps = {
    * `--phase` and `--pr` updates only.
    */
   publishBadges?: (state: PipelineState) => void;
+  /**
+   * Reconciles the per-pipeline keep-awake holder against the freshly-written
+   * state. Defaults to the real `syncKeepAwake`. Fires on `--phase` writes
+   * only; best-effort, a throw never alters the exit code. Tests inject a
+   * stub.
+   */
+  syncKeepAwake?: (state: PipelineState) => void;
 };
 
 export function runUpdate(
   argv: string[],
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
   deps: RunUpdateDeps = {},
 ): number {
   const parsed = parseArgs(argv);
@@ -415,6 +423,14 @@ export function runUpdate(
       publishBadges(next);
     } catch {
       // swallowed — see comment above.
+    }
+  }
+
+  if (parsed.phase !== undefined) {
+    try {
+      (deps.syncKeepAwake ?? ((s) => void syncKeepAwake(s)))(next);
+    } catch {
+      // swallowed — best-effort, state.json is already durable.
     }
   }
 

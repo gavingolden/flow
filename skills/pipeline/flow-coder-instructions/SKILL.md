@@ -233,6 +233,7 @@ Capture the verdict for the artifact's `verify_status`:
 --json`'s `headExcerpt`/`tailExcerpt` shape — the failure is too large
   to inline verbatim). Surface the failure in the return summary so the
   caller can decide whether to retry.
+- A check with `slept.rerun` of `passed` or `slept-again` is a system-sleep artefact, not a code failure; do not edit code for it (see flow-verify's Interpret Results).
 
 If a check fails for a reason unrelated to your edits (pre-existing
 brokenness on the branch), record it in `anti_patterns_found` with the

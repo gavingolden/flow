@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  EPIC_GRANT_DENY_RULES,
+  GRANT_DENY_RULES,
   FLOW_CREATE_ISSUE_ALLOW_RULES,
   FLOW_UI_LOGIN_ALLOW_RULES,
   SECRET_FILE_DENY_RULES,
@@ -74,38 +74,57 @@ describe("FLOW_CREATE_ISSUE_ALLOW_RULES", () => {
   });
 });
 
-describe("EPIC_GRANT_DENY_RULES", () => {
+describe("GRANT_DENY_RULES", () => {
   it("denies the high-autonomy grant in space and equals forms", () => {
-    expect(EPIC_GRANT_DENY_RULES).toContain(
+    expect(GRANT_DENY_RULES).toContain(
       "Bash(*flow epic grant * --autonomy high*)",
     );
-    expect(EPIC_GRANT_DENY_RULES).toContain(
+    expect(GRANT_DENY_RULES).toContain(
       "Bash(*flow epic grant * --autonomy=high*)",
     );
   });
 
   it("denies the flag-first grant form", () => {
-    expect(EPIC_GRANT_DENY_RULES).toContain(
+    expect(GRANT_DENY_RULES).toContain(
       "Bash(*flow epic grant --autonomy high*)",
     );
   });
 
-  it("denies an env-wrapped grant and shell writes naming grant.json", () => {
-    expect(EPIC_GRANT_DENY_RULES).toContain("Bash(env * flow epic grant *)");
-    expect(EPIC_GRANT_DENY_RULES).toContain("Bash(*managers/*grant.json*)");
+  it("denies the same forms for the top-level flow grant", () => {
+    for (const r of [
+      "Bash(*flow grant * --autonomy high*)",
+      "Bash(*flow grant * --autonomy=high*)",
+      "Bash(*flow grant --autonomy high*)",
+      "Bash(*flow grant --autonomy=high*)",
+      "Bash(env * flow grant *)",
+    ]) {
+      expect(GRANT_DENY_RULES).toContain(r);
+    }
+  });
+
+  it("denies an env-wrapped grant and shell writes naming grants.json", () => {
+    expect(GRANT_DENY_RULES).toContain("Bash(env * flow epic grant *)");
+    expect(GRANT_DENY_RULES).toContain("Bash(*manager/grants.json*)");
+  });
+
+  it("denies Write and Edit of the grant file and the decision log", () => {
+    for (const f of ["grants.json", "log.jsonl"]) {
+      expect(GRANT_DENY_RULES).toContain(`Write(~/.flow/manager/${f})`);
+      expect(GRANT_DENY_RULES).toContain(`Edit(~/.flow/manager/${f})`);
+    }
   });
 
   it("denies Write and Edit under the managers state directory", () => {
-    expect(EPIC_GRANT_DENY_RULES).toContain("Write(~/.flow/state/managers/**)");
-    expect(EPIC_GRANT_DENY_RULES).toContain("Edit(~/.flow/state/managers/**)");
+    expect(GRANT_DENY_RULES).toContain("Write(~/.flow/state/managers/**)");
+    expect(GRANT_DENY_RULES).toContain("Edit(~/.flow/state/managers/**)");
   });
 
-  it("never denies the withdraw form and has no duplicates", () => {
+  it("never denies the withdraw or list forms and has no duplicates", () => {
     expect(
-      EPIC_GRANT_DENY_RULES.some((r) => r.includes("--autonomy off")),
+      GRANT_DENY_RULES.some(
+        (r) => r.includes("--autonomy off") || r.includes("--list"),
+      ),
     ).toBe(false);
-    expect(new Set(EPIC_GRANT_DENY_RULES).size).toBe(
-      EPIC_GRANT_DENY_RULES.length,
-    );
+    expect(new Set(GRANT_DENY_RULES).size).toBe(GRANT_DENY_RULES.length);
   });
 });

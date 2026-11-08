@@ -100,6 +100,30 @@ describe("runHook", () => {
     expect(calls.record).toHaveBeenCalledWith("demo", 2);
   });
 
+  it("should re-sync keep-awake when the throttle allows, and not when throttled", () => {
+    const sync = vi.fn();
+    const allowed = harness({ syncKeepAwake: sync });
+    runHook({}, allowed.deps);
+    expect(sync).toHaveBeenCalledWith("demo");
+    const throttled = harness({
+      last: 1_000_000 - 30_000,
+      syncKeepAwake: sync,
+    });
+    sync.mockClear();
+    runHook({}, throttled.deps);
+    expect(sync).not.toHaveBeenCalled();
+  });
+
+  it("should still sweep when the keep-awake sync throws", () => {
+    const { deps, calls } = harness({
+      syncKeepAwake: () => {
+        throw new Error("boom");
+      },
+    });
+    runHook({}, deps);
+    expect(calls.sweep).toHaveBeenCalled();
+  });
+
   it("should do nothing when the state has no worktree", () => {
     const { deps, calls } = harness({ loadWorktree: () => null });
     expect(runHook({}, deps)).toBeNull();

@@ -7,10 +7,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  CLAUDE_AGENTS_DIR,
-  FLOW_CLAUDE_HOME_SKILLS_DIR,
-  FLOW_COMPLETIONS_DIR,
-  LOCAL_BIN_DIR,
+  claudeAgentsDir,
+  flowClaudeHomeSkillsDir,
+  flowCompletionsDir,
+  localBinDir,
 } from "./paths";
 import type { SymlinkKind, SymlinkRecord } from "./manifest";
 import {
@@ -91,10 +91,18 @@ export type InstallTargets = {
 };
 
 export const DEFAULT_TARGETS: InstallTargets = {
-  skillsDir: FLOW_CLAUDE_HOME_SKILLS_DIR,
-  agentsDir: CLAUDE_AGENTS_DIR,
-  binDir: LOCAL_BIN_DIR,
-  completionsDir: FLOW_COMPLETIONS_DIR,
+  get skillsDir() {
+    return flowClaudeHomeSkillsDir();
+  },
+  get agentsDir() {
+    return claudeAgentsDir();
+  },
+  get binDir() {
+    return localBinDir();
+  },
+  get completionsDir() {
+    return flowCompletionsDir();
+  },
 };
 
 /**
@@ -458,9 +466,9 @@ export function entryToRecord(
  * non-`--source` common case), and when `source` does not live under
  * `flowSource` (`path.relative` escapes with a leading `..`, or is absolute —
  * e.g. the `flow` wrapper, which is already `installRoot`-anchored). The
- * `..`-guard hardens what previously worked only because
- * `flow-new-worktree` guarantees canonical/worktree are same-depth siblings;
- * a non-sibling layout would otherwise produce a wrong `path.join` result.
+ * `path.relative` rebase is depth-agnostic, so it holds for any worktree
+ * layout; the `..`-guard keeps an escaping path from producing a wrong
+ * `path.join` result.
  */
 export function rebaseOntoInstallRoot(
   source: string,

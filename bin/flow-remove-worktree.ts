@@ -11,7 +11,7 @@
  * resolution logic.
  *
  * Examples:
- *   flow-remove-worktree ../flow-agent-improve-tooltips
+ *   flow-remove-worktree ../flow-worktrees.noindex/flow-agent-improve-tooltips
  *   flow-remove-worktree agent/improve-tooltips
  *   flow-remove-worktree                            # slug from $FLOW_SLUG
  */
@@ -19,8 +19,13 @@
 import * as fs from "fs";
 import * as path from "path";
 import { resolveSlugAmbient } from "./lib/session-identity";
-import { readState, writeState, WORKTREE_REMOVED_PHASE_SET } from "./lib/state";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import {
+  listStates,
+  readState,
+  writeState,
+  WORKTREE_REMOVED_PHASE_SET,
+} from "./lib/state";
+import { flowStateDir } from "./lib/paths";
 import {
   detectDefaultBranch,
   salvageAgentMemory,
@@ -319,7 +324,7 @@ Options:
   --delete-branch            Also delete the branch after removing the worktree.
 
 Examples:
-  flow-remove-worktree ../flow-agent-improve-tooltips
+  flow-remove-worktree ../flow-worktrees.noindex/flow-agent-improve-tooltips
   flow-remove-worktree agent/improve-tooltips --delete-branch
   flow-remove-worktree                # slug from \$FLOW_SLUG
   `);
@@ -426,6 +431,9 @@ export type WorktreeListEntry = {
   path: string;
   branch?: string;
   bare?: boolean;
+  locked?: boolean;
+  prunable?: boolean;
+  detached?: boolean;
 };
 
 /** Parses `git worktree list --porcelain` output into structured entries. */
@@ -440,6 +448,12 @@ export function parseWorktreeListOutput(raw: string): WorktreeListEntry[] {
       current.branch = line.slice("branch ".length).replace("refs/heads/", "");
     } else if (line === "bare") {
       current.bare = true;
+    } else if (line === "locked" || line.startsWith("locked ")) {
+      current.locked = true;
+    } else if (line === "prunable" || line.startsWith("prunable ")) {
+      current.prunable = true;
+    } else if (line === "detached") {
+      current.detached = true;
     } else if (line === "") {
       if (current.path) {
         entries.push(current as WorktreeListEntry);
@@ -513,7 +527,7 @@ export function stateSlugForInput(input: string): string | undefined {
 export function forgetRemovedWorktree(
   slug: string,
   removedDir: string,
-  dir: string = FLOW_STATE_DIR,
+  dir: string = flowStateDir(),
 ): boolean {
   try {
     const state = readState(slug, dir);
@@ -528,6 +542,26 @@ export function forgetRemovedWorktree(
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Slugs of the pipeline records whose recorded `worktree` is `removedDir`
+ * (canonical compare). Lets a path input (the worktree sweep's only form)
+ * reach the same finished-record clean-up a slug input gets; each result still
+ * goes through the double-guarded `forgetRemovedWorktree`. Never throws.
+ */
+export function slugsOwningWorktree(
+  removedDir: string,
+  dir: string = flowStateDir(),
+): string[] {
+  try {
+    const target = canonicalizePath(removedDir);
+    return listStates(dir)
+      .filter((s) => s.worktree && canonicalizePath(s.worktree) === target)
+      .map((s) => s.slug);
+  } catch {
+    return [];
   }
 }
 
@@ -733,7 +767,11 @@ function main(): void {
   });
   log.success("Worktree removed.");
   const removedSlug = stateSlugForInput(input);
-  if (removedSlug) forgetRemovedWorktree(removedSlug, info.worktreeDir);
+  for (const s of removedSlug
+    ? [removedSlug]
+    : slugsOwningWorktree(info.worktreeDir)) {
+    forgetRemovedWorktree(s, info.worktreeDir);
+  }
 
   // Auto-delete probe: when --delete-branch wasn't passed AND the per-task branch
   // is provably fully merged into origin/<base>, fall through to the same deletion

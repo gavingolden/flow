@@ -32,7 +32,7 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
+import { currentHome } from "./lib/paths";
 import * as path from "node:path";
 import type { AgentName } from "./flow-pr-agent-lens";
 import { capDiff, DEFAULT_MAX_LINES, DEFAULT_MAX_TOTAL } from "./flow-pr-diff";
@@ -718,7 +718,9 @@ const defaultDeps: RunDeps = {
     fs.writeFileSync(p, content);
   },
   now: () => new Date(),
-  homeDir: os.homedir(),
+  get homeDir() {
+    return currentHome();
+  },
   productBrief: (cwd) => resolveProductBrief({ cwd }),
 };
 

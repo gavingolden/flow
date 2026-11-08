@@ -10,7 +10,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_CLAUDE_HOME } from "./paths";
+import { flowClaudeHome } from "./paths";
 import { printTopHelp } from "./help";
 import { dim } from "./color";
 import {
@@ -22,7 +22,7 @@ import {
 
 /**
  * The materialized plugin roots visible from `claudeHome` — derived from
- * `claudeHome` (not the eager `FLOW_CLAUDE_HOME_SKILLS_DIR` default) so the
+ * `claudeHome` (not the `flowClaudeHomeSkillsDir()` default) so the
  * SAME `claudeHome` test seam that already keeps this launcher off the
  * developer's real `~/.flow` also keeps plugin-root discovery off it.
  */
@@ -40,15 +40,15 @@ function argvFor(claudeHome: string, roots: readonly string[]): string[] {
  * Deliberately NO `--settings` and NO `FLOW_PIPELINE=1` — an interactive
  * session has no seed to ingest and must NOT suppress `/flow-research`'s
  * standalone tier (those are pipeline-session concerns). `claudeHome` is an
- * injectable seam (default `FLOW_CLAUDE_HOME`) so tests never touch the
+ * injectable seam (default `flowClaudeHome()`) so tests never touch the
  * developer's real `~/.flow`. `pluginRootsScan` is the same injectable
  * scan seam `feature.ts`/`epic.ts` give their launch-argv builders — a
  * test that calls this with no args must not scan the developer's real
- * `FLOW_CLAUDE_HOME` skills dir, which `vitest.setup.ts`'s HOME sandbox
- * does not reach (paths.ts captures HOME at import time).
+ * `flowClaudeHome()` skills dir, so a sandbox-less run would read the
+ * real home (`vitest.setup.ts` sandboxes HOME).
  */
 export function buildInteractiveLaunchArgv(
-  claudeHome: string = FLOW_CLAUDE_HOME,
+  claudeHome: string = flowClaudeHome(),
   pluginRootsScan: (claudeHome: string) => string[] = pluginRootsFor,
 ): string[] {
   return argvFor(claudeHome, pluginRootsScan(claudeHome));
@@ -57,7 +57,7 @@ export function buildInteractiveLaunchArgv(
 export type LaunchDeps = {
   /** Whether stdin is a TTY. Default: `process.stdin.isTTY === true`. */
   isTTY?: boolean;
-  /** Skills-home path override. Default: `FLOW_CLAUDE_HOME`. */
+  /** Skills-home path override. Default: `flowClaudeHome()`. */
   claudeHome?: string;
   /** Spawn seam. Default: `Bun.spawnSync` with inherited stdio. Returns the child exit code. */
   spawn?: (argv: string[]) => number;
@@ -109,7 +109,7 @@ export function runLaunchCli(deps: LaunchDeps = {}): number {
   const isTTY = deps.isTTY ?? process.stdin.isTTY === true;
   const log = deps.log ?? ((s: string) => console.log(s));
   const existsDir = deps.existsDir ?? defaultExistsDir;
-  const claudeHome = deps.claudeHome ?? FLOW_CLAUDE_HOME;
+  const claudeHome = deps.claudeHome ?? flowClaudeHome();
   const spawn = deps.spawn ?? defaultSpawn;
 
   if (!isTTY) {

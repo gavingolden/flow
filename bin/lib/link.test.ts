@@ -6,7 +6,7 @@
  * are saved and restored around each test.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyLinkModeOptOut,
   fileUri,
@@ -74,7 +74,7 @@ describe("hyperlinksEnabled / resolveLinkMode", () => {
 
   it("is false when FLOW_NO_HYPERLINKS is set, even on a TTY", () => {
     setIsTTY(true);
-    process.env.FLOW_NO_HYPERLINKS = "1";
+    vi.stubEnv("FLOW_NO_HYPERLINKS", "1");
     expect(hyperlinksEnabled()).toBe(false);
   });
 
@@ -225,18 +225,17 @@ describe("wrap — URI-side hardening", () => {
 });
 
 describe("applyLinkModeOptOut", () => {
-  const saved = { ...process.env };
   afterEach(() => {
-    process.env = { ...saved };
+    vi.unstubAllEnvs();
   });
 
   it("downgrades an explicit terminal mode when FLOW_NO_HYPERLINKS is set", () => {
-    process.env.FLOW_NO_HYPERLINKS = "1";
+    vi.stubEnv("FLOW_NO_HYPERLINKS", "1");
     expect(applyLinkModeOptOut("terminal")).toBe("plain");
   });
 
   it("downgrades an explicit terminal mode when NO_COLOR is set", () => {
-    process.env.NO_COLOR = "";
+    vi.stubEnv("NO_COLOR", "");
     expect(applyLinkModeOptOut("terminal")).toBe("plain");
   });
 
@@ -247,7 +246,7 @@ describe("applyLinkModeOptOut", () => {
   });
 
   it("never downgrades markdown mode — it emits no escape bytes", () => {
-    process.env.FLOW_NO_HYPERLINKS = "1";
+    vi.stubEnv("FLOW_NO_HYPERLINKS", "1");
     expect(applyLinkModeOptOut("markdown")).toBe("markdown");
   });
 });

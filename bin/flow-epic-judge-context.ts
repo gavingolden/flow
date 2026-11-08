@@ -34,7 +34,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { readState } from "./lib/state";
-import { FLOW_STATE_DIR, FLOW_EPICS_DIR } from "./lib/paths";
+import { flowStateDir, flowEpicsDir } from "./lib/paths";
 import { readEpicRunState, type FeatureRunRecord } from "./lib/epic-run-state";
 import {
   validateEpicManifest,
@@ -336,8 +336,8 @@ export function run(argv: string[], deps: Deps = {}): number {
 
   const resolved: Resolved = {
     gh: deps.gh ?? defaultGh,
-    stateDir: deps.stateDir ?? FLOW_STATE_DIR,
-    epicsDir: deps.epicsDir ?? FLOW_EPICS_DIR,
+    stateDir: deps.stateDir ?? flowStateDir(),
+    epicsDir: deps.epicsDir ?? flowEpicsDir(),
   };
 
   let result: unknown;

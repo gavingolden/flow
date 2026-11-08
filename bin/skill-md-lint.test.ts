@@ -2623,7 +2623,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
 
     const negatedButMatchesTokenAndVerb = readAnchoredLine(
       "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
-      466,
+      473,
       "NEVER push to the base branch",
     );
     expect(
@@ -2635,7 +2635,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        532,
+        511,
         "NEVER commit to or push the base branch",
       ],
       [
@@ -2645,7 +2645,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
       ],
       [
         "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
-        468,
+        475,
         "NEVER use `git push --force`",
       ],
     ];
@@ -12968,7 +12968,7 @@ describe("executive review anchors", () => {
   });
 
   it("step 4 carries the executive section with the plan-review call, the 10-minute Bash timeout, and every branch", () => {
-    expect(step04).toContain("### Executive review (granted epics)");
+    expect(step04).toContain("### Executive review (granted pipelines)");
     expect(step04).toContain("flow-exec-review review --kind plan");
     expect(step04).toContain("timeout: 600000");
     for (const branch of [
@@ -12996,7 +12996,7 @@ describe("executive review anchors", () => {
     expect(step03).toContain(
       'EXEC_SCOPE=$(flow-exec-review status --slug "$FLOW_SLUG")',
     );
-    const pointer = step03.indexOf("granted epic\n  feature first");
+    const pointer = step03.indexOf("granted pipeline\n  first");
     const write = step03.indexOf(
       "Otherwise write `phase: plan-pending-review`",
     );
@@ -13040,9 +13040,9 @@ describe("executive review anchors", () => {
 
   it("governance: no session grants autonomy or writes grant.json", () => {
     expect(supervisorRulesContent).toContain(
-      "Don't let a session grant epic autonomy",
+      "Don't let a session grant autonomy",
     );
-    expect(supervisorRulesContent).toContain("grant.json");
+    expect(supervisorRulesContent).toContain("grants.json");
     expect(supervisorRulesContent).toMatch(
       /not a\s+proof against a session that rewrites its own environment/,
     );

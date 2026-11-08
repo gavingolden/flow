@@ -21,7 +21,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { readLiveEffort } from "./claude-build";
-import { flowTelemetryLogPath, FLOW_STATE_DIR } from "./paths";
+import { flowTelemetryLogPath, flowStateDir } from "./paths";
 import { resolveSlugAmbient } from "./session-identity";
 import { readState, type PipelineState } from "./state";
 import {
@@ -123,7 +123,7 @@ export function resolveCorrelation(
 
   let state: PipelineState | null = null;
   try {
-    state = readState(slug, opts.stateDir ?? FLOW_STATE_DIR);
+    state = readState(slug, opts.stateDir ?? flowStateDir());
   } catch {
     state = null;
   }
@@ -219,7 +219,7 @@ export type RecordEventOpts = {
   logPath?: string;
   /** Test seam: correlation's env source, defaults to `process.env`. */
   env?: NodeJS.ProcessEnv;
-  /** Test seam: correlation's state-dir, defaults to `FLOW_STATE_DIR`. */
+  /** Test seam: correlation's state-dir, defaults to `flowStateDir()`. */
   stateDir?: string;
 };
 

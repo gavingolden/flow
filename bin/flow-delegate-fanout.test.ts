@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import fs from "node:fs";
+import fs, { readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
@@ -946,7 +946,7 @@ describe("flow-delegate-fanout (subprocess, agy absent from PATH)", () => {
   const agyInSkipPath =
     spawnSync("sh", ["-c", "which agy"], {
       encoding: "utf8",
-      env: { PATH: SKIP_PATH },
+      env: { ...process.env, PATH: SKIP_PATH },
     }).status === 0;
 
   it.skipIf(agyInSkipPath)(
@@ -963,10 +963,22 @@ describe("flow-delegate-fanout (subprocess, agy absent from PATH)", () => {
       spawnSync("sh", ["-c", `cat > ${JSON.stringify(manifestPath)}`], {
         input: manifest,
       });
+      const telemetryDir = path.join(
+        process.env.HOME as string,
+        ".flow",
+        "telemetry",
+      );
+      rmSync(telemetryDir, { recursive: true, force: true });
       const r = spawnSync(
         bunPath,
         ["run", HELPER, "--manifest", manifestPath, "--out", outPath],
-        { encoding: "utf8", env: { PATH: SKIP_PATH } },
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${SKIP_PATH}:${path.dirname(bunPath)}`,
+          },
+        },
       );
       expect(r.status).toBe(0);
       const agg = JSON.parse(r.stdout.trim());
@@ -974,6 +986,10 @@ describe("flow-delegate-fanout (subprocess, agy absent from PATH)", () => {
       expect(agg.entries.every((e: { ran: boolean }) => e.ran === false)).toBe(
         true,
       );
+      const log = readFileSync(path.join(telemetryDir, "events.jsonl"), "utf8");
+      expect(
+        log.match(/"skip_reason":"agy-not-found"/g)?.length,
+      ).toBeGreaterThanOrEqual(2);
     },
   );
 });

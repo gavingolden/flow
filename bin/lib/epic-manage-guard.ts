@@ -16,7 +16,11 @@ import {
 } from "./epic-manifest-schema";
 import type { GitRefs, GithubPr, GithubSnapshot } from "./epic-manage-observe";
 import type { ReconcileResult } from "./epic-reconcile";
-import type { EpicRunState } from "./epic-run-state";
+import {
+  isLatchedMerge,
+  ownedState,
+  type EpicRunState,
+} from "./epic-run-state";
 import { slugify } from "./slug";
 import type { EffortLevel, ModelAlias, PipelineState } from "./state";
 
@@ -151,9 +155,10 @@ export function planLaunches(input: GuardInput): GuardResult {
   for (const row of input.result.board) {
     const record = input.runState.features[row.id];
     if (!record?.slug || input.launching.has(row.id)) continue;
-    const state = statesBySlug.get(record.slug);
+    const state =
+      ownedState(record, statesBySlug.get(record.slug)) ?? undefined;
     const ownPr = state?.pr ?? record.pr;
-    const latchedMerged = state === undefined && record.lastStatus === "merged";
+    const latchedMerged = isLatchedMerge(record, state);
     if (
       !latchedMerged &&
       state?.phase !== "merged" &&

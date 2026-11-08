@@ -34,8 +34,8 @@ const POISON = vi.hoisted(
 );
 vi.mock("./paths", async (orig) => ({
   ...(await orig<typeof import("./paths")>()),
-  FLOW_STATE_DIR: `${POISON}/state`,
-  FLOW_MANIFEST: `${POISON}/installed.json`,
+  flowStateDir: () => `${POISON}/state`,
+  flowManifestPath: () => `${POISON}/installed.json`,
 }));
 
 import { runDoctorCli } from "./doctor-cli";
@@ -43,6 +43,7 @@ import type { DoctorDeps, DoctorReport } from "./doctor";
 import { makeDeps, scriptedRun } from "./doctor-test-deps";
 import { appendRow } from "./proc-registry";
 import { writeState, type PipelineState } from "./state";
+import { writeLastSweep } from "./worktree-sweep-state";
 
 let root: string;
 let out: string[];
@@ -80,6 +81,7 @@ function healthyDeps(): DoctorDeps {
       if (cmd === "gh" || cmd === "claude") return { status: 0, stdout: "ok" };
       if (cmd === "git" && args.includes("worktree"))
         return { status: 0, stdout: "" };
+      if (cmd === "mdfind") return { status: 0, stdout: "0" };
       return undefined;
     }),
   });
@@ -112,6 +114,18 @@ function healthyDeps(): DoctorDeps {
       procStartedAt: 1,
       updatedAt: "2026-01-01T00:00:00.000Z",
     } as PipelineState,
+    deps.stateDir,
+  );
+  writeLastSweep(
+    {
+      mode: "worktrees",
+      at: new Date(deps.nowMs()).toISOString(),
+      acted: true,
+      items: [],
+      danglingMounts: [],
+      deadlineHit: false,
+      totals: { removed: 0, held: 0, failed: 0, bytesFreed: 0 },
+    },
     deps.stateDir,
   );
   fs.mkdirSync(deps.targets.binDir, { recursive: true });
@@ -238,6 +252,7 @@ describe("runDoctorCli full probe run in a sandbox", () => {
         "tools-pipeline-permissions",
         "tools-agy",
         "leftovers-worktrees",
+        "leftovers-worktree-indexing",
         "leftovers-processes",
       ]),
     );

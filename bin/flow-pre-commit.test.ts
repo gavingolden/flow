@@ -41,6 +41,7 @@ import {
   findNonExecutableHelpers,
   formatJsonReport,
   formatReport,
+  isolationRetryWanted,
   resolveSelection,
   getChangedFilesForPush,
   isExecutableLibModule,
@@ -3856,5 +3857,81 @@ describe("checkRunEnv", () => {
     expect(out.NODE_OPTIONS).toBe("--require=/p/no-proctitle.cjs");
     expect(out.UV_PROCESS_TITLE_USE_LAUNCH_SERVICES).toBe("0");
     expect(input.GIT_DIR).toBe("/x/.git");
+  });
+});
+
+describe("slept rendering", () => {
+  const slept = {
+    sleptAt: new Date(2026, 0, 1, 9, 5).toISOString(),
+    wokeAt: new Date(2026, 0, 1, 9, 41).toISOString(),
+    rerun: "passed" as const,
+  };
+  const failing: CheckResult = {
+    name: "test",
+    scope: "src",
+    passed: false,
+    durationMs: 10,
+    output: "boom",
+  };
+  const report = (r: CheckResult): CheckReport => ({
+    scopes: ["src"],
+    results: [r],
+    allPassed: r.passed,
+  });
+
+  it("should print the slept line with times and outcome, never 'load'", () => {
+    const out = formatReport(report({ ...failing, slept }));
+    expect(out).toContain(
+      "test (re-run after sleep): the Mac slept from 09:05 to 09:41 during this check",
+    );
+    expect(out).toContain("re-run passed");
+    expect(out.toLowerCase()).not.toContain("load");
+  });
+
+  it("should render unknown wake time and 'slept again'", () => {
+    const out = formatReport(
+      report({
+        ...failing,
+        slept: { ...slept, wokeAt: null, rerun: "slept-again" },
+      }),
+    );
+    expect(out).toContain("slept at 09:05 (wake time unknown)");
+    expect(out).not.toContain("to unknown");
+    expect(out).toContain("re-run slept again");
+  });
+
+  it("should not print or copy slept on a reused (dedupedFrom) row", () => {
+    const reused = { ...failing, slept, dedupedFrom: "src" as const };
+    expect(formatReport(report(reused))).not.toContain("re-run after sleep");
+    expect(
+      JSON.parse(formatJsonReport(report(reused))).results[0],
+    ).not.toHaveProperty("slept");
+  });
+
+  it.each([
+    [false, undefined, true],
+    [true, undefined, false],
+    [true, "failed", true],
+    [false, "passed", false],
+    [false, "slept-again", false],
+  ] as const)(
+    "isolationRetryWanted(passed=%s, rerun=%s) should be %s",
+    (passed, rerun, want) => {
+      const s = rerun ? { ...slept, rerun } : undefined;
+      expect(isolationRetryWanted({ passed }, s)).toBe(want);
+    },
+  );
+
+  it("should not print a slept line for a result without slept", () => {
+    expect(formatReport(report(failing))).not.toContain("re-run after sleep");
+  });
+
+  it("should copy slept into the JSON report only when present", () => {
+    const withSlept = JSON.parse(
+      formatJsonReport(report({ ...failing, slept })),
+    );
+    expect(withSlept.results[0].slept).toEqual(slept);
+    const without = JSON.parse(formatJsonReport(report(failing)));
+    expect(without.results[0]).not.toHaveProperty("slept");
   });
 });

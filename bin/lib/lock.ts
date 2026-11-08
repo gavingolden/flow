@@ -4,7 +4,7 @@
  *
  * Why: `flow install --upgrade` invoked concurrently from parallel pipelines
  * can race on `~/.flow/claude-home/.claude/skills/` symlinks. Wrap the symlink-creation block
- * in `withFileLock(SETUP_LOCK_PATH, ...)` and the second invocation waits
+ * in `withFileLock(setupLockPath(), ...)` and the second invocation waits
  * for the first to finish. `withTestSemaphore` reuses the same atomic
  * publish + stale-reclaim path to cap host-wide concurrent test runs.
  *

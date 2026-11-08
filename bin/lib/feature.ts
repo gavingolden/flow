@@ -20,9 +20,10 @@ import { fileURLToPath } from "node:url";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
 import { resolveRepoRoot } from "./repo-root";
 import { slugify, isValidSlug } from "./slug";
+import { startBackgroundWorktreeSweep } from "./worktree-sweep-launch";
 import { confirmStdin } from "./confirm";
 import {
-  toDirSuffix,
+  worktreeDirFor,
   MAX_SUFFIX_ATTEMPTS,
   releaseReservedWorktree,
   reserveWorktreeSlot,
@@ -74,7 +75,7 @@ import { sanitizeSeedLine } from "./seed-delivery";
 import { appendLaunchRecord } from "./launch-log";
 import { dim } from "./color";
 import {
-  EPIC_GRANT_DENY_RULES,
+  GRANT_DENY_RULES,
   FLOW_CREATE_ISSUE_ALLOW_RULES,
   FLOW_UI_LOGIN_ALLOW_RULES,
   SECRET_FILE_DENY_RULES,
@@ -96,9 +97,9 @@ import {
 } from "./seed-ingest";
 import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
 import {
-  FLOW_CLAUDE_HOME,
-  FLOW_LAUNCH_SEM_DIR,
-  FLOW_LAUNCH_SETTINGS_PATH,
+  flowClaudeHome,
+  flowLaunchSemDir,
+  flowLaunchSettingsPath,
   installedHelperPath,
 } from "./paths";
 import { installBaseBranchGuard } from "./base-branch-guard";
@@ -186,12 +187,14 @@ export type FeatureOptions = {
   /**
    * Reserves the worktree folder at launch (test seam). Production uses
    * `reserveWorktreeSlot(slug, deriveWorktreePath(repo, slug), repo)`, which
-   * creates the empty folder so it exists when Claude starts.
+   * creates the container and the empty folder so it exists when Claude starts.
    */
   reserveWorktree?: (
     slug: string,
     repo: string,
   ) => { branchName: string; worktreeDir: string };
+  /** Starts the automatic worktree cleanup (test seam; default is the real detached starter). */
+  startWorktreeSweep?: () => void;
   /** Override the command launched in the window. */
   command?: string[];
   /** Resume a crashed pipeline rather than start a new one. */
@@ -324,7 +327,7 @@ export type FeatureOptions = {
   /**
    * Path to the flow-scoped `claude --settings` file the launch argv references
    * and `ensureLaunchSettings` writes. Test seam only — production uses
-   * FLOW_LAUNCH_SETTINGS_PATH; tests point it at a temp file to avoid touching
+   * flowLaunchSettingsPath(); tests point it at a temp file to avoid touching
    * the real ~/.flow and to assert the argv path.
    */
   launchSettingsPath?: string;
@@ -341,7 +344,7 @@ export type FeatureOptions = {
   /**
    * Plugin-root scanner seam threaded into `claudeArgv`/`launchArgv` (both
    * backends' `--plugin-dir` argv AND the tmux backend's `env` PATH prefix).
-   * Defaults to the real `scanPluginRoots` (`FLOW_CLAUDE_HOME_SKILLS_DIR`) —
+   * Defaults to the real `scanPluginRoots` (`flowClaudeHomeSkillsDir()`) —
    * tests override so a fixture never scans the developer's real
    * `~/.flow/claude-home`.
    */
@@ -853,6 +856,8 @@ function runFresh(
     return 1;
   }
 
+  (options.startWorktreeSweep ?? startBackgroundWorktreeSweep)();
+
   // Resolve the final slug BEFORE any state write so the persist-then-verify-
   // then-delete-on-failure no-orphan ordering below writes exactly one file for
   // it. An explicit --slug is used verbatim and still hard-fails on collision (a
@@ -968,11 +973,15 @@ function runFresh(
 
   // Lazy prune of dead pipelines' private skill copies (cheap no-op when the
   // overlays dir is absent), with the SAME stateDir this launch reads.
+  // A caller-injected stateDir with the default (host-wide) overlays dir would
+  // read every real overlay as a dead pipeline, so skip rather than prune.
   try {
-    pruneStaleOverlays({
-      overlaysDir: options.overlaysDir,
-      stateDir: options.stateDir,
-    });
+    if (!options.stateDir || options.overlaysDir) {
+      pruneStaleOverlays({
+        overlaysDir: options.overlaysDir,
+        stateDir: options.stateDir,
+      });
+    }
   } catch (err) {
     console.error(
       dim(
@@ -1108,6 +1117,7 @@ function runFresh(
     epic: options.epic,
     launcher,
     kind: "feature",
+    createdAt: existing?.createdAt ?? nowIso(),
     updatedAt: nowIso(),
   });
   const existing = readState(slug, options.stateDir);
@@ -1738,10 +1748,10 @@ function runResume(
 }
 
 /**
- * Derive the deterministic worktree path for this slug. Mirrors
- * `flow-new-worktree.ts`'s rule (`path.dirname(repo)/<repoName>-<toDirSuffix(branch)>`,
- * with `branch === slug`); `toDirSuffix` is a no-op for a slash-free slug but
- * is reused here so the two derivations cannot drift. This is the COMMON-CASE
+ * Derive the deterministic worktree path for this slug:
+ * `<repo-parent>/flow-worktrees.noindex/<repoName>-<slug>`, the rule shared with
+ * `flow-new-worktree.ts` via `worktreeDirFor` so the two cannot drift. Paths
+ * recorded in state (older sibling-layout worktrees) still win on resume. This is the COMMON-CASE
  * path only — when `<repo>-<slug>` already exists (parallel pipelines, stale
  * worktrees), `findAvailableSlot` auto-suffixes (`-2`/`-3`/…). `flow feature
  * create` reserves whichever slot wins (`reserveWorktreeSlot`) and
@@ -1751,10 +1761,7 @@ function runResume(
  * no state file keeps this derived path and creates no folder).
  */
 export function deriveWorktreePath(repo: string, slug: string): string {
-  return path.join(
-    path.dirname(repo),
-    `${path.basename(repo)}-${toDirSuffix(slug)}`,
-  );
+  return worktreeDirFor(repo, slug);
 }
 
 /**
@@ -1767,7 +1774,7 @@ export function resumeWorktree(state: PipelineState, slug: string): string {
   if (state.reservedWorktree) {
     try {
       if (!fs.existsSync(state.reservedWorktree)) {
-        fs.mkdirSync(state.reservedWorktree);
+        fs.mkdirSync(state.reservedWorktree, { recursive: true });
       }
     } catch {
       // best-effort: a missing folder only costs the --add-dir pre-authorization
@@ -1871,7 +1878,7 @@ function claudeArgv(
     "--add-dir",
     worktree,
     "--add-dir",
-    FLOW_CLAUDE_HOME,
+    flowClaudeHome(),
     ...(overlayDir ? ["--add-dir", overlayDir] : []),
     ...pluginDirArgs(roots),
   ];
@@ -2014,7 +2021,7 @@ export function launchSettingsPermissions(): {
   allow: string[];
 } {
   return {
-    deny: [...SECRET_FILE_DENY_RULES, ...EPIC_GRANT_DENY_RULES],
+    deny: [...SECRET_FILE_DENY_RULES, ...GRANT_DENY_RULES],
     allow: [
       ...FLOW_UI_LOGIN_ALLOW_RULES,
       ...FLOW_CREATE_ISSUE_ALLOW_RULES,
@@ -2045,7 +2052,7 @@ export function launchSettingsPermissions(): {
  * then resolve to the checkout path, so the content differs and is rewritten.
  */
 export function ensureLaunchSettings(
-  settingsPath: string = FLOW_LAUNCH_SETTINGS_PATH,
+  settingsPath: string = flowLaunchSettingsPath(),
 ): void {
   const guardCommand = resolveDocReadGuardCommand();
   const echoCommand = resolveRequestEchoHookCommand();
@@ -2164,7 +2171,7 @@ function launchSettingsPathFor(options: FeatureOptions): string {
   return (
     options.launchSettingsPath ??
     process.env.FLOW_LAUNCH_SETTINGS_PATH ??
-    FLOW_LAUNCH_SETTINGS_PATH
+    flowLaunchSettingsPath()
   );
 }
 
@@ -2268,7 +2275,7 @@ function withLaunchSlot<T extends VerifiedLaunchResult>(
   launch: () => T,
   options: FeatureOptions,
 ): T {
-  const semDir = process.env.FLOW_LAUNCH_SEM_DIR ?? FLOW_LAUNCH_SEM_DIR;
+  const semDir = process.env.FLOW_LAUNCH_SEM_DIR ?? flowLaunchSemDir();
   const slots = resolveLaunchConcurrency(process.env);
   const semOpts =
     options.launchSemTimeoutMs !== undefined

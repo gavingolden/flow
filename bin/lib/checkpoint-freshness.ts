@@ -10,7 +10,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_STATE_DIR } from "./paths";
+import { flowStateDir } from "./paths";
 import { isValidSlug } from "./slug";
 
 /** The `/flow-checkpoint` arm sites. Single source of truth — `CheckpointSiteValue`
@@ -34,7 +34,7 @@ export type CheckpointSite = (typeof CHECKPOINT_SITES)[number];
  * probe (mkdir stays at the write sites, mirroring
  * `bin/lib/stop-turn-tracking.ts:41,73`'s `turns/` subdirectory precedent).
  */
-export function checkpointDir(slug: string, dir = FLOW_STATE_DIR): string {
+export function checkpointDir(slug: string, dir = flowStateDir()): string {
   // The slug becomes a filesystem path component here, so validate rather than
   // trust the caller — same reasoning (and same throw) as the sibling
   // `registryPath` in `bin/lib/proc-registry.ts`. Without it a slug carrying
@@ -58,7 +58,7 @@ export function checkpointDir(slug: string, dir = FLOW_STATE_DIR): string {
  */
 export function deleteCheckpointDir(
   slug: string,
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): boolean {
   try {
     fs.rmSync(checkpointDir(slug, dir), { recursive: true, force: true });
@@ -69,7 +69,7 @@ export function deleteCheckpointDir(
 }
 
 /** Absolute path of the checkpoint body the /flow-checkpoint skill writes. */
-export function checkpointBodyPath(slug: string, dir = FLOW_STATE_DIR): string {
+export function checkpointBodyPath(slug: string, dir = flowStateDir()): string {
   return path.join(checkpointDir(slug, dir), "checkpoint.md");
 }
 
@@ -109,7 +109,7 @@ export function probeFreshness(
     phaseLog?: Array<{ at: string }>;
   },
   site: CheckpointSite,
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): { verdict: "write" | "preserve"; reason: string } {
   let stat: fs.Stats;
   try {
@@ -178,7 +178,7 @@ export function isCheckpointUsable(
     checkpoint?: { site: CheckpointSite; phase: string; armedAt: string };
     phaseLog?: Array<{ at: string }>;
   },
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): boolean {
   let stat: fs.Stats;
   try {

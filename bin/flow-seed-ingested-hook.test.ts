@@ -774,10 +774,12 @@ describe("flow-seed-ingested-hook never writes global settings", () => {
     "utf8",
   );
 
-  it.each([".claude/settings.json", "settings-merge", "CLAUDE_SETTINGS_PATH"])(
-    "does not reference the global-settings surface '%s'",
-    (symbol) => {
-      expect(hookSource).not.toContain(symbol);
-    },
-  );
+  it.each([
+    ".claude/settings.json",
+    "settings-merge",
+    "CLAUDE_SETTINGS_PATH",
+    "claudeSettingsPath",
+  ])("does not reference the global-settings surface '%s'", (symbol) => {
+    expect(hookSource).not.toContain(symbol);
+  });
 });

@@ -34,7 +34,8 @@ import { resolveSlugAmbient } from "./lib/session-identity";
 import { type GitRunner, defaultGit } from "./lib/resume-probes";
 import { normalizeDetailsBlocks } from "./lib/md-block-structure";
 import { advancePhase } from "./lib/phase-advance";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
+import { selfMarkEpicRow, type SelfMarkResult } from "./lib/epic-self-mark";
 
 type Args = {
   /** undefined when omitted — caller falls back to resolveSlugAmbient(). */
@@ -263,12 +264,29 @@ export type Deps = {
    * tmp-`stateDir` test harness observe the `advancePhase` write instead of
    * the developer's real `~/.flow/state`. */
   stateDir?: string;
+  /** Test seam: the epic-board self-mark. Production binds `selfMarkEpicRow`. */
+  selfMark?: (opts: Parameters<typeof selfMarkEpicRow>[0]) => SelfMarkResult;
 };
+
+function reportSelfMark(r: SelfMarkResult, slug: string): void {
+  if (r.outcome === "not-bound" || r.outcome === "unchanged") return;
+  if (r.outcome === "written") {
+    console.error(
+      `flow-open-pr: added ${r.epicSlug}/${r.featureId}'s board row to this PR (it reads merged once the PR merges) (#${r.pr})`,
+    );
+    return;
+  }
+  console.error(
+    `flow-open-pr: WARNING: the epic board row for ${r.epicSlug ?? "?"}/${r.featureId ?? "?"} was not written or pushed (${r.reason}: ${r.detail ?? ""}).\n` +
+      "  the PR is open, but flow-merge-guard will refuse to merge it until the row lands:\n" +
+      `  run \`flow-epic-self-mark --slug ${slug} --commit --push\` in the worktree.`,
+  );
+}
 
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const git = deps.git ?? defaultGit;
-  const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
+  const stateDir = deps.stateDir ?? flowStateDir();
   const updater =
     deps.updater ?? ((updateArgv: string[]) => runUpdate(updateArgv, stateDir));
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
@@ -402,6 +420,24 @@ export function run(argv: string[], deps: Deps = {}): number {
   // this asymmetry by adding a guard — there is nothing yet to match
   // against (plan.md Q4).
   advancePhase("implementing", { slug, dir: stateDir });
+
+  const selfMark = deps.selfMark ?? selfMarkEpicRow;
+  try {
+    reportSelfMark(
+      selfMark({
+        cwd: process.cwd(),
+        slug,
+        pr: pr.number,
+        commit: true,
+        push: true,
+        stateDir,
+        epicsDir: path.join(path.dirname(stateDir), "epics"),
+      }),
+      slug,
+    );
+  } catch (err) {
+    console.error(`flow-open-pr: WARNING: epic board self-mark threw: ${err}`);
+  }
 
   console.log(pr.url);
   return 0;

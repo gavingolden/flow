@@ -3,14 +3,14 @@
  * every probe reads. Probes are READ-ONLY by contract — they never write
  * state, never signal a process, and reach every subprocess through
  * `deps.run` so tests can fake the host. Every path a probe touches comes from
- * `deps`, never from a `paths.ts` default (those freeze HOME at import time).
+ * `deps`, never from a `paths.ts` default (those follow the process HOME, not the probed host).
  */
 
 import { spawnSync } from "node:child_process";
 import * as os from "node:os";
 import {
-  FLOW_MANIFEST,
-  FLOW_STATE_DIR,
+  flowManifestPath,
+  flowStateDir,
   flowConfigPath,
   resolveFlowSource,
   configuredFlowSource,
@@ -123,8 +123,8 @@ export function defaultDoctorDeps(): DoctorDeps {
     run: defaultRun,
     homeDir,
     cwd: process.cwd(),
-    stateDir: FLOW_STATE_DIR,
-    manifestPath: FLOW_MANIFEST,
+    stateDir: flowStateDir(),
+    manifestPath: flowManifestPath(),
     configPath: flowConfigPath(),
     targets: DEFAULT_TARGETS,
     flowSource,

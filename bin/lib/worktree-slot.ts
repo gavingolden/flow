@@ -5,9 +5,53 @@ import { git } from "./git";
 /** Maximum auto-suffix attempts before giving up on collision avoidance. */
 export const MAX_SUFFIX_ATTEMPTS = 100;
 
+/**
+ * Folder beside the main checkout that holds every flow worktree. The
+ * `.noindex` suffix is what keeps Spotlight out of it.
+ */
+export const WORKTREE_CONTAINER_NAME = "flow-worktrees.noindex";
+
 /** Converts a branch name to a directory-safe suffix (e.g. feature/foo → feature-foo). */
 export function toDirSuffix(branchName: string): string {
   return branchName.replace(/\//g, "-");
+}
+
+export function worktreeContainerDir(repoDir: string): string {
+  const parent = path.dirname(repoDir);
+  if (path.basename(parent) === WORKTREE_CONTAINER_NAME) return parent;
+  return path.join(parent, WORKTREE_CONTAINER_NAME);
+}
+
+/** `<repo-parent>/flow-worktrees.noindex/<repo>-<branch suffix>`. */
+export function worktreeDirFor(repoDir: string, branchName: string): string {
+  return path.join(
+    worktreeContainerDir(repoDir),
+    `${path.basename(repoDir)}-${toDirSuffix(branchName)}`,
+  );
+}
+
+function firstSegment(from: string, p: string): string | undefined {
+  const rel = path.relative(from, p);
+  if (!rel || path.isAbsolute(rel)) return undefined;
+  const seg = rel.split(path.sep)[0];
+  return seg === ".." ? undefined : seg;
+}
+
+/**
+ * True when `p` is at or under a flow worktree folder of `repoDir`, in either
+ * the container or the old sibling spot. The sibling branch skips the
+ * container: a repo named `flow` shares the `flow-` prefix with it.
+ */
+export function isFlowWorktreePath(repoDir: string, p: string): boolean {
+  const prefix = `${path.basename(repoDir)}-`;
+  const inContainer = firstSegment(worktreeContainerDir(repoDir), p);
+  if (inContainer?.startsWith(prefix)) return true;
+  const sibling = firstSegment(path.dirname(repoDir), p);
+  return (
+    sibling !== undefined &&
+    sibling !== WORKTREE_CONTAINER_NAME &&
+    sibling.startsWith(prefix)
+  );
 }
 
 /** Returns true when the named branch ref exists locally. */
@@ -89,6 +133,7 @@ export function reserveWorktreeSlot(
   initialDir: string,
   repoDir: string,
 ): { branchName: string; worktreeDir: string } {
+  fs.mkdirSync(path.dirname(initialDir), { recursive: true });
   for (let attempt = 0; attempt < MAX_SUFFIX_ATTEMPTS; attempt++) {
     const slot = findAvailableSlot(initialBranch, initialDir, repoDir);
     try {

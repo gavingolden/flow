@@ -11,12 +11,14 @@ import {
   appendManagerLog,
   SEQUENCER_LOG_LOCK,
   type ManagerLogKind,
-} from "./epic-manager-log";
+} from "./manager-log";
 import type { GuardResult } from "./epic-manage-guard";
 import type { OwnerNeededLine } from "./epic-manage-board";
 
 export type EventCtx = {
   epic: string;
+  /** The repo name every log line carries (`repoNameForPath(manager.repo)`). */
+  repo: string;
   /** The running manager's `startedAt`: scopes launch-failed keys to one sequencer run. */
   runId: string;
   notified: Set<string>;
@@ -27,6 +29,7 @@ export type EventDeps = {
   now: () => number;
   notify: (args: string[]) => void;
   stateDir?: string;
+  managerHome?: string;
 };
 
 export const iso = (ms: number): string => new Date(ms).toISOString();
@@ -58,10 +61,8 @@ export function emit(ctx: EventCtx, deps: EventDeps, e: Emit): void {
   const { notify, ...fields } = e;
   safely(() =>
     appendManagerLog(
-      ctx.epic,
-      { ts: iso(deps.now()), ...fields },
-      deps.stateDir,
-      SEQUENCER_LOG_LOCK,
+      { ts: iso(deps.now()), epic: ctx.epic, repo: ctx.repo, ...fields },
+      { home: deps.managerHome, lock: SEQUENCER_LOG_LOCK },
     ),
   );
   if (notify) {
@@ -147,17 +148,17 @@ export function announce(
         ctx.activeHolds.add(key);
         safely(() =>
           appendManagerLog(
-            ctx.epic,
             {
               ts: iso(deps.now()),
               kind: "hold",
+              epic: ctx.epic,
+              repo: ctx.repo,
               featureId: v.id,
               window: win,
               reason: v.action,
               key: `${key}@${deps.now()}`,
             },
-            deps.stateDir,
-            SEQUENCER_LOG_LOCK,
+            { home: deps.managerHome, lock: SEQUENCER_LOG_LOCK },
           ),
         );
       }

@@ -21,7 +21,7 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
+import { currentHome } from "./lib/paths";
 import * as path from "node:path";
 import { findSubagentsDir } from "./lib/session-discovery";
 import {
@@ -79,7 +79,9 @@ const defaultDeps: Deps = {
   },
   env: process.env,
   now: () => new Date(),
-  homeDir: os.homedir(),
+  get homeDir() {
+    return currentHome();
+  },
   stdout: (s) => process.stdout.write(s),
 };
 

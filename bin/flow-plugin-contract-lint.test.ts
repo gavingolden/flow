@@ -407,9 +407,9 @@ describe(checkPluginContract, () => {
     it("resolves all five declared agent:skill pairs against the real materialized flow-module-core registry, with no failures", () => {
       const skillsDir = path.join(tmpRoot, "real-registry");
       const root = path.join(skillsDir, pluginRootName("core"));
-      // `resolveFlowSource()` reads the developer's REAL ~/.flow/config.json
-      // 'source' key against an import-time HOME that vitest.setup.ts's
-      // sandbox does NOT cover — passing a directory with no .flow/config.json
+      // `resolveFlowSource()` reads ~/.flow/config.json's 'source' key against
+      // the process HOME (the vitest.setup.ts sandbox) — passing a directory
+      // with no .flow/config.json
       // forces the deterministic module-path branch, so this test can't
       // silently materialize a different checkout on a host that has run
       // `flow setup --source <worktree>`.

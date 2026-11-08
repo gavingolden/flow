@@ -21,7 +21,7 @@ import {
 } from "./copilot-config";
 import { resolveSlugFromEnv } from "./session-identity";
 import { readRows, registryPath } from "./proc-registry";
-import { FLOW_STATE_DIR } from "./paths";
+import { flowStateDir } from "./paths";
 import {
   deriveCopilotRulesetEnabled,
   hasQualifyingWorkflowTrigger,
@@ -93,9 +93,10 @@ export function defaultReadClaimDeadline(): number | undefined {
  * `FLOW_SLUG` resolves) but has no row for its own pid in the process
  * registry — the visible symptom of a runbook site that launched it
  * directly instead of through the `flow-spawn` wrapper. `baseDir` has no
- * default other than the real `FLOW_STATE_DIR`, so a caller that forgets to
+ * default other than the real `flowStateDir()`, so a caller that forgets to
  * sandbox it in a test reads the developer's actual `~/.flow/state/procs/`
- * (see vitest.setup.ts's documented HOME-sandbox gap) — pass an explicit
+ * (the vitest.setup.ts sandbox HOME covers it, but an explicit value keeps
+ * the test hermetic) — pass an explicit
  * `baseDir` from every test.
  *
  * A registry FILE that doesn't exist at all is deliberately treated as
@@ -111,7 +112,7 @@ export function defaultReadClaimDeadline(): number | undefined {
 export function registrySelfCheck(
   env: NodeJS.ProcessEnv = process.env,
   pid: number = process.pid,
-  baseDir: string = FLOW_STATE_DIR,
+  baseDir: string = flowStateDir(),
 ): string | null {
   const slug = resolveSlugFromEnv(env);
   if (slug === null) return null;

@@ -142,7 +142,7 @@ vi.mock("./liveness", async () => {
   };
 });
 
-import { FLOW_CLAUDE_HOME, installedHelperPath } from "./paths";
+import { flowClaudeHome, installedHelperPath } from "./paths";
 import {
   FLOW_MERGE_ALLOW_RULE,
   FLOW_OVERRIDE_ALLOW_RULES,
@@ -153,11 +153,12 @@ import {
   FLOW_NEVER_ALLOW_HELPERS,
   FLOW_ROUTINE_ALLOW_RULES,
 } from "./pipeline-allow-rules";
-import { EPIC_GRANT_DENY_RULES } from "./secret-deny-rules";
+import { GRANT_DENY_RULES } from "./secret-deny-rules";
 import {
   runNew as runNewReal,
   runFeatureCli as runFeatureCliReal,
   deriveWorktreePath,
+  resumeWorktree,
   ensureLaunchSettings,
   launchSettingsPermissions,
   flowPipelineResumeSeed,
@@ -168,6 +169,7 @@ import {
   type FeatureOptions,
 } from "./feature";
 import { reserveWorktreeSlot } from "./worktree-slot";
+import { assertHermeticTestPath } from "./hermetic-test-path";
 
 // The launcher backend now defaults to PLAIN (flag > state > config >
 // default); this file's specs exercise the tmux path, so the wrappers pin
@@ -178,15 +180,18 @@ import { reserveWorktreeSlot } from "./worktree-slot";
 // exact-argv assertions predate --plugin-dir and must stay byte-identical
 // regardless of what plugin roots happen to be materialized on the machine
 // running the suite (the real default, `scanPluginRoots()`, reads
-// `FLOW_CLAUDE_HOME_SKILLS_DIR` — captured eagerly from the REAL, unsandboxed
-// HOME per paths.ts's own documented caveat, so it is NOT covered by
-// vitest.setup.ts's sandbox). Individual specs override it to exercise the
+// the claude-home skills dir — resolved at call time, which now
+// sees vitest.setup.ts's sandbox HOME, but earlier tests in this file may
+// materialize plugin roots into it). Individual specs override it to exercise the
 // roots-present cases.
 //
 // `reserveWorktree` is stubbed the same way: the real reservation mkdirs a
 // sibling of the repo in the shared os.tmpdir(), outside every per-test temp
 // dir, so the default returns the deterministic slot without creating anything.
 // Reservation specs opt in with `realReserve`.
+// Per-test temp overlays dir the wrappers default to, so no launch in this
+// file can prune or read the host-wide overlays dir against a temp stateDir.
+let defaultOverlaysDir: string;
 const stubReserve: NonNullable<FeatureOptions["reserveWorktree"]> = (
   slug,
   repo,
@@ -197,6 +202,8 @@ const runNew = (input: string, options: FeatureOptions = {}) =>
     tmuxOnPath: () => true,
     pluginRootsScan: () => [],
     reserveWorktree: stubReserve,
+    overlaysDir: defaultOverlaysDir,
+    startWorktreeSweep: () => undefined,
     ...options,
   });
 const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
@@ -205,12 +212,20 @@ const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
     tmuxOnPath: () => true,
     pluginRootsScan: () => [],
     reserveWorktree: stubReserve,
+    overlaysDir: defaultOverlaysDir,
+    startWorktreeSweep: () => undefined,
     ...options,
   });
 const runFeatureCliStubbedReserve = (
   args: string[],
   options: FeatureOptions = {},
-) => runFeatureCliReal(args, { reserveWorktree: stubReserve, ...options });
+) =>
+  runFeatureCliReal(args, {
+    reserveWorktree: stubReserve,
+    overlaysDir: defaultOverlaysDir,
+    startWorktreeSweep: () => undefined,
+    ...options,
+  });
 import {
   writeState,
   readState,
@@ -238,6 +253,9 @@ const realReserve: NonNullable<FeatureOptions["reserveWorktree"]> = (
 
 beforeEach(() => {
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-"));
+  defaultOverlaysDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "flow-new-overlays-"),
+  );
   repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-repo-"));
   // Redirect the host-wide launch semaphore off the real ~/.flow so the whole
   // suite's launches stay hermetic (feature.ts honors this env override).
@@ -317,6 +335,7 @@ afterEach(() => {
   fs.rmSync(stateDir, { recursive: true, force: true });
   fs.rmSync(repoDir, { recursive: true, force: true });
   fs.rmSync(semDir, { recursive: true, force: true });
+  fs.rmSync(defaultOverlaysDir, { recursive: true, force: true });
   for (const d of reservedToClean)
     fs.rmSync(d, { recursive: true, force: true });
   reservedToClean = [];
@@ -523,7 +542,7 @@ describe("runNew --resume", () => {
       "--add-dir",
       deriveWorktreePath(repoDir, "crashed"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -976,6 +995,29 @@ describe("runNew (fresh)", () => {
     expect(errors[0]).toMatch(/description is required/);
   });
 
+  it("does not prune the host-wide overlays dir when only stateDir is injected", () => {
+    // Regression: a temp stateDir with the default overlays dir made every
+    // overlay older than the grace look like a dead pipeline and deleted it.
+    const stale = path.join(os.homedir(), ".flow", "overlays", "stale-slug");
+    assertHermeticTestPath(stale);
+    fs.mkdirSync(stale, { recursive: true });
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    fs.utimesSync(stale, old, old);
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runNewReal("CSV export", {
+      launcher: "tmux",
+      tmuxOnPath: () => true,
+      pluginRootsScan: () => [],
+      reserveWorktree: stubReserve,
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    expect(fs.existsSync(stale)).toBe(true);
+  });
+
   it("falls back to a deterministic task-<hash8> slug for purely-punctuation input", () => {
     // Item 15: aggressive slugify never returns "" — when stop-word filtering
     // (or in this case, dashing of pure punctuation) leaves nothing, slugify
@@ -1008,6 +1050,27 @@ describe("runNew (fresh)", () => {
     expect(logs[1]).toBe(
       "flow feature create: created — attach with `flow attach csv-export`",
     );
+  });
+
+  it("starts the background worktree sweep exactly once and leaves the stdout first line unchanged", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const startWorktreeSweep = vi.fn();
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      startWorktreeSweep,
+    });
+    expect(code).toBe(0);
+    expect(startWorktreeSweep).toHaveBeenCalledTimes(1);
+    expect(logs[0]).toBe("flow:csv-export");
+  });
+
+  it("does not start the sweep for a rejected empty description", () => {
+    const startWorktreeSweep = vi.fn();
+    expect(runNew("", { stateDir, startWorktreeSweep })).toBe(1);
+    expect(startWorktreeSweep).not.toHaveBeenCalled();
   });
 
   it("records the seed it intends to deliver on a fresh tmux launch", () => {
@@ -1120,7 +1183,7 @@ describe("runNew (fresh)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -1167,7 +1230,7 @@ describe("runNew (fresh)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -1201,7 +1264,7 @@ describe("runNew (fresh)", () => {
       "--add-dir",
       worktree,
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--plugin-dir",
       "/roots/flow-module-core",
       "--plugin-dir",
@@ -1356,6 +1419,51 @@ describe("kind: 'feature' stamped + @flow-kind published (Task 2 / Task 4)", () 
     expect(code).toBe(0);
     expect(readState("csv-export", stateDir)?.kind).toBe("feature");
     expect(tmuxMock.setPaneKind).toHaveBeenCalledWith("csv-export", "feature");
+  });
+
+  it("stamps a parseable createdAt on a fresh launch", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    const createdAt = readState("csv-export", stateDir)?.createdAt;
+    expect(Number.isNaN(Date.parse(createdAt ?? ""))).toBe(false);
+  });
+
+  it("keeps the prior createdAt when a launch overwrites an existing same-slug state", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    // The state file appears between the collision probe and the base-state
+    // read (the external reset path), so runFresh sees a prior pipeline.
+    tmuxMock.windowExists
+      .mockReset()
+      .mockImplementationOnce(() => {
+        writeState(
+          {
+            slug: "csv-export",
+            phase: "gated",
+            repo: repoDir,
+            createdAt: "2020-01-01T00:00:00.000Z",
+            updatedAt: "2020-01-01T00:00:00.000Z",
+          },
+          stateDir,
+        );
+        return false;
+      })
+      .mockReturnValue(true);
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      slug: "csv-export",
+    });
+    expect(code).toBe(0);
+    expect(readState("csv-export", stateDir)?.createdAt).toBe(
+      "2020-01-01T00:00:00.000Z",
+    );
   });
 
   it("republishes @flow-kind on a tmux resume, preserving the persisted kind", () => {
@@ -1529,9 +1637,9 @@ describe("runFresh — launch concurrency semaphore (Task 8)", () => {
 });
 
 describe("deriveWorktreePath", () => {
-  it("mirrors flow-new-worktree's <repo-parent>/<repoName>-<slug> rule for a slash-free slug", () => {
+  it("places the worktree in <repo-parent>/flow-worktrees.noindex/<repoName>-<slug> for a slash-free slug", () => {
     expect(deriveWorktreePath("/Users/me/code/flow", "csv-export")).toBe(
-      "/Users/me/code/flow-csv-export",
+      "/Users/me/code/flow-worktrees.noindex/flow-csv-export",
     );
   });
 
@@ -1539,8 +1647,29 @@ describe("deriveWorktreePath", () => {
     // slugify never emits slashes, but the derivation reuses toDirSuffix so it
     // cannot drift from flow-new-worktree.ts if that invariant ever changes.
     expect(deriveWorktreePath("/a/b/repo", "feature/foo")).toBe(
-      "/a/b/repo-feature-foo",
+      "/a/b/flow-worktrees.noindex/repo-feature-foo",
     );
+  });
+});
+
+describe("resumeWorktree", () => {
+  it("re-creates a reserved folder whose flow-worktrees.noindex container is gone", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "resume-wt-"));
+    try {
+      const reserved = path.join(root, "flow-worktrees.noindex", "repo-x");
+      const state = {
+        slug: "x",
+        phase: "starting",
+        repo: path.join(root, "repo"),
+        reservedWorktree: reserved,
+        updatedAt: new Date().toISOString(),
+      } as PipelineState;
+      expect(fs.existsSync(path.dirname(reserved))).toBe(false);
+      expect(resumeWorktree(state, "x")).toBe(reserved);
+      expect(fs.statSync(reserved).isDirectory()).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -1814,7 +1943,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--effort",
       "high",
       "--settings",
@@ -1848,7 +1977,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -1940,7 +2069,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "--add-dir",
       deriveWorktreePath(repoDir, "saved-effort"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--effort",
       "max",
       "--settings",
@@ -1970,7 +2099,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
         "--add-dir",
         deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
         "--add-dir",
-        FLOW_CLAUDE_HOME,
+        flowClaudeHome(),
         "--model",
         alias,
         "--settings",
@@ -2004,7 +2133,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--model",
       "opus",
       "--effort",
@@ -2320,7 +2449,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "--add-dir",
       deriveWorktreePath(repoDir, "saved-model"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--model",
       "opus",
       "--settings",
@@ -2364,7 +2493,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "--add-dir",
       recordedWorktree,
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -4207,9 +4336,11 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
 });
 
 describe("ensureLaunchSettings hook-command resolution", () => {
-  // These fixtures live under the REAL (sandboxed, per vitest.setup.ts) home
-  // directory — os.homedir() is read lazily by resolveSeedHookCommand(), so
-  // the sandbox HOME swap covers it. `fs` here is the module import, which
+  // These fixtures write through installedHelperPath(), which follows
+  // os.homedir(). The global sandbox alone is not enough (a real
+  // ~/.local/bin symlink was once written through), so each test stubs HOME to
+  // its own temp dir and assertHermeticTestPath() refuses any write that
+  // resolves outside tmpdir. `fs` here is the module import, which
   // vi.mock at the top of this file only overrides `readSync` on — every
   // other member (mkdirSync/writeFileSync/existsSync/symlinkSync/statSync)
   // passes through to the real implementation.
@@ -4218,8 +4349,11 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   let moduleRelativeHookPath!: string;
   let installedGuardPath!: string;
   let installedEchoPath!: string;
+  let suiteHome!: string;
 
   beforeEach(() => {
+    suiteHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-hook-home-"));
+    vi.stubEnv("HOME", suiteHome);
     installedHookPath = installedHelperPath("flow-seed-ingested-hook");
     installedEchoPath = installedHelperPath("flow-request-echo-hook");
     settingsPath = path.join(stateDir, "hook-launch-settings.json");
@@ -4245,9 +4379,8 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   afterEach(() => {
-    fs.rmSync(installedHookPath, { force: true });
-    fs.rmSync(installedGuardPath, { force: true });
-    fs.rmSync(installedEchoPath, { force: true });
+    vi.unstubAllEnvs();
+    fs.rmSync(suiteHome, { recursive: true, force: true });
     delete process.env.FLOW_SEED_HOOK_COMMAND;
     delete process.env.FLOW_DOC_READ_GUARD_COMMAND;
     delete process.env.FLOW_BG_LOOP_GUARD_COMMAND;
@@ -4287,6 +4420,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   }
 
   function installHook(content = "installed-hook-content\n"): void {
+    assertHermeticTestPath(installedHookPath);
     fs.mkdirSync(path.dirname(installedHookPath), { recursive: true });
     fs.writeFileSync(installedHookPath, content);
     fs.chmodSync(installedHookPath, 0o755);
@@ -4330,6 +4464,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(readRecordedCommand()).toBe(installedHookPath);
     // Delete the installed target out from under an already-correct settings
     // file — the byte-identical `desired` string would otherwise short-circuit.
+    assertHermeticTestPath(installedHookPath);
     fs.rmSync(installedHookPath, { force: true });
     ensureLaunchSettings(settingsPath);
     expect(fs.existsSync(readRecordedCommand())).toBe(true);
@@ -4344,6 +4479,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   it("falls back to the module-relative script when the installed path is a dangling symlink", () => {
+    assertHermeticTestPath(installedHookPath);
     fs.mkdirSync(path.dirname(installedHookPath), { recursive: true });
     fs.symlinkSync("/nonexistent/gone", installedHookPath);
     ensureLaunchSettings(settingsPath);
@@ -4437,11 +4573,11 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     }
   });
 
-  it("writes the epic grant deny rules and pre-approves only the narrow exec-review subcommands", () => {
+  it("writes the grant deny rules and pre-approves only the narrow exec-review subcommands", () => {
     ensureLaunchSettings(settingsPath);
     const { deny, allow } = readPermissions();
-    expect(EPIC_GRANT_DENY_RULES.length).toBeGreaterThan(0);
-    for (const rule of EPIC_GRANT_DENY_RULES) expect(deny).toContain(rule);
+    expect(GRANT_DENY_RULES.length).toBeGreaterThan(0);
+    for (const rule of GRANT_DENY_RULES) expect(deny).toContain(rule);
     for (const rule of FLOW_EXEC_REVIEW_ALLOW_RULES)
       expect(allow).toContain(rule);
     expect(allow.filter((r) => r.startsWith("Bash(flow-exec-review"))).toEqual([
@@ -4570,11 +4706,13 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   it("re-resolves the guard to the checkout path once the installed guard disappears", () => {
+    assertHermeticTestPath(installedGuardPath);
     fs.mkdirSync(path.dirname(installedGuardPath), { recursive: true });
     fs.writeFileSync(installedGuardPath, "installed-guard\n");
     fs.chmodSync(installedGuardPath, 0o755);
     ensureLaunchSettings(settingsPath);
     expect(readPreToolUse()[0]!.hooks[0]!.command).toBe(installedGuardPath);
+    assertHermeticTestPath(installedGuardPath);
     fs.rmSync(installedGuardPath, { force: true });
     ensureLaunchSettings(settingsPath);
     const recorded = readPreToolUse()[0]!.hooks[0]!.command;
@@ -4626,6 +4764,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   it("prefers the installed request-echo helper when it exists on disk", () => {
+    assertHermeticTestPath(installedEchoPath);
     fs.mkdirSync(path.dirname(installedEchoPath), { recursive: true });
     fs.writeFileSync(installedEchoPath, "installed-echo\n");
     fs.chmodSync(installedEchoPath, 0o755);
@@ -4638,6 +4777,7 @@ describe("ensureLaunchSettings hook-command resolution", () => {
   });
 
   it("warns to stderr when the installed request-echo helper diverges from the module-relative script", () => {
+    assertHermeticTestPath(installedEchoPath);
     fs.mkdirSync(path.dirname(installedEchoPath), { recursive: true });
     fs.writeFileSync(installedEchoPath, "this differs from the script\n");
     const writeSpy = vi
@@ -4946,7 +5086,7 @@ describe("private skill copy (flow-self and --skills-from launches)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--plugin-dir",
       sharedRoot,
       "--settings",

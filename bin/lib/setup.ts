@@ -13,11 +13,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
-  CLAUDE_SETTINGS_PATH,
+  claudeSettingsPath,
   configuredFlowSource,
-  FLOW_MANIFEST,
+  flowManifestPath,
   resolveFlowSource,
-  SETUP_LOCK_PATH,
+  setupLockPath,
 } from "./paths";
 import { inspectFlowRoot, type FlowRootInfo } from "./worktree-source";
 import { isFlowOwnedSymlink, ownershipRoots } from "./flow-owned-symlink";
@@ -274,7 +274,7 @@ export type SetupOptions = {
   /**
    * Override the `~/.flow/state/` directory the active-session guard scans
    * before pruning old-location agent links. Test-only (default:
-   * `state.ts`'s own `FLOW_STATE_DIR` default via `listStates()`).
+   * `state.ts`'s own `flowStateDir()` default via `listStates()`).
    */
   stateDir?: string;
   /**
@@ -457,7 +457,7 @@ export async function runSetup(
   // invocation. Without the lock, two parallel pipelines that both run
   // `flow install --upgrade` can race on the same skill/agent symlink.
   return withFileLock(
-    options.lockPath ?? SETUP_LOCK_PATH,
+    options.lockPath ?? setupLockPath(),
     () =>
       runUnderLock(
         flowSource,
@@ -681,9 +681,9 @@ async function runUnderLock(
     options.oldAgentsDir ??
     path.join(options.homeDir ?? os.homedir(), ".claude", "agents");
   // `os.homedir()` read LAZILY here (call-time, not import-time) — safe
-  // under `vitest.setup.ts`'s global $HOME sandbox net, unlike
-  // `state.ts`'s own `FLOW_STATE_DIR` default, which freezes the REAL
-  // home at import time (documented gap, PR #86 followup). Passing an
+  // under `vitest.setup.ts`'s global $HOME sandbox net, and
+  // `state.ts`'s `flowStateDir()` default also sees the sandbox
+  // HOME. Passing an
   // explicit `stateDir` derived from `options.homeDir` here, rather than
   // relying on `listStates`'s own default, keeps every test in this suite
   // off the developer's/CI runner's real `~/.flow/state/`.
@@ -760,7 +760,7 @@ async function runUnderLock(
     );
   }
 
-  const settingsPath = options.settingsPath ?? CLAUDE_SETTINGS_PATH;
+  const settingsPath = options.settingsPath ?? claudeSettingsPath();
   if (!options.noHooks) {
     const result = ensureStopHook(settingsPath, STOP_HOOK_COMMAND, {
       homeDir: options.homeDir,
@@ -836,7 +836,7 @@ async function runUnderLock(
   // that still exist from a prior run that we didn't reap (they remain valid
   // claims). On a fresh install the union is just the new entries.
   const manifest = mergeManifest(entries, flowSource, installRoot);
-  const manifestTargetPath = options.manifestPath ?? FLOW_MANIFEST;
+  const manifestTargetPath = options.manifestPath ?? flowManifestPath();
   writeManifest(manifest, manifestTargetPath);
 
   // End-of-run JSON self-validation: re-parse every JSON file this run wrote

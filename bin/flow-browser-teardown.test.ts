@@ -38,7 +38,7 @@ import {
 import { appendRow } from "./lib/proc-registry";
 import { pidStartEpoch } from "./lib/liveness";
 import { readState, writeState } from "./lib/state";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import type { OrphanSweepDeps } from "./lib/worktree-orphans-run";
 import type { OrphanProc } from "./lib/worktree-orphans";
 
@@ -897,6 +897,46 @@ describe("runReapMode — fallback", () => {
     expect(listProcs).not.toHaveBeenCalled();
   });
 
+  it("re-syncs keep-awake after a real reap, not a dry run, and swallows a throw", () => {
+    const sync = vi.fn();
+    const mk = () =>
+      fakeDeps({
+        listProcs: serverProcs,
+        selfPid: sessionPid,
+        alive: () => false,
+      });
+    runReapMode(mk(), {
+      dryRun: false,
+      slug: "ka-slug",
+      timeoutMs: 1000,
+      baseDir,
+      syncKeepAwake: sync,
+    });
+    expect(sync).toHaveBeenCalledWith("ka-slug");
+
+    sync.mockClear();
+    runReapMode(mk(), {
+      dryRun: true,
+      slug: "ka-slug",
+      timeoutMs: 1000,
+      baseDir,
+      syncKeepAwake: sync,
+    });
+    expect(sync).not.toHaveBeenCalled();
+
+    expect(() =>
+      runReapMode(mk(), {
+        dryRun: false,
+        slug: "ka-slug",
+        timeoutMs: 1000,
+        baseDir,
+        syncKeepAwake: () => {
+          throw new Error("boom");
+        },
+      }),
+    ).not.toThrow();
+  });
+
   it("an unsatisfied FLOW_PIPELINE / --session-pid gate reports not-gated", () => {
     const deps = fakeDeps({
       env: {}, // FLOW_PIPELINE unset, no explicit sessionPid passed below
@@ -1173,11 +1213,11 @@ describe("main — --reap --record", () => {
 
   it("--dry-run --record never writes a state file, even for a resolvable slug", () => {
     // A random slug: main() has no state-dir injection seam, so this is the
-    // only safe way to exercise the real FLOW_STATE_DIR without risking a
+    // only safe way to exercise the real flowStateDir() without risking a
     // collision with a real pipeline's state file.
     const slug = `flow-teardown-test-${randomUUID()}`;
     delete process.env.FLOW_PIPELINE;
-    const statePath = path.join(FLOW_STATE_DIR, `${slug}.json`);
+    const statePath = path.join(flowStateDir(), `${slug}.json`);
     expect(fs.existsSync(statePath)).toBe(false);
     const errSpy = vi
       .spyOn(process.stderr, "write")
@@ -1202,7 +1242,7 @@ describe("main — --reap --record", () => {
     // without touching any live process.
     const slug = `flow-teardown-test-${randomUUID()}`;
     delete process.env.FLOW_PIPELINE;
-    const statePath = path.join(FLOW_STATE_DIR, `${slug}.json`);
+    const statePath = path.join(flowStateDir(), `${slug}.json`);
     writeState({
       slug,
       phase: "merged",

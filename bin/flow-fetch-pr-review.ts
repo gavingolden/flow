@@ -19,7 +19,7 @@
 
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { advancePhase } from "./lib/phase-advance";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 
 // --- Types ---
 
@@ -356,7 +356,7 @@ export function run(argv: string[], deps: Deps = {}): number {
 
   const gh = deps.gh ?? defaultGh;
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
-  const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
+  const stateDir = deps.stateDir ?? flowStateDir();
 
   const prNumber = parsePrNumber(argv[0]);
 

@@ -60,7 +60,7 @@ import {
   type PipelineKind,
 } from "./lib/state";
 import { recoveryCommandFor } from "./lib/recovery-command";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { resolveKindAmbient, resolveSlugAmbient } from "./lib/session-identity";
 import {
   CHECKPOINT_SITES,
@@ -122,7 +122,7 @@ export type Deps = {
 /** Absolute path of the one-shot marker the SessionStart:clear hook gates on. */
 export function checkpointMarkerPath(
   slug: string,
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): string {
   return path.join(checkpointDir(slug, dir), "checkpoint.pending");
 }
@@ -130,7 +130,7 @@ export function checkpointMarkerPath(
 /** Absolute path of the retired-body archive `--consume` writes to. */
 export function checkpointConsumedPath(
   slug: string,
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): string {
   return path.join(checkpointDir(slug, dir), "checkpoint.consumed.md");
 }
@@ -145,7 +145,7 @@ export function checkpointConsumedPath(
  * either), so callers must tolerate a missing file rather than treat it as
  * "never armed".
  */
-export function armBannerPath(slug: string, dir = FLOW_STATE_DIR): string {
+export function armBannerPath(slug: string, dir = flowStateDir()): string {
   return path.join(checkpointDir(slug, dir), "last-arm-banner.txt");
 }
 
@@ -193,7 +193,7 @@ export type ArmResult =
 export function armCheckpoint(
   slug: string,
   site: CheckpointSite,
-  stateDir: string = FLOW_STATE_DIR,
+  stateDir: string = flowStateDir(),
 ): ArmResult {
   const state = readState(slug, stateDir);
   if (!state) {
@@ -263,7 +263,7 @@ export function armCheckpoint(
  */
 export function probeCheckpointBody(
   slug: string,
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): boolean {
   try {
     const stat = fs.statSync(checkpointBodyPath(slug, dir));
@@ -286,7 +286,7 @@ export function probeCheckpointBody(
  */
 export function archiveCheckpointBody(
   slug: string,
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): string | null {
   const src = checkpointBodyPath(slug, dir);
   let stat: fs.Stats;
@@ -331,7 +331,7 @@ export type ConsumeResult = {
  */
 export function consumeCheckpoint(
   slug: string,
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): ConsumeResult {
   const marker = checkpointMarkerPath(slug, dir);
   const archived = archiveCheckpointBody(slug, dir);
@@ -421,7 +421,7 @@ function emit(result: CheckpointResult): void {
 }
 
 export function run(argv: string[], deps: Deps = {}): number {
-  const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
+  const stateDir = deps.stateDir ?? flowStateDir();
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
   const resolveKind = deps.resolveKind ?? resolveKindAmbient;
 

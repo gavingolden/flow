@@ -4,6 +4,8 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseSetupArgs, runSetupCli } from "./setup-args";
 
+const collectedHome = process.env.HOME;
+
 describe("parseSetupArgs", () => {
   it("returns all-false defaults for an empty arg list", () => {
     expect(parseSetupArgs([])).toEqual({
@@ -518,14 +520,18 @@ describe("runSetupCli", () => {
   it("vitest.setup.ts's global net redirects process.env.HOME under os.tmpdir()", () => {
     // Replaces a manual "temporarily console.log(process.env.HOME) and revert"
     // step from the PR Test Steps. If vitest.config.ts ever drops setupFiles,
-    // or vitest.setup.ts's beforeAll ever fails to flip HOME, this assertion
-    // catches it without a human edit-and-revert.
+    // or vitest.setup.ts ever fails to flip HOME, this assertion catches it
+    // without a human edit-and-revert.
     const home = process.env.HOME;
     expect(home).toBeDefined();
     const tmpReal = fs.realpathSync(os.tmpdir());
     const homeReal = fs.realpathSync(home as string);
     expect(homeReal.startsWith(tmpReal)).toBe(true);
     expect(path.basename(home as string)).toMatch(/^flow-vitest-home-/);
+  });
+
+  it("module-scope code already sees the sandbox HOME (swapped at setup load)", () => {
+    expect(collectedHome).toMatch(/flow-vitest-home-/);
   });
 
   it("plumbs pullCanonicalFirst=false through to runSetup when --no-pull-canonical is passed", async () => {

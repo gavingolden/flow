@@ -10,13 +10,18 @@
  * `<stateDir>/orphan-sweep/` (never a `*.json` at the state root, which
  * `listStates` would read as a phantom pipeline) and is written BEFORE the
  * sweep so concurrent calls do not double-run it.
+ *
+ * Each throttled pass also re-syncs the pipeline's keep-awake holder
+ * (`syncKeepAwake`), so a holder that expired or was reaped is re-acquired
+ * within about a minute of the next tool call and renewed every 15 minutes.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { readState } from "./lib/state";
+import { syncKeepAwake } from "./lib/keep-awake";
 import {
   ORPHAN_GUIDANCE,
   orphanNotice,
@@ -41,6 +46,8 @@ export type HookDeps = {
   sweep: (worktree: string) => WorktreeOrphanSweepResult | null;
   record: (slug: string, n: number) => void;
   nowMs: () => number;
+  /** Re-syncs the keep-awake holder (a resume, mid-run reap or the hold's time limit can drop it with no phase write). */
+  syncKeepAwake?: (slug: string) => void;
 };
 
 export function runHook(input: unknown, deps: HookDeps): string | null {
@@ -53,9 +60,14 @@ export function runHook(input: unknown, deps: HookDeps): string | null {
     if (!slug) return null;
     const now = deps.nowMs();
     if (!shouldSweep(deps.readLast(slug), now)) return null;
+    deps.writeLast(slug, now);
+    try {
+      deps.syncKeepAwake?.(slug);
+    } catch {
+      // fail open
+    }
     const worktree = deps.loadWorktree(slug);
     if (!worktree) return null;
-    deps.writeLast(slug, now);
     const result = deps.sweep(worktree);
     const stopped = result ? stoppedCount(result) : 0;
     if (!result || stopped === 0) return null;
@@ -72,7 +84,7 @@ export function runHook(input: unknown, deps: HookDeps): string | null {
 }
 
 const lastPath = (slug: string): string =>
-  path.join(FLOW_STATE_DIR, "orphan-sweep", `${slug}.last`);
+  path.join(flowStateDir(), "orphan-sweep", `${slug}.last`);
 
 export function defaultHookDeps(): HookDeps {
   return {
@@ -96,6 +108,10 @@ export function defaultHookDeps(): HookDeps {
     sweep: (worktree) => sweepBusyLeftovers(worktree),
     record: (slug, n) => recordOrphanStops(slug, n),
     nowMs: () => Date.now(),
+    syncKeepAwake: (slug) => {
+      const state = readState(slug);
+      if (state) syncKeepAwake(state);
+    },
   };
 }
 

@@ -19,7 +19,11 @@
 
 import { computeFrontier } from "../flow-epic-dag";
 import type { EpicManifest, Feature } from "./epic-manifest-schema";
-import type { EpicRunState } from "./epic-run-state";
+import {
+  isLatchedMerge,
+  ownedState,
+  type EpicRunState,
+} from "./epic-run-state";
 import { readState, TERMINAL_PHASE_SET, type PipelineState } from "./state";
 import type { EpicStatusFile } from "./epic-status-schema";
 
@@ -188,12 +192,14 @@ export function reconcile(input: {
       launchedStatus.set(f.id, "merged");
       continue;
     }
-    const state = record.slug ? readFeatureState(record.slug) : null;
+    const state =
+      (record.slug
+        ? ownedState(record, readFeatureState(record.slug))
+        : null) ?? null;
     liveState.set(f.id, state);
-    const classified =
-      state === null && record.lastStatus === "merged"
-        ? "merged"
-        : classifyLaunched(state);
+    const classified = isLatchedMerge(record, state)
+      ? "merged"
+      : classifyLaunched(state);
     if (
       classified === "orphan" &&
       committedStatus?.features[f.id]?.status === "merged"

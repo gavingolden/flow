@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HELP_TOP } from "./help";
 import { buildInteractiveLaunchArgv, runLaunchCli } from "./launch";
-import { FLOW_CLAUDE_HOME, resolveFlowSource } from "./paths";
+import { flowClaudeHome, resolveFlowSource } from "./paths";
 import { ensurePluginRoot } from "./plugin-root";
 
 const HOME = "/home/dev/.flow/claude-home";
@@ -29,16 +29,14 @@ describe("buildInteractiveLaunchArgv", () => {
     ]);
   });
 
-  it("defaults to FLOW_CLAUDE_HOME when no home is passed", () => {
-    // pluginRootsScan pinned to () => [] — FLOW_CLAUDE_HOME derives from
-    // paths.ts's import-time `HOME = os.homedir()`, which vitest.setup.ts
-    // explicitly does NOT sandbox, so an unpinned scan would read the
-    // developer's real ~/.flow/claude-home/.claude/skills and go red the
-    // moment `flow install` has materialized any plugin root there.
+  it("defaults to flowClaudeHome() when no home is passed", () => {
+    // pluginRootsScan pinned to () => [] — flowClaudeHome() derives from
+    // the vitest.setup.ts sandbox HOME; pinning keeps the test independent of whatever
+    // plugin roots that sandbox happens to hold.
     expect(buildInteractiveLaunchArgv(undefined, () => [])).toEqual([
       "claude",
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
     ]);
   });
 

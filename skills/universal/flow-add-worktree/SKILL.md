@@ -26,9 +26,9 @@ with the main working directory.
 
 # Context
 
-- `scripts/new-agent-worktree.ts` — handles worktree creation, symlinks
+- `flow-new-worktree <branch-name> [base-branch]` — handles worktree creation, symlinks
   (`.env`, `.claude/settings.local.json`), and dependency installation
-- Worktrees are created as siblings of the current workspace directory
+- Worktrees are created in `<repo-parent>/flow-worktrees.noindex/<repo>-<branch>`
 
 # Instructions
 
@@ -52,7 +52,7 @@ with the main working directory.
 
 - Execute:
   ```bash
-  ./scripts/new-agent-worktree.ts <branch-name> [base-branch]
+  flow-new-worktree <branch-name> [base-branch]
   ```
 - Confirm the script completes successfully and note the output path.
 

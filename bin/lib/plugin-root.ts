@@ -16,7 +16,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_CLAUDE_HOME_SKILLS_DIR } from "./paths";
+import { flowClaudeHomeSkillsDir } from "./paths";
 import { MODULES, type ModuleId } from "./modules";
 import {
   moduleIdFromPluginRootName,
@@ -75,7 +75,7 @@ export function removePluginRoot(root: string): boolean {
  * the plugin-era boundary can never strand a root the manifest forgot.
  */
 export function scanPluginRoots(
-  skillsDir: string = FLOW_CLAUDE_HOME_SKILLS_DIR,
+  skillsDir: string = flowClaudeHomeSkillsDir(),
 ): string[] {
   let dirents: fs.Dirent[];
   try {

@@ -149,6 +149,13 @@ For each path in `git diff --name-only --diff-filter=U`:
    - `delete` — file removed (only valid for `modify/delete` conflicts).
 4. Make the `Edit` tool calls to remove conflict markers and apply the
    resolution.
+   - A `.flow/epics/*/status.json` conflict is never resolved by hand or
+     with `Edit`: run `flow-epic-self-mark --resolve-conflict` (its own
+     Bash call, from the worktree) instead. It takes the base side
+     (`theirs`, stage 3), applies this pipeline's own row, writes the
+     canonical file and stages it; it never commits. Record the strategy
+     as `prefer-incoming` plus the own row. If it refuses, the conflict
+     is ambiguous: record it in the artifact's ambiguous calls.
 5. **LAYER 1.** Before `git add`, run
    `git diff --check -- <path> | grep -q 'leftover conflict marker'` and
    branch on THAT pipeline's exit status — never the raw exit code

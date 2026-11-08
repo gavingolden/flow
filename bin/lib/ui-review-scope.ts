@@ -14,6 +14,7 @@ export type UiReviewTarget = {
   route: string;
   state: string | null;
   source: "plan" | "route-file" | "manifest-match";
+  session?: "signed-out";
 };
 
 export const MAX_REVIEW_TARGETS = 3;
@@ -98,6 +99,33 @@ export function isSafeRoute(route: string): boolean {
   );
 }
 
+const SIGNED_OUT_PHRASE =
+  /\b(?:(?:signed|logged)[- ]?out|unauthenticated|anonymous|no[- ]session)\b/gi;
+const SIGNED_IN_PHRASE =
+  /\b(?:(?:signed|logged)[- ]?in|authenticated user)\b/gi;
+
+function isNegated(state: string, index: number): boolean {
+  return /\b(?:not|never)\s+$/i.test(state.slice(0, index));
+}
+
+/**
+ * A plan line's state asks for a signed-out capture when it names an un-negated
+ * signed-out phrase, or a negated signed-in one ("not logged in"), and names no
+ * un-negated signed-in phrase.
+ */
+export function sessionOf(state: string | null): "signed-out" | undefined {
+  if (state === null) return undefined;
+  let signedOut = false;
+  for (const m of state.matchAll(SIGNED_IN_PHRASE)) {
+    if (!isNegated(state, m.index)) return undefined;
+    signedOut = true;
+  }
+  for (const m of state.matchAll(SIGNED_OUT_PHRASE)) {
+    if (!isNegated(state, m.index)) signedOut = true;
+  }
+  return signedOut ? "signed-out" : undefined;
+}
+
 // Plan lines name a path, but an absolute origin is tolerated and reduced to
 // its path: base URLs carry per-run ports, so only the path is stable.
 function normalizeRoute(raw: string): string | null {
@@ -105,7 +133,7 @@ function normalizeRoute(raw: string): string | null {
   if (/^https?:\/\//i.test(route)) {
     try {
       const u = new URL(route);
-      route = u.pathname + u.search;
+      route = u.pathname + u.search + u.hash;
     } catch {
       return null;
     }
@@ -129,7 +157,14 @@ export function parseUiReviewTargets(planMd: string): UiReviewTarget[] {
     if (!m) continue;
     const route = normalizeRoute(m[1]);
     if (route === null) continue;
-    out.push({ route, state: m[2] === "" ? null : m[2], source: "plan" });
+    const state = m[2] === "" ? null : m[2];
+    const session = sessionOf(state);
+    out.push({
+      route,
+      state,
+      source: "plan",
+      ...(session ? { session } : {}),
+    });
   }
   return out;
 }

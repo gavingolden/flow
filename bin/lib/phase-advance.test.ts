@@ -407,6 +407,46 @@ describe("advancePhase", () => {
     }).not.toThrow();
     expect(result?.advanced).toBe(true);
   });
+
+  it("fires the syncKeepAwake seam once with the written state on advance and finalize", () => {
+    seedState("ka1", "reviewing");
+    const synced: Array<{ phase: string }> = [];
+    advancePhase("gating", {
+      slug: "ka1",
+      dir: stateDir,
+      syncKeepAwake: (s) => synced.push(s),
+    });
+    finalizePhase("merged", {
+      slug: "ka1",
+      dir: stateDir,
+      syncKeepAwake: (s) => synced.push(s),
+    });
+    expect(synced.map((s) => s.phase)).toEqual(["gating", "merged"]);
+  });
+
+  it("does not fire syncKeepAwake on a refused write", () => {
+    seedState("ka2", "gating");
+    const synced: unknown[] = [];
+    const result = advancePhase("gating", {
+      slug: "ka2",
+      dir: stateDir,
+      syncKeepAwake: (s) => synced.push(s),
+    });
+    expect(result.reason).toBe("already-at-or-past");
+    expect(synced).toEqual([]);
+  });
+
+  it("still advances when the syncKeepAwake stub throws", () => {
+    seedState("ka3", "reviewing");
+    const result = advancePhase("gating", {
+      slug: "ka3",
+      dir: stateDir,
+      syncKeepAwake: () => {
+        throw new Error("caffeinate boom");
+      },
+    });
+    expect(result.advanced).toBe(true);
+  });
 });
 
 describe("advancePhase / finalizePhase — phase.transition telemetry", () => {

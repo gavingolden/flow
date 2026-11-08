@@ -16,14 +16,20 @@ import {
   createWorktreeWithRetry,
   parseArgs,
   pickBranchName,
+  resolveInitialDir,
+  resolveReuseDir,
 } from "./flow-new-worktree";
 import { FLOW_HOOK_NAMES } from "./lib/worktree-commit-hook";
 import {
   MAX_SUFFIX_ATTEMPTS,
+  WORKTREE_CONTAINER_NAME,
   findAvailableSlot,
+  isFlowWorktreePath,
   releaseReservedWorktree,
   reserveWorktreeSlot,
   toDirSuffix,
+  worktreeContainerDir,
+  worktreeDirFor,
 } from "./lib/worktree-slot";
 import {
   BRANCH_MARKER_FILENAME,
@@ -52,6 +58,69 @@ describe(toDirSuffix, () => {
 
   it("should handle leading slash", () => {
     expect(toDirSuffix("/feature")).toBe("-feature");
+  });
+});
+
+describe(worktreeDirFor, () => {
+  it("places the worktree in <repo-parent>/flow-worktrees.noindex/<repo>-<suffix>", () => {
+    expect(worktreeDirFor("/a/b/repo", "feature/foo")).toBe(
+      "/a/b/flow-worktrees.noindex/repo-feature-foo",
+    );
+    expect(worktreeContainerDir("/a/b/repo")).toBe(
+      `/a/b/${WORKTREE_CONTAINER_NAME}`,
+    );
+  });
+});
+
+describe(isFlowWorktreePath, () => {
+  const repo = "/a/b/repo";
+  const container = "/a/b/flow-worktrees.noindex";
+
+  it.each([
+    "/a/b/repo-x",
+    "/a/b/repo-x/sub",
+    `${container}/repo-x`,
+    `${container}/repo-x/sub`,
+  ])("recognises %s", (p) => {
+    expect(isFlowWorktreePath(repo, p)).toBe(true);
+  });
+
+  it.each([container, "/a/b/other-x", `${container}/other-x/sub`, "/a/b/repo"])(
+    "rejects %s",
+    (p) => {
+      expect(isFlowWorktreePath(repo, p)).toBe(false);
+    },
+  );
+
+  it("never attributes another repo's container subtree to a repo named flow", () => {
+    expect(
+      isFlowWorktreePath("/a/b/flow", `${container}/econ-data-x/sub`),
+    ).toBe(false);
+    expect(isFlowWorktreePath("/a/b/flow", container)).toBe(false);
+    expect(isFlowWorktreePath("/a/b/flow", `${container}/flow-x`)).toBe(true);
+  });
+});
+
+describe(resolveInitialDir, () => {
+  it("keeps the derived dir without a reservation", () => {
+    expect(resolveInitialDir("/c/repo-foo", undefined)).toBe("/c/repo-foo");
+  });
+
+  it("uses the reservation's parent with the derived basename", () => {
+    expect(resolveInitialDir("/c/n/repo-foo", "/a/repo-foo-2")).toBe(
+      "/a/repo-foo",
+    );
+  });
+});
+
+describe(resolveReuseDir, () => {
+  it("prefers the container path, falls back to an existing legacy sibling", () => {
+    const derived = "/a/b/flow-worktrees.noindex/repo-foo";
+    expect(resolveReuseDir("/a/b/repo", derived, () => true)).toBe(derived);
+    expect(
+      resolveReuseDir("/a/b/repo", derived, (p) => p === "/a/b/repo-foo"),
+    ).toBe("/a/b/repo-foo");
+    expect(resolveReuseDir("/a/b/repo", derived, () => false)).toBe(derived);
   });
 });
 
@@ -379,6 +448,16 @@ describe("findAvailableSlot reservedDir", () => {
     expect(slot.worktreeDir).toBe(initialDir + "-2");
   });
 
+  it("adopts a -2 reservation via the reservation's parent, not -2-2", () => {
+    const derived = path.join(path.dirname(fx.repoDir), "repo-foo");
+    const reserved = `${derived}-2`;
+    fs.mkdirSync(reserved);
+    mustGit(["branch", "foo"], fx.repoDir);
+    const initialDir = resolveInitialDir(derived, reserved);
+    const slot = findAvailableSlot("foo", initialDir, fx.repoDir, reserved);
+    expect(slot).toEqual({ branchName: "foo-2", worktreeDir: reserved });
+  });
+
   it("ignores an empty folder that is not the reserved one", () => {
     const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
     fs.mkdirSync(initialDir);
@@ -393,6 +472,16 @@ describe(reserveWorktreeSlot, () => {
     fx = makeFixture();
   });
   afterEach(() => fx.cleanup());
+
+  it("creates the container when absent, and -2 lands inside it", () => {
+    const initialDir = worktreeDirFor(fx.repoDir, "foo");
+    expect(fs.existsSync(worktreeContainerDir(fx.repoDir))).toBe(false);
+    const first = reserveWorktreeSlot("foo", initialDir, fx.repoDir);
+    expect(first.worktreeDir).toBe(initialDir);
+    expect(fs.readdirSync(initialDir)).toEqual([]);
+    const second = reserveWorktreeSlot("foo", initialDir, fx.repoDir);
+    expect(second.worktreeDir).toBe(`${initialDir}-2`);
+  });
 
   it("creates the empty slot folder", () => {
     const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
@@ -812,7 +901,7 @@ describe("flow-new-worktree (integration)", () => {
     const r = await spawnHelper(["foo"], fx.repoDir);
     expect(r.exitCode, `stderr: ${r.stderr}`).toBe(0);
 
-    const expectedDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    const expectedDir = path.join(worktreeContainerDir(fx.repoDir), "repo-foo");
     expect(fs.existsSync(expectedDir)).toBe(true);
     expect(
       fs
@@ -902,8 +991,14 @@ describe("flow-new-worktree (integration)", () => {
     expect(a.exitCode, `a stderr: ${a.stderr}`).toBe(0);
     expect(b.exitCode, `b stderr: ${b.stderr}`).toBe(0);
 
-    const dirA = path.join(path.dirname(fx.repoDir), "repo-pr-4-cleanup");
-    const dirB = path.join(path.dirname(fx.repoDir), "repo-pr-4-cleanup-2");
+    const dirA = path.join(
+      worktreeContainerDir(fx.repoDir),
+      "repo-pr-4-cleanup",
+    );
+    const dirB = path.join(
+      worktreeContainerDir(fx.repoDir),
+      "repo-pr-4-cleanup-2",
+    );
     expect(fs.existsSync(dirA)).toBe(true);
     expect(fs.existsSync(dirB)).toBe(true);
 
@@ -926,7 +1021,7 @@ describe("flow-new-worktree (integration)", () => {
     const first = await spawnHelper(["foo"], fx.repoDir);
     expect(first.exitCode, `first stderr: ${first.stderr}`).toBe(0);
 
-    const dir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    const dir = path.join(worktreeContainerDir(fx.repoDir), "repo-foo");
     const stampFile = path.join(dir, "stamp.txt");
     fs.writeFileSync(stampFile, "do-not-clobber");
 
@@ -944,7 +1039,7 @@ describe("flow-new-worktree (integration)", () => {
   it("--reuse on a worktree that's on the wrong branch exits non-zero", async () => {
     const first = await spawnHelper(["foo"], fx.repoDir);
     expect(first.exitCode, `first stderr: ${first.stderr}`).toBe(0);
-    const dir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    const dir = path.join(worktreeContainerDir(fx.repoDir), "repo-foo");
     mustGit(["switch", "-c", "wrong-branch"], dir);
 
     const second = await spawnHelper(["foo", "--reuse"], fx.repoDir);
@@ -993,7 +1088,7 @@ describe("flow-new-worktree hook repair (integration)", () => {
   it("--repair-hooks heals a stale worktree, reports the count, and creates no worktree", async () => {
     const first = await spawnHelper(["old"], fx.repoDir);
     expect(first.exitCode, `stderr: ${first.stderr}`).toBe(0);
-    const oldDir = path.join(path.dirname(fx.repoDir), "repo-old");
+    const oldDir = path.join(worktreeContainerDir(fx.repoDir), "repo-old");
     const hooksDir = makeStale(oldDir);
     expect(fs.readdirSync(hooksDir)).toEqual(["prepare-commit-msg"]);
 
@@ -1005,7 +1100,7 @@ describe("flow-new-worktree hook repair (integration)", () => {
     );
     expect(
       fs
-        .readdirSync(path.dirname(fx.repoDir))
+        .readdirSync(worktreeContainerDir(fx.repoDir))
         .filter((n) => n.startsWith("repo-")),
     ).toEqual(["repo-old"]);
   });
@@ -1027,7 +1122,7 @@ describe("flow-new-worktree hook repair (integration)", () => {
     async () => {
       const first = await spawnHelper(["old"], fx.repoDir);
       expect(first.exitCode, `stderr: ${first.stderr}`).toBe(0);
-      const oldDir = path.join(path.dirname(fx.repoDir), "repo-old");
+      const oldDir = path.join(worktreeContainerDir(fx.repoDir), "repo-old");
       const hooksDir = makeStale(oldDir);
       fs.chmodSync(hooksDir, 0o555);
       try {
@@ -1044,7 +1139,7 @@ describe("flow-new-worktree hook repair (integration)", () => {
   it("creating a new worktree heals the stale one too", async () => {
     const first = await spawnHelper(["old"], fx.repoDir);
     expect(first.exitCode, `stderr: ${first.stderr}`).toBe(0);
-    const oldDir = path.join(path.dirname(fx.repoDir), "repo-old");
+    const oldDir = path.join(worktreeContainerDir(fx.repoDir), "repo-old");
     const hooksDir = makeStale(oldDir);
 
     const second = await spawnHelper(["fresh"], fx.repoDir);

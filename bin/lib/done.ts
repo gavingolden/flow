@@ -41,6 +41,7 @@ import { releaseReservedWorktree } from "./worktree-slot";
 import { dim } from "./color";
 import { compact, readRows } from "./proc-registry";
 import {
+  describeLatchFailure,
   formatLatchNote,
   latchEpicBinding,
   type EpicLatchResult,
@@ -149,9 +150,8 @@ function latchBeforeClose(state: PipelineState, options: DoneOptions): boolean {
     }
     return true;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     console.error(
-      `  kept '${state.slug}' open: could not record its epic board entry (${message}) — re-run 'flow done ${state.slug}'`,
+      `  kept '${state.slug}' open: could not record its epic board entry (${describeLatchFailure(err)}) — re-run 'flow done ${state.slug}'`,
     );
     return false;
   }

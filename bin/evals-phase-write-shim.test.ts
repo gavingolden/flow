@@ -79,13 +79,13 @@ describe.skipIf(!bunOnPath)("flow-open-pr against the hermetic gh shim", () => {
     const expectedPr = prGrader.equals;
 
     // PLAN-DEVIATION correction, load-bearing: `bin/lib/paths.ts`
-    // computes FLOW_STATE_DIR from `os.homedir()` at import time, and
+    // derives flowStateDir() from HOME, and
     // `flow-open-pr` exposes no `--state-dir` flag to a spawned
     // subprocess — `deps.stateDir` is an in-process seam only. Point
     // BOTH `materializeFixture`'s `stateDir` and the spawned child's
     // `HOME` at the same fake home dir. Verified (not the plan's
     // as-authored claim): without this override the child resolves
-    // FLOW_STATE_DIR against the vitest sandbox's real HOME, where
+    // flowStateDir() against the vitest sandbox's real HOME, where
     // materializeFixture never wrote a state file, so `run()`'s
     // `updater(...)` call fails loudly with "no state file for slug"
     // BEFORE it ever reaches `advancePhase` — a real (not vacuous)

@@ -315,7 +315,9 @@ rest (deferred files re-run isolated in CI). A `--no-isolate` check that
 fails is retried once isolated before being reported red, since
 `--no-isolate` can produce a false red from cross-file shared-module
 state but never a false green — a false green is the case this retry
-cannot detect, which is what isolated CI is for. Regenerate the manifest with `flow-test-audit
+cannot detect, which is what isolated CI is for. A failed check that spanned a
+system sleep (the kernel's last-sleep time falls inside its run window) is re-run once
+and reported with a `slept` record instead of as a plain failure. Regenerate the manifest with `flow-test-audit
 --write-tiers` rather than hand-editing it — see
 `docs/test-quality-methodology.md` for the rubric behind the tier
 assignments.

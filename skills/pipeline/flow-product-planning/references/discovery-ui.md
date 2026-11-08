@@ -112,6 +112,7 @@ Author a `## UI review targets` section of 1-3 lines, each ``- `<path>` — <sta
 - Paths only (`/analysis/AVGO`), never absolute URLs: ports are allocated per run.
 - URL-reachable states only. A state reachable only by clicking or mocking a request stays a `Browser:` Test Step.
 - Name the data that makes the changed state render; a page that renders the wrong state is judged as a defect.
+- Say `signed-out` (also `logged out`, `unauthenticated`, `anonymous`, `no session`, or a negated `not signed in` / `not logged in`) in the state for a page that must be photographed with no session (the capture opens it in a fresh browser that never signs in); without it, or when the state also mentions an un-negated `signed in` / `logged in` / `authenticated user`, the page is photographed signed in when the repo declares a login. `not signed out` does not count as signed-out. Example: ``- `/` — signed-out visitor; the public landing page``.
 
 **Placement.** After `## Layout Intent`, else after `## User Stories / Acceptance Criteria` when Layout Intent is absent. Omit the heading for plans that change no render-bearing file. `flow-plan-lint` warns `ui-review-targets-missing` when a render-bearing file is planned and the section is absent.
 

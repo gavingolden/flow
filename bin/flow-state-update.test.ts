@@ -883,6 +883,29 @@ describe("runUpdate", () => {
     expect(code).toBe(0);
     expect(readState("csv-export", dir)?.phase).toBe("implementing");
   });
+
+  it("syncs keep-awake on --phase only, with the written state", () => {
+    seed("csv-export");
+    const synced: PipelineState[] = [];
+    runUpdate(["csv-export", "--phase", "implementing"], dir, {
+      syncKeepAwake: (s) => synced.push(s),
+    });
+    runUpdate(["csv-export", "--pr", "142"], dir, {
+      syncKeepAwake: (s) => synced.push(s),
+    });
+    expect(synced.map((s) => s.phase)).toEqual(["implementing"]);
+  });
+
+  it("still exits 0 when the keep-awake sync throws", () => {
+    seed("csv-export");
+    const code = runUpdate(["csv-export", "--phase", "implementing"], dir, {
+      syncKeepAwake: () => {
+        throw new Error("caffeinate boom");
+      },
+    });
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("implementing");
+  });
 });
 
 // --- --answer-stdin end-to-end (real binary, stdin transport) --------------
@@ -890,7 +913,7 @@ describe("runUpdate", () => {
 // The stdin path can only be exercised through the real process: applyUpdate
 // reads the resolved Args, but the fd-0 read happens in runUpdate's main path.
 // Spawn `bun bin/flow-state-update.ts` with a tmp HOME so the binary's
-// FLOW_STATE_DIR (derived from $HOME) points at a throwaway state dir, seed a
+// flowStateDir() (derived from $HOME) points at a throwaway state dir, seed a
 // state file there, pipe the answer on stdin, and read the field back.
 describe("--answer-stdin (spawned binary)", () => {
   let home!: string;
