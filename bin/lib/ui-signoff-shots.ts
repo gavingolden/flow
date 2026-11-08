@@ -4,7 +4,7 @@
  * `validateFindings`) already keys on. The item results only carry bare
  * screenshot paths, so the missing fields come from naming conventions: the
  * section is the sign-off item's text, the viewport is `phone` for a
- * `-390` or `phone` filename token (`isPhoneLabelled`) and `desktop` otherwise, and the route comes from the matching
+ * `-390` or `phone` filename token (`isPhoneLabelled`) and `desktop` otherwise (a `desktop`, `wide`, `tablet` or 1280/1440/768 marker overrides a phone token), and the route comes from the matching
  * `fix_context` entry.
  */
 import { isPhoneLabelled } from "./evidence-image-shape";

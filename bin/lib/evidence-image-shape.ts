@@ -9,8 +9,16 @@ import * as path from "node:path";
 export const PHONE_MAX_WIDTH = 500;
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-const NOT_PHONE = /\b(?:desktop|wide|tablet)\b|-(?:1280|1440|768)\b/i;
-const PHONE_NAME = /(?:^|[-_])(?:phone|390)(?:[-_.]|$)/i;
+const NOT_PHONE_ALT = /\b(?:desktop|wide|tablet)\b/i;
+const NOT_PHONE_TOKENS = new Set([
+  "desktop",
+  "wide",
+  "tablet",
+  "1280",
+  "1440",
+  "768",
+]);
+const PHONE_TOKENS = new Set(["phone", "390"]);
 
 export function pngSize(
   head: Uint8Array,
@@ -23,9 +31,14 @@ export function pngSize(
 }
 
 export function isPhoneLabelled(file: string, alt = ""): boolean {
-  const base = path.basename(file);
-  if (NOT_PHONE.test(base) || NOT_PHONE.test(alt)) return false;
-  return /\bphone\b/i.test(alt) || PHONE_NAME.test(base);
+  const tokens = path
+    .basename(file)
+    .toLowerCase()
+    .split(/[-_.\s]+/);
+  if (tokens.some((t) => NOT_PHONE_TOKENS.has(t)) || NOT_PHONE_ALT.test(alt)) {
+    return false;
+  }
+  return /\bphone\b/i.test(alt) || tokens.some((t) => PHONE_TOKENS.has(t));
 }
 
 export function phoneShapeError(

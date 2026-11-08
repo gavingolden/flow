@@ -132,6 +132,9 @@ describe("session lifting", () => {
     "logged out",
     "anonymous visitor",
     "unauthenticated",
+    "signed-out visitor (not signed in)",
+    "not logged in",
+    "never logged in",
   ])("treats %j as signed-out", (state) => {
     expect(sessionOf(state)).toBe("signed-out");
   });

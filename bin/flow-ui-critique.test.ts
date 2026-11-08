@@ -188,6 +188,18 @@ describe("gate", () => {
     expect(logOf(h).headSha).toBeUndefined();
   });
 
+  it("carries session signed-out from the plan into targets.json", () => {
+    const h = harness({
+      "/b.md": BODY,
+      "/plan.md":
+        "## UI review targets\n\n- `/` — signed-out visitor; landing page\n- `/analysis/AVGO` — empty state\n",
+    });
+    run([...args, "--plan", "/plan.md"], h.deps);
+    const targets = JSON.parse(h.files.get(`${crit}/targets.json`)!);
+    expect(targets[0].session).toBe("signed-out");
+    expect("session" in targets[1]).toBe(false);
+  });
+
   it("reads the diff from --changed-files when given", () => {
     const h = harness(
       { "/b.md": BODY, "/c.txt": "src/routes/a/+page.svelte\n" },

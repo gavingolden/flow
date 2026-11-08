@@ -43,6 +43,8 @@ describe("isPhoneLabelled", () => {
   it("never labels a desktop shot of a phone feature as phone", () => {
     expect(isPhoneLabelled("verify-phone-desktop.png")).toBe(false);
     expect(isPhoneLabelled("phone-modal-1280.png")).toBe(false);
+    expect(isPhoneLabelled("verify_phone_desktop.png")).toBe(false);
+    expect(isPhoneLabelled("phone_1280.png")).toBe(false);
     expect(isPhoneLabelled("a.png", "Phone settings (desktop)")).toBe(false);
   });
 });
