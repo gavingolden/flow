@@ -1444,88 +1444,95 @@ describe(
 // (recorded in state.json) and delete branch <slug>-2 — never the sibling whose
 // branch name equals <slug>. Reverting the matchWorktree recorded-path preference
 // makes this spec fail: the exact-branch arm resolves the sibling instead.
-describe("flow-remove-worktree (integration: collision auto-suffix safety)", () => {
-  let fx: FreshRepoFixture;
-  let home: string;
-  let stateDir: string;
+// 4.1 s under full-suite load (several git shell-outs per case), past the 5 s default vitest >= 5 enforces on synchronous tests.
+describe(
+  "flow-remove-worktree (integration: collision auto-suffix safety)",
+  { timeout: 15_000 },
+  () => {
+    let fx: FreshRepoFixture;
+    let home: string;
+    let stateDir: string;
 
-  beforeEach(() => {
-    fx = makeFreshRepoFixture();
-    // A throwaway HOME so the spawned helper's FLOW_STATE_DIR (derived from
-    // $HOME) points at a temp state dir we control — same seam as
-    // flow-state-update.test.ts's --answer-stdin spawn suite.
-    home = fs.mkdtempSync(path.join(os.tmpdir(), "flow-collision-home-"));
-    stateDir = path.join(home, ".flow", "state");
-    fs.mkdirSync(stateDir, { recursive: true });
-  });
-  afterEach(() => {
-    fx.cleanup();
-    fs.rmSync(home, { recursive: true, force: true });
-  });
-
-  it("removes the recorded -2 worktree + branch and leaves the colliding sibling intact", async () => {
-    const slug = "reskin";
-
-    // Sibling pipeline: bare slot, branch `reskin`, dir `repo-reskin`.
-    const sibling = await runNewWorktree([slug], fx.repoDir);
-    expect(sibling.exitCode, `sibling stderr: ${sibling.stderr}`).toBe(0);
-    const siblingDir = path.join(path.dirname(fx.repoDir), `repo-${slug}`);
-    expect(fs.existsSync(siblingDir)).toBe(true);
-
-    // This pipeline: same slug collides → auto-suffixed to `reskin-2` /
-    // `repo-reskin-2`. The warning fires on stderr (Task 3).
-    const own = await runNewWorktree([slug], fx.repoDir);
-    expect(own.exitCode, `own stderr: ${own.stderr}`).toBe(0);
-    const ownDir = path.join(path.dirname(fx.repoDir), `repo-${slug}-2`);
-    expect(fs.existsSync(ownDir), `expected -2 worktree at ${ownDir}`).toBe(
-      true,
-    );
-    expect(
-      own.stderr,
-      `expected collision warning, got: ${own.stderr}`,
-    ).toMatch(/collided/);
-
-    // state.json (keyed by the UN-suffixed slug) records the true -2 path,
-    // exactly as /flow-pipeline step 2 writes it from flow-new-worktree output.
-    fs.writeFileSync(
-      path.join(stateDir, `${slug}.json`),
-      JSON.stringify({
-        slug,
-        phase: "merging",
-        repo: fx.repoDir,
-        worktree: ownDir,
-        updatedAt: "2026-07-02T00:00:00Z",
-      }),
-    );
-
-    // Bare-slug cleanup, exactly as step 11 runs it.
-    const remove = await runHelper([slug, "--delete-branch"], fx.repoDir, {
-      ...process.env,
-      HOME: home,
+    beforeEach(() => {
+      fx = makeFreshRepoFixture();
+      // A throwaway HOME so the spawned helper's FLOW_STATE_DIR (derived from
+      // $HOME) points at a temp state dir we control — same seam as
+      // flow-state-update.test.ts's --answer-stdin spawn suite.
+      home = fs.mkdtempSync(path.join(os.tmpdir(), "flow-collision-home-"));
+      stateDir = path.join(home, ".flow", "state");
+      fs.mkdirSync(stateDir, { recursive: true });
     });
-    expect(
-      remove.exitCode,
-      `stderr: ${remove.stderr}\nstdout: ${remove.stdout}`,
-    ).toBe(0);
+    afterEach(() => {
+      fx.cleanup();
+      fs.rmSync(home, { recursive: true, force: true });
+    });
 
-    // The pipeline's OWN -2 worktree is gone; its branch `reskin-2` is deleted.
-    expect(fs.existsSync(ownDir), `-2 worktree should be removed`).toBe(false);
-    // The SIBLING worktree + branch `reskin` survive untouched.
-    expect(
-      fs.existsSync(siblingDir),
-      `sibling worktree must NOT be removed`,
-    ).toBe(true);
+    it("removes the recorded -2 worktree + branch and leaves the colliding sibling intact", async () => {
+      const slug = "reskin";
 
-    const branches = mustGit(["branch", "--list"], fx.repoDir);
-    expect(branches, `branches: ${branches}`).not.toContain(`${slug}-2`);
-    expect(branches, `branches: ${branches}`).toContain(slug);
+      // Sibling pipeline: bare slot, branch `reskin`, dir `repo-reskin`.
+      const sibling = await runNewWorktree([slug], fx.repoDir);
+      expect(sibling.exitCode, `sibling stderr: ${sibling.stderr}`).toBe(0);
+      const siblingDir = path.join(path.dirname(fx.repoDir), `repo-${slug}`);
+      expect(fs.existsSync(siblingDir)).toBe(true);
 
-    // The sibling is still a registered worktree; the -2 one is not.
-    const list = mustGit(["worktree", "list", "--porcelain"], fx.repoDir);
-    expect(list).toContain(siblingDir);
-    expect(list).not.toContain(ownDir);
-  });
-});
+      // This pipeline: same slug collides → auto-suffixed to `reskin-2` /
+      // `repo-reskin-2`. The warning fires on stderr (Task 3).
+      const own = await runNewWorktree([slug], fx.repoDir);
+      expect(own.exitCode, `own stderr: ${own.stderr}`).toBe(0);
+      const ownDir = path.join(path.dirname(fx.repoDir), `repo-${slug}-2`);
+      expect(fs.existsSync(ownDir), `expected -2 worktree at ${ownDir}`).toBe(
+        true,
+      );
+      expect(
+        own.stderr,
+        `expected collision warning, got: ${own.stderr}`,
+      ).toMatch(/collided/);
+
+      // state.json (keyed by the UN-suffixed slug) records the true -2 path,
+      // exactly as /flow-pipeline step 2 writes it from flow-new-worktree output.
+      fs.writeFileSync(
+        path.join(stateDir, `${slug}.json`),
+        JSON.stringify({
+          slug,
+          phase: "merging",
+          repo: fx.repoDir,
+          worktree: ownDir,
+          updatedAt: "2026-07-02T00:00:00Z",
+        }),
+      );
+
+      // Bare-slug cleanup, exactly as step 11 runs it.
+      const remove = await runHelper([slug, "--delete-branch"], fx.repoDir, {
+        ...process.env,
+        HOME: home,
+      });
+      expect(
+        remove.exitCode,
+        `stderr: ${remove.stderr}\nstdout: ${remove.stdout}`,
+      ).toBe(0);
+
+      // The pipeline's OWN -2 worktree is gone; its branch `reskin-2` is deleted.
+      expect(fs.existsSync(ownDir), `-2 worktree should be removed`).toBe(
+        false,
+      );
+      // The SIBLING worktree + branch `reskin` survive untouched.
+      expect(
+        fs.existsSync(siblingDir),
+        `sibling worktree must NOT be removed`,
+      ).toBe(true);
+
+      const branches = mustGit(["branch", "--list"], fx.repoDir);
+      expect(branches, `branches: ${branches}`).not.toContain(`${slug}-2`);
+      expect(branches, `branches: ${branches}`).toContain(slug);
+
+      // The sibling is still a registered worktree; the -2 one is not.
+      const list = mustGit(["worktree", "list", "--porcelain"], fx.repoDir);
+      expect(list).toContain(siblingDir);
+      expect(list).not.toContain(ownDir);
+    });
+  },
+);
 
 describe(resolveTargetInput, () => {
   // This is the wiring the gh#726 bug actually lived in: main() parsed argv,

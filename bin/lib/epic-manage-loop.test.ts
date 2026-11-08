@@ -491,6 +491,7 @@ describe("runManagerLoop — zero model calls", () => {
     writeManifest(feat("alpha"));
     bind("alpha", "implementing");
     const h = harness();
+    h.cfg.statePollMs = 30_000;
     const controller = new AbortController();
     const realSleep = h.deps.sleep;
     h.deps.sleep = async (ms, signal) => {

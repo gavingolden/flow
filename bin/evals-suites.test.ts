@@ -14,7 +14,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 import { evalSlug, loadSuite } from "./lib/eval-suite";
 import { materializeFixture } from "./lib/eval-fixture";
 import { isValidSlug } from "./lib/slug";
@@ -23,6 +31,12 @@ import { main, type Deps } from "./lib/eval-cli";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const EVALS_ROOT = path.join(HERE, "..", "evals");
+// ~3x each suite's dry-run time under full-suite load (phase-write-fidelity 9.3 s, review-turn-folding 6.5 s, the rest <= 4.9 s).
+const DRY_RUN_TIMEOUT_MS: Record<string, number> = {
+  "phase-write-fidelity": 30_000,
+  "review-turn-folding": 20_000,
+};
+const DEFAULT_DRY_RUN_TIMEOUT_MS = 15_000;
 
 function discoverSuiteIds(): string[] {
   if (!fs.existsSync(EVALS_ROOT)) return [];
@@ -119,70 +133,75 @@ describe.each(suiteIds)("evals/%s", (suiteId) => {
   });
 });
 
-describe("materialization (real fixtures, tmp stateDir)", () => {
-  let stateDir!: string;
-  let claudeJsonPath!: string;
+// Synchronous git fixture setup per scenario: up to 4.5 s per suite under full-suite load, past the 5 s default vitest >= 5 enforces.
+describe(
+  "materialization (real fixtures, tmp stateDir)",
+  { timeout: 20_000 },
+  () => {
+    let stateDir!: string;
+    let claudeJsonPath!: string;
 
-  beforeEach(() => {
-    stateDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "flow-evals-suites-state-"),
-    );
-    claudeJsonPath = writeStandInClaudeJson(stateDir);
-  });
-
-  afterEach(() => {
-    fs.rmSync(stateDir, { recursive: true, force: true });
-  });
-
-  for (const suiteId of suiteIds) {
-    it(`${suiteId}: every scenario with a fixture.repo resolves origin/main and carries .flow-tmp/; armed checkpoints are fresh`, () => {
-      const loaded = loadSuite(path.join(EVALS_ROOT, suiteId));
-      if (!loaded.ok) throw new Error(loaded.reason);
-
-      for (const scenario of loaded.value.scenarios) {
-        const fixture = materializeFixture(scenario, suiteId, 1, {
-          stateDir,
-          claudeJsonPath,
-        });
-        try {
-          if (scenario.fixture?.repo) {
-            const mergeBase = spawnSync(
-              "git",
-              ["merge-base", "origin/main", "HEAD"],
-              {
-                cwd: fixture.repoDir,
-                encoding: "utf8",
-              },
-            );
-            expect(mergeBase.status).toBe(0);
-            expect(mergeBase.stdout.trim().length).toBeGreaterThan(0);
-            expect(fs.existsSync(path.join(fixture.repoDir, ".flow-tmp"))).toBe(
-              true,
-            );
-          }
-          if (scenario.fixture?.checkpoint?.armed) {
-            const state = JSON.parse(
-              fs.readFileSync(
-                path.join(stateDir, `${fixture.slug}.json`),
-                "utf8",
-              ),
-            );
-            expect(isCheckpointUsable(state, stateDir)).toBe(true);
-          }
-        } finally {
-          fixture.teardown();
-        }
-      }
+    beforeEach(() => {
+      stateDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "flow-evals-suites-state-"),
+      );
+      claudeJsonPath = writeStandInClaudeJson(stateDir);
     });
-  }
-});
+
+    afterEach(() => {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    });
+
+    for (const suiteId of suiteIds) {
+      it(`${suiteId}: every scenario with a fixture.repo resolves origin/main and carries .flow-tmp/; armed checkpoints are fresh`, () => {
+        const loaded = loadSuite(path.join(EVALS_ROOT, suiteId));
+        if (!loaded.ok) throw new Error(loaded.reason);
+
+        for (const scenario of loaded.value.scenarios) {
+          const fixture = materializeFixture(scenario, suiteId, 1, {
+            stateDir,
+            claudeJsonPath,
+          });
+          try {
+            if (scenario.fixture?.repo) {
+              const mergeBase = spawnSync(
+                "git",
+                ["merge-base", "origin/main", "HEAD"],
+                {
+                  cwd: fixture.repoDir,
+                  encoding: "utf8",
+                },
+              );
+              expect(mergeBase.status).toBe(0);
+              expect(mergeBase.stdout.trim().length).toBeGreaterThan(0);
+              expect(
+                fs.existsSync(path.join(fixture.repoDir, ".flow-tmp")),
+              ).toBe(true);
+            }
+            if (scenario.fixture?.checkpoint?.armed) {
+              const state = JSON.parse(
+                fs.readFileSync(
+                  path.join(stateDir, `${fixture.slug}.json`),
+                  "utf8",
+                ),
+              );
+              expect(isCheckpointUsable(state, stateDir)).toBe(true);
+            }
+          } finally {
+            fixture.teardown();
+          }
+        }
+      });
+    }
+  },
+);
 
 describe("dry-run via the real CLI", () => {
   let stateDir!: string;
   let outDir!: string;
   let claudeJsonPath!: string;
 
-  beforeEach(() => {
+  beforeAll(() => {
     stateDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "flow-evals-suites-cli-state-"),
     );
@@ -192,51 +211,59 @@ describe("dry-run via the real CLI", () => {
     claudeJsonPath = writeStandInClaudeJson(stateDir);
   });
 
-  afterEach(() => {
+  afterAll(() => {
     fs.rmSync(stateDir, { recursive: true, force: true });
     fs.rmSync(outDir, { recursive: true, force: true });
   });
 
-  it("dry-runs every committed suite and leaves no eval-* state behind", async () => {
-    for (const suiteId of suiteIds) {
-      const deps: Partial<Deps> = {
-        probeClaude: () => ({ ok: true, version: "0.0.0-test" }),
-        probeFlowInstall: () => ({ ok: true, version: "" }),
-        materializeFixture: (scenario, sId, run, opts) =>
-          materializeFixture(scenario, sId, run, {
-            ...opts,
-            stateDir,
-            claudeJsonPath,
-          }),
-      };
-      const code = await main(
-        [
-          "run",
-          "--suite",
-          suiteId,
-          "--out",
-          outDir,
-          "--evals-dir",
-          EVALS_ROOT,
-          "--dry-run",
-        ],
-        deps,
-      );
-      expect(code).toBe(0);
-      const reportPath = path.join(outDir, suiteId, "report.json");
-      expect(fs.existsSync(reportPath)).toBe(true);
-      const report = JSON.parse(fs.readFileSync(reportPath, "utf8")) as {
-        scenarios: Array<{ id: string }>;
-      };
-      const loaded = loadSuite(path.join(EVALS_ROOT, suiteId));
-      if (!loaded.ok) throw new Error(loaded.reason);
-      expect(report.scenarios.map((s) => s.id).sort()).toEqual(
-        loaded.value.scenarios.map((s) => s.id).sort(),
-      );
-    }
-    const leaked = fs
-      .readdirSync(stateDir)
-      .filter((n) => n.startsWith("eval-"));
-    expect(leaked).toEqual([]);
+  const leakedEvalState = (): string[] =>
+    fs.readdirSync(stateDir).filter((n) => n.startsWith("eval-"));
+
+  for (const suiteId of suiteIds) {
+    it(
+      `${suiteId}: dry-runs through the real CLI, reports every scenario, and leaves no eval-* state behind`,
+      async () => {
+        const deps: Partial<Deps> = {
+          probeClaude: () => ({ ok: true, version: "0.0.0-test" }),
+          probeFlowInstall: () => ({ ok: true, version: "" }),
+          materializeFixture: (scenario, sId, run, opts) =>
+            materializeFixture(scenario, sId, run, {
+              ...opts,
+              stateDir,
+              claudeJsonPath,
+            }),
+        };
+        const code = await main(
+          [
+            "run",
+            "--suite",
+            suiteId,
+            "--out",
+            outDir,
+            "--evals-dir",
+            EVALS_ROOT,
+            "--dry-run",
+          ],
+          deps,
+        );
+        expect(code).toBe(0);
+        const reportPath = path.join(outDir, suiteId, "report.json");
+        expect(fs.existsSync(reportPath)).toBe(true);
+        const report = JSON.parse(fs.readFileSync(reportPath, "utf8")) as {
+          scenarios: Array<{ id: string }>;
+        };
+        const loaded = loadSuite(path.join(EVALS_ROOT, suiteId));
+        if (!loaded.ok) throw new Error(loaded.reason);
+        expect(report.scenarios.map((s) => s.id).sort()).toEqual(
+          loaded.value.scenarios.map((s) => s.id).sort(),
+        );
+        expect(leakedEvalState()).toEqual([]);
+      },
+      DRY_RUN_TIMEOUT_MS[suiteId] ?? DEFAULT_DRY_RUN_TIMEOUT_MS,
+    );
+  }
+
+  it("leaves no eval-* state behind after every suite has dry-run", () => {
+    expect(leakedEvalState()).toEqual([]);
   });
 });

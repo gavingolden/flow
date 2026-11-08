@@ -3143,7 +3143,8 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
       fs.rmSync(iterDir, { recursive: true, force: true });
     }
     expect(orphanCount).toBe(0);
-  });
+    // 20 real launches (each spawns git) measured 4.6 s under full-suite load; vitest >= 5 enforces the 5 s default on synchronous tests.
+  }, 15_000);
 
   it("MODE 1 (seed never consumed): a consumption-verification failure writes no state and exits non-zero", () => {
     // The new failure mode this PR introduces: createWindowVerified confirmed

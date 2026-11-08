@@ -331,7 +331,8 @@ describe(findAvailableSlot, () => {
     expect(() => findAvailableSlot("foo", initialDir, fx.repoDir)).toThrow(
       /100 attempts/,
     );
-  });
+    // 100 slot probes (each shells out to git): 3.3 s under full-suite load vs the 5 s default vitest >= 5 enforces.
+  }, 15_000);
 });
 
 describe("findAvailableSlot reservedDir", () => {
@@ -417,7 +418,8 @@ describe(reserveWorktreeSlot, () => {
     expect(() => reserveWorktreeSlot("foo", initialDir, fx.repoDir)).toThrow(
       /100 attempts/,
     );
-  });
+    // 100 slot probes (each shells out to git): 3.3 s under full-suite load vs the 5 s default vitest >= 5 enforces.
+  }, 15_000);
 });
 
 describe(releaseReservedWorktree, () => {
