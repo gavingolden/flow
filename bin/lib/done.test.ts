@@ -16,6 +16,25 @@ vi.mock("node:fs", async () => {
   return { ...actual, readSync: readSyncMock };
 });
 
+// Under `vitest --no-isolate` (flow-pre-commit's related run) another file can
+// load ./confirm first with the REAL node:fs bound, and the prompt tests then
+// block on a real stdin read. Mocking ./confirm itself routes the prompt
+// through readSyncMock whatever the load order.
+vi.mock("./confirm", () => ({
+  confirmStdin: (prompt: string): boolean => {
+    process.stdout.write(`${prompt} [y/N] `);
+    const buf = Buffer.alloc(16);
+    let len = 0;
+    try {
+      len = readSyncMock(0, buf, 0, buf.length, null);
+    } catch {
+      return false;
+    }
+    const answer = buf.subarray(0, len).toString("utf8").trim().toLowerCase();
+    return answer === "y" || answer === "yes";
+  },
+}));
+
 // Mock node:child_process's spawnSync so the default browserTeardown's
 // real subprocess call (`flow-browser-teardown --session-pid ...`) never
 // actually spawns anything from these tests — asserted directly by the
