@@ -35,7 +35,8 @@ export type CommitSkipReason =
   | "commit-refused"
   | "git-error"
   | "board-vanished"
-  | "lock-timeout";
+  | "lock-timeout"
+  | "not-base-branch";
 
 export type PushSkipReason =
   | "not-committed"
@@ -149,7 +150,7 @@ export function resolveContainedRepoRoot(input: {
  * (`git symbolic-ref`, falling back to `git rev-parse --abbrev-ref HEAD`).
  * Returns null on a detached HEAD or any git failure — never throws.
  */
-function currentBranch(repoRoot: string, git: GitRunner): string | null {
+export function currentBranch(repoRoot: string, git: GitRunner): string | null {
   const symbolic = git(
     ["symbolic-ref", "--quiet", "--short", "HEAD"],
     repoRoot,
@@ -340,7 +341,7 @@ const defaultPushGit: GitRunner = (argv, cwd) => {
   };
 };
 
-function resolveDefaultBranch(repoRoot: string, git: GitRunner): string {
+export function resolveDefaultBranch(repoRoot: string, git: GitRunner): string {
   const symbolic = git(
     ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
     repoRoot,
