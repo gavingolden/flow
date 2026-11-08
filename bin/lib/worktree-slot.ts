@@ -17,7 +17,9 @@ export function toDirSuffix(branchName: string): string {
 }
 
 export function worktreeContainerDir(repoDir: string): string {
-  return path.join(path.dirname(repoDir), WORKTREE_CONTAINER_NAME);
+  const parent = path.dirname(repoDir);
+  if (path.basename(parent) === WORKTREE_CONTAINER_NAME) return parent;
+  return path.join(parent, WORKTREE_CONTAINER_NAME);
 }
 
 /** `<repo-parent>/flow-worktrees.noindex/<repo>-<branch suffix>`. */

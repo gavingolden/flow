@@ -43,7 +43,11 @@ function sweep(items: Partial<SweepItem>[]): SweepResult {
 
 function run(
   mdfind: Parameters<typeof scriptedRun>[0],
-  over: { platform?: NodeJS.Platform; sweep?: SweepResult | null } = {},
+  over: {
+    platform?: NodeJS.Platform;
+    sweep?: SweepResult | null;
+    exists?: (p: string) => boolean;
+  } = {},
 ) {
   const calls: RunCall[] = [];
   const deps = makeDeps(root, {
@@ -53,6 +57,7 @@ function run(
   const checks = checkWorktreeIndexing(deps, {
     listStates: states,
     lastSweep: () => over.sweep ?? null,
+    exists: over.exists ?? fs.existsSync,
   });
   return { checks, calls };
 }
@@ -128,9 +133,49 @@ describe("checkWorktreeIndexing", () => {
         { path: path.join(container, "repo-new") },
         { outcome: "removed", path: path.join(root, "repo-gone") },
       ]),
+      exists: () => true,
     });
     expect(checks[0].status).toBe("pass");
     expect(checks[0].details.join(" ")).toContain("1 older worktree");
-    expect(checks[0].fix).toBe("flow reap --worktrees");
+    expect(checks[0].details.join(" ")).toContain("nothing to do");
+    expect(checks[0].fix).toBeUndefined();
+  });
+
+  it("ignores swept worktrees whose folder is gone, that flow did not create, or husk items", () => {
+    fs.mkdirSync(container);
+    const gone = path.join(root, "repo-gone-already");
+    const { checks } = run(() => ({ stdout: "0" }), {
+      sweep: sweep([
+        { path: gone },
+        { path: path.join(root, "unrelated-folder") },
+        {
+          kind: "husk" as SweepItem["kind"],
+          path: path.join(root, "repo-husk"),
+        },
+      ]),
+      exists: (p) => p !== gone,
+    });
+    expect(checks[0].details).toEqual([]);
+  });
+
+  it("names every indexed container in the warn fix", () => {
+    const other = path.join(root, "other-parent", "flow-worktrees.noindex");
+    const otherRepo = path.join(root, "other-parent", "repo2");
+    fs.mkdirSync(container);
+    fs.mkdirSync(other, { recursive: true });
+    const calls: RunCall[] = [];
+    const deps = makeDeps(root, {
+      run: scriptedRun(() => ({ stdout: "3" }), calls),
+      platform: "darwin",
+    });
+    const checks = checkWorktreeIndexing(deps, {
+      listStates: () => [
+        { repo } as PipelineState,
+        { repo: otherRepo } as PipelineState,
+      ],
+      lastSweep: () => null,
+    });
+    expect(checks[0].fix).toContain(container);
+    expect(checks[0].fix).toContain(other);
   });
 });

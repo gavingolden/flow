@@ -252,6 +252,7 @@ describe("runDoctorCli full probe run in a sandbox", () => {
         "tools-pipeline-permissions",
         "tools-agy",
         "leftovers-worktrees",
+        "leftovers-worktree-indexing",
         "leftovers-processes",
       ]),
     );

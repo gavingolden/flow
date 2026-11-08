@@ -29,7 +29,7 @@ $ flow feature create "add CSV export"
     Task 2: wire the --csv flag into the report command
   approve? > approved
 
-[implement] worktree ready at ../myrepo-add-csv-export
+[implement] worktree ready at ../flow-worktrees.noindex/myrepo-add-csv-export
 [implement] applying edits ... running verify ... ok
 [ci]       PR #142 opened — waiting for checks ............... green
 [review]   multi-agent review + Copilot ... 2 findings fixed
@@ -38,7 +38,7 @@ $ flow feature create "add CSV export"
 MERGED
 ```
 
-Everything happens in a dedicated git worktree in `flow-worktrees.noindex/<repo>-<slug>` beside your checkout — the `.noindex` name keeps Spotlight from indexing it, while your main checkout stays searchable, so your own checkout is never touched and parallel pipelines stay isolated. Non-feature changes (a bugfix, a docs tweak) usually skip the plan-approval pause, but nothing runs start to finish untouched by guarantee: the intent interview can pause any intent, so can a method checkpoint when flow's survey of approaches disagrees with the one you asked for, and a plan whose approach diverges from what you asked for still stops for your approval.
+Everything happens in a dedicated git worktree in `flow-worktrees.noindex/<repo>-<slug>` beside your checkout, so your own checkout is never touched and parallel pipelines stay isolated; the `.noindex` name only keeps Spotlight from indexing the worktrees while your main checkout stays searchable. Non-feature changes (a bugfix, a docs tweak) usually skip the plan-approval pause, but nothing runs start to finish untouched by guarantee: the intent interview can pause any intent, so can a method checkpoint when flow's survey of approaches disagrees with the one you asked for, and a plan whose approach diverges from what you asked for still stops for your approval.
 
 ## Reading the run
 

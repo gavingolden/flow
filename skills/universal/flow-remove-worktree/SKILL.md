@@ -23,7 +23,7 @@ Safely remove a git worktree and optionally delete the associated branch.
 
 # Context
 
-- `scripts/remove-agent-worktree.ts` — handles worktree removal and branch deletion
+- `flow-remove-worktree` — handles worktree removal and branch deletion
 - `.env` and `.claude/settings.local.json` are symlinked (not copied) into worktrees,
   so no file sync is needed on removal
 
@@ -34,15 +34,15 @@ Safely remove a git worktree and optionally delete the associated branch.
 - If `$ARGUMENTS` is provided, parse it as the worktree path or branch name. Include
   `--delete-branch` flag if present.
 - If `$ARGUMENTS` is empty, ask the user which worktree to remove. Accept either:
-  - A **path** (e.g., `../my-repo-improve-tooltips`)
+  - A **path** (e.g., `../flow-worktrees.noindex/<repo>-<branch>`)
   - A **branch name** (e.g., `agent/improve-tooltips`)
 - Ask whether to **delete the branch** as well (default: no).
 
-## 2. Run the Removal Script
+## 2. Run the Removal Helper
 
 - Execute:
   ```bash
-  ./scripts/remove-agent-worktree.ts <worktree-path-or-branch> [--delete-branch]
+  flow-remove-worktree <worktree-path-or-branch> [--delete-branch]
   ```
 
 ## 3. Report Results

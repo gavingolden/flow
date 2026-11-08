@@ -7,7 +7,8 @@
  *
  * Exit codes: 0 - control indexed (>0) and worktree 0; 1 - the worktree was
  * indexed (count printed); 2 - the control was never indexed within the
- * timeout (inconclusive); 3 - not macOS.
+ * timeout (inconclusive); 3 - not macOS; 4 - setup failed (not a git repo or
+ * `git worktree add` failed); 130 - SIGINT; 143 - SIGTERM.
  *
  * Counts use `kMDItemContentTypeTree == "public.item"`: the
  * `kMDItemFSName == "*"` query returns 0 even for indexed folders.
@@ -42,7 +43,7 @@ function defaultRepo(): string {
   const first = (r.stdout ?? "").split("\n")[0] ?? "";
   if (r.status !== 0 || !first.startsWith("worktree ")) {
     console.error("not inside a git repo; pass --repo <main checkout>");
-    process.exit(2);
+    process.exit(4);
   }
   return first.slice("worktree ".length).trim();
 }
@@ -66,10 +67,13 @@ async function main(): Promise<number> {
     fs.rmSync(control, { recursive: true, force: true });
     console.log("cleanup: removed the probe worktree and control folder");
   };
-  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+  for (const [sig, code] of [
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+  ] as const) {
     process.on(sig, () => {
       cleanup();
-      process.exit(130);
+      process.exit(code);
     });
   }
 
@@ -86,7 +90,7 @@ async function main(): Promise<number> {
     ]);
     if (add.status !== 0) {
       console.error(`git worktree add failed: ${add.stderr}`);
-      return 2;
+      return 4;
     }
     fs.writeFileSync(
       path.join(worktree, `noindex-probe-${ts}-wt.txt`),

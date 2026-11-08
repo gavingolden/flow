@@ -12,7 +12,7 @@ import type { DoctorCheck, DoctorDeps } from "./doctor";
 import { listStates, type PipelineState } from "./state";
 import { plural } from "./worktree-sweep-render";
 import { readLastSweep, type SweepResult } from "./worktree-sweep-state";
-import { worktreeContainerDir } from "./worktree-slot";
+import { isFlowWorktreePath, worktreeContainerDir } from "./worktree-slot";
 
 export const WORKTREE_INDEXING_META = {
   id: "leftovers-worktree-indexing",
@@ -48,6 +48,7 @@ export function checkWorktreeIndexing(
   io: {
     listStates?: () => PipelineState[];
     lastSweep?: () => SweepResult | null;
+    exists?: (p: string) => boolean;
   } = {},
 ): DoctorCheck[] {
   const done = (
@@ -76,20 +77,23 @@ export function checkWorktreeIndexing(
       ...(last?.items ?? []).map((i) => i.repo),
     ]),
   ].filter((r): r is string => Boolean(r));
+  const exists = io.exists ?? fs.existsSync;
   const containers = [
-    ...new Set(repos.map(worktreeContainerDir).filter((c) => fs.existsSync(c))),
+    ...new Set(repos.map(worktreeContainerDir).filter((c) => exists(c))),
   ];
 
   const older = (last?.items ?? []).filter(
     (i) =>
       i.kind === "worktree" &&
       i.outcome !== "removed" &&
-      !underContainer(i.repo, i.path),
+      isFlowWorktreePath(i.repo, i.path) &&
+      !underContainer(i.repo, i.path) &&
+      exists(i.path),
   ).length;
   const olderNote =
     older > 0
       ? [
-          `${plural(older, "older worktree", "older worktrees")} beside your checkouts ${older === 1 ? "is" : "are"} still indexed until cleaned up`,
+          `${plural(older, "older worktree", "older worktrees")} beside your checkouts ${older === 1 ? "is" : "are"} still indexed; flow removes ${older === 1 ? "it" : "them"} automatically once ${older === 1 ? "its PR is" : "their PRs are"} merged or closed, so there is nothing to do`,
         ]
       : [];
 
@@ -112,17 +116,12 @@ export function checkWorktreeIndexing(
       "warn",
       `Spotlight is indexing ${where.join(", ")}`,
       olderNote,
-      `add ${indexed[0].container} to System Settings → Spotlight → Search Privacy`,
+      `add ${indexed.map((c) => c.container).join(", ")} to System Settings → Spotlight → Search Privacy`,
     );
   }
   const summary =
     containers.length === 0
       ? "no worktree folder yet"
       : `Spotlight reports 0 indexed files in ${containers.join(", ")}`;
-  return done(
-    "pass",
-    summary,
-    olderNote,
-    older > 0 ? "flow reap --worktrees" : undefined,
-  );
+  return done("pass", summary, olderNote);
 }
