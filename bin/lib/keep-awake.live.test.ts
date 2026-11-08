@@ -78,6 +78,7 @@ describeOnDarwin("keep-awake live", () => {
       nowMs: () => clock.now,
       envOff: () => false,
       enabled: () => true,
+      maxSec: () => 7200,
       // liveness.ts probes `ps` via Bun.spawnSync, which vitest (node) lacks.
       startEpoch: () => 1,
       isLive: (r) => alive(r.pid),

@@ -226,17 +226,26 @@ describe("syncKeepAwake", () => {
         }
         holds.push(rows.some(live));
       }
-      return holds;
+      return { holds, spawns: nextPid - 500 };
     };
 
     it("should hold at every minute when syncs continue for six hours", () => {
-      expect(run(360).every(Boolean)).toBe(true);
+      const { holds, spawns } = run(360);
+      expect(holds.every(Boolean)).toBe(true);
+      expect(spawns).toBe(25);
     });
 
     it("should stop holding within the limit once syncs stop", () => {
-      const holds = run(10);
+      const { holds } = run(10);
       expect(holds[10]).toBe(true);
       expect(holds.slice(131).some(Boolean)).toBe(false);
+    });
+
+    it("should hold at least 105 minutes after the last sync and release by the limit", () => {
+      // last sync at 59 -> last renewal at 45 -> deadline 45 + 120 = 165
+      const { holds } = run(59);
+      expect(holds.slice(59, 165).every(Boolean)).toBe(true);
+      expect(holds.slice(165).some(Boolean)).toBe(false);
     });
   });
 

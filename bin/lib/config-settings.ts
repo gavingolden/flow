@@ -27,7 +27,10 @@ import {
 } from "./copilot-config";
 import { readEpicMaxParallel, DEFAULT_MAX_PARALLEL } from "./epic-config";
 import { isOutputLens } from "./output-lens";
-import { resolveKeepAwakeMaxMinutes } from "./keep-awake-config";
+import {
+  KEEP_AWAKE_DEFAULT_MINUTES,
+  resolveKeepAwakeMaxMinutes,
+} from "./keep-awake-config";
 import {
   DELEGATE_MODEL_DEFAULTS,
   DEFAULT_DELEGATED_LENSES,
@@ -370,7 +373,7 @@ const DESCRIPTORS: Descriptor[] = [
             value: String(minutes),
             source: "config (power.keepAwakeMaxMinutes)",
           }
-        : { value: String(minutes), source: "built-in (120)" };
+        : { value: String(minutes), source: `built-in (${KEEP_AWAKE_DEFAULT_MINUTES})` };
     },
   },
   {
