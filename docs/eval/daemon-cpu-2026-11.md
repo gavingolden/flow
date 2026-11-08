@@ -2,7 +2,7 @@
 
 How much macOS background daemon CPU one full flow test run causes, what drives it, and what this branch changed (flow#1010). Measured on 2026-11-08.
 
-**Bottom line:** the two shipped levers remove work that is countable without noise: about 65 fewer first-run security scans and about 14,500 fewer file creations per full run. That is an estimated −0.7 s of `syspolicyd` and −1.6 s of `fseventsd` per run, about 6% of the ~39 s that `syspolicyd`, `fseventsd` and `kernel_task` take together (9.3 + 12.1 + 17.5 s medians on `main`). The CPU deltas could not confirm it, and they did not move the expected way: across 6 interleaved pairs the branch median was 1.7 s higher for `syspolicyd` (11.0 s vs 9.3 s) and 2.7 s higher for `kernel_task` (20.2 s vs 17.5 s), and 0.8 s lower for `fseventsd` (11.3 s vs 12.1 s), all inside the run-to-run spread; the one 3-suites-at-once pair came out lower (29.1 s vs 26.1 s `syspolicyd`). Host load from other pipelines swung between 4 and 199 during measurement, and run-to-run noise (8–22 s `syspolicyd` for the same tree) was larger than the effect.
+**Bottom line:** the one shipped lever, a minimal git template for the suite, removes work that is countable without noise: about 14,500 fewer file creations per full run. That is an estimated −1.6 s of `fseventsd` per run, about 4% of the ~39 s that `syspolicyd`, `fseventsd` and `kernel_task` take together (9.3 + 12.1 + 17.5 s medians on `main`). A second lever, a machine-wide shared hook shim (~65 fewer first-run scans, −0.7 s `syspolicyd`), was built, measured and dropped before merge (see Rejected options). The CPU deltas below were measured with both levers in place and could not confirm either, and they did not move the expected way: across 6 interleaved pairs the branch median was 1.7 s higher for `syspolicyd` (11.0 s vs 9.3 s) and 2.7 s higher for `kernel_task` (20.2 s vs 17.5 s), and 0.8 s lower for `fseventsd` (11.3 s vs 12.1 s), all inside the run-to-run spread; the one 3-suites-at-once pair came out lower (29.1 s vs 26.1 s `syspolicyd`). Host load from other pipelines swung between 4 and 199 during measurement, and run-to-run noise (8–22 s `syspolicyd` for the same tree) was larger than the effect.
 
 ## Method
 
@@ -69,6 +69,7 @@ The PATH-stub group costs 0.2 s, under the plan's 1 s cut line, so the cached-st
 - **Fewer launches of signed binaries:** launches cost 0.07–0.2 ms each. Cutting the tests' ~11,600 git calls is the largest remaining lever, but it means rewriting fixtures across dozens of files; left for a separate decision.
 - **vitest 5 `fsModuleCache`:** caches transformed modules on disk, so it adds writes on a miss and does not touch the scan or file-watch paths.
 - **Launch-free fast path for `reference-transaction` / `post-index-change` hooks:** built, measured and reverted. It saved ~200 of ~11,600 launches (~0.04 s) while adding two git calls to every hook install and a staleness trade-off.
+- **Machine-wide shared hook shim (`~/.flow/hooks/worktree-chain-shim-<hash>.sh`):** built, tested and dropped at the merge gate. It cut the 79 freshly written per-worktree hook copies to at most 15 per run (~65 scans, ~0.7 s `syspolicyd`), but made every flow worktree's git hooks depend on one file that fails open: delete it and hooks silently stop running. The `~/.flow/hooks/` folder was found empty on the measurement host during review, and each shim revision would add a content-hashed file with nothing to prune old ones. Not worth it for a gain below the noise floor.
 - **Shared hard-linked shim seed across test files:** dropped before building. It would save at most ~15 scans while one existing test's write through a hook link could corrupt a seed file that concurrent pipelines share.
 - **Terminal "Developer Tools" exemption from the first-run malware scan:** declined by the user for security reasons. Agents in these terminals run code from PRs, fetched pages and npm packages, which is what the scan protects against. Not measured, and `flow doctor` does not suggest it.
 
@@ -76,16 +77,16 @@ The PATH-stub group costs 0.2 s, under the plan's 1 s cut line, so the cached-st
 
 What this branch changes, as counts from one traced full run per tree:
 
-| Count per full run                           | main   | branch                                                        |
-| -------------------------------------------- | ------ | ------------------------------------------------------------- |
-| Distinct freshly written flow-hook files run | 79     | ≤15 (one shared shim per hook-installing test file's `$HOME`) |
-| Files written per `git init`/`clone`         | 18     | 3                                                             |
-| `git init`/`clone` calls                     | ~1,040 | ~1,050                                                        |
-| Tests passed                                 | 14,067 | 14,098 (31 added)                                             |
+| Count per full run                           | main   | branch                                         |
+| -------------------------------------------- | ------ | ---------------------------------------------- |
+| Distinct freshly written flow-hook files run | 79     | 79 (shared shim dropped; see Rejected options) |
+| Files written per `git init`/`clone`         | 18     | 3                                              |
+| `git init`/`clone` calls                     | ~1,040 | ~1,050                                         |
+| Tests passed                                 | 14,067 | 14,098 (31 added)                              |
 
-Estimated effect from the per-unit costs above: −0.7 s `syspolicyd` (~65 fewer first-run scans) and −1.6 s `fseventsd` (~14,500 fewer file creations) per run.
+Estimated effect of the shipped template from the per-unit costs above: −1.6 s `fseventsd` (~14,500 fewer file creations) per run. The dropped shim would have added −0.7 s `syspolicyd` (~65 fewer first-run scans).
 
-Measured CPU, full suite. Branch runs 4–6 also carried the since-reverted hook fast path, which changes ~200 launches per run and is negligible here:
+Measured CPU, full suite. Every branch run also carried the since-dropped shared shim, and runs 4–6 the since-reverted hook fast path (~200 launches per run, negligible here):
 
 | Arm (median of 6 interleaved pairs) | syspolicyd | fseventsd | kernel_task |
 | ----------------------------------- | ---------- | --------- | ----------- |
@@ -97,6 +98,6 @@ Measured CPU, full suite. Branch runs 4–6 also carried the since-reverted hook
 | main                                 | 29.1       | 38.0      | 57.9        | 113 s |
 | branch                               | 26.1       | 33.4      | 50.8        | 104 s |
 
-The paired medians are within noise. The same tree ranged from 8.0 to 21.8 s `syspolicyd` depending on host load, so a 0.7 s effect cannot show. The concurrent arm moved about 10% in the expected direction, but it is a single pair. Measured wall time also tracked host load rather than the branch: 45–131 s for one suite.
+The paired medians are within noise. The same tree ranged from 8.0 to 21.8 s `syspolicyd` depending on host load, so a 1–2 s effect cannot show. The concurrent arm moved about 10% in the expected direction, but it is a single pair. Measured wall time also tracked host load rather than the branch: 45–131 s for one suite.
 
-On the user's machine the remaining daemon load is mostly other pipelines' Spotlight indexing (#1011) and the tests' own process launches. This branch removes the countable per-run scan and file churn it targeted, at a size this host cannot resolve.
+On the user's machine the remaining daemon load is mostly other pipelines' Spotlight indexing (#1011, since addressed by #1034, which merged after these measurements) and the tests' own process launches. The shipped template removes the countable per-run file churn it targeted, at a size this host cannot resolve.
