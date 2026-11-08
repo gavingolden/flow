@@ -97,6 +97,7 @@ Usage:
   flow done --orphans                   close every state file whose tmux window is gone
   flow done --merged --orphans          compose: close terminal-state OR orphaned pipelines
   flow reap [--slug <s>] [--yes]        report (and with --yes, clean up) processes left by dead pipelines
+  flow reap --worktrees [--yes]         preview (or with --yes, remove) finished worktrees and leftover folders
   flow doctor [--json]                  check your flow setup and print a fix for each problem
   flow prompt [<slug>]                  print a pipeline's originating request
   flow completion <bash|zsh>            print a shell completion script to stdout
@@ -420,8 +421,8 @@ and you run that yourself.
 Checks, grouped in the report: Install (links, helpers an upgrade never
 installed, runtime packages), Shell (a stale FLOW_SLUG, PATH), Tools (gh,
 tmux, claude, agy, pipeline permissions),
-Leftovers (stale worktrees, pipeline records that can no longer resume,
-leaked processes). A live pipeline is never reported as dead for lacking a
+Leftovers (what the last worktree cleanup kept, pipeline records that can
+no longer resume, leaked processes). A live pipeline is never reported as dead for lacking a
 tmux window.
 
 Options:
@@ -440,6 +441,7 @@ run the same check straight from your checkout:
 
 Usage:
   flow reap [--slug <s>] [--yes] [--include-strays] [--json]
+  flow reap --worktrees [--yes] [--json]
 
 Report-only by default: without --yes, every row is inspected and
 classified but nothing is signalled. --yes acts on registered process-
@@ -485,6 +487,14 @@ Options:
                         (host-wide, never scoped by --slug) and on ended
                         pipelines' worktree leftovers (requires --yes to
                         actually signal anything; report-only alone)
+  --worktrees           instead of processes, preview the cleanup of finished
+                        worktrees (merged or closed PR, nothing uncommitted,
+                        nothing running) and leftover sibling folders; --yes
+                        removes them, --json prints the result. Cannot be
+                        combined with --slug or --include-strays. The
+                        automatic version (cleanup.worktrees in
+                        ~/.flow/config.json, on by default) runs in the
+                        background from 'flow feature create' at most hourly
   --json                emit machine-readable output ({registry, heuristic, agy,
                         worktreeOrphans, outsideOrphans})
 

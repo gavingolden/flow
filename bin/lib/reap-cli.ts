@@ -22,7 +22,10 @@
  * Report-only unless `--yes`. Never passes `--record` and never writes to
  * `~/.flow/state/<slug>.json` — a host-wide sweep touches OTHER pipelines'
  * slugs, and recording into a sibling's state file would corrupt that
- * pipeline's `flow-gate-summary --cleanup` CLEANUP row.
+ * pipeline's `flow-gate-summary --cleanup` CLEANUP row. The one carve-out is
+ * `--worktrees --yes`: it removes folders through `flow-remove-worktree`,
+ * whose guarded cleanup clears `worktree` on a finished (merged/cancelled)
+ * record that owned the removed folder.
  */
 
 import { argsContainHelp, printVerbHelp } from "./help";
@@ -48,6 +51,9 @@ import {
   sweepAgyStrays,
   type AgyStraySweepResult,
 } from "./agy-strays";
+import { runWorktreeSweep } from "./worktree-sweep";
+import { defaultSweepDeps } from "./worktree-sweep-defaults";
+import { renderWorktreeSweepText } from "./worktree-sweep-render";
 import {
   buildDefaultDeps,
   runOrphanSweep,
@@ -60,11 +66,29 @@ type ParsedReapCli = {
   yes: boolean;
   includeStrays: boolean;
   json: boolean;
+  worktrees: boolean;
+  auto: boolean;
   usageError?: string;
 };
 
+function worktreesUsageError(p: ParsedReapCli): string | undefined {
+  if (p.auto && !p.worktrees) return "--auto only works with --worktrees";
+  if (p.worktrees && p.slug)
+    return "--worktrees cannot be combined with --slug";
+  if (p.worktrees && p.includeStrays) {
+    return "--worktrees cannot be combined with --include-strays";
+  }
+  return undefined;
+}
+
 function parseReapArgs(args: string[]): ParsedReapCli {
-  const out: ParsedReapCli = { yes: false, includeStrays: false, json: false };
+  const out: ParsedReapCli = {
+    yes: false,
+    includeStrays: false,
+    json: false,
+    worktrees: false,
+    auto: false,
+  };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--yes") {
@@ -73,6 +97,10 @@ function parseReapArgs(args: string[]): ParsedReapCli {
       out.includeStrays = true;
     } else if (a === "--json") {
       out.json = true;
+    } else if (a === "--worktrees") {
+      out.worktrees = true;
+    } else if (a === "--auto") {
+      out.auto = true;
     } else if (a === "--slug") {
       const v = args[++i];
       if (v === undefined || v === "" || !isValidSlug(v)) {
@@ -84,6 +112,7 @@ function parseReapArgs(args: string[]): ParsedReapCli {
       out.usageError = `unknown flag: ${a}`;
     }
   }
+  if (!out.usageError) out.usageError = worktreesUsageError(out);
   return out;
 }
 
@@ -558,6 +587,9 @@ function sweepWorktrees(
 /**
  * `flow reap [--slug <s>] [--yes] [--include-strays] [--json]` — see the
  * module doc comment above for the composed-sweep + safety contract.
+ * `flow reap --worktrees [--yes] [--json]` previews (or with --yes performs)
+ * the finished-worktree and leftover-folder cleanup instead; `--auto` is the
+ * silent form `flow feature create` starts in the background.
  */
 export function runReapCli(args: string[]): number {
   if (argsContainHelp(args)) {
@@ -569,6 +601,19 @@ export function runReapCli(args: string[]): number {
   if (parsed.usageError) {
     console.error(`flow reap: ${parsed.usageError}`);
     return 1;
+  }
+
+  if (parsed.worktrees) {
+    const swept = runWorktreeSweep(
+      { act: parsed.yes, auto: parsed.auto },
+      defaultSweepDeps(),
+    );
+    if (!parsed.auto) {
+      console.log(
+        parsed.json ? JSON.stringify(swept) : renderWorktreeSweepText(swept),
+      );
+    }
+    return 0;
   }
 
   const result = collectReapReport({

@@ -44,6 +44,23 @@ const livenessMock = vi.hoisted(() => ({
 }));
 vi.mock("./liveness", () => livenessMock);
 
+// Hermetic: the worktree sweep and its real-machine deps are never reached.
+const worktreeSweepMock = vi.hoisted(() => ({
+  runWorktreeSweep: vi.fn(() => ({
+    mode: "worktrees" as const,
+    at: "2026-01-01T00:00:00.000Z",
+    acted: false,
+    items: [] as unknown[],
+    danglingMounts: [] as unknown[],
+    deadlineHit: false,
+    totals: { removed: 0, held: 0, failed: 0, bytesFreed: 0 },
+  })),
+}));
+vi.mock("./worktree-sweep", () => worktreeSweepMock);
+vi.mock("./worktree-sweep-defaults", () => ({
+  defaultSweepDeps: vi.fn(() => ({ marker: "default-sweep-deps" })),
+}));
+
 // Hermetic: no test may run a real `ps` or signal a host process.
 const agyStraysMock = vi.hoisted(() => ({
   sweepAgyStrays: vi.fn(),
@@ -941,5 +958,69 @@ describe("collectReapReport — worktree leftovers section", () => {
     expect(out).toContain("left to the live pipeline");
     expect(out).toContain("leftover process");
     expect(out).not.toMatch(/live-two: .*would stop/);
+  });
+});
+
+describe("runReapCli --worktrees", () => {
+  function run(args: string[]): { code: number; out: string; err: string } {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const errLog = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const code = runReapCli(args);
+    const out = log.mock.calls.map((c) => c.join(" ")).join("\n");
+    const err = errLog.mock.calls.map((c) => c.join(" ")).join("\n");
+    log.mockRestore();
+    errLog.mockRestore();
+    return { code, out, err };
+  }
+
+  it("previews by default: acts only with --yes, and never runs the process sweeps", () => {
+    const first = run(["--worktrees"]);
+    expect(first.code).toBe(0);
+    expect(first.out).toContain("Summary:");
+    expect(worktreeSweepMock.runWorktreeSweep).toHaveBeenLastCalledWith(
+      { act: false, auto: false },
+      expect.anything(),
+    );
+    run(["--worktrees", "--yes"]);
+    expect(worktreeSweepMock.runWorktreeSweep).toHaveBeenLastCalledWith(
+      { act: true, auto: false },
+      expect.anything(),
+    );
+    expect(procSweepRunMock.runProcSweep).not.toHaveBeenCalled();
+    expect(browserTeardownMock.runOrphanSweep).not.toHaveBeenCalled();
+  });
+
+  it("--json prints the raw sweep result", () => {
+    const { out } = run(["--worktrees", "--json"]);
+    expect(JSON.parse(out)).toMatchObject({ mode: "worktrees", acted: false });
+  });
+
+  it("--auto prints nothing", () => {
+    const { code, out } = run(["--worktrees", "--yes", "--auto"]);
+    expect(code).toBe(0);
+    expect(out).toBe("");
+    expect(worktreeSweepMock.runWorktreeSweep).toHaveBeenLastCalledWith(
+      { act: true, auto: true },
+      expect.anything(),
+    );
+  });
+
+  it.each([
+    [
+      ["--worktrees", "--slug", "abc"],
+      "--worktrees cannot be combined with --slug",
+    ],
+    [
+      ["--worktrees", "--include-strays"],
+      "--worktrees cannot be combined with --include-strays",
+    ],
+    [["--auto"], "--auto only works with --worktrees"],
+  ])("rejects %j with exit 1 and a usage error", (args, message) => {
+    const { code, err } = run(args);
+    expect(code).toBe(1);
+    expect(err).toContain(message);
+    expect(worktreeSweepMock.runWorktreeSweep).not.toHaveBeenCalled();
   });
 });

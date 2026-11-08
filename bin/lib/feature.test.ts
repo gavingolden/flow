@@ -197,6 +197,7 @@ const runNew = (input: string, options: FeatureOptions = {}) =>
     tmuxOnPath: () => true,
     pluginRootsScan: () => [],
     reserveWorktree: stubReserve,
+    startWorktreeSweep: () => undefined,
     ...options,
   });
 const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
@@ -205,12 +206,18 @@ const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
     tmuxOnPath: () => true,
     pluginRootsScan: () => [],
     reserveWorktree: stubReserve,
+    startWorktreeSweep: () => undefined,
     ...options,
   });
 const runFeatureCliStubbedReserve = (
   args: string[],
   options: FeatureOptions = {},
-) => runFeatureCliReal(args, { reserveWorktree: stubReserve, ...options });
+) =>
+  runFeatureCliReal(args, {
+    reserveWorktree: stubReserve,
+    startWorktreeSweep: () => undefined,
+    ...options,
+  });
 import {
   writeState,
   readState,
@@ -1008,6 +1015,27 @@ describe("runNew (fresh)", () => {
     expect(logs[1]).toBe(
       "flow feature create: created — attach with `flow attach csv-export`",
     );
+  });
+
+  it("starts the background worktree sweep exactly once and leaves the stdout first line unchanged", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const startWorktreeSweep = vi.fn();
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      startWorktreeSweep,
+    });
+    expect(code).toBe(0);
+    expect(startWorktreeSweep).toHaveBeenCalledTimes(1);
+    expect(logs[0]).toBe("flow:csv-export");
+  });
+
+  it("does not start the sweep for a rejected empty description", () => {
+    const startWorktreeSweep = vi.fn();
+    expect(runNew("", { stateDir, startWorktreeSweep })).toBe(1);
+    expect(startWorktreeSweep).not.toHaveBeenCalled();
   });
 
   it("records the seed it intends to deliver on a fresh tmux launch", () => {

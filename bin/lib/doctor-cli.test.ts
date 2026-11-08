@@ -43,6 +43,7 @@ import type { DoctorDeps, DoctorReport } from "./doctor";
 import { makeDeps, scriptedRun } from "./doctor-test-deps";
 import { appendRow } from "./proc-registry";
 import { writeState, type PipelineState } from "./state";
+import { writeLastSweep } from "./worktree-sweep-state";
 
 let root: string;
 let out: string[];
@@ -112,6 +113,18 @@ function healthyDeps(): DoctorDeps {
       procStartedAt: 1,
       updatedAt: "2026-01-01T00:00:00.000Z",
     } as PipelineState,
+    deps.stateDir,
+  );
+  writeLastSweep(
+    {
+      mode: "worktrees",
+      at: new Date(deps.nowMs()).toISOString(),
+      acted: true,
+      items: [],
+      danglingMounts: [],
+      deadlineHit: false,
+      totals: { removed: 0, held: 0, failed: 0, bytesFreed: 0 },
+    },
     deps.stateDir,
   );
   fs.mkdirSync(deps.targets.binDir, { recursive: true });
