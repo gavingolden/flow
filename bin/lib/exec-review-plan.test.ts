@@ -235,6 +235,15 @@ describe("loose pipeline under a pipeline grant", () => {
     );
     writeState(
       {
+        slug: "shipped",
+        phase: "merged",
+        repo: root,
+        updatedAt: "2026-10-26T00:00:00.000Z",
+      },
+      stateDir,
+    );
+    writeState(
+      {
         slug: "elsewhere",
         phase: "implementing",
         repo: "/other/proj",
@@ -260,7 +269,8 @@ describe("loose pipeline under a pipeline grant", () => {
     const prompt = calls[0].prompt;
     expect(prompt).toContain("none — loose pipeline (no epic)");
     expect(prompt).not.toContain("epic goal");
-    expect(prompt).toContain("sibling");
+    expect(prompt).toContain("- loose (sibling) phase=implementing pr=none");
+    expect(prompt).not.toContain("(shipped)");
     expect(prompt).not.toContain("elsewhere");
     expect(prompt).toContain("(feat)");
     const entries = readManagerLog({ slug: "loose" }, managerHome);
@@ -470,7 +480,7 @@ describe("approve", () => {
     );
     expect(draft).toContain("Undo: redirect the plan.");
     expect(draft).toContain(
-      "To stop future approvals: flow grant epic:e1 --autonomy off.",
+      "To withdraw this grant: flow grant epic:e1 --autonomy off.",
     );
     expect(draft.indexOf("Plan approved")).toBeGreaterThan(
       draft.indexOf("- existing"),

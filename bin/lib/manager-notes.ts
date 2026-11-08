@@ -7,7 +7,12 @@
 
 import * as fs from "node:fs";
 import { withFileLockSync } from "./lock";
-import { managerFile, managerHome, managerLockPath } from "./manager-home";
+import {
+  managerFile,
+  managerHome,
+  managerLockPath,
+  writeTextAtomic,
+} from "./manager-home";
 import { FINISHED_PHASE_SET, type PipelineState } from "./state";
 
 export type ManagerNote = {
@@ -67,14 +72,18 @@ export function appendNote(n: ManagerNote, home?: string): void {
   );
 }
 
-/** Replaces the whole file (prune only), via tmp + rename under the notes lock. */
-export function rewriteNotes(notes: ManagerNote[], home?: string): void {
+/** Drops the notes with these ids (prune only): re-reads under the notes lock so a note appended since the caller's read survives. */
+export function dropNotes(ids: ReadonlySet<string>, home?: string): void {
   fs.mkdirSync(home ?? managerHome(), { recursive: true });
-  locked(home, () => {
-    const tmp = `${notesPath(home)}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, notes.map((n) => `${JSON.stringify(n)}\n`).join(""));
-    fs.renameSync(tmp, notesPath(home));
-  });
+  locked(home, () =>
+    writeTextAtomic(
+      notesPath(home),
+      readNotes(home)
+        .filter((n) => !ids.has(n.id))
+        .map((n) => `${JSON.stringify(n)}\n`)
+        .join(""),
+    ),
+  );
 }
 
 /** True when every named slug is finished or has no state; gated / needs-human keep a note alive. */

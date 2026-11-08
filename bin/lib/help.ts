@@ -257,10 +257,8 @@ Options (launch):
   --effort <low|medium|high|xhigh|max>
                         per-launch reasoning-effort override — wins over the manifest's
                         flowNewHints for this one launch
-
-Options (launch, additional):
   --context-file <path>
-                        (launch) seed the owner's rulings and context (non-empty,
+                        seed the owner's rulings and context (non-empty,
                         at most 16 KB) as a delimited block just before the epic
                         pointer; refused with exit 2 when the file is unusable
 

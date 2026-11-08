@@ -156,9 +156,13 @@ describe("zero model calls", () => {
     const files = fs
       .readdirSync(lib)
       .filter(
-        (f) => /^epic-manage(r)?(-.+)?\.ts$/.test(f) && !f.endsWith(".test.ts"),
+        (f) =>
+          /^(epic-manage(r)?|manager)(-.+)?\.ts$/.test(f) &&
+          !f.endsWith(".test.ts"),
       );
     expect(files.length).toBeGreaterThan(5);
+    expect(files).toContain("manager-prune.ts");
+    expect(files).toContain("manager-log.ts");
     for (const f of files) {
       const text = fs.readFileSync(path.join(lib, f), "utf8");
       expect(text, f).not.toMatch(/["'](claude|flow-claude-headless)["']/);

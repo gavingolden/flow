@@ -1,5 +1,5 @@
 /**
- * Rule-based pruning of the manager home: drop expired notes, roll log entries
+ * Rule-based pruning of the manager home: drop expired notes and the grants of finished pipelines, roll log entries
  * older than 90 days into one `rollup` line per month and repo, and regenerate
  * `status.md`. No model, no judgement: every rule is a predicate on a field.
  * `proposals.json` is only ever read — an open proposal waits for the owner.
@@ -12,8 +12,15 @@
 import * as fs from "node:fs";
 import { withFileLockSync } from "./lock";
 import { managerFile, managerHome, writeTextAtomic } from "./manager-home";
-import { logLockPath, logPath, type ManagerLogEntry } from "./manager-log";
-import { isNoteExpired, readNotes, rewriteNotes } from "./manager-notes";
+import { readGrants, removeGrant } from "./manager-grants";
+import {
+  appendManagerLog,
+  logLockPath,
+  logPath,
+  readManagerLog,
+  type ManagerLogEntry,
+} from "./manager-log";
+import { dropNotes, isNoteExpired, readNotes } from "./manager-notes";
 import { readProposals } from "./manager-proposals";
 import { renderManagerStatus } from "./manager-status";
 import { FINISHED_PHASE_SET, listStates, readState } from "./state";
@@ -22,11 +29,44 @@ export const ROLLUP_AGE_DAYS = 90;
 
 export type PruneResult = {
   notesDropped: number;
+  grantsDropped: number;
   entriesRolled: number;
   monthsRolled: number;
   openProposals: number;
   statusPath: string;
 };
+
+/** A `pipeline:` grant is keyed by slug alone, so one whose pipeline is finished or gone must not outlive it and cover a later pipeline that reuses the slug. */
+function dropDeadPipelineGrants(
+  now: Date,
+  readSlug: (slug: string) => ReturnType<typeof readState>,
+  home: string,
+): number {
+  let dropped = 0;
+  for (const g of readGrants(home)) {
+    if (!g.scope.startsWith("pipeline:")) continue;
+    const slug = g.scope.slice("pipeline:".length);
+    const st = readSlug(slug);
+    if (st && !FINISHED_PHASE_SET.has(st.phase)) continue;
+    if (!removeGrant(g.scope, home)) continue;
+    dropped++;
+    const prior = readManagerLog({ slug }, home)
+      .filter((e) => e.kind === "grant")
+      .at(-1);
+    appendManagerLog(
+      {
+        ts: now.toISOString(),
+        kind: "grant-withdrawn",
+        scope: g.scope,
+        repo: prior?.repo ?? "unknown",
+        slug,
+        reason: "pipeline-finished",
+      },
+      { home },
+    );
+  }
+  return dropped;
+}
 
 /** Lines that must survive verbatim: epic grants and wave decisions (the wave review's "already reviewed" set), existing roll-ups, and any entry of a still-unfinished pipeline. */
 export function isRollupExempt(
@@ -145,15 +185,23 @@ export function pruneManagerHome(
     stateDir?: string;
     /** Test seam: runs between the unlocked roll-up and the lock. */
     beforeLock?: () => void;
+    /** Test seam: runs between the unlocked notes read and the notes lock. */
+    beforeNotesLock?: () => void;
   } = {},
 ): PruneResult {
   const home = deps.home ?? managerHome();
   const readSlug = (slug: string) => readState(slug, deps.stateDir);
 
   const notes = readNotes(home);
-  const liveNotes = notes.filter((n) => !isNoteExpired(n, readSlug));
-  const notesDropped = notes.length - liveNotes.length;
-  if (notesDropped > 0) rewriteNotes(liveNotes, home);
+  const expired = notes.filter((n) => isNoteExpired(n, readSlug));
+  const liveNotes = notes.filter((n) => !expired.includes(n));
+  const notesDropped = expired.length;
+  if (notesDropped > 0) {
+    deps.beforeNotesLock?.();
+    dropNotes(new Set(expired.map((n) => n.id)), home);
+  }
+
+  const grantsDropped = dropDeadPipelineGrants(now, readSlug, home);
 
   const all = listStates(deps.stateDir);
   const unfinished = new Set(
@@ -198,6 +246,7 @@ export function pruneManagerHome(
   );
   return {
     notesDropped,
+    grantsDropped,
     entriesRolled,
     monthsRolled,
     openProposals,

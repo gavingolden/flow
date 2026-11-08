@@ -161,6 +161,21 @@ describe("runWaveReview", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("a repo: grant enables the wave review and, with no baseline, reviews every merged feature", () => {
+    fs.rmSync(path.join(managerHome, "grants.json"));
+    fs.rmSync(path.join(managerHome, "log.jsonl"));
+    upsertGrant(
+      {
+        scope: "repo:repo",
+        classes: ["plan"],
+        grantedAt: "t",
+        grantedBy: "owner-cli",
+      },
+      managerHome,
+    );
+    expect(run()).toMatchObject({ ran: true, mergedFeatureIds: ["f1", "f2"] });
+  });
+
   it("reports status-missing without a committed board", () => {
     fs.rmSync(path.join(repo, ".flow/epics/e1/status.json"));
     expect(run()).toMatchObject({ ran: false, skipReason: "status-missing" });

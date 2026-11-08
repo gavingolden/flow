@@ -44,10 +44,15 @@ export function canonicalRepoName(cwd: string): string | null {
   return path.basename(top) || null;
 }
 
-/** The repo name for a recorded repo path: the main checkout's basename when the path still exists, else its own basename. */
+const repoNameMemo = new Map<string, string>();
+
+/** The repo name for a recorded repo path: the main checkout's basename when the path still exists, else its own basename. Successful resolutions are memoized (one `git rev-parse` per distinct path per process). */
 export function repoNameForPath(repoPath: string): string {
+  const hit = repoNameMemo.get(repoPath);
+  if (hit !== undefined) return hit;
   const canonical =
     repoPath && fs.existsSync(repoPath) ? canonicalRepoName(repoPath) : null;
+  if (canonical) repoNameMemo.set(repoPath, canonical);
   return canonical ?? path.basename(repoPath);
 }
 

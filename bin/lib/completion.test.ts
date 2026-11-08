@@ -425,6 +425,7 @@ describe("completion scripts stay in sync with VERBS", () => {
           : script.slice(script.indexOf('line[2]" == launch '));
       expect(launchArm).toContain("--model");
       expect(launchArm).toContain("--effort");
+      expect(launchArm).toContain("--context-file");
       expect(launchArm).toContain("opus haiku sonnet fable");
       expect(launchArm).toContain("low medium high xhigh max");
     }

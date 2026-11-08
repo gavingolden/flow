@@ -191,10 +191,15 @@ _flow() {
                         COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )
                         return
                         ;;
+                    --context-file)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -f -- "$cur") )
+                        return
+                        ;;
                 esac
                 if [[ "$cur" == -* ]]; then
                     # shellcheck disable=SC2207
-                    COMPREPLY=( $(compgen -W "--force --model --effort" -- "$cur") )
+                    COMPREPLY=( $(compgen -W "--force --model --effort --context-file" -- "$cur") )
                 fi
             elif [ "$esub" = "manage" ]; then
                 case "$prev" in

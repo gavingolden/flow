@@ -168,6 +168,17 @@ describe("status", () => {
 });
 
 describe("review", () => {
+  it("accepts review --kind plan --slug with no --epic (a loose pipeline)", () => {
+    seedFeature("solo");
+    const r = call(["review", "--kind", "plan", "--slug", "solo"]);
+    expect(r.code).toBe(0);
+    expect(r.json).toMatchObject({
+      ran: false,
+      kind: "plan",
+      skipReason: "no-grant",
+    });
+  });
+
   it("prints one JSON line, exits 0, and spends nothing without a grant", () => {
     seedFeature("feat", { slug: "e1", featureId: "f1" });
     const r = call([
@@ -326,6 +337,21 @@ describe("outcome", () => {
       repo: path.basename(root),
     });
     expect(last?.epic).toBeUndefined();
+  });
+
+  it("does not match a sibling feature's decision in the same epic", () => {
+    seedFeature("sib", { slug: "e1", featureId: "f2" });
+    expect(
+      call([
+        "outcome",
+        "--slug",
+        "sib",
+        "--decision",
+        "plan-1",
+        "--reply",
+        "accept",
+      ]).json,
+    ).toEqual({ ok: false, reason: "decision-not-found" });
   });
 
   it("reports an unknown decision or a slug with no such decision without writing", () => {

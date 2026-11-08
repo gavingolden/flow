@@ -124,6 +124,7 @@ _flow() {
                     elif [[ "$line[2]" == launch ]]; then
                         _arguments \
                             '--force[relaunch an already-bound feature]' \
+                            '--context-file[seed owner rulings before the epic pointer]:file:_files' \
                             '--model[per-launch model override, wins over flowNewHints]:alias:(opus haiku sonnet fable)' \
                             '--effort[per-launch effort override, wins over flowNewHints]:level:(low medium high xhigh max)'
                     elif [[ "$line[2]" == manage ]]; then

@@ -201,17 +201,14 @@ export function run(
         return usage(`--reply must be one of ${REPLIES.join("|")}`);
       }
       const state = readState(slug, deps.stateDir);
-      const epic = state?.epic?.slug;
-      const prior = readManagerLog(
-        epic ? { epic } : { slug },
-        deps.managerHome,
-      ).find(
+      const prior = readManagerLog({ slug }, deps.managerHome).find(
         (e) => e.kind === "exec-decision" && e.exec?.decisionId === decision,
       );
       if (!prior?.exec) {
         out({ ok: false, reason: "decision-not-found" });
         return 0;
       }
+      const epic = state?.epic?.slug ?? prior.epic;
       const wrongApproval =
         prior.exec.reviewKind === "plan" &&
         prior.exec.action === "approve" &&

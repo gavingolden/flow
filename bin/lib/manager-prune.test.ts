@@ -9,6 +9,7 @@ import {
 } from "./manager-log";
 import { appendNote, readNotes } from "./manager-notes";
 import { isRollupExempt, logOutcome, pruneManagerHome } from "./manager-prune";
+import { readGrants, upsertGrant } from "./manager-grants";
 import { addProposal } from "./manager-proposals";
 import { writeState } from "./state";
 
@@ -55,6 +56,15 @@ describe("notes", () => {
     expect(prune().notesDropped).toBe(0);
     fs.rmSync(path.join(stateDir, "q.json"));
     expect(prune().notesDropped).toBe(1);
+  });
+
+  it("keeps a note appended between the unlocked read and the notes lock", () => {
+    note("old", ["gone"]);
+    seed("live", "implementing");
+    expect(
+      prune({ beforeNotesLock: () => note("late", ["live"]) }).notesDropped,
+    ).toBe(1);
+    expect(readNotes(home).map((n) => n.id)).toEqual(["late"]);
   });
 });
 
@@ -158,6 +168,41 @@ describe("log roll-up", () => {
     expect(fs.readFileSync(path.join(home, "log.jsonl"), "utf8")).toContain(
       "not json\n",
     );
+  });
+});
+
+describe("pipeline grants", () => {
+  const grant = (scope: string) =>
+    upsertGrant(
+      {
+        scope,
+        classes: ["plan"],
+        grantedAt: daysAgo(5),
+        grantedBy: "owner-cli",
+      },
+      home,
+    );
+
+  it("drops a pipeline: grant whose pipeline is finished or gone, keeps live and broader ones", () => {
+    seed("live", "implementing");
+    seed("done", "merged");
+    grant("pipeline:live");
+    grant("pipeline:done");
+    grant("pipeline:gone");
+    grant("repo:flow");
+    const r = prune();
+    expect(r.grantsDropped).toBe(2);
+    expect(
+      readGrants(home)
+        .map((g) => g.scope)
+        .sort(),
+    ).toEqual(["pipeline:live", "repo:flow"]);
+    expect(
+      readManagerLog({}, home).filter(
+        (e) => e.kind === "grant-withdrawn" && e.reason === "pipeline-finished",
+      ),
+    ).toHaveLength(2);
+    expect(prune().grantsDropped).toBe(0);
   });
 });
 

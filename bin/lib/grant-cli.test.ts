@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { spawnSync } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -141,6 +142,9 @@ describe("flow grant --autonomy high", () => {
       0,
     );
     expect(grants()[0].classes).toEqual(["plan", "subjective"]);
+    expect(logs.join("\n")).toContain(
+      "takes effect once delegated UI sign-off",
+    );
   });
 
   it("refuses without a TTY and writes nothing", () => {
@@ -180,6 +184,8 @@ describe("flow grant --autonomy high", () => {
     expect(run(["--autonomy", "high"])).toBe(2);
     expect(run(["repo:flow", "--autonomy", "high", "--expires", "7"])).toBe(2);
     expect(run(["repo:flow", "--autonomy", "high", "--expires=7d"])).toBe(2);
+    expect(run(["repo:flow", "--autonomy", "high", "--expires"])).toBe(2);
+    expect(run(["repo:flow", "--expires", "--autonomy", "high"])).toBe(2);
     expect(grants()).toEqual([]);
   });
 
@@ -211,6 +217,26 @@ describe("flow grant --autonomy high", () => {
     expect(run(["repo:flwo", "--autonomy", "high"])).toBe(0);
     expect(logs.join("\n")).toMatch(/Warning: .*flwo.*known repos: flow/);
     expect(grants()[0].scope).toBe("repo:flwo");
+  });
+
+  it("warns when two different checkouts share the repo name", () => {
+    const other = path.join(root, "forks", "flow");
+    for (const d of [repo, other]) {
+      fs.mkdirSync(d, { recursive: true });
+      spawnSync("git", ["init", "-q", d]);
+    }
+    seed("a");
+    writeState(
+      {
+        slug: "b",
+        phase: "planning",
+        repo: other,
+        updatedAt: "2026-10-26T00:00:00.000Z",
+      },
+      stateDir,
+    );
+    expect(run(["repo:flow", "--autonomy", "high"])).toBe(0);
+    expect(logs.join("\n")).toContain("more than one checkout is named 'flow'");
   });
 
   it("a re-grant carries the earliest baseline forward", () => {
@@ -252,15 +278,54 @@ describe("flow grant --autonomy off", () => {
     run(["pipeline:solo", "--autonomy", "high"]);
     logs.length = 0;
     expect(run(["pipeline:solo", "--autonomy", "off"])).toBe(0);
-    expect(logs.join("\n")).toContain(
+    const out = logs.join("\n");
+    expect(out).toContain(
       "Still covered by repo:flow: withdraw it with: flow grant repo:flow --autonomy off",
     );
+    expect(out).toContain("still approved under repo:flow");
+    expect(out).not.toContain("pause for your approval again");
     expect(grants().map((g) => g.scope)).toEqual(["repo:flow"]);
+  });
+
+  it("names the broader repo: grant when withdrawing an epic grant that has no state files yet", () => {
+    run(["repo:flow", "--autonomy", "high"]);
+    run(["epic:e1", "--autonomy", "high"]);
+    logs.length = 0;
+    expect(run(["epic:e1", "--autonomy", "off"])).toBe(0);
+    expect(logs.join("\n")).toContain("Still covered by repo:flow");
   });
 
   it("says so when nothing was on file", () => {
     expect(run(["repo:flow", "--autonomy", "off"])).toBe(0);
     expect(logs.join("\n")).toContain("No grant was on file");
+  });
+});
+
+describe("bin/flow wiring", () => {
+  it("routes grant and refuses a non-TTY high grant without writing", () => {
+    const r = spawnSync(
+      "bun",
+      [
+        path.resolve(__dirname, "..", "flow"),
+        "grant",
+        "repo:flow",
+        "--autonomy",
+        "high",
+      ],
+      { env: { ...process.env, HOME: root, CLAUDECODE: "" }, input: "" },
+    );
+    expect(r.status).toBe(2);
+    expect(
+      fs.existsSync(path.join(root, ".flow", "manager", "grants.json")),
+    ).toBe(false);
+  });
+
+  it("ships the manager helpers executable", () => {
+    for (const f of ["flow-manager-note.ts", "flow-manager-prune.ts"]) {
+      expect(
+        fs.statSync(path.resolve(__dirname, "..", f)).mode & 0o111,
+      ).not.toBe(0);
+    }
   });
 });
 
@@ -288,11 +353,13 @@ describe("flow grant --list", () => {
     expect(run(["--list"], { isTTY: false, env: { CLAUDECODE: "1" } })).toBe(0);
     const out = logs.join("\n");
     const liveAt = out.indexOf("epic:e1");
-    const expiredLabel = out.indexOf("expired:");
+    const expiredLabel = out.indexOf("Expired:");
     const expiredAt = out.indexOf("repo:flow");
     expect(liveAt).toBeGreaterThan(-1);
     expect(expiredLabel).toBeGreaterThan(liveAt);
     expect(expiredAt).toBeGreaterThan(expiredLabel);
+    expect(out).toContain("approves plans");
+    expect(out).not.toContain("classes:");
   });
 
   it("takes no other arguments", () => {

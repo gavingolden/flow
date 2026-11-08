@@ -11,6 +11,7 @@ import {
   type PipelineIdentity,
   type Scope,
 } from "./manager-scope";
+import { resolveGitCommonDir } from "./repo-root";
 import { listStates, readState } from "./state";
 
 export function identitiesFor(
@@ -56,6 +57,22 @@ export function resolveScopeTarget(
         : [
             `no pipeline of a repo named '${scope.id}' is known (known repos: ${known.join(", ") || "none"}) — check the spelling.`,
           ];
+    const paths = new Set(
+      listStates(stateDir)
+        .filter((s) => identityForState(s).repo === scope.id)
+        .map((s) => s.repo),
+    );
+    if (currentRepoRoot && repoNameForPath(currentRepoRoot) === scope.id) {
+      paths.add(currentRepoRoot);
+    }
+    const checkouts = new Set(
+      [...paths].map((p) => resolveGitCommonDir(p) ?? p),
+    );
+    if (checkouts.size > 1) {
+      warnings.push(
+        `more than one checkout is named '${scope.id}' (${[...checkouts].sort().join(", ")}) — this grant covers all of them.`,
+      );
+    }
     return { repo: scope.id, warnings };
   }
   const roots: string[] = [];

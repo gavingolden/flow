@@ -34,6 +34,7 @@ import {
   repoNameForPath,
   scopeMatches,
   specificity,
+  type PipelineIdentity,
   type Scope,
 } from "./manager-scope";
 import { identitiesFor, resolveScopeTarget } from "./grant-target";
@@ -67,11 +68,26 @@ function fail(msg: string): number {
   return 2;
 }
 
-function describeGrant(g: ScopedGrant, live: boolean): string {
-  const when = g.expiresAt
-    ? `${live ? "expires" : "expired"} ${g.expiresAt}`
-    : "no expiry";
-  return `${g.scope}  classes: ${g.classes.join("+")}  granted ${g.grantedAt}  ${when}`;
+function describeGrant(g: ScopedGrant, live: boolean, now: Date): string {
+  const allows = [
+    "approves plans",
+    ...(g.scope.startsWith("pipeline:")
+      ? []
+      : ["reorders unstarted epic features"]),
+    ...(g.classes.includes("subjective") ? ["judges UI steps"] : []),
+  ].join(", ");
+  const expiry = g.expiresAt ? Date.parse(g.expiresAt) : NaN;
+  const when = !g.expiresAt
+    ? "no expiry"
+    : live
+      ? `expires in ${relativeTime(expiry - now.getTime())}`
+      : `expired ${relativeTime(now.getTime() - expiry)} ago`;
+  return `${g.scope}  ${allows}  granted ${g.grantedAt.slice(0, 10)}  ${when}`;
+}
+
+function relativeTime(ms: number): string {
+  const h = Math.max(0, Math.round(ms / 3_600_000));
+  return h >= 48 ? `${Math.round(h / 24)}d` : `${h}h`;
 }
 
 function runList(deps: GrantCliDeps): number {
@@ -82,11 +98,11 @@ function runList(deps: GrantCliDeps): number {
   if (live.length === 0) console.log("No live grants.");
   else {
     console.log("Live grants:");
-    for (const g of live) console.log(`  ${describeGrant(g, true)}`);
+    for (const g of live) console.log(`  ${describeGrant(g, true, now)}`);
   }
   if (expired.length > 0) {
-    console.log("expired:");
-    for (const g of expired) console.log(`  ${describeGrant(g, false)}`);
+    console.log("Expired:");
+    for (const g of expired) console.log(`  ${describeGrant(g, false, now)}`);
   }
   return 0;
 }
@@ -104,7 +120,11 @@ export function runGrantCli(args: string[], deps: GrantCliDeps = {}): number {
     if (a === "--autonomy") {
       autonomy = args[++i];
     } else if (a === "--expires") {
-      expires = args[++i];
+      const v = args[++i];
+      if (v === undefined || v.startsWith("-")) {
+        return fail("--expires takes <n>h, <n>d or <n>w (n > 0).");
+      }
+      expires = v;
     } else if (a === "--delegate-ui") {
       delegateUi = true;
     } else if (a === "--list") {
@@ -247,7 +267,7 @@ export function runGrantCli(args: string[], deps: GrantCliDeps = {}): number {
   }
   if (delegateUi) {
     console.log(
-      "  --delegate-ui: it may also judge subjective UI steps for you.",
+      "  --delegate-ui: recorded for subjective UI steps; it takes effect once delegated UI sign-off ships.",
     );
   }
   console.log(
@@ -276,8 +296,12 @@ function runOff(
 ): number {
   const removed = removeGrant(scopeText, deps.home);
   const ids = identitiesFor(scope, deps.stateDir);
+  const priorGrant = readManagerLog({}, deps.home)
+    .filter((e) => e.kind === "grant" && e.scope === scopeText)
+    .at(-1);
   const repo =
     ids[0]?.repo ??
+    priorGrant?.repo ??
     (scope.kind === "repo"
       ? scope.id
       : (() => {
@@ -286,6 +310,18 @@ function runOff(
           );
           return root ? repoNameForPath(root) : "unknown";
         })());
+  const matchIds: PipelineIdentity[] =
+    ids.length > 0
+      ? ids
+      : repo !== "unknown"
+        ? [
+            {
+              slug: scope.kind === "pipeline" ? scope.id : "",
+              ...(scope.kind === "epic" ? { epic: scope.id } : {}),
+              repo,
+            },
+          ]
+        : [];
   appendManagerLog(
     {
       ts,
@@ -298,19 +334,25 @@ function runOff(
     },
     { home: deps.home },
   );
-  console.log(
-    removed
-      ? `Withdrew the executive grant for ${scopeText}. Plans there pause for your approval again.`
-      : `No grant was on file for ${scopeText}. Nothing changed.`,
-  );
   const broader = liveGrants(now, deps.home).filter((g) => {
     const s = parseScope(g.scope);
     return (
       s !== null &&
       specificity(s) < specificity(scope) &&
-      ids.some((id) => scopeMatches(s, id))
+      matchIds.some((id) => scopeMatches(s, id))
     );
   });
+  if (!removed) {
+    console.log(`No grant was on file for ${scopeText}. Nothing changed.`);
+  } else if (broader.length === 0) {
+    console.log(
+      `Withdrew the executive grant for ${scopeText}. Plans there pause for your approval again.`,
+    );
+  } else {
+    console.log(
+      `Withdrew the executive grant for ${scopeText}, but plans there are still approved under ${broader.map((g) => g.scope).join(", ")}.`,
+    );
+  }
   for (const g of broader) {
     console.log(
       `  Still covered by ${g.scope}: withdraw it with: flow grant ${g.scope} --autonomy off`,

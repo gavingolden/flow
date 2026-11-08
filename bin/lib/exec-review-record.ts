@@ -72,7 +72,7 @@ export function stampBullet(args: {
   return (
     `${STAMP_PREFIX} under your grant (decision ${args.decisionId}):** ${one(args.rationale)} — confidence high, two-way door. ` +
     `Undo: ${undo} To stop it: reply redirect or cancel in the feature window (flow attach ${args.slug}); the PR still goes through review and the gate. ` +
-    `To stop future approvals: flow grant ${args.scope} --autonomy off.`
+    `To withdraw this grant: flow grant ${args.scope} --autonomy off.`
   );
 }
 
