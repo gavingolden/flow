@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { defaultReadConfigFile, type ReadConfigFile } from "./models-config";
 import { FLOW_STATE_DIR } from "./paths";
 import {
+  cleanChildEnv,
   isAutoSweepEnabled,
   stampAgeMs,
   WORKTREE_SWEEP_THROTTLE_MS,
@@ -49,9 +50,7 @@ export function startBackgroundWorktreeSweep(
     );
     if (age !== null && age < WORKTREE_SWEEP_THROTTLE_MS) return "throttled";
 
-    const env = { ...(deps.env ?? process.env) };
-    delete env.FLOW_SLUG;
-    delete env.TMUX_PANE;
+    const env = cleanChildEnv(deps.env ?? process.env);
     const child = (deps.spawn ?? nodeSpawn)(
       process.execPath,
       [flowBinPath(), "reap", "--worktrees", "--yes", "--auto"],

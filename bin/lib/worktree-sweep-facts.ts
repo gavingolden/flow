@@ -56,9 +56,9 @@ export type FactDeps = {
   selfPids: number[];
 };
 
-const ok = (r: RunResult): boolean => r.status === 0 && !r.timedOut;
+export const ok = (r: RunResult): boolean => r.status === 0 && !r.timedOut;
 
-function listWorktrees(repo: string, deps: FactDeps) {
+export function listWorktrees(repo: string, deps: FactDeps) {
   const r = deps.run("git", ["worktree", "list", "--porcelain"], {
     cwd: repo,
     timeoutMs: 5_000,
@@ -128,6 +128,7 @@ export function gatherWorktreeFacts(
         .map((p) => ({ s, p: canonicalizeWorktree(p) })),
     );
   const defaultBranch = defaultBranchOf(repo, deps.run);
+  const launchDir = canonicalizeWorktree(deps.cwd);
   const prIndex: PrIndex = candidates.some((e) => e.branch)
     ? listPrs(repo, deps.run)
     : new Map();
@@ -149,16 +150,26 @@ export function gatherWorktreeFacts(
     const decisive = prs === "unreachable" ? undefined : pickDecisivePr(prs);
     const hasOpen =
       prs !== "unreachable" && prs.some((p) => p.state === "OPEN");
+    const deadlineReached = deps.nowMs() >= deadlineAtMs;
     // Only a folder that could actually be removed pays for the slow checks;
     // the rest get fail-closed placeholders the rules never reach.
     let dirty: WorktreeFacts["dirty"] = "unknown";
     let contained: WorktreeFacts["headContained"] = "unknown";
     let configDiffers = true;
-    if (decisive && !hasOpen && !e.locked) {
-      const st = deps.run("git", ["status", "--porcelain"], {
-        cwd: wt,
-        timeoutMs: 10_000,
-      });
+    if (decisive && !hasOpen && !e.locked && !deadlineReached) {
+      const st = deps.run(
+        "git",
+        [
+          "status",
+          "--porcelain",
+          "--untracked-files=normal",
+          "--ignore-submodules=none",
+        ],
+        {
+          cwd: wt,
+          timeoutMs: 10_000,
+        },
+      );
       dirty = ok(st) ? st.stdout.trim() !== "" : "unknown";
       contained = headContained(wt, repo, defaultBranch, decisive, deps.run);
       configDiffers = localConfigDiffers(wt, repo, deps.run);
@@ -169,16 +180,19 @@ export function gatherWorktreeFacts(
       branch: e.branch,
       locked: Boolean(e.locked),
       isFlowSource: deps.flowSourcePaths.some((p) => isUnderPath(p, wt)),
+      containsLaunchDir: isUnderPath(launchDir, wt),
       owners,
       processesInside: usage.processesSkipped
         ? "unknown"
         : usage.processesInside(wt),
-      containersMounting: usage.containersMounting(wt),
+      containersMounting: usage.containersUnknown
+        ? "unknown"
+        : usage.containersMounting(wt),
       prs,
       dirty,
       localConfigDiffers: configDiffers,
       headContained: contained,
-      deadlineReached: deps.nowMs() >= deadlineAtMs,
+      deadlineReached,
     };
   });
 }

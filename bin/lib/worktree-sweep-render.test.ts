@@ -120,36 +120,44 @@ describe("renderWorktreeSweepText", () => {
 });
 
 describe("holdReasonText", () => {
-  const reasons: HoldReason[] = [
-    "locked",
-    "flow-source",
-    "no-branch",
-    "live-session",
-    "session-unknown",
-    "in-use-process",
-    "in-use-container",
-    "gh-unreachable",
-    "no-pr",
-    "pr-open",
-    "uncommitted-changes",
-    "local-config-differs",
-    "head-not-on-github",
-    "deadline-reached",
-    "registered-worktree",
-    "reserved-by-pipeline",
-    "too-recent",
-    "too-large-to-scan",
-    "unrecognized-contents",
-  ];
+  const known: Record<HoldReason, true> = {
+    locked: true,
+    "flow-source": true,
+    "contains-launch-dir": true,
+    "no-branch": true,
+    "live-session": true,
+    "session-unknown": true,
+    "in-use-process": true,
+    "in-use-container": true,
+    "gh-unreachable": true,
+    "no-pr": true,
+    "pr-open": true,
+    "uncommitted-changes": true,
+    "local-config-differs": true,
+    "head-not-on-github": true,
+    "deadline-reached": true,
+    "registered-worktree": true,
+    "reserved-by-pipeline": true,
+    "too-recent": true,
+    "too-large-to-scan": true,
+    "unrecognized-contents": true,
+  };
+  const reasons = Object.keys(known) as HoldReason[];
 
   it.each(reasons)(
     "gives %s a plain-words phrase with no internal identifiers",
     (reason) => {
       const text = holdReasonText(reason, "x");
       expect(text.length).toBeGreaterThan(5);
-      expect(text).not.toMatch(/[a-z]+-[a-z]+-[a-z]+/);
+      if (reason.includes("-")) expect(text).not.toContain(reason);
     },
   );
+
+  it("words an unreadable Docker specifically", () => {
+    expect(holdReasonText("in-use-container", "could not check Docker")).toBe(
+      "flow could not check whether a Docker container is using it",
+    );
+  });
 
   it("words the unreadable process table specifically", () => {
     expect(

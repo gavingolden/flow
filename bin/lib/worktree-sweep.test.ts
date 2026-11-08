@@ -102,7 +102,7 @@ function deps(over: Partial<SweepDeps> = {}): SweepDeps {
 }
 
 describe("runWorktreeSweep preview", () => {
-  it("never removes anything and records the result under worktree-sweep/", () => {
+  it("never removes anything and records nothing, so the last real result survives", () => {
     const d = deps();
 
     const r = runWorktreeSweep({ act: false, auto: false }, d);
@@ -117,9 +117,25 @@ describe("runWorktreeSweep preview", () => {
     expect(lastPath(stateDir)).toContain(
       `${path.sep}worktree-sweep${path.sep}`,
     );
-    expect(readLastSweep(stateDir)?.items).toHaveLength(2);
+    expect(readLastSweep(stateDir)).toBeNull();
     expect(fs.existsSync(path.join(stateDir, "last.json"))).toBe(false);
     expect(stampAgeMs(NOW, stateDir)).toBeNull();
+  });
+
+  it("does not replace an acted result with a later preview", () => {
+    runWorktreeSweep({ act: true, auto: false }, deps());
+    const acted = readLastSweep(stateDir);
+    expect(acted?.acted).toBe(true);
+    clock = NOW + 1000;
+    fs.mkdirSync(wt);
+    fs.writeFileSync(path.join(wt, ".git"), "gitdir: elsewhere");
+    runWorktreeSweep({ act: false, auto: false }, deps());
+    expect(readLastSweep(stateDir)).toEqual(acted);
+  });
+
+  it("measures the size of a folder it only previews", () => {
+    const r = runWorktreeSweep({ act: false, auto: false }, deps());
+    expect(r.items.map((i) => i.bytes)).toEqual([2048, 2048]);
   });
 });
 
@@ -205,6 +221,7 @@ describe("runWorktreeSweep act", () => {
 
   it("holds the remaining folders once the 5 minute deadline passes", () => {
     const d = deps({
+      sizeBytes: vi.fn(() => 2048),
       removeWorktree: vi.fn((p: string) => {
         clock += WORKTREE_SWEEP_DEADLINE_MS + 1;
         fs.rmSync(p, { recursive: true, force: true });
@@ -218,6 +235,69 @@ describe("runWorktreeSweep act", () => {
       ["held", "deadline-reached"],
     ]);
     expect(d.removeDir).not.toHaveBeenCalled();
+    expect(d.sizeBytes).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a finished folder a running program is working in and never removes it", () => {
+    const d = deps({
+      listProcs: () => [
+        {
+          pid: 4242,
+          ppid: 1,
+          pgid: 4242,
+          uid: 1,
+          tty: null,
+          ageSec: 1,
+          cpuSec: 1,
+          command: "vite dev",
+          cwd: null,
+        },
+      ],
+      readCwds: () => new Map([[4242, wt]]),
+    });
+    const r = runWorktreeSweep({ act: true, auto: false }, d);
+    const item = r.items.find((i) => i.path === wt);
+    expect(item).toMatchObject({ outcome: "held", reason: "in-use-process" });
+    expect(d.removeWorktree).not.toHaveBeenCalled();
+    expect(fs.existsSync(wt)).toBe(true);
+  });
+
+  it("keeps a finished folder when Docker hangs, and sweeps normally when its daemon is down", () => {
+    const withDocker = (stderr: string, timedOut: boolean) =>
+      deps({
+        run: (cmd, args, opts) => {
+          if (cmd === "docker")
+            return {
+              status: timedOut ? null : 1,
+              stdout: "",
+              stderr,
+              timedOut,
+            };
+          return deps().run(cmd, args, opts);
+        },
+      });
+    const hung = withDocker("", true);
+    const held = runWorktreeSweep({ act: true, auto: false }, hung);
+    expect(held.items.map((i) => [i.outcome, i.reason])).toEqual([
+      ["held", "in-use-container"],
+      ["held", "in-use-container"],
+    ]);
+    expect(hung.removeWorktree).not.toHaveBeenCalled();
+    expect(hung.removeDir).not.toHaveBeenCalled();
+
+    const down = withDocker("Cannot connect to the Docker daemon", false);
+    const swept = runWorktreeSweep({ act: true, auto: false }, down);
+    expect(swept.items.map((i) => i.outcome)).toEqual(["removed", "removed"]);
+  });
+
+  it("keeps the folder the sweep was launched from even though its shell is excluded as an ancestor", () => {
+    const d = deps({ cwd: wt });
+    const r = runWorktreeSweep({ act: true, auto: false }, d);
+    expect(r.items.find((i) => i.path === wt)).toMatchObject({
+      outcome: "held",
+      reason: "contains-launch-dir",
+    });
+    expect(d.removeWorktree).not.toHaveBeenCalled();
   });
 
   it("moves the next eligible run 5 minutes out when the PR listing was unreachable", () => {
@@ -276,12 +356,14 @@ describe("runWorktreeSweep auto gating", () => {
   });
 
   it("does not overwrite the last real result with a skipped run", () => {
-    runWorktreeSweep({ act: false, auto: false }, deps());
+    runWorktreeSweep({ act: true, auto: false }, deps());
+    const before = readLastSweep(stateDir);
     runWorktreeSweep(
       { act: true, auto: true },
       deps({ readConfig: () => ({ cleanup: { worktrees: false } }) }),
     );
-    expect(readLastSweep(stateDir)?.items).toHaveLength(2);
+    expect(readLastSweep(stateDir)).toEqual(before);
+    expect(before?.items).toHaveLength(2);
   });
 });
 

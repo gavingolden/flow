@@ -22,7 +22,10 @@
  * Report-only unless `--yes`. Never passes `--record` and never writes to
  * `~/.flow/state/<slug>.json` — a host-wide sweep touches OTHER pipelines'
  * slugs, and recording into a sibling's state file would corrupt that
- * pipeline's `flow-gate-summary --cleanup` CLEANUP row.
+ * pipeline's `flow-gate-summary --cleanup` CLEANUP row. The one carve-out is
+ * `--worktrees --yes`: it removes folders through `flow-remove-worktree`,
+ * whose guarded cleanup clears `worktree` on a finished (merged/cancelled)
+ * record that owned the removed folder.
  */
 
 import { argsContainHelp, printVerbHelp } from "./help";

@@ -13,6 +13,7 @@ import { FINISHED_PHASE_SET } from "./state";
 export type HoldReason =
   | "locked"
   | "flow-source"
+  | "contains-launch-dir"
   | "no-branch"
   | "live-session"
   | "session-unknown"
@@ -52,6 +53,8 @@ export type WorktreeFacts = {
   branch?: string;
   locked: boolean;
   isFlowSource: boolean;
+  /** The directory the sweep was launched from is inside this folder. */
+  containsLaunchDir: boolean;
   owners: Array<{
     slug: string;
     phase: string;
@@ -60,7 +63,8 @@ export type WorktreeFacts = {
   }>;
   /** `"unknown"` = the process table could not be read; fails closed. */
   processesInside: ProcFact[] | "unknown";
-  containersMounting: string[];
+  /** `"unknown"` = Docker could not be checked; fails closed. */
+  containersMounting: string[] | "unknown";
   prs: PrFact[] | "unreachable";
   dirty: boolean | "unknown";
   localConfigDiffers: boolean;
@@ -102,6 +106,7 @@ export function pickDecisivePr(prs: PrFact[]): PrFact | undefined {
 export function decideWorktree(f: WorktreeFacts): WorktreeVerdict {
   if (f.locked) return hold("locked");
   if (f.isFlowSource) return hold("flow-source");
+  if (f.containsLaunchDir) return hold("contains-launch-dir");
   if (!f.branch) return hold("no-branch");
 
   const live = f.owners.find((o) => o.liveness === "alive" || o.windowOpen);
@@ -120,6 +125,9 @@ export function decideWorktree(f: WorktreeFacts): WorktreeVerdict {
       f.processesInside.map((p) => `${p.command} (pid ${p.pid})`).join(", "),
     );
   }
+  if (f.containersMounting === "unknown") {
+    return hold("in-use-container", "could not check Docker");
+  }
   if (f.containersMounting.length > 0) {
     return hold("in-use-container", f.containersMounting.join(", "));
   }
@@ -129,10 +137,10 @@ export function decideWorktree(f: WorktreeFacts): WorktreeVerdict {
   const open = f.prs.find((p) => p.state === "OPEN");
   if (open) return hold("pr-open", `#${open.number}`);
 
+  if (f.deadlineReached) return hold("deadline-reached");
   if (f.dirty !== false) return hold("uncommitted-changes");
   if (f.localConfigDiffers) return hold("local-config-differs");
   if (f.headContained !== true) return hold("head-not-on-github");
-  if (f.deadlineReached) return hold("deadline-reached");
 
   const pr = pickDecisivePr(f.prs);
   if (!pr) return hold("no-pr");
@@ -158,7 +166,9 @@ export type HuskFacts = {
   reservedByActive: boolean;
   processesInside: ProcFact[];
   processesUnknown: boolean;
-  containersMounting: string[];
+  containsLaunchDir: boolean;
+  /** `"unknown"` = Docker could not be checked; fails closed. */
+  containersMounting: string[] | "unknown";
 };
 
 export type HuskVerdict =
@@ -180,7 +190,9 @@ const isCacheFile = (rel: string): boolean =>
 
 function removeCause(f: HuskFacts): HuskCause {
   if (f.files.length === 0) {
-    return f.containersMounting.length > 0 || f.topLevel.includes("supabase")
+    return (f.containersMounting !== "unknown" &&
+      f.containersMounting.length > 0) ||
+      f.topLevel.includes("supabase")
       ? "supabase-container-mounts"
       : "unused-launch-folder";
   }
@@ -193,6 +205,9 @@ function removeCause(f: HuskFacts): HuskCause {
 
 export function decideHusk(f: HuskFacts): HuskVerdict {
   if (f.registered) return { action: "hold", reason: "registered-worktree" };
+  if (f.containsLaunchDir) {
+    return { action: "hold", reason: "contains-launch-dir" };
+  }
   if (f.reservedByActive) {
     return { action: "hold", reason: "reserved-by-pipeline" };
   }
@@ -210,6 +225,13 @@ export function decideHusk(f: HuskFacts): HuskVerdict {
       detail: f.processesInside
         .map((p) => `${p.command} (pid ${p.pid})`)
         .join(", "),
+    };
+  }
+  if (f.containersMounting === "unknown") {
+    return {
+      action: "hold",
+      reason: "in-use-container",
+      detail: "could not check Docker",
     };
   }
   if (f.nowMs - f.newestMtimeMs < HUSK_MIN_AGE_MS) {

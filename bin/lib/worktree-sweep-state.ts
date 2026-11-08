@@ -7,6 +7,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { withoutGitLocalEnv } from "./git-local-env";
 import type { ReadConfigFile } from "./models-config";
 import { FLOW_STATE_DIR } from "./paths";
 import type { FactDeps } from "./worktree-sweep-facts";
@@ -58,6 +59,16 @@ export type SweepDeps = FactDeps & {
   pid: number;
   exists?: (p: string) => boolean;
 };
+
+/** Env for a child that must never act as the launching pipeline or inherit its git repo pointers. */
+export function cleanChildEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const out = withoutGitLocalEnv(env);
+  delete out.FLOW_SLUG;
+  delete out.TMUX_PANE;
+  return out;
+}
 
 export const sweepDir = (stateDir: string = FLOW_STATE_DIR): string =>
   path.join(stateDir, "worktree-sweep");

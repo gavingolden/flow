@@ -50,7 +50,7 @@ export function listPrs(repo: string, run: SweepRun): PrIndex {
       "--limit",
       "500",
       "--json",
-      "number,state,headRefName,headRefOid",
+      "number,state,headRefName,headRefOid,isCrossRepository",
     ],
     { cwd: repo, timeoutMs: 15_000 },
   );
@@ -61,9 +61,12 @@ export function listPrs(repo: string, run: SweepRun): PrIndex {
       state: PrFact["state"];
       headRefName: string;
       headRefOid: string;
+      isCrossRepository?: boolean;
     }>;
     const index = new Map<string, PrFact[]>();
     for (const row of rows) {
+      // A fork PR can share a branch name with a local branch it has nothing to do with.
+      if (row.isCrossRepository === true) continue;
       const list = index.get(row.headRefName) ?? [];
       list.push({
         number: row.number,

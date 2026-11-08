@@ -17,6 +17,7 @@ function facts(over: Partial<WorktreeFacts> = {}): WorktreeFacts {
     branch: "feat",
     locked: false,
     isFlowSource: false,
+    containsLaunchDir: false,
     owners: [],
     processesInside: [],
     containersMounting: [],
@@ -42,6 +43,7 @@ function husk(over: Partial<HuskFacts> = {}): HuskFacts {
     reservedByActive: false,
     processesInside: [],
     processesUnknown: false,
+    containsLaunchDir: false,
     containersMounting: [],
     ...over,
   };
@@ -84,6 +86,7 @@ describe("decideWorktree", () => {
   const cases: Array<[string, Partial<WorktreeFacts>]> = [
     ["locked", { locked: true }],
     ["flow-source", { isFlowSource: true }],
+    ["contains-launch-dir", { containsLaunchDir: true }],
     ["no-branch", { branch: undefined }],
     ["live-session", { owners: owner({ liveness: "alive" }) }],
     ["live-session", { owners: owner({ windowOpen: true }) }],
@@ -91,6 +94,7 @@ describe("decideWorktree", () => {
     ["in-use-process", { processesInside: [{ pid: 1, command: "node" }] }],
     ["in-use-process", { processesInside: "unknown" }],
     ["in-use-container", { containersMounting: ["supabase_db"] }],
+    ["in-use-container", { containersMounting: "unknown" }],
     ["gh-unreachable", { prs: "unreachable" }],
     ["no-pr", { prs: [] }],
     ["pr-open", { prs: [{ number: 3, state: "OPEN", headOid: "x" }] }],
@@ -107,6 +111,26 @@ describe("decideWorktree", () => {
       action: "hold",
       reason,
     });
+  });
+
+  it("reports an unreadable Docker in plain words", () => {
+    expect(decideWorktree(facts({ containersMounting: "unknown" }))).toEqual({
+      action: "hold",
+      reason: "in-use-container",
+      detail: "could not check Docker",
+    });
+  });
+
+  it("reports a spent deadline instead of the unchecked placeholders", () => {
+    expect(
+      decideWorktree(
+        facts({
+          deadlineReached: true,
+          dirty: "unknown",
+          headContained: "unknown",
+        }),
+      ),
+    ).toMatchObject({ action: "hold", reason: "deadline-reached" });
   });
 
   it("does not hold on a finished owner with unknown liveness", () => {
@@ -216,6 +240,8 @@ describe("decideHusk", () => {
   const cases: Array<[string, Partial<HuskFacts>]> = [
     ["registered-worktree", { registered: true }],
     ["reserved-by-pipeline", { reservedByActive: true }],
+    ["contains-launch-dir", { containsLaunchDir: true }],
+    ["in-use-container", { containersMounting: "unknown" }],
     ["in-use-process", { processesUnknown: true }],
     ["in-use-process", { processesInside: [{ pid: 4, command: "vite" }] }],
     ["too-recent", { newestMtimeMs: NOW - 60_000 }],

@@ -1,16 +1,22 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const spawnSync = vi.fn();
 vi.mock("node:child_process", () => ({ spawnSync }));
+vi.mock("./paths", () => ({
+  FLOW_STATE_DIR: "/nonexistent/flow-state",
+  resolveFlowSource: () => "/elsewhere",
+}));
 
 const {
-  cleanChildEnv,
+  defaultSweepDeps,
   realRun,
   removeScriptPath,
   removeViaScript,
   REMOVE_TIMEOUT_MS,
 } = await import("./worktree-sweep-defaults");
+const { cleanChildEnv } = await import("./worktree-sweep-state");
 
 afterEach(() => spawnSync.mockReset());
 
@@ -61,14 +67,38 @@ describe("realRun", () => {
     const r = realRun("docker", [], { timeoutMs: 1 });
     expect(r).toMatchObject({ status: null, timedOut: false });
   });
+
+  it("runs every subprocess without the launcher's git repo pointers", () => {
+    vi.stubEnv("GIT_DIR", "/hook/.git");
+    vi.stubEnv("FLOW_SLUG", "parent");
+    spawnSync.mockReturnValue({ status: 0, stdout: "", stderr: "" });
+    realRun("git", ["status"], { timeoutMs: 1 });
+    const env = spawnSync.mock.calls[0][2].env;
+    expect(env.GIT_DIR).toBeUndefined();
+    expect(env.FLOW_SLUG).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+});
+
+describe("defaultSweepDeps", () => {
+  it("protects the checkout this module runs from, not only the configured flow source", () => {
+    const here = fs.realpathSync(path.resolve(__dirname, "..", ".."));
+    expect(defaultSweepDeps("/launch").flowSourcePaths).toContain(here);
+    expect(fs.existsSync(path.join(here, "bin", "flow"))).toBe(true);
+  });
 });
 
 describe("cleanChildEnv", () => {
-  it("drops FLOW_SLUG and TMUX_PANE and keeps the rest", () => {
+  it("drops FLOW_SLUG, TMUX_PANE and git's repo-pointing variables and keeps the rest", () => {
     expect(
-      cleanChildEnv({ FLOW_SLUG: "a", TMUX_PANE: "%1", PATH: "/bin" }),
-    ).toEqual({
-      PATH: "/bin",
-    });
+      cleanChildEnv({
+        FLOW_SLUG: "a",
+        TMUX_PANE: "%1",
+        GIT_DIR: "/hook/.git",
+        GIT_INDEX_FILE: "/hook/.git/index",
+        GIT_SSH_COMMAND: "ssh -v",
+        PATH: "/bin",
+      }),
+    ).toEqual({ GIT_SSH_COMMAND: "ssh -v", PATH: "/bin" });
   });
 });

@@ -99,7 +99,44 @@ describe("checkStaleWorktrees", () => {
     expect(out).toHaveLength(1);
     expect(out[0].status).toBe("pass");
     expect(out[0].summary).toBe(
-      "last sweep 1 h ago: removed 1 folders (2.0 GB), 1 leftover folders; kept 1 whose PR is still open",
+      "last sweep 1 h ago: removed 1 folder (2.0 GB), 1 leftover folder; kept 1 whose PR is still open",
+    );
+  });
+
+  it("says nothing was removed instead of claiming a size, and pluralizes", () => {
+    const none = check(sweep([]));
+    expect(none[0].summary).toBe("last sweep 1 h ago: nothing to remove");
+    const many = check(
+      sweep([
+        item({ outcome: "removed", reason: "pr-merged", bytes: 1024 ** 3 }),
+        item({ outcome: "removed", reason: "pr-merged", path: "/x/b" }),
+      ]),
+    );
+    expect(many[0].summary).toContain("removed 2 folders (");
+    expect(
+      check(
+        sweep(
+          [item({ outcome: "would-remove", reason: "pr-merged", bytes: 2048 })],
+          { acted: false },
+        ),
+      )[0].summary,
+    ).toBe(
+      "last sweep 1 h ago (preview only, nothing removed): would remove 1 folder (2 KB)",
+    );
+  });
+
+  it("names the install verb for a flow-source hold and the way out for the launch folder", () => {
+    const out = check(
+      sweep([
+        item({ reason: "flow-source", path: "/x/src" }),
+        item({ reason: "contains-launch-dir", path: "/x/here" }),
+      ]),
+    );
+    const fixes = out.filter((c) => c.status === "warn").map((c) => c.fix);
+    expect(fixes[0]).toContain("flow install --upgrade");
+    expect(fixes[0]).not.toContain("setup");
+    expect(fixes[1]).toBe(
+      "cd out of /x/here, then flow reap --worktrees --yes",
     );
   });
 

@@ -1,8 +1,10 @@
 /**
  * The once-per-run usage index: processes with a working directory inside a
  * path, and Docker containers bind-mounting a path. Both readers fail closed:
- * an unreadable process table or Docker is a named skip the rules turn into a
- * hold, never "nothing is using it".
+ * an unreadable process table, or a Docker check that timed out or failed, is
+ * a named skip the rules turn into a hold, never "nothing is using it". Only
+ * "Docker is not installed" or "the Docker daemon is not running" mean no
+ * container can hold a mount, so those sweep normally.
  */
 
 import * as path from "node:path";
@@ -22,7 +24,12 @@ export type UsageIndex = {
   processesInside(p: string): ProcFact[];
   containersMounting(p: string): string[];
   mounts: ContainerMount[];
-  dockerSkipped?: "docker-not-installed" | "docker-unresponsive";
+  /** True when a Docker check failed in a way that could hide a mount: the rules hold every folder. */
+  containersUnknown: boolean;
+  dockerSkipped?:
+    | "docker-not-installed"
+    | "docker-not-running"
+    | "docker-unresponsive";
   processesSkipped?: "ps-unavailable" | "lsof-unavailable";
 };
 
@@ -51,6 +58,10 @@ function ancestorsOf(procs: OrphanProc[], pids: number[]): Set<number> {
   return out;
 }
 
+const DAEMON_DOWN =
+  /cannot connect to the docker daemon|is the docker daemon running/i;
+const NO_SUCH = /no such (object|container)/i;
+
 function readMounts(deps: FactDeps): {
   mounts: ContainerMount[];
   skipped?: UsageIndex["dockerSkipped"];
@@ -59,29 +70,42 @@ function readMounts(deps: FactDeps): {
   if (ps.timedOut) return { mounts: [], skipped: "docker-unresponsive" };
   if (ps.status === null)
     return { mounts: [], skipped: "docker-not-installed" };
-  if (ps.status !== 0) return { mounts: [], skipped: "docker-unresponsive" };
+  if (ps.status !== 0) {
+    return {
+      mounts: [],
+      skipped: DAEMON_DOWN.test(ps.stderr)
+        ? "docker-not-running"
+        : "docker-unresponsive",
+    };
+  }
   const ids = ps.stdout
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
   if (ids.length === 0) return { mounts: [] };
   const fmt =
-    '{{.Name}} {{range .Mounts}}{{if eq .Type "bind"}}{{.Source}} {{end}}{{end}}';
+    '{{.Name}}\t{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}\t{{end}}{{end}}';
   const insp = deps.run("docker", ["inspect", "--format", fmt, ...ids], {
     timeoutMs: 5_000,
   });
-  if (insp.status !== 0 || insp.timedOut) {
-    return { mounts: [], skipped: "docker-unresponsive" };
-  }
+  if (insp.timedOut) return { mounts: [], skipped: "docker-unresponsive" };
   const mounts = insp.stdout
     .split("\n")
-    .map((l) => l.trim().split(/\s+/).filter(Boolean))
+    .map((l) =>
+      l
+        .split("\t")
+        .map((x) => x.trim())
+        .filter(Boolean),
+    )
     .filter((parts) => parts.length > 0)
     .map(([name, ...sources]) => ({
       container: name.replace(/^\//, ""),
-      sources,
+      sources: sources.map(canonicalizeWorktree),
     }));
-  return { mounts };
+  // A container that stops between `ps` and `inspect` makes inspect exit 1
+  // while still printing the others; only an unexplained failure is a skip.
+  const failed = insp.status !== 0 && !NO_SUCH.test(insp.stderr);
+  return failed ? { mounts, skipped: "docker-unresponsive" } : { mounts };
 }
 
 export function buildUsageIndex(deps: FactDeps): UsageIndex {
@@ -107,6 +131,7 @@ export function buildUsageIndex(deps: FactDeps): UsageIndex {
   }
   return {
     mounts,
+    containersUnknown: skipped === "docker-unresponsive",
     ...(skipped ? { dockerSkipped: skipped } : {}),
     ...(processesSkipped ? { processesSkipped } : {}),
     processesInside: (p) =>

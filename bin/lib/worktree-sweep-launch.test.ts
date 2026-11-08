@@ -28,7 +28,12 @@ describe("startBackgroundWorktreeSweep", () => {
       ...base(),
       spawn,
       readConfig: () => undefined,
-      env: { FLOW_SLUG: "parent", TMUX_PANE: "%1", PATH: "/bin" },
+      env: {
+        FLOW_SLUG: "parent",
+        TMUX_PANE: "%1",
+        GIT_DIR: "/hook/.git",
+        PATH: "/bin",
+      },
       cwd: "/launch/dir",
     });
 

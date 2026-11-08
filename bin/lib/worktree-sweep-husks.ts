@@ -5,9 +5,10 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { parseWorktreeListOutput } from "../flow-remove-worktree";
+import { isUnderPath } from "./worktree-orphans";
 import { canonicalizeWorktree } from "./worktree-orphans-ps";
-import type { FactDeps } from "./worktree-sweep-facts";
+import { FINISHED_PHASE_SET } from "./state";
+import { listWorktrees, type FactDeps } from "./worktree-sweep-facts";
 import { HUSK_SCAN_CAP, type HuskFacts } from "./worktree-sweep-rules";
 import type { UsageIndex } from "./worktree-sweep-usage";
 
@@ -75,24 +76,24 @@ export function gatherHuskFacts(
 ): HuskFacts[] {
   const registered = new Set<string>();
   for (const repo of repos) {
-    const r = deps.run("git", ["worktree", "list", "--porcelain"], {
-      cwd: repo,
-      timeoutMs: 5_000,
-    });
-    if (r.status !== 0 || r.timedOut) continue;
-    for (const e of parseWorktreeListOutput(r.stdout)) {
+    for (const e of listWorktrees(repo, deps) ?? []) {
       registered.add(canonicalizeWorktree(e.path));
     }
   }
   const reserved = new Set<string>();
   for (const s of deps.listStates()) {
     const lv = deps.liveness(s);
-    if (lv !== "alive" && lv !== "unknown") continue;
+    const active =
+      lv === "alive" ||
+      deps.windowOpen(s.slug) ||
+      (lv === "unknown" && !FINISHED_PHASE_SET.has(s.phase));
+    if (!active) continue;
     for (const p of [s.worktree, s.reservedWorktree]) {
       if (p) reserved.add(canonicalizeWorktree(p));
     }
   }
 
+  const launchDir = canonicalizeWorktree(deps.cwd);
   const seen = new Set<string>();
   const out: HuskFacts[] = [];
   for (const repo of repos) {
@@ -129,7 +130,10 @@ export function gatherHuskFacts(
         reservedByActive: reserved.has(canon),
         processesInside: usage.processesInside(canon),
         processesUnknown: usage.processesSkipped !== undefined,
-        containersMounting: usage.containersMounting(canon),
+        containsLaunchDir: isUnderPath(launchDir, canon),
+        containersMounting: usage.containersUnknown
+          ? "unknown"
+          : usage.containersMounting(canon),
       });
     }
   }

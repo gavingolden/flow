@@ -16,7 +16,7 @@ import { listStates } from "./state";
 import { windowExists } from "./tmux";
 import { canonicalizeWorktree } from "./worktree-orphans-ps";
 import type { RunResult, SweepRun } from "./worktree-sweep-facts";
-import type { SweepDeps } from "./worktree-sweep-state";
+import { cleanChildEnv, type SweepDeps } from "./worktree-sweep-state";
 import { defaultListProcs, defaultReadCwds } from "./worktree-sweep-usage";
 
 export const REMOVE_TIMEOUT_MS = 120_000;
@@ -24,6 +24,7 @@ export const REMOVE_TIMEOUT_MS = 120_000;
 export const realRun: SweepRun = (cmd, args, opts): RunResult => {
   const r = spawnSync(cmd, args, {
     cwd: opts.cwd,
+    env: cleanChildEnv(),
     timeout: opts.timeoutMs,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
@@ -38,16 +39,6 @@ export const realRun: SweepRun = (cmd, args, opts): RunResult => {
     timedOut,
   };
 };
-
-/** Env for a child that must never act as the launching pipeline. */
-export function cleanChildEnv(
-  env: NodeJS.ProcessEnv = process.env,
-): NodeJS.ProcessEnv {
-  const out = { ...env };
-  delete out.FLOW_SLUG;
-  delete out.TMUX_PANE;
-  return out;
-}
 
 function moduleDir(): string {
   return (

@@ -9,8 +9,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DoctorCheck, DoctorDeps } from "./doctor";
+import { upgradeCommand } from "./doctor-install";
 import { shq } from "./doctor-util";
-import { formatBytes, holdReasonText } from "./worktree-sweep-render";
+import { formatBytes, holdReasonText, plural } from "./worktree-sweep-render";
 import type { HoldReason } from "./worktree-sweep-rules";
 import {
   readLastSweep,
@@ -38,7 +39,7 @@ const EXPECTED_HOLDS: ReadonlySet<string> = new Set([
   "too-recent",
 ]);
 
-function fixFor(i: SweepItem): string {
+function fixFor(i: SweepItem, deps: DoctorDeps): string {
   const cd = `cd ${shq(i.repo)} &&`;
   switch (i.reason as HoldReason) {
     case "locked":
@@ -57,7 +58,9 @@ function fixFor(i: SweepItem): string {
     case "deadline-reached":
       return `${RUN_SWEEP} --yes`;
     case "flow-source":
-      return `flow setup --upgrade (from your main checkout) to move flow off this copy`;
+      return `${upgradeCommand(deps)} (from your main checkout) to move flow off this copy`;
+    case "contains-launch-dir":
+      return `cd out of ${shq(i.path)}, then ${RUN_SWEEP} --yes`;
     case "no-pr":
     case "no-branch":
       return `${cd} flow-remove-worktree ${shq(i.path)}`;
@@ -77,15 +80,24 @@ function summaryLine(
   ageMs: number,
   expected: SweepItem[],
 ): string {
-  const done = last.items.filter((i) => i.outcome === "removed");
+  const done = last.items.filter(
+    (i) => i.outcome === "removed" || i.outcome === "would-remove",
+  );
   const wts = done.filter((i) => i.kind === "worktree");
   const husks = done.filter((i) => i.kind === "husk");
   const bytes = wts.reduce((n, i) => n + (i.bytes ?? 0), 0);
   const prOpen = expected.filter((i) => i.reason === "pr-open").length;
   const other = expected.length - prOpen;
-  const parts = [
-    `removed ${wts.length} folders (${formatBytes(bytes)}), ${husks.length} leftover folders`,
-  ];
+  const verb = last.acted ? "removed" : "would remove";
+  const removal = [
+    wts.length > 0
+      ? `${verb} ${plural(wts.length, "folder", "folders")} (${formatBytes(bytes)})`
+      : "",
+    husks.length > 0
+      ? `${wts.length > 0 ? "" : `${verb} `}${plural(husks.length, "leftover folder", "leftover folders")}`
+      : "",
+  ].filter(Boolean);
+  const parts = [removal.length > 0 ? removal.join(", ") : "nothing to remove"];
   if (prOpen > 0) parts.push(`kept ${prOpen} whose PR is still open`);
   if (other > 0) parts.push(`${other} in use or too new to judge`);
   const note = last.acted ? "" : " (preview only, nothing removed)";
@@ -155,7 +167,7 @@ export function checkStaleWorktrees(
       status: "warn",
       summary: `${path.basename(i.path)} ${isFailed ? `could not be removed (${i.detail ?? "unknown error"})` : holdReasonText(i.reason as HoldReason, i.detail)}`,
       details: [i.path],
-      fix: isFailed ? `${RUN_SWEEP} --yes` : fixFor(i),
+      fix: isFailed ? `${RUN_SWEEP} --yes` : fixFor(i, deps),
     });
   }
   if (unrecognized.length > 0) {

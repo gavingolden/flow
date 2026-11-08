@@ -10,6 +10,7 @@ import { HUSK_SCAN_CAP } from "./worktree-sweep-rules";
 import {
   buildUsageIndex,
   danglingContainerMounts,
+  defaultReadCwds,
   type UsageIndex,
 } from "./worktree-sweep-usage";
 
@@ -57,6 +58,7 @@ function deps(over: Partial<FactDeps> = {}): FactDeps {
 const NO_USAGE: UsageIndex = {
   processesInside: () => [],
   containersMounting: () => [],
+  containersUnknown: false,
   mounts: [],
 };
 
@@ -108,10 +110,96 @@ describe("buildUsageIndex", () => {
     const run: FactDeps["run"] = (_c, args) =>
       args[0] === "ps"
         ? res({ stdout: "abc\n" })
-        : res({ stdout: `/supabase_db ${tmp}/repo-a/supabase /other\n` });
+        : res({
+            stdout: `/supabase_db\t${tmp}/repo-a/supabase\t/other\t\n`,
+          });
     const usage = buildUsageIndex(deps({ run }));
     expect(usage.containersMounting(`${tmp}/repo-a`)).toEqual(["supabase_db"]);
     expect(usage.containersMounting(`${tmp}/repo-b`)).toEqual([]);
+    expect(usage.containersUnknown).toBe(false);
+  });
+
+  it("keeps a mount source that contains a space whole", () => {
+    fs.mkdirSync(path.join(tmp, "my repo-a"));
+    const run: FactDeps["run"] = (_c, args) =>
+      args[0] === "ps"
+        ? res({ stdout: "abc\n" })
+        : res({ stdout: `/db\t${tmp}/my repo-a\t\n` });
+    const usage = buildUsageIndex(deps({ run }));
+    expect(usage.containersMounting(`${tmp}/my repo-a`)).toEqual(["db"]);
+  });
+
+  it("canonicalizes a mount source reached through a symlink", () => {
+    const real = path.join(tmp, "real-a");
+    fs.mkdirSync(real);
+    fs.symlinkSync(real, path.join(tmp, "link-a"));
+    const run: FactDeps["run"] = (_c, args) =>
+      args[0] === "ps"
+        ? res({ stdout: "abc\n" })
+        : res({ stdout: `/db\t${tmp}/link-a\t\n` });
+    expect(buildUsageIndex(deps({ run })).containersMounting(real)).toEqual([
+      "db",
+    ]);
+  });
+
+  describe("Docker that cannot be checked", () => {
+    const failing =
+      (
+        ps: Partial<RunResult>,
+        insp: Partial<RunResult> = {},
+      ): FactDeps["run"] =>
+      (_c, args) =>
+        args[0] === "ps" ? res({ stdout: "abc\n", ...ps }) : res(insp);
+
+    it("sweeps normally when the daemon is not running", () => {
+      const usage = buildUsageIndex(
+        deps({
+          run: failing({
+            status: 1,
+            stdout: "",
+            stderr:
+              "Cannot connect to the Docker daemon at unix:///x. Is the docker daemon running?",
+          }),
+        }),
+      );
+      expect(usage.dockerSkipped).toBe("docker-not-running");
+      expect(usage.containersUnknown).toBe(false);
+    });
+
+    it("fails closed on a timeout, an unexplained ps failure and an unexplained inspect failure", () => {
+      for (const run of [
+        failing({ timedOut: true, status: null }),
+        failing({ status: 1, stderr: "boom" }),
+        failing({}, { status: 1, stderr: "boom" }),
+        failing({}, { timedOut: true, status: null }),
+      ]) {
+        const usage = buildUsageIndex(deps({ run }));
+        expect(usage.dockerSkipped).toBe("docker-unresponsive");
+        expect(usage.containersUnknown).toBe(true);
+      }
+    });
+
+    it("keeps the mounts inspect printed when a container vanished mid-run", () => {
+      const usage = buildUsageIndex(
+        deps({
+          run: failing(
+            {},
+            {
+              status: 1,
+              stdout: `/db\t${tmp}/repo-a\t\n`,
+              stderr: "Error: No such object: gone",
+            },
+          ),
+        }),
+      );
+      expect(usage.containersUnknown).toBe(false);
+      expect(usage.containersMounting(`${tmp}/repo-a`)).toEqual(["db"]);
+    });
+  });
+
+  it("treats an empty cwd answer for live pids as unreadable but an empty pid list as fine", () => {
+    expect(defaultReadCwds([123])).toBeUndefined();
+    expect(defaultReadCwds([])).toEqual(new Map());
   });
 });
 
@@ -166,6 +254,47 @@ describe("gatherHuskFacts", () => {
     expect(
       gatherHuskFacts([repo()], deps({ run }), NO_USAGE)[0].registered,
     ).toBe(true);
+  });
+
+  it("reserves a folder whose pipeline window is still open or whose unfinished liveness is unknown, not a finished unknown one", () => {
+    const names = ["open", "running", "finished"];
+    for (const n of names) fs.mkdirSync(path.join(tmp, `repo-${n}`));
+    const states = names.map((n) => ({
+      slug: n,
+      phase: n === "finished" ? "merged" : "implementing",
+      repo: repo(),
+      reservedWorktree: path.join(tmp, `repo-${n}`),
+    })) as PipelineState[];
+    const facts = gatherHuskFacts(
+      [repo()],
+      deps({
+        listStates: () => states,
+        liveness: (s) => (s.slug === "open" ? "stale" : "unknown"),
+        windowOpen: (slug) => slug === "open",
+      }),
+      NO_USAGE,
+    );
+    const by = Object.fromEntries(
+      facts.map((f) => [path.basename(f.path), f.reservedByActive]),
+    );
+    expect(by).toEqual({
+      "repo-open": true,
+      "repo-running": true,
+      "repo-finished": false,
+    });
+  });
+
+  it("flags the leftover folder the sweep was launched from and carries an unknown Docker", () => {
+    const husk = path.join(tmp, "repo-here");
+    fs.mkdirSync(path.join(husk, "sub"), { recursive: true });
+    const usage: UsageIndex = { ...NO_USAGE, containersUnknown: true };
+    const [f] = gatherHuskFacts(
+      [repo()],
+      deps({ cwd: path.join(husk, "sub") }),
+      usage,
+    );
+    expect(f.containsLaunchDir).toBe(true);
+    expect(f.containersMounting).toBe("unknown");
   });
 
   it("holds reservations only for alive or unknown owners", () => {

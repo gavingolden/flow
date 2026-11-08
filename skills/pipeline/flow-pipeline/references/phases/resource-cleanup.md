@@ -60,8 +60,9 @@ pipeline", and busy orphans outside every worktree are listed, never
 signalled. `flow reap --worktrees` is the worktree-folder mode (finished
 worktrees and leftover folders; preview by default, `--yes` removes), and
 the same sweep runs automatically, detached, from `flow feature create`
-at most hourly (`cleanup.worktrees: false` turns it off). Ad-hoc
-housekeeping only (`docs/configuration.md`), never wired into a runbook
-step.
+at most hourly (`cleanup.worktrees: false` turns it off). `flow reap`
+is ad-hoc housekeeping (`docs/configuration.md`); the worktree sweep's
+automatic run is a CLI side effect of `flow feature create`, and neither is
+wired into a runbook step.
 
 **Why Layer 2 is ancestry-scoped, not page-enumeration.** A **page-enumeration** sweep (`list_pages`-and-close) was evaluated and **deliberately not built**: parallel pipelines may share one un-isolated MCP server, so it cannot reliably tell this pipeline's page from a sibling's or the user's own Chrome, and would risk the exact harm it set out to prevent. **Process ancestry** does not share that failure mode — a sibling's server is a different session PID, and the user's own Chrome is never a descendant of this session's `claude` process. The operator-side `--isolated` MCP registration is complementary, not sufficient: its temp profile is cleaned up only *after* the browser closes, so it is gated on the very close `close_page` never performs. The same standing rule binds every agent in this repo — `.claude/rules/flow-supervisor-contracts.md` `## Don'ts` "Don't leave spawned resources running".

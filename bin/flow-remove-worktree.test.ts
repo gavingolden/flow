@@ -395,18 +395,6 @@ describe(slugsOwningWorktree, () => {
     ]);
   });
 
-  it("clears a merged record's worktree for a path input and leaves a live record untouched", () => {
-    seed("done-one", "merged", "/tmp/wt/shared");
-    seed("live-one", "implementing", "/tmp/wt/shared");
-
-    for (const s of slugsOwningWorktree("/tmp/wt/shared", stateDir)) {
-      forgetRemovedWorktree(s, "/tmp/wt/shared", stateDir);
-    }
-
-    expect(readState("done-one", stateDir)?.worktree).toBeUndefined();
-    expect(readState("live-one", stateDir)?.worktree).toBe("/tmp/wt/shared");
-  });
-
   it("returns an empty list for a missing state dir", () => {
     expect(
       slugsOwningWorktree("/tmp/wt/x", path.join(stateDir, "nope")),
@@ -1251,11 +1239,13 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
   });
 
   it.each([
-    ["merged", true],
-    ["implementing", false],
+    ["slug", "merged", true],
+    ["slug", "implementing", false],
+    ["path", "merged", true],
+    ["path", "implementing", false],
   ] as const)(
-    "end-to-end: removing the worktree of a pipeline at %s %s its recorded worktree in ~/.flow/state/<slug>.json",
-    async (phase, cleared) => {
+    "end-to-end: removing by %s the worktree of a pipeline at %s %s its recorded worktree in ~/.flow/state/<slug>.json",
+    async (input, phase, cleared) => {
       const create = await runNewWorktree(["fin"], fx.repoDir);
       expect(create.exitCode, `stderr: ${create.stderr}`).toBe(0);
       const wtDir = path.join(path.dirname(fx.repoDir), "repo-fin");
@@ -1274,7 +1264,11 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
         );
         const env: NodeJS.ProcessEnv = { ...process.env, HOME: fakeHome };
         delete env.FLOW_SLUG;
-        const remove = await runHelper(["fin"], fx.repoDir, env);
+        const remove = await runHelper(
+          [input === "path" ? fs.realpathSync(wtDir) : "fin"],
+          fx.repoDir,
+          env,
+        );
         expect(remove.exitCode, `stderr: ${remove.stderr}`).toBe(0);
         expect(fs.existsSync(wtDir)).toBe(false);
         const after = readState("fin", stateDir);

@@ -13,6 +13,8 @@ export function holdReasonText(reason: HoldReason, detail?: string): string {
       return "is locked in git";
     case "flow-source":
       return "holds the copy of flow that is running right now";
+    case "contains-launch-dir":
+      return "is the folder this command was started from";
     case "no-branch":
       return "has no branch checked out";
     case "live-session":
@@ -24,7 +26,9 @@ export function holdReasonText(reason: HoldReason, detail?: string): string {
         ? "flow could not check what is running in it"
         : `a program is still running in it${detail ? ` (${detail})` : ""}`;
     case "in-use-container":
-      return `a Docker container is using it${detail ? ` (${detail})` : ""}`;
+      return detail === "could not check Docker"
+        ? "flow could not check whether a Docker container is using it"
+        : `a Docker container is using it${detail ? ` (${detail})` : ""}`;
     case "gh-unreachable":
       return "GitHub could not be reached to check its pull request";
     case "no-pr":
@@ -68,7 +72,7 @@ export function formatBytes(n: number): string {
   return `${Math.max(1, Math.round(n / 1024))} KB`;
 }
 
-const plural = (n: number, one: string, many: string): string =>
+export const plural = (n: number, one: string, many: string): string =>
   `${n} ${n === 1 ? one : many}`;
 
 function keepReason(i: SweepItem): string {
@@ -179,7 +183,7 @@ export function renderWorktreeSweepText(result: SweepResult): string {
   );
   const notes = [
     result.dockerSkipped
-      ? `Docker was not checked (${result.dockerSkipped.replace("docker-", "").replace("-", " ")}).`
+      ? `Docker was not checked (${result.dockerSkipped.replace("docker-", "").replace("-", " ")})${result.dockerSkipped === "docker-unresponsive" ? ", so folders were kept" : ""}.`
       : "",
     result.processesSkipped
       ? "Running programs could not be checked, so folders were kept."

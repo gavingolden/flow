@@ -54,6 +54,7 @@ function makeRun(...handlers: Handler[]): SweepRun {
 const NO_USAGE: UsageIndex = {
   processesInside: () => [],
   containersMounting: () => [],
+  containersUnknown: false,
   mounts: [],
 };
 
@@ -360,6 +361,76 @@ describe("gatherWorktreeFacts", () => {
       9999,
     );
     expect(f.isFlowSource).toBe(true);
+  });
+
+  it("asks git for untracked files regardless of the user's status.showUntrackedFiles", () => {
+    const run = makeRun(...git({ gh: prJson([merged("a")]) }));
+    gatherWorktreeFacts(repoPath(), deps(run), NO_USAGE, 9999);
+    const status = calls.find((c) => c.startsWith("git status"));
+    expect(status).toContain("--untracked-files=normal");
+    expect(status).toContain("--ignore-submodules=none");
+  });
+
+  it("ignores a fork PR that shares the branch name", () => {
+    const fork = { ...merged("a"), isCrossRepository: true };
+    const run = makeRun(...git({ gh: prJson([fork]) }));
+    const [f] = gatherWorktreeFacts(repoPath(), deps(run), NO_USAGE, 9999);
+    expect(f.prs).toEqual([]);
+    expect(
+      calls.find((c) => c.startsWith("gh "))?.includes("isCrossRepository"),
+    ).toBe(true);
+  });
+
+  it("carries live processes and container mounts for the folder", () => {
+    const run = makeRun(...git({ gh: prJson([merged("a")]) }));
+    const usage: UsageIndex = {
+      ...NO_USAGE,
+      processesInside: (p) => (p === wtA ? [{ pid: 7, command: "vite" }] : []),
+      containersMounting: (p) => (p === wtA ? ["supabase_db"] : []),
+    };
+    const [f] = gatherWorktreeFacts(repoPath(), deps(run), usage, 9999);
+    expect(f.processesInside).toEqual([{ pid: 7, command: "vite" }]);
+    expect(f.containersMounting).toEqual(["supabase_db"]);
+  });
+
+  it("fails closed when Docker could not be checked", () => {
+    const run = makeRun(...git({ gh: prJson([merged("a")]) }));
+    const usage: UsageIndex = { ...NO_USAGE, containersUnknown: true };
+    const [f] = gatherWorktreeFacts(repoPath(), deps(run), usage, 9999);
+    expect(f.containersMounting).toBe("unknown");
+  });
+
+  it("flags the folder the sweep was launched from, including from a subfolder", () => {
+    const run = makeRun(...git({ gh: prJson([merged("a")]) }));
+    const sub = mkdir("repo-a", "src");
+    const [here] = gatherWorktreeFacts(
+      repoPath(),
+      deps(run, { cwd: sub }),
+      NO_USAGE,
+      9999,
+    );
+    const [elsewhere] = gatherWorktreeFacts(
+      repoPath(),
+      deps(run, { cwd: repoPath() }),
+      NO_USAGE,
+      9999,
+    );
+    expect(here.containsLaunchDir).toBe(true);
+    expect(elsewhere.containsLaunchDir).toBe(false);
+  });
+
+  it("skips the slow per-folder checks once the deadline has passed", () => {
+    const run = makeRun(...git({ gh: prJson([merged("a")]) }));
+    const [f] = gatherWorktreeFacts(
+      repoPath(),
+      deps(run, { nowMs: () => 5000 }),
+      NO_USAGE,
+      1000,
+    );
+    expect(f.deadlineReached).toBe(true);
+    expect(calls.some((c) => /^git (status|merge-base|fetch)/.test(c))).toBe(
+      false,
+    );
   });
 
   it("fails closed when the process table was unreadable and carries the deadline", () => {

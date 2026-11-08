@@ -1,9 +1,10 @@
 /**
  * One run of the worktree sweep: lock, (auto) throttle, discover repos,
  * gather facts, decide, and (with `act`) remove finished folders and leftover
- * folders one at a time, logging each removal BEFORE it runs. The result is
- * always recorded for `flow doctor`. Never reads or writes a pipeline record
- * beyond listing them.
+ * folders one at a time, logging each removal BEFORE it runs. Only an acted
+ * run is recorded for `flow doctor`: a preview, or a disabled/throttled/locked
+ * run, leaves the last real result in place. Touches pipeline records only
+ * through flow-remove-worktree's guarded finished-record cleanup.
  */
 
 import * as fs from "node:fs";
@@ -122,11 +123,13 @@ function sweepLocked(
   for (const p of pending) {
     let item = p.item;
     if (item.outcome === "would-remove") {
-      item = { ...item, bytes: deps.sizeBytes(item.path) };
       if (mode.act && deps.nowMs() >= deadlineAt) {
         result.deadlineHit = true;
         item = { ...item, outcome: "held", reason: "deadline-reached" };
-      } else if (mode.act) {
+      } else {
+        item = { ...item, bytes: deps.sizeBytes(item.path) };
+      }
+      if (mode.act && item.outcome === "would-remove") {
         item =
           item.kind === "worktree"
             ? actOn(deps, item, () =>
@@ -165,7 +168,7 @@ function sweepLocked(
   }
   if (mode.act && result.ghUnreachable)
     writeStamp(deps.nowMs(), deps.stateDir, WORKTREE_SWEEP_GH_BACKOFF_MS);
-  writeLastSweep(result, deps.stateDir);
+  if (mode.act) writeLastSweep(result, deps.stateDir);
   return result;
 }
 
