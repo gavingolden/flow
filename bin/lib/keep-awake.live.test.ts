@@ -1,6 +1,11 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
-import { holderArgv, syncKeepAwake, type KeepAwakeDeps } from "./keep-awake";
+import {
+  holderArgv,
+  KEEP_AWAKE_RENEW_AFTER_MS,
+  syncKeepAwake,
+  type KeepAwakeDeps,
+} from "./keep-awake";
 import type { ProcRegistryRow } from "./proc-registry";
 import type { PipelineState } from "./state";
 
@@ -24,17 +29,17 @@ const waitFor = async (cond: () => boolean, ms: number): Promise<boolean> => {
   return cond();
 };
 
-const assertionsListing = (pid: number): boolean => {
-  const out = spawnSync("pmset", ["-g", "assertions"], {
+// pmset prints the timeout on the `Details:` line after the pid line.
+const assertionsListing = (pid: number, detail = ""): boolean => {
+  const lines = spawnSync("pmset", ["-g", "assertions"], {
     encoding: "utf8",
-  }).stdout;
-  return out
-    .split("\n")
-    .some(
-      (l) =>
-        l.includes(`pid ${pid}(caffeinate)`) &&
-        l.includes("PreventSystemSleep"),
-    );
+  }).stdout.split("\n");
+  return lines.some(
+    (l, i) =>
+      l.includes(`pid ${pid}(caffeinate)`) &&
+      l.includes("PreventSystemSleep") &&
+      (lines[i + 1] ?? "").includes(detail),
+  );
 };
 
 describeOnDarwin("keep-awake live", () => {
@@ -68,7 +73,9 @@ describeOnDarwin("keep-awake live", () => {
 
   const harness = () => {
     const rows: ProcRegistryRow[] = [];
+    const clock = { now: Date.now() };
     const deps: Partial<KeepAwakeDeps> = {
+      nowMs: () => clock.now,
       envOff: () => false,
       enabled: () => true,
       // liveness.ts probes `ps` via Bun.spawnSync, which vitest (node) lacks.
@@ -81,7 +88,7 @@ describeOnDarwin("keep-awake live", () => {
         return true;
       },
     };
-    return { rows, deps };
+    return { rows, deps, clock };
   };
 
   const stateFor = (pid: number): PipelineState =>
@@ -99,7 +106,9 @@ describeOnDarwin("keep-awake live", () => {
 
     expect(syncKeepAwake(st, deps).action).toBe("acquired");
     const holder = rows[0]!.pid;
-    expect(await waitFor(() => assertionsListing(holder), 2000)).toBe(true);
+    expect(
+      await waitFor(() => assertionsListing(holder, "for 7200 secs"), 2000),
+    ).toBe(true);
 
     expect(syncKeepAwake({ ...st, phase: "merged" }, deps).action).toBe(
       "released",
@@ -114,9 +123,26 @@ describeOnDarwin("keep-awake live", () => {
     expect(await waitFor(() => !alive(second), 2000)).toBe(true);
   });
 
+  it("should replace the holder once it is 15 minutes old", async () => {
+    const child = watched();
+    const { rows, deps, clock } = harness();
+    const st = stateFor(child.pid!);
+
+    expect(syncKeepAwake(st, deps).action).toBe("acquired");
+    const first = rows[0]!.pid;
+    expect(await waitFor(() => assertionsListing(first), 2000)).toBe(true);
+
+    clock.now = rows[0]!.recordedAt + KEEP_AWAKE_RENEW_AFTER_MS;
+    expect(syncKeepAwake(st, deps).action).toBe("acquired");
+    const second = rows[1]!.pid;
+    expect(second).not.toBe(first);
+    expect(await waitFor(() => assertionsListing(second), 2000)).toBe(true);
+    expect(await waitFor(() => !assertionsListing(first), 2000)).toBe(true);
+  });
+
   it("should exit by itself at the -t deadline", async () => {
     const child = watched();
-    const argv = holderArgv(child.pid).map((a) => (a === "14400" ? "2" : a));
+    const argv = holderArgv(child.pid, 2);
     const holder = spawn(argv[0]!, argv.slice(1), { stdio: "ignore" });
     spawned.push(holder);
     expect(

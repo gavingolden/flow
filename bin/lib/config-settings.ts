@@ -27,6 +27,7 @@ import {
 } from "./copilot-config";
 import { readEpicMaxParallel, DEFAULT_MAX_PARALLEL } from "./epic-config";
 import { isOutputLens } from "./output-lens";
+import { resolveKeepAwakeMaxMinutes } from "./keep-awake-config";
 import {
   DELEGATE_MODEL_DEFAULTS,
   DEFAULT_DELEGATED_LENSES,
@@ -351,6 +352,20 @@ const DESCRIPTORS: Descriptor[] = [
     meaning:
       "whether the Mac is kept from idle-sleeping on mains power while a pipeline is working (no effect on battery)",
     resolve: (read) => strictFalseOptOut(read, "power.keepAwake"),
+  },
+  {
+    key: "power.keepAwakeMaxMinutes",
+    meaning:
+      "how long a pipeline's sleep hold lasts after its last activity before the Mac may sleep (renewed every 15 minutes while the pipeline keeps working)",
+    resolve: (read) => {
+      const { minutes, source } = resolveKeepAwakeMaxMinutes(read);
+      return source === "config"
+        ? {
+            value: String(minutes),
+            source: "config (power.keepAwakeMaxMinutes)",
+          }
+        : { value: String(minutes), source: "built-in (120)" };
+    },
   },
   {
     key: "modules",
