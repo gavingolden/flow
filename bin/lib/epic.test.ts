@@ -3179,9 +3179,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     },
   );
 
-  it("bind --force: carries pr + lastStatus forward onto the rebound record", () => {
-    // A rebind must not blank the board's PR/PHASE columns — the audit fields
-    // survive the repoint.
+  it("bind --force: a rebind to a different slug drops pr and lastStatus", () => {
     gitInit();
     const manifestPath = writeManifest("bind-carry", [{ id: "feat-a" }]);
     writeEpicRunState(
@@ -3191,7 +3189,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
             slug: "old-slug",
             launchedAt: "x",
             pr: 77,
-            lastStatus: "reviewing",
+            lastStatus: "cancelled",
           },
         },
       }),
@@ -3204,8 +3202,31 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(code).toBe(0);
     const rec = readEpicRunState("bind-carry", epicsDir)?.features["feat-a"];
     expect(rec?.slug).toBe("new-slug");
-    expect(rec?.pr).toBe(77);
-    expect(rec?.lastStatus).toBe("reviewing");
+    expect(rec?.pr).toBeUndefined();
+    expect(rec?.lastStatus).toBeUndefined();
+    expect(rec?.priorSlugs).toContain("old-slug");
+  });
+
+  it("bind --force: an external record rebound to a pipeline slug drops pr and lastStatus", () => {
+    gitInit();
+    const manifestPath = writeManifest("bind-ext", [{ id: "feat-a" }]);
+    writeEpicRunState(
+      seedRunState("bind-ext", manifestPath, {
+        features: {
+          "feat-a": { external: "PR#8", pr: 8, lastStatus: "merged" },
+        },
+      }),
+      epicsDir,
+    );
+    const code = runEpicCli(
+      ["bind", "bind-ext", "feat-a", "new-slug", "--force"],
+      { cwd: repoDir, epicsDir, stateDir },
+    );
+    expect(code).toBe(0);
+    const rec = readEpicRunState("bind-ext", epicsDir)?.features["feat-a"];
+    expect(rec?.slug).toBe("new-slug");
+    expect(rec?.pr).toBeUndefined();
+    expect(rec?.lastStatus).toBeUndefined();
   });
 
   it("bind --force: a merged record rebound to a different slug drops the merged lastStatus and pr", () => {

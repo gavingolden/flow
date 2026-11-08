@@ -20,6 +20,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { withFileLockSync } from "./lock";
 import { FLOW_EPICS_DIR } from "./paths";
+import type { PipelineState } from "./state";
 
 export const EPIC_RUN_STATE_FILENAME = "run.json";
 
@@ -199,6 +200,9 @@ export function updateEpicRunRecord(
  * from nothing beyond what `decide` returns: a missing run.json returns false
  * without touching the filesystem. Returns true only when a write happened.
  */
+/** Message prefix of the error mutateEpicRunRecord throws for a malformed record. */
+export const INVALID_LAUNCH_RECORD_PREFIX = "invalid launch record";
+
 export function mutateEpicRunRecord(
   slug: string,
   featureId: string,
@@ -216,7 +220,7 @@ export function mutateEpicRunRecord(
       const next = decide(state.features[featureId]);
       if (next === null) return false;
       if (!isFeatureRunRecord(next)) {
-        throw new Error(`invalid launch record for ${featureId}`);
+        throw new Error(`${INVALID_LAUNCH_RECORD_PREFIX} for ${featureId}`);
       }
       writeEpicRunState(
         {
@@ -268,4 +272,48 @@ export function listEpicRunStates(dir = FLOW_EPICS_DIR): EpicRunState[] {
     if (state) states.push(state);
   }
   return states;
+}
+
+const BINDING_CLOCK_SKEW_MS = 60_000;
+
+/**
+ * True when a slug-bound record was launched clearly before the pipeline now
+ * holding its slug was created: the slug was reused, so the record belongs to
+ * an older pipeline. The launch record is written after `flow feature create`
+ * returns, so a legitimate binding has `createdAt <= launchedAt`; the skew
+ * only absorbs clock jitter. Missing or unparseable timestamps are never
+ * evidence of reuse.
+ */
+export function bindingPredatesPipeline(
+  rec: FeatureRunRecord,
+  state: Pick<PipelineState, "createdAt">,
+): boolean {
+  const launched = Date.parse(rec.launchedAt ?? "");
+  const created = Date.parse(state.createdAt ?? "");
+  if (Number.isNaN(launched) || Number.isNaN(created)) return false;
+  return launched < created - BINDING_CLOCK_SKEW_MS;
+}
+
+/**
+ * A record whose merge was latched into run.json after its state file was
+ * deleted (`flow done`): no live state, recorded `merged`.
+ */
+export function isLatchedMerge(
+  record: FeatureRunRecord | undefined,
+  live: unknown,
+): boolean {
+  return live == null && record?.lastStatus === "merged";
+}
+
+/**
+ * The live state only if it belongs to this record's pipeline. A newer
+ * pipeline that reused the slug is treated as absent (null); null/undefined
+ * pass through so each caller keeps its own absent convention.
+ */
+export function ownedState<T extends Pick<PipelineState, "createdAt">>(
+  record: FeatureRunRecord,
+  state: T | null | undefined,
+): T | null | undefined {
+  if (state != null && bindingPredatesPipeline(record, state)) return null;
+  return state;
 }

@@ -7,6 +7,7 @@
  */
 
 import type { GuardResult, NodeVerdict } from "./epic-manage-guard";
+import { ownedState, type FeatureRunRecord } from "./epic-run-state";
 import type { ManagerState } from "./epic-manage-state";
 import { renderBoard } from "./epic-render";
 import type { BoardRow, ReconcileResult } from "./epic-reconcile";
@@ -60,11 +61,14 @@ export type OwnerNeededLine = {
 export function ownerNeededFor(
   board: BoardRow[],
   states: ReadonlyMap<string, PipelineState>,
+  records: Readonly<Record<string, FeatureRunRecord>>,
 ): OwnerNeededLine[] {
   const out: OwnerNeededLine[] = [];
   for (const row of board) {
     if (row.status === "merged") continue;
-    const state = row.slug ? states.get(row.slug) : undefined;
+    const live = row.slug ? states.get(row.slug) : undefined;
+    const record = records[row.id];
+    const state = (record ? ownedState(record, live) : live) ?? undefined;
     if (!row.slug || !state || !OWNER_NEEDED_PHASES.has(state.phase)) continue;
     out.push({
       id: row.id,

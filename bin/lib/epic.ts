@@ -1812,15 +1812,15 @@ Options:
     }
     const priorSlugs = [...(record?.priorSlugs ?? [])];
     if (record?.slug && record.slug !== slug) priorSlugs.push(record.slug);
-    // A merged record rebound to a different pipeline must not hand its merged
-    // PR/status to the new one, or the sequencer would count it merged at once.
-    const dropMerged = record?.lastStatus === "merged" && record.slug !== slug;
+    // A record rebound to a different pipeline must not carry the old
+    // pipeline's PR/status onto the new one.
+    const rebound = record !== undefined && record.slug !== slug;
     next = {
       slug,
       launchedAt: now(),
       ...(priorSlugs.length > 0 ? { priorSlugs } : {}),
-      ...(record?.pr !== undefined && !dropMerged ? { pr: record.pr } : {}),
-      ...(record?.lastStatus !== undefined && !dropMerged
+      ...(record?.pr !== undefined && !rebound ? { pr: record.pr } : {}),
+      ...(record?.lastStatus !== undefined && !rebound
         ? { lastStatus: record.lastStatus }
         : {}),
     };

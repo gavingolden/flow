@@ -1,0 +1,119 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { describe, expect, it } from "vitest";
+import { reconcileWith, watchedPrs } from "./epic-manage-plan";
+import type { LoopContext, LoopDeps } from "./epic-manage-loop";
+import type { Observation } from "./epic-manage-plan";
+import type { EpicRunState } from "./epic-run-state";
+import { writeState } from "./state";
+import type { FeatureRunRecord } from "./epic-run-state";
+import type { PipelineState } from "./state";
+
+const LAUNCHED = "2026-08-03T00:00:00.000Z";
+
+const stateOf = (
+  slug: string,
+  over: Partial<PipelineState> = {},
+): PipelineState => ({
+  slug,
+  phase: "implementing",
+  repo: "/repo",
+  updatedAt: "2026-11-08T00:00:00Z",
+  ...over,
+});
+
+describe("watchedPrs", () => {
+  it("watches only a live, unmerged, owned binding's PR", () => {
+    const features: Record<string, FeatureRunRecord> = {
+      latched: {
+        slug: "latched",
+        launchedAt: LAUNCHED,
+        lastStatus: "merged",
+        pr: 7,
+      },
+      external: { external: "PR#8", pr: 8 },
+      running: { slug: "running", launchedAt: LAUNCHED },
+      merged: { slug: "merged", launchedAt: LAUNCHED },
+    };
+    const states = [
+      stateOf("running", { pr: 9 }),
+      stateOf("merged", { phase: "merged", pr: 10 }),
+    ];
+    expect(watchedPrs(features, states)).toEqual([9]);
+  });
+
+  it("ignores a newer same-name pipeline's PR and falls back to the record's", () => {
+    const features: Record<string, FeatureRunRecord> = {
+      old: { slug: "reused", launchedAt: LAUNCHED, pr: 11 },
+    };
+    const states = [
+      stateOf("reused", { pr: 99, createdAt: "2026-11-08T00:00:00.000Z" }),
+    ];
+    expect(watchedPrs(features, states)).toEqual([11]);
+  });
+
+  it("dedupes a PR shared by two records", () => {
+    const features: Record<string, FeatureRunRecord> = {
+      a: { slug: "a", launchedAt: LAUNCHED, pr: 3 },
+      b: { slug: "b", launchedAt: LAUNCHED, pr: 3 },
+    };
+    expect(watchedPrs(features, [])).toEqual([3]);
+  });
+});
+
+describe("reconcileWith", () => {
+  it("reconciles an observed-merged row to merged when a newer same-name pipeline owns the slug", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-plan-"));
+    try {
+      writeState(
+        stateOf("reused", {
+          phase: "gated",
+          pr: 99,
+          createdAt: "2026-11-08T00:00:00.000Z",
+        }),
+        stateDir,
+      );
+      const runState = {
+        epicSlug: "e",
+        repo: "/repo",
+        manifestPath: path.join(stateDir, "manifest.json"),
+        manifestSha: "sha",
+        maxParallel: 3,
+        createdAt: LAUNCHED,
+        updatedAt: LAUNCHED,
+        features: {
+          a: {
+            slug: "reused",
+            launchedAt: LAUNCHED,
+            pr: 11,
+            lastStatus: "gated",
+          },
+        },
+      } as EpicRunState;
+      const o = {
+        manifest: {
+          epicId: "e",
+          prompt: "p",
+          createdAt: "2026-06-28",
+          features: [{ id: "a", title: "A", description: "a", dependsOn: [] }],
+        },
+        runState,
+        repoStates: [],
+        maxParallel: 3,
+      } as Observation;
+      const ctx = {
+        cfg: {
+          manifestPath: path.join(stateDir, "manifest.json"),
+          manager: { repo: "/repo" },
+        },
+      } as unknown as LoopContext;
+      const deps = { stateDir, now: () => 0 } as unknown as LoopDeps;
+      const result = reconcileWith(ctx, deps, o, new Set(["a"]));
+      expect(result.board.find((r) => r.id === "a")?.status).toBe("merged");
+      expect(result.board.find((r) => r.id === "a")?.pr).toBe(11);
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+});
