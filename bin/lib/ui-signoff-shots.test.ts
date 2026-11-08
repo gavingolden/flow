@@ -39,6 +39,18 @@ describe("itemCapturesToShots", () => {
     ]);
   });
 
+  it("labels a phone-named shot phone but keeps a desktop shot of a phone feature desktop", () => {
+    const viewports = itemCapturesToShots([
+      item({
+        screenshots: [
+          ".flow-tmp/ui-evidence/item12-placeholder-phone.png",
+          ".flow-tmp/ui-evidence/verify-phone-desktop.png",
+        ],
+      }),
+    ]).map((s) => s.viewport);
+    expect(viewports).toEqual(["phone", "desktop"]);
+  });
+
   it("takes the route from the matching fix_context entry", () => {
     const shots = itemCapturesToShots(
       [item({ screenshots: [".flow-tmp/ui-evidence/a-1280.png"] })],

@@ -77,10 +77,29 @@ describe("planCapture caps and paths", () => {
     );
   });
 
-  it("slugs the root route and drops the query string", () => {
+  it("slugs the root route and hashes a fragment so it never shares the bare route's file", () => {
     const { shotPath } = planCapture([target("/")], DIR, false);
     expect(shotPath("/", 1, "phone", "whole")).toBe(`${DIR}/root-1-phone.png`);
-    expect(shotPath("/a#x", 1, "phone", "whole")).toBe(`${DIR}/a-1-phone.png`);
+    expect(shotPath("/a#x", 1, "phone", "whole")).toMatch(
+      /\/a-[0-9a-f]{6}-1-phone\.png$/,
+    );
+    expect(shotPath("/a#x", 1, "phone", "whole")).not.toBe(
+      shotPath("/a", 1, "phone", "whole"),
+    );
+  });
+
+  it("gives lossy-stem collisions distinct files and keeps clean stems clean", () => {
+    const { shotPath } = planCapture([target("/")], DIR, false);
+    const shot = (r: string) => shotPath(r, 1, "phone", "whole");
+    const otp =
+      "/#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired";
+    expect(shot(otp)).not.toBe(shot("/"));
+    expect(shot(otp)).toMatch(/\/root-[0-9a-f]{6}-1-phone\.png$/);
+    expect(shot("/a-b")).not.toBe(shot("/a/b"));
+    expect(shot("/a/")).not.toBe(shot("/a"));
+    expect(shot("/a?x")).not.toBe(shot("/a?y"));
+    expect(shot("/analysis/AVGO")).toBe(`${DIR}/analysis-AVGO-1-phone.png`);
+    expect(shot("/")).toBe(`${DIR}/root-1-phone.png`);
   });
 
   it("gives targets that differ only by query string distinct files", () => {

@@ -12,7 +12,7 @@ import type { CaptureViewport } from "./ui-capture-plan";
 export type CaptureConfig = {
   baseUrl: string;
   login: { url: string } | null;
-  targets: { route: string; snapshotPath: string }[];
+  targets: { route: string; snapshotPath: string; signedOut: boolean }[];
   viewportsLight: CaptureViewport[];
   viewportsDark: CaptureViewport[];
   maxSectionsPerView: number;
@@ -160,8 +160,12 @@ async function captureTarget(browser, storageState, t) {
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
-    const storageState = cfg.login ? await login(browser) : null;
-    for (const t of cfg.targets) await captureTarget(browser, storageState, t);
+    // Sign in at most once, and only for the first target that needs a session.
+    let session = null;
+    const sessionFor = (b) => (session ??= Promise.resolve(cfg.login ? login(b) : null));
+    for (const t of cfg.targets) {
+      await captureTarget(browser, t.signedOut ? null : await sessionFor(browser), t);
+    }
   } finally {
     await browser.close();
   }

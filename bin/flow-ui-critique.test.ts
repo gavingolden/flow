@@ -7,6 +7,7 @@ import {
   type HeadlessEnvelope,
 } from "./lib/ui-critique-run";
 import { readLedger } from "./lib/ui-critique-ledger";
+import { routeSlug } from "./lib/ui-capture-plan";
 
 const W = "/wt";
 const HOME = "/home/u";
@@ -169,16 +170,21 @@ describe("gate", () => {
       "src/routes/pricing/+page.svelte\nREADME.md\n",
     );
     const targets = JSON.parse(h.files.get(`${crit}/targets.json`)!);
-    expect(targets[0]).toEqual({
+    expect(targets[0]).toMatchObject({
       route: "/analysis/AVGO",
       state: "empty state",
       source: "plan",
     });
+    expect(targets[0].slug).toBe(routeSlug("/analysis/AVGO"));
+    expect(targets[1].slug).toBe(routeSlug("/pricing"));
     expect(targets[1]).toMatchObject({
       route: "/pricing",
       source: "route-file",
     });
-    expect(logOf(h)).toMatchObject({ required: true, targets });
+    expect(logOf(h)).toMatchObject({
+      required: true,
+      targets: targets.map(({ slug: _slug, ...t }: { slug: string }) => t),
+    });
     expect(logOf(h).headSha).toBeUndefined();
   });
 
