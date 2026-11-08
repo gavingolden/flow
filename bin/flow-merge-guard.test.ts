@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CONFLICT_STDERR_PATTERNS,
+  evaluateEpicRow,
   evaluateMergeGuard,
   evaluateMergePreconditions,
   overrideDisclosureBody,
@@ -659,6 +660,7 @@ describe("run() — merge mode", () => {
         stateDir,
         now: () => NOW,
         resolveSlug: () => null,
+        epicsDir: path.join(stateDir, "epics"),
         ...deps,
       });
     } finally {
@@ -1146,6 +1148,138 @@ describe("run() — merge mode", () => {
     expect(same.exit).toBe(0);
   });
 
+  describe("epic board row check", () => {
+    const boardWith = (status: "merged" | "not-started") =>
+      JSON.stringify({
+        version: 1,
+        epicId: "demo-id",
+        features: { a: { status }, b: { status: "not-started" } },
+      });
+    const ghHead = () =>
+      vi.fn((argv: string[]) =>
+        argv[1] === "view"
+          ? {
+              stdout: JSON.stringify({
+                body: NO_UNCHECKED,
+                state: "OPEN",
+                url: "https://x/y/pull/5",
+                headRefOid: "deadbeef",
+              }),
+              stderr: "",
+              exitCode: 0,
+            }
+          : { stdout: PASSING, stderr: "", exitCode: 0 },
+      );
+    const seedEpic = (slug: string) =>
+      seedMerge(slug, { epic: { slug: "demo", featureId: "a" } });
+
+    it("refuses epic-row-missing when the head has no board, and never merges", () => {
+      seedEpic("e1");
+      const spy = vi.fn(okMerge);
+      const readHeadBoard = vi.fn(() => ({ kind: "absent" as const }));
+      const { exit, out } = runMerge(["merge", "5", "--slug", "e1"], {
+        gh: ghHead(),
+        runMerge: spy,
+        readHeadBoard,
+      });
+      expect(exit).toBe(1);
+      expect(out.reason).toContain("epic-row-missing: demo/a");
+      expect(out.reason).toContain(
+        "flow-epic-self-mark --slug e1 --commit --push",
+      );
+      expect(spy).not.toHaveBeenCalled();
+      expect(phaseOf("e1")).toBe("gating");
+      expect(readHeadBoard).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: ".flow/epics/demo/status.json",
+          ref: "deadbeef",
+        }),
+      );
+    });
+
+    it("refuses when the own row is not merged at the head", () => {
+      seedEpic("e2");
+      const spy = vi.fn(okMerge);
+      const { out } = runMerge(["merge", "5", "--slug", "e2"], {
+        gh: ghHead(),
+        runMerge: spy,
+        readHeadBoard: () => ({ kind: "ok", text: boardWith("not-started") }),
+      });
+      expect(out.reason).toContain("epic-row-missing");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("merges when the own row is merged at the head, whatever its pr", () => {
+      seedEpic("e3");
+      const spy = vi.fn(okMerge);
+      const { exit } = runMerge(["merge", "5", "--slug", "e3"], {
+        gh: ghHead(),
+        runMerge: spy,
+        readHeadBoard: () => ({ kind: "ok", text: boardWith("merged") }),
+      });
+      expect(exit).toBe(0);
+      expect(spy).toHaveBeenCalledOnce();
+    });
+
+    it("refuses epic-row-unverifiable on a read failure", () => {
+      seedEpic("e4");
+      const spy = vi.fn(okMerge);
+      const { out } = runMerge(["merge", "5", "--slug", "e4"], {
+        gh: ghHead(),
+        runMerge: spy,
+        readHeadBoard: () => ({ kind: "error", detail: "rate limited" }),
+      });
+      expect(out.reason).toBe("epic-row-unverifiable: rate limited");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("refuses epic-row-unverifiable when gh returns no head commit", () => {
+      seedEpic("e5");
+      const { out } = runMerge(["merge", "5", "--slug", "e5"], {
+        gh: ghFor({}),
+        runMerge: vi.fn(okMerge),
+        readHeadBoard: () => ({ kind: "ok", text: boardWith("merged") }),
+      });
+      expect(out.reason).toContain("epic-row-unverifiable");
+    });
+
+    it("refuses epic-binding-conflict when the tag and run.json disagree", () => {
+      seedEpic("e6");
+      fs.mkdirSync(path.join(stateDir, "epics", "demo"), { recursive: true });
+      fs.writeFileSync(
+        path.join(stateDir, "epics", "demo", "run.json"),
+        JSON.stringify({
+          epicSlug: "demo",
+          repo: "/base/checkout",
+          manifestPath: "m",
+          manifestSha: "s",
+          createdAt: "x",
+          updatedAt: "x",
+          features: { b: { slug: "e6", launchedAt: "x" } },
+        }),
+      );
+      const spy = vi.fn(okMerge);
+      const { out } = runMerge(["merge", "5", "--slug", "e6"], {
+        gh: ghHead(),
+        runMerge: spy,
+      });
+      expect(out.reason).toContain("epic-binding-conflict");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("makes no board read for a non-epic PR", () => {
+      seedMerge("n1");
+      const readHeadBoard = vi.fn(() => ({ kind: "absent" as const }));
+      const { exit } = runMerge(["merge", "5", "--slug", "n1"], {
+        gh: ghFor({}),
+        runMerge: vi.fn(okMerge),
+        readHeadBoard,
+      });
+      expect(exit).toBe(0);
+      expect(readHeadBoard).not.toHaveBeenCalled();
+    });
+  });
+
   it("existing parseArgs shape is untouched by merge mode", () => {
     expect(parseArgs(["100"])).toEqual({
       pr: 100,
@@ -1160,6 +1294,30 @@ describe("run() — merge mode", () => {
     expect("flow-merge-guard merge 1 --slug x".startsWith(`${prefix} `)).toBe(
       true,
     );
+  });
+});
+
+describe(evaluateEpicRow, () => {
+  const bound = {
+    kind: "bound" as const,
+    epicSlug: "demo",
+    featureId: "a",
+    source: "state" as const,
+  };
+
+  it("passes a non-epic PR without needing a board", () => {
+    expect(
+      evaluateEpicRow({ binding: { kind: "none" }, board: { kind: "absent" } }),
+    ).toEqual({ ok: true });
+  });
+
+  it("flags a board that is not valid JSON as unverifiable", () => {
+    const r = evaluateEpicRow({
+      binding: bound,
+      board: { kind: "ok", text: "{nope" },
+    });
+    expect(r).toMatchObject({ ok: false });
+    expect((r as { reason: string }).reason).toContain("epic-row-unverifiable");
   });
 });
 

@@ -44,7 +44,14 @@ call). Read that file, never a stdout capture, and branch on `.decision`:
   `gate-override-without-confirmation`; anything else (`pr-not-owned`,
   `pr-not-open`, `auto-merge-disabled`, `phase-not-advanceable`,
   `checks-unrecognised`, `error`, a missing helper) — escalate
-  `merge-refused`. Both escalations render the same block:
+  `merge-refused`; `epic-row-missing` — the PR's own epic board row is not on
+  its GitHub head: run `flow-epic-self-mark --slug "$FLOW_SLUG" --commit --push`
+  as its own standalone Bash call (no `cd` or `&&` prefix), then re-enter
+  step 7 and return straight to step 10 (not step 9: a board-only commit
+  changes no gate input, so an owner-approved PR is not re-gated); if the
+  helper refuses, escalate `NEEDS HUMAN: epic-row-missing` naming its reason.
+  `epic-row-unverifiable` and `epic-binding-conflict` fall into the
+  `merge-refused` escalation. Both escalations render the same block:
 
   ```bash
   TAG=merge-refused  # or gate-override-without-confirmation, per the routing above
@@ -186,7 +193,9 @@ the per-spawn `effort: "$MERGE_RESOLVER_EFFORT"` argument resolved above (omit
 
 On success, the roadmap row for this PR was already flipped to
 `✅ shipped (#$PR)` in the PR's own diff by `/flow-pr-review` step 7.5
-(self-mark + sweep), so no post-merge metadata sweep is required.
+(self-mark + sweep), so no post-merge metadata sweep is required. An epic
+feature's board row rode in the same PR (written by `flow-open-pr`, verified
+by the merge guard above).
 
 ### Post-merge follow-up sweep
 

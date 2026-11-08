@@ -17,6 +17,14 @@ call. The heading contract lives in **`references/auto-merge-rubric.md`**
 a missing heading escalates explicitly rather than collapsing to
 auto-merge (which would ship a PR the user expected to be gated).
 
+**Pre-gate epic board row.** Before deciding the gate, run
+`flow-epic-self-mark --slug "$FLOW_SLUG" --commit --push` as its own
+standalone Bash call (no `cd` or `&&` prefix). It is a no-op for a non-epic
+pipeline or a PR whose row is already on its branch. When it prints
+`written` (it pushed a board commit), return to step 7 before deciding the
+gate. When it refuses, escalate `NEEDS HUMAN: epic-row-missing` naming the
+reason. A gated epic PR is never handed to the owner without its row.
+
 ```bash
 RESULT=$(flow-gate-decide "$PR")
 DECISION=$(printf '%s' "$RESULT" | jq -r '.decision')
