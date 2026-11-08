@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
-import { defaultReadConfigFile } from "./models-config";
+import { readKeepAwakeSettings } from "./keep-awake-config";
 import { pidStartEpoch } from "./liveness";
 import {
   appendRow,
@@ -12,7 +12,7 @@ import {
 import { sleepSync } from "./sleep";
 import { STEP_PHASES, type PipelinePhase, type PipelineState } from "./state";
 
-export const KEEP_AWAKE_MAX_SEC = 14400;
+export const KEEP_AWAKE_RENEW_AFTER_MS = 15 * 60_000;
 export const CAFFEINATE_PATH = "/usr/bin/caffeinate";
 
 export const KEEP_AWAKE_HOLD_PHASES: ReadonlySet<PipelinePhase> =
@@ -23,13 +23,16 @@ export const KEEP_AWAKE_HOLD_PHASES: ReadonlySet<PipelinePhase> =
     "epic-plan-review-pending",
   ]);
 
-export function holderArgv(watchPid: number | undefined): string[] {
+export function holderArgv(
+  watchPid: number | undefined,
+  maxSec: number,
+): string[] {
   return [
     CAFFEINATE_PATH,
     "-s",
     ...(watchPid === undefined ? [] : ["-w", String(watchPid)]),
     "-t",
-    String(KEEP_AWAKE_MAX_SEC),
+    String(maxSec),
   ];
 }
 
@@ -37,6 +40,8 @@ export type KeepAwakeDeps = {
   platform: NodeJS.Platform;
   envOff: () => boolean;
   enabled: () => boolean;
+  maxSec: () => number;
+  nowMs: () => number;
   hasCaffeinate: () => boolean;
   pidLive: (pid: number) => boolean;
   spawnDetached: (argv: string[]) => number | null;
@@ -56,15 +61,10 @@ export type KeepAwakeOutcome = {
 const RELEASE_POLL_MS = 20;
 const RELEASE_WAIT_MS = 200;
 
-const defaultDeps: KeepAwakeDeps = {
+const defaultDeps: Omit<KeepAwakeDeps, "enabled" | "maxSec"> = {
   platform: process.platform,
   envOff: () => process.env.FLOW_KEEP_AWAKE === "0",
-  enabled: () => {
-    const cfg = defaultReadConfigFile() as
-      | { power?: { keepAwake?: unknown } }
-      | undefined;
-    return cfg?.power?.keepAwake !== false;
-  },
+  nowMs: Date.now,
   hasCaffeinate: () => fs.existsSync(CAFFEINATE_PATH),
   pidLive: (pid) => {
     try {
@@ -96,10 +96,12 @@ const isHolder = (row: ProcRegistryRow): boolean =>
   row.argv[0] === CAFFEINATE_PATH ||
   row.argv[0]?.split("/").pop() === "caffeinate";
 
-function watchedPid(argv: string[]): string | undefined {
-  const i = argv.indexOf("-w");
+function flagValue(argv: string[], flag: string): string | undefined {
+  const i = argv.indexOf(flag);
   return i === -1 ? undefined : argv[i + 1];
 }
+
+const watchedPid = (argv: string[]) => flagValue(argv, "-w");
 
 function release(rows: ProcRegistryRow[], d: KeepAwakeDeps): void {
   for (const row of rows) {
@@ -124,7 +126,14 @@ export function syncKeepAwake(
   state: PipelineState,
   deps: Partial<KeepAwakeDeps> = {},
 ): KeepAwakeOutcome {
-  const d = { ...defaultDeps, ...deps };
+  let snapshot: ReturnType<typeof readKeepAwakeSettings> | undefined;
+  const settings = () => (snapshot ??= readKeepAwakeSettings());
+  const d: KeepAwakeDeps = {
+    enabled: () => settings().enabled,
+    maxSec: () => settings().maxSec,
+    ...defaultDeps,
+    ...deps,
+  };
   try {
     if (d.envOff()) return { action: "none", skip: "env-off" };
     const holders = d
@@ -150,16 +159,28 @@ export function syncKeepAwake(
     const watchPid =
       state.pid !== undefined && d.pidLive(state.pid) ? state.pid : undefined;
     const want = watchPid === undefined ? undefined : String(watchPid);
-    const matching = holders.find((r) => watchedPid(r.argv) === want);
-    if (matching) {
+    const maxSec = d.maxSec();
+    const now = d.nowMs();
+    const fresh = holders
+      .filter((r) => {
+        const age = now - r.recordedAt;
+        return (
+          watchedPid(r.argv) === want &&
+          flagValue(r.argv, "-t") === String(maxSec) &&
+          Number.isFinite(age) &&
+          age < KEEP_AWAKE_RENEW_AFTER_MS
+        );
+      })
+      .sort((a, b) => b.recordedAt - a.recordedAt)[0];
+    if (fresh) {
       release(
-        holders.filter((r) => r !== matching),
+        holders.filter((r) => r !== fresh),
         d,
       );
       return { action: "kept" };
     }
 
-    const argv = holderArgv(watchPid);
+    const argv = holderArgv(watchPid, maxSec);
     const child = d.spawnDetached(argv);
     if (child === null) return { action: "none" };
     const startEpoch = d.startEpoch(child);
@@ -174,7 +195,7 @@ export function syncKeepAwake(
       slug: state.slug,
       class: "default",
       argv,
-      recordedAt: Date.now(),
+      recordedAt: now,
       sessionPid: state.pid ?? null,
       sessionStartEpoch: state.procStartedAt ?? null,
     });
