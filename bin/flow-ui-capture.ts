@@ -110,7 +110,7 @@ export function run(argv: string[], deps: Deps): number {
   const loginUrl = manifestLogin(deps.readFile(manifest));
   let login: CaptureConfig["login"] = null;
   let env: Record<string, string> = {};
-  if (loginUrl !== null) {
+  if (loginUrl !== null && targets.some((t) => t.session !== "signed-out")) {
     if (!isLocalLoginUrl(baseUrl, loginUrl)) return skip("non-local-base-url");
     const acct = deps.resolveTestAccount({ manifest, worktree: w });
     if (!acct.ok) {

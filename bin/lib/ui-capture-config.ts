@@ -45,6 +45,7 @@ export function buildCaptureConfig(i: {
     login: i.login,
     targets: i.targets.map((t) => ({
       route: t.route,
+      signedOut: t.session === "signed-out",
       snapshotPath: path.join(
         evidenceDir,
         `${routeSlug(t.route)}.snapshot.txt`,

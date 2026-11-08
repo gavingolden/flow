@@ -6,6 +6,7 @@
  */
 import * as path from "node:path";
 
+import { routeSlug } from "./ui-capture-plan";
 import { decideGate } from "./ui-critique-gate";
 import { readUiCritiqueEnabled } from "./ui-critique-config";
 import {
@@ -116,7 +117,11 @@ export function opGate(f: Flags, deps: OpsDeps): OpResult {
     );
     deps.writeFile(
       path.join(critDir(w), "targets.json"),
-      JSON.stringify(targets, null, 2) + "\n",
+      JSON.stringify(
+        targets.map((t) => ({ ...t, slug: routeSlug(t.route) })),
+        null,
+        2,
+      ) + "\n",
     );
     const { playwrightWarning: _stale, ...rest } = log;
     writeLog(deps, w, {
