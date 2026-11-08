@@ -5,6 +5,7 @@ import {
   CAFFEINATE_PATH,
   holderArgv,
   KEEP_AWAKE_HOLD_PHASES,
+  KEEP_AWAKE_RENEW_AFTER_MS,
   syncKeepAwake,
   type KeepAwakeDeps,
 } from "./keep-awake";
@@ -24,14 +25,21 @@ const state = (
     ...extra,
   }) as PipelineState;
 
-const row = (pid: number, watch?: number): ProcRegistryRow => ({
+const MIN = 60_000;
+
+const row = (
+  pid: number,
+  watch?: number,
+  recordedAt = 0,
+  maxSec = 7200,
+): ProcRegistryRow => ({
   pid,
   pgid: pid,
   startEpoch: 1,
   slug: "s",
   class: "default",
-  argv: holderArgv(watch),
-  recordedAt: 0,
+  argv: holderArgv(watch, maxSec),
+  recordedAt,
   sessionPid: 100,
   sessionStartEpoch: 7,
 });
@@ -49,6 +57,8 @@ function harness(
     platform: "darwin",
     envOff: () => false,
     enabled: () => true,
+    maxSec: () => 7200,
+    nowMs: () => 0,
     hasCaffeinate: () => true,
     pidLive: (p) => alive.has(p),
     spawnDetached,
@@ -71,21 +81,21 @@ function harness(
 
 describe("holderArgv", () => {
   it("should build the -s -w -t argv and never -i/-d/-u", () => {
-    expect(holderArgv(42)).toEqual([
+    expect(holderArgv(42, 7200)).toEqual([
       CAFFEINATE_PATH,
       "-s",
       "-w",
       "42",
       "-t",
-      "14400",
+      "7200",
     ]);
-    expect(holderArgv(undefined)).toEqual([
+    expect(holderArgv(undefined, 7200)).toEqual([
       CAFFEINATE_PATH,
       "-s",
       "-t",
-      "14400",
+      "7200",
     ]);
-    for (const a of [...holderArgv(1), ...holderArgv(undefined)]) {
+    for (const a of [...holderArgv(1, 7200), ...holderArgv(undefined, 7200)]) {
       expect(["-i", "-d", "-u"]).not.toContain(a);
     }
   });
@@ -103,7 +113,7 @@ describe("syncKeepAwake", () => {
       "-w",
       "100",
       "-t",
-      "14400",
+      "7200",
     ]);
     expect(h.appended).toHaveLength(1);
     expect(h.appended[0]).toMatchObject({
@@ -117,6 +127,126 @@ describe("syncKeepAwake", () => {
     const h = harness([row(200, 100)]);
     expect(syncKeepAwake(state("implementing"), h.deps).action).toBe("kept");
     expect(h.spawnDetached).not.toHaveBeenCalled();
+  });
+
+  it("should keep the newest of two fresh holders and release the other", () => {
+    const h = harness([row(200, 100, 1), row(201, 100, 5)]);
+    expect(syncKeepAwake(state("implementing"), h.deps).action).toBe("kept");
+    expect(h.kills).toContainEqual([200, "SIGTERM"]);
+    expect(h.kills.some(([pid]) => pid === 201)).toBe(false);
+  });
+
+  it("should renew a holder that is 15 minutes old", () => {
+    const h = harness([row(200, 100, 0)], {
+      nowMs: () => KEEP_AWAKE_RENEW_AFTER_MS,
+    });
+    expect(syncKeepAwake(state("implementing"), h.deps).action).toBe(
+      "acquired",
+    );
+    expect(h.appended[0]!.recordedAt).toBe(KEEP_AWAKE_RENEW_AFTER_MS);
+    expect(h.kills).toContainEqual([200, "SIGTERM"]);
+  });
+
+  it("should renew a holder whose -t differs from the limit", () => {
+    const h = harness([row(200, 100, 0, 14400)]);
+    expect(syncKeepAwake(state("implementing"), h.deps).action).toBe(
+      "acquired",
+    );
+    expect(h.kills).toContainEqual([200, "SIGTERM"]);
+  });
+
+  it("should spawn and register the replacement before signalling the old holder", () => {
+    const order: string[] = [];
+    const h = harness([row(200, 100, 0)], {
+      nowMs: () => 20 * MIN,
+      spawnDetached: () => {
+        order.push("spawn");
+        return 555;
+      },
+      appendRow: () => {
+        order.push("append");
+        return true;
+      },
+      kill: (pid, sig) => order.push(`kill ${pid} ${sig}`),
+    });
+    syncKeepAwake(state("implementing"), h.deps);
+    expect(order.slice(0, 3)).toEqual(["spawn", "append", "kill 200 SIGTERM"]);
+  });
+
+  it("should leave the old holder unsignalled when the renewal spawn fails", () => {
+    const h = harness([row(200, 100, 0)], {
+      nowMs: () => 20 * MIN,
+      spawnDetached: () => null,
+    });
+    expect(syncKeepAwake(state("implementing"), h.deps).action).toBe("none");
+    expect(h.kills).toEqual([]);
+  });
+
+  it("should leave the old holder unsignalled when the renewal append fails", () => {
+    const h = harness([row(200, 100, 0)], {
+      nowMs: () => 20 * MIN,
+      appendRow: () => false,
+    });
+    expect(syncKeepAwake(state("implementing"), h.deps).action).toBe("none");
+    expect(h.kills).toEqual([[555, "SIGTERM"]]);
+  });
+
+  describe("six-hour timeline", () => {
+    const run = (stopAfterMin: number) => {
+      const maxSec = 7200;
+      let now = 0;
+      let nextPid = 500;
+      const rows: ProcRegistryRow[] = [];
+      const killed = new Set<number>();
+      const live = (r: ProcRegistryRow) =>
+        !killed.has(r.pid) && now < r.recordedAt + maxSec * 1000;
+      const deps: Partial<KeepAwakeDeps> = {
+        platform: "darwin",
+        envOff: () => false,
+        enabled: () => true,
+        maxSec: () => maxSec,
+        nowMs: () => now,
+        hasCaffeinate: () => true,
+        pidLive: (p) => p === 100 || rows.some((r) => r.pid === p && live(r)),
+        isLive: live,
+        spawnDetached: () => nextPid++,
+        startEpoch: () => 1,
+        readRows: () => rows,
+        appendRow: (_s, r) => {
+          rows.push(r);
+          return true;
+        },
+        kill: (pid) => killed.add(pid),
+        sleepMs: () => {},
+      };
+      const holds: boolean[] = [];
+      for (now = 0; now <= 360 * MIN; now += MIN) {
+        if (now / MIN <= stopAfterMin) {
+          syncKeepAwake(state("implementing"), deps);
+        }
+        holds.push(rows.some(live));
+      }
+      return { holds, spawns: nextPid - 500 };
+    };
+
+    it("should hold at every minute when syncs continue for six hours", () => {
+      const { holds, spawns } = run(360);
+      expect(holds.every(Boolean)).toBe(true);
+      expect(spawns).toBe(25);
+    });
+
+    it("should stop holding within the limit once syncs stop", () => {
+      const { holds } = run(10);
+      expect(holds[10]).toBe(true);
+      expect(holds.slice(131).some(Boolean)).toBe(false);
+    });
+
+    it("should hold at least 105 minutes after the last sync and release by the limit", () => {
+      // last sync at 59 -> last renewal at 45 -> deadline 45 + 120 = 165
+      const { holds } = run(59);
+      expect(holds.slice(59, 165).every(Boolean)).toBe(true);
+      expect(holds.slice(165).some(Boolean)).toBe(false);
+    });
   });
 
   it("should replace a holder watching an old pid", () => {

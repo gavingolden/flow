@@ -13,7 +13,7 @@
  *
  * Each throttled pass also re-syncs the pipeline's keep-awake holder
  * (`syncKeepAwake`), so a holder that expired or was reaped is re-acquired
- * within about a minute of the next tool call.
+ * within about a minute of the next tool call and renewed every 15 minutes.
  */
 
 import * as fs from "node:fs";
@@ -46,7 +46,7 @@ export type HookDeps = {
   sweep: (worktree: string) => WorktreeOrphanSweepResult | null;
   record: (slug: string, n: number) => void;
   nowMs: () => number;
-  /** Re-syncs the keep-awake holder (a resume, mid-run reap or 4 h cap can drop it with no phase write). */
+  /** Re-syncs the keep-awake holder (a resume, mid-run reap or the hold's time limit can drop it with no phase write). */
   syncKeepAwake?: (slug: string) => void;
 };
 

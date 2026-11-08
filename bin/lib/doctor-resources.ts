@@ -1,21 +1,23 @@
 /**
- * `flow doctor` leftover checks: stale worktrees. The pipeline-record checks
- * live in `doctor-pipelines.ts`, the process checks in `doctor-processes.ts`.
- * Read-only: nothing here removes a worktree, deletes a record, or signals a
- * process — each warning prints the command that does.
+ * `flow doctor` leftover check: worktrees and leftover folders. It renders
+ * the last recorded worktree sweep (`~/.flow/state/worktree-sweep/last.json`)
+ * instead of scanning repos itself, so it makes no git or network call. The
+ * pipeline-record checks live in `doctor-pipelines.ts`, the process checks in
+ * `doctor-processes.ts`. Read-only: each warning prints the fix to run.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { parseWorktreeListOutput } from "../flow-remove-worktree";
 import type { DoctorCheck, DoctorDeps } from "./doctor";
+import { upgradeCommand } from "./doctor-install";
 import { shq } from "./doctor-util";
+import { formatBytes, holdReasonText, plural } from "./worktree-sweep-render";
+import type { HoldReason } from "./worktree-sweep-rules";
 import {
-  listStates,
-  WORKTREE_REMOVED_PHASE_SET,
-  type PipelineState,
-} from "./state";
-import { BRANCH_MARKER_FILENAME } from "./worktree-marker";
+  readLastSweep,
+  type SweepItem,
+  type SweepResult,
+} from "./worktree-sweep-state";
 
 const SECTION = "leftovers" as const;
 export const STALE_WORKTREES_META = {
@@ -23,102 +25,173 @@ export const STALE_WORKTREES_META = {
   section: SECTION,
   title: "Stale worktrees",
 } as const;
-const GIT_TIMEOUT_MS = 5000;
 
-function real(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return path.resolve(p);
+const DAY_MS = 86_400_000;
+const STALE_AFTER_MS = 7 * DAY_MS;
+const RUN_SWEEP = "flow reap --worktrees";
+
+/** Kept for a reason that needs nothing from the user: counted, never warned. */
+const EXPECTED_HOLDS: ReadonlySet<string> = new Set([
+  "pr-open",
+  "live-session",
+  "session-unknown",
+  "reserved-by-pipeline",
+  "too-recent",
+]);
+
+function fixFor(i: SweepItem, deps: DoctorDeps): string {
+  const cd = `cd ${shq(i.repo)} &&`;
+  switch (i.reason as HoldReason) {
+    case "locked":
+      return `git -C ${shq(i.repo)} worktree unlock ${shq(i.path)}`;
+    case "uncommitted-changes":
+      return `commit or discard the changes in ${shq(i.path)}, then ${RUN_SWEEP} --yes`;
+    case "local-config-differs":
+      return `copy or delete the local .env / settings file in ${shq(i.path)}, then ${RUN_SWEEP} --yes`;
+    case "head-not-on-github":
+      return `git -C ${shq(i.path)} push, then ${RUN_SWEEP} --yes`;
+    case "in-use-process":
+      return "flow reap --yes --include-strays";
+    case "in-use-container":
+      return `stop the container using it, then ${RUN_SWEEP} --yes`;
+    case "gh-unreachable":
+    case "deadline-reached":
+      return `${RUN_SWEEP} --yes`;
+    case "flow-source":
+      return `${upgradeCommand(deps)} (from your main checkout) to move flow off this copy`;
+    case "contains-launch-dir":
+      return `cd out of ${shq(i.path)}, then ${RUN_SWEEP} --yes`;
+    case "no-pr":
+    case "no-branch":
+      return `${cd} flow-remove-worktree ${shq(i.path)}`;
+    default:
+      return `inspect ${shq(i.path)} and delete it by hand if it is not needed`;
   }
 }
 
-function cwdRepo(deps: DoctorDeps): string | null {
-  const r = deps.run("git", ["-C", deps.cwd, "rev-parse", "--show-toplevel"], {
-    timeoutMs: 2000,
-  });
-  const top = r.stdout.trim();
-  return r.status === 0 && top !== "" ? top : null;
+function ago(ms: number): string {
+  if (ms < 3_600_000) return `${Math.max(1, Math.round(ms / 60_000))} min`;
+  if (ms < DAY_MS) return `${Math.round(ms / 3_600_000)} h`;
+  return `${Math.round(ms / DAY_MS)} days`;
+}
+
+function summaryLine(
+  last: SweepResult,
+  ageMs: number,
+  expected: SweepItem[],
+): string {
+  const done = last.items.filter(
+    (i) => i.outcome === "removed" || i.outcome === "would-remove",
+  );
+  const wts = done.filter((i) => i.kind === "worktree");
+  const husks = done.filter((i) => i.kind === "husk");
+  const bytes = wts.reduce((n, i) => n + (i.bytes ?? 0), 0);
+  const prOpen = expected.filter((i) => i.reason === "pr-open").length;
+  const other = expected.length - prOpen;
+  const verb = last.acted ? "removed" : "would remove";
+  const removal = [
+    wts.length > 0
+      ? `${verb} ${plural(wts.length, "folder", "folders")} (${formatBytes(bytes)})`
+      : "",
+    husks.length > 0
+      ? `${wts.length > 0 ? "" : `${verb} `}${plural(husks.length, "leftover folder", "leftover folders")}`
+      : "",
+  ].filter(Boolean);
+  const parts = [removal.length > 0 ? removal.join(", ") : "nothing to remove"];
+  if (prOpen > 0) parts.push(`kept ${prOpen} whose PR is still open`);
+  if (other > 0) parts.push(`${other} in use or too new to judge`);
+  const note = last.acted ? "" : " (preview only, nothing removed)";
+  return `last sweep ${ago(ageMs)} ago${note}: ${parts.join("; ")}`;
 }
 
 export function checkStaleWorktrees(
   deps: DoctorDeps,
-  io: { listStates?: () => PipelineState[] } = {},
+  io: {
+    readLastSweep?: () => SweepResult | null;
+    nowMs?: () => number;
+    exists?: (p: string) => boolean;
+  } = {},
 ): DoctorCheck[] {
-  const states = (io.listStates ?? (() => listStates(deps.stateDir)))();
-  const repos = new Map<string, string>();
-  for (const s of states) if (!repos.has(s.repo)) repos.set(s.repo, s.slug);
-  const here = cwdRepo(deps);
-  if (here !== null && !repos.has(here)) repos.set(here, "");
-
-  const ownersByPath = new Map<string, PipelineState[]>();
-  for (const s of states) {
-    if (s.worktree === undefined) continue;
-    const key = real(s.worktree);
-    ownersByPath.set(key, [...(ownersByPath.get(key) ?? []), s]);
+  const last = (io.readLastSweep ?? (() => readLastSweep(deps.stateDir)))();
+  const exists = io.exists ?? fs.existsSync;
+  if (last === null) {
+    return [
+      {
+        ...STALE_WORKTREES_META,
+        status: "warn",
+        summary: "the worktree cleanup has never run",
+        details: [
+          "finished worktrees and leftover folders pile up until it runs; it starts on its own from `flow feature create` unless cleanup.worktrees is false",
+        ],
+        fix: RUN_SWEEP,
+      },
+    ];
   }
 
-  const checks: DoctorCheck[] = [];
-  const seenPrimaries = new Set<string>();
-  for (const [repo, slug] of repos) {
-    const list = fs.existsSync(repo)
-      ? deps.run("git", ["-C", repo, "worktree", "list", "--porcelain"], {
-          timeoutMs: GIT_TIMEOUT_MS,
-        })
-      : null;
-    if (list === null || list.status !== 0 || list.timedOut) {
-      const gone = list === null;
-      checks.push({
-        id: `leftovers-worktrees:unreadable-${checks.length}`,
-        section: SECTION,
-        title: "Worktree scan",
-        status: "warn",
-        summary: `could not inspect repo at ${repo}`,
-        details: [
-          gone
-            ? "the recorded repo path no longer exists"
-            : "git worktree list failed or timed out, so no worktree was judged stale",
-        ],
-        fix: gone
-          ? slug === ""
-            ? undefined
-            : `flow done ${slug}`
-          : `git -C ${shq(repo)} worktree list`,
-      });
-      continue;
-    }
-    const entries = parseWorktreeListOutput(list.stdout);
-    const primary = entries[0] ? real(entries[0].path) : repo;
-    if (seenPrimaries.has(primary)) continue;
-    seenPrimaries.add(primary);
-    for (const e of entries.slice(1)) {
-      if (e.bare) continue;
-      if (!fs.existsSync(path.join(e.path, BRANCH_MARKER_FILENAME))) continue;
-      const owners = ownersByPath.get(real(e.path)) ?? [];
-      const stale =
-        owners.length === 0 ||
-        owners.every((s) => WORKTREE_REMOVED_PHASE_SET.has(s.phase));
-      if (!stale) continue;
-      checks.push({
-        id: `leftovers-worktrees:${path.basename(e.path)}`,
-        section: SECTION,
-        title: "Stale worktree",
-        status: "warn",
-        summary: `${path.basename(e.path)} belongs to no live pipeline`,
-        details: [
-          e.path,
-          "flow-remove-worktree removes the directory and may delete its branch; it refuses a tree with uncommitted tracked changes",
-        ],
-        fix: `cd ${shq(primary)} && flow-remove-worktree ${shq(e.path)}`,
-      });
-    }
-  }
-  if (checks.length === 0) {
-    checks.push({
+  const ageMs = (io.nowMs ?? deps.nowMs)() - Date.parse(last.at);
+  const present = last.items.filter((i) => exists(i.path));
+  const held = present.filter((i) => i.outcome === "held");
+  const expected = held.filter((i) => EXPECTED_HOLDS.has(i.reason));
+  const checks: DoctorCheck[] = [
+    {
       ...STALE_WORKTREES_META,
       status: "pass",
-      summary: `no stale worktrees in ${seenPrimaries.size} repo(s)`,
+      summary: summaryLine(last, ageMs, expected),
       details: [],
+    },
+  ];
+  if (ageMs > STALE_AFTER_MS) {
+    checks.push({
+      id: "leftovers-worktrees:stale-result",
+      section: SECTION,
+      title: "Stale worktrees",
+      status: "warn",
+      summary: `the last worktree cleanup was ${ago(ageMs)} ago`,
+      details: ["what it reported below may be out of date"],
+      fix: RUN_SWEEP,
+    });
+  }
+
+  const unrecognized = held.filter((i) => i.reason === "unrecognized-contents");
+  for (const i of present) {
+    const isFailed = i.outcome === "failed";
+    const isKept =
+      i.outcome === "held" &&
+      !EXPECTED_HOLDS.has(i.reason) &&
+      i.reason !== "unrecognized-contents";
+    if (!isFailed && !isKept) continue;
+    checks.push({
+      id: `leftovers-worktrees:${path.basename(i.path)}`,
+      section: SECTION,
+      title: isFailed ? "Worktree not removed" : "Worktree kept",
+      status: "warn",
+      summary: `${path.basename(i.path)} ${isFailed ? `could not be removed (${i.detail ?? "unknown error"})` : holdReasonText(i.reason as HoldReason, i.detail)}`,
+      details: [i.path],
+      fix: isFailed ? `${RUN_SWEEP} --yes` : fixFor(i, deps),
+    });
+  }
+  if (unrecognized.length > 0) {
+    checks.push({
+      id: "leftovers-worktrees:unrecognized",
+      section: SECTION,
+      title: "Leftover folders",
+      status: "warn",
+      summary: `${unrecognized.length} leftover folder(s) hold files flow does not recognize`,
+      details: unrecognized.map(
+        (i) => `${i.path} (${i.detail ?? "unknown contents"})`,
+      ),
+      fix: "inspect each folder and delete or rename it; flow never removes files it does not recognize",
+    });
+  }
+  for (const m of last.danglingMounts) {
+    checks.push({
+      id: `leftovers-worktrees:container:${m.container}`,
+      section: SECTION,
+      title: "Container recreates a deleted folder",
+      status: "warn",
+      summary: `container ${m.container} mounts ${m.source}, which was deleted`,
+      details: ["Docker recreates the folder every time the container starts"],
+      fix: "supabase stop && supabase start (from your main checkout)",
     });
   }
   return checks;

@@ -1,13 +1,16 @@
-import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defaultDoctorDeps } from "./doctor";
 import { checkPipelineState } from "./doctor-pipelines";
 import { checkLeakedProcesses } from "./doctor-processes";
 import { checkStaleWorktrees } from "./doctor-resources";
-import { makeDeps, scriptedRun, type RunCall } from "./doctor-test-deps";
+import {
+  writeLastSweep,
+  type SweepItem,
+  type SweepResult,
+} from "./worktree-sweep-state";
+import { makeDeps } from "./doctor-test-deps";
 import type { ReapOutcome } from "./reap";
 import type { ReapCliResult } from "./reap-cli";
 import type { PipelineState } from "./state";
@@ -20,38 +23,6 @@ afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-function git(cwd: string, ...args: string[]): void {
-  const r = spawnSync(
-    "git",
-    [
-      "-c",
-      "user.name=t",
-      "-c",
-      "user.email=t@t",
-      "-c",
-      "commit.gpgsign=false",
-      ...args,
-    ],
-    { cwd, encoding: "utf8" },
-  );
-  if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
-}
-
-function makeRepo(name: string): string {
-  const repo = path.join(root, name);
-  fs.mkdirSync(repo);
-  git(repo, "init", "-q", "-b", "main");
-  git(repo, "commit", "-q", "--allow-empty", "-m", "init");
-  return repo;
-}
-
-function addWorktree(repo: string, name: string, marker: boolean): string {
-  const wt = path.join(root, name);
-  git(repo, "worktree", "add", "-q", "-b", name, wt);
-  if (marker) fs.writeFileSync(path.join(wt, ".flow-branch"), `${name}\n`);
-  return wt;
-}
-
 function state(over: Partial<PipelineState>): PipelineState {
   return {
     slug: "s",
@@ -62,105 +33,220 @@ function state(over: Partial<PipelineState>): PipelineState {
   } as PipelineState;
 }
 
-const realRun = () => makeDeps(root, { run: defaultDoctorDeps().run });
+const NOW = 1_700_000_000_000;
+
+function item(over: Partial<SweepItem>): SweepItem {
+  return {
+    kind: "worktree",
+    path: path.join(root, "repo-a"),
+    repo: path.join(root, "repo"),
+    outcome: "held",
+    reason: "uncommitted-changes",
+    ...over,
+  };
+}
+
+function sweep(
+  items: SweepItem[],
+  over: Partial<SweepResult> = {},
+): SweepResult {
+  return {
+    mode: "worktrees",
+    at: new Date(NOW - 3_600_000).toISOString(),
+    acted: true,
+    items,
+    danglingMounts: [],
+    deadlineHit: false,
+    totals: { removed: 0, held: 0, failed: 0, bytesFreed: 0 },
+    ...over,
+  };
+}
+
+function check(result: SweepResult | null, io: object = {}) {
+  return checkStaleWorktrees(makeDeps(root), {
+    readLastSweep: () => result,
+    nowMs: () => NOW,
+    exists: () => true,
+    ...io,
+  });
+}
 
 describe("checkStaleWorktrees", () => {
-  it("lists marker-bearing worktrees of merged or state-less pipelines only", () => {
-    const repo = makeRepo("repo");
-    const states: PipelineState[] = [];
-    const wts: Record<string, string> = {};
-    for (const phase of [
-      "merged",
-      "cancelled",
-      "implementing",
-      "paused",
-      "gated",
-      "needs-human",
-      "epic-approved",
-    ]) {
-      wts[phase] = addWorktree(repo, `wt-${phase}`, true);
-      states.push(
-        state({ slug: `p-${phase}`, phase, repo, worktree: wts[phase] }),
-      );
-    }
-    const stateless = addWorktree(repo, "wt-stateless", true);
-    addWorktree(repo, "wt-unmarked", false);
-
-    const out = checkStaleWorktrees(realRun(), { listStates: () => states });
-    const listed = out.map((c) => c.details[0]).sort();
-    expect(listed).toEqual([wts.cancelled, wts.merged, stateless].sort());
-    for (const c of out) {
-      expect(c.status).toBe("warn");
-      expect(c.fix).toBe(`cd ${repo} && flow-remove-worktree ${c.details[0]}`);
-      expect(c.details[1]).toContain("may delete its branch");
-      expect(c.details[1]).toContain("refuses");
-    }
-  });
-
-  it("passes on a clean repo and scans a repo shared by several states once", () => {
-    const repo = makeRepo("repo");
-    const calls: RunCall[] = [];
-    const real = defaultDoctorDeps().run;
-    const deps = makeDeps(root, {
-      run: (cmd, args, opts) => {
-        calls.push({ cmd, args });
-        return real(cmd, args, opts);
-      },
-    });
-    const out = checkStaleWorktrees(deps, {
-      listStates: () => [
-        state({ slug: "a", repo }),
-        state({ slug: "b", repo }),
-      ],
-    });
-    expect(out).toHaveLength(1);
-    expect(out[0].status).toBe("pass");
-    expect(calls.filter((c) => c.args.includes("worktree")).length).toBe(1);
-  });
-
-  it("dedupes a repo reached both by state.repo and by a linked worktree of it", () => {
-    const repo = makeRepo("repo");
-    const wt = addWorktree(repo, "wt-x", true);
-    const out = checkStaleWorktrees(realRun(), {
-      listStates: () => [
-        state({ slug: "a", repo, worktree: wt }),
-        state({ slug: "b", repo: wt }),
-      ],
-    });
-    expect(out.every((c) => c.status === "pass")).toBe(true);
-  });
-
-  it("scans the cwd's repo even when no state records it", () => {
-    const repo = makeRepo("repo");
-    const stale = addWorktree(repo, "wt-orphan", true);
-    const deps = { ...realRun(), cwd: repo };
-    const out = checkStaleWorktrees(deps, { listStates: () => [] });
-    expect(out.map((c) => c.details[0])).toEqual([stale]);
-  });
-
-  it("reports a vanished repo as one 'could not inspect' warn and does not throw", () => {
-    const gone = path.join(root, "gone-repo");
-    const out = checkStaleWorktrees(realRun(), {
-      listStates: () => [state({ slug: "old", repo: gone })],
-    });
+  it("warns with the fix when the cleanup has never run", () => {
+    const out = check(null);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({
+      id: "leftovers-worktrees",
       status: "warn",
-      summary: `could not inspect repo at ${gone}`,
-      fix: "flow done old",
+      summary: "the worktree cleanup has never run",
+      fix: "flow reap --worktrees",
     });
   });
 
-  it("reports a non-zero or timed-out git worktree list as 'could not inspect' and continues", () => {
-    const repo = makeRepo("repo");
-    for (const res of [{ status: 128 }, { status: null, timedOut: true }]) {
-      const out = checkStaleWorktrees(
-        makeDeps(root, { run: scriptedRun(() => res) }),
-        { listStates: () => [state({ repo })] },
-      );
-      expect(out).toHaveLength(1);
-      expect(out[0].summary).toContain("could not inspect repo at");
-    }
+  it("summarises the last sweep in a pass row and counts open-PR holds without warning", () => {
+    const out = check(
+      sweep([
+        item({ outcome: "removed", reason: "pr-merged", bytes: 2 * 1024 ** 3 }),
+        item({
+          kind: "husk",
+          outcome: "removed",
+          reason: "husk-empty",
+          path: "/x/h",
+        }),
+        item({ reason: "pr-open", detail: "#289", path: "/x/open" }),
+      ]),
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].status).toBe("pass");
+    expect(out[0].summary).toBe(
+      "last sweep 1 h ago: removed 1 folder (2.0 GB), 1 leftover folder; kept 1 whose PR is still open",
+    );
+  });
+
+  it("says nothing was removed instead of claiming a size, and pluralizes", () => {
+    const none = check(sweep([]));
+    expect(none[0].summary).toBe("last sweep 1 h ago: nothing to remove");
+    const many = check(
+      sweep([
+        item({ outcome: "removed", reason: "pr-merged", bytes: 1024 ** 3 }),
+        item({ outcome: "removed", reason: "pr-merged", path: "/x/b" }),
+      ]),
+    );
+    expect(many[0].summary).toContain("removed 2 folders (");
+    expect(
+      check(
+        sweep(
+          [item({ outcome: "would-remove", reason: "pr-merged", bytes: 2048 })],
+          { acted: false },
+        ),
+      )[0].summary,
+    ).toBe(
+      "last sweep 1 h ago (preview only, nothing removed): would remove 1 folder (2 KB)",
+    );
+  });
+
+  it("names the install verb for a flow-source hold and the way out for the launch folder", () => {
+    const out = check(
+      sweep([
+        item({ reason: "flow-source", path: "/x/src" }),
+        item({ reason: "contains-launch-dir", path: "/x/here" }),
+      ]),
+    );
+    const fixes = out.filter((c) => c.status === "warn").map((c) => c.fix);
+    expect(fixes[0]).toContain("flow install --upgrade");
+    expect(fixes[0]).not.toContain("setup");
+    expect(fixes[1]).toBe(
+      "cd out of /x/here, then flow reap --worktrees --yes",
+    );
+  });
+
+  it("warns once per other kept folder with a plain reason and a fix", () => {
+    const out = check(
+      sweep([
+        item({ reason: "uncommitted-changes", path: "/x/dirty", repo: "/x" }),
+        item({
+          reason: "in-use-process",
+          path: "/x/busy",
+          detail: "vite (pid 4)",
+        }),
+        item({ reason: "no-pr", path: "/x/nopr", repo: "/x" }),
+      ]),
+    );
+    const warns = out.filter((c) => c.status === "warn");
+    expect(warns.map((c) => c.id)).toEqual([
+      "leftovers-worktrees:dirty",
+      "leftovers-worktrees:busy",
+      "leftovers-worktrees:nopr",
+    ]);
+    expect(warns[0].summary).toBe("dirty has changes that are not committed");
+    expect(warns[0].fix).toContain("commit or discard");
+    expect(warns[1].fix).toBe("flow reap --yes --include-strays");
+    expect(warns[2].fix).toBe("cd /x && flow-remove-worktree /x/nopr");
+  });
+
+  it("never warns about a folder in use right now or too new to judge", () => {
+    const out = check(
+      sweep([
+        item({ reason: "live-session", path: "/x/live" }),
+        item({ kind: "husk", reason: "too-recent", path: "/x/new" }),
+        item({ kind: "husk", reason: "reserved-by-pipeline", path: "/x/res" }),
+      ]),
+    );
+    expect(out.map((c) => c.status)).toEqual(["pass"]);
+    expect(out[0].summary).toContain("3 in use or too new to judge");
+  });
+
+  it("drops a recorded folder whose path no longer exists", () => {
+    const out = check(sweep([item({ path: "/x/gone" })]), {
+      exists: () => false,
+    });
+    expect(out.map((c) => c.status)).toEqual(["pass"]);
+  });
+
+  it("groups folders with unrecognized contents into one warning", () => {
+    const out = check(
+      sweep([
+        item({
+          kind: "husk",
+          reason: "unrecognized-contents",
+          path: "/x/a",
+          detail: "logs",
+        }),
+        item({
+          kind: "husk",
+          reason: "unrecognized-contents",
+          path: "/x/b",
+          detail: "run.sh",
+        }),
+      ]),
+    );
+    const warns = out.filter((c) => c.status === "warn");
+    expect(warns).toHaveLength(1);
+    expect(warns[0].summary).toContain("2 leftover folder(s)");
+    expect(warns[0].details).toEqual(["/x/a (logs)", "/x/b (run.sh)"]);
+  });
+
+  it("warns per container that mounts a deleted folder", () => {
+    const out = check(
+      sweep([], {
+        danglingMounts: [
+          { container: "supabase_db", source: "/x/gone/supabase" },
+        ],
+      }),
+    );
+    const w = out.find(
+      (c) => c.id === "leftovers-worktrees:container:supabase_db",
+    )!;
+    expect(w.status).toBe("warn");
+    expect(w.fix).toContain("supabase stop");
+  });
+
+  it("reports a failed removal and a result over 7 days old", () => {
+    const out = check(
+      sweep([item({ outcome: "failed", detail: "timed out" })], {
+        at: new Date(NOW - 8 * 86_400_000).toISOString(),
+      }),
+    );
+    const ids = out.filter((c) => c.status === "warn").map((c) => c.id);
+    expect(ids).toEqual([
+      "leftovers-worktrees:stale-result",
+      "leftovers-worktrees:repo-a",
+    ]);
+    expect(
+      out.find((c) => c.id === "leftovers-worktrees:repo-a")?.summary,
+    ).toContain("timed out");
+  });
+
+  it("reads the last result from deps.stateDir by default", () => {
+    const deps = makeDeps(root);
+    writeLastSweep(
+      sweep([], { at: new Date(deps.nowMs()).toISOString() }),
+      deps.stateDir,
+    );
+    expect(checkStaleWorktrees(deps)[0].status).toBe("pass");
+    expect(
+      checkStaleWorktrees(makeDeps(path.join(root, "empty")))[0].status,
+    ).toBe("warn");
   });
 });
 

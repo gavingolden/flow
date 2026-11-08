@@ -268,11 +268,44 @@ describe("buildSettingsRows", () => {
         "review.gemini",
         "config (review.gemini)",
       ],
+      [
+        { power: { keepAwake: true } },
+        "power.keepAwake",
+        "config (power.keepAwake)",
+      ],
     ];
     for (const [raw, key, expected] of PRESENCE_CASES) {
       it(`${key}: reads as config even when the configured value equals the built-in default`, () => {
         expect(sourceOf(raw, key)).toBe(expected);
       });
     }
+
+    describe("power.keepAwakeMaxMinutes", () => {
+      const rowOf = (raw: unknown) =>
+        buildSettingsRows(reader(raw)).find(
+          (r) => r.setting === "power.keepAwakeMaxMinutes",
+        );
+
+      it("should report the configured minutes when set", () => {
+        expect(rowOf({ power: { keepAwakeMaxMinutes: 90 } })).toMatchObject({
+          value: "90",
+          source: "config (power.keepAwakeMaxMinutes)",
+        });
+      });
+
+      it("should report the clamped minutes when below the floor", () => {
+        expect(rowOf({ power: { keepAwakeMaxMinutes: 10 } })).toMatchObject({
+          value: "30",
+          source: "config (power.keepAwakeMaxMinutes)",
+        });
+      });
+
+      it("should report the built-in default when unset", () => {
+        expect(rowOf({})).toMatchObject({
+          value: "120",
+          source: "built-in (120)",
+        });
+      });
+    });
   });
 });

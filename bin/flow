@@ -14,6 +14,8 @@
  *                                      kill window + remove state
  *   flow reap [--slug <s>] [--yes]     report (and clean up) processes left
  *                                      by dead pipelines
+ *   flow reap --worktrees [--yes]      preview (or remove) finished worktrees
+ *                                      and leftover folders
  *   flow prompt [<slug>]               print a pipeline's originating request
  *   flow doctor [--json]               check your flow setup and print a fix
  *                                      for each problem (read-only)

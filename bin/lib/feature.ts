@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
 import { resolveRepoRoot } from "./repo-root";
 import { slugify, isValidSlug } from "./slug";
+import { startBackgroundWorktreeSweep } from "./worktree-sweep-launch";
 import { confirmStdin } from "./confirm";
 import {
   toDirSuffix,
@@ -192,6 +193,8 @@ export type FeatureOptions = {
     slug: string,
     repo: string,
   ) => { branchName: string; worktreeDir: string };
+  /** Starts the automatic worktree cleanup (test seam; default is the real detached starter). */
+  startWorktreeSweep?: () => void;
   /** Override the command launched in the window. */
   command?: string[];
   /** Resume a crashed pipeline rather than start a new one. */
@@ -852,6 +855,8 @@ function runFresh(
     );
     return 1;
   }
+
+  (options.startWorktreeSweep ?? startBackgroundWorktreeSweep)();
 
   // Resolve the final slug BEFORE any state write so the persist-then-verify-
   // then-delete-on-failure no-orphan ordering below writes exactly one file for

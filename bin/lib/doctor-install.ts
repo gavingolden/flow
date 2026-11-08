@@ -47,9 +47,9 @@ export const INSTALL_PACKAGES_META = {
 
 /** `flow install --upgrade`, spelled through the canonical checkout when the
  * running flow source is a worktree (the wrapper would otherwise re-pin to it). */
-function upgradeCommand(
+export function upgradeCommand(
   deps: DoctorDeps,
-  inspect: typeof inspectFlowRoot,
+  inspect: typeof inspectFlowRoot = inspectFlowRoot,
 ): string {
   const info = inspect(deps.flowSource);
   return info.isWorktree && info.canonicalRoot
