@@ -105,9 +105,7 @@ describe("withSleepRerun", () => {
       failed,
       0,
       () => ({ passed: false, durationMs: 60 }),
-      {
-        sleepSince: vi.fn().mockReturnValueOnce(span).mockReturnValueOnce(null),
-      },
+      { sleepSince: (ms) => (ms <= 0 ? span : null), now: () => 5 },
     );
     expect(out?.slept.rerun).toBe("failed");
   });
@@ -117,7 +115,7 @@ describe("withSleepRerun", () => {
       failed,
       0,
       () => ({ passed: false, durationMs: 60 }),
-      { sleepSince: () => span },
+      { sleepSince: (ms) => (ms <= 5 ? span : null), now: () => 5 },
     );
     expect(out?.slept.rerun).toBe("slept-again");
   });

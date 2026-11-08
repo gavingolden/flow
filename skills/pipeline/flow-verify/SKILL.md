@@ -168,7 +168,7 @@ the excerpts.
 
 - `rerun: "passed"`: the first failure was a sleep artefact, nothing to fix.
 - `rerun: "slept-again"`: the re-run slept too. Do not edit code; re-run `flow-pre-commit --json`.
-  That consumes an outer attempt (bounded by the 3-attempt cap).
+  That re-run counts against Step 4's 5-re-run cap; if the invocation still ends unclean, it consumes an outer attempt as usual.
 - `rerun: "failed"`: it failed again with the Mac awake. This is an ordinary failure: fix it
   as usual and it counts as a fix attempt.
 
@@ -200,7 +200,7 @@ threshold**:
 ### Inline fix (trivial path)
 
 For each distinct failing check `name` (`results[].passed === false`,
-skipping rows that carry `dedupedFrom`), use
+skipping rows that carry `dedupedFrom` or whose `slept.rerun` is `slept-again`), use
 `failure.firstErrorText` to locate the failing file/test, then read the
 relevant source file directly. Fix the issue in the source file.
 
@@ -220,7 +220,7 @@ relevant source file directly. Fix the issue in the source file.
 1. Compose the **edit-set** from each failed `results[]` entry of the
    `flow-pre-commit --json` report. One entry per distinct failing check
    `name` (`results[i].passed === false`), skipping rows that carry
-   `dedupedFrom`, each a JSON-shaped object with three fields:
+   `dedupedFrom` or whose `slept.rerun` is `slept-again`, each a JSON-shaped object with three fields:
    - `file` — repo-relative path of the failing source (resolved from
      `results[i].failure.firstErrorText`).
    - `intent` — 1–2 lines naming the issue (typically

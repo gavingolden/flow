@@ -10,6 +10,10 @@
  * `<stateDir>/orphan-sweep/` (never a `*.json` at the state root, which
  * `listStates` would read as a phantom pipeline) and is written BEFORE the
  * sweep so concurrent calls do not double-run it.
+ *
+ * Each throttled pass also re-syncs the pipeline's keep-awake holder
+ * (`syncKeepAwake`), so a holder that expired or was reaped is re-acquired
+ * within about a minute of the next tool call.
  */
 
 import * as fs from "node:fs";

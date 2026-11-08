@@ -78,6 +78,7 @@ describeOnDarwin("keep-awake live", () => {
       appendRow: (_s, r) => {
         rows.push(r);
         holders.add(r.pid);
+        return true;
       },
     };
     return { rows, deps };
@@ -98,13 +99,13 @@ describeOnDarwin("keep-awake live", () => {
 
     expect(syncKeepAwake(st, deps).action).toBe("acquired");
     const holder = rows[0]!.pid;
-    expect(assertionsListing(holder)).toBe(true);
+    expect(await waitFor(() => assertionsListing(holder), 2000)).toBe(true);
 
     expect(syncKeepAwake({ ...st, phase: "merged" }, deps).action).toBe(
       "released",
     );
     expect(await waitFor(() => !alive(holder), 2000)).toBe(true);
-    expect(assertionsListing(holder)).toBe(false);
+    expect(await waitFor(() => !assertionsListing(holder), 2000)).toBe(true);
 
     rows.length = 0;
     expect(syncKeepAwake(st, deps).action).toBe("acquired");

@@ -42,7 +42,7 @@ export type KeepAwakeDeps = {
   spawnDetached: (argv: string[]) => number | null;
   startEpoch: (pid: number) => number | null;
   readRows: (slug: string) => ProcRegistryRow[];
-  appendRow: (slug: string, row: ProcRegistryRow) => void;
+  appendRow: (slug: string, row: ProcRegistryRow) => boolean;
   isLive: (row: ProcRegistryRow) => boolean;
   kill: (pid: number, sig: NodeJS.Signals) => void;
   sleepMs: (ms: number) => void;
@@ -86,7 +86,7 @@ const defaultDeps: KeepAwakeDeps = {
   },
   startEpoch: (pid) => pidStartEpoch(pid),
   readRows: (slug) => readRows(slug).rows,
-  appendRow: (_slug, row) => void appendRow(row),
+  appendRow: (_slug, row) => appendRow(row).written,
   isLive: defaultIsLive,
   kill: (pid, sig) => process.kill(pid, sig),
   sleepMs: sleepSync,
@@ -129,7 +129,7 @@ export function syncKeepAwake(
     if (d.envOff()) return { action: "none", skip: "env-off" };
     const holders = d
       .readRows(state.slug)
-      .filter((r) => isHolder(r) && d.isLive(r));
+      .filter((r) => isHolder(r) && d.pidLive(r.pid) && d.isLive(r));
     const hold = (KEEP_AWAKE_HOLD_PHASES as ReadonlySet<string>).has(
       state.phase,
     );
@@ -167,7 +167,7 @@ export function syncKeepAwake(
       d.kill(child, "SIGTERM");
       return { action: "none" };
     }
-    d.appendRow(state.slug, {
+    const registered = d.appendRow(state.slug, {
       pid: child,
       pgid: child,
       startEpoch,
@@ -178,6 +178,10 @@ export function syncKeepAwake(
       sessionPid: state.pid ?? null,
       sessionStartEpoch: state.procStartedAt ?? null,
     });
+    if (!registered) {
+      d.kill(child, "SIGTERM");
+      return { action: "none" };
+    }
     release(holders, d);
     return { action: "acquired" };
   } catch {

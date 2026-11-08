@@ -41,6 +41,7 @@ import {
   findNonExecutableHelpers,
   formatJsonReport,
   formatReport,
+  isolationRetryWanted,
   resolveSelection,
   getChangedFilesForPush,
   isExecutableLibModule,
@@ -3894,9 +3895,32 @@ describe("slept rendering", () => {
         slept: { ...slept, wokeAt: null, rerun: "slept-again" },
       }),
     );
-    expect(out).toContain("to unknown");
+    expect(out).toContain("slept at 09:05 (wake time unknown)");
+    expect(out).not.toContain("to unknown");
     expect(out).toContain("re-run slept again");
   });
+
+  it("should not print or copy slept on a reused (dedupedFrom) row", () => {
+    const reused = { ...failing, slept, dedupedFrom: "src" as const };
+    expect(formatReport(report(reused))).not.toContain("re-run after sleep");
+    expect(
+      JSON.parse(formatJsonReport(report(reused))).results[0],
+    ).not.toHaveProperty("slept");
+  });
+
+  it.each([
+    [false, undefined, true],
+    [true, undefined, false],
+    [true, "failed", true],
+    [false, "passed", false],
+    [false, "slept-again", false],
+  ] as const)(
+    "isolationRetryWanted(passed=%s, rerun=%s) should be %s",
+    (passed, rerun, want) => {
+      const s = rerun ? { ...slept, rerun } : undefined;
+      expect(isolationRetryWanted({ passed }, s)).toBe(want);
+    },
+  );
 
   it("should not print a slept line for a result without slept", () => {
     expect(formatReport(report(failing))).not.toContain("re-run after sleep");

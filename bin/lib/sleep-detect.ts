@@ -13,7 +13,7 @@ const SYSCTL_TIMEOUT_MS = 2000;
 
 export const defaultReadSysctl: SysctlReader = (name) => {
   try {
-    const r = spawnSync("sysctl", ["-n", name], {
+    const r = spawnSync("/usr/sbin/sysctl", ["-n", name], {
       encoding: "utf8",
       timeout: SYSCTL_TIMEOUT_MS,
     });
