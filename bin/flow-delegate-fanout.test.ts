@@ -944,7 +944,7 @@ describe("flow-delegate-fanout (subprocess, agy absent from PATH)", () => {
   const agyInSkipPath =
     spawnSync("sh", ["-c", "which agy"], {
       encoding: "utf8",
-      env: { PATH: SKIP_PATH },
+      env: { ...process.env, PATH: SKIP_PATH },
     }).status === 0;
 
   it.skipIf(agyInSkipPath)(
@@ -964,7 +964,7 @@ describe("flow-delegate-fanout (subprocess, agy absent from PATH)", () => {
       const r = spawnSync(
         bunPath,
         ["run", HELPER, "--manifest", manifestPath, "--out", outPath],
-        { encoding: "utf8", env: { PATH: SKIP_PATH } },
+        { encoding: "utf8", env: { ...process.env, PATH: SKIP_PATH } },
       );
       expect(r.status).toBe(0);
       const agg = JSON.parse(r.stdout.trim());

@@ -9,7 +9,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_STATE_DIR, flowOverlaysDir } from "./paths";
+import { flowStateDir, flowOverlaysDir } from "./paths";
 import { livenessOf } from "./liveness";
 import { MODULES, type ModuleId } from "./modules";
 import { readFlowVersion } from "./pkg-version";
@@ -184,7 +184,7 @@ export function pruneStaleOverlays(args: {
   now?: number;
 }): string[] {
   const overlaysDir = args.overlaysDir ?? flowOverlaysDir();
-  const stateDir = args.stateDir ?? FLOW_STATE_DIR;
+  const stateDir = args.stateDir ?? flowStateDir();
   const now = args.now ?? Date.now();
   let dirents: fs.Dirent[];
   try {

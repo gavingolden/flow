@@ -13,7 +13,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_STATE_DIR } from "./paths";
+import { flowStateDir } from "./paths";
 import { isValidSlug } from "./slug";
 import { pidStartEpoch } from "./liveness";
 
@@ -52,8 +52,8 @@ export const MAX_ROW_BYTES = 4096;
  */
 export const NULL_EPOCH_TTL_MS = 3_600_000;
 
-/** Mirrors `state.ts`'s `statePath(slug, dir = FLOW_STATE_DIR)` parameter shape. */
-export function procsDir(baseDir = FLOW_STATE_DIR): string {
+/** Mirrors `state.ts`'s `statePath(slug, dir = flowStateDir())` parameter shape. */
+export function procsDir(baseDir = flowStateDir()): string {
   return path.join(baseDir, "procs");
 }
 
@@ -62,7 +62,7 @@ export function procsDir(baseDir = FLOW_STATE_DIR): string {
  * trusts its caller — this throws on an invalid slug rather than silently
  * building a traversal-prone path.
  */
-export function registryPath(slug: string, baseDir = FLOW_STATE_DIR): string {
+export function registryPath(slug: string, baseDir = flowStateDir()): string {
   if (!isValidSlug(slug)) {
     throw new Error(`proc-registry: invalid slug "${slug}"`);
   }
@@ -116,7 +116,7 @@ function serializeRow(row: ProcRegistryRow): string {
 
 export function appendRow(
   row: ProcRegistryRow,
-  baseDir = FLOW_STATE_DIR,
+  baseDir = flowStateDir(),
   /**
    * When the caller has already resolved and created the target path
    * (e.g. `flow-spawn.ts`'s `runLaunch`, which does both before spawning
@@ -185,7 +185,7 @@ function parseRegistryLines(text: string): {
   return { rows, malformed };
 }
 
-export function readRows(slug: string, baseDir = FLOW_STATE_DIR): ReadResult {
+export function readRows(slug: string, baseDir = flowStateDir()): ReadResult {
   try {
     const target = registryPath(slug, baseDir);
     if (!fs.existsSync(target)) return { rows: [], malformed: 0 };
@@ -269,7 +269,7 @@ function readFrom(p: string, offset: number, len: number): Buffer {
  */
 export function compact(
   slug: string,
-  baseDir = FLOW_STATE_DIR,
+  baseDir = flowStateDir(),
   deps: CompactDeps = {},
 ): { kept: number; dropped: number; removed?: true } {
   const isLive = deps.isLive ?? defaultIsLive;

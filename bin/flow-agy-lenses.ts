@@ -60,7 +60,7 @@ import {
   isContentFilterText,
 } from "./lib/agy-failure-class";
 import { keepRefusalEvidence } from "./lib/agy-refusal-cache";
-import { FLOW_CACHE_DIR } from "./lib/paths";
+import { flowCacheDir } from "./lib/paths";
 import {
   mergeAgyLensesRecord,
   parseAgyLensesRecord,
@@ -190,7 +190,7 @@ export type Deps = {
   mkdirp: (dir: string, mode?: number) => void;
   listDir: (dir: string) => string[];
   // Where a refused lens's prompt and raw output are kept after the scratch
-  // cleanup; tests inject a tmpdir because FLOW_CACHE_DIR is the real cache.
+  // cleanup; tests inject a tmpdir because flowCacheDir() is the real cache.
   refusalCacheDir: string;
   ghPrView: (pr: number, cwd: string) => PrMeta | null;
   gitShow: (spec: string, cwd: string) => string | null;
@@ -861,7 +861,7 @@ function resolveDeps(args: Args, o?: Partial<Deps>): Deps {
     mkdirp:
       o?.mkdirp ?? ((d, mode) => void mkdirSync(d, { recursive: true, mode })),
     listDir: o?.listDir ?? ((d) => readdirSync(d)),
-    refusalCacheDir: o?.refusalCacheDir ?? join(FLOW_CACHE_DIR, "agy-refusals"),
+    refusalCacheDir: o?.refusalCacheDir ?? join(flowCacheDir(), "agy-refusals"),
     ghPrView:
       o?.ghPrView ??
       ((pr, cwd) => {

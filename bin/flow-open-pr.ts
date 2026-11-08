@@ -34,7 +34,7 @@ import { resolveSlugAmbient } from "./lib/session-identity";
 import { type GitRunner, defaultGit } from "./lib/resume-probes";
 import { normalizeDetailsBlocks } from "./lib/md-block-structure";
 import { advancePhase } from "./lib/phase-advance";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { selfMarkEpicRow, type SelfMarkResult } from "./lib/epic-self-mark";
 
 type Args = {
@@ -286,7 +286,7 @@ function reportSelfMark(r: SelfMarkResult, slug: string): void {
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const git = deps.git ?? defaultGit;
-  const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
+  const stateDir = deps.stateDir ?? flowStateDir();
   const updater =
     deps.updater ?? ((updateArgv: string[]) => runUpdate(updateArgv, stateDir));
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());

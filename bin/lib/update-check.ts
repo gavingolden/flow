@@ -6,13 +6,17 @@
  *
  * Hard contract: `checkForUpdate` MUST NEVER THROW. Every risky step (spawn,
  * parse, fs) collapses to a typed `skipped`/`current` result. A 24h cache at
- * `FLOW_UPDATE_CACHE` throttles fetches so most calls do zero spawns.
+ * `flowUpdateCachePath()` throttles fetches so most calls do zero spawns.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolveDefaultBranch, type Spawner } from "./git";
-import { resolveFlowSource, FLOW_UPDATE_CACHE, flowConfigPath } from "./paths";
+import {
+  resolveFlowSource,
+  flowUpdateCachePath,
+  flowConfigPath,
+} from "./paths";
 import { dimStderr } from "./color";
 import { isNewerVersion } from "./semver";
 import { readFlowVersion } from "./pkg-version";
@@ -132,7 +136,7 @@ function writeCache(cachePath: string, entry: CacheEntry): void {
  */
 export function invalidateUpdateCheckCache(cachePath?: string): void {
   try {
-    fs.rmSync(cachePath ?? FLOW_UPDATE_CACHE, { force: true });
+    fs.rmSync(cachePath ?? flowUpdateCachePath(), { force: true });
   } catch {
     /* swallow */
   }
@@ -168,7 +172,7 @@ export function checkForUpdate(
 ): UpdateCheckResult {
   const spawn = opts.spawn ?? defaultSpawn;
   const now = opts.now ?? Date.now();
-  const cachePath = opts.cachePath ?? FLOW_UPDATE_CACHE;
+  const cachePath = opts.cachePath ?? flowUpdateCachePath();
   const env = opts.env ?? process.env;
   const readConfigFile = opts.readConfigFile ?? defaultReadConfigFile;
 

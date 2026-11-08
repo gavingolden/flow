@@ -3,7 +3,7 @@
  *
  * Mirrors `state.ts`'s typed-state + type-guard + read/write/list idiom, with
  * one structural divergence: the path is NESTED — a per-slug directory under
- * `FLOW_EPICS_DIR` holding `run.json` — not `state.ts`'s flat
+ * `flowEpicsDir()` holding `run.json` — not `state.ts`'s flat
  * `<slug>.json`. So `writeEpicRunState` mkdirs the per-slug dir and
  * `listEpicRunStates` enumerates SUBDIRS that contain a `run.json`, not bare
  * `*.json` files.
@@ -19,7 +19,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { withFileLockSync } from "./lock";
-import { FLOW_EPICS_DIR } from "./paths";
+import { flowEpicsDir } from "./paths";
 import type { PipelineState } from "./state";
 
 export const EPIC_RUN_STATE_FILENAME = "run.json";
@@ -72,7 +72,7 @@ export type EpicRunState = {
   features: Record<string, FeatureRunRecord>;
 };
 
-export function epicRunStatePath(slug: string, dir = FLOW_EPICS_DIR): string {
+export function epicRunStatePath(slug: string, dir = flowEpicsDir()): string {
   return path.join(dir, slug, EPIC_RUN_STATE_FILENAME);
 }
 
@@ -130,7 +130,7 @@ export function isEpicRunState(x: unknown): x is EpicRunState {
 
 export function readEpicRunState(
   slug: string,
-  dir = FLOW_EPICS_DIR,
+  dir = flowEpicsDir(),
 ): EpicRunState | null {
   const file = epicRunStatePath(slug, dir);
   try {
@@ -148,7 +148,7 @@ export function readEpicRunState(
  */
 export function writeEpicRunState(
   state: EpicRunState,
-  dir = FLOW_EPICS_DIR,
+  dir = flowEpicsDir(),
 ): void {
   fs.mkdirSync(path.join(dir, state.epicSlug), { recursive: true });
   const target = epicRunStatePath(state.epicSlug, dir);
@@ -159,7 +159,7 @@ export function writeEpicRunState(
 
 export function epicRunStateLockPath(
   slug: string,
-  dir = FLOW_EPICS_DIR,
+  dir = flowEpicsDir(),
 ): string {
   return path.join(dir, slug, `${EPIC_RUN_STATE_FILENAME}.lock`);
 }
@@ -179,7 +179,7 @@ export function updateEpicRunRecord(
   record: FeatureRunRecord,
   opts: { dir?: string; now: () => string },
 ): void {
-  const dir = opts.dir ?? FLOW_EPICS_DIR;
+  const dir = opts.dir ?? flowEpicsDir();
   fs.mkdirSync(path.join(dir, slug), { recursive: true });
   withFileLockSync(
     epicRunStateLockPath(slug, dir),
@@ -209,7 +209,7 @@ export function mutateEpicRunRecord(
   decide: (prev: FeatureRunRecord | undefined) => FeatureRunRecord | null,
   opts: { dir?: string; now: () => string },
 ): boolean {
-  const dir = opts.dir ?? FLOW_EPICS_DIR;
+  const dir = opts.dir ?? flowEpicsDir();
   // withFileLockSync mkdirs the lock's parent dir, so probe before locking.
   if (!fs.existsSync(epicRunStatePath(slug, dir))) return false;
   return withFileLockSync(
@@ -245,7 +245,7 @@ export function mutateEpicRunRecord(
  */
 export function deleteEpicRunState(
   slug: string,
-  dir = FLOW_EPICS_DIR,
+  dir = flowEpicsDir(),
 ): boolean {
   const target = path.join(dir, slug);
   try {
@@ -258,7 +258,7 @@ export function deleteEpicRunState(
 }
 
 /** Every epic whose `~/.flow/epics/<slug>/run.json` parses to a valid state. */
-export function listEpicRunStates(dir = FLOW_EPICS_DIR): EpicRunState[] {
+export function listEpicRunStates(dir = flowEpicsDir()): EpicRunState[] {
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });

@@ -130,7 +130,7 @@ import { writeManager, type ManagerState } from "./epic-manage-state";
 // it: this file's exact-argv assertions predate --plugin-dir and must stay
 // byte-identical regardless of what plugin roots happen to be materialized
 // on the machine running the suite (the real default, `scanPluginRoots()`,
-// reads `FLOW_CLAUDE_HOME_SKILLS_DIR` — captured eagerly at import time, which
+// reads the claude-home skills dir — resolved at call time, which
 // sees vitest.setup.ts's sandbox HOME).
 // Individual specs override it to exercise the roots-present cases.
 //
@@ -154,7 +154,7 @@ const runEpicCli = (args: string[], options: EpicOptions = {}) =>
   );
 import { deriveWorktreePath } from "./feature";
 import { reserveWorktreeSlot } from "./worktree-slot";
-import { FLOW_CLAUDE_HOME } from "./paths";
+import { flowClaudeHome } from "./paths";
 import {
   readState,
   requestFilePath,
@@ -338,7 +338,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(command[3]).toBe("claude");
     expect(command[4]).toBe("--add-dir");
     expect(command[6]).toBe("--add-dir");
-    expect(command[7]).toBe(FLOW_CLAUDE_HOME);
+    expect(command[7]).toBe(flowClaudeHome());
     expect(command[8]).toBe("--settings");
     expect(
       command.some((a) => a.includes("Use the /flow-epic-create skill")),
@@ -588,7 +588,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -647,7 +647,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
         "--add-dir",
         worktree,
         "--add-dir",
-        FLOW_CLAUDE_HOME,
+        flowClaudeHome(),
         "--plugin-dir",
         root,
         "--settings",
@@ -673,7 +673,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
-    const addDirEndIdx = command.lastIndexOf(FLOW_CLAUDE_HOME) + 1;
+    const addDirEndIdx = command.lastIndexOf(flowClaudeHome()) + 1;
     const modelIdx = command.indexOf("--model");
     expect(command.slice(addDirEndIdx, modelIdx)).toEqual([
       "--plugin-dir",
@@ -712,7 +712,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--settings",
       settingsPath,
     ]);
@@ -903,7 +903,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--effort",
       "high",
       "--settings",
@@ -939,7 +939,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
         "--add-dir",
         deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
         "--add-dir",
-        FLOW_CLAUDE_HOME,
+        flowClaudeHome(),
         "--model",
         alias,
         "--settings",
@@ -971,7 +971,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--model",
       "opus",
       "--effort",
@@ -1281,7 +1281,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
       "--add-dir",
       deriveWorktreePath(repoDir, "saved-flags-epic"),
       "--add-dir",
-      FLOW_CLAUDE_HOME,
+      flowClaudeHome(),
       "--model",
       "opus",
       "--effort",
@@ -1334,7 +1334,7 @@ describe("runEpicCli create --resume", () => {
     expect(command[1]).toBe("FLOW_PIPELINE=1");
     expect(command[2]).toBe("FLOW_SLUG=crashed-epic");
     expect(command[6]).toBe("--add-dir");
-    expect(command[7]).toBe(FLOW_CLAUDE_HOME);
+    expect(command[7]).toBe(flowClaudeHome());
     expect(command[8]).toBe("--settings");
     expect(
       command.some((a) => a.includes("Use the /flow-epic-create skill")),

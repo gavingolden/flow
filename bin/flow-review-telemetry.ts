@@ -79,7 +79,9 @@ const defaultDeps: Deps = {
   },
   env: process.env,
   now: () => new Date(),
-  homeDir: os.homedir(),
+  get homeDir() {
+    return os.homedir();
+  },
   stdout: (s) => process.stdout.write(s),
 };
 

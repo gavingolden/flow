@@ -913,7 +913,7 @@ describe("runUpdate", () => {
 // The stdin path can only be exercised through the real process: applyUpdate
 // reads the resolved Args, but the fd-0 read happens in runUpdate's main path.
 // Spawn `bun bin/flow-state-update.ts` with a tmp HOME so the binary's
-// FLOW_STATE_DIR (derived from $HOME) points at a throwaway state dir, seed a
+// flowStateDir() (derived from $HOME) points at a throwaway state dir, seed a
 // state file there, pipe the answer on stdin, and read the field back.
 describe("--answer-stdin (spawned binary)", () => {
   let home!: string;

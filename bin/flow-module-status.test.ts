@@ -177,7 +177,7 @@ describe("runModuleStatus --skill-path", () => {
     }
   });
 
-  it("honours FLOW_CLAUDE_HOME_SKILLS_DIR as the claude-home root when set", () => {
+  it("honours flowClaudeHomeSkillsDir() as the claude-home root when set", () => {
     const prior = process.env.FLOW_CLAUDE_HOME_SKILLS_DIR;
     process.env.FLOW_CLAUDE_HOME_SKILLS_DIR = "/eval/skills";
     try {

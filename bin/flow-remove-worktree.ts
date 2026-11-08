@@ -25,7 +25,7 @@ import {
   writeState,
   WORKTREE_REMOVED_PHASE_SET,
 } from "./lib/state";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import {
   detectDefaultBranch,
   salvageAgentMemory,
@@ -527,7 +527,7 @@ export function stateSlugForInput(input: string): string | undefined {
 export function forgetRemovedWorktree(
   slug: string,
   removedDir: string,
-  dir: string = FLOW_STATE_DIR,
+  dir: string = flowStateDir(),
 ): boolean {
   try {
     const state = readState(slug, dir);
@@ -553,7 +553,7 @@ export function forgetRemovedWorktree(
  */
 export function slugsOwningWorktree(
   removedDir: string,
-  dir: string = FLOW_STATE_DIR,
+  dir: string = flowStateDir(),
 ): string[] {
   try {
     const target = canonicalizePath(removedDir);

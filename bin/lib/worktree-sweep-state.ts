@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { withoutGitLocalEnv } from "./git-local-env";
 import type { ReadConfigFile } from "./models-config";
-import { FLOW_STATE_DIR } from "./paths";
+import { flowStateDir } from "./paths";
 import type { FactDeps } from "./worktree-sweep-facts";
 import type { HuskCause } from "./worktree-sweep-rules";
 
@@ -70,7 +70,7 @@ export function cleanChildEnv(
   return out;
 }
 
-export const sweepDir = (stateDir: string = FLOW_STATE_DIR): string =>
+export const sweepDir = (stateDir: string = flowStateDir()): string =>
   path.join(stateDir, "worktree-sweep");
 export const stampPath = (stateDir?: string): string =>
   path.join(sweepDir(stateDir), "stamp");
@@ -120,7 +120,7 @@ export function writeLastSweep(result: SweepResult, stateDir?: string): void {
 }
 
 export function readLastSweep(
-  stateDir: string = FLOW_STATE_DIR,
+  stateDir: string = flowStateDir(),
 ): SweepResult | null {
   try {
     const parsed = JSON.parse(fs.readFileSync(lastPath(stateDir), "utf8"));

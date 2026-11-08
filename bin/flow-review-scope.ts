@@ -718,7 +718,9 @@ const defaultDeps: RunDeps = {
     fs.writeFileSync(p, content);
   },
   now: () => new Date(),
-  homeDir: os.homedir(),
+  get homeDir() {
+    return os.homedir();
+  },
   productBrief: (cwd) => resolveProductBrief({ cwd }),
 };
 

@@ -89,7 +89,7 @@ import {
 import { matchesCopilot } from "./lib/copilot-config";
 import { isModuleActive, noticeLine } from "./lib/module-status";
 import { resolveSlugFromEnv } from "./lib/session-identity";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { readState, writeState, type CiWaitRecord } from "./lib/state";
 import { advancePhase } from "./lib/phase-advance";
 
@@ -218,7 +218,7 @@ export type Deps = {
   gh?: GhRunner;
   /** Returns ms since epoch (or any monotonic origin). Injectable for tests. */
   now?: () => number;
-  /** Overrides the state.json directory. Default: `FLOW_STATE_DIR`. */
+  /** Overrides the state.json directory. Default: `flowStateDir()`. */
   stateDir?: string;
   readWorkflowsDir?: () => boolean;
   readCopilotLogin?: () => string;
@@ -346,7 +346,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const now =
     deps.now ?? (() => (parsed.now ? Date.parse(parsed.now) : Date.now()));
   const nowMs = now();
-  const stateDir = deps.stateDir ?? parsed.stateDir ?? FLOW_STATE_DIR;
+  const stateDir = deps.stateDir ?? parsed.stateDir ?? flowStateDir();
 
   const slug = resolveSlugFromEnv(process.env);
   const stateless = slug === null;

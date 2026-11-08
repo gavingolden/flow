@@ -34,8 +34,8 @@ const POISON = vi.hoisted(
 );
 vi.mock("./paths", async (orig) => ({
   ...(await orig<typeof import("./paths")>()),
-  FLOW_STATE_DIR: `${POISON}/state`,
-  FLOW_MANIFEST: `${POISON}/installed.json`,
+  flowStateDir: () => `${POISON}/state`,
+  flowManifestPath: () => `${POISON}/installed.json`,
 }));
 
 import { runDoctorCli } from "./doctor-cli";

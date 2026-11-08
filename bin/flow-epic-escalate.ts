@@ -35,7 +35,7 @@ import * as path from "node:path";
 import { armCheckpoint, renderArmBanner } from "./flow-checkpoint";
 import { runUpdate } from "./flow-state-update";
 import { checkpointBodyPath, probeFreshness } from "./lib/checkpoint-freshness";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { recoveryCommandFor } from "./lib/recovery-command";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { isValidSlug } from "./lib/slug";
@@ -93,7 +93,7 @@ function nextActionFor(reason: string, resumeCmd: string): string {
 }
 
 export function run(argv: string[], deps: Deps = {}): number {
-  const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
+  const stateDir = deps.stateDir ?? flowStateDir();
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     console.error(`flow-epic-escalate: ${parsed.error}\n${USAGE}`);

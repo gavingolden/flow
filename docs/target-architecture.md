@@ -853,7 +853,7 @@ existing install (gh#435) → TTY per-module Q&A → non-TTY core-only).
 The premise this node evaluates against: the interactive launcher loads
 **every selected module's skills in one shot**, unconditionally.
 `bin/lib/launch.ts`'s `buildInteractiveLaunchArgv()` returns
-`["claude", "--add-dir", FLOW_CLAUDE_HOME]` with no per-repo filtering — a
+`["claude", "--add-dir", flowClaudeHome()]` with no per-repo filtering — a
 `flow` session on a multi-stack machine sees every installed module's
 frontmatter regardless of which repo it was launched from. D10's standalone
 skills home (`p2-standalone-skills-home`) already banked the machine-wide

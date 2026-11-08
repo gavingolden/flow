@@ -57,7 +57,7 @@ import {
   TERMINAL_PHASES,
   pausedPhase,
 } from "./lib/state";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { overlayPluginRoots } from "./lib/skill-overlay";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { checkpointBodyPath, checkpointMarkerPath } from "./flow-checkpoint";
@@ -797,7 +797,7 @@ export function probePlan(worktreePath: string): boolean {
  */
 export function probeCheckpointMarker(
   slug: string,
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): boolean {
   try {
     return fs.existsSync(checkpointMarkerPath(slug, dir));
@@ -914,7 +914,7 @@ export function gatherInputs(
   state: PipelineState,
   gh: GhRunner,
   git: GitRunner,
-  stateDir = FLOW_STATE_DIR,
+  stateDir = flowStateDir(),
   hasOverlay: (slug: string) => boolean = (s) => overlayPluginRoots(s) !== null,
 ): Inputs {
   // Terminal phases — and the no-in-flight-work pending phases — short-circuit
@@ -994,7 +994,7 @@ export function gatherInputs(
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const git = deps.git ?? defaultGit;
-  const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
+  const stateDir = deps.stateDir ?? flowStateDir();
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
 
   const parsed = parseArgs(argv);

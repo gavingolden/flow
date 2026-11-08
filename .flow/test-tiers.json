@@ -40,6 +40,7 @@
     "bin/pane-read-lint.test.ts",
     "bin/skill-md-lint.test.ts",
     "bin/slug-flag-contract-lint.test.ts",
+    "bin/test-subprocess-home-lint.test.ts",
     "bin/workflows-regression.test.ts"
   ],
   "deferToCi": [

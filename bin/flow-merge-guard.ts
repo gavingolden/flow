@@ -84,7 +84,7 @@ import {
   type GhRunner,
 } from "./flow-gate-decide";
 import { readState, writeState, type PipelineState } from "./lib/state";
-import { FLOW_STATE_DIR } from "./lib/paths";
+import { flowStateDir } from "./lib/paths";
 import { resolveSlugAmbient } from "./lib/session-identity";
 import { prNotOwnedReason } from "./lib/pipeline-pr-ownership";
 import { advancePhase } from "./lib/phase-advance";
@@ -836,7 +836,7 @@ function checkGuard(
 
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
-  const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
+  const stateDir = deps.stateDir ?? flowStateDir();
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
   const now = deps.now ?? (() => Date.now());
 

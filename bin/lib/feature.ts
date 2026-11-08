@@ -97,9 +97,9 @@ import {
 } from "./seed-ingest";
 import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
 import {
-  FLOW_CLAUDE_HOME,
-  FLOW_LAUNCH_SEM_DIR,
-  FLOW_LAUNCH_SETTINGS_PATH,
+  flowClaudeHome,
+  flowLaunchSemDir,
+  flowLaunchSettingsPath,
   installedHelperPath,
 } from "./paths";
 import { installBaseBranchGuard } from "./base-branch-guard";
@@ -327,7 +327,7 @@ export type FeatureOptions = {
   /**
    * Path to the flow-scoped `claude --settings` file the launch argv references
    * and `ensureLaunchSettings` writes. Test seam only — production uses
-   * FLOW_LAUNCH_SETTINGS_PATH; tests point it at a temp file to avoid touching
+   * flowLaunchSettingsPath(); tests point it at a temp file to avoid touching
    * the real ~/.flow and to assert the argv path.
    */
   launchSettingsPath?: string;
@@ -344,7 +344,7 @@ export type FeatureOptions = {
   /**
    * Plugin-root scanner seam threaded into `claudeArgv`/`launchArgv` (both
    * backends' `--plugin-dir` argv AND the tmux backend's `env` PATH prefix).
-   * Defaults to the real `scanPluginRoots` (`FLOW_CLAUDE_HOME_SKILLS_DIR`) —
+   * Defaults to the real `scanPluginRoots` (`flowClaudeHomeSkillsDir()`) —
    * tests override so a fixture never scans the developer's real
    * `~/.flow/claude-home`.
    */
@@ -1878,7 +1878,7 @@ function claudeArgv(
     "--add-dir",
     worktree,
     "--add-dir",
-    FLOW_CLAUDE_HOME,
+    flowClaudeHome(),
     ...(overlayDir ? ["--add-dir", overlayDir] : []),
     ...pluginDirArgs(roots),
   ];
@@ -2052,7 +2052,7 @@ export function launchSettingsPermissions(): {
  * then resolve to the checkout path, so the content differs and is rewritten.
  */
 export function ensureLaunchSettings(
-  settingsPath: string = FLOW_LAUNCH_SETTINGS_PATH,
+  settingsPath: string = flowLaunchSettingsPath(),
 ): void {
   const guardCommand = resolveDocReadGuardCommand();
   const echoCommand = resolveRequestEchoHookCommand();
@@ -2171,7 +2171,7 @@ function launchSettingsPathFor(options: FeatureOptions): string {
   return (
     options.launchSettingsPath ??
     process.env.FLOW_LAUNCH_SETTINGS_PATH ??
-    FLOW_LAUNCH_SETTINGS_PATH
+    flowLaunchSettingsPath()
   );
 }
 
@@ -2275,7 +2275,7 @@ function withLaunchSlot<T extends VerifiedLaunchResult>(
   launch: () => T,
   options: FeatureOptions,
 ): T {
-  const semDir = process.env.FLOW_LAUNCH_SEM_DIR ?? FLOW_LAUNCH_SEM_DIR;
+  const semDir = process.env.FLOW_LAUNCH_SEM_DIR ?? flowLaunchSemDir();
   const slots = resolveLaunchConcurrency(process.env);
   const semOpts =
     options.launchSemTimeoutMs !== undefined

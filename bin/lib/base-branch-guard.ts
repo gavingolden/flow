@@ -136,9 +136,9 @@ export function classifyPreCommitHook(
 
 /**
  * Machine-global sidecar path, resolved at CALL TIME (never a module-scope
- * const) — `HOME` is captured at import time, before vitest.setup.ts swaps
- * `$HOME` for a sandbox, so an eager constant would make the test suite
- * write into the developer's real `~/.flow/hooks/`. Mirrors `flowConfigPath`
+ * const) — an eager constant would freeze `$HOME` before vitest.setup.ts
+ * swaps it for a sandbox and make the test suite write into the developer's
+ * real `~/.flow/hooks/`. Mirrors `flowConfigPath`
  * in `bin/lib/paths.ts`.
  */
 export function baseBranchGuardSidecarPath(): string {

@@ -43,7 +43,7 @@ export type PlainLaunchDeps = {
   pidStartEpoch?: typeof pidStartEpoch;
   /**
    * Plugin-root scanner seam. Defaults to the real `scanPluginRoots`
-   * (`FLOW_CLAUDE_HOME_SKILLS_DIR`) — tests override so a fixture never
+   * (`flowClaudeHomeSkillsDir()`) — tests override so a fixture never
    * scans the developer's real `~/.flow/claude-home`.
    */
   scanPluginRoots?: typeof scanPluginRoots;

@@ -27,7 +27,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { readState } from "./lib/state";
-import { FLOW_STATE_DIR, FLOW_EPICS_DIR } from "./lib/paths";
+import { flowStateDir, flowEpicsDir } from "./lib/paths";
 import { readEpicRunState } from "./lib/epic-run-state";
 import { resolveRepoRoot } from "./lib/repo-root";
 import {
@@ -352,8 +352,8 @@ export function main(argv: string[], deps: Deps = {}): number {
 
   const gh = deps.gh ?? defaultGh;
   const cwd = deps.cwd ?? process.cwd();
-  const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
-  const epicsDir = deps.epicsDir ?? FLOW_EPICS_DIR;
+  const stateDir = deps.stateDir ?? flowStateDir();
+  const epicsDir = deps.epicsDir ?? flowEpicsDir();
   const env = deps.env ?? process.env;
 
   let epicSlug = parsed.epicSlug;

@@ -15,7 +15,7 @@
  * quota-exhausted or rate-limited sibling, and a wave that is nothing but
  * refusals (or refusals plus timeout/unknown/empty-artifact) never arms.
  *
- * The marker lives in `FLOW_CACHE_DIR`, NOT `~/.flow/state/`: that directory
+ * The marker lives in `flowCacheDir()`, NOT `~/.flow/state/`: that directory
  * is the pipeline-state store, and a `<slug>.json` there is read as a
  * pipeline named `agy-cooldown`. Concurrent pipelines share it, so the write
  * is atomic (sibling temp file + rename) and an unparseable or absent marker
@@ -24,7 +24,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_CACHE_DIR } from "./paths";
+import { flowCacheDir } from "./paths";
 
 export const AGY_COOLDOWN_MINUTES = 60;
 
@@ -45,7 +45,7 @@ export const COOLDOWN_ARMING_CLASSES: readonly string[] = [
 ];
 
 export const defaultCooldownFile = (): string =>
-  path.join(FLOW_CACHE_DIR, "agy-cooldown.json");
+  path.join(flowCacheDir(), "agy-cooldown.json");
 
 export function readCooldown(
   now: Date = new Date(),

@@ -343,7 +343,11 @@ describe("chaining to the consumer's hooks", () => {
     const r = spawnSync("git", ["commit", "-m", "x"], {
       cwd: fx.worktreeDir,
       encoding: "utf8",
-      env: { ...ISOLATED_ENV, CLAUDE_CODE_SESSION_ID: "sess" },
+      env: {
+        ...ISOLATED_ENV,
+        HOME: process.env.HOME,
+        CLAUDE_CODE_SESSION_ID: "sess",
+      },
     });
     expect(r.status).not.toBe(0);
   });

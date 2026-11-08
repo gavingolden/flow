@@ -16,11 +16,11 @@ import {
 //
 // Coverage: HOME is swapped at module load, before the test file's imports
 // and collection, and stays on the sandbox until the worker exits (it is
-// never restored to the real home). Import-time constants such as
-// bin/lib/paths.ts's HOME / FLOW_DIR / FLOW_STATE_DIR therefore capture the
+// never restored to the real home). bin/lib/paths.ts resolves flowDir() /
+// flowStateDir() and friends at call time from HOME, so they follow the
 // sandbox, and so does module-scope test code. The sandbox is emptied (not
-// removed) after each file so those captured paths stay valid under
-// --no-isolate. A global beforeEach/afterEach tripwire fails the first test
+// removed) after each file so paths captured by module-scope test code stay
+// valid under --no-isolate. A global beforeEach/afterEach tripwire fails the first test
 // that replaces process.env or desyncs os.homedir() from HOME. A vitest
 // launch that skips vitest.config.ts gets no sandbox at all.
 const realHome = realAccountHome();

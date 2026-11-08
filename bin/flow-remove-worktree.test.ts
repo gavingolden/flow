@@ -1553,7 +1553,7 @@ describe(
 
     beforeEach(() => {
       fx = makeFreshRepoFixture();
-      // A throwaway HOME so the spawned helper's FLOW_STATE_DIR (derived from
+      // A throwaway HOME so the spawned helper's flowStateDir() (derived from
       // $HOME) points at a temp state dir we control — same seam as
       // flow-state-update.test.ts's --answer-stdin spawn suite.
       home = fs.mkdtempSync(path.join(os.tmpdir(), "flow-collision-home-"));

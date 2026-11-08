@@ -14,7 +14,7 @@ import {
 } from "./eval-runner";
 import type { MaterializedFixture } from "./eval-fixture";
 import type { ResolvedScenario } from "./eval-suite";
-import { LOCAL_BIN_DIR } from "./paths";
+import { localBinDir } from "./paths";
 
 function makeFixture(
   overrides: Partial<MaterializedFixture> = {},
@@ -659,7 +659,7 @@ describe("runScenarioOnce", () => {
     ).toContain('"type":"result"');
   });
 
-  it("passes arm through to buildChildEnv so the without-arm spawn env has LOCAL_BIN_DIR stripped from PATH", async () => {
+  it("passes arm through to buildChildEnv so the without-arm spawn env has localBinDir() stripped from PATH", async () => {
     const scenario = makeScenario();
     const fixture = makeFixture();
     const files: Record<string, string> = {
@@ -686,7 +686,7 @@ describe("runScenarioOnce", () => {
     };
 
     const priorPath = process.env.PATH;
-    process.env.PATH = [LOCAL_BIN_DIR, "/usr/bin", "/bin"].join(path.delimiter);
+    process.env.PATH = [localBinDir(), "/usr/bin", "/bin"].join(path.delimiter);
     try {
       await runScenarioOnce(scenario, fixture, {
         claudeBin: "claude",
@@ -702,7 +702,7 @@ describe("runScenarioOnce", () => {
 
     expect(capturedEnv?.PATH).toBeDefined();
     const segs = capturedEnv!.PATH!.split(":");
-    expect(segs).not.toContain(LOCAL_BIN_DIR);
+    expect(segs).not.toContain(localBinDir());
   });
 
   it("writes assistant-text.txt containing only assistant-emitted text, excluding user-role content", async () => {
@@ -839,7 +839,7 @@ describe("runScenarioOnce", () => {
     }
   });
 
-  it("resolves a bare claudeBin to an absolute path before composing argv, so the without-arm's LOCAL_BIN_DIR-stripped PATH can't unresolve it", async () => {
+  it("resolves a bare claudeBin to an absolute path before composing argv, so the without-arm's localBinDir()-stripped PATH can't unresolve it", async () => {
     const scenario = makeScenario();
     const fixture = makeFixture();
     const files: Record<string, string> = {

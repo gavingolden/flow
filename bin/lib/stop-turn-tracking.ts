@@ -9,18 +9,18 @@
  *
  * Files live in the `turns/` subdirectory rather than alongside
  * `<slug>.json` so `state.ts`'s `listStates()` — which reads
- * `FLOW_STATE_DIR` non-recursively and filters by `.endsWith('.json')`
+ * `flowStateDir()` non-recursively and filters by `.endsWith('.json')`
  * — does not pick them up as phantom pipelines.
  *
  * Shape mirrors `state.ts`'s primitives otherwise: `dir?` default-from-
- * `FLOW_STATE_DIR` parameter, read returns null on missing, write is
+ * `flowStateDir()` parameter, read returns null on missing, write is
  * synchronous with recursive mkdir of the `turns/` subdirectory, delete
  * is best-effort try/unlink/catch.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_STATE_DIR } from "./paths";
+import { flowStateDir } from "./paths";
 
 export type TurnTracking = {
   slug: string;
@@ -54,7 +54,7 @@ export const STAGNATION_PAUSE_LIMIT = 3;
  */
 export const BACKGROUND_EXEMPT_LIMIT = 30;
 
-export function turnTrackingPath(slug: string, dir = FLOW_STATE_DIR): string {
+export function turnTrackingPath(slug: string, dir = flowStateDir()): string {
   return path.join(dir, "turns", `${slug}.json`);
 }
 
@@ -74,7 +74,7 @@ function isTurnTracking(x: unknown): x is TurnTracking {
 
 export function readTurnTracking(
   slug: string,
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): TurnTracking | null {
   const file = turnTrackingPath(slug, dir);
   try {
@@ -88,7 +88,7 @@ export function readTurnTracking(
 
 export function writeTurnTracking(
   tracking: TurnTracking,
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): void {
   fs.mkdirSync(path.join(dir, "turns"), { recursive: true });
   fs.writeFileSync(
@@ -99,7 +99,7 @@ export function writeTurnTracking(
 
 export function deleteTurnTracking(
   slug: string,
-  dir = FLOW_STATE_DIR,
+  dir = flowStateDir(),
 ): boolean {
   try {
     fs.unlinkSync(turnTrackingPath(slug, dir));

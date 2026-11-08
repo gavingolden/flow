@@ -97,7 +97,7 @@ const turnTrackingMock = vi.hoisted(() => ({
 vi.mock("./stop-turn-tracking", () => turnTrackingMock);
 
 // Mocked rather than exercised for real: an un-mocked `deleteCheckpointDir`
-// defaults to FLOW_STATE_DIR, so a test would rm under the developer's real
+// defaults to flowStateDir(), so a test would rm under the developer's real
 // ~/.flow/state. Asserting the CALL is the point here — the deletion itself is
 // covered in bin/lib/checkpoint-freshness.test.ts.
 const checkpointFreshnessMock = vi.hoisted(() => ({
@@ -134,7 +134,7 @@ const livenessMock = vi.hoisted(() => ({
 }));
 vi.mock("./liveness", () => livenessMock);
 
-// Mocked so no test reads the real ~/.flow/epics (FLOW_EPICS_DIR is frozen to
+// Mocked so no test reads the real ~/.flow/epics (flowEpicsDir() is frozen to
 // $HOME at import). The factory keeps the real note formatter and defaults the
 // latch to "no bindings".
 const latchMock = vi.hoisted(() => ({

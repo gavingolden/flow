@@ -18,7 +18,7 @@ import {
   type FeatureRunRecord,
 } from "./epic-run-state";
 import { LockTimeoutError } from "./lock";
-import { FLOW_EPICS_DIR } from "./paths";
+import { flowEpicsDir } from "./paths";
 import { makeSameRepository } from "./repo-root";
 import { nowIso, type PipelineState } from "./state";
 
@@ -54,7 +54,7 @@ export function latchEpicBinding(
   state: PipelineState,
   opts: { epicsDir?: string; now?: () => string } = {},
 ): EpicLatchResult[] {
-  const dir = opts.epicsDir ?? FLOW_EPICS_DIR;
+  const dir = opts.epicsDir ?? flowEpicsDir();
   const now = opts.now ?? nowIso;
   const results: EpicLatchResult[] = [];
   for (const run of listEpicRunStates(dir)) {
