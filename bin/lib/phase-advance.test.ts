@@ -35,13 +35,18 @@ const tmuxMock = vi.hoisted(() => ({
 vi.mock("./tmux", () => tmuxMock);
 
 let stateDir!: string;
+let stateRoot!: string;
 
+// Nested so the default epic latch's sibling `epics/` dir lands inside the
+// per-test root, not the host-shared $TMPDIR/epics.
 beforeEach(() => {
-  stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "phase-advance-"));
+  stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), "phase-advance-"));
+  stateDir = path.join(stateRoot, "state");
+  fs.mkdirSync(stateDir);
 });
 
 afterEach(() => {
-  fs.rmSync(stateDir, { recursive: true, force: true });
+  fs.rmSync(stateRoot, { recursive: true, force: true });
 });
 
 function seedState(

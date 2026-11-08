@@ -236,7 +236,7 @@ export function mutateEpicRunRecord(
  * Remove the per-machine `<dir>/<slug>/` run-state directory recursively.
  * Returns `true` when the directory existed and was removed, `false` when it
  * was absent or removal failed. Mirrors `deleteState` in `state.ts`; this is
- * recomputable runtime cache, so a failed/absent removal is a soft `false`,
+ * per-machine runtime state, so a failed/absent removal is a soft `false`,
  * never a throw.
  */
 export function deleteEpicRunState(

@@ -29,8 +29,9 @@
  * the current repo root) and the per-machine run-state under `~/.flow/epics/`,
  * with the run-state row winning on a slug present in both.
  * All read the committed `.flow/epics/<slug>/manifest.json` READ-ONLY and keep
- * per-machine runtime state at `~/.flow/epics/<slug>/run.json` — a recomputable
- * cache, never the source of truth.
+ * per-machine runtime state at `~/.flow/epics/<slug>/run.json` — not the
+ * source of truth, but the only per-machine record that a slug-bound feature
+ * merged once `flow done` removes its state file.
  */
 
 import * as fs from "node:fs";
@@ -1550,9 +1551,8 @@ function loadActuatorManifest(
 
 /**
  * Load the per-machine run-state, or initialize a fresh one from the committed
- * manifest when absent. run.json is a recomputable per-machine cache, so a new
- * machine or a `flow epic done`-swept epic is a normal starting state — bind /
- * launch init rather than erroring.
+ * manifest when absent. A new machine or a `flow epic done`-swept epic is a normal
+ * starting state — bind / launch init rather than erroring.
  */
 function loadOrInitRunState(
   slug: string,
@@ -2290,8 +2290,9 @@ function runEpicDone(rest: string[], options: EpicOptions): number {
 Usage:
   flow epic done <slug> [--yes]
 
-Removes the recomputable ~/.flow/epics/<slug>/ runtime state directory (the
-orchestrator's run.json cache). Before removing it, best-effort heals the
+Removes the per-machine ~/.flow/epics/<slug>/ runtime state directory (the
+orchestrator's run.json). Removing it loses any recorded feature merge until
+\`flow epic bind\` restores it. Before removing it, best-effort heals the
 committed \`.flow/epics/<slug>/status.json\` board in the epic's working tree
 from GitHub (never blocks the archive on failure — see stderr). Does NOT
 close the epic's design window or remove its ~/.flow/state/<slug>.json

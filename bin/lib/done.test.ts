@@ -851,6 +851,24 @@ describe("runDoneCli (multi-slug)", () => {
     log.mockRestore();
     err.mockRestore();
   });
+
+  it("skips the epic latch for a window-only name — latches only the state-backed pipeline", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    stateMock.readState.mockImplementation((slug: string) =>
+      slug === "a" ? state({ slug, phase: "merged" }) : null,
+    );
+    tmuxMock.listWindows.mockReturnValue([window("a"), window("w")]);
+    tmuxMock.windowExists.mockReturnValue(true);
+
+    const code = runDoneCli(["a", "w", "--yes"]);
+
+    expect(code).toBe(0);
+    expect(latchMock.latchEpicBinding).toHaveBeenCalledTimes(1);
+    expect(latchMock.latchEpicBinding).toHaveBeenCalledWith(
+      expect.objectContaining({ slug: "a" }),
+    );
+    log.mockRestore();
+  });
 });
 
 describe("plain-launcher termination (no tmux window matched)", () => {
