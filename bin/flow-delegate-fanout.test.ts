@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -950,28 +952,31 @@ describe("flow-delegate-fanout (subprocess, agy absent from PATH)", () => {
   it.skipIf(agyInSkipPath)(
     "reports allSkipped + exit 0 when agy is off PATH",
     () => {
-      const tmpDir = path.join(__dirname, "..", ".flow-tmp");
-      spawnSync("mkdir", ["-p", tmpDir]);
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-fanout-"));
       const manifestPath = path.join(tmpDir, "fanout-test-manifest.json");
       const outPath = path.join(tmpDir, "fanout-test-result.json");
-      const manifest = JSON.stringify([
-        { task: "probe-a", prompt: "x" },
-        { task: "probe-b", prompt: "y" },
-      ]);
-      spawnSync("sh", ["-c", `cat > ${JSON.stringify(manifestPath)}`], {
-        input: manifest,
-      });
-      const r = spawnSync(
-        bunPath,
-        ["run", HELPER, "--manifest", manifestPath, "--out", outPath],
-        { encoding: "utf8", env: { PATH: SKIP_PATH } },
-      );
-      expect(r.status).toBe(0);
-      const agg = JSON.parse(r.stdout.trim());
-      expect(agg).toMatchObject({ anyRan: false, allSkipped: true });
-      expect(agg.entries.every((e: { ran: boolean }) => e.ran === false)).toBe(
-        true,
-      );
+      try {
+        const manifest = JSON.stringify([
+          { task: "probe-a", prompt: "x" },
+          { task: "probe-b", prompt: "y" },
+        ]);
+        spawnSync("sh", ["-c", `cat > ${JSON.stringify(manifestPath)}`], {
+          input: manifest,
+        });
+        const r = spawnSync(
+          bunPath,
+          ["run", HELPER, "--manifest", manifestPath, "--out", outPath],
+          { encoding: "utf8", env: { PATH: SKIP_PATH } },
+        );
+        expect(r.status).toBe(0);
+        const agg = JSON.parse(r.stdout.trim());
+        expect(agg).toMatchObject({ anyRan: false, allSkipped: true });
+        expect(
+          agg.entries.every((e: { ran: boolean }) => e.ran === false),
+        ).toBe(true);
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     },
   );
 });
