@@ -1,17 +1,14 @@
 /**
- * The shared per-epic manager directory (`~/.flow/state/managers/<epic>/`)
- * and its append-only `log.jsonl`. The sequencer (f1) and the epic executive
- * (f5) both write here; the names and base fields are the shared contract, so
- * whichever feature merges second changes imports, never data.
- *
- * `managers/` is a subdirectory of the state dir: `listStates` reads only
- * top-level `*.json` files, so nothing here is mistaken for a pipeline state.
+ * The manager's scope-free decision log, `~/.flow/manager/log.jsonl`. The
+ * sequencer (f1), the executive (f5), grants and prune all write here; every
+ * entry carries `repo`, and `epic` / `slug` / `scope` when they apply. Readers
+ * filter — a prompt-packet builder must always pass at least one filter key,
+ * since this one file holds every repo's decisions.
  */
 
 import * as fs from "node:fs";
-import * as path from "node:path";
 import { withFileLockSync, type LockOptions } from "./lock";
-import { FLOW_STATE_DIR } from "./paths";
+import { managerFile, managerHome, managerLockPath } from "./manager-home";
 
 export type ManagerLogKind =
   | "started"
@@ -28,7 +25,9 @@ export type ManagerLogKind =
   | "exec-challenge"
   | "exec-challenge-outcome"
   | "exec-skip"
-  | "exec-owner-reply";
+  | "exec-owner-reply"
+  | "rollup"
+  | "proposal-answered";
 
 export type ExecLogPayload = {
   decisionId: string;
@@ -65,6 +64,10 @@ export type ExecLogPayload = {
 export type ManagerLogEntry = {
   ts: string;
   kind: ManagerLogKind;
+  /** Required: the repo name as `canonicalRepoName` / `identityForState` report it. */
+  repo: string;
+  epic?: string;
+  scope?: string;
   featureId?: string;
   slug?: string;
   pr?: number;
@@ -73,53 +76,39 @@ export type ManagerLogEntry = {
   phase?: string;
   window?: string;
   exec?: ExecLogPayload;
+  /** `rollup` lines only: `YYYY-MM` and counts by kind then outcome. */
+  month?: string;
+  counts?: Record<string, Record<string, number>>;
 };
 
 /** The sequencer appends from its tick, so its lock wait stays well under a second (Ctrl-C exits promptly). */
 export const SEQUENCER_LOG_LOCK: LockOptions = { timeoutMs: 500, pollMs: 25 };
 
-export function managerDir(
-  epicSlug: string,
-  stateDir: string = FLOW_STATE_DIR,
-): string {
-  return path.join(stateDir, "managers", epicSlug);
+export function logPath(home: string = managerHome()): string {
+  return managerFile("log.jsonl", home);
 }
 
-function logPath(epicSlug: string, stateDir?: string): string {
-  return path.join(managerDir(epicSlug, stateDir), "log.jsonl");
+export function logLockPath(home: string = managerHome()): string {
+  return managerLockPath("log", home);
 }
 
 export function appendManagerLog(
-  epicSlug: string,
   entry: ManagerLogEntry,
-  stateDir?: string,
-  lock: LockOptions = {},
+  opts: { home?: string; lock?: LockOptions } = {},
 ): void {
-  const dir = managerDir(epicSlug, stateDir);
-  fs.mkdirSync(dir, { recursive: true });
+  const home = opts.home ?? managerHome();
+  fs.mkdirSync(home, { recursive: true });
   withFileLockSync(
-    path.join(dir, "log.lock"),
+    logLockPath(home),
     () => {
-      fs.appendFileSync(
-        logPath(epicSlug, stateDir),
-        `${JSON.stringify(entry)}\n`,
-      );
+      fs.appendFileSync(logPath(home), `${JSON.stringify(entry)}\n`);
     },
-    lock,
+    opts.lock ?? {},
   );
 }
 
 /** Tolerant: unparseable or shapeless lines are skipped; unknown kinds pass through. */
-export function readManagerLog(
-  epicSlug: string,
-  stateDir?: string,
-): ManagerLogEntry[] {
-  let raw: string;
-  try {
-    raw = fs.readFileSync(logPath(epicSlug, stateDir), "utf8");
-  } catch {
-    return [];
-  }
+export function parseLogLines(raw: string): ManagerLogEntry[] {
   const out: ManagerLogEntry[] = [];
   for (const line of raw.split("\n")) {
     if (line.trim() === "") continue;
@@ -138,4 +127,24 @@ export function readManagerLog(
     }
   }
   return out;
+}
+
+export type ManagerLogFilter = { epic?: string; slug?: string; repo?: string };
+
+export function readManagerLog(
+  filter: ManagerLogFilter = {},
+  home: string = managerHome(),
+): ManagerLogEntry[] {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(logPath(home), "utf8");
+  } catch {
+    return [];
+  }
+  return parseLogLines(raw).filter(
+    (e) =>
+      (filter.epic === undefined || e.epic === filter.epic) &&
+      (filter.slug === undefined || e.slug === filter.slug) &&
+      (filter.repo === undefined || e.repo === filter.repo),
+  );
 }

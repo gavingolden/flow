@@ -26,16 +26,19 @@ const PHONE = { width: 390, height: 844, mobile: true } as const;
 const DESKTOP = { width: 1280, height: 800, mobile: false } as const;
 
 /**
- * Filename stem for a route. A query string or a truncated path would
- * otherwise map two distinct targets to one file, so those get a short hash of
- * the full route.
+ * Filename stem for a route. The stem is lossy (everything non-alphanumeric
+ * collapses to `-`, `?`/`#` are dropped, long routes are cut), so whenever
+ * `"/" + stem.replace(/-/g, "/")` does not give the exact route back, a short
+ * hash of the full route is appended and two distinct targets never share a
+ * file.
  */
 export function routeSlug(route: string): string {
   const bare = route.replace(/[?#].*$/, "");
   const full = bare.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   const s = full.slice(0, 40);
-  const ambiguous = route.includes("?") || full.length > 40;
   const stem = s === "" ? "root" : s;
+  const roundTrip = stem === "root" ? "/" : `/${stem.replace(/-/g, "/")}`;
+  const ambiguous = full.length > 40 || roundTrip !== route;
   return ambiguous
     ? `${stem}-${createHash("sha1").update(route).digest("hex").slice(0, 6)}`
     : stem;

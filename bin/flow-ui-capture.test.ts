@@ -344,6 +344,54 @@ describe("flow-ui-capture — test-account login", () => {
     expect(resolved).toBe(false);
   });
 
+  it("resolves no credentials and signs in nowhere when every target is signed-out", () => {
+    let resolved = false;
+    const h = harness(
+      {
+        ...LOGIN_MANIFEST,
+        "/t.json": [
+          { route: "/", state: "signed-out visitor", session: "signed-out" },
+          { route: "/a", state: "anonymous", session: "signed-out" },
+        ],
+      },
+      { resolveTestAccount: () => ((resolved = true), account) },
+    );
+    run(ARGS, h.deps);
+    expect(resolved).toBe(false);
+    expect(result(h)).toMatchObject({ ran: true });
+    expect(h.ran[0].env).not.toHaveProperty("FLOW_CAPTURE_USER");
+    expect(h.ran[0].env).not.toHaveProperty("FLOW_CAPTURE_PASS");
+    const cfg = JSON.parse(
+      h.files.get(`${W}/.flow-tmp/ui-capture/run-1/config.json`)!,
+    );
+    expect(cfg.login).toBeNull();
+    expect(cfg.targets.map((t: { signedOut: boolean }) => t.signedOut)).toEqual(
+      [true, true],
+    );
+  });
+
+  it("resolves credentials for a mixed run and flags each target's session", () => {
+    const h = harness(
+      {
+        ...LOGIN_MANIFEST,
+        "/t.json": [
+          { route: "/", state: "signed-out visitor", session: "signed-out" },
+          { route: "/app", state: null },
+        ],
+      },
+      { resolveTestAccount: () => account },
+    );
+    run(ARGS, h.deps);
+    expect(h.ran[0].env).toMatchObject({ FLOW_CAPTURE_USER: "u@x" });
+    const cfg = JSON.parse(
+      h.files.get(`${W}/.flow-tmp/ui-capture/run-1/config.json`)!,
+    );
+    expect(cfg.login).toEqual({ url: "http://localhost:5173/login" });
+    expect(cfg.targets.map((t: { signedOut: boolean }) => t.signedOut)).toEqual(
+      [true, false],
+    );
+  });
+
   it("needs no account when the manifest declares no login", () => {
     const h = harness({ [MANIFEST]: { baseUrl: "http://localhost:5173" } });
     run(ARGS, h.deps);

@@ -3,7 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { managerDir, readManagerLog } from "./epic-manager-log";
+import { managerDir } from "./epic-manage-state";
+import { readManagerLog } from "./manager-log";
 import {
   parseManageArgs,
   runEpicManage,
@@ -22,6 +23,7 @@ const alive = { isAlive: () => true, pidStartEpoch: () => 1000 };
 let tmp!: string;
 let repo!: string;
 let stateDir!: string;
+let managerHome!: string;
 let errors: string[];
 let logs: string[];
 
@@ -34,6 +36,7 @@ beforeEach(() => {
   tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "flow-manage-")));
   repo = path.join(tmp, "repo");
   stateDir = path.join(tmp, "state");
+  managerHome = path.join(tmp, "manager");
   fs.mkdirSync(path.join(repo, ".flow", "epics", SLUG), { recursive: true });
   git(repo, "init", "-q", "-b", "main");
   fs.writeFileSync(
@@ -92,6 +95,7 @@ function opts(over: Partial<ManageOptions> = {}): ManageOptions {
   return {
     cwd: repo,
     stateDir,
+    managerHome,
     tmuxOnPath: () => true,
     windowExists: () => false,
     liveness: alive,
@@ -348,7 +352,9 @@ describe("runEpicManage — foreground (in-process)", () => {
       window: "manage-my-epic",
     });
     expect(readManager(SLUG, stateDir)).toBeNull();
-    const kinds = readManagerLog(SLUG, stateDir).map((e) => e.kind);
+    const kinds = readManagerLog({ epic: SLUG }, managerHome).map(
+      (e) => e.kind,
+    );
     expect(kinds[0]).toBe("started");
     expect(kinds.at(-1)).toBe("stopped");
   });
@@ -447,9 +453,10 @@ describe("flow epic manage --foreground (HOME-isolated subprocess)", () => {
     expect(Date.now() - signalledAt).toBeLessThan(1000);
     expect(code, out).toBe(0);
     expect(fs.existsSync(managerFile)).toBe(false);
-    const log = readManagerLog(SLUG, path.join(home, ".flow", "state")).map(
-      (e) => e.kind,
-    );
+    const log = readManagerLog(
+      { epic: SLUG },
+      path.join(home, ".flow", "manager"),
+    ).map((e) => e.kind);
     expect(log[0]).toBe("started");
     expect(log.at(-1)).toBe("stopped");
     expect(log).not.toContain("launch");

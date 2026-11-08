@@ -3,10 +3,11 @@
  * shape the critic pipeline (`selectGallery`, `buildCritiquePrompt`,
  * `validateFindings`) already keys on. The item results only carry bare
  * screenshot paths, so the missing fields come from naming conventions: the
- * section is the sign-off item's text, the viewport follows the `-390` /
- * `-1280` filename suffix, and the route comes from the matching
+ * section is the sign-off item's text, the viewport is `phone` for a
+ * `-390` or `phone` filename token (`isPhoneLabelled`) and `desktop` otherwise (a `desktop`, `wide`, `tablet` or 1280/1440/768 marker overrides a phone token), and the route comes from the matching
  * `fix_context` entry.
  */
+import { isPhoneLabelled } from "./evidence-image-shape";
 import {
   isEvidencePath,
   type SectionShot,
@@ -16,7 +17,7 @@ import {
 export const SIGNOFF_ROUTE = "(sign-off)";
 
 function viewportOf(shotPath: string): SectionShot["viewport"] {
-  return /-390\.[a-z]+$/i.test(shotPath) ? "phone" : "desktop";
+  return isPhoneLabelled(shotPath) ? "phone" : "desktop";
 }
 
 export function itemCapturesToShots(

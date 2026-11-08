@@ -23,6 +23,10 @@ re-invocation re-runs `flow-pre-commit --json` itself and reuses only passes
 recorded on the identical tree within 30 minutes (never for a check that
 failed there), so a re-invocation is idempotent.
 
+A check that failed only before a system sleep and passed on its re-run (a `slept` record
+with `rerun: "passed"`) does not consume an outer attempt. A `slept-again` or `failed`
+re-run does. Never blame machine load when `slept` is present.
+
 **Automated UI-smoke pass.** `/flow-verify` Step 1 already runs the
 browser-driven UI-smoke pass (when the diff touches a meaningful UI
 surface and the `chrome-devtools` MCP is present), following

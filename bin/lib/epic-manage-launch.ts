@@ -9,7 +9,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { managerDir } from "./epic-manager-log";
+import { managerDir } from "./epic-manage-state";
 import { iso } from "./epic-manage-events";
 import { slugify } from "./slug";
 

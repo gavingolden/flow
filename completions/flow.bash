@@ -36,7 +36,7 @@ _flow() {
         cword=$COMP_CWORD
     fi
 
-    local verbs="install feature epic config ls attach a done reap doctor prompt completion version help --version -v --help -h"
+    local verbs="install feature epic grant config ls attach a done reap doctor prompt completion version help --version -v --help -h"
 
     # Find the verb (first non-flag token after `flow`).
     local verb="" i
@@ -191,10 +191,15 @@ _flow() {
                         COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )
                         return
                         ;;
+                    --context-file)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -f -- "$cur") )
+                        return
+                        ;;
                 esac
                 if [[ "$cur" == -* ]]; then
                     # shellcheck disable=SC2207
-                    COMPREPLY=( $(compgen -W "--force --model --effort" -- "$cur") )
+                    COMPREPLY=( $(compgen -W "--force --model --effort --context-file" -- "$cur") )
                 fi
             elif [ "$esub" = "manage" ]; then
                 case "$prev" in
@@ -238,6 +243,22 @@ _flow() {
             else
                 # shellcheck disable=SC2207
                 COMPREPLY=( $(compgen -W "create run status bind launch ls done manage grant" -- "$cur") )
+            fi
+            ;;
+        grant)
+            case "$prev" in
+                --autonomy)
+                    # shellcheck disable=SC2207
+                    COMPREPLY=( $(compgen -W "high off" -- "$cur") )
+                    return
+                    ;;
+                --expires)
+                    return
+                    ;;
+            esac
+            if [[ "$cur" == -* ]]; then
+                # shellcheck disable=SC2207
+                COMPREPLY=( $(compgen -W "--autonomy --delegate-ui --expires --list" -- "$cur") )
             fi
             ;;
         config)

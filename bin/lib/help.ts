@@ -69,6 +69,10 @@ Usage:
                                         hard-fails if that slug's window already exists)
   flow feature resume <name> [<name> ...]  resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
   flow epic <create|run|status|bind|launch|ls|done|manage|grant> design and run an epic
+  flow grant <scope> --autonomy high|off [--delegate-ui] [--expires <n>h|d|w]
+                                        let the executive approve plans for you
+                                        (scope: pipeline:<slug>, epic:<slug> or repo:<name>);
+                                        'flow grant --list' shows live and expired grants
   flow config all [--slug <name>] [--json]
                                         show every resolved config.json setting across three
                                         timing-labelled sections (models, launch, settings);
@@ -185,7 +189,7 @@ Usage:
   flow epic status <slug> [--json]
   flow epic bind <epic-slug> <feature-id> <feature-slug> [--force]
   flow epic bind <epic-slug> <feature-id> --external "<ref>" [--force]
-  flow epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--force]
+  flow epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--context-file <path>] [--force]
   flow epic ls [--all|-a] [--done] [--all-repos]
   flow epic done <slug> [--yes]
   flow epic manage <slug> [--model <alias>] [--effort <level>] [--autonomy observe]
@@ -232,10 +236,7 @@ Subcommands:
                         closing the window) stops it without touching launched
                         pipelines; a second start refuses and prints
                         \`flow attach manage-<slug>\`
-  grant <epic> ...      let the epic's executive approve plans on your behalf:
-                        \`--autonomy high\` (plain terminal only, never inside a
-                        Claude session) writes the grant; \`--autonomy off\`
-                        withdraws it from anywhere
+  grant <epic> ...      alias for \`flow grant epic:<epic> ...\` (see 'flow help grant')
 
 Options (create):
   --effort <low|medium|high|xhigh|max>
@@ -258,6 +259,10 @@ Options (launch):
   --effort <low|medium|high|xhigh|max>
                         per-launch reasoning-effort override — wins over the manifest's
                         flowNewHints for this one launch
+  --context-file <path>
+                        seed the owner's rulings and context (non-empty,
+                        at most 16 KB) as a delimited block just before the epic
+                        pointer; refused with exit 2 when the file is unusable
 
 Options (manage):
   --model <opus|haiku|sonnet|fable>
@@ -497,6 +502,29 @@ Never passes --record and never writes to ~/.flow/state/<slug>.json — a
 host-wide sweep touches OTHER pipelines' slugs, and recording into a
 sibling's state file would corrupt that pipeline's own
 'flow-gate-summary --cleanup' CLEANUP row.`,
+
+  grant: `flow grant — let the executive approve plans for you
+
+Usage:
+  flow grant <scope> --autonomy high|off [--delegate-ui] [--expires <n>h|d|w]
+  flow grant --list
+
+Scope (the widest is one repo; there is no "all"):
+  pipeline:<slug>   one pipeline
+  epic:<slug>       every feature of one epic
+  repo:<name>       every pipeline of one repo, as 'flow ls' names it
+
+Options:
+  --autonomy high   write the grant (plain terminal only, never inside a Claude session)
+  --autonomy off    withdraw the grant (allowed from anywhere)
+  --delegate-ui     also let the executive judge subjective UI steps (high only)
+  --expires <n>h|d|w
+                    the grant lapses after n hours, days or weeks (high only)
+  --list            print live grants, then expired ones
+
+The most specific live grant (pipeline over epic over repo) names the reported
+scope; the allowed classes are the union of every live grant that covers the
+pipeline. 'flow epic grant <epic> ...' is an alias for 'flow grant epic:<epic> ...'.`,
 
   prompt: `flow prompt [<slug>] — print a pipeline's originating request
 

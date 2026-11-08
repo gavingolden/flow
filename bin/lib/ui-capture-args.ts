@@ -7,7 +7,11 @@ import { isSafeRoute, MAX_REVIEW_TARGETS } from "./ui-review-scope";
 export const USAGE =
   "usage: flow-ui-capture --worktree <w> --targets <p> --base-url <url> [--manifest <p>] --out <p>\n       flow-ui-capture --probe --worktree <w>";
 
-export type Target = { route: string; state: string | null };
+export type Target = {
+  route: string;
+  state: string | null;
+  session?: "signed-out";
+};
 
 export function parseCaptureArgs(
   argv: string[],
@@ -47,7 +51,11 @@ export function readTargets(raw: string | null): Target[] | null {
     const ok = j.filter(
       (t): t is Target => typeof t?.route === "string" && isSafeRoute(t.route),
     );
-    return ok.slice(0, MAX_REVIEW_TARGETS);
+    return ok
+      .slice(0, MAX_REVIEW_TARGETS)
+      .map(({ session, ...rest }) =>
+        session === "signed-out" ? { ...rest, session } : rest,
+      );
   } catch {
     return null;
   }

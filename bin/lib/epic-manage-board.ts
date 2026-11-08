@@ -33,7 +33,7 @@ export const NOTIFY_PHASES: ReadonlySet<string> = new Set(
   ),
 );
 
-const REASON_BY_PHASE: Record<string, string> = {
+export const REASON_BY_PHASE: Record<string, string> = {
   gated: "PR is gated — validate its open Test Steps, then merge",
   "needs-human": "needs a human decision",
   "plan-pending-review": "plan is waiting for your approval",

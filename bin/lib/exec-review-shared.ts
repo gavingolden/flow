@@ -7,7 +7,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { managerDir } from "./epic-manager-log";
+import { managerDir } from "./epic-manage-state";
 import { resolveManagerModelEffort } from "./epic-manager-model";
 import type { checkPlanPreconditions } from "./exec-review-preconditions";
 import { defaultReadConfigFile, type ReadConfigFile } from "./models-config";
@@ -33,6 +33,8 @@ export type HeadlessEnvelope = {
 
 export type ExecReviewDeps = {
   stateDir?: string;
+  /** Override the manager home (`~/.flow/manager`) — test seam. */
+  managerHome?: string;
   homeDir?: string;
   readConfig?: ReadConfigFile;
   spawnHeadless: (argv: string[], opts: { cwd: string }) => HeadlessEnvelope;
@@ -161,12 +163,13 @@ export function readManagerHints(
   }
 }
 
+/** No epic (a loose pipeline) has no sequencer record, so the model comes from config alone. */
 export function resolveExecModel(
-  epic: string,
+  epic: string | undefined,
   deps: Pick<ExecReviewDeps, "stateDir" | "readFile" | "readConfig">,
 ): { model: ModelAlias; effort: EffortLevel } {
   const { model, effort } = resolveManagerModelEffort({
-    ...readManagerHints(epic, deps),
+    ...(epic === undefined ? {} : readManagerHints(epic, deps)),
     read: deps.readConfig ?? defaultReadConfigFile,
   });
   return { model, effort };

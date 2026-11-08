@@ -6,6 +6,8 @@
  *                                      global install
  *   flow feature create <description>  create a tmux window + initial state
  *   flow feature resume <name> [...]   re-launch crashed pipeline(s)
+ *   flow grant <scope> --autonomy high|off | --list
+ *                                      let the executive approve plans for you
  *   flow ls [--cost [--detail]]        list active pipelines
  *   flow attach <name>                 tmux attach -t flow:<name>  (alias: a)
  *   flow done <name> | --merged | --orphans
@@ -33,6 +35,7 @@ import { runDoneCli } from "./lib/done";
 import { runReapCli } from "./lib/reap-cli";
 import { runPromptCli } from "./lib/prompt";
 import { runEpicCli } from "./lib/epic";
+import { runGrantCli } from "./lib/grant-cli";
 import { runConfigCli } from "./lib/config";
 import { runLsCli } from "./lib/ls";
 import { runFeatureCli } from "./lib/feature";
@@ -72,6 +75,8 @@ async function runVerb(verb: string, args: string[]): Promise<number> {
       return runFeatureCli(args);
     case "epic":
       return await runEpicCli(args);
+    case "grant":
+      return runGrantCli(args);
     case "config":
       return runConfigCli(args);
     case "attach":

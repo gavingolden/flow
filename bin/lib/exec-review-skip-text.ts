@@ -25,8 +25,7 @@ export const PRECONDITION_SKIP_TEXT: Record<PreconditionId, string> = {
 // Headless reasons mirror what flow-claude-headless forwards
 // (bin/flow-deliberate.ts SKIP_REASONS).
 const SKIP_REASON_TEXT: Record<string, string> = {
-  "no-grant": "you have not granted this epic executive autonomy",
-  "not-epic": "this feature is not part of an epic",
+  "no-grant": "you have not granted the executive autonomy over this pipeline",
   "other-epic": "this feature belongs to a different epic",
   "unknown-feature": "the epic manifest does not list this feature",
   "state-missing": "this pipeline's state file is missing",
