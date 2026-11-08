@@ -28,12 +28,13 @@ the tmux-pane / port-override / post-commit-diff rules live in
   Merge-Conflict Resolver, `/flow-coder` Edit-Applier, `/flow-pr-review`
   Consolidator-Validator, `/flow-verify` UI-Driver); no other skill or
   step may call Task.
-- Don't let a session grant epic autonomy. No session ever runs
-  `flow epic grant <epic> --autonomy high` or writes
-  `~/.flow/state/managers/<epic>/grant.json`: the grant is the owner's own
-  keystroke in a plain terminal. The command refuses a non-TTY or
-  `CLAUDECODE` caller, and flow-launched sessions are denied both the command
-  and writes under `~/.flow/state/managers/**` (`EPIC_GRANT_DENY_RULES`). That
+- Don't let a session grant autonomy. No session ever runs
+  `flow grant <scope> --autonomy high` or its alias
+  `flow epic grant <epic> --autonomy high`, or writes
+  `~/.flow/manager/grants.json`: the grant is the owner's own keystroke in a
+  plain terminal. The command refuses a non-TTY or `CLAUDECODE` caller, and
+  flow-launched sessions are denied the commands and writes to the grant file,
+  the decision log and `~/.flow/state/managers/**` (`GRANT_DENY_RULES`). That
   stops an accidental grant or one made on a peer's instruction; it is not a
   proof against a session that rewrites its own environment, so a forged grant
   would still show on its first use in the PR stamp and the log line.

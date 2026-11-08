@@ -7,13 +7,14 @@
  */
 
 import * as path from "node:path";
-import { loadManifestFromRepo, readGrant } from "./epic-grant";
 import {
   appendManagerLog,
   readManagerLog,
   type ManagerLogEntry,
-} from "./epic-manager-log";
-import { epicDirRelative } from "./epic-manifest-schema";
+} from "./manager-log";
+import { grantForEpic } from "./manager-grants";
+import { repoNameForPath } from "./manager-scope";
+import { epicDirRelative, loadManifestFromRepo } from "./epic-manifest-schema";
 import { readEpicRunState } from "./epic-run-state";
 import { readCommittedStatus } from "./epic-status-schema";
 import { readCharter } from "./exec-charter";
@@ -73,7 +74,8 @@ export function runWaveReview(
   deps: ExecReviewDeps,
 ): WaveReviewResult {
   const { epic, repoRoot } = input;
-  if (!readGrant(epic, deps.stateDir)) {
+  const repo = repoNameForPath(repoRoot);
+  if (!grantForEpic(epic, repo, deps.now(), deps.managerHome)) {
     return { ran: false, skipReason: "no-grant" };
   }
   const epicDir = path.join(repoRoot, epicDirRelative(epic));
@@ -81,7 +83,7 @@ export function runWaveReview(
   const manifest = loadManifestFromRepo(epic, repoRoot);
   if (!board || !manifest) return { ran: false, skipReason: "status-missing" };
 
-  const log = readManagerLog(epic, deps.stateDir);
+  const log = readManagerLog({ epic }, deps.managerHome);
   const reviewed = reviewedIds(log);
   const mergedAll = manifest.features
     .map((f) => f.id)
@@ -93,10 +95,11 @@ export function runWaveReview(
   const decisionId = makeDecisionId("wave", deps);
   const skip = (skipReason: string, cost?: number): WaveReviewResult => {
     appendManagerLog(
-      epic,
       {
         ts: deps.now().toISOString(),
         kind: "exec-skip",
+        epic,
+        repo,
         reason: skipReason,
         exec: {
           decisionId,
@@ -105,7 +108,7 @@ export function runWaveReview(
           ...(cost ? { costUsd: cost } : {}),
         },
       },
-      deps.stateDir,
+      { home: deps.managerHome },
     );
     deps.recordEvent("exec.review", {
       kind: "wave",
@@ -227,10 +230,11 @@ export function runWaveReview(
   const norm = normalizeWave(env, { unstartedIds });
 
   appendManagerLog(
-    epic,
     {
       ts: deps.now().toISOString(),
       kind: "exec-decision",
+      epic,
+      repo,
       exec: {
         decisionId,
         reviewKind: "wave",
@@ -253,7 +257,7 @@ export function runWaveReview(
         ...(costUsd !== undefined ? { costUsd } : {}),
       },
     },
-    deps.stateDir,
+    { home: deps.managerHome },
   );
   deps.recordEvent("exec.review", {
     kind: "wave",
@@ -285,9 +289,9 @@ export function runWaveReview(
 export function orderFrontier(
   epic: string,
   frontier: string[],
-  stateDir?: string,
+  home?: string,
 ): string[] {
-  const applied = readManagerLog(epic, stateDir)
+  const applied = readManagerLog({ epic }, home)
     .filter(
       (e) =>
         e.kind === "exec-decision" &&

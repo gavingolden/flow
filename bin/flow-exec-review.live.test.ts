@@ -3,7 +3,7 @@
  * parse against a real `flow-claude-headless` child (about $1).
  *
  * Skipped unless FLOW_LIVE_EXEC_REVIEW=1, so `npm run test` never spends. The
- * run is hermetic: a temp HOME (charter), a temp state dir (grant, log), and a
+ * run is hermetic: a temp HOME (charter), a temp state dir and manager home (grant, log), and a
  * temp worktree — nothing under the real ~/.flow is read or written except the
  * optional model config.
  *
@@ -18,8 +18,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { run } from "./flow-exec-review";
-import { writeGrant } from "./lib/epic-grant";
-import { readManagerLog } from "./lib/epic-manager-log";
+import { upsertGrant } from "./lib/manager-grants";
+import { readManagerLog } from "./lib/manager-log";
 import { extractCharterSection } from "./lib/exec-charter";
 import { parseEnvelope } from "./lib/exec-review-envelope";
 import { checkPlanPreconditions } from "./lib/exec-review-preconditions";
@@ -37,6 +37,7 @@ const LIVE = process.env.FLOW_LIVE_EXEC_REVIEW === "1";
 let root: string;
 let home: string;
 let stateDir: string;
+let managerHome: string;
 let wt: string;
 
 function w(p: string, c: string) {
@@ -48,6 +49,7 @@ beforeAll(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), "exec-live-"));
   home = path.join(root, "home");
   stateDir = path.join(root, "state");
+  managerHome = path.join(root, "manager");
   wt = path.join(root, "wt");
   const charter = extractCharterSection(fs.readFileSync(TEMPLATE, "utf8"));
   w(path.join(home, ".flow", "product.md"), `# Brief\n\n${charter}\n`);
@@ -102,15 +104,14 @@ beforeAll(() => {
     },
     stateDir,
   );
-  writeGrant(
+  upsertGrant(
     {
-      version: 1,
-      epic: "live-epic",
+      scope: "epic:live-epic",
       classes: ["plan"],
       grantedAt: "2026-10-26T00:00:00.000Z",
       grantedBy: "owner-cli",
     },
-    stateDir,
+    managerHome,
   );
 });
 
@@ -153,6 +154,7 @@ describe.skipIf(!LIVE)(
           ],
           {
             stateDir,
+            managerHome,
             homeDir: home,
             readConfig: () => undefined,
           },
@@ -175,9 +177,10 @@ describe.skipIf(!LIVE)(
         ).ok,
       ).toBe(true);
 
-      const decisions = readManagerLog("live-epic", stateDir).filter(
-        (e) => e.kind === "exec-decision",
-      );
+      const decisions = readManagerLog(
+        { epic: "live-epic" },
+        managerHome,
+      ).filter((e) => e.kind === "exec-decision");
       expect(decisions).toHaveLength(1);
       expect(decisions[0].exec?.decisionId).toBe(result.decisionId);
     }, 600_000);

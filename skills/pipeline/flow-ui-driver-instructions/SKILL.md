@@ -40,7 +40,7 @@ The wrapper passes you these inputs in its spawn prompt:
 - `MANIFEST_PATH` — the absolute path to `.flow/ui-validation.json`.
 - `WORKTREE` — the absolute worktree path (your working directory).
 - `TARGETS_PATH` (optional) — the absolute path to the critique gate's
-  `.flow-tmp/ui-critique/targets.json`, an array of `{route, state, source}`.
+  `.flow-tmp/ui-critique/targets.json`, an array of `{route, state, source, slug, session?}`.
   Present with `SECTIONS: on`: the section capture iterates these entries
   (at most 3) instead of choosing "touched" manifest routes.
 - `SLUG` — the pipeline slug, resolved by the caller from `FLOW_SLUG` /
@@ -262,7 +262,8 @@ heuristicIssues}` entry, copying the route's `geometryIssues` and
     **8 browser actions and one wait of 15s** per item; on overrun the
     verdict is `not-drivable` with the reason, and you move to the next item. A route whose `rateLimited` shows a URL requested fewer than 5 times is `not-drivable` with reason `data-precondition: <url> answered 429` — never `fail`.
   - `capture` — reach the state the item text describes (running any local,
-    reversible setup it names), screenshot at the sizes the item names, else
+    reversible setup it names), screenshot with `take_screenshot`, never a
+    screencast frame, at the sizes the item names, else
     phone **390** and desktop **1280**. Never judge a capture item: verdict
     `captured` or `not-captured` only. When the exact state cannot be
     reached, capture the nearest reachable state and set `reason` to

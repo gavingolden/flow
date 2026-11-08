@@ -7,6 +7,7 @@ import {
   type HeadlessEnvelope,
 } from "./lib/ui-critique-run";
 import { readLedger } from "./lib/ui-critique-ledger";
+import { routeSlug } from "./lib/ui-capture-plan";
 
 const W = "/wt";
 const HOME = "/home/u";
@@ -169,17 +170,34 @@ describe("gate", () => {
       "src/routes/pricing/+page.svelte\nREADME.md\n",
     );
     const targets = JSON.parse(h.files.get(`${crit}/targets.json`)!);
-    expect(targets[0]).toEqual({
+    expect(targets[0]).toMatchObject({
       route: "/analysis/AVGO",
       state: "empty state",
       source: "plan",
     });
+    expect(targets[0].slug).toBe(routeSlug("/analysis/AVGO"));
+    expect(targets[1].slug).toBe(routeSlug("/pricing"));
     expect(targets[1]).toMatchObject({
       route: "/pricing",
       source: "route-file",
     });
-    expect(logOf(h)).toMatchObject({ required: true, targets });
+    expect(logOf(h)).toMatchObject({
+      required: true,
+      targets: targets.map(({ slug: _slug, ...t }: { slug: string }) => t),
+    });
     expect(logOf(h).headSha).toBeUndefined();
+  });
+
+  it("carries session signed-out from the plan into targets.json", () => {
+    const h = harness({
+      "/b.md": BODY,
+      "/plan.md":
+        "## UI review targets\n\n- `/` — signed-out visitor; landing page\n- `/analysis/AVGO` — empty state\n",
+    });
+    run([...args, "--plan", "/plan.md"], h.deps);
+    const targets = JSON.parse(h.files.get(`${crit}/targets.json`)!);
+    expect(targets[0].session).toBe("signed-out");
+    expect("session" in targets[1]).toBe(false);
   });
 
   it("reads the diff from --changed-files when given", () => {

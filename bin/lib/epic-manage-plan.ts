@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { validateDag } from "../flow-epic-dag";
 import { readEpicMaxParallel } from "./epic-config";
-import { appendManagerLog, SEQUENCER_LOG_LOCK } from "./epic-manager-log";
+import { appendManagerLog, SEQUENCER_LOG_LOCK } from "./manager-log";
 import { iso, safely } from "./epic-manage-events";
 import { planLaunches, type GuardResult } from "./epic-manage-guard";
 import { expireHolds } from "./epic-manage-launch";
@@ -252,18 +252,18 @@ export async function plan(
       const slug = o.runState.features[id]?.slug;
       safely(() =>
         appendManagerLog(
-          ctx.epic,
           {
             ts: iso(deps.now()),
             kind: "merged-observed",
+            epic: ctx.epic,
+            repo: ctx.repo,
             featureId: id,
             ...(slug ? { slug } : {}),
             key: `merged-observed:${id}`,
             reason:
               "its PR merged on GitHub (observed; launch record untouched)",
           },
-          deps.stateDir,
-          SEQUENCER_LOG_LOCK,
+          { home: deps.managerHome, lock: SEQUENCER_LOG_LOCK },
         ),
       );
     }

@@ -4,6 +4,7 @@ import {
   hasUiReviewTargetsSection,
   isExcludedFromUiReview,
   parseUiReviewTargets,
+  sessionOf,
   uiReviewRequired,
 } from "./ui-review-scope";
 
@@ -106,6 +107,61 @@ describe("parseUiReviewTargets", () => {
     expect(parseUiReviewTargets("# PRD\n- `/x` — y")).toEqual([]);
     expect(hasUiReviewTargetsSection("# PRD")).toBe(false);
     expect(hasUiReviewTargetsSection(plan)).toBe(true);
+  });
+});
+
+describe("session lifting", () => {
+  const line = (state: string) =>
+    parseUiReviewTargets(`## UI review targets\n\n- \`/x\` — ${state}\n`)[0];
+
+  it("lifts signed-out from both PR 1138 state strings", () => {
+    expect(
+      line(
+        "signed-out (no seeded data needed). Ends on the sign-in page showing the widened used-or-expired message and the Resend Confirmation Email button.",
+      ).session,
+    ).toBe("signed-out");
+    expect(
+      line(
+        "signed-out visitor (no session). The public pitch page renders immediately, a regression check that the scoped probe does not misfire.",
+      ).session,
+    ).toBe("signed-out");
+  });
+
+  it.each([
+    "public landing page (signed-out visitor)",
+    "logged out",
+    "anonymous visitor",
+    "unauthenticated",
+    "signed-out visitor (not signed in)",
+    "not logged in",
+    "never logged in",
+  ])("treats %j as signed-out", (state) => {
+    expect(sessionOf(state)).toBe("signed-out");
+  });
+
+  it.each([
+    "not signed out",
+    "never logged out",
+    "signed-in dashboard; signed-out visitors redirect",
+    "empty state, a symbol with no numbers",
+    null,
+  ])("leaves %j on the signed-in default", (state) => {
+    expect(sessionOf(state)).toBeUndefined();
+    const t = line(String(state ?? ""));
+    expect("session" in t).toBe(false);
+  });
+
+  it("counts an un-negated occurrence even when another is negated", () => {
+    expect(sessionOf("not signed out at first, then signed out")).toBe(
+      "signed-out",
+    );
+  });
+
+  it("keeps the #fragment of an absolute-URL target", () => {
+    const [t] = parseUiReviewTargets(
+      "## UI review targets\n\n- `http://localhost:5173/#error=x` — expired link\n",
+    );
+    expect(t.route).toBe("/#error=x");
   });
 });
 

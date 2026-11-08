@@ -84,6 +84,16 @@ describe("buildPlanPacket", () => {
     expect(p.trimEnd().endsWith("Reply with the JSON object only.")).toBe(true);
   });
 
+  it("renders a loose pipeline's missing design and manifest as one explicit line", () => {
+    const p = buildPlanPacket({
+      ...base(),
+      designExcerpt: null,
+      neighbourhood: null,
+    });
+    expect(p.match(/none — loose pipeline \(no epic\)/g)).toHaveLength(2);
+    expect(p).not.toContain("design text");
+  });
+
   it("excludes task bodies from the excerpt", () => {
     expect(buildPlanPacket(base())).not.toContain("SECRET-TASK-BODY");
   });
@@ -92,6 +102,7 @@ describe("buildPlanPacket", () => {
     const entries = Array.from({ length: 25 }, (_, i) => ({
       ts: `t${String(i).padStart(2, "0")}`,
       kind: "exec-decision" as const,
+      repo: "r",
       slug: `s${i}`,
       exec: {
         decisionId: `d${i}`,

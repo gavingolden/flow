@@ -3,7 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startLaunch } from "./epic-manage-launch";
-import { managerDir, readManagerLog } from "./epic-manager-log";
+import { managerDir } from "./epic-manage-state";
+import { readManagerLog } from "./manager-log";
 import {
   abortableSleep,
   afterMergesObserved,
@@ -32,6 +33,7 @@ const T0 = Date.parse("2026-10-26T12:00:00Z");
 let tmp!: string;
 let repoDir!: string;
 let stateDir!: string;
+let managerHome!: string;
 let epicsDir!: string;
 let manifestPath!: string;
 
@@ -39,6 +41,7 @@ beforeEach(() => {
   tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "flow-loop-")));
   repoDir = path.join(tmp, "repo");
   stateDir = path.join(tmp, "state");
+  managerHome = path.join(tmp, "manager");
   epicsDir = path.join(tmp, "epics");
   manifestPath = path.join(repoDir, ".flow", "epics", EPIC, "manifest.json");
   fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
@@ -217,6 +220,7 @@ function harness(
     write: (text) => void writes.push(text),
     isTty: false,
     stateDir,
+    managerHome,
     epicsDir,
     readMaxParallel: () => opts.maxParallel ?? 3,
     headSha: async () => "abc1234",
@@ -339,9 +343,17 @@ describe("tick — launch matrix", () => {
         expect.stringContaining("launch of alpha failed"),
       ],
     ]);
-    expect(readManagerLog(EPIC, stateDir).map((e) => e.kind)).toContain(
-      "launch-failed",
-    );
+    expect(
+      readManagerLog({ epic: EPIC }, managerHome).map((e) => e.kind),
+    ).toContain("launch-failed");
+    expect(
+      fs.existsSync(path.join(managerDir(EPIC, stateDir), "log.jsonl")),
+    ).toBe(false);
+    expect(
+      readManagerLog({ epic: EPIC }, managerHome).every(
+        (e) => e.repo === "repo",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -589,7 +601,7 @@ describe("tick — notifications", () => {
       ],
     ]);
     expect(h.writes.at(-1)).toContain("answer in window alpha");
-    const log = readManagerLog(EPIC, stateDir).find(
+    const log = readManagerLog({ epic: EPIC }, managerHome).find(
       (e) => e.kind === "owner-needed",
     )!;
     expect(log).toMatchObject({
@@ -613,7 +625,7 @@ describe("tick — notifications", () => {
       await tick(h.ctx(), h.deps);
       expect(h.writes.at(-1)).toContain("answer in window alpha");
       expect(h.notifies).toEqual([]);
-      const log = readManagerLog(EPIC, stateDir).find(
+      const log = readManagerLog({ epic: EPIC }, managerHome).find(
         (e) => e.kind === "owner-needed",
       )!;
       expect(log).toMatchObject({ phase, pr: 4, slug: "alpha" });
@@ -651,7 +663,9 @@ describe("tick — notifications", () => {
     ]);
     expect(h.writes.at(-1)).toContain("run /flow-epic-run reconcile-drift");
     expect(
-      readManagerLog(EPIC, stateDir).some((e) => e.kind === "drift-halt"),
+      readManagerLog({ epic: EPIC }, managerHome).some(
+        (e) => e.kind === "drift-halt",
+      ),
     ).toBe(true);
   });
 
@@ -682,7 +696,7 @@ describe("tick — notifications", () => {
     const r = await tick(h.ctx(), h.deps);
     expect(r.launched).toBe("beta");
     expect(
-      readManagerLog(EPIC, stateDir).some(
+      readManagerLog({ epic: EPIC }, managerHome).some(
         (e) => e.kind === "merged-observed" && e.featureId === "alpha",
       ),
     ).toBe(true);
@@ -848,9 +862,9 @@ describe("done", () => {
     expect(code).toBe(0);
     expect(waited).toBe(true);
     expect(readManager(EPIC, stateDir)).toBeNull();
-    expect(readManagerLog(EPIC, stateDir).map((e) => e.kind)).toContain(
-      "stopped",
-    );
+    expect(
+      readManagerLog({ epic: EPIC }, managerHome).map((e) => e.kind),
+    ).toContain("stopped");
   });
 });
 
@@ -868,7 +882,9 @@ describe("stopping", () => {
     expect(code).toBe(0);
     expect(Date.now() - started).toBeLessThan(1000);
     expect(readManager(EPIC, stateDir)).toBeNull();
-    expect(readManagerLog(EPIC, stateDir).at(-1)?.kind).toBe("stopped");
+    expect(readManagerLog({ epic: EPIC }, managerHome).at(-1)?.kind).toBe(
+      "stopped",
+    );
     expect(h.spawns).toEqual([]);
   });
 

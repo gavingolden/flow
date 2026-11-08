@@ -75,6 +75,7 @@ describe("HELP_TEXT", () => {
   const REQUIRED_VERBS = [
     "feature",
     "epic",
+    "grant",
     "ls",
     "attach",
     "done",
@@ -187,7 +188,7 @@ describe("HELP_TEXT", () => {
       "epic run <slug> [--model <alias>] [--effort <level>]",
     );
     expect(HELP_TEXT.epic).toContain(
-      "epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--force]",
+      "epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--context-file <path>] [--force]",
     );
   });
 

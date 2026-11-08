@@ -52,6 +52,7 @@ import {
 import { spawnSync } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
+import { phoneShapeError, readHead } from "./lib/evidence-image-shape";
 import { promoteEvidenceImages } from "./lib/evidence-images";
 import {
   fencedLineMask,
@@ -531,6 +532,15 @@ async function main(): Promise<void> {
       parsed.roots,
     );
     if (promoted.length > 0) parsed.images = promoted;
+  }
+  for (const image of parsed.images ?? []) {
+    const bad = phoneShapeError(image, (p) =>
+      readHead(path.resolve(primary, p)),
+    );
+    if (bad !== null) {
+      process.stderr.write(`flow-inject-evidence: ${bad}\n`);
+      process.exit(2);
+    }
   }
   if (parsed.images !== undefined) {
     const relocated = relocateOutsideImages(parsed.images, {

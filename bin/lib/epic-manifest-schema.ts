@@ -28,6 +28,8 @@
  * here — that is F2's job.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import {
   EFFORT_LEVELS,
   MODEL_ALIASES,
@@ -224,6 +226,25 @@ export function validateEpicManifest(parsed: unknown): ValidationResult {
     if (e) return e;
   }
   return ok(parsed as EpicManifest);
+}
+
+/** Reads and validates `<repoRoot>/.flow/epics/<epic>/manifest.json`; null when absent or invalid. */
+export function loadManifestFromRepo(
+  epic: string,
+  repoRoot: string,
+): EpicManifest | null {
+  try {
+    const raw: unknown = JSON.parse(
+      fs.readFileSync(
+        path.join(repoRoot, epicDirRelative(epic), EPIC_MANIFEST_FILENAME),
+        "utf8",
+      ),
+    );
+    const v = validateEpicManifest(raw);
+    return v.ok ? v.value : null;
+  } catch {
+    return null;
+  }
 }
 
 export function isEpicManifest(x: unknown): x is EpicManifest {

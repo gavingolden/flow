@@ -871,6 +871,84 @@ describe("screenshot promotion — subprocess", () => {
   });
 });
 
+describe("phone-shape refusal — subprocess", () => {
+  const script = path.resolve(__dirname, "flow-inject-evidence.ts");
+  const BODY = "## Test Steps\n\n- [ ] SUBJECTIVE: looks ok\n";
+
+  function png(width: number, height: number): Buffer {
+    const b = Buffer.alloc(32);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(b, 0);
+    b.writeUInt32BE(13, 8);
+    b.write("IHDR", 12, "latin1");
+    b.writeUInt32BE(width, 16);
+    b.writeUInt32BE(height, 20);
+    return b;
+  }
+
+  function inject(
+    file: string,
+    bytes: Buffer,
+    alt: string,
+    cwdElsewhere = false,
+  ) {
+    const dir = mkdtempSync(path.join(tmpdir(), "inject-shape-"));
+    const elsewhere = mkdtempSync(path.join(tmpdir(), "inject-cwd-"));
+    try {
+      expect(spawnSync("git", ["init", "-q"], { cwd: dir }).status).toBe(0);
+      const rel = `.flow-tmp/ui-evidence/${file}`;
+      mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
+      writeFileSync(path.join(dir, rel), bytes);
+      const bodyFile = path.join(dir, "body.md");
+      writeFileSync(bodyFile, BODY);
+      const r = spawnSync(
+        "bun",
+        [
+          script,
+          "--body-file",
+          bodyFile,
+          "--item",
+          "looks ok",
+          "--no-tick",
+          "--image",
+          `${cwdElsewhere ? rel : path.join(dir, rel)}#${alt}`,
+        ],
+        { encoding: "utf8", cwd: cwdElsewhere ? elsewhere : dir },
+      );
+      return { r, body: readFileSync(bodyFile, "utf8") };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  }
+
+  it("refuses a 980x732 image labelled phone and leaves the body unchanged", () => {
+    const { r, body } = inject("p.png", png(980, 732), "Placeholder (phone)");
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("980x732");
+    expect(body).toBe(BODY);
+  });
+
+  it("refuses the same image given as a worktree-relative path from another cwd", () => {
+    const { r, body } = inject(
+      "p.png",
+      png(980, 732),
+      "Placeholder (phone)",
+      true,
+    );
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("980x732");
+    expect(body).toBe(BODY);
+  });
+
+  it("injects real phone and desktop shots, and a desktop shot of a phone feature", () => {
+    expect(inject("p.png", png(390, 844), "Home (phone)").r.status).toBe(0);
+    expect(inject("d.png", png(1280, 800), "Home (desktop)").r.status).toBe(0);
+    const named = inject("verify-phone-desktop.png", png(1280, 800), "Verify");
+    expect(named.r.status).toBe(0);
+    expect(named.body).toContain("![");
+  });
+});
+
 describe("caution modes — subprocess", () => {
   const script = path.resolve(__dirname, "flow-inject-evidence.ts");
   const run = (args: string[]) =>

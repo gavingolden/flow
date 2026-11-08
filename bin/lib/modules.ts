@@ -189,6 +189,8 @@ export const MODULES: ModuleDefinition[] = [
       "flow-explain-judge",
       "flow-ui-critique",
       "flow-exec-review",
+      "flow-manager-note",
+      "flow-manager-prune",
       "flow-ui-capture",
       "flow-test-audit",
       "flow-skill-overlay",

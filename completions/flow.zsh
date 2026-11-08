@@ -27,6 +27,7 @@ _flow() {
                 'install:install skills, agents, helpers globally'
                 'feature:start or resume a pipeline'
                 'epic:design or run an epic'
+                'grant:let the executive approve plans for you'
                 'config:inspect flow configuration'
                 'ls:list active pipelines'
                 'attach:attach to a pipeline window'
@@ -123,6 +124,7 @@ _flow() {
                     elif [[ "$line[2]" == launch ]]; then
                         _arguments \
                             '--force[relaunch an already-bound feature]' \
+                            '--context-file[seed owner rulings before the epic pointer]:file:_files' \
                             '--model[per-launch model override, wins over flowNewHints]:alias:(opus haiku sonnet fable)' \
                             '--effort[per-launch effort override, wins over flowNewHints]:level:(low medium high xhigh max)'
                     elif [[ "$line[2]" == manage ]]; then
@@ -182,6 +184,13 @@ _flow() {
                         )
                         _describe 'subcommand' sub
                     fi
+                    ;;
+                grant)
+                    _arguments \
+                        '--autonomy[let the executive approve plans (high needs a plain terminal)]:level:(high off)' \
+                        '--delegate-ui[also let the executive judge subjective UI steps]' \
+                        '--expires[lapse after n hours, days or weeks (e.g. 7d)]:duration:' \
+                        '--list[print live grants, then expired ones]'
                     ;;
                 ls)
                     _arguments \

@@ -1,6 +1,6 @@
 ## Step 4 — Approval handling
 
-Contents: Auto-checkpoint sub-step · Executive review (granted epics)
+Contents: Auto-checkpoint sub-step · Executive review (granted pipelines)
 
 **Phase:** `plan-pending-review` (set by step 3 for feature intent)
 
@@ -17,7 +17,7 @@ typed something into the tmux chat. Classify the input using
   condition above) in front of them before replying Affirmative.
 - **`accept`** (only after an executive deferral that offered it) →
   take the executive's recommendation; see `references/redirect-handling.md`
-  and "Executive review (granted epics)" below.
+  and "Executive review (granted pipelines)" below.
 - **Candidate curation reply** (`drop candidate #N`, `drop all
   candidates`, `file candidate #N`) → **mechanical, not a redirect and
   not a revision pass.** Run `flow-candidate-issues --plan-md-file
@@ -114,17 +114,16 @@ On resume, Resume mode re-injects `checkpoint.md` and runs
 implement with the approval addenda folded in (no helper change needed —
 it's a non-terminal phase the resume + hook machinery already handles).
 
-### Executive review (granted epics)
+### Executive review (granted pipelines)
 
 Runs from step 3's End condition, BEFORE `plan-pending-review` is written, so
-it needs no typed reply; the phase stays `planning` throughout. Only for an
-epic feature where `flow-exec-review status --slug "$FLOW_SLUG"` printed
-`granted: true`. Interviews, clarification pauses, and the merge are never
+it needs no typed reply; the phase stays `planning` throughout. Only for a
+pipeline (an epic feature or a loose one) where
+`flow-exec-review status --slug "$FLOW_SLUG"` printed `granted: true`. Interviews, clarification pauses, and the merge are never
 delegated.
 
-1. Run `flow-exec-review review --kind plan --epic "$EPIC" --slug "$FLOW_SLUG"`
-   (`$EPIC` is `.epic` from the status line) as a Bash call with
-   `timeout: 600000` — one headless call can take several minutes. Branch on
+1. Run `flow-exec-review review --kind plan --slug "$FLOW_SLUG"` as a Bash
+   call with `timeout: 600000` — one headless call can take several minutes. Branch on
    the JSON line's `.ran` and `.action`, never the exit code; no parseable JSON
    line is `ran: false` with skipReason `headless-error` and the skip text
    `the executive's review did not return an answer`.

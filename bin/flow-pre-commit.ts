@@ -31,6 +31,7 @@ import {
   workingTreeId,
 } from "./lib/verified-tree";
 import { withTestSemaphore } from "./lib/lock";
+import { withSleepRerun, type SleptRecord } from "./lib/sleep-detect";
 import { FLOW_TEST_SEM_DIR } from "./lib/paths";
 import { detectStrayEnvFiles, strayEnvWarning } from "./lib/stray-env-file";
 import {
@@ -106,6 +107,8 @@ export type CheckResult = {
   /** Set on a result copied from an identical earlier run in this
    * invocation; names the scope that physically executed it. */
   dedupedFrom?: ScopeName;
+  /** Set when the Mac slept during the first run and the check was re-run. */
+  slept?: SleptRecord;
 };
 
 export type CheckReport = {
@@ -166,6 +169,7 @@ export type JsonResult = {
   failure?: FailureExcerpt;
   skipReason?: "actionlint-not-installed" | "go-not-installed";
   dedupedFrom?: ScopeName;
+  slept?: SleptRecord;
 };
 
 export type JsonReport = {
@@ -1342,6 +1346,19 @@ export function resolveDefaultScopeFiles(
 
 // --- Output ---
 
+function localHm(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatSleptLine(name: string, s: SleptRecord): string {
+  const outcome = s.rerun === "slept-again" ? "slept again" : s.rerun;
+  const span = s.wokeAt
+    ? `slept from ${localHm(s.sleptAt)} to ${localHm(s.wokeAt)}`
+    : `slept at ${localHm(s.sleptAt)} (wake time unknown)`;
+  return `  ${name} (re-run after sleep): the Mac ${span} during this check \u2014 re-run ${outcome}`;
+}
+
 /** Formats a CheckReport as human-readable output. */
 export function formatReport(report: CheckReport): string {
   const lines: string[] = [];
@@ -1411,6 +1428,9 @@ export function formatReport(report: CheckReport): string {
     const label = result.dedupedFrom
       ? `reused from ${reusedFrom}`
       : formatDuration(result.durationMs);
+    if (result.slept && !result.dedupedFrom) {
+      lines.push(formatSleptLine(result.name, result.slept));
+    }
     lines.push(`  ${icon}  ${result.name} (${label})`);
 
     if (result.dedupedFrom) {
@@ -1576,6 +1596,7 @@ export function formatJsonReport(report: CheckReport): string {
         }
       }
       if (r.skipReason) result.skipReason = r.skipReason;
+      if (r.slept && !r.dedupedFrom) result.slept = r.slept;
       if (r.dedupedFrom) {
         result.dedupedFrom =
           r.dedupedFrom === EARLIER_RUN_SCOPE ? "earlier-run" : r.dedupedFrom;
@@ -1660,10 +1681,20 @@ change any non-ignored file (tracked or new) records nothing. Each check reports
   `);
 }
 
+/** A sleep re-run that passed or slept again is not evidence of contamination; only a plain failure (or a failure with no sleep) earns the isolated retry. */
+export function isolationRetryWanted(
+  result: { passed: boolean },
+  slept: SleptRecord | undefined,
+): boolean {
+  return slept ? slept.rerun === "failed" : !result.passed;
+}
+
 /**
  * Runs one scoped check, throttling the test check through the host-wide
  * semaphore and applying the `--no-isolate` isolated retry. Called only for a
- * physical execution — a deduped (reused) row never reaches here.
+ * physical execution — a deduped (reused) row never reaches here. A failed
+ * run that spanned a system sleep is re-run once (`withSleepRerun`) before the
+ * isolated retry is considered.
  */
 function executeScopedCheck(
   check: CheckDef,
@@ -1671,15 +1702,18 @@ function executeScopedCheck(
   opts: { json: boolean; testConcurrency: number },
 ): CheckResult {
   const { json, testConcurrency } = opts;
+  const startMs = Date.now();
+  const isTest = isTestCheck(check.argv);
   // Throttle ONLY the test check (root `npm run test` and the workspace
   // variant `npm run test -w <pkg>`) through the host-wide counting
-  // semaphore; typecheck/lint/md-validate/actionlint/go run unthrottled.
-  if (!isTestCheck(check.argv)) return runCheck(check.name, check.argv, scope);
-  const { result, throttled } = withTestSemaphore(
-    FLOW_TEST_SEM_DIR,
-    testConcurrency,
-    () => runCheck(check.name, check.argv, scope),
-  );
+  // semaphore; typecheck/lint/md-validate/actionlint/go take no slot.
+  const run = (name: string, argv: string[]) =>
+    isTest
+      ? withTestSemaphore(FLOW_TEST_SEM_DIR, testConcurrency, () =>
+          runCheck(name, argv, scope),
+        )
+      : { result: runCheck(name, argv, scope), throttled: true }; // no slot to acquire; suppresses the timeout note
+  const { result, throttled } = run(check.name, check.argv);
   if (!throttled) {
     // Acquire deadline elapsed: the test ran without holding a slot, so
     // the host-wide cap was momentarily exceeded. Route to stderr in
@@ -1689,6 +1723,15 @@ function executeScopedCheck(
     if (json) console.error(note);
     else console.log(note);
   }
+  // A failure whose run spanned a system sleep is re-run once: the sleep, not
+  // the code, inflated its wall-clock time.
+  const slept = withSleepRerun(
+    result,
+    startMs,
+    () => run(check.name, check.argv).result,
+  );
+  const base: CheckResult = slept ?? result;
+  if (!isTest) return base;
   // Isolation retry: a `--no-isolate` tiered check that FAILS gets one
   // isolated re-run of the same file list before being reported red —
   // `--no-isolate` can produce a false RED (cross-file shared-module
@@ -1698,19 +1741,29 @@ function executeScopedCheck(
   // result that stays red under isolation is a real failure either
   // way. False greens are the case this retry cannot detect — that's
   // what isolated CI is for.
-  if (!result.passed && check.argv.includes("--no-isolate")) {
+  if (
+    isolationRetryWanted(result, slept?.slept) &&
+    check.argv.includes("--no-isolate")
+  ) {
     const isolatedArgv = check.argv.filter((a) => a !== "--no-isolate");
-    const { result: isolatedResult } = withTestSemaphore(
-      FLOW_TEST_SEM_DIR,
-      testConcurrency,
-      () => runCheck(`${check.name} (isolated retry)`, isolatedArgv, scope),
+    const { result: isolatedResult } = run(
+      `${check.name} (isolated retry)`,
+      isolatedArgv,
     );
     return {
       ...isolatedResult,
-      durationMs: result.durationMs + isolatedResult.durationMs,
+      ...(slept
+        ? {
+            slept: {
+              ...slept.slept,
+              rerun: isolatedResult.passed ? "passed" : slept.slept.rerun,
+            },
+          }
+        : {}),
+      durationMs: base.durationMs + isolatedResult.durationMs,
     };
   }
-  return result;
+  return base;
 }
 
 /**
@@ -1805,7 +1858,9 @@ function recordPassesForTree(
               name: results[i].name,
               passed: results[i].passed,
               durationMs: results[i].durationMs,
-              skipped: Boolean(results[i].skipReason),
+              skipped:
+                Boolean(results[i].skipReason) ||
+                results[i].slept?.rerun === "slept-again",
             },
           ],
     ),
@@ -2015,6 +2070,7 @@ async function main(): Promise<void> {
       duration_ms: Date.now() - startedAt,
       json_mode: json,
       reused_checks: reusedChecks,
+      slept: results.some((r) => r.slept !== undefined),
     });
   } catch {
     // swallowed — telemetry must never affect this CLI's exit code.
