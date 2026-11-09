@@ -9,7 +9,7 @@ Shipping a small change still costs you a whole afternoon of plan → branch →
 
 [Quickstart](#quickstart) · [Run pipelines in parallel (tmux)](docs/tmux.md) · [Getting started](docs/getting-started.md) · [Configuration](docs/configuration.md) · [All docs](docs/README.md)
 
-The transcript below is **illustrative — not exact output**; it shows the shape of a run, not its real verbosity.
+An **illustrative** run (the shape, not exact output):
 
 ```text
 $ flow feature create "add CSV export"
@@ -19,9 +19,9 @@ $ flow feature create "add CSV export"
 [plan]      /flow-product-planning — challenges the request, drafts the plan
             a second model reviews the plan blind ... 2 gaps folded in
             Approve plan: .flow-tmp/plan.md > approved
-[implement] /flow-new-feature — writes the acceptance tests first, then the code
+[implement] /flow-new-feature — writes the tests first, then the code
 [verify]    /flow-verify — typecheck, tests, lint ... ok
-[ci]        PR #142 opened — waiting for checks ............... green
+[ci]        PR #142 opened — checks .......................... green
 [review]    /flow-pr-review — blind reviewers across models (bugs, security, tests, …)
             a validator re-checks every finding: 3 real, 2 dropped
             3 fixes applied, re-verified, pushed
@@ -45,7 +45,7 @@ Every run works in its own git worktree (your checkout is never touched), pauses
    bun bin/flow install
    ```
 
-3. **Verify it worked:** run `flow doctor` — it checks your install, shell, and tools and prints the exact command that fixes each problem it finds (`flow ls` should also print an empty pipeline list, not "command not found"). The most common failure is `~/.local/bin` not being on your `PATH`; add it and open a fresh shell. If `flow` itself is not found, run `bun ~/code/flow/bin/flow doctor` from your checkout instead.
+3. **Verify it worked:** run `flow doctor` — it checks your install, shell, and tools and prints the exact fix for each problem. If `flow` is not found, `~/.local/bin` is probably missing from your `PATH`: add it and open a fresh shell, or run `bun ~/code/flow/bin/flow doctor` from your checkout.
 
 4. **Ship something:** `cd` into any GitHub-backed project and run
 
@@ -117,13 +117,13 @@ More in the [tmux guide](docs/tmux.md).
 
 ## Per-phase models
 
-You can route different Claude models to different pipeline phases (an expensive model on planning, a cheap one on verify). See [docs/configuration.md#per-phase-models](docs/configuration.md#per-phase-models) for the flags, config keys, and precedence rules.
+Route different Claude models to different phases (an expensive one for planning, a cheap one for verify): flags, config keys, and precedence are in [docs/configuration.md#per-phase-models](docs/configuration.md#per-phase-models).
 
 ## Consumer repos
 
 flow runs the `flow-pre-commit` verify gate before every push. **Single-package repos and monorepos work with zero config** — it auto-detects scope from the diff and runs your declared `npm run` scripts (plus per-package scripts in `apps/<pkg>/` and `packages/<pkg>/`). For a non-conventional layout, drop in a `.flow/pre-commit.json` escape hatch. Full detail is in [`references/consumer-repo-contract.md`](references/consumer-repo-contract.md).
 
-[`semgrep`](https://semgrep.dev) is an optional tool: when it is on `PATH`, `/flow-pr-review` runs the static-analysis security lens; without it, that lens is skipped (everything else still runs).
+Optional: with [`semgrep`](https://semgrep.dev) on `PATH`, `/flow-pr-review` also runs a static-analysis security lens.
 
 ## License
 
