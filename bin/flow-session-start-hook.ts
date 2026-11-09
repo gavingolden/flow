@@ -85,15 +85,11 @@ import {
 import { resolveKindAmbient, resolveSlugFromEnv } from "./lib/session-identity";
 import { isValidSlug } from "./lib/slug";
 import { recoveryCommandFor } from "./lib/recovery-command";
-import { flowPipelineResumeSeed } from "./lib/feature";
-import {
-  epicResumeSeed,
-  epicRunSeed,
-  productPlanningSkillDir,
-} from "./lib/epic-seed";
-import { epicDirRelative } from "./lib/epic-manifest-schema";
 import { capturePaneBySlug, sendKeysBySlug } from "./lib/tmux";
 import { deliverSeed } from "./lib/seed-delivery";
+import { resumeSeedFor } from "./lib/resume-seed";
+
+export { resumeSeedFor };
 import { sleepSync } from "./lib/sleep";
 import {
   archiveCheckpointBody,
@@ -115,27 +111,6 @@ export type ResumeKind = PipelineKind;
  * phase is `needs-human` and the window's kind is not positively known.
  */
 export type SeedMode = "resume" | "terminal";
-
-/**
- * Picks the byte-exact resume seed for `kind`, reusing (never re-authoring)
- * each launcher's own seed builder. Exhaustive `switch`, no `default`
- * fallthrough — a future kind fails typecheck here rather than silently
- * sending the feature seed.
- */
-export function resumeSeedFor(slug: string, kind: ResumeKind): string {
-  switch (kind) {
-    case "epic-design":
-      return epicResumeSeed(
-        slug,
-        epicDirRelative(slug),
-        productPlanningSkillDir(),
-      );
-    case "epic-run":
-      return epicRunSeed(slug, epicDirRelative(slug));
-    case "feature":
-      return flowPipelineResumeSeed(slug);
-  }
-}
 
 /**
  * The user-turn seed fired into a tmux pane after a `/clear` at a phase the
