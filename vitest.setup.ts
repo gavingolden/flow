@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, vi } from "vitest";
 import {
   ORIGINAL_ENV_KEY,
   homeSandboxViolation,
@@ -23,6 +23,41 @@ import {
 // valid under --no-isolate. A global beforeEach/afterEach tripwire fails the first test
 // that replaces process.env or desyncs os.homedir() from HOME. A vitest
 // launch that skips vitest.config.ts gets no sandbox at all.
+//
+// Shared-worker (--no-isolate) runs, flow#1041: a test file's vi.mock is
+// bypassed when an earlier file in the same worker already loaded the real
+// module, and mocks / evaluated modules leak forward. The top-level
+// vi.resetModules() below gives every file a fresh module registry. Separately,
+// a forks-pool worker's stdin is a pipe vitest never closes, so a synchronous
+// fs.readSync(0) blocks the worker's only thread forever and no per-test
+// timeout can fire; the stdin guard turns that read into end-of-input.
+const STDIN_GUARD_KEY = "__flowStdinGuardInstalled";
+const g = globalThis as Record<string, unknown>;
+if (!g[STDIN_GUARD_KEY]) {
+  g[STDIN_GUARD_KEY] = true;
+  // Forked child only: under pool:threads fd 0 is the main process's stdin.
+  if (typeof process.send === "function") {
+    try {
+      if (!fs.fstatSync(0).isCharacterDevice()) {
+        try {
+          fs.closeSync(0);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "EBADF") throw err;
+        }
+        const fd = fs.openSync("/dev/null", "r");
+        if (fd !== 0) fs.closeSync(fd);
+      }
+    } catch {
+      // Never throw from setup: it would fail every file in the worker.
+    }
+  }
+}
+
+// State shared between this setup file and test files must live on globalThis
+// or process.env (like ORIGINAL_ENV_KEY), never in a module-scoped variable of
+// a helper imported here: the per-file reset splits such a helper in two.
+vi.resetModules();
+
 const realHome = realAccountHome();
 // Seam for credential-needing *.live.test.ts only; deliberately not a general
 // escape hatch for tests that want the real home.
@@ -55,7 +90,6 @@ let sandboxHome: string;
   }
 }
 
-const g = globalThis as Record<string, unknown>;
 g[ORIGINAL_ENV_KEY] ??= process.env;
 
 const OFFENDER_KEY = "__flowFirstHomeSandboxOffender";
