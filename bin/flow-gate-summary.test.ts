@@ -17,6 +17,7 @@ import {
 } from "./flow-gate-summary";
 import { readState, writeState, type PipelineState } from "./lib/state";
 import { checkpointBodyPath, checkpointMarkerPath } from "./flow-checkpoint";
+import { readHistoryEvents, snapshotDir } from "./lib/checkpoint-history";
 import {
   TLDR_MAX_WORDS,
   buildManualAction,
@@ -2907,5 +2908,114 @@ describe("flow-gate-summary — UI sign-off evidence (--signoff-file)", () => {
     expect("error" in args).toBe(false);
     if ("error" in args) return;
     expect(args.signoffFile).toBe("/s.json");
+  });
+});
+
+describe("run() — history record", () => {
+  const SLUG = "gate-history-slug";
+  const PR = "https://github.com/org/repo/pull/7";
+
+  function seed(overrides: Partial<PipelineState> = {}): void {
+    writeState(
+      {
+        slug: SLUG,
+        phase: "gating",
+        repo: "/tmp/repo",
+        pr: 7,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        ...overrides,
+      },
+      tmpRoot,
+    );
+  }
+
+  function renderStatus(status: string, extra: string[] = []): string {
+    let out = "";
+    const w = vi.spyOn(process.stdout, "write").mockImplementation((c) => {
+      out += String(c);
+      return true;
+    });
+    vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    try {
+      run(
+        [
+          "--status",
+          status,
+          "--pr-url",
+          PR,
+          "--slug",
+          SLUG,
+          "--lens",
+          "dev",
+          ...extra,
+        ],
+        { stateDir: tmpRoot },
+      );
+    } finally {
+      w.mockRestore();
+      vi.restoreAllMocks();
+    }
+    return out;
+  }
+
+  it("appends one gate event and snapshots the artifacts on a terminal render", () => {
+    const wt = path.join(tmpBase, "wt");
+    fs.mkdirSync(path.join(wt, ".flow-tmp"), { recursive: true });
+    fs.writeFileSync(path.join(wt, ".flow-tmp", "plan.md"), "# plan\n");
+    seed({ worktree: wt });
+
+    const out = renderStatus("merged", ["--tldr", "Shipped the thing"]);
+
+    expect(out.trimEnd().split("\n").pop()).toBe("MERGED");
+    const events = readHistoryEvents(SLUG, tmpRoot);
+    expect(events.map((e) => e.type)).toEqual(["gate", "snapshot"]);
+    expect(events[0]).toMatchObject({
+      status: "merged",
+      tldr: "Shipped the thing",
+      prUrl: PR,
+    });
+    expect(
+      fs.existsSync(path.join(snapshotDir(SLUG, tmpRoot), "plan.md")),
+    ).toBe(true);
+  });
+
+  it("records no event for awaiting-approval", () => {
+    seed();
+    renderStatus("awaiting-approval");
+    expect(readHistoryEvents(SLUG, tmpRoot)).toEqual([]);
+  });
+
+  it("does not duplicate the gate event on a re-render that did not advance", () => {
+    seed();
+    renderStatus("merged");
+    renderStatus("merged");
+    expect(
+      readHistoryEvents(SLUG, tmpRoot).filter((e) => e.type === "gate"),
+    ).toHaveLength(1);
+  });
+
+  it("logs an unlogged live note before the needs-human render overwrites it", () => {
+    seed({ phase: "reviewing" });
+    const body = checkpointBodyPath(SLUG, tmpRoot);
+    fs.mkdirSync(path.dirname(body), { recursive: true });
+    fs.writeFileSync(body, "an unarmed manual note\n");
+    // An old mtime pins the unrecorded-body freshness fallback to "stale".
+    const old = new Date("2026-01-01T00:00:00Z");
+    fs.utimesSync(body, old, old);
+
+    renderStatus("needs-human", ["--reason", "ci-hang"]);
+
+    const notes = readHistoryEvents(SLUG, tmpRoot).filter(
+      (e) => e.type === "note",
+    );
+    expect(notes[0]).toMatchObject({
+      site: "unarmed",
+      body: "an unarmed manual note\n",
+    });
+    expect(
+      readHistoryEvents(SLUG, tmpRoot).some(
+        (e) => e.type === "gate" && e.status === "needs-human",
+      ),
+    ).toBe(true);
   });
 });

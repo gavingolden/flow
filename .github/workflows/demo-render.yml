@@ -8,10 +8,15 @@
 # Deliberately NOT a required status check: a path-filtered required check sits
 # pending forever on PRs that do not touch these paths.
 #
-# vhs is pinned to the version the committed image was rendered with.
-# vhs-action installs ttyd/ffmpeg at their latest releases (accepted: the job is
-# read-only, has no secrets, and is not required). vhs-action runs on node20 —
-# a runtime-deprecation warning is the trigger to bump it.
+# vhs (pinned to the version the committed image was rendered with) and ttyd
+# are installed from their GitHub releases, pinned by version AND verified
+# against the upstream SHA256 (vhs checksums.txt, ttyd SHA256SUMS) — the same
+# pattern as the actionlint install in ci.yml. Bump a tool by changing its
+# version and SHA256 together; nothing picks up new releases automatically.
+# tmux and ffmpeg come from Ubuntu's signed apt archive (vhs refuses to start
+# without ffmpeg even though this tape only takes a screenshot). vhs drives the
+# runner's preinstalled Google Chrome; the install step fails if none is on PATH
+# rather than letting vhs download an unpinned Chromium.
 
 name: Demo render
 
@@ -50,13 +55,26 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
-      - name: Install tmux
-        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Install tmux and ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tmux ffmpeg
 
-      - name: Install vhs
-        uses: charmbracelet/vhs-action@f6d7db07a432fcd3b06772628d36a57f96d95dcf # v2.1.1
-        with:
-          version: v0.11.0
+      - name: Install vhs and ttyd
+        working-directory: ${{ runner.temp }}
+        env:
+          VHS_VERSION: "0.11.0"
+          VHS_SHA256: "99cb634587eaae0473c1ea377db80c3a048c27f99fe0a7febb1a1e8cb7ee5009"
+          TTYD_VERSION: "1.7.7"
+          TTYD_SHA256: "8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55"
+        run: |
+          curl -sSfL --retry 3 "https://github.com/charmbracelet/vhs/releases/download/v${VHS_VERSION}/vhs_${VHS_VERSION}_Linux_x86_64.tar.gz" -o vhs.tar.gz
+          echo "${VHS_SHA256}  vhs.tar.gz" | sha256sum -c -
+          tar xzf vhs.tar.gz --strip-components=1 "vhs_${VHS_VERSION}_Linux_x86_64/vhs"
+          curl -sSfL --retry 3 "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" -o ttyd
+          echo "${TTYD_SHA256}  ttyd" | sha256sum -c -
+          sudo install -m 0755 vhs ttyd /usr/local/bin/
+          command -v google-chrome || command -v google-chrome-stable || { echo "::error::No Chrome on the runner; refusing to let vhs download an unpinned Chromium"; exit 1; }
+          vhs --version
+          ttyd --version
 
       - name: Render and check
         run: ./docs/demo/render-tmux-tree.ts --check

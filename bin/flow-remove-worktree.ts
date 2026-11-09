@@ -25,6 +25,11 @@ import {
   writeState,
   WORKTREE_REMOVED_PHASE_SET,
 } from "./lib/state";
+import {
+  appendHistoryEvent,
+  snapshotDir,
+  snapshotWorktreeArtifacts,
+} from "./lib/checkpoint-history";
 import { flowStateDir } from "./lib/paths";
 import {
   detectDefaultBranch,
@@ -566,6 +571,40 @@ export function slugsOwningWorktree(
 }
 
 /**
+ * Best-effort copy of the run's scratch artifacts into each owning pipeline's
+ * `checkpoints/<slug>/snapshot/`, so the history can still say what was
+ * planned, reviewed and shipped after the scratch folder is deleted. Only
+ * slugs with a pipeline record are snapshotted: `stateSlugForInput` returns
+ * any slash-free input, including a bare branch name, and snapshotting that
+ * would leave an orphan folder no `flow done` ever deletes. Never throws.
+ */
+export function snapshotBeforeRemoval(
+  worktreeDir: string,
+  slugs: string[],
+  dir: string = flowStateDir(),
+): void {
+  for (const slug of slugs) {
+    try {
+      if (!readState(slug, dir)) continue;
+      const { files, skipped } = snapshotWorktreeArtifacts(
+        slug,
+        worktreeDir,
+        dir,
+      );
+      if (files.length === 0 && skipped.length === 0) continue;
+      appendHistoryEvent(
+        slug,
+        { type: "snapshot", at: new Date().toISOString(), files, skipped },
+        dir,
+      );
+      log.info(`Snapshot of run artifacts: ${snapshotDir(slug, dir)}`);
+    } catch {
+      // A snapshot failure never blocks removal.
+    }
+  }
+}
+
+/**
  * Resolves the removal target among the live worktrees. When `recordedPath` is
  * supplied (the absolute `worktree` path `~/.flow/state/<slug>.json` recorded at
  * creation time) and — after canonicalization — equals a live entry's path, that
@@ -748,6 +787,11 @@ function main(): void {
     info.worktreeDir,
     FLOW_TMP_DIRNAME.replace(/\/$/, ""),
   );
+  const removedSlug = stateSlugForInput(input);
+  const owningSlugs = removedSlug
+    ? [removedSlug]
+    : slugsOwningWorktree(info.worktreeDir);
+  snapshotBeforeRemoval(info.worktreeDir, owningSlugs);
   if (fs.existsSync(flowTmpDir)) {
     log.info(`Cleaning scratch dir: ${flowTmpDir}`);
     fs.rmSync(flowTmpDir, { recursive: true, force: true });
@@ -766,10 +810,7 @@ function main(): void {
     warn: log.warn,
   });
   log.success("Worktree removed.");
-  const removedSlug = stateSlugForInput(input);
-  for (const s of removedSlug
-    ? [removedSlug]
-    : slugsOwningWorktree(info.worktreeDir)) {
+  for (const s of owningSlugs) {
     forgetRemovedWorktree(s, info.worktreeDir);
   }
 

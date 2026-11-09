@@ -123,3 +123,26 @@ resuming from a checkpoint. Treat its absence as unknown, never as "never
 armed": `--consume` unlinks this file alongside the marker (never a recursive
 directory delete — the checkpoint dir itself is never removed), so a consumed
 checkpoint's banner is gone by design. Every `needs-human` render via `flow-gate-summary` that records a new pause prints this same line itself, regardless of which call site triggered it; echo it there like any other arm.
+
+### Phase journal
+
+At each boundary that links here, record why in the history by piping two to
+six lines to `flow-checkpoint --journal`:
+
+```bash
+flow-checkpoint --journal >/dev/null <<'EOF'
+<two to six lines: the decision and why, a surprise, what the user said in chat, an option you rejected>
+EOF
+```
+
+The quoted heredoc keeps `$`, backticks and quotes in your lines from running
+in the shell. Write only what no source records: decisions made and why,
+surprises, what the user said in chat, options rejected. Never restate facts
+the history already renders from sources (PR numbers, counts, phase names), and
+never include secrets or diff bodies.
+
+The entry is stored with the record's current phase and rendered under the
+journal as the supervisor's own account; a sourced fact in the history's Record
+overrides it. Only stdout is muted (it prints a one-line JSON status); the call
+exits 0 on every outcome, so a failed or skipped journal never blocks the step
+and a missed entry shows up only as a gap in the rationale.

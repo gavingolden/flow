@@ -28,6 +28,10 @@
  * reported on stderr as `checkpointed: false` but never changes the exit);
  * 2 — bad args, no slug, missing state, a refused state, or a failed phase
  * write (state left unchanged, nothing armed).
+ *
+ * Best-effort history writes (no stdout or exit-code change): an unlogged live
+ * note is logged before the "Paused at phase" write replaces it, and a
+ * `needs-human` gate event is appended once the pause is recorded.
  */
 
 import * as fs from "node:fs";
@@ -35,6 +39,10 @@ import * as path from "node:path";
 import { armCheckpoint, renderArmBanner } from "./flow-checkpoint";
 import { runUpdate } from "./flow-state-update";
 import { checkpointBodyPath, probeFreshness } from "./lib/checkpoint-freshness";
+import {
+  logLiveNoteIfUnlogged,
+  recordGateOutcome,
+} from "./lib/checkpoint-history";
 import { flowStateDir } from "./lib/paths";
 import { recoveryCommandFor } from "./lib/recovery-command";
 import { resolveSlugAmbient } from "./lib/session-identity";
@@ -146,6 +154,8 @@ export function run(argv: string[], deps: Deps = {}): number {
           `Paused at phase: ${at} — ${parsed.reason}`,
         ].join("\n") + "\n";
       const bodyPath = checkpointBodyPath(slug, stateDir);
+      // The write below replaces checkpoint.md: record an unlogged note first.
+      logLiveNoteIfUnlogged(slug, state.phase, stateDir);
       fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
       fs.writeFileSync(bodyPath, body);
     }
@@ -160,6 +170,15 @@ export function run(argv: string[], deps: Deps = {}): number {
       }) + "\n",
     );
   }
+
+  // Epic windows have no flow-gate-summary render, so this is where the
+  // needs-human outcome (and the epic artifacts) reach the history.
+  recordGateOutcome(
+    slug,
+    { status: "needs-human", reason: parsed.reason },
+    state.worktree,
+    stateDir,
+  );
 
   process.stdout.write(
     [

@@ -76,6 +76,11 @@ merging the PR through GitHub themselves, or (b) the fresh-confirmation
 gate-override path below. See `references/auto-merge-rubric.md` "A
 `gated` verdict is terminal, not advisory" for the full contract.
 
+**Journal the verdict.** On every verdict that is not `auto-merge`, record
+why with `flow-checkpoint --journal` per the
+[Phase journal](shared-gate-contracts.md#phase-journal) subsection before the
+gate renders.
+
 ### Gate auto-checkpoint sub-step
 
 After rendering the GATED block (which records `phase: gated` itself), arm a

@@ -28,6 +28,29 @@ session may be `/flow-pipeline`, `/flow-epic-create`, or the
 `/flow-epic-run` playbook — the resumed skill is picked by the window's
 kind, not always `/flow-pipeline`.
 
+# Pipeline history (always carried)
+
+Every note this skill saves is also appended to the slug's history log, and
+a rendered view of that log is written to
+`~/.flow/state/checkpoints/<slug>/history.md`. The history is **never
+retired and never trimmed**: it holds `## Active instructions` (the
+standing decisions nobody has revoked, plus the live note's one-time items,
+while the pipeline is still running) and `## Record` (everything else in
+full — every note with its phase and time, gate outcomes, the supervisor's
+journal, what was asked, decided, shipped and deferred, and the run's
+timeline). The journal is the supervisor's own account of why; a sourced fact
+in the Record wins over it.
+
+Every `/clear` in a flow window carries a brief of that history (at most
+9,500 characters, with a line-numbered index into the full file) as passive
+context — with or without a checkpoint. A checkpointed `/clear` in a tmux
+window also starts a turn that Reads the whole `history.md`: a resume at a
+resumable phase, else a short "where we are" at a finished one. Run
+`flow-checkpoint --history` to re-render the file and print its path. When
+the worktree is removed, the plan, review and CI results are snapshotted
+under `~/.flow/state/checkpoints/<slug>/snapshot/` until `flow done`
+deletes the folder.
+
 # When to use
 
 - The user types `/flow-checkpoint`, or says a natural-language `checkpoint
@@ -53,16 +76,17 @@ works at `starting` / `triaging`, before a worktree exists, and at
 `merged` / `cancelled`, after the worktree is gone.
 
 At a terminal phase, a `/clear` **carries the checkpoint over**: the
-`SessionStart:clear` hook emits the body as passive context in the fresh
-session and retires it one-shot. What it does not do there is _resume the
-pipeline_ — a terminal pipeline has nothing left to resume (`gated` and
-an `epic-run` window are the exceptions that do auto-resume). In a tmux
-window the hook also fires a short **orientation turn** into the pane: it
-summarises the carried-over notes, names the repo and PR the finished
-pipeline left behind, and then waits for your questions — it never drives
-a pipeline or re-renders a gate block. A plain-shell session has no
-send-keys surface, so there the carry-over stays passive-only. So your
-notes always survive the clear; only the auto-resume is phase-dependent.
+`SessionStart:clear` hook retires the note (its one-time items stop acting
+as instructions; the note itself stays in the history) and injects the
+pipeline-history brief, which shows that note as the newest retired one.
+What it does not do there is _resume the pipeline_ — a terminal pipeline
+has nothing left to resume (`gated` and an `epic-run` window are the
+exceptions that do auto-resume). In a tmux window the hook also fires a
+short **orientation turn** into the pane: it Reads the whole `history.md`,
+posts a short "where we are", and then waits for your questions — it never
+drives a pipeline or re-renders a gate block. A plain-shell session has no
+send-keys surface, so there the brief stays passive-only. So your notes
+always survive the clear; only the auto-resume is phase-dependent.
 Step 2 below surfaces a warning when the pipeline will not auto-resume,
 so you know which of the two you are getting.
 
@@ -125,6 +149,26 @@ transcript:
 - Unmaterialized redirects the supervisor has not yet acted on — e.g.
   "ignore the flake on `src/util/race.test.ts`", "skip the review".
 - Explicit in-chat decisions that alter how a later step must behave.
+
+**Tag each saved decision.** Write every decision as its own line item:
+
+- `- [one-time] <decision>` — the default. It is honored by the next resume
+  and then retires to the record. An untagged line counts as one `one-time`
+  item, so a note without tags behaves exactly as it always did.
+- `- [standing] <decision>` — when the user says "standing:" or the decision
+  should hold for the rest of the run (for example "wait for Copilot before
+  review"). It stays under `## Active instructions` on every later resume
+  until a later note revokes it or the pipeline ends. Indent continuation
+  lines under their item.
+
+**Plain-words revoke.** When the user asks to drop, stop or forget a
+standing rule in their own words ("drop the Copilot-wait rule"), run
+`flow-checkpoint --history`, Read its `## Active instructions`, and write
+`- [revoke S<n>] <the user's words>` for the one standing item that matches
+(`S<n>` is the id shown next to it) — never ask the user for an id. When no
+standing item matches, or several do, revoke nothing: save the user's words
+as a `- [one-time]` item and list the active standing items in your closing
+message so they can restate the request.
 
 Over-capturing defeats the token goal; under-capturing loses intent.
 When an addendum is a **scope/plan change** (not an implementation
@@ -200,19 +244,17 @@ pipeline will not pick back up:
 ⚠️ <warning text from step 2>
 ```
 
-Then stop. The marker is one-shot: on the next resume, Resume mode reads
-the body, folds its addenda into the re-entered step, and calls
-`flow-checkpoint --consume`. `--consume` now retires the body outright,
-not just the marker: it archives `checkpoint.md` to
-`checkpoint.consumed.md` beside it (recoverable, never silently deleted)
-and clears the freshness record, then deletes the `checkpoint.pending`
-marker so a later unrelated `/clear` in the same window does not re-fire
-the auto-resume. At a terminal phase there is no resume to re-enter, so
-the `SessionStart:clear` hook does the equivalent itself — it emits the
-body as context and retires it the same one-shot way, then (tmux only)
-dispatches the orientation turn described above. When there IS a body to
-carry over, that turn is one-shot too: retirement removes the marker, so
-a second `/clear` stays silent. When there is no body, nothing retires
-the marker, so both the plain advisory and the orientation turn re-fire
-on every later `/clear` at that phase — deliberately, since a blank pane
-with no notes is the most confusing case to leave silent.
+Then stop. The marker is one-shot: on the next resume, Resume mode Reads
+the history (its `## Active instructions` include this note's one-time items
+and every unrevoked standing item), folds them into the re-entered step, and
+calls `flow-checkpoint --consume`. `--consume` retires the note's one-time
+items, not the history: it logs the body, archives `checkpoint.md` to
+`checkpoint.consumed.md` beside it (recoverable, never silently deleted),
+clears the freshness record, and deletes the `checkpoint.pending` marker so a
+later unrelated `/clear` in the same window does not re-fire the auto-resume.
+Standing items stay active. At a terminal phase there is no resume to
+re-enter, so the `SessionStart:clear` hook retires the note the same way
+before rendering the brief, then (tmux only) dispatches the orientation turn
+described above. Nothing about the brief is one-shot: a second `/clear` at the
+same phase carries the same brief again, and only a checkpointed `/clear` on
+tmux starts a turn.

@@ -202,6 +202,40 @@ describe("probeFreshness — keyed on state.slug, no path argument", () => {
   });
 });
 
+describe("isCheckpointUsable — checkpoint-pending-clear is not progress", () => {
+  const record = {
+    site: "plan-approval" as const,
+    phase: "plan-approval",
+    armedAt: "2026-06-30T12:00:00.000Z",
+  };
+
+  it("stays usable when only the arm site's own pending-clear row is newer", () => {
+    writeBody("pending-clear-usable");
+    const state = {
+      slug: "pending-clear-usable",
+      checkpoint: record,
+      phaseLog: [
+        { at: "2026-06-30T11:00:00.000Z", phase: "planning" },
+        { at: "2026-06-30T12:00:01.000Z", phase: "checkpoint-pending-clear" },
+      ],
+    };
+    expect(isCheckpointUsable(state, dir)).toBe(true);
+  });
+
+  it("goes stale once a real phase row follows the pending-clear row", () => {
+    writeBody("pending-clear-stale");
+    const state = {
+      slug: "pending-clear-stale",
+      checkpoint: record,
+      phaseLog: [
+        { at: "2026-06-30T12:00:01.000Z", phase: "checkpoint-pending-clear" },
+        { at: "2026-06-30T12:05:00.000Z", phase: "implementing" },
+      ],
+    };
+    expect(isCheckpointUsable(state, dir)).toBe(false);
+  });
+});
+
 describe("isCheckpointUsable — keyed on state.slug, no path argument", () => {
   it("is false when the body is missing", () => {
     expect(isCheckpointUsable({ slug: "no-body" }, dir)).toBe(false);

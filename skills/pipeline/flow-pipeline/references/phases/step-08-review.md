@@ -113,7 +113,9 @@ not directly to step 9. The fix commit may have changed CI.
 
 **End condition:** `/flow-pr-review` returns clean (no critical
 findings outstanding) AND the most recent CI cycle is green.
-Continue to step 9.
+Journal the review outcome with `flow-checkpoint --journal` per the
+[Phase journal](shared-gate-contracts.md#phase-journal) subsection, then
+continue to step 9.
 
 ### Read the `/flow-pr-review` result artifact and branch on `.status`
 

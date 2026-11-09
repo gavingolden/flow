@@ -176,7 +176,7 @@ export function isCheckpointUsable(
   state: {
     slug: string;
     checkpoint?: { site: CheckpointSite; phase: string; armedAt: string };
-    phaseLog?: Array<{ at: string }>;
+    phaseLog?: Array<{ at: string; phase?: string }>;
   },
   dir = flowStateDir(),
 ): boolean {
@@ -199,5 +199,10 @@ export function isCheckpointUsable(
     return stat.mtime.toISOString() > newest;
   }
 
-  return !hasPhaseAdvancedSince(state, record.armedAt);
+  // checkpoint-pending-clear is the arm site's own pause phase (written right
+  // after the arm), not progress made since the note was armed.
+  const progress = state.phaseLog?.filter(
+    (e) => e.phase !== "checkpoint-pending-clear",
+  );
+  return !hasPhaseAdvancedSince({ phaseLog: progress }, record.armedAt);
 }

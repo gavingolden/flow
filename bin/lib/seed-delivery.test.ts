@@ -503,6 +503,42 @@ describe("supervisor launch seeds — no unverified remainder", () => {
   });
 });
 
+describe("terminalContinueSeed with a history path", () => {
+  // The history variant adds one Read instruction carrying an absolute
+  // `history.md` path (60-char slug under a long home dir ~ 110 bytes) and, in
+  // the awaiting-human variant, a longer status paragraph. It stays a
+  // multi-paragraph seed that deliverSeed chunks, so the bound is raised
+  // deliberately from the null-path 1200 to 1600 rather than trimming the
+  // instruction below what a fresh session needs; the 8192-byte hard cap is
+  // untouched.
+  const HISTORY_SEED_MAX_BYTES = 1600;
+  const slug = "a".repeat(60);
+  const historyPath = `/Users/someone/.flow/state/checkpoints/${slug}/history.md`;
+  const state = {
+    repo: "/Users/someone/code/me/flow",
+    worktree: undefined,
+    pr: 1234,
+  };
+
+  it.each(["merged", "needs-human", "gated"])(
+    "stays within its bound at phase %s with a 60-char slug",
+    (phase) => {
+      const seed = terminalContinueSeed(
+        slug,
+        phase,
+        "feature",
+        state,
+        historyPath,
+      );
+      expect(Buffer.byteLength(seed, "utf8")).toBeLessThanOrEqual(
+        HISTORY_SEED_MAX_BYTES,
+      );
+      expect(splitSeed(seed).remainder).not.toBe("");
+      expect(seed).toMatch(/^[\x20-\x7e\n]+$/);
+    },
+  );
+});
+
 describe("sanitizeSeedLine", () => {
   it("maps TAB (0x09) to a single space", () => {
     expect(sanitizeSeedLine("a\tb")).toBe("a b");
