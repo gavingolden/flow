@@ -1,17 +1,13 @@
-# Demo GIF
+# Demo images
 
-`demo.gif` is rendered from `demo.tape` with [VHS](https://github.com/charmbracelet/vhs):
-
-```sh
-vhs docs/demo/demo.tape
-```
-
-The tmux demo renders the same way:
+`tmux-tree.svg` is the image in the README's tmux section. Build it with:
 
 ```sh
-env -u TMUX -u TMUX_PANE -u FLOW_SLUG vhs docs/demo/tmux.tape
+./docs/demo/render-tmux-tree.ts
 ```
 
-It runs a private `tmux -L flow-demo` server under a throwaway HOME, loads `docs/tmux-tree.conf`, and must be re-rendered whenever that file changes.
+It needs [VHS](https://github.com/charmbracelet/vhs) and tmux. The script runs `tmux.tape` on a private `tmux -L flow-demo` server under a throwaway HOME with invented pipelines, loads `docs/tmux-tree.conf`, takes a screenshot, then adds the numbered markers.
 
-The tape is a **simulation** — it shadows `flow` with a shell function that prints contrived, illustrative output, and never runs the real tool. Edit the tape, re-render, and commit both files together.
+Re-render whenever `docs/tmux-tree.conf` or the tape changes, and commit the tape, the script, and the SVG together. The marker positions match the tape's Width and FontSize; change either and re-measure them in the script.
+
+The tape never runs the real `flow`.

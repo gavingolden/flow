@@ -30,7 +30,7 @@ Every top-level doc and doc set outside the root [README](../README.md), grouped
 - [Subagent features probe](subagent-features-probe.md) — live results that settled assumptions about Claude Code sub-agent features.
 - [Test Steps audit](test-steps-audit.md) — what PR checklists contain and how to tell whether they worked.
 - [Token-spend analysis](token-spend-analysis.md) — where the Claude quota goes and which savings are worth pursuing.
-- [Demo GIFs](demo/README.md) — how the README demos are rendered.
+- [Demo images](demo/README.md) — how the README's tmux image is rendered.
 - [Epic designer dossier](epic-designer/README.md) — the design for flow's epic design phase.
 - [Eval harness](eval/README.md) — the maintainer guide to `flow-eval` and its suites.
 - [Model bench](model-bench/README.md) — how to evaluate a new model for an agy-delegated step.

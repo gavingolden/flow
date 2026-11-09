@@ -66,15 +66,16 @@ describe("docs reachability", () => {
     expect(rootReadme.split(/\s+/).filter(Boolean).length).toBeLessThanOrEqual(
       1000,
     );
-    expect(rootReadme).toContain("docs/demo/tmux.gif");
+    expect(rootReadme).toContain("docs/demo/tmux-tree.svg");
     expect(
-      fs.statSync(path.join(REPO_ROOT, "docs/demo/tmux.gif")).size,
+      fs.statSync(path.join(REPO_ROOT, "docs/demo/tmux-tree.svg")).size,
     ).toBeLessThan(1_500_000);
     for (const f of [
       "README.md",
       "docs/README.md",
       "docs/tmux.md",
       "docs/getting-started.md",
+      "docs/demo/README.md",
     ])
       expect(validateFile(path.join(REPO_ROOT, f)), f).toEqual([]);
   });

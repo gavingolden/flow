@@ -9,8 +9,6 @@ Shipping a small change still costs you a whole afternoon of plan → branch →
 
 [Quickstart](#quickstart) · [Run pipelines in parallel (tmux)](docs/tmux.md) · [Getting started](docs/getting-started.md) · [Configuration](docs/configuration.md) · [All docs](docs/README.md)
 
-![flow demo](docs/demo/demo.gif)
-
 The transcript below is **illustrative — not exact output**; it shows the shape of a run, not its real verbosity.
 
 ```text
@@ -81,19 +79,34 @@ New here? The full first-run walkthrough — reading a run, resuming, cleaning u
 
 ## Run pipelines in parallel with tmux
 
-Start as many pipelines as you like, walk away, and see them all in one view.
+Start as many pipelines as you like, walk away, and check on all of them in one view.
 
-![Several flow pipelines in a tmux tree view](docs/demo/tmux.gif)
-
-1. **Turn it on.** Run `flow config launcher set tmux`, or pass `--tmux` on each run. Optional, for the tree view in the clip: add it to your tmux config (adjust the path if you cloned elsewhere), then reload if tmux is already running:
+1. **Turn it on.** Run `flow config launcher set tmux`, or pass `--tmux` on each run. Optional, for the tree view below: add it to your tmux config (adjust the path if you cloned elsewhere), then reload if tmux is already running:
 
    ```sh
    echo 'source-file ~/code/flow/docs/tmux-tree.conf' >> ~/.tmux.conf
    tmux source-file ~/.tmux.conf
    ```
 
-2. **Create.** Run `flow feature create "<description>"` as often as you like. Each call returns at once and runs in its own window.
-3. **View.** Run `flow attach`, then press `Ctrl-b w`. A `!` marks pipelines waiting for you. `flow ls` works with no tmux setup. Detach with `Ctrl-b d`; the runs keep going.
+2. **Create.** Each call returns at once and runs in its own window:
+
+   ```sh
+   flow feature create "add dark mode"
+   flow feature create "fix login bug"
+   ```
+
+3. **View.** Run `flow attach`, then press `Ctrl-b w`. Detach with `Ctrl-b d`; the runs keep going. `flow ls` works with no tmux setup.
+
+![The tmux tree view listing six flow pipelines, numbered 1 to 6 to match the list below](docs/demo/tmux-tree.svg)
+
+- **1** `!` — waiting for you: a plan to approve, a PR to sign off, or a question.
+- **2** The PR number, once there is one.
+- **3** The phase: where each pipeline is right now.
+- **4** A short title flow gives each pipeline after reading your request.
+- **5** Pipelines you started earlier.
+- **6** The two you just created.
+
+Press ↑/↓ to pick one, Enter to jump in, `q` to close.
 
 More in the [tmux guide](docs/tmux.md).
 

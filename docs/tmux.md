@@ -35,13 +35,15 @@ The file `docs/tmux-tree.conf` holds exactly this binding:
 bind-key w choose-tree -Zw -F "#{?pane_format,#{pane_current_command}#{?pane_active,*,}#{?#{pane_title}, #{pane_title},},#{?window_format,#{?@flow-slug,#{?#{||:#{m:*[?],#{@flow-phase-short}},#{||:#{==:#{@flow-phase-short},human},#{==:#{@flow-phase-short},gated}}},#[fg=yellow]!#[default], } #{?#{m:epic*,#{@flow-kind}},epic,feat} #{p10:#{=10:@flow-repo}} #{p22:#{=22:@flow-slug}} #{p14:#{?#{@flow-epic},#{=14:@flow-epic},—}} #{p6:#{?#{@flow-pr},###{@flow-pr},—}} #{p7:#{@flow-phase-short}}  #W,#W#{window_flags} (#{window_panes} panes)},#{session_windows} windows#{?session_attached, (attached),}}}"
 ```
 
+![The tmux tree view listing six flow pipelines, numbered 1 to 6 to match the list below](demo/tmux-tree.svg)
+
 Prefer `source-file` over pasting the line yourself: a pasted copy goes stale when flow's phases change, while the sourced file stays current when you update flow. Run `tmux source-file ~/.tmux.conf` (or restart tmux) to pick up the new version.
 
 What each column shows, left to right:
 
 | Column | Meaning                                                                                         |
 | ------ | ----------------------------------------------------------------------------------------------- |
-| `!`    | The pipeline is waiting for you (a `?` phase, `human`, or `gated`)                              |
+| `!`    | The pipeline is waiting for you (a phase ending in `?`, `human`, or `gated`)                    |
 | kind   | `feat` for a feature pipeline, `epic` for an epic design or run                                 |
 | repo   | The repository, cut to 10 characters                                                            |
 | slug   | The pipeline name, cut to 22 characters                                                         |
