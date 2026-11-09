@@ -114,4 +114,18 @@ describe("docs/demo/tmux.tape", () => {
     expect(tape).toContain('Type "tmux source-file ~/.tmux.conf"');
     expect(read("docs/tmux.md")).toContain(echo!);
   });
+
+  it("should route every tmux call through the private flow-demo socket", () => {
+    const tape = read("docs/demo/tmux.tape");
+    const typed = tape.split("\n").filter((l) => l.startsWith("Type"));
+    const wrap = typed.findIndex((l) =>
+      l.includes('tmux() { command tmux -L flow-demo "$@"; }'),
+    );
+    expect(wrap).toBeGreaterThanOrEqual(0);
+    for (const l of typed.slice(0, wrap)) expect(l).not.toMatch(/\btmux\b/);
+    expect(tape).toContain('rm -rf "${D:?}"');
+    const script = read("docs/demo/render-tmux-tree.ts");
+    for (const m of script.matchAll(/spawnSync\("tmux", \[([^\]]*)\]/g))
+      expect(m[1]).toContain('"-L", "flow-demo"');
+  });
 });

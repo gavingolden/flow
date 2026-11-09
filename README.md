@@ -81,14 +81,15 @@ New here? The full first-run walkthrough — reading a run, resuming, cleaning u
 
 Start as many pipelines as you like, walk away, and check on all of them in one view.
 
-1. **Turn it on.** Run `flow config launcher set tmux`, or pass `--tmux` on each run. Optional, for the tree view below: add it to your tmux config (adjust the path if you cloned elsewhere), then reload if tmux is already running:
+1. **Turn it on.** Run `flow config launcher set tmux`, or pass `--tmux` on each run. Optional, for the tree view below: add it to your tmux config (adjust the path if you cloned elsewhere):
 
    ```sh
    echo 'source-file ~/code/flow/docs/tmux-tree.conf' >> ~/.tmux.conf
-   tmux source-file ~/.tmux.conf
    ```
 
-2. **Create.** Each call returns at once and runs in its own window:
+   If tmux is already running, also run `tmux source-file ~/.tmux.conf`.
+
+2. **Create.** Each call returns at once and runs in its own window (add `--tmux` to each command if you did not set tmux as the default):
 
    ```sh
    flow feature create "add dark mode"

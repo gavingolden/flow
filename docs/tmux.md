@@ -18,7 +18,7 @@ Under the tmux launcher, `flow feature create` returns at once and the pipeline 
 
 ## See every pipeline at once
 
-Out of the box, `Ctrl-b w` lists windows by name only. This recipe turns it into a pipeline board with one row per run: repo, slug, epic, PR number, phase, and window title.
+Out of the box, `Ctrl-b w` lists windows by name and pane count, with nothing about the pipeline running inside. This recipe turns it into a pipeline board with one row per run: repo, slug, epic, PR number, phase, and window title.
 
 1. Add one line to `~/.tmux.conf`. Adjust the path if you cloned flow somewhere other than `~/code/flow`:
 
@@ -35,7 +35,9 @@ The file `docs/tmux-tree.conf` holds exactly this binding:
 bind-key w choose-tree -Zw -F "#{?pane_format,#{pane_current_command}#{?pane_active,*,}#{?#{pane_title}, #{pane_title},},#{?window_format,#{?@flow-slug,#{?#{||:#{m:*[?],#{@flow-phase-short}},#{||:#{==:#{@flow-phase-short},human},#{==:#{@flow-phase-short},gated}}},#[fg=yellow]!#[default], } #{?#{m:epic*,#{@flow-kind}},epic,feat} #{p10:#{=10:@flow-repo}} #{p22:#{=22:@flow-slug}} #{p14:#{?#{@flow-epic},#{=14:@flow-epic},—}} #{p6:#{?#{@flow-pr},###{@flow-pr},—}} #{p7:#{@flow-phase-short}}  #W,#W#{window_flags} (#{window_panes} panes)},#{session_windows} windows#{?session_attached, (attached),}}}"
 ```
 
-![The tmux tree view listing six flow pipelines, numbered 1 to 6 to match the list below](demo/tmux-tree.svg)
+![The tmux tree view listing six flow pipelines, numbered 1 to 6 to match the legend in the README](demo/tmux-tree.svg)
+
+What the numbered markers mean is in the [README legend](../README.md#run-pipelines-in-parallel-with-tmux).
 
 Prefer `source-file` over pasting the line yourself: a pasted copy goes stale when flow's phases change, while the sourced file stays current when you update flow. Run `tmux source-file ~/.tmux.conf` (or restart tmux) to pick up the new version.
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { validateFile } from "./flow-md-validate";
+import { extractLinks, validateFile } from "./flow-md-validate";
 
 /**
  * Every top-level docs/*.md and every docs/<dir>/README.md must be linked
@@ -78,5 +78,16 @@ describe("docs reachability", () => {
       "docs/demo/README.md",
     ])
       expect(validateFile(path.join(REPO_ROOT, f)), f).toEqual([]);
+    for (const f of ["README.md", "docs/tmux.md"]) {
+      const abs = path.join(REPO_ROOT, f);
+      const images = extractLinks(fs.readFileSync(abs, "utf8")).filter(
+        (l) => l.isImage && !/^[a-z]+:/i.test(l.raw),
+      );
+      for (const l of images)
+        expect(
+          fs.existsSync(path.resolve(path.dirname(abs), l.raw)),
+          `${f}: ${l.raw}`,
+        ).toBe(true);
+    }
   });
 });

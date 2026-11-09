@@ -12,6 +12,7 @@
     "bin/**/*.ts",
     "skills/**/*.ts",
     "docs/eval/**/*.ts",
+    "docs/demo/**/*.ts",
     "scripts/**/*.ts"
   ],
   "exclude": [

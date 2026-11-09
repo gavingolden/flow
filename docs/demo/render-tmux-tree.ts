@@ -8,7 +8,8 @@ const RENDER_DIR = "docs/demo/.render";
 const PNG = `${RENDER_DIR}/tmux-tree.png`;
 const OUT = "docs/demo/tmux-tree.svg";
 
-// Marker coordinates (PNG pixels) match the tape's Width 1100 / FontSize 16.
+// Marker coordinates (PNG pixels) match the tape's Width 1100 / FontSize 16 and
+// the column widths in docs/tmux-tree.conf; the six seeded windows set the rows.
 const TOP = 48;
 const RIGHT = 72;
 const BG = "#1e1e2e";
@@ -56,7 +57,7 @@ function render(): void {
     GROUPS.map(([a, b, n]) => bracket(w, a, b, n)).join("") +
     COLUMNS.map(([x, n]) => column(x, n)).join("");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w + RIGHT}" height="${h + TOP}" viewBox="0 0 ${w + RIGHT} ${h + TOP}" role="img">
-<title>The tmux tree view listing six flow pipelines, numbered 1 to 6 to match the README legend</title>
+<title>The tmux tree view listing six flow pipelines, numbered 1 to 6 to match the legend</title>
 <rect width="100%" height="100%" fill="${BG}"/>
 <image x="0" y="${TOP}" width="${w}" height="${h}" href="data:image/png;base64,${buf.toString("base64")}"/>
 ${marks}
@@ -65,8 +66,20 @@ ${marks}
   writeFileSync(OUT, svg);
 }
 
+for (const [bin, arg] of [
+  ["vhs", "--version"],
+  ["tmux", "-V"],
+] as const) {
+  if (spawnSync(bin, [arg], { stdio: "ignore" }).error)
+    throw new Error(`${bin} is not on PATH (brew install ${bin})`);
+}
+
+let failed = false;
 try {
   render();
+} catch (e) {
+  failed = true;
+  throw e;
 } finally {
   rmSync(RENDER_DIR, { recursive: true, force: true });
   const env = { ...process.env };
@@ -80,6 +93,7 @@ try {
       env,
       stdio: "ignore",
     });
-    throw new Error("a tmux -L flow-demo server was left running");
+    if (!failed) throw new Error("a tmux -L flow-demo server was left running");
+    console.error("also killed a leftover tmux -L flow-demo server");
   }
 }
