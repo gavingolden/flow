@@ -6,7 +6,7 @@
 ./docs/demo/render-tmux-tree.ts
 ```
 
-To render and check without touching the committed image, run `./docs/demo/render-tmux-tree.ts --check`. The default mode runs the same checks and refuses to write a drifted image.
+To render and check without touching the committed image, run `./docs/demo/render-tmux-tree.ts --check`. The default mode runs the same tree checks and refuses to write a drifted image; only `--check` also compares against the committed image.
 
 It needs [VHS](https://github.com/charmbracelet/vhs) and tmux. The script runs `tmux.tape` on a private `tmux -L flow-demo` server under a throwaway HOME with invented pipelines, loads `docs/tmux-tree.conf`, takes a screenshot, then adds the numbered markers.
 

@@ -45,7 +45,7 @@ export function lastTreeFrame(log: string): string[] {
   let found: string[] = [];
   let current: string[] = [];
   const flush = () => {
-    if (current.some((l) => /- flow: 6 windows/.test(l))) {
+    if (current.some((l) => /- flow: \d+ windows/.test(l))) {
       const lines = [...current];
       while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
       found = lines;
@@ -66,7 +66,7 @@ const cell = (cps: string[], at: number, want: string): string =>
 export function checkTreeFrame(log: string): string[] {
   const frame = lastTreeFrame(log);
   if (frame.length === 0)
-    return [`no tree frame ("- flow: 6 windows") in the vhs text log; ${HINT}`];
+    return [`no tree frame ("- flow: N windows") in the vhs text log; ${HINT}`];
   const rows = frame.filter((l) => ROW.test(l));
   const problems: string[] = [];
   if (rows.length !== EXPECTED_ROWS.length)

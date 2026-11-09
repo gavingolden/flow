@@ -41,7 +41,10 @@ describe("checkTreeFrame", () => {
 
   it("should fail when a row is dropped", () => {
     const rows = ROWS.filter((_, i) => i !== 4);
-    expect(checkTreeFrame(logOf(rows)).join("\n")).toContain("window rows");
+    rows[0] = rows[0].replace("6 windows", "5 windows");
+    expect(checkTreeFrame(logOf(rows)).join("\n")).toContain(
+      "expected 6 window rows, found 5",
+    );
   });
 
   it("should fail when the flag is removed from fix-typo", () => {
@@ -69,7 +72,9 @@ describe("checkTreeFrame", () => {
   });
 
   it("should fail when the log has no tree frame", () => {
-    expect(checkTreeFrame(`$ ls\n${SEP}\n$ `)).not.toEqual([]);
+    expect(checkTreeFrame(`$ ls\n${SEP}\n$ `).join("\n")).toContain(
+      "no tree frame",
+    );
   });
 
   it("should name the four places to update on drift", () => {
@@ -107,6 +112,12 @@ describe("pngSize", () => {
 
   it("should read width and height from the IHDR", () => {
     expect(pngSize(header(1100, 300))).toEqual(EXPECTED_PNG);
+  });
+
+  it("should read a view with a non-zero byteOffset", () => {
+    const big = new Uint8Array(40);
+    big.set(header(1100, 300), 7);
+    expect(pngSize(big.subarray(7))).toEqual(EXPECTED_PNG);
   });
 
   it("should throw on a non-PNG buffer", () => {
