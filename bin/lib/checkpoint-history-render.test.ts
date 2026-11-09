@@ -299,6 +299,28 @@ describe("renderBrief", () => {
     expect(brief).toContain("## Index of history.md");
   });
 
+  it("should point the continuation offset at the earliest omitted section in history.md", () => {
+    const shipped = Array.from(
+      { length: 200 },
+      (_, i) => `- change ${i} ${"s".repeat(40)}`,
+    );
+    const prDoc = [
+      "## User-facing changes",
+      ...shipped,
+      "## System changes",
+      "- none",
+    ].join("\n");
+    const doc = renderHistory(inputs({ prDoc }));
+    const brief = renderBrief(doc, HIST);
+    expect(brief.length).toBeLessThanOrEqual(HOOK_CONTEXT_MAX_CHARS);
+    const m = /\[continued: (.+?) — Read (\S+) offset (\d+)\]/.exec(brief);
+    expect(m?.[1]).toContain("Review and CI");
+    const review = doc.sections.find((s) => s.key === "review");
+    const shippedSec = doc.sections.find((s) => s.key === "shipped");
+    expect(review!.line).toBeLessThan(shippedSec!.line);
+    expect(Number(m?.[3])).toBe(review?.line);
+  });
+
   it("should cut an oversized active section on a line boundary", () => {
     const body = Array.from(
       { length: 400 },
