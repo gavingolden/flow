@@ -126,3 +126,49 @@ describe("ci.yml verify-gate workflow shape (regression: PR #207)", () => {
     }
   });
 });
+
+describe("release-asset downloads are checksum-verified (regression: PR #1048)", () => {
+  const files = listWorkflowFiles();
+  const bodies = new Map(
+    files.map((f) => [path.basename(f), fs.readFileSync(f, "utf8")] as const),
+  );
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const downloads = (body: string) =>
+    body
+      .split(/\r?\n/)
+      .filter((l) => /\bcurl\b/.test(l) && l.includes("releases/download"))
+      .map((l) => /\s-o\s+(\S+)/.exec(l)?.[1]);
+
+  it("covers ci.yml and demo-render.yml with at least one download each", () => {
+    for (const name of ["ci.yml", "demo-render.yml"]) {
+      expect(bodies.has(name), name).toBe(true);
+      expect(downloads(bodies.get(name)!).length, name).toBeGreaterThan(0);
+    }
+  });
+
+  for (const [name, body] of bodies) {
+    it(`${name}: every curl'd release asset has a sha256sum -c for the same file`, () => {
+      for (const out of downloads(body)) {
+        expect(out, `${name}: curl has no -o target`).toBeTruthy();
+        const lines = body.split(/\r?\n/);
+        expect(
+          lines.some((l) =>
+            new RegExp(`\\s${escape(out!)}["']?\\s*\\|\\s*sha256sum -c`).test(
+              l,
+            ),
+          ),
+          `${name}: ${out} is downloaded without sha256sum -c`,
+        ).toBe(true);
+      }
+    });
+  }
+
+  it("demo-render.yml does not use the unpinned charmbracelet/vhs-action", () => {
+    const code = bodies
+      .get("demo-render.yml")!
+      .split(/\r?\n/)
+      .filter((l) => !l.trim().startsWith("#"))
+      .join("\n");
+    expect(code).not.toContain("charmbracelet/vhs-action");
+  });
+});
