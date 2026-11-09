@@ -107,16 +107,17 @@ describe("GRANT_DENY_RULES", () => {
     expect(GRANT_DENY_RULES).toContain("Bash(*manager/grants.json*)");
   });
 
-  it("denies Write and Edit of the grant file and the decision log", () => {
+  it("denies Edit of the grant file and the decision log, with no never-matching Write rule", () => {
     for (const f of ["grants.json", "log.jsonl"]) {
-      expect(GRANT_DENY_RULES).toContain(`Write(~/.flow/manager/${f})`);
       expect(GRANT_DENY_RULES).toContain(`Edit(~/.flow/manager/${f})`);
+      expect(GRANT_DENY_RULES).not.toContain(`Write(~/.flow/manager/${f})`);
     }
   });
 
-  it("denies Write and Edit under the managers state directory", () => {
-    expect(GRANT_DENY_RULES).toContain("Write(~/.flow/state/managers/**)");
+  it("denies Edit under the managers state directory, with no never-matching Write rule", () => {
     expect(GRANT_DENY_RULES).toContain("Edit(~/.flow/state/managers/**)");
+    expect(GRANT_DENY_RULES).not.toContain("Write(~/.flow/state/managers/**)");
+    expect(GRANT_DENY_RULES.some((r) => r.startsWith("Write("))).toBe(false);
   });
 
   it("never denies the withdraw or list forms and has no duplicates", () => {
