@@ -4593,6 +4593,21 @@ describe("ensureLaunchSettings hook-command resolution", () => {
     expect(readPermissions()).toEqual(launchSettingsPermissions());
   });
 
+  it("injects no Write/NotebookEdit/MultiEdit/Glob/Grep path rule — Claude Code never matches those", () => {
+    // Claude Code matches file tools only against Edit/Read path rules
+    // (https://code.claude.com/docs/en/permissions).
+    const NEVER_MATCHING_PATH_RULE =
+      /^(Write|NotebookEdit|MultiEdit|Glob|Grep)\((?!\*\))/;
+    for (const r of ["Write(~/x)", "Grep(docs/**)"])
+      expect(NEVER_MATCHING_PATH_RULE.test(r)).toBe(true);
+    for (const r of ["Write(*)", "Write", "Edit(~/x)", "Read(//**/.env)"])
+      expect(NEVER_MATCHING_PATH_RULE.test(r)).toBe(false);
+    const { deny, allow } = launchSettingsPermissions();
+    expect(
+      [...deny, ...allow].filter((r) => NEVER_MATCHING_PATH_RULE.test(r)),
+    ).toEqual([]);
+  });
+
   it("a second call with permissions already present leaves the file unchanged", () => {
     ensureLaunchSettings(settingsPath);
     const firstContent = fs.readFileSync(settingsPath, "utf8");
