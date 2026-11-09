@@ -88,21 +88,27 @@ It is the approval → implement clear point: it flushes the load-bearing
 approval state so the user can `/clear` here and resume into step 5 on
 a fresh, low-context session.
 
-1. **Flush approval state to `checkpoint.md` (non-clobbering).** Write it at
+1. **Journal the approval.** Record the approval's rationale with
+   `flow-checkpoint --journal`, per the
+   [Phase journal](shared-gate-contracts.md#phase-journal) subsection.
+2. **Flush approval state to `checkpoint.md` (non-clobbering).** Write it at
    the path `flow-checkpoint --path` prints. Probe with
-   `flow-checkpoint --probe --site plan-approval`; only on a `write` verdict
-   (a still-fresh manual note reads `preserve` and wins, left untouched)
-   write the load-bearing conversational state the fresh process would
-   otherwise drop: the approval verdict plus any addenda or conditions the
-   user attached (e.g. an "approved with A1" note, a folded-in scope change,
-   an "ignore flake X" decision). Unlike the gate auto-checkpoint (near-zero
+   `flow-checkpoint --probe --site plan-approval`; on a `write` verdict write
+   the load-bearing conversational state the fresh process would otherwise
+   drop: the approval verdict plus any addenda or conditions the user attached
+   (e.g. an "approved with A1" note, a folded-in scope change, an "ignore
+   flake X" decision). Tag each item: conditions that constrain the whole
+   implementation are written `- [standing]`, the approval verdict and one-off
+   addenda `- [one-time]`. On a `preserve` verdict, append the approval items
+   under a `Plan approval:` line at the end of the live note instead of
+   skipping them; arm as usual. Unlike the gate auto-checkpoint (near-zero
    residue), this one genuinely flushes approval state, so it uses the fuller
    `/flow-checkpoint`-style flush.
-2. **Arm the one-shot marker:** `flow-checkpoint --site plan-approval`
+3. **Arm the one-shot marker:** `flow-checkpoint --site plan-approval`
    (validates `checkpoint.md`, writes the `checkpoint.pending` marker on
    a ready verdict, and records the freshness receipt for this site).
-3. **Advance the phase:** `flow-state-update --phase checkpoint-pending-clear`.
-4. **Echo and end.** Echo step 2's `checkpointed: ` stderr line verbatim as
+4. **Advance the phase:** `flow-state-update --phase checkpoint-pending-clear`.
+5. **Echo and end.** Echo step 3's `checkpointed: ` stderr line verbatim as
    the last line of the turn, per the [Checkpoint arm signal
    (echo-verbatim)](shared-gate-contracts.md#checkpoint-arm-signal-echo-verbatim) subsection — the
    pipeline resumes into step 5 on a fresh session, or the user can type
