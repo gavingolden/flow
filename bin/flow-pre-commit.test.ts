@@ -709,8 +709,37 @@ describe("checksForScope with tiered selection", () => {
       ...selectedPlan.relatedInputs,
       "--exclude",
       "bin/flow-new-worktree.test.ts",
+      "--exclude",
+      "bin/skill-md-lint.test.ts",
+      "--exclude",
+      "bin/lib/feature.test.ts",
       "--no-isolate",
     ]);
+    expect(testChecks[1].name).toBe(
+      "npm run test:related -- bin/lib/feature.ts (+3 excluded) --no-isolate",
+    );
+  });
+
+  it("excludes explicit and isolated files from the related run so they do not run twice", () => {
+    const plan = {
+      ...selectedPlan,
+      isolatedFiles: ["bin/lib/spawner.test.ts"],
+    };
+    const related = checksForScope("src", plan).find((c) =>
+      c.argv.includes("test:related"),
+    )!;
+    const excluded = related.argv.flatMap((a, i) =>
+      related.argv[i - 1] === "--exclude" ? [a] : [],
+    );
+    expect(excluded).toEqual(
+      expect.arrayContaining([
+        ...plan.excluded,
+        ...plan.explicitFiles,
+        ...plan.isolatedFiles,
+      ]),
+    );
+    expect(new Set(excluded).size).toBe(excluded.length);
+    expect(related.argv.at(-1)).toBe("--no-isolate");
   });
 
   it("gives the docs scope the same test checks as scripts under tiered selection", () => {

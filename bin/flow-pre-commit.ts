@@ -823,16 +823,31 @@ function tieredTestChecks(selection: SelectionPlan): CheckDef[] {
     checks.push({ name: isolatedArgv.join(" "), argv: isolatedArgv });
   }
   if (selection.relatedInputs.length > 0) {
+    // The explicit and isolated checks above already ran their files, so the
+    // related run must not repeat them (flow#1041).
+    const excludes = [
+      ...new Set([
+        ...selection.excluded,
+        ...selection.explicitFiles,
+        ...selection.isolatedFiles,
+      ]),
+    ];
     const relatedArgv = [
       "npm",
       "run",
       "test:related",
       "--",
       ...selection.relatedInputs,
-      ...selection.excluded.flatMap((p) => ["--exclude", p]),
+      ...excludes.flatMap((p) => ["--exclude", p]),
       "--no-isolate",
     ];
-    checks.push({ name: relatedArgv.join(" "), argv: relatedArgv });
+    const relatedName = [
+      "npm run test:related --",
+      ...selection.relatedInputs,
+      ...(excludes.length > 0 ? [`(+${excludes.length} excluded)`] : []),
+      "--no-isolate",
+    ].join(" ");
+    checks.push({ name: relatedName, argv: relatedArgv });
   }
   return checks;
 }
