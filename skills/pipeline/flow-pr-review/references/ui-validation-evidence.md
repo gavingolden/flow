@@ -278,6 +278,8 @@ the user has something to judge. For each `capture` entry in `item_results[]`:
     --image '.flow-tmp/ui-evidence/<name>-1280.png#<item> (desktop)'
   ```
 
+  An item that names dark mode is shot again in dark by the driver (files
+  carrying a `-dark` token; see `flow-ui-driver-instructions` `capture`).
   Label dark and tablet shots with the alt suffixes the gate reads:
   `(phone-dark)`, `(desktop-dark)`, `(tablet)`. A `(phone)`/`(desktop)` alt on a
   file whose name carries a `dark` token is also read as the dark view.

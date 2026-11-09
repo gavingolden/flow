@@ -10697,6 +10697,54 @@ describe("pause-output contract wiring lint", () => {
     );
   });
 
+  it("step 9 rows never read a verdict variable set by an earlier Bash call", () => {
+    const step9 = flat(
+      fs.readFileSync(
+        path.join(
+          REPO_ROOT,
+          "skills",
+          "pipeline",
+          "flow-pipeline",
+          "references",
+          "phases",
+          "step-09-gate.md",
+        ),
+        "utf8",
+      ),
+    );
+    for (const stale of [
+      '"$REASON"',
+      "$VALIDATION_ITEMS",
+      'printf \'%s\' "$RESULT" \\| jq',
+    ]) {
+      expect(
+        step9.includes(stale),
+        `step-09-gate.md must read ${stale} from gate-verdict.json, not a shell variable that does not survive across Bash calls.`,
+      ).toBe(false);
+    }
+    expect(step9).toContain(
+      "PR_URL=$(jq -r '.prUrl // empty' \"$WORKTREE/.flow-tmp/gate-verdict.json\")",
+    );
+  });
+
+  it("the step-8c driver shoots a dark-mode SUBJECTIVE item in dark", () => {
+    const driver = flat(
+      fs.readFileSync(
+        path.join(
+          REPO_ROOT,
+          "skills",
+          "pipeline",
+          "flow-ui-driver-instructions",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+    );
+    expect(driver).toContain('take every size again in dark: `emulate` with `colorScheme: "dark"`');
+    expect(driver).toContain("`-dark` token");
+    expect(driver).toContain('reason: "partial: app has no dark scheme"');
+  });
+
   it("no skill or PR-template file still documents a 25-word TLDR cap", () => {
     const stale = /(≤|<=)25 words|25 words or fewer|25-word/;
     const hits: string[] = [];

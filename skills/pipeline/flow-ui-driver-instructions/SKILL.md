@@ -264,7 +264,15 @@ heuristicIssues}` entry, copying the route's `geometryIssues` and
   - `capture` — reach the state the item text describes (running any local,
     reversible setup it names), screenshot with `take_screenshot`, never a
     screencast frame, at the sizes the item names, else
-    phone **390** and desktop **1280**. Never judge a capture item: verdict
+    phone **390** and desktop **1280**. When the item names dark mode
+    ("dark mode", "dark theme", "light and dark", "(dark)"), take every
+    size again in dark: `emulate` with `colorScheme: "dark"` (restating the
+    viewport), then, when the `flow-ui-validate --probe-script` probe reports
+    a `darkSchemeClass`, add it to `document.documentElement` via
+    `evaluate_script` before the screenshot; name each dark file with a
+    `-dark` token (e.g. `<name>-390-dark.png`) so the gate reads it as the
+    dark view. A page whose probe reports no `hasDarkScheme` gets no dark
+    shot and `reason: "partial: app has no dark scheme"`. Never judge a capture item: verdict
     `captured` or `not-captured` only. When the exact state cannot be
     reached, capture the nearest reachable state and set `reason` to
     `partial: <precondition not met>`. **Never capture a credential form.**

@@ -74,7 +74,7 @@ When the committed manifest carries a `{{PORT}}` sentinel — or one or more `{{
 | ------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------- |
 | `appearance` | an enumerated visual-appearance assertion                | navigate, `wait_for`, `take_snapshot`, assert the observation against the snapshot    | `pass` / `fail` / `not-drivable` |
 | `behavior`   | a `Browser: on <route>, <action> — expect <result>` item | perform the action chain, `wait_for` the expected result, `take_snapshot` as proof    | `pass` / `fail` / `not-drivable` |
-| `capture`    | a `SUBJECTIVE: ` item                                    | reach the state from the item's own text, `take_screenshot` per size; **never judge** | `captured` / `not-captured`      |
+| `capture`    | a `SUBJECTIVE: ` item                                    | reach the state from the item's own text, `take_screenshot` per size (and per size in dark when the item names dark mode); **never judge** | `captured` / `not-captured`      |
 
 **Per-item bounds.** At most **8 browser actions and one wait of 15s** per item. On overrun the verdict is `not-drivable` with the reason in `reason`, and the driver moves to the next item — one stubborn item never starves the rest.
 
