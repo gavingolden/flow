@@ -19,7 +19,10 @@ describe("vitest.setup.ts under a shared-worker (--no-isolate) run", () => {
     const output = `${result.stdout}\n${result.stderr}`;
     const tail = output.split("\n").slice(-40).join("\n");
 
-    expect(result.status, `nested run failed:\n${tail}`).toBe(0);
+    expect(
+      result.status,
+      `nested run failed (status=${result.status}, signal=${result.signal}, error=${result.error?.message ?? "none"}):\n${tail}`,
+    ).toBe(0);
     expect(output, tail).toContain("4 passed");
   }, 90_000);
 });

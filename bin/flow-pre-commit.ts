@@ -1750,12 +1750,12 @@ function executeScopedCheck(
   // Isolation retry: a `--no-isolate` tiered check that FAILS gets one
   // isolated re-run of the same file list before being reported red —
   // `--no-isolate` can produce a false RED (cross-file shared-module
-  // contamination among the selected files), never a false GREEN, so
-  // a red result under `--no-isolate` that turns green under
-  // isolation was that contamination, not a real regression; a red
-  // result that stays red under isolation is a real failure either
-  // way. False greens are the case this retry cannot detect — that's
-  // what isolated CI is for.
+  // contamination among the selected files), so a red result that turns
+  // green under isolation was that contamination, not a real regression;
+  // a red result that stays red under isolation is a real failure either
+  // way. It can also produce a false GREEN (a leaked module stand-in,
+  // flow#1041), which this retry cannot detect — that's what isolated CI
+  // is for.
   if (
     isolationRetryWanted(result, slept?.slept) &&
     check.argv.includes("--no-isolate")

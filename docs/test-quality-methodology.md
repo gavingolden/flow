@@ -158,7 +158,7 @@ leaked across files sharing a worker and a forks worker's stdin never
 closes. With a per-file `vi.resetModules()` plus a `/dev/null` stdin in
 `vitest.setup.ts`, 7 of 7 runs were green at 11.7-14 s wall and 93-101
 CPU-s, against ~160 CPU-s for a fully isolated run. The shared run now
-depends on those two setup lines.
+depends on those two setup additions.
 
 Irreplaceable-vs-avoidable worked table:
 

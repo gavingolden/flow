@@ -317,13 +317,49 @@ fails is retried once isolated before being reported red, since
 state. It can also produce a false green: under `--no-isolate` a leaked
 module stand-in can make a later file pass against a stand-in, which this
 retry cannot detect and isolated CI does. A consumer opting into tiers
-should add two lines to its shared vitest setup file (flow#1041): a
+should add two things to its shared vitest setup file (flow#1041): a
 top-level `vi.resetModules()`, so each file's own mocks apply and stand-ins
-do not leak into the next file; and an end-of-input stdin guard (close fd 0
-and reopen it on `/dev/null`) that runs only in a forked child
-(`typeof process.send === "function"`) and is skipped when fd 0 is a
-character device, so a keyboard read gets end-of-input at once instead of
-blocking the worker's only thread forever. Process-global state (env,
+do not leak into the next file; and an end-of-input stdin guard, so a
+keyboard read gets end-of-input at once instead of blocking the worker's
+only thread forever. Copy this block (flow's own `vitest.setup.ts` is the
+reference):
+
+```ts
+import * as fs from "node:fs";
+import { vi } from "vitest";
+
+const STDIN_GUARD_KEY = "__stdinGuardInstalled";
+const g = globalThis as Record<string, unknown>;
+if (!g[STDIN_GUARD_KEY]) {
+  g[STDIN_GUARD_KEY] = true;
+  // Forked child only: under pool:threads fd 0 is the main process's stdin.
+  if (typeof process.send === "function") {
+    try {
+      if (!fs.fstatSync(0).isCharacterDevice()) {
+        try {
+          fs.closeSync(0);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "EBADF") throw err;
+        }
+        const fd = fs.openSync("/dev/null", "r");
+        if (fd !== 0) fs.closeSync(fd);
+      }
+    } catch {
+      // Never throw from setup: it would fail every file in the worker.
+    }
+  }
+}
+
+vi.resetModules();
+```
+
+Two rules: the guard must never throw (a throwing setup file fails every
+test file in the worker, trading a hang for a fully red suite), and the
+per-file reset splits shared state — a module-level variable in a helper
+imported by both the setup file and test files exists twice afterwards, so
+state shared between them must live on `globalThis` or `process.env`. The
+trade-off: a test that really expects typed stdin input now fails instead
+of hanging. Process-global state (env,
 globals, open handles) is still shared across files; the isolated retry
 and isolated CI catch what that leaves. A failed check that spanned a
 system sleep (the kernel's last-sleep time falls inside its run window) is re-run once

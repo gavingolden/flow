@@ -31,10 +31,10 @@ import {
 // a forks-pool worker's stdin is a pipe vitest never closes, so a synchronous
 // fs.readSync(0) blocks the worker's only thread forever and no per-test
 // timeout can fire; the stdin guard turns that read into end-of-input.
-const guardFlag = "__flowStdinGuardInstalled";
-const gs = globalThis as Record<string, unknown>;
-if (!gs[guardFlag]) {
-  gs[guardFlag] = true;
+const STDIN_GUARD_KEY = "__flowStdinGuardInstalled";
+const g = globalThis as Record<string, unknown>;
+if (!g[STDIN_GUARD_KEY]) {
+  g[STDIN_GUARD_KEY] = true;
   // Forked child only: under pool:threads fd 0 is the main process's stdin.
   if (typeof process.send === "function") {
     try {
@@ -90,7 +90,6 @@ let sandboxHome: string;
   }
 }
 
-const g = globalThis as Record<string, unknown>;
 g[ORIGINAL_ENV_KEY] ??= process.env;
 
 const OFFENDER_KEY = "__flowFirstHomeSandboxOffender";
