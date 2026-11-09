@@ -87,8 +87,11 @@ export function appendHistoryEvent(
   dir = flowStateDir(),
 ): boolean {
   try {
-    fs.mkdirSync(checkpointDir(slug, dir), { recursive: true });
-    fs.appendFileSync(historyLogPath(slug, dir), `${JSON.stringify(event)}\n`);
+    // The log carries request-derived text: private like state.ts's request file.
+    fs.mkdirSync(checkpointDir(slug, dir), { recursive: true, mode: 0o700 });
+    fs.appendFileSync(historyLogPath(slug, dir), `${JSON.stringify(event)}\n`, {
+      mode: 0o600,
+    });
     return true;
   } catch {
     return false;
@@ -129,10 +132,9 @@ export function logNoteOnce(
 ): boolean {
   if (body.trim() === "") return false;
   const sha = noteSha(body);
-  const seen = readHistoryEvents(slug, dir).some(
-    (e) => e.type === "note" && e.sha === sha,
-  );
-  if (seen) return false;
+  // Only the latest note counts: the same body re-armed after a different note is a new event.
+  const notes = readHistoryEvents(slug, dir).filter((e) => e.type === "note");
+  if (notes[notes.length - 1]?.sha === sha) return false;
   return appendHistoryEvent(
     slug,
     {
@@ -152,7 +154,8 @@ export function logNoteOnce(
 export function isTerminalOneLiner(body: string): boolean {
   const trimmed = body.trim();
   return (
-    !trimmed.includes("\n") && /^Pipeline reached [A-Z-]+ at /.test(trimmed)
+    !trimmed.includes("\n") &&
+    /^Pipeline reached [A-Z-]+(?: \(externally\))? at /.test(trimmed)
   );
 }
 
@@ -203,8 +206,10 @@ export function snapshotWorktreeArtifacts(
           skipped.push(name);
           continue;
         }
-        fs.mkdirSync(dest, { recursive: true });
-        fs.copyFileSync(from, path.join(dest, name));
+        fs.mkdirSync(dest, { recursive: true, mode: 0o700 });
+        const target = path.join(dest, name);
+        fs.copyFileSync(from, target);
+        fs.chmodSync(target, 0o600);
         files.push(name);
       } catch {
         // Absent or unreadable artifact: nothing to keep.

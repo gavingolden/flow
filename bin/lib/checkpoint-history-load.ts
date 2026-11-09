@@ -11,6 +11,7 @@ import { checkpointBodyPath, isCheckpointUsable } from "./checkpoint-freshness";
 import {
   SNAPSHOT_FILES,
   historyFilePath,
+  isTerminalOneLiner,
   noteSha,
   readHistoryEvents,
   resolveArtifactDir,
@@ -89,7 +90,7 @@ function loadInputs(
 
   const liveBody = readText(checkpointBodyPath(slug, stateDir));
   const liveNote =
-    liveBody && liveBody.trim() !== ""
+    liveBody && liveBody.trim() !== "" && !isTerminalOneLiner(liveBody)
       ? { sha: noteSha(liveBody), body: liveBody }
       : null;
 
@@ -164,8 +165,12 @@ export function loadAndRenderHistory(
     const inputs = loadInputs(slug, state, opts);
     const doc = renderHistory(inputs);
     try {
-      fs.mkdirSync(path.dirname(inputs.historyPath), { recursive: true });
-      fs.writeFileSync(inputs.historyPath, doc.text);
+      fs.mkdirSync(path.dirname(inputs.historyPath), {
+        recursive: true,
+        mode: 0o700,
+      });
+      fs.writeFileSync(inputs.historyPath, doc.text, { mode: 0o600 });
+      fs.chmodSync(inputs.historyPath, 0o600);
     } catch {
       // A failed write still returns the render.
     }

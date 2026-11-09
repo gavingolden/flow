@@ -95,6 +95,9 @@ describe("history log", () => {
     writeLive("Pipeline reached MERGED at 2026-11-08T21:48:04Z.\n");
     expect(logLiveNoteIfUnlogged(SLUG, "merged", dir)).toBe(false);
     expect(isTerminalOneLiner("Pipeline reached MERGED at 1.\n")).toBe(true);
+    expect(
+      isTerminalOneLiner("Pipeline reached MERGED (externally) at 1.\n"),
+    ).toBe(true);
     expect(isTerminalOneLiner("Pipeline reached MERGED at 1.\nmore")).toBe(
       false,
     );
