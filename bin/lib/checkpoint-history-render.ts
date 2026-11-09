@@ -38,8 +38,8 @@ import {
 } from "./pipeline-summary-sources";
 import type { PipelineKind, PipelineState } from "./state";
 
-/** 500 under Claude Code's 10,000-character hook-context cap (https://code.claude.com/docs/en/hooks). */
-export const HOOK_CONTEXT_MAX_CHARS = 9_500;
+export { HOOK_CONTEXT_MAX_CHARS } from "./hook-context-limit";
+import { HOOK_CONTEXT_MAX_CHARS } from "./hook-context-limit";
 
 export type SectionKey =
   | "outcome"

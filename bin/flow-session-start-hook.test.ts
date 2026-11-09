@@ -1,11 +1,17 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { checkpointConsumedPath } from "./flow-checkpoint";
+import { appendHistoryEvent } from "./lib/checkpoint-history";
+import { loadAndRenderHistory } from "./lib/checkpoint-history-load";
+import { renderBrief } from "./lib/checkpoint-history-render";
 import {
   deliverArgv,
   deliverResumeSeed,
   parseResumeKind,
   parseSeedMode,
-  capCheckpointBody,
-  CHECKPOINT_BODY_MAX_BYTES,
+  terminalBriefLead,
   resumeSeedFor,
   run,
   sessionStartOutput,
@@ -18,8 +24,9 @@ import {
   type SeedMode,
 } from "./flow-session-start-hook";
 import { flowPipelineResumeSeed } from "./lib/feature";
+import { HOOK_CONTEXT_MAX_CHARS } from "./lib/hook-context-limit";
 import { REMAINDER_CHUNK_BYTES } from "./lib/seed-delivery";
-import { TERMINAL_PHASES, type PipelineState } from "./lib/state";
+import { TERMINAL_PHASES, writeState, type PipelineState } from "./lib/state";
 
 type Stub = {
   deps: Deps;
@@ -735,17 +742,37 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
     );
   });
 
-  it("caps an oversized checkpoint body and says so, rather than stalling session start or flooding the fresh context", () => {
-    const huge = "x".repeat(CHECKPOINT_BODY_MAX_BYTES + 5_000);
-    const capped = capCheckpointBody(huge);
-    expect(capped.length).toBeLessThan(huge.length);
-    expect(capped).toContain("[truncated");
-    expect(capped).toContain(String(CHECKPOINT_BODY_MAX_BYTES));
+  it("cuts an oversized body on a line boundary under the hook limit and points at the file", () => {
+    const body = Array.from(
+      { length: 2000 },
+      (_, i) => `line ${i} ${"x".repeat(20)}`,
+    ).join("\n");
+    const out = terminalCarryOver(
+      "demo",
+      "merged",
+      "feature",
+      body,
+      "/s/checkpoint.consumed.md",
+    );
+    expect(out.length).toBeLessThanOrEqual(HOOK_CONTEXT_MAX_CHARS);
+    expect(out.endsWith("[continued - Read /s/checkpoint.consumed.md]")).toBe(
+      true,
+    );
+    expect(out).toContain("</checkpoint-notes>");
+    const kept = out
+      .split("<checkpoint-notes>\n")[1]
+      .split("\n</checkpoint-notes>")[0];
+    expect(body.startsWith(kept)).toBe(true);
+    expect(kept.endsWith("x".repeat(20))).toBe(true);
   });
 
   it("leaves a normal-sized checkpoint body byte-identical", () => {
     const body = "approved with condition X\n";
-    expect(capCheckpointBody(body)).toBe(body);
+    const out = terminalCarryOver("demo", "merged", "feature", body);
+    expect(out).toContain(
+      "<checkpoint-notes>\napproved with condition X\n</checkpoint-notes>",
+    );
+    expect(out).not.toContain("[continued");
   });
 
   it("a terminal phase with NO readable body falls back to the plain terminalAdvisory and does not retire anything", async () => {
@@ -780,7 +807,7 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
     expect(dispatchedTerminal).toEqual([]);
   });
 
-  it("a throwing retireCheckpoint still returns 0 AND the body was already emitted — emit-before-retire ordering, so a failed retirement never costs the user their notes", async () => {
+  it("a throwing retireCheckpoint still returns 0 AND the body is still emitted, so a failed retirement never costs the user their notes", async () => {
     const { deps, emitted, dispatchedTerminal } = makeDeps({
       slug: "demo",
       state: fakeState("merged"),
@@ -793,15 +820,16 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
     // swapped the emit and the retire, which would silently drop the notes.
     expect(emitted).toHaveLength(1);
     expect(emitted[0]).toContain("note");
-    // A throwing retirement lands in the branch's catch, which returns before
-    // the dispatch — the notes are already safely emitted, and waking the pane
-    // to summarise a checkpoint whose retirement just failed would re-fire on
-    // the next /clear (the marker is still armed).
+    // A throwing retirement still emits the notes but skips the dispatch:
+    // waking the pane to summarise a checkpoint whose retirement just failed
+    // would re-fire on the next /clear (the marker is still armed).
     expect(dispatchedTerminal).toEqual([]);
   });
 
   it("dispatches the terminal orientation turn AFTER both the emit and the retire", async () => {
-    // Ordering is the guarantee: the passive carry-over is the foreground,
+    // Ordering is the guarantee: the note is retired BEFORE the history
+    // renders (so the brief shows it as the newest retired note, never as an
+    // active instruction), the passive emit is the foreground,
     // always-delivered channel, and the pane turn is best-effort. Asserting
     // only "all three happened" would stay green if a refactor hoisted the
     // dispatch above the emit, which is exactly the regression that would let
@@ -826,7 +854,7 @@ describe("flow-session-start-hook — terminal-phase checkpoint carry-over (Task
       },
     };
     expect(await run(deps)).toBe(0);
-    expect(order).toEqual(["emit", "retire", "dispatch:terminal"]);
+    expect(order).toEqual(["retire", "emit", "dispatch:terminal"]);
   });
 
   it("a second /clear after retirement emits nothing — retirement unlinks the marker, so the hook returns at the marker gate", async () => {
@@ -1722,5 +1750,276 @@ describe("deliverResumeSeed — seed record ordering (Task 8)", () => {
       seed: "OLD SEED",
       seedIngest: prev.seedIngest,
     });
+  });
+});
+
+describe("flow-session-start-hook — passive brief on every flow-window clear (Task 9)", () => {
+  type Rendered = { path: string; brief: string } | null;
+  const BRIEF = "<pipeline-history>BRIEF</pipeline-history>";
+  const render = (
+    result: Rendered = { path: "/h/history.md", brief: BRIEF },
+  ) => {
+    const calls: Array<{ slug: string; kind: ResumeKind; maxChars: number }> =
+      [];
+    const renderHistory: NonNullable<Deps["renderHistory"]> = async (
+      slug,
+      kind,
+      maxChars,
+    ) => {
+      calls.push({ slug, kind, maxChars });
+      return result;
+    };
+    return { calls, renderHistory };
+  };
+
+  it("unmarked clear injects brief without a turn", async () => {
+    const { deps, emitted, dispatched, dispatchedTerminal, retiredSlugs } =
+      makeDeps({
+        slug: "demo",
+        state: fakeState("merged"),
+        markerExists: false,
+      });
+    const { calls, renderHistory } = render();
+    expect(await run({ ...deps, renderHistory })).toBe(0);
+    expect(emitted).toEqual([BRIEF]);
+    expect(dispatched).toEqual([]);
+    expect(dispatchedTerminal).toEqual([]);
+    expect(retiredSlugs).toEqual([]);
+    expect(calls[0].maxChars).toBe(HOOK_CONTEXT_MAX_CHARS);
+  });
+
+  it("second clear keeps history", async () => {
+    const { deps, emitted } = makeDeps({
+      slug: "demo",
+      state: fakeState("merged"),
+      markerExists: false,
+    });
+    const { renderHistory } = render();
+    await run({ ...deps, renderHistory });
+    await run({ ...deps, renderHistory });
+    expect(emitted).toEqual([BRIEF, BRIEF]);
+  });
+
+  it("plain unmarked clear injects the same brief", async () => {
+    const { deps, emitted, dispatchedTerminal } = makeDeps({
+      slug: "demo",
+      state: { ...fakeState("merged"), launcher: "plain" },
+      markerExists: false,
+      tmuxPaneEnv: "",
+    });
+    const { renderHistory } = render();
+    await run({ ...deps, renderHistory });
+    expect(emitted).toEqual([BRIEF]);
+    expect(dispatchedTerminal).toEqual([]);
+  });
+
+  it("marked terminal clear retires before render", async () => {
+    const order: string[] = [];
+    const { deps, emitted, dispatchedTerminal } = makeDeps({
+      slug: "demo",
+      state: fakeState("merged"),
+      markerExists: true,
+      checkpointBody: "closing note\n",
+    });
+    const renderHistory: NonNullable<Deps["renderHistory"]> = async () => {
+      order.push("render");
+      return { path: "/h/history.md", brief: BRIEF };
+    };
+    await run({
+      ...deps,
+      retireCheckpoint: () => order.push("retire"),
+      renderHistory,
+    });
+    expect(order).toEqual(["retire", "render"]);
+    expect(emitted).toEqual([
+      `${terminalBriefLead("demo", "merged", "feature")}\n\n${BRIEF}`,
+    ]);
+    expect(dispatchedTerminal).toEqual(["demo"]);
+  });
+
+  it("awaiting-human marked clear keeps the note and still renders", async () => {
+    const { deps, retiredSlugs, emitted } = makeDeps({
+      slug: "demo",
+      state: fakeState("needs-human"),
+      markerExists: true,
+      checkpointBody: "pending human step\n",
+    });
+    const { renderHistory } = render();
+    await run({ ...deps, renderHistory });
+    expect(retiredSlugs).toEqual([]);
+    expect(emitted[0]).toContain("paused waiting on a human step");
+  });
+
+  it("unmarked mid-pipeline clear names the resume line", async () => {
+    const { deps, emitted, dispatched } = makeDeps({
+      slug: "demo",
+      state: fakeState("reviewing"),
+      markerExists: false,
+    });
+    const { renderHistory } = render();
+    await run({ ...deps, renderHistory });
+    expect(emitted).toEqual([BRIEF]);
+    expect(dispatched).toEqual([]);
+  });
+
+  it("marked resumable clear dispatches resume with brief", async () => {
+    const { deps, emitted, dispatched, dispatchedModes } = makeDeps({
+      slug: "demo",
+      state: fakeState("reviewing"),
+      markerExists: true,
+    });
+    const { renderHistory } = render();
+    await run({ ...deps, renderHistory });
+    expect(emitted).toEqual([BRIEF]);
+    expect(dispatched).toEqual(["demo"]);
+    expect(dispatchedModes).toEqual(["resume"]);
+  });
+
+  it("plain resumable clear emits seed and brief under the limit", async () => {
+    const { deps, emitted, dispatched } = makeDeps({
+      slug: "demo",
+      state: { ...fakeState("reviewing"), launcher: "plain" },
+      markerExists: true,
+      tmuxPaneEnv: "",
+    });
+    const { calls, renderHistory } = render();
+    await run({ ...deps, renderHistory });
+    const seed = resumeSeedFor("demo", "feature");
+    expect(emitted).toEqual([`${seed}\n\n${BRIEF}`]);
+    expect(calls[0].maxChars).toBe(HOOK_CONTEXT_MAX_CHARS - seed.length - 2);
+    expect(dispatched).toEqual([]);
+  });
+
+  it("epic-run clear renders with the pane kind", async () => {
+    const { deps, dispatchedKinds } = makeDeps({
+      slug: "demo",
+      state: fakeState("epic-approved"),
+      markerExists: true,
+      resolveKind: () => "epic-run",
+    });
+    const { calls, renderHistory } = render();
+    await run({ ...deps, renderHistory });
+    expect(calls[0].kind).toBe("epic-run");
+    expect(dispatchedKinds).toEqual(["epic-run"]);
+  });
+
+  it("render failure keeps today's output", async () => {
+    for (const renderHistory of [
+      async () => null,
+      async () => {
+        throw new Error("boom");
+      },
+    ] as Array<NonNullable<Deps["renderHistory"]>>) {
+      const unmarked = makeDeps({
+        slug: "demo",
+        state: fakeState("merged"),
+        markerExists: false,
+      });
+      await run({ ...unmarked.deps, renderHistory });
+      expect(unmarked.emitted).toEqual([]);
+      const marked = makeDeps({
+        slug: "demo",
+        state: fakeState("merged"),
+        markerExists: true,
+        checkpointBody: "note\n",
+      });
+      await run({ ...marked.deps, renderHistory });
+      expect(marked.emitted).toEqual([
+        terminalCarryOver(
+          "demo",
+          "merged",
+          "feature",
+          "note\n",
+          checkpointConsumedPath("demo"),
+        ),
+      ]);
+      const noBody = makeDeps({
+        slug: "demo",
+        state: fakeState("merged"),
+        markerExists: true,
+      });
+      await run({ ...noBody.deps, renderHistory });
+      expect(noBody.emitted).toEqual([
+        terminalAdvisory("demo", "merged", "feature"),
+      ]);
+      const resumable = makeDeps({
+        slug: "demo",
+        state: { ...fakeState("reviewing"), launcher: "plain" },
+        markerExists: true,
+        tmuxPaneEnv: "",
+      });
+      await run({ ...resumable.deps, renderHistory });
+      expect(resumable.emitted).toEqual([resumeSeedFor("demo", "feature")]);
+    }
+  });
+
+  it("non-flow clear loads nothing", async () => {
+    const { deps, loadCalls, emitted } = makeDeps({ stdin: "{}" });
+    const { calls, renderHistory } = render();
+    await run({ ...deps, flowSlugEnv: undefined, renderHistory });
+    const noRecord = makeDeps({
+      slug: "demo",
+      state: null,
+      markerExists: true,
+    });
+    await run({ ...noRecord.deps, renderHistory });
+    expect(calls).toEqual([]);
+    expect(loadCalls).toEqual([]);
+    expect(emitted).toEqual([]);
+    expect(noRecord.emitted).toEqual([]);
+  });
+
+  it("renders the real history end to end with the loader", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hook-brief-"));
+    try {
+      writeState(
+        {
+          slug: "demo",
+          phase: "merged",
+          repo: "/tmp/repo",
+          pr: 7,
+          prUrl: "https://github.com/o/r/pull/7",
+          updatedAt: "t",
+        } as PipelineState,
+        dir,
+      );
+      appendHistoryEvent(
+        "demo",
+        {
+          type: "gate",
+          at: "2026-11-02T00:00:00Z",
+          status: "merged",
+          tldr: "Shipped the brief",
+          prUrl: "https://github.com/o/r/pull/7",
+        },
+        dir,
+      );
+      const { deps, emitted, dispatchedTerminal } = makeDeps({
+        slug: "demo",
+        state: fakeState("merged"),
+        markerExists: false,
+      });
+      await run({
+        ...deps,
+        renderHistory: async (slug, kind, maxChars) => {
+          const out = loadAndRenderHistory(slug, { stateDir: dir, kind });
+          return out
+            ? {
+                path: out.path,
+                brief: renderBrief(out.doc, out.path, maxChars),
+              }
+            : null;
+        },
+      });
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].length).toBeLessThanOrEqual(HOOK_CONTEXT_MAX_CHARS);
+      expect(emitted[0]).toContain("Shipped the brief");
+      expect(emitted[0]).toContain(
+        path.join(dir, "checkpoints", "demo", "history.md"),
+      );
+      expect(dispatchedTerminal).toEqual([]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
