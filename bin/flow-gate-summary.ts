@@ -97,6 +97,7 @@ import {
 } from "./flow-checkpoint";
 import { isValidSlug } from "./lib/slug";
 import {
+  type GateStatus,
   logLiveNoteIfUnlogged,
   recordGateOutcome,
 } from "./lib/checkpoint-history";
@@ -1266,11 +1267,7 @@ export function run(
       recordGateOutcome(
         resolvedSlug,
         {
-          status: parsed.status as
-            | "merged"
-            | "gated"
-            | "needs-human"
-            | "cancelled",
+          status: parsed.status as GateStatus,
           tldr,
           prUrl: parsed.prUrl,
           reason: parsed.reason,

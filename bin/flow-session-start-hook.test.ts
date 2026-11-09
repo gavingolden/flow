@@ -1751,6 +1751,38 @@ describe("deliverResumeSeed — seed record ordering (Task 8)", () => {
       seedIngest: prev.seedIngest,
     });
   });
+
+  it("restores the previous seed fields onto a fresh read when the literal send fails", () => {
+    const { seams: base } = makeSeams(
+      frames(["old pre-clear prompt", "fresh", "fresh", "fresh", "fresh"]),
+      20,
+      { leadEcho: RESUME_SEED },
+    );
+    const seams: DeliverSeams = {
+      ...base,
+      sendKeys: () => ({ ok: false, stderr: "window not found" }),
+    };
+    const concurrent: PipelineState = { ...prev, phase: "reviewing" };
+    let reads = 0;
+    const written: PipelineState[] = [];
+    const ok = deliverResumeSeed(
+      "demo",
+      {
+        ...seams,
+        readState: () => (reads++ === 0 ? prev : concurrent),
+        writeState: (s) => written.push(s),
+      },
+      "feature",
+      "resume",
+    );
+    expect(ok).toBe(false);
+    expect(written).toHaveLength(2);
+    expect(written[1]).toEqual({
+      ...concurrent,
+      seed: "OLD SEED",
+      seedIngest: prev.seedIngest,
+    });
+  });
 });
 
 describe("flow-session-start-hook — passive brief on every flow-window clear (Task 9)", () => {

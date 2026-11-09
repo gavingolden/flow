@@ -122,8 +122,8 @@ export type SeedMode = "resume" | "terminal";
 
 /**
  * The user-turn seed fired into a tmux pane after a `/clear` at a phase the
- * pipeline will NOT resume from. `terminalCarryOver` already delivers the notes
- * passively, but `additionalContext` triggers no autonomous turn — so without
+ * pipeline will NOT resume from. The history brief (or, when the render fails,
+ * `terminalCarryOver`) already delivers the context passively, but `additionalContext` triggers no autonomous turn — so without
  * this the user stares at a blank pane and cannot tell whether the carry-over
  * worked at all. This seed's only job is orientation: say what finished, say
  * where the repo is, then stop.
@@ -133,7 +133,7 @@ export type SeedMode = "resume" | "terminal";
  * re-entering a pipeline with nothing left to do. It also never restates the
  * checkpoint body: that arrives on the additionalContext channel already framed
  * as data, and re-typing a whole body through
- * `send-keys -l` would both strip the `<checkpoint-notes>` framing and turn a
+ * `send-keys -l` would both strip the `<pipeline-history>` / `<checkpoint-notes>` framing and turn a
  * one-shot handshake into a multi-chunk literal paste.
  *
  * ASCII-only by choice: unlike the advisory / carry-over strings (which reach
@@ -247,13 +247,6 @@ export function terminalAdvisory(
 }
 
 /**
- * The passive context emitted when a `/clear` at a terminal phase DOES carry
- * a non-empty checkpoint body — the carry-over path Task 2 adds. Reuses
- * `terminalAdvisory`'s recovery-command mapping (via `recoveryCommandFor`, `./lib/recovery-command`)
- * rather than duplicating it, then appends the body verbatim under a
- * dedicated heading so it reads as distinct from the one-line note.
- */
-/**
  * One-line phase and recovery note that leads the brief when a marked `/clear`
  * lands on a phase the pipeline will not auto-resume from. The brief itself
  * carries status, the newest retired note and the index.
@@ -277,6 +270,14 @@ function cutOnLine(body: string, max: number): string {
   return nl > 0 ? cut.slice(0, nl) : cut;
 }
 
+/**
+ * The fallback passive context for a `/clear` at a terminal phase that carries
+ * a non-empty checkpoint body, used only when the history render fails.
+ * Reuses `terminalAdvisory`'s recovery-command mapping (via
+ * `recoveryCommandFor`, `./lib/recovery-command`), then appends the body under
+ * a dedicated heading, cut on a line boundary to the hook limit with a pointer
+ * to the full file.
+ */
 export function terminalCarryOver(
   slug: string,
   phase: string,

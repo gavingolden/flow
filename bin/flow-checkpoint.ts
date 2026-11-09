@@ -12,10 +12,11 @@
  * and, on that same `ready` verdict, records a freshness receipt
  * (`state.checkpoint`: which site armed it, at which phase, and when) so a
  * LATER probe can tell a still-fresh manual note apart from a stale or
- * already-consumed one. `--consume` retires the body outright: it archives
+ * already-consumed one. `--consume` retires the note's one-time items: it archives
  * `checkpoint.md` to `checkpoint.consumed.md` (recoverable, never silently
- * deleted) and clears the freshness record. `--probe` answers "is the current
- * body still worth keeping?" without mutating anything, so the auto-checkpoint
+ * deleted) and clears the freshness record; standing items stay active via the
+ * history. `--probe` answers "is the current body still worth keeping?" and
+ * never changes the note, marker or record (it only logs an unlogged live note), so the auto-checkpoint
  * sites in `flow-pipeline` can branch on a computed verdict instead of
  * restating the freshness rule in prose at each site.
  *
@@ -27,7 +28,7 @@
  * Usage:
  *   flow-checkpoint [<slug>] [--site <site>]              validate + arm (write marker + record) on ready
  *   flow-checkpoint [<slug>] --consume                    archive checkpoint.md + clear the marker/record (Resume mode)
- *   flow-checkpoint [<slug>] --probe --site <site>         read-only freshness verdict, no mutation
+ *   flow-checkpoint [<slug>] --probe --site <site>         freshness verdict (logs an unlogged live note; never changes the note, marker or record)
  *   flow-checkpoint [<slug>] --path                        print the absolute checkpoint.md path (creating its parent dir) and exit
  *   flow-checkpoint [<slug>] --history                     re-render history.md and print its absolute path (nothing when there is no pipeline record)
  *   flow-checkpoint [<slug>] --journal                     read a few lines on stdin and log them as a journal event at the current phase

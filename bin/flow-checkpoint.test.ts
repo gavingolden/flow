@@ -1232,15 +1232,31 @@ describe("run() — history log, --history and --journal", () => {
     expect(readHistoryEvents(SLUG, stateDir)).toEqual([]);
   });
 
-  it("logs an unlogged live note on --probe and on --path, once", () => {
+  it("logs an unlogged live note on --probe", () => {
     seedState(SLUG, { phase: "implementing", checkpoint: undefined });
     writeCheckpoint(SLUG, "unarmed note\n");
     const probe = runOut([SLUG, "--probe", "--site", "gate"]);
     expect(JSON.parse(probe.stdout).status).toBe("probe");
+    expect(readHistoryEvents(SLUG, stateDir)).toMatchObject([
+      { site: "unarmed", phase: "implementing" },
+    ]);
+  });
+
+  it("logs an unlogged live note on --path", () => {
+    seedState(SLUG, { phase: "implementing", checkpoint: undefined });
+    writeCheckpoint(SLUG, "unarmed note\n");
     runOut([SLUG, "--path"]);
-    const notes = readHistoryEvents(SLUG, stateDir);
-    expect(notes).toHaveLength(1);
-    expect(notes[0]).toMatchObject({ site: "unarmed", phase: "implementing" });
+    expect(readHistoryEvents(SLUG, stateDir)).toMatchObject([
+      { site: "unarmed", phase: "implementing" },
+    ]);
+  });
+
+  it("logs an unlogged live note once across --probe and --path", () => {
+    seedState(SLUG, { phase: "implementing", checkpoint: undefined });
+    writeCheckpoint(SLUG, "unarmed note\n");
+    runOut([SLUG, "--probe", "--site", "gate"]);
+    runOut([SLUG, "--path"]);
+    expect(readHistoryEvents(SLUG, stateDir)).toHaveLength(1);
   });
 
   it("retires one-time items on consume", () => {

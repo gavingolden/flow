@@ -1687,6 +1687,45 @@ describe(
       expect(list).toContain(siblingDir);
       expect(list).not.toContain(ownDir);
     });
+
+    it("snapshots .flow-tmp artifacts before the scratch folder is deleted", async () => {
+      const slug = "snapfirst";
+      const made = await runNewWorktree([slug], fx.repoDir);
+      expect(made.exitCode, `stderr: ${made.stderr}`).toBe(0);
+      const wtDir = path.join(worktreeContainerDir(fx.repoDir), `repo-${slug}`);
+      fs.mkdirSync(path.join(wtDir, ".flow-tmp"), { recursive: true });
+      fs.writeFileSync(
+        path.join(wtDir, ".flow-tmp", "plan.md"),
+        "# the plan\n",
+      );
+      fs.writeFileSync(
+        path.join(stateDir, `${slug}.json`),
+        JSON.stringify({
+          slug,
+          phase: "merging",
+          repo: fx.repoDir,
+          worktree: wtDir,
+          updatedAt: "2026-07-02T00:00:00Z",
+        }),
+      );
+
+      const remove = await runHelper([slug], fx.repoDir, {
+        ...process.env,
+        HOME: home,
+      });
+      expect(remove.exitCode, `stderr: ${remove.stderr}`).toBe(0);
+
+      expect(fs.existsSync(wtDir)).toBe(false);
+      expect(
+        fs.readFileSync(
+          path.join(snapshotDir(slug, stateDir), "plan.md"),
+          "utf8",
+        ),
+      ).toBe("# the plan\n");
+      expect(
+        readHistoryEvents(slug, stateDir).some((e) => e.type === "snapshot"),
+      ).toBe(true);
+    });
   },
 );
 
