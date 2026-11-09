@@ -258,6 +258,10 @@ describe("run() — history", () => {
     const bodyPath = checkpointBodyPath("hist-epic", stateDir);
     fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
     fs.writeFileSync(bodyPath, "manual note nobody armed\n");
+    // An old mtime pins the unrecorded-body freshness fallback to "stale", so
+    // the write branch (and the log-before-overwrite) runs deterministically.
+    const old = new Date("2026-01-01T00:00:00Z");
+    fs.utimesSync(bodyPath, old, old);
 
     const { exit } = runCapture([
       "--reason",

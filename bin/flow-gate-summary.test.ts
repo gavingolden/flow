@@ -2804,6 +2804,9 @@ describe("run() — history record", () => {
     const body = checkpointBodyPath(SLUG, tmpRoot);
     fs.mkdirSync(path.dirname(body), { recursive: true });
     fs.writeFileSync(body, "an unarmed manual note\n");
+    // An old mtime pins the unrecorded-body freshness fallback to "stale".
+    const old = new Date("2026-01-01T00:00:00Z");
+    fs.utimesSync(body, old, old);
 
     renderStatus("needs-human", ["--reason", "ci-hang"]);
 
