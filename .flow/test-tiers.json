@@ -71,7 +71,8 @@
     "bin/lib/md-block-structure.live.test.ts",
     "bin/lib/setup.test.ts",
     "bin/lib/worktree-commit-hook.test.ts",
-    "bin/lib/worktree-orphans-run.live.test.ts"
+    "bin/lib/worktree-orphans-run.live.test.ts",
+    "bin/vitest-setup-no-isolate.test.ts"
   ],
   "forceFullOn": [
     "vitest.config.ts",
