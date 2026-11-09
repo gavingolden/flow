@@ -1,0 +1,62 @@
+# Renders the README's tmux tree image for real and checks it, on PRs and main
+# pushes that touch a render input. It verifies: the tape renders, the tree shows
+# the six seeded rows with the right flags / PR / phase / title, the column
+# offsets the numbered markers assume on every row, the PNG size, that the SVG
+# marker markup matches the committed image, and that no leftover `flow-demo`
+# tmux server remains (docs/demo/README.md "What CI checks").
+#
+# Deliberately NOT a required status check: a path-filtered required check sits
+# pending forever on PRs that do not touch these paths.
+#
+# vhs is pinned to the version the committed image was rendered with.
+# vhs-action installs ttyd/ffmpeg at their latest releases (accepted: the job is
+# read-only, has no secrets, and is not required). vhs-action runs on node20 —
+# a runtime-deprecation warning is the trigger to bump it.
+
+name: Demo render
+
+on:
+  pull_request:
+    paths:
+      - "docs/demo/**"
+      - "docs/tmux-tree.conf"
+      - ".github/workflows/demo-render.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/demo/**"
+      - "docs/tmux-tree.conf"
+      - ".github/workflows/demo-render.yml"
+  workflow_dispatch:
+
+# Cancel superseded PR runs; never cancel an in-flight push-to-main run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  demo-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: Install vhs
+        uses: charmbracelet/vhs-action@f6d7db07a432fcd3b06772628d36a57f96d95dcf # v2.1.1
+        with:
+          version: v0.11.0
+
+      - name: Render and check
+        run: ./docs/demo/render-tmux-tree.ts --check

@@ -7,7 +7,8 @@ import { PHASE_SHORT } from "./lib/state";
 /**
  * docs/tmux-tree.conf is a user-facing contract: users `source-file` it, so a
  * renamed option or phase value silently blanks their tree view. fs reads
- * only — CI has neither tmux nor vhs.
+ * only — the verify job has neither tmux nor vhs; the Demo render workflow
+ * runs the real render (docs/demo/README.md).
  */
 
 const REPO_ROOT = path.resolve(

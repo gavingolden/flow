@@ -1,11 +1,19 @@
 #!/usr/bin/env bun
 // Rebuilds docs/demo/tmux-tree.svg: renders docs/demo/tmux.tape with VHS, then
 // wraps the screenshot with numbered markers. Run from the repo root.
+// `--check` renders and verifies without writing the committed image.
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  EXPECTED_PNG,
+  checkTreeFrame,
+  pngSize,
+  svgShell,
+} from "./tmux-tree-check";
 
 const RENDER_DIR = "docs/demo/.render";
 const PNG = `${RENDER_DIR}/tmux-tree.png`;
+const LOG = `${RENDER_DIR}/tmux-tree.txt`;
 const OUT = "docs/demo/tmux-tree.svg";
 
 // Marker coordinates (PNG pixels) match the tape's Width 1100 / FontSize 16 and
@@ -41,18 +49,27 @@ const bracket = (w: number, r0: number, r1: number, n: number) => {
   );
 };
 
-function render(): void {
+function demoEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const k of ["TMUX", "TMUX_PANE", "FLOW_SLUG"]) delete env[k];
+  return env;
+}
+
+function render(check: boolean): void {
   const r = spawnSync("vhs", ["docs/demo/tmux.tape"], {
-    env,
+    env: demoEnv(),
     stdio: "inherit",
   });
   if (r.status !== 0) throw new Error(`vhs exited with ${r.status}`);
   if (!existsSync(PNG)) throw new Error(`vhs did not produce ${PNG}`);
+  if (!existsSync(LOG)) throw new Error(`vhs did not produce ${LOG}`);
   const buf = readFileSync(PNG);
-  const w = buf.readUInt32BE(16);
-  const h = buf.readUInt32BE(20);
+  const { w, h } = pngSize(buf);
+  const problems = checkTreeFrame(readFileSync(LOG, "utf8"));
+  if (w !== EXPECTED_PNG.w || h !== EXPECTED_PNG.h)
+    problems.push(
+      `rendered PNG is ${w}x${h}, expected ${EXPECTED_PNG.w}x${EXPECTED_PNG.h}`,
+    );
   const marks =
     GROUPS.map(([a, b, n]) => bracket(w, a, b, n)).join("") +
     COLUMNS.map(([x, n]) => column(x, n)).join("");
@@ -63,8 +80,34 @@ function render(): void {
 ${marks}
 </svg>
 `;
-  writeFileSync(OUT, svg);
+  if (check) {
+    const committed = readFileSync(OUT, "utf8");
+    const embedded = /data:image\/png;base64,([A-Za-z0-9+/=]+)/.exec(committed);
+    if (!embedded) {
+      problems.push(`${OUT} has no embedded PNG`);
+    } else {
+      const c = pngSize(Buffer.from(embedded[1], "base64"));
+      if (c.w !== EXPECTED_PNG.w || c.h !== EXPECTED_PNG.h)
+        problems.push(
+          `committed ${OUT} embeds a ${c.w}x${c.h} PNG, expected ${EXPECTED_PNG.w}x${EXPECTED_PNG.h}`,
+        );
+    }
+    if (svgShell(svg) !== svgShell(committed))
+      problems.push(
+        `marker markup differs from the committed ${OUT} — re-render without --check and commit it`,
+      );
+  }
+  if (problems.length) throw new Error(problems.join("\n"));
+  if (check) console.log("tmux-tree render check: ok");
+  else writeFileSync(OUT, svg);
 }
+
+const args = process.argv.slice(2);
+if (args.length > 1 || (args.length === 1 && args[0] !== "--check")) {
+  console.error("usage: ./docs/demo/render-tmux-tree.ts [--check]");
+  process.exit(2);
+}
+const check = args[0] === "--check";
 
 for (const [bin, arg] of [
   ["vhs", "--version"],
@@ -76,14 +119,13 @@ for (const [bin, arg] of [
 
 let failed = false;
 try {
-  render();
+  render(check);
 } catch (e) {
   failed = true;
   throw e;
 } finally {
   rmSync(RENDER_DIR, { recursive: true, force: true });
-  const env = { ...process.env };
-  for (const k of ["TMUX", "TMUX_PANE", "FLOW_SLUG"]) delete env[k];
+  const env = demoEnv();
   const left = spawnSync("tmux", ["-L", "flow-demo", "has-session"], {
     env,
     stdio: "ignore",
