@@ -99,9 +99,10 @@ a fresh, low-context session.
    (e.g. an "approved with A1" note, a folded-in scope change, an "ignore
    flake X" decision). Tag each item: conditions that constrain the whole
    implementation are written `- [standing]`, the approval verdict and one-off
-   addenda `- [one-time]`. On a `preserve` verdict, append the approval items
-   under a `Plan approval:` line at the end of the live note instead of
-   skipping them; arm as usual. Unlike the gate auto-checkpoint (near-zero
+   addenda `- [one-time]`. On a `preserve` verdict, append the tagged approval
+   items directly at the end of the live note (no untagged heading line: an
+   untagged line parses as a bogus `[one-time]` item) instead of skipping
+   them; arm as usual. Unlike the gate auto-checkpoint (near-zero
    residue), this one genuinely flushes approval state, so it uses the fuller
    `/flow-checkpoint`-style flush.
 3. **Arm the one-shot marker:** `flow-checkpoint --site plan-approval`

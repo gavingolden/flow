@@ -108,6 +108,17 @@ describe("classifyDecisions", () => {
     expect(active).toHaveLength(1);
   });
 
+  it("should retire one-time items of a live but unusable note", () => {
+    const n1 = note(1, "- [one-time] approve");
+    const { active, record } = classifyDecisions([n1], {
+      liveNoteSha: n1.sha,
+      liveNoteUsable: false,
+      pipelineEnded: false,
+    });
+    expect(active).toEqual([]);
+    expect(record[0].status).toBe("retired");
+  });
+
   it("should mark older one-time items superseded", () => {
     const n1 = note(1, "- [one-time] a");
     const n2 = note(2, "- [one-time] b");
