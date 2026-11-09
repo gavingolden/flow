@@ -96,6 +96,10 @@ import {
   renderArmBanner,
 } from "./flow-checkpoint";
 import { isValidSlug } from "./lib/slug";
+import {
+  logLiveNoteIfUnlogged,
+  recordGateOutcome,
+} from "./lib/checkpoint-history";
 import { resolveLens, type OutputLens } from "./lib/output-lens";
 import {
   TLDR_MAX_WORDS,
@@ -1254,6 +1258,27 @@ export function run(
         `flow-gate-summary: not finalizing phase to '${targetPhase}' (${result.reason})\n`,
       );
     }
+    // Best-effort history record of the outcome (plus a snapshot of the run's
+    // artifacts while the worktree still exists). Gated on `result.advanced`
+    // so a resume re-render or a slug/PR-mismatched hand-run never duplicates
+    // or invents a gate event; no stdout, no exit-code effect.
+    if (result.advanced && resolvedSlug !== null) {
+      recordGateOutcome(
+        resolvedSlug,
+        {
+          status: parsed.status as
+            | "merged"
+            | "gated"
+            | "needs-human"
+            | "cancelled",
+          tldr,
+          prUrl: parsed.prUrl,
+          reason: parsed.reason,
+        },
+        readState(resolvedSlug, opts?.stateDir)?.worktree,
+        opts?.stateDir,
+      );
+    }
     // Best-effort run.terminal telemetry — one record per terminal render
     // that actually reached the reader (the broken-pipe `return 1` above
     // already bailed before this point, so it can never double-log or
@@ -1338,6 +1363,8 @@ export function run(
                 `Paused at phase: ${pausedPhase(armState.phaseLog) ?? "unknown"}`,
               ].join("\n") + "\n";
             const bodyPath = checkpointBodyPath(resolvedSlug, opts?.stateDir);
+            // The write below replaces checkpoint.md: log an unlogged note first.
+            logLiveNoteIfUnlogged(resolvedSlug, armState.phase, opts?.stateDir);
             fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
             fs.writeFileSync(bodyPath, body);
           }
