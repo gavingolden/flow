@@ -51,9 +51,8 @@ function excludeIsCurrent(file: string): boolean {
 
 function isCurrent(dir: string): boolean {
   try {
-    if (!fs.lstatSync(dir).isDirectory() || squatReason(fs.lstatSync(dir))) {
-      return false;
-    }
+    const st = fs.lstatSync(dir);
+    if (!st.isDirectory() || squatReason(st)) return false;
     const hooks = path.join(dir, "hooks");
     const info = path.join(dir, "info");
     return (
@@ -134,10 +133,14 @@ function repairInPlace(dir: string, root: string): void {
     `.${GIT_TEMPLATE_DIRNAME}-exclude-${process.pid}-${randomBytes(4).toString("hex")}`,
   );
   try {
-    if (fs.lstatSync(exclude, { throwIfNoEntry: false })?.isFile() === false) {
+    // O_EXCL: never follow a symlink pre-planted at the scratch name.
+    fs.writeFileSync(scratch, EXCLUDE_BODY, { mode: 0o644, flag: "wx" });
+    // rename() replaces a file or symlink atomically; only a directory blocks it.
+    if (
+      fs.lstatSync(exclude, { throwIfNoEntry: false })?.isDirectory() === true
+    ) {
       fs.rmSync(exclude, { recursive: true, force: true });
     }
-    fs.writeFileSync(scratch, EXCLUDE_BODY, { mode: 0o644 });
     fs.renameSync(scratch, exclude);
   } finally {
     fs.rmSync(scratch, { force: true });
@@ -148,14 +151,16 @@ function repairInPlace(dir: string, root: string): void {
  * A template dir with an empty `hooks/` and git's stock `info/exclude`, so a
  * `git init` stops writing 14 unused sample hooks and a description file —
  * files macOS would otherwise scan on every test repo. Builds it if missing,
- * repairs a stale tree we own in place (the dir itself is never moved or
- * deleted), and refuses a symlink, foreign owner, or group/other-writable dir.
+ * replaces a stray regular file we own, repairs a stale tree we own in place
+ * (the dir itself is never moved or deleted), and refuses a symlink, foreign
+ * owner, group/other-writable dir, or any other file type.
  * Safe to call concurrently.
  */
 export function ensureMinimalGitTemplate(root: string = os.tmpdir()): string {
   const finalDir = path.join(root, GIT_TEMPLATE_DIRNAME);
   if (isCurrent(finalDir)) return finalDir;
 
+  let lastErr: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     const st = fs.lstatSync(finalDir, { throwIfNoEntry: false }) ?? null;
     const reason = st && squatReason(st);
@@ -168,7 +173,15 @@ export function ensureMinimalGitTemplate(root: string = os.tmpdir()): string {
       if (!st) {
         installFresh(root, finalDir);
       } else if (st.isFile()) {
-        fs.rmSync(finalDir, { force: true });
+        try {
+          fs.rmSync(finalDir, { force: true });
+        } catch (rmErr) {
+          // rmSync on a directory throws a runtime-specific code (ERR_FS_EISDIR on
+          // Node, EFAULT on Bun), so re-lstat: a directory means another run won.
+          const now = fs.lstatSync(finalDir, { throwIfNoEntry: false });
+          if (now?.isDirectory() && !now.isSymbolicLink()) continue;
+          throw rmErr;
+        }
         installFresh(root, finalDir);
       } else {
         repairInPlace(finalDir, root);
@@ -176,11 +189,13 @@ export function ensureMinimalGitTemplate(root: string = os.tmpdir()): string {
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code ?? "";
       if (!RACE_CODES.has(code)) throw err;
+      lastErr = err;
       continue;
     }
     if (isCurrent(finalDir)) return finalDir;
   }
   throw new Error(
     `could not install git template at ${finalDir} after 3 attempts`,
+    { cause: lastErr },
   );
 }

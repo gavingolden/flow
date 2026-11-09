@@ -44,13 +44,7 @@ describe(ensureMinimalGitTemplate, () => {
     const dir = ensureMinimalGitTemplate(root);
 
     expect(dir).toBe(path.join(root, GIT_TEMPLATE_DIRNAME));
-    expect(fs.readdirSync(dir).sort()).toEqual(["hooks", "info"]);
-    expect(fs.readdirSync(path.join(dir, "hooks"))).toEqual([]);
-    expect(fs.readdirSync(path.join(dir, "info"))).toEqual(["exclude"]);
-    expect(fs.readFileSync(path.join(dir, "info", "exclude"), "utf8")).toMatch(
-      /^# git ls-files --others --exclude-from=\.git\/info\/exclude/,
-    );
-    expect(fs.readdirSync(root)).toEqual([GIT_TEMPLATE_DIRNAME]);
+    expectMinimal(root, dir);
   });
 
   it("returns the same path without rewriting on a second call", () => {
@@ -174,14 +168,34 @@ describe("heal", () => {
     const outsideDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "flow-git-tpl-out-"),
     );
-    const outside = path.join(outsideDir, "target");
-    fs.writeFileSync(outside, "keep me\n");
-    fs.symlinkSync(outside, path.join(finalDir, "info", "exclude"));
+    try {
+      const outside = path.join(outsideDir, "target");
+      fs.writeFileSync(outside, "keep me\n");
+      fs.symlinkSync(outside, path.join(finalDir, "info", "exclude"));
+
+      heals();
+
+      expect(fs.readFileSync(outside, "utf8")).toBe("keep me\n");
+    } finally {
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("heals an info/exclude that is a directory", () => {
+    mkdir700(path.join(finalDir, "hooks"));
+    mkdir700(path.join(finalDir, "info", "exclude"));
+    heals();
+  });
+
+  it("tightens a group-writable info/exclude with the stock body", () => {
+    ensureMinimalGitTemplate(root);
+    fs.chmodSync(path.join(finalDir, "info", "exclude"), 0o666);
 
     heals();
 
-    expect(fs.readFileSync(outside, "utf8")).toBe("keep me\n");
-    fs.rmSync(outsideDir, { recursive: true, force: true });
+    expect(
+      fs.statSync(path.join(finalDir, "info", "exclude")).mode & 0o022,
+    ).toBe(0);
   });
 
   it("clears group/other-write bits on a writable hooks/", () => {
@@ -283,31 +297,67 @@ describe("concurrent heal", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it("tolerates another run finishing the repair mid-heal", () => {
-    const donor = fs.mkdtempSync(path.join(os.tmpdir(), "flow-git-tpl-donor-"));
-    try {
-      const stock = fs.readFileSync(
-        path.join(ensureMinimalGitTemplate(donor), "info", "exclude"),
-        "utf8",
-      );
-      const realRename = nodeFs.renameSync;
-      let first = true;
-      vi.spyOn(nodeFs, "renameSync").mockImplementation((from, to) => {
-        if (first) {
-          first = false;
-          nodeFs.writeFileSync(path.join(finalDir, "info", "exclude"), stock, {
-            mode: 0o644,
-          });
-        }
-        realRename(from, to);
-      });
-      syncBuiltinESMExports();
+  function failRename(code: string, times = Infinity): void {
+    const realRename = nodeFs.renameSync;
+    let n = 0;
+    vi.spyOn(nodeFs, "renameSync").mockImplementation((from, to) => {
+      if (n++ < times) {
+        throw Object.assign(new Error(`injected ${code}`), { code });
+      }
+      realRename(from, to);
+    });
+    syncBuiltinESMExports();
+  }
 
-      expect(ensureMinimalGitTemplate(root)).toBe(finalDir);
-      expectMinimal(root, finalDir);
-    } finally {
-      fs.rmSync(donor, { recursive: true, force: true });
+  it("retries after a race error from another run", () => {
+    failRename("ENOENT", 1);
+
+    expect(ensureMinimalGitTemplate(root)).toBe(finalDir);
+    expectMinimal(root, finalDir);
+  });
+
+  it("gives up after 3 race errors and keeps the last as the cause", () => {
+    failRename("ENOTDIR");
+
+    let thrown: unknown;
+    try {
+      ensureMinimalGitTemplate(root);
+    } catch (err) {
+      thrown = err;
     }
+    expect((thrown as Error).message).toMatch(/after 3 attempts/);
+    expect(((thrown as Error).cause as NodeJS.ErrnoException).code).toBe(
+      "ENOTDIR",
+    );
+  });
+
+  it("rethrows a non-race error", () => {
+    failRename("EACCES");
+
+    expect(() => ensureMinimalGitTemplate(root)).toThrow(/injected EACCES/);
+  });
+
+  it("retries when the stray-file delete loses to another run's install", () => {
+    fs.rmSync(finalDir, { recursive: true });
+    fs.writeFileSync(finalDir, "not a dir");
+    const realRm = nodeFs.rmSync;
+    let first = true;
+    vi.spyOn(nodeFs, "rmSync").mockImplementation((p, opts) => {
+      if (first && String(p) === finalDir) {
+        first = false;
+        // Another run replaces the file with a template, then our delete hits a dir.
+        realRm(finalDir, { force: true });
+        ensureMinimalGitTemplate(root);
+        throw Object.assign(new Error("Path is a directory"), {
+          code: "EFAULT",
+        });
+      }
+      realRm(p, opts);
+    });
+    syncBuiltinESMExports();
+
+    expect(ensureMinimalGitTemplate(root)).toBe(finalDir);
+    expectMinimal(root, finalDir);
   });
 
   it("converges when four processes heal at once", async () => {
