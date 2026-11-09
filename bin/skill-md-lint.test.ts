@@ -2635,7 +2635,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        511,
+        516,
         "NEVER commit to or push the base branch",
       ],
       [
@@ -3689,6 +3689,27 @@ describe("Fix-Applier artifact JSON schema drift (flow-pr-review/SKILL.md ↔ fl
         "'introduced_by_this_pr' boolean on anti_patterns_found entries. Dropping it here " +
         "breaks lockstep with the fix-applier-schema.ts validator that now requires the field.",
     ).toBe(true);
+  });
+
+  it("flow-fix-applier-instructions/SKILL.md documents why_not_fixed and the provenance-blind bar", () => {
+    expect(fixApplierContent).toContain("why_not_fixed");
+    expect(fixApplierContent).toContain("Pre-existing is not a reason");
+  });
+
+  it("flow-pr-review/references/fix-applier-spawn-prompt.md carries why_not_fixed and the Bundle continuation message", () => {
+    expect(fixApplierSpawnPromptContent).toContain("why_not_fixed");
+    expect(fixApplierSpawnPromptContent).toContain("## Bundle continuation");
+  });
+
+  it("flow-pr-review/SKILL.md Step 8 wires the bundle check with exactly one continuation", () => {
+    expect(prReviewContent).toContain("flow-fix-applier-bundle-check");
+    expect(prReviewContent).toContain("SendMessage");
+    expect(prReviewContent).toContain("exactly ONE continuation");
+    expect(prReviewContent).not.toContain("no new field is added");
+  });
+
+  it(".claude/rules/flow-supervisor-contracts.md names the bundle continuation carve-out", () => {
+    expect(supervisorRulesContent).toContain("bundle continuation");
   });
 
   it("flow-pr-review/SKILL.md documents the per-entry 'introduced_by_this_pr' field", () => {
@@ -5799,12 +5820,17 @@ describe("pr-review include-by-reference structure", () => {
     // (its own 1920 -> 1921 raise) lands on top of the Before/After
     // clauses. The merged file is their union at 1923 lines as this test
     // counts them; 1925 leaves 2 lines of headroom.
+    //
+    // Raised 1925 -> 1941 (2026-11-09, bundle check): Step 8 gains the
+    // **Bundle check (one continuation).** paragraph, Step 11d one residue
+    // DECISION clause, and the Step 12/13 seed paragraphs the why_not_fixed
+    // wording; the file lands at 1939 as this test counts them.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1925 lines. Material regrowth past this ceiling would ` +
+        `budget of 1941 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1925);
+    ).toBeLessThan(1941);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md routes Step 8c's runnable items through flow-run-test-steps with an explicit Bash timeout", () => {

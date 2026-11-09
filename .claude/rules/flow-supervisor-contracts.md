@@ -137,7 +137,8 @@ origin HEAD`, never forced. Contract:
     falling back inline. Enforced by `bin/skill-md-lint.test.ts`'s "Load
     the Task tool before spawning" check at all nine sites.
   - **A `SendMessage` continuation of a partial agent — or `/flow-coder`'s
-    single skills-check continuation — stays inside its exemption, not an
+    single skills-check continuation, or `/flow-pr-review`'s single
+    bundle continuation — stays inside its exemption, not an
     eighth site** (`references/partial-result-continuation.md`).
   - The `/flow-pr-review` Gemini lens, the cross-model intent guess
     (`flow-gemini-intent-guess`), the `/flow-pipeline` Step-3

@@ -148,6 +148,9 @@ true:
 3. **In-scope** — directly related to code this PR already touches, OR to a
    brittleness / regression this PR itself introduced.
 
+The bar does not care who introduced the gap: a pre-existing gap that blocks or
+weakens this PR's own fix, or sits beside its changes, is in scope.
+
 This holds *even when the clean fix needs a minimal touch to an adjacent
 production file the diff didn't originally include*. Example: when a test would
 otherwise have to assert against a brittle implementation detail (a literal CSS

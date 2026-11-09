@@ -376,6 +376,60 @@ describe("validateFixApplierResult — wrong-type rejections", () => {
     }
   });
 
+  describe("optional why_not_fixed / blocked_finding_id", () => {
+    function withAntiPattern(extra: Record<string, unknown>) {
+      const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+      Object.assign(
+        (fixture.anti_patterns_found as Array<Record<string, unknown>>)[0],
+        extra,
+      );
+      return validateFixApplierResult(fixture);
+    }
+
+    it("accepts an entry with neither field", () => {
+      expect(validateFixApplierResult(VALID_FULL).ok).toBe(true);
+    });
+
+    it.each([
+      "not small: touches 14 call sites",
+      "not mechanical: needs a design call",
+      "out of scope: pre-existing file",
+      "not confident: might not be a defect",
+    ])("accepts why_not_fixed %s", (why) => {
+      expect(withAntiPattern({ why_not_fixed: why }).ok).toBe(true);
+    });
+
+    it("accepts an unknown-prefix why_not_fixed (classification is the helper's job)", () => {
+      expect(withAntiPattern({ why_not_fixed: "because reasons" }).ok).toBe(
+        true,
+      );
+    });
+
+    it.each(["", "   "])("rejects blank why_not_fixed %j", (why) => {
+      const result = withAntiPattern({ why_not_fixed: why });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toContain("why_not_fixed");
+    });
+
+    it("rejects a non-string why_not_fixed", () => {
+      const result = withAntiPattern({ why_not_fixed: 7 });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toContain("why_not_fixed");
+    });
+
+    it("accepts a non-empty blocked_finding_id", () => {
+      expect(withAntiPattern({ blocked_finding_id: "lens:a.ts:1:x" }).ok).toBe(
+        true,
+      );
+    });
+
+    it("rejects an empty blocked_finding_id", () => {
+      const result = withAntiPattern({ blocked_finding_id: "" });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toContain("blocked_finding_id");
+    });
+  });
+
   it("rejects an artifact where ui_screenshots is not an array", () => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
     fixture.ui_screenshots = "not-an-array";

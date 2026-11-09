@@ -146,7 +146,8 @@ name when present (a bare `flow-fix-applier` subagent_type fails
 Task-tool resolution outright), else `general-purpose` fallback emitting the
 `NOTICE — agent-fallback:` line (no bare-name legacy-install tier). The
 agent's `maxTurns: 200` budget means a `SendMessage` continuation of its
-own partial result (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) stays
+own partial result (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`), or
+`/flow-pr-review`'s single bundle continuation, stays
 inside this exemption — not an eighth site.
 
 ## Merge-Conflict Resolver Subagent

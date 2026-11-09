@@ -11,6 +11,7 @@ import {
   type ReviewFinalize,
   type ReviewFinalizeOptions,
 } from "./lib/review-finalize";
+import { untrackedSeedEntries } from "./lib/untracked-seed";
 
 let worktree!: string;
 
@@ -435,6 +436,105 @@ describe("runReviewFinalize", () => {
       (c) => c[0] === "flow-untracked" && c[1] === "add",
     );
     expect(addCalls).toHaveLength(2);
+  });
+
+  describe("untracked seed reasons and bundle residue", () => {
+    const SKEL = "src/WatchlistListLoadingSkeleton.svelte";
+    const gapEntry = (extra: Record<string, unknown> = {}) => ({
+      location: SKEL,
+      pattern: "list skeleton has no role hook",
+      recommendation: "add one",
+      introduced_by_this_pr: false,
+      ...extra,
+    });
+    const writeBundle = (candidates: unknown[]) =>
+      fs.writeFileSync(
+        path.join(worktree, ".flow-tmp", "bundle-check.json"),
+        JSON.stringify({
+          needsContinuation: true,
+          candidates,
+          touchedFiles: 1,
+        }),
+      );
+    const titlesFor = async (antiPatterns: unknown[]) => {
+      fs.writeFileSync(
+        path.join(worktree, ".flow-tmp", "fix-applier-result.json"),
+        fixApplierResultJson({ anti_patterns_found: antiPatterns }),
+      );
+      const calls: string[][] = [];
+      await runReviewFinalize(baseOpts(calls));
+      return calls
+        .filter((c) => c[0] === "flow-untracked" && c[1] === "add")
+        .map((c) => c[c.indexOf("--title") + 1]);
+    };
+    const cand = (adjacency: string, extra: Record<string, unknown> = {}) => ({
+      index: 0,
+      location: SKEL,
+      pattern: "list skeleton has no role hook",
+      adjacency,
+      justification: "missing",
+      blockedFindingId: null,
+      ...extra,
+    });
+
+    it("post-fix artifact (gap entry removed, bundle commit present) seeds nothing for the gap", async () => {
+      fs.writeFileSync(
+        path.join(worktree, ".flow-tmp", "fix-applier-result.json"),
+        fixApplierResultJson({
+          commits: [{ sha: "b", finding_id: `bundle:${SKEL}`, files: [SKEL] }],
+        }),
+      );
+      const calls: string[][] = [];
+      const result = await runReviewFinalize(baseOpts(calls));
+      expect(result.untracked_added).toBe(0);
+    });
+
+    it("residue yields the flagged-fixable title", async () => {
+      writeBundle([cand("referenced")]);
+      expect(await titlesFor([gapEntry()])).toEqual([
+        "list skeleton has no role hook — flagged fixable in this PR but left unfixed: no reason given",
+      ]);
+    });
+
+    it("blocked residue yields the blocked-this-PR's-fix title", async () => {
+      writeBundle([cand("blocked", { blockedFindingId: "tc:a.svelte:1:s" })]);
+      expect(
+        await titlesFor([
+          gapEntry({ why_not_fixed: "not mechanical: design call" }),
+        ]),
+      ).toEqual([
+        "list skeleton has no role hook — blocked this PR's fix (tc:a.svelte:1:s), left unfixed: not mechanical: design call",
+      ]);
+    });
+
+    it("an introduced residue entry is seeded; a non-residue introduced one is not", async () => {
+      writeBundle([cand("introduced")]);
+      expect(
+        await titlesFor([
+          gapEntry({ introduced_by_this_pr: true }),
+          gapEntry({
+            location: "other.ts",
+            pattern: "other",
+            introduced_by_this_pr: true,
+          }),
+        ]),
+      ).toHaveLength(1);
+    });
+
+    it("a not-small entry is titled with its reason", async () => {
+      expect(
+        await titlesFor([
+          gapEntry({ why_not_fixed: "not small: 40 call sites" }),
+        ]),
+      ).toEqual(["list skeleton has no role hook — not small: 40 call sites"]);
+    });
+
+    it("untrackedSeedEntries: absent bundle check keeps today's titles", () => {
+      expect(untrackedSeedEntries([gapEntry()], null)).toEqual([
+        { title: "list skeleton has no role hook" },
+      ]);
+      expect(untrackedSeedEntries("nope", {})).toEqual([]);
+    });
   });
 
   it("skips untracked registration cleanly on a standalone run (no pipeline state)", async () => {

@@ -199,6 +199,18 @@ export function validateAntiPatternEntry(
   if (typeof o.introduced_by_this_pr !== "boolean") {
     return err(`'introduced_by_this_pr' must be a boolean`, path);
   }
+  if (
+    "why_not_fixed" in o &&
+    !(typeof o.why_not_fixed === "string" && o.why_not_fixed.trim().length > 0)
+  ) {
+    return err(`'why_not_fixed' must be a non-empty string when present`, path);
+  }
+  if ("blocked_finding_id" in o && !isNonEmptyString(o.blocked_finding_id)) {
+    return err(
+      `'blocked_finding_id' must be a non-empty string when present`,
+      path,
+    );
+  }
   return null;
 }
 

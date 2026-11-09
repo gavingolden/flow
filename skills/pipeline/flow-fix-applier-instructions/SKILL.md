@@ -237,16 +237,20 @@ as a trade-off. Recording a knowingly-brittle artifact you just created in
 anti-pattern the bar forecloses (the canonical incident: a `.flex-1`-coupled
 test shipped as a trade-off and later filed as a standalone issue, when the
 durable fix was a one-line `data-` attribute on the adjacent component).
-`anti_patterns_found` is for _pre-existing_ patterns in surrounding code you did
-not introduce and cannot fix in scope — not a release valve for brittleness this
-PR itself adds. Every `anti_patterns_found` entry now carries the
-`introduced_by_this_pr` boolean that structures exactly this distinction:
-`false` for the pre-existing patterns this slot is for, `true` for a pattern
-living in code this PR added or changed. When `introduced_by_this_pr` is `true`,
-the entry MUST justify against the three-part fix-now bar above (small /
-low-risk-mechanical / in-scope) and may NOT use "not worth churning" /
-"future session" framing — and an introduced-in-PR entry that _clears_ that bar
-is illegal: it should have been a commit, not a note.
+The fix-now bar applies to every `anti_patterns_found` entry whatever
+`introduced_by_this_pr` says. **Pre-existing is not a reason.** An unfixed entry
+carries `why_not_fixed`, starting `not small: `, `not mechanical: `,
+`out of scope: ` or `not confident: ` (the last for an observation you are
+unsure is a real defect, so the slot still logs sub-80 observations and
+"silence is not the default" holds). A gap that caused a `rejected_alternatives`
+entry or a weakened assertion in this run is in scope by definition: fix it and
+re-strengthen the assertion. If you truly cannot, set `blocked_finding_id` to
+that finding's id and expect the review step to send it back once. Canonical
+incident: econ-data PR #1183's list skeleton missed the `role="status"` + test-id
+hook its sibling got in the same PR, and the test was weakened instead. Keep
+`introduced_by_this_pr` as a required field; only the bar stops depending on it.
+A check failing on files you did not touch (step 6) is legitimately
+`out of scope: …`.
 
 Fix-now and deferral are two outcomes of one classification: a finding clearing
 the fix-now bar's three conditions is fixed now; a finding clearing the deferral
@@ -279,7 +283,8 @@ For each finding classified as auto-fix:
 4. If you observe a related anti-pattern in the surrounding code that did
    not reach the >=80 confidence bar (or was outside this finding's scope)
    but the next agent session should know about it, record it in
-   `anti_patterns_found` with `location`, `pattern`, and `recommendation`.
+   `anti_patterns_found` with `location`, `pattern`, and `recommendation`,
+   and set `why_not_fixed` per the fix-now bar.
    **Same rule as `rejected_alternatives`: populate proactively.**
 
 ## 4. Address each review comment
@@ -653,7 +658,9 @@ The artifact MUST conform to this JSON schema:
       "location": "<file:line or file>",
       "pattern": "<what was observed — 1 line>",
       "recommendation": "<what the next session should do — 1 line>",
-      "introduced_by_this_pr": false
+      "introduced_by_this_pr": false,
+      "why_not_fixed": "<not small: … | not mechanical: … | out of scope: … | not confident: …>",
+      "blocked_finding_id": "<optional finding id>"
     }
   ],
   "summary": "<3–5 sentence both-sides return summary; see step 10>",
@@ -713,6 +720,15 @@ the consolidator self-validate precedent in
 5. NEVER silently exit with an off-shape artifact, and NEVER auto-coerce
    or default a missing field — the contract is correct-at-source via
    re-emit, not silent coercion.
+
+**Bundle self-check (before the `mv`).** Resolve the base in its own Bash call:
+`BASE_REF=$(gh pr view "$PR_NUMBER" --json baseRefName --jq .baseRefName)`.
+Then, as a separate call guarded by `command -v flow-fix-applier-bundle-check`,
+run `flow-fix-applier-bundle-check --artifact "$ARTIFACT_PATH.tmp" --worktree . --base "origin/$BASE_REF"`.
+
+- Non-empty `candidates`: fix each (a `blocked` or `introduced` candidate cannot
+  be cleared by re-justifying), then re-validate.
+- Helper absent or non-zero exit: skip silently.
 
 ## 10. Return a brief summary
 
