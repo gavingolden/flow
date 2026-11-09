@@ -151,6 +151,15 @@ TTL (#756)`):
   time**. The remaining 154 files run 5,416 tests in 47.8s CPU when
   isolated, and 15.7s with `--no-isolate`.
 
+Whole-suite shared runs (flow#1041). On `6ddb321` a whole-suite (397-file)
+`--no-isolate` related run stalled 3 of 9 times and went red on tests that
+pass alone in 5 more (only 1 green), because module mocks were bypassed or
+leaked across files sharing a worker and a forks worker's stdin never
+closes. With a per-file `vi.resetModules()` plus a `/dev/null` stdin in
+`vitest.setup.ts`, 7 of 7 runs were green at 11.7-14 s wall and 93-101
+CPU-s, against ~160 CPU-s for a fully isolated run. The shared run now
+depends on those two setup lines.
+
 Irreplaceable-vs-avoidable worked table:
 
 | File                                | ms/assert | Verdict                                                                                               |

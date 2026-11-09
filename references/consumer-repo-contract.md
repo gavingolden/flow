@@ -314,8 +314,18 @@ plus any test file colocated with a changed file, run with
 rest (deferred files re-run isolated in CI). A `--no-isolate` check that
 fails is retried once isolated before being reported red, since
 `--no-isolate` can produce a false red from cross-file shared-module
-state but never a false green — a false green is the case this retry
-cannot detect, which is what isolated CI is for. A failed check that spanned a
+state. It can also produce a false green: under `--no-isolate` a leaked
+module stand-in can make a later file pass against a stand-in, which this
+retry cannot detect and isolated CI does. A consumer opting into tiers
+should add two lines to its shared vitest setup file (flow#1041): a
+top-level `vi.resetModules()`, so each file's own mocks apply and stand-ins
+do not leak into the next file; and an end-of-input stdin guard (close fd 0
+and reopen it on `/dev/null`) that runs only in a forked child
+(`typeof process.send === "function"`) and is skipped when fd 0 is a
+character device, so a keyboard read gets end-of-input at once instead of
+blocking the worker's only thread forever. Process-global state (env,
+globals, open handles) is still shared across files; the isolated retry
+and isolated CI catch what that leaves. A failed check that spanned a
 system sleep (the kernel's last-sleep time falls inside its run window) is re-run once
 and reported with a `slept` record instead of as a plain failure. Regenerate the manifest with `flow-test-audit
 --write-tiers` rather than hand-editing it — see
