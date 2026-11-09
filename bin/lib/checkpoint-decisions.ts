@@ -119,7 +119,11 @@ export function classifyDecisions(
       }
     } else if (ctx.pipelineEnded) {
       record.push({ ...c, status: "ended" });
-    } else if (note.sha === ctx.liveNoteSha && ctx.liveNoteUsable) {
+    } else if (
+      noteIndex.get(note) === notes.length - 1 &&
+      note.sha === ctx.liveNoteSha &&
+      ctx.liveNoteUsable
+    ) {
       active.push(c);
     } else {
       const newer = (noteIndex.get(note) as number) < notes.length - 1;

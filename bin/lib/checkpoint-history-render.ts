@@ -174,7 +174,7 @@ function decisionNotes(i: HistoryInputs): {
       : [],
   );
   let unloggedLive: DecisionNote | null = null;
-  if (i.liveNote && !notes.some((n) => n.sha === i.liveNote?.sha)) {
+  if (i.liveNote && notes[notes.length - 1]?.sha !== i.liveNote.sha) {
     unloggedLive = {
       at: i.state.checkpoint?.armedAt ?? "unlogged",
       phase: i.state.phase,
@@ -517,9 +517,13 @@ export function renderBrief(
       }
     }
     if (omitted.length > 0) {
-      const first = byKey.get(omitted[0]);
+      // FILE_ORDER and BRIEF_ORDER differ, so the earliest omitted section in
+      // history.md is not necessarily omitted[0].
+      const firstLine = Math.min(
+        ...omitted.map((k) => byKey.get(k)?.line ?? Infinity),
+      );
       const titles = omitted.map((k) => TITLES[k]).join(", ");
-      marker = `[continued: ${titles} — Read ${historyPath} offset ${first?.line ?? 1}]`;
+      marker = `[continued: ${titles} — Read ${historyPath} offset ${Number.isFinite(firstLine) ? firstLine : 1}]`;
     }
   }
   let out = fixed(parts, marker);
