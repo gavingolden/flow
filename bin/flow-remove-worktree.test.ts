@@ -20,6 +20,7 @@ import {
   removeWorktreeWithFallback,
   resolveInput,
   slugsOwningWorktree,
+  snapshotBeforeRemoval,
   stateSlugForInput,
   type RemoveWorktreeDeps,
   type WorktreeListEntry,
@@ -28,6 +29,7 @@ import {
 import { salvageAgentMemory } from "./lib/worktree-fs";
 import { worktreeContainerDir } from "./lib/worktree-slot";
 import { readState, writeState } from "./lib/state";
+import { readHistoryEvents, snapshotDir } from "./lib/checkpoint-history";
 
 /** Computes the SAME `repoCacheKey` value as `./lib/paths.ts`'s
  * `repoCacheKey`, but derived independently (never by calling
@@ -400,6 +402,56 @@ describe(slugsOwningWorktree, () => {
     expect(
       slugsOwningWorktree("/tmp/wt/x", path.join(stateDir, "nope")),
     ).toEqual([]);
+  });
+});
+
+describe(snapshotBeforeRemoval, () => {
+  let stateDir!: string;
+  let wt!: string;
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "snap-state-"));
+    wt = fs.mkdtempSync(path.join(os.tmpdir(), "snap-wt-"));
+    fs.mkdirSync(path.join(wt, ".flow-tmp"));
+    fs.writeFileSync(path.join(wt, ".flow-tmp", "plan.md"), "# plan\n");
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(wt, { recursive: true, force: true });
+  });
+
+  it("copies the artifacts of a slug that has a pipeline record and logs a snapshot event", () => {
+    writeState(
+      {
+        slug: "owned-slug",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "t",
+      },
+      stateDir,
+    );
+    snapshotBeforeRemoval(wt, ["owned-slug"], stateDir);
+    expect(
+      fs.readFileSync(
+        path.join(snapshotDir("owned-slug", stateDir), "plan.md"),
+        "utf8",
+      ),
+    ).toBe("# plan\n");
+    expect(
+      readHistoryEvents("owned-slug", stateDir).map((e) => e.type),
+    ).toEqual(["snapshot"]);
+  });
+
+  it("creates no orphan folder for a bare branch name with no pipeline record", () => {
+    snapshotBeforeRemoval(wt, ["some-branch"], stateDir);
+    expect(fs.existsSync(path.join(stateDir, "checkpoints"))).toBe(false);
+  });
+
+  it("never throws for an invalid slug", () => {
+    expect(() =>
+      snapshotBeforeRemoval(wt, ["../evil"], stateDir),
+    ).not.toThrow();
   });
 });
 
