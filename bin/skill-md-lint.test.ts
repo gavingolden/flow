@@ -10715,7 +10715,7 @@ describe("pause-output contract wiring lint", () => {
     for (const stale of [
       '"$REASON"',
       "$VALIDATION_ITEMS",
-      'printf \'%s\' "$RESULT" \\| jq',
+      "printf '%s' \"$RESULT\" \\| jq",
     ]) {
       expect(
         step9.includes(stale),
@@ -10740,7 +10740,9 @@ describe("pause-output contract wiring lint", () => {
         "utf8",
       ),
     );
-    expect(driver).toContain('take every size again in dark: `emulate` with `colorScheme: "dark"`');
+    expect(driver).toContain(
+      'take every size again in dark: `emulate` with `colorScheme: "dark"`',
+    );
     expect(driver).toContain("`-dark` token");
     expect(driver).toContain('reason: "partial: app has no dark scheme"');
   });
