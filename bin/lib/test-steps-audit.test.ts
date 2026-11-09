@@ -55,6 +55,25 @@ describe("audit", () => {
   });
 });
 
+describe("audit finding counts", () => {
+  it("counts browser-* and subjective-missing-view findings as numbers", () => {
+    const result = audit("owner/repo", [
+      {
+        number: 4,
+        title: "mixed",
+        body: [
+          "## Test Steps",
+          "- [ ] Browser: click the thing",
+          "- [ ] SUBJECTIVE: the card reads well, dark mode ![card (phone)](a.png)",
+        ].join("\n"),
+      },
+    ]);
+    expect(result.counts["browser-shape"]).toBe(1);
+    expect(result.counts["subjective-missing-view"]).toBe(1);
+    expect(Object.values(result.counts).every(Number.isFinite)).toBe(true);
+  });
+});
+
 describe("parseArgs", () => {
   it("rejects --limit 0", () => {
     expect(parseArgs(["--repo", "owner/repo", "--limit", "0"])).toEqual({

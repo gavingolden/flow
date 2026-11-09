@@ -7820,6 +7820,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       "presence-only",
       "subjective-mixed",
       "subjective-no-image",
+      "subjective-missing-view",
       "ticked-no-evidence",
       "post-merge-step",
       "human-only-ticked",
@@ -10651,6 +10652,34 @@ describe("pause-output contract wiring lint", () => {
         `${file} must carry the escalation TLDR clause 'naming the change the pipeline was making'.`,
       ).toBe(true);
     }
+  });
+
+  it("every GATED render in step 9 reads the verdict's uiSignoff, and the route allowlist is unchanged", () => {
+    const refs = path.join(
+      REPO_ROOT,
+      "skills",
+      "pipeline",
+      "flow-pipeline",
+      "references",
+    );
+    const step9 = flat(
+      fs.readFileSync(path.join(refs, "phases", "step-09-gate.md"), "utf8"),
+    );
+    const renders = step9.split("flow-gate-summary --status gated").slice(1);
+    expect(renders.length).toBeGreaterThanOrEqual(2);
+    for (const tail of renders) {
+      expect(
+        tail.slice(0, 1200).includes("--signoff-file"),
+        "every `flow-gate-summary --status gated` mention in step-09-gate.md must pass --signoff-file.",
+      ).toBe(true);
+    }
+    expect(step9).toContain(".flow-tmp/gate-verdict.json");
+    expect(step9).toContain("The only two routes from `gated` to merged");
+    expect(step9).not.toContain("list `UI review: <uiReview.reason>`");
+    const redirect = flat(
+      fs.readFileSync(path.join(refs, "redirect-handling.md"), "utf8"),
+    );
+    expect(redirect).toContain("--signoff-file");
   });
 
   it("no skill or PR-template file still documents a 25-word TLDR cap", () => {

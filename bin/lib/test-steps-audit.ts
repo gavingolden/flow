@@ -14,9 +14,13 @@ export const CODES: LintCode[] = [
   "presence-only",
   "subjective-mixed",
   "subjective-no-image",
+  "subjective-missing-view",
   "ticked-no-evidence",
   "post-merge-step",
   "human-only-ticked",
+  "browser-shape",
+  "browser-over-bound",
+  "browser-input-unsupported",
 ];
 
 export function parseArgs(

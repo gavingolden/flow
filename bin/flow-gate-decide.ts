@@ -65,6 +65,11 @@ import {
 } from "./lib/md-block-structure";
 import { advancePhase } from "./lib/phase-advance";
 import {
+  collectSubjectiveEvidence,
+  summarizeUiReview,
+  type UiSignoff,
+} from "./lib/ui-signoff-evidence";
+import {
   classifyOpenBrowserItems,
   type BrowserItemStatus,
   type OpenBrowserItem,
@@ -98,6 +103,11 @@ export type DecisionResult = {
   autoMerge: boolean;
   /** Additive: the design-review backstop's verdict on an open PR. */
   uiReview?: UiReviewGate;
+  /**
+   * Additive, attached by `run()` only (never `decide()`, which the merge
+   * guard calls): per-open-`SUBJECTIVE:` evidence the GATED render prints.
+   */
+  uiSignoff?: UiSignoff;
 };
 
 export type GateInputs = {
@@ -606,8 +616,34 @@ export function run(argv: string[], deps: Deps = {}): number {
     },
     { readFile: deps.readFile },
   );
-  process.stdout.write(JSON.stringify(result) + "\n");
+  const uiSignoff = buildUiSignoff(
+    fetched.body,
+    worktree,
+    ui?.log ?? null,
+    result,
+  );
+  process.stdout.write(
+    JSON.stringify(uiSignoff ? { ...result, uiSignoff } : result) + "\n",
+  );
   return 0;
+}
+
+/** Best-effort: any failure omits the field and never changes the verdict. */
+function buildUiSignoff(
+  body: string,
+  worktree: string | null,
+  log: Parameters<typeof summarizeUiReview>[0],
+  result: DecisionResult,
+): UiSignoff | null {
+  try {
+    const items = collectSubjectiveEvidence(body, (ref) =>
+      worktree ? path.resolve(worktree, ref) : ref,
+    );
+    if (items.length === 0) return null;
+    return { items, uiReview: summarizeUiReview(log, result.uiReview) };
+  } catch {
+    return null;
+  }
 }
 
 if (import.meta.main) {

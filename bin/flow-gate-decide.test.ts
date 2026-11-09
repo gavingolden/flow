@@ -1101,3 +1101,75 @@ describe("run() — UI review backstop", () => {
     expect(r.uiReview).toMatchObject({ required: true, satisfied: false });
   });
 });
+
+describe("run() — uiSignoff evidence", () => {
+  function runWith(body: string): Record<string, unknown> {
+    seedState("so", true, 8);
+    const sp = path.join(stateDir, "so.json");
+    const st = JSON.parse(fs.readFileSync(sp, "utf8"));
+    fs.writeFileSync(sp, JSON.stringify({ ...st, worktree: "/wt" }) + "\n");
+    const gh = vi.fn(() => ({
+      stdout: JSON.stringify({
+        body,
+        state: "OPEN",
+        url: "https://x/y/pull/8",
+      }),
+      stderr: "",
+      exitCode: 0,
+    }));
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((c) => {
+      writes.push(c.toString());
+      return true;
+    });
+    const exit = run(["8", "--slug", "so"], {
+      gh,
+      stateDir,
+      localHead: () => "head",
+      readFile: () => null,
+      uiReview: { changedFiles: () => [], home: "/home/none" },
+    });
+    spy.mockRestore();
+    expect(exit).toBe(0);
+    return JSON.parse(writes.join("")) as Record<string, unknown>;
+  }
+
+  it("attaches one evidence entry per open SUBJECTIVE item with absolute local refs", () => {
+    const r = runWith(
+      [
+        "## Test Steps",
+        "",
+        "- [ ] SUBJECTIVE: header looks right",
+        "  ![header (phone)](.flow-tmp/shots/h.png)",
+        "- [ ] Run `bun x.ts` — exits 0.",
+      ].join("\n"),
+    ) as {
+      uiSignoff?: { items: { item: string; shots: { ref: string }[] }[] };
+      validationItems: string[];
+    };
+    expect(r.uiSignoff?.items).toHaveLength(1);
+    expect(r.uiSignoff?.items[0].item).toBe("SUBJECTIVE: header looks right");
+    expect(r.uiSignoff?.items[0].shots[0].ref).toBe(
+      "/wt/.flow-tmp/shots/h.png",
+    );
+    expect(r.validationItems).toEqual([
+      "SUBJECTIVE: header looks right",
+      "Run `bun x.ts` — exits 0.",
+    ]);
+  });
+
+  it("omits uiSignoff when no SUBJECTIVE item is open", () => {
+    const r = runWith("## Test Steps\n\n- [ ] Run `bun x.ts` — exits 0.\n");
+    expect("uiSignoff" in r).toBe(false);
+  });
+
+  it("decide() never carries uiSignoff", () => {
+    const r = decide({
+      body: "## Test Steps\n\n- [ ] SUBJECTIVE: looks right\n",
+      state: "OPEN",
+      url: "https://x/y/pull/8",
+      autoMerge: true,
+    });
+    expect("uiSignoff" in r).toBe(false);
+  });
+});

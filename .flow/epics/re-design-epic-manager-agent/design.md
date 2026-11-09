@@ -18,6 +18,55 @@ decided by the pipeline itself at its own pause.
 pipeline replaces the per-epic manager; f2 and f3 are re-scoped, f6 and f7 are
 new. Where this amendment and older text disagree, this amendment wins.
 
+**Amended 2026-11-09:** see "Amendment (2026-11-09)" — f4 ships evidence-first
+UI sign-off only; delegated UI ticking and the Gemini critic are deferred, and
+f7 no longer depends on f4. Where it and older text disagree, it wins.
+
+## Amendment (2026-11-09) — evidence-first UI sign-off; delegation and the Gemini critic deferred
+
+**What the owner decided** (conversation with the f4 pipeline,
+2026-11-09): "lets skip the UI delegation for now and leave those approvals to
+me", then "Go with your sugggestions" on the narrowed scope below.
+
+- **f4 ships the evidence, not the tick.** When a PR is `gated` with
+  `SUBJECTIVE:` items open, the verdict carries a `uiSignoff` field and the
+  GATED block prints, under each item, one line of per-view screenshot links
+  with any named view that has no screenshot, plus one `UI review:` line when
+  the design review passed. The owner still ticks. A new review-phase lint code
+  (`subjective-missing-view`) flags an item whose labelled shots miss a view it
+  names.
+- **Delegated UI ticks are parked.** The second opt-in (`--delegate-ui`), a
+  Gemini agreement check with a per-call colour-stamp image proof, the
+  non-override gate re-check and the AGENTS.md rule narrowing wait for a
+  GitHub issue filed on merge ("Delegated UI sign-off (parked)"). `--delegate-ui`
+  stays as the grant store's `subjective` class (f2) and is recorded but
+  inactive. With no delegated tick shipping, AGENTS.md's "agent can't tick" rule
+  is exactly true and stays as written.
+- **The Gemini critic is not epic work.** An advisory Gemini critic in the
+  design-review step is an enhancement to `bin/flow-ui-critique.ts`, tracked by
+  a GitHub issue filed on merge ("Advisory Gemini critic in the design-review
+  step").
+- **Probe facts** (one Gemini 4 Argon (High) call through `flow-delegate` with
+  `--add-dir`, 66 s, about 19k tokens): the reviewer read the screenshots
+  and named all three corner colours, quoted each heading, and gave a real
+  number from each; it also flagged viewport-crop edges as defects. It answered
+  while the shared agy cooldown marker was live, armed by a Claude-model 429.
+  The owner reports agy's Claude-model limits are much lower than Argon's, so
+  the shared marker, not Gemini's own quota, is the binding constraint.
+- **Research.** Anthropic's 2026-03-24 harness-design post endorses a separate
+  evaluator agent; UICrit (Duan et al., CHI 2024, arXiv 2510.08783), DesignPref
+  (arXiv 2511.20513) and Panickssery et al. (arXiv 2404.13076) show LLM judges
+  favour their own output and track UI experts only loosely. Net: no vendor
+  endorses AI sign-off on UI taste; both endorse critique before a human
+  decides, which is what f4 now builds.
+
+| Feature                 | Change                                                                                                                                                            |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| f4-delegated-ui-signoff | retitled "Evidence-first UI sign-off"; depends on `w2-ui-review-section` only; never ticks                                                                        |
+| f3-global-manager       | never ticks a `SUBJECTIVE:` item; its UI consistency note goes to the owner's digest                                                                              |
+| f7-merge-grant          | depends on f3 only; owns its Gemini check and brings the image-read proof only if it reviews screenshots; refuses a ruling while a `SUBJECTIVE:` item is unticked |
+| f1, f2, f5, f6, w1, w2  | unchanged                                                                                                                                                         |
+
 ## Amendment (2026-11-07) — one global manager, selectively scoped
 
 **What the owner decided** (conversation with the `/flow-epic-run` session,
@@ -834,19 +883,16 @@ _Re-scoped 2026-11-07 from f3-sequencer-executive._
   root-like node is never on a frontier before something refuses to launch
   it._
 
-### f4-delegated-ui-signoff · Evidence-first `SUBJECTIVE:` sign-off: one-action by default, delegated on a second opt-in
+### f4-delegated-ui-signoff · Evidence-first UI sign-off: the owner ticks once with the screenshots in front of them
 
-- **Secret hidden (D6):** the UI evidence bar, the cross-model agreement
-  check, and the non-override gate re-check.
-- **Depends on:** **f5-executive-judgment** — _`flow-exec-review`, and the
-  log + PR stamp;_ **w2-ui-review-section** — _the `## UI review` section the
-  evidence bar reads;_ **f2-manager-home** — _the scoped grant store that
-  holds `--delegate-ui`._
-- **Produces:** the `subjective` class and `--delegate-ui`; the evidence block
-  in the GATED render; the tick-with-evidence recipe; Gemini 4 Argon (High)
-  as the non-Claude reviewer with agy-outage fallback to the owner; the
-  non-override re-check branch in `step-09-gate.md`; the narrowed AGENTS.md /
-  output-style / manual-test-rubric rule.
+- **Secret hidden (D6):** the UI evidence bar: which views an item names, which
+  screenshots show them, and whether the design review passed.
+- **Depends on:** **w2-ui-review-section** — _the `## UI review` section the
+  evidence bar reads._ Free to run after f1; it does not wait on f2, f3 or f5.
+- **Produces:** the `uiSignoff` field on the `flow-gate-decide` verdict; the
+  per-item evidence lines and the `UI review:` line in the GATED render
+  (`flow-gate-summary --signoff-file`); the `subjective-missing-view` lint code.
+  It never ticks a `SUBJECTIVE:` item. Delegated ticking is parked.
 
 ### f6-followup-routing · Follow-ups land in exactly one place: an epic proposal, a GitHub issue the manager files, or a logged drop
 
@@ -867,8 +913,9 @@ _New 2026-11-07._
 
 - **Secret hidden:** the merge-grant check and the one-way-door detector.
 - **Depends on:** **f3-global-manager** — _the ruling the merge guard
-  accepts;_ **f4-delegated-ui-signoff** — _the Argon evidence check this
-  reuses._
+  accepts._ f7 owns its own Gemini check and brings the image-read proof only
+  if it reviews screenshots; it refuses a ruling while a `SUBJECTIVE:` item is
+  unticked.
 - **Produces:** `flow grant repo:<name> --merge`; manager rulings accepted by
   `bin/flow-merge-guard.ts`; one-way-door detection from workflow files, path
   patterns and `## System changes`; the rewritten hard rules; auto-merge-on
@@ -877,8 +924,8 @@ _New 2026-11-07._
 The walking-skeleton root is still **f1**, with **f5** as the second root;
 both are built (PRs #978, #977). The MVP of the global manager is f2 + f3:
 f2 is deterministic and testable alone, f3 is the session the owner talks to.
-f4 and f7 widen autonomy last, and f7 — the highest blast radius — is the
-final node.
+f7 widens autonomy last, and f7 — the highest blast radius — is the
+final node; f4 only adds evidence and can run any time after f1.
 
 ## 5. Dependency DAG
 
@@ -899,18 +946,15 @@ graph TD
   f2 -->|scope + grants + memory| f3
   w1 -->|wave evidence| f3
   f1 -->|waitFor refusal| w2
-  f5 -->|executive review + log| f4
   w2 -->|UI review section| f4
-  f2 -->|scoped grant store| f4
   f3 -->|manager session + proposals| f6
   f3 -->|rulings| f7
-  f4 -->|Argon evidence check| f7
 ```
 
-- **Build order:** `(f1 ∥ f5) → f2 → ([w1] → f3 ∥ [w2] → f4) → (f6 ∥ f7)`;
-  f7 also waits for f4. Wait nodes are bound, not built.
+- **Build order:** `(f1 ∥ f5) → f2 → [w1] → f3 → (f6 ∥ f7)`, with
+  `[w2] → f4` free to run after f1. Wait nodes are bound, not built.
 - **MVP path:** f2 → f3 (two PRs after the two built roots merge).
-- **Well-formedness:** 9 nodes, 12 edges, no cycle — `flow-epic-dag --validate`
+- **Well-formedness:** 9 nodes, 9 edges, no cycle — `flow-epic-dag --validate`
   exit 0.
 
 ## 6. Open Questions
@@ -942,7 +986,7 @@ graph TD
   owner may prefer: batch all `SUBJECTIVE:` sign-offs once at wave end
   [confidence: medium] [anchor: owner clarification Q2; AGENTS.md:56].
   **Stakes:** both — a wrong tick ships a look the owner did not see.
-- **Can the non-Claude reviewer see screenshots?** **Recommended:** f4's plan
+- **Can the non-Claude reviewer see screenshots?** _Resolved 2026-11-09: yes — the probe read the screenshots (see "Amendment (2026-11-09)"); delegated use is parked._ Original text: **Recommended:** f4's plan
   verifies `flow-delegate` can read image files in the worktree; if not, the
   `subjective` class fails closed and only the one-action default ships
   [confidence: medium] [anchor: bin/flow-delegate.ts]. **Stakes:** user.

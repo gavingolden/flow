@@ -10,7 +10,9 @@ import {
   extractStrippedSection,
   testStepsSectionBounds,
 } from "../flow-gate-decide";
+import { imageRefs } from "./image-refs";
 import { fencedLineMask } from "./md-block-structure";
+import { missingViews, requiredViews, shotView } from "./signoff-views";
 
 export type StepKind =
   | "command"
@@ -30,6 +32,12 @@ export type ParsedStep = {
   hasEvidence: boolean;
   hasImage: boolean;
   noScreenshotReason: boolean;
+  /** Image refs on the item (head, continuation lines, evidence span). */
+  images: { alt: string; ref: string }[];
+  /** Reason text of a `partial:` line, or null. */
+  partial: string | null;
+  /** Reason text of a `no screenshot:` line, or null. */
+  noScreenshot: string | null;
 };
 
 export type LintCode =
@@ -37,6 +45,7 @@ export type LintCode =
   | "presence-only"
   | "subjective-mixed"
   | "subjective-no-image"
+  | "subjective-missing-view"
   | "ticked-no-evidence"
   | "post-merge-step"
   | "human-only-ticked"
@@ -55,7 +64,10 @@ export type LintFinding = {
 const ITEM_RE = /^\s*-\s+\[( |x|X)\]\s+(.*\S)\s*$/;
 const EVIDENCE_MARKER = "<!-- flow:evidence -->";
 const IMAGE_RE = /!\[[^\]]*\]\([^)]+\)|<img\s/i;
-const NO_SCREENSHOT_RE = /no screenshot:\s*\S/i;
+const NO_SCREENSHOT_RE = /no screenshot:\s*(\S.*)/i;
+const PARTIAL_RE = /\bpartial:\s*(\S.*)/i;
+const HEADING_RE = /^\s{0,3}#{1,6}(?:\s|$)/;
+const OTHER_COMMENT_RE = /<!--(?!\s*flow:evidence\s*-->)[\s\S]*?-->/g;
 
 function classify(text: string): StepKind {
   if (text.startsWith("SUBJECTIVE: ")) return "subjective";
@@ -127,12 +139,33 @@ export function parseTestSteps(body: string): {
   }
 
   const sectionEnd = testStepsSectionBounds(bodyLines)?.end ?? bodyLines.length;
+  const fenced = fencedLineMask(bodyLines);
 
   const steps = heads.map((head, i): ParsedStep => {
     const from = head.line;
     const next = heads[i + 1]?.line;
     const to = next && next > from ? next - 1 : sectionEnd;
-    const span = from > 0 ? bodyLines.slice(from, to).join("\n") : "";
+    let end = to;
+    for (let k = from; k < to; k++) {
+      if (!fenced[k] && HEADING_RE.test(bodyLines[k])) {
+        end = k;
+        break;
+      }
+    }
+    const span = from > 0 ? bodyLines.slice(from, end).join("\n") : "";
+    const readable =
+      from > 0
+        ? bodyLines
+            .slice(from, end)
+            .map((l, k) => (fenced[from + k] ? "" : l))
+            .join("\n")
+            .replace(OTHER_COMMENT_RE, "")
+        : "";
+    const scan = `${head.text}\n${readable}`;
+    const images = imageRefs(scan).map((r) => ({ alt: r.alt, ref: r.target }));
+    const reason = (re: RegExp): string | null =>
+      (head.fullText.match(re) ?? readable.match(re))?.[1]?.trim() ?? null;
+    const noScreenshot = reason(NO_SCREENSHOT_RE);
     return {
       line: head.line,
       checked: head.checked,
@@ -140,9 +173,11 @@ export function parseTestSteps(body: string): {
       text: head.text,
       fullText: head.fullText,
       hasEvidence: span.includes(EVIDENCE_MARKER),
-      hasImage: IMAGE_RE.test(span) || IMAGE_RE.test(head.text),
-      noScreenshotReason:
-        NO_SCREENSHOT_RE.test(span) || NO_SCREENSHOT_RE.test(head.text),
+      hasImage: images.length > 0 || IMAGE_RE.test(scan),
+      noScreenshotReason: noScreenshot !== null,
+      images,
+      partial: reason(PARTIAL_RE),
+      noScreenshot,
     };
   });
   return { headingPresent: true, steps };
@@ -179,6 +214,8 @@ const HINTS: Record<LintCode, string> = {
     "A measurable clause sits inside a taste item; consider splitting it into its own runnable item.",
   "subjective-no-image":
     "Every SUBJECTIVE item needs a screenshot or a 'no screenshot: <reason>' line.",
+  "subjective-missing-view":
+    "The item names a viewport the attached screenshots do not show; capture the missing view or add a 'partial: <reason>' line.",
   "ticked-no-evidence":
     "A ticked prose or browser item carries no evidence block; attach proof or untick it.",
   "post-merge-step":
@@ -230,6 +267,21 @@ export function lintTestSteps(
       !step.noScreenshotReason
     )
       add("subjective-no-image", step);
+    if (
+      step.kind === "subjective" &&
+      !step.checked &&
+      step.images.length > 0 &&
+      !step.noScreenshotReason &&
+      step.partial === null &&
+      missingViews(
+        requiredViews(step.fullText),
+        step.images.map((im) => ({
+          view: shotView(im.alt, im.ref),
+          ref: im.ref,
+        })),
+      ).length > 0
+    )
+      add("subjective-missing-view", step);
     if (
       step.checked &&
       !step.hasEvidence &&

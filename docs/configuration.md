@@ -509,7 +509,8 @@ a missing or over-long section makes every review defer. Add a correction with
 to `~/.flow/manager/grants.json`; `--autonomy off` withdraws it. A scope is
 `pipeline:<slug>`, `epic:<slug>` or `repo:<name>` (the widest is one repo; there
 is no `all`). `--expires <n>h|d|w` makes the grant lapse, and `--delegate-ui`
-adds the `subjective` class (`high` only). When several live grants cover a
+adds the `subjective` class (`high` only; recorded but inactive until the
+parked delegated UI sign-off ships, so UI taste items stay with the owner). When several live grants cover a
 pipeline, the most specific one (pipeline over epic over repo) names the
 reported scope and expiry, while the allowed classes are the union of every
 live covering grant. An `epic:` grant also logs the already-merged features as

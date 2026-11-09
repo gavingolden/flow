@@ -201,8 +201,8 @@ override, are both prohibited.
 supervisor:
 
 0. **Re-query the live gate first.** Before deciding fire-form vs
-   refuse-form, run `flow-gate-decide "$PR"` and branch on the live
-   `decision`. The verdict in the supervisor's local context may be
+   refuse-form, run `flow-gate-decide "$PR" > "$WORKTREE/.flow-tmp/gate-verdict.json"`
+   and branch on the live `decision` read from that file. The verdict in the supervisor's local context may be
    stale: between the GATED render and the user's merge instruction,
    the user can tick `- [ ]` boxes in the PR body and clear the gate
    themselves. Without the re-query, the supervisor refuses an override
@@ -231,13 +231,14 @@ supervisor:
    pre-approved in flow-launched sessions, so the confirmation above is
    the only prompt. If the helper refuses (`pr-not-owned` or `not-gated` — the gate
    re-query's `gating` counts when it came from `gated`),
-   nothing was recorded: re-render the GATED block with a plain-language
+   nothing was recorded: re-render the GATED block (passing
+   `--signoff-file <(jq -c '.uiSignoff // empty' "$WORKTREE/.flow-tmp/gate-verdict.json" 2>/dev/null)`) with a plain-language
    `--tldr` (`--why` is dropped under the default `pm` lens;
    `override not recorded: this PR is not the pipeline's own` /
    `override not recorded: the pipeline is no longer at the gate`), say
    that nothing was merged and nothing is lost, and end. On any
    non-affirmative answer, the PR stays `gated` — re-render the GATED
-   block and end.
+   block (same `--signoff-file` argument) and end.
 
 When the instruction fails the "fresh" or "in-context" test — or the
 "unambiguous" test on an input that isn't about merging at all — do

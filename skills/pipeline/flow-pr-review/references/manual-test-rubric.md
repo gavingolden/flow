@@ -389,7 +389,9 @@ reference per screenshot. The box stays unticked.
 - When no image can exist (real-device behaviour, motion feel, no browser
   available), the item carries a `no screenshot: <reason>` line instead. A
   `SUBJECTIVE: ` item with neither an image nor that line is a review finding
-  (`subjective-no-image`).
+  (`subjective-no-image`). An item whose labelled screenshots miss a view it
+  names (a viewport or dark mode) and that carries no `partial:` or
+  `no screenshot:` line is a review finding too (`subjective-missing-view`).
 - A credential-bearing screen is never captured.
 
 ### End-to-end steps that exercise a flow-self branch's skills
@@ -687,6 +689,7 @@ run**. When the command is not on PATH, record the named skip
 | `post-merge-step`           | both   | finding      | Remove from Test Steps and register it on the local follow-ups list (`flow-followups`)                                                        |
 | `human-only-ticked`         | both   | finding      | Untick it, unless the user ticked it themselves in this session — agents never tick `SUBJECTIVE: ` / `DECISION: `                             |
 | `subjective-no-image`       | review | finding      | Step 8c should have captured it: re-check the capture, or add the `no screenshot: <reason>` line. An item with that line is not flagged       |
+| `subjective-missing-view`   | review | finding      | The item names a viewport or dark mode its labelled shots do not show: capture the missing view, or add a `partial: <reason>` line            |
 | `ticked-no-evidence`        | review | finding      | A ticked prose or `Browser: ` item with no evidence block — re-run it for proof, or untick it                                                 |
 | `browser-shape`             | both   | finding      | A `Browser: ` item must read `on <route>, <action chain> — expect <result>` — rewrite it to that shape, or move it out of Test Steps          |
 | `browser-over-bound`        | both   | finding      | More than 8 actions: split it, seed the state via a fixture or URL, or write a durable Playwright/vitest test                                 |

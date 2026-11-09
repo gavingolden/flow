@@ -10,14 +10,14 @@ export const PHONE_MAX_WIDTH = 500;
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const NOT_PHONE_ALT = /\b(?:desktop|wide|tablet)\b/i;
-const NOT_PHONE_TOKENS = new Set([
+export const DESKTOP_TOKENS: ReadonlySet<string> = new Set([
   "desktop",
   "wide",
-  "tablet",
   "1280",
   "1440",
-  "768",
 ]);
+export const TABLET_TOKENS: ReadonlySet<string> = new Set(["tablet", "768"]);
+const NOT_PHONE_TOKENS = new Set([...DESKTOP_TOKENS, ...TABLET_TOKENS]);
 const PHONE_TOKENS = new Set(["phone", "390"]);
 
 export function pngSize(

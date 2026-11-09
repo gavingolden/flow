@@ -142,9 +142,11 @@ describe("flow grant --autonomy high", () => {
       0,
     );
     expect(grants()[0].classes).toEqual(["plan", "subjective"]);
-    expect(logs.join("\n")).toContain(
-      "takes effect once delegated UI sign-off",
+    const out = logs.join("\n");
+    expect(out).toContain(
+      "recorded, but inactive — delegated UI sign-off is parked, so UI taste items stay with you.",
     );
+    expect(out).not.toContain("takes effect");
   });
 
   it("refuses without a TTY and writes nothing", () => {
