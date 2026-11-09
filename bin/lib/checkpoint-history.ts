@@ -193,7 +193,7 @@ export function snapshotWorktreeArtifacts(
   const skipped: string[] = [];
   try {
     const dest = snapshotDir(slug, dir);
-    const src = path.join(worktreeDir, FLOW_TMP_DIRNAME);
+    const src = path.resolve(worktreeDir, FLOW_TMP_DIRNAME);
     for (const name of SNAPSHOT_FILES) {
       try {
         const from = path.join(src, name);
@@ -222,7 +222,7 @@ export function resolveArtifactDir(
 ): string | null {
   try {
     if (state.worktree) {
-      const live = path.join(state.worktree, FLOW_TMP_DIRNAME);
+      const live = path.resolve(state.worktree, FLOW_TMP_DIRNAME);
       if (fs.statSync(live).isDirectory()) return live;
     }
   } catch {
