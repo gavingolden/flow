@@ -2,9 +2,10 @@
 # runs the real `flow`: it works on a private `tmux -L flow-demo` server under
 # a throwaway HOME and seeds invented pipelines. The tree view itself is the
 # real docs/tmux-tree.conf, loaded the way the README tells you to.
-# Render via: ./docs/demo/render-tmux-tree.ts (adds the numbered markers)
+# Render via: ./docs/demo/render-tmux-tree.ts (adds the numbered markers);
+# add --check to render and verify without writing the committed image
 
-Output docs/demo/.render/throwaway.gif
+Output docs/demo/.render/tmux-tree.txt
 Set Shell "bash"
 Set Theme "Catppuccin Mocha"
 Set FontSize 16
@@ -43,7 +44,9 @@ Sleep 1500ms
 Show
 Sleep 200ms
 Screenshot docs/demo/.render/tmux-tree.png
-Sleep 500ms
+Sleep 100ms
+Hide
+Sleep 400ms
 Ctrl+B
 Type "d"
 Sleep 300ms
