@@ -14,14 +14,18 @@ The transcript below is **illustrative — not exact output**; it shows the shap
 ```text
 $ flow feature create "add CSV export"
 
-[plan] feature detected — drafting plan, pausing for approval
-  Plan: add a CSV exporter behind a flag, with tests.
-  approve? > approved
-
-[implement] worktree ready, applying edits, running verify ... ok
-[ci]       PR #142 opened — waiting for checks ............... green
-[review]   multi-agent review + Copilot ... 2 findings fixed
-[gate]     Test Steps all checked → auto-merge
+[triage]    asking one question to pin the real goal
+            Export everything, or just the filtered view? > filtered view
+[plan]      /flow-product-planning — challenges the request, drafts the plan
+            a second model reviews the plan blind ... 2 gaps folded in
+            Approve plan: .flow-tmp/plan.md > approved
+[implement] /flow-new-feature — writes the acceptance tests first, then the code
+[verify]    /flow-verify — typecheck, tests, lint ... ok
+[ci]        PR #142 opened — waiting for checks ............... green
+[review]    /flow-pr-review — blind reviewers across models (bugs, security, tests, …)
+            a validator re-checks every finding: 3 real, 2 dropped
+            3 fixes applied, re-verified, pushed
+[gate]      Test Steps all checked → auto-merge
 
 MERGED
 ```
