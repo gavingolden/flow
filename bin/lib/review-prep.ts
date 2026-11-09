@@ -228,6 +228,8 @@ export async function runReviewPrep(
   // allow a delta scope, so it is removed right after the scope step.
   deleteFile(path.join(dir, "agent-output-gemini.json"));
   deleteFile(path.join(dir, "consolidator-result.json"));
+  deleteFile(path.join(dir, "bundle-check.json"));
+  deleteFile(path.join(dir, "bundle-check.prior.json"));
 
   runStep(skips, "fetch", true, () => {
     const fetchResult = exec(["flow-fetch-pr-review", prStr]);

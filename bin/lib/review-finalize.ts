@@ -23,6 +23,7 @@ import {
   driverAttemptFailure,
 } from "./browser-items";
 import { validatePrReviewResult } from "./pr-review-result-schema";
+import { untrackedSeedEntries } from "./untracked-seed";
 import {
   ghSupportsAttach,
   needsAttach,
@@ -474,8 +475,19 @@ export async function runReviewFinalize(
             if (d.tracker_entry_url === "")
               titles.push(`${d.finding_id}: ${d.reason}`);
           }
-          for (const a of parsed.anti_patterns_found ?? []) {
-            if (a.introduced_by_this_pr === false) titles.push(a.pattern);
+          let bundleCheck: unknown = null;
+          try {
+            bundleCheck = JSON.parse(
+              readFile(path.join(dir, "bundle-check.json")) ?? "null",
+            );
+          } catch {
+            // absent or unparseable bundle-check.json => no residue
+          }
+          for (const e of untrackedSeedEntries(
+            parsed.anti_patterns_found ?? [],
+            bundleCheck,
+          )) {
+            titles.push(e.title);
           }
           for (const title of titles) {
             if (!title) continue;

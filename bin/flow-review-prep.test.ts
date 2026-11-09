@@ -410,6 +410,15 @@ describe("fail-closed review setup (#839)", () => {
     expect(fs.existsSync(tmpPath("pr-review-result.json"))).toBe(false);
   });
 
+  it("pre-clean: removes a previous pass's bundle-check verdict files", async () => {
+    seed("bundle-check.json", "{}");
+    seed("bundle-check.prior.json", "{}");
+    const prep = await runReviewPrep({ pr: 1, worktree, exec: makeExec() });
+    expect(prep.critical_skips).toEqual([]);
+    expect(fs.existsSync(tmpPath("bundle-check.json"))).toBe(false);
+    expect(fs.existsSync(tmpPath("bundle-check.prior.json"))).toBe(false);
+  });
+
   it("delta: the prior pr-review-result.json is still on disk when flow-review-scope runs", async () => {
     seed("pr-review-result.json", cleanResult);
     let presentDuringScope: boolean | undefined;

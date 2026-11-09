@@ -51,8 +51,17 @@ export type FixApplierRejectedAlternative = RejectedAlternativeBase & {
   finding_id: string;
 };
 
+export const WHY_NOT_FIXED_PREFIXES = [
+  "not small: ",
+  "not mechanical: ",
+  "out of scope: ",
+  "not confident: ",
+] as const;
+
 export type FixApplierAntiPattern = AntiPatternBase & {
   introduced_by_this_pr: boolean;
+  why_not_fixed?: string;
+  blocked_finding_id?: string;
 };
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

@@ -125,7 +125,8 @@ When a fix is small (a handful of lines), low-risk/mechanical, AND
 directly related to code the PR touches or to a brittleness the PR itself
 introduced, fix it in-PR — don't defer it to an issue or park it in
 `anti_patterns_found` as an "accepted trade-off" — even when the clean fix
-needs a minimal touch to an adjacent production file. "Don't add features
+needs a minimal touch to an adjacent production file. The bar is provenance-blind: a pre-existing gap that
+blocks or weakens the PR's own fix, or sits beside its changes, is in scope. "Don't add features
 beyond the task's stated scope" targets unrequested feature creep, not a
 trivial edit that makes the PR's own change robust; deferral stays
 reserved for standalone or complex work. The full bar and its motivating

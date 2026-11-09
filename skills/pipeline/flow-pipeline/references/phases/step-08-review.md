@@ -49,6 +49,8 @@ wrapper reads it once and reuses the parsed object across its
 remaining steps. The supervisor never sees the per-finding fix
 prose, only `/flow-pr-review`'s brief return summary.
 
+A small unfixed gap next to the PR's changes gets one continuation of that same fixing agent inside this review pass (the bundle check); it adds no Task spawn and consumes no review-fix loop.
+
 **Surface UI screenshots (review-time).** `/flow-pr-review` Step 8c.iii's
 UI-Driver spawn (above) writes its own
 `<worktree>/.flow-tmp/ui-driver-result.json` (a fresh artifact per spawn,

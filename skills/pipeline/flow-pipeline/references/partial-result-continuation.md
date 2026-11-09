@@ -101,3 +101,14 @@ completeness check (a `complete` or accepted `partial` artifact), `/flow-coder` 
 to the same agent. At most one per spawn, after any partial-result
 continuation resolves; never a new Task site. The procedure lives in
 `flow-coder/SKILL.md`'s **Skills check** block — not duplicated here.
+
+## Bundle continuation (`/flow-pr-review`)
+
+A third sibling rides the same exemption and cap discipline: after the
+completeness check, `/flow-pr-review` Step 8 runs
+`flow-fix-applier-bundle-check` and, when it lists unfixed in-scope
+`anti_patterns_found` entries, sends ONE `SendMessage` to the same
+Fix-Applier. At most one per spawn, after any partial-result continuation
+resolves; a refused send or leftover candidate is residue and never
+escalates; never a new Task site. The procedure lives in
+`flow-pr-review/SKILL.md`'s **Bundle check** block — not duplicated here.
