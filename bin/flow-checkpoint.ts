@@ -19,11 +19,18 @@
  * sites in `flow-pipeline` can branch on a computed verdict instead of
  * restating the freshness rule in prose at each site.
  *
+ * Every note this helper arms, consumes, probes or resolves a path for is also
+ * appended to the slug's `history.jsonl` (see `./lib/checkpoint-history`), so
+ * an overwritten or retired note stays in the record. That logging is
+ * best-effort and never changes stdout or the exit code.
+ *
  * Usage:
  *   flow-checkpoint [<slug>] [--site <site>]              validate + arm (write marker + record) on ready
  *   flow-checkpoint [<slug>] --consume                    archive checkpoint.md + clear the marker/record (Resume mode)
  *   flow-checkpoint [<slug>] --probe --site <site>         read-only freshness verdict, no mutation
  *   flow-checkpoint [<slug>] --path                        print the absolute checkpoint.md path (creating its parent dir) and exit
+ *   flow-checkpoint [<slug>] --history                     re-render history.md and print its absolute path (nothing when there is no pipeline record)
+ *   flow-checkpoint [<slug>] --journal                     read a few lines on stdin and log them as a journal event at the current phase
  *
  * `<slug>` is optional when a pipeline is live: it auto-resolves from
  * `$FLOW_SLUG`. `--site` defaults to `"manual"`
@@ -44,7 +51,7 @@
  *
  * Exit codes (same exit-0-for-every-decision contract as flow-resume-decide /
  * flow-gate-decide — the skill captures stdout and branches on `.status`):
- *   0 — decision computed (ready / needs / consumed / noop / probe), or --path printed
+ *   0 — decision computed (ready / needs / consumed / noop / probe), or --path / --history / --journal handled
  *   2 — bad CLI args, or no slug given and no FLOW_SLUG in the environment
  */
 
@@ -61,6 +68,13 @@ import {
 } from "./lib/state";
 import { recoveryCommandFor } from "./lib/recovery-command";
 import { flowStateDir } from "./lib/paths";
+import {
+  appendJournal,
+  isTerminalOneLiner,
+  logLiveNoteIfUnlogged,
+  logNoteOnce,
+} from "./lib/checkpoint-history";
+import { loadAndRenderHistory } from "./lib/checkpoint-history-load";
 import { resolveKindAmbient, resolveSlugAmbient } from "./lib/session-identity";
 import {
   CHECKPOINT_SITES,
@@ -78,8 +92,8 @@ import {
 // file and pull `probeFreshness`/`isCheckpointUsable` from
 // `./lib/checkpoint-freshness` directly. The freshness predicates live in
 // `./lib/checkpoint-freshness` because this file is itself past the
-// AGENTS.md ~200-line/file target (448 lines as of this comment), not to
-// stay under it.
+// AGENTS.md ~200-line/file target, not to stay under it; new flag logic
+// lives in `./lib/checkpoint-history*`, this file only dispatches.
 export {
   CHECKPOINT_SITES,
   checkpointBodyPath,
@@ -117,6 +131,8 @@ export type Deps = {
   resolveSlug?: () => string | null;
   /** Same seam discipline as `resolveSlug`: defaults to `resolveKindAmbient()`. */
   resolveKind?: () => PipelineKind | null;
+  /** `--journal` body source; defaults to reading all of stdin. */
+  readStdin?: () => string;
 };
 
 /** Absolute path of the one-shot marker the SessionStart:clear hook gates on. */
@@ -173,6 +189,22 @@ export type ArmResult =
   | { armed: true; banner: string; marker: string }
   | { armed: false; reason: string; banner: string };
 
+/** Best-effort: log the body just armed. The terminal one-liner is skipped (the `gate` event already records it). */
+function logArmedNote(
+  slug: string,
+  site: CheckpointSite,
+  phase: string,
+  dir: string,
+): void {
+  try {
+    const body = fs.readFileSync(checkpointBodyPath(slug, dir), "utf8");
+    if (site === "terminal" && isTerminalOneLiner(body)) return;
+    logNoteOnce(slug, body, { phase, site }, dir);
+  } catch {
+    // no body to log (gate-summary arms after writing its own); never blocks the arm.
+  }
+}
+
 /**
  * The ready-path arm, extracted so a second call site (`flow-gate-summary`'s
  * NEEDS HUMAN render, Task 7) can arm a checkpoint without duplicating the
@@ -219,6 +251,8 @@ export function armCheckpoint(
       banner: renderArmBanner({ armed: false, reason }),
     };
   }
+
+  logArmedNote(slug, site, state.phase, stateDir);
 
   // Only relabel the freshness record when THIS site's own probe verdict
   // was "write" — see the identical comment on the pre-extraction call
@@ -334,9 +368,33 @@ export function consumeCheckpoint(
   dir = flowStateDir(),
 ): ConsumeResult {
   const marker = checkpointMarkerPath(slug, dir);
+  // Log the live body BEFORE archiving it, with the site from the freshness
+  // record (read ahead of the archive), so a note consumed by any route is
+  // never missing from the record.
+  let state: ReturnType<typeof readState> = null;
+  try {
+    state = readState(slug, dir);
+  } catch {
+    // best-effort: fall through with no state.
+  }
+  try {
+    const body = fs.readFileSync(checkpointBodyPath(slug, dir), "utf8");
+    if (!isTerminalOneLiner(body)) {
+      logNoteOnce(
+        slug,
+        body,
+        {
+          phase: state?.phase ?? "unknown",
+          site: state?.checkpoint?.site ?? "unarmed",
+        },
+        dir,
+      );
+    }
+  } catch {
+    // no body to log.
+  }
   const archived = archiveCheckpointBody(slug, dir);
   try {
-    const state = readState(slug, dir);
     if (state?.checkpoint) {
       writeState({ ...state, checkpoint: undefined }, dir);
     }
@@ -367,6 +425,8 @@ export type Args =
       consume: boolean;
       probe: boolean;
       path: boolean;
+      history: boolean;
+      journal: boolean;
       site: CheckpointSite;
     }
   | { error: string };
@@ -376,6 +436,8 @@ export function parseArgs(argv: string[]): Args {
   let consume = false;
   let probe = false;
   let pathFlag = false;
+  let history = false;
+  let journal = false;
   let site: CheckpointSite = "manual";
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -390,6 +452,14 @@ export function parseArgs(argv: string[]): Args {
     }
     if (a === "--path") {
       pathFlag = true;
+      continue;
+    }
+    if (a === "--history") {
+      history = true;
+      continue;
+    }
+    if (a === "--journal") {
+      journal = true;
       continue;
     }
     if (a === "--site") {
@@ -410,11 +480,18 @@ export function parseArgs(argv: string[]): Args {
   if (pathFlag && (consume || probe)) {
     return { error: "--path is mutually exclusive with --consume/--probe" };
   }
-  return { slug, consume, probe, path: pathFlag, site };
+  const modes = [consume, probe, pathFlag, history, journal].filter(Boolean);
+  if ((history || journal) && modes.length > 1) {
+    return {
+      error:
+        "--history and --journal are mutually exclusive with each other and with --consume/--probe/--path",
+    };
+  }
+  return { slug, consume, probe, path: pathFlag, history, journal, site };
 }
 
 const USAGE =
-  "usage: flow-checkpoint [<slug>] [--consume | --probe | --path] [--site manual|plan-review|plan-approval|pre-review|gate|terminal]";
+  "usage: flow-checkpoint [<slug>] [--consume | --probe | --path | --history | --journal] [--site manual|plan-review|plan-approval|pre-review|gate|terminal]";
 
 function emit(result: CheckpointResult): void {
   process.stdout.write(JSON.stringify(result) + "\n");
@@ -441,7 +518,12 @@ export function run(argv: string[], deps: Deps = {}): number {
     // renderArmBanner's own "never called from --probe/--consume/--path"
     // invariant still holds for every dispatch-reachable call site.
     const isReadOnlyIntent = argv.some(
-      (a) => a === "--probe" || a === "--consume" || a === "--path",
+      (a) =>
+        a === "--probe" ||
+        a === "--consume" ||
+        a === "--path" ||
+        a === "--history" ||
+        a === "--journal",
     );
     if (!isReadOnlyIntent) {
       process.stderr.write(
@@ -457,7 +539,13 @@ export function run(argv: string[], deps: Deps = {}): number {
       "flow-checkpoint: no slug given and no FLOW_SLUG in the environment.\n" +
         "  pass <slug> explicitly, or run inside a pipeline launched by `flow feature create`.",
     );
-    if (!parsed.probe && !parsed.consume && !parsed.path) {
+    if (
+      !parsed.probe &&
+      !parsed.consume &&
+      !parsed.path &&
+      !parsed.history &&
+      !parsed.journal
+    ) {
       process.stderr.write(
         renderArmBanner({ armed: false, reason: "no-slug" }) + "\n",
       );
@@ -466,6 +554,42 @@ export function run(argv: string[], deps: Deps = {}): number {
   }
 
   const state = readState(slug, stateDir);
+
+  // --history: re-render history.md and print only its absolute path (nothing
+  // when there is no pipeline record). Never logs and never mutates the note.
+  if (parsed.history) {
+    if (!state) return 0;
+    const out = loadAndRenderHistory(slug, {
+      stateDir,
+      kind: resolveKind() ?? resolveStateKind(state),
+    });
+    if (out) process.stdout.write(out.path + "\n");
+    return 0;
+  }
+
+  // --journal: log the supervisor's few lines at the record's current phase.
+  // Every outcome exits 0 — a missed entry is a rationale gap, never an error.
+  if (parsed.journal) {
+    const skip = (reason: string): number => {
+      process.stdout.write(
+        JSON.stringify({ status: "skipped", reason }) + "\n",
+      );
+      return 0;
+    };
+    if (!state) return skip("state-missing");
+    let body = "";
+    try {
+      body = (deps.readStdin ?? (() => fs.readFileSync(0, "utf8")))();
+    } catch {
+      body = "";
+    }
+    if (body.trim() === "") return skip("empty-body");
+    if (!appendJournal(slug, body.trimEnd(), state.phase, stateDir)) {
+      return skip("write-failed");
+    }
+    process.stdout.write(JSON.stringify({ status: "recorded" }) + "\n");
+    return 0;
+  }
 
   // --path: print the resolved checkpoint body path and exit. Derives from
   // the slug alone, so it never requires state.json and never fails for an
@@ -482,6 +606,8 @@ export function run(argv: string[], deps: Deps = {}): number {
   // `checkpoint-missing`). mkdir is idempotent and the directory is empty until
   // something writes, so a read-only caller pays only an empty dir.
   if (parsed.path) {
+    // Log any unlogged live note before the caller can overwrite it.
+    logLiveNoteIfUnlogged(slug, state?.phase ?? "unknown", stateDir);
     const bodyPath = checkpointBodyPath(slug, stateDir);
     try {
       fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
@@ -493,10 +619,12 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 0;
   }
 
-  // --probe: read-only freshness verdict, checked before any consume/arm
+  // --probe: freshness verdict (it only logs an unlogged live note, never
+  // changes the note, marker or record), checked before any consume/arm
   // mutation logic below. Fails open (verdict "write") on any unresolvable
   // precondition — no state.
   if (parsed.probe) {
+    logLiveNoteIfUnlogged(slug, state?.phase ?? "unknown", stateDir);
     if (!state) {
       emit({
         status: "probe",

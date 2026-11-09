@@ -17,6 +17,7 @@ import {
   type CheckpointResult,
 } from "./flow-checkpoint";
 import { isCheckpointUsable, probeFreshness } from "./lib/checkpoint-freshness";
+import { readHistoryEvents } from "./lib/checkpoint-history";
 import {
   readState,
   writeState,
@@ -148,6 +149,8 @@ describe("parseArgs", () => {
       consume: false,
       probe: false,
       path: false,
+      history: false,
+      journal: false,
       site: "manual",
     });
   });
@@ -158,6 +161,8 @@ describe("parseArgs", () => {
       consume: false,
       probe: false,
       path: false,
+      history: false,
+      journal: false,
       site: "manual",
     });
   });
@@ -168,6 +173,8 @@ describe("parseArgs", () => {
       consume: true,
       probe: false,
       path: false,
+      history: false,
+      journal: false,
       site: "manual",
     });
     expect(parseArgs(["my-slug", "--consume"])).toEqual({
@@ -175,6 +182,8 @@ describe("parseArgs", () => {
       consume: true,
       probe: false,
       path: false,
+      history: false,
+      journal: false,
       site: "manual",
     });
   });
@@ -189,6 +198,8 @@ describe("parseArgs", () => {
       consume: false,
       probe: true,
       path: false,
+      history: false,
+      journal: false,
       site: "gate",
     });
   });
@@ -205,6 +216,8 @@ describe("parseArgs", () => {
       consume: false,
       probe: false,
       path: false,
+      history: false,
+      journal: false,
       site: "terminal",
     });
   });
@@ -215,6 +228,8 @@ describe("parseArgs", () => {
       consume: false,
       probe: false,
       path: false,
+      history: false,
+      journal: false,
       site: "pre-review",
     });
   });
@@ -231,6 +246,8 @@ describe("parseArgs", () => {
       consume: false,
       probe: false,
       path: true,
+      history: false,
+      journal: false,
       site: "manual",
     });
   });
@@ -239,6 +256,26 @@ describe("parseArgs", () => {
     expect(parseArgs(["--path", "--consume"])).toEqual({
       error: "--path is mutually exclusive with --consume/--probe",
     });
+  });
+
+  it("accepts --history and --journal", () => {
+    expect(parseArgs(["my-slug", "--history"])).toMatchObject({
+      history: true,
+      journal: false,
+    });
+    expect(parseArgs(["--journal"])).toMatchObject({
+      history: false,
+      journal: true,
+    });
+  });
+
+  it.each([
+    ["--history", "--journal"],
+    ["--history", "--consume"],
+    ["--journal", "--probe"],
+    ["--history", "--path"],
+  ])("rejects %s combined with %s", (a, b) => {
+    expect(parseArgs([a, b])).toHaveProperty("error");
   });
 
   it("rejects --path combined with --probe", () => {
@@ -1146,5 +1183,151 @@ describe("run() — durable arm-banner file", () => {
     expect(r.stderrLines.some((l) => l.startsWith("checkpointed: true"))).toBe(
       true,
     );
+  });
+});
+
+describe("run() — history log, --history and --journal", () => {
+  const SLUG = "hist-slug";
+  const deps = (extra: Record<string, unknown> = {}) => ({
+    stateDir,
+    resolveSlug: () => null,
+    resolveKind: () => null,
+    ...extra,
+  });
+  const quiet = () => vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+  function runOut(argv: string[], extra: Record<string, unknown> = {}) {
+    const out = captureStdout();
+    const err = quiet();
+    const exit = run(argv, deps(extra));
+    out.restore();
+    err.mockRestore();
+    return { exit, stdout: out.writes.join("") };
+  }
+
+  it("keeps every armed note labelled with its phase", () => {
+    seedState(SLUG, { phase: "implementing" });
+    writeCheckpoint(SLUG, "- [standing] first rule\n");
+    runOut([SLUG]);
+    seedState(SLUG, { phase: "reviewing" });
+    writeCheckpoint(SLUG, "second note\n");
+    runOut([SLUG, "--site", "pre-review"]);
+    const notes = readHistoryEvents(SLUG, stateDir).filter(
+      (e) => e.type === "note",
+    );
+    expect(notes.map((n) => n.type === "note" && [n.phase, n.site])).toEqual([
+      ["implementing", "manual"],
+      ["reviewing", "pre-review"],
+    ]);
+    const { stdout } = runOut([SLUG, "--history"]);
+    const text = fs.readFileSync(stdout.trim(), "utf8");
+    expect(text).toContain("first rule");
+    expect(text).toContain("second note");
+  });
+
+  it("does not log the terminal one-liner", () => {
+    seedState(SLUG, { phase: "merged" });
+    writeCheckpoint(SLUG, "Pipeline reached MERGED at 2026-11-08T21:48:04Z.\n");
+    runOut([SLUG, "--site", "terminal"]);
+    expect(readHistoryEvents(SLUG, stateDir)).toEqual([]);
+  });
+
+  it("logs an unlogged live note on --probe and on --path, once", () => {
+    seedState(SLUG, { phase: "implementing", checkpoint: undefined });
+    writeCheckpoint(SLUG, "unarmed note\n");
+    const probe = runOut([SLUG, "--probe", "--site", "gate"]);
+    expect(JSON.parse(probe.stdout).status).toBe("probe");
+    runOut([SLUG, "--path"]);
+    const notes = readHistoryEvents(SLUG, stateDir);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ site: "unarmed", phase: "implementing" });
+  });
+
+  it("retires one-time items on consume", () => {
+    seedState(SLUG, { phase: "implementing" });
+    writeCheckpoint(SLUG, "- [one-time] approve with rename\n");
+    runOut([SLUG]);
+    const before = runOut([SLUG, "--history"]).stdout.trim();
+    const activeBefore = fs
+      .readFileSync(before, "utf8")
+      .split("\n## Record\n")[0];
+    expect(activeBefore).toContain("approve with rename");
+    runOut([SLUG, "--consume"]);
+    const after = runOut([SLUG, "--history"]).stdout.trim();
+    const activeAfter = fs
+      .readFileSync(after, "utf8")
+      .split("\n## Record\n")[0];
+    expect(activeAfter).not.toContain("approve with rename");
+    expect(fs.readFileSync(after, "utf8")).toContain("approve with rename");
+  });
+
+  it("logs the live note on consume with the armed site", () => {
+    seedState(SLUG, { phase: "implementing" });
+    writeCheckpoint(SLUG, "armed then consumed\n");
+    runOut([SLUG, "--site", "plan-approval"]);
+    fs.rmSync(path.join(stateDir, "checkpoints", SLUG, "history.jsonl"));
+    runOut([SLUG, "--consume"]);
+    expect(readHistoryEvents(SLUG, stateDir)[0]).toMatchObject({
+      site: "plan-approval",
+    });
+  });
+
+  it("keeps standing rules active in an epic-run window", () => {
+    seedState(SLUG, { phase: "epic-approved" });
+    writeCheckpoint(SLUG, "- [standing] stay on main\n");
+    runOut([SLUG]);
+    const { stdout } = runOut([SLUG, "--history"], {
+      resolveKind: () => "epic-run",
+    });
+    const text = fs.readFileSync(stdout.trim(), "utf8");
+    expect(text.split("\n## Record\n")[0]).toContain("stay on main");
+  });
+
+  it("prints nothing for --history when there is no pipeline record", () => {
+    const { exit, stdout } = runOut(["no-record", "--history"]);
+    expect(exit).toBe(0);
+    expect(stdout).toBe("");
+  });
+
+  it("records a journal entry with the current phase", () => {
+    seedState(SLUG, { phase: "reviewing" });
+    const { exit, stdout } = runOut([SLUG, "--journal"], {
+      readStdin: () => "chose X over Y because Z\n",
+    });
+    expect(exit).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({ status: "recorded" });
+    expect(readHistoryEvents(SLUG, stateDir)[0]).toMatchObject({
+      type: "journal",
+      phase: "reviewing",
+      body: "chose X over Y because Z",
+    });
+  });
+
+  it("skips an empty journal and a missing record, exiting 0", () => {
+    seedState(SLUG);
+    const empty = runOut([SLUG, "--journal"], { readStdin: () => "  \n" });
+    expect(JSON.parse(empty.stdout)).toEqual({
+      status: "skipped",
+      reason: "empty-body",
+    });
+    expect(readHistoryEvents(SLUG, stateDir)).toEqual([]);
+    const missing = runOut(["ghost", "--journal"], { readStdin: () => "x" });
+    expect(JSON.parse(missing.stdout).reason).toBe("state-missing");
+    expect(missing.exit).toBe(0);
+  });
+
+  it("prints no checkpointed banner for the read-only flags", () => {
+    seedState(SLUG);
+    const err = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const out = captureStdout();
+    run([SLUG, "--history"], deps());
+    run([SLUG, "--journal"], deps({ readStdin: () => "note" }));
+    run(["--history"], deps());
+    out.restore();
+    const banner = err.mock.calls.some((c) =>
+      String(c[0]).includes("checkpointed:"),
+    );
+    err.mockRestore();
+    expect(banner).toBe(false);
   });
 });

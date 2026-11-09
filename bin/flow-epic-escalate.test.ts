@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkpointBodyPath, checkpointMarkerPath } from "./flow-checkpoint";
 import { parseArgs, run } from "./flow-epic-escalate";
+import { readHistoryEvents } from "./lib/checkpoint-history";
 import { readState, writeState, type PipelineState } from "./lib/state";
 
 let stateDir!: string;
@@ -248,5 +249,33 @@ describe("run()", () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("run() — history", () => {
+  it("logs an unlogged live note before overwriting it and appends a needs-human gate event", () => {
+    seed("hist-epic");
+    const bodyPath = checkpointBodyPath("hist-epic", stateDir);
+    fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
+    fs.writeFileSync(bodyPath, "manual note nobody armed\n");
+
+    const { exit } = runCapture([
+      "--reason",
+      "design-blocked",
+      "--slug",
+      "hist-epic",
+    ]);
+
+    expect(exit).toBe(0);
+    const events = readHistoryEvents("hist-epic", stateDir);
+    expect(events[0]).toMatchObject({
+      type: "note",
+      site: "unarmed",
+      body: "manual note nobody armed\n",
+    });
+    expect(events.find((e) => e.type === "gate")).toMatchObject({
+      status: "needs-human",
+      reason: "design-blocked",
+    });
   });
 });
