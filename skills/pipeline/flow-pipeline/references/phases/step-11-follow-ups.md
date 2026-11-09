@@ -47,6 +47,9 @@ COUNTS_LINE=$(flow-pipeline-summary --status merged --fix-applier-result "$WORKT
 flow-epic-membership --slug "$SLUG" --terminal-state merged  # epic-membership block (prints nothing for non-epic features)
 flow-browser-teardown --reap --record  # registry-driven reap; records the outcome in state.json; always exits 0 — never blocks, never silently no-ops
 TLDR="<one sentence, ≤35 words: what you get, then <the thing> used to <problem>; now <new behaviour>>"  # authored here, not derived; per [TLDR and WHY authoring (product brief)](shared-gate-contracts.md#tldr-and-why-authoring-product-brief)
+flow-checkpoint --journal >/dev/null <<'EOF'  # why it shipped this way, per [Phase journal](shared-gate-contracts.md#phase-journal); two to six lines
+<decisions and why, surprises, what the user said, options rejected>
+EOF
 flow-gate-summary --status merged --pr-url "$PR_URL" --cleanup --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt" --tldr "$TLDR" --lens "$LENS" --untracked-file <(flow-untracked render --format gate --unfiled-only) --counts-line "$COUNTS_LINE"  # renders TLDR/STATUS/PR/NEEDS ATTENTION/MANUAL ACTION/UNTRACKED/count line/NEXT ACTION/CLEANUP + sentinel MERGED, then records phase: merged itself (after the block reaches stdout)
 flow-notify --status merged --url "$PR_URL" --reason "$TLDR"
 [ "$(flow-checkpoint --probe --site terminal | jq -r '.verdict')" = write ] && echo "Pipeline reached MERGED at $(date -u +%Y-%m-%dT%H:%M:%SZ)." > "$(flow-checkpoint --path)"; flow-checkpoint --site terminal >/dev/null  # best-effort, non-clobbering arm (stdout muted so the JSON verdict does not land beside the gate block; stderr deliberately left connected — echo the `checkpointed: ` line verbatim per the Checkpoint arm signal (echo-verbatim) subsection); the merged-externally rows above and the step-9 resume MERGED branch below now carry their own equivalent arm — nothing lost, the body is worktree-independent

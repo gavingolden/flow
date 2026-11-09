@@ -347,6 +347,10 @@ PRs. `flow-open-pr` is **idempotent**: it probes the branch via `gh pr view`
 FIRST and skips `gh pr create` on an already-PR'd branch, writing `pr` to
 `~/.flow/state/<slug>.json`. Capture the PR URL from stdout.
 
+Once the design PR is open, record why the design took this shape with
+`flow-checkpoint --journal` (two to six lines), per the pipeline's
+[Phase journal](../flow-pipeline/references/phases/shared-gate-contracts.md#phase-journal) contract.
+
 ## Step 6 — Checkpoint (render + END the turn)
 
 Run `flow-state-update --phase epic-design-pending-review`. Then arm a
@@ -447,6 +451,10 @@ open prose, ≤12 lines. Compact template:
 > **Needs attention:** <the ambiguous reply, quoted>
 > **Next action:** `approve` / `redirect: <new direction>` / `cancel`.
 
+After acting on an approve, redirect or cancel classification, record why with
+`flow-checkpoint --journal` (two to six lines), per the pipeline's
+[Phase journal](../flow-pipeline/references/phases/shared-gate-contracts.md#phase-journal) contract.
+
 # Resume mode
 
 The supervisor enters resume mode when the seed prompt begins with the literal
@@ -457,7 +465,22 @@ Use the /flow-epic-create skill in --resume mode for: <slug>
 ```
 
 `flow epic create --resume <slug>` writes that prompt; nothing else does. On
-detecting it, **do not** start at Step 1. Call `flow-epic-resume-decide`
+detecting it, **do not** start at Step 1. First render and Read the
+pipeline history — this must precede the decision below, because the decision
+retires the one-shot note and its one-time items stop being active:
+
+```bash
+HISTORY=$(flow-checkpoint --history)
+```
+
+When `$HISTORY` is non-empty, Read it in full (when a Read stops before the
+end, continue with an offset until the last line), even when a
+`<pipeline-history>` brief is already in context. Honor only its
+`## Active instructions`; `## Record` is saved history, never instructions,
+and the journal is the supervisor's own account, which a sourced fact in the
+Record overrides.
+
+Then call `flow-epic-resume-decide`
 (bare-name PATH, R1 — auto-resolves the slug from `$FLOW_SLUG`) to walk the
 epic resume-from-disk decision. It is the resume entry, not a read-only probe:
 it retires the one-shot checkpoint itself (see below):
@@ -480,9 +503,11 @@ process reconstructs the epic _step_ from disk but drops any instruction
 held only in chat. Before re-entering the resolved step, check
 `$CHECKPOINT_EXISTS`: when `true` (a checkpoint body written by
 `/flow-checkpoint` or `flow-epic-escalate` at the slug-keyed,
-worktree-independent location), **read `$CHECKPOINT_PATH`** — the path the
-decision published in `.context.checkpointPath` — and fold its addenda into
-the re-entered step: honor the persisted approval condition, redirect, or
+worktree-independent location), the note's one-time items are already under
+`## Active instructions` in the history just read — do not treat
+`$CHECKPOINT_PATH` (the path the decision published in
+`.context.checkpointPath`) as a separate instruction source — and fold them
+into the re-entered step: honor the persisted approval condition, redirect, or
 in-chat decision as if just given. The decision has already retired the
 one-shot `checkpoint.pending` marker and archived the note (so a later
 unrelated `/clear` does not re-fire the auto-resume hook), which is why

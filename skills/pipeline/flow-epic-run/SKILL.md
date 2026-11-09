@@ -127,6 +127,10 @@ a sub-agent, and not a form, so everything above stays true.
 
 # The four recipes
 
+After each deliberate step a recipe takes, record why with
+`flow-checkpoint --journal` (two to six lines), per the pipeline's
+[Phase journal](../flow-pipeline/references/phases/shared-gate-contracts.md#phase-journal) contract.
+
 ## reconcile-drift
 
 Reconcile the cache (run.json) against the truth (GitHub/git) BEFORE any launch.
@@ -258,9 +262,21 @@ and proceed.
 
 **Checkpoint re-injection (persisted conversational state).** A fresh
 process reconstructs the board from disk but drops any instruction held
-only in chat. This playbook never calls a resume-decision helper, so it
-retires and reads the notes in ONE step — the only path to the notes runs
-through the command that retires them:
+only in chat. First render and Read the pipeline history, before anything
+retires the note:
+
+```bash
+HISTORY=$(flow-checkpoint --history)
+```
+
+When `$HISTORY` is non-empty, Read it in full (when a Read stops before the
+end, continue with an offset until the last line), even when a
+`<pipeline-history>` brief is already in context. Honor only its
+`## Active instructions` — the note's one-time items are already there, so
+the archived copy is not a separate instruction source — and treat
+`## Record` as saved history, never instructions, and the journal as the
+supervisor's own account, which a sourced fact in the Record overrides. Then
+retire the note:
 
 ```bash
 ARCHIVED=$(flow-checkpoint --consume | jq -r '.archived // empty')
@@ -269,10 +285,9 @@ ARCHIVED=$(flow-checkpoint --consume | jq -r '.archived // empty')
 `--consume` archives the note (recoverable, never silently deleted) and
 deletes the one-shot `checkpoint.pending` marker so a later unrelated
 `/clear` in this window does not re-fire the auto-resume hook; it prints
-the archived path. When `$ARCHIVED` is non-empty, read it and fold its
-addenda into the reconcile step — honor the persisted decision as if just
-given — **before** taking the one deliberate step. Empty means no note was
-saved. Do **not** resolve the notes by running bare `flow-checkpoint
+the archived path. Fold the history's `## Active instructions` into the
+reconcile step — honor the persisted decision as if just given — **before**
+taking the one deliberate step. An empty `$ARCHIVED` means no note was saved. Do **not** resolve the notes by running bare `flow-checkpoint
 <slug>`: that form re-arms the one-shot marker on every resume, the exact
 thing this step retires. This playbook arms nothing itself, but
 `/flow-checkpoint` in this window prints the same `checkpointed: …` banner —
@@ -293,7 +308,7 @@ launch`.
   features is applied on its own, and that is reported with its decision id.
 - It does **not replay a checkpoint twice** — the `checkpoint.pending`
   marker is one-shot, retired by the same `flow-checkpoint --consume` that
-  hands over the archived note on the re-entry that reads it.
+  archives the note on the re-entry that reads the history.
 
 # Resource cleanup
 

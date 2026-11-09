@@ -113,4 +113,7 @@ flow-inject-evidence --body-file "$WORKTREE/.flow-tmp/body.md" --clear-caution |
   && gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
-**End condition:** `/flow-verify` reports a clean pass. Continue to step 7.
+**End condition:** `/flow-verify` reports a clean pass. Journal the verify
+outcome with `flow-checkpoint --journal` per the
+[Phase journal](shared-gate-contracts.md#phase-journal) subsection, then
+continue to step 7.
