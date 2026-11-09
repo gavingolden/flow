@@ -1566,3 +1566,161 @@ describe("flow-session-start-hook — parseSeedMode argv round-trip", () => {
     expect(parseSeedMode("TERMINAL")).toBe("resume");
   });
 });
+
+describe("terminalContinueSeed — history path (Task 8)", () => {
+  const HIST = "/home/u/.flow/state/checkpoints/demo/history.md";
+  const state = { repo: "/tmp/repo", worktree: undefined, pr: 42 };
+
+  it("orientation seed reads history first and carries no resume trigger", () => {
+    const seed = terminalContinueSeed("demo", "merged", "feature", state, HIST);
+    const paragraphs = seed.split("\n\n");
+    expect(paragraphs[0]).toBe("[pipeline-slug: demo]");
+    expect(paragraphs[1]).toContain(`Read ${HIST} in full`);
+    expect(paragraphs[1]).toContain(
+      "continue with an offset until the last line",
+    );
+    expect(seed).toContain("## Active instructions");
+    expect(seed).not.toContain("Use the /flow-pipeline skill for:");
+    expect(seed).toMatch(/^[\x20-\x7e\n]+$/);
+  });
+
+  it("awaiting-human orientation names the brief, not the carried-over notes", () => {
+    const seed = terminalContinueSeed(
+      "demo",
+      "needs-human",
+      "feature",
+      state,
+      HIST,
+    );
+    expect(seed).toContain("pipeline brief in your context and in history.md");
+    expect(seed).not.toContain("carried-over checkpoint notes");
+    expect(seed).toContain("close this window first");
+  });
+
+  it("produces today's exact text for a null history path", () => {
+    const plain = terminalContinueSeed("demo", "merged", "feature", state);
+    expect(terminalContinueSeed("demo", "merged", "feature", state, null)).toBe(
+      plain,
+    );
+    expect(plain).toContain("carried-over checkpoint notes");
+  });
+
+  it("threads the history path through the terminal-mode delivery only when the file exists", () => {
+    const merged: PipelineState = {
+      slug: "demo",
+      phase: "merged",
+      repo: "/tmp/repo",
+      updatedAt: "t",
+    };
+    const sent = (exists: boolean): string => {
+      const { seams, sends } = makeSeams(
+        frames(["old", "fresh", "fresh", "fresh"]),
+      );
+      deliverResumeSeed(
+        "demo",
+        {
+          ...seams,
+          readState: () => merged,
+          writeState: () => {},
+          historyExists: () => exists,
+        },
+        "feature",
+        "terminal",
+      );
+      return sends
+        .filter((c) => c.literal)
+        .map((c) => c.text)
+        .join("");
+    };
+    expect(sent(true)).toContain("history.md in full");
+    expect(sent(false)).not.toContain("history.md in full");
+  });
+});
+
+describe("deliverResumeSeed — seed record ordering (Task 8)", () => {
+  const prev: PipelineState = {
+    slug: "demo",
+    phase: "verifying",
+    repo: "/tmp/repo",
+    updatedAt: "t",
+    seed: "OLD SEED",
+    seedIngest: { at: "2026-06-29T00:00:00Z", outcome: "verified" },
+  };
+
+  it("seed recorded only after pane settles", () => {
+    const order: string[] = [];
+    const { seams } = makeSeams(
+      frames(["old pre-clear prompt", "fresh", "fresh", "fresh", "fresh"]),
+      20,
+      { leadEcho: RESUME_SEED },
+    );
+    let polls = 0;
+    deliverResumeSeed(
+      "demo",
+      {
+        ...seams,
+        capturePane: () => {
+          polls++;
+          return seams.capturePane();
+        },
+        readState: () => prev,
+        writeState: () => order.push(`write@poll${polls}`),
+      },
+      "feature",
+      "resume",
+    );
+    expect(order).toHaveLength(1);
+    expect(polls).toBeGreaterThan(1);
+    expect(order[0]).not.toBe("write@poll0");
+  });
+
+  it("failed delivery leaves the seed record untouched", () => {
+    // The pane never changes from its pre-clear snapshot, so it never settles.
+    const { seams } = makeSeams(frames(["stuck"]), 3);
+    const written: PipelineState[] = [];
+    const ok = deliverResumeSeed(
+      "demo",
+      { ...seams, readState: () => prev, writeState: (s) => written.push(s) },
+      "feature",
+      "resume",
+    );
+    expect(ok).toBe(false);
+    expect(written).toEqual([]);
+  });
+
+  it("restores the previous seed fields onto a fresh read when the send fails after settling", () => {
+    const { seams: base } = makeSeams(
+      frames(["old pre-clear prompt", "fresh", "fresh", "fresh", "fresh"]),
+      20,
+      { leadEcho: RESUME_SEED },
+    );
+    const seams: DeliverSeams = {
+      ...base,
+      sendKeys: (text, literal) =>
+        text === "Enter"
+          ? { ok: false, stderr: "boom" }
+          : base.sendKeys(text, literal),
+    };
+    const concurrent: PipelineState = { ...prev, phase: "reviewing" };
+    let reads = 0;
+    const written: PipelineState[] = [];
+    const ok = deliverResumeSeed(
+      "demo",
+      {
+        ...seams,
+        readState: () => (reads++ === 0 ? prev : concurrent),
+        writeState: (s) => written.push(s),
+      },
+      "feature",
+      "resume",
+    );
+    expect(ok).toBe(false);
+    expect(written).toHaveLength(2);
+    expect(written[0].seed).toBe(flowPipelineResumeSeed("demo"));
+    expect(written[1]).toEqual({
+      ...concurrent,
+      seed: "OLD SEED",
+      seedIngest: prev.seedIngest,
+    });
+  });
+});
