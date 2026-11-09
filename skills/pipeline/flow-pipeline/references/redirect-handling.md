@@ -243,7 +243,7 @@ supervisor:
 When the instruction fails the "fresh" or "in-context" test — or the
 "unambiguous" test on an input that isn't about merging at all — do
 **not** fire the confirmation and do **not** record a token. Re-render
-the GATED block, restate that the verdict is terminal, and end. If the
+the GATED block (same `--signoff-file` argument), restate that the verdict is terminal, and end. If the
 user's intent is genuinely unclear, ask one clarifying question per the
 ambiguous-input rule above.
 

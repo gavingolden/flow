@@ -278,6 +278,10 @@ the user has something to judge. For each `capture` entry in `item_results[]`:
     --image '.flow-tmp/ui-evidence/<name>-1280.png#<item> (desktop)'
   ```
 
+  Label dark and tablet shots with the alt suffixes the gate reads:
+  `(phone-dark)`, `(desktop-dark)`, `(tablet)`. A `(phone)`/`(desktop)` alt on a
+  file whose name carries a `dark` token is also read as the dark view.
+
   Run it from the worktree root (the helper writes each image reference
   **worktree-relative** whatever form the path is passed in) — that reference is what
   `flow-review-finalize` hands to `gh pr edit --attach` for upload; the

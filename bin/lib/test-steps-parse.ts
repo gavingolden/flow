@@ -63,7 +63,6 @@ export type LintFinding = {
 
 const ITEM_RE = /^\s*-\s+\[( |x|X)\]\s+(.*\S)\s*$/;
 const EVIDENCE_MARKER = "<!-- flow:evidence -->";
-const IMAGE_RE = /!\[[^\]]*\]\([^)]+\)|<img\s/i;
 const NO_SCREENSHOT_RE = /no screenshot:\s*(\S.*)/i;
 const PARTIAL_RE = /\bpartial:\s*(\S.*)/i;
 const HEADING_RE = /^\s{0,3}#{1,6}(?:\s|$)/;
@@ -164,7 +163,10 @@ export function parseTestSteps(body: string): {
     const scan = `${head.text}\n${readable}`;
     const images = imageRefs(scan).map((r) => ({ alt: r.alt, ref: r.target }));
     const reason = (re: RegExp): string | null =>
-      (head.fullText.match(re) ?? readable.match(re))?.[1]?.trim() ?? null;
+      scan
+        .replace(/<!--[\s\S]*?-->/g, "")
+        .match(re)?.[1]
+        ?.trim() ?? null;
     const noScreenshot = reason(NO_SCREENSHOT_RE);
     return {
       line: head.line,
@@ -173,7 +175,7 @@ export function parseTestSteps(body: string): {
       text: head.text,
       fullText: head.fullText,
       hasEvidence: span.includes(EVIDENCE_MARKER),
-      hasImage: images.length > 0 || IMAGE_RE.test(scan),
+      hasImage: images.length > 0,
       noScreenshotReason: noScreenshot !== null,
       images,
       partial: reason(PARTIAL_RE),
@@ -215,7 +217,7 @@ const HINTS: Record<LintCode, string> = {
   "subjective-no-image":
     "Every SUBJECTIVE item needs a screenshot or a 'no screenshot: <reason>' line.",
   "subjective-missing-view":
-    "The item names a viewport the attached screenshots do not show; capture the missing view or add a 'partial: <reason>' line.",
+    "The item names a viewport the attached screenshots do not show; capture the missing view or add a 'partial: <reason>' line naming it.",
   "ticked-no-evidence":
     "A ticked prose or browser item carries no evidence block; attach proof or untick it.",
   "post-merge-step":

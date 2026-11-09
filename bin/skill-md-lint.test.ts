@@ -10673,13 +10673,28 @@ describe("pause-output contract wiring lint", () => {
         "every `flow-gate-summary --status gated` mention in step-09-gate.md must pass --signoff-file.",
       ).toBe(true);
     }
-    expect(step9).toContain(".flow-tmp/gate-verdict.json");
+    const WRITE =
+      'flow-gate-decide "$PR" > "$WORKTREE/.flow-tmp/gate-verdict.json"';
+    const READ =
+      "--signoff-file <(jq -c '.uiSignoff // empty' \"$WORKTREE/.flow-tmp/gate-verdict.json\" 2>/dev/null)";
+    expect(step9).toContain(
+      'printf \'%s\' "$RESULT" > "$WORKTREE/.flow-tmp/gate-verdict.json"',
+    );
+    expect(step9).toContain(WRITE);
+    // main table row, the pr-not-owned/not-gated prose re-render, the non-affirmative re-render
+    expect(step9.split(READ).length - 1).toBeGreaterThanOrEqual(3);
     expect(step9).toContain("The only two routes from `gated` to merged");
     expect(step9).not.toContain("list `UI review: <uiReview.reason>`");
     const redirect = flat(
       fs.readFileSync(path.join(refs, "redirect-handling.md"), "utf8"),
     );
-    expect(redirect).toContain("--signoff-file");
+    expect(redirect).toContain(WRITE);
+    // override refusal re-render and non-affirmative re-render
+    expect(redirect.split(READ).length - 1).toBeGreaterThanOrEqual(1);
+    expect(redirect).toContain("(same `--signoff-file` argument)");
+    expect(redirect.split("--signoff-file").length - 1).toBeGreaterThanOrEqual(
+      3,
+    );
   });
 
   it("no skill or PR-template file still documents a 25-word TLDR cap", () => {

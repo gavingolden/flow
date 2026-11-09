@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CritiqueFinding } from "./ui-critique";
+import { residualDecisionItem } from "./ui-critique-render";
 import type { LoopLog } from "./ui-critique";
 import {
   collectSubjectiveEvidence,
@@ -174,6 +175,24 @@ describe("summarizeUiReview", () => {
       false,
     );
     expect(summarizeUiReview(null, OK_GATE).passed).toBe(false);
+  });
+
+  it("defect count matches the DECISION defects item's producer", () => {
+    const l = log({
+      residual: [
+        finding({ severity: "defect" }),
+        finding({ severity: "major" }),
+        finding({ severity: "defect", introduced: false }),
+      ],
+      persistent: ["p1"],
+    });
+    const n = Number(
+      residualDecisionItem(l.residual, l.persistent)?.match(
+        /with (\d+) unresolved/,
+      )?.[1] ?? 0,
+    );
+    expect(n).toBeGreaterThan(0);
+    expect(summarizeUiReview(l, OK_GATE).gatingDefect).toBe(n);
   });
 
   it("counts gating residual + persistent and ignores advisory signoff findings", () => {

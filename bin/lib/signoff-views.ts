@@ -74,9 +74,12 @@ export function requiredViews(itemText: string): SignoffView[] {
 
 export function shotView(alt: string, ref: string): SignoffView | null {
   const m = alt.match(ALT_VIEW_RE);
-  if (m) return `${m[1].toLowerCase()}${m[2] ? "-dark" : ""}` as SignoffView;
   const file = path.basename(ref.split(/[?#]/)[0]);
   const tokens = file.toLowerCase().split(/[-_.\s]+/);
+  if (m) {
+    const dark = m[2] || tokens.includes("dark");
+    return `${m[1].toLowerCase()}${dark ? "-dark" : ""}` as SignoffView;
+  }
   let base: Light | null = null;
   if (isPhoneLabelled(file)) base = "phone";
   else if (tokens.some((t) => DESKTOP_TOKENS.has(t))) base = "desktop";

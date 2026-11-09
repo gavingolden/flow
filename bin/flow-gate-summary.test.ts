@@ -2783,7 +2783,7 @@ describe("flow-gate-summary — UI sign-off evidence (--signoff-file)", () => {
       "    shots: phone · desktop · phone-dark — missing: desktop-dark",
     );
     expect(lines[at("SUBJECTIVE: B") + 1]).toBe(
-      "    shots: shot — unlabelled: 1 shots",
+      "    shots: shot — unlabelled: 1 shot",
     );
     expect(lines[at("SUBJECTIVE: C") + 1]).toBe(
       "    shots: phone — missing: desktop — partial: desktop needs login",
@@ -2792,7 +2792,7 @@ describe("flow-gate-summary — UI sign-off evidence (--signoff-file)", () => {
       "    no screenshot: real device only",
     );
     expect(lines).toContain(
-      "  UI review: clean (judged abcdef1); 0 major, 0 defect open",
+      "  UI review: passed, nothing to fix; 0 major, 0 defects open",
     );
   });
 
@@ -2801,7 +2801,7 @@ describe("flow-gate-summary — UI sign-off evidence (--signoff-file)", () => {
     expect(out).toContain(
       "    shots: phone · desktop · phone-dark — missing: desktop-dark",
     );
-    expect(out).toContain("  UI review: clean");
+    expect(out).toContain("  UI review: passed, nothing to fix");
   });
 
   it("omits the UI review line unless passed; unmatched items render as today", () => {
@@ -2877,7 +2877,26 @@ describe("flow-gate-summary — UI sign-off evidence (--signoff-file)", () => {
       expect(runGated(["--signoff-file", good])).toContain(
         "missing: desktop-dark",
       );
-      for (const p of [bad, empty, path.join(tmpRoot, "nope.json")]) {
+      const verdict = path.join(tmpRoot, "verdict.json");
+      fs.writeFileSync(
+        verdict,
+        JSON.stringify({ decision: "gated", uiSignoff: signoff }),
+      );
+      const partial = path.join(tmpRoot, "partial.json");
+      fs.writeFileSync(
+        partial,
+        JSON.stringify({
+          items: [{ item: ITEMS[0] }],
+          uiReview: { passed: true },
+        }),
+      );
+      for (const p of [
+        bad,
+        empty,
+        verdict,
+        partial,
+        path.join(tmpRoot, "nope.json"),
+      ]) {
         expect(runGated(["--signoff-file", p])).toBe(none);
       }
     });

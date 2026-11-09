@@ -385,3 +385,35 @@ describe("lintTestSteps — Browser items the driver cannot run", () => {
     ).toEqual([]);
   });
 });
+
+describe("reason capture and image detection", () => {
+  it("does not swallow lines after a partial: line into the reason", () => {
+    const body = [
+      "## Test Steps",
+      "- [ ] SUBJECTIVE: header looks right at 390 and 1280",
+      "  partial: desktop needs login",
+      "  ![header (phone)](.flow-tmp/shots/h.png)",
+    ].join("\n");
+    const step = parseTestSteps(body).steps[0];
+    expect(step.partial).toBe("desktop needs login");
+  });
+
+  it("treats image syntax inside a code span as no image", () => {
+    const body = [
+      "## Test Steps",
+      "- [ ] SUBJECTIVE: the card reads well `![a](b.png)`",
+    ].join("\n");
+    expect(parseTestSteps(body).steps[0].hasImage).toBe(false);
+  });
+
+  it("reads a dark filename token even when the alt says (phone)", () => {
+    const body = [
+      "## Test Steps",
+      "- [ ] SUBJECTIVE: the card at 390, dark mode ![card (phone)](a/card-390.png) ![card (phone)](a/card-390-dark.png)",
+    ].join("\n");
+    const step = parseTestSteps(body).steps[0];
+    expect(lintTestSteps([step], "review").map((f) => f.code)).not.toContain(
+      "subjective-missing-view",
+    );
+  });
+});

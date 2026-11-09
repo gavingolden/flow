@@ -63,15 +63,23 @@ export function itemEvidenceLine(item: ItemEvidence, mode: LinkMode): string {
   let line = `shots: ${links.length > 0 ? links.join(" · ") : "none"}`;
   if (item.missing.length > 0) line += ` — missing: ${item.missing.join(", ")}`;
   else if (item.unlabelled > 0)
-    line += ` — unlabelled: ${item.unlabelled} shots`;
+    line += ` — unlabelled: ${item.unlabelled} shot${item.unlabelled === 1 ? "" : "s"}`;
   if (item.partial !== undefined) line += ` — partial: ${item.partial}`;
   return line;
 }
 
+const OUTCOME_PHRASE: Record<string, string> = {
+  clean: "passed, nothing to fix",
+  kept: "passed, its fixes kept",
+  reverted: "passed, its fixes undone",
+  "list-only": "passed, findings listed only",
+};
+
 export function uiReviewLine(s: UiReviewSummary): string | null {
   if (!s.passed) return null;
-  const judged = s.judgedSha ? ` (judged ${s.judgedSha.slice(0, 7)})` : "";
-  return `UI review: ${s.outcome ?? "passed"}${judged}; ${s.gatingMajor} major, ${s.gatingDefect} defect open`;
+  const outcome = (s.outcome && OUTCOME_PHRASE[s.outcome]) ?? "passed";
+  const defects = `${s.gatingDefect} ${s.gatingDefect === 1 ? "defect" : "defects"}`;
+  return `UI review: ${outcome}; ${s.gatingMajor} major, ${defects} open`;
 }
 
 const itemKey = (text: string): string =>

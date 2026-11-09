@@ -689,7 +689,7 @@ run**. When the command is not on PATH, record the named skip
 | `post-merge-step`           | both   | finding      | Remove from Test Steps and register it on the local follow-ups list (`flow-followups`)                                                        |
 | `human-only-ticked`         | both   | finding      | Untick it, unless the user ticked it themselves in this session — agents never tick `SUBJECTIVE: ` / `DECISION: `                             |
 | `subjective-no-image`       | review | finding      | Step 8c should have captured it: re-check the capture, or add the `no screenshot: <reason>` line. An item with that line is not flagged       |
-| `subjective-missing-view`   | review | finding      | The item names a viewport or dark mode its labelled shots do not show: capture the missing view, or add a `partial: <reason>` line            |
+| `subjective-missing-view`   | review | finding      | The item names a viewport or dark mode its labelled shots do not show: capture the missing view, or add a `partial: <reason>` line naming it  |
 | `ticked-no-evidence`        | review | finding      | A ticked prose or `Browser: ` item with no evidence block — re-run it for proof, or untick it                                                 |
 | `browser-shape`             | both   | finding      | A `Browser: ` item must read `on <route>, <action chain> — expect <result>` — rewrite it to that shape, or move it out of Test Steps          |
 | `browser-over-bound`        | both   | finding      | More than 8 actions: split it, seed the state via a fixture or URL, or write a durable Playwright/vitest test                                 |
