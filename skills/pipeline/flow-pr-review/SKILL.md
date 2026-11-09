@@ -1019,8 +1019,8 @@ erode the context-cost win.
 
 **Bundle check (one continuation).** Guard with `command -v flow-fix-applier-bundle-check` (absent or
 any non-zero exit ⇒ named skip `bundle check unavailable`). Resolve the base in its OWN Bash call, never
-inline `$(…)`: `BASE_REF=$(gh pr view "$PR_NUMBER" --json baseRefName --jq .baseRefName)`. Then run
-`flow-fix-applier-bundle-check --artifact "$ARTIFACT_PATH" --worktree "$WORKTREE" --base "origin/$BASE_REF" --out "$WORKTREE/.flow-tmp/bundle-check.json"`.
+inline `$(…)`, and PRINT it (shell variables do not carry across Bash calls): `gh pr view "$PR_NUMBER" --json baseRefName --jq .baseRefName`.
+Then run, pasting the printed branch name as a literal, `flow-fix-applier-bundle-check --artifact "$ARTIFACT_PATH" --worktree "$WORKTREE" --base "origin/<printed-name>" --out "$WORKTREE/.flow-tmp/bundle-check.json"`.
 On `.needsContinuation == true`, load `SendMessage` and send exactly ONE continuation to the same
 fix-applier per [references/fix-applier-spawn-prompt.md](references/fix-applier-spawn-prompt.md)
 `## Bundle continuation`, after any partial-result continuation resolves. Wait for the completion
@@ -1521,8 +1521,8 @@ new command is needed here) plus an unchecked
 `- [ ] DECISION: confirm N unattempted entries (listed under
 ## Deviations from plan above) are acceptable` Test Step so the PR is gated.
 A `.flow-tmp/bundle-check.json` residue candidate with adjacency `blocked` adds one unchecked
-`- [ ] DECISION: <pattern> blocked <finding_id> and was left unfixed (<why_not_fixed>) — fix in-PR or accept the weaker test`
-Test Step; other residue does not gate.
+`- [ ] DECISION: the review's "<blocked finding's subject>" test was weakened (<rejected alternative's considered_approach> was dropped) because <pattern> is still unfixed (<why_not_fixed>) — fix it in this PR or accept the weaker test`
+Test Step (the blocked finding's subject comes from `consolidator-result.json`; never the raw `finding_id`); other residue does not gate.
 
 ### 11e. Resolution
 
@@ -1645,7 +1645,7 @@ this PR added or changed; `false` = pre-existing) alongside `location` / `patter
 the lens `lens_anti_patterns_found[]` entries have no such flag (three fields plus `lens`; shape in
 `bin/lib/negative-findings-schema.ts`). Render the boolean and any `why_not_fixed` in **Anti-Patterns
 Observed**, and append the new-file audit's WARNING lines (Step 9a above). When the artifact's `commits[]`
-holds `finding_id`s starting `bundle:`, render one `Bundled: <n> adjacent pre-existing fix(es) — <location list>`
+holds `finding_id`s starting `bundle:`, render one `Bundled: <n> in-scope fix(es) — <location list>`
 line in the report summary.
 
 **The mechanical wrap-up runs once, here, via `flow-review-finalize`.** This single
@@ -1810,13 +1810,13 @@ source 1 is `deferred[]` entries from `fix-applier-result.json` whose `tracker_e
 is empty (title `<finding_id>: <reason>`); source 2 is `anti_patterns_found[]` entries
 whose `introduced_by_this_pr` is `false`, plus any entry `bundle-check.json` still lists as
 residue whatever its `introduced_by_this_pr` (title `<pattern> — <why_not_fixed>`, or the
-"blocked this PR's fix" / "flagged fixable in this PR but left unfixed" label for residue). Both run through
+"weakened a test this PR's review asked for" / "flagged fixable in this PR but left unfixed" label for residue). Both run through
 `flow-untracked add --title "<title>" --source pr-review`, which dedupes on an existing
 UNDROPPED item sharing `--title` + `--source`, so a review-fix-loop or resume re-run never
 duplicates an entry. Guarded internally: a **standalone** `/flow-pr-review` run has no
 slug/state file (`flow-untracked list --json` fails there), so the helper skips this
 source cleanly instead of failing. Both sources are read-only against the fix-applier
-artifact, whose only optional fields are `why_not_fixed` and `blocked_finding_id`. Items seeded here are unfiled by default;
+artifact; the seed reads the optional per-entry `anti_patterns_found` fields `why_not_fixed` and `blocked_finding_id`. Items seeded here are unfiled by default;
 they surface in the terminal block's `**Untracked:**` row and the reader files or drops
 them with `file #N` / `drop #N` at any later pause. Below-bar deferrals (a `reason`
 beginning `below bar — `) arrive through source 1 by design — shown, not filed — so the

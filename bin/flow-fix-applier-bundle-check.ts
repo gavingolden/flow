@@ -47,7 +47,10 @@ type Rec = Record<string, unknown>;
 const USAGE =
   "usage: flow-fix-applier-bundle-check --artifact <path> --worktree <dir> --base <ref> [--prior <path>] [--out <path>]";
 const MAX_BYTES = 1024 * 1024;
-const JUSTIFICATION_BY_PREFIX: Record<string, GapJustification> = {
+const JUSTIFICATION_BY_PREFIX: Record<
+  (typeof WHY_NOT_FIXED_PREFIXES)[number],
+  GapJustification
+> = {
   "not small: ": "not-small",
   "not mechanical: ": "not-mechanical",
   "out of scope: ": "out-of-scope",
@@ -64,10 +67,14 @@ const recs = (v: unknown): Rec[] =>
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const stripLine = (loc: string): string => loc.replace(/:\d+(:\d+)?$/, "");
 
+const stripIdx = (id: string): string => id.replace(/:\d+$/, "");
+
 function findingFile(id: string): string | null {
   const i = id.indexOf(":");
   if (i < 0) return null;
-  const m = id.slice(i + 1).match(/^(.+?):\d+:[^:]+(?::\d+)?$/);
+  const m =
+    id.slice(i + 1).match(/^(.+?):\d+:[^:]+(?::\d+)?$/) ??
+    id.match(/^(.+?):\d+:[^:]+(?::\d+)?$/);
   return m ? m[1] : null;
 }
 
@@ -88,17 +95,38 @@ function stemOf(p: string): string {
 const escapeRe = (s: string): string =>
   s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-function imports(content: string | null, otherPath: string): boolean {
+const SPECIFIER_RE = /(?:from|import\s*\(?|require\s*\()\s*['"]([^'"]+)['"]/g;
+
+function importsFile(
+  content: string | null,
+  importer: string,
+  other: string,
+): boolean {
   if (content === null || content.length > MAX_BYTES) return false;
-  const stem = escapeRe(stemOf(otherPath));
-  return new RegExp(
-    `(from|import\\s*\\(?|require\\s*\\()\\s*['"][^'"]*/${stem}(\\.[a-z0-9]+)?['"]`,
-  ).test(content);
+  const otherNoExt = other.slice(0, other.length - path.extname(other).length);
+  const stem = escapeRe(stemOf(other));
+  const aliasRe = new RegExp(`/${stem}(\\.[a-z0-9]+)?$`);
+  for (const m of content.matchAll(SPECIFIER_RE)) {
+    const spec = m[1];
+    if (spec.startsWith("./") || spec.startsWith("../")) {
+      const target = path.posix.join(path.posix.dirname(importer), spec);
+      if (
+        target === other ||
+        target === otherNoExt ||
+        (path.posix.dirname(other) === target &&
+          path.basename(otherNoExt) === "index")
+      )
+        return true;
+    } else if (aliasRe.test(spec)) return true;
+  }
+  return false;
 }
 
 function oneHop(a: string, b: string, ctx: Ctx): boolean {
   if (a === b) return true;
-  return imports(ctx.readFile(a), b) || imports(ctx.readFile(b), a);
+  return (
+    importsFile(ctx.readFile(a), a, b) || importsFile(ctx.readFile(b), b, a)
+  );
 }
 
 export function classifyUnfixedAntiPatterns(
@@ -110,16 +138,31 @@ export function classifyUnfixedAntiPatterns(
   ctx: Ctx,
 ): BundleCandidate[] {
   const commits = recs(artifact.commits);
-  const filesOfFinding = (id: string): string[] =>
-    commits
-      .filter((c) => c.finding_id === id)
+  const filesOfFinding = (id: string): string[] => {
+    const base = stripIdx(id);
+    return commits
+      .filter((c) => {
+        const cid = str(c.finding_id);
+        return cid === id || (base !== "" && stripIdx(cid) === base);
+      })
       .flatMap((c) => (Array.isArray(c.files) ? c.files.map(str) : []));
+  };
   const blockers = recs(artifact.rejected_alternatives).flatMap((r) => {
     const id = str(r.finding_id);
     if (!id) return [];
     const f = findingFile(id);
-    return [{ id, files: [...(f ? [f] : []), ...filesOfFinding(id)] }];
+    const text =
+      `${str(r.considered_approach)} ${str(r.why_rejected)}`.toLowerCase();
+    return [{ id, text, files: [...(f ? [f] : []), ...filesOfFinding(id)] }];
   });
+  // A rejected alternative only blocks a gap its own text names; mere proximity
+  // is not a block (the agent is told to record both slots proactively).
+  const namesGap = (text: string, gap: string, pattern: string): boolean =>
+    text.includes(stemOf(gap).toLowerCase()) ||
+    pattern
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .some((w) => w.length >= 8 && text.includes(w));
   const touched = new Set(ctx.touchedFiles);
   const out: BundleCandidate[] = [];
   const entries = recs(artifact.anti_patterns_found);
@@ -128,8 +171,10 @@ export function classifyUnfixedAntiPatterns(
     const location = str(e.location);
     const gap = stripLine(location);
     const explicit = str(e.blocked_finding_id);
-    const inferred = blockers.find((b) =>
-      b.files.some((f) => oneHop(f, gap, ctx)),
+    const inferred = blockers.find(
+      (b) =>
+        namesGap(b.text, gap, str(e.pattern)) &&
+        b.files.some((f) => oneHop(f, gap, ctx)),
     );
     let adjacency: GapAdjacency | null = null;
     let blockedFindingId: string | null = null;
@@ -170,10 +215,20 @@ export function classifyUnfixedAntiPatterns(
         str(e.location) === prior.location && str(e.pattern) === prior.pattern,
     );
     if (stillThere) continue;
-    const own = new Set(filesOfFinding(prior.blockedFindingId ?? ""));
-    const restrengthened = filesOfFinding(`bundle:${prior.location}`).some(
-      (f) => own.has(f),
-    );
+    const blockedId = prior.blockedFindingId ?? "";
+    const blockedFile = findingFile(blockedId);
+    const own = new Set([
+      ...(blockedFile ? [blockedFile] : []),
+      ...filesOfFinding(blockedId),
+    ]);
+    const bundleFiles = [
+      ...filesOfFinding(`bundle:${prior.location}`),
+      ...filesOfFinding(`bundle:${stripLine(prior.location)}`),
+    ];
+    const restrengthened =
+      own.size === 0
+        ? bundleFiles.length > 0
+        : bundleFiles.some((f) => own.has(f));
     if (!restrengthened) out.push(prior);
   }
   return out;
@@ -201,6 +256,8 @@ function parseArgs(argv: string[]): Args | string {
     if (!key) return `unknown argument '${argv[i]}'`;
     if (argv[i + 1] === undefined) return `${argv[i]} needs a value`;
     args[key] = argv[++i];
+    if (key === "base" && args.base?.startsWith("-"))
+      return "--base must be a ref, not an option";
   }
   for (const req of ["artifact", "worktree", "base"] as const) {
     if (!args[req]) return `--${req} is required`;
@@ -239,7 +296,14 @@ export function run(
     const prior = args.prior ? readJson(args.prior, "prior") : null;
     const touchedFiles = execFileSync(
       "git",
-      ["-C", worktree, "diff", "--name-only", `${args.base}...HEAD`],
+      [
+        "-C",
+        worktree,
+        "diff",
+        "--name-only",
+        "--end-of-options",
+        `${args.base}...HEAD`,
+      ],
       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     )
       .split("\n")

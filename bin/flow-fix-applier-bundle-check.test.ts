@@ -235,6 +235,121 @@ describe("classifyUnfixedAntiPatterns", () => {
     expect(r).toEqual([]);
   });
 
+  it("a gap at file:line inside a touched file is touched/missing", () => {
+    const r = classify(
+      { anti_patterns_found: [gap({ location: `${PAGE}:12` })] },
+      { readFile: () => null },
+    );
+    expect(r).toEqual([
+      expect.objectContaining({
+        adjacency: "touched",
+        justification: "missing",
+      }),
+    ]);
+  });
+
+  it("a touched-file gap justified not mechanical is not a candidate", () => {
+    expect(
+      classify(
+        {
+          anti_patterns_found: [
+            gap({
+              location: `${PAGE}:12`,
+              why_not_fixed: "not mechanical: x",
+            }),
+          ],
+        },
+        { readFile: () => null },
+      ),
+    ).toEqual([]);
+  });
+
+  it("a nearby rejected alternative that does not name the gap does not block it", () => {
+    const r = classify({
+      rejected_alternatives: [REJ],
+      anti_patterns_found: [
+        gap({
+          location: `${PAGE}:200`,
+          pattern: "Magic number sprinkled in timer",
+          why_not_fixed: "not confident: unsure",
+        }),
+      ],
+    });
+    expect(r).toEqual([]);
+  });
+
+  it("same-named modules in different directories are not one hop away", () => {
+    const r = classify(
+      { anti_patterns_found: [gap({ location: "src/lib/server/utils.ts:1" })] },
+      {
+        touchedFiles: ["src/ui/a.ts"],
+        readFile: (p) =>
+          p === "src/ui/a.ts" ? `import u from "./utils"` : null,
+      },
+    );
+    expect(r).toEqual([]);
+    const hit = classify(
+      { anti_patterns_found: [gap({ location: "src/ui/utils.ts:1" })] },
+      {
+        touchedFiles: ["src/ui/a.ts"],
+        readFile: (p) =>
+          p === "src/ui/a.ts" ? `import u from "./utils"` : null,
+      },
+    );
+    expect(hit[0].adjacency).toBe("referenced");
+  });
+
+  it("a kept blocked entry is not duplicated by its prior", () => {
+    const r = classify(
+      {
+        anti_patterns_found: [
+          gap({ blocked_finding_id: FID, why_not_fixed: "not mechanical: x" }),
+        ],
+      },
+      { priorBlocked: [prior] },
+    );
+    expect(r).toHaveLength(1);
+    expect(r[0].adjacency).toBe("blocked");
+  });
+
+  it("a non-blocked prior is ignored", () => {
+    expect(
+      classify(
+        { anti_patterns_found: [] },
+        { priorBlocked: [{ ...prior, adjacency: "referenced" }] },
+      ),
+    ).toEqual([]);
+  });
+
+  it("a bundle commit clears a prior whose blocked finding has no commit", () => {
+    const r = classify(
+      {
+        commits: [{ sha: "b", finding_id: `bundle:${SKEL}`, files: [SKEL] }],
+        anti_patterns_found: [],
+      },
+      { priorBlocked: [{ ...prior, blockedFindingId: "x:unparsable" }] },
+    );
+    expect(r).toEqual([]);
+  });
+
+  it("the prior check tolerates an :<idx> suffix and a line-suffixed location", () => {
+    const r = classify(
+      {
+        commits: [
+          findingCommit,
+          { sha: "b", finding_id: `bundle:${SKEL}`, files: [SKEL, PAGE_TEST] },
+        ],
+        anti_patterns_found: [],
+      },
+      {
+        priorBlocked: [
+          { ...prior, blockedFindingId: `${FID}:2`, location: `${SKEL}:4` },
+        ],
+      },
+    );
+    expect(r).toEqual([]);
+  });
+
   it("tolerates the :<idx> finding-id suffix", () => {
     const r = classify({
       rejected_alternatives: [{ ...REJ, finding_id: `${FID}:2` }],
@@ -279,6 +394,68 @@ describe("CLI", () => {
     expect(r.status).toBe(0);
     expect(JSON.parse(r.stdout.trim()).needsContinuation).toBe(true);
     expect(JSON.parse(fs.readFileSync(out, "utf8")).touchedFiles).toBe(1);
+  });
+
+  it("has the exec bit set", () => {
+    expect(fs.statSync(SCRIPT).mode & 0o111).not.toBe(0);
+  });
+
+  it("exits 2 on an option-shaped --base", () => {
+    const r = cli([
+      "--artifact",
+      artifact,
+      "--worktree",
+      repo,
+      "--base",
+      "--output=x",
+    ]);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("not an option");
+  });
+
+  it("round-trips its own --out verdict through --prior", () => {
+    const first = path.join(tmp, "first.json");
+    const art1 = path.join(tmp, "art1.json");
+    fs.writeFileSync(
+      art1,
+      JSON.stringify({
+        rejected_alternatives: [REJ],
+        anti_patterns_found: [gap()],
+      }),
+    );
+    const args = ["--worktree", repo, "--base", "main~1"];
+    expect(cli(["--artifact", art1, ...args, "--out", first]).status).toBe(0);
+    const art2 = path.join(tmp, "art2.json");
+    fs.writeFileSync(
+      art2,
+      JSON.stringify({
+        rejected_alternatives: [REJ],
+        commits: [{ sha: "a", finding_id: FID, files: [PAGE_TEST] }],
+        anti_patterns_found: [],
+      }),
+    );
+    const r = cli(["--artifact", art2, ...args, "--prior", first]);
+    expect(r.status).toBe(0);
+    const v = JSON.parse(r.stdout.trim());
+    expect(v.needsContinuation).toBe(true);
+    expect(v.candidates[0].adjacency).toBe("blocked");
+  });
+
+  it("exits 2 on an unparseable --prior", () => {
+    const bad = path.join(tmp, "bad-prior.json");
+    fs.writeFileSync(bad, "{nope");
+    expect(
+      cli([
+        "--artifact",
+        artifact,
+        "--worktree",
+        repo,
+        "--base",
+        "main~1",
+        "--prior",
+        bad,
+      ]).status,
+    ).toBe(2);
   });
 
   it("exits 2 without --base", () => {

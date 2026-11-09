@@ -12,6 +12,10 @@ import {
 const BIN_DIR = path.resolve(__dirname, "..");
 
 describe("FLOW_ROUTINE_HELPERS", () => {
+  it("pre-approves the review-time bundle check", () => {
+    expect(FLOW_ROUTINE_HELPERS).toContain("flow-fix-applier-bundle-check");
+  });
+
   it("names only helpers that ship in bin/", () => {
     for (const h of FLOW_ROUTINE_HELPERS) {
       expect(

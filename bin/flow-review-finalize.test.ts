@@ -477,16 +477,38 @@ describe("runReviewFinalize", () => {
       ...extra,
     });
 
-    it("post-fix artifact (gap entry removed, bundle commit present) seeds nothing for the gap", async () => {
+    it("post-fix artifact (gap entry removed, empty second-pass verdict) seeds nothing for the gap", async () => {
+      writeBundle([]);
       fs.writeFileSync(
         path.join(worktree, ".flow-tmp", "fix-applier-result.json"),
         fixApplierResultJson({
-          commits: [{ sha: "b", finding_id: `bundle:${SKEL}`, files: [SKEL] }],
+          commits: [
+            {
+              sha: "b",
+              finding_id: `bundle:${SKEL}`,
+              files: [SKEL, "src/WatchlistListPage.svelte.test.ts"],
+            },
+          ],
+          anti_patterns_found: [
+            {
+              location: "src/unrelated.ts",
+              pattern: "introduced and noted",
+              recommendation: "n/a",
+              introduced_by_this_pr: true,
+            },
+          ],
         }),
       );
       const calls: string[][] = [];
       const result = await runReviewFinalize(baseOpts(calls));
       expect(result.untracked_added).toBe(0);
+    });
+
+    it("a residual blocked candidate whose entry was removed is still seeded", async () => {
+      writeBundle([cand("blocked", { blockedFindingId: "tc:a.svelte:1:s" })]);
+      expect(await titlesFor([])).toEqual([
+        "list skeleton has no role hook — fixed here, but the weakened test was not re-strengthened",
+      ]);
     });
 
     it("residue yields the flagged-fixable title", async () => {
@@ -496,14 +518,14 @@ describe("runReviewFinalize", () => {
       ]);
     });
 
-    it("blocked residue yields the blocked-this-PR's-fix title", async () => {
+    it("blocked residue yields the weakened-test title without the raw finding id", async () => {
       writeBundle([cand("blocked", { blockedFindingId: "tc:a.svelte:1:s" })]);
       expect(
         await titlesFor([
           gapEntry({ why_not_fixed: "not mechanical: design call" }),
         ]),
       ).toEqual([
-        "list skeleton has no role hook — blocked this PR's fix (tc:a.svelte:1:s), left unfixed: not mechanical: design call",
+        "list skeleton has no role hook — weakened a test this PR's review asked for; left unfixed (not mechanical: design call)",
       ]);
     });
 
@@ -519,6 +541,18 @@ describe("runReviewFinalize", () => {
           }),
         ]),
       ).toHaveLength(1);
+    });
+
+    it("an introduced residue with a not-small reason does not claim to be fixable here", async () => {
+      writeBundle([cand("introduced", { justification: "not-small" })]);
+      expect(
+        await titlesFor([
+          gapEntry({
+            introduced_by_this_pr: true,
+            why_not_fixed: "not small: 40 call sites",
+          }),
+        ]),
+      ).toEqual(["list skeleton has no role hook — not small: 40 call sites"]);
     });
 
     it("a not-small entry is titled with its reason", async () => {

@@ -706,8 +706,8 @@ the consolidator self-validate precedent in
 
 1. Write the candidate artifact to `$ARTIFACT_PATH.tmp` first.
 2. Run `flow-fix-applier-schema --validate "$ARTIFACT_PATH.tmp"`. On
-   `{ok: true}` (exit 0), `mv "$ARTIFACT_PATH.tmp" "$ARTIFACT_PATH"` and
-   you are done.
+   `{ok: true}` (exit 0), run the **Bundle self-check** below, then
+   `mv "$ARTIFACT_PATH.tmp" "$ARTIFACT_PATH"` and you are done.
 3. On `{ok: false}` (exit 1), re-read the typed `reason`/`path` from the
    validator's stderr line, **re-emit a corrected artifact EXACTLY ONCE**
    targeting that field — most commonly a missing `introduced_by_this_pr`
@@ -721,13 +721,21 @@ the consolidator self-validate precedent in
    or default a missing field — the contract is correct-at-source via
    re-emit, not silent coercion.
 
-**Bundle self-check (before the `mv`).** Resolve the base in its own Bash call:
-`BASE_REF=$(gh pr view "$PR_NUMBER" --json baseRefName --jq .baseRefName)`.
-Then, as a separate call guarded by `command -v flow-fix-applier-bundle-check`,
-run `flow-fix-applier-bundle-check --artifact "$ARTIFACT_PATH.tmp" --worktree . --base "origin/$BASE_REF"`.
+**Bundle self-check (step 2, before the `mv`).** Resolve the base in its own Bash
+call and PRINT it (a shell variable set in one Bash call is empty in the next):
+`gh pr view "$PR_NUMBER" --json baseRefName --jq .baseRefName`. Then, as a
+separate call guarded by `command -v flow-fix-applier-bundle-check`, run
+`flow-fix-applier-bundle-check --artifact "$ARTIFACT_PATH.tmp" --worktree . --base "origin/<printed-name>"`,
+pasting the printed branch name as a literal.
 
-- Non-empty `candidates`: fix each (a `blocked` or `introduced` candidate cannot
-  be cleared by re-justifying), then re-validate.
+- Non-empty `candidates`: fix each — small and mechanical, re-strengthening any
+  assertion you weakened because of it — run `flow-pre-commit`, commit, push,
+  add a `commits[]` entry with `finding_id: "bundle:<location>"` whose `files`
+  include the re-strengthened test, and remove its `anti_patterns_found` entry.
+  Keep one only with a concrete `not small: …` / `not mechanical: …`
+  `why_not_fixed` (plus `blocked_finding_id` when the gap blocked your own
+  fix); a `blocked` or `introduced` candidate cannot be cleared by a vague
+  re-justification. Then re-validate.
 - Helper absent or non-zero exit: skip silently.
 
 ## 10. Return a brief summary
