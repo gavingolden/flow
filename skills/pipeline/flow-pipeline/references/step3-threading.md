@@ -515,7 +515,8 @@ that gate fires.
 
 **Depth tier and the `reviewers[]` envelope field.** The envelope
 additionally carries `depth` (`"standard"` or `"deep"`) and
-`reviewers: [{model, ran, skipReason?, lensesEngaged?}, ...]` on EVERY
+`reviewers: [{model, route, ran, skipReason?, lensesEngaged?, fallbackFrom?,
+fallbackSkipReason?, costUsd?}, ...]` on EVERY
 `ran:true` result — one entry on the standard tier, two on the deep tier.
 These fields are ADDITIVE — only a `ran:false` SKIP envelope carries
 neither field and stays byte-identical to the single-reviewer era. On a
@@ -530,6 +531,13 @@ reviewer's prose, with the failed reviewer's `skipReason` recorded in its
 `reviewers[]` entry; a full deep both-skip propagates the FIRST
 reviewer's `skipReason` exactly as a standard-tier skip would (no
 `depth`/`reviewers` fields on any skip envelope, deep or standard).
+`route` is `agy` or `claude-headless`; `fallbackFrom` names the agy model and
+reason a Claude Code fallback replaced, `fallbackSkipReason` says why a
+`ran:false` reviewer 2 got no fallback, and `costUsd` is the fallback's spend.
+The fallback runs only on an eligible agy failure of reviewer 2, when
+reviewer 1 engaged, at least 300 s of reviewer 2's 900 s slot (and of the
+33-minute give-up) remain, and `review.planReviewClaudeFallback` is not
+`false`.
 
 ## Blind product critic (brief-gated, once per pipeline)
 

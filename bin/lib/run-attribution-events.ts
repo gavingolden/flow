@@ -7,7 +7,12 @@
 import * as fs from "node:fs";
 import type { DelegatedCall } from "./run-attribution-types";
 
-const DELEGATED_EVENTS = ["delegate.call", "deliberate.call", "explain.judge"];
+const DELEGATED_EVENTS = [
+  "delegate.call",
+  "deliberate.call",
+  "explain.judge",
+  "plan-review.fallback",
+];
 
 type EventLine = {
   ts?: unknown;

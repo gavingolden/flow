@@ -7,6 +7,11 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import {
+  parseHeadlessStdout,
+  readHeadlessResult,
+  type HeadlessEnvelope,
+} from "./headless-envelope";
 import { managerDir } from "./epic-manage-state";
 import { resolveManagerModelEffort } from "./epic-manager-model";
 import type { checkPlanPreconditions } from "./exec-review-preconditions";
@@ -20,16 +25,11 @@ import {
   type ModelAlias,
 } from "./state";
 
+export { type HeadlessEnvelope, parseHeadlessStdout, readHeadlessResult };
+
 export const EXEC_MAX_BUDGET_USD = 3;
 export const EXEC_MAX_TURNS = 25;
 export const EXEC_TIMEOUT_SEC = 480;
-
-export type HeadlessEnvelope = {
-  ran?: boolean;
-  skipReason?: string;
-  artifact?: string;
-  total_cost_usd?: number;
-};
 
 export type ExecReviewDeps = {
   stateDir?: string;
@@ -52,19 +52,6 @@ export type ExecReviewDeps = {
   /** Test seam for the precondition probes (file existence, lint). */
   preconditions?: Parameters<typeof checkPlanPreconditions>[1];
 };
-
-/** The child prints one JSON line last; anything unparseable is a skip. */
-export function parseHeadlessStdout(stdout: string): HeadlessEnvelope {
-  const line = stdout.trim().split("\n").filter(Boolean).pop() ?? "{}";
-  try {
-    const parsed: unknown = JSON.parse(line);
-    return parsed !== null && typeof parsed === "object"
-      ? (parsed as HeadlessEnvelope)
-      : { ran: false, skipReason: "headless-error" };
-  } catch {
-    return { ran: false, skipReason: "headless-error" };
-  }
-}
 
 /** The one `flow-claude-headless` argv both reviews spawn, with their spend and tool limits. */
 export function execHeadlessArgv(a: {
@@ -173,23 +160,6 @@ export function resolveExecModel(
     read: deps.readConfig ?? defaultReadConfigFile,
   });
   return { model, effort };
-}
-
-/** Reads the child's `.result` text from the headless artifact. */
-export function readHeadlessResult(
-  envelope: HeadlessEnvelope,
-  fallbackPath: string,
-  readFile: (p: string) => string,
-): string | null {
-  try {
-    const artifact: unknown = JSON.parse(
-      readFile(envelope.artifact ?? fallbackPath),
-    );
-    const result = (artifact as { result?: unknown } | null)?.result;
-    return typeof result === "string" ? result : null;
-  } catch {
-    return null;
-  }
 }
 
 export function designExcerpt(

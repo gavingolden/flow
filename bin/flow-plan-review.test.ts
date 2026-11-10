@@ -20,6 +20,10 @@ import {
   type FanoutAggregate,
 } from "./flow-plan-review";
 import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
+import {
+  FALLBACK_PROMPT_DIRECTIVE,
+  buildFallbackArgv,
+} from "./lib/plan-review-fallback";
 
 const MODEL_1 = "Gemini 4 Argon (High)";
 const MODEL_2 = DELEGATE_MODEL_DEFAULTS.planReviewSecond!;
@@ -132,6 +136,9 @@ describe("parseArgs", () => {
 });
 
 const ENABLED = JSON.stringify({ review: { gemini: true } });
+const FALLBACK_OFF = JSON.stringify({
+  review: { gemini: true, planReviewClaudeFallback: false },
+});
 const PLAN_FILE = "/wt/.flow-tmp/plan.md";
 const OUT = "/wt/.flow-tmp/plan-review.md";
 const WORKTREE = "/wt";
@@ -157,6 +164,8 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     out: string[];
     spawnDetached: string[][];
     killed: number[];
+    headless: Array<{ argv: string[]; opts: { cwd: string } }>;
+    events: Array<{ event: string; attrs: Record<string, unknown> }>;
   };
   files: Map<string, string>;
   stateRecords: Map<string, import("./lib/state").PlanReviewRecord>;
@@ -178,6 +187,8 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     out: [] as string[],
     spawnDetached: [] as string[][],
     killed: [] as number[],
+    headless: [] as Array<{ argv: string[]; opts: { cwd: string } }>,
+    events: [] as Array<{ event: string; attrs: Record<string, unknown> }>,
   };
   const base: Deps = {
     readConfig: () => ENABLED,
@@ -254,6 +265,13 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & {
     },
     now: () => new Date("2026-08-27T00:00:00.000Z"),
     env: { FLOW_SLUG: "test-slug" },
+    runHeadless: (argv, opts) => {
+      calls.headless.push({ argv, opts });
+      return { ran: false, skipReason: "claude-not-found" };
+    },
+    recordEvent: (event, attrs) => {
+      calls.events.push({ event, attrs });
+    },
     readWorkerStderrTail: (p) => files.get(p) ?? "",
   };
   // Seed the plan file the helper reads (with the gate section present).
@@ -444,6 +462,7 @@ describe("run — happy path", () => {
           ran: true,
           skipReason: null,
           lensesEngaged: 4,
+          route: "agy",
         },
       ],
     });
@@ -1002,12 +1021,12 @@ describe("run — deep tier happy path", () => {
     expect(env.depth).toBe("deep");
     expect(env.skipReason).toBeNull();
     expect(env.reviewers).toEqual([
-      { model: MODEL_1, ran: true, lensesEngaged: 4 },
-      { model: MODEL_2, ran: true, lensesEngaged: 4 },
+      { model: MODEL_1, ran: true, lensesEngaged: 4, route: "agy" },
+      { model: MODEL_2, ran: true, lensesEngaged: 4, route: "agy" },
     ]);
     const out = deps.files.get(OUT);
-    expect(out).toContain("## Reviewer 1 — " + MODEL_1);
-    expect(out).toContain("## Reviewer 2 — " + MODEL_2);
+    expect(out).toContain("## Reviewer 1 — " + MODEL_1 + " (via agy)");
+    expect(out).toContain("## Reviewer 2 — " + MODEL_2 + " (via agy)");
     expect(out).toContain("Convergence rule");
   });
 
@@ -1073,6 +1092,7 @@ describe("run — deep tier happy path", () => {
 describe("run — deep tier partial failure", () => {
   it("degrades to the surviving reviewer's prose, recording the failed reviewer's skipReason", () => {
     const deps = makeDeps({
+      readConfig: () => FALLBACK_OFF,
       runFanout: (input) => {
         const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
         const artifactPath = `${input.outPath}.artifact.0.md`;
@@ -1105,8 +1125,14 @@ describe("run — deep tier partial failure", () => {
     expect(env.ran).toBe(true);
     expect(env.depth).toBe("deep");
     expect(env.reviewers).toEqual([
-      { model: MODEL_1, ran: true, lensesEngaged: 2 },
-      { model: MODEL_2, ran: false, skipReason: "agy-not-authenticated" },
+      { model: MODEL_1, ran: true, lensesEngaged: 2, route: "agy" },
+      {
+        model: MODEL_2,
+        ran: false,
+        skipReason: "agy-not-authenticated",
+        route: "agy",
+        fallbackSkipReason: "fallback-disabled",
+      },
     ]);
     expect(deps.files.get(OUT)).toBe(
       "Reviewer one prose, verbatim: judged against the stated goal, this structurally different alternative holds up well.",
@@ -1117,6 +1143,7 @@ describe("run — deep tier partial failure", () => {
 describe("run — deep tier retired model", () => {
   it("passes a reviewer's agy-model-unavailable skipReason through unchanged in reviewers[]", () => {
     const deps = makeDeps({
+      readConfig: () => FALLBACK_OFF,
       runFanout: (input) => {
         const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
         const artifactPath = `${input.outPath}.artifact.0.md`;
@@ -1146,8 +1173,14 @@ describe("run — deep tier retired model", () => {
     });
     expect(run([...BASE_ARGV, "--depth", "deep"], deps)).toBe(0);
     expect(envelope(deps).reviewers).toEqual([
-      { model: MODEL_1, ran: true, lensesEngaged: 2 },
-      { model: MODEL_2, ran: false, skipReason: "agy-model-unavailable" },
+      { model: MODEL_1, ran: true, lensesEngaged: 2, route: "agy" },
+      {
+        model: MODEL_2,
+        ran: false,
+        skipReason: "agy-model-unavailable",
+        route: "agy",
+        fallbackSkipReason: "fallback-disabled",
+      },
     ]);
   });
 
@@ -1221,12 +1254,14 @@ describe("run — deep tier reviewer engagement demotion", () => {
     expect(env.ran).toBe(true);
     expect(env.depth).toBe("deep");
     expect(env.reviewers).toEqual([
-      { model: MODEL_1, ran: true, lensesEngaged: 4 },
+      { model: MODEL_1, ran: true, lensesEngaged: 4, route: "agy" },
       {
         model: MODEL_2,
         ran: false,
         skipReason: "reviewer-not-engaged",
         lensesEngaged: 0,
+        route: "agy",
+        fallbackSkipReason: "fallback-ineligible",
         // Task 7: the demoted reviewer's transcript is retained and named
         // in its own reviewers[] entry, even though the WHOLE run still
         // succeeds (partial deep success).
@@ -1383,6 +1418,8 @@ describe("run — deep tier scratch lifecycle", () => {
     // The two reviewer-artifact scratch siblings must not leak either.
     expect(deps.files.has(`${OUT}.r1.md`)).toBe(false);
     expect(deps.files.has(`${OUT}.r2.md`)).toBe(false);
+    expect(deps.files.has(`${OUT}.prompt.r2-claude`)).toBe(false);
+    expect(deps.files.has(`${OUT}.r2-claude.json`)).toBe(false);
   });
 
   it("removes the manifest + fanout aggregate scratch files on a both-skip", () => {
@@ -1457,11 +1494,13 @@ describe("run — deep tier degrade branches (untested seams)", () => {
     const env = envelope(deps);
     expect(env.ran).toBe(true);
     expect(env.reviewers).toEqual([
-      { model: MODEL_1, ran: true, lensesEngaged: 2 },
+      { model: MODEL_1, ran: true, lensesEngaged: 2, route: "agy" },
       {
         model: MODEL_2,
         ran: false,
         skipReason: "plan-output-unreadable",
+        route: "agy",
+        fallbackSkipReason: "fallback-ineligible",
         // resolveReviewer names the artifact path it FAILED to read too —
         // "unreadable" is still a diagnostic, not a reason to omit it.
         partialArtifactPath: "/nope.md",
@@ -2185,5 +2224,359 @@ describe("--require-review", () => {
     run(START_REQUIRE, unchanged);
     expect(envelope(unchanged).skipReason).toBe("decision-analysis-unchanged");
     expect(unchanged.calls.spawnDetached).toHaveLength(0);
+  });
+});
+
+describe("run — deep tier Claude fallback", () => {
+  const SEVEN_LENS_PROSE =
+    "Judged against the stated goal. A preference was elicited. The walkthrough holds. The alternative loses. Failure-mode: quota. The cut-list is sound. The chosen approach survives adversarial premise review.";
+  const R2_TASK = "plan-review-r2-claude";
+  const CLAUDE_PROMPT = `${OUT}.prompt.r2-claude`;
+  const CLAUDE_JSON = `${OUT}.r2-claude.json`;
+  const DEEP = [...BASE_ARGV, "--depth", "deep"];
+
+  type R2Entry = {
+    ran?: boolean;
+    skipReason?: string;
+    failureClass?: string;
+    durationMs?: number;
+  };
+
+  // Reviewer 1 engaged (seeded AGY_PROSE); reviewer 2's raw entry is `r2`.
+  function fallbackDeps(
+    r2: R2Entry,
+    extra: Partial<Deps> = {},
+    r1DurationMs?: number,
+  ) {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        const a0 = `${input.outPath}.artifact.0.md`;
+        deps.files.set(a0, AGY_PROSE);
+        const a1 = `${input.outPath}.artifact.1.md`;
+        if (r2.ran) deps.files.set(a1, AGY_PROSE);
+        return {
+          entries: [
+            {
+              task: manifest[0].task,
+              model: manifest[0].model,
+              ran: true,
+              artifactPath: a0,
+              ...(r1DurationMs === undefined
+                ? {}
+                : { durationMs: r1DurationMs }),
+            },
+            {
+              task: manifest[1].task,
+              model: manifest[1].model,
+              ...(r2.ran ? { artifactPath: a1 } : {}),
+              ran: false,
+              ...r2,
+            },
+          ],
+          anyRan: true,
+          allSkipped: false,
+        } as FanoutAggregate;
+      },
+      ...extra,
+    });
+    return deps;
+  }
+
+  const QUOTA: R2Entry = {
+    ran: false,
+    skipReason: "agy-error",
+    failureClass: "quota-exhausted",
+    durationMs: 4386,
+  };
+
+  function headlessOk(prose: string, model = "claude-opus-5-5") {
+    return (deps: ReturnType<typeof makeDeps>): Deps["runHeadless"] =>
+      (argv, opts) => {
+        deps.calls.headless.push({ argv, opts });
+        deps.files.set(CLAUDE_JSON, JSON.stringify({ result: prose }));
+        return {
+          ran: true,
+          artifact: CLAUDE_JSON,
+          total_cost_usd: 0.42,
+          model,
+        };
+      };
+  }
+
+  function withHeadless(
+    r2: R2Entry,
+    prose: string,
+    model?: string,
+    extra: Partial<Deps> = {},
+  ) {
+    const deps = fallbackDeps(r2, extra);
+    deps.runHeadless = headlessOk(prose, model)(deps);
+    return deps;
+  }
+
+  it("re-runs a quota-exhausted reviewer 2 on Claude Code and reports two ran:true reviewers", () => {
+    const deps = withHeadless(QUOTA, SEVEN_LENS_PROSE);
+    expect(run(DEEP, deps)).toBe(0);
+    expect(deps.calls.headless).toHaveLength(1);
+    expect(deps.calls.headless[0]!.argv).toEqual(
+      buildFallbackArgv({
+        promptPath: CLAUDE_PROMPT,
+        out: CLAUDE_JSON,
+        task: R2_TASK,
+        timeoutSec: 895,
+      }),
+    );
+    expect(deps.calls.headless[0]!.opts.cwd).toBe(WORKTREE);
+    const env = envelope(deps);
+    expect(env.ran).toBe(true);
+    expect(env.depth).toBe("deep");
+    expect(env.reviewers[1]).toEqual({
+      model: "claude-opus-5-5",
+      ran: true,
+      lensesEngaged: 7,
+      route: "claude-headless",
+      fallbackFrom: {
+        route: "agy",
+        model: MODEL_2,
+        skipReason: "agy-error",
+        failureClass: "quota-exhausted",
+      },
+      costUsd: 0.42,
+    });
+    const out = deps.files.get(OUT)!;
+    expect(out).toContain("Convergence rule");
+    expect(out).toContain(`## Reviewer 1 — ${MODEL_1} (via agy)`);
+    expect(out).toContain(
+      "## Reviewer 2 — claude-opus-5-5 (via Claude Code; agy: agy-error)",
+    );
+    const written = deps.calls.writes.find((w) => w.path === CLAUDE_PROMPT)!;
+    const r2Prompt = deps.calls.writes.find(
+      (w) => w.path === `${OUT}.prompt.r2`,
+    )!;
+    expect(written.contents.startsWith(FALLBACK_PROMPT_DIRECTIVE)).toBe(true);
+    expect(written.contents).toContain(r2Prompt.contents);
+    expect(deps.calls.events).toHaveLength(1);
+    expect(deps.calls.events[0]!.event).toBe("plan-review.fallback");
+    expect(deps.calls.events[0]!.attrs).toMatchObject({
+      ran: true,
+      total_cost_usd: 0.42,
+      agy_skip_reason: "agy-error",
+    });
+  });
+
+  it("keeps reviewer 1 only and retains the headless JSON when the fallback also fails", () => {
+    const deps = fallbackDeps(QUOTA);
+    deps.runHeadless = (argv, opts) => {
+      deps.calls.headless.push({ argv, opts });
+      deps.files.set(CLAUDE_JSON, JSON.stringify({ total_cost_usd: 1.1 }));
+      return { ran: false, skipReason: "claude-timeout" };
+    };
+    expect(run(DEEP, deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env.ran).toBe(true);
+    expect(env.reviewers[1]).toMatchObject({
+      route: "claude-headless",
+      ran: false,
+      skipReason: "reviewer-timeout",
+      fallbackFrom: { route: "agy", skipReason: "agy-error" },
+      costUsd: 1.1,
+      partialArtifactPath: CLAUDE_JSON,
+    });
+    expect(deps.files.has(CLAUDE_JSON)).toBe(true);
+    expect(deps.files.get(OUT)).toBe(AGY_PROSE);
+    expect(deps.calls.events).toHaveLength(1);
+    expect(deps.calls.events[0]!.attrs.ran).toBe(false);
+  });
+
+  it("does not call Claude when the config turns the fallback off", () => {
+    const deps = fallbackDeps(QUOTA, { readConfig: () => FALLBACK_OFF });
+    run(DEEP, deps);
+    expect(deps.calls.headless).toHaveLength(0);
+    expect(envelope(deps).reviewers[1].fallbackSkipReason).toBe(
+      "fallback-disabled",
+    );
+    expect(deps.calls.events).toHaveLength(0);
+  });
+
+  it("keeps today's bare skip envelope when reviewer 1 is down", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        return {
+          entries: manifest.map(
+            (m: { task: string; model: string }, i: number) => ({
+              task: m.task,
+              model: m.model,
+              ran: false,
+              skipReason: i === 0 ? "agy-not-found" : "agy-error",
+            }),
+          ),
+          anyRan: false,
+          allSkipped: true,
+        } as FanoutAggregate;
+      },
+    });
+    run(DEEP, deps);
+    expect(deps.calls.headless).toHaveLength(0);
+    expect(envelope(deps)).toEqual({ ran: false, skipReason: "agy-not-found" });
+  });
+
+  it("treats agy-canceled as ineligible", () => {
+    const deps = fallbackDeps({ ran: false, skipReason: "agy-canceled" });
+    run(DEEP, deps);
+    expect(deps.calls.headless).toHaveLength(0);
+    expect(envelope(deps).reviewers[1].fallbackSkipReason).toBe(
+      "fallback-ineligible",
+    );
+  });
+
+  it("skips with fallback-no-budget when agy used most of the slot", () => {
+    const deps = fallbackDeps({ ...QUOTA, durationMs: 700000 });
+    run(DEEP, deps);
+    expect(deps.calls.headless).toHaveLength(0);
+    expect(envelope(deps).reviewers[1].fallbackSkipReason).toBe(
+      "fallback-no-budget",
+    );
+  });
+
+  it("subtracts an agy-timeout from the Claude budget", () => {
+    const deps = fallbackDeps({
+      ran: false,
+      skipReason: "agy-timeout",
+      durationMs: 155000,
+    });
+    run(DEEP, deps);
+    expect(deps.calls.headless).toHaveLength(1);
+    const argv = deps.calls.headless[0]!.argv;
+    expect(argv[argv.indexOf("--timeout-sec") + 1]).toBe("745");
+  });
+
+  it("skips with fallback-no-budget when agy-timeout consumed the whole slot", () => {
+    const deps = fallbackDeps({
+      ran: false,
+      skipReason: "agy-timeout",
+      durationMs: 900000,
+    });
+    run(DEEP, deps);
+    expect(deps.calls.headless).toHaveLength(0);
+    expect(envelope(deps).reviewers[1].fallbackSkipReason).toBe(
+      "fallback-no-budget",
+    );
+  });
+
+  it("estimates agy time from the fan-out wall clock when durationMs is absent", () => {
+    // now() reads: run entry, fan-out start, fan-out end (700 s later), cap check.
+    const reads = [0, 0, 700_000, 700_000];
+    const deps = fallbackDeps(
+      { ran: false, skipReason: "agy-error" },
+      {
+        now: () =>
+          new Date(
+            Date.parse("2026-08-27T00:00:00.000Z") + (reads.shift() ?? 700_000),
+          ),
+      },
+      0,
+    );
+    run(DEEP, deps);
+    expect(deps.calls.headless).toHaveLength(0);
+    expect(envelope(deps).reviewers[1].fallbackSkipReason).toBe(
+      "fallback-no-budget",
+    );
+  });
+
+  it("skips with fallback-no-budget when the give-up cap is nearly spent", () => {
+    // Only run entry and the post-fan-out reading are 30 minutes apart.
+    let calls = 0;
+    const deps = fallbackDeps(QUOTA, {
+      now: () => {
+        calls += 1;
+        return new Date(
+          Date.parse("2026-08-27T00:00:00.000Z") +
+            (calls >= 3 ? 30 * 60 * 1000 : 0),
+        );
+      },
+    });
+    run(DEEP, deps);
+    expect(deps.calls.headless).toHaveLength(0);
+    expect(envelope(deps).reviewers[1].fallbackSkipReason).toBe(
+      "fallback-no-budget",
+    );
+  });
+
+  it("does not fall back for a reviewer 2 that ran but was demoted", () => {
+    const deps = makeDeps({
+      runFanout: (input) => {
+        const manifest = JSON.parse(deps.files.get(input.manifestPath)!);
+        const a0 = `${input.outPath}.artifact.0.md`;
+        const a1 = `${input.outPath}.artifact.1.md`;
+        deps.files.set(a0, AGY_PROSE);
+        deps.files.set(
+          a1,
+          "This plan looks fine overall and I have nothing further to add here.",
+        );
+        return {
+          entries: [
+            {
+              task: manifest[0].task,
+              model: manifest[0].model,
+              ran: true,
+              artifactPath: a0,
+            },
+            {
+              task: manifest[1].task,
+              model: manifest[1].model,
+              ran: true,
+              artifactPath: a1,
+            },
+          ],
+          anyRan: true,
+          allSkipped: false,
+        } as FanoutAggregate;
+      },
+    });
+    run(DEEP, deps);
+    expect(deps.calls.headless).toHaveLength(0);
+    expect(envelope(deps).reviewers[1]).toMatchObject({
+      skipReason: "reviewer-not-engaged",
+      fallbackSkipReason: "fallback-ineligible",
+    });
+  });
+
+  it("demotes fallback prose below the engagement floor", () => {
+    const deps = withHeadless(
+      QUOTA,
+      "This plan looks fine overall and I have nothing further to add here.",
+    );
+    run(DEEP, deps);
+    expect(envelope(deps).reviewers[1]).toMatchObject({
+      ran: false,
+      skipReason: "reviewer-not-engaged",
+      route: "claude-headless",
+    });
+  });
+
+  it("surfaces the headless skip reason when Claude Code itself refuses", () => {
+    const deps = fallbackDeps(QUOTA);
+    deps.runHeadless = (argv, opts) => {
+      deps.calls.headless.push({ argv, opts });
+      return { ran: false, skipReason: "headless-depth-exceeded" };
+    };
+    run(DEEP, deps);
+    expect(envelope(deps).reviewers[1].skipReason).toBe(
+      "headless-depth-exceeded",
+    );
+  });
+
+  it("prefixes a bare model alias with claude-", () => {
+    const deps = withHeadless(QUOTA, SEVEN_LENS_PROSE, "opus");
+    run(DEEP, deps);
+    expect(envelope(deps).reviewers[1].model).toBe("claude-opus");
+  });
+
+  it("never calls Claude on the standard tier", () => {
+    const deps = makeDeps();
+    run(BASE_ARGV, deps);
+    expect(deps.calls.headless).toHaveLength(0);
   });
 });

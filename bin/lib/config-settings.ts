@@ -339,6 +339,13 @@ const DESCRIPTORS: Descriptor[] = [
     resolve: (read) => strictFalseOptOut(read, "review.product"),
   },
   {
+    key: "review.planReviewClaudeFallback",
+    meaning:
+      "whether a deep plan review whose second reviewer cannot run on agy re-runs it on Claude Code (spends Claude credits, up to $3 a time)",
+    resolve: (read) =>
+      strictFalseOptOut(read, "review.planReviewClaudeFallback"),
+  },
+  {
     key: "product.judge",
     meaning:
       "whether the code-blind-reader explanation judge critiques the PR body",
