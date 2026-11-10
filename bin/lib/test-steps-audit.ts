@@ -9,15 +9,20 @@ import {
   type LintCode,
 } from "./test-steps-parse";
 
-export const CODES: LintCode[] = [
-  "generic-suite",
-  "presence-only",
-  "subjective-mixed",
-  "subjective-no-image",
-  "ticked-no-evidence",
-  "post-merge-step",
-  "human-only-ticked",
-];
+const ALL_CODES = {
+  "generic-suite": true,
+  "presence-only": true,
+  "subjective-mixed": true,
+  "subjective-no-image": true,
+  "subjective-missing-view": true,
+  "ticked-no-evidence": true,
+  "post-merge-step": true,
+  "human-only-ticked": true,
+  "browser-shape": true,
+  "browser-over-bound": true,
+  "browser-input-unsupported": true,
+} satisfies Record<LintCode, true>;
+export const CODES = Object.keys(ALL_CODES) as LintCode[];
 
 export function parseArgs(
   argv: string[],

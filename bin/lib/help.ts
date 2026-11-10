@@ -517,7 +517,7 @@ Scope (the widest is one repo; there is no "all"):
 Options:
   --autonomy high   write the grant (plain terminal only, never inside a Claude session)
   --autonomy off    withdraw the grant (allowed from anywhere)
-  --delegate-ui     also let the executive judge subjective UI steps (high only)
+  --delegate-ui     recorded for a parked delegated UI sign-off; inactive today (high only)
   --expires <n>h|d|w
                     the grant lapses after n hours, days or weeks (high only)
   --list            print live grants, then expired ones

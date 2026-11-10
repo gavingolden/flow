@@ -25,6 +25,7 @@ import {
   buildUntracked,
   clampTldr,
 } from "./lib/gate-summary-rows";
+import type { UiSignoff } from "./lib/ui-signoff-evidence";
 
 let tmpRoot!: string;
 let tmpBase!: string;
@@ -2713,6 +2714,200 @@ describe("run (end-to-end CLI)", () => {
       runMerged("attribution-no-state-slug", { attributionLogPath: logPath });
       expect(fs.existsSync(logPath)).toBe(false);
     });
+  });
+});
+
+describe("flow-gate-summary — UI sign-off evidence (--signoff-file)", () => {
+  const ITEMS = [
+    "SUBJECTIVE: A at 390 and 1280, dark mode",
+    "SUBJECTIVE: B",
+    "SUBJECTIVE: C",
+    "SUBJECTIVE: D",
+  ];
+  const signoff: UiSignoff = {
+    items: [
+      {
+        item: ITEMS[0],
+        required: ["phone", "desktop", "phone-dark", "desktop-dark"],
+        shots: [
+          { view: "phone", ref: "https://h.test/a.png" },
+          { view: "desktop", ref: "/wt/b.png" },
+          { view: "phone-dark", ref: "https://h.test/c.png" },
+        ],
+        missing: ["desktop-dark"],
+        unlabelled: 0,
+      },
+      {
+        item: ITEMS[1],
+        required: ["phone", "desktop"],
+        shots: [{ view: null, ref: "https://h.test/u.png" }],
+        missing: [],
+        unlabelled: 1,
+      },
+      {
+        item: ITEMS[2],
+        required: ["phone", "desktop"],
+        shots: [{ view: "phone", ref: "https://h.test/p.png" }],
+        missing: ["desktop"],
+        unlabelled: 0,
+        partial: "desktop needs login",
+      },
+      {
+        item: ITEMS[3],
+        required: ["phone", "desktop"],
+        shots: [],
+        missing: [],
+        unlabelled: 0,
+        noScreenshot: "real device only",
+      },
+    ],
+    uiReview: {
+      passed: true,
+      outcome: "clean",
+      judgedSha: "abcdef1234567",
+      gatingMajor: 0,
+      gatingDefect: 0,
+    },
+  };
+  const base = {
+    status: "gated" as const,
+    prUrl: "https://x/pull/1",
+    validationItems: ITEMS,
+    linkMode: "plain" as const,
+  };
+
+  it("pm lens: one evidence line directly under each matched item", () => {
+    const lines = render({ ...base, lens: "pm", signoff }).split("\n");
+    const at = (needle: string): number =>
+      lines.findIndex((l) => l.includes(needle));
+    expect(lines[at("SUBJECTIVE: A") + 1]).toBe(
+      "    shots: phone · desktop · phone-dark — missing: desktop-dark",
+    );
+    expect(lines[at("SUBJECTIVE: B") + 1]).toBe(
+      "    shots: shot — unlabelled: 1 shot",
+    );
+    expect(lines[at("SUBJECTIVE: C") + 1]).toBe(
+      "    shots: phone — missing: desktop — partial: desktop needs login",
+    );
+    expect(lines[at("SUBJECTIVE: D") + 1]).toBe(
+      "    no screenshot: real device only",
+    );
+    expect(lines).toContain(
+      "  UI review: passed, nothing to fix; 0 major, 0 defects open",
+    );
+  });
+
+  it("dev lens renders the same lines", () => {
+    const out = render({ ...base, lens: "dev", signoff });
+    expect(out).toContain(
+      "    shots: phone · desktop · phone-dark — missing: desktop-dark",
+    );
+    expect(out).toContain("  UI review: passed, nothing to fix");
+  });
+
+  it("omits the UI review line unless passed; unmatched items render as today", () => {
+    const failed = {
+      ...signoff,
+      uiReview: { ...signoff.uiReview, passed: false },
+    };
+    const out = render({ ...base, lens: "pm", signoff: failed });
+    expect(out).not.toContain("UI review:");
+    const plain = render({ ...base, lens: "pm" });
+    const stray = render({
+      ...base,
+      lens: "pm",
+      signoff: {
+        ...signoff,
+        items: [{ ...signoff.items[0], item: "other" }],
+        uiReview: failed.uiReview,
+      },
+    });
+    expect(stray).toBe(plain);
+  });
+
+  it("markdown mode hyperlinks http views and file:// local views", () => {
+    const out = render({ ...base, lens: "pm", linkMode: "markdown", signoff });
+    expect(out).toContain("[phone](https://h.test/a.png)");
+    expect(out).toContain("[desktop](file:///wt/b.png)");
+  });
+
+  describe("run()", () => {
+    function runGated(extra: string[]): string {
+      const original = process.stdout.write.bind(process.stdout);
+      let captured = "";
+      process.stdout.write = ((chunk: unknown) => {
+        captured += String(chunk);
+        return true;
+      }) as typeof process.stdout.write;
+      try {
+        const itemsPath = path.join(tmpRoot, "items.txt");
+        fs.writeFileSync(itemsPath, ITEMS.join("\n"));
+        const rc = run(
+          [
+            "--status",
+            "gated",
+            "--pr-url",
+            "https://x/pull/1",
+            "--validation-items-file",
+            itemsPath,
+            "--lens",
+            "pm",
+            "--link-mode",
+            "plain",
+            "--slug",
+            "signoff-slug",
+            ...extra,
+          ],
+          { stateDir: tmpRoot },
+        );
+        expect(rc).toBe(0);
+      } finally {
+        process.stdout.write = original;
+      }
+      return captured;
+    }
+
+    it("renders evidence from a valid file; missing/empty/invalid is byte-identical to no flag", () => {
+      const good = path.join(tmpRoot, "signoff.json");
+      fs.writeFileSync(good, JSON.stringify(signoff));
+      const bad = path.join(tmpRoot, "bad.json");
+      fs.writeFileSync(bad, "{not json");
+      const empty = path.join(tmpRoot, "empty.json");
+      fs.writeFileSync(empty, "");
+      const none = runGated([]);
+      expect(runGated(["--signoff-file", good])).toContain(
+        "missing: desktop-dark",
+      );
+      const verdict = path.join(tmpRoot, "verdict.json");
+      fs.writeFileSync(
+        verdict,
+        JSON.stringify({ decision: "gated", uiSignoff: signoff }),
+      );
+      const partial = path.join(tmpRoot, "partial.json");
+      fs.writeFileSync(
+        partial,
+        JSON.stringify({
+          items: [{ item: ITEMS[0] }],
+          uiReview: { passed: true },
+        }),
+      );
+      for (const p of [
+        bad,
+        empty,
+        verdict,
+        partial,
+        path.join(tmpRoot, "nope.json"),
+      ]) {
+        expect(runGated(["--signoff-file", p])).toBe(none);
+      }
+    });
+  });
+
+  it("parseArgs accepts --signoff-file", () => {
+    const args = parseArgs(["--status", "gated", "--signoff-file", "/s.json"]);
+    expect("error" in args).toBe(false);
+    if ("error" in args) return;
+    expect(args.signoffFile).toBe("/s.json");
   });
 });
 

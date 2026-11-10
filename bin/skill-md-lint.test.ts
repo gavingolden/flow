@@ -7846,6 +7846,7 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       "presence-only",
       "subjective-mixed",
       "subjective-no-image",
+      "subjective-missing-view",
       "ticked-no-evidence",
       "post-merge-step",
       "human-only-ticked",
@@ -10677,6 +10678,99 @@ describe("pause-output contract wiring lint", () => {
         `${file} must carry the escalation TLDR clause 'naming the change the pipeline was making'.`,
       ).toBe(true);
     }
+  });
+
+  it("every GATED render in step 9 reads the verdict's uiSignoff, and the route allowlist is unchanged", () => {
+    const refs = path.join(
+      REPO_ROOT,
+      "skills",
+      "pipeline",
+      "flow-pipeline",
+      "references",
+    );
+    const step9 = flat(
+      fs.readFileSync(path.join(refs, "phases", "step-09-gate.md"), "utf8"),
+    );
+    const renders = step9.split("flow-gate-summary --status gated").slice(1);
+    expect(renders.length).toBeGreaterThanOrEqual(2);
+    for (const tail of renders) {
+      expect(
+        tail.slice(0, 1200).includes("--signoff-file"),
+        "every `flow-gate-summary --status gated` mention in step-09-gate.md must pass --signoff-file.",
+      ).toBe(true);
+    }
+    const WRITE =
+      'flow-gate-decide "$PR" > "$WORKTREE/.flow-tmp/gate-verdict.json"';
+    const READ =
+      "--signoff-file <(jq -c '.uiSignoff // empty' \"$WORKTREE/.flow-tmp/gate-verdict.json\" 2>/dev/null)";
+    expect(step9).toContain(
+      'printf \'%s\' "$RESULT" > "$WORKTREE/.flow-tmp/gate-verdict.json"',
+    );
+    expect(step9).toContain(WRITE);
+    // main table row, the pr-not-owned/not-gated prose re-render, the non-affirmative re-render
+    expect(step9.split(READ).length - 1).toBeGreaterThanOrEqual(3);
+    expect(step9).toContain("The only two routes from `gated` to merged");
+    expect(step9).not.toContain("list `UI review: <uiReview.reason>`");
+    const redirect = flat(
+      fs.readFileSync(path.join(refs, "redirect-handling.md"), "utf8"),
+    );
+    expect(redirect).toContain(WRITE);
+    // override refusal re-render and non-affirmative re-render
+    expect(redirect.split(READ).length - 1).toBeGreaterThanOrEqual(1);
+    expect(redirect).toContain("(same `--signoff-file` argument)");
+    expect(redirect.split("--signoff-file").length - 1).toBeGreaterThanOrEqual(
+      3,
+    );
+  });
+
+  it("step 9 rows never read a verdict variable set by an earlier Bash call", () => {
+    const step9 = flat(
+      fs.readFileSync(
+        path.join(
+          REPO_ROOT,
+          "skills",
+          "pipeline",
+          "flow-pipeline",
+          "references",
+          "phases",
+          "step-09-gate.md",
+        ),
+        "utf8",
+      ),
+    );
+    for (const stale of [
+      '"$REASON"',
+      "$VALIDATION_ITEMS",
+      "printf '%s' \"$RESULT\" \\| jq",
+    ]) {
+      expect(
+        step9.includes(stale),
+        `step-09-gate.md must read ${stale} from gate-verdict.json, not a shell variable that does not survive across Bash calls.`,
+      ).toBe(false);
+    }
+    expect(step9).toContain(
+      "PR_URL=$(jq -r '.prUrl // empty' \"$WORKTREE/.flow-tmp/gate-verdict.json\")",
+    );
+  });
+
+  it("the step-8c driver shoots a dark-mode SUBJECTIVE item in dark", () => {
+    const driver = flat(
+      fs.readFileSync(
+        path.join(
+          REPO_ROOT,
+          "skills",
+          "pipeline",
+          "flow-ui-driver-instructions",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+    );
+    expect(driver).toContain(
+      'take every size again in dark: `emulate` with `colorScheme: "dark"`',
+    );
+    expect(driver).toContain("`-dark` token");
+    expect(driver).toContain('reason: "partial: app has no dark scheme"');
   });
 
   it("no skill or PR-template file still documents a 25-word TLDR cap", () => {

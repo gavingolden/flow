@@ -267,7 +267,7 @@ export function runGrantCli(args: string[], deps: GrantCliDeps = {}): number {
   }
   if (delegateUi) {
     console.log(
-      "  --delegate-ui: recorded for subjective UI steps; it takes effect once delegated UI sign-off ships.",
+      "  --delegate-ui: recorded, but inactive — delegated UI sign-off is parked, so UI taste items stay with you.",
     );
   }
   console.log(

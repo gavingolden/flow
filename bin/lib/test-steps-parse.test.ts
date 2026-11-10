@@ -97,6 +97,50 @@ describe("parseTestSteps", () => {
   });
 });
 
+describe("parseTestSteps evidence fields", () => {
+  it("reads images, partial: and no screenshot: from continuation lines", () => {
+    const [step] = parseTestSteps(
+      bodyOf(
+        "- [ ] SUBJECTIVE: looks right.",
+        "  ![shot (phone)](a.png)",
+        "  partial: desktop needs login",
+      ),
+    ).steps;
+    expect(step.images).toEqual([{ alt: "shot (phone)", ref: "a.png" }]);
+    expect(step.partial).toBe("desktop needs login");
+    expect(step.noScreenshot).toBeNull();
+  });
+
+  it("does not attribute a trailing ### subsection's images to the last step", () => {
+    const body = [
+      "## Test Steps",
+      "",
+      "- [ ] SUBJECTIVE: looks right.",
+      "",
+      "### Notes",
+      "![other](z.png)",
+    ].join("\n");
+    const [step] = parseTestSteps(body).steps;
+    expect(step.images).toEqual([]);
+    expect(step.hasImage).toBe(false);
+  });
+
+  it("ignores commented-out and fenced images", () => {
+    const body = [
+      "## Test Steps",
+      "",
+      "- [ ] SUBJECTIVE: looks right.",
+      "<!-- ![gone](c.png) -->",
+      "```",
+      "![fenced](f.png)",
+      "```",
+    ].join("\n");
+    const [step] = parseTestSteps(body).steps;
+    expect(step.images).toEqual([]);
+    expect(step.hasImage).toBe(false);
+  });
+});
+
 describe("lintTestSteps", () => {
   it("is silent on a clean body in both phases", () => {
     expect(codes(CLEAN, "authoring")).toEqual([]);
@@ -130,6 +174,11 @@ describe("lintTestSteps", () => {
       "review",
       "- [ ] SUBJECTIVE: the pricing page looks right.",
     ],
+    [
+      "subjective-missing-view",
+      "review",
+      "- [ ] SUBJECTIVE: the card reads well, dark mode ![card (phone)](a.png)",
+    ],
     ["ticked-no-evidence", "review", "- [x] The dialog opens on click."],
   ];
 
@@ -162,6 +211,18 @@ describe("lintTestSteps", () => {
       "  no screenshot: real-device behaviour",
     );
     expect(codes(body, "review")).toEqual([]);
+  });
+
+  it("flags a missing view only when no partial: or no screenshot: line explains it", () => {
+    const item =
+      "- [ ] SUBJECTIVE: the card reads well at 390 and 1280. ![card (phone)](a.png)";
+    expect(codes(bodyOf(item), "review")).toContain("subjective-missing-view");
+    expect(
+      codes(bodyOf(item, "  partial: desktop needs login"), "review"),
+    ).toEqual([]);
+    expect(codes(bodyOf(item, "  ![card (desktop)](b.png)"), "review")).toEqual(
+      [],
+    );
   });
 
   it("does not flag a targeted test run or a piped assertion", () => {
@@ -322,5 +383,37 @@ describe("lintTestSteps — Browser items the driver cannot run", () => {
         "authoring",
       ),
     ).toEqual([]);
+  });
+});
+
+describe("reason capture and image detection", () => {
+  it("does not swallow lines after a partial: line into the reason", () => {
+    const body = [
+      "## Test Steps",
+      "- [ ] SUBJECTIVE: header looks right at 390 and 1280",
+      "  partial: desktop needs login",
+      "  ![header (phone)](.flow-tmp/shots/h.png)",
+    ].join("\n");
+    const step = parseTestSteps(body).steps[0];
+    expect(step.partial).toBe("desktop needs login");
+  });
+
+  it("treats image syntax inside a code span as no image", () => {
+    const body = [
+      "## Test Steps",
+      "- [ ] SUBJECTIVE: the card reads well `![a](b.png)`",
+    ].join("\n");
+    expect(parseTestSteps(body).steps[0].hasImage).toBe(false);
+  });
+
+  it("reads a dark filename token even when the alt says (phone)", () => {
+    const body = [
+      "## Test Steps",
+      "- [ ] SUBJECTIVE: the card at 390, dark mode ![card (phone)](a/card-390.png) ![card (phone)](a/card-390-dark.png)",
+    ].join("\n");
+    const step = parseTestSteps(body).steps[0];
+    expect(lintTestSteps([step], "review").map((f) => f.code)).not.toContain(
+      "subjective-missing-view",
+    );
   });
 });

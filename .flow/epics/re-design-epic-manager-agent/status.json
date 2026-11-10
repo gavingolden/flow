@@ -14,7 +14,8 @@
       "status": "not-started"
     },
     "f4-delegated-ui-signoff": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 1049
     },
     "f5-executive-judgment": {
       "status": "merged",
