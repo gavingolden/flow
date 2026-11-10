@@ -246,8 +246,15 @@ run's `depth` and, per reviewer, `model`/`route`/`ran`/`skipReason`/`lensesEngag
 agy failed so Claude Code re-ran it) renders as "reviewer 2 via Claude Code
 (agy: <reason>)" and counts as a survivor for the convergence rule; a deep
 run with only one `ran:true` reviewer adds "deep review degraded to one
-reviewer — <agy reason>; Claude Code fallback: <its skipReason or
-fallbackSkipReason>" to the plan summary's **Needs attention:** slot; a
+reviewer — <reason>" to the plan summary's **Needs attention:** slot. For a
+failed reviewer 2 the reason is "<agy reason>; Claude Code fallback: <fallback
+reason>": when its `route` is `claude-headless`, agy reason =
+`fallbackFrom.failureClass ?? fallbackFrom.skipReason` and fallback reason =
+its `skipReason`; otherwise agy reason = `skipReason` and fallback reason =
+`fallbackSkipReason` (`fallback-ineligible` also covers a demoted reviewer 2
+and any agy skip outside the eligible set, where no second route ran). A
+reviewer 1 (Gemini) failure renders as "reviewer 1 (Gemini) unavailable —
+<skipReason>"; a
 demoted reviewer also carries a one-liner
 into the awaiting-approval gate's `--why` string, same precedent as
 `design spec INVALID` above. The `Adversarial premise` lens (lens 7)

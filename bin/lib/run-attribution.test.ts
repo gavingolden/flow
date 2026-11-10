@@ -238,6 +238,34 @@ describe(collectRunAttribution, () => {
     expect(a.totals.cost_usd).toBeCloseTo(26.5, 6);
   });
 
+  it("attributes a plan-review.fallback call and carries its cost", () => {
+    seedFixture();
+    writeLines(eventsLog, [
+      {
+        ts: "2026-11-06T11:30:00Z",
+        event: "plan-review.fallback",
+        slug: SLUG,
+        session_id: "sess-b",
+        attrs: {
+          task: "plan-review-r2-claude",
+          ran: true,
+          model: "claude-opus",
+          effort: "high",
+          total_cost_usd: 0.42,
+        },
+      },
+    ]);
+    const a = collect();
+    expect(a.delegated).toEqual([
+      expect.objectContaining({
+        event: "plan-review.fallback",
+        task: "plan-review-r2-claude",
+        cost_usd: 0.42,
+      }),
+    ]);
+    expect(a.totals.cost_usd).toBeCloseTo(26.42, 6);
+  });
+
   it("finds a session only through an events.jsonl session_id", () => {
     seedFixture();
     writeLines(path.join(dirFor(REPO), "sess-e.jsonl"), [

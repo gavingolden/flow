@@ -535,8 +535,8 @@ reviewer's `skipReason` exactly as a standard-tier skip would (no
 reason a Claude Code fallback replaced, `fallbackSkipReason` says why a
 `ran:false` reviewer 2 got no fallback, and `costUsd` is the fallback's spend.
 The fallback runs only on an eligible agy failure of reviewer 2, when
-reviewer 1 engaged, at least 300 s of reviewer 2's 900 s slot (and of the
-33-minute give-up) remain, and `review.planReviewClaudeFallback` is not
+reviewer 1 engaged, at least 300 s of reviewer 2's 900 s slot remain, and at least 360 s of the
+33-minute give-up (a 60 s safety margin), and `review.planReviewClaudeFallback` is not
 `false`.
 
 ## Blind product critic (brief-gated, once per pipeline)

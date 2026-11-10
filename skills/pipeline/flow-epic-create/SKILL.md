@@ -303,9 +303,13 @@ required-headings contract) — the deep tier here is forced by this
   appended subsection below, same as `/flow-pipeline`
   Step 3's deep-tier convergence rule. Because this site always forces
   `--depth deep`, an agy failure on reviewer 2 now re-runs it on Claude Code,
-  so a one-reviewer result means both routes failed (or the fallback was off or
-  out of time) and the checkpoint message must say "deep review degraded to one
-  reviewer — <both reasons>"; `design-review.md` then holds a single
+  so a one-reviewer result means the other reviewer failed and no fallback
+  recovered it, and the checkpoint message must say "deep review degraded to
+  one reviewer — <reason>" using the same template as `/flow-pipeline` Step 3
+  (a failed reviewer 2: "<agy reason>; Claude Code fallback: <fallback
+  reason>", read from `fallbackFrom` when `route` is `claude-headless`, else
+  `skipReason` / `fallbackSkipReason`; a failed reviewer 1: "reviewer 1
+  (Gemini) unavailable — <skipReason>"); `design-review.md` then holds a single
   reviewer's prose with no convergence preamble, so the convergence rule does
   not apply; weigh every point as ordinary INPUT instead. A single-reviewer point (from a partial failure or otherwise
   unconverged) remains INPUT weighed exactly as before.

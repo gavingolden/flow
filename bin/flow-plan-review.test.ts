@@ -2240,6 +2240,8 @@ describe("run — deep tier Claude fallback", () => {
     skipReason?: string;
     failureClass?: string;
     durationMs?: number;
+    stderrTail?: string;
+    artifactPath?: string;
   };
 
   // Reviewer 1 engaged (seeded AGY_PROSE); reviewer 2's raw entry is `r2`.
@@ -2348,7 +2350,7 @@ describe("run — deep tier Claude fallback", () => {
     expect(out).toContain("Convergence rule");
     expect(out).toContain(`## Reviewer 1 — ${MODEL_1} (via agy)`);
     expect(out).toContain(
-      "## Reviewer 2 — claude-opus-5-5 (via Claude Code; agy: agy-error)",
+      "## Reviewer 2 — claude-opus-5-5 (via Claude Code; agy: quota exhausted)",
     );
     const written = deps.calls.writes.find((w) => w.path === CLAUDE_PROMPT)!;
     const r2Prompt = deps.calls.writes.find(
@@ -2356,6 +2358,8 @@ describe("run — deep tier Claude fallback", () => {
     )!;
     expect(written.contents.startsWith(FALLBACK_PROMPT_DIRECTIVE)).toBe(true);
     expect(written.contents).toContain(r2Prompt.contents);
+    expect(deps.files.has(CLAUDE_PROMPT)).toBe(false);
+    expect(deps.files.has(CLAUDE_JSON)).toBe(false);
     expect(deps.calls.events).toHaveLength(1);
     expect(deps.calls.events[0]!.event).toBe("plan-review.fallback");
     expect(deps.calls.events[0]!.attrs).toMatchObject({
@@ -2366,7 +2370,13 @@ describe("run — deep tier Claude fallback", () => {
   });
 
   it("keeps reviewer 1 only and retains the headless JSON when the fallback also fails", () => {
-    const deps = fallbackDeps(QUOTA);
+    const AGY_R2 = `${OUT}.r2.md`;
+    const deps = fallbackDeps({
+      ...QUOTA,
+      stderrTail: "quota notice",
+      artifactPath: AGY_R2,
+    });
+    deps.files.set(AGY_R2, "agy partial");
     deps.runHeadless = (argv, opts) => {
       deps.calls.headless.push({ argv, opts });
       deps.files.set(CLAUDE_JSON, JSON.stringify({ total_cost_usd: 1.1 }));
@@ -2379,14 +2389,50 @@ describe("run — deep tier Claude fallback", () => {
       route: "claude-headless",
       ran: false,
       skipReason: "reviewer-timeout",
-      fallbackFrom: { route: "agy", skipReason: "agy-error" },
+      fallbackFrom: {
+        route: "agy",
+        skipReason: "agy-error",
+        stderrTail: "quota notice",
+        partialArtifactPath: AGY_R2,
+      },
       costUsd: 1.1,
       partialArtifactPath: CLAUDE_JSON,
     });
     expect(deps.files.has(CLAUDE_JSON)).toBe(true);
+    expect(deps.files.has(AGY_R2)).toBe(true);
+    expect(deps.files.has(CLAUDE_PROMPT)).toBe(false);
     expect(deps.files.get(OUT)).toBe(AGY_PROSE);
     expect(deps.calls.events).toHaveLength(1);
     expect(deps.calls.events[0]!.attrs.ran).toBe(false);
+  });
+
+  it("keeps reviewer 1 when runHeadless throws", () => {
+    const deps = fallbackDeps(QUOTA);
+    deps.runHeadless = () => {
+      throw new Error("boom");
+    };
+    expect(run(DEEP, deps)).toBe(0);
+    expect(envelope(deps).reviewers[1]).toMatchObject({
+      ran: false,
+      skipReason: "spawn-failed",
+      route: "claude-headless",
+    });
+    expect(deps.files.get(OUT)).toBe(AGY_PROSE);
+  });
+
+  it("marks a ran:true fallback with no readable result as plan-output-unreadable", () => {
+    const deps = fallbackDeps(QUOTA);
+    deps.runHeadless = (argv, opts) => {
+      deps.calls.headless.push({ argv, opts });
+      return { ran: true, artifact: CLAUDE_JSON, model: "claude-opus-5-5" };
+    };
+    expect(run(DEEP, deps)).toBe(0);
+    expect(envelope(deps).reviewers[1]).toMatchObject({
+      ran: false,
+      skipReason: "plan-output-unreadable",
+      route: "claude-headless",
+    });
+    expect(deps.files.get(OUT)).toBe(AGY_PROSE);
   });
 
   it("does not call Claude when the config turns the fallback off", () => {

@@ -52,6 +52,23 @@ describe("decideFallback", () => {
     ).toEqual({ run: false, reason: "fallback-disabled" });
   });
 
+  it.each([
+    "agy-not-found",
+    "agy-not-authenticated",
+    "agy-model-unavailable",
+    "agy-error",
+    "agy-empty-artifact",
+    "spawn-failed",
+    "agy-timeout",
+  ])("should run for eligible %s", (skipReason) => {
+    expect(
+      decideFallback({
+        ...base,
+        agyEntry: { ran: false, skipReason, durationMs: 4386 },
+      }).run,
+    ).toBe(true);
+  });
+
   it("should skip when reviewer 1 is down", () => {
     expect(decideFallback({ ...base, reviewer1Engaged: false })).toEqual({
       run: false,

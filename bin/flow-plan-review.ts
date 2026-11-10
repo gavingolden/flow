@@ -729,6 +729,8 @@ type ReviewerStatus = {
     model: string;
     skipReason: string;
     failureClass?: string;
+    stderrTail?: string;
+    partialArtifactPath?: string;
   };
   fallbackSkipReason?: FallbackSkipReason;
   costUsd?: number;
@@ -879,6 +881,10 @@ function applyReviewer2Fallback(
     model: c.model2,
     skipReason: agySkipReason,
     ...(c.rawR2?.failureClass ? { failureClass: c.rawR2.failureClass } : {}),
+    ...(c.r2.stderrTail ? { stderrTail: c.r2.stderrTail } : {}),
+    ...(c.r2.partialArtifactPath
+      ? { partialArtifactPath: c.r2.partialArtifactPath }
+      : {}),
   };
   let env: FallbackEnvelope;
   try {
@@ -1252,7 +1258,7 @@ function runCheck(deps: Deps, args: Args): number {
 
 function reviewerHeading(n: number, r: ReviewerStatus): string {
   return r.route === "claude-headless"
-    ? `## Reviewer ${n} — ${r.model} (via Claude Code; agy: ${r.fallbackFrom?.skipReason ?? "unknown"})`
+    ? `## Reviewer ${n} — ${r.model} (via Claude Code; agy: ${r.fallbackFrom?.failureClass?.replace(/-/g, " ") ?? r.fallbackFrom?.skipReason ?? "unknown"})`
     : `## Reviewer ${n} — ${r.model} (via agy)`;
 }
 
@@ -1625,8 +1631,8 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     model2: SECOND_MODEL,
   });
 
-  // `survivors` is a resolveReviewer() output, and resolveReviewer() now
-  // demotes a non-engaging/empty reviewer to `ran:false` (see above) — so
+  // `r1` comes from resolveReviewer() and `r2` from applyReviewer2Fallback();
+  // both demote a non-engaging/empty reviewer to `ran:false` (see above) — so
   // `survivors.length === 2` means "two GENUINELY ENGAGED reviewers", not
   // merely "two agy calls that returned artifacts". A later refactor must
   // not quietly re-admit a demoted (phantom) reviewer into this count, or
@@ -1674,9 +1680,10 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   }
 
   cleanScratch(
-    failedReviewer?.partialArtifactPath
-      ? [failedReviewer.partialArtifactPath]
-      : [],
+    [
+      failedReviewer?.partialArtifactPath,
+      failedReviewer?.fallbackFrom?.partialArtifactPath,
+    ].filter((p): p is string => typeof p === "string"),
   );
   return finalizeAndEmit(
     deps,
