@@ -5373,6 +5373,25 @@ describe("runFresh — withdraws a reused slug's pipeline grant (#1047)", () => 
     ).toHaveLength(1);
   });
 
+  it("prints a note when the withdrawal was not logged", () => {
+    vi.spyOn(grantsModule, "withdrawPipelineGrant").mockReturnValue({
+      removed: true,
+      logError: "boom",
+    });
+    const code = runNew("reused slug", {
+      stateDir,
+      cwd: repoDir,
+      managerHome,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    expect(
+      errors.filter((e) =>
+        e.includes("withdrawal for 'reused-slug' was not logged (boom)"),
+      ),
+    ).toHaveLength(1);
+  });
+
   it("a plain create withdraws the leftover grant before the launcher runs", async () => {
     grantsModule.upsertGrant(ownerGrant(`pipeline:${SLUG}`), managerHome);
     const calls: string[] = [];
