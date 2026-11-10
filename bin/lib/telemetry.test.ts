@@ -39,6 +39,7 @@ describe("TELEMETRY_EVENTS", () => {
       "run.terminal",
       "explain.judge",
       "exec.review",
+      "plan-review.fallback",
     ]);
   });
 

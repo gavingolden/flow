@@ -293,19 +293,25 @@ required-headings contract) — the deep tier here is forced by this
 - `ran:true` → read `design-review.md` and weigh EACH material AGY point against
   the codebase context you hold. AGY is a different model with less context —
   its output is **INPUT you weigh, NOT a verdict**. Also record each
-  reviewer's `ran`/`skipReason`/`lensesEngaged` (as N/6) from the envelope's
-  `reviewers[]` in scrollback — a demoted (non-engaging/empty) reviewer is
+  reviewer's `model`/`route`/`ran`/`skipReason`/`lensesEngaged` (as N/7) from the
+  envelope's `reviewers[]` in scrollback; a fallback reviewer renders as
+  "reviewer 2 via Claude Code (agy: <reason>)" — a demoted (non-engaging/empty) reviewer is
   not a survivor for the convergence rule below. **Convergence rule:** applies
   ONLY when `reviewers[]` holds exactly two `ran:true` (genuinely engaged)
   entries — a material point raised **independently by BOTH reviewers is
   presumptively accepted**; overriding it requires a named rationale in the
   appended subsection below, same as `/flow-pipeline`
   Step 3's deep-tier convergence rule. Because this site always forces
-  `--depth deep`, a partial deep failure (one reviewer ran, one skipped) is a
-  routine outcome here, not an edge case — on that outcome `design-review.md`
-  holds a single reviewer's prose with no convergence preamble, so the
-  convergence rule does not apply; weigh every point as ordinary INPUT
-  instead. A single-reviewer point (from a partial failure or otherwise
+  `--depth deep`, an agy failure on reviewer 2 now re-runs it on Claude Code,
+  so a one-reviewer result means the other reviewer failed and no fallback
+  recovered it, and the checkpoint message must say "deep review degraded to
+  one reviewer — <reason>" using the same template as `/flow-pipeline` Step 3
+  (a failed reviewer 2: "<agy reason>; Claude Code fallback: <fallback
+  reason>", read from `fallbackFrom` when `route` is `claude-headless`, else
+  `skipReason` / `fallbackSkipReason`; a failed reviewer 1: "reviewer 1
+  (Gemini) unavailable — <skipReason>"); `design-review.md` then holds a single
+  reviewer's prose with no convergence preamble, so the convergence rule does
+  not apply; weigh every point as ordinary INPUT instead. A single-reviewer point (from a partial failure or otherwise
   unconverged) remains INPUT weighed exactly as before.
   Revise `design.md` **once** where a point is warranted, then append a
   `### Cross-model review (AGY)` subsection under `## Decision analysis`

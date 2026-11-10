@@ -29,6 +29,7 @@ import { readConfigDiscovery } from "../flow-research-note";
 import { readJudgeEnabled } from "./explain-judge";
 import { readUiCritiqueEnabled } from "./ui-critique-config";
 import { isGeminiLensEnabled } from "../flow-gemini-lens";
+import { isClaudeFallbackEnabled } from "./plan-review-fallback";
 
 function viewDefault(key: string): string {
   const row = buildSettingsRows(() => undefined).find((r) => r.setting === key);
@@ -65,6 +66,12 @@ describe("config-default-parity: the view's defaults match their real consumer's
         `readTolerantBool default for ${key}`,
       ).toBe(String(consumerDefault));
     }
+  });
+
+  it("review.planReviewClaudeFallback: view default matches isClaudeFallbackEnabled's default", () => {
+    expect(viewDefault("review.planReviewClaudeFallback")).toBe(
+      String(isClaudeFallbackEnabled("")),
+    );
   });
 
   it("product.judge: view default matches readJudgeEnabled's default", () => {

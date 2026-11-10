@@ -58,13 +58,28 @@
  * skipped/demoted — is also `ran:true`, degraded to the surviving
  * reviewer's prose, with the failed reviewer's skip reason recorded in its
  * `reviewers[]` entry, which also carries each reviewer's `lensesEngaged`
- * count out of 6). AMENDED skip-envelope invariant (was: "every skip
+ * count out of 7). AMENDED skip-envelope invariant (was: "every skip
  * envelope stays byte-identical to the single-reviewer era"; per D2, this
  * still holds for `depth`/`reviewers` — those two fields never appear on a
  * skip — but a skip MAY now additionally carry `partialArtifactPath`
  * (a retained reviewer transcript that `cleanScratch` was told not to
  * delete) and/or `stderrTail` (a redacted, capped agy stderr excerpt),
  * both omit-when-absent. Exit 2 only on a usage error.
+ *
+ * Reviewer-2 Claude Code fallback (deep tier only): when reviewer 1 engaged
+ * and reviewer 2's agy call failed eligibly (`bin/lib/plan-review-fallback.ts`
+ * owns the policy — quota, timeout, agy missing or unauthenticated, ...), the
+ * same reviewer-2 prompt re-runs once on `flow-claude-headless`
+ * (`review.planReviewClaudeFallback: false` turns it off). Every
+ * `reviewers[]` entry carries `route` (`agy` | `claude-headless`); a fallback
+ * entry also carries `fallbackFrom` (the agy model, skip reason and failure
+ * class it replaced) and `costUsd`. A `ran:false` reviewer 2 that did not get
+ * a fallback carries `fallbackSkipReason` (`fallback-disabled`,
+ * `fallback-ineligible`, `fallback-no-budget`; `fallback-reviewer-1-down`
+ * never surfaces because that run is a bare skip). A fallback that also fails
+ * records its mapped reason in `skipReason` (`claude-timeout` surfaces as
+ * `reviewer-timeout`). One `plan-review.fallback` telemetry event records
+ * each attempt's spend.
  *
  * The convergence preamble (below) requires TWO GENUINELY ENGAGED reviewers
  * — see the `survivors` computation in the deep-tier branch for the
@@ -130,6 +145,23 @@ import { isLive, pidStartEpoch } from "./lib/liveness";
 import { resolveSlugFromEnv } from "./lib/session-identity";
 import { stderrTail as redactedStderrTail } from "./flow-delegate";
 import { forwardSignal } from "./flow-spawn";
+import {
+  parseHeadlessStdout,
+  readHeadlessResult,
+  type HeadlessEnvelope,
+} from "./lib/headless-envelope";
+import {
+  buildFallbackArgv,
+  buildFallbackPrompt,
+  decideFallback,
+  fallbackModelLabel,
+  isClaudeFallbackEnabled,
+  mapFallbackSkipReason,
+  FALLBACK_EFFORT,
+  type FallbackSkipReason,
+  type ReviewerRoute,
+} from "./lib/plan-review-fallback";
+import { recordEvent as recordTelemetry } from "./lib/telemetry";
 
 export { extractGoalLine };
 
@@ -562,6 +594,7 @@ export type FanoutAggregate = {
     durationSeconds?: number;
     durationMs?: number;
     stderrTail?: string;
+    failureClass?: string;
   }>;
   anyRan?: boolean;
   allSkipped?: boolean;
@@ -582,6 +615,12 @@ type DeepManifestEntry = {
   // already accepts and forwards a manifest entry's `timeout` field, so no
   // change to that module is needed.
   timeout: string;
+};
+
+export type FallbackEnvelope = HeadlessEnvelope & {
+  model?: string;
+  effort?: string;
+  stderrTail?: string;
 };
 
 export type Deps = {
@@ -632,6 +671,14 @@ export type Deps = {
   killWorker: (pid: number) => void;
   now: () => Date;
   env: NodeJS.ProcessEnv;
+  // Runs flow-claude-headless (the reviewer-2 Claude Code fallback) and
+  // returns its parsed envelope; a throw is a spawn-failed skip.
+  runHeadless: (argv: string[], opts: { cwd: string }) => FallbackEnvelope;
+  // Best-effort telemetry append; never throws.
+  recordEvent: (
+    event: "plan-review.fallback",
+    attrs: Record<string, unknown>,
+  ) => void;
   // Reads a worker stderr log (best-effort — "" on any read failure) and
   // returns its redacted, tail-most, byte-capped excerpt (reuses
   // flow-delegate's own stderrTail helper).
@@ -676,6 +723,17 @@ type ReviewerStatus = {
   // the deep-tier branch as the reviewer's own `reviewers[]` diagnostics.
   partialArtifactPath?: string;
   stderrTail?: string;
+  route: ReviewerRoute;
+  fallbackFrom?: {
+    route: "agy";
+    model: string;
+    skipReason: string;
+    failureClass?: string;
+    stderrTail?: string;
+    partialArtifactPath?: string;
+  };
+  fallbackSkipReason?: FallbackSkipReason;
+  costUsd?: number;
 };
 
 type FanoutEntry = NonNullable<FanoutAggregate["entries"]>[number];
@@ -734,6 +792,7 @@ function resolveReviewer(
       : mapped;
     return {
       model,
+      route: "agy",
       ran: false,
       skipReason,
       partialArtifactPath: entry?.artifactPath,
@@ -749,6 +808,7 @@ function resolveReviewer(
         : result.reason;
       return {
         model,
+        route: "agy",
         ran: false,
         skipReason,
         lensesEngaged: result.lensesEngaged,
@@ -756,19 +816,157 @@ function resolveReviewer(
         stderrTail: entry.stderrTail,
       };
     }
-    return { model, ran: true, prose, lensesEngaged: result.lensesEngaged };
+    return {
+      model,
+      route: "agy",
+      ran: true,
+      prose,
+      lensesEngaged: result.lensesEngaged,
+    };
   } catch {
     const skipReason = isNearCap(entry.durationMs, capSec)
       ? "reviewer-timeout"
       : "plan-output-unreadable";
     return {
       model,
+      route: "agy",
       ran: false,
       skipReason,
       partialArtifactPath: entry.artifactPath,
       stderrTail: entry.stderrTail,
     };
   }
+}
+
+// The deep tier's reviewer-2 Claude Code fallback (policy in
+// ./lib/plan-review-fallback). Returns reviewer 2's status unchanged, or with
+// `fallbackSkipReason` when no attempt is made, or the attempted fallback's
+// status. Reads the RAW fan-out entry, never `r2.skipReason` (already remapped).
+function applyReviewer2Fallback(
+  deps: Deps,
+  c: {
+    r1: ReviewerStatus;
+    r2: ReviewerStatus;
+    rawR1: FanoutEntry | undefined;
+    rawR2: FanoutEntry | undefined;
+    fanoutSec: number;
+    runStartedMs: number;
+    rawConfig: string;
+    out: string;
+    worktree: string;
+    task: string;
+    reviewer2Prompt: string;
+    model2: string;
+  },
+): ReviewerStatus {
+  const decision = decideFallback({
+    enabled: isClaudeFallbackEnabled(c.rawConfig),
+    reviewer1Engaged: c.r1.ran === true,
+    agyEntry: c.rawR2,
+    agyElapsedSecFallback: c.fanoutSec - (c.rawR1?.durationMs ?? 0) / 1000,
+    slotSec: godurToSec(REVIEWER_2_TIMEOUT),
+    capRemainingSec:
+      maxElapsedSec("deep") - (deps.now().getTime() - c.runStartedMs) / 1000,
+  });
+  if (!decision.run) {
+    return c.r2.ran ? c.r2 : { ...c.r2, fallbackSkipReason: decision.reason };
+  }
+
+  const promptPath = `${c.out}.prompt.r2-claude`;
+  const artifactPath = `${c.out}.r2-claude.json`;
+  const task = `${c.task}-r2-claude`;
+  const agySkipReason = c.rawR2?.skipReason ?? "agy-error";
+  const fallbackFrom = {
+    route: "agy" as const,
+    model: c.model2,
+    skipReason: agySkipReason,
+    ...(c.rawR2?.failureClass ? { failureClass: c.rawR2.failureClass } : {}),
+    ...(c.r2.stderrTail ? { stderrTail: c.r2.stderrTail } : {}),
+    ...(c.r2.partialArtifactPath
+      ? { partialArtifactPath: c.r2.partialArtifactPath }
+      : {}),
+  };
+  let env: FallbackEnvelope;
+  try {
+    deps.writeFile(promptPath, buildFallbackPrompt(c.reviewer2Prompt));
+    env = deps.runHeadless(
+      buildFallbackArgv({
+        promptPath,
+        out: artifactPath,
+        task,
+        timeoutSec: decision.timeoutSec,
+      }),
+      { cwd: c.worktree },
+    );
+  } catch {
+    env = { ran: false, skipReason: "spawn-failed" };
+  }
+
+  let rawJson: string | null = null;
+  try {
+    rawJson = deps.readFile(artifactPath);
+  } catch {
+    rawJson = null;
+  }
+  // A failed call still spends, so fall back to the cost in the raw artifact.
+  let costUsd: number | undefined =
+    typeof env.total_cost_usd === "number" ? env.total_cost_usd : undefined;
+  if (costUsd === undefined && rawJson !== null) {
+    try {
+      const v = (JSON.parse(rawJson) as { total_cost_usd?: unknown } | null)
+        ?.total_cost_usd;
+      if (typeof v === "number") costUsd = v;
+    } catch {
+      // unparseable artifact — no cost to read.
+    }
+  }
+
+  const model = fallbackModelLabel(env.model);
+  const base = {
+    model,
+    route: "claude-headless" as const,
+    fallbackFrom,
+    ...(costUsd !== undefined ? { costUsd } : {}),
+  };
+  let status: ReviewerStatus;
+  let skipReason: string | undefined;
+  if (env.ran === true) {
+    const prose = readHeadlessResult(env, artifactPath, deps.readFile);
+    const eng = prose === null ? null : classifyEngagement(prose);
+    if (prose !== null && eng !== null && eng.engaged) {
+      status = { ...base, ran: true, prose, lensesEngaged: eng.lensesEngaged };
+    } else {
+      skipReason =
+        eng !== null && !eng.engaged ? eng.reason : "plan-output-unreadable";
+      status = {
+        ...base,
+        ran: false,
+        skipReason,
+        ...(eng === null ? {} : { lensesEngaged: eng.lensesEngaged }),
+      };
+    }
+  } else {
+    skipReason = mapFallbackSkipReason(env.skipReason);
+    status = { ...base, ran: false, skipReason };
+  }
+  if (!status.ran) {
+    if (rawJson !== null || deps.fileExists(artifactPath)) {
+      status.partialArtifactPath = artifactPath;
+    }
+    if (env.stderrTail) status.stderrTail = env.stderrTail;
+  }
+
+  deps.recordEvent("plan-review.fallback", {
+    task,
+    ran: status.ran,
+    model,
+    effort: FALLBACK_EFFORT,
+    skip_reason: skipReason ?? null,
+    total_cost_usd: costUsd ?? null,
+    agy_skip_reason: agySkipReason,
+    agy_failure_class: c.rawR2?.failureClass ?? null,
+  });
+  return status;
 }
 
 // --- Async spine (--start / --check) ----------------------------------------
@@ -1058,8 +1256,34 @@ function runCheck(deps: Deps, args: Args): number {
   });
 }
 
+function reviewerHeading(n: number, r: ReviewerStatus): string {
+  return r.route === "claude-headless"
+    ? `## Reviewer ${n} — ${r.model} (via Claude Code; agy: ${r.fallbackFrom?.failureClass?.replace(/-/g, " ") ?? r.fallbackFrom?.skipReason ?? "unknown"})`
+    : `## Reviewer ${n} — ${r.model} (via agy)`;
+}
+
+function reviewerEntry(r: ReviewerStatus): Record<string, unknown> {
+  return {
+    model: r.model,
+    ran: r.ran,
+    skipReason: r.skipReason,
+    lensesEngaged: r.lensesEngaged,
+    route: r.route,
+    ...(r.fallbackFrom ? { fallbackFrom: r.fallbackFrom } : {}),
+    ...(r.fallbackSkipReason
+      ? { fallbackSkipReason: r.fallbackSkipReason }
+      : {}),
+    ...(r.costUsd !== undefined ? { costUsd: r.costUsd } : {}),
+    ...(r.partialArtifactPath
+      ? { partialArtifactPath: r.partialArtifactPath }
+      : {}),
+    ...(r.stderrTail ? { stderrTail: r.stderrTail } : {}),
+  };
+}
+
 export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   const deps = resolveDeps(depsOverride);
+  const runStartedMs = deps.now().getTime();
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     console.error(`flow-plan-review: ${parsed.error}`);
@@ -1126,6 +1350,8 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   const rawPath = `${parsed.out}.agy-raw`;
   const promptPath = `${parsed.out}.prompt`;
   const promptPathR2 = `${parsed.out}.prompt.r2`;
+  const promptPathR2Claude = `${parsed.out}.prompt.r2-claude`;
+  const artifactR2Claude = `${parsed.out}.r2-claude.json`;
   const manifestPath = `${parsed.out}.fanout-manifest.json`;
   const fanoutOutPath = `${parsed.out}.fanout.json`;
   const deepArtifactR1 = `${parsed.out}.r1.md`;
@@ -1145,6 +1371,8 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       fanoutOutPath,
       deepArtifactR1,
       deepArtifactR2,
+      promptPathR2Claude,
+      artifactR2Claude,
     ]) {
       if (!retainSet.has(p)) deps.removeFile(p);
     }
@@ -1294,6 +1522,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
             ran: true,
             skipReason: null,
             lensesEngaged: eng.lensesEngaged,
+            route: "agy",
           },
         ],
       },
@@ -1312,21 +1541,20 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // per-entry indexed artifact paths avoid both direct spawns writing to the
   // SAME `${rawPath}` and silently clobbering the first reviewer's output.
   const addDirs = [parsed.worktree];
+  let reviewer2Prompt = "";
   try {
     // Reviewer 2 is the SAME model family as the PRD's author (flow's PRDs
     // are drafted by the Claude discovery subagent, and SECOND_MODEL is
     // Claude too), so it gets its own prompt file with the opener's premise
     // swapped rather than the byte-identical prompt handed to reviewer 1.
-    deps.writeFile(
-      promptPathR2,
-      buildBatteryPrompt({
-        planText: plan,
-        goalLine: extractGoalLine(plan),
-        sameFamilyAsAuthor: true,
-        worktreePath: parsed.worktree,
-        productBrief,
-      }),
-    );
+    reviewer2Prompt = buildBatteryPrompt({
+      planText: plan,
+      goalLine: extractGoalLine(plan),
+      sameFamilyAsAuthor: true,
+      worktreePath: parsed.worktree,
+      productBrief,
+    });
+    deps.writeFile(promptPathR2, reviewer2Prompt);
   } catch {
     return skip("plan-prep-failed");
   }
@@ -1366,27 +1594,45 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // silently reduces a paid two-reviewer review to one, which is the exact
   // defect this helper was fixed to eliminate. REVIEW_TIMEOUT is sized
   // against this serialisation (see its comment).
+  const fanoutStartMs = deps.now().getTime();
   const aggregate = deps.runFanout({
     manifestPath,
     outPath: fanoutOutPath,
     concurrency: 1,
   });
+  const fanoutEndMs = deps.now().getTime();
   const entries = aggregate.entries ?? [];
+  const rawR1 = entries.find((e) => e.task === manifest[0]!.task);
+  const rawR2 = entries.find((e) => e.task === manifest[1]!.task);
   const r1 = resolveReviewer(
     deps,
-    entries.find((e) => e.task === manifest[0]!.task),
+    rawR1,
     MODEL,
     godurToSec(REVIEWER_1_TIMEOUT),
   );
-  const r2 = resolveReviewer(
+  const r2Agy = resolveReviewer(
     deps,
-    entries.find((e) => e.task === manifest[1]!.task),
+    rawR2,
     SECOND_MODEL,
     godurToSec(REVIEWER_2_TIMEOUT),
   );
+  const r2 = applyReviewer2Fallback(deps, {
+    r1,
+    r2: r2Agy,
+    rawR1,
+    rawR2,
+    fanoutSec: (fanoutEndMs - fanoutStartMs) / 1000,
+    runStartedMs,
+    rawConfig,
+    out: parsed.out,
+    worktree: parsed.worktree,
+    task: parsed.task,
+    reviewer2Prompt,
+    model2: SECOND_MODEL,
+  });
 
-  // `survivors` is a resolveReviewer() output, and resolveReviewer() now
-  // demotes a non-engaging/empty reviewer to `ran:false` (see above) — so
+  // `r1` comes from resolveReviewer() and `r2` from applyReviewer2Fallback();
+  // both demote a non-engaging/empty reviewer to `ran:false` (see above) — so
   // `survivors.length === 2` means "two GENUINELY ENGAGED reviewers", not
   // merely "two agy calls that returned artifacts". A later refactor must
   // not quietly re-admit a demoted (phantom) reviewer into this count, or
@@ -1417,11 +1663,11 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       ? [
           CONVERGENCE_PREAMBLE,
           "",
-          `## Reviewer 1 — ${r1.model}`,
+          reviewerHeading(1, r1),
           "",
           (r1.prose ?? "").trim(),
           "",
-          `## Reviewer 2 — ${r2.model}`,
+          reviewerHeading(2, r2),
           "",
           (r2.prose ?? "").trim(),
         ].join("\n")
@@ -1434,9 +1680,10 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   }
 
   cleanScratch(
-    failedReviewer?.partialArtifactPath
-      ? [failedReviewer.partialArtifactPath]
-      : [],
+    [
+      failedReviewer?.partialArtifactPath,
+      failedReviewer?.fallbackFrom?.partialArtifactPath,
+    ].filter((p): p is string => typeof p === "string"),
   );
   return finalizeAndEmit(
     deps,
@@ -1445,28 +1692,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       feedbackPath: parsed.out,
       skipReason: null,
       depth: "deep",
-      reviewers: [
-        {
-          model: r1.model,
-          ran: r1.ran,
-          skipReason: r1.skipReason,
-          lensesEngaged: r1.lensesEngaged,
-          ...(r1.partialArtifactPath
-            ? { partialArtifactPath: r1.partialArtifactPath }
-            : {}),
-          ...(r1.stderrTail ? { stderrTail: r1.stderrTail } : {}),
-        },
-        {
-          model: r2.model,
-          ran: r2.ran,
-          skipReason: r2.skipReason,
-          lensesEngaged: r2.lensesEngaged,
-          ...(r2.partialArtifactPath
-            ? { partialArtifactPath: r2.partialArtifactPath }
-            : {}),
-          ...(r2.stderrTail ? { stderrTail: r2.stderrTail } : {}),
-        },
-      ],
+      reviewers: [reviewerEntry(r1), reviewerEntry(r2)],
     },
     parsed.resultFile,
   );
@@ -1580,6 +1806,31 @@ function resolveDeps(o?: Partial<Deps>): Deps {
       }),
     now: o?.now ?? (() => new Date()),
     env: o?.env ?? process.env,
+    runHeadless:
+      o?.runHeadless ??
+      ((argv, opts) => {
+        try {
+          const r = Bun.spawnSync(["flow-claude-headless", ...argv], {
+            cwd: opts.cwd,
+            stdin: "ignore",
+            stdout: "pipe",
+            stderr: "ignore",
+          });
+          const stdout = r.stdout ? new TextDecoder().decode(r.stdout) : "";
+          return parseHeadlessStdout(stdout) as FallbackEnvelope;
+        } catch {
+          return { ran: false, skipReason: "spawn-failed" };
+        }
+      }),
+    recordEvent:
+      o?.recordEvent ??
+      ((event, attrs) => {
+        try {
+          recordTelemetry(event, attrs);
+        } catch {
+          // best-effort — telemetry never changes a review's outcome.
+        }
+      }),
     readWorkerStderrTail:
       o?.readWorkerStderrTail ??
       ((p) => {

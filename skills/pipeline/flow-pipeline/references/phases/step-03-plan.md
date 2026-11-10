@@ -241,8 +241,21 @@ from `reviewer-timeout`, where the envelope survived one killed agy call. An `ag
 `ran:true` weighs each material AGY point as INPUT (never a verdict), revises plan.md **once**
 where warranted, and appends a `### Cross-model review (AGY)` subsection
 recording each point **accepted** or **overridden** — also record the
-run's `depth` and, per reviewer, `model`/`ran`/`skipReason`/`lensesEngaged`
-(as N/7) in the chat summary; a demoted reviewer also carries a one-liner
+run's `depth` and, per reviewer, `model`/`route`/`ran`/`skipReason`/`lensesEngaged`
+(as N/7) in the chat summary; a fallback reviewer (route `claude-headless`,
+agy failed so Claude Code re-ran it) renders as "reviewer 2 via Claude Code
+(agy: <reason>)" and counts as a survivor for the convergence rule; a deep
+run with only one `ran:true` reviewer adds "deep review degraded to one
+reviewer — <reason>" to the plan summary's **Needs attention:** slot. For a
+failed reviewer 2 the reason is "<agy reason>; Claude Code fallback: <fallback
+reason>": when its `route` is `claude-headless`, agy reason =
+`fallbackFrom.failureClass ?? fallbackFrom.skipReason` and fallback reason =
+its `skipReason`; otherwise agy reason = `skipReason` and fallback reason =
+`fallbackSkipReason` (`fallback-ineligible` also covers a demoted reviewer 2
+and any agy skip outside the eligible set, where no second route ran). A
+reviewer 1 (Gemini) failure renders as "reviewer 1 (Gemini) unavailable —
+<skipReason>"; a
+demoted reviewer also carries a one-liner
 into the awaiting-approval gate's `--why` string, same precedent as
 `design spec INVALID` above. The `Adversarial premise` lens (lens 7)
 finding is appended to `## Request vetting` as one

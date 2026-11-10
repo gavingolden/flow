@@ -156,6 +156,7 @@ describe("buildSettingsRows", () => {
       "review.lensGates",
       "review.deltaScope",
       "review.product",
+      "review.planReviewClaudeFallback",
     ]) {
       const row = rows.find((r) => r.setting === key);
       expect(row?.value, key).toBe("true");
