@@ -331,14 +331,25 @@ describe("syncKeepAwake", () => {
     });
   });
 
-  it("should read no registry when env-off", () => {
+  it("should release a live holder and report released when env-off", () => {
+    const h = harness([row(900, 100)]);
+    const out = syncKeepAwake(state("implementing"), {
+      ...h.deps,
+      envOff: () => true,
+    });
+    expect(out).toEqual({ action: "released" });
+    expect(h.kills).toContainEqual([900, "SIGTERM"]);
+    expect(h.spawnDetached).not.toHaveBeenCalled();
+  });
+
+  it("should report env-off and spawn nothing when env-off with no holder", () => {
     const h = harness();
     const out = syncKeepAwake(state("implementing"), {
       ...h.deps,
       envOff: () => true,
     });
     expect(out).toEqual({ action: "none", skip: "env-off" });
-    expect(h.deps.readRows).not.toHaveBeenCalled();
+    expect(h.spawnDetached).not.toHaveBeenCalled();
   });
 
   it("should kill the child and record nothing when the start epoch is unreadable", () => {

@@ -29,9 +29,9 @@ const waitFor = async (cond: () => boolean, ms: number): Promise<boolean> => {
   return cond();
 };
 
-// pmset prints the timeout on the `Details:` line after the pid line.
 const ASSERTIONS = ["PreventUserIdleSystemSleep", "PreventSystemSleep"];
 
+// pmset prints the timeout on the `Details:` line after the pid line.
 const assertionsListing = (pid: number, name: string, detail = ""): boolean => {
   const lines = spawnSync("pmset", ["-g", "assertions"], {
     encoding: "utf8",
@@ -108,7 +108,7 @@ describeOnDarwin("keep-awake live", () => {
       pid,
     }) as PipelineState;
 
-  it("should show the assertion in pmset, drop it on release, and exit when the watched pid dies", async () => {
+  it("should show the assertions in pmset, drop it on release, and exit when the watched pid dies", async () => {
     const child = watched();
     const { rows, deps } = harness();
     const st = stateFor(child.pid!);

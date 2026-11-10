@@ -129,15 +129,15 @@ export function syncKeepAwake(
     ...deps,
   };
   try {
-    if (d.envOff()) return { action: "none", skip: "env-off" };
     const holders = d
       .readRows(state.slug)
       .filter((r) => isHolder(r) && d.pidLive(r.pid) && d.isLive(r));
     const hold = (KEEP_AWAKE_HOLD_PHASES as ReadonlySet<string>).has(
       state.phase,
     );
-    const skip: KeepAwakeOutcome["skip"] =
-      d.platform !== "darwin"
+    const skip: KeepAwakeOutcome["skip"] = d.envOff()
+      ? "env-off"
+      : d.platform !== "darwin"
         ? "not-darwin"
         : !d.enabled()
           ? "disabled"
