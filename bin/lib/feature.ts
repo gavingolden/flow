@@ -71,6 +71,8 @@ import {
   LAUNCH_CONFIG_KEYS,
 } from "./launch-config";
 import { sleepSync } from "./sleep";
+import { withdrawPipelineGrant } from "./manager-grants";
+import { repoNameForPath } from "./manager-scope";
 import { sanitizeSeedLine } from "./seed-delivery";
 import { appendLaunchRecord } from "./launch-log";
 import { dim } from "./color";
@@ -181,7 +183,39 @@ function launchWithRetry(
   return { ...last, attempts };
 }
 
+/**
+ * A `pipeline:<slug>` grant is keyed by slug alone, so one left by an earlier
+ * pipeline must not cover this fresh launch. Runs once, before any state
+ * write; a failure warns and never blocks the launch.
+ */
+function withdrawLeftoverGrant(
+  slug: string,
+  repo: string,
+  home?: string,
+): void {
+  try {
+    const r = withdrawPipelineGrant(slug, {
+      repo: (prior) => prior ?? repoNameForPath(repo),
+      reason: "slug-reused",
+      now: new Date(),
+      home,
+    });
+    if (r.removed) {
+      console.error(
+        `flow feature create: withdrew a leftover autonomy grant for '${slug}' from an earlier pipeline — re-grant with \`flow grant pipeline:${slug} --autonomy high\` if wanted.`,
+      );
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(
+      `flow feature create: could not withdraw a leftover autonomy grant for '${slug}' (${msg}); it will not apply to this pipeline — remove it with \`flow grant pipeline:${slug} --autonomy off\`.`,
+    );
+  }
+}
+
 export type FeatureOptions = {
+  /** Manager-home override (test seam; defaults to ~/.flow/manager). */
+  managerHome?: string;
   /** Override the cwd for the new window (default: process.cwd()). */
   cwd?: string;
   /**
@@ -1095,6 +1129,9 @@ function runFresh(
     );
   }
 
+  const existing = readState(slug, options.stateDir);
+  const createdAt = existing?.createdAt ?? nowIso();
+
   const makeBaseState = (launcher: LauncherId): PipelineState => ({
     slug,
     phase: "starting",
@@ -1117,10 +1154,10 @@ function runFresh(
     epic: options.epic,
     launcher,
     kind: "feature",
-    createdAt: existing?.createdAt ?? nowIso(),
+    createdAt,
     updatedAt: nowIso(),
   });
-  const existing = readState(slug, options.stateDir);
+  withdrawLeftoverGrant(slug, repo, options.managerHome);
 
   // Launcher dispatch: flag > config > default-plain (no state on a fresh
   // launch). The collision detection above ran off the file signal, before

@@ -12,14 +12,8 @@
 import * as fs from "node:fs";
 import { withFileLockSync } from "./lock";
 import { managerFile, managerHome, writeTextAtomic } from "./manager-home";
-import { readGrants, removeGrant } from "./manager-grants";
-import {
-  appendManagerLog,
-  logLockPath,
-  logPath,
-  readManagerLog,
-  type ManagerLogEntry,
-} from "./manager-log";
+import { readGrants, withdrawPipelineGrant } from "./manager-grants";
+import { logLockPath, logPath, type ManagerLogEntry } from "./manager-log";
 import { dropNotes, isNoteExpired, readNotes } from "./manager-notes";
 import { identityForState } from "./manager-scope";
 import { readProposals } from "./manager-proposals";
@@ -49,22 +43,13 @@ function dropDeadPipelineGrants(
     const slug = g.scope.slice("pipeline:".length);
     const st = readSlug(slug);
     if (st && !FINISHED_PHASE_SET.has(st.phase)) continue;
-    if (!removeGrant(g.scope, home)) continue;
-    dropped++;
-    const prior = readManagerLog({ slug }, home)
-      .filter((e) => e.kind === "grant")
-      .at(-1);
-    appendManagerLog(
-      {
-        ts: now.toISOString(),
-        kind: "grant-withdrawn",
-        scope: g.scope,
-        repo: st ? identityForState(st).repo : (prior?.repo ?? "unknown"),
-        slug,
-        reason: "pipeline-finished",
-      },
-      { home },
-    );
+    const r = withdrawPipelineGrant(slug, {
+      repo: (prior) => (st ? identityForState(st).repo : (prior ?? "unknown")),
+      reason: "pipeline-finished",
+      now,
+      home,
+    });
+    if (r.removed) dropped++;
   }
   return dropped;
 }
