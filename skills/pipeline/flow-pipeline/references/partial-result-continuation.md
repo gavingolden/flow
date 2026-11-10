@@ -93,6 +93,10 @@ each owning exemption — it does not create a new spawn site. The
 completeness check (missing, OR present with `status: "partial"`) is the
 shared predicate every referencing site uses, not a bare `test -s`.
 
+- A **safeguards stop** (Anthropic safeguards ended the agent early) is not
+  a partial result: it is handled by one fresh re-spawn, never a `SendMessage`
+  continuation. See [safeguards-stop-retry.md](safeguards-stop-retry.md).
+
 ## Skills-check continuation (`/flow-coder`)
 
 A sibling continuation rides the same exemption and cap discipline: after the

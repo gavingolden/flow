@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseArgs, run, type Deps } from "./flow-agy-lenses";
 import type { FanoutResult, ManifestEntry } from "./flow-delegate-fanout";
+import { LENS_REROUTE_MODEL } from "./lib/delegate-models";
 
 const SKILL_DIR = path.join(
   import.meta.dirname,
@@ -232,6 +233,17 @@ describe("parseArgs", () => {
     expect(await run(argv("intent-guess"), deps())).toBe(2);
     err.mockRestore();
   });
+
+  it("rejects any --force-route value but safeguards-retry with exit 2", async () => {
+    expect(
+      parseArgs(argv("security", ["--force-route", "nope"])),
+    ).toHaveProperty("error");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await run(argv("security", ["--force-route", "nope"]), deps())).toBe(
+      2,
+    );
+    err.mockRestore();
+  });
 });
 
 describe("delegated + fallback cover exactly the requested lenses (Story 1)", () => {
@@ -389,6 +401,103 @@ describe("routing without an agy call", () => {
           r.route === "task" && r.reason === "delegation-off",
       ),
     ).toBe(true);
+  });
+
+  const geminiOn = () => ({ review: { gemini: true } });
+
+  it("--force-route safeguards-retry runs the lens on the reroute model with delegation off when review.gemini is on", async () => {
+    await run(
+      argv("security", ["--force-route", "safeguards-retry"]),
+      deps({ readConfig: geminiOn }),
+    );
+    const e = envelope();
+    expect(e.routes).toEqual([{ lens: "security", route: "agy" }]);
+    expect(fanoutCalls).toHaveLength(1);
+    expect(fanoutCalls[0][0].model).toBe(LENS_REROUTE_MODEL);
+    expect(armed).toHaveLength(0);
+  });
+
+  it("forced route without review.gemini returns the lens as a fallback and makes no agy call", async () => {
+    await run(
+      argv("security", ["--force-route", "safeguards-retry"]),
+      deps({ readConfig: () => ({}) }),
+    );
+    const e = envelope();
+    expect(fanoutCalls).toHaveLength(0);
+    expect(e.routes).toEqual([
+      { lens: "security", route: "task", reason: "gemini-lens-disabled" },
+    ]);
+    expect(e.fallback).toEqual([
+      {
+        lens: "security",
+        reason: "gemini-lens-disabled",
+        skipClass: "environment",
+      },
+    ]);
+  });
+
+  it("forced route with review.gemini off ignores a configured claudeLenses delegation", async () => {
+    await run(argv("security", ["--force-route", "safeguards-retry"]), deps());
+    expect(fanoutCalls).toHaveLength(0);
+    expect(envelope().fallback[0].reason).toBe("gemini-lens-disabled");
+  });
+
+  it("forced route with a live cooldown is a fallback, never an agy call", async () => {
+    await run(
+      argv("security", ["--force-route", "safeguards-retry"]),
+      deps({
+        readConfig: geminiOn,
+        readCooldown: () => ({ live: true, until: "later" }),
+      }),
+    );
+    const e = envelope();
+    expect(fanoutCalls).toHaveLength(0);
+    expect(e.fallback).toEqual([
+      { lens: "security", reason: "agy-cooldown", skipClass: "environment" },
+    ]);
+  });
+
+  it("forced: a Fable session still routes the lens to agy", async () => {
+    await run(
+      argv("bug-detection", [
+        "--force-route",
+        "safeguards-retry",
+        "--slug",
+        "s",
+      ]),
+      deps({
+        readConfig: geminiOn,
+        loadState: () => ({ model: "fable" }) as never,
+      }),
+    );
+    expect(envelope().routes).toEqual([
+      { lens: "bug-detection", route: "agy" },
+    ]);
+  });
+
+  it("forced: a quota failure never arms the cooldown", async () => {
+    await run(
+      argv("security", ["--force-route", "safeguards-retry"]),
+      deps({
+        readConfig: geminiOn,
+        runFanout: fanoutWith(() => ({
+          ran: false,
+          skipReason: "agy-error",
+          stderrTail: "Error: quota reached, upgrade your subscription",
+        })),
+      }),
+    );
+    expect(armed).toEqual([]);
+    expect(envelope().cooldownArmed).toBe(false);
+  });
+
+  it("without --force-route the same delegation-off config keeps the lens on task", async () => {
+    await run(argv("security"), deps({ readConfig: () => ({}) }));
+    expect(fanoutCalls).toHaveLength(0);
+    expect(envelope().routes[0]).toMatchObject({
+      route: "task",
+      reason: "delegation-off",
+    });
   });
 
   it("--plan-only makes no agy call, covers --lenses exactly and records only the routes", async () => {

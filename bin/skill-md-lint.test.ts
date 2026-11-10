@@ -5825,12 +5825,18 @@ describe("pr-review include-by-reference structure", () => {
     // **Bundle check (one continuation).** paragraph, Step 11d one residue
     // DECISION clause, and the Step 12/13 seed paragraphs the why_not_fixed
     // wording; the file lands at 1939 as this test counts them.
+    //
+    // Raised 1941 -> 1970 (safeguards-stop retry): Step 3 prep item 7
+    // (guidance collapse), the Safeguards-stop retry paragraph, and one
+    // line each at Step 3.5, 11d and 12; the file lands at 1966 as this
+    // test counts them. The procedure itself lives in
+    // flow-pipeline/references/safeguards-stop-retry.md.
     expect(
       lineCount,
       `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
-        `budget of 1941 lines. Material regrowth past this ceiling would ` +
+        `budget of 1970 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1941);
+    ).toBeLessThan(1970);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md routes Step 8c's runnable items through flow-run-test-steps with an explicit Bash timeout", () => {
@@ -9001,7 +9007,7 @@ describe("/flow-epic-create supervisor SKILL.md literal anchors", () => {
   // /flow-pipeline row lint (which scopes to the feature continue phases).
   const epicAwaitingHumanRow = epicCreateContent
     .split("\n")
-    .find((line) => line.startsWith("| `awaiting-human`"));
+    .find((line) => line.startsWith("- **`awaiting-human`**"));
 
   it("the epic awaiting-human Resume-mode row was found (sanity check for the anchor above)", () => {
     expect(epicAwaitingHumanRow, "awaiting-human row not found").not.toBe(
@@ -13234,5 +13240,39 @@ describe("coder design-reading enforcement (#981)", () => {
       fs.readFileSync(p, "utf8").includes("skill not applied"),
     );
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("safeguards-stop retry bound", () => {
+  const PHRASE = "at most one safeguards re-spawn";
+  const root = path.resolve(HERE, "..");
+
+  it.each([
+    ["skills/pipeline/flow-coder/SKILL.md", 3],
+    ["skills/pipeline/flow-pr-review/SKILL.md", 1],
+    ["references/exemption-contracts.md", 2],
+    ["skills/pipeline/flow-pipeline/references/safeguards-stop-retry.md", 1],
+    [".claude/rules/flow-supervisor-contracts.md", 2],
+  ])("%s states the bounded retry at least %i time(s)", (rel, min) => {
+    const text = fs
+      .readFileSync(path.join(root, rel), "utf8")
+      .replace(/\s+/g, " ");
+    expect(text.split(PHRASE).length - 1).toBeGreaterThanOrEqual(min);
+  });
+});
+
+describe("flow-pr-review shared context block", () => {
+  const dir = path.resolve(HERE, "..", "skills/pipeline/flow-pr-review");
+  it("every {{VAR}} of the shared block is in Step 3's fill list", () => {
+    const prompts = fs.readFileSync(
+      path.join(dir, "references/agent-prompts.md"),
+      "utf8",
+    );
+    const start = prompts.indexOf("## Shared Context Block");
+    const block = prompts.slice(start, prompts.indexOf("\n---", start));
+    const skillText = fs.readFileSync(path.join(dir, "SKILL.md"), "utf8");
+    const vars = [...new Set(block.match(/\{\{[A-Z_]+\}\}/g) ?? [])];
+    expect(vars).toContain("{{GUIDANCE_PATHS}}");
+    for (const v of vars) expect(skillText).toContain(`\`${v}\``);
   });
 });

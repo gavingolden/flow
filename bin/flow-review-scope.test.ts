@@ -545,6 +545,25 @@ describe.skipIf(!bunOnPath || !gitOnPath)("run() end-to-end", () => {
       expect(placeholder.stale).toBeUndefined();
     });
 
+    it("stale skip record: a lens due to run loses its lens-skip file, a lens not running keeps it", async () => {
+      const dir = makeRepo();
+      const skip = (lens: string) =>
+        path.join(dir, ".flow-tmp", `lens-skip-${lens}.json`);
+      fs.writeFileSync(skip("bug-detection"), "{}");
+      fs.writeFileSync(skip("supply-chain"), "{}");
+      expect(await runScope(dir, [])).toBe(0);
+      const scope = JSON.parse(
+        fs.readFileSync(
+          path.join(dir, ".flow-tmp", "review-scope.json"),
+          "utf8",
+        ),
+      );
+      expect(scope.gates["bug-detection"].run).toBe(true);
+      expect(scope.gates["supply-chain"].run).toBe(false);
+      expect(fs.existsSync(skip("bug-detection"))).toBe(false);
+      expect(fs.existsSync(skip("supply-chain"))).toBe(true);
+    });
+
     it("stale output: a --force-full widen deletes the delta pass's placeholder for a now-running lens", async () => {
       const dir = makeRepo();
       expect(await runScope(dir, [])).toBe(0);

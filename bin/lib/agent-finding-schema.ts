@@ -110,6 +110,13 @@ export type ConsolidatorResult = {
   lens_rejected_alternatives?: LensNegativeEntry<LensRejectedAlternative>[];
   lens_anti_patterns_found?: LensNegativeEntry<LensAntiPattern>[];
   lens_negatives_missing?: string[];
+  // Mandatory lenses a safeguards stop kept from running (the supervisor
+  // wrote `.flow-tmp/lens-skip-<lens>.json`); never a clean pass.
+  lens_skipped?: {
+    lens: string;
+    reason: "safeguards-stop";
+    request_ids: string[];
+  }[];
   // Optional consolidator authority to request a widen from delta scope to
   // the full PR diff (once per invocation; see review-scope.md "Widen").
   // Omitted on full scope — the consolidator never authors this on a full
@@ -585,6 +592,24 @@ export function validateConsolidatorResult(
       return err(
         "'lens_negatives_missing' must be an array of strings when present",
       );
+    }
+  }
+
+  if (parsed.lens_skipped !== undefined) {
+    if (!Array.isArray(parsed.lens_skipped)) {
+      return err("'lens_skipped' must be an array when present");
+    }
+    for (const [i, entry] of parsed.lens_skipped.entries()) {
+      if (
+        !isPlainObject(entry) ||
+        !isNonEmptyString(entry.lens) ||
+        entry.reason !== "safeguards-stop" ||
+        !isStringArray(entry.request_ids)
+      ) {
+        return err(
+          `'lens_skipped[${i}]' must be {lens: string, reason: "safeguards-stop", request_ids: string[]}`,
+        );
+      }
     }
   }
 

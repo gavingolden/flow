@@ -1796,6 +1796,42 @@ describe("validateConsolidatorResult — optional lens pass-through keys", () =>
     if (!result.ok) expect(result.reason).toContain("lens_negatives_missing");
   });
 
+  describe("lens_skipped", () => {
+    const withSkipped = (value: unknown) => {
+      const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+        string,
+        unknown
+      >;
+      fixture.lens_skipped = value;
+      return validateConsolidatorResult(fixture);
+    };
+
+    it("accepts a valid skip record", () => {
+      expect(
+        withSkipped([
+          {
+            lens: "security",
+            reason: "safeguards-stop",
+            request_ids: ["req_1"],
+          },
+        ]).ok,
+      ).toBe(true);
+    });
+
+    it("rejects a wrong reason, non-string ids and a non-array", () => {
+      const bad = [
+        [{ lens: "security", reason: "other", request_ids: [] }],
+        [{ lens: "security", reason: "safeguards-stop", request_ids: [1] }],
+        { lens: "security" },
+      ];
+      for (const value of bad) {
+        const result = withSkipped(value);
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.reason).toContain("lens_skipped");
+      }
+    });
+  });
+
   it("rejects lens_rejected_alternatives when it is not an array", () => {
     const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
       string,

@@ -631,6 +631,12 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     const optional = (OPTIONAL_LENSES as readonly string[]).includes(lens);
     if (verdict.run || optional) {
       fs.rmSync(artifactPath, { force: true });
+      // A skip record from an earlier round must not excuse this round's lens.
+      if (verdict.run) {
+        fs.rmSync(path.join(worktree, ".flow-tmp", `lens-skip-${lens}.json`), {
+          force: true,
+        });
+      }
     } else {
       atomicWrite(
         deps,
