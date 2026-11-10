@@ -245,6 +245,17 @@ describe("upsertDecisionItems", () => {
     expect(none).not.toContain("review lens");
   });
 
+  it("an explicit stops count wins over the request-id count", () => {
+    const two = upsertDecisionItems(body, [
+      { lens: "security", requestIds: [], stops: 2 },
+    ]);
+    expect(two).toContain("after two safeguards stops");
+    const one = upsertDecisionItems(body, [
+      { lens: "security", requestIds: ["a", "b"], stops: 1 },
+    ]);
+    expect(one).toContain("after a safeguards stop");
+  });
+
   it("a ticked item from an earlier stop does not cover a new stop of the same lens", () => {
     const ticked = upsertDecisionItems(body, skip).replace(
       "- [ ] DECISION",

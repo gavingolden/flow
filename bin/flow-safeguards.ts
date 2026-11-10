@@ -226,11 +226,12 @@ function run(cmd: string | undefined, argv: string[]): void {
         const j = readJsonOrNull(f) as {
           lens?: string;
           request_ids?: string[];
+          stops?: number;
         } | null;
         return j &&
           typeof j.lens === "string" &&
           !(OPTIONAL_LENSES as readonly string[]).includes(j.lens)
-          ? [{ lens: j.lens, requestIds: j.request_ids ?? [] }]
+          ? [{ lens: j.lens, requestIds: j.request_ids ?? [], stops: j.stops }]
           : [];
       });
       process.stdout.write(upsertDecisionItems(body, skipped));

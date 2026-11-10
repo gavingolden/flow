@@ -50,13 +50,17 @@ the only model change is the lens's Gemini route below.
 ## Lens shape (`/flow-pr-review`)
 
 `flow-safeguards lens-retry-plan --lens <lens> --out-dir .flow-tmp/guidance
-[--agy-available] <inputs...>` force-collapses the lens inputs and returns a
+[--agy-available] <inputs...>` (output saved to `.flow-tmp/lens-retry-<lens>.json`;
+pass `--agy-available` only when `command -v agy` and
+`jq -e '.review.gemini == true' ~/.flow/config.json` both succeed) force-collapses the lens inputs and returns a
 route:
 
 - `respawn` — the inputs changed, so one fresh Task spawn over the collapsed
   copies is a different request. Map copy paths back with
   `flow-safeguards map-paths` before the consolidator (it only rewrites
-  `agent-output-*.json` under the worktree).
+  `agent-output-*.json` under the worktree). Before Step 3.5, run
+  `flow-safeguards map-paths --copies <file> "$WORKTREE"/.flow-tmp/agent-output-*.json`
+  for `.flow-tmp/guidance-copies.json` and each `.flow-tmp/lens-retry-<lens>.json`.
 - `delegated` — run the lens on Gemini with
   `flow-agy-lenses --force-route safeguards-retry --lenses <lens>`. The helper
   re-checks `review.gemini == true` (and honours a live Google-plan cooldown):
@@ -66,7 +70,8 @@ route:
   skip record. Never a same-input re-send.
 
 A lens still stopped (or skipped) gets `.flow-tmp/lens-skip-<lens>.json`
-(`{ lens, reason, request_ids, model }`); mandatory lenses additionally get a
+(`{ lens, reason, request_ids, model, stops }`, `stops` being 1 when no
+retry ran and 2 after a retry); mandatory lenses additionally get a
 DECISION Test Step via `flow-safeguards decision-items`. `intent-guess` is
 never retried — only a `skipped` line is recorded.
 

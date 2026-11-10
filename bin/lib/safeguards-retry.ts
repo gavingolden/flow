@@ -79,7 +79,7 @@ export function mapCopyPaths(
 
 const SKIP_MARKER = /<!-- flow-safeguards-skip:(.+?) -->/;
 
-type SkippedLens = { lens: string; requestIds: string[] };
+type SkippedLens = { lens: string; requestIds: string[]; stops?: number };
 
 // The marker carries the request IDs, so a tick accepts one specific stop: a
 // later round's new stop of the same lens gets a fresh unchecked item.
@@ -87,7 +87,8 @@ const markerKey = (s: SkippedLens) => `${s.lens}:${s.requestIds.join(",")}`;
 
 function decisionLine(s: SkippedLens): string {
   const ids = s.requestIds.filter(Boolean);
-  const stops = ids.length >= 2 ? "two safeguards stops" : "a safeguards stop";
+  const count = s.stops ?? (ids.length >= 2 ? 2 : 1);
+  const stops = count >= 2 ? "two safeguards stops" : "a safeguards stop";
   const reqs =
     ids.length === 0
       ? ""

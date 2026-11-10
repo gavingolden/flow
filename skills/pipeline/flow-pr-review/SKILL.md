@@ -696,17 +696,10 @@ agent below, unless skipped on delta re-entry), same fan-out message.
 
 **Safeguards-stop retry** (after the fan-out). A lens whose Task failed with a safeguards stop
 (failure text saved to `.flow-tmp/safeguards-stop-<lens>.txt`, `flow-safeguards parse` reports
-`stopped:true`) gets `flow-safeguards lens-retry-plan --lens <lens> --out-dir
-"$WORKTREE/.flow-tmp/guidance" [--agy-available] <guidance + changed files>` (output saved to
-`.flow-tmp/lens-retry-<lens>.json`) and its `route` per
-[safeguards-stop-retry.md](../flow-pipeline/references/safeguards-stop-retry.md): `respawn` (one
-extra Task message for every such lens, over the copies), `delegated` (`flow-agy-lenses
---force-route safeguards-retry --lenses <lens>`; a `fallback` it returns is a skip record, never a
-Task) or `skip`. Pass `--agy-available` only when `command -v agy` and `jq -e '.review.gemini ==
-true' ~/.flow/config.json` succeed. This is at most one safeguards re-spawn per lens per invocation; a
-lens still stopped or skipped gets `.flow-tmp/lens-skip-<lens>.json`; `intent-guess` never retries. Record each outcome with `flow-safeguards record`. Before Step 3.5, run `flow-safeguards map-paths
---copies <file> "$WORKTREE"/.flow-tmp/agent-output-*.json` for `.flow-tmp/guidance-copies.json` and
-each `.flow-tmp/lens-retry-<lens>.json`, so no output keeps a copy path.
+`stopped:true`) follows the lens shape of
+[safeguards-stop-retry.md](../flow-pipeline/references/safeguards-stop-retry.md): `lens-retry-plan`
+picks `respawn`, `delegated` or `skip`. This is at most one safeguards re-spawn per lens per
+invocation; a forced-route `fallback` is a skip record, never a Task.
 
 ### Cross-model (Gemini) lens (optional, config-gated)
 
