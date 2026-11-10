@@ -11,8 +11,10 @@ import {
   removeGrant,
   resolveGrant,
   upsertGrant,
+  withdrawPipelineGrant,
   type ScopedGrant,
 } from "./manager-grants";
+import { appendManagerLog, readManagerLog } from "./manager-log";
 import { writeState } from "./state";
 
 let dir: string;
@@ -45,7 +47,11 @@ const manifest: EpicManifest = {
   features: [{ id: "f1", title: "t", description: "d", dependsOn: [] }],
 };
 
-function seed(slug: string, epic?: { slug: string; featureId: string }) {
+function seed(
+  slug: string,
+  epic?: { slug: string; featureId: string },
+  createdAt?: string,
+) {
   writeState(
     {
       slug,
@@ -54,6 +60,7 @@ function seed(slug: string, epic?: { slug: string; featureId: string }) {
       worktree: "/w",
       updatedAt: "2026-10-26T00:00:00.000Z",
       ...(epic ? { epic } : {}),
+      ...(createdAt ? { createdAt } : {}),
     },
     stateDir,
   );
@@ -189,6 +196,138 @@ describe("grantForSlug", () => {
       scope: "pipeline:solo",
       classes: ["plan"],
     });
+  });
+});
+
+describe("grantForSlug — reused slug (#1047)", () => {
+  const deps = () => ({ stateDir, home: dir, now: () => NOW });
+  const CREATED = "2026-10-27T00:00:00.000Z";
+
+  it("ignores a pipeline grant given before the state was created", () => {
+    seed("solo", undefined, CREATED);
+    upsertGrant(grant("pipeline:solo"), dir);
+    expect(grantForSlug("solo", deps())).toEqual({
+      granted: false,
+      reason: "no-grant",
+    });
+  });
+
+  it("honours a pipeline grant given after the state was created", () => {
+    seed("solo", undefined, CREATED);
+    upsertGrant(
+      grant("pipeline:solo", { grantedAt: "2026-10-28T00:00:00.000Z" }),
+      dir,
+    );
+    expect(grantForSlug("solo", deps())).toMatchObject({
+      granted: true,
+      scope: "pipeline:solo",
+    });
+  });
+
+  it("an older repo: grant still applies", () => {
+    seed("solo", undefined, CREATED);
+    upsertGrant(grant("repo:flow"), dir);
+    upsertGrant(grant("pipeline:solo"), dir);
+    expect(grantForSlug("solo", deps())).toMatchObject({
+      granted: true,
+      scope: "repo:flow",
+    });
+  });
+
+  it("ignores a pipeline grant whose grantedAt is unparseable", () => {
+    seed("solo", undefined, CREATED);
+    upsertGrant(grant("pipeline:solo", { grantedAt: "garbage" }), dir);
+    expect(grantForSlug("solo", deps())).toEqual({
+      granted: false,
+      reason: "no-grant",
+    });
+  });
+
+  it("keeps today's behaviour when the state has no createdAt", () => {
+    seed("solo");
+    upsertGrant(grant("pipeline:solo"), dir);
+    expect(grantForSlug("solo", deps())).toMatchObject({ granted: true });
+  });
+});
+
+describe("withdrawPipelineGrant", () => {
+  const opts = (
+    over: Partial<Parameters<typeof withdrawPipelineGrant>[1]> = {},
+  ) => ({
+    repo: (prior?: string) => prior ?? "fallback",
+    reason: "slug-reused",
+    now: NOW,
+    home: dir,
+    ...over,
+  });
+  const logLines = () =>
+    readManagerLog({ slug: "solo" }, dir).filter(
+      (e) => e.kind === "grant-withdrawn",
+    );
+
+  it("removes the grant and writes one grant-withdrawn line", () => {
+    upsertGrant(grant("pipeline:solo"), dir);
+    expect(withdrawPipelineGrant("solo", opts())).toEqual({ removed: true });
+    expect(readGrants(dir)).toEqual([]);
+    expect(logLines()).toMatchObject([
+      {
+        kind: "grant-withdrawn",
+        scope: "pipeline:solo",
+        slug: "solo",
+        reason: "slug-reused",
+        repo: "fallback",
+        ts: NOW.toISOString(),
+      },
+    ]);
+  });
+
+  it("hands the prior grant line's repo to the repo thunk", () => {
+    upsertGrant(grant("pipeline:solo"), dir);
+    appendManagerLog(
+      {
+        ts: "2026-10-26T00:00:00.000Z",
+        kind: "grant",
+        scope: "pipeline:solo",
+        repo: "flow",
+        slug: "solo",
+      },
+      { home: dir },
+    );
+    withdrawPipelineGrant("solo", opts());
+    expect(logLines()[0].repo).toBe("flow");
+  });
+
+  it("leaves repo: and other-slug grants alone", () => {
+    upsertGrant(grant("pipeline:solo"), dir);
+    upsertGrant(grant("pipeline:other"), dir);
+    upsertGrant(grant("repo:flow"), dir);
+    withdrawPipelineGrant("solo", opts());
+    expect(
+      readGrants(dir)
+        .map((g) => g.scope)
+        .sort(),
+    ).toEqual(["pipeline:other", "repo:flow"]);
+  });
+
+  it("returns removed:false and writes no log when no grant exists", () => {
+    upsertGrant(grant("repo:flow"), dir);
+    expect(withdrawPipelineGrant("solo", opts())).toEqual({ removed: false });
+    expect(logLines()).toEqual([]);
+    expect(fs.existsSync(path.join(dir, "log.jsonl"))).toBe(false);
+  });
+
+  it("reports a log failure but keeps the grant removed", () => {
+    upsertGrant(grant("pipeline:solo"), dir);
+    const r = withdrawPipelineGrant(
+      "solo",
+      opts({
+        repo: () => {
+          throw new Error("boom");
+        },
+      }),
+    );
+    expect(r).toEqual({ removed: true, logError: "boom" });
+    expect(readGrants(dir)).toEqual([]);
   });
 });
 

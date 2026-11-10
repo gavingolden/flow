@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   appendManagerLog,
   readManagerLog,
@@ -9,6 +9,7 @@ import {
 } from "./manager-log";
 import { appendNote, readNotes } from "./manager-notes";
 import { isRollupExempt, logOutcome, pruneManagerHome } from "./manager-prune";
+import * as grantsModule from "./manager-grants";
 import { readGrants, upsertGrant } from "./manager-grants";
 import { addProposal } from "./manager-proposals";
 import { writeState } from "./state";
@@ -22,6 +23,7 @@ beforeEach(() => {
   stateDir = path.join(dir, "state");
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -204,6 +206,28 @@ describe("pipeline grants", () => {
     expect(withdrawn.find((e) => e.slug === "done")?.repo).toBe("flow");
     expect(withdrawn.find((e) => e.slug === "gone")?.repo).toBe("unknown");
     expect(prune().grantsDropped).toBe(0);
+  });
+});
+
+describe("grant withdrawal log failures", () => {
+  it("reports a grant removed but not logged in grantLogErrors", () => {
+    seed("done", "merged");
+    upsertGrant(
+      {
+        scope: "pipeline:done",
+        classes: ["plan"],
+        grantedAt: daysAgo(5),
+        grantedBy: "owner-cli",
+      },
+      home,
+    );
+    vi.spyOn(grantsModule, "withdrawPipelineGrant").mockReturnValue({
+      removed: true,
+      logError: "boom",
+    });
+    const r = prune();
+    expect(r.grantsDropped).toBe(1);
+    expect(r.grantLogErrors).toEqual(["done: boom"]);
   });
 });
 

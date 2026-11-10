@@ -648,6 +648,54 @@ describe("challenge rounds", () => {
   });
 });
 
+describe("reused slug (#1047)", () => {
+  const challenge = (id: string) => ({
+    id,
+    text: `press ${id}`,
+    decisionItChanges: "the scope",
+    evidenceToSettle: "a file",
+    costOfBeingWrong: "a rework",
+  });
+  const restamp = (createdAt: string) =>
+    writeState(
+      {
+        slug: "feat",
+        phase: "planning",
+        repo: root,
+        worktree: wt,
+        updatedAt: "2026-10-26T00:00:00.000Z",
+        createdAt,
+        epic: { slug: "e1", featureId: "f1" },
+      },
+      stateDir,
+    );
+
+  it("does not inherit the earlier pipeline's challenge round, but still shows its decisions as precedent", () => {
+    reply = () => ({
+      env: { ran: true },
+      result: good({ decision: "challenge", challenges: [challenge("c1")] }),
+    });
+    expect(run()).toMatchObject({ action: "challenge", round: 1 });
+
+    restamp("2026-10-26T03:00:00.000Z");
+    const second = run();
+    expect(second).toMatchObject({ ran: true, round: 1 });
+    expect(calls[1].prompt).toContain("round: 1");
+    expect(calls[1].prompt).not.toContain("round: 2");
+    expect(calls[1].prompt).toContain("c1");
+  });
+
+  it("still counts this pipeline's own challenges after its createdAt", () => {
+    restamp("2026-10-26T00:00:00.000Z");
+    reply = () => ({
+      env: { ran: true },
+      result: good({ decision: "challenge", challenges: [challenge("c1")] }),
+    });
+    run();
+    expect(run()).toMatchObject({ round: 2 });
+  });
+});
+
 describe("derivePlanRound", () => {
   const dec = (slug: string, action: string, id: string) => ({
     ts: "t",
