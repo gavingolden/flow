@@ -205,6 +205,11 @@ function withdrawLeftoverGrant(
         `flow feature create: withdrew a leftover autonomy grant for '${slug}' from an earlier pipeline — re-grant with \`flow grant pipeline:${slug} --autonomy high\` if wanted.`,
       );
     }
+    if (r.logError !== undefined) {
+      console.error(
+        `flow feature create: the grant withdrawal for '${slug}' was not logged (${r.logError}).`,
+      );
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(

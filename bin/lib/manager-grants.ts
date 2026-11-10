@@ -189,7 +189,7 @@ export function resolveGrant(
       return true;
     }
     const at = Date.parse(g.grantedAt);
-    return !Number.isFinite(at) || at >= notBefore;
+    return Number.isFinite(at) && at >= notBefore;
   });
   if (covering.length === 0) return null;
   const top = covering[0];

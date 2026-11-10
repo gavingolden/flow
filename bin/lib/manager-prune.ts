@@ -25,6 +25,8 @@ export const ROLLUP_AGE_DAYS = 90;
 export type PruneResult = {
   notesDropped: number;
   grantsDropped: number;
+  /** Grants removed whose `grant-withdrawn` log line could not be written. */
+  grantLogErrors: string[];
   entriesRolled: number;
   monthsRolled: number;
   openProposals: number;
@@ -36,8 +38,9 @@ function dropDeadPipelineGrants(
   now: Date,
   readSlug: (slug: string) => ReturnType<typeof readState>,
   home: string,
-): number {
+): { dropped: number; logErrors: string[] } {
   let dropped = 0;
+  const logErrors: string[] = [];
   for (const g of readGrants(home)) {
     if (!g.scope.startsWith("pipeline:")) continue;
     const slug = g.scope.slice("pipeline:".length);
@@ -50,8 +53,9 @@ function dropDeadPipelineGrants(
       home,
     });
     if (r.removed) dropped++;
+    if (r.logError !== undefined) logErrors.push(`${slug}: ${r.logError}`);
   }
-  return dropped;
+  return { dropped, logErrors };
 }
 
 /** Lines that must survive verbatim: epic grants and wave decisions (the wave review's "already reviewed" set), existing roll-ups, and any entry of a still-unfinished pipeline. */
@@ -187,7 +191,8 @@ export function pruneManagerHome(
     dropNotes(new Set(expired.map((n) => n.id)), home);
   }
 
-  const grantsDropped = dropDeadPipelineGrants(now, readSlug, home);
+  const { dropped: grantsDropped, logErrors: grantLogErrors } =
+    dropDeadPipelineGrants(now, readSlug, home);
 
   const all = listStates(deps.stateDir);
   const unfinished = new Set(
@@ -233,6 +238,7 @@ export function pruneManagerHome(
   return {
     notesDropped,
     grantsDropped,
+    grantLogErrors,
     entriesRolled,
     monthsRolled,
     openProposals,

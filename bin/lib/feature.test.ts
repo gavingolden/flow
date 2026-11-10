@@ -1436,6 +1436,34 @@ describe("kind: 'feature' stamped + @flow-kind published (Task 2 / Task 4)", () 
     expect(Number.isNaN(Date.parse(createdAt ?? ""))).toBe(false);
   });
 
+  it("keeps one createdAt across a tmux launch retry", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2030-01-01T00:00:00.000Z"));
+      tmuxMock.createWindowVerified
+        .mockImplementationOnce(() => {
+          vi.setSystemTime(new Date("2030-01-01T00:05:00.000Z"));
+          return { status: "failed", stderr: "transient" };
+        })
+        .mockReturnValueOnce({ status: "started", stderr: "" });
+      const code = runNew("csv export", {
+        stateDir,
+        cwd: repoDir,
+        command: ["true"],
+        retrySleepMs: 0,
+      });
+      expect(code).toBe(0);
+      expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(2);
+      expect(readState("csv-export", stateDir)?.createdAt).toBe(
+        "2030-01-01T00:00:00.000Z",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the prior createdAt when a launch overwrites an existing same-slug state", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     // The state file appears between the collision probe and the base-state

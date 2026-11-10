@@ -234,6 +234,15 @@ describe("grantForSlug — reused slug (#1047)", () => {
     });
   });
 
+  it("ignores a pipeline grant whose grantedAt is unparseable", () => {
+    seed("solo", undefined, CREATED);
+    upsertGrant(grant("pipeline:solo", { grantedAt: "garbage" }), dir);
+    expect(grantForSlug("solo", deps())).toEqual({
+      granted: false,
+      reason: "no-grant",
+    });
+  });
+
   it("keeps today's behaviour when the state has no createdAt", () => {
     seed("solo");
     upsertGrant(grant("pipeline:solo"), dir);
