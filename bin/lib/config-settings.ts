@@ -366,13 +366,18 @@ const DESCRIPTORS: Descriptor[] = [
   {
     key: "power.keepAwake",
     meaning:
-      "whether the Mac is kept from idle-sleeping on mains power while a pipeline is working (no effect on battery)",
-    resolve: (read) => strictFalseOptOut(read, "power.keepAwake"),
+      "whether the Mac is kept from idle-sleeping, on mains power or battery, while a pipeline is working (closing the lid still sleeps it)",
+    resolve: (read) => {
+      if (process.env.FLOW_KEEP_AWAKE === "0") {
+        return { value: "false", source: "env (FLOW_KEEP_AWAKE=0)" };
+      }
+      return strictFalseOptOut(read, "power.keepAwake");
+    },
   },
   {
     key: "power.keepAwakeMaxMinutes",
     meaning:
-      "how long a pipeline's sleep hold lasts after its last activity before the Mac may sleep (renewed every 15 minutes while the pipeline keeps working)",
+      "how long a pipeline's sleep hold lasts after its last activity before the Mac may sleep (renewed every 15 minutes, or every quarter of the limit when that is shorter, while the pipeline keeps working)",
     resolve: (read) => {
       const { minutes, source } = resolveKeepAwakeMaxMinutes(read);
       return source === "config"

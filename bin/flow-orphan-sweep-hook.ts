@@ -13,7 +13,7 @@
  *
  * Each throttled pass also re-syncs the pipeline's keep-awake holder
  * (`syncKeepAwake`), so a holder that expired or was reaped is re-acquired
- * within about a minute of the next tool call and renewed every 15 minutes.
+ * within about a minute of the next tool call and renewed every 15 minutes (sooner for limits under an hour).
  */
 
 import * as fs from "node:fs";
