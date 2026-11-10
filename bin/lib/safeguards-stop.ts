@@ -107,7 +107,7 @@ const OUTCOME_TEXT: Record<RetryRecord["outcome"], string> = {
 function agentName(site: RetryRecord["site"]): string {
   return site === "coder"
     ? "The code-edit agent"
-    : `The ${site.slice("lens:".length)} review lens`;
+    : `The ${site.slice("lens:".length)} reviewer`;
 }
 
 function bullet(r: RetryRecord): string {
@@ -136,6 +136,12 @@ export function renderSafeguardsNote(records: RetryRecord[]): string {
   if (unique.length === 0) return "";
   const lines = ["[!NOTE]", "**Safeguards stops in this run**", ""];
   lines.push(...unique.map(bullet));
+  if (unique.some((r) => r.outcome === "proactive-collapse")) {
+    lines.push(
+      "",
+      "Whitespace-only changes inside those files' long padding runs were not visible to the review.",
+    );
+  }
   const padded = [...new Set(unique.flatMap((r) => r.paddedFiles))];
   if (padded.length > 0) {
     lines.push(

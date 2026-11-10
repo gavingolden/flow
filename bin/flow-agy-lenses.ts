@@ -670,6 +670,13 @@ async function runDelegated(
   };
 }
 
+function isReviewGeminiOn(config: unknown): boolean {
+  if (typeof config !== "object" || config === null) return false;
+  const review = (config as Record<string, unknown>).review;
+  if (typeof review !== "object" || review === null) return false;
+  return (review as Record<string, unknown>).gemini === true;
+}
+
 export async function run(
   argv: string[],
   depsOverride?: Partial<Deps>,
@@ -683,23 +690,40 @@ export async function run(
   const deps = resolveDeps(parsed, depsOverride);
   const helperStartMs = deps.now();
 
-  // The safeguards retry runs the named lenses on the other model family even
-  // when delegation is off; without the flag nothing below changes.
+  // The safeguards retry runs the named lenses on the Gemini model even when
+  // delegation is off, but only for an owner who opted into Gemini review
+  // (`review.gemini === true`, the same gate the Gemini lens uses): a lens
+  // that cannot go to Gemini is returned as a fallback, which the caller
+  // records as a skip, never as a same-input Claude Task. A live cooldown is
+  // honoured for the same reason.
   const forced = parsed.forceRoute === "safeguards-retry";
+  const geminiOptIn = !forced || isReviewGeminiOn(deps.readConfig());
   const variant = forced
-    ? LENS_REROUTE_MODEL
+    ? geminiOptIn
+      ? LENS_REROUTE_MODEL
+      : null
     : resolveDelegateModel("claudeLenses", deps.readConfig);
   const slug = parsed.slug ?? deps.resolveSlug();
   const state = slug ? deps.loadState(slug) : null;
-  const routes: LensRoute[] = planLensRoutes({
-    lenses: parsed.lenses,
-    variant,
-    delegated: forced ? parsed.lenses : resolveDelegatedLenses(deps.readConfig),
-    taskModelFor: forced
-      ? () => null
-      : taskModelResolver(deps.readConfig, state),
-    cooldownLive: deps.readCooldown().live,
-  });
+  const routes: LensRoute[] = geminiOptIn
+    ? planLensRoutes({
+        lenses: parsed.lenses,
+        variant,
+        delegated: forced
+          ? parsed.lenses
+          : resolveDelegatedLenses(deps.readConfig),
+        taskModelFor: forced
+          ? () => null
+          : taskModelResolver(deps.readConfig, state),
+        cooldownLive: deps.readCooldown().live,
+      })
+    : parsed.lenses.map(
+        (lens): LensRoute => ({
+          lens,
+          route: "task",
+          reason: "gemini-lens-disabled",
+        }),
+      );
 
   if (parsed.planOnly) {
     persistRecord(parsed, deps, {

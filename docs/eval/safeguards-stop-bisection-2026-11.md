@@ -11,15 +11,16 @@ Retrospective analysis of local Claude Code transcripts, with no live
 re-triggering: repeated flags risk account-level filtering (see
 <https://support.claude.com/en/articles/8106465>). Each sub-agent transcript is
 one run. A run is "padded" when its text contains a run of 1,000 or more
-repeated spaces or dashes, and "stopped" when it ends with the safeguards
-failure text. The counts come from `scripts/safeguards-audit.ts`.
+repeated spaces or dashes, and "stopped" when its transcript contains the
+agent's own safeguards API-error entry (`isApiErrorMessage`); only context
+before that entry counts toward padding. The counts come from `scripts/safeguards-audit.ts`.
 
 ## Results
 
 Two windows, split at 2026-11-04. Counts are the audit's output, run on
 2026-11-10 over every econ-data subagent transcript since 2026-10-01. A run
-counts as stopped only when the agent's own transcript ends in a safeguards
-API-error entry; a transcript that merely quotes the error is not a stop.
+counts as stopped only when the agent's own transcript contains a safeguards
+API-error entry (wherever it sits); a transcript that merely quotes the error is not a stop.
 
 | Window                   | Runs | Padded | Stopped |
 | ------------------------ | ---- | ------ | ------- |
@@ -75,5 +76,5 @@ These points stay inconclusive after the analysis:
 ## Re-run
 
 ```sh
-bun scripts/safeguards-audit.ts --projects-dir ~/.claude/projects/-Users-gavingolden-code-me-econ-data --since 2026-11-04
+bun scripts/safeguards-audit.ts --projects-dir ~/.claude/projects/-Users-gavingolden-code-me-econ-data --since 2026-10-01
 ```

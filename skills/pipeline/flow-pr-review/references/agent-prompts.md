@@ -26,7 +26,7 @@ in what each agent looks for and what it ignores.
     - Read `references/conventional-comments.md` for the output format
     - Read `AGENTS.md` (if it exists) for project conventions
 
-When `flow-safeguards compact` produced collapsed copies of padded guidance files (`/flow-pr-review` Step 3), render the same bullets with the copy paths in place of the originals. Delegated agy prompts always use the default text: agy must not read `.flow-tmp/`.
+When `flow-safeguards compact` produced collapsed copies of padded guidance files (`/flow-pr-review` Step 3), render the same bullets with the copy paths in place of the originals, then add one bullet for every other compacted copy (a `CLAUDE.md`, `.claude/rules/*.md` or padded changed file): `- Read these collapsed copies in place of their originals: <copy> (for <orig>), ...`. Delegated agy prompts always use the default text: agy must not read `.flow-tmp/`.
 
 Provide this to every agent before their specialized prompt:
 

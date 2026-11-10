@@ -3,7 +3,7 @@
  * subagent transcripts. Pure: callers pass transcript text. Counts only — no
  * file contents and no request IDs leave this module.
  */
-import { findPaddingRuns } from "./guidance-padding";
+import { PADDING_THRESHOLD } from "./guidance-padding";
 import { parseSafeguardsStop } from "./safeguards-stop";
 
 export const DEFAULT_SPLIT_AT = new Date("2026-11-04T00:00:00Z");
@@ -32,6 +32,11 @@ export type AuditResult = { windows: WindowRow[]; agents: AgentRow[] };
 
 type Route = "injection" | "read" | "other" | null;
 
+// JSON never escapes a space or a dash, so a padding run in decoded text is
+// already a run on the raw JSONL line: test the raw line before parsing it.
+const PAD = new RegExp(` {${PADDING_THRESHOLD},}|-{${PADDING_THRESHOLD},}`);
+const hasPadding = (s: string): boolean => PAD.test(s);
+
 const REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>/g;
 
 type BlockText = { text: string; toolResult: boolean };
@@ -53,9 +58,9 @@ function blockTexts(content: unknown): BlockText[] {
 }
 
 function classifyBlock(text: string, toolResult: boolean): Route {
-  if (findPaddingRuns(text).length === 0) return null;
+  if (!hasPadding(text)) return null;
   const outside = text.replace(REMINDER, "");
-  if (findPaddingRuns(outside).length === 0) return "injection";
+  if (!hasPadding(outside)) return "injection";
   return toolResult ? "read" : "other";
 }
 
@@ -74,6 +79,7 @@ export function stopLineIndex(lines: string[]): number {
 
 function firstPaddingRoute(lines: string[]): Route {
   for (const line of lines) {
+    if (!hasPadding(line)) continue;
     let obj: { message?: { content?: unknown } };
     try {
       obj = JSON.parse(line);
@@ -95,10 +101,7 @@ function runDate(f: TranscriptFile): Date {
   return Number.isNaN(d.getTime()) ? f.mtime : d;
 }
 
-function agentTypeOf(f: TranscriptFile, meta: Map<string, string>): string {
-  const base = f.name.replace(/\.jsonl$/, "");
-  const fromMeta = meta.get(base);
-  if (fromMeta) return fromMeta;
+function agentTypeOf(f: TranscriptFile): string {
   const first = f.text.slice(0, f.text.indexOf("\n") + 1 || undefined);
   return (
     /"(?:agentType|subagent_type)":"([^"]+)"/.exec(first)?.[1] ?? "unknown"
@@ -106,21 +109,11 @@ function agentTypeOf(f: TranscriptFile, meta: Map<string, string>): string {
 }
 
 export function auditTranscripts(
-  files: TranscriptFile[],
+  files: Iterable<TranscriptFile>,
   opts: { since?: Date; splitAt?: Date },
 ): AuditResult {
   const splitAt = opts.splitAt ?? DEFAULT_SPLIT_AT;
   const meta = new Map<string, string>();
-  for (const f of files) {
-    if (!f.name.endsWith(".meta.json")) continue;
-    try {
-      const t = (JSON.parse(f.text) as { agentType?: unknown }).agentType;
-      if (typeof t === "string")
-        meta.set(f.name.replace(/\.meta\.json$/, ""), t);
-    } catch {
-      // unreadable meta: the run falls back to "unknown"
-    }
-  }
   const empty = (window: "before" | "after"): WindowRow => ({
     window,
     runs: 0,
@@ -131,8 +124,26 @@ export function auditTranscripts(
     stoppedViaInjection: 0,
   });
   const windows = { before: empty("before"), after: empty("after") };
-  const agents = new Map<string, AgentRow>();
+  // One pass, one transcript in memory at a time: a run is reduced to a small
+  // record here and its agent type is resolved once every meta file is seen.
+  const runs: {
+    base: string;
+    fallbackType: string;
+    window: WindowRow;
+    padded: boolean;
+    stopped: boolean;
+  }[] = [];
   for (const f of files) {
+    if (f.name.endsWith(".meta.json")) {
+      try {
+        const t = (JSON.parse(f.text) as { agentType?: unknown }).agentType;
+        if (typeof t === "string")
+          meta.set(f.name.replace(/\.meta\.json$/, ""), t);
+      } catch {
+        // unreadable meta: the run falls back to "unknown"
+      }
+      continue;
+    }
     if (!f.name.endsWith(".jsonl")) continue;
     const when = runDate(f);
     if (opts.since && when < opts.since) continue;
@@ -143,9 +154,20 @@ export function auditTranscripts(
     // A stopped agent's context is everything before its stop entry.
     const context = stopped ? lines.slice(0, stopAt) : lines;
     const route = firstPaddingRoute(context);
-    const padded =
-      route !== null || findPaddingRuns(context.join("\n")).length > 0;
-    const type = agentTypeOf(f, meta);
+    const padded = route !== null || context.some(hasPadding);
+    runs.push({
+      base: f.name.replace(/\.jsonl$/, ""),
+      fallbackType: agentTypeOf(f),
+      window: w,
+      padded,
+      stopped,
+    });
+    if (stopped && route === "read") w.stoppedViaRead++;
+    if (stopped && route === "injection") w.stoppedViaInjection++;
+  }
+  const agents = new Map<string, AgentRow>();
+  for (const r of runs) {
+    const type = meta.get(r.base) || r.fallbackType;
     const a = agents.get(type) ?? {
       agentType: type,
       runs: 0,
@@ -154,14 +176,12 @@ export function auditTranscripts(
       stoppedPadded: 0,
     };
     agents.set(type, a);
-    for (const row of [w, a]) {
+    for (const row of [r.window, a]) {
       row.runs++;
-      if (padded) row.padded++;
-      if (stopped) row.stopped++;
-      if (stopped && padded) row.stoppedPadded++;
+      if (r.padded) row.padded++;
+      if (r.stopped) row.stopped++;
+      if (r.stopped && r.padded) row.stoppedPadded++;
     }
-    if (stopped && route === "read") w.stoppedViaRead++;
-    if (stopped && route === "injection") w.stoppedViaInjection++;
   }
   return {
     windows: [windows.before, windows.after],

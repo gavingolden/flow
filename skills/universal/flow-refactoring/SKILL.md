@@ -115,7 +115,7 @@ code has been removed.
    failure — when `verify_status == "pass"` (every attempted edit applied):
 
    ```bash
-   [ -s "$WORKTREE/.flow-tmp/coder-result.json" ] || { tail -n 50 "$WORKTREE/.flow-tmp/safeguards-retries.jsonl" 2>/dev/null | jq -se '[.[] | select(.site == "coder")] | last | .outcome == "stopped-again"' >/dev/null && { echo "NEEDS HUMAN: coder-safeguards-stop" >&2; exit 1; }; }
+   [ "$(cat "$WORKTREE/.flow-tmp/coder-safeguards-outcome" 2>/dev/null)" = stopped-again ] && { echo "NEEDS HUMAN: coder-safeguards-stop" >&2; exit 1; }
    jq -e '(.status == "complete" or .status == "partial") and .verify_status == "pass"' "$WORKTREE/.flow-tmp/coder-result.json" >/dev/null \
      || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
    ```

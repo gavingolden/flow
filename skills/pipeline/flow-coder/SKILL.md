@@ -200,8 +200,9 @@ spawn:
    `$WORKTREE/.flow-tmp/coder-edit-set.json` on EVERY invocation, before
    the spawn, so a `partial` turn-budget return still leaves the file for
    the caller's step-5 skills check. In the same step delete any
-   `coder-edit-set.retry.json` and `coder-result.first.json` left by an
-   earlier invocation, so a caller only ever sees this run's retry set.
+   `coder-edit-set.retry.json`, `coder-result.first.json` and
+   `coder-safeguards-outcome` left by an earlier invocation, so a caller only
+   ever sees this run's retry set and safeguards outcome.
 
 3. Resolve the subagent type. The `agents/flow-edit-applier.md` definition
    (Bash/Read/Edit/Write/Grep/Glob/NotebookEdit allowlist, no
@@ -281,12 +282,16 @@ config.models.implement > inherited` (see
    $WORKTREE/.flow-tmp/coder-result.first.json --out
    $WORKTREE/.flow-tmp/coder-edit-set.retry.json` and spawn one fresh Task
    with the unchanged spawn template rendered over the retry edit set (no
-   `skill_docs`, applied entries removed). Then `flow-safeguards retry-set
-   --merge --first ... --second ... --out ...` and `flow-safeguards record
+   `skill_docs`, applied entries removed). If the retry is stopped again
+   (`flow-safeguards parse` reports `stopped:true`), do not merge: move any
+   `coder-result.json` it left to `coder-result.retry-partial.json`, write
+   `stopped-again` to `$WORKTREE/.flow-tmp/coder-safeguards-outcome`, and
+   record `stopped-again`; the callers read that file, not the artifact, and
+   escalate `coder-safeguards-stop`. Otherwise run `flow-safeguards retry-set
+   --merge --first ... --second ... --out ...`, write `recovered` to the same
+   file and record `recovered`. Record with `flow-safeguards record
    --log $WORKTREE/.flow-tmp/safeguards-retries.jsonl --json '<RetryRecord>'`
-   with outcome `recovered` or `stopped-again` and the `droppedGuidance`. A
-   second stop writes no artifact and records `stopped-again`, so the caller
-   escalates `coder-safeguards-stop`. This is at most one safeguards
+   and the `droppedGuidance`. This is at most one safeguards
    re-spawn, a fresh spawn and never a `SendMessage` continuation.
 
    **Partial-result continuation.** If the Task result is marked partial

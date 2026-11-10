@@ -371,7 +371,7 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "coder-safeguards-stop": `Read the request IDs, fix any padded guidance file, then resume.
   1. Read the request IDs in <worktree>/.flow-tmp/safeguards-retries.jsonl.
   2. If a padded guidance file is named, run flow-safeguards compact --in-place <file> in that repository and commit.
-  3. Resume: close the window first, then run flow feature resume <slug>`,
+  3. ${CONTINUE_OR_RESUME_STEP}`,
   "smoketest-needs-creds": `Make the test-user credentials available, then reply done in the pipeline window.
   1. Run flow-ui-login check --manifest .flow/ui-validation.json — it prints names only. If a variable shows present: false, set it in your shell env or the worktree .env.
   2. If both show present: true, a refusal that repeats usually means a deny or ask rule in your own Claude settings matches flow-ui-login or the chrome-devtools fill tool. Remove that rule, then retry. Nothing is lost: the UI check is skipped, and the PR and its other checks are intact.

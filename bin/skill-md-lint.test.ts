@@ -13154,11 +13154,31 @@ describe("safeguards-stop retry bound", () => {
   const root = path.resolve(HERE, "..");
 
   it.each([
-    "skills/pipeline/flow-coder/SKILL.md",
-    "skills/pipeline/flow-pr-review/SKILL.md",
-    "references/exemption-contracts.md",
-    "skills/pipeline/flow-pipeline/references/safeguards-stop-retry.md",
-  ])("%s states the bounded retry", (rel) => {
-    expect(fs.readFileSync(path.join(root, rel), "utf8")).toContain(PHRASE);
+    ["skills/pipeline/flow-coder/SKILL.md", 3],
+    ["skills/pipeline/flow-pr-review/SKILL.md", 1],
+    ["references/exemption-contracts.md", 2],
+    ["skills/pipeline/flow-pipeline/references/safeguards-stop-retry.md", 1],
+    [".claude/rules/flow-supervisor-contracts.md", 2],
+  ])("%s states the bounded retry at least %i time(s)", (rel, min) => {
+    const text = fs
+      .readFileSync(path.join(root, rel), "utf8")
+      .replace(/\s+/g, " ");
+    expect(text.split(PHRASE).length - 1).toBeGreaterThanOrEqual(min);
+  });
+});
+
+describe("flow-pr-review shared context block", () => {
+  const dir = path.resolve(HERE, "..", "skills/pipeline/flow-pr-review");
+  it("every {{VAR}} of the shared block is in Step 3's fill list", () => {
+    const prompts = fs.readFileSync(
+      path.join(dir, "references/agent-prompts.md"),
+      "utf8",
+    );
+    const start = prompts.indexOf("## Shared Context Block");
+    const block = prompts.slice(start, prompts.indexOf("\n---", start));
+    const skillText = fs.readFileSync(path.join(dir, "SKILL.md"), "utf8");
+    const vars = [...new Set(block.match(/\{\{[A-Z_]+\}\}/g) ?? [])];
+    expect(vars).toContain("{{GUIDANCE_PATHS}}");
+    for (const v of vars) expect(skillText).toContain(`\`${v}\``);
   });
 });

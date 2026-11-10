@@ -69,36 +69,52 @@ export function mapCopyPaths(
   copies: Record<string, string>,
 ): string {
   return Object.entries(copies)
+    .filter(
+      (e): e is [string, string] =>
+        typeof e[0] === "string" && typeof e[1] === "string" && e[1].length > 0,
+    )
     .sort((a, b) => b[1].length - a[1].length)
     .reduce((acc, [orig, copy]) => acc.split(copy).join(orig), text);
 }
 
 const SKIP_MARKER = /<!-- flow-safeguards-skip:(.+?) -->/;
 
-function decisionLine(s: { lens: string; requestIds: string[] }): string {
-  return `- [ ] DECISION: accept that the ${s.lens} review lens was skipped after two safeguards stops (requests ${s.requestIds.join(", ")}) <!-- flow-safeguards-skip:${s.lens} -->`;
+type SkippedLens = { lens: string; requestIds: string[] };
+
+// The marker carries the request IDs, so a tick accepts one specific stop: a
+// later round's new stop of the same lens gets a fresh unchecked item.
+const markerKey = (s: SkippedLens) => `${s.lens}:${s.requestIds.join(",")}`;
+
+function decisionLine(s: SkippedLens): string {
+  const ids = s.requestIds.filter(Boolean);
+  const stops = ids.length >= 2 ? "two safeguards stops" : "a safeguards stop";
+  const reqs =
+    ids.length === 0
+      ? ""
+      : ` (request${ids.length > 1 ? "s" : ""} ${ids.join(", ")})`;
+  return `- [ ] DECISION: accept that the ${s.lens} reviewer was skipped after ${stops}${reqs} <!-- flow-safeguards-skip:${markerKey(s)} -->`;
 }
 
 export function upsertDecisionItems(
   body: string,
-  skipped: { lens: string; requestIds: string[] }[],
+  skipped: SkippedLens[],
 ): string {
-  const wanted = new Map(skipped.map((s) => [s.lens, s]));
+  const wanted = new Map(skipped.map((s) => [markerKey(s), s]));
   const lines = body.split("\n");
   const present = new Set<string>();
   const kept: string[] = [];
   for (const line of lines) {
-    const lens = SKIP_MARKER.exec(line)?.[1];
-    if (lens === undefined) {
+    const key = SKIP_MARKER.exec(line)?.[1];
+    if (key === undefined) {
       kept.push(line);
-    } else if (wanted.has(lens)) {
-      present.add(lens);
+    } else if (wanted.has(key)) {
+      present.add(key);
       kept.push(
-        /^\s*- \[x\]/i.test(line) ? line : decisionLine(wanted.get(lens)!),
+        /^\s*- \[x\]/i.test(line) ? line : decisionLine(wanted.get(key)!),
       );
     }
   }
-  const missing = skipped.filter((s) => !present.has(s.lens));
+  const missing = skipped.filter((s) => !present.has(markerKey(s)));
   if (missing.length === 0) return kept.join("\n");
   const items = missing.map(decisionLine);
   const bounds = testStepsSectionBounds(kept);
@@ -108,6 +124,8 @@ export function upsertDecisionItems(
   }
   let at = bounds.end;
   while (at > bounds.start + 1 && kept[at - 1].trim() === "") at--;
+  // A list item straight after `</details>` renders as raw text, not a checkbox.
+  if (/<\/details>\s*$/.test(kept[at - 1] ?? "")) items.unshift("");
   kept.splice(at, 0, ...items);
   return kept.join("\n");
 }

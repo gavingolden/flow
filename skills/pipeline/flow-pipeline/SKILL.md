@@ -30,7 +30,7 @@ policy (deliberate, not a platform limit — `docs/nested-subagents-assessment.m
 repo-only, not shipped) allows zero nesting exceptions — the eight
 Task-tool exemptions in `.claude/rules/flow-supervisor-contracts.md` are each a flat, one-shot spawn; a
 long-running supervisor with sub-agents would also blow the context window.
-Stay in-process for skills; shell out for scripts.
+Stay in-process for skills; shell out for scripts; never delegate.
 
 # When to Use
 
@@ -83,7 +83,7 @@ Stay in-process for skills; shell out for scripts.
 >
 > **A `SendMessage` continuation of a partial (`maxTurns`) agent stays inside its exemption — not an eighth site.** See `references/partial-result-continuation.md`.
 >
-> A safeguards re-spawn stays inside #1 and #6 — not a ninth site.
+> A safeguards re-spawn stays inside #1 and #6.
 >
 > **Task-tool exemption #1: `/flow-pr-review` Independent Multi-Agent
 > Review.**

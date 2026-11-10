@@ -28,6 +28,35 @@ function file(name: string, lines: string[], mtime = new Date("2026-11-05")) {
 }
 
 describe("auditTranscripts", () => {
+  it("accepts a lazy iterable and resolves agent types from a meta file seen last", () => {
+    function* lazy(): Generator<TranscriptFile> {
+      yield file("agent-9.jsonl", [line(toolResult(`a${pad()}b`)), stopLine()]);
+      yield {
+        name: "agent-9.meta.json",
+        text: '{"agentType":"reviewer"}',
+        mtime: new Date("2026-11-05"),
+      };
+    }
+    const res = auditTranscripts(lazy(), {});
+    expect(res.agents).toEqual([
+      {
+        agentType: "reviewer",
+        runs: 1,
+        padded: 1,
+        stopped: 1,
+        stoppedPadded: 1,
+      },
+    ]);
+  });
+
+  it("counts a padded run whose padding sits in a non-message line", () => {
+    const res = auditTranscripts(
+      [file("agent-n.jsonl", [JSON.stringify({ note: `x${pad()}y` })])],
+      {},
+    );
+    expect(res.windows[1]).toMatchObject({ runs: 1, padded: 1 });
+  });
+
   it("splits runs into windows and counts padded and stopped", () => {
     const res = auditTranscripts(
       [

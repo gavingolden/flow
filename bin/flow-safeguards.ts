@@ -14,13 +14,22 @@
  *   flow-safeguards note --log <p>
  *   flow-safeguards decision-items --body-file <p> [--skips <files...>]
  *
- * Exit codes: 0 ok, 2 bad arguments.
+ * Write targets (compact --in-place/--out-dir, record --log, retry-set --out,
+ * map-paths files) must sit under the current working directory; map-paths
+ * only rewrites agent-output-*.json.
+ *
+ * Exit codes: 0 ok, 2 bad arguments or a write target outside the cwd tree.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseArgs } from "node:util";
 
-import { compactFiles, readJsonOrNull } from "./lib/safeguards-cli";
+import { OPTIONAL_LENSES } from "./lib/review-lens-gates";
+import {
+  assertInside,
+  compactFiles,
+  readJsonOrNull,
+} from "./lib/safeguards-cli";
 import {
   buildRetryEditSet,
   mapCopyPaths,
@@ -78,6 +87,7 @@ function readText(p: string): string {
 }
 
 function writeOut(p: string, data: unknown): void {
+  assertInside(p);
   fs.mkdirSync(path.dirname(path.resolve(p)), { recursive: true });
   fs.writeFileSync(p, JSON.stringify(data, null, 2) + "\n");
 }
@@ -119,6 +129,7 @@ function run(cmd: string | undefined, argv: string[]): void {
       }
       const res = validateRetryRecord(raw);
       if (!res.ok) throw new UsageError(res.error);
+      assertInside(log);
       fs.mkdirSync(path.dirname(path.resolve(log)), { recursive: true });
       fs.appendFileSync(log, JSON.stringify(res.record) + "\n");
       console.log(JSON.stringify({ ok: true }));
@@ -163,17 +174,14 @@ function run(cmd: string | undefined, argv: string[]): void {
       need(v.lens, "lens");
       if (pos.length === 0)
         throw new UsageError("at least one input is required");
-      const { files, anyCompacted } = compactFiles(pos, {
+      const { anyChangedFromRead, copies } = compactFiles(pos, {
         outDir: need(v["out-dir"], "out-dir"),
         force: true,
       });
       const route = planLensRetry({
-        inputsChanged: anyCompacted,
+        inputsChanged: anyChangedFromRead,
         agyAvailable: v["agy-available"] === true,
       });
-      const copies = Object.fromEntries(
-        files.filter((f) => f.compacted).map((f) => [f.path, f.copy]),
-      );
       console.log(JSON.stringify({ route, copies }));
       return;
     }
@@ -185,6 +193,14 @@ function run(cmd: string | undefined, argv: string[]): void {
       if (typeof raw !== "object" || raw === null)
         throw new UsageError("--copies is not JSON");
       const copies = (raw.copies ?? raw) as Record<string, string>;
+      for (const f of pos) {
+        assertInside(f);
+        if (!/^agent-output-.+\.json$/.test(path.basename(f))) {
+          throw new UsageError(
+            `map-paths only rewrites agent-output-*.json files: ${f}`,
+          );
+        }
+      }
       let rewritten = 0;
       for (const f of pos) {
         const text = readText(f);
@@ -211,7 +227,9 @@ function run(cmd: string | undefined, argv: string[]): void {
           lens?: string;
           request_ids?: string[];
         } | null;
-        return j && typeof j.lens === "string"
+        return j &&
+          typeof j.lens === "string" &&
+          !(OPTIONAL_LENSES as readonly string[]).includes(j.lens)
           ? [{ lens: j.lens, requestIds: j.request_ids ?? [] }]
           : [];
       });

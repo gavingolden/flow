@@ -612,6 +612,7 @@ describe("render — needs-human (per-reason mapping)", () => {
     });
     expect(out).not.toContain(`NEXT ACTION: ${DEFAULT_NEXT_ACTION}`);
     expect(out).toContain("flow-safeguards compact --in-place <file>");
+    expect(out).toContain("reply done in the pipeline window");
     expect(finalLine(out)).toBe("NEEDS HUMAN: coder-safeguards-stop");
   });
 

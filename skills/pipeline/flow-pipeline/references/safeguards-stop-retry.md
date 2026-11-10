@@ -30,8 +30,9 @@ The wrapper makes **at most one safeguards re-spawn** per agent per invocation. 
 spawn, never a `SendMessage` continuation: the stopped context still holds the
 flagged content, and the harness's own same-context retry already failed. The
 wrapper never does the agent's work itself. Never re-send identical input —
-repeated flags count toward account-level filtering. Switching models is not
-an option either: both Sonnet and Opus stopped on the same content.
+repeated flags count toward account-level filtering. Switching between Claude
+models (Sonnet and Opus) is not an option: both stopped on the same content;
+the only model change is the lens's Gemini route below.
 
 ## Coder shape (`/flow-coder`)
 
@@ -54,9 +55,13 @@ route:
 
 - `respawn` — the inputs changed, so one fresh Task spawn over the collapsed
   copies is a different request. Map copy paths back with
-  `flow-safeguards map-paths` before the consolidator.
+  `flow-safeguards map-paths` before the consolidator (it only rewrites
+  `agent-output-*.json` under the worktree).
 - `delegated` — run the lens on Gemini with
-  `flow-agy-lenses --force-route safeguards-retry --lenses <lens>`.
+  `flow-agy-lenses --force-route safeguards-retry --lenses <lens>`. The helper
+  re-checks `review.gemini == true` (and honours a live Google-plan cooldown):
+  a lens it returns in `fallback` becomes a skip record, never a Task spawn,
+  because that Task would re-send the input that was just flagged.
 - `skip` — nothing differs and no other model family is available; write the
   skip record. Never a same-input re-send.
 

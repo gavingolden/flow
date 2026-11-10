@@ -53,7 +53,8 @@ export function collapsePadding(
   text: string,
   opts?: { force?: boolean; preserveForPrettier?: boolean },
 ): { text: string; changed: boolean; tables: number } {
-  if (opts?.force !== true && findPaddingRuns(text).length === 0) {
+  const threshold = opts?.force === true ? LONG_RUN : PADDING_THRESHOLD;
+  if (findPaddingRuns(text, threshold).length === 0) {
     return { text, changed: false, tables: 0 };
   }
   const lines = text.split("\n");

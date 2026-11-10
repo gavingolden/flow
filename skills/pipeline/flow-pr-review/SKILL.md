@@ -547,14 +547,14 @@ subagent rather than landing in the supervisor's transcript.
 
 7. Collapse padded guidance before any lens launches (Gemini lens included), per
    [safeguards-stop-retry.md](../flow-pipeline/references/safeguards-stop-retry.md):
-   `flow-safeguards compact --in-place --no-marker "$WORKTREE/.flow-tmp/diff.txt"` (line
-   count preserved, no header line) and `flow-safeguards compact --out-dir
-   "$WORKTREE/.flow-tmp/guidance"` over `AGENTS.md`, any `CLAUDE.md`, `.claude/rules/*.md`,
-   `.flow/review-checklist.md` and padded changed files. When `anyCompacted`, render
-   `{{GUIDANCE_PATHS}}` with the `copy` paths (agy lenses keep the originals) and
-   `flow-safeguards record` a `proactive-collapse` line naming the files; the Step 12 report
-   notes that whitespace-only changes inside collapsed runs are not visible to the review.
-   Re-run the diff collapse after a widen rewrites `diff.txt` (§ Widen).
+   `flow-safeguards compact --in-place --no-marker "$WORKTREE/.flow-tmp/diff.txt"` (line count
+   preserved, no header line) and `flow-safeguards compact --out-dir "$WORKTREE/.flow-tmp/guidance"
+   > "$WORKTREE/.flow-tmp/guidance-copies.json"` over `AGENTS.md`, any `CLAUDE.md`,
+   `.claude/rules/*.md`, `.flow/review-checklist.md` and padded changed files. When `anyCompacted`,
+   render `{{GUIDANCE_PATHS}}` with the `copy` paths plus the "collapsed copies" bullet from
+   `references/agent-prompts.md` (agy lenses keep the originals) and `flow-safeguards record` a
+   `proactive-collapse` line naming the files (the note says whitespace-only changes inside
+   collapsed runs are not visible to the review). Re-run the diff collapse after a widen (§ Widen).
 
 **Completeness rule.** Setup failure never reaches Step 3 (Step 2 stops on it). The run
 list's only source is `review-scope.json` `.gates` — rewritten by the widen pass, which
@@ -646,6 +646,7 @@ the gate.
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
   `{{COMMIT_MESSAGES}}` (full bodies from step 3), `{{CHANGED_FILES_LIST}}`, `{{DIFF}}`,
+  `{{GUIDANCE_PATHS}}` (the default bullets from `references/agent-prompts.md` § Shared Context Block, or the same bullets with step 7's `copy` paths when `anyCompacted`),
   `{{STATIC_ANALYSIS_FACTS}}`, `{{EXISTING_INTENT_COMMENTS}}` (from step 6's
   `.flow-tmp/intent-comments.md`), `{{REVIEW_SCOPE}}` (per
   `references/review-scope.md` "Spawn only the ungated lenses"),
@@ -693,17 +694,19 @@ Wait for all spawned agents to complete before proceeding — the ungated
 lenses plus the diff-only intent-guess agent (§ Diff-only intent-guess
 agent below, unless skipped on delta re-entry), same fan-out message.
 
-**Safeguards-stop retry** (after the fan-out). A lens whose Task failed with a
-safeguards stop (failure text saved to `.flow-tmp/safeguards-stop-<lens>.txt`,
-`flow-safeguards parse` reports `stopped:true`) gets `flow-safeguards lens-retry-plan --lens
-<lens> --out-dir "$WORKTREE/.flow-tmp/guidance" [--agy-available] <guidance + changed files>`
-and its `route` per [safeguards-stop-retry.md](../flow-pipeline/references/safeguards-stop-retry.md):
-`respawn` (one extra Task message for every such lens, over the copies), `delegated`
-(`flow-agy-lenses --force-route safeguards-retry --lenses <lens>`) or `skip`. This is
-at most one safeguards re-spawn per lens per invocation (tracked like `WIDENED`); a lens still stopped or
-skipped gets `.flow-tmp/lens-skip-<lens>.json`. `intent-guess` is never retried — record a
-`skipped` line only. Record each outcome with `flow-safeguards record`, then run
-`flow-safeguards map-paths` over every `agent-output-*.json` before Step 3.5.
+**Safeguards-stop retry** (after the fan-out). A lens whose Task failed with a safeguards stop
+(failure text saved to `.flow-tmp/safeguards-stop-<lens>.txt`, `flow-safeguards parse` reports
+`stopped:true`) gets `flow-safeguards lens-retry-plan --lens <lens> --out-dir
+"$WORKTREE/.flow-tmp/guidance" [--agy-available] <guidance + changed files>` (output saved to
+`.flow-tmp/lens-retry-<lens>.json`) and its `route` per
+[safeguards-stop-retry.md](../flow-pipeline/references/safeguards-stop-retry.md): `respawn` (one
+extra Task message for every such lens, over the copies), `delegated` (`flow-agy-lenses
+--force-route safeguards-retry --lenses <lens>`; a `fallback` it returns is a skip record, never a
+Task) or `skip`. Pass `--agy-available` only when `command -v agy` and `jq -e '.review.gemini ==
+true' ~/.flow/config.json` succeed. This is at most one safeguards re-spawn per lens per invocation; a
+lens still stopped or skipped gets `.flow-tmp/lens-skip-<lens>.json`; `intent-guess` never retries. Record each outcome with `flow-safeguards record`. Before Step 3.5, run `flow-safeguards map-paths
+--copies <file> "$WORKTREE"/.flow-tmp/agent-output-*.json` for `.flow-tmp/guidance-copies.json` and
+each `.flow-tmp/lens-retry-<lens>.json`, so no output keeps a copy path.
 
 ### Cross-model (Gemini) lens (optional, config-gated)
 

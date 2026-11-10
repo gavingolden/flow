@@ -21,16 +21,17 @@ import {
 const USAGE =
   "usage: bun scripts/safeguards-audit.ts --projects-dir <dir> [--since YYYY-MM-DD] [--json]\n";
 
-function collect(dir: string, out: TranscriptFile[]): void {
+// Lazy: only one transcript is resident at a time. A transcript whose last
+// write is before --since cannot have started after it, so it is never read.
+function* collect(dir: string, since?: Date): Generator<TranscriptFile> {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) collect(p, out);
-    else if (e.name.endsWith(".jsonl") || e.name.endsWith(".meta.json")) {
-      out.push({
-        name: e.name,
-        text: fs.readFileSync(p, "utf8"),
-        mtime: fs.statSync(p).mtime,
-      });
+    if (e.isDirectory()) {
+      yield* collect(p, since);
+    } else if (e.name.endsWith(".jsonl") || e.name.endsWith(".meta.json")) {
+      const mtime = fs.statSync(p).mtime;
+      if (since && e.name.endsWith(".jsonl") && mtime < since) continue;
+      yield { name: e.name, text: fs.readFileSync(p, "utf8"), mtime };
     }
   }
 }
@@ -55,9 +56,7 @@ function main(argv: string[]): number {
   if (dir === undefined || !fs.existsSync(dir)) {
     return fail("--projects-dir <existing dir> is required");
   }
-  const files: TranscriptFile[] = [];
-  collect(dir, files);
-  const res = auditTranscripts(files, { since });
+  const res = auditTranscripts(collect(dir, since), { since });
   if (json) {
     process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     return 0;
