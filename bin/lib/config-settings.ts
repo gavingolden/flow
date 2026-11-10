@@ -366,7 +366,7 @@ const DESCRIPTORS: Descriptor[] = [
   {
     key: "power.keepAwake",
     meaning:
-      "whether the Mac is kept from idle-sleeping on mains power while a pipeline is working (no effect on battery)",
+      "whether the Mac is kept from idle-sleeping, on mains power or battery, while a pipeline is working (closing the lid still sleeps it)",
     resolve: (read) => strictFalseOptOut(read, "power.keepAwake"),
   },
   {

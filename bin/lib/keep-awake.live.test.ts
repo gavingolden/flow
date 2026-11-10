@@ -30,17 +30,25 @@ const waitFor = async (cond: () => boolean, ms: number): Promise<boolean> => {
 };
 
 // pmset prints the timeout on the `Details:` line after the pid line.
-const assertionsListing = (pid: number, detail = ""): boolean => {
+const ASSERTIONS = ["PreventUserIdleSystemSleep", "PreventSystemSleep"];
+
+const assertionsListing = (pid: number, name: string, detail = ""): boolean => {
   const lines = spawnSync("pmset", ["-g", "assertions"], {
     encoding: "utf8",
   }).stdout.split("\n");
   return lines.some(
     (l, i) =>
       l.includes(`pid ${pid}(caffeinate)`) &&
-      l.includes("PreventSystemSleep") &&
+      l.includes(name) &&
       (lines[i + 1] ?? "").includes(detail),
   );
 };
+
+const hasAll = (pid: number, detail = ""): boolean =>
+  ASSERTIONS.every((n) => assertionsListing(pid, n, detail));
+
+const hasNone = (pid: number): boolean =>
+  ASSERTIONS.every((n) => !assertionsListing(pid, n));
 
 describeOnDarwin("keep-awake live", () => {
   const spawned: ChildProcess[] = [];
@@ -107,15 +115,15 @@ describeOnDarwin("keep-awake live", () => {
 
     expect(syncKeepAwake(st, deps).action).toBe("acquired");
     const holder = rows[0]!.pid;
-    expect(
-      await waitFor(() => assertionsListing(holder, "for 7200 secs"), 2000),
-    ).toBe(true);
+    expect(await waitFor(() => hasAll(holder, "for 7200 secs"), 2000)).toBe(
+      true,
+    );
 
     expect(syncKeepAwake({ ...st, phase: "merged" }, deps).action).toBe(
       "released",
     );
     expect(await waitFor(() => !alive(holder), 2000)).toBe(true);
-    expect(await waitFor(() => !assertionsListing(holder), 2000)).toBe(true);
+    expect(await waitFor(() => hasNone(holder), 2000)).toBe(true);
 
     rows.length = 0;
     expect(syncKeepAwake(st, deps).action).toBe("acquired");
@@ -131,14 +139,14 @@ describeOnDarwin("keep-awake live", () => {
 
     expect(syncKeepAwake(st, deps).action).toBe("acquired");
     const first = rows[0]!.pid;
-    expect(await waitFor(() => assertionsListing(first), 2000)).toBe(true);
+    expect(await waitFor(() => hasAll(first), 2000)).toBe(true);
 
     clock.now = rows[0]!.recordedAt + KEEP_AWAKE_RENEW_AFTER_MS;
     expect(syncKeepAwake(st, deps).action).toBe("acquired");
     const second = rows[1]!.pid;
     expect(second).not.toBe(first);
-    expect(await waitFor(() => assertionsListing(second), 2000)).toBe(true);
-    expect(await waitFor(() => !assertionsListing(first), 2000)).toBe(true);
+    expect(await waitFor(() => hasAll(second), 2000)).toBe(true);
+    expect(await waitFor(() => hasNone(first), 2000)).toBe(true);
   });
 
   it("should exit by itself at the -t deadline", async () => {

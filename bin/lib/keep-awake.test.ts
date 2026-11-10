@@ -80,9 +80,10 @@ function harness(
 }
 
 describe("holderArgv", () => {
-  it("should build the -s -w -t argv and never -i/-d/-u", () => {
+  it("should build the -i -s -w -t argv and never -d/-u", () => {
     expect(holderArgv(42, 7200)).toEqual([
       CAFFEINATE_PATH,
+      "-i",
       "-s",
       "-w",
       "42",
@@ -91,12 +92,13 @@ describe("holderArgv", () => {
     ]);
     expect(holderArgv(undefined, 7200)).toEqual([
       CAFFEINATE_PATH,
+      "-i",
       "-s",
       "-t",
       "7200",
     ]);
     for (const a of [...holderArgv(1, 7200), ...holderArgv(undefined, 7200)]) {
-      expect(["-i", "-d", "-u"]).not.toContain(a);
+      expect(["-d", "-u"]).not.toContain(a);
     }
   });
 });
@@ -109,6 +111,7 @@ describe("syncKeepAwake", () => {
     expect(h.spawnDetached).toHaveBeenCalledTimes(1);
     expect(h.spawnDetached).toHaveBeenCalledWith([
       CAFFEINATE_PATH,
+      "-i",
       "-s",
       "-w",
       "100",
@@ -145,6 +148,38 @@ describe("syncKeepAwake", () => {
     );
     expect(h.appended[0]!.recordedAt).toBe(KEEP_AWAKE_RENEW_AFTER_MS);
     expect(h.kills).toContainEqual([200, "SIGTERM"]);
+  });
+
+  it("should replace a fresh holder registered with the old -s-only command", () => {
+    const old: ProcRegistryRow = {
+      ...row(200, 100, 0),
+      argv: [CAFFEINATE_PATH, "-s", "-w", "100", "-t", "7200"],
+    };
+    const h = harness([old]);
+    expect(syncKeepAwake(state("implementing"), h.deps).action).toBe(
+      "acquired",
+    );
+    expect(h.spawnDetached).toHaveBeenCalledWith(holderArgv(100, 7200));
+    expect(h.kills).toContainEqual([200, "SIGTERM"]);
+  });
+
+  it("should renew a holder older than a quarter of a 30-minute limit", () => {
+    const aged = (ms: number) =>
+      harness([row(200, 100, 0, 1800)], {
+        maxSec: () => 1800,
+        nowMs: () => ms,
+      });
+    expect(
+      syncKeepAwake(state("implementing"), aged(7.5 * MIN + 1).deps).action,
+    ).toBe("acquired");
+    expect(
+      syncKeepAwake(state("implementing"), aged(7 * MIN).deps).action,
+    ).toBe("kept");
+  });
+
+  it("should keep a 14-minute-old holder at the default limit", () => {
+    const h = harness([row(200, 100, 0)], { nowMs: () => 14 * MIN });
+    expect(syncKeepAwake(state("implementing"), h.deps).action).toBe("kept");
   });
 
   it("should renew a holder whose -t differs from the limit", () => {
