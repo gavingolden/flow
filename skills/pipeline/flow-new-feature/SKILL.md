@@ -664,11 +664,11 @@ writes the structured artifact at
 `<worktree>/.flow-tmp/coder-result.json`.
 
 4. After `/flow-coder` returns, do a cheap completeness check on the artifact.
-   A `status: partial` artifact is reachable here — not an automatic
-   failure — when its only defect is turn-budget entries (every attempted
-   edit applied and `verify_status == "pass"` after the continuation):
+   A `status: partial` artifact is reachable here — not an automatic failure —
+   when its only defect is turn-budget entries (every attempted edit applied and `verify_status == "pass"` after the continuation):
 
    ```bash
+   [ -s "$WORKTREE/.flow-tmp/coder-result.json" ] || { tail -n 50 "$WORKTREE/.flow-tmp/safeguards-retries.jsonl" 2>/dev/null | jq -se '[.[] | select(.site == "coder")] | last | .outcome == "stopped-again"' >/dev/null && { echo "NEEDS HUMAN: coder-safeguards-stop" >&2; exit 1; }; }
    jq -e '(.status == "complete" or .status == "partial") and .verify_status == "pass"' "$WORKTREE/.flow-tmp/coder-result.json" >/dev/null \
      || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
    jq -r '.edits[] | select((.tool_error // "") | startswith("turn-budget — ")) | "\(.file): \(.intent)"' "$WORKTREE/.flow-tmp/coder-result.json" | while IFS= read -r t; do flow-untracked add --title "$t" --source coder; done
@@ -677,7 +677,7 @@ writes the structured artifact at
    After `/flow-coder` returns (it already ran the skills check and its one
    continuation), when step 2 appended UI rule paths and
    `command -v flow-coder-skills-check` succeeds, run
-   `flow-coder-skills-check --artifact "$WORKTREE/.flow-tmp/coder-result.json" --edit-set-file "$WORKTREE/.flow-tmp/coder-edit-set.json"`
+   `flow-coder-skills-check --artifact "$WORKTREE/.flow-tmp/coder-result.json" --edit-set-file "$WORKTREE/.flow-tmp/coder-edit-set.json"` (`coder-edit-set.retry.json` instead when present: a stripped retry's guidance is named in the PR note, not re-read)
    plus one `--design <path>` flag per UI rule path (repeat the flag). A
    non-zero helper exit is a named skip line in the step-5 summary. When
    `.untrackedTitle` is non-null, run
@@ -687,7 +687,7 @@ writes the structured artifact at
 
 On a missing/invalid artifact, or one with `verify_status != "pass"`,
 surface the failure to the caller — the supervisor escalates
-`NEEDS HUMAN: coder-failed` rather than retrying past the 1-retry cap. A
+`NEEDS HUMAN: coder-failed` rather than retrying past the 1-retry cap (a safeguards stop already used its one retry inside /flow-coder, so `coder-safeguards-stop` is never re-invoked). A
 `status: partial` artifact that clears the check above (all attempted
 edits applied, `verify_status == "pass"`) proceeds instead of escalating:
 register the entries via the loop above, and the PR body's

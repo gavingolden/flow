@@ -83,6 +83,7 @@ export const FLOW_ROUTINE_HELPERS: readonly string[] = [
   "flow-ui-critique",
   "flow-ui-capture",
   "flow-coder-skills-check",
+  "flow-safeguards",
   "flow-fix-applier-bundle-check",
   "flow-epic-self-mark",
 ];

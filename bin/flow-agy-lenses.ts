@@ -109,10 +109,12 @@ export type Args = {
   planOnly: boolean;
   slug?: string;
   config?: string;
+  /** Retry route for a lens Anthropic safeguards stopped; see safeguards-stop-retry.md. */
+  forceRoute?: "safeguards-retry";
 };
 
 const USAGE =
-  "usage: flow-agy-lenses --worktree <dir> --skill-dir <flow-pr-review skill dir> --lenses <csv> [--plan-only] [--slug <slug>] [--config <path>]";
+  "usage: flow-agy-lenses --worktree <dir> --skill-dir <flow-pr-review skill dir> --lenses <csv> [--plan-only] [--slug <slug>] [--config <path>] [--force-route safeguards-retry]";
 
 export function parseArgs(argv: string[]): Args | { error: string } {
   const out: Partial<Args> & { lensesCsv?: string } = { planOnly: false };
@@ -142,6 +144,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--config":
         out.config = value;
         break;
+      case "--force-route":
+        if (value !== "safeguards-retry") {
+          return {
+            error: `--force-route accepts only 'safeguards-retry', got '${value}'`,
+          };
+        }
+        out.forceRoute = value;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -169,6 +179,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     planOnly: out.planOnly ?? false,
     slug: out.slug,
     config: out.config,
+    forceRoute: out.forceRoute,
   };
 }
 
@@ -672,14 +683,21 @@ export async function run(
   const deps = resolveDeps(parsed, depsOverride);
   const helperStartMs = deps.now();
 
-  const variant = resolveDelegateModel("claudeLenses", deps.readConfig);
+  // The safeguards retry runs the named lenses on the other model family even
+  // when delegation is off; without the flag nothing below changes.
+  const forced = parsed.forceRoute === "safeguards-retry";
+  const variant = forced
+    ? LENS_REROUTE_MODEL
+    : resolveDelegateModel("claudeLenses", deps.readConfig);
   const slug = parsed.slug ?? deps.resolveSlug();
   const state = slug ? deps.loadState(slug) : null;
   const routes: LensRoute[] = planLensRoutes({
     lenses: parsed.lenses,
     variant,
-    delegated: resolveDelegatedLenses(deps.readConfig),
-    taskModelFor: taskModelResolver(deps.readConfig, state),
+    delegated: forced ? parsed.lenses : resolveDelegatedLenses(deps.readConfig),
+    taskModelFor: forced
+      ? () => null
+      : taskModelResolver(deps.readConfig, state),
     cooldownLive: deps.readCooldown().live,
   });
 
@@ -738,6 +756,7 @@ export async function run(
     // shouldArmCooldown, and a lens only a Gemini re-run recovered is not a
     // primary success.
     if (
+      !forced &&
       delegated.every((d) => d.reroutedFrom !== undefined) &&
       shouldArmCooldown(r.classes)
     ) {

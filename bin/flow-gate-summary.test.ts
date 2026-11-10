@@ -605,6 +605,16 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(commitIdx).toBeGreaterThan(stopIdx);
   });
 
+  it("maps coder-safeguards-stop to its own recipe, not the default", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "coder-safeguards-stop",
+    });
+    expect(out).not.toContain(`NEXT ACTION: ${DEFAULT_NEXT_ACTION}`);
+    expect(out).toContain("flow-safeguards compact --in-place <file>");
+    expect(finalLine(out)).toBe("NEEDS HUMAN: coder-safeguards-stop");
+  });
+
   it("falls back to DEFAULT_NEXT_ACTION for an unmapped reason", () => {
     const out = render({ status: "needs-human", reason: "made-up-tag" });
     expect(out).toContain(`NEXT ACTION: ${DEFAULT_NEXT_ACTION}`);

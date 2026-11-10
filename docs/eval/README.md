@@ -94,6 +94,12 @@ one JSON object (`runs[]`, `medianNet`) and prints `{"skipped":"not-macos"}`
 elsewhere. Results:
 [daemon-cpu-2026-11.md](daemon-cpu-2026-11.md).
 
+`scripts/safeguards-audit.ts` recomputes the safeguards-stop / padding
+contingency table from local Claude Code transcripts (counts only). The
+bisection it supports, including the trigger file and what stays
+inconclusive, is
+[safeguards-stop-bisection-2026-11.md](safeguards-stop-bisection-2026-11.md).
+
 The token-spend audit, `docs/eval/token-spend-audit.ts`, measures where the
 whole Claude quota goes: spend by repo, model, sub-agent type and in-process
 skill segment, joined to flow's telemetry for per-pipeline cost, latency and
