@@ -6,12 +6,14 @@
  * Skipped unless FLOW_LIVE_PLAN_REVIEW_FALLBACK=1, so `npm run test` never
  * spends. The run reads only a temp worktree holding a small fixture plan.
  *
- *   FLOW_LIVE_PLAN_REVIEW_FALLBACK=1 bunx --bun vitest run bin/flow-plan-review-fallback.live.test.ts
+ *   FLOW_LIVE_PLAN_REVIEW_FALLBACK=1 npx vitest run bin/flow-plan-review-fallback.live.test.ts
  *
- * Run it under Bun (`bunx --bun`): the real spawn uses `Bun.spawnSync`, which
- * `npx vitest` (Node) does not provide.
+ * Runs under Node, not `bunx --bun`: Bun's os.homedir() ignores the suite's
+ * sandboxed HOME, which trips the HOME-sandbox guard in vitest.setup.ts. The
+ * child gets the real home (FLOW_TEST_REAL_HOME) so `claude` finds its login.
  */
 
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -79,19 +81,25 @@ describe.skipIf(!LIVE)(
           ),
         );
 
-        const r = Bun.spawnSync(
-          [
-            "flow-claude-headless",
-            ...buildFallbackArgv({
-              promptPath,
-              out,
-              task: "plan-review-r2-claude",
-              timeoutSec: 900,
-            }),
-          ],
-          { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "ignore" },
+        const r = spawnSync(
+          "flow-claude-headless",
+          buildFallbackArgv({
+            promptPath,
+            out,
+            task: "plan-review-r2-claude",
+            timeoutSec: 900,
+          }),
+          {
+            cwd: root,
+            env: {
+              ...process.env,
+              HOME: process.env.FLOW_TEST_REAL_HOME ?? process.env.HOME,
+            },
+            stdio: ["ignore", "pipe", "ignore"],
+            encoding: "utf8",
+          },
         );
-        const env = parseHeadlessStdout(new TextDecoder().decode(r.stdout));
+        const env = parseHeadlessStdout(r.stdout ?? "");
         expect(env.ran, JSON.stringify(env)).toBe(true);
 
         const prose = readHeadlessResult(env, out, (p) =>
