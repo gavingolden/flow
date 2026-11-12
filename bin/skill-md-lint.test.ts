@@ -9290,10 +9290,10 @@ describe("flow epic manage governance anchors", () => {
     ).length;
   }
 
-  it("docs/target-architecture.md names the single foreground exception to 'not a long-running daemon'", () => {
+  it("docs/target-architecture.md names both exceptions to 'not a long-running daemon': the epic sequencer and the manager's session-bound waiter", () => {
     const arch = read("docs", "target-architecture.md");
     expect(arch).toContain(
-      "It is not a long-running daemon. The single exception is `flow epic manage <slug>`: a foreground process the owner starts in its own tmux window and stops with Ctrl-C or by closing the window — never detached, never launchd, and making no model calls.",
+      "It is not a long-running daemon. The two exceptions are `flow epic manage <slug>`: a foreground process the owner starts in its own tmux window and stops with Ctrl-C or by closing the window — never detached, never launchd, and making no model calls — and `flow manage`: one tmux window running a long-lived Claude session over the owner's pipelines, woken only by `flow-manager-wait`, a session-bound background command",
     );
   });
 
@@ -13163,6 +13163,7 @@ describe("executive review anchors", () => {
       "Don't let a session grant autonomy",
     );
     expect(supervisorRulesContent).toContain("grants.json");
+    expect(supervisorRulesContent).toContain("--relay");
     expect(supervisorRulesContent).toMatch(
       /not a\s+proof against a session that rewrites its own environment/,
     );

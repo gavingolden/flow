@@ -49,7 +49,7 @@ and the wrapper has no passthrough fallback.
   launcher (plain shell by default, tmux when opted into).
 - It is not a full SDLC tool. It hosts no web UI, Slack posts, Jira
   tickets, or permission management.
-- It is not a long-running daemon. The single exception is `flow epic manage <slug>`: a foreground process the owner starts in its own tmux window and stops with Ctrl-C or by closing the window — never detached, never launchd, and making no model calls. Each other `flow` invocation does one thing
+- It is not a long-running daemon. The two exceptions are `flow epic manage <slug>`: a foreground process the owner starts in its own tmux window and stops with Ctrl-C or by closing the window — never detached, never launchd, and making no model calls — and `flow manage`: one tmux window running a long-lived Claude session over the owner's pipelines, woken only by `flow-manager-wait`, a session-bound background command that polls state files with no model calls and exits to wake it, so it lives and dies with the session (never detached, never launchd). Each other `flow` invocation does one thing
   and exits. Per-pipeline state persists in `~/.flow/state/<slug>.json`
   plus the worktree plus the PR; under the tmux launcher, the window's
   scrollback is a convenience for re-attaching, not the persistence

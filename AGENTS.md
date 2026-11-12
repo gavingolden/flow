@@ -22,6 +22,7 @@ when you Read/Edit a matching file (Bash touches don't load them).
 | Skill library structure | `skills/` (`pipeline/`, `universal/`, `stacks/`) |
 | Task-tool exemptions, sub-agent Don'ts | `.claude/rules/flow-supervisor-contracts.md` (loads on `skills/`, `agents/`, `references/`, `templates/`) |
 | `bin/` conventions, telemetry, tmux-pane rules, CI | `.claude/rules/flow-bin-conventions.md` (loads on `bin/`, `.github/`, `package.json`) |
+| Global manager (`flow manage`), rulings | `docs/configuration.md` `## Global manager` |
 | Git-workflow mechanics | `references/git-workflow.md` |
 | Response-hygiene conventions | `references/output-style.md` |
 | Consumer-repo `flow-pre-commit` contract | `references/consumer-repo-contract.md` |
@@ -61,8 +62,7 @@ are at [references/output-style.md](references/output-style.md).
 - **Route every emitted path/PR/issue URL through `bin/lib/link.ts` or a raw-target-labelled markdown link.** Never a bare target at a new site.
 
 See the reference for the remaining response-hygiene conventions (no
-preambles, no sycophantic openers, no emoji unless invited, calibrate
-length to task, fenced blocks only for runnable code, etc.).
+preambles, no emoji unless invited, etc.).
 
 ## Supervisor and sub-skills: in-process only
 
