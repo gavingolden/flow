@@ -12,6 +12,7 @@ import * as path from "node:path";
 import { manifestNeighbourhood } from "../flow-epic-judge-context";
 import { resolveProductBrief } from "../flow-product-brief";
 import { grantForSlug } from "./manager-grants";
+import { alertBudgetOnce, budgetReached } from "./manager-spend";
 import {
   appendManagerLog,
   readManagerLog,
@@ -144,6 +145,14 @@ export function runPlanReview(
     expectedEpic: input.epic,
   });
   if (!scope.granted) return skip(scope.reason, {}, false);
+
+  if (
+    budgetReached(deps.now(), { read: deps.readConfig, home: deps.managerHome })
+      .reached
+  ) {
+    alertBudgetOnce(deps.now(), deps.notify, deps.managerHome, deps.readConfig);
+    return skip("daily-budget-reached");
+  }
 
   const worktree = state?.worktree;
   if (!worktree)

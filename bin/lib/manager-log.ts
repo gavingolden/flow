@@ -27,6 +27,7 @@ export type ManagerLogKind =
   | "exec-skip"
   | "exec-owner-reply"
   | "rollup"
+  | "budget-alert"
   | "proposal-answered";
 
 export type ExecLogPayload = {

@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { managerDir } from "./epic-manage-state";
 import { upsertGrant } from "./manager-grants";
-import { readManagerLog } from "./manager-log";
+import { appendManagerLog, readManagerLog } from "./manager-log";
 import { computeDecisionHash } from "../flow-plan-review";
 import {
   derivePlanRound,
@@ -184,6 +184,62 @@ afterEach(() => {
 
 const run = (d = deps()) => runPlanReview({ slug: "feat", epic: "e1" }, d);
 const log = () => readManagerLog({ epic: "e1" }, managerHome);
+
+describe("daily budget", () => {
+  const seedSpend = (usd: number) =>
+    appendManagerLog(
+      {
+        ts: new Date(Date.UTC(2026, 9, 26, 1, 0, 0)).toISOString(),
+        kind: "exec-decision",
+        repo: "unknown",
+        slug: "spender",
+        exec: { decisionId: "x", reviewKind: "plan", costUsd: usd },
+      },
+      { home: managerHome },
+    );
+
+  it("skips before any headless call once the cap is reached, logs one alert and notifies once", () => {
+    seedSpend(20);
+    const notified: string[][] = [];
+    const d = deps({ notify: (a) => void notified.push(a) });
+    const r = run(d);
+    expect(r).toMatchObject({
+      ran: false,
+      skipReason: "daily-budget-reached",
+      skipText:
+        "today's spending limit for executive reviews is reached, so this decision is yours",
+    });
+    expect(calls).toHaveLength(0);
+    run(d);
+    expect(calls).toHaveLength(0);
+    expect(notified).toHaveLength(1);
+    expect(notified[0]).toContain("waiting");
+    expect(notified[0].join(" ")).toContain("spender $20.00");
+    expect(log().filter((e) => e.kind === "budget-alert")).toHaveLength(0);
+    expect(
+      readManagerLog({}, managerHome).filter((e) => e.kind === "budget-alert"),
+    ).toHaveLength(1);
+    expect(log().filter((e) => e.kind === "exec-skip")).toHaveLength(2);
+  });
+
+  it("still runs the review while spend is under the cap", () => {
+    seedSpend(19);
+    const r = run(deps({ notify: () => {} }));
+    expect(r.ran).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("honours a configured cap", () => {
+    seedSpend(2);
+    const r = run(
+      deps({
+        notify: () => {},
+        readConfig: () => ({ manager: { dailyBudgetUsd: 1 } }),
+      }),
+    );
+    expect(r).toMatchObject({ ran: false, skipReason: "daily-budget-reached" });
+  });
+});
 
 describe("grant scope", () => {
   it("makes zero calls, logs nothing, and records no telemetry without a grant", () => {
