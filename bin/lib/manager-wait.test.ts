@@ -321,8 +321,11 @@ describe("unaccepted rulings", () => {
       unpicked,
     });
     expect(again.events).toEqual([]);
-    const gone = diffSnapshot(first.next, states, NOW, opts());
-    expect(gone.next.rulingsFired).toBeUndefined();
+    const dropped = diffSnapshot(first.next, states, NOW, opts());
+    expect(dropped.next.rulingsFired).toEqual(["r-1"]);
+    expect(
+      diffSnapshot(dropped.next, states, NOW, { ...opts(), unpicked }).events,
+    ).toEqual([]);
   });
 
   it("stays silent for an out-of-scope pipeline and on the baseline pass", () => {

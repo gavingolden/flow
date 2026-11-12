@@ -34,7 +34,7 @@ export type SeenStore = {
   version: 1;
   baselinedAt: string;
   scopeUpdatedAt?: string;
-  /** Ruling ids a `ruling-unpicked` event already fired for; pruned once a ruling is accepted or stale. */
+  /** Ruling ids a `ruling-unpicked` event already fired for (newest 100), so a ruling that drops out of the list for one poll never re-fires. */
   rulingsFired?: string[];
   pipelines: Record<string, SeenEntry>;
 };
@@ -65,6 +65,7 @@ export type WakeEvent = {
 export const STALE_DAYS = 7;
 export const CHECKPOINT_IDLE_MS = 10 * 60_000;
 export const RULING_PICKUP_MS = 15 * 60_000;
+const MAX_FIRED_RULINGS = 100;
 const GONE_AFTER_POLLS = 2;
 const DAY_MS = 86_400_000;
 
@@ -244,7 +245,7 @@ export function diffSnapshot(
       });
     }
   }
-  const rulingsFired = unpicked.map((u) => u.id).filter((id) => fired.has(id));
+  const rulingsFired = [...fired].slice(-MAX_FIRED_RULINGS);
 
   const scopeUpdatedAt = opts.scope?.updatedAt;
   if (
