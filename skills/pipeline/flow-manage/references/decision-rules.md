@@ -57,7 +57,7 @@ Only for a pipeline whose `flow-exec-review status --slug <s>` prints
    - `--source owner` needs the owner to have typed words naming the pipeline
      (its slug, an open proposal id, or the `#N` handle) after the pause began,
      and the line must show the reply's intent: an un-negated approve/approved/
-     yes/lgtm/go ahead/ship it for `approve`; redirect/change/instead for
+     yes/lgtm/go ahead/ship it for `approve`; redirect/"instead of" for
      `redirect`; `yes` plus a drafted proposal's id or `#N` for `answer`, whose
      `--text` must equal that interview-draft proposal's `--text` exactly (so
      `yes #N` on a drafted answer is `--reply answer`, never `approve`). A bare

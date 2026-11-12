@@ -79,11 +79,6 @@ function lastActivityMs(s: PipelineState): number {
   return Number.isFinite(t) ? t : Date.parse(s.updatedAt) || 0;
 }
 
-/** The key the epic sequencer already logs for an owner-needed pause, so neither writer notifies twice. */
-export function ownerNeededKey(s: PipelineState): string {
-  return `${s.slug}:${s.phase}:${s.phaseLog?.length ?? 0}`;
-}
-
 export type UnpickedRuling = { id: string; slug: string };
 
 /**

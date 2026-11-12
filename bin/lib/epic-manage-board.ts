@@ -6,6 +6,7 @@
  * and a next step. Text in, text out: no clock, no I/O, so boards snapshot-test.
  */
 
+import { ownerNeededKey } from "./owner-needed-key";
 import type { GuardResult, NodeVerdict } from "./epic-manage-guard";
 import { ownedState, type FeatureRunRecord } from "./epic-run-state";
 import type { ManagerState } from "./epic-manage-state";
@@ -77,7 +78,7 @@ export function ownerNeededFor(
       window: row.slug,
       ...(state.pr !== undefined ? { pr: state.pr } : {}),
       reason: REASON_BY_PHASE[state.phase] ?? state.phase,
-      key: `${row.slug}:${state.phase}:${state.phaseLog?.length ?? 0}`,
+      key: ownerNeededKey({ ...state, slug: row.slug }),
       notify: NOTIFY_PHASES.has(state.phase),
     });
   }

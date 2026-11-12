@@ -456,8 +456,13 @@ describe("a source: owner ruling", () => {
     expect(written(owner()).ownerPromptId).toBe("w-1");
   });
 
-  it("needs 'redirect' (or change/instead) for a redirect", () => {
+  it("needs 'redirect' (or 'instead of'), not a bare 'change', for a redirect", () => {
     typed(`approve ${SLUG}`);
+    expect(owner({ reply: "redirect", text: "use x" })).toEqual({
+      ok: false,
+      reason: "owner-intent-mismatch",
+    });
+    typed(`change ${SLUG} please`, "w-1b", "2026-11-01T10:48:00.000Z");
     expect(owner({ reply: "redirect", text: "use x" })).toEqual({
       ok: false,
       reason: "owner-intent-mismatch",

@@ -7,7 +7,8 @@
 
 import { NOTIFY_PHASES, REASON_BY_PHASE } from "./epic-manage-board";
 import { appendManagerLog, readManagerLog } from "./manager-log";
-import { ownerNeededKey, type WakeEvent } from "./manager-wait";
+import type { WakeEvent } from "./manager-wait";
+import { ownerNeededKey } from "./owner-needed-key";
 import type { PipelineState } from "./state";
 
 /** Returns how many notifications were sent. */

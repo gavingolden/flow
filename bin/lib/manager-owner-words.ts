@@ -82,14 +82,14 @@ export function wordsNameTarget(
 const NEGATION = /(?:\b(?:not|no|never|dont)|n't)[\s,:-]*$/i;
 const INTENT: Record<"approve" | "redirect" | "answer", RegExp> = {
   approve: /\b(?:approved?|yes|lgtm|go ahead|ship it)\b/gi,
-  redirect: /\b(?:redirect|change|instead)\b/gi,
+  redirect: /\b(?:redirect|instead of)\b/gi,
   answer: /\byes\b/gi,
 };
 
 /**
  * Does the owner's line carry the intent the ruling claims: an un-negated
  * approval word (approve/approved/yes/lgtm/go ahead/ship it) for an approve,
- * redirect/change/instead for a redirect, `yes` for an answer. "don't approve"
+ * redirect/"instead of" for a redirect, `yes` for an answer. "don't approve"
  * and "no, yes" style negations (a negator right before the word) do not count.
  */
 export function ownerShowsIntent(
