@@ -45,6 +45,7 @@ type Harness = {
   deps: WaitDeps;
   lines: string[];
   notified: string[][];
+  recorded: Array<[string, Record<string, unknown>]>;
   tick: number;
   onSleep: Array<(n: number) => void>;
 };
@@ -53,6 +54,7 @@ function harness(onSleep: (n: number) => void = () => {}): Harness {
   const h: Harness = {
     lines: [],
     notified: [],
+    recorded: [],
     tick: 0,
     onSleep: [onSleep],
     deps: {
@@ -69,7 +71,7 @@ function harness(onSleep: (n: number) => void = () => {}): Harness {
       out: (l) => h.lines.push(l),
       notify: (a) => h.notified.push(a),
       exec: async () => ({ exitCode: 0, stdout: "{}", stderr: "" }),
-      record: () => {},
+      record: (e, a) => h.recorded.push([e, a]),
     },
   };
   return h;
@@ -191,6 +193,15 @@ describe("flow-manager-wait", () => {
     expect(result(h).outcome).toBe("timeout");
     expect(new Set(generated).size).toBe(1);
     expect(generated[0]).toMatch(/watcher last alive at \d\d:\d\d/);
+  });
+
+  it("records a heartbeat event each time the heartbeat query runs", async () => {
+    put("a", "implementing");
+    const h = harness();
+    await run(["--max-sec", "130", "--heartbeat", "60"], h.deps);
+    expect(h.recorded.filter(([e]) => e === "manager.heartbeat")).toHaveLength(
+      2,
+    );
   });
 
   it("with notices off, neither wake.json nor stdout names an out-of-scope slug", async () => {

@@ -1347,3 +1347,62 @@ describe("run() — history log, --history and --journal", () => {
     expect(banner).toBe(false);
   });
 });
+
+describe("run() — the slug-less manager pane", () => {
+  const mgr = () => ({
+    stateDir,
+    resolveSlug: () => null,
+    resolveKind: () => "manager" as PipelineKind,
+    managerHome: path.join(stateDir, "mgr-home"),
+  });
+  const body = () =>
+    path.join(stateDir, "mgr-home", "checkpoint", "checkpoint.md");
+
+  it("--path prints the manager body path and creates its directory", () => {
+    const out = captureStdout();
+    const exit = run(["--path"], mgr());
+    out.restore();
+    expect(exit).toBe(0);
+    expect(out.writes.join("").trim()).toBe(body());
+    expect(fs.existsSync(path.dirname(body()))).toBe(true);
+  });
+
+  it("arms after a body is written, probes, then consumes", () => {
+    run(["--path"], mgr());
+    const needs = captureStdout();
+    const errNeeds = captureStderr();
+    run([], mgr());
+    needs.restore();
+    errNeeds.restore();
+    expect(JSON.parse(needs.writes.join("")).status).toBe("needs");
+    expect(errNeeds.writes.join("")).toContain("checkpointed: false");
+
+    fs.writeFileSync(body(), "tracking three pipelines\n");
+    const armed = captureStdout();
+    const errArmed = captureStderr();
+    run([], mgr());
+    armed.restore();
+    errArmed.restore();
+    expect(JSON.parse(armed.writes.join("")).status).toBe("ready");
+    expect(errArmed.writes.join("")).toContain("checkpointed: true");
+
+    const probe = captureStdout();
+    run(["--probe"], mgr());
+    probe.restore();
+    expect(JSON.parse(probe.writes.join("")).verdict).toBe("preserve");
+
+    const consumed = captureStdout();
+    run(["--consume"], mgr());
+    consumed.restore();
+    expect(JSON.parse(consumed.writes.join("")).status).toBe("consumed");
+  });
+
+  it("refuses --history and --journal, and a pane that is not the manager still needs a slug", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(run(["--history"], mgr())).toBe(2);
+    expect(
+      run([], { stateDir, resolveSlug: () => null, resolveKind: () => null }),
+    ).toBe(2);
+    err.mockRestore();
+  });
+});

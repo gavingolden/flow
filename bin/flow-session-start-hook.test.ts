@@ -2055,3 +2055,69 @@ describe("flow-session-start-hook — passive brief on every flow-window clear (
     }
   });
 });
+
+describe("the global manager's /clear", () => {
+  function managerHome(armed: boolean, body = "tracking three pipelines\n") {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "mgr-clear-"));
+    const dir = path.join(home, "checkpoint");
+    fs.mkdirSync(dir, { recursive: true });
+    if (body) fs.writeFileSync(path.join(dir, "checkpoint.md"), body);
+    if (armed) fs.writeFileSync(path.join(dir, "checkpoint.pending"), "x\n");
+    return { home, dir };
+  }
+
+  it("re-injects the body, consumes the marker and dispatches the manager resume", async () => {
+    const { home, dir } = managerHome(true);
+    const stub = makeDeps({ resolveKind: () => "manager" });
+    const code = await run({
+      ...stub.deps,
+      flowManagerEnv: "1",
+      managerHome: home,
+    });
+    expect(code).toBe(0);
+    expect(stub.emitted).toHaveLength(1);
+    expect(stub.emitted[0]).toContain("tracking three pipelines");
+    expect(stub.emitted[0]).toContain("not instructions");
+    expect(stub.dispatched).toEqual(["manager"]);
+    expect(stub.dispatchedKinds).toEqual(["manager"]);
+    expect(fs.existsSync(path.join(dir, "checkpoint.pending"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, "checkpoint.consumed.md"))).toBe(true);
+    expect(stub.loadCalls).toEqual([]);
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it("does nothing without a marker, outside a manager pane, or without FLOW_MANAGER", async () => {
+    const { home } = managerHome(false);
+    const noMarker = makeDeps({ resolveKind: () => "manager" });
+    await run({ ...noMarker.deps, flowManagerEnv: "1", managerHome: home });
+    expect(noMarker.emitted).toEqual([]);
+    expect(noMarker.dispatched).toEqual([]);
+
+    const armed = managerHome(true);
+    const wrongPane = makeDeps({ resolveKind: () => "feature" });
+    await run({
+      ...wrongPane.deps,
+      flowManagerEnv: "1",
+      managerHome: armed.home,
+    });
+    expect(wrongPane.dispatched).toEqual([]);
+    expect(fs.existsSync(path.join(armed.dir, "checkpoint.pending"))).toBe(
+      true,
+    );
+
+    const noEnv = makeDeps({ resolveKind: () => "manager" });
+    await run({ ...noEnv.deps, managerHome: armed.home });
+    expect(noEnv.emitted).toEqual([]);
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(armed.home, { recursive: true, force: true });
+  });
+
+  it("still injects the notes but dispatches nothing when no tmux pane is live", async () => {
+    const { home } = managerHome(true);
+    const stub = makeDeps({ resolveKind: () => "manager", tmuxPaneEnv: "" });
+    await run({ ...stub.deps, flowManagerEnv: "1", managerHome: home });
+    expect(stub.emitted).toHaveLength(1);
+    expect(stub.dispatched).toEqual([]);
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+});
