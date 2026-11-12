@@ -3,7 +3,7 @@
  * flow-exec-review — the epic executive's PATH helper.
  *
  *   status      --slug <s> [--epic <e>]
- *   review      --kind plan --slug <s> [--epic <e>]
+ *   review      --kind plan --slug <s> [--epic <e>] [--context-file <path>]
  *   review      --kind wave --epic <e> [--repo-root <dir>]
  *   order       --epic <e> --frontier <id,id,...>
  *   outcome     --slug <s> --decision <id> --reply accept|approve|redirect|cancel
@@ -29,7 +29,7 @@ import { readState } from "./lib/state";
 
 const USAGE = `usage: flow-exec-review <subcommand> [flags]
   status      --slug <s> [--epic <e>]
-  review      --kind plan --slug <s> [--epic <e>]
+  review      --kind plan --slug <s> [--epic <e>] [--context-file <path>]
   review      --kind wave --epic <e> [--repo-root <dir>]
   order       --epic <e> --frontier <id,id,...>
   outcome     --slug <s> --decision <id> --reply accept|approve|redirect|cancel
@@ -160,16 +160,44 @@ export function run(
     }
 
     case "review": {
-      const p = parse(rest, ["kind", "epic", "slug", "repo-root"]);
+      const p = parse(rest, [
+        "kind",
+        "epic",
+        "slug",
+        "repo-root",
+        "context-file",
+      ]);
       if ("error" in p) return usage(p.error);
       const { kind, epic, slug } = p.flags;
       if (kind === "plan") {
         if (!slug) return usage("review --kind plan requires --slug");
-        out(runPlanReview({ slug, ...(epic ? { epic } : {}) }, deps));
+        let contextText: string | undefined;
+        if (p.flags["context-file"] !== undefined) {
+          try {
+            contextText = deps.readFile(p.flags["context-file"]);
+          } catch {
+            return usage(
+              `cannot read --context-file ${p.flags["context-file"]}`,
+            );
+          }
+        }
+        out(
+          runPlanReview(
+            {
+              slug,
+              ...(epic ? { epic } : {}),
+              ...(contextText !== undefined ? { contextText } : {}),
+            },
+            deps,
+          ),
+        );
         return 0;
       }
       if (kind === "wave") {
         if (!epic) return usage("review --kind wave requires --epic");
+        if (p.flags["context-file"] !== undefined) {
+          return usage("--context-file only applies to --kind plan");
+        }
         const repoRoot = p.flags["repo-root"] ?? resolveRepoRoot(process.cwd());
         if (!repoRoot)
           return usage("review --kind wave must run inside a git repository");

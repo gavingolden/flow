@@ -181,6 +181,40 @@ describe("review", () => {
     });
   });
 
+  it("--context-file: a missing file is a usage error, and it is refused for a wave review", () => {
+    seedFeature("solo");
+    const missing = path.join(root, "nope.md");
+    expect(
+      call([
+        "review",
+        "--kind",
+        "plan",
+        "--slug",
+        "solo",
+        "--context-file",
+        missing,
+      ]).code,
+    ).toBe(2);
+    expect(errors.join("\n")).toContain("cannot read --context-file");
+    const f = path.join(root, "ctx.md");
+    w(f, "sibling facts");
+    expect(
+      call(["review", "--kind", "wave", "--epic", "e1", "--context-file", f])
+        .code,
+    ).toBe(2);
+    const ok = call([
+      "review",
+      "--kind",
+      "plan",
+      "--slug",
+      "solo",
+      "--context-file",
+      f,
+    ]);
+    expect(ok.code).toBe(0);
+    expect(ok.json).toMatchObject({ ran: false, skipReason: "no-grant" });
+  });
+
   it("prints one JSON line, exits 0, and spends nothing without a grant", () => {
     seedFeature("feat", { slug: "e1", featureId: "f1" });
     const r = call([

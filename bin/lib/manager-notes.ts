@@ -21,6 +21,8 @@ export type ManagerNote = {
   about: string[];
   text: string;
   repo?: string;
+  /** Who wrote it: `manager`, a pipeline slug, or `owner`. Absent on notes from before this field. */
+  author?: string;
 };
 
 function notesPath(home?: string): string {
@@ -40,7 +42,8 @@ function isNote(v: unknown): v is ManagerNote {
     typeof n.text === "string" &&
     Array.isArray(n.about) &&
     n.about.every((s) => typeof s === "string") &&
-    (n.repo === undefined || typeof n.repo === "string")
+    (n.repo === undefined || typeof n.repo === "string") &&
+    (n.author === undefined || typeof n.author === "string")
   );
 }
 

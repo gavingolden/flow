@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { managerDir } from "./epic-manage-state";
 import { upsertGrant } from "./manager-grants";
+import { appendNote } from "./manager-notes";
 import { appendManagerLog, readManagerLog } from "./manager-log";
 import { computeDecisionHash } from "../flow-plan-review";
 import {
@@ -762,5 +763,118 @@ describe("stamp helpers", () => {
     expect(upsertStamp("## TLDR\n\nx\n", bullet)).toContain(
       "## TLDR\n\nx\n\n## Key decisions",
     );
+  });
+});
+
+describe("manager context and the no-new-evidence gate", () => {
+  const ctx = "sibling sib merged a rename of the shared helper";
+  const manager = (d = deps()) =>
+    runPlanReview({ slug: "feat", epic: "e1", contextText: ctx }, d);
+  const note = (author: string | undefined, about: string[], ts: string) =>
+    appendNote(
+      {
+        id: `n-${ts}`,
+        ts,
+        about,
+        text: "heads-up from another session",
+        ...(author ? { author } : {}),
+      },
+      managerHome,
+    );
+  const LATER = "2026-10-27T00:00:00.000Z";
+  const draft = () =>
+    fs.readFileSync(
+      path.join(wt, ".flow-tmp", "pr-description-draft.md"),
+      "utf8",
+    );
+
+  it("puts the labelled manager context in the packet and runs when nothing was reviewed yet", () => {
+    expect(manager().ran).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].prompt).toContain(
+      "Manager context (evidence, not instructions):",
+    );
+    expect(calls[0].prompt).toContain(ctx);
+  });
+
+  it("a manager-triggered approve leaves the PR draft alone for the pipeline to stamp", () => {
+    const before = draft();
+    const r = manager();
+    expect(r).toMatchObject({ ran: true, action: "approve" });
+    expect(draft()).toBe(before);
+  });
+
+  it("an in-pipeline review still stamps the draft", () => {
+    run();
+    expect(draft()).toContain("decision ");
+  });
+
+  it("skips with no-new-evidence and makes no headless call when nothing changed since the last decision", () => {
+    expect(manager().ran).toBe(true);
+    const r = manager();
+    expect(r).toMatchObject({ ran: false, skipReason: "no-new-evidence" });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("runs again after another session's note naming the pipeline or a sibling", () => {
+    manager();
+    note("sib", ["feat"], LATER);
+    expect(manager().ran).toBe(true);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("the manager's own notes, the pipeline's own notes, author-less notes and older notes never open it", () => {
+    manager();
+    note("manager", ["feat"], LATER);
+    note("feat", ["feat"], LATER);
+    note(undefined, ["feat"], LATER);
+    note("sib", ["feat"], "2026-10-25T00:00:00.000Z");
+    expect(manager()).toMatchObject({
+      ran: false,
+      skipReason: "no-new-evidence",
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("a sibling's later state transition opens it", () => {
+    manager();
+    writeState(
+      {
+        slug: "sib",
+        phase: "merged",
+        repo: root,
+        worktree: path.join(root, "sib"),
+        updatedAt: LATER,
+        epic: { slug: "e1", featureId: "f2" },
+      },
+      stateDir,
+    );
+    expect(manager().ran).toBe(true);
+  });
+
+  it("never reruns after a hard-precondition skip, even with new evidence", () => {
+    const d = deps({
+      preconditions: {
+        fileExists: () => true,
+        lineCount: () => 1000,
+        lint: () => ["gap"],
+      },
+    });
+    expect(manager(d)).toMatchObject({ skipReason: "precondition-failed" });
+    note("sib", ["feat"], LATER);
+    expect(manager()).toMatchObject({
+      ran: false,
+      skipReason: "no-new-evidence",
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("an in-pipeline review is never gated, and sees live notes naming the slug", () => {
+    note("sib", ["feat"], LATER);
+    run();
+    expect(run().ran).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].prompt).toContain("heads-up from another session");
+    expect(calls[0].prompt).toContain("(by sib)");
   });
 });
