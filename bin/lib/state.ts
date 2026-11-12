@@ -723,7 +723,12 @@ export function isEpicPhase(phase: string): boolean {
  * silently rejected at one site and accepted at another, and the only
  * compiler-enforced part is the type, not the runtime checks.
  */
-export const PIPELINE_KINDS = ["feature", "epic-design", "epic-run"] as const;
+export const PIPELINE_KINDS = [
+  "feature",
+  "epic-design",
+  "epic-run",
+  "manager",
+] as const;
 
 export type PipelineKind = (typeof PIPELINE_KINDS)[number];
 
@@ -783,7 +788,7 @@ export function autoResumesAfterClear(
   phase: string,
   kind: PipelineKind = "feature",
 ): boolean {
-  if (kind === "epic-run") {
+  if (kind === "epic-run" || kind === "manager") {
     return true;
   }
   return (

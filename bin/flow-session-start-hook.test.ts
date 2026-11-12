@@ -1181,7 +1181,7 @@ describe('plain-mode additionalContext fallback (state.launcher === "plain")', (
 // crosses that boundary — a positional slip would degrade every epic window to
 // the feature seed (the exact bug this hook exists to fix) with CI green.
 describe("flow-session-start-hook — parseResumeKind argv round-trip", () => {
-  const KINDS: ResumeKind[] = ["feature", "epic-design", "epic-run"];
+  const KINDS: ResumeKind[] = ["feature", "epic-design", "epic-run", "manager"];
 
   for (const kind of KINDS) {
     it(`survives the argv hop for '${kind}'`, () => {
@@ -1213,7 +1213,7 @@ describe("flow-session-start-hook — parseResumeKind argv round-trip", () => {
 });
 
 describe("terminalContinueSeed — the terminal orientation turn", () => {
-  const KINDS: ResumeKind[] = ["feature", "epic-design", "epic-run"];
+  const KINDS: ResumeKind[] = ["feature", "epic-design", "epic-run", "manager"];
   const TERMINAL_SEED_PHASES = [
     "merged",
     "cancelled",

@@ -16,5 +16,7 @@ export function recoveryCommandFor(slug: string, kind: PipelineKind): string {
       return `flow epic run ${slug}`;
     case "feature":
       return `flow feature resume ${slug}`;
+    case "manager":
+      return "flow manage";
   }
 }

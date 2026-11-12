@@ -15,8 +15,13 @@ describe("recoveryCommandFor", () => {
     );
   });
 
-  it("is defined for every PIPELINE_KINDS entry and embeds the slug", () => {
+  it("names the slug-free manager command", () => {
+    expect(recoveryCommandFor("manager", "manager")).toBe("flow manage");
+  });
+
+  it("is defined for every other PIPELINE_KINDS entry and embeds the slug", () => {
     for (const kind of PIPELINE_KINDS) {
+      if (kind === "manager") continue;
       expect(recoveryCommandFor("the-slug", kind)).toContain("the-slug");
     }
   });
