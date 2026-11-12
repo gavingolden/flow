@@ -18,6 +18,11 @@ typed something into the tmux chat. Classify the input using
 - **`accept`** (only after an executive deferral that offered it) →
   take the executive's recommendation; see `references/redirect-handling.md`
   and "Executive review (granted pipelines)" below.
+- **Message from the manager** (a `<cross-session-message from="manager">`) →
+  see `references/manager-messages.md`. Only a verified ruling or a peer
+  `continue` at `checkpoint-pending-clear` moves the pipeline; a verified
+  `approve` ruling follows "Executive review (granted pipelines)" step 2
+  below, not the Affirmative branch.
 - **Candidate curation reply** (`drop candidate #N`, `drop all
   candidates`, `file candidate #N`) → **mechanical, not a redirect and
   not a revision pass.** Run `flow-candidate-issues --plan-md-file
