@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSettingsRows, SETTINGS_KEYS } from "./config-settings";
 import type { ReadConfigFile } from "./models-config";
 
@@ -8,6 +8,20 @@ const reader =
     raw;
 
 describe("buildSettingsRows", () => {
+  // vitest.setup.ts sets FLOW_KEEP_AWAKE=0 suite-wide; unset it so the
+  // power.keepAwake row reflects the config, not the suite's env opt-out.
+  beforeEach(() => vi.stubEnv("FLOW_KEEP_AWAKE", undefined as never));
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("power.keepAwake reports the FLOW_KEEP_AWAKE=0 env opt-out", () => {
+    vi.stubEnv("FLOW_KEEP_AWAKE", "0");
+    const row = buildSettingsRows(reader(undefined)).find(
+      (r) => r.setting === "power.keepAwake",
+    );
+    expect(row?.value).toBe("false");
+    expect(row?.source).toBe("env (FLOW_KEEP_AWAKE=0)");
+  });
+
   // SETTINGS_KEYS collapses the 12 individual delegate.models.*/
   // delegate.timeouts.* rows down to their two existing doc-table glob
   // entries (see config-settings.ts's SETTINGS_KEYS doc comment), so a

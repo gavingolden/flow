@@ -98,7 +98,8 @@ one Task-tool subagent (`subagent_type: $CODER_SUBAGENT`, resolved to the
 plugin-qualified `flow-module-core:flow-edit-applier` on a plugin-root
 install, or a guarded `general-purpose` fallback), passes the
 caller's structured edit-set plus the absolute paths to write, and waits
-for the subagent to return a brief both-sides summary. The subagent does
+for the subagent to return a brief both-sides summary (plus at most one
+safeguards re-spawn if Anthropic safeguards stop it; see step 4). The subagent does
 the heavy lifting in its own isolated context: opening each cited file,
 making the edits, running `flow-pre-commit --json`, and writing the
 structured artifact at `<worktree>/.flow-tmp/coder-result.json`.
@@ -198,7 +199,10 @@ spawn:
    Then write the `EDIT_SET` (inline or from the caller's file) verbatim to
    `$WORKTREE/.flow-tmp/coder-edit-set.json` on EVERY invocation, before
    the spawn, so a `partial` turn-budget return still leaves the file for
-   the caller's step-5 skills check.
+   the caller's step-5 skills check. In the same step delete any
+   `coder-edit-set.retry.json`, `coder-result.first.json` and
+   `coder-safeguards-outcome` left by an earlier invocation, so a caller only
+   ever sees this run's retry set and safeguards outcome.
 
 3. Resolve the subagent type. The `agents/flow-edit-applier.md` definition
    (Bash/Read/Edit/Write/Grep/Glob/NotebookEdit allowlist, no
@@ -217,7 +221,8 @@ spawn:
    fi
    ```
 
-   Make exactly **one** Task-tool call:
+   Make exactly **one** Task-tool call (plus at most one safeguards re-spawn,
+   step 4):
 
    ```
    subagent_type: $CODER_SUBAGENT
@@ -266,6 +271,29 @@ config.models.implement > inherited` (see
    `../flow-pipeline/references/polling-protocol.md` "What this wait means
    for the harness-native wake").
 
+   **Safeguards-stop retry.** Before any partial-result continuation: when
+   the Task failed and `flow-safeguards parse` (run on the failure text
+   saved to `.flow-tmp/safeguards-stop-coder.txt`) reports `stopped:true`,
+   follow the coder shape of
+   `../flow-pipeline/references/safeguards-stop-retry.md` and skip the
+   continuation below. Move the partial artifact aside to
+   `coder-result.first.json`, then run `flow-safeguards retry-set
+   --edit-set $WORKTREE/.flow-tmp/coder-edit-set.json --partial-result
+   $WORKTREE/.flow-tmp/coder-result.first.json --out
+   $WORKTREE/.flow-tmp/coder-edit-set.retry.json` and spawn one fresh Task
+   with the unchanged spawn template rendered over the retry edit set (no
+   `skill_docs`, applied entries removed). If the retry is stopped again
+   (`flow-safeguards parse` reports `stopped:true`), do not merge: move any
+   `coder-result.json` it left to `coder-result.retry-partial.json`, write
+   `stopped-again` to `$WORKTREE/.flow-tmp/coder-safeguards-outcome`, and
+   record `stopped-again`; the callers read that file, not the artifact, and
+   escalate `coder-safeguards-stop`. Otherwise run `flow-safeguards retry-set
+   --merge --first ... --second ... --out ...`, write `recovered` to the same
+   file and record `recovered`. Record with `flow-safeguards record
+   --log $WORKTREE/.flow-tmp/safeguards-retries.jsonl --json '<RetryRecord>'`
+   and the `droppedGuidance`. This is at most one safeguards
+   re-spawn, a fresh spawn and never a `SendMessage` continuation.
+
    **Partial-result continuation.** If the Task result is marked partial
    with an agent id, or the artifact is missing, invalid, `status:
 partial`, or an `Agent stalled` failure, send exactly one `SendMessage`
@@ -279,14 +307,18 @@ partial`, or an `Agent stalled` failure, send exactly one `SendMessage`
    ```
 
    on missing, invalid, or `status: partial` artifact, surface the
-   failure to the caller — the wrapper itself never retries (the single
-   skills `SendMessage` below continues the same spawn; it is not a retry
-   or a second Task call).
+   failure to the caller — the wrapper itself never retries beyond the
+   safeguards re-spawn above (the single skills `SendMessage` below
+   continues the same spawn; it is not a retry or a second Task call).
 
    **Skills check (entries with skill_docs).** Guard with
    `command -v flow-coder-skills-check` (absent ⇒ one named-skip line,
    "skills check unavailable", and continue). Run `flow-coder-skills-check
-   --artifact "$ARTIFACT_PATH" --edit-set-file "$WORKTREE/.flow-tmp/coder-edit-set.json"`. On `.needsContinuation ==
+   --artifact "$ARTIFACT_PATH" --edit-set-file "$WORKTREE/.flow-tmp/coder-edit-set.json"` (after a
+   stripped safeguards retry, point `--edit-set-file` at
+   `$WORKTREE/.flow-tmp/coder-edit-set.retry.json`, which has no
+   `skill_docs`, never the original — otherwise its continuation re-reads the
+   dropped guidance). On `.needsContinuation ==
    true`, load `SendMessage` and send exactly ONE continuation to the same
    agent: "Your artifact's skills_read is missing these required paths:
    <missing>, and these were read only after the edits they govern: <late>.
@@ -404,7 +436,8 @@ the heading anchor.
 # Verification
 
 - Exactly one Task-tool call to the Edit-Applier Subagent per `/flow-coder`
-  invocation; the wrapper did not retry on missing artifact (the caller
+  invocation, plus at most one safeguards re-spawn; the wrapper did not retry
+  on missing artifact (the caller
   decides whether to re-invoke).
 - `.flow-tmp/coder-result.json` exists at the resolved absolute path with
   all six top-level keys (`status`, `edits`, `verify_status`,
@@ -425,13 +458,16 @@ the heading anchor.
   pre-commit run, and the artifact write. Loading reference docs, opening
   cited files, or drafting edits inline defeats the entire point of the
   subagent fan-out.
-- NEVER make more than one Task-tool call per `/flow-coder` invocation. The
+- NEVER make more than one Task-tool call per `/flow-coder` invocation, plus
+  at most one safeguards re-spawn. The
   single fan-out is the named exemption; multi-call fan-out is not
   authorised. If the artifact is missing after the spawn, surface the
-  failure to the caller — the wrapper itself never retries (the single
+  failure to the caller — the wrapper itself never retries beyond that
+  safeguards re-spawn (the single
   skills-check `SendMessage` is a continuation of the same spawn, not a
   retry). Re-invocation is the caller's decision; a second call inside
-  this run would violate the one-Task-call invariant.
+  this run (beyond the one safeguards re-spawn) would violate the
+  one-Task-call invariant.
 - NEVER read `.flow-tmp/coder-result.json` body in the wrapper. The
   cheap `jq -e` completeness check and the `flow-coder-skills-check`
   verdict (both in step 4) are the only allowed artifact access between

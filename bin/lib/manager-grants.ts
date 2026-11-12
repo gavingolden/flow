@@ -1,7 +1,9 @@
 /**
  * Scoped autonomy grants: `~/.flow/manager/grants.json`, one entry per scope
- * (`pipeline:` / `epic:` / `repo:`). Written only by `flow grant` (an
- * owner-typed command, see grant-cli.ts); read by the executive.
+ * (`pipeline:` / `epic:` / `repo:`). Granted only by `flow grant` (an
+ * owner-typed command, see grant-cli.ts); withdrawn by `flow grant ... off`,
+ * by manager prune, and by `flow feature create` when a slug is reused; read
+ * by the executive.
  *
  * Resolution reports the MOST SPECIFIC live covering grant's scope and expiry
  * (pipeline > epic > repo), but unions the classes across EVERY live covering
@@ -27,6 +29,7 @@ import {
   specificity,
   type PipelineIdentity,
 } from "./manager-scope";
+import { appendManagerLog, readManagerLog } from "./manager-log";
 import { readState } from "./state";
 
 /**
@@ -111,6 +114,50 @@ export function removeGrant(scope: string, home?: string): boolean {
   });
 }
 
+/**
+ * Remove a `pipeline:<slug>` grant and log `grant-withdrawn`. A grant is keyed
+ * by slug alone, so one left by an earlier pipeline must not cover a later
+ * pipeline that reuses the slug. `repo` receives the prior `grant` log line's
+ * repo so each caller picks its own precedence.
+ */
+export function withdrawPipelineGrant(
+  slug: string,
+  opts: {
+    repo: (priorRepo?: string) => string;
+    reason: string;
+    now: Date;
+    home?: string;
+  },
+): { removed: boolean; logError?: string } {
+  const scope = `pipeline:${slug}`;
+  if (!readGrants(opts.home).some((g) => g.scope === scope)) {
+    return { removed: false };
+  }
+  if (!removeGrant(scope, opts.home)) return { removed: false };
+  try {
+    const prior = readManagerLog({ slug }, opts.home)
+      .filter((e) => e.kind === "grant")
+      .at(-1)?.repo;
+    appendManagerLog(
+      {
+        ts: opts.now.toISOString(),
+        kind: "grant-withdrawn",
+        scope,
+        repo: opts.repo(prior),
+        slug,
+        reason: opts.reason,
+      },
+      { home: opts.home },
+    );
+  } catch (err) {
+    return {
+      removed: true,
+      logError: err instanceof Error ? err.message : String(err),
+    };
+  }
+  return { removed: true };
+}
+
 export function isLive(g: ScopedGrant, now: Date): boolean {
   if (g.expiresAt === undefined) return true;
   const t = Date.parse(g.expiresAt);
@@ -141,8 +188,16 @@ export function resolveGrant(
   id: PipelineIdentity,
   now: Date,
   home?: string,
+  opts: { pipelineNotBefore?: string } = {},
 ): { scope: string; classes: GrantClass[]; expiresAt?: string } | null {
-  const covering = coveringGrants(id, now, home);
+  const notBefore = Date.parse(opts.pipelineNotBefore ?? "");
+  const covering = coveringGrants(id, now, home).filter((g) => {
+    if (!Number.isFinite(notBefore) || !g.scope.startsWith("pipeline:")) {
+      return true;
+    }
+    const at = Date.parse(g.grantedAt);
+    return Number.isFinite(at) && at >= notBefore;
+  });
   if (covering.length === 0) return null;
   const top = covering[0];
   const classes = [...new Set(covering.flatMap((g) => g.classes))].sort();
@@ -189,7 +244,9 @@ export function grantForSlug(
     return { granted: false, reason: "other-epic" };
   }
   const now = (deps.now ?? (() => new Date()))();
-  const resolved = resolveGrant(identityForState(state), now, deps.home);
+  const resolved = resolveGrant(identityForState(state), now, deps.home, {
+    pipelineNotBefore: state.createdAt,
+  });
   if (!resolved) return { granted: false, reason: "no-grant" };
   if (!state.epic) {
     return { granted: true, scope: resolved.scope, classes: resolved.classes };

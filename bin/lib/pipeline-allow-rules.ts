@@ -41,6 +41,12 @@
  * manifest, localhost-only targets); values reach only the child's env and
  * are never printed, persisted or photographed.
  *
+ * Also accepted: `flow-safeguards` rewrites files (`compact --in-place`,
+ * `map-paths`) and appends or writes logs without classifier review. It
+ * refuses (exit 2) any write target outside the current working directory
+ * tree and `map-paths` rewrites only `agent-output-*.json`, so a steered
+ * session cannot reach settings, shell startup or git hooks through it.
+ *
  * A rule only matches a standalone call; a `cd … &&` prefix or a chain of
  * helpers may still reach the classifier, so the supervisor calls helpers one
  * per Bash call.
@@ -83,6 +89,7 @@ export const FLOW_ROUTINE_HELPERS: readonly string[] = [
   "flow-ui-critique",
   "flow-ui-capture",
   "flow-coder-skills-check",
+  "flow-safeguards",
   "flow-fix-applier-bundle-check",
   "flow-epic-self-mark",
 ];

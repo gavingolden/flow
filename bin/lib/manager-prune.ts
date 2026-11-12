@@ -18,14 +18,8 @@ import {
   managerLockPath,
   writeTextAtomic,
 } from "./manager-home";
-import { readGrants, removeGrant } from "./manager-grants";
-import {
-  appendManagerLog,
-  logLockPath,
-  logPath,
-  readManagerLog,
-  type ManagerLogEntry,
-} from "./manager-log";
+import { readGrants, withdrawPipelineGrant } from "./manager-grants";
+import { logLockPath, logPath, type ManagerLogEntry } from "./manager-log";
 import { dropNotes, isNoteExpired, readNotes } from "./manager-notes";
 import { identityForState } from "./manager-scope";
 import { readProposals } from "./manager-proposals";
@@ -39,6 +33,8 @@ export const OWNER_WORDS_AGE_DAYS = 30;
 export type PruneResult = {
   notesDropped: number;
   grantsDropped: number;
+  /** Grants removed whose `grant-withdrawn` log line could not be written. */
+  grantLogErrors: string[];
   entriesRolled: number;
   monthsRolled: number;
   openProposals: number;
@@ -52,31 +48,24 @@ function dropDeadPipelineGrants(
   now: Date,
   readSlug: (slug: string) => ReturnType<typeof readState>,
   home: string,
-): number {
+): { dropped: number; logErrors: string[] } {
   let dropped = 0;
+  const logErrors: string[] = [];
   for (const g of readGrants(home)) {
     if (!g.scope.startsWith("pipeline:")) continue;
     const slug = g.scope.slice("pipeline:".length);
     const st = readSlug(slug);
     if (st && !FINISHED_PHASE_SET.has(st.phase)) continue;
-    if (!removeGrant(g.scope, home)) continue;
-    dropped++;
-    const prior = readManagerLog({ slug }, home)
-      .filter((e) => e.kind === "grant")
-      .at(-1);
-    appendManagerLog(
-      {
-        ts: now.toISOString(),
-        kind: "grant-withdrawn",
-        scope: g.scope,
-        repo: st ? identityForState(st).repo : (prior?.repo ?? "unknown"),
-        slug,
-        reason: "pipeline-finished",
-      },
-      { home },
-    );
+    const r = withdrawPipelineGrant(slug, {
+      repo: (prior) => (st ? identityForState(st).repo : (prior ?? "unknown")),
+      reason: "pipeline-finished",
+      now,
+      home,
+    });
+    if (r.removed) dropped++;
+    if (r.logError !== undefined) logErrors.push(`${slug}: ${r.logError}`);
   }
-  return dropped;
+  return { dropped, logErrors };
 }
 
 /** Ruling files are one-shot hand-offs, so one untouched for a week is consumed or expired. */
@@ -263,7 +252,8 @@ export function pruneManagerHome(
     dropNotes(new Set(expired.map((n) => n.id)), home);
   }
 
-  const grantsDropped = dropDeadPipelineGrants(now, readSlug, home);
+  const { dropped: grantsDropped, logErrors: grantLogErrors } =
+    dropDeadPipelineGrants(now, readSlug, home);
 
   const all = listStates(deps.stateDir);
   const unfinished = new Set(
@@ -309,6 +299,7 @@ export function pruneManagerHome(
   return {
     notesDropped,
     grantsDropped,
+    grantLogErrors,
     entriesRolled,
     monthsRolled,
     openProposals,

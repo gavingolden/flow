@@ -24,7 +24,7 @@ walks away after approving the plan and reads the result later.
 You are the single LLM container for this pipeline. Every sub-skill
 (`/flow-product-planning`, `/flow-new-feature`, `/flow-verify`, `/flow-pr-review`) loads
 in-process when you invoke it; every helper script
-(`flow-new-worktree`, `flow-remove-worktree`, `gh`, etc.) is a Bash
+(`flow-new-worktree`, `gh`, etc.) is a Bash
 tool call. **You never spawn a Task-tool sub-agent.** flow's flat-fan-out
 policy (deliberate, not a platform limit — `docs/nested-subagents-assessment.md`,
 repo-only, not shipped) allows zero nesting exceptions — the eight
@@ -44,14 +44,14 @@ Stay in-process for skills; shell out for scripts; never delegate.
 
 - Generic "add X" / "implement Y" phrasing without `/flow-pipeline`
   or a `flow feature create` seed. Use `/flow-new-feature` directly for one-shot
-  feature work in the user's existing session.
+  work in the user's session.
 - The user wants to step through phases manually (no auto-progression).
   Use the individual skills (`/flow-product-planning`, `/flow-new-feature`,
   `/flow-verify`, `/flow-pr-review`) directly.
 - Resume after a Claude Code crash → `flow feature resume <name>` is
-  the entry point. The wrapper re-launches Claude Code into the same
-  tmux window with the resume seed prompt; this skill detects the
-  prompt prefix and walks the decision tree in
+  the entry point. The wrapper re-launches Claude Code in the same
+  window with the resume seed prompt; this skill detects its prefix
+  and walks the decision tree in
   `references/failure-recovery.md` section (b). See
   `references/phases/resume.md`.
 
@@ -82,6 +82,8 @@ Stay in-process for skills; shell out for scripts; never delegate.
 > **Load the Task tool at each spawn site.**
 >
 > **A `SendMessage` continuation of a partial (`maxTurns`) agent stays inside its exemption — not an eighth site.** See `references/partial-result-continuation.md`.
+>
+> A safeguards re-spawn stays inside #1 and #6.
 >
 > **Task-tool exemption #1: `/flow-pr-review` Independent Multi-Agent
 > Review.**

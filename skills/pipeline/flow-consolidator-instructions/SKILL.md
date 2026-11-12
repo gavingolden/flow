@@ -146,7 +146,15 @@ body otherwise.
 
 Exit-1 outcomes are split by source:
 
-- **File missing** (`test -s "$PER_AGENT_PATH"` fails): escalate
+- **File missing with a skip record**: when `agent-output-<lens>.json` is
+  missing but `$WORKTREE/.flow-tmp/lens-skip-<lens>.json` exists
+  (`{lens, reason, request_ids, model}`, written by `/flow-pr-review` after
+  Anthropic safeguards stopped the lens twice), do NOT escalate — mirror the
+  tolerated-absent handling above: proceed with the remaining outputs and
+  record `{lens, reason: "safeguards-stop", request_ids}` in `lens_skipped[]`.
+  A skipped lens never counts as a clean pass, and its absence is not a
+  `lens_negatives_missing` entry.
+- **File missing** (`test -s "$PER_AGENT_PATH"` fails) and no skip record: escalate
   `consolidator-missing-artifact`. Write
   `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
   and `escalation_tag: "consolidator-missing-artifact"` per the
@@ -377,6 +385,7 @@ their types and one-line descriptions:
 | `lens_rejected_alternatives` | `Array<{considered_approach: string, why_rejected: string, lens: string}>` (optional)         | **Code-scoped**, PASS-THROUGH from the per-lens artifacts, tagged with the source `lens`. Produced by `flow-agent-finding-schema --collect-lens-negatives`; never authored by the consolidator itself. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                             |
 | `lens_anti_patterns_found`   | `Array<{location: string, pattern: string, recommendation: string, lens: string}>` (optional) | **Code-scoped**, PASS-THROUGH from the per-lens artifacts, tagged with the source `lens`. Produced by `flow-agent-finding-schema --collect-lens-negatives`; never authored by the consolidator itself. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                             |
 | `lens_negatives_missing`     | `Array<string>` (optional)                                                                    | Names of lenses whose per-agent envelope reported an `"absent"` negatives state on either array (see step (a)). Also produced by `flow-agent-finding-schema --collect-lens-negatives`. Recorded, never escalated. Absent is valid (pre-seeded to `[]` per step (e)).                                                                                  |
+| `lens_skipped`               | `Array<{lens, reason: "safeguards-stop", request_ids}>` (optional)                            | Mandatory lenses that have no `agent-output-<lens>.json` but a `lens-skip-<lens>.json` skip record. A skipped lens is never a clean pass. Absent is valid.                                                                                                                                                                                            |
 | `scope_verdict`              | `{widen: boolean, reason: string}` (optional)                                                 | Set only per step (d2)'s mechanical floor on a delta scope; omitted on full scope or when the floor doesn't fire — never a `false` sentinel.                                                                                                                                                                                                          |
 
 The validator at `bin/lib/agent-finding-schema.ts` is the runtime
@@ -437,7 +446,8 @@ above.
 
 Before writing the artifact and returning, self-check:
 
-- All six per-agent output paths were read and validated. Any missing
+- All six per-agent output paths were read and validated, or recorded as
+  skipped (`lens_skipped[]`). Any missing without a skip record
   or schema-invalid file escalated to the appropriate recipe.
 - `consolidated_findings[]` contains only findings that cleared the
   threshold, dedup, praise specificity, and second-opinion validation.

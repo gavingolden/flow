@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { DELEGATABLE_LENSES } from "./delegate-models";
 import {
   AGY_HEADLESS_PREAMBLE,
+  DEFAULT_GUIDANCE_PATHS,
   LENS_HEADINGS,
   agyLensOutputContract,
   buildDelegatedLensPrompt,
@@ -59,6 +60,29 @@ describe("LENS_HEADINGS", () => {
 });
 
 describe("buildDelegatedLensPrompt", () => {
+  it("DEFAULT_GUIDANCE_PATHS matches the documented default in agent-prompts.md", () => {
+    const lines = agentPromptsMd.split("\n");
+    const start = lines.findIndex((l) =>
+      l.startsWith("    - Read the target repo's"),
+    );
+    const doc: string[] = [];
+    for (let i = start; i < lines.length && lines[i]!.startsWith("    "); i++) {
+      doc.push(lines[i]!.slice(4));
+    }
+    expect(doc.join("\n")).toBe(DEFAULT_GUIDANCE_PATHS);
+  });
+
+  it("renders the default guidance text unless guidancePaths is given", () => {
+    const base = buildDelegatedLensPrompt(inputs({ lens: "security" }));
+    expect(base).toContain(DEFAULT_GUIDANCE_PATHS);
+    expect(base).not.toContain("{{");
+    const custom = buildDelegatedLensPrompt(
+      inputs({ lens: "security", guidancePaths: "- Read `X.md`" }),
+    );
+    expect(custom).toContain("- Read `X.md`");
+    expect(custom).not.toContain("{{");
+  });
+
   it.each(DELEGATABLE_LENSES)("%s: no template variable survives", (lens) => {
     const prompt = buildDelegatedLensPrompt(
       inputs({

@@ -545,6 +545,17 @@ subagent rather than landing in the supervisor's transcript.
    `{{EXISTING_INTENT_COMMENTS}}`; absent annotations, the file contains the literal
    `(none — author posted no intent annotations)` — substitute as-is.
 
+7. Collapse padded guidance before any lens launches (Gemini lens included), per
+   [safeguards-stop-retry.md](../flow-pipeline/references/safeguards-stop-retry.md):
+   `flow-safeguards compact --in-place --no-marker "$WORKTREE/.flow-tmp/diff.txt"` (line count
+   preserved, no header line) and `flow-safeguards compact --out-dir "$WORKTREE/.flow-tmp/guidance"
+   > "$WORKTREE/.flow-tmp/guidance-copies.json"` over `AGENTS.md`, any `CLAUDE.md`,
+   `.claude/rules/*.md`, `.flow/review-checklist.md` and padded changed files. When `anyCompacted`,
+   render `{{GUIDANCE_PATHS}}` with the `copy` paths plus the "collapsed copies" bullet from
+   `references/agent-prompts.md` (agy lenses keep the originals) and `flow-safeguards record` a
+   `proactive-collapse` line naming the files (the note says whitespace-only changes inside
+   collapsed runs are not visible to the review). Re-run the diff collapse after a widen (§ Widen).
+
 **Completeness rule.** Setup failure never reaches Step 3 (Step 2 stops on it). The run
 list's only source is `review-scope.json` `.gates` — rewritten by the widen pass, which
 also clears stale outputs for checks due to run. Surface non-critical `.skips[]` entries
@@ -635,6 +646,7 @@ the gate.
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
   `{{COMMIT_MESSAGES}}` (full bodies from step 3), `{{CHANGED_FILES_LIST}}`, `{{DIFF}}`,
+  `{{GUIDANCE_PATHS}}` (the default bullets from `references/agent-prompts.md` § Shared Context Block, or the same bullets with step 7's `copy` paths when `anyCompacted`),
   `{{STATIC_ANALYSIS_FACTS}}`, `{{EXISTING_INTENT_COMMENTS}}` (from step 6's
   `.flow-tmp/intent-comments.md`), `{{REVIEW_SCOPE}}` (per
   `references/review-scope.md` "Spawn only the ungated lenses"),
@@ -681,6 +693,13 @@ Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `l
 Wait for all spawned agents to complete before proceeding — the ungated
 lenses plus the diff-only intent-guess agent (§ Diff-only intent-guess
 agent below, unless skipped on delta re-entry), same fan-out message.
+
+**Safeguards-stop retry** (after the fan-out). A lens whose Task failed with a safeguards stop
+(failure text saved to `.flow-tmp/safeguards-stop-<lens>.txt`, `flow-safeguards parse` reports
+`stopped:true`) follows the lens shape of
+[safeguards-stop-retry.md](../flow-pipeline/references/safeguards-stop-retry.md): `lens-retry-plan`
+picks `respawn`, `delegated` or `skip`. This is at most one safeguards re-spawn per lens per
+invocation; a forced-route `fallback` is a skip record, never a Task.
 
 ### Cross-model (Gemini) lens (optional, config-gated)
 
@@ -750,7 +769,8 @@ Spawn the **Independent Consolidator-Validator Subagent** (see
 [flow-consolidator-instructions](../flow-consolidator-instructions/SKILL.md))
 to merge the six per-agent outputs, apply confidence threshold +
 dedup + praise specificity, and run a second-opinion validation pass
-before Step 4 consumes them.
+before Step 4 consumes them. A mandatory lens with a `.flow-tmp/lens-skip-<lens>.json`
+skip record and no output is passed through as `lens_skipped[]`, never a clean pass.
 
 **Load the Task tool before spawning.** See
 [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md);
@@ -1524,6 +1544,8 @@ A `.flow-tmp/bundle-check.json` residue candidate with adjacency `blocked` adds 
 `- [ ] DECISION: the review's "<blocked finding's subject>" test was weakened (<rejected alternative's considered_approach> was dropped) because <pattern> is still unfixed (<why_not_fixed>) — fix it in this PR or accept the weaker test`
 Test Step (the blocked finding's subject comes from `consolidator-result.json`; never the raw `finding_id`); other residue does not gate.
 
+Safeguards sync: append `flow-safeguards note --log "$WORKTREE/.flow-tmp/safeguards-retries.jsonl"` output to the body, replacing any prior safeguards callout (idempotent), and run `flow-safeguards decision-items --body-file .flow-tmp/body.md --skips .flow-tmp/lens-skip-*.json` (mandatory lenses only) to upsert one `DECISION` Test Step per skipped lens.
+
 ### 11e. Resolution
 
 **Drafting conventions** (apply to every drafted/edited description in this step):
@@ -1646,7 +1668,7 @@ the lens `lens_anti_patterns_found[]` entries have no such flag (three fields pl
 `bin/lib/negative-findings-schema.ts`). Render the boolean and any `why_not_fixed` in **Anti-Patterns
 Observed**, and append the new-file audit's WARNING lines (Step 9a above). When the artifact's `commits[]`
 holds `finding_id`s starting `bundle:`, render one `Bundled: <n> in-scope fix(es) — <location list>`
-line in the report summary.
+line in the report summary. Report safeguards retries and lens skips in one line each (from `.flow-tmp/safeguards-retries.jsonl` and `lens-skip-*.json`).
 
 **The mechanical wrap-up runs once, here, via `flow-review-finalize`.** This single
 supervisor call absorbs what used to be four separate mechanical recipes spread across

@@ -109,10 +109,12 @@ export type Args = {
   planOnly: boolean;
   slug?: string;
   config?: string;
+  /** Retry route for a lens Anthropic safeguards stopped; see safeguards-stop-retry.md. */
+  forceRoute?: "safeguards-retry";
 };
 
 const USAGE =
-  "usage: flow-agy-lenses --worktree <dir> --skill-dir <flow-pr-review skill dir> --lenses <csv> [--plan-only] [--slug <slug>] [--config <path>]";
+  "usage: flow-agy-lenses --worktree <dir> --skill-dir <flow-pr-review skill dir> --lenses <csv> [--plan-only] [--slug <slug>] [--config <path>] [--force-route safeguards-retry]";
 
 export function parseArgs(argv: string[]): Args | { error: string } {
   const out: Partial<Args> & { lensesCsv?: string } = { planOnly: false };
@@ -142,6 +144,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--config":
         out.config = value;
         break;
+      case "--force-route":
+        if (value !== "safeguards-retry") {
+          return {
+            error: `--force-route accepts only 'safeguards-retry', got '${value}'`,
+          };
+        }
+        out.forceRoute = value;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -169,6 +179,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     planOnly: out.planOnly ?? false,
     slug: out.slug,
     config: out.config,
+    forceRoute: out.forceRoute,
   };
 }
 
@@ -659,6 +670,13 @@ async function runDelegated(
   };
 }
 
+function isReviewGeminiOn(config: unknown): boolean {
+  if (typeof config !== "object" || config === null) return false;
+  const review = (config as Record<string, unknown>).review;
+  if (typeof review !== "object" || review === null) return false;
+  return (review as Record<string, unknown>).gemini === true;
+}
+
 export async function run(
   argv: string[],
   depsOverride?: Partial<Deps>,
@@ -672,16 +690,40 @@ export async function run(
   const deps = resolveDeps(parsed, depsOverride);
   const helperStartMs = deps.now();
 
-  const variant = resolveDelegateModel("claudeLenses", deps.readConfig);
+  // The safeguards retry runs the named lenses on the Gemini model even when
+  // delegation is off, but only for an owner who opted into Gemini review
+  // (`review.gemini === true`, the same gate the Gemini lens uses): a lens
+  // that cannot go to Gemini is returned as a fallback, which the caller
+  // records as a skip, never as a same-input Claude Task. A live cooldown is
+  // honoured for the same reason.
+  const forced = parsed.forceRoute === "safeguards-retry";
+  const geminiOptIn = !forced || isReviewGeminiOn(deps.readConfig());
+  const variant = forced
+    ? geminiOptIn
+      ? LENS_REROUTE_MODEL
+      : null
+    : resolveDelegateModel("claudeLenses", deps.readConfig);
   const slug = parsed.slug ?? deps.resolveSlug();
   const state = slug ? deps.loadState(slug) : null;
-  const routes: LensRoute[] = planLensRoutes({
-    lenses: parsed.lenses,
-    variant,
-    delegated: resolveDelegatedLenses(deps.readConfig),
-    taskModelFor: taskModelResolver(deps.readConfig, state),
-    cooldownLive: deps.readCooldown().live,
-  });
+  const routes: LensRoute[] = geminiOptIn
+    ? planLensRoutes({
+        lenses: parsed.lenses,
+        variant,
+        delegated: forced
+          ? parsed.lenses
+          : resolveDelegatedLenses(deps.readConfig),
+        taskModelFor: forced
+          ? () => null
+          : taskModelResolver(deps.readConfig, state),
+        cooldownLive: deps.readCooldown().live,
+      })
+    : parsed.lenses.map(
+        (lens): LensRoute => ({
+          lens,
+          route: "task",
+          reason: "gemini-lens-disabled",
+        }),
+      );
 
   if (parsed.planOnly) {
     persistRecord(parsed, deps, {
@@ -738,6 +780,7 @@ export async function run(
     // shouldArmCooldown, and a lens only a Gemini re-run recovered is not a
     // primary success.
     if (
+      !forced &&
       delegated.every((d) => d.reroutedFrom !== undefined) &&
       shouldArmCooldown(r.classes)
     ) {

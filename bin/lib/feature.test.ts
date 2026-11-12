@@ -234,6 +234,8 @@ import {
   type PipelineState,
 } from "./state";
 import { materializeSkillOverlay } from "./skill-overlay";
+import * as grantsModule from "./manager-grants";
+import { readManagerLog } from "./manager-log";
 
 let stateDir!: string;
 let repoDir!: string;
@@ -1440,6 +1442,34 @@ describe("kind: 'feature' stamped + @flow-kind published (Task 2 / Task 4)", () 
     expect(code).toBe(0);
     const createdAt = readState("csv-export", stateDir)?.createdAt;
     expect(Number.isNaN(Date.parse(createdAt ?? ""))).toBe(false);
+  });
+
+  it("keeps one createdAt across a tmux launch retry", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2030-01-01T00:00:00.000Z"));
+      tmuxMock.createWindowVerified
+        .mockImplementationOnce(() => {
+          vi.setSystemTime(new Date("2030-01-01T00:05:00.000Z"));
+          return { status: "failed", stderr: "transient" };
+        })
+        .mockReturnValueOnce({ status: "started", stderr: "" });
+      const code = runNew("csv export", {
+        stateDir,
+        cwd: repoDir,
+        command: ["true"],
+        retrySleepMs: 0,
+      });
+      expect(code).toBe(0);
+      expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(2);
+      expect(readState("csv-export", stateDir)?.createdAt).toBe(
+        "2030-01-01T00:00:00.000Z",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the prior createdAt when a launch overwrites an existing same-slug state", () => {
@@ -5318,5 +5348,161 @@ describe("private skill copy (flow-self and --skills-from launches)", () => {
     );
     expect(code).toBe(0);
     expect(fs.readdirSync(overlaysDir)).toEqual(["fresh-one"]);
+  });
+});
+
+describe("runFresh — withdraws a reused slug's pipeline grant (#1047)", () => {
+  let managerHome!: string;
+  const SLUG = "reused-slug";
+  const ownerGrant = (scope: string) => ({
+    scope,
+    classes: ["plan" as const],
+    grantedAt: "2026-10-01T00:00:00.000Z",
+    grantedBy: "owner-cli" as const,
+  });
+  const scopes = () => grantsModule.readGrants(managerHome).map((g) => g.scope);
+  const withdrawn = () =>
+    readManagerLog({ slug: SLUG }, managerHome).filter(
+      (e) => e.kind === "grant-withdrawn",
+    );
+
+  beforeEach(() => {
+    managerHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-mgr-"));
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(managerHome, { recursive: true, force: true });
+  });
+
+  it("a tmux create withdraws the leftover grant, logs slug-reused, and keeps unrelated grants", () => {
+    grantsModule.upsertGrant(ownerGrant(`pipeline:${SLUG}`), managerHome);
+    grantsModule.upsertGrant(ownerGrant("repo:flow"), managerHome);
+    grantsModule.upsertGrant(ownerGrant("pipeline:another"), managerHome);
+
+    const code = runNew("reused slug", {
+      stateDir,
+      cwd: repoDir,
+      managerHome,
+      command: ["true"],
+    });
+
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
+    expect(scopes().sort()).toEqual(["pipeline:another", "repo:flow"]);
+    expect(withdrawn()).toMatchObject([
+      { scope: `pipeline:${SLUG}`, reason: "slug-reused", slug: SLUG },
+    ]);
+    expect(
+      errors.filter((e) => e.includes("withdrew a leftover autonomy grant")),
+    ).toHaveLength(1);
+  });
+
+  it("prints a note when the withdrawal was not logged", () => {
+    vi.spyOn(grantsModule, "withdrawPipelineGrant").mockReturnValue({
+      removed: true,
+      logError: "boom",
+    });
+    const code = runNew("reused slug", {
+      stateDir,
+      cwd: repoDir,
+      managerHome,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    expect(
+      errors.filter((e) =>
+        e.includes("withdrawal for 'reused-slug' was not logged (boom)"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("a plain create withdraws the leftover grant before the launcher runs", async () => {
+    grantsModule.upsertGrant(ownerGrant(`pipeline:${SLUG}`), managerHome);
+    const calls: string[] = [];
+    const spawn = (
+      _argv: string[],
+      o: { cwd: string; env: NodeJS.ProcessEnv },
+    ) => {
+      calls.push(o.env.FLOW_SLUG!);
+      const raw = JSON.parse(
+        fs.readFileSync(path.join(stateDir, `${o.env.FLOW_SLUG}.json`), "utf8"),
+      );
+      writeState(
+        {
+          ...raw,
+          seedIngest: {
+            at: new Date().toISOString(),
+            outcome: "not-applicable",
+            reason: "no-seed-recorded",
+          },
+        },
+        stateDir,
+      );
+      return { pid: 777, exited: Promise.resolve(0) };
+    };
+
+    const code = await runFeatureCliStubbedReserve(
+      ["create", "reused", "slug"],
+      {
+        stateDir,
+        cwd: repoDir,
+        managerHome,
+        readConfig: () => ({}),
+        plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(calls).toEqual([SLUG]);
+    expect(scopes()).toEqual([]);
+    expect(withdrawn()).toMatchObject([{ reason: "slug-reused" }]);
+    expect(logs[0]).toBe(`flow:${SLUG}`);
+  });
+
+  it("writes no log line and prints no notice when there is no grant to withdraw", () => {
+    grantsModule.upsertGrant(ownerGrant("repo:flow"), managerHome);
+    expect(
+      runNew("reused slug", {
+        stateDir,
+        cwd: repoDir,
+        managerHome,
+        command: ["true"],
+      }),
+    ).toBe(0);
+    expect(withdrawn()).toEqual([]);
+    expect(fs.existsSync(path.join(managerHome, "log.jsonl"))).toBe(false);
+    expect(errors.join("\n")).not.toMatch(/leftover autonomy grant/);
+  });
+
+  it("warns naming `--autonomy off` and still launches when the withdraw throws", () => {
+    grantsModule.upsertGrant(ownerGrant(`pipeline:${SLUG}`), managerHome);
+    vi.spyOn(grantsModule, "withdrawPipelineGrant").mockImplementation(() => {
+      throw new Error("lock busy");
+    });
+
+    const code = runNew("reused slug", {
+      stateDir,
+      cwd: repoDir,
+      managerHome,
+      command: ["true"],
+    });
+
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
+    const warning = errors.find((e) => e.includes("could not withdraw"));
+    expect(warning).toContain("lock busy");
+    expect(warning).toContain(`flow grant pipeline:${SLUG} --autonomy off`);
+  });
+
+  it("resume of a live pipeline keeps its grant", () => {
+    seedState(SLUG);
+    grantsModule.upsertGrant(ownerGrant(`pipeline:${SLUG}`), managerHome);
+
+    runNew(SLUG, { resume: true, stateDir, managerHome });
+
+    expect(scopes()).toEqual([`pipeline:${SLUG}`]);
+    expect(withdrawn()).toEqual([]);
   });
 });

@@ -291,7 +291,13 @@ export function runPlanReview(
     });
   }
 
-  const { round, priorChallenges } = derivePlanRound(log, input.slug);
+  const createdAtMs = Date.parse(state?.createdAt ?? "");
+  const roundLog = Number.isFinite(createdAtMs)
+    ? log.filter(
+        (e) => e.slug !== input.slug || Date.parse(e.ts) >= createdAtMs,
+      )
+    : log;
+  const { round, priorChallenges } = derivePlanRound(roundLog, input.slug);
   const priorBlockingIds = priorChallenges.map((c) => c.id);
 
   let manifest: ReturnType<typeof loadManifestFromRepo> = null;

@@ -29,6 +29,7 @@ export function holderArgv(
 ): string[] {
   return [
     CAFFEINATE_PATH,
+    "-i",
     "-s",
     ...(watchPid === undefined ? [] : ["-w", String(watchPid)]),
     "-t",
@@ -96,13 +97,6 @@ const isHolder = (row: ProcRegistryRow): boolean =>
   row.argv[0] === CAFFEINATE_PATH ||
   row.argv[0]?.split("/").pop() === "caffeinate";
 
-function flagValue(argv: string[], flag: string): string | undefined {
-  const i = argv.indexOf(flag);
-  return i === -1 ? undefined : argv[i + 1];
-}
-
-const watchedPid = (argv: string[]) => flagValue(argv, "-w");
-
 function release(rows: ProcRegistryRow[], d: KeepAwakeDeps): void {
   for (const row of rows) {
     try {
@@ -135,15 +129,15 @@ export function syncKeepAwake(
     ...deps,
   };
   try {
-    if (d.envOff()) return { action: "none", skip: "env-off" };
     const holders = d
       .readRows(state.slug)
       .filter((r) => isHolder(r) && d.pidLive(r.pid) && d.isLive(r));
     const hold = (KEEP_AWAKE_HOLD_PHASES as ReadonlySet<string>).has(
       state.phase,
     );
-    const skip: KeepAwakeOutcome["skip"] =
-      d.platform !== "darwin"
+    const skip: KeepAwakeOutcome["skip"] = d.envOff()
+      ? "env-off"
+      : d.platform !== "darwin"
         ? "not-darwin"
         : !d.enabled()
           ? "disabled"
@@ -158,17 +152,21 @@ export function syncKeepAwake(
 
     const watchPid =
       state.pid !== undefined && d.pidLive(state.pid) ? state.pid : undefined;
-    const want = watchPid === undefined ? undefined : String(watchPid);
     const maxSec = d.maxSec();
+    const argv = holderArgv(watchPid, maxSec);
+    const renewAfterMs = Math.min(
+      KEEP_AWAKE_RENEW_AFTER_MS,
+      (maxSec * 1000) / 4,
+    );
     const now = d.nowMs();
     const fresh = holders
       .filter((r) => {
         const age = now - r.recordedAt;
         return (
-          watchedPid(r.argv) === want &&
-          flagValue(r.argv, "-t") === String(maxSec) &&
+          r.argv.length === argv.length &&
+          r.argv.every((a, i) => a === argv[i]) &&
           Number.isFinite(age) &&
-          age < KEEP_AWAKE_RENEW_AFTER_MS
+          age < renewAfterMs
         );
       })
       .sort((a, b) => b.recordedAt - a.recordedAt)[0];
@@ -180,7 +178,6 @@ export function syncKeepAwake(
       return { action: "kept" };
     }
 
-    const argv = holderArgv(watchPid, maxSec);
     const child = d.spawnDetached(argv);
     if (child === null) return { action: "none" };
     const startEpoch = d.startEpoch(child);

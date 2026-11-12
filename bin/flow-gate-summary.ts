@@ -378,6 +378,10 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   1. Attach (flow attach <slug>).
   2. Inspect <worktree>/.flow-tmp/coder-result.json (if present).
   3. Re-invoke the caller skill.`,
+  "coder-safeguards-stop": `Read the request IDs, fix any padded guidance file, then resume.
+  1. Read the request IDs in <worktree>/.flow-tmp/safeguards-retries.jsonl.
+  2. If a padded guidance file is named, run flow-safeguards compact --in-place <file> in that repository and commit.
+  3. ${CONTINUE_OR_RESUME_STEP}`,
   "smoketest-needs-creds": `Make the test-user credentials available, then reply done in the pipeline window.
   1. Run flow-ui-login check --manifest .flow/ui-validation.json — it prints names only. If a variable shows present: false, set it in your shell env or the worktree .env.
   2. If both show present: true, a refusal that repeats usually means a deny or ask rule in your own Claude settings matches flow-ui-login or the chrome-devtools fill tool. Remove that rule, then retry. Nothing is lost: the UI check is skipped, and the PR and its other checks are intact.
@@ -458,6 +462,10 @@ export const RECIPE_COMMANDS: Record<string, readonly string[]> = {
   "fix-applier-missing-artifact": ["git log"],
   "pr-review-missing-artifact": ["flow attach <slug>"],
   "coder-failed": ["flow attach <slug>"],
+  "coder-safeguards-stop": [
+    "flow-safeguards compact --in-place",
+    "flow feature resume <slug>",
+  ],
   "smoketest-needs-creds": ["flow feature resume <slug>"],
   "state-file-missing-on-start": ['flow feature create "<description>"'],
 };
@@ -569,6 +577,8 @@ export const WHY_BY_REASON: Record<string, string> = {
   "pr-review-missing-artifact":
     "The code review ended without writing its result.",
   "coder-failed": "The helper agent that applies code edits failed.",
+  "coder-safeguards-stop":
+    "The code-edit agent was stopped by Anthropic safeguards twice, including one automatic retry without its guidance reads.",
   "smoketest-needs-creds":
     "The UI check could not use the test-user credentials: they were not found, or a permission check refused access.",
   "state-file-missing-on-start":

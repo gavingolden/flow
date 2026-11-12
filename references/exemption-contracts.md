@@ -64,6 +64,12 @@ cross-model (Gemini) lens output when `review.gemini` is enabled. All
 seven lens/intent-guess agents run inside the supervisor's own in-process Skill load
 (`/flow-pr-review` has no `context: fork` directive).
 
+If Anthropic safeguards stop a lens agent, the wrapper may make
+at most one safeguards re-spawn per stopped agent — a fresh spawn inside this same
+exemption, not a ninth site; the alternative retry route is the existing
+delegated-lens Bash fan-out. See
+`skills/pipeline/flow-pipeline/references/safeguards-stop-retry.md`.
+
 ## `/flow-product-planning` Independent Discovery Subagent
 
 `/flow-pipeline` step 3 loads `/flow-product-planning`, which spawns one
@@ -218,6 +224,10 @@ found"), else `general-purpose` fallback emitting the `NOTICE — agent-fallback
 means a `SendMessage` continuation of its own partial result
 (`skills/pipeline/flow-pipeline/references/partial-result-continuation.md`) — and `/flow-coder`'s single skills-check continuation (its **Skills check** block) — stays inside this
 exemption — not an eighth site.
+
+A safeguards stop gets at most one safeguards re-spawn per `/flow-coder`
+invocation — a fresh spawn inside this same exemption, not a ninth site. See
+`skills/pipeline/flow-pipeline/references/safeguards-stop-retry.md`.
 
 ## `/flow-pr-review` Independent Consolidator-Validator Subagent
 

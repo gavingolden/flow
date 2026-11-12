@@ -23,6 +23,9 @@ export function summarize(r: PruneResult): string {
   return [
     `Dropped ${r.notesDropped} finished note(s) and ${r.grantsDropped} grant(s) of finished pipelines.`,
     `Summarised ${r.entriesRolled} log line(s) older than ${ROLLUP_AGE_DAYS} days into ${r.monthsRolled} monthly count(s) (their per-line detail is gone).`,
+    ...r.grantLogErrors.map(
+      (e) => `warning: grant withdrawn but not logged (${e})`,
+    ),
     `${r.openProposals} open proposal(s); status at ${r.statusPath}`,
   ].join("\n");
 }

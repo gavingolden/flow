@@ -25,7 +25,8 @@ export type LensRoute =
         | "delegation-off"
         | "not-in-delegated-set"
         | "fable-session-keeps-task"
-        | "agy-cooldown";
+        | "agy-cooldown"
+        | "gemini-lens-disabled";
     };
 
 export function planLensRoutes(o: {

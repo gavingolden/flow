@@ -106,7 +106,8 @@ origin HEAD`, never forced. Contract:
     `product`, brief-gated) plus one intent-guess agent, in one fan-out
     message re-fanned at most once on a widen (with delegation on, each wave is
     at most two Task messages: the `task`-routed lenses up front, then the
-    helper's `fallback` lenses).
+    helper's `fallback` lenses). A safeguards-stopped lens gets at most one
+    safeguards re-spawn inside this same exemption.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-product-planning`
     Independent Discovery Subagent.** Step 3's one discovery agent + one
     blind `flow-product-critic`.
@@ -124,7 +125,8 @@ origin HEAD`, never forced. Contract:
     when `/flow-new-feature` step 5, `/flow-verify` step 3, or
     `/flow-refactoring` step 3 takes its wider-scope path — or the
     supervisor's **interactive code-change redirect** path; full
-    contract in `skills/pipeline/flow-coder/SKILL.md`.
+    contract in `skills/pipeline/flow-coder/SKILL.md`. A safeguards stop gets
+    at most one safeguards re-spawn inside this same exemption.
   - **Task-tool exemption: `/flow-pipeline` → `/flow-pr-review` Independent
     Consolidator-Validator Subagent.** Step 3.5's one consolidator
     agent, default Sonnet.
