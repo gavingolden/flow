@@ -12,8 +12,10 @@ import {
   ALLOWED_SCOPE_KINDS,
   formatScope,
   identityForState,
+  originsFor,
   parseScope,
   readScope,
+  scopeOrigin,
   stateInScope,
   updateScope,
   type FocusNote,
@@ -40,7 +42,7 @@ function describe(
   return {
     scopes: (file?.scopes ?? []).map((scope) => ({
       scope,
-      origin: file?.source ?? "unknown",
+      origin: scopeOrigin(file, scope),
     })),
     focus: file?.focus ?? [],
     pendingResolve: file?.pendingResolve === true,
@@ -99,6 +101,16 @@ export function scopeWrite(
       scopes,
       updatedAt: deps.now.toISOString(),
       source: "owner-words",
+      ...(scopes.length > 0
+        ? {
+            origins: originsFor(
+              cur,
+              scopes,
+              op === "remove" ? [] : wanted,
+              "words",
+            ),
+          }
+        : {}),
       ...(focus.length > 0 ? { focus } : {}),
     };
     if (cur?.pendingResolve && !flags.resolved) file.pendingResolve = true;

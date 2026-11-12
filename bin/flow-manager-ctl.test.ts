@@ -108,10 +108,22 @@ describe("scope", () => {
     ]);
     expect(file?.pendingResolve).toBeUndefined();
     expect(file?.source).toBe("owner-words");
-    expect(JSON.parse(r.out).scopes[0]).toEqual({
-      scope: "repo:flow",
-      origin: "owner-words",
+    expect(JSON.parse(r.out).scopes).toEqual([
+      { scope: "repo:flow", origin: "flag" },
+      { scope: "repo:other", origin: "words" },
+    ]);
+    expect(file?.origins).toEqual({
+      "repo:flow": "flag",
+      "repo:other": "words",
     });
+  });
+
+  it("set marks the named entries as words, and remove drops an entry's origin", async () => {
+    await ctl("scope", "set", "--scope", "repo:a", "--scope", "epic:e1");
+    await ctl("scope", "remove", "--scope", "epic:e1");
+    expect(readScope(home)?.origins).toEqual({ "repo:a": "words" });
+    const shown = JSON.parse((await ctl("scope", "show")).out);
+    expect(shown.scopes).toEqual([{ scope: "repo:a", origin: "words" }]);
   });
 
   it("drops a focus note by id and rejects a malformed scope", async () => {

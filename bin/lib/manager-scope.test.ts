@@ -7,10 +7,12 @@ import {
   canonicalRepoName,
   formatScope,
   identityForState,
+  originsFor,
   parseScope,
   readScope,
   scopeCovers,
   scopeMatches,
+  scopeOrigin,
   specificity,
   stateInScope,
   updateScope,
@@ -206,6 +208,53 @@ describe("focus notes and updateScope", () => {
       return base;
     }, dir);
     expect(seen).toBeNull();
+  });
+});
+
+describe("per-entry origins", () => {
+  let home: string;
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "scopeorig-"));
+  });
+  afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
+  const put = (extra: object) =>
+    fs.writeFileSync(
+      path.join(home, "scope.json"),
+      JSON.stringify({
+        version: 1,
+        scopes: ["repo:a", "epic:e1"],
+        updatedAt: "t",
+        source: "cli",
+        ...extra,
+      }),
+    );
+
+  it("round-trips valid origins and drops malformed ones and ones for absent entries", () => {
+    put({
+      origins: {
+        "repo:a": "flag",
+        "epic:e1": "bogus",
+        "repo:gone": "words",
+      },
+    });
+    expect(readScope(home)?.origins).toEqual({ "repo:a": "flag" });
+    put({ origins: "nope" });
+    expect(readScope(home)?.origins).toBeUndefined();
+  });
+
+  it("falls back to the file-level source for an entry without an origin", () => {
+    put({ origins: { "repo:a": "words" } });
+    const f = readScope(home);
+    expect(scopeOrigin(f, "repo:a")).toBe("words");
+    expect(scopeOrigin(f, "epic:e1")).toBe("flag");
+    expect(scopeOrigin({ source: "owner-words" }, "x")).toBe("words");
+  });
+
+  it("originsFor marks the fresh entries and keeps the others' origin", () => {
+    put({ origins: { "repo:a": "flag" } });
+    expect(
+      originsFor(readScope(home), ["repo:a", "epic:e1"], ["epic:e1"], "words"),
+    ).toEqual({ "repo:a": "flag", "epic:e1": "words" });
   });
 });
 

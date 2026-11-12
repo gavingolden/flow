@@ -30,8 +30,10 @@ import {
   ALLOWED_SCOPE_KINDS,
   formatScope,
   identityForState,
+  originsFor,
   parseScope,
   readScope,
+  scopeOrigin,
   stateInScope,
   updateScope,
 } from "./manager-scope";
@@ -253,9 +255,15 @@ function printScopeAndGrants(
   showGrants: boolean,
 ): void {
   const file = readScope(home);
-  console.log(
-    `scope (${file?.source ?? "none"}): ${file?.scopes.join(", ") || "nothing yet"}`,
-  );
+  if (!file || file.scopes.length === 0) console.log("scope: nothing yet");
+  else {
+    console.log("scope:");
+    for (const sc of file.scopes) {
+      console.log(
+        `  ${sc} — from ${scopeOrigin(file, sc) === "flag" ? "a flag" : "your words"}`,
+      );
+    }
+  }
   for (const f of file?.focus ?? []) console.log(`focus [${f.id}]: ${f.text}`);
   if (!showGrants) return;
   for (const s of listStates(stateDir)) {
@@ -316,6 +324,7 @@ export function runManageCli(
           scopes: p.scopes,
           updatedAt: now.toISOString(),
           source: "cli",
+          origins: originsFor(cur, p.scopes, p.scopes, "flag"),
         }),
         home,
       );
@@ -346,6 +355,9 @@ export function runManageCli(
         scopes: p.scopes,
         updatedAt: now.toISOString(),
         source: "cli",
+        ...(p.scopes.length > 0
+          ? { origins: originsFor(null, p.scopes, p.scopes, "flag") }
+          : {}),
         ...(p.words
           ? {
               focus: [

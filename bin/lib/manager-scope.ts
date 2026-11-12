@@ -88,11 +88,16 @@ export type FocusNote = {
   from: "launch" | "owner-words";
 };
 
+/** Where one scope entry came from: a `--scope` flag the owner typed, or their words resolved by the manager. */
+export type ScopeOrigin = "flag" | "words";
+
 export type ScopeFile = {
   version: 1;
   scopes: string[];
   updatedAt: string;
   source: "cli" | "owner-words";
+  /** Per-entry origin keyed by the scope entry string; an entry without one falls back to `source`. */
+  origins?: Record<string, ScopeOrigin>;
   focus?: FocusNote[];
   pendingResolve?: boolean;
 };
@@ -127,6 +132,16 @@ export function readScope(home?: string): ScopeFile | null {
       const out: ScopeFile = { ...v };
       delete out.focus;
       delete out.pendingResolve;
+      delete out.origins;
+      if (typeof v.origins === "object" && v.origins !== null) {
+        const origins: Record<string, ScopeOrigin> = {};
+        for (const [k, o] of Object.entries(v.origins)) {
+          if (v.scopes.includes(k) && (o === "flag" || o === "words")) {
+            origins[k] = o;
+          }
+        }
+        if (Object.keys(origins).length > 0) out.origins = origins;
+      }
       if (Array.isArray(v.focus)) out.focus = v.focus.filter(isFocusNote);
       if (typeof v.pendingResolve === "boolean") {
         out.pendingResolve = v.pendingResolve;
@@ -137,6 +152,32 @@ export function readScope(home?: string): ScopeFile | null {
   } catch {
     return null;
   }
+}
+
+/** The origin of one entry; a file written before per-entry origins falls back to its file-level `source`. */
+export function scopeOrigin(
+  file: Pick<ScopeFile, "source" | "origins"> | null,
+  scope: string,
+): ScopeOrigin {
+  return (
+    file?.origins?.[scope] ??
+    (file?.source === "owner-words" ? "words" : "flag")
+  );
+}
+
+/** Origins for exactly these entries: the ones named in `fresh` get `origin`, the rest keep what they had. */
+export function originsFor(
+  cur: Pick<ScopeFile, "source" | "origins"> | null,
+  scopes: string[],
+  fresh: string[],
+  origin: ScopeOrigin,
+): Record<string, ScopeOrigin> {
+  return Object.fromEntries(
+    scopes.map((sc) => [
+      sc,
+      fresh.includes(sc) ? origin : scopeOrigin(cur, sc),
+    ]),
+  );
 }
 
 /** Locked read-modify-write, so scope entries and focus notes always change together. */

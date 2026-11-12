@@ -143,7 +143,26 @@ describe("runManageCli", () => {
     logs.length = 0;
     expect(runManageCli([], opts())).toBe(0);
     expect(readScope(home)?.scopes).toEqual(["repo:flow"]);
-    expect(logs[0]).toContain("repo:flow");
+    expect(logs.join("\n")).toContain("repo:flow — from a flag");
+  });
+
+  it("marks flag entries as such and prints words-resolved entries as from your words", () => {
+    runManageCli(["watch it", "--scope", "repo:flow"], opts());
+    expect(readScope(home)?.origins).toEqual({ "repo:flow": "flag" });
+    updateScope(
+      (cur) => ({
+        ...cur!,
+        scopes: ["repo:flow", "epic:e1"],
+        origins: { "repo:flow": "flag", "epic:e1": "words" },
+      }),
+      home,
+    );
+    fs.rmSync(path.join(home, "manager.json"));
+    logs.length = 0;
+    runManageCli([], opts());
+    const out = logs.join("\n");
+    expect(out).toContain("repo:flow — from a flag");
+    expect(out).toContain("epic:e1 — from your words");
   });
 
   it("refuses a bare launch with nothing saved, and refuses without tmux", () => {
