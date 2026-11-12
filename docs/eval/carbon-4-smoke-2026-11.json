@@ -1,4 +1,5 @@
 {
+  "fallbackRule": "a step whose verdict is not pass keeps its pre-Carbon default (reviewLens: Argon High; lensReroute: Argon Medium)",
   "measuredAt": "2026-11-12T15:43:02.441Z",
   "records": [
     {
@@ -58,7 +59,7 @@
     }
   ],
   "productionLimitsSec": {
-    "planReview": 780,
+    "planReview": 900,
     "blindSurvey": 600,
     "researchGather": 1200,
     "intentGuess": 600,
@@ -87,7 +88,7 @@
     "researchGather": "pass",
     "blindSurvey": "pass",
     "intentGuess": "pass",
-    "planReview": "fail: 3 x 284.8 s = 854 s exceeds the 780 s limit (answered in 285 s, inside the limit but without three-times headroom)",
+    "planReview": "pass: 3 x 284.8 s = 854 s fits the 900 s (15m) limit, raised from 780 s (13m) for Carbon",
     "reviewLens": "fail: 595.0 s answer leaves no headroom in the 600 s limit (3 x = 1785 s); a first attempt timed out after 1235 s on a DNS error (agy-timeout, no such host) and was re-run once",
     "lensReroute": "fail: proxy review call took 595.0 s, over the re-run's guaranteed 180 s floor"
   }

@@ -1732,11 +1732,11 @@ describe("maxElapsedSec", () => {
 });
 
 describe("maxElapsedSec — the minutes written in the docs", () => {
-  // The source comment, the PR description and the docs state "18 minutes
-  // standard, 33 deep"; re-sizing a reviewer limit must update them together.
-  it("is 18 minutes on the standard tier and 33 on the deep tier", () => {
-    expect(maxElapsedSec("standard")).toBe(18 * 60);
-    expect(maxElapsedSec("deep")).toBe(33 * 60);
+  // The source comment, the PR description and the docs state "20 minutes
+  // standard, 35 deep"; re-sizing a reviewer limit must update them together.
+  it("is 20 minutes on the standard tier and 35 on the deep tier", () => {
+    expect(maxElapsedSec("standard")).toBe(20 * 60);
+    expect(maxElapsedSec("deep")).toBe(35 * 60);
   });
 });
 

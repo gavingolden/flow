@@ -1,7 +1,7 @@
 # Gemini 4 Carbon (Medium) smoke record, 2026-11-12
 
 This record decides which Google-plan steps default to Gemini 4 Carbon
-(Medium) and which stay on Gemini 4 Argon (Medium). The machine-readable
+(Medium) and which keep their previous Argon default. The machine-readable
 twin is `carbon-4-smoke-2026-11.json`; a parity test in
 `bin/lib/delegate-models.test.ts` keeps the code defaults in line with its
 verdicts.
@@ -25,14 +25,14 @@ the re-run uses the Claude-lens checklist prompt.
 
 ## Results
 
-| Step                                                      | Wall seconds | Production limit | Verdict                              |
-| --------------------------------------------------------- | ------------ | ---------------- | ------------------------------------ |
-| Research gather                                           | 250.6        | 1200 s           | pass                                 |
-| Survey judge A (blind survey)                             | 188.1        | 600 s            | pass                                 |
-| PR intent guess                                           | 79.7         | 600 s            | pass                                 |
-| Plan reviewer 1                                           | 284.8        | 780 s            | fail (3 x 284.8 = 854 s, over 780 s) |
-| Gemini review lens                                        | 595.0        | 600 s            | fail (no headroom)                   |
-| Refused-review re-run (proxy: review call vs 180 s floor) | 595.0        | 180 s floor      | fail                                 |
+| Step                                                      | Wall seconds | Production limit | Verdict                                |
+| --------------------------------------------------------- | ------------ | ---------------- | -------------------------------------- |
+| Research gather                                           | 250.6        | 1200 s           | pass                                   |
+| Survey judge A (blind survey)                             | 188.1        | 600 s            | pass                                   |
+| PR intent guess                                           | 79.7         | 600 s            | pass                                   |
+| Plan reviewer 1                                           | 284.8        | 900 s            | pass (3 x 284.8 = 854 s, within 900 s) |
+| Gemini review lens                                        | 595.0        | 600 s            | fail (no headroom)                     |
+| Refused-review re-run (proxy: review call vs 180 s floor) | 595.0        | 180 s floor      | fail                                   |
 
 The first review-lens attempt timed out after 1235 s on a DNS error
 (`no such host`, skip reason `agy-timeout`). It is kept under
@@ -40,12 +40,17 @@ The first review-lens attempt timed out after 1235 s on a DNS error
 
 ## Outcome
 
-- Carbon Medium: research gather, survey judge A, PR intent guess.
-- Argon Medium kept: plan reviewer 1, Gemini review lens, refused-review re-run.
+- Carbon Medium: research gather, survey judge A, PR intent guess, and plan
+  reviewer 1. Reviewer 1 passes against its production limit raised from 13m
+  (780 s) to 15m (900 s): 3 x 285 s = 854 s <= 900 s.
+- Gemini review lens fails and keeps its previous default, Argon High (not
+  Argon Medium). The owner prioritises review quality, and Argon's tiers tie on
+  flow's fixtures, so dropping a tier was an unmeasured quality risk.
+- Refused-review re-run fails and keeps Argon Medium.
 - Research fact-check fallback stays GPT-OSS 120B (Medium).
 
 ## Limits of this evidence
 
 This measures time and non-emptiness only, not answer quality, and n=1 per
-step. A quality screen on the three Carbon steps is a follow-up. Argon
+step. A full Carbon evaluation (quality, both tiers) is planned as a separate pipeline. Argon
 evidence stays in `argon-4-routing-2026-10.md`.

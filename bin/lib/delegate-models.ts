@@ -50,13 +50,14 @@ export type DelegateSurface =
 export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
   // Evidence: docs/eval/carbon-4-smoke-2026-11.md (a smoke of time and
   // non-emptiness, n=1 per step) decides Carbon vs Argon per step; prior
-  // quality evidence is docs/eval/argon-4-routing-2026-10.md. Steps whose
-  // smoke failed stay on the Argon Medium fallback tier.
+  // quality evidence is docs/eval/argon-4-routing-2026-10.md. Carbon Medium
+  // where the smoke gate passed; a step that failed keeps its pre-Carbon
+  // default; full Carbon evaluation pending a separate eval.
   intentGuess: "Gemini 4 Carbon (Medium)",
   researchGather: "Gemini 4 Carbon (Medium)",
   blindSurvey: "Gemini 4 Carbon (Medium)",
-  planReview: "Gemini 4 Argon (Medium)",
-  reviewLens: "Gemini 4 Argon (Medium)",
+  planReview: "Gemini 4 Carbon (Medium)",
+  reviewLens: "Gemini 4 Argon (High)",
   // The Gemini re-run of a Claude review lens the content filter refused.
   lensReroute: "Gemini 4 Argon (Medium)",
   // Structural holds: the adversarial / second voter must be a different

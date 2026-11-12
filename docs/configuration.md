@@ -546,20 +546,22 @@ delegate surface — distinct from `models.*` above, which routes the
 `flow-delegate` accepts on `--model`, not the slug form `agy models`
 emits). For the six Gemini steps, defaults come from the smoke record
 [Carbon 4 smoke, 2026-11](eval/carbon-4-smoke-2026-11.md): steps whose
-smoke passed default to Carbon (Medium), the rest to the Argon (Medium)
-fallback tier; the Claude-held steps keep their structural defaults. Absent key = today's default for that surface; a present but
+smoke passed (intent guess, research gather, blind survey, plan reviewer 1,
+whose limit is now 15m) default to Carbon (Medium); the Gemini review lens and
+its refused-review re-run kept their previous Argon defaults (High and Medium);
+the Claude-held steps keep their structural defaults. Absent key = today's default for that surface; a present but
 wrong-typed value warns on stderr and falls back to the default; never
 throws.
 
 | surface                  | what it drives                                                                                                                                                                            | default today              |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
 | `intentGuess`            | `/flow-pr-review` cross-model intent guess                                                                                                                                                | `Gemini 4 Carbon (Medium)` |
-| `reviewLens`             | `/flow-pr-review` Gemini review lens                                                                                                                                                      | `Gemini 4 Argon (Medium)`  |
+| `reviewLens`             | `/flow-pr-review` Gemini review lens                                                                                                                                                      | `Gemini 4 Argon (High)`    |
 | `lensReroute`            | `/flow-pr-review` Gemini re-run of a Claude review lens the content filter refused; a Claude value is ignored with a warning and the default is used                                      | `Gemini 4 Argon (Medium)`  |
 | `researchGather`         | forced-research gather pass                                                                                                                                                               | `Gemini 4 Carbon (Medium)` |
 | `researchRefute`         | forced-research adversarial refute pass                                                                                                                                                   | `Claude Opus 5.5 (Medium)` |
 | `researchRefuteFallback` | forced-research fact-check fallback: second refute voter, and the stand-in refuter when `researchRefute` equals `researchGather`                                                          | `GPT-OSS 120B (Medium)`    |
-| `planReview`             | `/flow-pipeline` step 3 plan review, reviewer 1                                                                                                                                           | `Gemini 4 Argon (Medium)`  |
+| `planReview`             | `/flow-pipeline` step 3 plan review, reviewer 1                                                                                                                                           | `Gemini 4 Carbon (Medium)` |
 | `planReviewSecond`       | `/flow-pipeline` step 3 plan review, deep-tier reviewer 2; falls back to Claude Code (`opus`, high effort) when agy cannot serve it                                                       | `Claude Opus 5.5 (High)`   |
 | `blindSurvey`            | `/flow-pipeline` step 3 blind method survey, judge A                                                                                                                                      | `Gemini 4 Carbon (Medium)` |
 | `blindSurveySecond`      | `/flow-pipeline` step 3 blind method survey, judge B; when equal to `blindSurvey` the helper falls back to the other pinned default and warns                                             | `Claude Opus 5.5 (High)`   |

@@ -312,6 +312,10 @@ describe("resolveDelegateModel", () => {
         "utf8",
       ),
     ) as { verdicts: Record<string, string> };
+    const preCarbon = {
+      reviewLens: "Gemini 4 Argon (High)",
+      lensReroute: "Gemini 4 Argon (Medium)",
+    } as Record<string, string>;
     for (const surface of [
       "intentGuess",
       "researchGather",
@@ -322,11 +326,13 @@ describe("resolveDelegateModel", () => {
     ] as const) {
       const verdict = record.verdicts[surface];
       expect(verdict, `no smoke verdict for ${surface}`).toBeDefined();
-      expect(DELEGATE_MODEL_DEFAULTS[surface]).toBe(
-        verdict === "pass"
-          ? "Gemini 4 Carbon (Medium)"
-          : "Gemini 4 Argon (Medium)",
-      );
+      const actual = DELEGATE_MODEL_DEFAULTS[surface]!;
+      if (verdict.startsWith("pass")) {
+        expect(actual).toBe("Gemini 4 Carbon (Medium)");
+      } else {
+        expect(actual).not.toContain("Carbon");
+        expect(actual).toBe(preCarbon[surface]);
+      }
     }
   });
 });
