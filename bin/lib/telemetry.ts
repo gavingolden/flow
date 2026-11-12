@@ -40,6 +40,8 @@ export const TELEMETRY_EVENTS = [
   "explain.judge",
   "exec.review",
   "plan-review.fallback",
+  "manager.wake",
+  "manager.heartbeat",
 ] as const;
 
 export type TelemetryEventName = (typeof TELEMETRY_EVENTS)[number];

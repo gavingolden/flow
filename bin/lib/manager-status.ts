@@ -48,7 +48,10 @@ export type StatusView = {
 type StatusExtra = {
   openProposals: number;
   liveNotes: number;
+  /** Local HH:MM of the waiter's last pass, bucketed to the minute so liveness alone rewrites the file at most once a minute. */
   aliveAt?: string;
+  /** One line shown under the header, e.g. the executive's daily limit being reached. */
+  budgetLine?: string;
 };
 
 export function renderManagerStatus(
@@ -75,8 +78,9 @@ export function renderManagerStatus(
   const lines = [
     "# Manager status",
     "",
-    `Generated ${now.toISOString()} · open proposals: ${extra.openProposals} · live notes: ${extra.liveNotes}${extra.aliveAt ? ` · manager alive ${extra.aliveAt}` : ""}`,
+    `Generated ${now.toISOString()} · open proposals: ${extra.openProposals} · live notes: ${extra.liveNotes}${extra.aliveAt ? ` · watcher last alive at ${extra.aliveAt}` : ""}`,
     "",
+    ...(extra.budgetLine ? [extra.budgetLine, ""] : []),
   ];
   if (rows.length === 0) {
     lines.push("No unfinished pipelines.");
