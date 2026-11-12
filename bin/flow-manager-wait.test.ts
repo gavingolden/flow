@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { run, parseArgs, type WaitDeps } from "./flow-manager-wait";
+import { appendManagerLog } from "./lib/manager-log";
 import { readProposals } from "./lib/manager-proposals";
 import { updateScope } from "./lib/manager-scope";
 import { readWaiter, writeWaiter } from "./lib/manager-waiter";
@@ -49,8 +50,8 @@ type Harness = {
   tick: number;
   onSleep: Array<(n: number) => void>;
 };
-function harness(onSleep: (n: number) => void = () => {}): Harness {
-  let t = T0;
+function harness(onSleep: (n: number) => void = () => {}, start = T0): Harness {
+  let t = start;
   const h: Harness = {
     lines: [],
     notified: [],
@@ -248,5 +249,50 @@ describe("flow-manager-wait", () => {
     const sends = h.notified.filter((a) => a.includes("--reason"));
     expect(sends).toHaveLength(1);
     expect(sends[0]).toContain("a");
+  });
+
+  it("puts a pipeline back in the needs-you list when its ruling goes unaccepted for 15 minutes, once", async () => {
+    put("a", "plan-pending-review");
+    appendManagerLog(
+      {
+        ts: new Date(T0 + 1000).toISOString(),
+        kind: "ruling-written",
+        repo: "flow",
+        slug: "a",
+        phase: "plan-pending-review",
+        key: "ruling:r-1",
+      },
+      { home },
+    );
+    const h = harness();
+    await run(["--max-sec", "1200", "--settle", "0"], h.deps);
+    const r = result(h);
+    expect(r.outcome).toBe("wake");
+    expect(r.events).toEqual([
+      { kind: "ruling-unpicked", slug: "a", repo: "flow", ruling: "r-1" },
+    ]);
+    const status = fs.readFileSync(path.join(home, "status.md"), "utf8");
+    expect(status).toContain("approval not picked up — answer in window a");
+    h.lines.length = 0;
+    fs.rmSync(path.join(home, "wake.json"));
+    const again = harness(() => {}, T0 + 1_300_000);
+    await run(["--max-sec", "30", "--settle", "0"], again.deps);
+    expect(result(again).outcome).toBe("timeout");
+  });
+
+  it("--stop-when-idle with an empty scope never reports idle", async () => {
+    updateScope(
+      () => ({
+        version: 1,
+        scopes: [],
+        updatedAt: new Date(T0).toISOString(),
+        source: "owner-words",
+      }),
+      home,
+    );
+    put("a", "gated");
+    const h = harness();
+    await run(["--stop-when-idle", "--max-sec", "30"], h.deps);
+    expect(result(h).outcome).toBe("timeout");
   });
 });

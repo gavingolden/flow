@@ -75,7 +75,7 @@ export function readWake(home?: string): WakeFile | null {
 }
 
 const eventKey = (e: WakeEvent): string =>
-  [e.kind, e.slug ?? "", e.from ?? "", e.to ?? ""].join("|");
+  [e.kind, e.slug ?? "", e.from ?? "", e.to ?? "", e.ruling ?? ""].join("|");
 
 export function mergeEvents(a: WakeEvent[], b: WakeEvent[]): WakeEvent[] {
   const seen = new Set<string>();

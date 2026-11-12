@@ -3,9 +3,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stateInScope, type ScopeFile } from "./manager-scope";
+import type { ManagerLogEntry } from "./manager-log";
 import {
   diffSnapshot,
   readSeen,
+  RULING_PICKUP_MS,
+  unpickedRulings,
   writeSeen,
   type SeenStore,
 } from "./manager-wait";
@@ -212,6 +215,134 @@ describe("diffSnapshot", () => {
       stopWhenIdle: true,
     });
     expect(kinds(busy)).not.toContain("idle");
+  });
+});
+
+describe("idle with an empty scope", () => {
+  const idleOpts = (s: ScopeFile | null) => ({
+    ...opts(s),
+    stopWhenIdle: true,
+  });
+
+  it("never fires when the scope has no entries or matches no pipeline", () => {
+    const empty: ScopeFile = { ...scope, scopes: [] };
+    const gated = st({
+      phase: "gated",
+      phaseLog: [{ phase: "gated", at: T0 }],
+    });
+    for (const sc of [empty, { ...scope, scopes: ["repo:nothing"] }]) {
+      const seen = baseline([gated], sc);
+      expect(kinds(diffSnapshot(seen, [gated], NOW, idleOpts(sc)))).toEqual([]);
+      expect(kinds(diffSnapshot(seen, [], NOW, idleOpts(sc)))).toEqual([]);
+    }
+  });
+
+  it("still fires once every pipeline the scope covered has finished and its state is gone", () => {
+    const gated = st({
+      phase: "gated",
+      phaseLog: [{ phase: "gated", at: T0 }],
+    });
+    const seen = baseline([gated]);
+    expect(kinds(diffSnapshot(seen, [], NOW, idleOpts(scope)))).toContain(
+      "idle",
+    );
+  });
+});
+
+describe("unaccepted rulings", () => {
+  const WRITTEN = "2026-11-12T00:30:00.000Z";
+  const paused = (over: Partial<PipelineState> = {}) =>
+    st({
+      phase: "plan-pending-review",
+      phaseLog: [{ phase: "plan-pending-review", at: T0 }],
+      ...over,
+    });
+  const written = (
+    id = "r-1",
+    over: Partial<ManagerLogEntry> = {},
+  ): ManagerLogEntry => ({
+    ts: WRITTEN,
+    kind: "ruling-written",
+    repo: "flow",
+    slug: "a",
+    phase: "plan-pending-review",
+    key: `ruling:${id}`,
+    ...over,
+  });
+  const accepted = (id = "r-1"): ManagerLogEntry => ({
+    ...written(id),
+    kind: "ruling-accepted",
+  });
+  const at = (ms: number) => new Date(Date.parse(WRITTEN) + ms);
+
+  it("is quiet before 15 minutes and lists the ruling after", () => {
+    expect(
+      unpickedRulings([written()], [paused()], at(RULING_PICKUP_MS - 1)),
+    ).toEqual([]);
+    expect(
+      unpickedRulings([written()], [paused()], at(RULING_PICKUP_MS)),
+    ).toEqual([{ id: "r-1", slug: "a" }]);
+  });
+
+  it("drops an accepted ruling, a moved-on pipeline and a re-entered phase", () => {
+    const later = at(RULING_PICKUP_MS);
+    expect(unpickedRulings([written(), accepted()], [paused()], later)).toEqual(
+      [],
+    );
+    expect(
+      unpickedRulings([written()], [st({ phase: "implementing" })], later),
+    ).toEqual([]);
+    expect(
+      unpickedRulings(
+        [written()],
+        [
+          paused({
+            phaseLog: [
+              { phase: "plan-pending-review", at: "2026-11-12T00:45:00.000Z" },
+            ],
+          }),
+        ],
+        at(60 * 60_000),
+      ),
+    ).toEqual([]);
+  });
+
+  it("emits one ruling-unpicked event per ruling id for an in-scope pipeline, never twice", () => {
+    const states = [paused()];
+    const seen = baseline(states);
+    const unpicked = [{ id: "r-1", slug: "a" }];
+    const first = diffSnapshot(seen, states, NOW, { ...opts(), unpicked });
+    expect(first.events).toEqual([
+      { kind: "ruling-unpicked", slug: "a", repo: "flow", ruling: "r-1" },
+    ]);
+    expect(first.next.rulingsFired).toEqual(["r-1"]);
+    const again = diffSnapshot(first.next, states, NOW, {
+      ...opts(),
+      unpicked,
+    });
+    expect(again.events).toEqual([]);
+    const gone = diffSnapshot(first.next, states, NOW, opts());
+    expect(gone.next.rulingsFired).toBeUndefined();
+  });
+
+  it("stays silent for an out-of-scope pipeline and on the baseline pass", () => {
+    const out = other({
+      phase: "plan-pending-review",
+      phaseLog: [{ phase: "plan-pending-review", at: T0 }],
+    });
+    const seen = baseline([out]);
+    expect(
+      diffSnapshot(seen, [out], NOW, {
+        ...opts(),
+        unpicked: [{ id: "r-9", slug: "o" }],
+      }).events,
+    ).toEqual([]);
+    const base = diffSnapshot(null, [paused()], NOW, {
+      ...opts(),
+      unpicked: [{ id: "r-1", slug: "a" }],
+    });
+    expect(base.events).toEqual([]);
+    expect(base.next.rulingsFired).toEqual(["r-1"]);
   });
 });
 

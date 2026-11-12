@@ -11,6 +11,7 @@
 import * as fs from "node:fs";
 import { OWNER_NEEDED_PHASES } from "./epic-manage-board";
 import { managerFile, managerHome, writeJsonAtomic } from "./manager-home";
+import type { ManagerLogEntry } from "./manager-log";
 import { isWakePhase } from "./manager-phases";
 import { repoNameForPath, type ScopeFile } from "./manager-scope";
 import { FINISHED_PHASE_SET, type PipelineState } from "./state";
@@ -33,6 +34,8 @@ export type SeenStore = {
   version: 1;
   baselinedAt: string;
   scopeUpdatedAt?: string;
+  /** Ruling ids a `ruling-unpicked` event already fired for; pruned once a ruling is accepted or stale. */
+  rulingsFired?: string[];
   pipelines: Record<string, SeenEntry>;
 };
 
@@ -45,7 +48,8 @@ export type WakeEventKind =
   | "idle"
   | "checkpoint-idle"
   | "scope-changed"
-  | "new-candidate";
+  | "new-candidate"
+  | "ruling-unpicked";
 
 export type WakeEvent = {
   kind: WakeEventKind;
@@ -54,10 +58,13 @@ export type WakeEvent = {
   epic?: string;
   from?: string;
   to?: string;
+  /** `ruling-unpicked` only: the ruling the pipeline never accepted. */
+  ruling?: string;
 };
 
 export const STALE_DAYS = 7;
 export const CHECKPOINT_IDLE_MS = 10 * 60_000;
+export const RULING_PICKUP_MS = 15 * 60_000;
 const GONE_AFTER_POLLS = 2;
 const DAY_MS = 86_400_000;
 
@@ -77,6 +84,47 @@ export function ownerNeededKey(s: PipelineState): string {
   return `${s.slug}:${s.phase}:${s.phaseLog?.length ?? 0}`;
 }
 
+export type UnpickedRuling = { id: string; slug: string };
+
+/**
+ * Rulings the manager wrote more than 15 minutes ago that the pipeline never
+ * accepted, while it still sits in the phase the ruling was written for. A
+ * ruling whose phase was re-entered since is stale, not unpicked.
+ */
+export function unpickedRulings(
+  log: ManagerLogEntry[],
+  states: PipelineState[],
+  now: Date,
+): UnpickedRuling[] {
+  const accepted = new Set(
+    log.filter((e) => e.kind === "ruling-accepted").map((e) => e.key),
+  );
+  const bySlug = new Map(states.map((s) => [s.slug, s]));
+  const out: UnpickedRuling[] = [];
+  for (const e of log) {
+    if (e.kind !== "ruling-written" || !e.key || !e.slug) continue;
+    if (accepted.has(e.key)) continue;
+    const written = Date.parse(e.ts);
+    if (
+      !Number.isFinite(written) ||
+      now.getTime() - written < RULING_PICKUP_MS
+    ) {
+      continue;
+    }
+    const s = bySlug.get(e.slug);
+    if (
+      !s ||
+      FINISHED_PHASE_SET.has(s.phase) ||
+      s.phase !== e.phase ||
+      Date.parse(enteredAt(s)) > written
+    ) {
+      continue;
+    }
+    out.push({ id: e.key.replace(/^ruling:/, ""), slug: e.slug });
+  }
+  return out;
+}
+
 export function diffSnapshot(
   seen: SeenStore | null,
   states: PipelineState[],
@@ -85,6 +133,7 @@ export function diffSnapshot(
     inScope: (s: PipelineState) => boolean;
     scope: ScopeFile | null;
     stopWhenIdle?: boolean;
+    unpicked?: UnpickedRuling[];
   },
 ): { events: WakeEvent[]; next: SeenStore } {
   const events: WakeEvent[] = [];
@@ -180,6 +229,23 @@ export function diffSnapshot(
     }
   }
 
+  const unpicked = opts.unpicked ?? [];
+  const fired = new Set(seen?.rulingsFired ?? []);
+  for (const u of unpicked) {
+    if (fired.has(u.id)) continue;
+    fired.add(u.id);
+    const s = states.find((x) => x.slug === u.slug);
+    if (!baseline && s && opts.inScope(s)) {
+      events.push({
+        kind: "ruling-unpicked",
+        slug: u.slug,
+        repo: repoNameForPath(s.repo),
+        ruling: u.id,
+      });
+    }
+  }
+  const rulingsFired = unpicked.map((u) => u.id).filter((id) => fired.has(id));
+
   const scopeUpdatedAt = opts.scope?.updatedAt;
   if (
     !baseline &&
@@ -191,10 +257,14 @@ export function diffSnapshot(
   }
 
   if (!baseline && opts.stopWhenIdle) {
+    // An empty or unmatched scope has nothing to be idle about: it never stops the manager.
+    const everScoped =
+      states.some((s) => opts.inScope(s)) ||
+      Object.values(seen?.pipelines ?? {}).some((p) => p.scoped);
     const idle = states
       .filter((s) => opts.inScope(s) && !FINISHED_PHASE_SET.has(s.phase))
       .every((s) => OWNER_NEEDED_PHASES.has(s.phase));
-    if (idle) events.push({ kind: "idle" });
+    if (everScoped && idle) events.push({ kind: "idle" });
   }
 
   return {
@@ -203,6 +273,7 @@ export function diffSnapshot(
       version: 1,
       baselinedAt: seen?.baselinedAt ?? now.toISOString(),
       ...(scopeUpdatedAt ? { scopeUpdatedAt } : {}),
+      ...(rulingsFired.length > 0 ? { rulingsFired } : {}),
       pipelines,
     },
   };

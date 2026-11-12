@@ -49,6 +49,21 @@ describe("renderManagerStatus", () => {
     expect(out).toContain("open proposals: 2 · live notes: 1");
   });
 
+  it("says an unaccepted ruling's pipeline needs an answer in its own window", () => {
+    const out = renderManagerStatus(
+      [state({ slug: "stuck", phase: "plan-pending-review" })],
+      NOW,
+      { ...extra, unpicked: ["stuck"] },
+    );
+    expect(out).toContain("approval not picked up — answer in window stuck");
+    const plain = renderManagerStatus(
+      [state({ slug: "stuck", phase: "plan-pending-review" })],
+      NOW,
+      extra,
+    );
+    expect(plain).not.toContain("not picked up");
+  });
+
   it("measures the wait from the last phaseLog entry for the current phase", () => {
     const out = renderManagerStatus(
       [

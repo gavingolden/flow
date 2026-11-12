@@ -10,11 +10,14 @@
  *   log --kind manager-decision --slug <s> --reason <text>
  *   proposal add --kind <k> --text <t> [--slug <s>] [--epic <e>] [--repo <r>] [--recommendation <t>]
  *   proposal list | proposal answer <id> --answer <text>
+ *   ruling write --slug <s> --reply approve|redirect|answer --source manager|owner
+ *                --reason <text> [--text <t>] [--decision <id>]
+ *                prints the peer-message text `RULING <id>` to send the pipeline
  *   scope set|add|remove [--scope <s>]… [--focus <text>]… [--drop-focus <id>]… [--resolved]
  *   scope show | scope candidates
  *   ack                        the manager has handled the last wake
  *
- * Exit 0 ok, 2 bad arguments, 3 out of scope.
+ * Exit 0 ok, 2 bad arguments, 3 out of scope or a refused ruling.
  */
 
 import { randomBytes } from "node:crypto";
@@ -36,6 +39,11 @@ import {
   scopeWrite,
   type ScopeFlags,
 } from "./lib/manager-ctl-scope";
+import {
+  writeRuling,
+  type RulingReply,
+  type RulingSource,
+} from "./lib/manager-rulings";
 import { ackWake } from "./lib/manager-waiter";
 import { readState, listStates } from "./lib/state";
 
@@ -180,13 +188,52 @@ export async function run(argv: string[], deps: CtlDeps = {}): Promise<number> {
       }
       return bad("scope needs set|add|remove|show|candidates");
     }
+    case "ruling": {
+      if (sub !== "write") return bad("ruling needs write");
+      const slug = flag("slug");
+      const reply = flag("reply");
+      const source = flag("source");
+      const reason = flag("reason");
+      const text = flag("text");
+      if (
+        !slug ||
+        !reason ||
+        !["approve", "redirect", "answer"].includes(reply ?? "") ||
+        !["manager", "owner"].includes(source ?? "")
+      ) {
+        return bad(
+          "ruling write needs --slug, --reply approve|redirect|answer, --source manager|owner and --reason",
+        );
+      }
+      if (reply !== "approve" && !text) {
+        return bad(`a ${reply} ruling needs --text`);
+      }
+      if (!slugInScope(slug)) return refuse();
+      const r = writeRuling(
+        {
+          slug,
+          reply: reply as RulingReply,
+          source: source as RulingSource,
+          reason,
+          ...(text ? { text } : {}),
+          ...(flag("decision") ? { decisionId: flag("decision") } : {}),
+        },
+        { home, stateDir, now },
+      );
+      out(
+        JSON.stringify(
+          r.ok ? { ok: true, id: r.ruling.id, message: r.message } : r,
+        ),
+      );
+      return r.ok ? 0 : 3;
+    }
     case "ack":
       ackWake(home);
       out(JSON.stringify({ ok: true }));
       return 0;
     default:
       return bad(
-        "usage: flow-manager-ctl brief|digest|log|proposal|scope|ack …",
+        "usage: flow-manager-ctl brief|digest|log|proposal|ruling|scope|ack …",
       );
   }
 }

@@ -53,6 +53,8 @@ type StatusExtra = {
   aliveAt?: string;
   /** One line shown under the header, e.g. the executive's daily limit being reached. */
   budgetLine?: string;
+  /** Pipelines whose manager ruling went unaccepted for 15 minutes: the owner answers in their window. */
+  unpicked?: string[];
 };
 
 export function renderManagerStatus(
@@ -92,8 +94,11 @@ export function renderManagerStatus(
     );
     for (const { s, since, needed } of rows) {
       const n = needed ? view.handleFor?.(s) : undefined;
+      const reason = extra.unpicked?.includes(s.slug)
+        ? `approval not picked up — answer in window ${s.slug}`
+        : (REASON_BY_PHASE[s.phase] ?? s.phase);
       const action = needed
-        ? `${n !== undefined ? `#${n} ` : ""}${cell(REASON_BY_PHASE[s.phase] ?? s.phase)}`
+        ? `${n !== undefined ? `#${n} ` : ""}${cell(reason)}`
         : "-";
       lines.push(
         `| ${cell(s.slug)} | ${cell(repoNameForPath(s.repo))} | ${cell(s.epic?.slug ?? "-")} | ${cell(s.phase)} | ${action} | ${waitingLabel(now.getTime() - since)} |`,

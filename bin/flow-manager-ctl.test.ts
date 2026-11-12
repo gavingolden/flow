@@ -3,7 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { run } from "./flow-manager-ctl";
-import { readManagerLog } from "./lib/manager-log";
+import { upsertGrant } from "./lib/manager-grants";
+import { appendManagerLog, readManagerLog } from "./lib/manager-log";
 import { addProposal } from "./lib/manager-proposals";
 import { readManagerRecord, writeManagerRecord } from "./lib/manager-record";
 import { readScope, updateScope } from "./lib/manager-scope";
@@ -260,5 +261,118 @@ describe("digest, log and proposals", () => {
 
   it("rejects an unknown verb", async () => {
     expect((await ctl("bogus")).code).toBe(2);
+  });
+});
+
+describe("ruling write", () => {
+  const W = "2026-11-12T09:00:00.000Z";
+  function paused() {
+    const wt = path.join(dir, "wt");
+    fs.mkdirSync(path.join(wt, ".flow-tmp"), { recursive: true });
+    fs.writeFileSync(
+      path.join(wt, ".flow-tmp", "plan.md"),
+      "# Task breakdown\n\n- **Contract:**\n  - edit x\n",
+    );
+    writeState(
+      {
+        slug: "mine",
+        phase: "plan-pending-review",
+        repo: "/r/flow",
+        worktree: wt,
+        updatedAt: W,
+        phaseLog: [{ phase: "plan-pending-review", at: W }],
+      } as PipelineState,
+      stateDir,
+    );
+    upsertGrant(
+      {
+        scope: "pipeline:mine",
+        classes: ["plan"],
+        grantedAt: W,
+        grantedBy: "owner-cli",
+      },
+      home,
+    );
+    appendManagerLog(
+      {
+        ts: "2026-11-12T09:30:00.000Z",
+        kind: "exec-decision",
+        repo: "flow",
+        slug: "mine",
+        exec: { decisionId: "plan-1", reviewKind: "plan", action: "approve" },
+      },
+      { home },
+    );
+  }
+  const write = (...extra: string[]) =>
+    ctl(
+      "ruling",
+      "write",
+      "--slug",
+      "mine",
+      "--reply",
+      "approve",
+      "--source",
+      "manager",
+      "--reason",
+      "executive approved",
+      ...extra,
+    );
+
+  it("writes a ruling for an in-scope pipeline and prints the RULING message to send", async () => {
+    paused();
+    scopeTo("pipeline:mine");
+    const r = await write("--decision", "plan-1");
+    expect(r.code).toBe(0);
+    const o = JSON.parse(r.out);
+    expect(o).toMatchObject({ ok: true });
+    expect(o.message).toBe(`RULING ${o.id}`);
+    expect(fs.existsSync(path.join(home, "rulings", `${o.id}.json`))).toBe(
+      true,
+    );
+    expect(
+      readManagerLog({ slug: "mine" }, home).some(
+        (e) => e.kind === "ruling-written" && e.key === `ruling:${o.id}`,
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses an out-of-scope slug with exit 3 and writes nothing", async () => {
+    paused();
+    scopeTo("pipeline:someone-else");
+    const r = await write("--decision", "plan-1");
+    expect(r.code).toBe(3);
+    expect(JSON.parse(r.out)).toEqual({ ok: false, reason: "out-of-scope" });
+    expect(fs.existsSync(path.join(home, "rulings"))).toBe(false);
+  });
+
+  it("passes a writer refusal through (no executive approve named)", async () => {
+    paused();
+    scopeTo("pipeline:mine");
+    const r = await write();
+    expect(r.code).toBe(3);
+    expect(JSON.parse(r.out)).toEqual({
+      ok: false,
+      reason: "no-exec-approval",
+    });
+  });
+
+  it("exits 2 on missing or invalid arguments, and a redirect needs --text", async () => {
+    expect((await ctl("ruling", "write", "--slug", "mine")).code).toBe(2);
+    expect((await ctl("ruling")).code).toBe(2);
+    const r = await ctl(
+      "ruling",
+      "write",
+      "--slug",
+      "mine",
+      "--reply",
+      "redirect",
+      "--source",
+      "manager",
+      "--reason",
+      "memo",
+    );
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("needs --text");
   });
 });

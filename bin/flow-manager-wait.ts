@@ -29,7 +29,11 @@ import {
   type PrState,
 } from "./lib/manager-heartbeat";
 import { managerFile, managerHome } from "./lib/manager-home";
-import { logPath } from "./lib/manager-log";
+import {
+  logPath,
+  readManagerLog,
+  type ManagerLogEntry,
+} from "./lib/manager-log";
 import { readNotes } from "./lib/manager-notes";
 import { notifyOwnerNeeded } from "./lib/manager-owner-notify";
 import { addProposal, readProposals } from "./lib/manager-proposals";
@@ -41,6 +45,7 @@ import { writeManagerStatus } from "./lib/manager-status";
 import {
   diffSnapshot,
   readSeen,
+  unpickedRulings,
   writeSeen,
   type WakeEvent,
 } from "./lib/manager-wait";
@@ -206,6 +211,8 @@ export async function run(
   let budgetLine: string | undefined;
   let hiddenOutOfScope = new Set<string>();
   let lastSeenJson = "";
+  let rulingLog: ManagerLogEntry[] = [];
+  let rulingStamp = -1;
 
   try {
     for (;;) {
@@ -228,10 +235,20 @@ export async function run(
       const inScope = (s: PipelineState): boolean => stateInScope(s, scope);
       const scoped = states.filter(inScope);
 
+      const logStamp = mtime(logPath(home));
+      if (logStamp !== rulingStamp) {
+        rulingStamp = logStamp;
+        rulingLog = readManagerLog({}, home).filter((e) =>
+          e.kind.startsWith("ruling-"),
+        );
+      }
+      const unpicked = unpickedRulings(rulingLog, states, now);
+
       const diff = diffSnapshot(readSeen(home), states, now, {
         inScope,
         scope,
         stopWhenIdle: args.stopWhenIdle,
+        unpicked,
       });
       const bySlug = new Map(states.map((s) => [s.slug, s]));
       let events = diff.events.filter((e) => {
@@ -299,7 +316,6 @@ export async function run(
         if (sendDailyReminder(now, remStates, notify, home)) reminderDay = day;
       }
 
-      const logStamp = mtime(logPath(home));
       if (logStamp !== budgetStamp) {
         budgetStamp = logStamp;
         const b = budgetReached(now, { home });
@@ -317,6 +333,9 @@ export async function run(
           liveNotes: readNotes(home).length,
           aliveAt: hhmm(now),
           ...(budgetLine ? { budgetLine } : {}),
+          ...(unpicked.length > 0
+            ? { unpicked: unpicked.map((u) => u.slug) }
+            : {}),
         },
         home,
       );
