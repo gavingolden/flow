@@ -104,8 +104,10 @@ beforeAll(() => {
     "",
     'printf "MAX=%s\\n" "$RESEARCH_MAX_CALLS"',
     'printf "TIMEOUT=%s\\n" "$RESEARCH_TIMEOUT"',
-    'printf "MODEL=%s\\n" "$RESEARCH_MODEL"',
-    'printf "REFUTE=%s\\n" "$RESEARCH_REFUTE_MODEL"',
+    'printf "MODEL=%s\\n" "${RESEARCH_MODEL:-}"',
+    'printf "REFUTE=%s\\n" "${RESEARCH_REFUTE_MODEL:-}"',
+    'printf "INACTIVE=%s\\n" "${RESEARCH_MODULE_INACTIVE:-}"',
+    'printf "LOOKUP_FAILED=%s\\n" "${RESEARCH_MODEL_LOOKUP_FAILED:-}"',
     "",
   ].join("\n");
 
@@ -117,13 +119,27 @@ afterAll(() => {
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-const bashEnv = () => ({
+const bashEnv = (dir: string = shimDir) => ({
   ...process.env,
-  PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+  PATH: [dir, shimDir, process.env.PATH ?? ""].join(path.delimiter),
 });
 
+/** A shim dir whose given helpers are overridden (earlier on PATH than the defaults). */
+function overrideShims(bodies: Record<string, string>): string {
+  const dir = fs.mkdtempSync(path.join(tmpDir, "override-"));
+  for (const [name, body] of Object.entries(bodies)) {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(file, 0o755);
+  }
+  return dir;
+}
+
 /** Run the extracted budget script against a config-json fixture. */
-function runBudget(config: unknown): {
+function runBudget(
+  config: unknown,
+  dir: string = shimDir,
+): {
   status: number | null;
   stdout: string;
   stderr: string;
@@ -133,7 +149,7 @@ function runBudget(config: unknown): {
   fs.writeFileSync(cfgPath, JSON.stringify(config));
   const res = spawnSync("bash", [scriptPath, cfgPath], {
     encoding: "utf8",
-    env: bashEnv(),
+    env: bashEnv(dir),
   });
   const vars: Record<string, string> = {};
   for (const line of res.stdout.split("\n")) {
@@ -227,5 +243,33 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
     expect(r.vars.MODEL).toBe(gather);
     expect(r.vars.REFUTE).not.toBe(r.vars.MODEL);
     expect(r.vars.REFUTE).toBe(DELEGATE_MODEL_DEFAULTS.researchRefuteFallback);
+  });
+
+  it("a deselected research module skips the model lookup entirely", () => {
+    const sentinel = path.join(tmpDir, "run-called");
+    const dir = overrideShims({
+      "flow-module-status": "exit 1",
+      "flow-research-run": `touch ${sentinel}; exit 0`,
+    });
+    const r = runBudget({}, dir);
+    expect(r.status).toBe(0);
+    expect(r.vars.INACTIVE).toBe("1");
+    expect(r.vars.MODEL).toBe("");
+    expect(fs.existsSync(sentinel)).toBe(false);
+  });
+
+  it("a failing --print-models flags research-model-lookup-failed", () => {
+    const dir = overrideShims({ "flow-research-run": "exit 1" });
+    const r = runBudget({}, dir);
+    expect(r.status).toBe(0);
+    expect(r.vars.LOOKUP_FAILED).toBe("1");
+    expect(r.vars.MODEL).toBe("");
+  });
+
+  it("an empty --print-models result flags research-model-lookup-failed", () => {
+    const dir = overrideShims({ "flow-research-run": "echo '{}'" });
+    const r = runBudget({}, dir);
+    expect(r.status).toBe(0);
+    expect(r.vars.LOOKUP_FAILED).toBe("1");
   });
 });

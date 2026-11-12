@@ -10,7 +10,10 @@ verdicts.
 
 One production-shaped call per Google-plan step, through
 `docs/eval/argon-latency-probe/run.ts`, on Gemini 4 Carbon (Medium). Each
-call used the step's real prompt shape and its production timeout.
+call used the step's real prompt shape. The probe ran under its own per-step
+timeout cap (one review-lens attempt ran 1235 s, see below), not the
+production limit; the verdicts below are judged
+against `productionLimitsSec` in the JSON twin.
 
 ## Gate rule (fixed before the run)
 

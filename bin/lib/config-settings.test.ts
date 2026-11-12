@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSettingsRows, SETTINGS_KEYS } from "./config-settings";
 import { DELEGATE_MODEL_DEFAULTS } from "./delegate-models";
+import { resolveModels } from "../flow-research-run";
 import type { ReadConfigFile } from "./models-config";
 
 const reader =
@@ -78,6 +79,51 @@ describe("buildSettingsRows", () => {
     expect(row?.source).toContain("diversity guard");
     expect(row?.source).toContain("X collides with gather");
     expect(row?.value).toBe(DELEGATE_MODEL_DEFAULTS.researchRefuteFallback);
+  });
+
+  it("research.refuteModel: a configured fallback stand-in is attributed to its config key", () => {
+    const rows = buildSettingsRows(
+      reader({
+        research: { model: "X", refuteModel: "X" },
+        delegate: { models: { researchRefuteFallback: "Fallback Test (Low)" } },
+      }),
+    );
+    const row = rows.find((r) => r.setting === "research.refuteModel");
+    expect(row?.value).toBe("Fallback Test (Low)");
+    expect(row?.source).toContain(
+      "config (delegate.models.researchRefuteFallback",
+    );
+  });
+
+  it("research.refuteModel row matches flow-research-run's resolved refute model for every collision shape", () => {
+    const d = DELEGATE_MODEL_DEFAULTS;
+    const fb = "Fallback Test (Low)";
+    const configs: unknown[] = [
+      {},
+      { research: { model: "X", refuteModel: "X" } },
+      {
+        research: { model: "X", refuteModel: "X" },
+        delegate: { models: { researchRefuteFallback: fb } },
+      },
+      {
+        research: {
+          model: d.researchRefuteFallback,
+          refuteModel: d.researchRefuteFallback,
+        },
+      },
+      {
+        research: { model: fb, refuteModel: fb },
+        delegate: { models: { researchRefuteFallback: fb } },
+      },
+    ];
+    for (const cfg of configs) {
+      const row = buildSettingsRows(reader(cfg)).find(
+        (r) => r.setting === "research.refuteModel",
+      );
+      expect(row?.value, JSON.stringify(cfg)).toBe(
+        resolveModels(cfg, () => {}).refuteModel,
+      );
+    }
   });
 
   it("an absent config renders a full built-ins-only table with exit-0-safe defaults", () => {

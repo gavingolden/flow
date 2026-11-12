@@ -41,9 +41,6 @@ const content = fs.readFileSync(DISCOVERY_RESEARCH_PATH, "utf8");
 const FILE_LABEL =
   "skills/pipeline/flow-product-planning/references/discovery-research.md";
 
-const MODEL_NAME_RE =
-  /(Claude (Opus|Sonnet|Haiku|Fable) [0-9.]+|GPT-OSS [0-9]+B|Gemini [0-9.]+ [A-Za-z]+) \((Low|Medium|High|Thinking)\)/;
-
 describe("F2 research budget config lint", () => {
   it("wires both optional budget keys into Step 1.5", () => {
     const keys = ["research.maxCalls", "research.timeout"];
@@ -71,11 +68,6 @@ describe("F2 research budget config lint", () => {
       "the module precheck must come before model resolution",
     ).toBeLessThan(call);
     expect(content).toContain("research-model-lookup-failed");
-  });
-
-  it("names no model", () => {
-    const hit = content.split("\n").find((l) => MODEL_NAME_RE.test(l));
-    expect(hit, `${FILE_LABEL} names a model: ${hit}`).toBeUndefined();
   });
 
   it("keeps the byte-exact v1 budget defaults", () => {

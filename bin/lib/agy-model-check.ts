@@ -6,7 +6,7 @@
 import {
   DELEGATE_MODEL_DEFAULTS,
   extractDelegateModelsKey,
-  isClaudeModel,
+  isIgnoredOverride,
   type DelegateSurface,
 } from "./delegate-models";
 
@@ -68,7 +68,7 @@ export function configuredAgyModels(raw: unknown): ConfiguredModel[] {
     // A Claude lensReroute is ignored at runtime, so check the default instead.
     const usable =
       nonEmptyString(override) &&
-      !(surface === "lensReroute" && isClaudeModel(override));
+      !isIgnoredOverride(surface as DelegateSurface, override);
     const model = usable
       ? override
       : DELEGATE_MODEL_DEFAULTS[surface as DelegateSurface];

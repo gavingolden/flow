@@ -34,7 +34,7 @@ import {
 import {
   DELEGATE_MODEL_DEFAULTS,
   DEFAULT_DELEGATED_LENSES,
-  isClaudeModel,
+  isIgnoredOverride,
   resolveDelegatedLenses,
   type DelegateSurface,
 } from "./delegate-models";
@@ -193,8 +193,7 @@ function delegateModelRow(surface: DelegateSurface): Descriptor {
     resolve: (read) => {
       const v = getPath(safeRead(read), ["delegate", "models", surface]);
       // A Claude lensReroute is ignored at runtime, so never report it.
-      const ignored =
-        surface === "lensReroute" && typeof v === "string" && isClaudeModel(v);
+      const ignored = typeof v === "string" && isIgnoredOverride(surface, v);
       if (typeof v === "string" && v.trim() && !ignored) {
         return { value: v, source: `config (${key})` };
       }
@@ -270,17 +269,22 @@ const DESCRIPTORS: Descriptor[] = [
         "models",
         "researchRefuteFallback",
       ]);
-      const refuteFallback =
-        typeof fallbackOverride === "string" && fallbackOverride.trim()
-          ? fallbackOverride
-          : (DELEGATE_MODEL_DEFAULTS.researchRefuteFallback ?? "(none)");
+      const fromConfig =
+        typeof fallbackOverride === "string" && fallbackOverride.trim() !== "";
+      const refuteFallback = fromConfig
+        ? (fallbackOverride as string)
+        : (DELEGATE_MODEL_DEFAULTS.researchRefuteFallback ?? "(none)");
       const substituted =
         gather.value === refuteFallback
           ? (DELEGATE_MODEL_DEFAULTS.researchRefute ?? "(none)")
           : refuteFallback;
+      const usedConfig = fromConfig && substituted === refuteFallback;
+      const reason = `diversity guard; ${refute.value} collides with gather`;
       return {
         value: substituted,
-        source: `built-in (diversity guard; ${refute.value} collides with gather)`,
+        source: usedConfig
+          ? `config (delegate.models.researchRefuteFallback; ${reason})`
+          : `built-in (${reason})`,
       };
     },
   },

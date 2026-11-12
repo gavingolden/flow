@@ -417,6 +417,21 @@ describe("routing without an agy call", () => {
     expect(armed).toHaveLength(0);
   });
 
+  it("--force-route safeguards-retry honours a delegate.models.lensReroute override", async () => {
+    const OVERRIDE = "Gemini 4 Override (Low)";
+    await run(
+      argv("security", ["--force-route", "safeguards-retry"]),
+      deps({
+        readConfig: () => ({
+          review: { gemini: true },
+          delegate: { models: { lensReroute: OVERRIDE } },
+        }),
+      }),
+    );
+    expect(fanoutCalls).toHaveLength(1);
+    expect(fanoutCalls[0][0].model).toBe(OVERRIDE);
+  });
+
   it("forced route without review.gemini returns the lens as a fallback and makes no agy call", async () => {
     await run(
       argv("security", ["--force-route", "safeguards-retry"]),

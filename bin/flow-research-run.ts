@@ -181,7 +181,10 @@ const nonEmpty = (v: unknown): v is string =>
 // Diversity guard: a refute equal to gather takes the fallback; when the
 // fallback also equals gather, the refute default is used, so the refute
 // pass never runs on the same model as gather.
-export function resolveModels(config: unknown): {
+export function resolveModels(
+  config: unknown,
+  warn: (line: string) => void = console.error,
+): {
   gatherModel: string;
   refuteModel: string;
   refuteFallbackModel: string;
@@ -195,18 +198,18 @@ export function resolveModels(config: unknown): {
     const twin = extractDelegateModelsKey(config, surface);
     const present = (v: unknown) => v !== undefined && v !== null;
     if (legacyKey !== null && present(legacy) && !nonEmpty(legacy)) {
-      console.error(
+      warn(
         `flow-research-run: research.${legacyKey} is present but not a string; ignoring it`,
       );
     }
     if (present(twin) && !nonEmpty(twin)) {
-      console.error(
+      warn(
         `flow-research-run: delegate.models.${surface} is present but not a string; ignoring it`,
       );
     }
     if (nonEmpty(legacy)) {
       if (nonEmpty(twin)) {
-        console.error(
+        warn(
           `flow-research-run: research.${legacyKey} and delegate.models.${surface} are both set; research.${legacyKey} wins.`,
         );
       }
@@ -222,6 +225,9 @@ export function resolveModels(config: unknown): {
       refuteFallbackModel !== gatherModel
         ? refuteFallbackModel
         : (DELEGATE_MODEL_DEFAULTS.researchRefute as string);
+    warn(
+      `flow-research-run: the refute model matched the gather model; using ${refuteModel} for the refute pass.`,
+    );
   }
   return { gatherModel, refuteModel, refuteFallbackModel };
 }
@@ -563,6 +569,7 @@ function readConfigTolerant(
 function printModels(parsed: Args, deps: Deps): number {
   const { gatherModel, refuteModel, refuteFallbackModel } = resolveModels(
     readConfigTolerant(parsed, deps, true),
+    deps.writeErr,
   );
   deps.writeOut(
     JSON.stringify({
@@ -577,7 +584,7 @@ function printModels(parsed: Args, deps: Deps): number {
 function execute(parsed: Args, deps: Deps): number {
   const config = readConfigTolerant(parsed, deps, false);
 
-  const { gatherModel, refuteModel } = resolveModels(config);
+  const { gatherModel, refuteModel } = resolveModels(config, deps.writeErr);
   const timeout = resolveTimeout(config);
   const maxCalls = resolveMaxCalls(config);
 

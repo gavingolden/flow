@@ -87,7 +87,19 @@ describe("model-name literal lint", () => {
         path.join(tmp, "skills", "x", "SKILL.md"),
         "ok line\nuse `Gemini 4 Carbon (Medium)` here\n",
       );
+      const literal = "use `Gemini 4 Carbon (Medium)` here\n";
+      fs.mkdirSync(path.join(tmp, "bin", "lib"), { recursive: true });
+      fs.mkdirSync(path.join(tmp, "bin", "fixtures"), { recursive: true });
+      fs.writeFileSync(path.join(tmp, "bin", "x.ts"), literal);
+      fs.writeFileSync(path.join(tmp, "bin", "x.test.ts"), literal);
+      fs.writeFileSync(path.join(tmp, "bin", "fixtures", "y.ts"), literal);
+      fs.writeFileSync(path.join(tmp, TABLE_FILE), literal);
       expect(findModelNameLiterals(tmp)).toEqual([
+        {
+          file: path.join("bin", "x.ts"),
+          line: 1,
+          text: "use `Gemini 4 Carbon (Medium)` here",
+        },
         {
           file: path.join("skills", "x", "SKILL.md"),
           line: 2,

@@ -57,43 +57,6 @@
       "deniedActions": []
     }
   ],
-  "limits": {
-    "research-gather": {
-      "Gemini 4 Carbon (Medium)": {
-        "limit": "13m",
-        "verdict": "fits",
-        "medianSec": 250.631
-      }
-    },
-    "plan-review": {
-      "Gemini 4 Carbon (Medium)": {
-        "limit": "15m",
-        "verdict": "fits",
-        "medianSec": 284.786
-      }
-    },
-    "blind-survey": {
-      "Gemini 4 Carbon (Medium)": {
-        "limit": "10m",
-        "verdict": "fits",
-        "medianSec": 188.122
-      }
-    },
-    "intent-guess": {
-      "Gemini 4 Carbon (Medium)": {
-        "limit": "10m",
-        "verdict": "fits",
-        "medianSec": 79.704
-      }
-    },
-    "review-lens": {
-      "Gemini 4 Carbon (Medium)": {
-        "limit": "20m",
-        "verdict": "limit-mismatch",
-        "medianSec": 594.97
-      }
-    }
-  },
   "productionLimitsSec": {
     "planReview": 780,
     "blindSurvey": 600,

@@ -544,10 +544,10 @@ delegate surface — distinct from `models.*` above, which routes the
 **Claude Code** model for pipeline phases. Value grammar: an agy variant
 **display-name** string, e.g. `"Gemini 4 Carbon (Medium)"` (the form
 `flow-delegate` accepts on `--model`, not the slug form `agy models`
-emits). Defaults come from the smoke record
+emits). For the six Gemini steps, defaults come from the smoke record
 [Carbon 4 smoke, 2026-11](eval/carbon-4-smoke-2026-11.md): steps whose
 smoke passed default to Carbon (Medium), the rest to the Argon (Medium)
-fallback tier. Absent key = today's default for that surface; a present but
+fallback tier; the Claude-held steps keep their structural defaults. Absent key = today's default for that surface; a present but
 wrong-typed value warns on stderr and falls back to the default; never
 throws.
 
@@ -613,11 +613,10 @@ where unit is `ns`/`us`/`µs`/`ms`/`s`/`m`/`h` (e.g. `"8m"`, `"90s"`,
 malformed/wrong-typed value warns on stderr and falls back to the default;
 never throws.
 
-| surface       | what it drives                                                                                                                                       | default today             |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| `reviewLens`  | `/flow-pr-review` Gemini review lens                                                                                                                 | `10m`                     |
-| `lensReroute` | `/flow-pr-review` Gemini re-run of a Claude review lens the content filter refused; a Claude value is ignored with a warning and the default is used | `Gemini 4 Argon (Medium)` |
-| `intentGuess` | `/flow-pr-review` cross-model intent guess                                                                                                           | `10m`                     |
+| surface       | what it drives                             | default today |
+| ------------- | ------------------------------------------ | ------------- |
+| `reviewLens`  | `/flow-pr-review` Gemini review lens       | `10m`         |
+| `intentGuess` | `/flow-pr-review` cross-model intent guess | `10m`         |
 
 **20-minute sanity bound.** Both surfaces are launched detached
 (`flow-spawn --detach`) and awaited with `flow-plan-review-wait`, so no

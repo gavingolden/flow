@@ -139,7 +139,7 @@ export function resolveDelegateModel(
     return defaultValue;
   }
 
-  if (surface === "lensReroute" && isClaudeModel(value)) {
+  if (isIgnoredOverride(surface, value)) {
     if (!warnedClaudeReroute.has(surface)) {
       warnedClaudeReroute.add(surface);
       console.error(
@@ -219,4 +219,12 @@ export function resolveDelegatedLenses(
 /** True for a Claude-family agy variant; the one rule both the lens schema and the refusal re-run key off. */
 export function isClaudeModel(model: string): boolean {
   return /claude/i.test(model);
+}
+
+/** A configured override the runtime drops: a Claude re-run model would just be refused again. */
+export function isIgnoredOverride(
+  surface: DelegateSurface,
+  value: string,
+): boolean {
+  return surface === "lensReroute" && isClaudeModel(value);
 }

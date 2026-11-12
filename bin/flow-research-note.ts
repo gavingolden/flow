@@ -80,6 +80,10 @@ function computeReason(status: ResearchStatus | null, forced: boolean): string {
       return "skipped — not a researchable question";
     if (status.reason === "agy-unavailable")
       return "skipped — agy unavailable on this host";
+    if (status.reason === "research-deselected")
+      return "skipped — the research module is not installed (deselected) — re-enable with 'flow install --modules research'";
+    if (status.reason === "research-model-lookup-failed")
+      return "skipped — the research model lookup failed (flow-research-run --print-models) — run 'flow doctor'";
     if (status.reason === "ran-degraded")
       return "ran, but part of it did not return anything — see the findings block for which part";
   }

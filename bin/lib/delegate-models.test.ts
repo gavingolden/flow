@@ -231,8 +231,8 @@ describe("resolveDelegateModel", () => {
     // (High)" refuting "Gemini 3.8 Flash (High)") would pass both string
     // checks while collapsing the cross-line tension into intra-line
     // confirmation, with nothing warning. Scope is defaults only; a config
-    // override stays deliberately unguarded (see the researchRefute comment
-    // block in delegate-models.ts). NOTE: `family()` here derives a
+    // override stays deliberately unguarded (a configured pair can collide;
+    // flow-research-run's runtime guard substitutes the fallback). NOTE: `family()` here derives a
     // product-line PREFIX (first whitespace token, e.g. "Claude" / "Gemini"
     // / "GPT-OSS"), not a vendor — "Claude Opus" and "Claude Sonnet" both
     // reduce to "Claude" and would NOT be caught by this guard; that's a
@@ -258,7 +258,7 @@ describe("resolveDelegateModel", () => {
     // PR #644 shipped a code flip whose docs/configuration.md "default today"
     // row went stale, and only a human reviewer caught it. This makes that
     // class of drift mechanical for this file (the prose copies in the
-    // research docs are covered by the sibling test below). Reads the doc module-relative, the same way
+    // research docs are covered by bin/model-name-literal-lint.test.ts). Reads the doc module-relative, the same way
     // the consumer-routing test above does (NOT cwd-relative — a cwd-relative
     // read here would ENOENT under any invocation whose cwd isn't the repo
     // root, e.g. a single-file vitest run from an editor).

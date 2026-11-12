@@ -173,15 +173,16 @@ refresh repopulates the cache for the next caller.
 
 ## 2. Gather (agy fan-out via `flow-delegate-fanout`)
 
-Resolve the models once, before building any manifest:
+Resolve the models once, before building any manifest. Shell variables do not
+survive between Bash calls, so print the JSON and keep it on disk:
 
 ```bash
-MODELS=$(flow-research-run --print-models)
+mkdir -p .flow-tmp/research/<run-id> && flow-research-run --print-models | tee .flow-tmp/research/<run-id>/models.json
 ```
 
 Build a gather manifest — one entry per angle — and write it to
 `.flow-tmp/research/<run-id>/gather-manifest.json`. **Every gather entry uses
-`"model"` set to the `.gather` value of `$MODELS`** (`jq -r .gather`). This GATHER step is a single-model
+`"model"` set to the `.gather` value printed above** (`jq -r .gather .flow-tmp/research/<run-id>/models.json`, in the same Bash call that builds the manifest). This GATHER step is a single-model
 monoculture (agy's native Google grounding is the point); cross-model
 diversity lives only in the refute step (Step 3). Do not claim pervasive
 diversity — the diverse signal is adversarial, in the refute step.
@@ -213,7 +214,7 @@ In Claude, **rank the gathered claims by importance × source-quality** and
 select the top-N to verify (N is a generous default, ~40, tunable — see
 Constraints). For each selected claim, build a refute manifest entry that runs
 on a **DIFFERENT model from the gatherer** — the refute pool is the unique
-values of `[.refute, .refuteFallback]` from `$MODELS`, minus the gather model —
+values of `[.refute, .refuteFallback]` in `models.json`, minus the gather model —
 so the adversarial signal is genuinely cross-model rather than one model
 checking itself. If that leaves one model, say so in the report's limitations:
 with one refute voter no claim can be KILLED by two diverse votes, only

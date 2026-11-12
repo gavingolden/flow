@@ -127,7 +127,7 @@ reason strings; never print them raw:
 | route `agy-cooldown`                                              | the Google plan is cooling down after recent Google-plan failures     |
 
 A lens in `delegated` with `reroutedFrom` is reported as: "`<lens>` ran on the
-Google plan (the `delegate.models.lensReroute` model) after the Google-plan Claude model
+Google plan (`<the recovered lens's model>`, from its `delegated[].model`) after the Google-plan Claude model
 declined it (content filter)". A fallback lens carrying `rerouteOutcome` is
 reported as: "`<lens>` ran on Claude: the Google-plan Claude model declined it
 and the Gemini re-run `<outcome>`", with `<outcome>` taken from this table
