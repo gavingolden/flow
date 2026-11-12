@@ -77,6 +77,19 @@ describe(decideNote, () => {
     expect(d!.noteLine).toContain("agy unavailable on this host");
   });
 
+  it.each([
+    ["research-deselected", "flow install --modules research"],
+    ["research-model-lookup-failed", "run 'flow doctor'"],
+  ])("emits the precise wording for status.reason %s", (reason, expected) => {
+    const d = decideNote({
+      active: true,
+      forced: false,
+      status: { ran: false, reason },
+      planText: "# PRD\n",
+    });
+    expect(d!.noteLine).toContain(expected);
+  });
+
   it("emits a plain-language note for status {ran:true, reason:ran-degraded}", () => {
     const d = decideNote({
       active: true,

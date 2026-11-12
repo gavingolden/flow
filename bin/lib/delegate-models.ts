@@ -17,13 +17,10 @@
  * `MODEL_ALIASES` enum and would silently drop a well-formed agy variant
  * string like "Gemini 3.1 Pro (High)".
  *
- * Every default seeded here started BYTE-IDENTICAL to the surface's own
- * file (verified against source when this module was written;
- * `delegate-models.test.ts` pins the check so a drive-by constant edit
- * that forgets this module fails loudly). This module is the seam for
- * flipping individual defaults once a recorded benchmark clears a
- * (surface, candidate) pair — see `researchRefute`'s inline comment below
- * for why the PR #543 bench run (2026-08-05) did NOT flip that default.
+ * This table is the single source of every agy model default; skills and
+ * docs name the step and its config key, never a model
+ * (`model-name-literal-lint.test.ts` enforces it). Flip a default here once
+ * a recorded run clears a (surface, candidate) pair.
  */
 
 import {
@@ -43,178 +40,39 @@ export type DelegateSurface =
   | "blindSurvey"
   | "blindSurveySecond"
   | "scout"
-  | "claudeLenses";
+  | "claudeLenses"
+  | "lensReroute"
+  | "researchRefuteFallback";
 
 // planReviewSecond corrects the plan's false claim that flow-plan-review.ts
 // carries no model constant: it carries two (MODEL + SECOND_MODEL), and the
 // second (deep-tier) reviewer needs its own config slot.
 export const DELEGATE_MODEL_DEFAULTS: Record<DelegateSurface, string | null> = {
-  // 2026-09-05 RUN (gemini-3.8-flash-high, agy 1.1.27): REJECTED on every
-  // one of the ten surfaces this run's fixtures cover (a bench-coverage
-  // set, NOT the same as this record's ten keys — see report.md for the
-  // exact roster) and nominated on none: zero flips. Root cause:
-  // docs/model-bench/report.md: 83/196 committed entries (42.3%) came back
-  // with an EMPTY response — 81/196 in the separate uncommitted raw-envelope
-  // count, ~80 of those tied to `denied_actions: [RunCommand]` — it reaches
-  // for a shell tool the default `--sandbox` posture denies, and answers
-  // `status: SUCCESS` with an empty body. That's flow's PRODUCTION posture
-  // for every BENCHMARKED surface (flow-research-run's gather/refute entries
-  // opted into --skip-permissions as of 2026-09-10, but that surface was not
-  // part of this run's roster; every surface this run measured still does
-  // not pass --skip-permissions), so this is deployed behaviour for those
-  // surfaces, not a harness artifact.
-  // NO FLIP (2026-09-05): intent-guess rejected for 3.8 on mechanical parity
-  // (c4-intent-json recall 0.44 vs incumbent 1.00); recommend() nominates no
-  // candidate for this surface.
-  // RETIRED (2026-10-13): agy no longer offers Gemini 3.1 Pro / 3.7 Flash
-  // ("not recognized as a known model"), so every surface pinned to them
-  // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
-  // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
-  // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
-  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): keep Argon
-  // High; c4 1.00 at ceiling, Medium also clears.
-  intentGuess: "Gemini 4 Argon (High)",
-  // NO FLIP (2026-09-05): review-lens rejected for 3.8 on mechanical parity
-  // (c7-review-lens recall 0.00 vs incumbent 0.83 — the empty-response mode
-  // above, at its most complete); recommend() nominates no candidate.
-  // RETIRED (2026-10-13): agy no longer offers Gemini 3.1 Pro / 3.7 Flash
-  // ("not recognized as a known model"), so every surface pinned to them
-  // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
-  // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
-  // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
-  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): keep Argon
-  // High; c7 1.00 vs 0.83 reference, Medium also clears.
+  // Evidence: docs/eval/carbon-4-smoke-2026-11.md (a smoke of time and
+  // non-emptiness, n=1 per step) decides Carbon vs Argon per step; prior
+  // quality evidence is docs/eval/argon-4-routing-2026-10.md. Carbon Medium
+  // where the smoke gate passed; a step that failed keeps its pre-Carbon
+  // default; full Carbon evaluation pending a separate eval.
+  intentGuess: "Gemini 4 Carbon (Medium)",
+  researchGather: "Gemini 4 Carbon (Medium)",
+  blindSurvey: "Gemini 4 Carbon (Medium)",
+  planReview: "Gemini 4 Carbon (Medium)",
   reviewLens: "Gemini 4 Argon (High)",
-  // NO BENCH COVERAGE (2026-09-05): bin/fixtures/model-bench/ contains no
-  // research-gather case, so NO bench run has ever measured this surface and
-  // none can until that fixture exists. This pin is inherited, not evidenced
-  // — do not read the silence here as a clear. Tracked as a follow-up issue.
-  // RETIRED (2026-10-13): agy no longer offers Gemini 3.1 Pro / 3.7 Flash
-  // ("not recognized as a known model"), so every surface pinned to them
-  // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
-  // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
-  // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
-  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): consider Argon
-  // Medium; both 0.93 on c11, but High needs more than the 20m cap (limit
-  // mismatch).
-  researchGather: "Gemini 4 Argon (High)",
-  // NO FLIP (evaluated 2026-08-05, PR #543): both Gemini candidates
-  // cleared research-refute on the hardened c8 fixture at N=10, and the
-  // recommendation tie-break nominally preferred 3.1 Pro — NOT Flash.
-  // 3.1 Pro can't be deployed: researchGather's default is already
-  // "Gemini 3.1 Pro (High)", and a string-identical refute default trips
-  // flow-research-run.ts' resolveModels cross-model diversity guard,
-  // silently downgrading the runtime refuter to the wholly unbenched
-  // FALLBACK_REFUTE_MODEL ("GPT-OSS 120B (Medium)"). Deploying the
-  // non-preferred Flash variant instead was rejected too: c8 is weakly
-  // discriminating (spread 0.100 schema / 0.020 free-form) and
-  // research-refute is a critique-shaped surface — exactly the shape
-  // where both candidates failed hardest (c9a recall 0.00 vs incumbent
-  // 0.70). So the incumbent stands. A maintainer who wants a Gemini
-  // refuter anyway can set delegate.models.researchRefute — no code
-  // change needed — and an agy-delegated refuter keeps the spend on the
-  // Google-AI-Ultra subscription either way.
-  // RE-CHECKED, STILL NO FLIP (2026-08-17 run, gemini-3.7-flash-high):
-  // 3.7 Flash reached c9a-pushback-wrong parity (its critique reject moved
-  // to c9b, 0.90 vs 1.00), so the pushback-deficit premise above no longer
-  // holds for it — but its research-refute verdict is a latency reject
-  // (median 25.30s, not <= 60% of the incumbent's 40.53s) and recommend()
-  // still nominates 3.1 Pro, which the diversity guard still blocks.
-  // RE-CHECKED, STILL NO FLIP (2026-09-05 run, gemini-3.8-flash-high): 3.8 is
-  // a research-refute REJECT on mechanical parity (c8 recall 0.11 vs
-  // incumbent 0.90), so the D1 cross-vendor question did not even arise this
-  // run. Had it cleared, the default would still have HELD: 3.8 is
-  // string-DIFFERENT from researchGather's "Gemini 3.1 Pro (High)", so
-  // flow-research-run.ts' equality-only diversity guard would have passed it
-  // through and left BOTH research passes on Gemini — the adversarial half
-  // silently ceasing to be adversarial, with nothing warning. A structural
-  // hold on top of the strict rule, same shape as planReviewSecond below.
-  // RETIRED (2026-10-05): agy no longer offers Claude Opus 4.6 (Thinking)
-  // ("not recognized as a known model"). Moved to Claude Opus 5.5 (Medium):
-  // (High) timed out the 3m refute cap on a live forced-research probe;
-  // Medium finished in ~2m.
-  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): structural
-  // hold (must differ from the Gemini gather); Argon High 0.87 would fail the
-  // 0.95 bar.
+  // The Gemini re-run of a Claude review lens the content filter refused.
+  lensReroute: "Gemini 4 Argon (Medium)",
+  // Structural holds: the adversarial / second voter must be a different
+  // vendor from its Gemini counterpart, whatever any bench says.
   researchRefute: "Claude Opus 5.5 (Medium)",
-  // FLIPPED (2026-08-17 run): gemini-3.7-flash-high cleared every
-  // plan-review gate on c6-plan-review at N=10 (no defect regression,
-  // mechanical parity, structured integrity, reliability, real latency
-  // payoff) and recommend()'s quality-gated tie-break nominated it over
-  // 3.1 Pro's clear — docs/model-bench/verdicts.json. Cross-model
-  // diversity vs planReviewSecond (Claude Opus) is preserved.
-  // RE-CONFIRMED, NO FLIP (2026-09-05 run): 3.8 is a plan-review REJECT on
-  // mechanical parity (c6-plan-review recall 0.75 vs incumbent 1.00), and
-  // recommend() still nominates gemini-3.7-flash-high for this surface — the
-  // pin below is re-validated against the newer arm, not merely unrevisited.
-  // RETIRED (2026-10-13): agy no longer offers Gemini 3.1 Pro / 3.7 Flash
-  // ("not recognized as a known model"), so every surface pinned to them
-  // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
-  // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
-  // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
-  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): keep Argon
-  // High; c6 1.00 at ceiling, Medium also clears in half the time.
-  planReview: "Gemini 4 Argon (High)",
-  // Does NOT flip despite plan-review's gemini-3.1-pro-high clear (same
-  // bench run): the deep-tier second reviewer exists for cross-model
-  // diversity against the Gemini first reviewer (the convergence rule
-  // presumptively accepts points BOTH reviewers raise independently); two
-  // same-family reviewers would hollow that rule out. The clear is
-  // recorded here; the diversity rationale governs the default.
-  // UNCHANGED (2026-09-05 run): the structural cross-model-diversity
-  // rationale above is independent of any single arm's verdict, and 3.8
-  // cleared nothing that would have tested it.
-  // RETIRED (2026-10-05): agy dropped Claude Opus 4.6 (Thinking); Opus 5.5
-  // (High) replaced it and was not benchmarked on this surface.
-  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): structural
-  // hold (cross-vendor); Opus column pending follow-up.
   planReviewSecond: "Claude Opus 5.5 (High)",
-  // Pinned judges for the Step-3 blind method survey (flow-blind-survey):
-  // the dogfood run's judge A rode the unpinned agy session default, so
-  // both surfaces are pinned here rather than left to whatever agy
-  // resolves at invocation time.
-  // NO BENCH COVERAGE (2026-09-05): bin/fixtures/model-bench/ contains no
-  // blind-survey case, so no bench run has ever measured this surface either.
-  // Same caveat as researchGather above — inherited, not evidenced.
-  // RETIRED (2026-10-13): agy no longer offers Gemini 3.1 Pro / 3.7 Flash
-  // ("not recognized as a known model"), so every surface pinned to them
-  // silently SKIPPED (agy-model-unavailable) in production pipelines. Moved
-  // to Gemini 4 Argon (High), the Pro-tier successor — unbenchmarked on
-  // this surface, same precedent as the 2026-10-05 Opus 4.6 → 5.5 move.
-  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): keep Argon
-  // High; c12 1.00 on ground truth, Medium also clears.
-  blindSurvey: "Gemini 4 Argon (High)",
-  // UNCHANGED (2026-09-05 run): structural cross-vendor hold against
-  // blindSurvey, on the same rationale as planReviewSecond.
-  // RETIRED (2026-10-05): Opus 4.6 (Thinking) retired; Opus 5.5 (High)
-  // replaced it, not benchmarked on this surface.
-  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): structural
-  // hold (cross-vendor); Opus column pending follow-up.
   blindSurveySecond: "Claude Opus 5.5 (High)",
-  // null means "use the Claude Task subagent" (today's behaviour) rather
-  // than delegating scouting to an agy variant. Both bench candidates were
-  // rejected on a real-defect regression (c2b, docs/model-bench/report.md,
-  // 2026-08-05) — null stays the verdict-consistent default.
-  // RE-CHECKED, STILL NULL (2026-09-05 run): gemini-3.8-flash-high is a scout
-  // REJECT on the same c2b-real-defect regression — it missed
-  // "src/pipeline-summary-sources.ts.txt:237:real-defect", which
-  // claude-sonnet-4-6 caught. Three candidate generations, same miss.
-  // STILL NULL (2026-10-06, docs/eval/agy-delegation-recall-2026-10.md):
-  // Claude Opus 5.5 (High) bench not run — the Ultra Claude quota was
-  // exhausted by the lens recall check. The slot is now live: setting it
-  // runs flow-agy-scout first, with the Task scout as the fallback.
-  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): stays Claude;
-  // Argon misses a c2b real defect and times out at 8m.
+  // Second refute voter, and the stand-in refuter when researchRefute
+  // collides with researchGather.
+  researchRefuteFallback: "GPT-OSS 120B (Medium)",
+  // null means "use the Claude Task subagent" rather than delegating
+  // scouting to an agy variant; setting it runs flow-agy-scout first.
   scout: null,
   // null means "delegation off": every Claude review lens runs as a Task
-  // agent, exactly as before. NULL (2026-10-06,
-  // docs/eval/agy-delegation-recall-2026-10.md): no lens cleared — run 1
-  // lost 7/18 agy cells to shell attempts (fixed), run 2 lost 13/18 to the
-  // Ultra Claude quota (~23 Opus-High runs per five-hour window). Completed
-  // bug-detection cells matched or beat Opus; capacity is the blocker.
-  // MEASURED (2026-10-20, docs/eval/argon-4-routing-2026-10.md): both Argon
-  // tiers clear the lens bar (High 0.068, Medium 0.081 vs Opus 0.048-0.060 per
-  // lens); routing to Medium is for discussion.
+  // agent. The opt-in is `delegate.lenses`.
   claudeLenses: null,
 };
 
@@ -236,16 +94,13 @@ export const DEFAULT_DELEGATED_LENSES: readonly DelegatableLens[] = [];
 // their 20m sanity bound).
 export const DELEGATED_LENS_TIMEOUT = "8m";
 export const DELEGATED_SCOUT_TIMEOUT = "8m";
-// Gemini re-run rung for a Claude lens the content filter refused: Medium
-// cleared the lens recall bar with every cell inside 8 minutes
-// (docs/eval/argon-4-routing-2026-10.md).
-export const LENS_REROUTE_MODEL = "Gemini 4 Argon (Medium)";
 
 // Fires at most once per surface per process. Without this, a maintainer
 // who pinned a surface months ago via config would keep silently overriding
 // a later PR's code-default flip with no visible signal in the logs.
 const warnedOverrideSurfaces = new Set<DelegateSurface>();
 const warnedTypeSurfaces = new Set<DelegateSurface>();
+const warnedClaudeReroute = new Set<DelegateSurface>();
 
 export function extractDelegateModelsKey(raw: unknown, key: string): unknown {
   if (typeof raw !== "object" || raw === null) return undefined;
@@ -280,6 +135,18 @@ export function resolveDelegateModel(
       console.error(
         `delegate.models.${surface}: '${String(value)}' is not a valid ` +
           `model string; ignoring and using the default.`,
+      );
+    }
+    return defaultValue;
+  }
+
+  if (isIgnoredOverride(surface, value)) {
+    if (!warnedClaudeReroute.has(surface)) {
+      warnedClaudeReroute.add(surface);
+      console.error(
+        `delegate.models.lensReroute: '${value}' is a Claude model, but the ` +
+          `re-run exists because Claude refused the lens; ignoring and ` +
+          `using the default.`,
       );
     }
     return defaultValue;
@@ -353,4 +220,12 @@ export function resolveDelegatedLenses(
 /** True for a Claude-family agy variant; the one rule both the lens schema and the refusal re-run key off. */
 export function isClaudeModel(model: string): boolean {
   return /claude/i.test(model);
+}
+
+/** A configured override the runtime drops: a Claude re-run model would just be refused again. */
+export function isIgnoredOverride(
+  surface: DelegateSurface,
+  value: string,
+): boolean {
+  return surface === "lensReroute" && isClaudeModel(value);
 }

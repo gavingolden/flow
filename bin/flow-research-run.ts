@@ -20,10 +20,13 @@
  * Flow (mirrors bin/flow-gemini-lens.ts: build -> delegate -> branch on the
  * envelope's `ran`/`allSkipped` field NEVER the exit code -> write artifact ->
  * graceful skip on any failure -> exit 0 on every operational path):
- *  1. Read budget/model overrides from ~/.flow/config.json tolerantly, reusing
- *     discovery's frozen defaults (maxCalls 12, timeout "20m", gather
- *     "Gemini 4 Argon (High)", refute "Claude Opus 5.5 (Medium)" with the
- *     cross-model diversity guard).
+ *  1. Read budget/model overrides from ~/.flow/config.json tolerantly:
+ *     maxCalls 12 and timeout "20m" are the frozen defaults; the gather,
+ *     refute and refute-fallback models come from `delegate.models.*` (table
+ *     in bin/lib/delegate-models.ts) with the legacy `research.model` /
+ *     `research.refuteModel` keys winning, plus the cross-model diversity
+ *     guard. `--print-models` prints those three resolved models and exits;
+ *     discovery and /flow-research call it instead of copying defaults.
  *  2. Build a deterministic 2-entry manifest (gather + adversarial refute).
  *  3. Run `flow-delegate-fanout` (concurrency pinned at 4 — 2 entries are one
  *     wave, bounded by the research limit).
@@ -59,26 +62,18 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
-import { resolveDelegateModel } from "./lib/delegate-models";
+import {
+  DELEGATE_MODEL_DEFAULTS,
+  extractDelegateModelsKey,
+} from "./lib/delegate-models";
 import { redactSecrets } from "./lib/redact-secrets";
+import { DEFAULT_TIMEOUT } from "./lib/research-defaults";
 
-// Frozen to match discovery Step 1.5's budget defaults and model-variant pins
+// Frozen to match discovery Step 1.5's budget defaults
 // (skills/pipeline/flow-product-planning/references/discovery-research.md, the
 // `read_budget` block). Keep these byte-identical to that source of truth.
 const DEFAULT_MAX_CALLS = 12;
-// The research limit: gather and fact-check share it (buildManifest applies one
-// timeout to both). 20 minutes is the sizing rule's cap
-// (docs/eval/argon-latency-probe/README.md): Stage 0 measured Argon High's
-// gather median at 415 s (docs/eval/argon-latency-probe-2026-10.md), so 3x is
-// 21 minutes, over the cap — a limit mismatch, shipped at the cap (Argon Medium
-// fits at 20m). A capped-search variant was 1.35x faster (median 308 s), below
-// the 2x bar, so the gather prompt is unchanged. The 3-minute limit it replaces
-// cut a gather that had spent 163 s searching with no answer. Callers no longer hold the
-// run inside one 10-minute tool call — they launch it with `flow-spawn
-// --detach` and wait on the status file (flow-plan-review-wait --pid) — so the
-// limit is not bounded by a tool call.
-export const DEFAULT_TIMEOUT = "20m";
-const FALLBACK_REFUTE_MODEL = "GPT-OSS 120B (Medium)";
+export { DEFAULT_TIMEOUT };
 
 const GATHER_TASK = "research-gather";
 const REFUTE_TASK = "research-refute";
@@ -92,12 +87,18 @@ export type Args = {
   out: string;
   statusFile: string;
   config: string;
+  printModels: boolean;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
   const out: Partial<Args> = {};
+  let printModels = false;
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
+    if (flag === "--print-models") {
+      printModels = true;
+      continue;
+    }
     const value = argv[i + 1];
     if (value === undefined || value.startsWith("--")) {
       return { error: `${flag} requires a value` };
@@ -126,14 +127,15 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     statusFile: "--status-file",
   } as const;
   for (const k of ["task", "out", "statusFile"] as const) {
-    if (out[k] === undefined)
+    if (!printModels && out[k] === undefined)
       return { error: `${REQUIRED_FLAG[k]} is required` };
   }
   return {
-    task: out.task as string,
-    out: out.out as string,
-    statusFile: out.statusFile as string,
+    task: out.task ?? "",
+    out: out.out ?? "",
+    statusFile: out.statusFile ?? "",
     config: out.config ?? `${homedir()}/.flow/config.json`,
+    printModels,
   };
 }
 
@@ -156,45 +158,68 @@ function readResearchObject(config: unknown): Record<string, unknown> {
   return research as Record<string, unknown>;
 }
 
-// Resolve the gather/refute models with the cross-model diversity guard: a
-// collision (refute === gather) falls back to a DIFFERENT pinned variant —
-// GPT-OSS when gather is Opus, else Opus — so the refute pass never runs on
-// the same model family as gather. Tolerant: a missing/wrong-type override
-// silently takes its default.
+const nonEmpty = (v: unknown): v is string =>
+  typeof v === "string" && v.trim() !== "";
+
+// Resolve the gather/refute/refute-fallback models from ONE injected config.
+// Precedence per model: legacy `research.model` / `research.refuteModel`, then
+// `delegate.models.<surface>`, then the DELEGATE_MODEL_DEFAULTS table. Reads
+// the config through extractDelegateModelsKey, never resolveDelegateModel,
+// whose override notice would pollute stderr and which reads the global file
+// instead of the injected config.
 //
-// `resolveDelegateModel` is called HERE (call time), not at module load: a
-// module-load read hits the real ~/.flow/config.json before any test can
-// inject an override, defeating the injectable-config-reader seam and
-// breaking `npm run verify` for a maintainer with
-// `delegate.models.researchGather`/`researchRefute` set.
-//
-// The `gatherModel === defaultRefuteModel` check below compares against
-// `defaultRefuteModel`, which is the RESOLVED value (delegate.models
-// .researchRefute override, or the seeded default) rather than a bare
-// constant — so a delegate.models config override cannot silently collapse
-// gather and refute onto the same model without the guard noticing.
-export function resolveModels(config: unknown): {
+// Diversity guard: a refute equal to gather takes the fallback; when the
+// fallback also equals gather, the refute default is used, so the refute
+// pass never runs on the same model as gather.
+export function resolveModels(
+  config: unknown,
+  warn: (line: string) => void = console.error,
+): {
   gatherModel: string;
   refuteModel: string;
+  refuteFallbackModel: string;
 } {
-  const defaultGatherModel = resolveDelegateModel("researchGather") as string;
-  const defaultRefuteModel = resolveDelegateModel("researchRefute") as string;
   const research = readResearchObject(config);
-  const gatherModel =
-    typeof research.model === "string" && research.model.trim()
-      ? research.model
-      : defaultGatherModel;
-  let refuteModel =
-    typeof research.refuteModel === "string" && research.refuteModel.trim()
-      ? research.refuteModel
-      : defaultRefuteModel;
+  const pick = (
+    legacyKey: "model" | "refuteModel" | null,
+    surface: "researchGather" | "researchRefute" | "researchRefuteFallback",
+  ): string => {
+    const legacy = legacyKey === null ? undefined : research[legacyKey];
+    const twin = extractDelegateModelsKey(config, surface);
+    const present = (v: unknown) => v !== undefined && v !== null;
+    if (legacyKey !== null && present(legacy) && !nonEmpty(legacy)) {
+      warn(
+        `flow-research-run: research.${legacyKey} is present but not a string; ignoring it`,
+      );
+    }
+    if (present(twin) && !nonEmpty(twin)) {
+      warn(
+        `flow-research-run: delegate.models.${surface} is present but not a string; ignoring it`,
+      );
+    }
+    if (nonEmpty(legacy)) {
+      if (nonEmpty(twin)) {
+        warn(
+          `flow-research-run: research.${legacyKey} and delegate.models.${surface} are both set; research.${legacyKey} wins.`,
+        );
+      }
+      return legacy;
+    }
+    return nonEmpty(twin) ? twin : (DELEGATE_MODEL_DEFAULTS[surface] as string);
+  };
+  const gatherModel = pick("model", "researchGather");
+  let refuteModel = pick("refuteModel", "researchRefute");
+  const refuteFallbackModel = pick(null, "researchRefuteFallback");
   if (refuteModel === gatherModel) {
     refuteModel =
-      gatherModel === defaultRefuteModel
-        ? FALLBACK_REFUTE_MODEL
-        : defaultRefuteModel;
+      refuteFallbackModel !== gatherModel
+        ? refuteFallbackModel
+        : (DELEGATE_MODEL_DEFAULTS.researchRefute as string);
+    warn(
+      `flow-research-run: the refute model matched the gather model; using ${refuteModel} for the refute pass.`,
+    );
   }
-  return { gatherModel, refuteModel };
+  return { gatherModel, refuteModel, refuteFallbackModel };
 }
 
 export function resolveMaxCalls(config: unknown): number {
@@ -505,21 +530,51 @@ function readEntryOutcome(
   return { text, ran: true, ...deniedActions };
 }
 
-function execute(parsed: Args, deps: Deps): number {
+// Tolerant config read: a missing or empty file is `{}` silently; malformed
+// JSON is `{}` and warns once when `warnMalformed` is set.
+function readConfigTolerant(
+  parsed: Args,
+  deps: Deps,
+  warnMalformed: boolean,
+): unknown {
   let rawConfig = "";
   try {
     rawConfig = deps.readConfig(parsed.config);
   } catch {
-    rawConfig = "";
+    return {};
   }
-  let config: unknown = {};
+  if (rawConfig.trim() === "") return {};
   try {
-    config = JSON.parse(rawConfig);
+    return JSON.parse(rawConfig);
   } catch {
-    config = {};
+    if (warnMalformed) {
+      deps.writeErr(
+        `flow-research-run: ${parsed.config} is not valid JSON; using the default models.`,
+      );
+    }
+    return {};
   }
+}
 
-  const { gatherModel, refuteModel } = resolveModels(config);
+function printModels(parsed: Args, deps: Deps): number {
+  const { gatherModel, refuteModel, refuteFallbackModel } = resolveModels(
+    readConfigTolerant(parsed, deps, true),
+    deps.writeErr,
+  );
+  deps.writeOut(
+    JSON.stringify({
+      gather: gatherModel,
+      refute: refuteModel,
+      refuteFallback: refuteFallbackModel,
+    }),
+  );
+  return 0;
+}
+
+function execute(parsed: Args, deps: Deps): number {
+  const config = readConfigTolerant(parsed, deps, false);
+
+  const { gatherModel, refuteModel } = resolveModels(config, deps.writeErr);
   const timeout = resolveTimeout(config);
   const maxCalls = resolveMaxCalls(config);
 
@@ -606,10 +661,12 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   if ("error" in parsed) {
     deps.writeErr(`flow-research-run: ${parsed.error}`);
     deps.writeErr(
-      "usage: flow-research-run --task <description> --out <findings-md-path> --status-file <status-json-path> [--config <path>]",
+      "usage: flow-research-run --task <description> --out <findings-md-path> --status-file <status-json-path> [--config <path>] | flow-research-run --print-models [--config <path>]",
     );
     return 2;
   }
+
+  if (parsed.printModels) return printModels(parsed, deps);
 
   // Defensive outer catch: any unexpected error past arg-parse degrades to a
   // graceful agy-unavailable skip with exit 0. Research must NEVER block planning.

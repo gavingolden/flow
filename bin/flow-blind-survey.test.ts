@@ -19,7 +19,7 @@ describe("judge limits", () => {
   });
 });
 
-const MODEL_A = "Gemini 4 Argon (High)";
+const MODEL_A = DELEGATE_MODEL_DEFAULTS.blindSurvey!;
 const MODEL_B = DELEGATE_MODEL_DEFAULTS.blindSurveySecond!;
 
 const JUDGE_PROSE =

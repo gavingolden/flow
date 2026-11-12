@@ -6,6 +6,7 @@
 import {
   DELEGATE_MODEL_DEFAULTS,
   extractDelegateModelsKey,
+  isIgnoredOverride,
   type DelegateSurface,
 } from "./delegate-models";
 
@@ -23,6 +24,8 @@ const SURFACE_LABELS: Record<string, string> = {
   planReviewSecond: "plan review's second reviewer",
   blindSurvey: "method survey's first judge",
   blindSurveySecond: "method survey's second judge",
+  lensReroute: "the Gemini re-run of a refused review",
+  researchRefuteFallback: "the research fact-check fallback",
   claudeLenses: "the delegated Claude review lenses",
   scout: "the delegated implementation scout",
   "research.model": "research gathering",
@@ -62,7 +65,11 @@ export function configuredAgyModels(raw: unknown): ConfiguredModel[] {
       continue;
     }
     const override = extractDelegateModelsKey(raw, surface);
-    const model = nonEmptyString(override)
+    // A Claude lensReroute is ignored at runtime, so check the default instead.
+    const usable =
+      nonEmptyString(override) &&
+      !isIgnoredOverride(surface as DelegateSurface, override);
+    const model = usable
       ? override
       : DELEGATE_MODEL_DEFAULTS[surface as DelegateSurface];
     if (model !== null) out.push({ surface, model });

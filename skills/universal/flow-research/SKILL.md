@@ -97,9 +97,13 @@ addDirs?, out?, skipPermissions?, outputFormat? }`. `skipPermissions` and
   backgrounds + persists to `--out` like `flow-ci-wait`, so a deep run can
   outlive the harness foreground budget and a resumed turn reads the result
   file.
-- **Exact agy model variants** (live `agy models`, do not paraphrase): gather
-  runs on `Gemini 4 Argon (High)`; refutation runs on a DIFFERENT variant from
-  {`Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)`}.
+- **Agy model variants come from one helper, never from this prose.**
+  `flow-research-run --print-models` prints the resolved gather, refute and
+  refute-fallback models as JSON, honoring `delegate.models.researchGather`,
+  `delegate.models.researchRefute`, `delegate.models.researchRefuteFallback`
+  (and the legacy `research.model` / `research.refuteModel`); `flow config`
+  shows the same values. Gather runs on the gather model; refutation runs on a
+  DIFFERENT model from the gatherer.
 - **Coding / output standards:** `AGENTS.md`. The no-nested-LLM rule is
   load-bearing here — see Constraints.
 - [report template](references/report-template.md) — the cited-report
@@ -169,9 +173,16 @@ refresh repopulates the cache for the next caller.
 
 ## 2. Gather (agy fan-out via `flow-delegate-fanout`)
 
+Resolve the models once, before building any manifest. Shell variables do not
+survive between Bash calls, so print the JSON and keep it on disk:
+
+```bash
+mkdir -p .flow-tmp/research/<run-id> && flow-research-run --print-models | tee .flow-tmp/research/<run-id>/models.json
+```
+
 Build a gather manifest — one entry per angle — and write it to
 `.flow-tmp/research/<run-id>/gather-manifest.json`. **Every gather entry uses
-`"model": "Gemini 4 Argon (High)"`.** This GATHER step is a single-model
+`"model"` set to the `.gather` value printed above** (`jq -r .gather .flow-tmp/research/<run-id>/models.json`, in the same Bash call that builds the manifest). This GATHER step is a single-model
 monoculture (agy's native Google grounding is the point); cross-model
 diversity lives only in the refute step (Step 3). Do not claim pervasive
 diversity — the diverse signal is adversarial, in the refute step.
@@ -202,10 +213,12 @@ section with its reason in plain language — never silently dropped.
 In Claude, **rank the gathered claims by importance × source-quality** and
 select the top-N to verify (N is a generous default, ~40, tunable — see
 Constraints). For each selected claim, build a refute manifest entry that runs
-on a **DIFFERENT model from the gatherer** — a variant from
-{`Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)`} — so the adversarial
-signal is genuinely cross-model rather than one model checking itself. Write it
-to `.flow-tmp/research/<run-id>/refute-manifest.json`.
+on a **DIFFERENT model from the gatherer** — the refute pool is the unique
+values of `[.refute, .refuteFallback]` in `models.json`, minus the gather model —
+so the adversarial signal is genuinely cross-model rather than one model
+checking itself. If that leaves one model, say so in the report's limitations:
+with one refute voter no claim can be KILLED by two diverse votes, only
+flagged. Write it to `.flow-tmp/research/<run-id>/refute-manifest.json`.
 
 Each refute prompt is a skeptic checklist: **attempt to refute the claim WITH
 sources** (not bare assertion), **rate confidence** from {`high`, `medium`,
@@ -404,14 +417,14 @@ produced it (tier-2 `claude -p` vs tier-3 sequential).
 - **Shipping a partial run as complete.** A budget-exhausted or agy-error
   mid-run must degrade the report's confidence and name the gaps, not be
   silently presented as a finished result.
-- **Paraphrasing the agy model-variant strings.** A wrong / renamed variant
-  silently forces a skip. Keep `Gemini 4 Argon (High)`,
-  `Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)` byte-exact.
+- **Hand-typing agy model-variant strings.** A wrong / renamed variant
+  silently forces a skip, and a copy drifts from the config. Take every model
+  verbatim from `flow-research-run --print-models`.
 
 # Verification
 
-- The gather manifest pins `Gemini 4 Argon (High)`; the refute manifest pins a
-  different variant from {`Claude Opus 5.5 (Medium)`, `GPT-OSS 120B (Medium)`}.
+- The gather manifest's `model` is the helper's `.gather`; the refute manifest
+  uses a different model from the helper's `.refute` / `.refuteFallback` pool.
 - The report has confidence-ranked findings (high/medium/low), a refuted-claims
   transparency block, caveats, and open questions; it is both returned in chat
   and written to `.flow-tmp/research/<run-id>/report.md`.

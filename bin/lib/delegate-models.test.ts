@@ -146,6 +146,7 @@ describe("resolveDelegateModel", () => {
       "utf8",
     );
     expect(agyLensesSrc).toContain('resolveDelegateModel("claudeLenses"');
+    expect(agyLensesSrc).toContain('resolveDelegateModel("lensReroute"');
 
     const agyScoutSrc = fs.readFileSync(
       new URL("../flow-agy-scout.ts", import.meta.url),
@@ -157,12 +158,8 @@ describe("resolveDelegateModel", () => {
       new URL("../flow-research-run.ts", import.meta.url),
       "utf8",
     );
-    expect(researchRunSrc).toContain(
-      'defaultGatherModel = resolveDelegateModel("researchGather")',
-    );
-    expect(researchRunSrc).toContain(
-      'defaultRefuteModel = resolveDelegateModel("researchRefute")',
-    );
+    expect(researchRunSrc).toContain("DELEGATE_MODEL_DEFAULTS[surface]");
+    expect(researchRunSrc).toContain('"researchRefuteFallback"');
 
     const planReviewSrc = fs.readFileSync(
       new URL("../flow-plan-review.ts", import.meta.url),
@@ -234,8 +231,8 @@ describe("resolveDelegateModel", () => {
     // (High)" refuting "Gemini 3.8 Flash (High)") would pass both string
     // checks while collapsing the cross-line tension into intra-line
     // confirmation, with nothing warning. Scope is defaults only; a config
-    // override stays deliberately unguarded (see the researchRefute comment
-    // block in delegate-models.ts). NOTE: `family()` here derives a
+    // override stays deliberately unguarded (a configured pair can collide;
+    // flow-research-run's runtime guard substitutes the fallback). NOTE: `family()` here derives a
     // product-line PREFIX (first whitespace token, e.g. "Claude" / "Gemini"
     // / "GPT-OSS"), not a vendor — "Claude Opus" and "Claude Sonnet" both
     // reduce to "Claude" and would NOT be caught by this guard; that's a
@@ -261,7 +258,7 @@ describe("resolveDelegateModel", () => {
     // PR #644 shipped a code flip whose docs/configuration.md "default today"
     // row went stale, and only a human reviewer caught it. This makes that
     // class of drift mechanical for this file (the prose copies in the
-    // research docs are covered by the sibling test below). Reads the doc module-relative, the same way
+    // research docs are covered by bin/model-name-literal-lint.test.ts). Reads the doc module-relative, the same way
     // the consumer-routing test above does (NOT cwd-relative — a cwd-relative
     // read here would ENOENT under any invocation whose cwd isn't the repo
     // root, e.g. a single-file vitest run from an editor).
@@ -308,32 +305,64 @@ describe("resolveDelegateModel", () => {
     }
   });
 
-  it("every Opus pin in the research prose and shell copies equals the code default", () => {
-    const files = [
-      "skills/pipeline/flow-product-planning/references/discovery-research.md",
-      "skills/universal/flow-research/SKILL.md",
-      "templates/references/delegation.md",
-    ];
-    const refute = DELEGATE_MODEL_DEFAULTS.researchRefute!;
-    for (const rel of files) {
-      const text = fs.readFileSync(
-        new URL(`../../${rel}`, import.meta.url),
+  it("each step's default follows its verdict in the Carbon smoke record", () => {
+    const record = JSON.parse(
+      fs.readFileSync(
+        new URL("../../docs/eval/carbon-4-smoke-2026-11.json", import.meta.url),
         "utf8",
-      );
-      expect(text, `${rel} lost the gather pin`).toContain(
-        DELEGATE_MODEL_DEFAULTS.researchGather!,
-      );
-      const opus = text.match(/Claude Opus [\d.]+ \([^)]+\)/g) ?? [];
-      expect(
-        opus.length,
-        `${rel} no longer names the refute model`,
-      ).toBeGreaterThan(0);
-      for (const m of opus) {
-        expect(m, `stale refute pin in ${rel}: expected ${refute}`).toBe(
-          refute,
-        );
+      ),
+    ) as { verdicts: Record<string, string> };
+    const preCarbon = {
+      reviewLens: "Gemini 4 Argon (High)",
+      lensReroute: "Gemini 4 Argon (Medium)",
+    } as Record<string, string>;
+    for (const surface of [
+      "intentGuess",
+      "researchGather",
+      "blindSurvey",
+      "planReview",
+      "reviewLens",
+      "lensReroute",
+    ] as const) {
+      const verdict = record.verdicts[surface];
+      expect(verdict, `no smoke verdict for ${surface}`).toBeDefined();
+      const actual = DELEGATE_MODEL_DEFAULTS[surface]!;
+      if (verdict.startsWith("pass")) {
+        expect(actual).toBe("Gemini 4 Carbon (Medium)");
+      } else {
+        expect(actual).not.toContain("Carbon");
+        expect(actual).toBe(preCarbon[surface]);
       }
     }
+  });
+});
+
+describe("lensReroute surface", () => {
+  it("resolves a Gemini override", () => {
+    expect(
+      resolveDelegateModel(
+        "lensReroute",
+        reader({
+          delegate: { models: { lensReroute: "Gemini 4 Test (Low)" } },
+        }),
+      ),
+    ).toBe("Gemini 4 Test (Low)");
+  });
+
+  it("ignores a Claude override with one warning and returns the default", () => {
+    const cfg = reader({
+      delegate: { models: { lensReroute: "Claude Opus 5.5 (High)" } },
+    });
+    expect(resolveDelegateModel("lensReroute", cfg)).toBe(
+      DELEGATE_MODEL_DEFAULTS.lensReroute,
+    );
+    expect(resolveDelegateModel("lensReroute", cfg)).toBe(
+      DELEGATE_MODEL_DEFAULTS.lensReroute,
+    );
+    const warnings = stderrSpy.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes("delegate.models.lensReroute"),
+    );
+    expect(warnings).toHaveLength(1);
   });
 });
 

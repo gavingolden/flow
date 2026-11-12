@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseArgs, run, type Deps } from "./flow-agy-lenses";
 import type { FanoutResult, ManifestEntry } from "./flow-delegate-fanout";
-import { LENS_REROUTE_MODEL } from "./lib/delegate-models";
+import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
 
 const SKILL_DIR = path.join(
   import.meta.dirname,
@@ -413,8 +413,23 @@ describe("routing without an agy call", () => {
     const e = envelope();
     expect(e.routes).toEqual([{ lens: "security", route: "agy" }]);
     expect(fanoutCalls).toHaveLength(1);
-    expect(fanoutCalls[0][0].model).toBe(LENS_REROUTE_MODEL);
+    expect(fanoutCalls[0][0].model).toBe(DELEGATE_MODEL_DEFAULTS.lensReroute);
     expect(armed).toHaveLength(0);
+  });
+
+  it("--force-route safeguards-retry honours a delegate.models.lensReroute override", async () => {
+    const OVERRIDE = "Gemini 4 Override (Low)";
+    await run(
+      argv("security", ["--force-route", "safeguards-retry"]),
+      deps({
+        readConfig: () => ({
+          review: { gemini: true },
+          delegate: { models: { lensReroute: OVERRIDE } },
+        }),
+      }),
+    );
+    expect(fanoutCalls).toHaveLength(1);
+    expect(fanoutCalls[0][0].model).toBe(OVERRIDE);
   });
 
   it("forced route without review.gemini returns the lens as a fallback and makes no agy call", async () => {
@@ -890,7 +905,7 @@ describe("content-filter refusals", () => {
 });
 
 describe("Gemini re-run of a refused lens", () => {
-  const GEMINI = "Gemini 4 Argon (Medium)";
+  const GEMINI = DELEGATE_MODEL_DEFAULTS.lensReroute!;
   const refusePrimaryOnly: EntryBehaviour = (_l, _e, rung) =>
     rung === "primary" ? { ...REFUSED } : { raw: GOOD };
 
@@ -921,6 +936,51 @@ describe("Gemini re-run of a refused lens", () => {
     expect(rerun.timeout).toBe("480s");
     expect(rerun.addDirs).toEqual([worktree]);
     expect(rerun.outputFormat).toBe("json");
+  });
+
+  it("uses a Gemini delegate.models.lensReroute override for the re-run", async () => {
+    const OVERRIDE = "Gemini 4 Override (Low)";
+    await run(
+      argv("bug-detection"),
+      deps({
+        runFanout: fanoutWith(refusePrimaryOnly),
+        now: () => 1000,
+        readConfig: cfg({
+          models: { claudeLenses: VARIANT, lensReroute: OVERRIDE },
+        }),
+      }),
+    );
+    const rerun = fanoutCalls
+      .map((c) => c[0]!)
+      .find((c) => c.task.startsWith("agy-reroute-"))!;
+    expect(rerun.model).toBe(OVERRIDE);
+    expect(envelope().delegated[0]).toMatchObject({ model: OVERRIDE });
+  });
+
+  it("falls back to the default re-run model with one warning for a Claude lensReroute override", async () => {
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await run(
+        argv("bug-detection"),
+        deps({
+          runFanout: fanoutWith(refusePrimaryOnly),
+          now: () => 1000,
+          readConfig: cfg({
+            models: { claudeLenses: VARIANT, lensReroute: VARIANT },
+          }),
+        }),
+      );
+      const rerun = fanoutCalls
+        .map((c) => c[0]!)
+        .find((c) => c.task.startsWith("agy-reroute-"))!;
+      expect(rerun.model).toBe(GEMINI);
+      const warnings = warn.mock.calls.filter((c) =>
+        String(c[0]).includes("delegate.models.lensReroute"),
+      );
+      expect(warnings).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("gives the primary and its re-run rung distinct manifest and out paths", async () => {

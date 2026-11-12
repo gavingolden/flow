@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSettingsRows, SETTINGS_KEYS } from "./config-settings";
+import { DELEGATE_MODEL_DEFAULTS } from "./delegate-models";
+import { resolveModels } from "../flow-research-run";
 import type { ReadConfigFile } from "./models-config";
 
 const reader =
@@ -22,7 +24,7 @@ describe("buildSettingsRows", () => {
     expect(row?.source).toBe("env (FLOW_KEEP_AWAKE=0)");
   });
 
-  // SETTINGS_KEYS collapses the 12 individual delegate.models.*/
+  // SETTINGS_KEYS collapses the 14 individual delegate.models.*/
   // delegate.timeouts.* rows down to their two existing doc-table glob
   // entries (see config-settings.ts's SETTINGS_KEYS doc comment), so a
   // rendered row's `setting` is either a literal SETTINGS_KEYS entry or
@@ -76,6 +78,52 @@ describe("buildSettingsRows", () => {
     expect(row?.value).not.toBe("X");
     expect(row?.source).toContain("diversity guard");
     expect(row?.source).toContain("X collides with gather");
+    expect(row?.value).toBe(DELEGATE_MODEL_DEFAULTS.researchRefuteFallback);
+  });
+
+  it("research.refuteModel: a configured fallback stand-in is attributed to its config key", () => {
+    const rows = buildSettingsRows(
+      reader({
+        research: { model: "X", refuteModel: "X" },
+        delegate: { models: { researchRefuteFallback: "Fallback Test (Low)" } },
+      }),
+    );
+    const row = rows.find((r) => r.setting === "research.refuteModel");
+    expect(row?.value).toBe("Fallback Test (Low)");
+    expect(row?.source).toContain(
+      "config (delegate.models.researchRefuteFallback",
+    );
+  });
+
+  it("research.refuteModel row matches flow-research-run's resolved refute model for every collision shape", () => {
+    const d = DELEGATE_MODEL_DEFAULTS;
+    const fb = "Fallback Test (Low)";
+    const configs: unknown[] = [
+      {},
+      { research: { model: "X", refuteModel: "X" } },
+      {
+        research: { model: "X", refuteModel: "X" },
+        delegate: { models: { researchRefuteFallback: fb } },
+      },
+      {
+        research: {
+          model: d.researchRefuteFallback,
+          refuteModel: d.researchRefuteFallback,
+        },
+      },
+      {
+        research: { model: fb, refuteModel: fb },
+        delegate: { models: { researchRefuteFallback: fb } },
+      },
+    ];
+    for (const cfg of configs) {
+      const row = buildSettingsRows(reader(cfg)).find(
+        (r) => r.setting === "research.refuteModel",
+      );
+      expect(row?.value, JSON.stringify(cfg)).toBe(
+        resolveModels(cfg, () => {}).refuteModel,
+      );
+    }
   });
 
   it("an absent config renders a full built-ins-only table with exit-0-safe defaults", () => {
@@ -115,7 +163,7 @@ describe("buildSettingsRows", () => {
     errSpy.mockRestore();
   });
 
-  it("renders 12 individual delegate rows (10 models + 2 timeouts)", () => {
+  it("renders 14 individual delegate rows (12 models + 2 timeouts)", () => {
     const rows = buildSettingsRows(reader(undefined));
     const modelRows = rows.filter((r) =>
       r.setting.startsWith("delegate.models."),
@@ -123,8 +171,18 @@ describe("buildSettingsRows", () => {
     const timeoutRows = rows.filter((r) =>
       r.setting.startsWith("delegate.timeouts."),
     );
-    expect(modelRows.length).toBe(10);
+    expect(modelRows.length).toBe(12);
     expect(timeoutRows.length).toBe(2);
+  });
+
+  it("renders a Claude lensReroute override as built-in with the default value", () => {
+    const row = buildSettingsRows(
+      reader({
+        delegate: { models: { lensReroute: "Claude Opus 5.5 (High)" } },
+      }),
+    ).find((r) => r.setting === "delegate.models.lensReroute");
+    expect(row?.value).toBe(DELEGATE_MODEL_DEFAULTS.lensReroute);
+    expect(row?.source).toMatch(/^built-in/);
   });
 
   it("renders the claudeLenses row off by default, with a plain-language name", () => {

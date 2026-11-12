@@ -43,6 +43,15 @@ describe("parseArgs", () => {
     });
   });
 
+  it("--print-models makes --task/--out/--status-file optional", () => {
+    expect(parseArgs(["--print-models"])).toMatchObject({ printModels: true });
+    expect(parseArgs(["--print-models", "--config", "/c.json"])).toMatchObject({
+      printModels: true,
+      config: "/c.json",
+    });
+    expect(parseArgs(["--task", "x"])).toEqual({ error: "--out is required" });
+  });
+
   it("rejects a value-flag with no value", () => {
     expect(parseArgs(["--task"])).toEqual({
       error: "--task requires a value",
@@ -130,6 +139,7 @@ describe("resolveModels (cross-model diversity guard)", () => {
     const defaults = {
       gatherModel: DELEGATE_MODEL_DEFAULTS.researchGather,
       refuteModel: DELEGATE_MODEL_DEFAULTS.researchRefute,
+      refuteFallbackModel: DELEGATE_MODEL_DEFAULTS.researchRefuteFallback,
     };
     expect(resolveModels({})).toEqual(defaults);
     expect(resolveModels(null)).toEqual(defaults);
@@ -146,16 +156,80 @@ describe("resolveModels (cross-model diversity guard)", () => {
     ).toEqual({
       gatherModel: "GPT-OSS 120B (Medium)",
       refuteModel: DELEGATE_MODEL_DEFAULTS.researchRefute,
+      refuteFallbackModel: DELEGATE_MODEL_DEFAULTS.researchRefuteFallback,
     });
   });
 
-  it("falls back to FALLBACK_REFUTE_MODEL when both resolve to Opus", () => {
+  it("delegate.models.researchGather alone sets the gather model", () => {
+    const r = resolveModels({
+      delegate: { models: { researchGather: "Gemini 4 Test (Low)" } },
+    });
+    expect(r.gatherModel).toBe("Gemini 4 Test (Low)");
+    expect(r.refuteModel).toBe(DELEGATE_MODEL_DEFAULTS.researchRefute);
+  });
+
+  it("honours a delegate.models.researchRefuteFallback override as the collision stand-in", () => {
+    const d = DELEGATE_MODEL_DEFAULTS.researchRefute!;
+    const r = resolveModels({
+      research: { model: d, refuteModel: d },
+      delegate: { models: { researchRefuteFallback: "Fallback Test (Low)" } },
+    });
+    expect(r.refuteFallbackModel).toBe("Fallback Test (Low)");
+    expect(r.refuteModel).toBe("Fallback Test (Low)");
+  });
+
+  it("a numeric research.model warns and falls back to the table default", () => {
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = resolveModels({ research: { model: 5 } });
+      expect(r.gatherModel).toBe(DELEGATE_MODEL_DEFAULTS.researchGather);
+      expect(warn.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
+        "research.model is present but not a string",
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("a numeric delegate.models.researchGather warns and falls back to the table default", () => {
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = resolveModels({
+        delegate: { models: { researchGather: 5 } },
+      });
+      expect(r.gatherModel).toBe(DELEGATE_MODEL_DEFAULTS.researchGather);
+      expect(warn.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
+        "delegate.models.researchGather is present but not a string",
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("warns and lets the legacy key win when research.model and delegate.models.researchGather are both set", () => {
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = resolveModels({
+        research: { model: "Legacy (Low)" },
+        delegate: { models: { researchGather: "Twin (Low)" } },
+      });
+      expect(r.gatherModel).toBe("Legacy (Low)");
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]![0])).toContain(
+        "delegate.models.researchGather",
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("falls back to the refute fallback when both resolve to the refute default", () => {
     // A gather===refute collision on the current refute default takes the
-    // FALLBACK_REFUTE_MODEL branch.
+    // researchRefuteFallback branch.
     const d = DELEGATE_MODEL_DEFAULTS.researchRefute!;
     const r = resolveModels({ research: { model: d, refuteModel: d } });
     expect(r.gatherModel).toBe(d);
-    expect(r.refuteModel).toBe("GPT-OSS 120B (Medium)");
+    expect(r.refuteModel).toBe(DELEGATE_MODEL_DEFAULTS.researchRefuteFallback);
     expect(r.refuteModel).not.toBe(r.gatherModel);
   });
 
@@ -341,6 +415,56 @@ const ARGV = [
 ];
 const OUT = "/wt/.flow-tmp/research-findings.md";
 const STATUS = "/wt/.flow-tmp/research-status.json";
+
+describe("run — --print-models", () => {
+  const fanout = () => ({ allSkipped: true, anyRan: false });
+  const defaultsLine = {
+    gather: DELEGATE_MODEL_DEFAULTS.researchGather,
+    refute: DELEGATE_MODEL_DEFAULTS.researchRefute,
+    refuteFallback: DELEGATE_MODEL_DEFAULTS.researchRefuteFallback,
+  };
+
+  it("prints defaults and exits 0 when the config file is missing", () => {
+    const deps = makeDeps(fanout, {
+      readConfig: () => {
+        throw new Error("ENOENT");
+      },
+    });
+    expect(run(["--print-models", "--config", "/none.json"], deps)).toBe(0);
+    expect(JSON.parse(deps.out[0]!)).toEqual(defaultsLine);
+    expect(deps.err).toEqual([]);
+  });
+
+  it("prints defaults silently for an empty or whitespace config", () => {
+    for (const raw of ["", "  \n"]) {
+      const deps = makeDeps(fanout, { readConfig: () => raw });
+      expect(run(["--print-models", "--config", "/e.json"], deps)).toBe(0);
+      expect(JSON.parse(deps.out[0]!)).toEqual(defaultsLine);
+      expect(deps.err).toEqual([]);
+    }
+  });
+
+  it("prints defaults with one warning and exits 0 for malformed JSON", () => {
+    const deps = makeDeps(fanout, { readConfig: () => "{not json" });
+    expect(run(["--print-models", "--config", "/m.json"], deps)).toBe(0);
+    expect(JSON.parse(deps.out[0]!)).toEqual(defaultsLine);
+    expect(deps.err).toHaveLength(1);
+  });
+
+  it("prints the resolved models from the injected config", () => {
+    const deps = makeDeps(fanout, {
+      readConfig: () =>
+        JSON.stringify({
+          delegate: { models: { researchGather: "Gemini 4 Test (Low)" } },
+        }),
+    });
+    expect(run(["--print-models", "--config", "/c.json"], deps)).toBe(0);
+    expect(JSON.parse(deps.out[0]!)).toEqual({
+      ...defaultsLine,
+      gather: "Gemini 4 Test (Low)",
+    });
+  });
+});
 
 describe("run — status file write", () => {
   it("writes the status file newline-terminated via a tmp file then rename", () => {

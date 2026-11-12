@@ -25,7 +25,7 @@ import {
   buildFallbackArgv,
 } from "./lib/plan-review-fallback";
 
-const MODEL_1 = "Gemini 4 Argon (High)";
+const MODEL_1 = DELEGATE_MODEL_DEFAULTS.planReview!;
 const MODEL_2 = DELEGATE_MODEL_DEFAULTS.planReviewSecond!;
 
 // Must clear BOTH the engagement bars in bin/lib/plan-review-engagement.ts:
@@ -458,7 +458,7 @@ describe("run — happy path", () => {
       depth: "standard",
       reviewers: [
         {
-          model: "Gemini 4 Argon (High)",
+          model: MODEL_1,
           ran: true,
           skipReason: null,
           lensesEngaged: 4,
@@ -473,11 +473,11 @@ describe("run — happy path", () => {
     expect(deps.files.has(`${OUT}.agy-raw`)).toBe(false);
   });
 
-  it("passes the hardcoded Gemini model and the worktree as --add-dir, with the reviewer-1 --timeout, to the delegate", () => {
+  it("passes the planReview model and the worktree as --add-dir, with the reviewer-1 --timeout, to the delegate", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
     const argv = deps.calls.delegate[0]!;
-    expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 4 Argon (High)");
+    expect(argv[argv.indexOf("--model") + 1]).toBe(MODEL_1);
     expect(argv[argv.indexOf("--add-dir") + 1]).toBe(WORKTREE);
     expect(argv[argv.indexOf("--task") + 1]).toBe("plan-review");
     expect(argv[argv.indexOf("--timeout") + 1]).toBe(REVIEWER_1_TIMEOUT);
@@ -1732,11 +1732,11 @@ describe("maxElapsedSec", () => {
 });
 
 describe("maxElapsedSec — the minutes written in the docs", () => {
-  // The source comment, the PR description and the docs state "18 minutes
-  // standard, 33 deep"; re-sizing a reviewer limit must update them together.
-  it("is 18 minutes on the standard tier and 33 on the deep tier", () => {
-    expect(maxElapsedSec("standard")).toBe(18 * 60);
-    expect(maxElapsedSec("deep")).toBe(33 * 60);
+  // The source comment, the PR description and the docs state "20 minutes
+  // standard, 35 deep"; re-sizing a reviewer limit must update them together.
+  it("is 20 minutes on the standard tier and 35 on the deep tier", () => {
+    expect(maxElapsedSec("standard")).toBe(20 * 60);
+    expect(maxElapsedSec("deep")).toBe(35 * 60);
   });
 });
 

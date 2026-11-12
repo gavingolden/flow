@@ -52,6 +52,25 @@ describe("configuredAgyModels", () => {
     );
   });
 
+  it("checks the default, not a Claude lensReroute override the runtime ignores", () => {
+    const got = configuredAgyModels({
+      delegate: { models: { lensReroute: "Claude Opus 5.5 (High)" } },
+    });
+    expect(got).toContainEqual({
+      surface: "lensReroute",
+      model: DELEGATE_MODEL_DEFAULTS.lensReroute,
+    });
+    expect(
+      got.filter((c) => c.surface === "lensReroute").map((c) => c.model),
+    ).toEqual([DELEGATE_MODEL_DEFAULTS.lensReroute]);
+    expect(surfaceLabel("lensReroute")).toBe(
+      "the Gemini re-run of a refused review",
+    );
+    expect(surfaceLabel("researchRefuteFallback")).toBe(
+      "the research fact-check fallback",
+    );
+  });
+
   it("checks a scout override (flow-agy-scout now consumes the slot)", () => {
     const got = configuredAgyModels({
       delegate: { models: { scout: "Scout M" } },
