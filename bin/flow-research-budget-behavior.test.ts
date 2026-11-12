@@ -19,8 +19,8 @@ import { DEFAULT_TIMEOUT } from "./flow-research-run";
  * lint stays green through it.
  *
  * This suite closes the gap WITHOUT duplicating the jq: it EXTRACTS the
- * `read_budget` helper + `RESEARCH_*` assignments + cross-model diversity guard
- * from the fenced ```bash block in discovery-research.md (the single source
+ * `read_budget` helper + `RESEARCH_*` assignments + the module precheck and
+ * the `flow-research-run --print-models` model lookup from the fenced ```bash block in discovery-research.md (the single source
  * of truth — the jq is inline-in-markdown by design because the discovery
  * subagent runs in a consumer worktree where flow's bin/lib is NOT on PATH, so
  * a committed shell-script copy would drift). It rewrites only the `CFG=` line to
@@ -64,6 +64,7 @@ function extractBudgetBlock(md: string): string {
 
 let scriptPath: string;
 let tmpDir: string;
+let shimDir: string;
 
 beforeAll(() => {
   if (!hasJq) return;
@@ -80,6 +81,21 @@ beforeAll(() => {
     repointed,
     "expected the extracted block to contain a `CFG=` line to repoint",
   ).not.toBe(block);
+
+  // The block calls two PATH helpers: a module-status shim that reports the
+  // research module active, and flow-research-run run from this checkout.
+  shimDir = path.join(tmpDir, "shims");
+  fs.mkdirSync(shimDir);
+  const shim = (name: string, body: string) => {
+    const file = path.join(shimDir, name);
+    fs.writeFileSync(file, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(file, 0o755);
+  };
+  shim("flow-module-status", "exit 0");
+  shim(
+    "flow-research-run",
+    `exec bun ${path.resolve(HERE, "flow-research-run.ts")} "$@"`,
+  );
 
   const script = [
     "#!/usr/bin/env bash",
@@ -101,6 +117,11 @@ afterAll(() => {
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+const bashEnv = () => ({
+  ...process.env,
+  PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+});
+
 /** Run the extracted budget script against a config-json fixture. */
 function runBudget(config: unknown): {
   status: number | null;
@@ -110,7 +131,10 @@ function runBudget(config: unknown): {
 } {
   const cfgPath = path.join(tmpDir, "config.json");
   fs.writeFileSync(cfgPath, JSON.stringify(config));
-  const res = spawnSync("bash", [scriptPath, cfgPath], { encoding: "utf8" });
+  const res = spawnSync("bash", [scriptPath, cfgPath], {
+    encoding: "utf8",
+    env: bashEnv(),
+  });
   const vars: Record<string, string> = {};
   for (const line of res.stdout.split("\n")) {
     const eq = line.indexOf("=");
@@ -125,7 +149,16 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
     expect(r.status).toBe(0);
     expect(r.vars.MAX).toBe("12");
     expect(r.vars.TIMEOUT).toBe(DEFAULT_TIMEOUT);
-    expect(r.vars.MODEL).toBe("Gemini 4 Argon (High)");
+    expect(r.vars.MODEL).toBe(DELEGATE_MODEL_DEFAULTS.researchGather);
+    expect(r.vars.REFUTE).toBe(DELEGATE_MODEL_DEFAULTS.researchRefute);
+  });
+
+  it("delegate.models.researchGather alone (no research.model) sets the gather model", () => {
+    const r = runBudget({
+      delegate: { models: { researchGather: "Gemini 4 Test (Low)" } },
+    });
+    expect(r.status).toBe(0);
+    expect(r.vars.MODEL).toBe("Gemini 4 Test (Low)");
     expect(r.vars.REFUTE).toBe(DELEGATE_MODEL_DEFAULTS.researchRefute);
   });
 
@@ -138,9 +171,9 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
   });
 
   it("a present-but-wrong-type model (number) warns and falls back to the default string", () => {
-    const r = runBudget({ research: { model: 7 } });
+    const r = runBudget({ research: { model: 5 } });
     expect(r.status).toBe(0);
-    expect(r.vars.MODEL).toBe("Gemini 4 Argon (High)");
+    expect(r.vars.MODEL).toBe(DELEGATE_MODEL_DEFAULTS.researchGather);
     expect(r.stderr).toContain("research.model is present but not a string");
   });
 
@@ -163,10 +196,15 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
   it("a malformed config file degrades to defaults without throwing", () => {
     const cfgPath = path.join(tmpDir, "config.json");
     fs.writeFileSync(cfgPath, "{ this is not json");
-    const res = spawnSync("bash", [scriptPath, cfgPath], { encoding: "utf8" });
+    const res = spawnSync("bash", [scriptPath, cfgPath], {
+      encoding: "utf8",
+      env: bashEnv(),
+    });
     expect(res.status).toBe(0);
     expect(res.stdout).toContain("MAX=12");
-    expect(res.stdout).toContain("MODEL=Gemini 4 Argon (High)");
+    expect(res.stdout).toContain(
+      `MODEL=${DELEGATE_MODEL_DEFAULTS.researchGather}`,
+    );
   });
 
   it("a refuteModel colliding with the gather model falls back to a different variant (diversity guard)", () => {
@@ -179,17 +217,15 @@ describeJq("F2 research budget runtime behavior (extracted from doc)", () => {
     expect(r.status).toBe(0);
     expect(r.vars.MODEL).toBe("Claude Opus 5.5 (Medium)");
     expect(r.vars.REFUTE).not.toBe(r.vars.MODEL);
-    expect(r.vars.REFUTE).toBe("GPT-OSS 120B (Medium)");
-    expect(r.stderr).toContain("preserve adversarial diversity");
+    expect(r.vars.REFUTE).toBe(DELEGATE_MODEL_DEFAULTS.researchRefuteFallback);
   });
 
   it("the diversity guard also fires for the default gather model when refute is forced equal", () => {
-    const r = runBudget({
-      research: { refuteModel: "Gemini 4 Argon (High)" },
-    });
+    const gather = DELEGATE_MODEL_DEFAULTS.researchGather!;
+    const r = runBudget({ research: { refuteModel: gather } });
     expect(r.status).toBe(0);
-    expect(r.vars.MODEL).toBe("Gemini 4 Argon (High)");
+    expect(r.vars.MODEL).toBe(gather);
     expect(r.vars.REFUTE).not.toBe(r.vars.MODEL);
-    expect(r.vars.REFUTE).toBe(DELEGATE_MODEL_DEFAULTS.researchRefute);
+    expect(r.vars.REFUTE).toBe(DELEGATE_MODEL_DEFAULTS.researchRefuteFallback);
   });
 });

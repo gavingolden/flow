@@ -5,6 +5,10 @@ When `RESEARCH_ON` is `true` (or `FORCE_RESEARCH` is `true`), also resolve the f
 ```bash
 CFG=~/.flow/config.json
 
+# Module precheck FIRST: a deselected `research` module prunes flow-research-run
+# (and every other research helper) from PATH, so no model lookup may run before it.
+flow-module-status --check research || RESEARCH_MODULE_INACTIVE=1
+
 # Tolerant per-key read. $1=key $2=expected-jq-type $3=default.
 # absent -> silent default; present-but-wrong-type -> loud stderr warning + default;
 # missing/malformed config file -> default. Never throws, never aborts.
@@ -26,32 +30,25 @@ read_budget() {
 
 RESEARCH_MAX_CALLS=$(read_budget maxCalls number 12)
 RESEARCH_TIMEOUT=$(read_budget timeout string "20m")
-RESEARCH_MODEL=$(read_budget model string "Gemini 4 Argon (High)")
-RESEARCH_REFUTE_MODEL=$(read_budget refuteModel string "Claude Opus 5.5 (Medium)")
 
-# Cross-model diversity guard: the REFUTE entry MUST run on a DIFFERENT variant
-# from GATHER (the adversarial check is worthless if both run the same model).
-# If the resolved refute model collides with gather, warn and fall back to a
-# pinned alternate that differs.
-if [ "$RESEARCH_REFUTE_MODEL" = "$RESEARCH_MODEL" ]; then
-  if [ "$RESEARCH_MODEL" = "Claude Opus 5.5 (Medium)" ]; then
-    RESEARCH_REFUTE_MODEL="GPT-OSS 120B (Medium)"
-  else
-    RESEARCH_REFUTE_MODEL="Claude Opus 5.5 (Medium)"
+# Models come from ONE helper, so the config keys, built-in defaults and the
+# cross-model diversity guard (the REFUTE entry must run on a DIFFERENT model
+# from GATHER) live in flow-research-run, not in this prose.
+if [ -z "${RESEARCH_MODULE_INACTIVE:-}" ]; then
+  MODELS=$(flow-research-run --print-models --config "$CFG") || MODELS=""
+  RESEARCH_MODEL=$(printf '%s' "$MODELS" | jq -r '.gather // empty' 2>/dev/null) || RESEARCH_MODEL=""
+  RESEARCH_REFUTE_MODEL=$(printf '%s' "$MODELS" | jq -r '.refute // empty' 2>/dev/null) || RESEARCH_REFUTE_MODEL=""
+  if [ -z "$RESEARCH_MODEL" ] || [ -z "$RESEARCH_REFUTE_MODEL" ]; then
+    RESEARCH_MODEL_LOOKUP_FAILED=1
   fi
-  printf 'warn: research.refuteModel resolved equal to the gather model (%s); falling back refute to %s to preserve adversarial diversity\n' "$RESEARCH_MODEL" "$RESEARCH_REFUTE_MODEL" >&2
 fi
 ```
 
-The four resolved variables — `RESEARCH_MAX_CALLS` (from `research.maxCalls`, default `12`), `RESEARCH_TIMEOUT` (from `research.timeout`, default `20m`), `RESEARCH_MODEL` (the gather model, from `research.model`, default `Gemini 4 Argon (High)`), and `RESEARCH_REFUTE_MODEL` (the refute model, from `research.refuteModel`, default `Claude Opus 5.5 (Medium)`) — are threaded into the manifest and the `flow-delegate-fanout` invocation in (c). `--concurrency` stays pinned at `4` (not operator-tunable — it is load-bearing in the runtime-ceiling arithmetic). These four defaults and the byte-exact model-variant pins are frozen by `bin/flow-research-budget-lint.test.ts`, which goes red if an edit drops a default or breaks the tolerant-fallback contract.
+The four resolved variables — `RESEARCH_MAX_CALLS` (from `research.maxCalls`, default `12`), `RESEARCH_TIMEOUT` (from `research.timeout`, default `20m`), `RESEARCH_MODEL` (the gather model) and `RESEARCH_REFUTE_MODEL` (the refute model) — are threaded into the manifest and the `flow-delegate-fanout` invocation in (c). `--concurrency` stays pinned at `4` (not operator-tunable — it is load-bearing in the runtime-ceiling arithmetic). The two budget defaults are frozen by `bin/flow-research-budget-lint.test.ts`, which also asserts the `flow-research-run --print-models` call and that this file names no model, and goes red if an edit drops a default or breaks the tolerant-fallback contract. The two models come from `flow-research-run --print-models`: the gather model from the legacy `research.model` key or `delegate.models.researchGather`, the refute model from `research.refuteModel` or `delegate.models.researchRefute`, each falling back to the built-in default that `flow config` prints. When the lookup fails or prints nothing (`RESEARCH_MODEL_LOOKUP_FAILED`), take the graceful-skip path in (e) with reason `research-model-lookup-failed`, distinct from `research-deselected`.
 
-**(c) Run the bounded research by driving `flow-delegate-fanout` directly (Bash).** You deliberately do **NOT** load `/flow-research` via the `Skill` tool (its default budget suits an interactive caller; see the HARD INVARIANT). Instead, `Read` the `/flow-research` procedure for the recipe — it is on disk globally at `~/.flow/claude-home/.claude/skills/universal/flow-research/SKILL.md` (the byte-exact model-variant pins, the gather→refute→synthesize shape, the cap discipline) — and run the fan-out yourself.
+**(c) Run the bounded research by driving `flow-delegate-fanout` directly (Bash).** You deliberately do **NOT** load `/flow-research` via the `Skill` tool (its default budget suits an interactive caller; see the HARD INVARIANT). Instead, `Read` the `/flow-research` procedure for the recipe — it is on disk globally at `~/.flow/claude-home/.claude/skills/universal/flow-research/SKILL.md` (the gather→refute→synthesize shape, the cap discipline) — and run the fan-out yourself.
 
-**Module precheck (before anything else in this step, including the cache read below).** A deselected `research` module means every helper this step touches — `flow-research-cache`, `flow-delegate-fanout`, `flow-delegate` — was pruned from PATH entirely. Probe first, by bare PATH name, same as the other reads in this step:
-
-```bash
-flow-module-status --check research || RESEARCH_MODULE_INACTIVE=1
-```
+**Module precheck (the first line of the bash block above, before model resolution and before the cache read below).** A deselected `research` module means every helper this step touches — `flow-research-run`, `flow-research-cache`, `flow-delegate-fanout`, `flow-delegate` — was pruned from PATH entirely, so the probe runs first, by bare PATH name, and model resolution is skipped when it trips.
 
 When `$RESEARCH_MODULE_INACTIVE` is set, the helper already emitted the named notice to stderr — skip the fan-out (and the cache read) entirely and take the SAME graceful-skip path as (e), reusing its machinery rather than inventing a new one: write `research-status.json` with `"reason": "research-deselected"` (extending the (e)/Visibility-note reason enum in discovery-instructions.md Step 1.5) and the SAME `> [!NOTE]` visibility-note write, naming the deselected module in place of the agy-unavailable reason text. Then proceed to step 2 unchanged.
 
@@ -68,7 +65,7 @@ The cache key is the **normalized** sharp question (lowercase / trim / collapse-
 
 When you take the live path (cache miss), build the manifest and run the fan-out:
 
-1. Build a small manifest JSON file with THREE entries: a GATHER entry on the resolved gather model `$RESEARCH_MODEL` (default `"Gemini 4 Argon (High)"`; agy has native Google web search — instruct it to return cited source URLs) asking your sharp question; an adversarial REFUTE entry on the resolved `$RESEARCH_REFUTE_MODEL` (default `"Claude Opus 5.5 (Medium)"`; the cross-model guard in (a) keeps it a **different** variant from gather — the pinned alternates are `"Claude Opus 5.5 (Medium)"` and `"GPT-OSS 120B (Medium)"`) that checks the gathered claim; and a third `refute-approach` entry, also on `$RESEARCH_REFUTE_MODEL`, prompted to find evidence that the user's CHOSEN APPROACH (not just the gathered claim) fails or is worse than the obvious alternative — its artifact feeds the `## Request vetting` `- **Case against:**` line (see the "Request vetting" sub-section, step 5) as a bonus grounding source on top of in-repo anchors. Each entry's shape is `{ "task": "...", "model": "...", "prompt": "...", "timeout": "...", "skipPermissions": true, "outputFormat": "json" }` — **set every entry's `model` to the resolved gather/refute variant, every entry's `timeout` to the resolved `$RESEARCH_TIMEOUT` (default `"20m"`), and every entry's `skipPermissions` to `true` with `outputFormat` set to `"json"`**. **Do NOT set `addDirs` on any entry** — omitting it is what keeps the auto-approval grant bounded to agy's own tools (no workspace directory reachable); `outputFormat: "json"` makes a refused tool nameable via the envelope's `deniedActions` (see the rationale below). Three entries at `--concurrency 4` still fit in ONE wave, so the runtime-ceiling arithmetic below is unaffected.
+1. Build a small manifest JSON file with THREE entries: a GATHER entry on the resolved gather model `$RESEARCH_MODEL` (agy has native Google web search — instruct it to return cited source URLs) asking your sharp question; an adversarial REFUTE entry on the resolved `$RESEARCH_REFUTE_MODEL` (the cross-model guard inside `flow-research-run --print-models` keeps it a **different** variant from gather) that checks the gathered claim; and a third `refute-approach` entry, also on `$RESEARCH_REFUTE_MODEL`, prompted to find evidence that the user's CHOSEN APPROACH (not just the gathered claim) fails or is worse than the obvious alternative — its artifact feeds the `## Request vetting` `- **Case against:**` line (see the "Request vetting" sub-section, step 5) as a bonus grounding source on top of in-repo anchors. Each entry's shape is `{ "task": "...", "model": "...", "prompt": "...", "timeout": "...", "skipPermissions": true, "outputFormat": "json" }` — **set every entry's `model` to the resolved gather/refute variant, every entry's `timeout` to the resolved `$RESEARCH_TIMEOUT` (default `"20m"`), and every entry's `skipPermissions` to `true` with `outputFormat` set to `"json"`**. **Do NOT set `addDirs` on any entry** — omitting it is what keeps the auto-approval grant bounded to agy's own tools (no workspace directory reachable); `outputFormat: "json"` makes a refused tool nameable via the envelope's `deniedActions` (see the rationale below). Three entries at `--concurrency 4` still fit in ONE wave, so the runtime-ceiling arithmetic below is unaffected.
 2. Launch the fan-out **detached** and wait on its `--out` file. A sub-agent gets no wake-up notifications, so you wait in the **foreground**, one bounded call at a time (each ≤ 9 minutes, Bash `timeout: 600000`), never one call that holds the whole run. Shell variables do not survive between Bash calls, so the pid and start time live in files next to `<out.json>`:
 
    Launch (one Bash call):

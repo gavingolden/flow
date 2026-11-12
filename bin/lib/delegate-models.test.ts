@@ -146,6 +146,7 @@ describe("resolveDelegateModel", () => {
       "utf8",
     );
     expect(agyLensesSrc).toContain('resolveDelegateModel("claudeLenses"');
+    expect(agyLensesSrc).toContain('resolveDelegateModel("lensReroute"');
 
     const agyScoutSrc = fs.readFileSync(
       new URL("../flow-agy-scout.ts", import.meta.url),
@@ -157,12 +158,8 @@ describe("resolveDelegateModel", () => {
       new URL("../flow-research-run.ts", import.meta.url),
       "utf8",
     );
-    expect(researchRunSrc).toContain(
-      'defaultGatherModel = resolveDelegateModel("researchGather")',
-    );
-    expect(researchRunSrc).toContain(
-      'defaultRefuteModel = resolveDelegateModel("researchRefute")',
-    );
+    expect(researchRunSrc).toContain("DELEGATE_MODEL_DEFAULTS[surface]");
+    expect(researchRunSrc).toContain('"researchRefuteFallback"');
 
     const planReviewSrc = fs.readFileSync(
       new URL("../flow-plan-review.ts", import.meta.url),
@@ -308,32 +305,58 @@ describe("resolveDelegateModel", () => {
     }
   });
 
-  it("every Opus pin in the research prose and shell copies equals the code default", () => {
-    const files = [
-      "skills/pipeline/flow-product-planning/references/discovery-research.md",
-      "skills/universal/flow-research/SKILL.md",
-      "templates/references/delegation.md",
-    ];
-    const refute = DELEGATE_MODEL_DEFAULTS.researchRefute!;
-    for (const rel of files) {
-      const text = fs.readFileSync(
-        new URL(`../../${rel}`, import.meta.url),
+  it("each step's default follows its verdict in the Carbon smoke record", () => {
+    const record = JSON.parse(
+      fs.readFileSync(
+        new URL("../../docs/eval/carbon-4-smoke-2026-11.json", import.meta.url),
         "utf8",
+      ),
+    ) as { verdicts: Record<string, string> };
+    for (const surface of [
+      "intentGuess",
+      "researchGather",
+      "blindSurvey",
+      "planReview",
+      "reviewLens",
+      "lensReroute",
+    ] as const) {
+      const verdict = record.verdicts[surface];
+      expect(verdict, `no smoke verdict for ${surface}`).toBeDefined();
+      expect(DELEGATE_MODEL_DEFAULTS[surface]).toBe(
+        verdict === "pass"
+          ? "Gemini 4 Carbon (Medium)"
+          : "Gemini 4 Argon (Medium)",
       );
-      expect(text, `${rel} lost the gather pin`).toContain(
-        DELEGATE_MODEL_DEFAULTS.researchGather!,
-      );
-      const opus = text.match(/Claude Opus [\d.]+ \([^)]+\)/g) ?? [];
-      expect(
-        opus.length,
-        `${rel} no longer names the refute model`,
-      ).toBeGreaterThan(0);
-      for (const m of opus) {
-        expect(m, `stale refute pin in ${rel}: expected ${refute}`).toBe(
-          refute,
-        );
-      }
     }
+  });
+});
+
+describe("lensReroute surface", () => {
+  it("resolves a Gemini override", () => {
+    expect(
+      resolveDelegateModel(
+        "lensReroute",
+        reader({
+          delegate: { models: { lensReroute: "Gemini 4 Test (Low)" } },
+        }),
+      ),
+    ).toBe("Gemini 4 Test (Low)");
+  });
+
+  it("ignores a Claude override with one warning and returns the default", () => {
+    const cfg = reader({
+      delegate: { models: { lensReroute: "Claude Opus 5.5 (High)" } },
+    });
+    expect(resolveDelegateModel("lensReroute", cfg)).toBe(
+      DELEGATE_MODEL_DEFAULTS.lensReroute,
+    );
+    expect(resolveDelegateModel("lensReroute", cfg)).toBe(
+      DELEGATE_MODEL_DEFAULTS.lensReroute,
+    );
+    const warnings = stderrSpy.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes("delegate.models.lensReroute"),
+    );
+    expect(warnings).toHaveLength(1);
   });
 });
 

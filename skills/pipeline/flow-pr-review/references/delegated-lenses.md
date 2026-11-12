@@ -75,8 +75,8 @@ Step 3.5's consolidator inputs are unchanged: one
 ## Refused lenses get one Gemini re-run
 
 When the Google-plan Claude model declines a lens with a content-filter
-refusal, `flow-agy-lenses` re-runs that one lens once on Gemini 4 Argon
-(Medium) instead of handing it straight to Claude. It applies only to
+refusal, `flow-agy-lenses` re-runs that one lens once on the Gemini model
+set by `delegate.models.lensReroute` instead of handing it straight to Claude. It applies only to
 content-filter refusals (never a timeout, quota hit or empty body) and only
 when the primary model is a Claude variant, so a Gemini primary is never
 re-run on Gemini. There is exactly one attempt per lens.
@@ -92,7 +92,7 @@ re-run on Gemini. There is exactly one attempt per lens.
   re-run recovered is not a primary success, so a quota-exhausted sibling
   still arms it.
 - **Envelope.** A recovered lens is `delegated` with
-  `model: "Gemini 4 Argon (Medium)"` and `reroutedFrom: "agy-content-filtered"`.
+  `model: "<lensReroute model>"` and `reroutedFrom: "agy-content-filtered"`.
   An unrecovered lens stays a `fallback` lens (reason `agy-content-filtered`)
   carrying `rerouteOutcome` (the re-run's own reason, or `skipped-no-time`).
   The refusal evidence is kept before the re-run starts.
@@ -127,7 +127,7 @@ reason strings; never print them raw:
 | route `agy-cooldown`                                              | the Google plan is cooling down after recent Google-plan failures     |
 
 A lens in `delegated` with `reroutedFrom` is reported as: "`<lens>` ran on the
-Google plan (Gemini 4 Argon (Medium)) after the Google-plan Claude model
+Google plan (the `delegate.models.lensReroute` model) after the Google-plan Claude model
 declined it (content filter)". A fallback lens carrying `rerouteOutcome` is
 reported as: "`<lens>` ran on Claude: the Google-plan Claude model declined it
 and the Gemini re-run `<outcome>`", with `<outcome>` taken from this table

@@ -2,24 +2,23 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DELEGATE_MODEL_DEFAULTS } from "./lib/delegate-models";
 import { DEFAULT_TIMEOUT } from "./flow-research-run";
 
 /**
  * Structural lint for the F2 research pre-check budget wiring in
  * `skills/pipeline/flow-product-planning/references/discovery-research.md`.
  *
- * Step 1.5 of that file reads four OPTIONAL `~/.flow/config.json` budget keys
- * (`research.maxCalls` / `research.timeout` / `research.model` /
- * `research.refuteModel`) and threads them into the `flow-delegate-fanout`
- * invocation, defaulting to byte-exact v1 values when a key is absent or
- * malformed. The model strings are live `agy` model-variant pins — a paraphrase
- * silently breaks the fan-out — and the tolerant-fallback contract (absent OR
+ * Step 1.5 of that file reads two OPTIONAL `~/.flow/config.json` budget keys
+ * (`research.maxCalls` / `research.timeout`) and threads them into the
+ * `flow-delegate-fanout` invocation, defaulting to byte-exact v1 values when a
+ * key is absent or malformed. The models come from one call to
+ * `flow-research-run --print-models`, made only after the research-module
+ * precheck; the doc names no model. The tolerant-fallback contract (absent OR
  * present-but-wrong-type -> default, never throws) is load-bearing because the
  * research pass must never block planning. This lint freezes all of that: a
- * future edit that drops a default, paraphrases a model pin, removes the
- * cross-model diversity guard, or breaks the warn-and-default prose goes red on
- * `npm run verify` instead of silently shipping a broken read.
+ * future edit that drops a default, drops the helper call, reorders the
+ * precheck after it, names a model, or breaks the warn-and-default prose goes
+ * red on `npm run verify`.
  *
  * Anchors here are deliberately disjoint from `bin/skill-md-lint.test.ts`'s
  * existing Step-1.5 Prompt-interpretation/enum assertions (it asserts on the
@@ -42,45 +41,41 @@ const content = fs.readFileSync(DISCOVERY_RESEARCH_PATH, "utf8");
 const FILE_LABEL =
   "skills/pipeline/flow-product-planning/references/discovery-research.md";
 
-// The forced (`flow feature create --research`) path runs bin/flow-research-run.ts, which
-// keeps its OWN copy of the model-variant pins + cross-model diversity-guard
-// fallback ordering. That copy must stay byte-identical to the doc's frozen
-// block — otherwise the forced path and the config-on path research with
-// different models, silently. This cross-file read binds the two so a rename of
-// either copy goes red on `npm run verify`.
-const RESEARCH_RUN_PATH = path.resolve(HERE, "flow-research-run.ts");
-const researchRunContent = fs.readFileSync(RESEARCH_RUN_PATH, "utf8");
+const MODEL_NAME_RE =
+  /(Claude (Opus|Sonnet|Haiku|Fable) [0-9.]+|GPT-OSS [0-9]+B|Gemini [0-9.]+ [A-Za-z]+) \((Low|Medium|High|Thinking)\)/;
 
 describe("F2 research budget config lint", () => {
-  it("wires all four optional budget keys into Step 1.5", () => {
-    const keys = [
-      "research.maxCalls",
-      "research.timeout",
-      "research.model",
-      "research.refuteModel",
-    ];
+  it("wires both optional budget keys into Step 1.5", () => {
+    const keys = ["research.maxCalls", "research.timeout"];
     const missing = keys.filter((k) => !content.includes(k));
     expect(
       missing,
-      `${FILE_LABEL} Step 1.5 must read all four optional budget keys ` +
-        `(research.maxCalls / research.timeout / research.model / ` +
-        `research.refuteModel). Missing: ${JSON.stringify(missing)}`,
+      `${FILE_LABEL} Step 1.5 must read both optional budget keys. ` +
+        `Missing: ${JSON.stringify(missing)}`,
     ).toEqual([]);
   });
 
-  it("preserves the byte-exact agy model-variant pins", () => {
-    const pins = [
-      DELEGATE_MODEL_DEFAULTS.researchGather!,
-      DELEGATE_MODEL_DEFAULTS.researchRefute!,
-      "GPT-OSS 120B (Medium)",
-    ];
-    const missing = pins.filter((p) => !content.includes(p));
+  it("resolves models through flow-research-run --print-models, after the module precheck", () => {
+    const call = content.indexOf("flow-research-run --print-models");
+    const precheck = content.indexOf("flow-module-status --check research");
     expect(
-      missing,
-      `${FILE_LABEL} must reproduce the agy model-variant pins byte-for-byte ` +
-        `(they are live model ids — a paraphrase silently breaks the fan-out). ` +
-        `Missing: ${JSON.stringify(missing)}`,
-    ).toEqual([]);
+      call,
+      `${FILE_LABEL} must call flow-research-run --print-models`,
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      precheck,
+      `${FILE_LABEL} lost the module precheck`,
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      precheck,
+      "the module precheck must come before model resolution",
+    ).toBeLessThan(call);
+    expect(content).toContain("research-model-lookup-failed");
+  });
+
+  it("names no model", () => {
+    const hit = content.split("\n").find((l) => MODEL_NAME_RE.test(l));
+    expect(hit, `${FILE_LABEL} names a model: ${hit}`).toBeUndefined();
   });
 
   it("keeps the byte-exact v1 budget defaults", () => {
@@ -93,20 +88,6 @@ describe("F2 research budget config lint", () => {
     expect(
       content.includes(`read_budget timeout string "${DEFAULT_TIMEOUT}"`),
       `${FILE_LABEL} must default research.timeout to "${DEFAULT_TIMEOUT}" in the tolerant read.`,
-    ).toBe(true);
-    expect(
-      content.includes(
-        `read_budget model string "${DELEGATE_MODEL_DEFAULTS.researchGather}"`,
-      ),
-      `${FILE_LABEL} must default research.model (gather) to ` +
-        `"${DELEGATE_MODEL_DEFAULTS.researchGather}".`,
-    ).toBe(true);
-    expect(
-      content.includes(
-        `read_budget refuteModel string "${DELEGATE_MODEL_DEFAULTS.researchRefute}"`,
-      ),
-      `${FILE_LABEL} must default research.refuteModel to ` +
-        `"${DELEGATE_MODEL_DEFAULTS.researchRefute}".`,
     ).toBe(true);
   });
 
@@ -125,7 +106,7 @@ describe("F2 research budget config lint", () => {
 
   it("keeps the cross-model diversity guard for the refute entry", () => {
     expect(
-      content.includes("Cross-model diversity guard"),
+      /cross-model diversity guard/i.test(content),
       `${FILE_LABEL} must keep the cross-model diversity guard so the REFUTE ` +
         `entry always runs on a different variant from GATHER.`,
     ).toBe(true);
@@ -137,26 +118,6 @@ describe("F2 research budget config lint", () => {
       `${FILE_LABEL} must keep --concurrency 4 literal — it is load-bearing ` +
         `in the runtime-ceiling arithmetic and is out of scope to tune.`,
     ).toBe(true);
-  });
-
-  it("binds bin/flow-research-run.ts's model pins to the doc's frozen pins (no silent drift)", () => {
-    // Same three pins the doc freezes, including the GPT-OSS fallback the
-    // diversity guard swaps to on an Opus collision — their co-presence in the
-    // helper catches a rename of either copy that the doc-only freeze would miss.
-    const pins = [
-      DELEGATE_MODEL_DEFAULTS.researchGather!,
-      DELEGATE_MODEL_DEFAULTS.researchRefute!,
-      "GPT-OSS 120B (Medium)",
-    ];
-    const missing = pins.filter((p) => !researchRunContent.includes(p));
-    expect(
-      missing,
-      `bin/flow-research-run.ts (the forced --research path) must reproduce the ` +
-        `same agy model-variant pins as ${FILE_LABEL} byte-for-byte — the forced ` +
-        `path runs this helper while the config-on path runs the doc's bash, so a ` +
-        `divergence silently researches with different models. Missing: ` +
-        `${JSON.stringify(missing)}`,
-    ).toEqual([]);
   });
 
   it("self-references this lint so the doc's freeze claim stays anchored", () => {

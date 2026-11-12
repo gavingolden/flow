@@ -542,24 +542,29 @@ event.
 (Google AI Ultra, via `flow-delegate`) model used by each cross-model
 delegate surface — distinct from `models.*` above, which routes the
 **Claude Code** model for pipeline phases. Value grammar: an agy variant
-**display-name** string, e.g. `"Gemini 4 Argon (High)"` (the form
+**display-name** string, e.g. `"Gemini 4 Carbon (Medium)"` (the form
 `flow-delegate` accepts on `--model`, not the slug form `agy models`
-emits). Absent key = today's default for that surface; a present but
+emits). Defaults come from the smoke record
+[Carbon 4 smoke, 2026-11](eval/carbon-4-smoke-2026-11.md): steps whose
+smoke passed default to Carbon (Medium), the rest to the Argon (Medium)
+fallback tier. Absent key = today's default for that surface; a present but
 wrong-typed value warns on stderr and falls back to the default; never
 throws.
 
-| surface             | what it drives                                                                                                                                                                            | default today              |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| `intentGuess`       | `/flow-pr-review` cross-model intent guess                                                                                                                                                | `Gemini 4 Argon (High)`    |
-| `reviewLens`        | `/flow-pr-review` Gemini review lens                                                                                                                                                      | `Gemini 4 Argon (High)`    |
-| `researchGather`    | forced-research gather pass                                                                                                                                                               | `Gemini 4 Argon (High)`    |
-| `researchRefute`    | forced-research adversarial refute pass                                                                                                                                                   | `Claude Opus 5.5 (Medium)` |
-| `planReview`        | `/flow-pipeline` step 3 plan review, reviewer 1                                                                                                                                           | `Gemini 4 Argon (High)`    |
-| `planReviewSecond`  | `/flow-pipeline` step 3 plan review, deep-tier reviewer 2; falls back to Claude Code (`opus`, high effort) when agy cannot serve it                                                       | `Claude Opus 5.5 (High)`   |
-| `blindSurvey`       | `/flow-pipeline` step 3 blind method survey, judge A                                                                                                                                      | `Gemini 4 Argon (High)`    |
-| `blindSurveySecond` | `/flow-pipeline` step 3 blind method survey, judge B; when equal to `blindSurvey` the helper falls back to the other pinned default and warns                                             | `Claude Opus 5.5 (High)`   |
-| `scout`             | `/flow-new-feature` Step 1b scout: tried first on agy when set, with the Claude Task scout as the fallback; `null` keeps the Claude Task scout only                                       | `null` (delegation off)    |
-| `claudeLenses`      | `/flow-pr-review` Claude review lenses run on agy instead of a Task agent (only the lenses in `delegate.lenses`; a failed lens falls back to the Task agent); `null` turns delegation off | `null` (delegation off)    |
+| surface                  | what it drives                                                                                                                                                                            | default today              |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `intentGuess`            | `/flow-pr-review` cross-model intent guess                                                                                                                                                | `Gemini 4 Carbon (Medium)` |
+| `reviewLens`             | `/flow-pr-review` Gemini review lens                                                                                                                                                      | `Gemini 4 Argon (Medium)`  |
+| `lensReroute`            | `/flow-pr-review` Gemini re-run of a Claude review lens the content filter refused; a Claude value is ignored with a warning and the default is used                                      | `Gemini 4 Argon (Medium)`  |
+| `researchGather`         | forced-research gather pass                                                                                                                                                               | `Gemini 4 Carbon (Medium)` |
+| `researchRefute`         | forced-research adversarial refute pass                                                                                                                                                   | `Claude Opus 5.5 (Medium)` |
+| `researchRefuteFallback` | forced-research fact-check fallback: second refute voter, and the stand-in refuter when `researchRefute` equals `researchGather`                                                          | `GPT-OSS 120B (Medium)`    |
+| `planReview`             | `/flow-pipeline` step 3 plan review, reviewer 1                                                                                                                                           | `Gemini 4 Argon (Medium)`  |
+| `planReviewSecond`       | `/flow-pipeline` step 3 plan review, deep-tier reviewer 2; falls back to Claude Code (`opus`, high effort) when agy cannot serve it                                                       | `Claude Opus 5.5 (High)`   |
+| `blindSurvey`            | `/flow-pipeline` step 3 blind method survey, judge A                                                                                                                                      | `Gemini 4 Carbon (Medium)` |
+| `blindSurveySecond`      | `/flow-pipeline` step 3 blind method survey, judge B; when equal to `blindSurvey` the helper falls back to the other pinned default and warns                                             | `Claude Opus 5.5 (High)`   |
+| `scout`                  | `/flow-new-feature` Step 1b scout: tried first on agy when set, with the Claude Task scout as the fallback; `null` keeps the Claude Task scout only                                       | `null` (delegation off)    |
+| `claudeLenses`           | `/flow-pr-review` Claude review lenses run on agy instead of a Task agent (only the lenses in `delegate.lenses`; a failed lens falls back to the Task agent); `null` turns delegation off | `null` (delegation off)    |
 
 **Namespace disambiguation — `models.scout` vs `delegate.models.scout`:**
 these two keys share the `scout` suffix but mean opposite things and use
@@ -608,10 +613,11 @@ where unit is `ns`/`us`/`µs`/`ms`/`s`/`m`/`h` (e.g. `"8m"`, `"90s"`,
 malformed/wrong-typed value warns on stderr and falls back to the default;
 never throws.
 
-| surface       | what it drives                             | default today |
-| ------------- | ------------------------------------------ | ------------- |
-| `reviewLens`  | `/flow-pr-review` Gemini review lens       | `10m`         |
-| `intentGuess` | `/flow-pr-review` cross-model intent guess | `10m`         |
+| surface       | what it drives                                                                                                                                       | default today             |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `reviewLens`  | `/flow-pr-review` Gemini review lens                                                                                                                 | `10m`                     |
+| `lensReroute` | `/flow-pr-review` Gemini re-run of a Claude review lens the content filter refused; a Claude value is ignored with a warning and the default is used | `Gemini 4 Argon (Medium)` |
+| `intentGuess` | `/flow-pr-review` cross-model intent guess                                                                                                           | `10m`                     |
 
 **20-minute sanity bound.** Both surfaces are launched detached
 (`flow-spawn --detach`) and awaited with `flow-plan-review-wait`, so no

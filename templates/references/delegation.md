@@ -16,7 +16,7 @@ never hard-fails — the same opt-in-by-presence model as UI validation in
 `rules/ui-validation.md`.
 
 Usage: `flow-delegate (--prompt "<text>" | --prompt-file <path>) [--model
-"Gemini 4 Argon (High)"] [--timeout 5m] [--skip-permissions] [--add-dir
+"<agy display name>"] [--timeout 5m] [--skip-permissions] [--add-dir
 <dir>]... [--out <path>] [--task <name>]`. Pass exactly one prompt source
 (`--prompt` for inline text, `--prompt-file` for a path — also the escape hatch
 for a prompt that literally begins with `--`). Omit `--model` to use your agy
@@ -48,8 +48,8 @@ Four optional **budget keys** tune the bounded pass; each defaults to its v1 val
 
 - `research.maxCalls` (number, default `12`) — the `flow-delegate-fanout --max-calls` cap on total agy calls.
 - `research.timeout` (string, default `"20m"`) — the per-manifest-entry agy timeout, applied to every entry.
-- `research.model` (string, default `"Gemini 4 Argon (High)"`) — the **gather** model variant.
-- `research.refuteModel` (string, default `"Claude Opus 5.5 (Medium)"`) — the adversarial **refute** model variant. It must stay a _different_ variant from `research.model`; if you set both equal, flow warns and falls back the refute to a pinned alternate (`"Claude Opus 5.5 (Medium)"` / `"GPT-OSS 120B (Medium)"`) that differs.
+- `research.model` (string; falls back to `delegate.models.researchGather`, then the built-in default) — the **gather** model variant.
+- `research.refuteModel` (string; falls back to `delegate.models.researchRefute`, then the built-in default) — the adversarial **refute** model variant. It must stay a _different_ variant from the gather model; if both resolve equal, flow falls back the refute to `delegate.models.researchRefuteFallback` (or the built-in alternate) so it differs. `flow config` prints the resolved models.
 
 Each key is **tolerant by construction**: an absent key silently takes its default; a key that is **present but the wrong JSON type triggers a loud `stderr` warning and falls back to the default** — never a throw, never an aborted pass, so a config typo degrades to a warning rather than blocking planning. `--concurrency` is **not** operator-tunable (pinned at `4`; it is load-bearing in the runtime-ceiling arithmetic). The pass stays **bounded** — the manifest has three entries, which fit one wave at `--concurrency 4`, so the worst case is one `research.timeout` (20 minutes by default). The fan-out runs detached and is waited on in steps of at most 9 minutes, so the old ~10-min one-shot sub-agent ceiling no longer caps the limit; keep `timeout` to what a gather actually needs, because every pipeline that reaches this step can wait that long. Off by default; absent or malformed config behaves exactly as today.
 
@@ -84,8 +84,7 @@ reviewer at PR time wants one at plan time too). When it is opted in and the PRD
 carries an omit-when-empty `## Decision analysis` section, the supervisor runs one
 AGY (`flow-delegate`) review of the plan's consequential decisions, reads the
 feedback, and revises the PRD once if warranted. It reuses the same tolerant jq
-gate shown above, the AGY model is hardcoded (`Gemini 4 Argon (High)`, no override
-key), and it is the same graceful no-op when agy is absent — a `ran:false` skip
+gate shown above, the AGY model is the `delegate.models.planReview` setting (`flow config` shows it), and it is the same graceful no-op when agy is absent — a `ran:false` skip
 that never blocks the plan gate.
 
 ### Product brief (`.flow/product.md`, optional)

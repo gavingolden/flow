@@ -1,0 +1,131 @@
+{
+  "measuredAt": "2026-11-12T15:43:02.441Z",
+  "records": [
+    {
+      "surface": "research-gather",
+      "model": "Gemini 4 Carbon (Medium)",
+      "repeat": 1,
+      "wallSec": 250.631,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 12367,
+      "deniedActions": []
+    },
+    {
+      "surface": "plan-review",
+      "model": "Gemini 4 Carbon (Medium)",
+      "repeat": 1,
+      "wallSec": 284.786,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 29637,
+      "deniedActions": []
+    },
+    {
+      "surface": "blind-survey",
+      "model": "Gemini 4 Carbon (Medium)",
+      "repeat": 1,
+      "wallSec": 188.122,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 3874,
+      "deniedActions": []
+    },
+    {
+      "surface": "intent-guess",
+      "model": "Gemini 4 Carbon (Medium)",
+      "repeat": 1,
+      "wallSec": 79.704,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 4697,
+      "deniedActions": []
+    },
+    {
+      "surface": "review-lens",
+      "model": "Gemini 4 Carbon (Medium)",
+      "repeat": 1,
+      "wallSec": 594.97,
+      "ran": true,
+      "empty": false,
+      "timedOut": false,
+      "outputBytes": 7942,
+      "deniedActions": []
+    }
+  ],
+  "limits": {
+    "research-gather": {
+      "Gemini 4 Carbon (Medium)": {
+        "limit": "13m",
+        "verdict": "fits",
+        "medianSec": 250.631
+      }
+    },
+    "plan-review": {
+      "Gemini 4 Carbon (Medium)": {
+        "limit": "15m",
+        "verdict": "fits",
+        "medianSec": 284.786
+      }
+    },
+    "blind-survey": {
+      "Gemini 4 Carbon (Medium)": {
+        "limit": "10m",
+        "verdict": "fits",
+        "medianSec": 188.122
+      }
+    },
+    "intent-guess": {
+      "Gemini 4 Carbon (Medium)": {
+        "limit": "10m",
+        "verdict": "fits",
+        "medianSec": 79.704
+      }
+    },
+    "review-lens": {
+      "Gemini 4 Carbon (Medium)": {
+        "limit": "20m",
+        "verdict": "limit-mismatch",
+        "medianSec": 594.97
+      }
+    }
+  },
+  "productionLimitsSec": {
+    "planReview": 780,
+    "blindSurvey": 600,
+    "researchGather": 1200,
+    "intentGuess": 600,
+    "reviewLens": 600,
+    "lensRerouteFloor": 180
+  },
+  "discardedAttempts": [
+    {
+      "record": {
+        "surface": "review-lens",
+        "model": "Gemini 4 Carbon (Medium)",
+        "repeat": 1,
+        "wallSec": 1235.068,
+        "ran": false,
+        "empty": true,
+        "timedOut": true,
+        "outputBytes": 0,
+        "deniedActions": []
+      },
+      "skipReason": "agy-timeout",
+      "agyError": "no such host (DNS failure)",
+      "note": "First review-lens attempt timed out after 1235 s on a DNS error; discarded and re-run once (see records)."
+    }
+  ],
+  "verdicts": {
+    "researchGather": "pass",
+    "blindSurvey": "pass",
+    "intentGuess": "pass",
+    "planReview": "fail: 3 x 284.8 s = 854 s exceeds the 780 s limit (answered in 285 s, inside the limit but without three-times headroom)",
+    "reviewLens": "fail: 595.0 s answer leaves no headroom in the 600 s limit (3 x = 1785 s); a first attempt timed out after 1235 s on a DNS error (agy-timeout, no such host) and was re-run once",
+    "lensReroute": "fail: proxy review call took 595.0 s, over the re-run's guaranteed 180 s floor"
+  }
+}

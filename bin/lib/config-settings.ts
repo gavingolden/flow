@@ -34,6 +34,7 @@ import {
 import {
   DELEGATE_MODEL_DEFAULTS,
   DEFAULT_DELEGATED_LENSES,
+  isClaudeModel,
   resolveDelegatedLenses,
   type DelegateSurface,
 } from "./delegate-models";
@@ -125,12 +126,6 @@ function strictTrueOptIn(read: ReadConfigFile, key: string): Resolved {
   };
 }
 
-/** Mirrors bin/flow-research-run.ts's private `FALLBACK_REFUTE_MODEL` —
- * duplicated, not imported, because bin/lib/* must never import back from a
- * top-level bin/*.ts helper (see delegate-timeouts.ts's docstring). Keep in
- * sync with that module's constant. */
-const FALLBACK_REFUTE_MODEL_MIRROR = "GPT-OSS 120B (Medium)";
-
 /** Shared resolver for `research.model` / `research.refuteModel`: direct
  * `research.<field>` config wins, then a `delegate.models.<surface>`
  * override, then the built-in default. */
@@ -179,6 +174,8 @@ const DELEGATE_MODEL_SURFACE_NAMES: Record<DelegateSurface, string> = {
   blindSurveySecond: "the second blind-method-survey judge",
   scout: "the implementation scout",
   claudeLenses: "the delegated Claude review lenses",
+  lensReroute: "the Gemini re-run of a refused review lens",
+  researchRefuteFallback: "the research fact-check fallback",
 };
 
 function delegateModelRow(surface: DelegateSurface): Descriptor {
@@ -195,7 +192,10 @@ function delegateModelRow(surface: DelegateSurface): Descriptor {
     meaning,
     resolve: (read) => {
       const v = getPath(safeRead(read), ["delegate", "models", surface]);
-      if (typeof v === "string" && v.trim()) {
+      // A Claude lensReroute is ignored at runtime, so never report it.
+      const ignored =
+        surface === "lensReroute" && typeof v === "string" && isClaudeModel(v);
+      if (typeof v === "string" && v.trim() && !ignored) {
         return { value: v, source: `config (${key})` };
       }
       const builtIn = DELEGATE_MODEL_DEFAULTS[surface];
@@ -263,16 +263,21 @@ const DESCRIPTORS: Descriptor[] = [
       );
       if (refute.value !== gather.value) return refute;
       // Mirrors `resolveModels`'s diversity guard in bin/flow-research-run.ts
-      // (duplicated rather than imported: bin/lib/* must never import back
-      // from a top-level bin/*.ts helper — see delegate-timeouts.ts's
-      // docstring). Keep `FALLBACK_REFUTE_MODEL_MIRROR` in sync with that
-      // module's private `FALLBACK_REFUTE_MODEL` constant.
-      const defaultRefuteModel =
-        DELEGATE_MODEL_DEFAULTS.researchRefute ?? "(none)";
+      // (not imported: bin/lib/* must never import back from a top-level
+      // bin/*.ts helper — see delegate-timeouts.ts's docstring).
+      const fallbackOverride = getPath(safeRead(read), [
+        "delegate",
+        "models",
+        "researchRefuteFallback",
+      ]);
+      const refuteFallback =
+        typeof fallbackOverride === "string" && fallbackOverride.trim()
+          ? fallbackOverride
+          : (DELEGATE_MODEL_DEFAULTS.researchRefuteFallback ?? "(none)");
       const substituted =
-        gather.value === defaultRefuteModel
-          ? FALLBACK_REFUTE_MODEL_MIRROR
-          : defaultRefuteModel;
+        gather.value === refuteFallback
+          ? (DELEGATE_MODEL_DEFAULTS.researchRefute ?? "(none)")
+          : refuteFallback;
       return {
         value: substituted,
         source: `built-in (diversity guard; ${refute.value} collides with gather)`,

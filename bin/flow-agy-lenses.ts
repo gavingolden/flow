@@ -72,7 +72,6 @@ import {
 import {
   DELEGATABLE_LENSES,
   DELEGATED_LENS_TIMEOUT,
-  LENS_REROUTE_MODEL,
   resolveDelegateModel,
   resolveDelegatedLenses,
   type DelegatableLens,
@@ -456,6 +455,10 @@ async function runDelegated(
   failureTexts: string[];
   startedAt: string | null;
 }> {
+  const rerouteModel = resolveDelegateModel(
+    "lensReroute",
+    deps.readConfig,
+  ) as string;
   const delegated: DelegatedLensResult[] = [];
   const fallback: FallbackLensResult[] = [];
   const classes: string[] = [];
@@ -626,7 +629,7 @@ async function runDelegated(
     const rerouteRaw = tmp(args.worktree, `${rerouteTaskName}.raw`);
     const rerouteEntry = await fanOne(
       rerouteTaskName,
-      LENS_REROUTE_MODEL,
+      rerouteModel,
       timeout,
       rerouteSchemaPath,
       reroutePrompt,
@@ -638,7 +641,7 @@ async function runDelegated(
       lens,
       rerouteEntry,
       rerouteRaw,
-      LENS_REROUTE_MODEL,
+      rerouteModel,
     );
     if (rerun.delegated !== undefined) {
       return {
@@ -700,7 +703,7 @@ export async function run(
   const geminiOptIn = !forced || isReviewGeminiOn(deps.readConfig());
   const variant = forced
     ? geminiOptIn
-      ? LENS_REROUTE_MODEL
+      ? (resolveDelegateModel("lensReroute", deps.readConfig) as string)
       : null
     : resolveDelegateModel("claudeLenses", deps.readConfig);
   const slug = parsed.slug ?? deps.resolveSlug();
