@@ -38,7 +38,7 @@ import {
   resolveDelegatedLenses,
   type DelegateSurface,
 } from "./delegate-models";
-import { DEFAULT_TIMEOUT as RESEARCH_DEFAULT_TIMEOUT } from "../flow-research-run";
+import { DEFAULT_TIMEOUT as RESEARCH_DEFAULT_TIMEOUT } from "./research-defaults";
 import {
   DELEGATE_TIMEOUT_DEFAULTS,
   DELEGATE_TIMEOUT_CEILING,
