@@ -11,6 +11,9 @@
  *   flow-manager-wait [--ensure] [--interval <s=5>] [--settle <s=10>]
  *                     [--heartbeat <s>] [--stop-when-idle] [--max-sec <s=0>]
  *
+ * `flow manage --stop-when-idle` is recorded in `manager.json`; the waiter
+ * honours it without the flag, so the skill never has to pass it.
+ *
  * `--ensure` is a foreground probe the skill runs at every turn end: it prints
  * `already-running` when a live waiter exists and `start-needed` otherwise,
  * and never becomes the long waiter itself. Events are written to `wake.json`
@@ -194,6 +197,7 @@ export async function run(
     (args.heartbeatSec ??
       readManagerRecord(home)?.heartbeatSec ??
       readManagerConfig().heartbeatSec) * 1000;
+  const stopWhenIdle = readManagerRecord(home)?.stopWhenIdle === true;
   writeWaiter({ version: 1, pid, startedAt, aliveAt: startedAt }, home);
 
   let signaled = false;
@@ -247,7 +251,7 @@ export async function run(
       const diff = diffSnapshot(readSeen(home), states, now, {
         inScope,
         scope,
-        stopWhenIdle: args.stopWhenIdle,
+        stopWhenIdle: args.stopWhenIdle || stopWhenIdle,
         unpicked,
       });
       const bySlug = new Map(states.map((s) => [s.slug, s]));

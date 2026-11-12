@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { run, parseArgs, type WaitDeps } from "./flow-manager-wait";
 import { appendManagerLog } from "./lib/manager-log";
 import { readProposals } from "./lib/manager-proposals";
+import { writeManagerRecord } from "./lib/manager-record";
 import { updateScope } from "./lib/manager-scope";
 import { readWaiter, writeWaiter } from "./lib/manager-waiter";
 import { writeState, type PipelineState } from "./lib/state";
@@ -294,5 +295,28 @@ describe("flow-manager-wait", () => {
     const h = harness();
     await run(["--stop-when-idle", "--max-sec", "30"], h.deps);
     expect(result(h).outcome).toBe("timeout");
+  });
+
+  it("honours the manager record's stopWhenIdle without the flag", async () => {
+    writeManagerRecord(
+      {
+        version: 1,
+        window: "manager",
+        startedAt: new Date(T0).toISOString(),
+        model: "opus",
+        effort: "high",
+        heartbeatSec: 900,
+        stopWhenIdle: true,
+        notices: false,
+      },
+      home,
+    );
+    put("a", "implementing");
+    const h = harness((n) => {
+      if (n === 1) put("a", "gated", "/r/flow", T0 + 6000);
+    });
+    await run(["--settle", "0"], h.deps);
+    const kinds = result(h).events.map((e: { kind: string }) => e.kind);
+    expect(kinds).toContain("idle");
   });
 });

@@ -70,6 +70,7 @@ export const MODULES: ModuleDefinition[] = [
       "The pipeline supervisor, every skill it loads in-process, worktree/PR/state machinery, and the PATH-bound schema validators. Always installed.",
     skills: [
       "flow-pipeline",
+      "flow-manage",
       "flow-product-planning",
       "flow-new-feature",
       "flow-verify",
