@@ -29,7 +29,10 @@ export type ManagerLogKind =
   | "rollup"
   | "budget-alert"
   | "manager-send"
-  | "proposal-answered";
+  | "manager-decision"
+  | "proposal-added"
+  | "proposal-answered"
+  | "reminder";
 
 export type ExecLogPayload = {
   decisionId: string;
