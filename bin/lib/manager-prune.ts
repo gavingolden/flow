@@ -1,5 +1,5 @@
 /**
- * Rule-based pruning of the manager home: drop expired notes and the grants of finished pipelines, roll log entries
+ * Rule-based pruning of the manager home: drop expired notes, the grants of finished pipelines, ruling files older than 7 days and owner-words lines older than 30, roll log entries
  * older than 90 days into one `rollup` line per month and repo, and regenerate
  * `status.md`. No model, no judgement: every rule is a predicate on a field.
  * `proposals.json` is only ever read — an open proposal waits for the owner.
@@ -10,8 +10,14 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { withFileLockSync } from "./lock";
-import { managerFile, managerHome, writeTextAtomic } from "./manager-home";
+import {
+  managerFile,
+  managerHome,
+  managerLockPath,
+  writeTextAtomic,
+} from "./manager-home";
 import { readGrants, removeGrant } from "./manager-grants";
 import {
   appendManagerLog,
@@ -23,10 +29,12 @@ import {
 import { dropNotes, isNoteExpired, readNotes } from "./manager-notes";
 import { identityForState } from "./manager-scope";
 import { readProposals } from "./manager-proposals";
-import { renderManagerStatus } from "./manager-status";
+import { writeManagerStatus } from "./manager-status";
 import { FINISHED_PHASE_SET, listStates, readState } from "./state";
 
 export const ROLLUP_AGE_DAYS = 90;
+export const RULING_AGE_DAYS = 7;
+export const OWNER_WORDS_AGE_DAYS = 30;
 
 export type PruneResult = {
   notesDropped: number;
@@ -35,6 +43,8 @@ export type PruneResult = {
   monthsRolled: number;
   openProposals: number;
   statusPath: string;
+  rulingsDropped: number;
+  ownerWordsDropped: number;
 };
 
 /** A `pipeline:` grant is keyed by slug alone, so one whose pipeline is finished or gone must not outlive it and cover a later pipeline that reuses the slug. */
@@ -67,6 +77,57 @@ function dropDeadPipelineGrants(
     );
   }
   return dropped;
+}
+
+/** Ruling files are one-shot hand-offs, so one untouched for a week is consumed or expired. */
+function dropOldRulings(now: Date, home: string): number {
+  const dir = managerFile("rulings", home);
+  let dropped = 0;
+  let names: string[] = [];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  const cutoff = now.getTime() - RULING_AGE_DAYS * 86_400_000;
+  for (const name of names) {
+    const file = path.join(dir, name);
+    try {
+      if (fs.statSync(file).mtimeMs >= cutoff) continue;
+      fs.rmSync(file);
+      dropped++;
+    } catch {
+      // raced with the consumer: leave it
+    }
+  }
+  return dropped;
+}
+
+/** Drops `owner-words.jsonl` lines older than 30 days; a line with no readable `ts` stays. */
+function dropOldOwnerWords(now: Date, home: string): number {
+  const file = managerFile("owner-words.jsonl", home);
+  if (!fs.existsSync(file)) return 0;
+  const cutoff = now.getTime() - OWNER_WORDS_AGE_DAYS * 86_400_000;
+  return withFileLockSync(managerLockPath("owner-words.jsonl", home), () => {
+    let raw = "";
+    try {
+      raw = fs.readFileSync(file, "utf8");
+    } catch {
+      return 0;
+    }
+    const lines = raw.split("\n").filter((l) => l.trim() !== "");
+    const kept = lines.filter((l) => {
+      try {
+        const t = Date.parse((JSON.parse(l) as { ts?: string }).ts ?? "");
+        return !Number.isFinite(t) || t >= cutoff;
+      } catch {
+        return true;
+      }
+    });
+    if (kept.length === lines.length) return 0;
+    writeTextAtomic(file, kept.map((l) => `${l}\n`).join(""));
+    return lines.length - kept.length;
+  });
 }
 
 /** Lines that must survive verbatim: epic grants and wave decisions (the wave review's "already reviewed" set), existing roll-ups, and any entry of a still-unfinished pipeline. */
@@ -237,14 +298,14 @@ export function pruneManagerHome(
   }
 
   const openProposals = readProposals(home).length;
-  const statusPath = managerFile("status.md", home);
-  writeTextAtomic(
-    statusPath,
-    renderManagerStatus(all, now, {
-      openProposals,
-      liveNotes: liveNotes.length,
-    }),
+  const { path: statusPath } = writeManagerStatus(
+    all,
+    now,
+    { openProposals, liveNotes: liveNotes.length },
+    home,
   );
+  const rulingsDropped = dropOldRulings(now, home);
+  const ownerWordsDropped = dropOldOwnerWords(now, home);
   return {
     notesDropped,
     grantsDropped,
@@ -252,5 +313,7 @@ export function pruneManagerHome(
     monthsRolled,
     openProposals,
     statusPath,
+    rulingsDropped,
+    ownerWordsDropped,
   };
 }

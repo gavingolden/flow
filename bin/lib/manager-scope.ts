@@ -6,7 +6,13 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { managerFile, managerHome, writeJsonAtomic } from "./manager-home";
+import { withFileLockSync } from "./lock";
+import {
+  managerFile,
+  managerHome,
+  managerLockPath,
+  writeJsonAtomic,
+} from "./manager-home";
 import { resolveGitCommonDir } from "./repo-root";
 import { isValidSlug } from "./slug";
 import { FINISHED_PHASE_SET, readState, type PipelineState } from "./state";
@@ -75,18 +81,39 @@ export function specificity(s: Scope): 1 | 2 | 3 {
   return s.kind === "pipeline" ? 3 : s.kind === "epic" ? 2 : 1;
 }
 
+export type FocusNote = {
+  id: string;
+  text: string;
+  at: string;
+  from: "launch" | "owner-words";
+};
+
 export type ScopeFile = {
   version: 1;
   scopes: string[];
   updatedAt: string;
   source: "cli" | "owner-words";
+  focus?: FocusNote[];
+  pendingResolve?: boolean;
 };
 
 function scopePath(home?: string): string {
   return managerFile("scope.json", home ?? managerHome());
 }
 
-/** Tolerant: a missing file or an invalid shape reads as null. */
+function isFocusNote(x: unknown): x is FocusNote {
+  const n = x as FocusNote | null;
+  return (
+    typeof n === "object" &&
+    n !== null &&
+    typeof n.id === "string" &&
+    typeof n.text === "string" &&
+    typeof n.at === "string" &&
+    (n.from === "launch" || n.from === "owner-words")
+  );
+}
+
+/** Tolerant: a missing file or an invalid shape reads as null; a malformed focus entry is dropped, not the file. */
 export function readScope(home?: string): ScopeFile | null {
   try {
     const v = JSON.parse(fs.readFileSync(scopePath(home), "utf8")) as ScopeFile;
@@ -97,7 +124,14 @@ export function readScope(home?: string): ScopeFile | null {
       typeof v.updatedAt === "string" &&
       (v.source === "cli" || v.source === "owner-words")
     ) {
-      return v;
+      const out: ScopeFile = { ...v };
+      delete out.focus;
+      delete out.pendingResolve;
+      if (Array.isArray(v.focus)) out.focus = v.focus.filter(isFocusNote);
+      if (typeof v.pendingResolve === "boolean") {
+        out.pendingResolve = v.pendingResolve;
+      }
+      return out;
     }
     return null;
   } catch {
@@ -105,8 +139,29 @@ export function readScope(home?: string): ScopeFile | null {
   }
 }
 
-export function writeScope(f: ScopeFile, home?: string): void {
-  writeJsonAtomic(scopePath(home), f);
+/** Locked read-modify-write, so scope entries and focus notes always change together. */
+export function updateScope(
+  fn: (cur: ScopeFile | null) => ScopeFile,
+  home?: string,
+): ScopeFile {
+  return withFileLockSync(managerLockPath("scope.json", home), () => {
+    const next = fn(readScope(home));
+    writeJsonAtomic(scopePath(home), next);
+    return next;
+  });
+}
+
+/** Does the scope cover this pipeline's identity? Finished phases count: the manager view still shows what it finished. */
+export function stateInScope(
+  s: PipelineState,
+  file: ScopeFile | null,
+): boolean {
+  if (!file) return false;
+  const id = identityForState(s);
+  return file.scopes.some((raw) => {
+    const sc = parseScope(raw);
+    return sc !== null && scopeMatches(sc, id);
+  });
 }
 
 /** Is `slug` inside the manager's stated scope? A missing file or state covers nothing. */
@@ -118,9 +173,5 @@ export function scopeCovers(
   if (!file) return false;
   const state = readState(slug, deps.stateDir);
   if (!state || FINISHED_PHASE_SET.has(state.phase)) return false;
-  const id = identityForState(state);
-  return file.scopes.some((raw) => {
-    const sc = parseScope(raw);
-    return sc !== null && scopeMatches(sc, id);
-  });
+  return stateInScope(state, file);
 }

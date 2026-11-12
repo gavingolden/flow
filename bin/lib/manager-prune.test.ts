@@ -11,6 +11,8 @@ import { appendNote, readNotes } from "./manager-notes";
 import { isRollupExempt, logOutcome, pruneManagerHome } from "./manager-prune";
 import { readGrants, upsertGrant } from "./manager-grants";
 import { addProposal } from "./manager-proposals";
+import { writeManagerRecord } from "./manager-record";
+import { updateScope } from "./manager-scope";
 import { writeState } from "./state";
 
 let dir: string;
@@ -265,5 +267,109 @@ describe("helpers", () => {
     expect(isRollupExempt({ ...base, kind: "launch", slug: "s" }, never)).toBe(
       false,
     );
+  });
+});
+
+describe("status through writeManagerStatus", () => {
+  it("renders the full table when scope.json exists but no manager is live", () => {
+    seed("mine", "implementing");
+    writeState(
+      {
+        slug: "other",
+        phase: "implementing",
+        repo: "/r/else",
+        updatedAt: daysAgo(1),
+      },
+      stateDir,
+    );
+    updateScope(
+      () => ({
+        version: 1,
+        scopes: ["repo:flow"],
+        updatedAt: daysAgo(1),
+        source: "cli",
+      }),
+      home,
+    );
+    const status = fs.readFileSync(prune().statusPath, "utf8");
+    expect(status).toContain("| mine |");
+    expect(status).toContain("| other |");
+  });
+
+  it("filters to the scope while a manager record exists", () => {
+    seed("mine", "implementing");
+    writeState(
+      {
+        slug: "other",
+        phase: "implementing",
+        repo: "/r/else",
+        updatedAt: daysAgo(1),
+      },
+      stateDir,
+    );
+    updateScope(
+      () => ({
+        version: 1,
+        scopes: ["repo:flow"],
+        updatedAt: daysAgo(1),
+        source: "cli",
+      }),
+      home,
+    );
+    writeManagerRecord(
+      {
+        version: 1,
+        window: "manager",
+        startedAt: daysAgo(1),
+        model: "opus",
+        effort: "medium",
+        heartbeatSec: 900,
+        stopWhenIdle: false,
+        notices: false,
+      },
+      home,
+    );
+    const status = fs.readFileSync(prune().statusPath, "utf8");
+    expect(status).toContain("| mine |");
+    expect(status).not.toContain("| other |");
+  });
+});
+
+describe("rulings and owner-words retention", () => {
+  const touchAge = (file: string, days: number) => {
+    const t = new Date(NOW.getTime() - days * 86_400_000);
+    fs.utimesSync(file, t, t);
+  };
+
+  it("drops ruling files older than 7 days and keeps newer ones", () => {
+    const dirR = path.join(home, "rulings");
+    fs.mkdirSync(dirR, { recursive: true });
+    fs.writeFileSync(path.join(dirR, "old.json"), "{}");
+    fs.writeFileSync(path.join(dirR, "new.json"), "{}");
+    touchAge(path.join(dirR, "old.json"), 8);
+    touchAge(path.join(dirR, "new.json"), 6);
+    expect(prune().rulingsDropped).toBe(1);
+    expect(fs.readdirSync(dirR)).toEqual(["new.json"]);
+  });
+
+  it("drops owner-words lines older than 30 days and keeps the rest", () => {
+    fs.mkdirSync(home, { recursive: true });
+    const file = path.join(home, "owner-words.jsonl");
+    const lines = [
+      JSON.stringify({ ts: daysAgo(31), text: "old" }),
+      JSON.stringify({ ts: daysAgo(29), text: "fresh" }),
+      "not json",
+    ];
+    fs.writeFileSync(file, `${lines.join("\n")}\n`);
+    expect(prune().ownerWordsDropped).toBe(1);
+    expect(fs.readFileSync(file, "utf8")).toBe(
+      `${lines.slice(1).join("\n")}\n`,
+    );
+  });
+
+  it("is a no-op when neither exists", () => {
+    const r = prune();
+    expect(r.rulingsDropped).toBe(0);
+    expect(r.ownerWordsDropped).toBe(0);
   });
 });
