@@ -79,8 +79,8 @@ function hookScript(helper: string): string {
   return path.join(here, "..", `${helper}.ts`);
 }
 
-/** A pipeline session carries a deny on the ruling writer (`flow-manager-ctl ruling`); the manager is the one session allowed to call it. */
-const RULING_WRITER_DENY = /flow-manager-ctl ruling/;
+/** A pipeline session carries a deny on the whole `flow-manager-ctl` helper (rulings, proposals, scope); the manager is the one session allowed to call it. */
+const RULING_WRITER_DENY = /flow-manager-ctl/;
 
 /**
  * Writes the manager's own `claude --settings` file (never the shared pipeline

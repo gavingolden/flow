@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { addProposal } from "./manager-proposals";
 import { upsertGrant, type GrantClass } from "./manager-grants";
 import { appendManagerLog, readManagerLog } from "./manager-log";
 import {
@@ -388,9 +389,20 @@ describe("a source: owner ruling", () => {
     });
   });
 
-  it("answers an interview in its own phase", () => {
+  it("answers an interview with the drafted text when the owner says yes to its id", () => {
     seed("plan-pending-interview");
-    typed(`${SLUG}: use postgres`);
+    addProposal(
+      {
+        id: "p-abc123",
+        kind: "interview-draft",
+        repo: path.basename(root),
+        slug: SLUG,
+        text: "use postgres",
+        createdAt: T0,
+      },
+      home,
+    );
+    typed("yes p-abc123");
     const r = owner({ reply: "answer", text: "use postgres" });
     expect(r).toMatchObject({ ok: true });
     expect(verifyRuling(SLUG, written(r).id, deps())).toMatchObject({
@@ -398,6 +410,62 @@ describe("a source: owner ruling", () => {
       reply: "answer",
       text: "use postgres",
     });
+  });
+
+  it("refuses an answer whose text is not the cited proposal's drafted text", () => {
+    seed("plan-pending-interview");
+    addProposal(
+      {
+        id: "p-abc123",
+        kind: "interview-draft",
+        repo: path.basename(root),
+        slug: SLUG,
+        text: "use postgres",
+        createdAt: T0,
+      },
+      home,
+    );
+    typed("yes p-abc123");
+    expect(owner({ reply: "answer", text: "use mysql" })).toEqual({
+      ok: false,
+      reason: "owner-intent-mismatch",
+    });
+  });
+
+  it("refuses an answer when the owner only mentions the pipeline", () => {
+    seed("plan-pending-interview");
+    typed(`${SLUG}: use postgres`);
+    expect(owner({ reply: "answer", text: "use postgres" })).toEqual({
+      ok: false,
+      reason: "owner-intent-mismatch",
+    });
+  });
+
+  it("refuses an approve when the owner only mentions the pipeline or negates it", () => {
+    typed(`why is ${SLUG} stuck?`);
+    expect(owner()).toEqual({ ok: false, reason: "owner-intent-mismatch" });
+    typed(`don't approve ${SLUG}`, "w-2", "2026-11-01T10:46:00.000Z");
+    expect(owner()).toEqual({ ok: false, reason: "owner-intent-mismatch" });
+    typed(`not approved ${SLUG}`, "w-3", "2026-11-01T10:47:00.000Z");
+    expect(owner()).toEqual({ ok: false, reason: "owner-intent-mismatch" });
+  });
+
+  it("picks the latest line that shows intent, not just the latest mention", () => {
+    typed(`approve ${SLUG}`);
+    typed(`what is ${SLUG} doing?`, "w-2", "2026-11-01T10:50:00.000Z");
+    expect(written(owner()).ownerPromptId).toBe("w-1");
+  });
+
+  it("needs 'redirect' (or change/instead) for a redirect", () => {
+    typed(`approve ${SLUG}`);
+    expect(owner({ reply: "redirect", text: "use x" })).toEqual({
+      ok: false,
+      reason: "owner-intent-mismatch",
+    });
+    typed(`redirect ${SLUG}: use x`, "w-2", "2026-11-01T10:50:00.000Z");
+    expect(
+      written(owner({ reply: "redirect", text: "use x" })).ownerPromptId,
+    ).toBe("w-2");
   });
 });
 

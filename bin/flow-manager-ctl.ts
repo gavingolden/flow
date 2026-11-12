@@ -284,7 +284,7 @@ function proposal(sub: string | undefined, p: Parsed, c: ProposalCtx): number {
     const slug = flag("slug");
     const state = slug ? readState(slug, c.stateDir) : null;
     const entry: Proposal = {
-      id: flag("id") ?? `p-${randomBytes(3).toString("hex")}`,
+      id: `p-${randomBytes(3).toString("hex")}`,
       kind: kind as ProposalKind,
       repo: flag("repo") ?? (state ? repoNameForPath(state.repo) : "all"),
       ...(slug ? { slug } : {}),

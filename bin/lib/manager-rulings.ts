@@ -21,7 +21,9 @@ import {
 } from "./manager-home";
 import { appendManagerLog, readManagerLog } from "./manager-log";
 import {
+  citedDrafts,
   findOwnerWords,
+  ownerShowsIntent,
   readOwnerWords,
   wordsNameTarget,
 } from "./manager-owner-words";
@@ -64,6 +66,7 @@ export type RulingRefusal =
   | "source-not-allowed"
   | "no-exec-approval"
   | "no-owner-words"
+  | "owner-intent-mismatch"
   | "unlogged"
   | "one-way-door"
   | "budget-reached"
@@ -112,7 +115,27 @@ function readRuling(id: string, home: string): Ruling | null {
 
 const at = (iso: string) => Date.parse(iso);
 
+/**
+ * A ruling must prove intent, not a mention. The cited line must carry the
+ * reply's intent word; an `answer` written now must also cite a drafted
+ * interview proposal (its id, or the pipeline's `#N` handle) and carry exactly
+ * that proposal's `--text`. The draft half is writer-only: the owner's reply
+ * removes the proposal, so the verifier cannot re-read it.
+ */
+function ownerAcceptable(
+  r: Pick<Ruling, "slug" | "phase" | "reply" | "text">,
+  home: string,
+  writing: boolean,
+): (text: string) => boolean {
+  return (text) => {
+    if (!ownerShowsIntent(r.reply, text)) return false;
+    if (!writing || r.reply !== "answer") return true;
+    return citedDrafts(text, r, home).some((p) => p.text.trim() === r.text);
+  };
+}
+
 type Ctx = {
+  writing?: boolean;
   home: string;
   state: PipelineState;
   now: Date;
@@ -158,6 +181,9 @@ function gateRefusal(r: Ruling, c: Ctx): RulingRefusal | null {
       !wordsNameTarget(w.text, r, c.home)
     ) {
       return "no-owner-words";
+    }
+    if (!ownerAcceptable(r, c.home, c.writing === true)(w.text)) {
+      return "owner-intent-mismatch";
     }
   }
 
@@ -208,11 +234,24 @@ export function writeRuling(
   const id = `r-${now.toISOString().replace(/[-:]/g, "").slice(0, 15)}-${rand}`;
   const owner =
     input.source === "owner"
-      ? findOwnerWords(
-          { slug: input.slug, phase: state.phase },
-          phaseEnteredAt,
-          home,
-        )
+      ? (() => {
+          const target = { slug: input.slug, phase: state.phase };
+          const accept = ownerAcceptable(
+            {
+              ...target,
+              reply: input.reply,
+              text: input.text?.trim().slice(0, MAX_TEXT),
+            },
+            home,
+            true,
+          );
+          // Fall back to a line that only names the pipeline so the gate
+          // reports owner-intent-mismatch rather than no-owner-words.
+          return (
+            findOwnerWords(target, phaseEnteredAt, home, accept) ??
+            findOwnerWords(target, phaseEnteredAt, home)
+          );
+        })()
       : null;
   const text = input.text?.trim().slice(0, MAX_TEXT);
   const ruling: Ruling = {
@@ -233,7 +272,13 @@ export function writeRuling(
       now.getTime() + RULING_TTL_HOURS * 3_600_000,
     ).toISOString(),
   };
-  const refusal = gateRefusal(ruling, { home, state, now, deps });
+  const refusal = gateRefusal(ruling, {
+    home,
+    state,
+    now,
+    deps,
+    writing: true,
+  });
   if (refusal) {
     logRuling("ruling-refused", ruling, home, now, refusal);
     return { ok: false, reason: refusal };

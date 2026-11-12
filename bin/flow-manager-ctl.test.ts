@@ -240,15 +240,18 @@ describe("digest, log and proposals", () => {
       text: "t",
       createdAt: NOW.toISOString(),
     };
-    addProposal({ ...base, id: "p1", repo: "flow", slug: "mine" }, home);
-    addProposal({ ...base, id: "p2", repo: "other", slug: "theirs" }, home);
+    addProposal({ ...base, id: "p-000001", repo: "flow", slug: "mine" }, home);
+    addProposal(
+      { ...base, id: "p-000002", repo: "other", slug: "theirs" },
+      home,
+    );
     const r = JSON.parse((await ctl("proposal", "list")).out);
-    expect(r.map((x: { id: string }) => x.id)).toEqual(["p1"]);
+    expect(r.map((x: { id: string }) => x.id)).toEqual(["p-000001"]);
     expect(
-      (await ctl("proposal", "answer", "p2", "--answer", "yes")).code,
+      (await ctl("proposal", "answer", "p-000002", "--answer", "yes")).code,
     ).toBe(3);
     expect(
-      (await ctl("proposal", "answer", "p1", "--answer", "yes")).code,
+      (await ctl("proposal", "answer", "p-000001", "--answer", "yes")).code,
     ).toBe(0);
   });
 
@@ -269,6 +272,24 @@ describe("digest, log and proposals", () => {
     expect(readManagerLog({}, home).map((e) => e.kind)).toEqual([
       "proposal-added",
     ]);
+  });
+
+  it("ignores a caller-chosen --id and always generates one", async () => {
+    put("mine", "/r/flow");
+    scopeTo("repo:flow");
+    const r = await ctl(
+      "proposal",
+      "add",
+      "--kind",
+      "stale-cancel",
+      "--text",
+      "cancel it?",
+      "--slug",
+      "mine",
+      "--id",
+      "",
+    );
+    expect(JSON.parse(r.out).id).toMatch(/^p-[0-9a-f]{6}$/);
   });
 
   it("rejects an unknown verb", async () => {

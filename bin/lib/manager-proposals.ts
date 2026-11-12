@@ -34,6 +34,9 @@ const KINDS: readonly string[] = [
   "interview-draft",
 ];
 
+/** The generator's format (`p-` + 6 hex); a planted id such as "" never reads back. */
+const PROPOSAL_ID = /^p-[0-9a-f]{6}$/;
+
 function proposalsPath(home?: string): string {
   return managerFile("proposals.json", home ?? managerHome());
 }
@@ -43,6 +46,7 @@ function isProposal(v: unknown): v is Proposal {
   const p = v as Record<string, unknown>;
   return (
     typeof p.id === "string" &&
+    PROPOSAL_ID.test(p.id) &&
     typeof p.kind === "string" &&
     KINDS.includes(p.kind) &&
     typeof p.repo === "string" &&

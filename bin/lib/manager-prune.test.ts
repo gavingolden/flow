@@ -236,7 +236,13 @@ describe("grant withdrawal log failures", () => {
 describe("proposals and status", () => {
   it("never touches proposals.json and rewrites status.md", () => {
     addProposal(
-      { id: "p", kind: "epic-change", repo: "flow", text: "x", createdAt: "t" },
+      {
+        id: "p-0000aa",
+        kind: "epic-change",
+        repo: "flow",
+        text: "x",
+        createdAt: "t",
+      },
       home,
     );
     seed("g", "gated", daysAgo(3));

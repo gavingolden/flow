@@ -652,6 +652,14 @@ describe("stamp-check", () => {
 
 describe("ruling", () => {
   const T0 = "2026-10-26T01:00:00.000Z";
+  const savedSlug = process.env.FLOW_SLUG;
+  beforeEach(() => {
+    delete process.env.FLOW_SLUG;
+  });
+  afterEach(() => {
+    if (savedSlug === undefined) delete process.env.FLOW_SLUG;
+    else process.env.FLOW_SLUG = savedSlug;
+  });
   function seedPaused() {
     w(path.join(root, "feat", ".flow-tmp", "plan.md"), "# Task breakdown\n");
     writeState(
@@ -705,6 +713,26 @@ describe("ruling", () => {
       code: 0,
       json: { ok: false, reason: "not-found" },
     });
+  });
+
+  it("refuses another pipeline's slug without consuming its ruling", () => {
+    seedPaused();
+    const r = writeRuling(
+      {
+        slug: "feat",
+        reply: "approve",
+        reason: "r",
+        source: "manager",
+        decisionId: "plan-1",
+      },
+      { home: managerHome, stateDir, now: deps().now },
+    );
+    if (!r.ok) throw new Error(r.reason);
+    const args = ["ruling", "--slug", "feat", "--id", r.ruling.id];
+    process.env.FLOW_SLUG = "other";
+    expect(call(args).json).toEqual({ ok: false, reason: "wrong-slug" });
+    process.env.FLOW_SLUG = "feat";
+    expect(call(args).json).toMatchObject({ ok: true });
   });
 
   it("accepts a written ruling once, then reports it consumed", () => {

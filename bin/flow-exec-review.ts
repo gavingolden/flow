@@ -336,6 +336,11 @@ export function run(
       if (!p.flags.slug || !p.flags.id) {
         return usage("ruling requires --slug and --id");
       }
+      // A pipeline consumes only its own ruling; another session's id is not its to spend.
+      if (process.env.FLOW_SLUG && process.env.FLOW_SLUG !== p.flags.slug) {
+        out({ ok: false, reason: "wrong-slug" });
+        return 0;
+      }
       out(
         verifyRuling(p.flags.slug, p.flags.id, {
           home: deps.managerHome,

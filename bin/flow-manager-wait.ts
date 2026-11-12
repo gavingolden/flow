@@ -22,6 +22,7 @@
  * Exit 0 always, 2 on bad arguments.
  */
 
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { OWNER_NEEDED_PHASES } from "./lib/epic-manage-board";
 import { defaultExec, type ExecFn } from "./lib/epic-manage-observe";
@@ -128,6 +129,11 @@ export type WaitDeps = {
   out?: (line: string) => void;
   record?: (event: TelemetryEventName, attrs: Record<string, unknown>) => void;
 };
+
+/** One stable proposal id per stale pipeline, in the generator's `p-<6 hex>` shape, so re-adding replaces it. */
+function staleProposalId(slug: string): string {
+  return `p-${createHash("sha1").update(`stale-cancel:${slug}`).digest("hex").slice(0, 6)}`;
+}
 
 function defaultNotify(args: string[]): void {
   try {
@@ -262,7 +268,7 @@ export async function run(
         if (OWNER_NEEDED_PHASES.has(s.phase)) return false;
         addProposal(
           {
-            id: `stale-cancel:${s.slug}`,
+            id: staleProposalId(s.slug),
             kind: "stale-cancel",
             repo: e.repo ?? "unknown",
             slug: s.slug,
