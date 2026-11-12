@@ -258,6 +258,78 @@ describe("flow-stop-guard allows legitimate end phases", () => {
   });
 });
 
+describe("flow-stop-guard saves the last pause block", () => {
+  const MESSAGE =
+    "### Gated\n\n**TLDR:** PR is ready.\n\n**Next action:** merge";
+
+  it("hands last_assistant_message to recordPause at a legitimate end phase", async () => {
+    const { deps } = makeDeps({
+      stdin: JSON.stringify({ last_assistant_message: MESSAGE }),
+      slug: "demo",
+      state: fakeState("gated"),
+    });
+    const calls: unknown[][] = [];
+    deps.recordPause = (...a) => void calls.push(a);
+    expect(await run(deps)).toBe(0);
+    expect(calls).toEqual([["demo", "gated", MESSAGE]]);
+  });
+
+  it("does not record when the stop is blocked mid-pipeline", async () => {
+    const { deps } = makeDeps({
+      stdin: JSON.stringify({ last_assistant_message: MESSAGE }),
+      slug: "demo",
+      state: fakeState("implementing"),
+    });
+    const calls: unknown[][] = [];
+    deps.recordPause = (...a) => void calls.push(a);
+    expect(await run(deps)).toBe(2);
+    expect(calls).toEqual([]);
+  });
+
+  it("keeps exit code and stderr unchanged when recordPause throws", async () => {
+    const { deps, errLines } = makeDeps({
+      stdin: JSON.stringify({ last_assistant_message: MESSAGE }),
+      slug: "demo",
+      state: fakeState("gated"),
+    });
+    deps.recordPause = () => {
+      throw new Error("disk full");
+    };
+    expect(await run(deps)).toBe(0);
+    expect(errLines).toEqual([]);
+  });
+
+  it("writes a synthetic needs-human block from the outcome when the stagnation pause lands", async () => {
+    const saved: Array<[string, string, string | undefined]> = [];
+    const { pauses } = await replayStops({
+      stops: 4,
+      state: fakeState("gating", { pr: 950 }),
+      stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
+      recordPause: (slug, phase, message) =>
+        void saved.push([slug, phase, message]),
+    });
+    expect(pauses).toHaveLength(1);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]![1]).toBe("needs-human");
+    expect(saved[0]![2]).toContain(
+      "**TLDR:** stalled at gating after 3 blocked stops — reply merge #950",
+    );
+    expect(saved[0]![2]).toContain("**Next action:** reply merge #950");
+  });
+
+  it("writes no synthetic block when the pause did not land", async () => {
+    const saved: unknown[] = [];
+    await replayStops({
+      stops: 4,
+      state: fakeState("gating", { pr: 950 }),
+      stdin: (i) => JSON.stringify({ stop_hook_active: i > 1 }),
+      pause: "failed",
+      recordPause: () => void saved.push(1),
+    });
+    expect(saved).toEqual([]);
+  });
+});
+
 describe("flow-stop-guard blocks mid-pipeline", () => {
   const blockable = STEP_PHASES.filter((p) => p !== "starting"); // tested separately
 
@@ -958,6 +1030,7 @@ async function replayStops(opts: {
   stdin: string | ((stop: number) => string);
   /** `landed`: the pause write moves state to needs-human (production); `failed`: it never lands. */
   pause?: "landed" | "failed";
+  recordPause?: Deps["recordPause"];
 }) {
   let turn: TurnTracking | null = null;
   let current = opts.state;
@@ -981,6 +1054,7 @@ async function replayStops(opts: {
     deps.writeOut = (s) => {
       outs.push(s);
     };
+    if (opts.recordPause) deps.recordPause = opts.recordPause;
     deps.writePause = (state, outcome) => {
       pauses.push({ state, outcome });
       if (opts.pause === "failed") return false;
