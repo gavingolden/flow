@@ -36,7 +36,7 @@ _flow() {
         cword=$COMP_CWORD
     fi
 
-    local verbs="install feature epic grant config ls attach a done reap doctor prompt completion version help --version -v --help -h"
+    local verbs="install feature epic grant manage config ls attach a done reap doctor prompt completion version help --version -v --help -h"
 
     # Find the verb (first non-flag token after `flow`).
     local verb="" i

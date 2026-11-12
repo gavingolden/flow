@@ -28,6 +28,7 @@ _flow() {
                 'feature:start or resume a pipeline'
                 'epic:design or run an epic'
                 'grant:let the executive approve plans for you'
+                'manage:open the manager window that watches your pipelines'
                 'config:inspect flow configuration'
                 'ls:list active pipelines'
                 'attach:attach to a pipeline window'
@@ -191,6 +192,17 @@ _flow() {
                         '--delegate-ui[also let the executive judge subjective UI steps]' \
                         '--expires[lapse after n hours, days or weeks (e.g. 7d)]:duration:' \
                         '--list[print live grants, then expired ones]'
+                    ;;
+                manage)
+                    _arguments \
+                        '*--scope[cover this scope: pipeline:<slug>, epic:<slug> or repo:<name>]:scope:' \
+                        '--notices[also list out-of-scope pipelines that wait on you]' \
+                        '--no-notices[stop listing out-of-scope pipelines]' \
+                        '--model[manager model alias]:model:(opus haiku sonnet fable)' \
+                        '--effort[manager effort level]:effort:(low medium high xhigh max)' \
+                        '--heartbeat[how often to check GitHub (e.g. 900, 15m, 1h)]:duration:' \
+                        '--stop-when-idle[stop once nothing but you can move a pipeline]' \
+                        '--stop[stop the manager and close its window]'
                     ;;
                 ls)
                     _arguments \

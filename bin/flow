@@ -8,6 +8,8 @@
  *   flow feature resume <name> [...]   re-launch crashed pipeline(s)
  *   flow grant <scope> --autonomy high|off | --list
  *                                      let the executive approve plans for you
+ *   flow manage ["<what to cover>"]    open the one manager window that watches
+ *                                      your pipelines and speaks only when you are needed
  *   flow ls [--cost [--detail]]        list active pipelines
  *   flow attach <name>                 tmux attach -t flow:<name>  (alias: a)
  *   flow done <name> | --merged | --orphans
@@ -36,6 +38,7 @@ import { runReapCli } from "./lib/reap-cli";
 import { runPromptCli } from "./lib/prompt";
 import { runEpicCli } from "./lib/epic";
 import { runGrantCli } from "./lib/grant-cli";
+import { runManageCli } from "./lib/manage";
 import { runConfigCli } from "./lib/config";
 import { runLsCli } from "./lib/ls";
 import { runFeatureCli } from "./lib/feature";
@@ -77,6 +80,8 @@ async function runVerb(verb: string, args: string[]): Promise<number> {
       return await runEpicCli(args);
     case "grant":
       return runGrantCli(args);
+    case "manage":
+      return runManageCli(args);
     case "config":
       return runConfigCli(args);
     case "attach":

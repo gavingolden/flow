@@ -69,6 +69,8 @@ Usage:
                                         hard-fails if that slug's window already exists)
   flow feature resume <name> [<name> ...]  resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
   flow epic <create|run|status|bind|launch|ls|done|manage|grant> design and run an epic
+  flow manage ["<what to cover>"] [--scope <scope>]... [--notices|--no-notices] [--stop]
+                                        open the one manager window over your pipelines
   flow grant <scope> --autonomy high|off [--delegate-ui] [--expires <n>h|d|w]
                                         let the executive approve plans for you
                                         (scope: pipeline:<slug>, epic:<slug> or repo:<name>);
@@ -502,6 +504,38 @@ Never passes --record and never writes to ~/.flow/state/<slug>.json — a
 host-wide sweep touches OTHER pipelines' slugs, and recording into a
 sibling's state file would corrupt that pipeline's own
 'flow-gate-summary --cleanup' CLEANUP row.`,
+
+  manage: `flow manage — one manager window over every pipeline you name
+
+Usage:
+  flow manage ["<what to cover>"] [--scope <scope>]... [--notices|--no-notices]
+              [--model <alias>] [--effort <level>] [--heartbeat <dur>] [--stop-when-idle]
+  flow manage --stop
+
+The manager is a single long-lived Claude session in the tmux window 'manager'.
+A background watcher wakes it only when a pipeline in scope changes phase, goes
+quiet, merges or is closed behind its back — no polling turns, no model cost
+while nothing happens. Needs tmux.
+
+Scope (like 'flow grant'; there is no "all"):
+  pipeline:<slug>   one pipeline
+  epic:<slug>       every feature of one epic
+  repo:<name>       every pipeline of one repo, as 'flow ls' names it
+
+A launch with words or --scope replaces the saved scope; a bare 'flow manage'
+reuses it and prints it first. With the window already open: --scope updates
+the scope, --notices/--no-notices updates the notice setting, anything else
+points you at 'flow attach manager'.
+
+Options:
+  --scope <scope>     cover this scope (repeatable)
+  --notices           also list out-of-scope pipelines that wait on you (default off)
+  --no-notices        stop listing them
+  --model <alias>     manager model (default: config models.manager, then opus)
+  --effort <level>    manager effort (default: config efforts.manager, then high)
+  --heartbeat <dur>   how often the watcher checks GitHub, e.g. 900, 15m, 1h (min 60s)
+  --stop-when-idle    wake the manager to wind down once only you can move any pipeline
+  --stop              remove the manager record and close its window`,
 
   grant: `flow grant — let the executive approve plans for you
 

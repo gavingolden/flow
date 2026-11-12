@@ -195,6 +195,8 @@ export const MODULES: ModuleDefinition[] = [
       "flow-manager-send-guard",
       "flow-manager-wait",
       "flow-manager-ctl",
+      "flow-manager-owner-words",
+      "flow-manager-stop-guard",
       "flow-ui-capture",
       "flow-test-audit",
       "flow-skill-overlay",
