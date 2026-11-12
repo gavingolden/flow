@@ -131,7 +131,7 @@ it's a non-terminal phase the resume + hook machinery already handles).
 Runs from step 3's End condition, BEFORE `plan-pending-review` is written, so
 it needs no typed reply; the phase stays `planning` throughout. Only for a
 pipeline (an epic feature or a loose one) where
-`flow-exec-review status --slug "$FLOW_SLUG"` printed `granted: true`. Interviews, clarification pauses, and the merge are never
+`flow-exec-review status --slug "$FLOW_SLUG"` printed `granted: true` with `"plan"` in its `classes` (a `--relay`-only grant has `classes: ["relay"]`: no executive call, no `--require-review`). Interviews, clarification pauses, and the merge are never
 delegated.
 
 1. Run `flow-exec-review review --kind plan --slug "$FLOW_SLUG"` as a Bash

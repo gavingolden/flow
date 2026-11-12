@@ -14,7 +14,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { checkpointDir } from "./checkpoint-freshness";
 import { flowStateDir } from "./paths";
-import { readState, type PipelineState } from "./state";
+import { phaseEnteredAt, readState, type PipelineState } from "./state";
 
 export type PauseSlots = {
   phase: string;
@@ -78,14 +78,6 @@ export function parsePauseSlots(text: string): Parsed | null {
 
 function lastPausePath(slug: string, dir: string): string {
   return path.join(checkpointDir(slug, dir), "last-pause.json");
-}
-
-/** When the state entered its current phase: its last `phaseLog` entry for that phase, else `updatedAt`. */
-function phaseEnteredAt(state: PipelineState): string {
-  const entry = [...(state.phaseLog ?? [])]
-    .reverse()
-    .find((e) => e.phase === state.phase);
-  return entry?.at ?? state.updatedAt;
 }
 
 /**

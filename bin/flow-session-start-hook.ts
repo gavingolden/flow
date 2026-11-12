@@ -405,16 +405,17 @@ async function runManagerClear(deps: Deps): Promise<number> {
     if ((deps.resolveKind ?? resolveKindAmbient)() !== "manager") return 0;
     if (!managerMarkerExists(deps.managerHome)) return 0;
     const body = readManagerCheckpointBody(deps.managerHome);
+    // Retire first: a truncation pointer at the live path would be renamed away.
+    const retired = consumeManagerCheckpoint(deps.managerHome);
     if (body) {
       deps.emitContext(
         renderManagerCheckpointContext(
           body,
           HOOK_CONTEXT_MAX_CHARS,
-          managerCheckpointBodyPath(deps.managerHome),
+          retired.archived ?? managerCheckpointBodyPath(deps.managerHome),
         ),
       );
     }
-    consumeManagerCheckpoint(deps.managerHome);
   } catch {
     return 0;
   }

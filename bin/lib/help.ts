@@ -74,7 +74,8 @@ Usage:
   flow grant <scope> --autonomy high|off [--delegate-ui] [--expires <n>h|d|w]
   flow grant <scope> --relay [--expires <n>h|d|w]
                                         let the executive approve plans for you (--relay: only
-                                        let your answers typed in the manager window reach them)
+                                        pass on answers you type in the manager window to the
+                                        paused pipeline; no paid executive review)
                                         (scope: pipeline:<slug>, epic:<slug> or repo:<name>);
                                         'flow grant --list' shows live and expired grants
   flow config all [--slug <name>] [--json]
@@ -515,9 +516,10 @@ Usage:
   flow manage --stop
 
 The manager is a single long-lived Claude session in the tmux window 'manager'.
-A background watcher wakes it only when a pipeline in scope changes phase, goes
-quiet, merges or is closed behind its back — no polling turns, no model cost
-while nothing happens. Needs tmux.
+A background watcher wakes it only when a pipeline in scope reaches a point that
+needs you (a plan to review, a question, a checkpoint, a held PR), goes quiet
+for a week, merges, or is closed outside flow. CI and other in-progress phases
+stay silent; no model cost while nothing needs you. Needs tmux.
 
 Scope (like 'flow grant'; there is no "all"):
   pipeline:<slug>   one pipeline
@@ -543,6 +545,7 @@ Options:
 
 Usage:
   flow grant <scope> --autonomy high|off [--delegate-ui] [--expires <n>h|d|w]
+  flow grant <scope> --relay [--expires <n>h|d|w]
   flow grant --list
 
 Scope (the widest is one repo; there is no "all"):
@@ -553,9 +556,11 @@ Scope (the widest is one repo; there is no "all"):
 Options:
   --autonomy high   write the grant (plain terminal only, never inside a Claude session)
   --autonomy off    withdraw the grant (allowed from anywhere)
+  --relay           let what you type in the manager window answer paused pipelines in
+                    this scope; never switches on executive reviews (plain terminal only)
   --delegate-ui     recorded for a parked delegated UI sign-off; inactive today (high only)
   --expires <n>h|d|w
-                    the grant lapses after n hours, days or weeks (high only)
+                    the grant lapses after n hours, days or weeks (high or --relay)
   --list            print live grants, then expired ones
 
 The most specific live grant (pipeline over epic over repo) names the reported

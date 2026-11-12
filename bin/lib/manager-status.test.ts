@@ -49,6 +49,28 @@ describe("renderManagerStatus", () => {
     expect(out).toContain("open proposals: 2 · live notes: 1");
   });
 
+  it("says a gated pipeline waited 7+ days on you, and only past 7 days", () => {
+    const row = (updatedAt: string) =>
+      renderManagerStatus(
+        [state({ slug: "old", phase: "gated", updatedAt })],
+        NOW,
+        extra,
+      );
+    expect(row("2026-10-30T00:00:00.000Z")).toContain("waited 7+ days on you");
+    expect(row("2026-11-03T00:00:00.000Z")).not.toContain("7+ days");
+  });
+
+  it("names how many pipelines the scope filter hides when none are in scope", () => {
+    const out = renderManagerStatus(
+      [state({ slug: "elsewhere", phase: "gated" })],
+      NOW,
+      extra,
+      { inScope: () => false },
+    );
+    expect(out).toContain("No unfinished pipelines in scope (1 not in scope");
+    expect(out).not.toContain("elsewhere");
+  });
+
   it("says an unaccepted ruling's pipeline needs an answer in its own window", () => {
     const out = renderManagerStatus(
       [state({ slug: "stuck", phase: "plan-pending-review" })],

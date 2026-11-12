@@ -19,7 +19,8 @@ import { argsContainHelp, printVerbHelp } from "./help";
 import { resolveLauncherBackend } from "./launcher-config";
 import { readManagerConfig, validHeartbeatSec } from "./manager-config";
 import { resolveGrant } from "./manager-grants";
-import { managerFile, managerHome } from "./manager-home";
+import { managerFile, managerHome, writeTextAtomic } from "./manager-home";
+import { wakePath } from "./manager-waiter";
 import {
   managerRecordPath,
   readManagerRecord,
@@ -129,9 +130,7 @@ export function ensureManagerSettings(
     // absent: write it
   }
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  const tmp = `${settingsPath}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, text);
-  fs.renameSync(tmp, settingsPath);
+  writeTextAtomic(settingsPath, text);
   return settingsPath;
 }
 
@@ -266,13 +265,18 @@ function printScopeAndGrants(
   }
   for (const f of file?.focus ?? []) console.log(`focus [${f.id}]: ${f.text}`);
   if (!showGrants) return;
+  let anyUngranted = false;
   for (const s of listStates(stateDir)) {
     if (!stateInScope(s, file) || FINISHED_PHASE_SET.has(s.phase)) continue;
     const granted = resolveGrant(identityForState(s), now, home) !== null;
+    if (!granted) anyUngranted = true;
+    console.log(`${s.slug}: ${granted ? "granted" : "not granted"}`);
+  }
+  if (anyUngranted) {
+    const cap = readManagerConfig().dailyBudgetUsd;
     console.log(
-      granted
-        ? `${s.slug}: granted`
-        : `${s.slug}: not granted — to let the executive review its plans, run: flow grant pipeline:${s.slug} --autonomy high (or flow grant pipeline:${s.slug} --relay to only relay your answers from the manager window)`,
+      "To answer from the manager window (free): flow grant <scope> --relay. " +
+        `To let paid executive reviews approve plans for you (capped at $${cap}/day): flow grant <scope> --autonomy high.`,
     );
   }
 }
@@ -391,6 +395,9 @@ export function runManageCli(
     notices: p.notices ?? false,
   };
   fs.mkdirSync(home, { recursive: true });
+  // A new session must not replay the last one's baseline or unacked wake.
+  fs.rmSync(managerFile("waiter-seen.json", home), { force: true });
+  fs.rmSync(wakePath(home), { force: true });
   writeManagerRecord(record, home);
 
   printScopeAndGrants(

@@ -14,7 +14,11 @@ import { managerFile, managerHome, writeJsonAtomic } from "./manager-home";
 import type { ManagerLogEntry } from "./manager-log";
 import { isWakePhase } from "./manager-phases";
 import { repoNameForPath, type ScopeFile } from "./manager-scope";
-import { FINISHED_PHASE_SET, type PipelineState } from "./state";
+import {
+  FINISHED_PHASE_SET,
+  phaseEnteredAt,
+  type PipelineState,
+} from "./state";
 
 export type SeenEntry = {
   phase: string;
@@ -69,11 +73,6 @@ const MAX_FIRED_RULINGS = 100;
 const GONE_AFTER_POLLS = 2;
 const DAY_MS = 86_400_000;
 
-export function enteredAt(s: PipelineState): string {
-  const e = [...(s.phaseLog ?? [])].reverse().find((x) => x.phase === s.phase);
-  return e?.at ?? s.updatedAt;
-}
-
 function lastActivityMs(s: PipelineState): number {
   const last = s.phaseLog?.[s.phaseLog.length - 1]?.at ?? s.updatedAt;
   const t = Date.parse(last);
@@ -117,7 +116,7 @@ export function unpickedRulings(
       !s ||
       FINISHED_PHASE_SET.has(s.phase) ||
       s.phase !== e.phase ||
-      Date.parse(enteredAt(s)) > written
+      Date.parse(phaseEnteredAt(s)) > written
     ) {
       continue;
     }
@@ -145,7 +144,7 @@ export function diffSnapshot(
 
   for (const s of states) {
     const prior = seen?.pipelines[s.slug];
-    const entered = enteredAt(s);
+    const entered = phaseEnteredAt(s);
     const scoped = opts.inScope(s);
     const repo = repoNameForPath(s.repo);
     const entry: SeenEntry = {

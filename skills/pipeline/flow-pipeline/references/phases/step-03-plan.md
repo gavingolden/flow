@@ -201,7 +201,7 @@ feature/non-feature end-condition split. Bash `flow-delegate` (AGY) fan-out, sam
 fan-out, not an eighth exemption"). Three-part gate: `review.gemini == true`
 in `~/.flow/config.json` (same key the Gemini lens uses), AND a non-empty
 `## Decision analysis` section in plan.md **or** a granted pipeline
-(`$EXEC_SCOPE` reads `granted: true` — each Bash call that needs the scope
+(`$EXEC_SCOPE` reads `granted: true` with `"plan"` in `classes` — a `--relay`-only grant does not count; each Bash call that needs the scope
 runs `EXEC_SCOPE=$(flow-exec-review status --slug "$FLOW_SLUG")` itself and
 echoes the JSON, because shell variables do not persist across Bash calls; an
 empty or unparseable result counts as not granted; then pass `--require-review` on every `flow-plan-review` call below, which
@@ -339,7 +339,8 @@ only and the helper exact-matches against them. The blind survey's
 - `$ROUTE` is `route-to-step-4` and intent is `feature` → **granted pipeline
   first:** when `$EXEC_SCOPE` (the route block's
   `flow-exec-review status --slug "$FLOW_SLUG"` line) prints
-  `granted: true`, run step 4's
+  `granted: true` with `"plan"` in `classes` (a `--relay`-only grant falls
+  through), run step 4's
   [Executive review (granted pipelines)](step-04-approval.md#executive-review-granted-pipelines)
   BEFORE writing `plan-pending-review` (phase stays `planning`); its
   `approve` continues straight into step 5 in this turn, its `challenge` loops

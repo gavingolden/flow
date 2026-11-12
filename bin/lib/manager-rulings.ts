@@ -29,9 +29,8 @@ import {
 } from "./manager-owner-words";
 import { repoNameForPath, scopeCovers } from "./manager-scope";
 import { budgetReached } from "./manager-spend";
-import { enteredAt } from "./manager-wait";
 import type { ReadConfigFile } from "./modules-config";
-import { readState, type PipelineState } from "./state";
+import { phaseEnteredAt, readState, type PipelineState } from "./state";
 
 export type RulingReply = "approve" | "redirect" | "answer";
 export type RulingSource = "manager" | "owner";
@@ -229,7 +228,7 @@ export function writeRuling(
     return { ok: false, reason: "out-of-scope" };
   }
   const now = nowOf(deps);
-  const phaseEnteredAt = enteredAt(state);
+  const entered = phaseEnteredAt(state);
   const rand = deps.random?.() ?? Math.random().toString(16).slice(2, 8);
   const id = `r-${now.toISOString().replace(/[-:]/g, "").slice(0, 15)}-${rand}`;
   const owner =
@@ -248,8 +247,8 @@ export function writeRuling(
           // Fall back to a line that only names the pipeline so the gate
           // reports owner-intent-mismatch rather than no-owner-words.
           return (
-            findOwnerWords(target, phaseEnteredAt, home, accept) ??
-            findOwnerWords(target, phaseEnteredAt, home)
+            findOwnerWords(target, entered, home, accept) ??
+            findOwnerWords(target, entered, home)
           );
         })()
       : null;
@@ -260,7 +259,7 @@ export function writeRuling(
     slug: input.slug,
     repo: repoNameForPath(state.repo),
     phase: state.phase,
-    phaseEnteredAt,
+    phaseEnteredAt: entered,
     reply: input.reply,
     ...(text ? { text } : {}),
     reason: input.reason.trim().slice(0, 500),
@@ -356,7 +355,7 @@ export function verifyRuling(
     if (
       !state ||
       state.phase !== r.phase ||
-      enteredAt(state) !== r.phaseEnteredAt
+      phaseEnteredAt(state) !== r.phaseEnteredAt
     ) {
       return refuse("stale-phase", r);
     }

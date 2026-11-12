@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { appendManagerLog } from "./manager-log";
 import { notifyOwnerNeeded } from "./manager-owner-notify";
-import { ownerNeededKey } from "./manager-wait";
+import { ownerNeededFor } from "./epic-manage-board";
 import type { PipelineState } from "./state";
 
 const NOW = new Date("2026-11-12T01:00:00.000Z");
@@ -63,7 +63,13 @@ describe("notifyOwnerNeeded", () => {
         ts: NOW.toISOString(),
         kind: "owner-needed",
         repo: "flow",
-        key: ownerNeededKey(s),
+        // Built by the epic sequencer's own code, not the waiter's, so a drift
+        // between the two key formats fails here.
+        key: ownerNeededFor(
+          [{ id: "f1", status: "running", slug: s.slug, dependsOn: [] }],
+          new Map([[s.slug, s]]),
+          {},
+        )[0].key,
       },
       { home },
     );

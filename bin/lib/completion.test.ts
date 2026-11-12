@@ -264,6 +264,36 @@ describe("completion scripts stay in sync with VERBS", () => {
     }
   });
 
+  it("both scripts complete the top-level `manage` verb and its flags", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      const armStart = script.indexOf("manage)");
+      expect(
+        armStart,
+        `flow.${shell} must have a top-level manage arm`,
+      ).toBeGreaterThan(-1);
+      const armEnd = script.indexOf(";;", script.indexOf("--stop", armStart));
+      const arm = script.slice(armStart, armEnd);
+      for (const f of [
+        "--scope",
+        "--notices",
+        "--no-notices",
+        "--model",
+        "--effort",
+        "--heartbeat",
+        "--stop-when-idle",
+        "--stop",
+      ]) {
+        expect(arm, `flow.${shell} manage arm`).toContain(f);
+      }
+      expect(arm).toContain("sonnet");
+      expect(arm).toContain("xhigh");
+    }
+  });
+
   it("both scripts advertise --cost, --detail, --all-repos, --all, and -a scoped to the TOP-LEVEL `ls` arm", () => {
     for (const shell of ["bash", "zsh"] as const) {
       const script = fs.readFileSync(

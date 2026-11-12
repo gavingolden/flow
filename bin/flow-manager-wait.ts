@@ -185,13 +185,24 @@ export async function run(
     out(JSON.stringify({ outcome, events, wakeFile, reread: REREAD }));
 
   if (args.ensure) {
-    const live = waiterLive(readWaiter(home), nowMs(), deps.kill);
+    // The stop guard's rule: a waiter from before this manager launched does not count.
+    const waiter = readWaiter(home);
+    const launched = Date.parse(readManagerRecord(home)?.startedAt ?? "");
+    const fresh =
+      !Number.isFinite(launched) ||
+      Date.parse(waiter?.startedAt ?? "") >= launched;
+    const live = fresh && waiterLive(waiter, nowMs(), deps.kill);
     emit(live ? "already-running" : "start-needed");
     return 0;
   }
 
   const unacked = readWake(home)?.events ?? [];
   if (unacked.length > 0) {
+    record("manager.wake", {
+      events: unacked.length,
+      kinds: [...new Set(unacked.map((e) => e.kind))],
+      settleMs: 0,
+    });
     emit("wake", unacked);
     return 0;
   }
@@ -204,7 +215,21 @@ export async function run(
       readManagerRecord(home)?.heartbeatSec ??
       readManagerConfig().heartbeatSec) * 1000;
   const stopWhenIdle = readManagerRecord(home)?.stopWhenIdle === true;
-  writeWaiter({ version: 1, pid, startedAt, aliveAt: startedAt }, home);
+  const priorBeat = Date.parse(readWaiter(home)?.heartbeatAt ?? "");
+  let heartbeatAt =
+    Number.isFinite(priorBeat) && priorBeat <= startMs ? priorBeat : startMs;
+  const stamp = (alive: string): void =>
+    writeWaiter(
+      {
+        version: 1,
+        pid,
+        startedAt,
+        aliveAt: alive,
+        heartbeatAt: new Date(heartbeatAt).toISOString(),
+      },
+      home,
+    );
+  stamp(startedAt);
 
   let signaled = false;
   const onSignal = (): void => {
@@ -215,7 +240,6 @@ export async function run(
 
   let pending: WakeEvent[] = [];
   let firstEventMs = 0;
-  let lastHeartbeat = startMs;
   let reminderDay = "";
   let budgetStamp = -1;
   let budgetLine: string | undefined;
@@ -234,10 +258,7 @@ export async function run(
         emit("superseded");
         return 0;
       }
-      writeWaiter(
-        { version: 1, pid, startedAt, aliveAt: now.toISOString() },
-        home,
-      );
+      stamp(now.toISOString());
 
       const states = listStates(deps.stateDir ?? flowStateDir());
       const scope = readScope(home);
@@ -282,8 +303,9 @@ export async function run(
         return true;
       });
 
-      if (ms - lastHeartbeat >= heartbeatMs) {
-        lastHeartbeat = ms;
+      if (ms - heartbeatAt >= heartbeatMs) {
+        heartbeatAt = ms;
+        stamp(now.toISOString());
         const outOfScopeNeeding = notices
           ? states.filter(
               (s) =>
@@ -323,7 +345,8 @@ export async function run(
       const day = now.toDateString();
       if (reminderDay !== day) {
         const remStates = notices ? states : scoped;
-        if (sendDailyReminder(now, remStates, notify, home)) reminderDay = day;
+        const r = sendDailyReminder(now, remStates, notify, home);
+        if (r !== "not-due") reminderDay = day;
       }
 
       if (logStamp !== budgetStamp) {

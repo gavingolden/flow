@@ -14,6 +14,8 @@ export type WaiterRecord = {
   pid: number;
   startedAt: string;
   aliveAt: string;
+  /** Last merged-out-of-band check; the next waiter process resumes from it, so a busy scope that wakes the waiter more often than the heartbeat still gets its check. */
+  heartbeatAt?: string;
 };
 
 export type WakeFile = { version: 1; at: string; events: WakeEvent[] };

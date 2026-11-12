@@ -21,7 +21,6 @@ import {
 } from "./manager-log";
 import { readNotes, type ManagerNote } from "./manager-notes";
 import { identityForState, repoNameForPath } from "./manager-scope";
-import { enteredAt } from "./manager-wait";
 import { epicDirRelative, loadManifestFromRepo } from "./epic-manifest-schema";
 import { readCharter } from "./exec-charter";
 import {
@@ -59,6 +58,7 @@ import {
   listStates,
   readState,
   type PipelineState,
+  phaseEnteredAt,
 } from "./state";
 
 export type PlanReviewResult =
@@ -128,10 +128,11 @@ function noNewEvidence(a: {
     .filter(
       (e) =>
         e.slug === a.slug &&
-        (e.kind === "exec-decision" || e.kind === "exec-skip") &&
+        // A skip where the executive never looked (headless-error, charter
+        // problems, ...) must not latch; only a decision or a hard stop does.
+        (e.kind === "exec-decision" ||
+          (e.kind === "exec-skip" && e.reason === "precondition-failed")) &&
         e.exec?.reviewKind === "plan" &&
-        e.reason !== "no-new-evidence" &&
-        e.reason !== "daily-budget-reached" &&
         Date.parse(e.ts) >= since,
     )
     .at(-1);
@@ -152,7 +153,9 @@ function noNewEvidence(a: {
       Date.parse(n.ts) > after &&
       n.about.some((x) => named.has(x)),
   );
-  const siblingMoved = a.siblings.some((s) => Date.parse(enteredAt(s)) > after);
+  const siblingMoved = a.siblings.some(
+    (s) => Date.parse(phaseEnteredAt(s)) > after,
+  );
   return !(noteOpens || siblingMoved);
 }
 
@@ -232,7 +235,7 @@ export function runPlanReview(
     state &&
     noNewEvidence({
       slug: input.slug,
-      phaseEnteredAt: enteredAt(state),
+      phaseEnteredAt: phaseEnteredAt(state),
       log,
       notes,
       siblings: siblingStates,

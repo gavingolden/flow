@@ -323,9 +323,10 @@ skipReason/model/effort/cost only — NEVER the judged text), and
 review kind, action or skip reason, model/effort and cost only, never the
 plan or the charter), and `plan-review.fallback` (one per reviewer-2 Claude
 Code fallback attempt in a deep plan review — carries its cost and the agy
-reason it replaced), `manager.wake` (one per time the global manager's waiter
-wakes the session: how many events, their kinds and the settle time in
-milliseconds — never a slug), and `manager.heartbeat` (one per heartbeat
+reason it replaced), `manager.wake` (one per waiter exit that returns a wake,
+including the immediate re-emit of a wake the manager has not acknowledged,
+whose settle time is 0: attributes are `events` (how many), `kinds` and
+`settleMs` — never a slug), and `manager.heartbeat` (one per heartbeat
 check of in-scope pipelines' PRs: how many pipelines it looked at and how many
 had merged out of band). Every event
 carries the same `slug` / `pr` / `repo` / `session_id` correlation

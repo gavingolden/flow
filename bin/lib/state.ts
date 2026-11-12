@@ -1225,6 +1225,14 @@ export function isMainStateFile(name: string): boolean {
   return /^[^.]+\.json$/.test(name);
 }
 
+/** When the state entered its current phase: its last `phaseLog` entry for that phase, else `updatedAt`. */
+export function phaseEnteredAt(state: PipelineState): string {
+  const entry = [...(state.phaseLog ?? [])]
+    .reverse()
+    .find((e) => e.phase === state.phase);
+  return entry?.at ?? state.updatedAt;
+}
+
 export function listStates(dir = flowStateDir()): PipelineState[] {
   let entries: fs.Dirent[];
   try {

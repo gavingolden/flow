@@ -864,6 +864,15 @@ describe("manager context and the no-new-evidence gate", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("a headless-error skip, where the executive never looked, does not latch the gate", () => {
+    expect(manager(deps({ spawnHeadless: () => ({}) }))).toMatchObject({
+      ran: false,
+      skipReason: "headless-error",
+    });
+    expect(manager().ran).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
   it("runs again after another session's note naming the pipeline or a sibling", () => {
     manager();
     note("sib", ["feat"], LATER);

@@ -14,8 +14,11 @@ import {
   parseLogLines,
 } from "./manager-log";
 import { managerHome } from "./manager-home";
-import { enteredAt } from "./manager-wait";
-import { FINISHED_PHASE_SET, type PipelineState } from "./state";
+import {
+  FINISHED_PHASE_SET,
+  phaseEnteredAt,
+  type PipelineState,
+} from "./state";
 
 const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
@@ -33,7 +36,7 @@ export function reminderDue(
     if (FINISHED_PHASE_SET.has(s.phase) || !OWNER_NEEDED_PHASES.has(s.phase)) {
       continue;
     }
-    const ageMs = now.getTime() - Date.parse(enteredAt(s));
+    const ageMs = now.getTime() - Date.parse(phaseEnteredAt(s));
     if (!Number.isFinite(ageMs) || ageMs <= DAY_MS) continue;
     count++;
     if (!oldest || ageMs > oldest.ageMs) oldest = { slug: s.slug, ageMs };
@@ -47,15 +50,19 @@ function reminderText(count: number, slug: string, ageMs: number): string {
   return `${count} ${count === 1 ? "item has" : "items have"} waited over a day on you; oldest: ${slug} (${wait})`;
 }
 
-/** True only for the call that sent it. The check and the log append share the log lock. */
+/**
+ * `sent` only for the call that sent it; `already` when today's reminder is in
+ * the log (the caller may stop checking for the day); `not-due` otherwise. The
+ * check and the log append share the log lock.
+ */
 export function sendDailyReminder(
   now: Date,
   states: PipelineState[],
   notify: (args: string[]) => void,
   home: string = managerHome(),
-): boolean {
+): "sent" | "already" | "not-due" {
   const r = reminderDue(states, now);
-  if (!r.due || !r.oldest) return false;
+  if (!r.due || !r.oldest) return "not-due";
   const reason = reminderText(r.count, r.oldest.slug, r.oldest.ageMs);
   fs.mkdirSync(home, { recursive: true });
   const sent = withFileLockSync(logLockPath(home), () => {
@@ -69,14 +76,14 @@ export function sendDailyReminder(
       (e) =>
         e.kind === "reminder" && localDay(new Date(e.ts)) === localDay(now),
     );
-    if (done) return false;
+    if (done) return "already" as const;
     fs.appendFileSync(
       logPath(home),
       `${JSON.stringify({ ts: now.toISOString(), kind: "reminder", repo: "all", reason })}\n`,
     );
-    return true;
+    return "sent" as const;
   });
-  if (sent)
+  if (sent === "sent")
     notify(["--status", "waiting", "--slug", "manager", "--reason", reason]);
   return sent;
 }

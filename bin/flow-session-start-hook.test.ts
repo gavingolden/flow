@@ -2086,6 +2086,17 @@ describe("the global manager's /clear", () => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 
+  it("points a truncated body at the archived file, which exists after the hook runs", async () => {
+    const { home, dir } = managerHome(true, `${"x".repeat(12_000)}\n`);
+    const stub = makeDeps({ resolveKind: () => "manager" });
+    await run({ ...stub.deps, flowManagerEnv: "1", managerHome: home });
+    const consumed = path.join(dir, "checkpoint.consumed.md");
+    expect(stub.emitted[0]).toContain(consumed);
+    expect(stub.emitted[0]).not.toContain(path.join(dir, "checkpoint.md"));
+    expect(fs.existsSync(consumed)).toBe(true);
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
   it("does nothing without a marker, outside a manager pane, or without FLOW_MANAGER", async () => {
     const { home } = managerHome(false);
     const noMarker = makeDeps({ resolveKind: () => "manager" });

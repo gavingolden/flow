@@ -7,7 +7,7 @@ import { appendManagerLog } from "./lib/manager-log";
 import { readProposals } from "./lib/manager-proposals";
 import { writeManagerRecord } from "./lib/manager-record";
 import { updateScope } from "./lib/manager-scope";
-import { readWaiter, writeWaiter } from "./lib/manager-waiter";
+import { ackWake, readWaiter, writeWaiter } from "./lib/manager-waiter";
 import { writeState, type PipelineState } from "./lib/state";
 
 const T0 = Date.parse("2026-11-12T10:00:00.000Z");
@@ -128,6 +128,9 @@ describe("flow-manager-wait", () => {
     await run([], again.deps);
     expect(result(again).events).toEqual(result(first).events);
     expect(again.tick).toBe(0);
+    expect(again.recorded.filter(([e]) => e === "manager.wake")).toHaveLength(
+      1,
+    );
   });
 
   it("--ensure reports a live waiter without starting one, and start-needed otherwise", async () => {
@@ -147,6 +150,44 @@ describe("flow-manager-wait", () => {
     expect(result(h2).outcome).toBe("already-running");
     expect(readWaiter(home)).toEqual(rec);
     expect(h2.tick).toBe(0);
+  });
+
+  it("--ensure does not count a waiter that started before this manager launched", async () => {
+    writeManagerRecord(
+      {
+        version: 1,
+        window: "manager",
+        startedAt: new Date(T0 + 1000).toISOString(),
+        model: "opus",
+        effort: "high",
+        heartbeatSec: 900,
+        stopWhenIdle: false,
+        notices: false,
+      },
+      home,
+    );
+    writeWaiter(
+      {
+        version: 1,
+        pid: 4242,
+        startedAt: new Date(T0).toISOString(),
+        aliveAt: new Date(T0).toISOString(),
+      },
+      home,
+    );
+    const h = harness();
+    await run(["--ensure"], h.deps);
+    expect(result(h).outcome).toBe("start-needed");
+  });
+
+  it("resumes the heartbeat clock from the previous waiter process", async () => {
+    put("a", "implementing");
+    await run(["--max-sec", "40", "--heartbeat", "60"], harness().deps);
+    const h = harness(() => {}, T0 + 40_000);
+    await run(["--max-sec", "40", "--heartbeat", "60"], h.deps);
+    expect(h.recorded.filter(([e]) => e === "manager.heartbeat")).toHaveLength(
+      1,
+    );
   });
 
   it("a stale waiter record counts as dead", async () => {
@@ -197,6 +238,51 @@ describe("flow-manager-wait", () => {
     expect(generated[0]).toMatch(/watcher last alive at \d\d:\d\d/);
   });
 
+  it("wakes once when a heartbeat finds an in-scope PR merged out of band, and not again after the ack", async () => {
+    writeState(
+      {
+        slug: "a",
+        phase: "ci-waiting",
+        repo: "/r/flow",
+        pr: 7,
+        prUrl: "https://github.com/acme/flow/pull/7",
+        updatedAt: new Date(T0).toISOString(),
+        phaseLog: [{ phase: "ci-waiting", at: new Date(T0).toISOString() }],
+      } as PipelineState,
+      stateDir,
+    );
+    const merged = async () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({
+        data: {
+          r0: {
+            nameWithOwner: "acme/flow",
+            p7: { number: 7, state: "MERGED" },
+          },
+        },
+      }),
+      stderr: "",
+    });
+    const h = harness();
+    h.deps.exec = merged;
+    await run(
+      ["--heartbeat", "60", "--settle", "0", "--max-sec", "130"],
+      h.deps,
+    );
+    expect(result(h).outcome).toBe("wake");
+    expect(result(h).events).toEqual([
+      { kind: "merged-out-of-band", slug: "a", repo: "flow", to: "MERGED" },
+    ]);
+    ackWake(home);
+    const h2 = harness(() => {}, T0 + 10_000);
+    h2.deps.exec = merged;
+    await run(
+      ["--heartbeat", "60", "--settle", "0", "--max-sec", "130"],
+      h2.deps,
+    );
+    expect(result(h2).outcome).toBe("timeout");
+  });
+
   it("records a heartbeat event each time the heartbeat query runs", async () => {
     put("a", "implementing");
     const h = harness();
@@ -232,6 +318,9 @@ describe("flow-manager-wait", () => {
     await run(["--max-sec", "10"], h2.deps);
     const props = readProposals(home);
     expect(props.map((p) => p.slug)).toEqual(["stale-one"]);
+    expect(fs.readFileSync(path.join(home, "status.md"), "utf8")).toMatch(
+      /\| stale-gated \|.*waited 7\+ days on you/,
+    );
     expect(fs.readFileSync(path.join(stateDir, "stale-one.json"), "utf8")).toBe(
       before,
     );

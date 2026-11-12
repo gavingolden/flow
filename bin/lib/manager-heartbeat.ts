@@ -99,6 +99,8 @@ export function mergedOutOfBand(
     const t = parsePrUrl(s.prUrl);
     const v = t ? prStates.get(prKey(t)) : undefined;
     if (!v || v === "OPEN" || FINISHED_PHASE_SET.has(s.phase)) continue;
+    // The pipeline's own merge: `merging` until the post-merge sweep marks it merged.
+    if (v === "MERGED" && s.phase === "merging") continue;
     out.push({
       kind: "merged-out-of-band",
       slug: s.slug,

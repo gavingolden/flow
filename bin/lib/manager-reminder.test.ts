@@ -49,10 +49,10 @@ describe("sendDailyReminder", () => {
     const calls: string[][] = [];
     const states = [waiting("old", "2026-11-09T12:00:00.000Z")];
     expect(sendDailyReminder(NOW, states, (a) => calls.push(a), home)).toBe(
-      true,
+      "sent",
     );
     expect(sendDailyReminder(NOW, states, (a) => calls.push(a), home)).toBe(
-      false,
+      "already",
     );
     expect(calls).toHaveLength(1);
     expect(calls[0].join(" ")).toContain("old");
@@ -74,7 +74,9 @@ describe("sendDailyReminder", () => {
 
   it("sends nothing when no item is due", () => {
     const calls: string[][] = [];
-    expect(sendDailyReminder(NOW, [], (a) => calls.push(a), home)).toBe(false);
+    expect(sendDailyReminder(NOW, [], (a) => calls.push(a), home)).toBe(
+      "not-due",
+    );
     expect(calls).toEqual([]);
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ExecFn } from "./epic-manage-observe";
 import {
   buildMultiRepoPrQuery,
+  mergedOutOfBand,
   parseMultiRepoPrResponse,
   runHeartbeat,
 } from "./manager-heartbeat";
@@ -62,6 +63,26 @@ describe("multi-repo PR query", () => {
     );
     expect([...m]).toEqual([["acme/flow#1", "MERGED"]]);
     expect(parseMultiRepoPrResponse("nope").size).toBe(0);
+  });
+});
+
+describe("mergedOutOfBand", () => {
+  const merged = new Map([["acme/flow#1", "MERGED" as const]]);
+
+  it("does not call a pipeline's own merge out of band while it is merging", () => {
+    expect(mergedOutOfBand([st("a", 1, { phase: "merging" })], merged)).toEqual(
+      [],
+    );
+    expect(
+      mergedOutOfBand([st("a", 1, { phase: "ci-waiting" })], merged),
+    ).toHaveLength(1);
+  });
+
+  it("still reports a PR closed without merging while the pipeline is merging", () => {
+    const closed = new Map([["acme/flow#1", "CLOSED" as const]]);
+    expect(
+      mergedOutOfBand([st("a", 1, { phase: "merging" })], closed),
+    ).toHaveLength(1);
   });
 });
 

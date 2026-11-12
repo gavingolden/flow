@@ -9,7 +9,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { defaultExec, GH_TIMEOUT_MS, type ExecFn } from "./epic-manage-observe";
-import { enteredAt } from "./manager-wait";
 import { readLastPause, type PauseSlots } from "./pause-capture";
 import {
   defaultProjectsRoot,
@@ -18,7 +17,12 @@ import {
 } from "./session-discovery";
 import { flowStateDir } from "./paths";
 import { repoNameForPath } from "./manager-scope";
-import { FINISHED_PHASE_SET, readState, type PipelineState } from "./state";
+import {
+  FINISHED_PHASE_SET,
+  phaseEnteredAt,
+  readState,
+  type PipelineState,
+} from "./state";
 
 export const BRIEF_PR_SECTIONS = [
   "TLDR",
@@ -182,7 +186,7 @@ export async function buildBrief(
   const state = readState(slug, stateDir);
   if (!state) return null;
   const now = (deps.now ?? (() => new Date()))();
-  const entered = enteredAt(state);
+  const entered = phaseEnteredAt(state);
   const pause = readLastPause(slug, stateDir);
   const brief: PipelineBrief = {
     ok: true,

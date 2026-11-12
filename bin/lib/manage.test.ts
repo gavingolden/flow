@@ -126,6 +126,25 @@ describe("runManageCli", () => {
     expect(logs.join("\n")).toContain("daily reminders are off");
   });
 
+  it("clears the last session's baseline and unacked wake on a fresh launch", () => {
+    fs.mkdirSync(home, { recursive: true });
+    fs.writeFileSync(path.join(home, "waiter-seen.json"), "{}");
+    fs.writeFileSync(path.join(home, "wake.json"), "{}");
+    runManageCli(["watch the flow repo"], opts());
+    expect(fs.existsSync(path.join(home, "waiter-seen.json"))).toBe(false);
+    expect(fs.existsSync(path.join(home, "wake.json"))).toBe(false);
+  });
+
+  it("passes --model and --effort to the launch command", () => {
+    runManageCli(
+      ["watch the flow repo", "--model", "sonnet", "--effort", "low"],
+      opts(),
+    );
+    const { command } = launches[0];
+    expect(command[command.indexOf("--model") + 1]).toBe("sonnet");
+    expect(command[command.indexOf("--effort") + 1]).toBe("low");
+  });
+
   it("replaces yesterday's scope when a launch carries --scope, and keeps the saved one for a bare launch", () => {
     updateScope(
       () => ({
@@ -186,7 +205,9 @@ describe("runManageCli", () => {
     runManageCli(["--scope", "repo:flow"], opts());
     const out = logs.join("\n");
     expect(out).toContain("alpha: not granted");
-    expect(out).toContain("flow grant pipeline:alpha --autonomy high");
+    expect(out).toContain("flow grant <scope> --relay");
+    expect(out.indexOf("--relay")).toBeLessThan(out.indexOf("--autonomy high"));
+    expect(out).not.toContain("flow grant pipeline:alpha");
   });
 
   it("with the window open: --scope updates, --notices flips, words and bare launches point at attach", () => {

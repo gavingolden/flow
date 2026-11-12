@@ -22,10 +22,9 @@ import {
   scopeCovers,
   ALLOWED_SCOPE_KINDS,
 } from "./lib/manager-scope";
+import { readHookStdin } from "./lib/hook-stdin";
 import { isValidSlug } from "./lib/slug";
 import { readState } from "./lib/state";
-
-const STDIN_TIMEOUT_MS = 500;
 
 export type SendDeps = { home?: string; stateDir?: string };
 export type SendVerdict =
@@ -95,23 +94,6 @@ function logAllowed(slug: string, deps: SendDeps): void {
   }
 }
 
-function readStdin(): Promise<string> {
-  return new Promise((resolve) => {
-    const chunks: Uint8Array[] = [];
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(Buffer.concat(chunks).toString("utf8"));
-    };
-    const timer = setTimeout(finish, STDIN_TIMEOUT_MS);
-    process.stdin.on("data", (c) => chunks.push(c as Uint8Array));
-    process.stdin.on("end", finish);
-    process.stdin.on("error", finish);
-  });
-}
-
 export function denyOutput(reason: string): string {
   return `${JSON.stringify({
     hookSpecificOutput: {
@@ -158,7 +140,7 @@ export async function main(
 
 if (import.meta.main) {
   main(process.argv.slice(2), {
-    readStdin,
+    readStdin: () => readHookStdin(),
     out: (s) => process.stdout.write(s),
     err: (s) => process.stderr.write(s),
   }).then((code) => process.exit(code));

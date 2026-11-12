@@ -57,6 +57,8 @@ type StatusExtra = {
   unpicked?: string[];
 };
 
+const SEVEN_DAYS_MS = 7 * 86_400_000;
+
 export function renderManagerStatus(
   states: PipelineState[],
   now: Date,
@@ -86,7 +88,15 @@ export function renderManagerStatus(
     ...(extra.budgetLine ? [extra.budgetLine, ""] : []),
   ];
   if (rows.length === 0) {
-    lines.push("No unfinished pipelines.");
+    const hidden = view.inScope
+      ? states.filter((s) => !FINISHED_PHASE_SET.has(s.phase) && !visible(s))
+          .length
+      : 0;
+    lines.push(
+      hidden > 0
+        ? `No unfinished pipelines in scope (${hidden} not in scope — flow ls lists them).`
+        : "No unfinished pipelines.",
+    );
   } else {
     lines.push(
       "| Pipeline | Repo | Epic | Phase | Owner action | Waiting |",
@@ -97,8 +107,12 @@ export function renderManagerStatus(
       const reason = extra.unpicked?.includes(s.slug)
         ? `approval not picked up — answer in window ${s.slug}`
         : (REASON_BY_PHASE[s.phase] ?? s.phase);
+      const longWait =
+        needed && now.getTime() - since >= SEVEN_DAYS_MS
+          ? " — waited 7+ days on you"
+          : "";
       const action = needed
-        ? `${n !== undefined ? `#${n} ` : ""}${cell(reason)}`
+        ? `${n !== undefined ? `#${n} ` : ""}${cell(reason)}${longWait}`
         : "-";
       lines.push(
         `| ${cell(s.slug)} | ${cell(repoNameForPath(s.repo))} | ${cell(s.epic?.slug ?? "-")} | ${cell(s.phase)} | ${action} | ${waitingLabel(now.getTime() - since)} |`,
