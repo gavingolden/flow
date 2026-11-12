@@ -11,7 +11,8 @@
       "pr": 1012
     },
     "f3-global-manager": {
-      "status": "not-started"
+      "status": "merged",
+      "pr": 1064
     },
     "f4-delegated-ui-signoff": {
       "status": "merged",
