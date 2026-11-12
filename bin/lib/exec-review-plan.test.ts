@@ -251,6 +251,22 @@ describe("grant scope", () => {
     expect(events).toHaveLength(0);
   });
 
+  it("a relay-only grant never runs a paid review", () => {
+    fs.rmSync(path.join(managerHome, "grants.json"));
+    upsertGrant(
+      {
+        scope: "epic:e1",
+        classes: ["relay"],
+        grantedAt: "t",
+        grantedBy: "owner-cli",
+      },
+      managerHome,
+    );
+    expect(run()).toMatchObject({ ran: false, skipReason: "no-grant" });
+    expect(calls).toHaveLength(0);
+    expect(events).toHaveLength(0);
+  });
+
   it("refuses another epic's expectation and an unknown slug without spending", () => {
     expect(
       runPlanReview({ slug: "feat", epic: "other" }, deps()),

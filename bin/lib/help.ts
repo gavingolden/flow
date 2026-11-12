@@ -72,7 +72,9 @@ Usage:
   flow manage ["<what to cover>"] [--scope <scope>]... [--notices|--no-notices] [--stop]
                                         open the one manager window over your pipelines
   flow grant <scope> --autonomy high|off [--delegate-ui] [--expires <n>h|d|w]
-                                        let the executive approve plans for you
+  flow grant <scope> --relay [--expires <n>h|d|w]
+                                        let the executive approve plans for you (--relay: only
+                                        let your answers typed in the manager window reach them)
                                         (scope: pipeline:<slug>, epic:<slug> or repo:<name>);
                                         'flow grant --list' shows live and expired grants
   flow config all [--slug <name>] [--json]

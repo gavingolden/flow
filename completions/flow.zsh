@@ -191,6 +191,7 @@ _flow() {
                         '--autonomy[let the executive approve plans (high needs a plain terminal)]:level:(high off)' \
                         '--delegate-ui[also let the executive judge subjective UI steps]' \
                         '--expires[lapse after n hours, days or weeks (e.g. 7d)]:duration:' \
+                        '--relay[relay your manager-window answers to the scope (no executive autonomy)]' \
                         '--list[print live grants, then expired ones]'
                     ;;
                 manage)

@@ -82,9 +82,12 @@ describe("ensureManagerSettings", () => {
     expect(s.permissions.deny).toContain(
       "Edit(~/.flow/manager/owner-words.jsonl)",
     );
-    expect(
-      s.permissions.deny.some((r: string) => /exec-review ruling/.test(r)),
-    ).toBe(false);
+    expect(s.permissions.deny).not.toContain("Bash(*flow-manager-ctl ruling*)");
+    expect(s.permissions.deny).toContain("Bash(*flow-exec-review ruling*)");
+    expect(s.permissions.allow).not.toContain(
+      "Bash(flow-exec-review ruling *)",
+    );
+    expect(s.permissions.allow).toContain("Bash(flow-manager-ctl *)");
   });
 });
 

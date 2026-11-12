@@ -32,7 +32,10 @@ export type ManagerLogKind =
   | "manager-decision"
   | "proposal-added"
   | "proposal-answered"
-  | "reminder";
+  | "reminder"
+  | "ruling-written"
+  | "ruling-accepted"
+  | "ruling-refused";
 
 export type ExecLogPayload = {
   decisionId: string;

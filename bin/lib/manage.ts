@@ -77,8 +77,8 @@ function hookScript(helper: string): string {
   return path.join(here, "..", `${helper}.ts`);
 }
 
-/** A pipeline session carries a deny on the ruling writer; the manager is the one session allowed to call it. */
-const RULING_WRITER_DENY = /exec-review ruling/;
+/** A pipeline session carries a deny on the ruling writer (`flow-manager-ctl ruling`); the manager is the one session allowed to call it. */
+const RULING_WRITER_DENY = /flow-manager-ctl ruling/;
 
 /**
  * Writes the manager's own `claude --settings` file (never the shared pipeline
@@ -109,11 +109,11 @@ export function ensureManagerSettings(
     permissions: {
       deny: [
         ...perms.deny.filter((r) => !RULING_WRITER_DENY.test(r)),
-        "Edit(~/.flow/manager/owner-words.jsonl)",
-        "Bash(*owner-words.jsonl*)",
+        // The verifier consumes a ruling; only the pipeline it names may run it.
+        "Bash(*flow-exec-review ruling*)",
       ],
       allow: [
-        ...perms.allow,
+        ...perms.allow.filter((r) => !/flow-exec-review ruling/.test(r)),
         "Bash(flow-manager-wait)",
         "Bash(flow-manager-wait *)",
         "Bash(flow-manager-ctl *)",

@@ -203,3 +203,30 @@ describe("grantForEpic", () => {
     expect(grantForEpic("z", "other", NOW, dir)).toBeNull();
   });
 });
+
+describe("the relay class", () => {
+  it("survives a read, so a relay-only grant is not silently dropped", () => {
+    upsertGrant(grant("repo:flow", { classes: ["relay"] }), dir);
+    expect(readGrants(dir)[0].classes).toEqual(["relay"]);
+  });
+
+  it("a relay-only grant covers the slug but carries no plan class", () => {
+    seed("solo");
+    upsertGrant(grant("pipeline:solo", { classes: ["relay"] }), dir);
+    const r = grantForSlug("solo", {
+      stateDir,
+      home: dir,
+      now: () => NOW,
+      loadManifest: () => manifest,
+    });
+    expect(r).toMatchObject({ granted: true, classes: ["relay"] });
+  });
+
+  it("grantForEpic unions classes, so a narrow relay grant never strips a broader plan class", () => {
+    upsertGrant(grant("repo:flow"), dir);
+    upsertGrant(grant("epic:e", { classes: ["relay"] }), dir);
+    const g = grantForEpic("e", "flow", NOW, dir);
+    expect(g?.scope).toBe("epic:e");
+    expect(g?.classes).toEqual(["plan", "relay"]);
+  });
+});

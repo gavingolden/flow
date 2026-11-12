@@ -14,6 +14,7 @@ import {
   writeJsonAtomic,
   writeTextAtomic,
 } from "./manager-home";
+import { handlesPath, readHandles } from "./manager-handles";
 import { readManagerRecord } from "./manager-record";
 import { readScope, repoNameForPath, stateInScope } from "./manager-scope";
 import { FINISHED_PHASE_SET, type PipelineState } from "./state";
@@ -118,32 +119,6 @@ export function renderManagerStatus(
     }
   }
   return `${lines.join("\n")}\n`;
-}
-
-type HandleFile = { version: 1; next: number; items: Record<string, number> };
-
-function handlesPath(home: string): string {
-  return managerFile("handles.json", home);
-}
-
-function readHandles(home: string): HandleFile {
-  try {
-    const v = JSON.parse(
-      fs.readFileSync(handlesPath(home), "utf8"),
-    ) as HandleFile;
-    if (
-      v?.version === 1 &&
-      Number.isInteger(v.next) &&
-      v.items &&
-      typeof v.items === "object" &&
-      Object.values(v.items).every((n) => Number.isInteger(n))
-    ) {
-      return v;
-    }
-  } catch {
-    // missing or malformed: start over
-  }
-  return { version: 1, next: 1, items: {} };
 }
 
 /** One needs-you item is a pipeline sitting in one owner-needed phase; a new phase is a new item. */

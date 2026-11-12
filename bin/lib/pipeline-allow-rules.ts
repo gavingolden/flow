@@ -115,4 +115,5 @@ export const FLOW_EXEC_REVIEW_ALLOW_RULES: readonly string[] = [
   "Bash(flow-exec-review order *)",
   "Bash(flow-exec-review outcome *)",
   "Bash(flow-exec-review stamp-check *)",
+  "Bash(flow-exec-review ruling *)",
 ];

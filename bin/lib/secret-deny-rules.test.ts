@@ -114,6 +114,25 @@ describe("GRANT_DENY_RULES", () => {
     }
   });
 
+  it("denies the relay grant, the ruling writer and Bash/Edit access to the trust files", () => {
+    for (const r of [
+      "Bash(*flow grant * --relay*)",
+      "Bash(*flow grant --relay*)",
+      "Bash(*flow epic grant * --relay*)",
+      "Bash(*flow epic grant --relay*)",
+      "Bash(*flow-manager-ctl ruling*)",
+      "Bash(*manager/rulings*)",
+      "Bash(*manager/log.jsonl*)",
+      "Bash(*manager/scope.json*)",
+      "Bash(*owner-words*)",
+      "Edit(~/.flow/manager/rulings/**)",
+      "Edit(~/.flow/manager/scope.json)",
+      "Edit(~/.flow/manager/owner-words.jsonl)",
+    ]) {
+      expect(GRANT_DENY_RULES).toContain(r);
+    }
+  });
+
   it("denies Edit under the managers state directory, with no never-matching Write rule", () => {
     expect(GRANT_DENY_RULES).toContain("Edit(~/.flow/state/managers/**)");
     expect(GRANT_DENY_RULES).not.toContain("Write(~/.flow/state/managers/**)");

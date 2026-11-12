@@ -258,7 +258,7 @@ _flow() {
             esac
             if [[ "$cur" == -* ]]; then
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "--autonomy --delegate-ui --expires --list" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--autonomy --delegate-ui --expires --list --relay" -- "$cur") )
             fi
             ;;
         config)

@@ -100,7 +100,7 @@ describe("flow grant --autonomy high", () => {
     expect(grants()).toEqual([
       {
         scope: "repo:flow",
-        classes: ["plan"],
+        classes: ["plan", "relay"],
         grantedAt: "2026-10-26T01:00:00.000Z",
         expiresAt: "2026-11-02T01:00:00.000Z",
         grantedBy: "owner-cli",
@@ -141,7 +141,7 @@ describe("flow grant --autonomy high", () => {
     expect(run(["pipeline:solo", "--autonomy", "high", "--delegate-ui"])).toBe(
       0,
     );
-    expect(grants()[0].classes).toEqual(["plan", "subjective"]);
+    expect(grants()[0].classes).toEqual(["plan", "relay", "subjective"]);
     const out = logs.join("\n");
     expect(out).toContain(
       "recorded, but inactive — delegated UI sign-off is parked, so UI taste items stay with you.",
@@ -251,6 +251,45 @@ describe("flow grant --autonomy high", () => {
     );
     expect(g).toHaveLength(2);
     expect(g[1].exec?.baselineMerged).toEqual(["f1"]);
+  });
+});
+
+describe("flow grant --relay", () => {
+  it("writes a relay-only grant, logs it without a wave baseline, and says it does not switch on the executive", () => {
+    expect(run(["epic:e1", "--relay", "--expires", "7d"])).toBe(0);
+    expect(grants()).toEqual([
+      {
+        scope: "epic:e1",
+        classes: ["relay"],
+        grantedAt: "2026-10-26T01:00:00.000Z",
+        expiresAt: "2026-11-02T01:00:00.000Z",
+        grantedBy: "owner-cli",
+      },
+    ]);
+    const line = readManagerLog({ epic: "e1" }, home)[0];
+    expect(line).toMatchObject({ kind: "grant", reason: "owner-cli-relay" });
+    expect(line.exec).toBeUndefined();
+    expect(logs.join("\n")).toContain("does not switch on the executive");
+  });
+
+  it("is refused without a TTY or inside a Claude session and writes nothing", () => {
+    expect(run(["repo:flow", "--relay"], { isTTY: false })).toBe(2);
+    expect(run(["repo:flow", "--relay"], { env: { CLAUDECODE: "1" } })).toBe(2);
+    expect(grants()).toEqual([]);
+  });
+
+  it("stands alone: refused with --autonomy or --delegate-ui", () => {
+    expect(run(["repo:flow", "--relay", "--autonomy", "high"])).toBe(2);
+    expect(run(["repo:flow", "--relay", "--delegate-ui"])).toBe(2);
+    expect(grants()).toEqual([]);
+  });
+
+  it("--list names a relay-only grant as relaying answers, not approving plans", () => {
+    expect(run(["repo:flow", "--relay"])).toBe(0);
+    logs = [];
+    expect(run(["--list"])).toBe(0);
+    expect(logs.join("\n")).toContain("relays your answers");
+    expect(logs.join("\n")).not.toContain("approves plans");
   });
 });
 

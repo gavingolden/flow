@@ -9,6 +9,7 @@
  *   outcome     --slug <s> --decision <id> --reply accept|approve|redirect|cancel
  *   charter     --add "<line>" [--decision <id>]
  *   stamp-check --slug <s> --body-file <path>
+ *   ruling      --slug <s> --id <id>
  *
  * Every non-usage path prints exactly one JSON line and exits 0; a usage error
  * exits 2. The pipeline branches on the JSON, never the exit code.
@@ -23,6 +24,7 @@ import { runPlanReview } from "./lib/exec-review-plan";
 import { defaultExecDeps, type ExecReviewDeps } from "./lib/exec-review-shared";
 import { orderFrontier, runWaveReview } from "./lib/exec-review-wave";
 import { resolveRepoRoot } from "./lib/repo-root";
+import { verifyRuling } from "./lib/manager-rulings";
 import { readState } from "./lib/state";
 
 const USAGE = `usage: flow-exec-review <subcommand> [flags]
@@ -32,7 +34,8 @@ const USAGE = `usage: flow-exec-review <subcommand> [flags]
   order       --epic <e> --frontier <id,id,...>
   outcome     --slug <s> --decision <id> --reply accept|approve|redirect|cancel
   charter     --add "<line>" [--decision <id>]
-  stamp-check --slug <s> --body-file <path>`;
+  stamp-check --slug <s> --body-file <path>
+  ruling      --slug <s> --id <id>`;
 
 const REPLIES = ["accept", "approve", "redirect", "cancel"] as const;
 type Reply = (typeof REPLIES)[number];
@@ -296,6 +299,24 @@ export function run(
         body = "";
       }
       out({ ok: body.includes(`decision ${id}`), decisionId: id });
+      return 0;
+    }
+
+    case "ruling": {
+      const p = parse(rest, ["slug", "id"]);
+      if ("error" in p) return usage(p.error);
+      if (!p.flags.slug || !p.flags.id) {
+        return usage("ruling requires --slug and --id");
+      }
+      out(
+        verifyRuling(p.flags.slug, p.flags.id, {
+          home: deps.managerHome,
+          stateDir: deps.stateDir,
+          now: deps.now,
+          readFile: deps.readFile,
+          readConfig: deps.readConfig,
+        }),
+      );
       return 0;
     }
 

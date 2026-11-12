@@ -1,9 +1,11 @@
 /**
- * `flow grant <scope> --autonomy high|off [--delegate-ui] [--expires <n>h|d|w]`
- * and `flow grant --list` — the owner's grant of plan-approval autonomy to the
+ * `flow grant <scope> --autonomy high|off [--delegate-ui] [--expires <n>h|d|w]`,
+ * `flow grant <scope> --relay [--expires <n>h|d|w]` (the owner may answer a
+ * paused pipeline from the manager window, with no executive autonomy) and
+ * `flow grant --list` — the owner's grant of plan-approval autonomy to the
  * executive for one pipeline, epic or repo.
  *
- * `high` is refused (exit 2, nothing written) unless stdin is a TTY AND
+ * `high` and `--relay` are refused (exit 2, nothing written) unless stdin is a TTY AND
  * `CLAUDECODE` is unset: a session cannot grant by accident or on a peer's
  * instruction. This is a guard, not a proof — a determined session could
  * unset the variable; flow-launched sessions are additionally denied the
@@ -41,6 +43,7 @@ import { identitiesFor, resolveScopeTarget } from "./grant-target";
 import { resolveRepoRoot } from "./repo-root";
 
 const USAGE = `usage: flow grant <pipeline:<slug>|epic:<slug>|repo:<name>> --autonomy high|off [--delegate-ui] [--expires <n>h|d|w]
+       flow grant <pipeline:<slug>|epic:<slug>|repo:<name>> --relay [--expires <n>h|d|w]
        flow grant --list`;
 
 export type GrantCliDeps = {
@@ -70,10 +73,13 @@ function fail(msg: string): number {
 
 function describeGrant(g: ScopedGrant, live: boolean, now: Date): string {
   const allows = [
-    "approves plans",
-    ...(g.scope.startsWith("pipeline:")
-      ? []
-      : ["reorders unstarted epic features"]),
+    ...(g.classes.includes("plan") ? ["approves plans"] : []),
+    ...(g.classes.includes("relay") && !g.classes.includes("plan")
+      ? ["relays your answers"]
+      : []),
+    ...(g.classes.includes("plan") && !g.scope.startsWith("pipeline:")
+      ? ["reorders unstarted epic features"]
+      : []),
     ...(g.classes.includes("subjective") ? ["judges UI steps"] : []),
   ].join(", ");
   const expiry = g.expiresAt ? Date.parse(g.expiresAt) : NaN;
@@ -113,6 +119,7 @@ export function runGrantCli(args: string[], deps: GrantCliDeps = {}): number {
   let autonomy: string | undefined;
   let expires: string | undefined;
   let delegateUi = false;
+  let relay = false;
   let list = false;
   const positionals: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -127,6 +134,8 @@ export function runGrantCli(args: string[], deps: GrantCliDeps = {}): number {
       expires = v;
     } else if (a === "--delegate-ui") {
       delegateUi = true;
+    } else if (a === "--relay") {
+      relay = true;
     } else if (a === "--list") {
       list = true;
     } else if (a.startsWith("--autonomy=") || a.startsWith("--expires=")) {
@@ -141,7 +150,7 @@ export function runGrantCli(args: string[], deps: GrantCliDeps = {}): number {
   }
 
   if (list) {
-    if (positionals.length > 0 || autonomy || expires || delegateUi) {
+    if (positionals.length > 0 || autonomy || expires || delegateUi || relay) {
       return fail("--list takes no other arguments.");
     }
     return runList(deps);
@@ -156,8 +165,16 @@ export function runGrantCli(args: string[], deps: GrantCliDeps = {}): number {
       `'${positionals[0]}' is not a scope — use ${ALLOWED_SCOPE_KINDS}.`,
     );
   }
-  if (autonomy !== "high" && autonomy !== "off") {
-    return fail("--autonomy requires 'high' or 'off'.");
+  if (relay) {
+    if (autonomy !== undefined) {
+      return fail(
+        "--relay stands alone: --autonomy high already includes it, and --autonomy off withdraws any grant.",
+      );
+    }
+    if (delegateUi)
+      return fail("--delegate-ui only applies with --autonomy high.");
+  } else if (autonomy !== "high" && autonomy !== "off") {
+    return fail("--autonomy requires 'high' or 'off' (or use --relay).");
   }
   if (autonomy === "off" && (delegateUi || expires !== undefined)) {
     return fail("--delegate-ui and --expires only apply with --autonomy high.");
@@ -196,13 +213,13 @@ export function runGrantCli(args: string[], deps: GrantCliDeps = {}): number {
   for (const w of resolved.warnings) console.log(`  Warning: ${w}`);
 
   const priorBaseline =
-    scope.kind === "epic"
+    scope.kind === "epic" && !relay
       ? readManagerLog({ epic: scope.id }, deps.home).find(
           (e) => e.kind === "grant" && e.exec?.baselineMerged,
         )?.exec?.baselineMerged
       : undefined;
   let baselineMerged: string[] | undefined;
-  if (scope.kind === "epic") {
+  if (scope.kind === "epic" && !relay) {
     // A re-grant keeps the EARLIEST baseline so merges that landed while the
     // grant was withdrawn are still reviewed.
     const board = resolved.epicRoot
@@ -219,7 +236,11 @@ export function runGrantCli(args: string[], deps: GrantCliDeps = {}): number {
   }
 
   const hadGrant = readGrants(deps.home).some((g) => g.scope === scopeText);
-  const classes: GrantClass[] = delegateUi ? ["plan", "subjective"] : ["plan"];
+  const classes: GrantClass[] = relay
+    ? ["relay"]
+    : delegateUi
+      ? ["plan", "relay", "subjective"]
+      : ["plan", "relay"];
   upsertGrant(
     {
       scope: scopeText,
@@ -240,7 +261,7 @@ export function runGrantCli(args: string[], deps: GrantCliDeps = {}): number {
       repo: resolved.repo,
       ...(scope.kind === "epic" ? { epic: scope.id } : {}),
       ...(scope.kind === "pipeline" ? { slug: scope.id } : {}),
-      reason: "owner-cli",
+      reason: relay ? "owner-cli-relay" : "owner-cli",
       ...(baselineMerged
         ? {
             exec: {
@@ -254,6 +275,21 @@ export function runGrantCli(args: string[], deps: GrantCliDeps = {}): number {
     { home: deps.home },
   );
 
+  if (relay) {
+    console.log(
+      `${hadGrant ? "Refreshed" : "Granted"} answer relay for ${scopeText}.`,
+    );
+    console.log(
+      '  What you type in the manager window ("approve #3") is relayed to the paused pipeline in this scope. It does not switch on the executive.',
+    );
+    if (expiresMs !== undefined) {
+      console.log(
+        `  Expires: ${new Date(now.getTime() + expiresMs).toISOString()}`,
+      );
+    }
+    console.log(`  Withdraw any time: flow grant ${scopeText} --autonomy off`);
+    return 0;
+  }
   console.log(
     `${hadGrant ? "Refreshed" : "Granted"} plan-approval autonomy for ${scopeText}.`,
   );

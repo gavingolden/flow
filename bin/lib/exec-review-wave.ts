@@ -76,7 +76,11 @@ export function runWaveReview(
 ): WaveReviewResult {
   const { epic, repoRoot } = input;
   const repo = repoNameForPath(repoRoot);
-  if (!grantForEpic(epic, repo, deps.now(), deps.managerHome)) {
+  if (
+    !grantForEpic(epic, repo, deps.now(), deps.managerHome)?.classes.includes(
+      "plan",
+    )
+  ) {
     return { ran: false, skipReason: "no-grant" };
   }
   const epicDir = path.join(repoRoot, epicDirRelative(epic));

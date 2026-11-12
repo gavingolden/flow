@@ -4,6 +4,8 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { run } from "./flow-exec-review";
 import { upsertGrant } from "./lib/manager-grants";
+import { writeRuling } from "./lib/manager-rulings";
+import { updateScope } from "./lib/manager-scope";
 import { appendManagerLog, readManagerLog } from "./lib/manager-log";
 import { defaultExecDeps, type ExecReviewDeps } from "./lib/exec-review-shared";
 import { writeState } from "./lib/state";
@@ -611,5 +613,86 @@ describe("stamp-check", () => {
       { home: managerHome },
     );
     expect(check().json).toEqual({ ok: false, decisionId: "plan-1" });
+  });
+});
+
+describe("ruling", () => {
+  const T0 = "2026-10-26T01:00:00.000Z";
+  function seedPaused() {
+    w(path.join(root, "feat", ".flow-tmp", "plan.md"), "# Task breakdown\n");
+    writeState(
+      {
+        slug: "feat",
+        phase: "plan-pending-review",
+        repo: root,
+        worktree: path.join(root, "feat"),
+        updatedAt: T0,
+        phaseLog: [{ phase: "plan-pending-review", at: T0 }],
+      },
+      stateDir,
+    );
+    upsertGrant(
+      {
+        scope: "pipeline:feat",
+        classes: ["plan"],
+        grantedAt: "t",
+        grantedBy: "owner-cli",
+      },
+      managerHome,
+    );
+    updateScope(
+      () => ({
+        version: 1,
+        scopes: ["pipeline:feat"],
+        updatedAt: T0,
+        source: "cli",
+      }),
+      managerHome,
+    );
+    appendManagerLog(
+      {
+        ts: "2026-10-26T02:00:00.000Z",
+        kind: "exec-decision",
+        repo: "r",
+        slug: "feat",
+        exec: { decisionId: "plan-1", reviewKind: "plan", action: "approve" },
+      },
+      { home: managerHome },
+    );
+  }
+
+  it("exits 2 without --slug and --id", () => {
+    expect(call(["ruling", "--slug", "feat"]).code).toBe(2);
+    expect(call(["ruling", "--id", "r-1"]).code).toBe(2);
+  });
+
+  it("prints one ok:false JSON line and exits 0 for an unknown ruling", () => {
+    expect(call(["ruling", "--slug", "feat", "--id", "r-nope"])).toEqual({
+      code: 0,
+      json: { ok: false, reason: "not-found" },
+    });
+  });
+
+  it("accepts a written ruling once, then reports it consumed", () => {
+    seedPaused();
+    const r = writeRuling(
+      {
+        slug: "feat",
+        reply: "approve",
+        reason: "r",
+        source: "manager",
+        decisionId: "plan-1",
+      },
+      { home: managerHome, stateDir, now: deps().now },
+    );
+    if (!r.ok) throw new Error(r.reason);
+    const args = ["ruling", "--slug", "feat", "--id", r.ruling.id];
+    expect(call(args).json).toEqual({
+      ok: true,
+      reply: "approve",
+      source: "manager",
+      decisionId: "plan-1",
+    });
+    expect(call(args).json).toEqual({ ok: false, reason: "consumed" });
   });
 });

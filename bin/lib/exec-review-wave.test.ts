@@ -161,6 +161,21 @@ describe("runWaveReview", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("a relay-only grant never runs a paid review", () => {
+    fs.rmSync(path.join(managerHome, "grants.json"));
+    upsertGrant(
+      {
+        scope: "epic:e1",
+        classes: ["relay"],
+        grantedAt: "t",
+        grantedBy: "owner-cli",
+      },
+      managerHome,
+    );
+    expect(run()).toEqual({ ran: false, skipReason: "no-grant" });
+    expect(calls).toHaveLength(0);
+  });
+
   it("skips before any headless call once today's spend reaches the cap", () => {
     appendManagerLog(
       {

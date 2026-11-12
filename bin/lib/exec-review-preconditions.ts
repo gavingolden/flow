@@ -288,7 +288,7 @@ function contractAndAcceptanceLines(planText: string): string[] {
   return out;
 }
 
-function checkOneWay(planText: string): PreconditionResult {
+export function checkOneWay(planText: string): PreconditionResult {
   for (const line of contractAndAcceptanceLines(planText)) {
     const hit = ONE_WAY_ACTION_PATTERNS.find((re) => re.test(line));
     if (hit) {

@@ -145,6 +145,7 @@ export function runPlanReview(
     expectedEpic: input.epic,
   });
   if (!scope.granted) return skip(scope.reason, {}, false);
+  if (!scope.classes.includes("plan")) return skip("no-grant", {}, false);
 
   if (
     budgetReached(deps.now(), { read: deps.readConfig, home: deps.managerHome })
