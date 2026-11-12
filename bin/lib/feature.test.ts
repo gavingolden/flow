@@ -543,6 +543,8 @@ describe("runNew --resume", () => {
       deriveWorktreePath(repoDir, "crashed"),
       "--add-dir",
       flowClaudeHome(),
+      "--name",
+      "crashed",
       "--settings",
       settingsPath,
     ]);
@@ -1184,6 +1186,8 @@ describe("runNew (fresh)", () => {
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
       "--add-dir",
       flowClaudeHome(),
+      "--name",
+      "csv-export",
       "--settings",
       settingsPath,
     ]);
@@ -1231,6 +1235,8 @@ describe("runNew (fresh)", () => {
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
       "--add-dir",
       flowClaudeHome(),
+      "--name",
+      "csv-export",
       "--settings",
       settingsPath,
     ]);
@@ -1265,6 +1271,8 @@ describe("runNew (fresh)", () => {
       worktree,
       "--add-dir",
       flowClaudeHome(),
+      "--name",
+      "csv-export",
       "--plugin-dir",
       "/roots/flow-module-core",
       "--plugin-dir",
@@ -1944,6 +1952,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
       "--add-dir",
       flowClaudeHome(),
+      "--name",
+      "do-thing",
       "--effort",
       "high",
       "--settings",
@@ -1978,6 +1988,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
       "--add-dir",
       flowClaudeHome(),
+      "--name",
+      "do-thing",
       "--settings",
       settingsPath,
     ]);
@@ -2070,6 +2082,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       deriveWorktreePath(repoDir, "saved-effort"),
       "--add-dir",
       flowClaudeHome(),
+      "--name",
+      "saved-effort",
       "--effort",
       "max",
       "--settings",
@@ -2100,6 +2114,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
         deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
         "--add-dir",
         flowClaudeHome(),
+        "--name",
+        "do-thing",
         "--model",
         alias,
         "--settings",
@@ -2134,6 +2150,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
       "--add-dir",
       flowClaudeHome(),
+      "--name",
+      "do-thing",
       "--model",
       "opus",
       "--effort",
@@ -2450,6 +2468,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       deriveWorktreePath(repoDir, "saved-model"),
       "--add-dir",
       flowClaudeHome(),
+      "--name",
+      "saved-model",
       "--model",
       "opus",
       "--settings",
@@ -2494,6 +2514,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       recordedWorktree,
       "--add-dir",
       flowClaudeHome(),
+      "--name",
+      "suffixed-slug",
       "--settings",
       settingsPath,
     ]);
@@ -4307,6 +4329,8 @@ describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
     const { argv, env } = calls[0]!;
     expect(argv.filter((token) => token === "--plugin-dir")).toHaveLength(1);
     expect(argv[argv.indexOf("--plugin-dir") + 1]).toBe(root);
+    // The plain backend names the session after the slug too (peer address).
+    expect(argv[argv.indexOf("--name") + 1]).toBe("plugged");
     const pathEntries = (env.PATH ?? "").split(path.delimiter);
     expect(pathEntries).toContain(path.join(root, "bin"));
     for (const segment of (process.env.PATH ?? "").split(path.delimiter)) {
@@ -5102,6 +5126,8 @@ describe("private skill copy (flow-self and --skills-from launches)", () => {
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
       "--add-dir",
       flowClaudeHome(),
+      "--name",
+      "csv-export",
       "--plugin-dir",
       sharedRoot,
       "--settings",

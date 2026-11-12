@@ -192,6 +192,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-exec-review",
       "flow-manager-note",
       "flow-manager-prune",
+      "flow-manager-send-guard",
       "flow-ui-capture",
       "flow-test-audit",
       "flow-skill-overlay",

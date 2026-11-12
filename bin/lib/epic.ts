@@ -2531,8 +2531,9 @@ function launchArgv(
   // now live at `~/.flow/claude-home` rather than the global `~/.claude/skills/`,
   // so the epic supervisor session must add it to keep its skills.
   //
-  // `--plugin-dir` entries (one per materialized plugin root) follow the two
-  // `--add-dir` entries and precede `--model`, mirroring `feature.ts`'s
+  // `--name <slug>` follows the `--add-dir` entries (the slug is the session's
+  // peer address for the global manager's `SendMessage`), then `--plugin-dir`
+  // entries (one per materialized plugin root) precede `--model`, mirroring `feature.ts`'s
   // `claudeArgv` exactly — the same deterministic position so the two
   // builders cannot drift. Extracted once so this argv and the `env` PATH=
   // prefix below cannot disagree about which roots are live.
@@ -2543,6 +2544,8 @@ function launchArgv(
     worktree,
     "--add-dir",
     flowClaudeHome(),
+    "--name",
+    slug,
     ...pluginDirArgs(roots),
   ];
   const withModel = model ? [...base, "--model", model] : base;
