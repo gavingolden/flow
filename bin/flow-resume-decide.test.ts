@@ -8,6 +8,7 @@ import {
   gatherInputs,
   hasPrReviewCommit,
   parseArgs,
+  probeCi,
   probeSkillAdditions,
   run,
   CONTINUE_PHASE_BY_STEP,
@@ -1650,5 +1651,75 @@ describe("decide() — checkpoint re-injection + auto-checkpoint resume", () => 
         "/tmp/.flow/state/checkpoints/test/checkpoint.md",
       );
     }
+  });
+});
+
+describe("probeCi — workflow run cross-check", () => {
+  const ok = (stdout: string) => ({ stdout, stderr: "", exitCode: 0 });
+  const fail = { stdout: "", stderr: "boom", exitCode: 1 };
+  const GREEN = JSON.stringify([{ name: "verify", state: "SUCCESS" }]);
+  const wfRow = (over: Record<string, unknown>) => ({
+    databaseId: 1,
+    workflowDatabaseId: 10,
+    workflowName: "Build",
+    event: "pull_request",
+    status: "completed",
+    conclusion: "success",
+    url: "https://github.com/o/r/actions/runs/1",
+    ...over,
+  });
+
+  function scriptedGh(opts: {
+    checks: string;
+    head?: { stdout: string; stderr: string; exitCode: number };
+    runs?: { stdout: string; stderr: string; exitCode: number };
+  }): GhRunner {
+    return (argv) => {
+      if (argv[0] === "pr" && argv[1] === "checks") return ok(opts.checks);
+      if (argv[0] === "pr" && argv[1] === "view")
+        return opts.head ?? ok(JSON.stringify({ headRefOid: "abc123" }));
+      if (argv[0] === "run" && argv[1] === "list") return opts.runs ?? ok("[]");
+      throw new Error(`unexpected gh call: ${argv.join(" ")}`);
+    };
+  }
+
+  it("routes all-passed checks plus a failed pull_request run to pending", () => {
+    const gh = scriptedGh({
+      checks: GREEN,
+      runs: ok(JSON.stringify([wfRow({ conclusion: "failure" })])),
+    });
+    expect(probeCi(5, gh)).toEqual({ kind: "pending" });
+  });
+
+  it("returns all-terminal for all-passed checks and clean runs", () => {
+    expect(probeCi(5, scriptedGh({ checks: GREEN }))).toEqual({
+      kind: "all-terminal",
+    });
+  });
+
+  it("routes an unreadable runs list to pending", () => {
+    expect(probeCi(5, scriptedGh({ checks: GREEN, runs: fail }))).toEqual({
+      kind: "pending",
+    });
+  });
+
+  it("routes an unreadable head SHA to pending", () => {
+    expect(probeCi(5, scriptedGh({ checks: GREEN, head: fail }))).toEqual({
+      kind: "pending",
+    });
+  });
+
+  it("routes a failed check to pending without reading runs", () => {
+    const gh = scriptedGh({
+      checks: JSON.stringify([{ name: "lint", state: "FAILURE" }]),
+      runs: fail,
+    });
+    expect(probeCi(5, gh)).toEqual({ kind: "pending" });
+  });
+
+  it("keeps an empty check list as no-checks-reported", () => {
+    expect(probeCi(5, scriptedGh({ checks: "[]" }))).toEqual({
+      kind: "no-checks-reported",
+    });
   });
 });

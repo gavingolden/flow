@@ -9,6 +9,7 @@ import {
   isSmallFollowup,
   observeChecks,
   observeCopilotRuleset,
+  observeWorkflowRuns,
   observeMergeState,
   observePr,
   registrySelfCheck,
@@ -88,6 +89,117 @@ describe(observeMergeState, () => {
       deriveConflictState(coerced!.mergeable, coerced!.mergeStateStatus)
         .conflicting,
     ).toBe(false);
+  });
+});
+
+describe(observeWorkflowRuns, () => {
+  const ok =
+    (rows: unknown): GhRunner =>
+    () => ({
+      stdout: JSON.stringify(rows),
+      stderr: "",
+      exitCode: 0,
+    });
+
+  it("runs the exact gh argv for the head sha", () => {
+    const calls: string[][] = [];
+    observeWorkflowRuns("abc123", (argv) => {
+      calls.push(argv);
+      return { stdout: "[]", stderr: "", exitCode: 0 };
+    });
+    expect(calls).toEqual([
+      [
+        "run",
+        "list",
+        "--commit",
+        "abc123",
+        "--limit",
+        "100",
+        "--json",
+        "databaseId,workflowDatabaseId,workflowName,name,event,status,conclusion,url",
+      ],
+    ]);
+  });
+
+  it("maps rows, preferring workflowName and passing lowercase conclusions through", () => {
+    expect(
+      observeWorkflowRuns(
+        "abc",
+        ok([
+          {
+            databaseId: 5,
+            workflowDatabaseId: 77,
+            workflowName: "Build",
+            name: "display title",
+            event: "pull_request",
+            status: "completed",
+            conclusion: "failure",
+            url: "https://x/5",
+          },
+        ]),
+      ),
+    ).toEqual([
+      {
+        databaseId: 5,
+        workflowId: 77,
+        name: "Build",
+        event: "pull_request",
+        status: "completed",
+        conclusion: "failure",
+        url: "https://x/5",
+      },
+    ]);
+  });
+
+  it("falls back to name, then run <id>, and maps a missing conclusion to ''", () => {
+    const runs = observeWorkflowRuns(
+      "abc",
+      ok([
+        {
+          databaseId: 1,
+          workflowName: "",
+          name: "N",
+          event: "push",
+          status: "queued",
+        },
+        { databaseId: 2, event: "push", status: "queued", conclusion: null },
+      ]),
+    );
+    expect(runs?.map((r) => [r.name, r.conclusion])).toEqual([
+      ["N", ""],
+      ["run 2", ""],
+    ]);
+  });
+
+  it("drops rows missing a numeric databaseId or string event/status", () => {
+    const runs = observeWorkflowRuns(
+      "abc",
+      ok([
+        { databaseId: "1", event: "push", status: "queued" },
+        { databaseId: 2, status: "queued" },
+        { databaseId: 3, event: "push" },
+        { databaseId: 4, event: "push", status: "queued" },
+      ]),
+    );
+    expect(runs?.map((r) => r.databaseId)).toEqual([4]);
+  });
+
+  it("returns null on a non-zero exit, malformed JSON, or a non-array", () => {
+    expect(
+      observeWorkflowRuns("abc", () => ({
+        stdout: "",
+        stderr: "boom",
+        exitCode: 1,
+      })),
+    ).toBeNull();
+    expect(
+      observeWorkflowRuns("abc", () => ({
+        stdout: "{not json",
+        stderr: "",
+        exitCode: 0,
+      })),
+    ).toBeNull();
+    expect(observeWorkflowRuns("abc", ok({ a: 1 }))).toBeNull();
   });
 });
 

@@ -100,10 +100,14 @@ import { epicStatusRelPath } from "./lib/epic-metadata-commit";
 import { validateEpicStatus } from "./lib/epic-status-schema";
 import {
   deriveCheckState,
+  mergeRunChecks,
   PASSED_CHECK_STATES,
+  shouldReadRuns,
   type Check,
   type CheckState,
+  type WorkflowRun,
 } from "./lib/ci-decision";
+import { observeWorkflowRuns } from "./lib/ci-observe";
 
 /**
  * A recorded gate-override token is honoured only when it matches the PR
@@ -275,6 +279,8 @@ export type Deps = {
   stateDir?: string;
   resolveSlug?: () => string | null;
   now?: () => number;
+  /** Test seam for the head-commit workflow-run read; default `gh run list --commit`. */
+  readWorkflowRuns?: (gh: GhRunner, headSha: string) => WorkflowRun[] | null;
   /** Test seam for the squash merge; default shells `gh pr merge --squash <pr>` in `cwd`. */
   runMerge?: (pr: number, cwd: string) => { exitCode: number; stderr: string };
   /** Test seam for the design-review backstop's git and config reads. */
@@ -454,14 +460,37 @@ export const MERGE_PASSING_CHECK_STATES: ReadonlySet<string> = new Set([
  * "no checks reported", which is a legitimate empty CI. An entry without a
  * string name/state, or a state outside the pending/failed/passing sets
  * (ERROR, ACTION_REQUIRED, WAITING, ...), also refuses rather than passing.
+ *
+ * A green or empty list is then cross-checked against the head commit's
+ * workflow runs (flow#1052: a workflow that fails before creating its jobs
+ * leaves no failing check row). A missing head SHA or an unreadable runs
+ * list refuses rather than passing.
  */
 function readChecks(
   pr: number,
   gh: GhRunner,
+  headSha: string | undefined,
+  readRuns: (sha: string) => WorkflowRun[] | null,
 ):
   | { kind: "ok"; checks: CheckState }
   | { kind: "unreadable"; message: string }
   | { kind: "unrecognised"; message: string } {
+  const withRuns = (
+    checks: Check[],
+  ):
+    | { kind: "ok"; checks: CheckState }
+    | { kind: "unreadable"; message: string } => {
+    if (!shouldReadRuns(checks)) {
+      return { kind: "ok", checks: deriveCheckState(checks) };
+    }
+    if (!headSha) return { kind: "unreadable", message: "no head SHA" };
+    const runs = readRuns(headSha);
+    if (runs === null) return { kind: "unreadable", message: "workflow runs" };
+    return {
+      kind: "ok",
+      checks: deriveCheckState(mergeRunChecks(checks, runs)),
+    };
+  };
   const r = gh(["pr", "checks", String(pr), "--json", "name,state"]);
   let parsed: unknown;
   try {
@@ -469,8 +498,8 @@ function readChecks(
   } catch {
     parsed = undefined;
   }
-  // gh exits non-zero for pending/failing checks even with --json; a
-  // parseable array is authoritative either way.
+  // A parseable array is authoritative whatever the exit code (older gh
+  // exited non-zero for pending/failing checks even with --json).
   if (Array.isArray(parsed)) {
     const checks = parsed.filter(
       (c): c is Check =>
@@ -494,10 +523,10 @@ function readChecks(
         };
       }
     }
-    return { kind: "ok", checks: derived };
+    return withRuns(checks);
   }
   if (r.exitCode !== 0 && /no checks reported/i.test(r.stderr)) {
-    return { kind: "ok", checks: deriveCheckState([]) };
+    return withRuns([]);
   }
   return {
     kind: "unreadable",
@@ -661,7 +690,12 @@ function mergePr(
       state,
     );
   }
-  const read = fetched.state === "OPEN" ? readChecks(pr, gh) : null;
+  const readRuns = (sha: string) =>
+    (deps.readWorkflowRuns ?? ((g, h) => observeWorkflowRuns(h, g)))(gh, sha);
+  const read =
+    fetched.state === "OPEN"
+      ? readChecks(pr, gh, fetched.headRefOid, readRuns)
+      : null;
   if (read?.kind === "unreadable") {
     return refuse(`checks-unreadable: ${read.message}`);
   }

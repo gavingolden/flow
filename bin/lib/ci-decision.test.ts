@@ -11,9 +11,13 @@ import {
   extractLatestCopilotReviewCommit,
   hasQualifyingWorkflowTrigger,
   isCopilotReviewStale,
+  deriveRunChecks,
+  mergeRunChecks,
+  shouldReadRuns,
   type Check,
   type PollState,
   type Review,
+  type WorkflowRun,
 } from "./ci-decision";
 
 describe(deriveCheckState, () => {
@@ -795,5 +799,151 @@ describe("decideOnPoll — looping cadence (flat)", () => {
       makePollState({ pollNum: 11, ci: { kind: "pending" } }),
     );
     expect(v).toEqual({ verdict: "loop", cadenceSec: 60 });
+  });
+});
+
+const run = (over: Partial<WorkflowRun>): WorkflowRun => ({
+  databaseId: 1,
+  workflowId: 10,
+  name: "Build",
+  event: "pull_request",
+  status: "completed",
+  conclusion: "success",
+  url: "https://github.com/o/r/actions/runs/1",
+  ...over,
+});
+
+const greenChecks: Check[] = [
+  { name: "backend", state: "SUCCESS" },
+  { name: "offline-e2e", state: "SUCCESS" },
+];
+
+describe(deriveRunChecks, () => {
+  it("maps a failed pull_request run to a FAILURE entry carrying the url", () => {
+    expect(deriveRunChecks([run({ conclusion: "failure" })])).toEqual([
+      {
+        name: "Build (workflow run failure)",
+        state: "FAILURE",
+        url: "https://github.com/o/r/actions/runs/1",
+      },
+    ]);
+  });
+  it("maps startup_failure to STARTUP_FAILURE", () => {
+    const [c] = deriveRunChecks([run({ conclusion: "startup_failure" })]);
+    expect(c.state).toBe("STARTUP_FAILURE");
+    expect(c.name).toBe("Build (workflow run startup_failure)");
+  });
+  it("maps queued and in_progress runs to PENDING", () => {
+    for (const status of ["queued", "in_progress"]) {
+      expect(
+        deriveRunChecks([run({ status, conclusion: "" })]).map((c) => c.state),
+      ).toEqual(["PENDING"]);
+    }
+  });
+  it("ignores approval-parked runs", () => {
+    for (const status of ["waiting", "requested", "pending", "action_required"])
+      expect(deriveRunChecks([run({ status, conclusion: "" })])).toEqual([]);
+    expect(deriveRunChecks([run({ conclusion: "action_required" })])).toEqual(
+      [],
+    );
+  });
+  it("ignores successful and skipped runs", () => {
+    expect(
+      deriveRunChecks([
+        run({}),
+        run({ databaseId: 2, workflowId: 11, conclusion: "skipped" }),
+      ]),
+    ).toEqual([]);
+  });
+  it("ignores dynamic and push failures", () => {
+    expect(
+      deriveRunChecks([
+        run({ event: "dynamic", conclusion: "failure" }),
+        run({
+          databaseId: 2,
+          workflowId: 11,
+          event: "push",
+          conclusion: "failure",
+        }),
+      ]),
+    ).toEqual([]);
+  });
+  it("lets a newer success supersede an older cancelled run of the same workflow", () => {
+    expect(
+      deriveRunChecks([
+        run({ databaseId: 1, conclusion: "cancelled" }),
+        run({ databaseId: 2, conclusion: "success" }),
+      ]),
+    ).toEqual([]);
+  });
+  it("judges same-named workflows with different workflow ids separately", () => {
+    const out = deriveRunChecks([
+      run({ databaseId: 1, workflowId: 10, conclusion: "failure" }),
+      run({ databaseId: 2, workflowId: 11, conclusion: "success" }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].state).toBe("FAILURE");
+  });
+  it("falls back to the name as the group key without a workflow id", () => {
+    expect(
+      deriveRunChecks([
+        run({ databaseId: 1, workflowId: undefined, conclusion: "failure" }),
+        run({ databaseId: 2, workflowId: undefined, conclusion: "success" }),
+      ]),
+    ).toEqual([]);
+  });
+});
+
+describe(shouldReadRuns, () => {
+  it("is true only for all-passed and empty lists", () => {
+    expect(shouldReadRuns([])).toBe(true);
+    expect(shouldReadRuns(greenChecks)).toBe(true);
+    expect(shouldReadRuns([{ name: "a", state: "PENDING" }])).toBe(false);
+    expect(shouldReadRuns([{ name: "a", state: "FAILURE" }])).toBe(false);
+  });
+});
+
+describe(mergeRunChecks, () => {
+  it("classifies the PR #1189 shape as failed", () => {
+    const runs = [
+      run({
+        databaseId: 42673994473,
+        workflowId: 1,
+        name: "Build",
+        conclusion: "failure",
+      }),
+      run({
+        databaseId: 42673994441,
+        workflowId: 2,
+        name: "Check Generated Database Types",
+        conclusion: "failure",
+      }),
+      run({
+        databaseId: 42673994956,
+        workflowId: 3,
+        name: "Dependabot auto-merge",
+        event: "pull_request_target",
+        conclusion: "skipped",
+      }),
+    ];
+    const state = deriveCheckState(mergeRunChecks(greenChecks, runs));
+    expect(state.kind).toBe("failed");
+    if (state.kind === "failed")
+      expect(state.failedChecks.map((c) => c.name)).toEqual([
+        "Build (workflow run failure)",
+        "Check Generated Database Types (workflow run failure)",
+      ]);
+  });
+  it("returns the input unchanged when checks are pending or failed", () => {
+    const pending = [{ name: "a", state: "PENDING" }];
+    const failed = [{ name: "a", state: "FAILURE" }];
+    const runs = [run({ conclusion: "failure" })];
+    expect(mergeRunChecks(pending, runs)).toBe(pending);
+    expect(mergeRunChecks(failed, runs)).toBe(failed);
+  });
+  it("classifies an unreadable (null) runs read as pending", () => {
+    expect(deriveCheckState(mergeRunChecks(greenChecks, null))).toEqual({
+      kind: "pending",
+    });
   });
 });

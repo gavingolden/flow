@@ -13,7 +13,9 @@
  * `./lib/ci-observe` (`.flow-tmp/plan.md` Tasks 1-2). This file is the
  * thin CLI shell: parse args, load/reset the anchor record, take exactly
  * one observation pass in the documented order (PR view → conflict
- * short-circuit → requested reviewers → checks → terminal-anchor update →
+ * short-circuit → requested reviewers → checks → workflow-run cross-check
+ * (green/empty checks only; failed runs become failed entries, queued or
+ * unreadable runs hold CI pending) → terminal-anchor update →
  * Copilot auto-detect → retrigger → decideOnPoll → blocked intercept),
  * persist the record, and emit a `CheckResult`.
  *
@@ -27,7 +29,7 @@
  *   flow-ci-check <PR> [--copilot-login <login>] [--wait-for-copilot]
  *     [--copilot-not-requested] [--claim-deadline-sec <n>] [--out <path>]
  *     [--max-elapsed <s>] [--copilot-timeout <s>] [--state-dir <dir>]
- *     [--now <iso>]
+ *     [--now <iso>] [--rerun <run-id-or-url>]
  *
  * Output: a single JSON object on stdout.
  *   waiting: { "status": "waiting", "nextCheckSec": 60,
@@ -64,10 +66,13 @@ import {
   extractLatestCopilotReviewCommit,
   isCiTerminal,
   isCopilotReviewStale,
+  mergeRunChecks,
+  shouldReadRuns,
   type Check,
   type CheckState,
   type Decision,
   type PrState,
+  type WorkflowRun,
 } from "./lib/ci-decision";
 import {
   allMergeCommitsBetween,
@@ -80,6 +85,7 @@ import {
   observeChecks,
   observeMergeState,
   observePr,
+  observeWorkflowRuns,
   registrySelfCheck,
   resolveCopilotConfigured,
   retriggerCopilotReview,
@@ -94,7 +100,7 @@ import { readState, writeState, type CiWaitRecord } from "./lib/state";
 import { advancePhase } from "./lib/phase-advance";
 
 const HELP =
-  "usage: flow-ci-check <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>] [--out <path>] [--max-elapsed <s>] [--copilot-timeout <s>] [--state-dir <dir>] [--now <iso>]\n" +
+  "usage: flow-ci-check <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>] [--out <path>] [--max-elapsed <s>] [--copilot-timeout <s>] [--state-dir <dir>] [--now <iso>] [--rerun <run-id-or-url>]\n" +
   "  note: absent FLOW_SLUG runs in stateless mode — anchors reset every call, so the 20-min cap and the 10-min Copilot timeout can never fire.";
 
 export type Args = {
@@ -112,6 +118,8 @@ export type Args = {
   stateDir?: string;
   /** Test-only: an ISO timestamp used as `now` when `Deps.now` is absent. */
   now?: string;
+  /** Workflow run id to re-run once before polling; resets the CI cycle anchors. */
+  rerun?: number;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
@@ -176,6 +184,16 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         out.stateDir = value;
         i++;
         continue;
+      case "--rerun": {
+        const m = value ? /(\d+)\/?$/.exec(value) : null;
+        if (!m)
+          return {
+            error: `--rerun requires a run id or run URL ending in digits, got '${value ?? ""}'`,
+          };
+        out.rerun = Number.parseInt(m[1], 10);
+        i++;
+        continue;
+      }
       case "--now":
         if (!value) return { error: "--now requires a value" };
         out.now = value;
@@ -227,6 +245,8 @@ export type Deps = {
   readCommitsAreAllMerges?: (fromSha: string, toSha: string) => boolean;
   readIsSmallFollowup?: (fromSha: string, toSha: string) => boolean;
   readMergeState?: () => { mergeable: string; mergeStateStatus: string } | null;
+  /** Returns the head commit's workflow runs, or null when unreadable. */
+  readWorkflowRuns?: (headSha: string) => WorkflowRun[] | null;
   /** Test-only: override the cwd used to resolve `--out` and `readWorkflowsDir`. */
   cwd?: string;
   isCopilotModuleActive?: () => boolean;
@@ -370,6 +390,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   );
   const readMergeState =
     deps.readMergeState ?? (() => observeMergeState(parsed.pr, gh));
+  const readWorkflowRuns =
+    deps.readWorkflowRuns ?? ((sha: string) => observeWorkflowRuns(sha, gh));
 
   const priorState = stateless ? null : readState(slug, stateDir);
   let record: CiWaitRecord =
@@ -418,6 +440,19 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
       }
     }
   };
+
+  if (parsed.rerun !== undefined) {
+    const rr = gh(["run", "rerun", String(parsed.rerun)]);
+    if (rr.exitCode !== 0) {
+      process.stderr.write(
+        `flow-ci-check: NOTICE gh run rerun ${parsed.rerun} failed (exit ${rr.exitCode}): ${rr.stderr.trim()} — continuing\n`,
+      );
+    }
+    // A re-run keeps the head SHA, so the SHA-change reset never fires:
+    // start a fresh cycle (20-min cap, Copilot window) explicitly.
+    record = freshRecord(parsed.pr, nowMs);
+    persistRecord();
+  }
 
   const ciConfigured = readWorkflowsDir();
   const copilotModuleActive = isCopilotModuleActive();
@@ -532,9 +567,32 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     copilotConfigured &&
     requestedReviewersAtEntry.some((l) => matchesCopilot(l, copilotLogin));
 
-  const checksList: TimedCheck[] = ciConfigured
+  const observedChecks: TimedCheck[] = ciConfigured
     ? observeChecks(parsed.pr, gh)
     : [];
+  let checksList: TimedCheck[] = observedChecks;
+  // Workflow-run cross-check (flow#1052): a workflow that fails before
+  // creating its jobs leaves no failing row in `gh pr checks`. Read only
+  // when the list is green/empty; merge BEFORE deriving `ci` and the anchors.
+  if (
+    ciConfigured &&
+    prInfo.state === "OPEN" &&
+    prInfo.headRefOid !== "" &&
+    shouldReadRuns(observedChecks)
+  ) {
+    const runs = readWorkflowRuns(prInfo.headRefOid);
+    checksList = mergeRunChecks(observedChecks, runs);
+    if (runs === null) {
+      process.stderr.write(
+        "flow-ci-check: workflow-run read failed — holding CI pending, retrying next poll\n",
+      );
+    } else if (checksList.length > observedChecks.length) {
+      const added = checksList.slice(observedChecks.length).map((c) => c.name);
+      process.stderr.write(
+        `flow-ci-check: workflow-run cross-check added: ${added.join(", ")}\n`,
+      );
+    }
+  }
   const ci: CheckState = ciConfigured
     ? deriveCheckState(checksList)
     : { kind: "no-checks-reported" };

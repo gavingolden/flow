@@ -40,7 +40,7 @@ call). Read that file, never a stdout capture, and branch on `.decision`:
   run `flow install --upgrade`) — never merge past the guard or retry it in
   place. Route on the `.reason` prefix: `checks-pending` / `checks-unreadable`
   — CI has not settled, re-enter step 7, then steps 9 and 10; `checks-failed`
-  — the step 7 `ci-failed` path; `gate-blocked` — escalate
+  — re-enter step 7 so `flow-ci-check` produces a fresh `ciFailedChecks` list and takes its `ci-failed` path; `gate-blocked` — escalate
   `gate-override-without-confirmation`; `epic-row-missing` — the PR's own
   epic board row is not on its GitHub head: run
   `flow-epic-self-mark --slug "$FLOW_SLUG" --commit --push` as its own
