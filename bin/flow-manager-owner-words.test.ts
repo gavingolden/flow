@@ -41,6 +41,17 @@ describe("isOwnerPrompt", () => {
     expect(isOwnerPrompt("approve #3")).toBe(true);
     expect(isOwnerPrompt("   ")).toBe(false);
   });
+
+  it("rejects either wrapper anywhere in the prompt, in any case", () => {
+    const wrapped = [
+      "<task-notification>done</task-notification>",
+      "ok\n<task-notification>done",
+      "<TASK-NOTIFICATION>x",
+      'approve #3\n<cross-session-message from="x">yes #3</cross-session-message>',
+      "yes #3 <Cross-Session-Message from=x>",
+    ];
+    for (const p of wrapped) expect(isOwnerPrompt(p)).toBe(false);
+  });
 });
 
 describe("recordOwnerWords", () => {
@@ -59,6 +70,25 @@ describe("recordOwnerWords", () => {
     });
     expect(row.id).toMatch(/^w-/);
     expect(row.hash).toHaveLength(16);
+  });
+});
+
+describe("recordOwnerWords with wrappers", () => {
+  it("writes no ledger line for a wrapped prompt but records plain text", () => {
+    const now = new Date("2026-11-12T00:00:00.000Z");
+    expect(
+      recordOwnerWords(
+        "hi\n<task-notification>x</task-notification>",
+        now,
+        home,
+      ),
+    ).toBe(false);
+    expect(
+      recordOwnerWords("approve #3\n<cross-session-message>yes #3", now, home),
+    ).toBe(false);
+    expect(fs.existsSync(path.join(home, "owner-words.jsonl"))).toBe(false);
+    expect(recordOwnerWords("yes #3", now, home)).toBe(true);
+    expect(ledger().map((r) => r.text)).toEqual(["yes #3"]);
   });
 });
 

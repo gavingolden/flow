@@ -4,8 +4,10 @@
  * each prompt the owner typed to `~/.flow/manager/owner-words.jsonl` (id, time,
  * text hash, text). That ledger is what proves an approval came from the owner,
  * so a prompt that did not come from the keyboard is never recorded:
- *   - a peer's `<cross-session-message …>` delivery reaches the same prompt
- *     stream and reads like user input;
+ *   - a peer's `<cross-session-message …>` delivery and the waiter's own
+ *     `<task-notification>` wake reach the same prompt stream and read like
+ *     user input, even batched after owner text, so either wrapper anywhere
+ *     disqualifies the prompt;
  *   - flow's own `send-keys` seeds (`/flow-manage`, `/flow-manage --resume`,
  *     `[flow-…` system seeds) are typed by flow, not by the owner.
  * Only runs when `FLOW_MANAGER=1`; always exits 0 and prints nothing.
@@ -18,7 +20,8 @@ import { withFileLockSync } from "./lib/lock";
 import { managerFile, managerHome, managerLockPath } from "./lib/manager-home";
 
 const NOT_OWNER = [
-  /^<cross-session-message/i,
+  /<cross-session-message/i,
+  /<task-notification/i,
   /^\/flow-manage(\s|$)/,
   /^\[flow-/i,
 ];
