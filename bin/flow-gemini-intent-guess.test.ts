@@ -329,7 +329,7 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
     });
   });
 
-  it("retains .agy-raw as partialArtifactPath on a ran-unusable skip whose raw artifact exists", () => {
+  it("retains the raw artifact as partialArtifactPath on a ran-unusable skip whose raw artifact exists", () => {
     const deps = makeDeps({
       runDelegate: (argv) => {
         deps.calls.delegate.push(argv);
@@ -356,7 +356,7 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
     ]);
   });
 
-  it("does not retain .agy-raw (or emit partialArtifactPath) on an environment-class skip", () => {
+  it("does not retain the raw artifact (or emit partialArtifactPath) on an environment-class skip", () => {
     const deps = makeDeps({
       readConfig: () => JSON.stringify({}),
     });
@@ -386,14 +386,14 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
     });
   });
 
-  it("pre-cleans a stale .agy-raw so a ran-unusable skip that never dispatches cannot report a prior run's file as its own evidence", () => {
+  it("pre-cleans a stale raw artifact so a ran-unusable skip that never dispatches cannot report a prior run's file as its own evidence", () => {
     const deps = makeDeps({
       runDelegate: () => ({
         ran: false,
         skipReason: "delegate-envelope-unparseable",
       }),
     });
-    // Seed a .agy-raw left over from a hypothetical prior run's ran-unusable
+    // Seed a raw artifact left over from a hypothetical prior run's ran-unusable
     // skip — this run's runDelegate stub never writes rawPath.
     deps.files.set(SCRATCH.raw, "stale evidence from a previous run");
     run(BASE_ARGV, deps);
@@ -514,13 +514,13 @@ describe("run — conformant output", () => {
   });
 
   // S5: the wire-schema scratch file must never survive either exit path.
-  it("removes the .schema.json scratch file after a success exit (S5)", () => {
+  it("removes the schema scratch file after a success exit (S5)", () => {
     const deps = makeDeps();
     expect(run(BASE_ARGV, deps)).toBe(0);
     expect(deps.files.has(SCRATCH.schema)).toBe(false);
   });
 
-  it("removes the .schema.json scratch file after a skip exit (S5)", () => {
+  it("removes the schema scratch file after a skip exit (S5)", () => {
     const deps = makeDeps({
       runDelegate: (argv) => {
         deps.calls.delegate.push(argv);

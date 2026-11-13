@@ -54,7 +54,10 @@ import {
   decodeDelegateArtifact,
   unwrapAgyEnvelope,
 } from "./lib/structured-response";
-import { classifyDelegateSkip } from "./lib/delegate-skip-class";
+import {
+  classifyDelegateSkip,
+  PLAUSIBLE_DENIAL_SKIP_REASONS,
+} from "./lib/delegate-skip-class";
 import { agyReadRules } from "./lib/agy-read-rules";
 import {
   parseDelegateRun,
@@ -66,10 +69,6 @@ import { helperScratchPaths } from "./lib/helper-scratch";
 // lives in DELEGATE_MODEL_DEFAULTS; a `delegate.models.intentGuess` config
 // value re-points this surface without a code change.
 const DEFAULT_TASK = "gemini-intent-guess";
-
-// `agy-canceled` / `agy-error` are the documented CANCELED-reproduction
-// reasons a tool denial surfaces through (same set as flow-gemini-lens).
-const PLAUSIBLE_DENIAL_SKIP_REASONS = new Set(["agy-canceled", "agy-error"]);
 
 export type Args = {
   worktree: string;
@@ -344,7 +343,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
 
   // Pre-clean any stale --out from a prior run on this reused worktree. Also
   // pre-clean rawPath: a ran-unusable skip retains it as partialArtifactPath
-  // (below), so a prior run's .agy-raw must not be reported as THIS run's
+  // (below), so a prior run's raw artifact must not be reported as THIS run's
   // evidence when this run never reaches dispatch.
   deps.removeFile(parsed.out);
   deps.removeFile(rawPath);

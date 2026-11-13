@@ -23,12 +23,12 @@ export function parseDelegateRun(
   const line = stdout.trim().split("\n").filter(Boolean).pop();
   if (line === undefined) {
     if (exitCode === 2) {
-      const tail = stderr.trim().slice(-500);
+      const tail = redactForPublish(stderr.trim().slice(-4096)).slice(-500);
       return {
         ran: false,
         skipReason: "delegate-usage-error",
         exitCode: 2,
-        ...(tail ? { stderrTail: redactForPublish(tail) } : {}),
+        ...(tail ? { stderrTail: tail } : {}),
       };
     }
     return {};

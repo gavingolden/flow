@@ -36,6 +36,16 @@ describe("parseDelegateRun", () => {
     expect(env.stderrTail).not.toContain(token);
   });
 
+  it("redacts before tail-capping so a cut cannot sever the credential prefix", () => {
+    const body = "a1B2c3D4e5F6g7H8i9J0k1L2m3N4";
+    const env = parseDelegateRun(
+      "",
+      2,
+      `key=sk-ant-${body}${"x ".repeat(236)}`,
+    );
+    expect(env.stderrTail).not.toContain(body);
+  });
+
   it("keeps a long file path readable in the stderr tail", () => {
     const longPath =
       "/Users/someone/code/me/flow-worktrees.noindex/flow-some-long-slug/.flow-tmp/scratch/gemini-lens/agent-output-gemini.json/prompt.txt";

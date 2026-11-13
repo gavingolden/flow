@@ -34,6 +34,13 @@ export type SkipClass = "environment" | "ran-unusable";
 
 // Pre-dispatch skips: a gate, config read, or local IO precondition failed
 // before the agy call was ever attempted, so no quota was spent.
+// `agy-canceled` / `agy-error` are the documented CANCELED-reproduction
+// reasons a tool denial surfaces through.
+export const PLAUSIBLE_DENIAL_SKIP_REASONS: ReadonlySet<string> = new Set([
+  "agy-canceled",
+  "agy-error",
+]);
+
 export const ENVIRONMENT_SKIP_REASONS: ReadonlySet<string> = new Set([
   "agy-not-found",
   "agy-not-authenticated",

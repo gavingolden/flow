@@ -70,7 +70,10 @@ import {
   clampDelegateTimeout,
   resolveDelegateTimeout,
 } from "./lib/delegate-timeouts";
-import { classifyDelegateSkip } from "./lib/delegate-skip-class";
+import {
+  classifyDelegateSkip,
+  PLAUSIBLE_DENIAL_SKIP_REASONS,
+} from "./lib/delegate-skip-class";
 import type { DecodeVia } from "./lib/structured-response";
 import {
   AGENT_FINDINGS_JSON_SCHEMA,
@@ -301,7 +304,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // (skip), so the consolidator never consumes a previous run's findings as
   // the current review. removeFile is idempotent (force:true) — absent is fine.
   // Also pre-clean rawPath: a ran-unusable skip retains it as
-  // partialArtifactPath (below), so a prior run's .agy-raw left over from a
+  // partialArtifactPath (below), so a prior run's raw artifact left over from a
   // ran-unusable skip must not be reported as THIS run's evidence when this
   // run never reaches dispatch (or dispatch itself fails before writing it).
   deps.removeFile(parsed.out);
@@ -425,8 +428,6 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     | "gemini-token-exhausted"
     | "gemini-output-unparseable" =>
     `gemini-${classifyUnusableLensRun(rawArtifact, env)}` as const;
-
-  const PLAUSIBLE_DENIAL_SKIP_REASONS = new Set(["agy-canceled", "agy-error"]);
 
   const RETRYABLE_SKIP_REASONS = new Set([
     "gemini-tools-denied",
