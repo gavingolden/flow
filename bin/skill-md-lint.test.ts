@@ -5,6 +5,10 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
 import { extractLinks, validateFile } from "./flow-md-validate";
+import {
+  formatPrBodyBlock,
+  PR_BODY_BLOCK_FILENAME,
+} from "./flow-post-findings";
 import { CONTINUE_PHASE_BY_EPIC_STEP } from "./flow-epic-resume-decide";
 import {
   PENDING_PHASES,
@@ -2595,7 +2599,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
       "the detector must catch the `git push` verb alternative.",
     ).toBe(true);
 
-    // Fixtures are anchored to their live source lines (readFileSync, not
+    // Fixtures are anchored to their live source lines (found by substring) (readFileSync, not
     // frozen string copies) so a rewording rots this test loudly instead of
     // leaving it silently green. The merge-resolver push line below is the
     // ONLY fixture that actually reaches the `!NEGATION.test(clause)`
@@ -2608,22 +2612,22 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     // itself.
     const readAnchoredLine = (
       relPath: string,
-      lineNo: number,
       expectedSubstring: string,
     ): string => {
       const absPath = path.resolve(HERE, "..", relPath);
-      const line = fs.readFileSync(absPath, "utf8").split("\n")[lineNo - 1];
+      const line = fs
+        .readFileSync(absPath, "utf8")
+        .split("\n")
+        .find((l) => l.includes(expectedSubstring));
       expect(
         line,
-        `${relPath}:${lineNo} drifted — update the anchor line number/fixture ` +
-          `(expected to contain ${JSON.stringify(expectedSubstring)}, got ${JSON.stringify(line)}).`,
-      ).toContain(expectedSubstring);
-      return line;
+        `${relPath} no longer contains ${JSON.stringify(expectedSubstring)} — update the fixture.`,
+      ).toBeDefined();
+      return line as string;
     };
 
     const negatedButMatchesTokenAndVerb = readAnchoredLine(
       "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
-      473,
       "NEVER push to the base branch",
     );
     expect(
@@ -2632,29 +2636,22 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
         `must still be spared by NEGATION: ${JSON.stringify(negatedButMatchesTokenAndVerb)}`,
     ).toBe(false);
 
-    const verifiedNegativeFixtures: Array<[string, number, string]> = [
+    const verifiedNegativeFixtures: Array<[string, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        516,
         "NEVER commit to or push the base branch",
       ],
       [
         "agents/core/flow-merge-resolver.md",
-        14,
         "never `main`, `master`, or the base branch",
       ],
       [
         "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
-        475,
         "NEVER use `git push --force`",
       ],
     ];
-    for (const [
-      relPath,
-      lineNo,
-      expectedSubstring,
-    ] of verifiedNegativeFixtures) {
-      const line = readAnchoredLine(relPath, lineNo, expectedSubstring);
+    for (const [relPath, expectedSubstring] of verifiedNegativeFixtures) {
+      const line = readAnchoredLine(relPath, expectedSubstring);
       expect(
         mandatesBaseBranchWrite(line),
         `verified in-tree negative fixture must not be flagged: ${JSON.stringify(line)}`,
@@ -13274,5 +13271,84 @@ describe("flow-pr-review shared context block", () => {
     const vars = [...new Set(block.match(/\{\{[A-Z_]+\}\}/g) ?? [])];
     expect(vars).toContain("{{GUIDANCE_PATHS}}");
     for (const v of vars) expect(skillText).toContain(`\`${v}\``);
+  });
+});
+
+describe("PR-body findings contract", () => {
+  const skillPath = (...parts: string[]) =>
+    path.resolve(HERE, "..", "skills", "pipeline", ...parts);
+  const read = (...parts: string[]) =>
+    fs.readFileSync(skillPath(...parts), "utf8");
+  // Text from `heading` up to the next line starting with `until` (or EOF).
+  const between = (text: string, heading: string, until: string): string => {
+    const start = text.indexOf(heading);
+    expect(start, `heading ${heading} not found`).toBeGreaterThanOrEqual(0);
+    const rest = text.slice(start + heading.length);
+    const end = rest.indexOf(until);
+    return end === -1 ? rest : rest.slice(0, end);
+  };
+
+  const promptsText = agentPromptsContent;
+  const productChecklist = read(
+    "flow-pr-review",
+    "references",
+    "checklists",
+    "product.md",
+  );
+  const consolidatorText = read("flow-consolidator-instructions", "SKILL.md");
+  const fixApplierText = fixApplierContent;
+  const step10 = between(
+    prReviewContent,
+    "\n## 10. Post Findings to PR",
+    "\n## 11.",
+  );
+
+  it("the shared lens output format teaches the pr-body target", () => {
+    const outputFormat = between(
+      promptsText,
+      "\n## Output Format",
+      "\n## Negative Findings",
+    );
+    expect(outputFormat).toContain('"target": "pr-body"');
+    expect(outputFormat).toContain("every code finding");
+  });
+
+  it("the product lens prompt and checklist no longer anchor Test Steps on a diff line", () => {
+    for (const text of [promptsText, productChecklist]) {
+      expect(text).not.toContain("[test-steps]");
+      expect(text).not.toMatch(/anchor the finding on the diff file/i);
+    }
+    const productAgent = between(
+      promptsText,
+      "\n## Product Agent",
+      "\n## Gemini Cross-Model Lens",
+    );
+    expect(productAgent).toContain('section: "Test Steps"');
+  });
+
+  it("the consolidator never drops a PR-body finding as out-of-diff", () => {
+    expect(consolidatorText).toContain(
+      "claim does not hold against the PR description",
+    );
+    expect(consolidatorText).toMatch(
+      /out-of-diff rule never\s+applies to PR-body findings/,
+    );
+  });
+
+  it("pr-review Step 10 concatenates the helper's block file in the summary command", () => {
+    const heading = formatPrBodyBlock([{ body: "x" }])
+      .split("\n")
+      .find((l) => l);
+    expect(step10).toContain(heading);
+    const recipe = step10
+      .split("\n")
+      .find((l) => l.startsWith("gh pr comment"));
+    expect(recipe, "Step 10 must carry a gh pr comment recipe").toBeDefined();
+    expect(recipe).toContain(PR_BODY_BLOCK_FILENAME);
+  });
+
+  it("the fix-applier routes PR-body fixes on target, not a subject prefix", () => {
+    expect(fixApplierText).toContain('target: "pr-body"');
+    expect(fixApplierText).not.toContain("[test-steps]");
   });
 });

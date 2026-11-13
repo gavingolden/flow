@@ -42,9 +42,9 @@ violates.
 
 A `## Test Steps` item that names an internal identifier (a function, a file path,
 an internal flag) instead of an observable action or output cannot be executed by a
-reader who has not read the diff. Anchor the finding on the diff file/line the step
-exercises, quote the step verbatim in `body`, and prefix `subject` with `[test-steps]`
-so the fix-applier routes the fix to the PR body rather than to source. Always
+reader who has not read the diff. Emit it as a PR-body finding (`target: "pr-body"`,
+`section: "Test Steps"`, no `file`/`line`) and quote the step verbatim in `body`, so
+the fix-applier routes the fix to the PR body rather than to source. Always
 `label: suggestion`, `decoration: non-blocking`.
 
 ### How to check
@@ -94,6 +94,6 @@ Label `issue (non-blocking)` and cite both priority numbers in `body`.
 - Any section the brief's own truncation/parse leaves unstated — do not infer past
   what the brief actually says.
 
-Findings need a structured `file` + `line` on a PR-touched line; `[test-steps]`
-findings anchor on the diff line the step exercises, even though the fix lands in
-the PR body, not in that file.
+Code-surface findings need a structured `file` + `line` on a PR-touched line;
+PR-description findings use `target: "pr-body"` with a `section` and carry no
+location.

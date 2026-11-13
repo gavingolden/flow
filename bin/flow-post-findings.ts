@@ -33,7 +33,17 @@
  *     "side": "RIGHT",         // optional, default "RIGHT"; "LEFT" only for removed lines
  *     "body": "**suggestion (non-blocking):** ..."
  *   }
+ *
+ * A PR-description finding is `{"target": "pr-body", "section": "Test Steps",
+ * "body": "..."}` (section optional). It has no code line, so it is never
+ * posted inline: the helper prints a `#### PR description findings` block and
+ * writes it to `pr-body-findings.md` next to the --file input, for the review
+ * summary comment recipe to concatenate. A well-formed PR-description entry
+ * never changes the exit code; a malformed one exits 2 like any bad entry.
  */
+
+import { dirname, join } from "node:path";
+import { rmSync, writeFileSync } from "node:fs";
 
 import { parsePrNumber } from "./flow-fetch-pr-review";
 import { checkOwnPipelinePr } from "./lib/pipeline-pr-ownership";
@@ -50,6 +60,12 @@ export type Finding = {
   side?: "LEFT" | "RIGHT";
   body: string;
 };
+
+export type PrBodyEntry = { section?: string; body: string };
+
+export type ParsedInput = { inline: Finding[]; prBody: PrBodyEntry[] };
+
+export const PR_BODY_BLOCK_FILENAME = "pr-body-findings.md";
 
 export type PostResult = {
   file: string;
@@ -80,7 +96,7 @@ const defaultGh: GhRunner = (argv) => {
   };
 };
 
-export function parseFindings(input: string): Finding[] {
+export function parseFindings(input: string): ParsedInput {
   let parsed: unknown;
   try {
     parsed = JSON.parse(input);
@@ -91,12 +107,29 @@ export function parseFindings(input: string): Finding[] {
     throw new Error("Input must be a JSON array");
   }
   const findings: Finding[] = [];
+  const prBody: PrBodyEntry[] = [];
   for (let i = 0; i < parsed.length; i++) {
     const entry = parsed[i];
     if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
       throw new Error(`Entry ${i}: must be an object`);
     }
     const obj = entry as Record<string, unknown>;
+    if (obj.target === "pr-body") {
+      if (typeof obj.body !== "string" || obj.body.length === 0) {
+        throw new Error(`Entry ${i}: "body" must be a non-empty string`);
+      }
+      const e: PrBodyEntry = { body: obj.body };
+      if (obj.section !== undefined && obj.section !== null) {
+        if (typeof obj.section !== "string" || obj.section.length === 0) {
+          throw new Error(
+            `Entry ${i}: "section" must be a non-empty string when present`,
+          );
+        }
+        e.section = obj.section;
+      }
+      prBody.push(e);
+      continue;
+    }
     // Accept either `file` or `path` for ergonomics — gh's wire field is `path`,
     // but pr-review's agent JSON consistently uses `file`. Normalize to `file`.
     const filePath = obj.file ?? obj.path;
@@ -136,7 +169,16 @@ export function parseFindings(input: string): Finding[] {
     }
     findings.push(f);
   }
-  return findings;
+  return { inline: findings, prBody };
+}
+
+export function formatPrBodyBlock(entries: PrBodyEntry[]): string {
+  if (entries.length === 0) return "";
+  const lines = entries.map(
+    (e) =>
+      `- [${e.section ?? "PR description"}] ${e.body.replace(/\n/g, "\n  ")}`,
+  );
+  return ["", "#### PR description findings", "", ...lines].join("\n") + "\n";
 }
 
 export function fetchHeadSha(prNumber: number, gh: GhRunner): string {
@@ -292,6 +334,13 @@ Input format (each entry):
     "body": "**issue (non-blocking):** ..."
   }
 
+A PR-description finding (no code line) is never posted inline:
+  { "target": "pr-body", "section": "Test Steps", "body": "..." }
+Those entries are printed as a "#### PR description findings" block and
+written to pr-body-findings.md next to --file (stale file removed when
+there are none); a well-formed one never changes the exit code, a malformed
+one exits 2.
+
 Examples:
   echo '<findings>' | flow-post-findings 100
   flow-post-findings 100 --file findings.json
@@ -356,6 +405,8 @@ export type Deps = {
   gh?: GhRunner;
   readStdin?: () => Promise<string>;
   readFile?: (path: string) => Promise<string>;
+  writeFile?: (path: string, content: string) => void;
+  removeFile?: (path: string) => void;
   env?: NodeJS.ProcessEnv;
   stateDir?: string;
 };
@@ -364,6 +415,10 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const gh = deps.gh ?? defaultGh;
   const readStdin = deps.readStdin ?? (() => Bun.stdin.text());
   const readFile = deps.readFile ?? ((p: string) => Bun.file(p).text());
+  const writeFile =
+    deps.writeFile ?? ((p: string, c: string) => writeFileSync(p, c));
+  const removeFile =
+    deps.removeFile ?? ((p: string) => rmSync(p, { force: true }));
 
   const parsed = parseArgs(argv);
   if (parsed.kind === "help") {
@@ -377,6 +432,14 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   }
 
   const prNumber = parsePrNumber(parsed.prArg);
+
+  // Cleared before the ownership check and parse so an early exit can never
+  // leave a previous round's block for the summary comment to re-post.
+  const blockPath =
+    parsed.kind === "ok" && parsed.file
+      ? join(dirname(parsed.file), PR_BODY_BLOCK_FILENAME)
+      : undefined;
+  if (blockPath) removeFile(blockPath);
 
   const owned = checkOwnPipelinePr(prNumber, deps);
   if (!owned.ok) {
@@ -399,15 +462,24 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   }
 
   let findings: Finding[];
+  let prBody: PrBodyEntry[];
   try {
-    findings = parseFindings(input);
+    ({ inline: findings, prBody } = parseFindings(input));
   } catch (e) {
     console.error(`flow-post-findings: ${(e as Error).message}`);
     return 2;
   }
 
+  // Emitted before any gh call so a gh failure on the inline path cannot drop
+  // the PR-description block.
+  if (prBody.length > 0) {
+    const block = formatPrBodyBlock(prBody);
+    console.log(block);
+    if (blockPath) writeFile(blockPath, block);
+  }
+
   if (findings.length === 0) {
-    console.log("No findings to post.");
+    if (prBody.length === 0) console.log("No findings to post.");
     return 0;
   }
 

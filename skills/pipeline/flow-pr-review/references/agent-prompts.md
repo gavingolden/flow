@@ -107,14 +107,30 @@ The short-description field is named `subject` (never `title`) — write
 `subject`, but key it `subject` directly so the finding is never at risk of
 being dropped.
 
-The location MUST go in the structured `file` and `line` fields (praise
-included) — write `"file": "src/foo.ts", "line": 42`. Both `file` AND `line`
-are required on every finding. NEVER put the location only in the `subject` or
+The location of a code finding MUST go in the structured `file` and `line`
+fields (praise included) — write `"file": "src/foo.ts", "line": 42`. Both `file`
+AND `line` are required on every code finding. NEVER put the location only in the `subject` or
 `body` prose (e.g. a subject that leads with `src/foo.ts:42 — ...` while `file`
 or `line` is left null). A finding whose `file` or `line` is missing is
 recovered from a leading `<path>:<line>` prefix where possible, but that
 fallback is best-effort: populate the structured fields directly so the finding
 is never at risk of being dropped.
+
+A finding whose subject is the PR description (its `## Why`,
+`## User-facing changes`, `## Test Steps`, or any other section) is not a code
+finding: set `"target": "pr-body"`, name the heading in `"section"` (e.g.
+`"Test Steps"`), and OMIT `file`, `line` and `end_line` — never invent a code
+location for it. Quote the PR-body text verbatim in `body`. Example:
+
+{
+  "target": "pr-body",
+  "section": "Test Steps",
+  "label": "suggestion",
+  "decoration": "non-blocking",
+  "confidence": 85,
+  "subject": "Test Step 2 assumes the reader opened the code",
+  "body": "Step 2 reads: \"Run the helper against the fixture.\" It names no command or path."
+}
 
 `praise` findings omit the `decoration` field (or set it to `null`) — per
 conventional-comments.md Rule 2, every finding except `praise` MUST have a
@@ -721,10 +737,9 @@ would flag on those axes is out of scope here.
    vocabulary table (when the brief states one) — flag only what the brief actually
    gives a rule for.
 5. For each `## Test Steps` item, ask whether a reader who has not opened the code
-   can perform it as written. Anchor the finding on the diff file and PR-touched
-   line the step exercises, quote the step verbatim in `body`, and prefix `subject`
-   with `[test-steps]`. Every such finding carries `label: suggestion`,
-   `decoration: non-blocking`.
+   can perform it as written. Emit it as a PR-body finding (`target: "pr-body"`,
+   `section: "Test Steps"`) and quote the step verbatim in `body`. Every such
+   finding carries `label: suggestion`, `decoration: non-blocking`.
 6. Labeling: a mismatch with one of the brief's ranked priorities is
    `issue`/`suggestion` with `decoration`; an open product question the brief
    doesn't resolve is `question`.
@@ -741,7 +756,8 @@ Do NOT flag:
   performance, security, supply-chain, test-coverage)
 - A section the brief itself doesn't state a rule for — a truncated or silent brief
   cannot ground a finding
-- Findings without a structured `file` + `line` anchored on a PR-touched line
+- A code-surface finding without a structured `file` + `line` on a PR-touched
+  line (PR-body findings use `target: "pr-body"` instead)
 
 ---
 

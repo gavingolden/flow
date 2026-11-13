@@ -53,7 +53,8 @@ Before drafting any fix, load the inputs:
 
 - Read the PR fetch output the wrapper passed you. Extract: the filtered
   finding set (each entry has `file`, `line`, `end_line`, `label`,
-  `decoration`, `confidence`, `subject`, `body`, and an agent category like
+  `decoration`, `confidence`, `subject`, `body`, the optional `target`/`section`
+  pair — a `target: "pr-body"` finding has no `file`/`line` — and an agent category like
   `Bug-Detection`/`Security`/`Pattern-Consistency`/`Performance`/`Supply-Chain`/`Test-Coverage`/`Product`), the
   inline review comments to address (each has `comment_id`, `path`, `line`,
   `body`), and the head SHA captured at fetch time.
@@ -272,6 +273,8 @@ For each finding classified as auto-fix:
 
 1. Open the referenced file at the cited line. Read enough surrounding
    context (typically ±20 lines) to understand the change in scope.
+   A `target: "pr-body"` finding skips this step (no file); see the PR-body
+   routing paragraph below.
 2. Make the `Edit` / `Write` tool call. Match the project's conventions:
    read `AGENTS.md` if you're unsure about commit-body style, comment
    policy, or formatter preferences.
@@ -325,11 +328,12 @@ Otherwise, for each inline comment:
    in your return summary is helpful for human-debugging but not
    load-bearing — the artifact is the contract.
 
-A finding whose `subject` starts with `[test-steps]` (the product lens's
-PR-body concerns) is addressed by editing the PR body's `## Test Steps`
-section (`gh pr view --json body` -> edit -> `flow-md-validate
---fix-pr-body` -> `gh pr edit --body-file`), NEVER by editing source; its
-file/line anchor is for inline-comment placement only.
+A finding with `target: "pr-body"` (any lens can emit one) is
+addressed by editing the PR body section its `section` names (`gh pr view
+--json body` -> edit -> `flow-md-validate --fix-pr-body` -> `gh pr edit
+--body-file`), NEVER by editing source; it carries no file/line. A
+description fix never ticks, unticks or removes a `- [ ]` Test Steps item
+(zero unchecked items means auto-merge).
 
 Push back on incorrect comments. The reply body the wrapper posts at
 step 9 is composed from the `reasoning` field of the matching

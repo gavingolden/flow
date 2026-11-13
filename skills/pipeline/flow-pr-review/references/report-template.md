@@ -33,7 +33,9 @@ never authored by hand.
 
 ### Findings
 
-Group findings by file. Within each file, order by line number. Each finding MUST include
+Group findings by file. Within each file, order by line number. PR-body findings
+(`target: "pr-body"`, no file) render in their own `#### PR description` group, by
+section, after the file groups. Each finding MUST include
 a **Status** line recording whether it was addressed in this run or deferred. Silent skips
 are forbidden — every finding above the confidence threshold (or praise) appears here.
 
@@ -47,7 +49,7 @@ render `**<label> (<decoration>): <subject>**`.
 
 **<label> (<decoration>): <subject>**  ← nitpick, suggestion, issue, todo, question
 **praise: <subject>**  ← praise only
-- **Line(s)**: L<start>–L<end>
+- **Line(s)**: L<start>–L<end>  ← PR-description findings: `- **Section**: <section, or "PR description">` instead
 - **Agent**: <Bug Detection | Security | Pattern/Consistency | Performance | Supply-Chain | Test Coverage | Product>
 - **Confidence**: <score>/100
 - **Status**: ✅ **Addressed** — <1-line summary of the change, e.g. "renamed to findFromIndex"> · commit `<sha>`
