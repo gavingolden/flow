@@ -233,7 +233,8 @@ export type CheckResult =
       rerun?: { runId: number; ok: boolean; error?: string };
       polls: number;
       elapsedSec: number;
-      copilotConfigured: boolean;
+      /** Absent on the `--rerun` envelope: no Copilot observation ran. */
+      copilotConfigured?: boolean;
       ciConfigured: boolean;
     };
 
@@ -460,7 +461,6 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         observationFailedSec: 0,
         polls: record.checks,
         elapsedSec: 0,
-        copilotConfigured: false,
         ciConfigured: readWorkflowsDir(),
       });
       return 0;
@@ -500,7 +500,6 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         rerun,
         polls: record.checks,
         elapsedSec: 0,
-        copilotConfigured: false,
         ciConfigured: readWorkflowsDir(),
       });
       return 0;

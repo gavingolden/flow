@@ -4269,6 +4269,7 @@ describe("run() — workflow-run cross-check", () => {
         status: "waiting",
         rerun: { runId: 4242, ok: true },
       });
+      expect(result).not.toHaveProperty("copilotConfigured");
       expect(gh.calls).toHaveLength(2);
       expect(fs.existsSync(out)).toBe(false);
       const rec = readAnchors(dir, "flow-ci-check-rerun")!;
