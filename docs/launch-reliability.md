@@ -62,10 +62,12 @@ it:
   `flow epic create --resume`'s, and `flow epic run`'s — never carried
   free-form text (only the slug and CLI-resolved paths), but are reshaped
   to a single line too, for a uniform contract across all five. `splitSeed`'s
-  remainder is empty for every one of these five seeds, so each goes
-  through the capture-verified, `C-u`-retried leading-line handshake in
-  full — the unverified-remainder path this section used to describe no
-  longer carries any of them. `flow-session-start-hook.ts` delivers the
+  remainder is empty for every one of these five seeds. The launch paths
+  no longer type them at all (they ride the launch line); the
+  capture-verified, `C-u`-retried leading-line handshake applies only to
+  `flow-session-start-hook.ts`'s typed deliveries — the unverified-remainder
+  path this section used to describe no longer carries any of them.
+  `flow-session-start-hook.ts` delivers the
   same three reshaped resume seeds (`flowPipelineResumeSeed`,
   `epicResumeSeed`, `epicRunSeed`), so they are single-line too; only
   `terminalContinueSeed` (genuine multi-line prose, no free-form user text)
@@ -79,7 +81,7 @@ it:
   hook). Every tmux launch/resume path
   (`bin/lib/feature.ts`, `bin/lib/epic.ts`, `bin/flow-session-start-hook.ts`)
   records the exact seed it is about to deliver as `state.seed` before
-  sending it. `bin/flow-seed-ingested-hook.ts` — a Claude Code
+  launching (or, for the hook, sending) it. `bin/flow-seed-ingested-hook.ts` — a Claude Code
   UserPromptSubmit hook — compares the submitted prompt against `state.seed`
   (whitespace-squashed containment, not equality) the instant a prompt is
   accepted, and writes ONE self-describing `state.seedIngest` record

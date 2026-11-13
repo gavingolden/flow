@@ -730,8 +730,8 @@ export function respawnWindowVerified(
   if (seedCorrupted()) {
     return { status: "failed", stderr: SEED_CORRUPTED_STDERR };
   }
-  // On a dead pane surface the fixed 'failed' string; otherwise surface any
-  // delivery stderr (failed/exhausted send) so it isn't silently dropped.
+  // On a dead pane surface the fixed 'failed' string; otherwise there is no
+  // stderr (nothing is typed).
   return {
     status: consumeResult,
     stderr: consumeFailStderr(consumeResult),

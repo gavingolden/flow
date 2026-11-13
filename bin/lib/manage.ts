@@ -523,16 +523,24 @@ export function runManageCli(
     );
     console.error("  1. flow attach manager");
     console.error(
-      '  2. choose "Yes, I trust this folder" — the manager then starts by itself',
+      '  2. choose "Yes, I trust this folder" — the manager then starts by itself (if /flow-manage sits in the input box, press Enter)',
     );
     return 2;
   }
   if (checkIn === "timeout") {
     console.error(
-      `flow manage: the manager window opened but has not checked in after ${Math.round(checkInMs / 1000)}s — it may still be starting; run flow manage again to check. If /flow-manage sits in the input box, attach (flow attach manager) and press Enter; or close it with flow manage --stop`,
+      `flow manage: the manager window opened but has not checked in after ${Math.round(checkInMs / 1000)}s — it may still be starting`,
     );
+    console.error("  1. run flow manage again to check");
+    console.error(
+      "  2. if /flow-manage sits in the input box: flow attach manager, then press Enter",
+    );
+    console.error("  3. to give up: flow manage --stop");
     return 2;
   }
   fs.rmSync(managerRecordPath(home), { force: true });
-  return fail("claude exited before the manager checked in");
+  (options.killWindow ?? ((n) => killWindow(n)))(MANAGER_WINDOW);
+  return fail(
+    "claude exited before the manager checked in — nothing is lost, your scope is saved; run flow manage again to retry",
+  );
 }

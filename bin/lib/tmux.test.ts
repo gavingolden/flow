@@ -713,7 +713,7 @@ describe(createWindowVerified, () => {
     expect(aliveProbes).toBeLessThan(20);
   });
 
-  it("launch line: createWindowVerified appends the seed as the LAST argv element exactly once and never types it", () => {
+  it("launch line: createWindowVerified appends the seed as the LAST argv element exactly once, unmodified", () => {
     const calls: string[][] = [];
     const result = createWindowVerified(
       "csv-export",
@@ -987,7 +987,7 @@ describe(respawnWindowVerified, () => {
     expect(kill).not.toHaveBeenCalled();
   });
 
-  it("launch line: respawnWindowVerified appends the seed as the LAST argv element exactly once and never types it", () => {
+  it("launch line: respawnWindowVerified appends the seed as the LAST argv element exactly once, unmodified", () => {
     const calls: string[][] = [];
     const result = respawnWindowVerified(
       "csv-export",

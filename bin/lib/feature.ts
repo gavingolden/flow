@@ -1422,8 +1422,7 @@ function runFresh(
       ),
     );
     console.error(dim(stillStartingHint(slug)));
-    // Surface any delivery stderr (e.g. a failed/exhausted send) rather than
-    // silently dropping it — the failed branch above already does this.
+    // Defensive: surface any stderr rather than silently dropping it.
     if (result.stderr) console.error(dim(`  ${result.stderr}`));
   } else {
     console.log(
@@ -1780,10 +1779,7 @@ function runResume(
       ),
     );
     console.error(dim(stillStartingHint(slug)));
-    // Surface any delivery stderr (e.g. a failed/exhausted send) rather than
-    // silently dropping it — the failed branch above already does this. The
-    // edit-set that introduced this bundled fix assumed the resume path
-    // already did this; on inspection it did not, so it's fixed here too.
+    // Defensive: surface any stderr rather than silently dropping it.
     if (result.stderr) console.error(dim(`  ${result.stderr}`));
   } else {
     console.log(

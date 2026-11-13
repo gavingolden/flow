@@ -8,8 +8,9 @@
  *     `<task-notification>` wake reach the same prompt stream and read like
  *     user input, even batched after owner text, so either wrapper anywhere
  *     disqualifies the prompt;
- *   - flow's own launch-line seeds (`/flow-manage`, `/flow-manage --resume`,
- *     `[flow-…` system seeds) are typed by flow, not by the owner.
+ *   - flow's own seeds (`/flow-manage` on the launch line,
+ *     `/flow-manage --resume` typed after `/clear`, `[flow-…` system seeds)
+ *     come from flow, not the owner.
  * Only runs when `FLOW_MANAGER=1`; always exits 0 and prints nothing.
  */
 

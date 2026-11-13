@@ -64,6 +64,7 @@ const opts = (over: Partial<ManageOptions> = {}): ManageOptions => ({
   now: () => new Date("2026-11-12T10:00:00.000Z"),
   tmuxOnPath: () => true,
   windowExists: () => false,
+  killWindow: () => true,
   setPaneKind: () => {},
   retrySleepMs: 0,
   isAlive: () => true,
@@ -361,6 +362,21 @@ describe("runManageCli", () => {
       "claude exited before the manager checked in",
     );
     expect(readManagerRecord(home)).toBeNull();
+  });
+
+  it("dies: kills the dead manager window so a remain-on-exit pane cannot wedge later runs", () => {
+    const kill = vi.fn(() => true);
+    const launch = () => ({
+      status: "launched-not-confirmed" as const,
+      stderr: "",
+    });
+    expect(
+      runManageCli(
+        ["x"],
+        opts({ launch, isAlive: () => false, killWindow: kill }),
+      ),
+    ).toBe(2);
+    expect(kill).toHaveBeenCalledWith("manager");
   });
 
   it("launch line: the default launch hands /flow-manage to the shared launcher as the seed and waits for the check-in once", () => {
