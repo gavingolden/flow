@@ -26,6 +26,13 @@ import {
   DEFAULT_COPILOT_LOGIN,
 } from "./copilot-config";
 import { readEpicMaxParallel, DEFAULT_MAX_PARALLEL } from "./epic-config";
+import {
+  DEFAULT_DAILY_BUDGET_USD,
+  DEFAULT_HEARTBEAT_SEC,
+  validDailyBudgetUsd,
+  validHeartbeatSec,
+  readManagerConfig,
+} from "./manager-config";
 import { isOutputLens } from "./output-lens";
 import {
   KEEP_AWAKE_DEFAULT_MINUTES,
@@ -523,6 +530,34 @@ const DESCRIPTORS: Descriptor[] = [
         source: configured
           ? "config (epic.maxParallel)"
           : `built-in (${DEFAULT_MAX_PARALLEL})`,
+      };
+    },
+  },
+  {
+    key: "manager.heartbeatSec",
+    meaning:
+      "how often the global manager checks in on its pipelines when nothing else wakes it (seconds, at least 60)",
+    resolve: (read) => {
+      const raw = getPath(safeRead(read), ["manager", "heartbeatSec"]);
+      return {
+        value: String(readManagerConfig(read).heartbeatSec),
+        source: validHeartbeatSec(raw)
+          ? "config (manager.heartbeatSec)"
+          : `built-in (${DEFAULT_HEARTBEAT_SEC})`,
+      };
+    },
+  },
+  {
+    key: "manager.dailyBudgetUsd",
+    meaning:
+      "the most the global manager's executive reviews may spend per local day (USD)",
+    resolve: (read) => {
+      const raw = getPath(safeRead(read), ["manager", "dailyBudgetUsd"]);
+      return {
+        value: String(readManagerConfig(read).dailyBudgetUsd),
+        source: validDailyBudgetUsd(raw)
+          ? "config (manager.dailyBudgetUsd)"
+          : `built-in (${DEFAULT_DAILY_BUDGET_USD})`,
       };
     },
   },

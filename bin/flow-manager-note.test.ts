@@ -60,6 +60,19 @@ describe("add", () => {
     });
   });
 
+  it("stamps the author: manager when FLOW_MANAGER=1, else the pipeline slug, else owner", () => {
+    const as = (env: NodeJS.ProcessEnv) =>
+      run(["add", "--about", "live", "--text", "x"], { stateDir, home, env });
+    as({ FLOW_MANAGER: "1", FLOW_SLUG: "ignored" });
+    as({ FLOW_SLUG: "waiting" });
+    as({});
+    expect(readNotes(home).map((n) => n.author)).toEqual([
+      "manager",
+      "waiting",
+      "owner",
+    ]);
+  });
+
   it("succeeds with one live slug and one already-merged slug", () => {
     expect(call(["add", "--about", "done,waiting", "--text", "x"])).toBe(0);
     expect(readNotes(home)[0].about).toEqual(["done", "waiting"]);

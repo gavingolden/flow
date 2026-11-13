@@ -76,6 +76,7 @@ import {
   logNoteOnce,
 } from "./lib/checkpoint-history";
 import { loadAndRenderHistory } from "./lib/checkpoint-history-load";
+import { runManagerCheckpoint } from "./lib/manager-checkpoint";
 import { resolveKindAmbient, resolveSlugAmbient } from "./lib/session-identity";
 import {
   CHECKPOINT_SITES,
@@ -134,6 +135,8 @@ export type Deps = {
   resolveKind?: () => PipelineKind | null;
   /** `--journal` body source; defaults to reading all of stdin. */
   readStdin?: () => string;
+  /** The manager home for the slug-less manager branch; defaults to `~/.flow/manager`. */
+  managerHome?: string;
 };
 
 /** Absolute path of the one-shot marker the SessionStart:clear hook gates on. */
@@ -498,6 +501,44 @@ function emit(result: CheckpointResult): void {
   process.stdout.write(JSON.stringify(result) + "\n");
 }
 
+/**
+ * The slug-less global manager: its checkpoint lives under `~/.flow/manager/`.
+ * Reached only when no slug is given or in the environment AND the pane's
+ * `@flow-kind` reads `manager` — a tmux-only signal, like the clear hook that
+ * acts on the marker it arms.
+ */
+function runManagerBranch(
+  parsed: Exclude<ReturnType<typeof parseArgs>, { error: string }>,
+  home?: string,
+): number {
+  if (parsed.history || parsed.journal) {
+    console.error(
+      "flow-checkpoint: --history and --journal are pipeline features; the manager has neither.",
+    );
+    return 2;
+  }
+  if (parsed.path) {
+    process.stdout.write(
+      `${runManagerCheckpoint("path", home).checkpoint ?? ""}\n`,
+    );
+    return 0;
+  }
+  if (parsed.probe || parsed.consume) {
+    emit(runManagerCheckpoint(parsed.consume ? "consume" : "probe", home));
+    return 0;
+  }
+  const result = runManagerCheckpoint("arm", home);
+  process.stderr.write(
+    `${
+      result.status === "ready"
+        ? renderArmBanner({ armed: true, site: parsed.site })
+        : renderArmBanner({ armed: false, reason: result.reason ?? "unknown" })
+    }\n`,
+  );
+  emit(result);
+  return 0;
+}
+
 export function run(argv: string[], deps: Deps = {}): number {
   const stateDir = deps.stateDir ?? flowStateDir();
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
@@ -535,6 +576,9 @@ export function run(argv: string[], deps: Deps = {}): number {
   }
 
   const slug = parsed.slug ?? resolveSlug();
+  if (!slug && resolveKind() === "manager") {
+    return runManagerBranch(parsed, deps.managerHome);
+  }
   if (!slug) {
     console.error(
       "flow-checkpoint: no slug given and no FLOW_SLUG in the environment.\n" +

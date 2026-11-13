@@ -90,13 +90,14 @@ describe("FLOW_EXEC_REVIEW_ALLOW_RULES", () => {
     }
   });
 
-  it("pre-approves status/review/order/outcome/stamp-check and never charter", () => {
+  it("pre-approves status/review/order/outcome/stamp-check/ruling and never charter", () => {
     expect(FLOW_EXEC_REVIEW_ALLOW_RULES).toEqual([
       "Bash(flow-exec-review status *)",
       "Bash(flow-exec-review review *)",
       "Bash(flow-exec-review order *)",
       "Bash(flow-exec-review outcome *)",
       "Bash(flow-exec-review stamp-check *)",
+      "Bash(flow-exec-review ruling *)",
     ]);
     expect(FLOW_EXEC_REVIEW_ALLOW_RULES.join(" ")).not.toContain("charter");
   });

@@ -7,14 +7,17 @@ import {
   canonicalRepoName,
   formatScope,
   identityForState,
+  originsFor,
   parseScope,
   readScope,
   scopeCovers,
   scopeMatches,
+  scopeOrigin,
   specificity,
-  writeScope,
+  stateInScope,
+  updateScope,
 } from "./manager-scope";
-import { writeState } from "./state";
+import { FINISHED_PHASE_SET, writeState, type PipelineState } from "./state";
 
 let dir: string;
 beforeEach(() => {
@@ -121,7 +124,7 @@ describe("scope.json", () => {
       updatedAt: "2026-01-01T00:00:00.000Z",
       source: "cli" as const,
     };
-    writeScope(f, dir);
+    updateScope(() => f, dir);
     expect(readScope(dir)).toEqual(f);
   });
 
@@ -137,16 +140,148 @@ describe("scope.json", () => {
       stateDir,
     );
     expect(scopeCovers("x", { stateDir, home: dir })).toBe(false);
-    writeScope(
-      {
+    updateScope(
+      () => ({
         version: 1,
         scopes: ["repo:flow"],
         updatedAt: "2026-01-01T00:00:00.000Z",
         source: "cli",
-      },
+      }),
       dir,
     );
     expect(scopeCovers("x", { stateDir, home: dir })).toBe(true);
     expect(scopeCovers("missing", { stateDir, home: dir })).toBe(false);
+  });
+});
+
+describe("focus notes and updateScope", () => {
+  const base = {
+    version: 1 as const,
+    scopes: ["repo:flow"],
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    source: "cli" as const,
+  };
+
+  it("should drop a malformed focus entry without dropping the file", () => {
+    fs.writeFileSync(
+      path.join(dir, "scope.json"),
+      JSON.stringify({
+        ...base,
+        pendingResolve: true,
+        focus: [
+          { id: "f1", text: "ship f3", at: "t", from: "launch" },
+          { id: "f2", text: 5, at: "t", from: "launch" },
+          { id: "f3", text: "x", at: "t", from: "someone" },
+          "junk",
+        ],
+      }),
+    );
+    expect(readScope(dir)).toEqual({
+      ...base,
+      pendingResolve: true,
+      focus: [{ id: "f1", text: "ship f3", at: "t", from: "launch" }],
+    });
+  });
+
+  it("should land an entry change and a focus change in one write", () => {
+    updateScope(() => base, dir);
+    const next = updateScope(
+      (cur) => ({
+        ...cur!,
+        scopes: [...cur!.scopes, "epic:e1"],
+        focus: [
+          { id: "n1", text: "epic e1 first", at: "t", from: "owner-words" },
+        ],
+      }),
+      dir,
+    );
+    const onDisk = readScope(dir);
+    expect(onDisk).toEqual(next);
+    expect(onDisk?.scopes).toEqual(["repo:flow", "epic:e1"]);
+    expect(onDisk?.focus).toHaveLength(1);
+  });
+
+  it("should pass null to the updater when there is no scope file", () => {
+    let seen: unknown = "unset";
+    updateScope((cur) => {
+      seen = cur;
+      return base;
+    }, dir);
+    expect(seen).toBeNull();
+  });
+});
+
+describe("per-entry origins", () => {
+  let home: string;
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "scopeorig-"));
+  });
+  afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
+  const put = (extra: object) =>
+    fs.writeFileSync(
+      path.join(home, "scope.json"),
+      JSON.stringify({
+        version: 1,
+        scopes: ["repo:a", "epic:e1"],
+        updatedAt: "t",
+        source: "cli",
+        ...extra,
+      }),
+    );
+
+  it("round-trips valid origins and drops malformed ones and ones for absent entries", () => {
+    put({
+      origins: {
+        "repo:a": "flag",
+        "epic:e1": "bogus",
+        "repo:gone": "words",
+      },
+    });
+    expect(readScope(home)?.origins).toEqual({ "repo:a": "flag" });
+    put({ origins: "nope" });
+    expect(readScope(home)?.origins).toBeUndefined();
+  });
+
+  it("falls back to the file-level source for an entry without an origin", () => {
+    put({ origins: { "repo:a": "words" } });
+    const f = readScope(home);
+    expect(scopeOrigin(f, "repo:a")).toBe("words");
+    expect(scopeOrigin(f, "epic:e1")).toBe("flag");
+    expect(scopeOrigin({ source: "owner-words" }, "x")).toBe("words");
+  });
+
+  it("originsFor marks the fresh entries and keeps the others' origin", () => {
+    put({ origins: { "repo:a": "flag" } });
+    expect(
+      originsFor(readScope(home), ["repo:a", "epic:e1"], ["epic:e1"], "words"),
+    ).toEqual({ "repo:a": "flag", "epic:e1": "words" });
+  });
+});
+
+describe("stateInScope", () => {
+  const file = {
+    version: 1 as const,
+    scopes: ["repo:flow"],
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    source: "cli" as const,
+  };
+  const st = (phase: string): PipelineState => ({
+    slug: "x",
+    phase,
+    repo: "/r/flow",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+
+  it("should be true for an in-scope merged pipeline", () => {
+    expect(FINISHED_PHASE_SET.has("merged")).toBe(true);
+    expect(stateInScope(st("merged"), file)).toBe(true);
+    expect(stateInScope(st("planning"), file)).toBe(true);
+  });
+
+  it("should be false with no file or an unmatched scope", () => {
+    expect(stateInScope(st("planning"), null)).toBe(false);
+    expect(
+      stateInScope(st("planning"), { ...file, scopes: ["repo:other"] }),
+    ).toBe(false);
   });
 });

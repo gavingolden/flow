@@ -723,7 +723,12 @@ export function isEpicPhase(phase: string): boolean {
  * silently rejected at one site and accepted at another, and the only
  * compiler-enforced part is the type, not the runtime checks.
  */
-export const PIPELINE_KINDS = ["feature", "epic-design", "epic-run"] as const;
+export const PIPELINE_KINDS = [
+  "feature",
+  "epic-design",
+  "epic-run",
+  "manager",
+] as const;
 
 export type PipelineKind = (typeof PIPELINE_KINDS)[number];
 
@@ -783,7 +788,7 @@ export function autoResumesAfterClear(
   phase: string,
   kind: PipelineKind = "feature",
 ): boolean {
-  if (kind === "epic-run") {
+  if (kind === "epic-run" || kind === "manager") {
     return true;
   }
   return (
@@ -1218,6 +1223,14 @@ export function deleteState(slug: string, dir = flowStateDir()): boolean {
 // files that used to live at the state dir root before they moved to `turns/`.
 export function isMainStateFile(name: string): boolean {
   return /^[^.]+\.json$/.test(name);
+}
+
+/** When the state entered its current phase: its last `phaseLog` entry for that phase, else `updatedAt`. */
+export function phaseEnteredAt(state: PipelineState): string {
+  const entry = [...(state.phaseLog ?? [])]
+    .reverse()
+    .find((e) => e.phase === state.phase);
+  return entry?.at ?? state.updatedAt;
 }
 
 export function listStates(dir = flowStateDir()): PipelineState[] {

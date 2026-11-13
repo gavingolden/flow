@@ -13,6 +13,7 @@ import {
   type ManagerLogEntry,
 } from "./manager-log";
 import { grantForEpic } from "./manager-grants";
+import { alertBudgetOnce, budgetReached } from "./manager-spend";
 import { repoNameForPath } from "./manager-scope";
 import { epicDirRelative, loadManifestFromRepo } from "./epic-manifest-schema";
 import { readEpicRunState } from "./epic-run-state";
@@ -75,7 +76,11 @@ export function runWaveReview(
 ): WaveReviewResult {
   const { epic, repoRoot } = input;
   const repo = repoNameForPath(repoRoot);
-  if (!grantForEpic(epic, repo, deps.now(), deps.managerHome)) {
+  if (
+    !grantForEpic(epic, repo, deps.now(), deps.managerHome)?.classes.includes(
+      "plan",
+    )
+  ) {
     return { ran: false, skipReason: "no-grant" };
   }
   const epicDir = path.join(repoRoot, epicDirRelative(epic));
@@ -123,6 +128,14 @@ export function runWaveReview(
       mergedFeatureIds: newlyMerged,
     };
   };
+
+  if (
+    budgetReached(deps.now(), { read: deps.readConfig, home: deps.managerHome })
+      .reached
+  ) {
+    alertBudgetOnce(deps.now(), deps.notify, deps.managerHome, deps.readConfig);
+    return skip("daily-budget-reached");
+  }
 
   const charter = readCharter({
     homeDir: deps.homeDir,

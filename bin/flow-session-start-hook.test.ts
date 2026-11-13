@@ -1181,7 +1181,7 @@ describe('plain-mode additionalContext fallback (state.launcher === "plain")', (
 // crosses that boundary — a positional slip would degrade every epic window to
 // the feature seed (the exact bug this hook exists to fix) with CI green.
 describe("flow-session-start-hook — parseResumeKind argv round-trip", () => {
-  const KINDS: ResumeKind[] = ["feature", "epic-design", "epic-run"];
+  const KINDS: ResumeKind[] = ["feature", "epic-design", "epic-run", "manager"];
 
   for (const kind of KINDS) {
     it(`survives the argv hop for '${kind}'`, () => {
@@ -1213,7 +1213,7 @@ describe("flow-session-start-hook — parseResumeKind argv round-trip", () => {
 });
 
 describe("terminalContinueSeed — the terminal orientation turn", () => {
-  const KINDS: ResumeKind[] = ["feature", "epic-design", "epic-run"];
+  const KINDS: ResumeKind[] = ["feature", "epic-design", "epic-run", "manager"];
   const TERMINAL_SEED_PHASES = [
     "merged",
     "cancelled",
@@ -2053,5 +2053,82 @@ describe("flow-session-start-hook — passive brief on every flow-window clear (
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the global manager's /clear", () => {
+  function managerHome(armed: boolean, body = "tracking three pipelines\n") {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "mgr-clear-"));
+    const dir = path.join(home, "checkpoint");
+    fs.mkdirSync(dir, { recursive: true });
+    if (body) fs.writeFileSync(path.join(dir, "checkpoint.md"), body);
+    if (armed) fs.writeFileSync(path.join(dir, "checkpoint.pending"), "x\n");
+    return { home, dir };
+  }
+
+  it("re-injects the body, consumes the marker and dispatches the manager resume", async () => {
+    const { home, dir } = managerHome(true);
+    const stub = makeDeps({ resolveKind: () => "manager" });
+    const code = await run({
+      ...stub.deps,
+      flowManagerEnv: "1",
+      managerHome: home,
+    });
+    expect(code).toBe(0);
+    expect(stub.emitted).toHaveLength(1);
+    expect(stub.emitted[0]).toContain("tracking three pipelines");
+    expect(stub.emitted[0]).toContain("not instructions");
+    expect(stub.dispatched).toEqual(["manager"]);
+    expect(stub.dispatchedKinds).toEqual(["manager"]);
+    expect(fs.existsSync(path.join(dir, "checkpoint.pending"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, "checkpoint.consumed.md"))).toBe(true);
+    expect(stub.loadCalls).toEqual([]);
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it("points a truncated body at the archived file, which exists after the hook runs", async () => {
+    const { home, dir } = managerHome(true, `${"x".repeat(12_000)}\n`);
+    const stub = makeDeps({ resolveKind: () => "manager" });
+    await run({ ...stub.deps, flowManagerEnv: "1", managerHome: home });
+    const consumed = path.join(dir, "checkpoint.consumed.md");
+    expect(stub.emitted[0]).toContain(consumed);
+    expect(stub.emitted[0]).not.toContain(path.join(dir, "checkpoint.md"));
+    expect(fs.existsSync(consumed)).toBe(true);
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it("does nothing without a marker, outside a manager pane, or without FLOW_MANAGER", async () => {
+    const { home } = managerHome(false);
+    const noMarker = makeDeps({ resolveKind: () => "manager" });
+    await run({ ...noMarker.deps, flowManagerEnv: "1", managerHome: home });
+    expect(noMarker.emitted).toEqual([]);
+    expect(noMarker.dispatched).toEqual([]);
+
+    const armed = managerHome(true);
+    const wrongPane = makeDeps({ resolveKind: () => "feature" });
+    await run({
+      ...wrongPane.deps,
+      flowManagerEnv: "1",
+      managerHome: armed.home,
+    });
+    expect(wrongPane.dispatched).toEqual([]);
+    expect(fs.existsSync(path.join(armed.dir, "checkpoint.pending"))).toBe(
+      true,
+    );
+
+    const noEnv = makeDeps({ resolveKind: () => "manager" });
+    await run({ ...noEnv.deps, managerHome: armed.home });
+    expect(noEnv.emitted).toEqual([]);
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(armed.home, { recursive: true, force: true });
+  });
+
+  it("still injects the notes but dispatches nothing when no tmux pane is live", async () => {
+    const { home } = managerHome(true);
+    const stub = makeDeps({ resolveKind: () => "manager", tmuxPaneEnv: "" });
+    await run({ ...stub.deps, flowManagerEnv: "1", managerHome: home });
+    expect(stub.emitted).toHaveLength(1);
+    expect(stub.dispatched).toEqual([]);
+    fs.rmSync(home, { recursive: true, force: true });
   });
 });

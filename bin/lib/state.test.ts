@@ -1622,13 +1622,18 @@ describe("phase constants", () => {
     );
   });
 
-  it("PIPELINE_KINDS is exactly the three supervisor kinds, and isPipelineKind agrees (drift-guard)", () => {
+  it("PIPELINE_KINDS is exactly the three supervisor kinds plus the manager, and isPipelineKind agrees (drift-guard)", () => {
     // The literals live in state.ts once; `resolveKindFromPane` (tmux.ts) and
     // `parseResumeKind` (flow-session-start-hook.ts) both derive from
     // isPipelineKind rather than re-listing them. Exact equality here is what
     // makes adding a fourth kind a deliberate, test-breaking act instead of a
     // silent downgrade to "feature" at whichever validator was missed.
-    expect(PIPELINE_KINDS).toEqual(["feature", "epic-design", "epic-run"]);
+    expect(PIPELINE_KINDS).toEqual([
+      "feature",
+      "epic-design",
+      "epic-run",
+      "manager",
+    ]);
     for (const k of PIPELINE_KINDS) expect(isPipelineKind(k)).toBe(true);
     for (const notAKind of [
       "",
@@ -1756,6 +1761,11 @@ describe("phase constants", () => {
 
   it("autoResumesAfterClear('epic-run', ...) resumes regardless of phase", () => {
     expect(autoResumesAfterClear("epic-approved", "epic-run")).toBe(true);
+  });
+
+  it("autoResumesAfterClear('manager', ...) resumes regardless of phase", () => {
+    expect(autoResumesAfterClear("merged", "manager")).toBe(true);
+    expect(autoResumesAfterClear("starting", "manager")).toBe(true);
   });
 
   it("isAllowedTerminalExit allows the three documented gated exits", () => {

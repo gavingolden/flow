@@ -68,13 +68,27 @@ export const FLOW_CREATE_ISSUE_ALLOW_RULES: readonly string[] = [
   "Bash(flow-create-issue *)",
 ];
 
+const commandDenyRules = (cmd: string): string[] => [
+  `Bash(${cmd} *)`,
+  `Bash(*/${cmd})`,
+  `Bash(*/${cmd} *)`,
+  `Bash(env *${cmd})`,
+  `Bash(env *${cmd} *)`,
+  `Bash(bun *${cmd}.ts*)`,
+];
+
 /**
- * Keeps a flow-launched session from granting the executive autonomy: denies
- * the high-autonomy grant command (`flow grant` and its `flow epic grant`
- * alias; space and `=` forms, and an `env` launderer), any Bash touching
- * `~/.flow/manager/grants.json`, and edits of the grant file, the decision
- * log (a forged `grant` line would move the wave-review baseline) and the
- * sequencer's `~/.flow/state/managers/**`. An `Edit(path)` rule covers every
+ * Keeps a flow-launched session from granting the executive autonomy or
+ * forging a manager ruling: denies the high-autonomy and `--relay` grant
+ * commands (`flow grant` and its `flow epic grant` alias; space and `=` forms,
+ * and an `env` launderer), the manager's ruling writer (`flow-manager-ctl
+ * ruling`), any Bash touching the grant file, the rulings, the decision log,
+ * the manager scope or the owner-words ledger, and edits of those files (a
+ * forged `grant` line would move the wave-review baseline; a forged ruling
+ * plus its `ruling-written` line would pass the verifier). The manager
+ * helpers are denied as commands and the trust files by their `manager/` path,
+ * so repo files of the same name stay readable and testable and the sequencer's
+ * `~/.flow/state/managers/**`. An `Edit(path)` rule covers every
  * built-in file-editing tool (Write included); a `Write(path)` rule never
  * matches. A guard, not a proof — the CLI
  * itself also refuses a non-TTY or `CLAUDECODE` caller; a forged grant still
@@ -92,8 +106,25 @@ export const GRANT_DENY_RULES: readonly string[] = [
   "Bash(*flow grant --autonomy high*)",
   "Bash(*flow grant --autonomy=high*)",
   "Bash(env * flow grant *)",
+  "Bash(*flow grant * --relay*)",
+  "Bash(*flow grant --relay*)",
+  "Bash(*flow epic grant * --relay*)",
+  "Bash(*flow epic grant --relay*)",
   "Bash(*manager/grants.json*)",
+  "Bash(*manager/rulings*)",
+  "Bash(*manager/log.jsonl*)",
+  "Bash(*manager/scope.json*)",
+  "Bash(*manager/owner-words*)",
+  "Bash(*manager/proposals.json*)",
+  "Bash(*manager/handles.json*)",
+  ...commandDenyRules("flow-manager-ctl"),
+  ...commandDenyRules("flow-manager-owner-words"),
   "Edit(~/.flow/manager/grants.json)",
   "Edit(~/.flow/manager/log.jsonl)",
+  "Edit(~/.flow/manager/rulings/**)",
+  "Edit(~/.flow/manager/scope.json)",
+  "Edit(~/.flow/manager/proposals.json)",
+  "Edit(~/.flow/manager/handles.json)",
+  "Edit(~/.flow/manager/owner-words.jsonl)",
   "Edit(~/.flow/state/managers/**)",
 ];

@@ -27,7 +27,15 @@ export type ManagerLogKind =
   | "exec-skip"
   | "exec-owner-reply"
   | "rollup"
-  | "proposal-answered";
+  | "budget-alert"
+  | "manager-send"
+  | "manager-decision"
+  | "proposal-added"
+  | "proposal-answered"
+  | "reminder"
+  | "ruling-written"
+  | "ruling-accepted"
+  | "ruling-refused";
 
 export type ExecLogPayload = {
   decisionId: string;

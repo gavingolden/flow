@@ -291,7 +291,7 @@ state.json, and the PR are the state.
 
 ## Phase dispatch
 
-Each step's procedure lives in its own doc. On entering a step, Read its doc with the Read tool before acting; the one-liner here is only the floor if you have not. Phase values come from `STEP_PHASES` and `PENDING_PHASES` in `bin/lib/state.ts`; `PIPELINE_PHASES` also holds the terminals.
+Each step's procedure lives in its own doc. On entering a step, Read its doc before acting; the one-liner here is only the floor. Phase values are `STEP_PHASES` and `PENDING_PHASES` in `bin/lib/state.ts`, plus the terminals in `PIPELINE_PHASES`.
 
 | Step | Phases | Non-negotiable | Doc |
 |---|---|---|---|
@@ -325,6 +325,7 @@ Open one only when its situation arises.
 | `references/failure-recovery.md` | escalation tags, retry caps |
 | `references/headless-claude.md` | `flow-claude-headless` fan-out |
 | `references/interview-playbook.md` | intent interview rounds |
+| `references/manager-messages.md` | a message from the manager |
 | `references/merge-resolver-spawn-prompt.md` | merge-conflict resolver spawn |
 | `references/model-routing.md` | per-phase model choice |
 | `references/partial-result-continuation.md` | partial `maxTurns` agent result |
@@ -339,7 +340,7 @@ Open one only when its situation arises.
 
 ## After a compaction or resume
 
-A compaction keeps only the first ~20,000 characters of this skill: this core is sized to survive it whole, the step docs are not. If this skill is not in your context, invoke it again. On a `--resume mode` seed, Read `references/phases/resume.md` and run `flow-resume-decide` instead. Otherwise read `phase` from `~/.flow/state/<slug>.json`, find it in the table above, and Read that step's doc before you act. Never continue a step from a summary alone.
+A compaction keeps only the first ~20,000 characters of this skill: this core survives whole, the step docs do not. If this skill is not in your context, invoke it again. On a `--resume mode` seed, Read `references/phases/resume.md` and run `flow-resume-decide` instead. Otherwise read `phase` from `~/.flow/state/<slug>.json`, find it in the table above, and Read that step's doc first. Never continue a step from a summary alone.
 
 # End conditions
 

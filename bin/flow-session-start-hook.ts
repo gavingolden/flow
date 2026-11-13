@@ -76,6 +76,13 @@
 import * as fs from "node:fs";
 import { spawn } from "node:child_process";
 import {
+  consumeManagerCheckpoint,
+  managerCheckpointBodyPath,
+  managerMarkerExists,
+  readManagerCheckpointBody,
+  renderManagerCheckpointContext,
+} from "./lib/manager-checkpoint";
+import {
   autoResumesAfterClear,
   AWAITING_HUMAN_PHASE_SET,
   isPipelineKind,
@@ -381,7 +388,40 @@ export type Deps = {
    * dispatch without spawning anything.
    */
   dispatchResume: (slug: string, kind: ResumeKind, mode: SeedMode) => void;
+  /** FLOW_MANAGER env value: `1` only in the global manager's session. */
+  flowManagerEnv?: string | undefined;
+  /** The manager home the manager branch reads its checkpoint from; defaults to `~/.flow/manager`. */
+  managerHome?: string;
 };
+
+/**
+ * `/clear` in the manager window: when a checkpoint marker is armed, re-inject
+ * the body as passive context, retire it, and send `/flow-manage --resume`
+ * into the pane so the manager picks its work back up. No marker, or a pane
+ * that is not a manager pane, does nothing.
+ */
+async function runManagerClear(deps: Deps): Promise<number> {
+  try {
+    if ((deps.resolveKind ?? resolveKindAmbient)() !== "manager") return 0;
+    if (!managerMarkerExists(deps.managerHome)) return 0;
+    const body = readManagerCheckpointBody(deps.managerHome);
+    // Retire first: a truncation pointer at the live path would be renamed away.
+    const retired = consumeManagerCheckpoint(deps.managerHome);
+    if (body) {
+      deps.emitContext(
+        renderManagerCheckpointContext(
+          body,
+          HOOK_CONTEXT_MAX_CHARS,
+          retired.archived ?? managerCheckpointBodyPath(deps.managerHome),
+        ),
+      );
+    }
+  } catch {
+    return 0;
+  }
+  if (deps.tmuxPaneEnv) deps.dispatchResume("manager", "manager", "resume");
+  return 0;
+}
 
 export async function run(deps: Deps): Promise<number> {
   // Drain stdin so the harness's pipe closes cleanly. The SessionStart payload
@@ -392,6 +432,12 @@ export async function run(deps: Deps): Promise<number> {
   } catch {
     // A stdin read hiccup must never break session start; fall through.
   }
+
+  // The global manager has no slug and no state file: it is told apart by
+  // FLOW_MANAGER=1 AND a pane kind reading `manager`. Both are tmux-only
+  // signals (the resume seed is delivered with send-keys into its pane), so a
+  // plain-launcher session never takes this branch.
+  if (deps.flowManagerEnv === "1") return runManagerClear(deps);
 
   // Env-only slug resolution: FLOW_SLUG, shape-validated. `terminalAdvisory`
   // interpolates the slug into stdout, which is the SessionStart JSON
@@ -892,6 +938,7 @@ if (import.meta.main) {
   run({
     readStdin: defaultReadStdin,
     flowSlugEnv: process.env.FLOW_SLUG,
+    flowManagerEnv: process.env.FLOW_MANAGER,
     tmuxPaneEnv: process.env.TMUX_PANE,
     emitContext: (context) => {
       process.stdout.write(sessionStartOutput(context) + "\n");

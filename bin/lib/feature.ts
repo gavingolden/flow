@@ -1185,6 +1185,7 @@ function runFresh(
     const plainCommand =
       options.command ??
       buildPlainCommand(
+        slug,
         worktree,
         resolvedEffort,
         settingsPath,
@@ -1508,6 +1509,7 @@ function runResume(
     const plainCommand =
       options.command ??
       buildPlainCommand(
+        slug,
         plainWorktree,
         state.effort,
         plainSettings,
@@ -1883,7 +1885,15 @@ function launchArgv(
     "FLOW_PIPELINE=1",
     `FLOW_SLUG=${slug}`,
     ...(nextPath !== undefined ? [`PATH=${nextPath}`] : []),
-    ...claudeArgv(worktree, effort, settingsPath, model, roots, overlayDir),
+    ...claudeArgv(
+      slug,
+      worktree,
+      effort,
+      settingsPath,
+      model,
+      roots,
+      overlayDir,
+    ),
   ];
 }
 
@@ -1897,8 +1907,11 @@ function launchArgv(
  * second): the worktree is the pipeline's working dir; the skills home
  * (`~/.flow/claude-home`) is where flow's skills now live (no longer in the
  * global `~/.claude/skills/`), so every launched session must add it to keep
- * `/flow-pipeline` and the sub-skills it loads. `--plugin-dir` entries (one
- * per materialized plugin root) follow the two `--add-dir` entries and
+ * `/flow-pipeline` and the sub-skills it loads. `--name <slug>` follows the
+ * `--add-dir` entries: it gives the session the pipeline's slug as its peer
+ * address, so the global manager's `SendMessage` can reach it by name.
+ * `--plugin-dir` entries (one
+ * per materialized plugin root) follow the `--name` pair and
  * precede `--model`, a deterministic position so the existing argv
  * assertions stay stable and reviewable — this site is in scope by the
  * stated goal (pipeline sessions are the actual Bash-tool surface the
@@ -1906,6 +1919,7 @@ function launchArgv(
  * naming for Task 5's bare-`flow` launcher.
  */
 function claudeArgv(
+  name: string,
   worktree: string,
   effort: EffortLevel | undefined,
   settingsPath: string,
@@ -1922,6 +1936,8 @@ function claudeArgv(
     "--add-dir",
     flowClaudeHome(),
     ...(overlayDir ? ["--add-dir", overlayDir] : []),
+    "--name",
+    name,
     ...pluginDirArgs(roots),
   ];
   const withModel = model ? [...base, "--model", model] : base;
@@ -2261,6 +2277,7 @@ function buildLaunchCommand(
  * `env` argv prefix is needed.
  */
 function buildPlainCommand(
+  slug: string,
   worktree: string,
   effort: EffortLevel | undefined,
   settingsPath: string,
@@ -2277,6 +2294,7 @@ function buildPlainCommand(
     );
   }
   return claudeArgv(
+    slug,
     worktree,
     effort,
     settingsPath,

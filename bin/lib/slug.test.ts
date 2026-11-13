@@ -68,6 +68,11 @@ describe(isValidSlug, () => {
     expect(isValidSlug("csv-export")).toBe(true);
   });
 
+  it("refuses the reserved manager window name but accepts a longer slug that starts with it", () => {
+    expect(isValidSlug("manager")).toBe(false);
+    expect(isValidSlug("manager-ui")).toBe(true);
+  });
+
   it("accepts a slug with more than 5 tokens (slugify's cap does not apply)", () => {
     expect(isValidSlug("a-b-c-d-e-f-g")).toBe(true);
   });

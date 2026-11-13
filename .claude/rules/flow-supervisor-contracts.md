@@ -29,15 +29,19 @@ the tmux-pane / port-override / post-commit-diff rules live in
   Consolidator-Validator, `/flow-verify` UI-Driver); no other skill or
   step may call Task.
 - Don't let a session grant autonomy. No session ever runs
-  `flow grant <scope> --autonomy high` or its alias
-  `flow epic grant <epic> --autonomy high`, or writes
-  `~/.flow/manager/grants.json`: the grant is the owner's own keystroke in a
-  plain terminal. The command refuses a non-TTY or `CLAUDECODE` caller, and
-  flow-launched sessions are denied the commands and writes to the grant file,
-  the decision log and `~/.flow/state/managers/**` (`GRANT_DENY_RULES`). That
-  stops an accidental grant or one made on a peer's instruction; it is not a
+  `flow grant <scope> --autonomy high` or `--relay`, their alias
+  `flow epic grant <epic> ...`, or writes `~/.flow/manager/grants.json`: the
+  grant is the owner's own keystroke in a plain terminal. The command refuses a
+  non-TTY or `CLAUDECODE` caller, and flow-launched sessions are denied the
+  commands (including `--relay`), the whole `flow-manager-ctl` helper, any Bash
+  touching the grant file, `rulings/`, the decision log, `scope.json`,
+  `proposals.json`, `handles.json` or the owner-words ledger, and edits of those files and of `~/.flow/state/managers/**`
+  (`GRANT_DENY_RULES`). That stops an accidental grant, a forged ruling or one
+  made on a peer's instruction; it is not a
   proof against a session that rewrites its own environment, so a forged grant
-  would still show on its first use in the PR stamp and the log line.
+  would still show on its first use in the PR stamp and the log line, and a
+  forged ruling is refused unless the decision log holds its `ruling-written`
+  line.
 - Don't leave spawned resources running. Three layers, in order:
   (1) point-of-use teardown first — close what you opened, on every
   exit path; (2) `flow-browser-teardown --reap --record` at every
@@ -202,6 +206,10 @@ origin HEAD`, never forced. Contract:
     sequencer process, not a Claude session: zero Task/Agent sub-agents,
     zero `AskUserQuestion` forms, zero model calls, never merges a feature
     PR, never repairs drift (it names `/flow-epic-run reconcile-drift`).
+  - **`/flow-manage` is a separate sanctioned manager session** (`flow manage`).
+    It uses none of the eight Task exemptions: zero Task/Agent sub-agents, zero
+    `AskUserQuestion` forms, never merges; it reaches a pipeline only by
+    `SendMessage`, which a scope-checking PreToolUse hook gates.
   - **`/flow-backlog-triage` is a separate sanctioned standalone
     session,** so `/flow-pipeline`'s exactly-7 and one-form rule are
     unaffected by its one named surface: One Task-tool fan-out (Phase-1

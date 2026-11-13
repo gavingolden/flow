@@ -32,7 +32,14 @@ import {
 import { appendManagerLog, readManagerLog } from "./manager-log";
 import { readState } from "./state";
 
-export type GrantClass = "plan" | "subjective";
+/**
+ * `plan`: the executive may approve plans. `subjective`: reserved for delegated
+ * UI sign-off. `relay`: the owner may answer a paused pipeline from the manager
+ * window (a `source: owner` ruling); it never switches the executive on.
+ */
+export type GrantClass = "plan" | "subjective" | "relay";
+
+const GRANT_CLASSES: readonly string[] = ["plan", "subjective", "relay"];
 
 export type ScopedGrant = {
   scope: string;
@@ -56,7 +63,7 @@ function isScopedGrant(v: unknown): v is ScopedGrant {
     parseScope(g.scope) !== null &&
     Array.isArray(g.classes) &&
     g.classes.length > 0 &&
-    g.classes.every((c) => c === "plan" || c === "subjective") &&
+    g.classes.every((c) => GRANT_CLASSES.includes(c as string)) &&
     typeof g.grantedAt === "string" &&
     (g.expiresAt === undefined || typeof g.expiresAt === "string") &&
     g.grantedBy === "owner-cli"
@@ -266,12 +273,15 @@ export function grantForSlug(
   return { granted: false, reason: "unknown-feature" };
 }
 
-/** The most specific live grant (`epic:` over `repo:`) covering an epic in `repo`; the wave review's gate. */
+/** The most specific live grant (`epic:` over `repo:`) covering an epic in `repo`, carrying the classes of every covering grant; the wave review's gate. */
 export function grantForEpic(
   epic: string,
   repo: string,
   now: Date,
   home?: string,
 ): ScopedGrant | null {
-  return coveringGrants({ slug: "", epic, repo }, now, home)[0] ?? null;
+  const covering = coveringGrants({ slug: "", epic, repo }, now, home);
+  if (covering.length === 0) return null;
+  const classes = [...new Set(covering.flatMap((g) => g.classes))].sort();
+  return { ...covering[0], classes: classes as GrantClass[] };
 }

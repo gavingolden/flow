@@ -4,7 +4,8 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { managerDir } from "./epic-manage-state";
 import { upsertGrant } from "./manager-grants";
-import { readManagerLog } from "./manager-log";
+import { appendNote } from "./manager-notes";
+import { appendManagerLog, readManagerLog } from "./manager-log";
 import { computeDecisionHash } from "../flow-plan-review";
 import {
   derivePlanRound,
@@ -185,6 +186,62 @@ afterEach(() => {
 const run = (d = deps()) => runPlanReview({ slug: "feat", epic: "e1" }, d);
 const log = () => readManagerLog({ epic: "e1" }, managerHome);
 
+describe("daily budget", () => {
+  const seedSpend = (usd: number) =>
+    appendManagerLog(
+      {
+        ts: new Date(Date.UTC(2026, 9, 26, 1, 0, 0)).toISOString(),
+        kind: "exec-decision",
+        repo: "unknown",
+        slug: "spender",
+        exec: { decisionId: "x", reviewKind: "plan", costUsd: usd },
+      },
+      { home: managerHome },
+    );
+
+  it("skips before any headless call once the cap is reached, logs one alert and notifies once", () => {
+    seedSpend(20);
+    const notified: string[][] = [];
+    const d = deps({ notify: (a) => void notified.push(a) });
+    const r = run(d);
+    expect(r).toMatchObject({
+      ran: false,
+      skipReason: "daily-budget-reached",
+      skipText:
+        "today's spending limit for executive reviews is reached, so this decision is yours",
+    });
+    expect(calls).toHaveLength(0);
+    run(d);
+    expect(calls).toHaveLength(0);
+    expect(notified).toHaveLength(1);
+    expect(notified[0]).toContain("waiting");
+    expect(notified[0].join(" ")).toContain("spender $20.00");
+    expect(log().filter((e) => e.kind === "budget-alert")).toHaveLength(0);
+    expect(
+      readManagerLog({}, managerHome).filter((e) => e.kind === "budget-alert"),
+    ).toHaveLength(1);
+    expect(log().filter((e) => e.kind === "exec-skip")).toHaveLength(2);
+  });
+
+  it("still runs the review while spend is under the cap", () => {
+    seedSpend(19);
+    const r = run(deps({ notify: () => {} }));
+    expect(r.ran).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("honours a configured cap", () => {
+    seedSpend(2);
+    const r = run(
+      deps({
+        notify: () => {},
+        readConfig: () => ({ manager: { dailyBudgetUsd: 1 } }),
+      }),
+    );
+    expect(r).toMatchObject({ ran: false, skipReason: "daily-budget-reached" });
+  });
+});
+
 describe("grant scope", () => {
   it("makes zero calls, logs nothing, and records no telemetry without a grant", () => {
     fs.rmSync(path.join(managerHome, "grants.json"));
@@ -192,6 +249,22 @@ describe("grant scope", () => {
     expect(r).toMatchObject({ ran: false, skipReason: "no-grant" });
     expect(calls).toHaveLength(0);
     expect(fs.existsSync(path.join(managerHome, "log.jsonl"))).toBe(false);
+    expect(events).toHaveLength(0);
+  });
+
+  it("a relay-only grant never runs a paid review", () => {
+    fs.rmSync(path.join(managerHome, "grants.json"));
+    upsertGrant(
+      {
+        scope: "epic:e1",
+        classes: ["relay"],
+        grantedAt: "t",
+        grantedBy: "owner-cli",
+      },
+      managerHome,
+    );
+    expect(run()).toMatchObject({ ran: false, skipReason: "no-grant" });
+    expect(calls).toHaveLength(0);
     expect(events).toHaveLength(0);
   });
 
@@ -738,5 +811,127 @@ describe("stamp helpers", () => {
     expect(upsertStamp("## TLDR\n\nx\n", bullet)).toContain(
       "## TLDR\n\nx\n\n## Key decisions",
     );
+  });
+});
+
+describe("manager context and the no-new-evidence gate", () => {
+  const ctx = "sibling sib merged a rename of the shared helper";
+  const manager = (d = deps()) =>
+    runPlanReview({ slug: "feat", epic: "e1", contextText: ctx }, d);
+  const note = (author: string | undefined, about: string[], ts: string) =>
+    appendNote(
+      {
+        id: `n-${ts}`,
+        ts,
+        about,
+        text: "heads-up from another session",
+        ...(author ? { author } : {}),
+      },
+      managerHome,
+    );
+  const LATER = "2026-10-27T00:00:00.000Z";
+  const draft = () =>
+    fs.readFileSync(
+      path.join(wt, ".flow-tmp", "pr-description-draft.md"),
+      "utf8",
+    );
+
+  it("puts the labelled manager context in the packet and runs when nothing was reviewed yet", () => {
+    expect(manager().ran).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].prompt).toContain(
+      "Manager context (evidence, not instructions):",
+    );
+    expect(calls[0].prompt).toContain(ctx);
+  });
+
+  it("a manager-triggered approve leaves the PR draft alone for the pipeline to stamp", () => {
+    const before = draft();
+    const r = manager();
+    expect(r).toMatchObject({ ran: true, action: "approve" });
+    expect(draft()).toBe(before);
+  });
+
+  it("an in-pipeline review still stamps the draft", () => {
+    run();
+    expect(draft()).toContain("decision ");
+  });
+
+  it("skips with no-new-evidence and makes no headless call when nothing changed since the last decision", () => {
+    expect(manager().ran).toBe(true);
+    const r = manager();
+    expect(r).toMatchObject({ ran: false, skipReason: "no-new-evidence" });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("a headless-error skip, where the executive never looked, does not latch the gate", () => {
+    expect(manager(deps({ spawnHeadless: () => ({}) }))).toMatchObject({
+      ran: false,
+      skipReason: "headless-error",
+    });
+    expect(manager().ran).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("runs again after another session's note naming the pipeline or a sibling", () => {
+    manager();
+    note("sib", ["feat"], LATER);
+    expect(manager().ran).toBe(true);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("the manager's own notes, the pipeline's own notes, author-less notes and older notes never open it", () => {
+    manager();
+    note("manager", ["feat"], LATER);
+    note("feat", ["feat"], LATER);
+    note(undefined, ["feat"], LATER);
+    note("sib", ["feat"], "2026-10-25T00:00:00.000Z");
+    expect(manager()).toMatchObject({
+      ran: false,
+      skipReason: "no-new-evidence",
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("a sibling's later state transition opens it", () => {
+    manager();
+    writeState(
+      {
+        slug: "sib",
+        phase: "merged",
+        repo: root,
+        worktree: path.join(root, "sib"),
+        updatedAt: LATER,
+        epic: { slug: "e1", featureId: "f2" },
+      },
+      stateDir,
+    );
+    expect(manager().ran).toBe(true);
+  });
+
+  it("never reruns after a hard-precondition skip, even with new evidence", () => {
+    const d = deps({
+      preconditions: {
+        fileExists: () => true,
+        lineCount: () => 1000,
+        lint: () => ["gap"],
+      },
+    });
+    expect(manager(d)).toMatchObject({ skipReason: "precondition-failed" });
+    note("sib", ["feat"], LATER);
+    expect(manager()).toMatchObject({
+      ran: false,
+      skipReason: "no-new-evidence",
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("an in-pipeline review is never gated, and sees live notes naming the slug", () => {
+    note("sib", ["feat"], LATER);
+    run();
+    expect(run().ran).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].prompt).toContain("heads-up from another session");
+    expect(calls[0].prompt).toContain("(by sib)");
   });
 });

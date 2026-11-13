@@ -32,5 +32,7 @@ export function resumeSeedFor(slug: string, kind: PipelineKind): string {
       return epicRunSeed(slug, epicDirRelative(slug));
     case "feature":
       return flowPipelineResumeSeed(slug);
+    case "manager":
+      return "/flow-manage --resume";
   }
 }

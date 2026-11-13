@@ -67,6 +67,8 @@ import {
   type InstallDriftResult,
 } from "./install-drift";
 
+const MANAGER_WINDOW = "manager";
+
 export type LsOptions = {
   cost?: boolean;
   detail?: boolean;
@@ -91,7 +93,7 @@ export type Row = {
   repo: string;
   /**
    * Which supervisor kind this row is: `feature` / `epic-design` /
-   * `epic-run`, sourced from `state.kind` (falling back to
+   * `epic-run` / `manager`, sourced from `state.kind` (falling back to
    * `resolveStateKind`'s phase-derived default) — NEVER from the `@flow-kind`
    * tmux pane option. Empty ONLY for the unmanaged "(no state)" rows built
    * from a window with no state file, which have no PipelineState to read.
@@ -454,6 +456,15 @@ export async function buildRows(
   rows.push(...sequencers.rows);
   for (const id of sequencers.claimed) matchedWindowIds.add(id);
 
+  // The global manager window has no state file; claim it so it doesn't
+  // render as "(no state)". Its name is reserved (`isValidSlug` refuses it),
+  // so no pipeline window can be mistaken for it.
+  const globalManager = globalManagerRow(windows, nowMs, opts);
+  if (globalManager) {
+    rows.push(globalManager.row);
+    matchedWindowIds.add(globalManager.windowId);
+  }
+
   // Surface windows that no state row claimed. They're not pipelines
   // flow owns, so fall back to the tmux-reported activity so the user
   // still sees something. Display the user-visible window name (the
@@ -477,6 +488,32 @@ export async function buildRows(
   }
 
   return rows;
+}
+
+function globalManagerRow(
+  windows: TmuxWindow[],
+  nowMs: number,
+  opts: LsOptions,
+): { row: Row; windowId: string } | null {
+  const window = findWindowBySlug(windows, MANAGER_WINDOW);
+  if (!window) return null;
+  return {
+    windowId: window.id,
+    row: {
+      name: MANAGER_WINDOW,
+      repo: "",
+      kind: "manager",
+      epic: "",
+      phase: "managing",
+      pr: "—",
+      lastActivity:
+        window.activity > 0 ? relativeTime(window.activity * 1000, nowMs) : "—",
+      annotation: "",
+      needsResumeHint: false,
+      waitForCopilot: false,
+      cost: opts.cost ? EMPTY_COST : undefined,
+    },
+  };
 }
 
 /** One row per live or stalled sequencer (a stopped record is a crash leftover — no row). */

@@ -12,12 +12,14 @@ import * as path from "node:path";
 import { manifestNeighbourhood } from "../flow-epic-judge-context";
 import { resolveProductBrief } from "../flow-product-brief";
 import { grantForSlug } from "./manager-grants";
+import { alertBudgetOnce, budgetReached } from "./manager-spend";
 import {
   appendManagerLog,
   readManagerLog,
   type ExecLogPayload,
   type ManagerLogEntry,
 } from "./manager-log";
+import { readNotes, type ManagerNote } from "./manager-notes";
 import { identityForState, repoNameForPath } from "./manager-scope";
 import { epicDirRelative, loadManifestFromRepo } from "./epic-manifest-schema";
 import { readCharter } from "./exec-charter";
@@ -51,7 +53,13 @@ import {
   skipTextFor,
   UNANCHORED_APPROVE_DEFER_TEXT,
 } from "./exec-review-skip-text";
-import { FINISHED_PHASE_SET, listStates, readState } from "./state";
+import {
+  FINISHED_PHASE_SET,
+  listStates,
+  readState,
+  type PipelineState,
+  phaseEnteredAt,
+} from "./state";
 
 export type PlanReviewResult =
   | {
@@ -84,8 +92,75 @@ export type PlanReviewResult =
       detail?: string;
     };
 
+const MAX_PACKET_NOTES = 10;
+
+/**
+ * The note lines for the packet: live notes naming this pipeline (any author),
+ * newest last.
+ */
+function packetNotes(notes: ManagerNote[], slug: string): string[] {
+  return notes
+    .filter((n) => n.about.includes(slug))
+    .slice(-MAX_PACKET_NOTES)
+    .map(
+      (n) => `- ${n.ts} (by ${n.author ?? "unknown"}) ${n.text.slice(0, 300)}`,
+    );
+}
+
+/**
+ * Has anything outside the manager happened since the executive last looked at
+ * this pipeline's plan in the current phase entry? Only a note written by
+ * another session (never the manager, never the pipeline itself; author-less
+ * legacy notes do not count) that names this pipeline or a sibling, or a
+ * sibling's own state transition, opens the gate. A prior hard-precondition
+ * skip or one-way-door decision keeps it shut: more context cannot change
+ * those.
+ */
+function noNewEvidence(a: {
+  slug: string;
+  phaseEnteredAt: string;
+  log: ManagerLogEntry[];
+  notes: ManagerNote[];
+  siblings: PipelineState[];
+}): boolean {
+  const since = Date.parse(a.phaseEnteredAt);
+  const prior = a.log
+    .filter(
+      (e) =>
+        e.slug === a.slug &&
+        // A skip where the executive never looked (headless-error, charter
+        // problems, ...) must not latch; only a decision or a hard stop does.
+        (e.kind === "exec-decision" ||
+          (e.kind === "exec-skip" && e.reason === "precondition-failed")) &&
+        e.exec?.reviewKind === "plan" &&
+        Date.parse(e.ts) >= since,
+    )
+    .at(-1);
+  if (!prior) return false;
+  if (
+    prior.reason === "precondition-failed" ||
+    prior.exec?.doorType === "one-way"
+  ) {
+    return true;
+  }
+  const after = Date.parse(prior.ts);
+  const named = new Set([a.slug, ...a.siblings.map((s) => s.slug)]);
+  const noteOpens = a.notes.some(
+    (n) =>
+      n.author !== undefined &&
+      n.author !== "manager" &&
+      n.author !== a.slug &&
+      Date.parse(n.ts) > after &&
+      n.about.some((x) => named.has(x)),
+  );
+  const siblingMoved = a.siblings.some(
+    (s) => Date.parse(phaseEnteredAt(s)) > after,
+  );
+  return !(noteOpens || siblingMoved);
+}
+
 export function runPlanReview(
-  input: { slug: string; epic?: string },
+  input: { slug: string; epic?: string; contextText?: string },
   deps: ExecReviewDeps,
 ): PlanReviewResult {
   const decisionId = makeDecisionId("plan", deps);
@@ -144,6 +219,38 @@ export function runPlanReview(
     expectedEpic: input.epic,
   });
   if (!scope.granted) return skip(scope.reason, {}, false);
+  if (!scope.classes.includes("plan")) return skip("no-grant", {}, false);
+
+  const log = readManagerLog(epic ? { epic } : { repo }, deps.managerHome);
+  const siblingStates = listStates(deps.stateDir).filter((s) =>
+    s.slug === input.slug
+      ? false
+      : epic
+        ? s.epic?.slug === epic
+        : !FINISHED_PHASE_SET.has(s.phase) && identityForState(s).repo === repo,
+  );
+  const notes = readNotes(deps.managerHome);
+  if (
+    input.contextText !== undefined &&
+    state &&
+    noNewEvidence({
+      slug: input.slug,
+      phaseEnteredAt: phaseEnteredAt(state),
+      log,
+      notes,
+      siblings: siblingStates,
+    })
+  ) {
+    return skip("no-new-evidence");
+  }
+
+  if (
+    budgetReached(deps.now(), { read: deps.readConfig, home: deps.managerHome })
+      .reached
+  ) {
+    alertBudgetOnce(deps.now(), deps.notify, deps.managerHome, deps.readConfig);
+    return skip("daily-budget-reached");
+  }
 
   const worktree = state?.worktree;
   if (!worktree)
@@ -187,7 +294,6 @@ export function runPlanReview(
     });
   }
 
-  const log = readManagerLog(epic ? { epic } : { repo }, deps.managerHome);
   const createdAtMs = Date.parse(state?.createdAt ?? "");
   const roundLog = Number.isFinite(createdAtMs)
     ? log.filter(
@@ -223,21 +329,12 @@ export function runPlanReview(
     planReview = null;
   }
 
-  const siblings = listStates(deps.stateDir)
-    .filter((s) =>
-      s.slug === input.slug
-        ? false
-        : epic
-          ? s.epic?.slug === epic
-          : !FINISHED_PHASE_SET.has(s.phase) &&
-            identityForState(s).repo === repo,
-    )
-    .map((s) => ({
-      featureId: s.epic?.featureId ?? "loose",
-      slug: s.slug,
-      phase: s.phase,
-      pr: s.pr ?? null,
-    }));
+  const siblings = siblingStates.map((s) => ({
+    featureId: s.epic?.featureId ?? "loose",
+    slug: s.slug,
+    phase: s.phase,
+    pr: s.pr ?? null,
+  }));
 
   const epicCtx =
     manifest && scope.featureId
@@ -263,6 +360,8 @@ export function runPlanReview(
       planReview,
       worktree,
       round,
+      notes: packetNotes(notes, input.slug),
+      ...(input.contextText ? { managerContext: input.contextText } : {}),
     });
   } catch (e) {
     return skip("prompt-unavailable", {
@@ -395,7 +494,7 @@ export function runPlanReview(
   }
 
   let disclosure: string | undefined;
-  if (norm.action === "approve") {
+  if (norm.action === "approve" && input.contextText === undefined) {
     const draftPath = path.join(flowTmp, "pr-description-draft.md");
     let draft: string | null = null;
     try {

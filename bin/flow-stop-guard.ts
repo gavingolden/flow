@@ -51,6 +51,7 @@ import {
   type TurnTracking,
 } from "./lib/stop-turn-tracking";
 import { finalizePhase } from "./lib/phase-advance";
+import { recordLastPause } from "./lib/pause-capture";
 import {
   ORPHAN_GUIDANCE,
   orphanNotice,
@@ -69,6 +70,8 @@ import { defaultGit } from "./lib/resume-probes";
 
 type HookInput = {
   stop_hook_active?: boolean;
+  /** The turn's final assistant text; the source of the saved pause block. */
+  last_assistant_message?: string;
   /** In-flight background work; documented as empty when nothing is in flight. */
   background_tasks?: Array<{
     id?: string;
@@ -129,7 +132,30 @@ export type Deps = {
   sweepOrphans?: (worktree: string) => WorktreeOrphanSweepResult | null;
   /** Adds to the slug's own `state.orphanStops` (production: `recordOrphanStops`). */
   recordStops?: (slug: string, stopped: number) => void;
+  /**
+   * Saves the turn's pause block for the manager (production:
+   * `recordLastPause`). Optional so tests never touch the real state dir. A
+   * throw is swallowed: the stop decision is independent of it.
+   */
+  recordPause?: (
+    slug: string,
+    phase: string,
+    message: string | undefined,
+  ) => void;
 };
+
+function savePause(
+  deps: Deps,
+  slug: string,
+  phase: string,
+  message: string | undefined,
+): void {
+  try {
+    deps.recordPause?.(slug, phase, message);
+  } catch {
+    // best-effort only
+  }
+}
 
 function sweepAndRecord(
   deps: Deps,
@@ -436,6 +462,7 @@ async function runCore(
   if (isLegitimateEndPhase(state.phase)) {
     tracking = { ...tracking, lastStopAt: now };
     deps.writeTurn(tracking);
+    savePause(deps, slug, state.phase, input.last_assistant_message);
     return 0;
   }
 
@@ -479,6 +506,12 @@ async function runCore(
         `flow-stop-guard: phase=${state.phase} has not advanced after ${tracking.blockCount} blocked stops; ${recorded ? "recorded" : "could not record"} a needs-human pause (${outcome}). Ending the turn.\n`,
       );
       if (recorded) {
+        savePause(
+          deps,
+          slug,
+          "needs-human",
+          `**TLDR:** ${outcome}\n\n**Next action:** reply ${pauseReply(state)}`,
+        );
         deps.writeOut?.(
           JSON.stringify({
             systemMessage: `flow paused this pipeline (needs-human): ${outcome}.`,
@@ -632,5 +665,7 @@ if (import.meta.main) {
     writeOut: (s) => process.stdout.write(s),
     sweepOrphans: (worktree) => sweepBusyLeftovers(worktree),
     recordStops: (slug, n) => recordOrphanStops(slug, n),
+    recordPause: (slug, phase, message) =>
+      recordLastPause(slug, phase, message),
   }).then((code) => process.exit(code));
 }

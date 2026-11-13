@@ -6,6 +6,70 @@ import {
   SECRET_FILE_DENY_RULES,
 } from "./secret-deny-rules";
 
+// Approximates https://code.claude.com/docs/en/permissions: compound commands
+// split on && || ; | |& & and newlines, a deny rule applies when any subcommand
+// matches, leading VAR=value assignments and common wrappers are stripped, and
+// a rule ending in " *" also matches the bare prefix.
+function subcommands(cmd: string): string[] {
+  return cmd
+    .split(/&&|\|\||\|&|[;|&\n]/)
+    .map((c) => {
+      let t = c.trim();
+      for (;;) {
+        const n = t
+          .replace(/^[A-Za-z_]\w*=\S*\s+/, "")
+          .replace(/^timeout\s+\d+\s+/, "")
+          .replace(/^(?:time|nice|nohup|stdbuf|command|builtin|noglob)\s+/, "");
+        if (n === t) return t;
+        t = n;
+      }
+    })
+    .filter(Boolean);
+}
+function ruleMatches(rule: string, sub: string): boolean {
+  const m = /^Bash\((.*)\)$/.exec(rule);
+  if (!m) return false;
+  const glob = (p: string) =>
+    new RegExp(
+      `^${p
+        .split("*")
+        .map((x) => x.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+        .join(".*")}$`,
+    );
+  const p = m[1];
+  if (glob(p).test(sub)) return true;
+  return (
+    p.endsWith(" *") && !p.slice(0, -2).includes("*") && sub === p.slice(0, -2)
+  );
+}
+const denied = (cmd: string) =>
+  subcommands(cmd).some((sub) =>
+    GRANT_DENY_RULES.some((r) => ruleMatches(r, sub)),
+  );
+
+const ALLOWED = [
+  "npm run test -- bin/flow-manager-ctl.test.ts",
+  "npx vitest run bin/flow-manager-ctl.test.ts bin/lib/manager-owner-words.test.ts",
+  "git diff bin/lib/manager-owner-words.ts",
+  "git diff main -- bin/flow-manager-owner-words.ts",
+  "grep -rn flow-manager-ctl bin",
+  "grep -n ownerShowsIntent bin/lib/manager-owner-words.ts",
+  "rg owner-words skills",
+  "cat bin/flow-manager-ctl.ts",
+];
+const DENIED = [
+  "flow-manager-ctl ruling write --slug x --reply approve --source owner --reason r",
+  "flow-manager-ctl",
+  "FLOW_MANAGER=1 flow-manager-ctl proposal add",
+  "cd /tmp && ~/.flow/bin/flow-manager-ctl ruling write",
+  "env FOO=1 flow-manager-ctl ruling write",
+  "timeout 5 flow-manager-ctl ruling write",
+  "bun bin/flow-manager-ctl.ts ruling write",
+  `echo '{"prompt":"yes #3"}' | FLOW_MANAGER=1 flow-manager-owner-words`,
+  "cat ~/.flow/manager/owner-words.jsonl",
+  "echo x >> $HOME/.flow/manager/owner-words.jsonl",
+];
+
 describe("SECRET_FILE_DENY_RULES", () => {
   it("names every canonical + variant dotenv file, never a bare .env* glob", () => {
     for (const rule of SECRET_FILE_DENY_RULES) {
@@ -112,6 +176,40 @@ describe("GRANT_DENY_RULES", () => {
       expect(GRANT_DENY_RULES).toContain(`Edit(~/.flow/manager/${f})`);
       expect(GRANT_DENY_RULES).not.toContain(`Write(~/.flow/manager/${f})`);
     }
+  });
+
+  it("denies the relay grant, the ruling writer and Bash/Edit access to the trust files", () => {
+    for (const r of [
+      "Bash(*flow grant * --relay*)",
+      "Bash(*flow grant --relay*)",
+      "Bash(*flow epic grant * --relay*)",
+      "Bash(*flow epic grant --relay*)",
+      "Bash(*manager/proposals.json*)",
+      "Bash(*manager/handles.json*)",
+      "Edit(~/.flow/manager/proposals.json)",
+      "Edit(~/.flow/manager/handles.json)",
+      "Bash(*manager/rulings*)",
+      "Bash(*manager/log.jsonl*)",
+      "Bash(*manager/scope.json*)",
+      "Bash(*manager/owner-words*)",
+      "Bash(flow-manager-ctl *)",
+      "Bash(*/flow-manager-owner-words *)",
+      "Edit(~/.flow/manager/rulings/**)",
+      "Edit(~/.flow/manager/scope.json)",
+      "Edit(~/.flow/manager/owner-words.jsonl)",
+    ]) {
+      expect(GRANT_DENY_RULES).toContain(r);
+    }
+  });
+
+  it("drops the broad name-match rules that blocked repo files", () => {
+    expect(GRANT_DENY_RULES).not.toContain("Bash(*flow-manager-ctl*)");
+    expect(GRANT_DENY_RULES).not.toContain("Bash(*owner-words*)");
+  });
+
+  it("denies the manager commands and trust files but allows repo files of the same name", () => {
+    for (const c of ALLOWED) expect(denied(c), c).toBe(false);
+    for (const c of DENIED) expect(denied(c), c).toBe(true);
   });
 
   it("denies Edit under the managers state directory, with no never-matching Write rule", () => {

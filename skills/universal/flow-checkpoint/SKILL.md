@@ -90,6 +90,16 @@ always survive the clear; only the auto-resume is phase-dependent.
 Step 2 below surfaces a warning when the pipeline will not auto-resume,
 so you know which of the two you are getting.
 
+# The global manager window
+
+The `flow manage` window has no slug and no pipeline state, so
+`flow-checkpoint` there (the pane kind reads `manager`) keeps its files under
+`~/.flow/manager/checkpoint/` instead: `--path`, the bare arm, `--probe` and
+`--consume` work as above, and `--history` / `--journal` do not apply. It is
+tmux-only, like the rest of the manager: after a `/clear` the
+`SessionStart:clear` hook re-injects the body, retires it, and sends
+`/flow-manage --resume` into the pane.
+
 # How it runs
 
 This skill runs **in-process** via the `Skill` tool — the summarization

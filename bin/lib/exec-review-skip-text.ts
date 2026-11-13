@@ -37,6 +37,10 @@ const SKIP_REASON_TEXT: Record<string, string> = {
   "prompt-unavailable": "the executive's review prompt could not be loaded",
   "envelope-invalid": "the executive's answer was not in the expected shape",
   "headless-error": "the executive's review did not return an answer",
+  "no-new-evidence":
+    "nothing new has happened since the executive last looked at this plan, so the manager's request did not spend another review",
+  "daily-budget-reached":
+    "today's spending limit for executive reviews is reached, so this decision is yours",
   "bad-args": "the executive's review was launched with invalid arguments",
   "headless-depth-exceeded":
     "the executive's review was blocked by the nested-session limit",

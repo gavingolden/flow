@@ -183,6 +183,25 @@ describe(buildRows, () => {
     expect(rows[0].kind).toBe("");
   });
 
+  it("claims the global manager window instead of rendering it as (no state)", async () => {
+    const rows = await buildRows(
+      [],
+      [window({ name: "manager", slug: "" })],
+      NOW,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe("manager");
+    expect(rows[0].kind).toBe("manager");
+    expect(rows[0].phase).toBe("managing");
+    expect(rows[0].annotation).toBe("");
+    expect(rows[0].needsResumeHint).toBe(false);
+  });
+
+  it("renders no manager row when there is no manager window", async () => {
+    const rows = await buildRows([state({ slug: "csv-export" })], [], NOW);
+    expect(rows.filter((r) => r.kind === "manager")).toHaveLength(0);
+  });
+
   it("pulls the epic slug from state.epic for an epic-launched pipeline", async () => {
     const rows = await buildRows(
       [

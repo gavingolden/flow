@@ -161,6 +161,39 @@ describe("runWaveReview", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("a relay-only grant never runs a paid review", () => {
+    fs.rmSync(path.join(managerHome, "grants.json"));
+    upsertGrant(
+      {
+        scope: "epic:e1",
+        classes: ["relay"],
+        grantedAt: "t",
+        grantedBy: "owner-cli",
+      },
+      managerHome,
+    );
+    expect(run()).toEqual({ ran: false, skipReason: "no-grant" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("skips before any headless call once today's spend reaches the cap", () => {
+    appendManagerLog(
+      {
+        ts: new Date(Date.UTC(2026, 9, 26, 1, 0, 0)).toISOString(),
+        kind: "exec-decision",
+        repo: "repo",
+        epic: "e1",
+        exec: { decisionId: "x", reviewKind: "plan", costUsd: 25 },
+      },
+      { home: managerHome },
+    );
+    const notified: string[][] = [];
+    const r = run(deps({ notify: (a) => void notified.push(a) }));
+    expect(r).toMatchObject({ ran: false, skipReason: "daily-budget-reached" });
+    expect(calls).toHaveLength(0);
+    expect(notified).toHaveLength(1);
+  });
+
   it("a repo: grant enables the wave review and, with no baseline, reviews every merged feature", () => {
     fs.rmSync(path.join(managerHome, "grants.json"));
     fs.rmSync(path.join(managerHome, "log.jsonl"));

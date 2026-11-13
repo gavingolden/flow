@@ -26,6 +26,9 @@ const MAX_TOKENS = 5;
  */
 const MAX_SLUG_LENGTH = 60;
 
+/** The global manager's tmux window name; a pipeline can never share it. */
+const RESERVED_SLUG = "manager";
+
 /**
  * Canonical slug-legality check — the single source of truth for whether a
  * string is a valid pipeline slug (tmux window name, `<slug>.json` state-file
@@ -39,6 +42,7 @@ const MAX_SLUG_LENGTH = 60;
  */
 export function isValidSlug(s: string): boolean {
   if (s.length === 0 || s.length > MAX_SLUG_LENGTH) return false;
+  if (s === RESERVED_SLUG) return false;
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(s);
 }
 

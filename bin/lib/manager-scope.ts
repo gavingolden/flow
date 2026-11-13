@@ -6,7 +6,13 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { managerFile, managerHome, writeJsonAtomic } from "./manager-home";
+import { withFileLockSync } from "./lock";
+import {
+  managerFile,
+  managerHome,
+  managerLockPath,
+  writeJsonAtomic,
+} from "./manager-home";
 import { resolveGitCommonDir } from "./repo-root";
 import { isValidSlug } from "./slug";
 import { FINISHED_PHASE_SET, readState, type PipelineState } from "./state";
@@ -75,18 +81,44 @@ export function specificity(s: Scope): 1 | 2 | 3 {
   return s.kind === "pipeline" ? 3 : s.kind === "epic" ? 2 : 1;
 }
 
+export type FocusNote = {
+  id: string;
+  text: string;
+  at: string;
+  from: "launch" | "owner-words";
+};
+
+/** Where one scope entry came from: a `--scope` flag the owner typed, or their words resolved by the manager. */
+export type ScopeOrigin = "flag" | "words";
+
 export type ScopeFile = {
   version: 1;
   scopes: string[];
   updatedAt: string;
   source: "cli" | "owner-words";
+  /** Per-entry origin keyed by the scope entry string; an entry without one falls back to `source`. */
+  origins?: Record<string, ScopeOrigin>;
+  focus?: FocusNote[];
+  pendingResolve?: boolean;
 };
 
 function scopePath(home?: string): string {
   return managerFile("scope.json", home ?? managerHome());
 }
 
-/** Tolerant: a missing file or an invalid shape reads as null. */
+function isFocusNote(x: unknown): x is FocusNote {
+  const n = x as FocusNote | null;
+  return (
+    typeof n === "object" &&
+    n !== null &&
+    typeof n.id === "string" &&
+    typeof n.text === "string" &&
+    typeof n.at === "string" &&
+    (n.from === "launch" || n.from === "owner-words")
+  );
+}
+
+/** Tolerant: a missing file or an invalid shape reads as null; a malformed focus entry is dropped, not the file. */
 export function readScope(home?: string): ScopeFile | null {
   try {
     const v = JSON.parse(fs.readFileSync(scopePath(home), "utf8")) as ScopeFile;
@@ -97,7 +129,24 @@ export function readScope(home?: string): ScopeFile | null {
       typeof v.updatedAt === "string" &&
       (v.source === "cli" || v.source === "owner-words")
     ) {
-      return v;
+      const out: ScopeFile = { ...v };
+      delete out.focus;
+      delete out.pendingResolve;
+      delete out.origins;
+      if (typeof v.origins === "object" && v.origins !== null) {
+        const origins: Record<string, ScopeOrigin> = {};
+        for (const [k, o] of Object.entries(v.origins)) {
+          if (v.scopes.includes(k) && (o === "flag" || o === "words")) {
+            origins[k] = o;
+          }
+        }
+        if (Object.keys(origins).length > 0) out.origins = origins;
+      }
+      if (Array.isArray(v.focus)) out.focus = v.focus.filter(isFocusNote);
+      if (typeof v.pendingResolve === "boolean") {
+        out.pendingResolve = v.pendingResolve;
+      }
+      return out;
     }
     return null;
   } catch {
@@ -105,8 +154,55 @@ export function readScope(home?: string): ScopeFile | null {
   }
 }
 
-export function writeScope(f: ScopeFile, home?: string): void {
-  writeJsonAtomic(scopePath(home), f);
+/** The origin of one entry; a file written before per-entry origins falls back to its file-level `source`. */
+export function scopeOrigin(
+  file: Pick<ScopeFile, "source" | "origins"> | null,
+  scope: string,
+): ScopeOrigin {
+  return (
+    file?.origins?.[scope] ??
+    (file?.source === "owner-words" ? "words" : "flag")
+  );
+}
+
+/** Origins for exactly these entries: the ones named in `fresh` get `origin`, the rest keep what they had. */
+export function originsFor(
+  cur: Pick<ScopeFile, "source" | "origins"> | null,
+  scopes: string[],
+  fresh: string[],
+  origin: ScopeOrigin,
+): Record<string, ScopeOrigin> {
+  return Object.fromEntries(
+    scopes.map((sc) => [
+      sc,
+      fresh.includes(sc) ? origin : scopeOrigin(cur, sc),
+    ]),
+  );
+}
+
+/** Locked read-modify-write, so scope entries and focus notes always change together. */
+export function updateScope(
+  fn: (cur: ScopeFile | null) => ScopeFile,
+  home?: string,
+): ScopeFile {
+  return withFileLockSync(managerLockPath("scope.json", home), () => {
+    const next = fn(readScope(home));
+    writeJsonAtomic(scopePath(home), next);
+    return next;
+  });
+}
+
+/** Does the scope cover this pipeline's identity? Finished phases count: the manager view still shows what it finished. */
+export function stateInScope(
+  s: PipelineState,
+  file: ScopeFile | null,
+): boolean {
+  if (!file) return false;
+  const id = identityForState(s);
+  return file.scopes.some((raw) => {
+    const sc = parseScope(raw);
+    return sc !== null && scopeMatches(sc, id);
+  });
 }
 
 /** Is `slug` inside the manager's stated scope? A missing file or state covers nothing. */
@@ -118,9 +214,5 @@ export function scopeCovers(
   if (!file) return false;
   const state = readState(slug, deps.stateDir);
   if (!state || FINISHED_PHASE_SET.has(state.phase)) return false;
-  const id = identityForState(state);
-  return file.scopes.some((raw) => {
-    const sc = parseScope(raw);
-    return sc !== null && scopeMatches(sc, id);
-  });
+  return stateInScope(state, file);
 }

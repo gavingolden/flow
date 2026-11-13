@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 const proposal = (over: Partial<Proposal> = {}): Proposal => ({
-  id: "p1",
+  id: "p-000001",
   kind: "epic-change",
   repo: "flow",
   epic: "e",
@@ -41,24 +41,27 @@ describe("proposals store", () => {
         proposals: [proposal(), { id: "x", kind: "other" }],
       }),
     );
-    expect(readProposals(dir).map((p) => p.id)).toEqual(["p1"]);
+    expect(readProposals(dir).map((p) => p.id)).toEqual(["p-000001"]);
   });
 
   it("adds proposals and replaces one with the same id", () => {
     addProposal(proposal(), dir);
-    addProposal(proposal({ id: "p2", kind: "stale-cancel", slug: "s" }), dir);
+    addProposal(
+      proposal({ id: "p-000002", kind: "stale-cancel", slug: "s" }),
+      dir,
+    );
     addProposal(proposal({ text: "cut f5" }), dir);
     const all = readProposals(dir);
-    expect(all.map((p) => p.id).sort()).toEqual(["p1", "p2"]);
-    expect(all.find((p) => p.id === "p1")?.text).toBe("cut f5");
+    expect(all.map((p) => p.id).sort()).toEqual(["p-000001", "p-000002"]);
+    expect(all.find((p) => p.id === "p-000001")?.text).toBe("cut f5");
   });
 
   it("answering removes the proposal and logs a proposal-answered line carrying repo, epic and the answer", () => {
     addProposal(proposal(), dir);
-    addProposal(proposal({ id: "p2" }), dir);
+    addProposal(proposal({ id: "p-000002" }), dir);
     const now = new Date("2026-11-02T00:00:00.000Z");
-    expect(answerProposal("p1", "approve", now, dir)).toBe(true);
-    expect(readProposals(dir).map((p) => p.id)).toEqual(["p2"]);
+    expect(answerProposal("p-000001", "approve", now, dir)).toBe(true);
+    expect(readProposals(dir).map((p) => p.id)).toEqual(["p-000002"]);
     const log = readManagerLog({ epic: "e" }, dir);
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({
@@ -73,8 +76,8 @@ describe("proposals store", () => {
   it("answering an unknown or already-answered id returns false and logs nothing", () => {
     addProposal(proposal(), dir);
     expect(answerProposal("nope", "approve", new Date(), dir)).toBe(false);
-    answerProposal("p1", "approve", new Date(), dir);
-    expect(answerProposal("p1", "approve", new Date(), dir)).toBe(false);
+    answerProposal("p-000001", "approve", new Date(), dir);
+    expect(answerProposal("p-000001", "approve", new Date(), dir)).toBe(false);
     expect(readManagerLog({ repo: "flow" }, dir)).toHaveLength(1);
   });
 });

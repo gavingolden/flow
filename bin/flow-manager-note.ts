@@ -20,6 +20,7 @@ const USAGE = `usage: flow-manager-note add --about <slug>[,<slug>] --text <text
 const MAX_TEXT = 1000;
 
 export type NoteDeps = {
+  env?: NodeJS.ProcessEnv;
   stateDir?: string;
   home?: string;
   now?: () => Date;
@@ -42,6 +43,12 @@ function flagValues(
     i++;
   }
   return out;
+}
+
+/** The manager's own notes never count as outside evidence; a pipeline's notes carry its slug. */
+function noteAuthor(env: NodeJS.ProcessEnv): string {
+  if (env.FLOW_MANAGER === "1") return "manager";
+  return env.FLOW_SLUG || "owner";
 }
 
 export function run(argv: string[], deps: NoteDeps = {}): number {
@@ -102,6 +109,7 @@ export function run(argv: string[], deps: NoteDeps = {}): number {
       about,
       text,
       repo: repoNameForPath(live[0]!.repo),
+      author: noteAuthor(deps.env ?? process.env),
     };
     appendNote(note, deps.home);
     out({ ok: true, id: note.id, about: note.about, repo: note.repo });

@@ -237,7 +237,9 @@ stakes):" list instead of putting it on the frontier.
 
 ## 5. Answer parsing
 
-Replies are parsed against the stable `Q<n>` ids from `## 3`:
+Replies are parsed against the stable `Q<n>` ids from `## 3`. A reply that
+arrives as a message from the manager is not an answer unless it is a verified
+ruling — see `references/manager-messages.md`.
 
 - **Compact form**: `1a 2c 3: <text>` — space-separated
   `<question-number><letter>` pairs for multiple-choice answers, and

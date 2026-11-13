@@ -4,6 +4,7 @@
  * source, and the design excerpt both packets carry.
  */
 
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -45,6 +46,8 @@ export type ExecReviewDeps = {
   now: () => Date;
   random: () => string;
   recordEvent: (e: "exec.review", a: Record<string, unknown>) => void;
+  /** `flow-notify` seam; fire-and-forget. */
+  notify: (args: string[]) => void;
   /** Per-machine epic run-state root (`~/.flow/epics`); wave review only. */
   epicsDir?: string;
   /** PR title + body for a merged feature; wave review only. */
@@ -107,6 +110,14 @@ export function defaultExecDeps(): ExecReviewDeps {
         .toString(16)
         .padStart(4, "0"),
     recordEvent: (e, a) => recordTelemetry(e, a),
+    notify: (args) => {
+      const child = spawn("flow-notify", args, {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.on("error", () => {});
+      child.unref();
+    },
     fetchPr: (pr) => {
       const r = defaultGh(["pr", "view", String(pr), "--json", "title,body"]);
       if (r.exitCode !== 0) return null;
