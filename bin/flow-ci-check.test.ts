@@ -280,6 +280,19 @@ describe(parseArgs, () => {
       parseArgs(["100", "--rerun", "https://github.com/o/r/actions/runs/777"]),
     ).toEqual({ pr: 100, rerun: 777 });
   });
+  it("accepts only a bare id or the number after /actions/runs/", () => {
+    expect(
+      parseArgs([
+        "100",
+        "--rerun",
+        "https://github.com/o/r/actions/runs/777/job/5",
+      ]),
+    ).toEqual({ pr: 100, rerun: 777 });
+    expect(
+      parseArgs(["100", "--rerun", "https://github.com/o/r/pull/12"]),
+    ).toHaveProperty("error");
+    expect(parseArgs(["100", "--rerun", "12abc"])).toHaveProperty("error");
+  });
   it("errors on a non-numeric --rerun value", () => {
     expect(parseArgs(["100", "--rerun", "latest"])).toHaveProperty("error");
     expect(parseArgs(["100", "--rerun"])).toHaveProperty("error");
@@ -4161,6 +4174,20 @@ describe("run() — workflow-run cross-check", () => {
     expect(cap.stderr.join("")).toContain("workflow-run read failed");
   });
 
+  it("fails closed when headRefOid is empty on an open PR: waits, never proceeds", async () => {
+    const readWorkflowRuns = vi.fn(() => []);
+    const gh = makeGhSequence([
+      { matches: isPrView, response: prViewResponse("OPEN", [], "") },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    await run(["100"], baseDeps(gh, 0, { ...noCopilot, readWorkflowRuns }));
+    cap.restore();
+    const result = JSON.parse(cap.stdout.join("")) as CheckResult;
+    expect(result.status).toBe("waiting");
+    expect(readWorkflowRuns).not.toHaveBeenCalled();
+  });
+
   it("never reads runs while checks are pending or already failed", async () => {
     for (const checks of [
       [{ name: "a", state: "IN_PROGRESS" }],
@@ -4188,59 +4215,112 @@ describe("run() — workflow-run cross-check", () => {
     expect(readWorkflowRuns).toHaveBeenCalledTimes(1);
   });
 
-  it("--rerun runs gh run rerun, then resets the ciWait cycle anchors", async () => {
-    const dir = makeStateDir();
-    const slug = "flow-ci-check-rerun";
-    seedState(dir, slug);
-    process.env.FLOW_SLUG = slug;
+  describe("--rerun", () => {
     const oldStart = "2026-04-01T00:00:00.000Z";
-    const base = readState(slug, dir)!;
-    writeState(
-      {
-        ...base,
-        ciWait: {
-          pr: 100,
-          headSha: STABLE_HEAD_SHA,
-          startedAt: oldStart,
-          ciTerminalAt: oldStart,
-          lastObservedAt: oldStart,
-          checks: 5,
-          copilotRetriggered: false,
+    const seedRerun = (slug: string, extra: Partial<CiWaitRecord> = {}) => {
+      const dir = makeStateDir();
+      seedState(dir, slug);
+      process.env.FLOW_SLUG = slug;
+      writeState(
+        {
+          ...readState(slug, dir)!,
+          ciWait: {
+            pr: 100,
+            headSha: STABLE_HEAD_SHA,
+            startedAt: oldStart,
+            ciTerminalAt: oldStart,
+            lastObservedAt: oldStart,
+            checks: 5,
+            copilotRetriggered: false,
+            ...extra,
+          },
         },
-      },
-      dir,
-    );
-    const nowMs = Date.parse("2026-04-01T00:30:00.000Z");
-    const gh = makeGhSequence([
-      {
-        matches: (argv) => argv.join(" ") === "run rerun 4242",
-        response: { stdout: "", stderr: "", exitCode: 0 },
-      },
-      { matches: isPrView, response: prViewResponse("OPEN") },
-      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-    ]);
-    const cap = captureStreams();
-    await run(
-      [
-        "100",
-        "--state-dir",
         dir,
-        "--rerun",
-        "https://github.com/o/r/actions/runs/4242",
-      ],
-      baseDeps(gh, nowMs, {
-        ...noCopilot,
-        readWorkflowRuns: () => [
-          wfRun({ status: "in_progress", conclusion: "" }),
-        ],
-      }),
-    );
-    cap.restore();
-    expect(gh.calls[0]).toEqual(["run", "rerun", "4242"]);
-    const rec = readAnchors(dir, slug)!;
-    expect(rec.startedAt).toBe(new Date(nowMs).toISOString());
-    expect(rec.checks).toBe(1);
-    expect(rec.ciTerminalAt).toBeNull();
+      );
+      return dir;
+    };
+    const nowMs = Date.parse("2026-04-01T00:30:00.000Z");
+    const rerunArgs = (dir: string, out?: string) => [
+      "100",
+      "--state-dir",
+      dir,
+      ...(out ? ["--out", out] : []),
+      "--rerun",
+      "https://github.com/o/r/actions/runs/4242",
+    ];
+
+    it("re-runs, resets anchors, records the SHA, removes the stale verdict, and emits waiting without polling", async () => {
+      const dir = seedRerun("flow-ci-check-rerun");
+      const out = path.join(dir, "verdict.json");
+      fs.writeFileSync(out, '{"status":"decided"}\n');
+      const gh = makeGhSequence([
+        { matches: isPrView, response: prViewResponse("OPEN") },
+        {
+          matches: (argv) => argv.join(" ") === "run rerun 4242",
+          response: { stdout: "", stderr: "", exitCode: 0 },
+        },
+      ]);
+      const cap = captureStreams();
+      const exit = await run(rerunArgs(dir, out), baseDeps(gh, nowMs));
+      cap.restore();
+      expect(exit).toBe(0);
+      const result = JSON.parse(cap.stdout.join("")) as CheckResult;
+      expect(result).toMatchObject({
+        status: "waiting",
+        rerun: { runId: 4242, ok: true },
+      });
+      expect(gh.calls).toHaveLength(2);
+      expect(fs.existsSync(out)).toBe(false);
+      const rec = readAnchors(dir, "flow-ci-check-rerun")!;
+      expect(rec.startedAt).toBe(new Date(nowMs).toISOString());
+      expect(rec.ciTerminalAt).toBeNull();
+      expect(rec.rerunHeadSha).toBe(STABLE_HEAD_SHA);
+    });
+
+    it("reports a failed gh run rerun in the waiting envelope", async () => {
+      const dir = seedRerun("flow-ci-check-rerun-fail");
+      const gh = makeGhSequence([
+        { matches: isPrView, response: prViewResponse("OPEN") },
+        {
+          matches: (argv) => argv[0] === "run" && argv[1] === "rerun",
+          response: { stdout: "", stderr: "cannot rerun", exitCode: 1 },
+        },
+      ]);
+      const cap = captureStreams();
+      await run(rerunArgs(dir), baseDeps(gh, nowMs));
+      cap.restore();
+      const result = JSON.parse(cap.stdout.join("")) as CheckResult & {
+        rerun: { ok: boolean; error: string };
+      };
+      expect(result.status).toBe("waiting");
+      expect(result.rerun.ok).toBe(false);
+      expect(result.rerun.error).toContain("cannot rerun");
+    });
+
+    it("refuses a second re-run for the same head SHA and polls normally", async () => {
+      const dir = seedRerun("flow-ci-check-rerun-twice", {
+        rerunHeadSha: STABLE_HEAD_SHA,
+      });
+      const gh = makeGhSequence([
+        { matches: isPrView, response: prViewResponse("OPEN") },
+        { matches: isPrView, response: prViewResponse("OPEN") },
+        { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      ]);
+      const cap = captureStreams();
+      await run(
+        rerunArgs(dir),
+        baseDeps(gh, nowMs, {
+          isCopilotModuleActive: () => false,
+          readWorkflowRuns: () => [],
+        }),
+      );
+      cap.restore();
+      expect(gh.calls.some((c) => c[0] === "run")).toBe(false);
+      expect(cap.stderr.join("")).toContain("refused");
+      expect(readAnchors(dir, "flow-ci-check-rerun-twice")!.startedAt).toBe(
+        oldStart,
+      );
+    });
   });
 
   it("--rerun with a non-numeric value is a usage error (exit 2)", async () => {

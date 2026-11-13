@@ -144,15 +144,14 @@ export type WorkflowRun = {
 /**
  * Maps the head commit's workflow runs to synthetic check entries. A workflow
  * that fails before creating its jobs leaves no failing row in `gh pr checks`
- * (flow#1052), so the run itself is the evidence. Only PR-trigger events
- * count; the newest run per workflow wins; approval-parked runs
- * (waiting/requested/pending/action_required) and skipped/successful runs
+ * (flow#1052), so the run itself is the evidence. The newest run per
+ * workflow (any event) wins, then only PR-trigger events count; approval-parked
+ * runs (waiting/action_required) and skipped/successful runs
  * produce nothing.
  */
 export function deriveRunChecks(runs: WorkflowRun[]): Check[] {
   const newest = new Map<string, WorkflowRun>();
   for (const r of runs) {
-    if (!QUALIFYING_PR_TRIGGERS.has(r.event)) continue;
     const key =
       r.workflowId !== undefined ? `id:${r.workflowId}` : `name:${r.name}`;
     const cur = newest.get(key);
@@ -160,8 +159,14 @@ export function deriveRunChecks(runs: WorkflowRun[]): Check[] {
   }
   const out: Check[] = [];
   for (const r of newest.values()) {
+    if (!QUALIFYING_PR_TRIGGERS.has(r.event)) continue;
     const url = r.url ? { url: r.url } : {};
-    if (r.status === "queued" || r.status === "in_progress") {
+    if (
+      r.status === "queued" ||
+      r.status === "in_progress" ||
+      r.status === "requested" ||
+      r.status === "pending"
+    ) {
       out.push({
         name: `${r.name} (workflow run ${r.status})`,
         state: "PENDING",

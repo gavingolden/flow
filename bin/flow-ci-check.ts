@@ -34,6 +34,7 @@
  * Output: a single JSON object on stdout.
  *   waiting: { "status": "waiting", "nextCheckSec": 60,
  *              "observation"?: "failed", "observationFailedSec"?: number,
+ *              "rerun"?: { "runId": number, "ok": boolean, "error"?: string },
  *              "polls": number, "elapsedSec": number,
  *              "copilotConfigured": boolean, "ciConfigured": boolean }
  *   decided: { "status": "decided", "decision": Decision, "polls": number,
@@ -185,10 +186,13 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         i++;
         continue;
       case "--rerun": {
-        const m = value ? /(\d+)\/?$/.exec(value) : null;
+        const m = value
+          ? (/^(\d+)$/.exec(value) ??
+            /\/actions\/runs\/(\d+)(?:[/?#]|$)/.exec(value))
+          : null;
         if (!m)
           return {
-            error: `--rerun requires a run id or run URL ending in digits, got '${value ?? ""}'`,
+            error: `--rerun requires a bare run id or a run URL containing /actions/runs/<id>, got '${value ?? ""}'`,
           };
         out.rerun = Number.parseInt(m[1], 10);
         i++;
@@ -226,6 +230,7 @@ export type CheckResult =
       nextCheckSec: 60;
       observation?: "failed";
       observationFailedSec?: number;
+      rerun?: { runId: number; ok: boolean; error?: string };
       polls: number;
       elapsedSec: number;
       copilotConfigured: boolean;
@@ -442,16 +447,64 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   };
 
   if (parsed.rerun !== undefined) {
-    const rr = gh(["run", "rerun", String(parsed.rerun)]);
-    if (rr.exitCode !== 0) {
+    const rerunPr = observePr(parsed.pr, gh);
+    if (!rerunPr || rerunPr.headRefOid === "") {
       process.stderr.write(
-        `flow-ci-check: NOTICE gh run rerun ${parsed.rerun} failed (exit ${rr.exitCode}): ${rr.stderr.trim()} — continuing\n`,
+        "flow-ci-check: --rerun skipped — head SHA unreadable, retry next poll\n",
       );
+      persistRecord();
+      emit({
+        status: "waiting",
+        nextCheckSec: FLAT_CADENCE_SEC,
+        observation: "failed",
+        observationFailedSec: 0,
+        polls: record.checks,
+        elapsedSec: 0,
+        copilotConfigured: false,
+        ciConfigured: readWorkflowsDir(),
+      });
+      return 0;
     }
-    // A re-run keeps the head SHA, so the SHA-change reset never fires:
-    // start a fresh cycle (20-min cap, Copilot window) explicitly.
-    record = freshRecord(parsed.pr, nowMs);
-    persistRecord();
+    const headSha = rerunPr.headRefOid;
+    if (record.rerunHeadSha === headSha) {
+      process.stderr.write(
+        `flow-ci-check: NOTICE --rerun refused — a re-run already fired for head ${headSha.slice(0, 7)}; polling normally\n`,
+      );
+    } else {
+      const rr = gh(["run", "rerun", String(parsed.rerun)]);
+      const rerun: { runId: number; ok: boolean; error?: string } = {
+        runId: parsed.rerun,
+        ok: rr.exitCode === 0,
+      };
+      if (!rerun.ok) {
+        rerun.error = `gh run rerun exit ${rr.exitCode}: ${rr.stderr.trim()}`;
+        process.stderr.write(`flow-ci-check: NOTICE ${rerun.error}\n`);
+      }
+      // The re-run keeps the head SHA, so the SHA-change reset never fires:
+      // start a fresh cycle (20-min cap, Copilot window) explicitly, and
+      // remember the SHA so a second re-run is refused.
+      record = freshRecord(parsed.pr, nowMs);
+      record.headSha = headSha;
+      record.rerunHeadSha = headSha;
+      persistRecord();
+      try {
+        fs.rmSync(outPath, { force: true });
+      } catch {
+        // best-effort: a stale verdict is re-decided by the next poll anyway
+      }
+      // GitHub applies the re-run asynchronously; polling now would read the
+      // still-completed failed run. Let the step-7 ladder poll on its cadence.
+      emit({
+        status: "waiting",
+        nextCheckSec: FLAT_CADENCE_SEC,
+        rerun,
+        polls: record.checks,
+        elapsedSec: 0,
+        copilotConfigured: false,
+        ciConfigured: readWorkflowsDir(),
+      });
+      return 0;
+    }
   }
 
   const ciConfigured = readWorkflowsDir();
@@ -577,10 +630,11 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   if (
     ciConfigured &&
     prInfo.state === "OPEN" &&
-    prInfo.headRefOid !== "" &&
     shouldReadRuns(observedChecks)
   ) {
-    const runs = readWorkflowRuns(prInfo.headRefOid);
+    // An unreadable head SHA fails closed: null holds CI pending.
+    const runs =
+      prInfo.headRefOid === "" ? null : readWorkflowRuns(prInfo.headRefOid);
     checksList = mergeRunChecks(observedChecks, runs);
     if (runs === null) {
       process.stderr.write(

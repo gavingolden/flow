@@ -719,15 +719,16 @@ export function decide(inputs: Inputs): DecisionResult {
     };
   }
 
-  // Row 7 — ci-wait; every PR check has reached a terminal state. Empty list
-  // means "CI hasn't reported yet" per polling-protocol.md, NOT terminal.
+  // Row 7 — ci-wait; checks all passed and the head commit has no failed,
+  // queued or running pull-request workflow run. Empty list means "CI hasn't
+  // reported yet" per polling-protocol.md, NOT done.
   if (inputs.ciState.kind !== "all-terminal") {
     return {
       resumeAt: "step-7",
       reason:
         inputs.ciState.kind === "no-checks-reported"
           ? "CI configured but no checks reported yet"
-          : "CI checks still pending",
+          : "CI checks pending or failed",
       context: ctx,
     };
   }

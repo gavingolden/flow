@@ -1180,6 +1180,29 @@ describe("run() — merge mode", () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
+    it("refuses checks-failed when gh reports no checks but a run failed at startup", () => {
+      seedMerge("wr6");
+      const spy = vi.fn(okMerge);
+      const { exit, out } = runMerge(["merge", "5", "--slug", "wr6"], {
+        gh: ghFor({
+          checks: {
+            stdout: "",
+            stderr: "no checks reported on the 'x' branch",
+            exitCode: 1,
+          },
+        }),
+        runMerge: spy,
+        readWorkflowRuns: () => [
+          { ...failedRun, conclusion: "startup_failure" },
+        ],
+      });
+      expect(exit).toBe(1);
+      expect(out.reason).toBe(
+        "checks-failed: Build (workflow run startup_failure)",
+      );
+      expect(spy).not.toHaveBeenCalled();
+    });
+
     it("refuses checks-unreadable when the workflow runs read is null, and never merges", () => {
       seedMerge("wr2");
       const spy = vi.fn(okMerge);

@@ -833,15 +833,15 @@ describe(deriveRunChecks, () => {
     expect(c.state).toBe("STARTUP_FAILURE");
     expect(c.name).toBe("Build (workflow run startup_failure)");
   });
-  it("maps queued and in_progress runs to PENDING", () => {
-    for (const status of ["queued", "in_progress"]) {
+  it("maps queued, in_progress, requested and pending runs to PENDING", () => {
+    for (const status of ["queued", "in_progress", "requested", "pending"]) {
       expect(
         deriveRunChecks([run({ status, conclusion: "" })]).map((c) => c.state),
       ).toEqual(["PENDING"]);
     }
   });
   it("ignores approval-parked runs", () => {
-    for (const status of ["waiting", "requested", "pending", "action_required"])
+    for (const status of ["waiting", "action_required"])
       expect(deriveRunChecks([run({ status, conclusion: "" })])).toEqual([]);
     expect(deriveRunChecks([run({ conclusion: "action_required" })])).toEqual(
       [],
@@ -852,6 +852,14 @@ describe(deriveRunChecks, () => {
       deriveRunChecks([
         run({}),
         run({ databaseId: 2, workflowId: 11, conclusion: "skipped" }),
+      ]),
+    ).toEqual([]);
+  });
+  it("lets a newer push run supersede an older cancelled pull_request run", () => {
+    expect(
+      deriveRunChecks([
+        run({ databaseId: 1, event: "pull_request", conclusion: "cancelled" }),
+        run({ databaseId: 2, event: "push", conclusion: "success" }),
       ]),
     ).toEqual([]);
   });
