@@ -60,6 +60,13 @@ import {
 import { flowStateDir } from "./lib/paths";
 import { overlayPluginRoots } from "./lib/skill-overlay";
 import { resolveSlugAmbient } from "./lib/session-identity";
+import {
+  FAILED_CHECK_STATES,
+  PENDING_CHECK_STATES,
+  deriveCheckState,
+  mergeRunChecks,
+} from "./lib/ci-decision";
+import { observeWorkflowRuns } from "./lib/ci-observe";
 import { checkpointBodyPath, checkpointMarkerPath } from "./flow-checkpoint";
 import { isCheckpointUsable } from "./lib/checkpoint-freshness";
 import {
@@ -320,9 +327,6 @@ const POST_VERIFY_PHASES = new Set([
   "merged",
   "gated",
 ]);
-
-// Row 7 lookup: which check states count as still-pending.
-const PENDING_CHECK_STATES = new Set(["PENDING", "QUEUED", "IN_PROGRESS"]);
 
 // --- Pure decision function -----------------------------------------------
 
@@ -715,15 +719,16 @@ export function decide(inputs: Inputs): DecisionResult {
     };
   }
 
-  // Row 7 — ci-wait; every PR check has reached a terminal state. Empty list
-  // means "CI hasn't reported yet" per polling-protocol.md, NOT terminal.
+  // Row 7 — ci-wait; checks all passed and the head commit has no failed,
+  // queued or running pull-request workflow run. Empty list means "CI hasn't
+  // reported yet" per polling-protocol.md, NOT done.
   if (inputs.ciState.kind !== "all-terminal") {
     return {
       resumeAt: "step-7",
       reason:
         inputs.ciState.kind === "no-checks-reported"
           ? "CI configured but no checks reported yet"
-          : "CI checks still pending",
+          : "CI checks pending or failed",
       context: ctx,
     };
   }
@@ -844,7 +849,13 @@ export function probeSkillAdditions(
   return false;
 }
 
-/** Polls `gh pr checks <pr> --json name,state` and classifies the result. */
+/**
+ * Polls `gh pr checks <pr> --json name,state` and classifies the result.
+ * `gh pr checks --json` exits 0 on failed checks, so a failed check routes
+ * to the CI wait (`pending`) like an unfinished one. All-passed checks are
+ * then cross-checked against the head commit's workflow runs (flow#1052):
+ * a failed, unfinished or unreadable run also routes to the CI wait.
+ */
 export function probeCi(prNumber: number, gh: GhRunner): CiState {
   const r = gh(["pr", "checks", String(prNumber), "--json", "name,state"]);
   if (r.exitCode !== 0) return { kind: "no-checks-reported" };
@@ -858,9 +869,26 @@ export function probeCi(prNumber: number, gh: GhRunner): CiState {
     return { kind: "no-checks-reported" };
   }
   for (const check of parsed) {
-    if (PENDING_CHECK_STATES.has(check.state)) return { kind: "pending" };
+    if (
+      PENDING_CHECK_STATES.has(check.state) ||
+      FAILED_CHECK_STATES.has(check.state)
+    )
+      return { kind: "pending" };
   }
-  return { kind: "all-terminal" };
+  const head = gh(["pr", "view", String(prNumber), "--json", "headRefOid"]);
+  if (head.exitCode !== 0) return { kind: "pending" };
+  let headSha = "";
+  try {
+    const h = JSON.parse(head.stdout) as { headRefOid?: unknown };
+    if (typeof h.headRefOid === "string") headSha = h.headRefOid;
+  } catch {
+    return { kind: "pending" };
+  }
+  if (headSha === "") return { kind: "pending" };
+  const merged = mergeRunChecks(parsed, observeWorkflowRuns(headSha, gh));
+  return deriveCheckState(merged).kind === "all-passed"
+    ? { kind: "all-terminal" }
+    : { kind: "pending" };
 }
 
 // --- CLI -------------------------------------------------------------------

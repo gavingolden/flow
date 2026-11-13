@@ -31,6 +31,7 @@ import {
   type Check,
   type PrState,
   type Review,
+  type WorkflowRun,
 } from "./ci-decision";
 
 type CmdResult = { stdout: string; stderr: string; exitCode: number };
@@ -481,6 +482,61 @@ export function observeChecks(prNumber: number, gh: GhRunner): TimedCheck[] {
       }));
   } catch {
     return [];
+  }
+}
+
+/**
+ * Reads the workflow runs for a head commit. Unlike `observeChecks`, an
+ * unreadable list returns `null`, never `[]`: an empty list reads as green,
+ * which would recreate flow#1052 whenever `gh` hiccups. Callers must treat
+ * `null` as not-green.
+ */
+export function observeWorkflowRuns(
+  headSha: string,
+  gh: GhRunner,
+): WorkflowRun[] | null {
+  const r = gh([
+    "run",
+    "list",
+    "--commit",
+    headSha,
+    "--limit",
+    "100",
+    "--json",
+    "databaseId,workflowDatabaseId,workflowName,name,event,status,conclusion,url",
+  ]);
+  if (r.exitCode !== 0) return null;
+  try {
+    const parsed: unknown = JSON.parse(r.stdout);
+    if (!Array.isArray(parsed)) return null;
+    const runs: WorkflowRun[] = [];
+    for (const row of parsed as Array<Record<string, unknown>>) {
+      if (
+        !row ||
+        typeof row.databaseId !== "number" ||
+        typeof row.event !== "string" ||
+        typeof row.status !== "string"
+      )
+        continue;
+      const name =
+        (typeof row.workflowName === "string" && row.workflowName) ||
+        (typeof row.name === "string" && row.name) ||
+        `run ${row.databaseId}`;
+      runs.push({
+        databaseId: row.databaseId,
+        ...(typeof row.workflowDatabaseId === "number"
+          ? { workflowId: row.workflowDatabaseId }
+          : {}),
+        name,
+        event: row.event,
+        status: row.status,
+        conclusion: typeof row.conclusion === "string" ? row.conclusion : "",
+        ...(typeof row.url === "string" ? { url: row.url } : {}),
+      });
+    }
+    return runs;
+  } catch {
+    return null;
   }
 }
 

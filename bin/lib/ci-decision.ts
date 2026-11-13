@@ -22,7 +22,7 @@ export type Decision =
   | "pr-blocked"
   | "ci-hang";
 
-export type Check = { name: string; state: string };
+export type Check = { name: string; state: string; url?: string };
 
 export type CheckState =
   | { kind: "no-checks-reported" }
@@ -125,6 +125,89 @@ export function deriveCheckState(checks: Check[]): CheckState {
   const failed = checks.filter((c) => FAILED_CHECK_STATES.has(c.state));
   if (failed.length > 0) return { kind: "failed", failedChecks: failed };
   return { kind: "all-passed" };
+}
+
+/**
+ * One row of `gh run list --commit <sha>`: a workflow run at its latest
+ * attempt. `conclusion` is lowercase as gh reports it, `""` while unfinished.
+ */
+export type WorkflowRun = {
+  databaseId: number;
+  workflowId?: number;
+  name: string;
+  event: string;
+  status: string;
+  conclusion: string;
+  url?: string;
+};
+
+/**
+ * Maps the head commit's workflow runs to synthetic check entries. A workflow
+ * that fails before creating its jobs leaves no failing row in `gh pr checks`
+ * (flow#1052), so the run itself is the evidence. The newest run per
+ * workflow (any event) wins, then only PR-trigger events count; approval-parked
+ * runs (waiting/action_required) and skipped/successful runs
+ * produce nothing.
+ */
+export function deriveRunChecks(runs: WorkflowRun[]): Check[] {
+  const newest = new Map<string, WorkflowRun>();
+  for (const r of runs) {
+    const key =
+      r.workflowId !== undefined ? `id:${r.workflowId}` : `name:${r.name}`;
+    const cur = newest.get(key);
+    if (!cur || r.databaseId > cur.databaseId) newest.set(key, r);
+  }
+  const out: Check[] = [];
+  for (const r of newest.values()) {
+    if (!QUALIFYING_PR_TRIGGERS.has(r.event)) continue;
+    const url = r.url ? { url: r.url } : {};
+    if (
+      r.status === "queued" ||
+      r.status === "in_progress" ||
+      r.status === "requested" ||
+      r.status === "pending"
+    ) {
+      out.push({
+        name: `${r.name} (workflow run ${r.status})`,
+        state: "PENDING",
+        ...url,
+      });
+    } else if (
+      r.status === "completed" &&
+      FAILED_CHECK_STATES.has(r.conclusion.toUpperCase())
+    ) {
+      out.push({
+        name: `${r.name} (workflow run ${r.conclusion.toLowerCase()})`,
+        state: r.conclusion.toUpperCase(),
+        ...url,
+      });
+    }
+  }
+  return out;
+}
+
+/** True when the check list is green or empty, i.e. a runs read can change the verdict. */
+export function shouldReadRuns(checks: Check[]): boolean {
+  const kind = deriveCheckState(checks).kind;
+  return kind === "all-passed" || kind === "no-checks-reported";
+}
+
+/**
+ * Appends the run-derived entries to a green/empty check list; any other
+ * list is returned unchanged. A `null` runs read (unreadable) appends a
+ * PENDING entry so it can never read as green.
+ */
+export function mergeRunChecks<C extends Check>(
+  checks: C[],
+  runs: WorkflowRun[] | null,
+): Array<C | Check> {
+  if (!shouldReadRuns(checks)) return checks;
+  if (runs === null)
+    return [
+      ...checks,
+      { name: "workflow runs (unreadable)", state: "PENDING" },
+    ];
+  return [...checks, ...deriveRunChecks(runs)];
 }
 
 /**

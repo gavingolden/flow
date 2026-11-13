@@ -408,6 +408,8 @@ export type CiWaitRecord = {
   checks: number;
   copilotRetriggered: boolean;
   copilotRetriggeredAt?: string;
+  /** Head SHA a `flow-ci-check --rerun` already fired for; survives the cycle reset. */
+  rerunHeadSha?: string;
 };
 
 /**
@@ -927,6 +929,8 @@ export function isCiWaitRecord(x: unknown): x is CiWaitRecord {
     o.copilotRetriggeredAt !== undefined &&
     typeof o.copilotRetriggeredAt !== "string"
   )
+    return false;
+  if (o.rerunHeadSha !== undefined && typeof o.rerunHeadSha !== "string")
     return false;
   return true;
 }

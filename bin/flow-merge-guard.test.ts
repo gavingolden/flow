@@ -614,6 +614,7 @@ describe("run() — merge mode", () => {
     body?: string;
     prState?: string;
     checks?: { stdout: string; stderr?: string; exitCode?: number };
+    noHead?: boolean;
   }) {
     return vi.fn((argv: string[]) => {
       if (argv[1] === "comment") return { stdout: "", stderr: "", exitCode: 0 };
@@ -623,6 +624,7 @@ describe("run() — merge mode", () => {
             body: opts.body ?? NO_UNCHECKED,
             state: opts.prState ?? "OPEN",
             url: "https://x/y/pull/5",
+            ...(opts.noHead ? {} : { headRefOid: "headsha1" }),
           }),
           stderr: "",
           exitCode: 0,
@@ -661,6 +663,7 @@ describe("run() — merge mode", () => {
         now: () => NOW,
         resolveSlug: () => null,
         epicsDir: path.join(stateDir, "epics"),
+        readWorkflowRuns: () => [],
         ...deps,
       });
     } finally {
@@ -1148,6 +1151,106 @@ describe("run() — merge mode", () => {
     expect(same.exit).toBe(0);
   });
 
+  describe("workflow run cross-check", () => {
+    const failedRun = {
+      databaseId: 9,
+      workflowId: 1,
+      name: "Build",
+      event: "pull_request",
+      status: "completed",
+      conclusion: "failure",
+      url: "https://github.com/o/r/actions/runs/9",
+    };
+
+    it("refuses checks-failed naming the workflow when a head-SHA run failed behind green checks", () => {
+      seedMerge("wr1");
+      const spy = vi.fn(okMerge);
+      const readWorkflowRuns = vi.fn(() => [failedRun]);
+      const { exit, out } = runMerge(["merge", "5", "--slug", "wr1"], {
+        gh: ghFor({}),
+        runMerge: spy,
+        readWorkflowRuns,
+      });
+      expect(exit).toBe(1);
+      expect(out.reason).toBe("checks-failed: Build (workflow run failure)");
+      expect(readWorkflowRuns).toHaveBeenCalledWith(
+        expect.any(Function),
+        "headsha1",
+      );
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("refuses checks-failed when gh reports no checks but a run failed at startup", () => {
+      seedMerge("wr6");
+      const spy = vi.fn(okMerge);
+      const { exit, out } = runMerge(["merge", "5", "--slug", "wr6"], {
+        gh: ghFor({
+          checks: {
+            stdout: "",
+            stderr: "no checks reported on the 'x' branch",
+            exitCode: 1,
+          },
+        }),
+        runMerge: spy,
+        readWorkflowRuns: () => [
+          { ...failedRun, conclusion: "startup_failure" },
+        ],
+      });
+      expect(exit).toBe(1);
+      expect(out.reason).toBe(
+        "checks-failed: Build (workflow run startup_failure)",
+      );
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("refuses checks-unreadable when the workflow runs read is null, and never merges", () => {
+      seedMerge("wr2");
+      const spy = vi.fn(okMerge);
+      const { out } = runMerge(["merge", "5", "--slug", "wr2"], {
+        gh: ghFor({}),
+        runMerge: spy,
+        readWorkflowRuns: () => null,
+      });
+      expect(out.reason).toBe("checks-unreadable: workflow runs");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("refuses checks-unreadable when the PR has no head SHA", () => {
+      seedMerge("wr3");
+      const spy = vi.fn(okMerge);
+      const { out } = runMerge(["merge", "5", "--slug", "wr3"], {
+        gh: ghFor({ noHead: true }),
+        runMerge: spy,
+      });
+      expect(out.reason).toBe("checks-unreadable: no head SHA");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("refuses checks-pending while a pull_request run is in progress", () => {
+      seedMerge("wr4");
+      const { out } = runMerge(["merge", "5", "--slug", "wr4"], {
+        gh: ghFor({}),
+        runMerge: vi.fn(okMerge),
+        readWorkflowRuns: () => [
+          { ...failedRun, status: "in_progress", conclusion: "" },
+        ],
+      });
+      expect(out.reason).toBe("checks-pending");
+    });
+
+    it("merges when the head-SHA runs are clean", () => {
+      seedMerge("wr5");
+      const spy = vi.fn(okMerge);
+      const { exit } = runMerge(["merge", "5", "--slug", "wr5"], {
+        gh: ghFor({}),
+        runMerge: spy,
+        readWorkflowRuns: () => [{ ...failedRun, conclusion: "success" }],
+      });
+      expect(exit).toBe(0);
+      expect(spy).toHaveBeenCalledOnce();
+    });
+  });
+
   describe("epic board row check", () => {
     const boardWith = (status: "merged" | "not-started") =>
       JSON.stringify({
@@ -1293,14 +1396,14 @@ describe("run() — merge mode", () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it("refuses epic-row-unverifiable when gh returns no head commit", () => {
+    it("refuses checks-unreadable before the epic row when gh returns no head commit", () => {
       seedEpic("e5");
       const { out } = runMerge(["merge", "5", "--slug", "e5"], {
-        gh: ghFor({}),
+        gh: ghFor({ noHead: true }),
         runMerge: vi.fn(okMerge),
         readHeadBoard: () => ({ kind: "ok", text: boardWith("merged") }),
       });
-      expect(out.reason).toContain("epic-row-unverifiable");
+      expect(out.reason).toBe("checks-unreadable: no head SHA");
     });
 
     it("refuses epic-binding-conflict when the tag and run.json disagree", () => {
@@ -1487,6 +1590,7 @@ describe("UI review backstop", () => {
               state: "OPEN",
               url: "https://x/y/pull/5",
               baseRefName: "release",
+              headRefOid: "headsha1",
             }),
             stderr: "",
             exitCode: 0,
@@ -1506,6 +1610,7 @@ describe("UI review backstop", () => {
       now: () => NOW,
       resolveSlug: () => null,
       runMerge,
+      readWorkflowRuns: () => [],
       uiReview: {
         changedFiles: (_w, base) => {
           bases.push(base);
