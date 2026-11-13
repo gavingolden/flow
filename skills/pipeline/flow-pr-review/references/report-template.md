@@ -33,7 +33,9 @@ never authored by hand.
 
 ### Findings
 
-Group findings by file. Within each file, order by line number. Each finding MUST include
+Group findings by file. Within each file, order by line number. PR-body findings
+(`target: "pr-body"`, no file) render in their own `#### PR description` group, by
+section, after the file groups. Each finding MUST include
 a **Status** line recording whether it was addressed in this run or deferred. Silent skips
 are forbidden — every finding above the confidence threshold (or praise) appears here.
 

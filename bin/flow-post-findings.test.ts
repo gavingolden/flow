@@ -7,12 +7,15 @@ import {
   fetchHeadSha,
   formatSummary,
   parseArgs,
+  formatPrBodyBlock,
   parseFindings,
   postAll,
   run,
   type Finding,
   type PostSummary,
 } from "./flow-post-findings";
+
+const noFs = { writeFile: vi.fn(), removeFile: vi.fn() };
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 
@@ -21,7 +24,7 @@ describe(parseFindings, () => {
     const input = JSON.stringify([
       { file: "src/a.ts", line: 10, body: "issue" },
     ]);
-    expect(parseFindings(input)).toEqual([
+    expect(parseFindings(input).inline).toEqual([
       { file: "src/a.ts", line: 10, body: "issue" },
     ]);
   });
@@ -30,7 +33,7 @@ describe(parseFindings, () => {
     const input = JSON.stringify([
       { file: "a.ts", line: 5, end_line: 12, body: "x" },
     ]);
-    expect(parseFindings(input)).toEqual([
+    expect(parseFindings(input).inline).toEqual([
       { file: "a.ts", line: 5, end_line: 12, body: "x" },
     ]);
   });
@@ -39,7 +42,7 @@ describe(parseFindings, () => {
     const input = JSON.stringify([
       { file: "a.ts", line: 5, end_line: 5, body: "x" },
     ]);
-    expect(parseFindings(input)).toEqual([
+    expect(parseFindings(input).inline).toEqual([
       { file: "a.ts", line: 5, body: "x" },
     ]);
   });
@@ -48,14 +51,14 @@ describe(parseFindings, () => {
     const input = JSON.stringify([
       { file: "a.ts", line: 1, side: "LEFT", body: "x" },
     ]);
-    expect(parseFindings(input)).toEqual([
+    expect(parseFindings(input).inline).toEqual([
       { file: "a.ts", line: 1, side: "LEFT", body: "x" },
     ]);
   });
 
   it("accepts `path` as an alias for `file`", () => {
     const input = JSON.stringify([{ path: "src/a.ts", line: 1, body: "x" }]);
-    expect(parseFindings(input)).toEqual([
+    expect(parseFindings(input).inline).toEqual([
       { file: "src/a.ts", line: 1, body: "x" },
     ]);
   });
@@ -326,6 +329,7 @@ describe("run() integration", () => {
       gh,
       readFile,
       env: {},
+      ...noFs,
     });
     logSpy.mockRestore();
     expect(exit).toBe(0);
@@ -357,6 +361,7 @@ describe("run() integration", () => {
       gh,
       readFile,
       env: {},
+      ...noFs,
     });
     logSpy.mockRestore();
     expect(exit).toBe(1);
@@ -372,6 +377,7 @@ describe("run() integration", () => {
       gh,
       readFile,
       env: {},
+      ...noFs,
     });
     logSpy.mockRestore();
     expect(exit).toBe(0);
@@ -388,7 +394,11 @@ describe("run() integration", () => {
     const gh = vi.fn();
     const readFile = vi.fn(async () => "[]");
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const exit = await run(["100", "--file", "f.json"], { gh, readFile });
+    const exit = await run(["100", "--file", "f.json"], {
+      gh,
+      readFile,
+      ...noFs,
+    });
     logSpy.mockRestore();
     expect(exit).toBe(0);
     expect(gh).not.toHaveBeenCalled();
@@ -455,6 +465,7 @@ describe("run() idempotent posting", () => {
       run(["100", "--file", "f.json", "--head-sha", SHA], {
         gh,
         env: {},
+        ...noFs,
         readFile: findingsFile({ file: "a.ts", line: 1, body: "x\n" }),
       }),
     );
@@ -473,6 +484,7 @@ describe("run() idempotent posting", () => {
       run(["100", "--file", "f.json", "--head-sha", SHA], {
         gh,
         env: {},
+        ...noFs,
         readFile: findingsFile(f, f),
       }),
     );
@@ -496,6 +508,7 @@ describe("run() idempotent posting", () => {
       run(["100", "--file", "f.json", "--head-sha", SHA], {
         gh,
         env: {},
+        ...noFs,
         readFile: findingsFile({ file: "a.ts", line: 1, body: "x" }),
       }),
     );
@@ -516,6 +529,7 @@ describe("run() idempotent posting", () => {
       run(["100", "--file", "f.json", "--head-sha", SHA], {
         gh,
         env: {},
+        ...noFs,
         readFile: findingsFile({
           file: "a.ts",
           line: 5,
@@ -546,6 +560,7 @@ describe("run() idempotent posting", () => {
       run(["100", "--file", "f.json", "--head-sha", SHA], {
         gh,
         env: {},
+        ...noFs,
         readFile: findingsFile({ file: "a.ts", line: 2, body: "old" }),
       }),
     );
@@ -702,5 +717,131 @@ describe("run() own-PR check", () => {
     expect(refused.v).toBe(2);
     expect(refusedDedupe.v).toBe(2);
     expect(gh).not.toHaveBeenCalled();
+  });
+});
+
+describe("PR-description findings", () => {
+  const prEntry = {
+    target: "pr-body",
+    section: "Test Steps",
+    body: "Step 2 is vague",
+  };
+  const codeEntry = { file: "a.ts", line: 1, body: "x" };
+  const file = (...f: object[]) => vi.fn(async () => JSON.stringify(f));
+  const isPost = (c: [string[]]) => c[0].includes("-f");
+
+  it("partitions pr-body entries away from inline ones", () => {
+    const r = parseFindings(JSON.stringify([codeEntry, prEntry]));
+    expect(r.inline).toEqual([codeEntry]);
+    expect(r.prBody).toEqual([
+      { section: "Test Steps", body: "Step 2 is vague" },
+    ]);
+  });
+
+  it("posts one inline comment, prints and writes the block for a mixed file", async () => {
+    const gh = vi.fn(() => ok());
+    const writeFile = vi.fn();
+    const { out, v } = await silent(() =>
+      run(["100", "--file", "/w/.flow-tmp/f.json", "--head-sha", SHA], {
+        gh,
+        env: {},
+        readFile: file(codeEntry, prEntry),
+        writeFile,
+        removeFile: vi.fn(),
+      }),
+    );
+    expect(v).toBe(0);
+    expect((gh.mock.calls as unknown as GhArgs).filter(isPost)).toHaveLength(1);
+    expect(out.join("\n")).toContain("#### PR description findings");
+    expect(writeFile).toHaveBeenCalledWith(
+      "/w/.flow-tmp/pr-body-findings.md",
+      expect.stringContaining("- [Test Steps] Step 2 is vague"),
+    );
+  });
+
+  it("makes no gh call for a pr-body-only file and exits 0", async () => {
+    const gh = vi.fn();
+    const { v } = await silent(() =>
+      run(["100", "--file", "f.json"], {
+        gh,
+        env: {},
+        readFile: file(prEntry),
+        ...noFs,
+      }),
+    );
+    expect(v).toBe(0);
+    expect(gh).not.toHaveBeenCalled();
+  });
+
+  it("exits 2 naming the entry when a pr-body body is empty", async () => {
+    const { v } = await silent(() =>
+      run(["100", "--file", "f.json"], {
+        gh: vi.fn(),
+        env: {},
+        readFile: file(codeEntry, { target: "pr-body", body: "" }),
+        ...noFs,
+      }),
+    );
+    expect(v).toBe(2);
+    expect(() =>
+      parseFindings(
+        JSON.stringify([codeEntry, { target: "pr-body", body: "" }]),
+      ),
+    ).toThrow("Entry 1");
+  });
+
+  it("removes a stale block file for a code-only file, and touches no file on stdin", async () => {
+    const removeFile = vi.fn();
+    const writeFile = vi.fn();
+    await silent(() =>
+      run(["100", "--file", "/w/f.json", "--head-sha", SHA], {
+        gh: vi.fn(() => ok()),
+        env: {},
+        readFile: file(codeEntry),
+        removeFile,
+        writeFile,
+      }),
+    );
+    expect(removeFile).toHaveBeenCalledWith("/w/pr-body-findings.md");
+    const removeStdin = vi.fn();
+    const writeStdin = vi.fn();
+    await silent(() =>
+      run(["100", "--head-sha", SHA], {
+        gh: vi.fn(() => ok()),
+        env: {},
+        readStdin: async () => JSON.stringify([prEntry]),
+        removeFile: removeStdin,
+        writeFile: writeStdin,
+      }),
+    );
+    expect(removeStdin).not.toHaveBeenCalled();
+    expect(writeStdin).not.toHaveBeenCalled();
+  });
+
+  it("formatPrBodyBlock renders the heading and section lines, empty for []", () => {
+    const block = formatPrBodyBlock([
+      { section: "Test Steps", body: "a" },
+      { body: "b" },
+    ]);
+    expect(block.split("\n")[0]).toBe("#### PR description findings");
+    expect(block).toContain("- [Test Steps] a");
+    expect(block).toContain("- [PR description] b");
+    expect(formatPrBodyBlock([])).toBe("");
+  });
+
+  it("still writes the block when the inline path's gh call fails", async () => {
+    const writeFile = vi.fn();
+    const gh = vi.fn(() => ({ stdout: "", stderr: "boom", exitCode: 1 }));
+    const { v } = await silent(() =>
+      run(["100", "--file", "/w/f.json"], {
+        gh,
+        env: {},
+        readFile: file(codeEntry, prEntry),
+        writeFile,
+        removeFile: vi.fn(),
+      }),
+    );
+    expect(v).toBe(1);
+    expect(writeFile).toHaveBeenCalledTimes(1);
   });
 });

@@ -687,7 +687,8 @@ The 7 agents:
 | **Product**             | Mismatches between user-visible behaviour/explanation and the product brief's ranked priorities; Test Steps a code-blind reader can follow | `checklists/product.md`                        | `none` (synthetic `meta.ran=false` block) | `agent-output-product.json` | `agents/flow-review-product.md` |
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
-`decoration`, `confidence`, `subject`, `body`. The on-disk artifact at
+`decoration`, `confidence`, `subject`, `body` — plus the optional `target`/`section` pair: a
+`target: "pr-body"` finding is about the PR description and carries no `file`/`line`/`end_line`. The on-disk artifact at
 `$WORKTREE/.flow-tmp/agent-output-<lens>.json` carries three top-level keys — `findings`, `rejected_alternatives`, `anti_patterns_found` — per the per-agent schema validated at Step 3.5.
 
 Wait for all spawned agents to complete before proceeding — the ungated
@@ -880,13 +881,15 @@ weighing, vagueness-as-signal rule, and the artifact shape are in
 Read `consolidator-result.json` once (already validated in Step 3.5).
 Iterate `consolidated_findings[]`. Each finding has a `finding_id`,
 `agent_source`, and the standard fields `{file, line, end_line, label,
-decoration, confidence, subject, body}`. The confidence threshold
+decoration, confidence, subject, body}` plus the optional `target`/`section`
+(a `target: "pr-body"` finding has no `file`/`line`/`end_line`). The confidence threshold
 (>=80 for non-praise; praise exempt), the `(file, line ± 2 lines
 window, issue-class)` dedup, the praise-specificity filter, and the
 second-opinion validation pass have already been applied by the
 consolidator — the wrapper does not re-derive any of those filters
 here. Sort the surviving findings: blocking first, then by file path,
-then by line number. Hand off to Step 5 (Auto-Apply Path Decision).
+then by line number; PR-body findings sort after the code findings within the
+same blocking tier. Hand off to Step 5 (Auto-Apply Path Decision).
 
 The consolidator's `dropped_by_validation[]` is surfaced in the Step
 12 report under a "dropped during validation" disposition so the
@@ -1370,6 +1373,8 @@ flow-post-findings <pr-number> --file <WORKTREE>/.flow-tmp/findings-post.json
 
 Each entry: `{"file": "src/foo.ts", "line": 42, "end_line": 48, "side": "RIGHT", "body": "<conventional-comment-body>"}`.
 
+A PR-description finding has no code line, so its entry is `{"target": "pr-body", "section": "Test Steps", "body": "<conventional-comment-body>"}`. Include every consolidated PR-body finding in `findings-post.json`: the helper never posts them inline, and instead writes a `#### PR description findings` block to `<WORKTREE>/.flow-tmp/pr-body-findings.md` (printing it too), which the summary command below concatenates.
+
 - `file` is the PR path (gh's wire field is `path`; the helper accepts either).
 - `line` is the post-fix line number (the line as it appears in the PR's "after" view).
   For a single-line comment, this is *the* line. For a multi-line range, this is the
@@ -1395,16 +1400,15 @@ older run, run `flow-post-findings dedupe <pr-number>` standalone — never `gh 
 `pr-not-owned` (exit 2): not this pipeline's PR, nothing posted — log one line, continue. A failed existing-comment read (exit 1) posts nothing: add `inline comments not posted: <reason> — re-run flow-post-findings <pr-number> --file <path>` to the summary below.
 
 For the top-level review summary (counts by label, suppression note, conventional-comments
-link), use a regular issue comment:
+link), use a regular issue comment. Write the summary body to
+`<WORKTREE>/.flow-tmp/review-summary.md`, then post it with the helper's PR-description block
+appended by the command itself (never hand-copied):
 
 ```bash
-gh pr comment <number> --body-file <(cat <<'EOF'
-<summary-body>
-EOF
-)
+gh pr comment <number> --body-file <(cat <WORKTREE>/.flow-tmp/review-summary.md; [ -f <WORKTREE>/.flow-tmp/pr-body-findings.md ] && cat <WORKTREE>/.flow-tmp/pr-body-findings.md)
 ```
 
-If there are any `blocking` findings, say so explicitly in the summary body — the
+If there are any `blocking` findings (a blocking PR-body finding counts), say so explicitly in the summary body — the
 inline-comments approach has no equivalent of `event="REQUEST_CHANGES"`, so the user
 needs to see the blocking flag in the summary itself.
 

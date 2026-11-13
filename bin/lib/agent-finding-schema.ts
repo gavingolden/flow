@@ -14,7 +14,9 @@
  *   where each finding has the documented shape from
  *   `skills/pipeline/flow-pr-review/references/agent-prompts.md` (`file`,
  *   `line`, optional `end_line`, `label`, `decoration`, `confidence`,
- *   `subject`, `body`).
+ *   `subject`, `body`). A finding about the PR description instead sets
+ *   `target: "pr-body"` (optional `section`) and carries no
+ *   `file`/`line`/`end_line`; an absent `target` means a code finding.
  *
  * - `validateConsolidatorResult(parsed)` — validates the Consolidator-
  *   Validator subagent's output artifact at
@@ -58,16 +60,27 @@ import {
   normalizeNegativeEntry,
 } from "./negative-findings-schema";
 
-export type Finding = {
-  file: string;
-  line: number;
-  end_line?: number;
+type FindingCommon = {
   label: string;
   decoration?: string | null;
   confidence: number;
   subject: string;
   body: string;
 };
+
+export type CodeFinding = FindingCommon & {
+  target?: "code";
+  file: string;
+  line: number;
+  end_line?: number;
+};
+
+export type PrBodyFinding = FindingCommon & {
+  target: "pr-body";
+  section?: string;
+};
+
+export type Finding = CodeFinding | PrBodyFinding;
 
 export type AgentFindings = {
   findings: Finding[];
@@ -137,6 +150,12 @@ export const VALID_LABELS: ReadonlySet<string> = new Set([
   "question",
 ]);
 
+export const VALID_TARGETS: ReadonlySet<string> = new Set(["code", "pr-body"]);
+
+export function isPrBodyFinding(f: unknown): f is PrBodyFinding {
+  return isPlainObject(f) && f.target === "pr-body";
+}
+
 export const VALID_DECORATIONS: ReadonlySet<string> = new Set([
   "blocking",
   "non-blocking",
@@ -201,6 +220,15 @@ function extractLeadingFileLine(
 export function normalizeFinding(f: unknown): unknown {
   if (!isPlainObject(f)) return f;
   const out: Record<string, unknown> = { ...f };
+  const prBody = out.target === "pr-body";
+  // why: a PR-description finding has no code location; a stray file/line from
+  // a lens that anchored it anyway must not survive, or the prose recovery
+  // below would resurrect one from the subject.
+  if (prBody) {
+    delete out.file;
+    delete out.line;
+    delete out.end_line;
+  }
   // why: agents intermittently key the short description as `title` instead of
   // the required `subject`, hard-failing validation and sinking the whole
   // consolidator review. Alias title->subject before validation; never clobber
@@ -212,7 +240,7 @@ export function normalizeFinding(f: unknown): unknown {
   // subject 'src/foo.ts:42 — ...') leaves `file` absent and would hard-fail
   // validation, sinking the whole consolidator review. Recover file/line from
   // a leading prefix in subject (then body); never clobber a present field.
-  if (!isNonEmptyString(out.file)) {
+  if (!prBody && !isNonEmptyString(out.file)) {
     const recovered =
       (isString(out.subject) ? extractLeadingFileLine(out.subject) : null) ??
       (isString(out.body) ? extractLeadingFileLine(out.body) : null);
@@ -227,7 +255,7 @@ export function normalizeFinding(f: unknown): unknown {
   // and default to 1 when no prose location is recoverable but `file` is present
   // — a non-blocking finding's exact line is cosmetic for routing, and 1 is an
   // always-valid 1-indexed sentinel that keeps the review from aborting.
-  if (isNonEmptyString(out.file) && !isNumber(out.line)) {
+  if (!prBody && isNonEmptyString(out.file) && !isNumber(out.line)) {
     const recovered =
       (isString(out.subject) ? extractLeadingFileLine(out.subject) : null) ??
       (isString(out.body) ? extractLeadingFileLine(out.body) : null);
@@ -383,14 +411,36 @@ function validateFinding(f: unknown, idx: number): ValidationResult<Finding> {
   if (!isPlainObject(f)) {
     return err(`findings[${idx}] must be an object`);
   }
-  if (!isNonEmptyString(f.file)) {
-    return err(`findings[${idx}].file must be a non-empty string`);
+  if (f.target !== undefined && !VALID_TARGETS.has(f.target as string)) {
+    return err(
+      `findings[${idx}].target must be one of code|pr-body (got ${JSON.stringify(f.target)})`,
+    );
   }
-  if (!isNumber(f.line)) {
-    return err(`findings[${idx}].line must be a number`);
-  }
-  if (f.end_line !== undefined && !isNumber(f.end_line)) {
-    return err(`findings[${idx}].end_line must be a number when present`);
+  if (f.target === "pr-body") {
+    if (
+      f.file !== undefined ||
+      f.line !== undefined ||
+      f.end_line !== undefined
+    ) {
+      return err(
+        `findings[${idx}] targets pr-body and must not carry file/line/end_line`,
+      );
+    }
+    if (f.section !== undefined && !isNonEmptyString(f.section)) {
+      return err(
+        `findings[${idx}].section must be a non-empty string when present`,
+      );
+    }
+  } else {
+    if (!isNonEmptyString(f.file)) {
+      return err(`findings[${idx}].file must be a non-empty string`);
+    }
+    if (!isNumber(f.line)) {
+      return err(`findings[${idx}].line must be a number`);
+    }
+    if (f.end_line !== undefined && !isNumber(f.end_line)) {
+      return err(`findings[${idx}].end_line must be a number when present`);
+    }
   }
   if (!isString(f.label)) {
     return err(`findings[${idx}].label must be a string`);

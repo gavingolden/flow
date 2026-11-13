@@ -5,6 +5,10 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
 import { extractLinks, validateFile } from "./flow-md-validate";
+import {
+  formatPrBodyBlock,
+  PR_BODY_BLOCK_FILENAME,
+} from "./flow-post-findings";
 import { CONTINUE_PHASE_BY_EPIC_STEP } from "./flow-epic-resume-decide";
 import {
   PENDING_PHASES,
@@ -2635,7 +2639,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        516,
+        518,
         "NEVER commit to or push the base branch",
       ],
       [
@@ -13274,5 +13278,82 @@ describe("flow-pr-review shared context block", () => {
     const vars = [...new Set(block.match(/\{\{[A-Z_]+\}\}/g) ?? [])];
     expect(vars).toContain("{{GUIDANCE_PATHS}}");
     for (const v of vars) expect(skillText).toContain(`\`${v}\``);
+  });
+});
+
+describe("PR-body findings contract", () => {
+  const skillPath = (...parts: string[]) =>
+    path.resolve(HERE, "..", "skills", "pipeline", ...parts);
+  const read = (...parts: string[]) =>
+    fs.readFileSync(skillPath(...parts), "utf8");
+  // Text from `heading` up to the next line starting with `until` (or EOF).
+  const between = (text: string, heading: string, until: string): string => {
+    const start = text.indexOf(heading);
+    expect(start, `heading ${heading} not found`).toBeGreaterThanOrEqual(0);
+    const rest = text.slice(start + heading.length);
+    const end = rest.indexOf(until);
+    return end === -1 ? rest : rest.slice(0, end);
+  };
+
+  const promptsText = read("flow-pr-review", "references", "agent-prompts.md");
+  const productChecklist = read(
+    "flow-pr-review",
+    "references",
+    "checklists",
+    "product.md",
+  );
+  const consolidatorText = read("flow-consolidator-instructions", "SKILL.md");
+  const fixApplierText = read("flow-fix-applier-instructions", "SKILL.md");
+  const step10 = between(
+    prReviewContent,
+    "\n## 10. Post Findings to PR",
+    "\n## 11.",
+  );
+
+  it("the shared lens output format teaches the pr-body target", () => {
+    const outputFormat = between(
+      promptsText,
+      "\n## Output Format",
+      "\n## Negative Findings",
+    );
+    expect(outputFormat).toContain('"target": "pr-body"');
+    expect(outputFormat).toContain("every code finding");
+  });
+
+  it("the product lens prompt and checklist no longer anchor Test Steps on a diff line", () => {
+    for (const text of [promptsText, productChecklist]) {
+      expect(text).not.toContain("[test-steps]");
+      expect(text).not.toMatch(/anchor the finding on the diff file/i);
+    }
+    const productAgent = between(
+      promptsText,
+      "\n## Product Agent",
+      "\n## Gemini Cross-Model Lens",
+    );
+    expect(productAgent).toContain('section: "Test Steps"');
+  });
+
+  it("the consolidator never drops a PR-body finding as out-of-diff", () => {
+    expect(consolidatorText).toContain(
+      "claim does not hold against the PR description",
+    );
+    expect(consolidatorText).toMatch(
+      /out-of-diff rule never\s+applies to PR-body findings/,
+    );
+  });
+
+  it("pr-review Step 10 concatenates the helper's block file in the summary command", () => {
+    const heading = formatPrBodyBlock([{ body: "x" }]).split("\n")[0];
+    expect(step10).toContain(heading);
+    const recipe = step10
+      .split("\n")
+      .find((l) => l.startsWith("gh pr comment"));
+    expect(recipe, "Step 10 must carry a gh pr comment recipe").toBeDefined();
+    expect(recipe).toContain(PR_BODY_BLOCK_FILENAME);
+  });
+
+  it("the fix-applier routes PR-body fixes on target, not a subject prefix", () => {
+    expect(fixApplierText).toContain('target: "pr-body"');
+    expect(fixApplierText).not.toContain("[test-steps]");
   });
 });

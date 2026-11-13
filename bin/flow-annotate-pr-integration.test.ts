@@ -157,7 +157,8 @@ describe("integration: full annotator flow", () => {
         body: "**why:** test rationale\n\n<!-- flow-intent-v1 -->",
       })),
     );
-    const findings = parseFindings(findingsJson);
+    const { inline: findings, prBody } = parseFindings(findingsJson);
+    expect(prBody).toEqual([]);
     expect(findings).toHaveLength(1);
     const f: Finding = findings[0];
     expect(f.file).toBe("hello.ts");

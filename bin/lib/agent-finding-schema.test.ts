@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyLensNegatives,
   collectLensNegatives,
+  isPrBodyFinding,
   normalizeFinding,
   normalizeParsedFindings,
   validateAgentFindings,
@@ -2113,5 +2114,92 @@ describe("agent-finding-schema CLI — `--collect-lens-negatives <dir>`", () => 
       const parsed = JSON.parse(result.stdout.trim());
       expect(parsed.ok).toBe(true);
     });
+  });
+});
+
+describe("PR-description findings (target: pr-body)", () => {
+  const prBodyFinding = {
+    target: "pr-body",
+    section: "Test Steps",
+    label: "suggestion",
+    decoration: "non-blocking",
+    confidence: 80,
+    subject: "Test Step assumes the reader opened the code",
+    body: "Step 2 says 'run the helper' without naming the command.",
+  };
+
+  it("validates a pr-body finding with no file/line, also through the --validate CLI", () => {
+    const artifact = { findings: [prBodyFinding] };
+    expect(validateAgentFindings(artifact).ok).toBe(true);
+    withTmpFile(JSON.stringify(artifact), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout.trim()).ok).toBe(true);
+    });
+  });
+
+  it("strips a stray file/line/end_line on normalize, then validates", () => {
+    const normalized = normalizeFinding({
+      ...prBodyFinding,
+      file: "src/foo.ts",
+      line: 314,
+      end_line: 316,
+    }) as Record<string, unknown>;
+    expect(normalized).not.toHaveProperty("file");
+    expect(normalized).not.toHaveProperty("line");
+    expect(normalized).not.toHaveProperty("end_line");
+    expect(validateAgentFindings({ findings: [normalized] }).ok).toBe(true);
+  });
+
+  it("recovers no file/line from a prose prefix on a pr-body finding", () => {
+    const normalized = normalizeFinding({
+      ...prBodyFinding,
+      subject: "src/foo.ts:42 — step is vague",
+    }) as Record<string, unknown>;
+    expect(normalized).not.toHaveProperty("file");
+    expect(normalized).not.toHaveProperty("line");
+  });
+
+  it("rejects an unknown target and names the field", () => {
+    const r = validateAgentFindings({
+      findings: [{ ...prBodyFinding, target: "elsewhere" }],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toContain("target");
+  });
+
+  it("rejects an empty section and names the field", () => {
+    const r = validateAgentFindings({
+      findings: [{ ...prBodyFinding, section: "" }],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toContain("section");
+  });
+
+  it("rejects, without normalization, a pr-body finding that carries file", () => {
+    const r = validateAgentFindings({
+      findings: [{ ...prBodyFinding, file: "src/foo.ts" }],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toContain("must not carry file/line/end_line");
+  });
+
+  it("accepts a pr-body finding inside consolidated_findings", () => {
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
+    fixture.consolidated_findings = [
+      { ...prBodyFinding, finding_id: "product:pr-body:Test Steps:suggestion" },
+    ];
+    expect(validateConsolidatorResult(fixture).ok).toBe(true);
+  });
+
+  it("isPrBodyFinding is true only for target pr-body objects", () => {
+    expect(isPrBodyFinding(prBodyFinding)).toBe(true);
+    expect(isPrBodyFinding({ ...prBodyFinding, target: "code" })).toBe(false);
+    expect(isPrBodyFinding({ file: "a.ts", line: 1 })).toBe(false);
+    expect(isPrBodyFinding(null)).toBe(false);
+    expect(isPrBodyFinding("pr-body")).toBe(false);
   });
 });
