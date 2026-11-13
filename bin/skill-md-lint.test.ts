@@ -2639,7 +2639,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     const verifiedNegativeFixtures: Array<[string, number, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        518,
+        520,
         "NEVER commit to or push the base branch",
       ],
       [
@@ -13295,7 +13295,7 @@ describe("PR-body findings contract", () => {
     return end === -1 ? rest : rest.slice(0, end);
   };
 
-  const promptsText = read("flow-pr-review", "references", "agent-prompts.md");
+  const promptsText = agentPromptsContent;
   const productChecklist = read(
     "flow-pr-review",
     "references",
@@ -13303,7 +13303,7 @@ describe("PR-body findings contract", () => {
     "product.md",
   );
   const consolidatorText = read("flow-consolidator-instructions", "SKILL.md");
-  const fixApplierText = read("flow-fix-applier-instructions", "SKILL.md");
+  const fixApplierText = fixApplierContent;
   const step10 = between(
     prReviewContent,
     "\n## 10. Post Findings to PR",
@@ -13343,7 +13343,9 @@ describe("PR-body findings contract", () => {
   });
 
   it("pr-review Step 10 concatenates the helper's block file in the summary command", () => {
-    const heading = formatPrBodyBlock([{ body: "x" }]).split("\n")[0];
+    const heading = formatPrBodyBlock([{ body: "x" }])
+      .split("\n")
+      .find((l) => l);
     expect(step10).toContain(heading);
     const recipe = step10
       .split("\n")

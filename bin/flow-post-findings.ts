@@ -38,7 +38,8 @@
  * "body": "..."}` (section optional). It has no code line, so it is never
  * posted inline: the helper prints a `#### PR description findings` block and
  * writes it to `pr-body-findings.md` next to the --file input, for the review
- * summary comment recipe to concatenate. It never changes the exit code.
+ * summary comment recipe to concatenate. A well-formed PR-description entry
+ * never changes the exit code; a malformed one exits 2 like any bad entry.
  */
 
 import { dirname, join } from "node:path";
@@ -118,7 +119,7 @@ export function parseFindings(input: string): ParsedInput {
         throw new Error(`Entry ${i}: "body" must be a non-empty string`);
       }
       const e: PrBodyEntry = { body: obj.body };
-      if (obj.section !== undefined) {
+      if (obj.section !== undefined && obj.section !== null) {
         if (typeof obj.section !== "string" || obj.section.length === 0) {
           throw new Error(
             `Entry ${i}: "section" must be a non-empty string when present`,
@@ -174,9 +175,10 @@ export function parseFindings(input: string): ParsedInput {
 export function formatPrBodyBlock(entries: PrBodyEntry[]): string {
   if (entries.length === 0) return "";
   const lines = entries.map(
-    (e) => `- [${e.section ?? "PR description"}] ${e.body}`,
+    (e) =>
+      `- [${e.section ?? "PR description"}] ${e.body.replace(/\n/g, "\n  ")}`,
   );
-  return ["#### PR description findings", "", ...lines].join("\n") + "\n";
+  return ["", "#### PR description findings", "", ...lines].join("\n") + "\n";
 }
 
 export function fetchHeadSha(prNumber: number, gh: GhRunner): string {
@@ -336,7 +338,8 @@ A PR-description finding (no code line) is never posted inline:
   { "target": "pr-body", "section": "Test Steps", "body": "..." }
 Those entries are printed as a "#### PR description findings" block and
 written to pr-body-findings.md next to --file (stale file removed when
-there are none); they never change the exit code.
+there are none); a well-formed one never changes the exit code, a malformed
+one exits 2.
 
 Examples:
   echo '<findings>' | flow-post-findings 100
@@ -430,6 +433,14 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
 
   const prNumber = parsePrNumber(parsed.prArg);
 
+  // Cleared before the ownership check and parse so an early exit can never
+  // leave a previous round's block for the summary comment to re-post.
+  const blockPath =
+    parsed.kind === "ok" && parsed.file
+      ? join(dirname(parsed.file), PR_BODY_BLOCK_FILENAME)
+      : undefined;
+  if (blockPath) removeFile(blockPath);
+
   const owned = checkOwnPipelinePr(prNumber, deps);
   if (!owned.ok) {
     console.error(`flow-post-findings: ${owned.reason}`);
@@ -464,11 +475,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   if (prBody.length > 0) {
     const block = formatPrBodyBlock(prBody);
     console.log(block);
-    if (parsed.file) {
-      writeFile(join(dirname(parsed.file), PR_BODY_BLOCK_FILENAME), block);
-    }
-  } else if (parsed.file) {
-    removeFile(join(dirname(parsed.file), PR_BODY_BLOCK_FILENAME));
+    if (blockPath) writeFile(blockPath, block);
   }
 
   if (findings.length === 0) {

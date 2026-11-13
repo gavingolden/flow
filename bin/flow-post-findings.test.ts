@@ -8,6 +8,7 @@ import {
   formatSummary,
   parseArgs,
   formatPrBodyBlock,
+  PR_BODY_BLOCK_FILENAME,
   parseFindings,
   postAll,
   run,
@@ -15,7 +16,7 @@ import {
   type PostSummary,
 } from "./flow-post-findings";
 
-const noFs = { writeFile: vi.fn(), removeFile: vi.fn() };
+const noFs = () => ({ writeFile: vi.fn(), removeFile: vi.fn() });
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 
@@ -329,7 +330,7 @@ describe("run() integration", () => {
       gh,
       readFile,
       env: {},
-      ...noFs,
+      ...noFs(),
     });
     logSpy.mockRestore();
     expect(exit).toBe(0);
@@ -361,7 +362,7 @@ describe("run() integration", () => {
       gh,
       readFile,
       env: {},
-      ...noFs,
+      ...noFs(),
     });
     logSpy.mockRestore();
     expect(exit).toBe(1);
@@ -377,7 +378,7 @@ describe("run() integration", () => {
       gh,
       readFile,
       env: {},
-      ...noFs,
+      ...noFs(),
     });
     logSpy.mockRestore();
     expect(exit).toBe(0);
@@ -397,7 +398,7 @@ describe("run() integration", () => {
     const exit = await run(["100", "--file", "f.json"], {
       gh,
       readFile,
-      ...noFs,
+      ...noFs(),
     });
     logSpy.mockRestore();
     expect(exit).toBe(0);
@@ -465,7 +466,7 @@ describe("run() idempotent posting", () => {
       run(["100", "--file", "f.json", "--head-sha", SHA], {
         gh,
         env: {},
-        ...noFs,
+        ...noFs(),
         readFile: findingsFile({ file: "a.ts", line: 1, body: "x\n" }),
       }),
     );
@@ -484,7 +485,7 @@ describe("run() idempotent posting", () => {
       run(["100", "--file", "f.json", "--head-sha", SHA], {
         gh,
         env: {},
-        ...noFs,
+        ...noFs(),
         readFile: findingsFile(f, f),
       }),
     );
@@ -508,7 +509,7 @@ describe("run() idempotent posting", () => {
       run(["100", "--file", "f.json", "--head-sha", SHA], {
         gh,
         env: {},
-        ...noFs,
+        ...noFs(),
         readFile: findingsFile({ file: "a.ts", line: 1, body: "x" }),
       }),
     );
@@ -529,7 +530,7 @@ describe("run() idempotent posting", () => {
       run(["100", "--file", "f.json", "--head-sha", SHA], {
         gh,
         env: {},
-        ...noFs,
+        ...noFs(),
         readFile: findingsFile({
           file: "a.ts",
           line: 5,
@@ -560,7 +561,7 @@ describe("run() idempotent posting", () => {
       run(["100", "--file", "f.json", "--head-sha", SHA], {
         gh,
         env: {},
-        ...noFs,
+        ...noFs(),
         readFile: findingsFile({ file: "a.ts", line: 2, body: "old" }),
       }),
     );
@@ -766,7 +767,7 @@ describe("PR-description findings", () => {
         gh,
         env: {},
         readFile: file(prEntry),
-        ...noFs,
+        ...noFs(),
       }),
     );
     expect(v).toBe(0);
@@ -779,7 +780,7 @@ describe("PR-description findings", () => {
         gh: vi.fn(),
         env: {},
         readFile: file(codeEntry, { target: "pr-body", body: "" }),
-        ...noFs,
+        ...noFs(),
       }),
     );
     expect(v).toBe(2);
@@ -823,10 +824,113 @@ describe("PR-description findings", () => {
       { section: "Test Steps", body: "a" },
       { body: "b" },
     ]);
-    expect(block.split("\n")[0]).toBe("#### PR description findings");
+    expect(block.split("\n").find((l) => l)).toBe(
+      "#### PR description findings",
+    );
+    expect(block.startsWith("\n#### ")).toBe(true);
     expect(block).toContain("- [Test Steps] a");
     expect(block).toContain("- [PR description] b");
     expect(formatPrBodyBlock([])).toBe("");
+  });
+
+  it("indents continuation lines so a multi-line body stays inside its list item", () => {
+    const block = formatPrBodyBlock([
+      { section: "Test Steps", body: "subject\n\nexplanation" },
+      { body: "second" },
+    ]);
+    expect(block).toContain(
+      "- [Test Steps] subject\n  \n  explanation\n- [PR description] second",
+    );
+  });
+
+  it("treats null target and null section as absent", () => {
+    const r = parseFindings(
+      JSON.stringify([
+        { ...codeEntry, target: null },
+        { target: "pr-body", section: null, body: "b" },
+      ]),
+    );
+    expect(r.inline).toEqual([codeEntry]);
+    expect(r.prBody).toEqual([{ body: "b" }]);
+  });
+
+  it("rejects an empty or non-string section, naming the entry", () => {
+    for (const section of ["", 5])
+      expect(() =>
+        parseFindings(
+          JSON.stringify([
+            codeEntry,
+            { target: "pr-body", section, body: "b" },
+          ]),
+        ),
+      ).toThrow(/Entry 1: "section"/);
+  });
+
+  it("clears the stale block before the ownership check and before parsing", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fpf-stale-"));
+    fs.writeFileSync(
+      path.join(dir, "slug-a.json"),
+      JSON.stringify({
+        slug: "slug-a",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-22T11:00:00Z",
+        pr: 5,
+      }),
+    );
+    const removeFile = vi.fn();
+    const refused = await silent(() =>
+      run(["6", "--file", "/w/f.json"], {
+        gh: vi.fn(),
+        env: { FLOW_SLUG: "slug-a" },
+        stateDir: dir,
+        readFile: file(prEntry),
+        removeFile,
+        writeFile: vi.fn(),
+      }),
+    );
+    const badInput = await silent(() =>
+      run(["100", "--file", "/w/f.json"], {
+        gh: vi.fn(),
+        env: {},
+        readFile: async () => "not json",
+        removeFile,
+        writeFile: vi.fn(),
+      }),
+    );
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(refused.v).toBe(2);
+    expect(badInput.v).toBe(2);
+    expect(removeFile).toHaveBeenCalledTimes(2);
+    expect(removeFile).toHaveBeenCalledWith("/w/pr-body-findings.md");
+  });
+
+  it("writes, then removes, the real block file next to --file", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fpf-block-"));
+    const f = path.join(dir, "findings-post.json");
+    const block = path.join(dir, PR_BODY_BLOCK_FILENAME);
+    await silent(() =>
+      run(["100", "--file", f], {
+        gh: vi.fn(),
+        env: {},
+        readFile: file(prEntry),
+      }),
+    );
+    expect(fs.readFileSync(block, "utf8")).toBe(
+      formatPrBodyBlock([{ section: "Test Steps", body: "Step 2 is vague" }]),
+    );
+    for (let i = 0; i < 2; i++) {
+      const r = await silent(() =>
+        run(["100", "--file", f, "--head-sha", SHA], {
+          gh: vi.fn(() => ok()),
+          env: {},
+          readFile: file(codeEntry),
+        }),
+      );
+      expect(r.v).toBe(0);
+    }
+    expect(fs.existsSync(block)).toBe(false);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it("still writes the block when the inline path's gh call fails", async () => {

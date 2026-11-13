@@ -49,7 +49,7 @@ render `**<label> (<decoration>): <subject>**`.
 
 **<label> (<decoration>): <subject>**  ← nitpick, suggestion, issue, todo, question
 **praise: <subject>**  ← praise only
-- **Line(s)**: L<start>–L<end>
+- **Line(s)**: L<start>–L<end>  ← PR-description findings: `- **Section**: <section, or "PR description">` instead
 - **Agent**: <Bug Detection | Security | Pattern/Consistency | Performance | Supply-Chain | Test Coverage | Product>
 - **Confidence**: <score>/100
 - **Status**: ✅ **Addressed** — <1-line summary of the change, e.g. "renamed to findFromIndex"> · commit `<sha>`

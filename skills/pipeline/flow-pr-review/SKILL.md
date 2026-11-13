@@ -884,7 +884,7 @@ Iterate `consolidated_findings[]`. Each finding has a `finding_id`,
 decoration, confidence, subject, body}` plus the optional `target`/`section`
 (a `target: "pr-body"` finding has no `file`/`line`/`end_line`). The confidence threshold
 (>=80 for non-praise; praise exempt), the `(file, line ± 2 lines
-window, issue-class)` dedup, the praise-specificity filter, and the
+window, issue-class)` dedup (PR-body findings: by section and issue-class), the praise-specificity filter, and the
 second-opinion validation pass have already been applied by the
 consolidator — the wrapper does not re-derive any of those filters
 here. Sort the surviving findings: blocking first, then by file path,
@@ -1364,8 +1364,8 @@ review with an event wrapper. The formal-review wrapper creates a heavier-weight
 "X reviewed your PR" entry with an Approved / Requested-changes / Commented banner that
 is overkill for self-review.
 
-Write the findings JSON array (one entry per inline comment) to
-`<WORKTREE>/.flow-tmp/findings-post.json`, then run (standalone):
+Write the findings JSON array (one entry per finding: code findings post inline, PR-description findings go to the summary block) to
+`<WORKTREE>/.flow-tmp/findings-post.json`. First clear any block left by an earlier round with `rm -f <WORKTREE>/.flow-tmp/pr-body-findings.md` as its own call (if it fails, do not post the summary below), then run (standalone):
 
 ```bash
 flow-post-findings <pr-number> --file <WORKTREE>/.flow-tmp/findings-post.json
@@ -1402,7 +1402,7 @@ older run, run `flow-post-findings dedupe <pr-number>` standalone — never `gh 
 For the top-level review summary (counts by label, suppression note, conventional-comments
 link), use a regular issue comment. Write the summary body to
 `<WORKTREE>/.flow-tmp/review-summary.md`, then post it with the helper's PR-description block
-appended by the command itself (never hand-copied):
+appended by the command itself (the block only exists when the PR-body findings were included in `findings-post.json` above):
 
 ```bash
 gh pr comment <number> --body-file <(cat <WORKTREE>/.flow-tmp/review-summary.md; [ -f <WORKTREE>/.flow-tmp/pr-body-findings.md ] && cat <WORKTREE>/.flow-tmp/pr-body-findings.md)

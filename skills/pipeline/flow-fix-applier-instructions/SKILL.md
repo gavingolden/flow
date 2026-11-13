@@ -328,10 +328,12 @@ Otherwise, for each inline comment:
    in your return summary is helpful for human-debugging but not
    load-bearing — the artifact is the contract.
 
-A finding with `target: "pr-body"` (the product lens's PR-body concerns) is
+A finding with `target: "pr-body"` (any lens can emit one) is
 addressed by editing the PR body section its `section` names (`gh pr view
 --json body` -> edit -> `flow-md-validate --fix-pr-body` -> `gh pr edit
---body-file`), NEVER by editing source; it carries no file/line.
+--body-file`), NEVER by editing source; it carries no file/line. A
+description fix never ticks, unticks or removes a `- [ ]` Test Steps item
+(zero unchecked items means auto-merge).
 
 Push back on incorrect comments. The reply body the wrapper posts at
 step 9 is composed from the `reasoning` field of the matching

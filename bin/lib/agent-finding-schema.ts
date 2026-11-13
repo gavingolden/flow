@@ -220,7 +220,11 @@ function extractLeadingFileLine(
 export function normalizeFinding(f: unknown): unknown {
   if (!isPlainObject(f)) return f;
   const out: Record<string, unknown> = { ...f };
-  const prBody = out.target === "pr-body";
+  // why: an LLM-emitted `"target": null` / `"section": null` means "absent";
+  // rejecting it would fail the schema check and stop the whole review.
+  if (out.target === null) delete out.target;
+  if (out.section === null) delete out.section;
+  const prBody = isPrBodyFinding(f);
   // why: a PR-description finding has no code location; a stray file/line from
   // a lens that anchored it anyway must not survive, or the prose recovery
   // below would resurrect one from the subject.

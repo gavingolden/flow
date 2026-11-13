@@ -2195,6 +2195,26 @@ describe("PR-description findings (target: pr-body)", () => {
     expect(validateConsolidatorResult(fixture).ok).toBe(true);
   });
 
+  it("normalizeFinding drops a null target and a null section", () => {
+    const code = normalizeFinding({
+      file: "a.ts",
+      line: 1,
+      label: "issue",
+      decoration: "non-blocking",
+      subject: "s",
+      body: "b",
+      confidence: 90,
+      target: null,
+    }) as Record<string, unknown>;
+    expect("target" in code).toBe(false);
+    const pr = normalizeFinding({ ...prBodyFinding, section: null }) as Record<
+      string,
+      unknown
+    >;
+    expect("section" in pr).toBe(false);
+    expect(pr.target).toBe("pr-body");
+  });
+
   it("isPrBodyFinding is true only for target pr-body objects", () => {
     expect(isPrBodyFinding(prBodyFinding)).toBe(true);
     expect(isPrBodyFinding({ ...prBodyFinding, target: "code" })).toBe(false);
