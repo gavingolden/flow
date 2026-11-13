@@ -35,6 +35,8 @@ describe("classifyDelegateSkip", () => {
         "agy-not-found",
         "agy-not-authenticated",
         "agy-model-unavailable",
+        "agy-schema-rejected",
+        "delegate-usage-error",
         "gemini-lens-disabled",
         "gemini-intent-guess-disabled",
         "plan-review-disabled",
@@ -60,6 +62,13 @@ describe("classifyDelegateSkip", () => {
       ].sort(),
     );
   });
+
+  it.each(["agy-schema-rejected", "delegate-usage-error"])(
+    "classifies %s as environment",
+    (reason) => {
+      expect(classifyDelegateSkip(reason)).toBe("environment");
+    },
+  );
 
   it("classifies agy-error as ran-unusable (deliberately excluded from ENVIRONMENT_SKIP_REASONS — it covers a genuinely-dispatched call)", () => {
     // NOTE: agy-error is deliberately excluded from ENVIRONMENT_SKIP_REASONS

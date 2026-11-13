@@ -44,7 +44,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { resolveDelegateModel } from "./lib/delegate-models";
 import {
@@ -55,8 +54,16 @@ import {
   decodeDelegateArtifact,
   unwrapAgyEnvelope,
 } from "./lib/structured-response";
-import { classifyDelegateSkip } from "./lib/delegate-skip-class";
+import {
+  classifyDelegateSkip,
+  PLAUSIBLE_DENIAL_SKIP_REASONS,
+} from "./lib/delegate-skip-class";
 import { agyReadRules } from "./lib/agy-read-rules";
+import {
+  parseDelegateRun,
+  type DelegateEnvelope,
+} from "./lib/delegate-run-envelope";
+import { helperScratchPaths } from "./lib/helper-scratch";
 
 // The model routes through resolveDelegateModel("intentGuess") — the default
 // lives in DELEGATE_MODEL_DEFAULTS; a `delegate.models.intentGuess` config
@@ -280,17 +287,7 @@ Every claim in guessed_purpose and justification must cite a specific diff hunk 
 ${diff}`;
 }
 
-export type DelegateEnvelope = {
-  ran?: boolean;
-  skipReason?: string;
-  artifactPath?: string;
-  exitCode?: number;
-  stderrTail?: string;
-  agyStatus?: string;
-  agyError?: string;
-  deniedActions?: string[];
-  usage?: Record<string, number>;
-};
+export type { DelegateEnvelope } from "./lib/delegate-run-envelope";
 
 export type Deps = {
   readConfig: (path: string) => string;
@@ -336,16 +333,17 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     });
   }
 
-  // The raw agy artifact is a scratch sibling of --out; finalize --out only
-  // on a fully-valid payload so downstream consumers never see a half-baked
-  // file.
-  const rawPath = `${parsed.out}.agy-raw`;
-  const promptPath = `${parsed.out}.prompt`;
-  const schemaPath = `${parsed.out}.schema.json`;
+  // The raw agy artifact lives in the per-output scratch folder; finalize
+  // --out only on a fully-valid payload so downstream consumers never see a
+  // half-baked file.
+  const scratch = helperScratchPaths(parsed.out, "gemini-intent-guess");
+  const rawPath = scratch.raw;
+  const promptPath = scratch.prompt;
+  const schemaPath = scratch.schema;
 
   // Pre-clean any stale --out from a prior run on this reused worktree. Also
   // pre-clean rawPath: a ran-unusable skip retains it as partialArtifactPath
-  // (below), so a prior run's .agy-raw must not be reported as THIS run's
+  // (below), so a prior run's raw artifact must not be reported as THIS run's
   // evidence when this run never reaches dispatch.
   deps.removeFile(parsed.out);
   deps.removeFile(rawPath);
@@ -397,7 +395,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   const fileList = changedFileList(diff);
 
   try {
-    deps.mkdirp(dirname(parsed.out));
+    deps.mkdirp(scratch.dir);
     deps.writeFile(promptPath, buildPrompt(diff, fileList, parsed.worktree));
     deps.writeFile(schemaPath, JSON.stringify(INTENT_GUESS_JSON_SCHEMA));
   } catch {
@@ -443,10 +441,16 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       agyError: envelope.agyError,
       deniedActions: envelope.deniedActions,
     };
+    const rawSkipReason = envelope.skipReason ?? "agy-skip";
+    // Relabel only where a denial is a plausible cause: a stale
+    // `deniedActions` beside an environment-class reason (auth, schema
+    // rejected) would otherwise flip a not-run skip to ran-unusable.
     return skip(
-      envelope.deniedActions && envelope.deniedActions.length > 0
+      envelope.deniedActions &&
+        envelope.deniedActions.length > 0 &&
+        PLAUSIBLE_DENIAL_SKIP_REASONS.has(rawSkipReason)
         ? "gemini-tools-denied"
-        : (envelope.skipReason ?? "agy-skip"),
+        : rawSkipReason,
       diag,
     );
   }
@@ -517,15 +521,11 @@ function resolveDeps(o?: Partial<Deps>): Deps {
         const r = Bun.spawnSync(["flow-delegate", ...argv], {
           stdin: "ignore",
           stdout: "pipe",
-          stderr: "ignore",
+          stderr: "pipe",
         });
         const stdout = r.stdout ? new TextDecoder().decode(r.stdout) : "";
-        const line = stdout.trim().split("\n").filter(Boolean).pop() ?? "{}";
-        try {
-          return JSON.parse(line) as DelegateEnvelope;
-        } catch {
-          return { ran: false, skipReason: "delegate-envelope-unparseable" };
-        }
+        const stderr = r.stderr ? new TextDecoder().decode(r.stderr) : "";
+        return parseDelegateRun(stdout, r.exitCode, stderr);
       }),
     readFile: o?.readFile ?? ((p) => readFileSync(p, "utf8")),
     writeFile: o?.writeFile ?? ((p, c) => writeFileSync(p, c)),

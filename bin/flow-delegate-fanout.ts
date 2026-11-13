@@ -63,6 +63,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import type { Args } from "./flow-delegate";
 import type { AgyFailureClass } from "./lib/agy-failure-class";
+import { parseDelegateRun } from "./lib/delegate-run-envelope";
 
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_MAX_CALLS = 40;
@@ -565,17 +566,22 @@ function defaultRunDelegate(
     stdout: "pipe",
     stderr: "pipe",
   });
-  return proc.exited.then(async () => {
+  return proc.exited.then(async (exitCode) => {
     const stdout = await new Response(proc.stdout).text();
-    const line = stdout.trim().split("\n").filter(Boolean).pop() ?? "";
-    try {
-      return JSON.parse(line) as DelegateEnvelope;
-    } catch {
-      // A child that produced no parsable envelope is treated as a graceful
-      // skip rather than a hard failure, consistent with flow-delegate's
-      // never-throw contract.
+    const stderr = await new Response(proc.stderr).text();
+    const env = parseDelegateRun(stdout, exitCode, stderr);
+    // A child that produced no parsable envelope is treated as a graceful
+    // skip rather than a hard failure, consistent with flow-delegate's
+    // never-throw contract. It stays `agy-error` (not parseDelegateRun's
+    // `delegate-envelope-unparseable`) so plan-review / blind-survey keep
+    // their Claude-fallback eligibility; only an exit-2 usage error is named.
+    if (
+      Object.keys(env).length === 0 ||
+      env.skipReason === "delegate-envelope-unparseable"
+    ) {
       return { ran: false, task: entry.task, skipReason: "agy-error" };
     }
+    return env as DelegateEnvelope;
   });
 }
 

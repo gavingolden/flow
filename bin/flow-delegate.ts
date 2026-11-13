@@ -73,11 +73,12 @@
  *
  * stdout is always a one-line JSON envelope:
  *   success: {"ran":true,"task":..,"model":..,"artifactPath":..,"exitCode":0,"durationMs":..}
- *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-model-unavailable"|"agy-timeout"|"agy-canceled"|"agy-error"|"agy-empty-artifact"|"spawn-failed",..}
+ *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-model-unavailable"|"agy-schema-rejected"|"agy-timeout"|"agy-canceled"|"agy-error"|"agy-empty-artifact"|"spawn-failed",..}
  *            (every skip envelope from a dispatched agy call also carries
  *            `durationMs` and `model` (null when no --model was passed) so
  *            telemetry can attribute a failure to a model and a latency —
- *            pre-dispatch skips (agy-not-found, spawn-failed) carry neither —
+ *            pre-dispatch skips (agy-not-found, agy-schema-rejected,
+ *            spawn-failed) carry neither —
  *            and may also carry
  *            `exitCode`, a redacted <=2000-byte `stderrTail` (tail-most, when
  *            agy's stderr was non-empty), `agyStatus` (the json-mode
@@ -93,7 +94,9 @@
  *
  * Exit codes:
  *   0 — delegated successfully, OR a quiet graceful skip (agy missing /
- *       logged out / errored). Callers branch on the `ran` field.
+ *       logged out / errored, or a missing/malformed --json-schema file —
+ *       `agy-schema-rejected`, checked before agy is spawned). Callers branch
+ *       on the `ran` field.
  *   2 — usage error (no/both prompt sources, unknown flag, missing value,
  *       unreadable --prompt-file).
  */
@@ -109,7 +112,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { redactSecrets } from "./lib/redact-secrets";
+import { redactForPublish, redactSecrets } from "./lib/redact-secrets";
 import { parseStructured } from "./lib/structured-response";
 import { recordEvent } from "./lib/telemetry";
 import { classifyAgyFailure } from "./lib/agy-failure-class";
@@ -123,6 +126,7 @@ import {
 import { godurToSec, isGoDuration } from "./lib/delegate-timeouts";
 import {
   looksModelUnavailable,
+  looksSchemaRejected,
   looksTimedOut,
   looksUnauthenticated,
 } from "./lib/agy-output";
@@ -340,6 +344,7 @@ export type AgyOutcome =
   | "agy-timeout"
   | "agy-not-authenticated"
   | "agy-model-unavailable"
+  | "agy-schema-rejected"
   | "agy-canceled"
   | "agy-error"
   | "agy-empty-artifact";
@@ -348,7 +353,8 @@ export type AgyOutcome =
 // paths. Ordering is load-bearing: a timeout signal (stderr OR the json
 // envelope's `error` field) is checked first so a widened auth regex can
 // never shadow it, then auth, then a retired/unknown `--model` name
-// (`agy-model-unavailable`, rejected before any model call), `CANCELED` next, then a generic non-zero-exit/`ERROR`
+// (`agy-model-unavailable`, rejected before any model call), then agy's own
+// `--json-schema` rejection (`agy-schema-rejected`, same pre-model-call shape), `CANCELED` next, then a generic non-zero-exit/`ERROR`
 // status, then (only once every other check has passed, i.e. exactly the
 // case that would otherwise be a successful "ran") the `artifactHasContent`
 // flag — a 0-byte artifact from an otherwise-clean exit is #627/#712's
@@ -381,6 +387,12 @@ export function classifyAgyOutcome(
     (input.outcome.error && looksModelUnavailable(input.outcome.error))
   ) {
     return "agy-model-unavailable";
+  }
+  if (
+    looksSchemaRejected(input.stderr) ||
+    (input.outcome.error && looksSchemaRejected(input.outcome.error))
+  ) {
+    return "agy-schema-rejected";
   }
   if (input.outcome.status === "CANCELED") {
     return "agy-canceled";
@@ -717,6 +729,49 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       return 2;
     }
     prompt = `${prompt}\n\nRespond with a single JSON object matching this shape (no prose, no markdown fence):\n${schemaText.trim()}`;
+  }
+
+  // Deliberately ran:false + exit 0, unlike --structured-fallback's exit 2:
+  // callers that discard stderr would otherwise report an opaque agy-skip —
+  // do not harmonise.
+  if (parsed.jsonSchema) {
+    let schemaProblem: string | undefined;
+    if (!deps.fileExists(parsed.jsonSchema)) {
+      schemaProblem = "not found";
+    } else {
+      let schemaText = "";
+      try {
+        schemaText = deps.readFile(parsed.jsonSchema);
+      } catch {
+        schemaProblem = "cannot read";
+      }
+      if (schemaProblem === undefined) {
+        try {
+          JSON.parse(schemaText);
+        } catch {
+          schemaProblem = "not valid JSON";
+        }
+      }
+    }
+    if (schemaProblem !== undefined) {
+      return emit(
+        deps,
+        {
+          ran: false,
+          skipReason: "agy-schema-rejected",
+          failureClass: classifyAgyFailure({
+            skipReason: "agy-schema-rejected",
+          }),
+          task: parsed.task,
+          // Self-authored line: redactForPublish keeps the path readable
+          // (redactSecrets masks any 32+ char run, i.e. every real path).
+          stderrTail: redactForPublish(
+            `flow-delegate: --json-schema file ${schemaProblem}: ${parsed.jsonSchema}`,
+          ),
+        },
+        { outputFormat: parsed.outputFormat },
+      );
+    }
   }
 
   // Graceful skip: agy not installed → caller falls back to Claude.

@@ -64,14 +64,16 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { resolveDelegateModel } from "./lib/delegate-models";
 import {
   clampDelegateTimeout,
   resolveDelegateTimeout,
 } from "./lib/delegate-timeouts";
-import { classifyDelegateSkip } from "./lib/delegate-skip-class";
+import {
+  classifyDelegateSkip,
+  PLAUSIBLE_DENIAL_SKIP_REASONS,
+} from "./lib/delegate-skip-class";
 import type { DecodeVia } from "./lib/structured-response";
 import {
   AGENT_FINDINGS_JSON_SCHEMA,
@@ -80,6 +82,11 @@ import {
   projectLensFindings,
 } from "./lib/agy-lens-core";
 import { agyReadRules } from "./lib/agy-read-rules";
+import {
+  parseDelegateRun,
+  type DelegateEnvelope,
+} from "./lib/delegate-run-envelope";
+import { helperScratchPaths } from "./lib/helper-scratch";
 import type { AgentFindings } from "./lib/agent-finding-schema";
 
 // Re-exported so existing importers (the test suite) keep resolving the wire
@@ -233,17 +240,7 @@ If you find nothing noteworthy, return {"findings": [], "rejected_alternatives":
 ${diff}`;
 }
 
-export type DelegateEnvelope = {
-  ran?: boolean;
-  skipReason?: string;
-  artifactPath?: string;
-  exitCode?: number;
-  stderrTail?: string;
-  agyStatus?: string;
-  agyError?: string;
-  deniedActions?: string[];
-  usage?: Record<string, number>;
-};
+export type { DelegateEnvelope } from "./lib/delegate-run-envelope";
 
 export type Deps = {
   readConfig: (path: string) => string;
@@ -289,23 +286,25 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     });
   }
 
-  // The raw agy artifact is a scratch sibling of --out; finalize --out only
-  // on a fully-valid payload so the consolidator never sees a half-baked file.
-  const rawPath = `${parsed.out}.agy-raw`;
+  // The raw agy artifact lives in the per-output scratch folder; finalize
+  // --out only on a fully-valid payload so the consolidator never sees a
+  // half-baked file.
+  const scratch = helperScratchPaths(parsed.out, "gemini-lens");
+  const rawPath = scratch.raw;
   // Separate from `rawPath`: the diff-only retry must not overwrite the
   // primary's raw artifact, or a stale rawPath left after the retry could
   // be finalized as `degraded: "diff-only"` while `skipReason` still names
   // the PRIMARY's failure.
-  const retryRawPath = `${parsed.out}.agy-raw-retry`;
-  const promptPath = `${parsed.out}.prompt`;
-  const schemaPath = `${parsed.out}.schema.json`;
+  const retryRawPath = scratch.retryRaw;
+  const promptPath = scratch.prompt;
+  const schemaPath = scratch.schema;
 
   // Pre-clean any stale --out from a prior run on this reused worktree: every
   // path past the gate either rewrites --out (success) or leaves it absent
   // (skip), so the consolidator never consumes a previous run's findings as
   // the current review. removeFile is idempotent (force:true) — absent is fine.
   // Also pre-clean rawPath: a ran-unusable skip retains it as
-  // partialArtifactPath (below), so a prior run's .agy-raw left over from a
+  // partialArtifactPath (below), so a prior run's raw artifact left over from a
   // ran-unusable skip must not be reported as THIS run's evidence when this
   // run never reaches dispatch (or dispatch itself fails before writing it).
   deps.removeFile(parsed.out);
@@ -430,15 +429,13 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     | "gemini-output-unparseable" =>
     `gemini-${classifyUnusableLensRun(rawArtifact, env)}` as const;
 
-  const PLAUSIBLE_DENIAL_SKIP_REASONS = new Set(["agy-canceled", "agy-error"]);
-
   const RETRYABLE_SKIP_REASONS = new Set([
     "gemini-tools-denied",
     "gemini-token-exhausted",
   ]);
 
   try {
-    deps.mkdirp(dirname(parsed.out));
+    deps.mkdirp(scratch.dir);
     deps.writeFile(promptPath, buildPrompt(diff, parsed.worktree));
     deps.writeFile(schemaPath, JSON.stringify(AGENT_FINDINGS_JSON_SCHEMA));
   } catch {
@@ -567,15 +564,11 @@ function resolveDeps(o?: Partial<Deps>): Deps {
         const r = Bun.spawnSync(["flow-delegate", ...argv], {
           stdin: "ignore",
           stdout: "pipe",
-          stderr: "ignore",
+          stderr: "pipe",
         });
         const stdout = r.stdout ? new TextDecoder().decode(r.stdout) : "";
-        const line = stdout.trim().split("\n").filter(Boolean).pop() ?? "{}";
-        try {
-          return JSON.parse(line) as DelegateEnvelope;
-        } catch {
-          return { ran: false, skipReason: "delegate-envelope-unparseable" };
-        }
+        const stderr = r.stderr ? new TextDecoder().decode(r.stderr) : "";
+        return parseDelegateRun(stdout, r.exitCode, stderr);
       }),
     readFile: o?.readFile ?? ((p) => readFileSync(p, "utf8")),
     writeFile: o?.writeFile ?? ((p, c) => writeFileSync(p, c)),

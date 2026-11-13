@@ -992,4 +992,27 @@ describe("flow-delegate-fanout (subprocess, agy absent from PATH)", () => {
       ).toBeGreaterThanOrEqual(2);
     },
   );
+
+  it("surfaces a delegate input rejection as delegate-usage-error with its stderr, not agy-error", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-fanout-"));
+    onTestFinished(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+    const manifestPath = path.join(tmpDir, "m.json");
+    const outPath = path.join(tmpDir, "o.json");
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify([{ task: "p", promptFile: path.join(tmpDir, "missing") }]),
+    );
+    const r = spawnSync(
+      bunPath,
+      ["run", HELPER, "--manifest", manifestPath, "--out", outPath],
+      {
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${SKIP_PATH}:${path.dirname(bunPath)}` },
+      },
+    );
+    expect(r.status).toBe(0);
+    const entry = JSON.parse(r.stdout.trim()).entries[0];
+    expect(entry.skipReason).toBe("delegate-usage-error");
+    expect(entry.stderrTail).toContain("prompt-file not found");
+  });
 });

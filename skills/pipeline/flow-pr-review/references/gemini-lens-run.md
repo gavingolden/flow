@@ -21,6 +21,8 @@ Gate on the `review.gemini` jq read from `SKILL.md` first. Write
 hasn't. The `rm -f` is load-bearing: a stale envelope or output from an
 earlier pass would satisfy the waiter instantly.
 
+Stale results are cleared by exact name only — `flow-review-scope` and `flow-review-prep` for the reviewers, the `rm -f` below for this one. Never glob-delete in `.flow-tmp/` while a review runs: the background helpers keep live working files under `.flow-tmp/scratch/`.
+
 ```bash
 LENS_ENV="$WORKTREE/.flow-tmp/gemini-lens-envelope.json"
 rm -f "$LENS_ENV" "$WORKTREE/.flow-tmp/agent-output-gemini.json"

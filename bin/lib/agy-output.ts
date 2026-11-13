@@ -35,3 +35,10 @@ export function looksTimedOut(text: string): boolean {
     text,
   );
 }
+
+// agy rejects an unreadable/malformed `--json-schema` file before any model
+// call. Verified agy 1.5.8 messages: "invalid --json-schema: failed to read
+// schema file ..." and "... schema is not valid JSON: ...".
+export function looksSchemaRejected(text: string): boolean {
+  return /invalid --json-schema/i.test(text);
+}
