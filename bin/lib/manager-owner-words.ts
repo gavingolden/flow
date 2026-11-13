@@ -80,26 +80,32 @@ export function wordsNameTarget(
 }
 
 const NEGATION = /(?:\b(?:not|no|never|dont)|n't)[\s,:-]*$/i;
-const INTENT: Record<"approve" | "redirect" | "answer", RegExp> = {
-  approve: /\b(?:approved?|yes|lgtm|go ahead|ship it)\b/gi,
-  redirect: /\b(?:redirect|instead of)\b/gi,
-  answer: /\byes\b/gi,
-};
+const REDIRECT = /\b(?:redirect|instead of)\b/gi;
+const CONFIRM = /^yes\s+(#\d+)$/i;
 
 /**
- * Does the owner's line carry the intent the ruling claims: an un-negated
- * approval word (approve/approved/yes/lgtm/go ahead/ship it) for an approve,
- * redirect/"instead of" for a redirect, `yes` for an answer. "don't approve"
- * and "no, yes" style negations (a negator right before the word) do not count.
+ * Does the owner's line carry the intent the ruling claims. Any line with a
+ * `?` is a question, never a ruling. An approve or answer is exactly
+ * `yes #N` with `#N` the handle printed for this pipeline's current pause; a
+ * redirect is an un-negated `redirect` / "instead of".
  */
 export function ownerShowsIntent(
   reply: "approve" | "redirect" | "answer",
   text: string,
+  target: { slug: string; phase: string },
+  home: string = managerHome(),
 ): boolean {
-  for (const m of text.matchAll(INTENT[reply])) {
-    if (!NEGATION.test(text.slice(0, m.index))) return true;
+  if (text.includes("?")) return false;
+  if (reply === "redirect") {
+    for (const m of text.matchAll(REDIRECT)) {
+      if (!NEGATION.test(text.slice(0, m.index))) return true;
+    }
+    return false;
   }
-  return false;
+  const m = CONFIRM.exec(text.trim());
+  if (!m) return false;
+  const h = resolveHandle(m[1], home);
+  return h !== null && h.slug === target.slug && h.phase === target.phase;
 }
 
 /**

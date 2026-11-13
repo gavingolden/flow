@@ -61,11 +61,66 @@ describe("wordsNameTarget", () => {
 });
 
 describe("ownerShowsIntent", () => {
-  it("accepts un-negated approval words and refuses negated ones", () => {
-    expect(ownerShowsIntent("approve", "lgtm #3")).toBe(true);
-    expect(ownerShowsIntent("approve", "go ahead with fix-login")).toBe(true);
-    expect(ownerShowsIntent("approve", "do not approve #3")).toBe(false);
-    expect(ownerShowsIntent("approve", "no yes")).toBe(false);
-    expect(ownerShowsIntent("approve", "what is #3?")).toBe(false);
+  const bind = (slug: string, phase: string, n = 3) =>
+    fs.writeFileSync(
+      path.join(home, "handles.json"),
+      JSON.stringify({
+        version: 1,
+        next: n + 1,
+        items: { [`${slug}:${phase}`]: n },
+      }),
+    );
+  const ok = (
+    text: string,
+    t: { slug: string; phase: string } = target,
+    reply: "approve" | "redirect" | "answer" = "approve",
+  ) => ownerShowsIntent(reply, text, t, home);
+
+  it("refuses the owner's two over-accepted example lines", () => {
+    const f3 = { slug: "f3-global-manager", phase: "plan-pending-review" };
+    bind(f3.slug, f3.phase);
+    expect(ok("should I approve f3-global-manager?", f3)).toBe(false);
+    const f6 = { slug: "f6", phase: "plan-pending-review" };
+    bind(f6.slug, f6.phase);
+    expect(ok("approve f6 after f3 merges", f6)).toBe(false);
+  });
+
+  it("accepts exactly `yes #N` bound to this slug and phase", () => {
+    bind(target.slug, target.phase);
+    expect(ok("yes #3")).toBe(true);
+    expect(ok("  YES   #3  ")).toBe(true);
+    expect(ok("yes #3", target, "answer")).toBe(true);
+  });
+
+  it("refuses a handle bound elsewhere or absent", () => {
+    bind("other", target.phase);
+    expect(ok("yes #3")).toBe(false);
+    bind(target.slug, "plan-pending-interview");
+    expect(ok("yes #3")).toBe(false);
+    bind(target.slug, target.phase);
+    expect(ok("yes #4")).toBe(false);
+    fs.rmSync(path.join(home, "handles.json"));
+    expect(ok("yes #3")).toBe(false);
+  });
+
+  it("refuses every other wording for approve and answer", () => {
+    bind(target.slug, target.phase);
+    for (const text of [
+      "yes #3?",
+      "yes #3 please",
+      "lgtm #3",
+      "approve #3",
+      "yes",
+      "do not approve #3",
+    ]) {
+      expect(ok(text)).toBe(false);
+      expect(ok(text, target, "answer")).toBe(false);
+    }
+  });
+
+  it("keeps redirect wording, refusing questions and negations", () => {
+    expect(ok("redirect fix-login: use x", target, "redirect")).toBe(true);
+    expect(ok("should I redirect fix-login?", target, "redirect")).toBe(false);
+    expect(ok("don't redirect fix-login", target, "redirect")).toBe(false);
   });
 });

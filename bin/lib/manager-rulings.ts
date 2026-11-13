@@ -115,8 +115,9 @@ function readRuling(id: string, home: string): Ruling | null {
 const at = (iso: string) => Date.parse(iso);
 
 /**
- * A ruling must prove intent, not a mention. The cited line must carry the
- * reply's intent word; an `answer` written now must also cite a drafted
+ * A ruling must prove intent, not a mention. An approve or answer needs an
+ * exact `yes #N` bound to this pipeline's current pause (any `?` line is
+ * refused); a redirect needs redirect/"instead of". An `answer` written now must also cite a drafted
  * interview proposal (its id, or the pipeline's `#N` handle) and carry exactly
  * that proposal's `--text`. The draft half is writer-only: the owner's reply
  * removes the proposal, so the verifier cannot re-read it.
@@ -127,7 +128,7 @@ function ownerAcceptable(
   writing: boolean,
 ): (text: string) => boolean {
   return (text) => {
-    if (!ownerShowsIntent(r.reply, text)) return false;
+    if (!ownerShowsIntent(r.reply, text, r, home)) return false;
     if (!writing || r.reply !== "answer") return true;
     return citedDrafts(text, r, home).some((p) => p.text.trim() === r.text);
   };

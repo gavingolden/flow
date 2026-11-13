@@ -537,7 +537,7 @@ a baseline; an `epic:` or `repo:` grant additionally lets the executive reorder
 unstarted epic features. `flow grant --list` prints live grants, then expired
 ones. `flow epic grant <epic> ...` is an alias for `flow grant epic:<epic> ...`.
 `flow grant <scope> --relay` writes a grant with only the `relay` class: the
-global manager may carry your typed answers ("approve #3") to a paused pipeline
+global manager may carry your typed answers ("yes #3") to a paused pipeline
 in that scope, and the executive never runs under it. `--autonomy high` implies
 `relay`, and a plan review or wave review needs the `plan` class, so a relay-only
 grant spends nothing. `high` and `--relay` work only from a plain terminal

@@ -330,21 +330,34 @@ describe("writing", () => {
   });
 });
 
+function handle(phase = "plan-pending-review", n = 3) {
+  fs.writeFileSync(
+    path.join(home, "handles.json"),
+    JSON.stringify({
+      version: 1,
+      next: n + 1,
+      items: { [`${SLUG}:${phase}`]: n },
+    }),
+  );
+}
+
 describe("a source: owner ruling", () => {
   const owner = (over = {}) =>
     writeRuling(
       {
         slug: SLUG,
         reply: "approve",
-        reason: "owner said so",
+        reason: "owner typed: yes #3",
         source: "owner",
         ...over,
       },
       deps(),
     );
+  const mismatch = { ok: false, reason: "owner-intent-mismatch" };
 
-  it("cites the typed prompt that names the slug", () => {
-    typed(`yes, approve ${SLUG}`);
+  it("cites the exact `yes #N` confirmation for this pause", () => {
+    handle();
+    typed("yes #3");
     const r = written(owner());
     expect(r.ownerPromptId).toBe("w-1");
     expect(verifyRuling(SLUG, r.id, deps())).toMatchObject({
@@ -353,34 +366,26 @@ describe("a source: owner ruling", () => {
     });
   });
 
-  it("resolves 'approve #3' through the printed handle", () => {
-    fs.writeFileSync(
-      path.join(home, "handles.json"),
-      JSON.stringify({
-        version: 1,
-        next: 4,
-        items: { [`${SLUG}:plan-pending-review`]: 3 },
-      }),
-    );
-    typed("approve #3");
-    expect(written(owner()).ownerPromptId).toBe("w-1");
-    typed("approve #2", "w-2", "2026-11-01T10:50:00.000Z");
-    typed("approve #9", "w-3", "2026-11-01T10:51:00.000Z");
+  it("picks the right line: a handle that maps elsewhere is not cited", () => {
+    handle();
+    typed("yes #3");
+    typed("yes #2", "w-2", "2026-11-01T10:50:00.000Z");
+    typed("yes #9", "w-3", "2026-11-01T10:51:00.000Z");
     expect(written(owner()).ownerPromptId).toBe("w-1");
   });
 
   it("is refused without a matching typed prompt after the phase was entered", () => {
+    handle();
     expect(owner()).toEqual({ ok: false, reason: "no-owner-words" });
     typed("approve some-other-pipeline");
     expect(owner()).toEqual({ ok: false, reason: "no-owner-words" });
-    typed(`approve ${SLUG}`, "w-old", "2026-11-01T09:00:00.000Z");
-    expect(owner()).toEqual({ ok: false, reason: "no-owner-words" });
-    typed(`approve ${SLUG}-two`, "w-long", "2026-11-01T10:46:00.000Z");
+    typed("yes #3", "w-old", "2026-11-01T09:00:00.000Z");
     expect(owner()).toEqual({ ok: false, reason: "no-owner-words" });
   });
 
   it("verification re-checks the ledger entry, so a forged prompt id is refused", () => {
-    typed(`approve ${SLUG}`);
+    handle();
+    typed("yes #3");
     const r = written(owner());
     fs.writeFileSync(path.join(home, "owner-words.jsonl"), "");
     expect(verifyRuling(SLUG, r.id, deps())).toEqual({
@@ -389,8 +394,9 @@ describe("a source: owner ruling", () => {
     });
   });
 
-  it("answers an interview with the drafted text when the owner says yes to its id", () => {
+  it("answers an interview with the drafted text when the owner replies `yes #N`", () => {
     seed("plan-pending-interview");
+    handle("plan-pending-interview");
     addProposal(
       {
         id: "p-abc123",
@@ -402,7 +408,7 @@ describe("a source: owner ruling", () => {
       },
       home,
     );
-    typed("yes p-abc123");
+    typed("yes #3");
     const r = owner({ reply: "answer", text: "use postgres" });
     expect(r).toMatchObject({ ok: true });
     expect(verifyRuling(SLUG, written(r).id, deps())).toMatchObject({
@@ -414,6 +420,7 @@ describe("a source: owner ruling", () => {
 
   it("refuses an answer whose text is not the cited proposal's drafted text", () => {
     seed("plan-pending-interview");
+    handle("plan-pending-interview");
     addProposal(
       {
         id: "p-abc123",
@@ -425,48 +432,52 @@ describe("a source: owner ruling", () => {
       },
       home,
     );
-    typed("yes p-abc123");
-    expect(owner({ reply: "answer", text: "use mysql" })).toEqual({
-      ok: false,
-      reason: "owner-intent-mismatch",
-    });
+    typed("yes #3");
+    expect(owner({ reply: "answer", text: "use mysql" })).toEqual(mismatch);
   });
 
   it("refuses an answer when the owner only mentions the pipeline", () => {
     seed("plan-pending-interview");
     typed(`${SLUG}: use postgres`);
-    expect(owner({ reply: "answer", text: "use postgres" })).toEqual({
-      ok: false,
-      reason: "owner-intent-mismatch",
+    expect(owner({ reply: "answer", text: "use postgres" })).toEqual(mismatch);
+  });
+
+  it("refuses an approve for a mention, a question, a negation or a legacy form", () => {
+    handle();
+    const lines = [
+      `why is ${SLUG} stuck?`,
+      `should I approve ${SLUG}?`,
+      `approve ${SLUG} after f3 merges`,
+      `approve ${SLUG}`,
+      `don't approve ${SLUG}`,
+      "lgtm #3",
+      "approve #3",
+    ];
+    lines.forEach((text, i) => {
+      typed(text, `w-${i}`, `2026-11-01T10:${46 + i}:00.000Z`);
+      expect(owner()).toEqual(mismatch);
     });
   });
 
-  it("refuses an approve when the owner only mentions the pipeline or negates it", () => {
-    typed(`why is ${SLUG} stuck?`);
-    expect(owner()).toEqual({ ok: false, reason: "owner-intent-mismatch" });
-    typed(`don't approve ${SLUG}`, "w-2", "2026-11-01T10:46:00.000Z");
-    expect(owner()).toEqual({ ok: false, reason: "owner-intent-mismatch" });
-    typed(`not approved ${SLUG}`, "w-3", "2026-11-01T10:47:00.000Z");
-    expect(owner()).toEqual({ ok: false, reason: "owner-intent-mismatch" });
+  it("refuses a `yes #N` whose handle names this slug in a different phase", () => {
+    handle("plan-pending-interview");
+    typed("yes #3");
+    expect(owner()).toEqual({ ok: false, reason: "no-owner-words" });
   });
 
   it("picks the latest line that shows intent, not just the latest mention", () => {
-    typed(`approve ${SLUG}`);
+    handle();
+    typed("yes #3");
     typed(`what is ${SLUG} doing?`, "w-2", "2026-11-01T10:50:00.000Z");
     expect(written(owner()).ownerPromptId).toBe("w-1");
   });
 
   it("needs 'redirect' (or 'instead of'), not a bare 'change', for a redirect", () => {
-    typed(`approve ${SLUG}`);
-    expect(owner({ reply: "redirect", text: "use x" })).toEqual({
-      ok: false,
-      reason: "owner-intent-mismatch",
-    });
+    handle();
+    typed("yes #3");
+    expect(owner({ reply: "redirect", text: "use x" })).toEqual(mismatch);
     typed(`change ${SLUG} please`, "w-1b", "2026-11-01T10:48:00.000Z");
-    expect(owner({ reply: "redirect", text: "use x" })).toEqual({
-      ok: false,
-      reason: "owner-intent-mismatch",
-    });
+    expect(owner({ reply: "redirect", text: "use x" })).toEqual(mismatch);
     typed(`redirect ${SLUG}: use x`, "w-2", "2026-11-01T10:50:00.000Z");
     expect(
       written(owner({ reply: "redirect", text: "use x" })).ownerPromptId,
@@ -480,7 +491,8 @@ describe("a relay-only grant", () => {
     grant(["relay"]);
     execDecision("approve");
     expect(managerApprove()).toEqual({ ok: false, reason: "no-grant" });
-    typed(`approve ${SLUG}`);
+    handle();
+    typed("yes #3");
     const r = writeRuling(
       { slug: SLUG, reply: "approve", reason: "owner", source: "owner" },
       deps(),

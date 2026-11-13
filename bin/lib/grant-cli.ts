@@ -280,7 +280,7 @@ export function runGrantCli(args: string[], deps: GrantCliDeps = {}): number {
       `${hadGrant ? "Refreshed" : "Granted"} answer relay for ${scopeText}.`,
     );
     console.log(
-      '  What you type in the manager window ("approve #3") is relayed to the paused pipeline in this scope. It does not switch on the executive.',
+      '  What you type in the manager window ("yes #3") is relayed to the paused pipeline in this scope. It does not switch on the executive.',
     );
     if (expiresMs !== undefined) {
       console.log(

@@ -1,7 +1,7 @@
 /**
  * `~/.flow/manager/handles.json`: the short `#N` handle the manager prints
  * beside every needs-you line (written by `writeManagerStatus`). One handle is
- * one pipeline sitting in one owner-needed phase. The owner types "approve #3";
+ * one pipeline sitting in one owner-needed phase. The owner types "yes #3";
  * the owner-words matcher resolves `#3` back to that pipeline here.
  */
 

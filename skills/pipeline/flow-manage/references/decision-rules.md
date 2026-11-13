@@ -54,14 +54,13 @@ Only for a pipeline whose `flow-exec-review status --slug <s>` prints
    - `--source manager` needs `--decision <id>`: an executive decision logged
      after the pipeline entered this pause (`approve` for approve; a challenge or
      a redirect recommendation for redirect). A redirect or answer needs `--text`.
-   - `--source owner` needs the owner to have typed words naming the pipeline
-     (its slug, an open proposal id, or the `#N` handle) after the pause began,
-     and the line must show the reply's intent: an un-negated approve/approved/
-     yes/lgtm/go ahead/ship it for `approve`; redirect/"instead of" for
-     `redirect`; `yes` plus a drafted proposal's id or `#N` for `answer`, whose
-     `--text` must equal that interview-draft proposal's `--text` exactly (so
-     `yes #N` on a drafted answer is `--reply answer`, never `approve`). A bare
-     mention or a negated word ("don't approve") is `owner-intent-mismatch`.
+   - `--source owner` needs an owner line typed after the pause began that is
+     exactly `yes #N`, with #N this pipeline's handle in this pause, for
+     `approve` or `answer` (an answer's `--text` must equal the interview-draft
+     proposal's `--text` exactly, so `yes #N` on a drafted answer is
+     `--reply answer`, never `approve`). A redirect needs "redirect" or
+     "instead of" naming the pipeline. Any line with `?` and any other wording
+     ("approve #3", "lgtm", "don't approve") is `owner-intent-mismatch`.
      The writer finds that prompt itself. Never pass an id.
 2. On `ok:true` it prints `{"id","message":"RULING <id>"}`. `SendMessage` with
    `to` = the slug and `message` = the `message` text, nothing else.

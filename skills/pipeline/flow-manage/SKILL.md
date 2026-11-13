@@ -63,8 +63,8 @@ refuses anything outside the scope.
    decision when made, print the status table and digest only when something
    changed, run `/flow-checkpoint`, re-arm, end the turn.
 4. **Owner words** change what you do: a sentence about what to watch or what
-   matters changes scope and focus together; "approve #3" or `yes <id>` becomes
-   an owner ruling. See "Owner words" in the wake protocol.
+   matters changes scope and focus together; an exact `yes #3` reply to your
+   confirmation prompt becomes an owner ruling. See "Owner words" in the wake protocol.
 5. **Before every send**, re-read the target's phase and skip the send when it
    already left the pause.
 
