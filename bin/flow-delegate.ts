@@ -112,7 +112,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { redactSecrets } from "./lib/redact-secrets";
+import { redactForPublish, redactSecrets } from "./lib/redact-secrets";
 import { parseStructured } from "./lib/structured-response";
 import { recordEvent } from "./lib/telemetry";
 import { classifyAgyFailure } from "./lib/agy-failure-class";
@@ -763,7 +763,9 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
             skipReason: "agy-schema-rejected",
           }),
           task: parsed.task,
-          stderrTail: stderrTail(
+          // Self-authored line: redactForPublish keeps the path readable
+          // (redactSecrets masks any 32+ char run, i.e. every real path).
+          stderrTail: redactForPublish(
             `flow-delegate: --json-schema file ${schemaProblem}: ${parsed.jsonSchema}`,
           ),
         },

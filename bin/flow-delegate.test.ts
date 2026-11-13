@@ -691,6 +691,14 @@ describe("run", () => {
       },
     );
 
+    it("keeps a long real-world schema path readable in the stderr tail", () => {
+      const longPath =
+        "/Users/someone/code/me/flow-worktrees.noindex/flow-some-long-slug/.flow-tmp/scratch/gemini-lens/agent-output-gemini.json/schema.json";
+      const deps = makeDeps({ fileExists: () => false });
+      run(["--prompt", "hi", "--json-schema", longPath], deps);
+      expect(envelope(deps).stderrTail).toContain(longPath);
+    });
+
     it("still reaches agy when the schema file is valid JSON", () => {
       const deps = makeDeps({ readFile: () => '{"type":"object"}' });
       expect(run(schemaArgs, deps)).toBe(0);

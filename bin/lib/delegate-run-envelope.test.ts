@@ -36,6 +36,17 @@ describe("parseDelegateRun", () => {
     expect(env.stderrTail).not.toContain(token);
   });
 
+  it("keeps a long file path readable in the stderr tail", () => {
+    const longPath =
+      "/Users/someone/code/me/flow-worktrees.noindex/flow-some-long-slug/.flow-tmp/scratch/gemini-lens/agent-output-gemini.json/prompt.txt";
+    const env = parseDelegateRun(
+      "",
+      2,
+      `flow-delegate: --prompt-file not found: ${longPath}`,
+    );
+    expect(env.stderrTail).toContain(longPath);
+  });
+
   it.each([0, 1, null])("returns {} for empty stdout with exit %s", (code) => {
     expect(parseDelegateRun("", code, "boom")).toEqual({});
   });

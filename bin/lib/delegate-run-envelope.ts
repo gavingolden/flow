@@ -1,4 +1,4 @@
-import { redactSecrets } from "./redact-secrets";
+import { redactForPublish } from "./redact-secrets";
 
 // Exit 2 with empty stdout means flow-delegate rejected its own argv/inputs:
 // every `return 2` in flow-delegate precedes the agy spawn, so no model call
@@ -28,7 +28,7 @@ export function parseDelegateRun(
         ran: false,
         skipReason: "delegate-usage-error",
         exitCode: 2,
-        ...(tail ? { stderrTail: redactSecrets(tail) } : {}),
+        ...(tail ? { stderrTail: redactForPublish(tail) } : {}),
       };
     }
     return {};
