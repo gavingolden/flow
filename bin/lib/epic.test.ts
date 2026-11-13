@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const tmuxMock = vi.hoisted(() => ({
   windowExists: vi.fn<(name: string) => boolean>(() => false),
   isPaneAlive: vi.fn<(name: string) => boolean>(() => false),
-  // The 4th arg is the seed (send-keys delivery); the 5th is the deps object
+  // The 4th arg is the seed (launch-line delivery); the 5th is the deps object
   // carrying the injected `consumed` state-file-poll predicate.
   createWindowVerified: vi.fn<
     (
@@ -300,7 +300,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(raw.phase).toBe("starting");
     expect(raw.slug).toBe("add-watchlist-feature");
 
-    // The seed (delivered via send-keys, the 4th arg — NOT a positional argv)
+    // The seed (appended on the launch line by the launcher, the 4th arg — NOT a positional argv)
     // embeds the resolved literal EPIC_DIR (R1) so the spawned window never
     // re-derives the path nor imports bin/lib.
     const [, cwd, command, seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
@@ -330,7 +330,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     ).toBe("add a watchlist feature");
     // The argv carries a leading `env FLOW_PIPELINE=1 FLOW_SLUG=<slug>`
     // prefix, then --add-dir <worktree> + --add-dir <claude-home> + trailing
-    // --name <slug> + --settings, NO positional seed (length 12).
+    // --name <slug> + --settings, no seed in the built argv (length 12).
     expect(command).toHaveLength(12);
     expect(command[0]).toBe("env");
     expect(command[1]).toBe("FLOW_PIPELINE=1");
@@ -819,6 +819,33 @@ describe("runEpicCli create — window spawn (fresh)", () => {
   });
 });
 
+describe("runEpicCli — still starting (launched-not-confirmed)", () => {
+  const notConfirmed = {
+    status: "launched-not-confirmed" as const,
+    stderr: "",
+  };
+  const expectStillStarting = (success: string) => {
+    expect(logs.join("\n")).not.toContain(success);
+    const err = errors.join("\n");
+    expect(err).toContain("still starting");
+    expect(err).toContain("Yes, I trust this folder");
+    expect(err).toContain("press Enter");
+  };
+
+  it("create: exit 0, token printed, no 'created', hint on stderr", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    tmuxMock.createWindowVerified.mockReturnValue(notConfirmed);
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    expect(logs[0]).toBe("flow:design-thing");
+    expectStillStarting("created");
+  });
+});
+
 describe("runEpicCli create — launch concurrency semaphore", () => {
   it("acquires a slot before the launch and releases it after (success path)", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
@@ -902,7 +929,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
     );
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
-    // NO positional seed (delivered via send-keys); --effort sits after --add-dir,
+    // no seed in the built argv (appended on the launch line by the launcher); --effort sits after --add-dir,
     // then the trailing --settings (real argv uses process.env.FLOW_LAUNCH_SETTINGS_PATH).
     expect(command).toEqual([
       "env",
@@ -940,7 +967,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
       );
       expect(code).toBe(0);
       const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
-      // NO positional seed (delivered via send-keys); --model sits after --add-dir,
+      // no seed in the built argv (appended on the launch line by the launcher); --model sits after --add-dir,
       // then the trailing --settings.
       expect(command).toEqual([
         "env",
@@ -975,7 +1002,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
     // Deterministic order: --model before --effort, both after --add-dir, then
-    // the trailing --settings; NO positional seed (delivered via send-keys).
+    // the trailing --settings; no seed in the built argv (appended on the launch line by the launcher).
     expect(command).toEqual([
       "env",
       "FLOW_PIPELINE=1",
@@ -1095,7 +1122,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
     expect(code).toBe(0);
     // Slug excludes the flag/value tokens: prompt was "design the thing".
     expect(fs.existsSync(path.join(stateDir, "design-thing.json"))).toBe(true);
-    // The seed is delivered via send-keys (the 4th arg), NOT a positional argv.
+    // The seed is appended on the launch line by the launcher (the 4th arg), NOT a positional argv.
     // The prompt no longer rides the seed — only the REQUEST_FILE pointer.
     const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(seed).toContain(
@@ -1286,7 +1313,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
     });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
-    // NO positional seed (delivered via send-keys); saved --model/--effort
+    // no seed in the built argv (appended on the launch line by the launcher); saved --model/--effort
     // re-applied after --add-dir in deterministic order, then trailing --settings.
     expect(command).toEqual([
       "env",
@@ -1332,7 +1359,7 @@ describe("runEpicCli create --resume", () => {
     expect(code).toBe(0);
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(1);
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
-    // The resume seed is the 4th arg (send-keys delivery), not the argv tail.
+    // The resume seed is the 4th arg (launch-line delivery), not the argv tail.
     const [, cwd, command, seed] =
       tmuxMock.respawnWindowVerified.mock.calls[0]!;
     expect(cwd).toBe(repoDir);
@@ -1344,7 +1371,7 @@ describe("runEpicCli create --resume", () => {
     expect(seed).toContain("SKILL_DIR:");
     expect(seed).toContain("skills/pipeline/flow-product-planning");
     // The argv carries a leading env FLOW_PIPELINE=1 FLOW_SLUG=<slug> prefix,
-    // then NO positional seed (claude + --add-dir <worktree> + --add-dir
+    // then no seed in the built argv (claude + --add-dir <worktree> + --add-dir
     // <claude-home> + --name <slug> + trailing --settings, length 12).
     expect(command).toHaveLength(12);
     expect(command[0]).toBe("env");
@@ -1612,6 +1639,29 @@ describe("runEpicCli create --resume", () => {
       kind: "epic-design",
     });
   });
+
+  const notConfirmed = {
+    status: "launched-not-confirmed" as const,
+    stderr: "",
+  };
+  const expectStillStarting = (success: string) => {
+    expect(logs.join("\n")).not.toContain(success);
+    const err = errors.join("\n");
+    expect(err).toContain("still starting");
+    expect(err).toContain("Yes, I trust this folder");
+    expect(err).toContain("press Enter");
+  };
+
+  it("--resume: exit 0, token printed, no 'resumed', hint on stderr", () => {
+    seedEpicState("slow-epic");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    tmuxMock.respawnWindowVerified.mockReturnValue(notConfirmed);
+    const code = runEpicCli(["create", "--resume", "slow-epic"], { stateDir });
+    expect(code).toBe(0);
+    expect(logs[0]).toBe("flow:slow-epic");
+    expectStillStarting("resumed");
+  });
 });
 
 describe("runEpicCli run/status/ls/bind/launch", () => {
@@ -1709,14 +1759,15 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(logs[0]).toBe("flow:spawn-epic");
     expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
     expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
-    // Default never-consumed predicate: no `consumed` deps arg is passed.
+    // The only consumption signal is the seed-ingested record (the phase sits at
+    // the terminal epic-approved), so a predicate is passed and starts false.
     const [, , , seed, deps] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(seed).toContain("Use the /flow-epic-run skill for: spawn-epic");
     expect(seed).toContain(".flow/epics/spawn-epic");
     // The loop-era seed lines are gone.
     expect(seed).not.toContain("AUTO_REDIRECT");
     expect(seed).not.toContain("MODEL_JUDGE");
-    expect(deps).toBeUndefined();
+    expect(deps?.consumed?.()).toBe(false);
     // No run.json is pre-seeded by the launcher (the playbook writes it via bind/launch).
     expect(readEpicRunState("spawn-epic", epicsDir)).toBeNull();
   });
@@ -3810,6 +3861,77 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     const features = readEpicRunState("lock-race", epicsDir)?.features;
     expect(features?.["feat-a"]?.slug).toBe("a-slug");
     expect(features?.["feat-b"]?.slug).toBe("b-slug");
+  });
+
+  const notConfirmed = {
+    status: "launched-not-confirmed" as const,
+    stderr: "",
+  };
+  const expectStillStarting = (success: string) => {
+    expect(logs.join("\n")).not.toContain(success);
+    const err = errors.join("\n");
+    expect(err).toContain("still starting");
+    expect(err).toContain("Yes, I trust this folder");
+    expect(err).toContain("press Enter");
+  };
+
+  it("run: exit 0, token printed, no 'supervisor started', hint on stderr", () => {
+    gitInit();
+    writeManifest("spawn-epic", [{ id: "a" }]);
+    freshWindowOk();
+    tmuxMock.createWindowVerified.mockReturnValue(notConfirmed);
+    const code = runEpicCli(["run", "spawn-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      stateDir,
+    });
+    expect(code).toBe(0);
+    expect(logs[0]).toBe("flow:spawn-epic");
+    expectStillStarting("supervisor started");
+  });
+
+  it("run: the consumed predicate turns true once state.seedIngest is verified, and seedCorrupted once it is corrupt", () => {
+    gitInit();
+    writeManifest("spawn-epic", [{ id: "a" }]);
+    freshWindowOk();
+    writeState(
+      {
+        slug: "spawn-epic",
+        phase: "epic-approved",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    runEpicCli(["run", "spawn-epic"], { cwd: repoDir, epicsDir, stateDir });
+    const deps = tmuxMock.createWindowVerified.mock.calls[0]![4]!;
+    expect(deps.consumed!()).toBe(false);
+    const cur = readState("spawn-epic", stateDir)!;
+    writeState(
+      {
+        ...cur,
+        seedIngest: {
+          at: "2026-01-01T00:00:00.000Z",
+          outcome: "verified",
+        },
+      },
+      stateDir,
+    );
+    expect(deps.consumed!()).toBe(true);
+    writeState(
+      {
+        ...cur,
+        seedIngest: {
+          at: "2026-01-01T00:00:00.000Z",
+          outcome: "corrupt",
+          expectedBytes: 10,
+          submittedBytes: 5,
+        },
+      },
+      stateDir,
+    );
+    expect(deps.seedCorrupted!()).toBe(true);
+    expect(deps.consumed!()).toBe(false);
   });
 });
 

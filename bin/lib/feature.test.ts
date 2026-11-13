@@ -534,8 +534,8 @@ describe("runNew --resume", () => {
     const [, cwd, command, seed] =
       tmuxMock.respawnWindowVerified.mock.calls[0]!;
     expect(cwd).toBe(repoDir);
-    // The argv carries NO positional seed — just the claude flags + --settings.
-    // The seed is delivered via send-keys (the 4th arg below).
+    // The argv carries no seed in the built argv — just the claude flags + --settings.
+    // The seed is appended on the launch line by the launcher (the 4th arg below).
     expect(command).toEqual([
       "env",
       "FLOW_PIPELINE=1",
@@ -552,7 +552,7 @@ describe("runNew --resume", () => {
     ]);
     // Contract: the resume seed prefix is what the supervisor parses to detect
     // resume mode. SKILL.md hard-codes the literal string; if this assertion
-    // ever fails, update both ends in lockstep. Delivered via send-keys (4th arg).
+    // ever fails, update both ends in lockstep. Appended on the launch line (4th arg).
     expect(seed).toBe(
       "[pipeline-slug: crashed] Use the /flow-pipeline skill in --resume mode for: crashed",
     );
@@ -870,6 +870,30 @@ describe("runNew --resume", () => {
   });
 });
 
+describe("runFresh resume — still starting", () => {
+  it("still starting (resume): launched-not-confirmed exits 0 with the trust-question hint and no 'resumed' claim", () => {
+    seedState("slow-resume");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    tmuxMock.respawnWindowVerified.mockReturnValue({
+      status: "launched-not-confirmed",
+      stderr: "",
+    });
+    const code = runNew("slow-resume", {
+      resume: true,
+      stateDir,
+      retrySleepMs: 0,
+    });
+    expect(code).toBe(0);
+    expect(logs[0]).toBe("flow:slow-resume");
+    expect(logs.join("\n")).not.toContain("resumed");
+    const err = errors.join("\n");
+    expect(err).toContain("supervisor still starting");
+    expect(err).toContain("Yes, I trust this folder");
+    expect(err).toContain("press Enter");
+  });
+});
+
 describe("runFeatureCli --resume (multi-slug)", () => {
   it("resumes each slug sequentially with the per-slug resume seed and exits 0", () => {
     seedState("x");
@@ -881,7 +905,7 @@ describe("runFeatureCli --resume (multi-slug)", () => {
 
     expect(code).toBe(0);
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(2);
-    // The seed is the 4th arg (send-keys delivery), no longer the argv tail.
+    // The seed is the 4th arg (launch-line delivery), no longer the argv tail.
     const launched = tmuxMock.respawnWindowVerified.mock.calls.map(
       ([name, , , seed]) => ({ name, prompt: seed }),
     );
@@ -1158,7 +1182,7 @@ describe("runNew (fresh)", () => {
     expect(raw.waitForCopilot).toBe(true);
   });
 
-  it("launches claude with --add-dir <derived-worktree> and --settings, NO positional seed", () => {
+  it("launches claude with --add-dir <derived-worktree> and --settings, no seed in the built argv", () => {
     // LOAD-BEARING: omit `command` so buildLaunchCommand runs — passing
     // `command: ["true"]` would short-circuit the argv under test (issue #317).
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
@@ -1178,7 +1202,7 @@ describe("runNew (fresh)", () => {
     // runFresh resolves the repo via `git rev-parse --show-toplevel`, which
     // returns the canonical realpath (macOS /var → /private/var), so derive
     // the expected worktree from the resolved path, not the raw temp dir. The
-    // argv carries NO positional seed — just the flags + --settings.
+    // argv carries no seed in the built argv — just the flags + --settings.
     expect(command).toEqual([
       "env",
       "FLOW_PIPELINE=1",
@@ -1193,11 +1217,11 @@ describe("runNew (fresh)", () => {
       "--settings",
       settingsPath,
     ]);
-    // No element of the argv is the seed text (it is send-keys-only now).
+    // No element of the argv is the seed text (it is launch-line-only now).
     expect(
       command.some((a) => a.includes("Use the /flow-pipeline skill")),
     ).toBe(false);
-    // The 4th arg is the seed delivered via send-keys — a single
+    // The 4th arg is the seed appended on the launch line by the launcher — a single
     // control-char-free line carrying only a REQUEST_FILE pointer; the
     // description no longer rides the seed itself.
     expect(seed).toBe(
@@ -1332,6 +1356,27 @@ describe("runNew (fresh)", () => {
     expect(errors.join("\n")).toContain(
       "launched; supervisor still starting — attach to verify",
     );
+  });
+
+  it("still starting (create): the notice names the trust question and the Enter fallback, exit 0, contract token intact", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "launched-not-confirmed",
+      stderr: "",
+    });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      retrySleepMs: 0,
+    });
+    expect(code).toBe(0);
+    expect(logs[0]).toBe("flow:csv-export");
+    const err = errors.join("\n");
+    expect(err).toContain("Yes, I trust this folder");
+    expect(err).toContain("press Enter");
+    expect(err).toContain("flow attach csv-export");
   });
 
   it("backoff schedule: failed attempts sleep 1s then 2s via the injected sleep spy", () => {
@@ -1957,7 +2002,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(raw).not.toHaveProperty("copilotReview");
   });
 
-  it("runFeatureCli --effort high launches claude with --effort then --settings, no positional seed, persists effort", () => {
+  it("runFeatureCli --effort high launches claude with --effort then --settings, no seed in the built argv, persists effort", () => {
     // LOAD-BEARING: omit `command` so buildLaunchCommand runs — passing
     // `command: ["true"]` would short-circuit the argv under test.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
@@ -2133,7 +2178,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       });
       expect(code).toBe(0);
       const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
-      // NO positional seed (delivered via send-keys); --model sits between
+      // no seed in the built argv (appended on the launch line by the launcher); --model sits between
       // --add-dir and the trailing --settings.
       expect(command).toEqual([
         "env",
@@ -2487,7 +2532,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     const code = runNew("saved-model", { resume: true, stateDir });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
-    // NO positional seed (delivered via send-keys); the saved --model is
+    // no seed in the built argv (appended on the launch line by the launcher); the saved --model is
     // re-applied between --add-dir and the trailing --settings.
     expect(command).toEqual([
       "env",

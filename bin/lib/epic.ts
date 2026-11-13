@@ -86,6 +86,7 @@ import {
   resumeWorktree,
   backoffMsForAttempt,
   ensureLaunchSettings,
+  stillStartingHint,
 } from "./feature";
 import { releaseReservedWorktree, reserveWorktreeSlot } from "./worktree-slot";
 import {
@@ -871,10 +872,23 @@ PR → review checkpoint), and writes initial epic state under
   // supervisor overwrites worktree + phase + pr at each transition from here.
   // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
-  console.log(
-    dim(`flow epic create: created — attach with \`flow attach ${slug}\``),
-  );
+  if (result.status === "launched-not-confirmed") {
+    printStillStarting("flow epic create", slug, result.stderr);
+  } else {
+    console.log(
+      dim(`flow epic create: created — attach with \`flow attach ${slug}\``),
+    );
+  }
   return 0;
+}
+
+/** Launched but unconfirmed: the window is alive, so say it is still starting (never "created"/"started") and name the trust-question reason. Stderr only — stdout stays the contract token. */
+function printStillStarting(cmd: string, slug: string, stderr: string): void {
+  console.error(
+    dim(`${cmd}: launched; supervisor still starting — attach to verify`),
+  );
+  console.error(dim(stillStartingHint(slug)));
+  if (stderr) console.error(dim(`  ${stderr}`));
 }
 
 function runEpicResume(name: string, options: EpicOptions): number {
@@ -1089,9 +1103,13 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // Phase + worktree + pr stay as the crash left them. The supervisor's first
   // real transition is what updates state.json.
   console.log(`${FLOW_SESSION}:${slug}`);
-  console.log(
-    dim(`flow epic create: resumed — attach with \`flow attach ${slug}\``),
-  );
+  if (result.status === "launched-not-confirmed") {
+    printStillStarting("flow epic create --resume", slug, result.stderr);
+  } else {
+    console.log(
+      dim(`flow epic create: resumed — attach with \`flow attach ${slug}\``),
+    );
+  }
   return 0;
 }
 
@@ -1375,11 +1393,18 @@ function spawnEpicRunSupervisor(
       options.pluginRootsScan,
     );
 
-  // No run.json pre-seed and no `runnerPhase` reset — the default never-consumed
-  // predicate (`createWindowVerified` with no `consumed`) verifies pane survival
-  // only. A dead pane is `failed` (retry via launchWithRetry, then a loud
-  // error); a live pane is `launched-not-confirmed` (a non-retry success).
-  const launch = () => createWindowVerified(slug, repo, command, seed);
+  // No run.json pre-seed and no `runnerPhase` reset. Consumption is only the
+  // seed-ingested record's `verified` outcome (the phase sits at the terminal
+  // `epic-approved`, so it cannot signal). A dead pane is `failed` (retry via
+  // launchWithRetry, then a loud error); a live pane that has not confirmed is
+  // `launched-not-confirmed` (a non-retry success).
+  const launch = () =>
+    createWindowVerified(slug, repo, command, seed, {
+      consumed: () =>
+        seedIngestConfirmsDelivery(readState(slug, options.stateDir)),
+      seedCorrupted: () =>
+        seedIngestIsCorrupt(readState(slug, options.stateDir)),
+    });
   const result = launchWithRetry(launch, options.retrySleepMs);
   if (result.status === "failed") {
     releaseReservedWorktree(newlyReserved);
@@ -1419,11 +1444,15 @@ function spawnEpicRunSupervisor(
 
   // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
-  console.log(
-    dim(
-      `flow epic run: supervisor started — attach with \`flow attach ${slug}\``,
-    ),
-  );
+  if (result.status === "launched-not-confirmed") {
+    printStillStarting("flow epic run", slug, result.stderr);
+  } else {
+    console.log(
+      dim(
+        `flow epic run: supervisor started — attach with \`flow attach ${slug}\``,
+      ),
+    );
+  }
   return 0;
 }
 
@@ -2502,8 +2531,8 @@ Options:
  * chrome-devtools MCP workspace-root pre-authorization) plus the trailing
  * `--settings <flow-scoped file>`, which registers the UserPromptSubmit
  * seed-ingested hook and is ADDITIVE (the user's global settings still apply).
- * NO positional seed — the seed is delivered ONLY via send-keys by the verified
- * launcher (claude does not auto-run a positional prompt), mirroring feature.ts's
+ * The seed is not part of this argv — the verified launcher appends it as the
+ * last element (after the single-value `--settings`), mirroring feature.ts's
  * launchArgv. Leading `env FLOW_PIPELINE=1 FLOW_SLUG=<slug>` prefix — see
  * `bin/lib/feature.ts:1290-1295` for the argv-prefix rationale (`tmux
  * new-window` offers no env object): `FLOW_PIPELINE` is a supervisor-scoped
@@ -2521,9 +2550,9 @@ function launchArgv(
   model?: ModelAlias,
   pluginRootsScan: () => string[] = scanPluginRoots,
 ): string[] {
-  // NO positional seed — the seed is delivered ONLY via send-keys by the
-  // verified launcher (claude does not auto-run a positional prompt),
-  // mirroring feature.ts. `--model` precedes `--effort` (both before
+  // The seed is appended by the verified launcher as the LAST argv element
+  // (Claude Code 2.1.325 auto-submits a launch-line prompt under tmux and holds
+  // it behind the trust question), mirroring feature.ts. `--model` precedes `--effort` (both before
   // `--settings`), in a deterministic order so the argv assertions stay
   // stable. Each is omitted when unset.
   //
