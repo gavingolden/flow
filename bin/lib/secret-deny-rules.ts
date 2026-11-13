@@ -68,6 +68,15 @@ export const FLOW_CREATE_ISSUE_ALLOW_RULES: readonly string[] = [
   "Bash(flow-create-issue *)",
 ];
 
+const commandDenyRules = (cmd: string): string[] => [
+  `Bash(${cmd} *)`,
+  `Bash(*/${cmd})`,
+  `Bash(*/${cmd} *)`,
+  `Bash(env *${cmd})`,
+  `Bash(env *${cmd} *)`,
+  `Bash(bun *${cmd}.ts*)`,
+];
+
 /**
  * Keeps a flow-launched session from granting the executive autonomy or
  * forging a manager ruling: denies the high-autonomy and `--relay` grant
@@ -76,7 +85,9 @@ export const FLOW_CREATE_ISSUE_ALLOW_RULES: readonly string[] = [
  * ruling`), any Bash touching the grant file, the rulings, the decision log,
  * the manager scope or the owner-words ledger, and edits of those files (a
  * forged `grant` line would move the wave-review baseline; a forged ruling
- * plus its `ruling-written` line would pass the verifier) and the sequencer's
+ * plus its `ruling-written` line would pass the verifier). The manager
+ * helpers are denied as commands and the trust files by their `manager/` path,
+ * so repo files of the same name stay readable and testable and the sequencer's
  * `~/.flow/state/managers/**`. An `Edit(path)` rule covers every
  * built-in file-editing tool (Write included); a `Write(path)` rule never
  * matches. A guard, not a proof — the CLI
@@ -103,10 +114,11 @@ export const GRANT_DENY_RULES: readonly string[] = [
   "Bash(*manager/rulings*)",
   "Bash(*manager/log.jsonl*)",
   "Bash(*manager/scope.json*)",
-  "Bash(*owner-words*)",
+  "Bash(*manager/owner-words*)",
   "Bash(*manager/proposals.json*)",
   "Bash(*manager/handles.json*)",
-  "Bash(*flow-manager-ctl*)",
+  ...commandDenyRules("flow-manager-ctl"),
+  ...commandDenyRules("flow-manager-owner-words"),
   "Edit(~/.flow/manager/grants.json)",
   "Edit(~/.flow/manager/log.jsonl)",
   "Edit(~/.flow/manager/rulings/**)",
