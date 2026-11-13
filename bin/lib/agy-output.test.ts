@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { looksTimedOut, looksUnauthenticated } from "./agy-output";
+import {
+  looksSchemaRejected,
+  looksTimedOut,
+  looksUnauthenticated,
+} from "./agy-output";
 
 describe("looksUnauthenticated", () => {
   it.each([
@@ -42,5 +46,21 @@ describe("looksTimedOut", () => {
     expect(
       looksTimedOut("Print mode: timed out after 1491 polls (printed=17)"),
     ).toBe(true);
+  });
+});
+
+describe("looksSchemaRejected", () => {
+  it.each([
+    'Error: invalid --json-schema: failed to read schema file "/x/schema.json": open /x/schema.json: no such file or directory',
+    "Error: invalid --json-schema: schema is not valid JSON: unexpected end of JSON input",
+  ])("matches %s", (msg) => {
+    expect(looksSchemaRejected(msg)).toBe(true);
+  });
+
+  it.each([
+    "Error: something went wrong",
+    "Error: timeout waiting for response",
+  ])("does not match %s", (msg) => {
+    expect(looksSchemaRejected(msg)).toBe(false);
   });
 });

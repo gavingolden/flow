@@ -1,6 +1,16 @@
-import { readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { helperScratchPaths } from "./lib/helper-scratch";
 import {
   DELEGATE_TIMEOUT_CEILING,
   DELEGATE_TIMEOUT_DEFAULTS,
@@ -240,6 +250,7 @@ const BASE_ARGV = [
   "/wt/.flow-tmp/intent-guess-gemini.json",
 ];
 const OUT = "/wt/.flow-tmp/intent-guess-gemini.json";
+const SCRATCH = helperScratchPaths(OUT, "gemini-intent-guess");
 
 const envelope = (deps: { calls: { out: string[] } }) =>
   JSON.parse(deps.calls.out[0] as string);
@@ -333,15 +344,15 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
       ran: false,
       skipReason: "agy-timeout",
       skipClass: "ran-unusable",
-      partialArtifactPath: `${OUT}.agy-raw`,
+      partialArtifactPath: SCRATCH.raw,
     });
-    expect(deps.files.has(`${OUT}.agy-raw`)).toBe(true);
+    expect(deps.files.has(SCRATCH.raw)).toBe(true);
     // removeFile(rawPath) is called exactly once — the unconditional
     // pre-clean at the top of the run, before the raw artifact exists —
     // and NOT again by cleanScratch's retention, which is what would
     // delete the file this test asserts survives.
-    expect(deps.calls.removed.filter((p) => p === `${OUT}.agy-raw`)).toEqual([
-      `${OUT}.agy-raw`,
+    expect(deps.calls.removed.filter((p) => p === SCRATCH.raw)).toEqual([
+      SCRATCH.raw,
     ]);
   });
 
@@ -384,7 +395,7 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
     });
     // Seed a .agy-raw left over from a hypothetical prior run's ran-unusable
     // skip — this run's runDelegate stub never writes rawPath.
-    deps.files.set(`${OUT}.agy-raw`, "stale evidence from a previous run");
+    deps.files.set(SCRATCH.raw, "stale evidence from a previous run");
     run(BASE_ARGV, deps);
     const env = envelope(deps);
     expect(env).toMatchObject({
@@ -392,7 +403,7 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
       skipReason: "delegate-envelope-unparseable",
     });
     expect(env.partialArtifactPath).toBeUndefined();
-    expect(deps.files.has(`${OUT}.agy-raw`)).toBe(false);
+    expect(deps.files.has(SCRATCH.raw)).toBe(false);
   });
 });
 
@@ -506,7 +517,7 @@ describe("run — conformant output", () => {
   it("removes the .schema.json scratch file after a success exit (S5)", () => {
     const deps = makeDeps();
     expect(run(BASE_ARGV, deps)).toBe(0);
-    expect(deps.files.has(`${OUT}.schema.json`)).toBe(false);
+    expect(deps.files.has(SCRATCH.schema)).toBe(false);
   });
 
   it("removes the .schema.json scratch file after a skip exit (S5)", () => {
@@ -517,7 +528,7 @@ describe("run — conformant output", () => {
       },
     });
     expect(run(BASE_ARGV, deps)).toBe(0);
-    expect(deps.files.has(`${OUT}.schema.json`)).toBe(false);
+    expect(deps.files.has(SCRATCH.schema)).toBe(false);
   });
 
   // S5: the delegate argv assertion is flag-presence, never exact array
@@ -530,7 +541,7 @@ describe("run — conformant output", () => {
     expect(argv).toContain("--output-format");
     expect(argv[argv.indexOf("--output-format") + 1]).toBe("json");
     expect(argv).toContain("--json-schema");
-    expect(argv[argv.indexOf("--json-schema") + 1]).toBe(`${OUT}.schema.json`);
+    expect(argv[argv.indexOf("--json-schema") + 1]).toBe(SCRATCH.schema);
   });
 
   it("passes --timeout resolveDelegateTimeout('intentGuess') default to flow-delegate", () => {
@@ -569,9 +580,7 @@ describe("run — conformant output", () => {
   it("writes INTENT_GUESS_JSON_SCHEMA to the --json-schema scratch path before dispatch", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
-    const write = deps.calls.writes.find(
-      (w) => w.path === `${OUT}.schema.json`,
-    );
+    const write = deps.calls.writes.find((w) => w.path === SCRATCH.schema);
     expect(write).toBeDefined();
     expect(JSON.parse(write!.contents)).toEqual(INTENT_GUESS_JSON_SCHEMA);
   });
@@ -631,7 +640,7 @@ describe("run — malformed payloads drop the guess, never throw, leave no valid
         ran: false,
         skipReason: "gemini-intent-guess-output-unparseable",
         skipClass: "ran-unusable",
-        partialArtifactPath: `${OUT}.agy-raw`,
+        partialArtifactPath: SCRATCH.raw,
       });
       expect(deps.files.has(OUT)).toBe(false);
     },
@@ -685,7 +694,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
       ran: false,
       skipReason: "gemini-intent-guess-output-unreadable",
       skipClass: "ran-unusable",
-      partialArtifactPath: `${OUT}.agy-raw`,
+      partialArtifactPath: SCRATCH.raw,
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -703,7 +712,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
       ran: false,
       skipReason: "gemini-intent-guess-finalize-failed",
       skipClass: "ran-unusable",
-      partialArtifactPath: `${OUT}.agy-raw`,
+      partialArtifactPath: SCRATCH.raw,
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -725,7 +734,7 @@ describe("run — cross-run staleness: a prior --out is cleared before any skip 
       ran: false,
       skipReason: "gemini-intent-guess-output-unparseable",
       skipClass: "ran-unusable",
-      partialArtifactPath: `${OUT}.agy-raw`,
+      partialArtifactPath: SCRATCH.raw,
     });
     expect(deps.files.has(OUT)).toBe(false);
     expect(deps.calls.removed).toContain(OUT);
@@ -853,4 +862,69 @@ describe("run — self-diagnosing skip reasons (denied tools / token exhaustion)
     expect(envelope(deps)).toMatchObject({ skipReason: "gemini-tools-denied" });
     expect(deps.calls.delegate).toHaveLength(1);
   });
+});
+
+describe("run — intent-guess cleanup leaves scratch files intact", () => {
+  it("keeps the schema and prompt files when an intent-guess* name-glob cleanup runs mid-dispatch", () => {
+    const wt = mkdtempSync(path.join(tmpdir(), "gemini-intent-"));
+    try {
+      const tmp = path.join(wt, ".flow-tmp");
+      mkdirSync(tmp, { recursive: true });
+      const diff = path.join(tmp, "diff.txt");
+      writeFileSync(diff, "diff --git a/src/foo.ts b/src/foo.ts");
+      const out = path.join(tmp, "intent-guess-gemini.json");
+      const lines: string[] = [];
+      const deps: Partial<Deps> = {
+        readConfig: () => ENABLED,
+        readFile: (p) => readFileSync(p, "utf8"),
+        writeFile: (p, c) => writeFileSync(p, c),
+        removeFile: (p) => void rmSync(p, { force: true }),
+        mkdirp: (d) => void mkdirSync(d, { recursive: true }),
+        fileExists: (p) => existsSync(p),
+        writeOut: (l) => lines.push(l),
+        runDelegate: (argv) => {
+          for (const name of readdirSync(tmp)) {
+            if (name.startsWith("intent-guess")) {
+              rmSync(path.join(tmp, name), { recursive: true, force: true });
+            }
+          }
+          const schema = argv[argv.indexOf("--json-schema") + 1]!;
+          const prompt = argv[argv.indexOf("--prompt-file") + 1]!;
+          expect(existsSync(schema)).toBe(true);
+          expect(existsSync(prompt)).toBe(true);
+          expect(schema).toBe(
+            helperScratchPaths(out, "gemini-intent-guess").schema,
+          );
+          const raw = argv[argv.indexOf("--out") + 1]!;
+          writeFileSync(raw, JSON.stringify(VALID_GUESS));
+          return { ran: true, artifactPath: raw };
+        },
+      };
+      expect(
+        run(["--worktree", wt, "--diff-file", diff, "--out", out], deps),
+      ).toBe(0);
+      expect(JSON.parse(lines[0]!)).toMatchObject({ ran: true });
+    } finally {
+      rmSync(wt, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("run — denial relabel is limited to plausible-denial reasons", () => {
+  it.each(["agy-not-authenticated", "agy-schema-rejected"])(
+    "keeps %s when a stale deniedActions rides along",
+    (reason) => {
+      const deps = makeDeps({
+        runDelegate: (argv) => {
+          deps.calls.delegate.push(argv);
+          return { ran: false, skipReason: reason, deniedActions: ["x"] };
+        },
+      });
+      run(BASE_ARGV, deps);
+      expect(envelope(deps)).toMatchObject({
+        skipReason: reason,
+        skipClass: "environment",
+      });
+    },
+  );
 });

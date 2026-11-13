@@ -1,6 +1,16 @@
-import { readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { helperScratchPaths } from "./lib/helper-scratch";
 import {
   DELEGATE_TIMEOUT_CEILING,
   DELEGATE_TIMEOUT_DEFAULTS,
@@ -164,6 +174,7 @@ const BASE_ARGV = [
   "/wt/.flow-tmp/agent-output-gemini.json",
 ];
 const OUT = "/wt/.flow-tmp/agent-output-gemini.json";
+const SCRATCH = helperScratchPaths(OUT, "gemini-lens");
 
 const envelope = (deps: { calls: { out: string[] } }) =>
   JSON.parse(deps.calls.out[0] as string);
@@ -259,15 +270,15 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
       ran: false,
       skipReason: "agy-timeout",
       skipClass: "ran-unusable",
-      partialArtifactPath: `${OUT}.agy-raw`,
+      partialArtifactPath: SCRATCH.raw,
     });
-    expect(deps.files.has(`${OUT}.agy-raw`)).toBe(true);
+    expect(deps.files.has(SCRATCH.raw)).toBe(true);
     // removeFile(rawPath) is called exactly once — the unconditional
     // pre-clean at the top of the run, before the raw artifact exists —
     // and NOT again by cleanScratch's retention, which is what would
     // delete the file this test asserts survives.
-    expect(deps.calls.removed.filter((p) => p === `${OUT}.agy-raw`)).toEqual([
-      `${OUT}.agy-raw`,
+    expect(deps.calls.removed.filter((p) => p === SCRATCH.raw)).toEqual([
+      SCRATCH.raw,
     ]);
   });
 
@@ -318,7 +329,7 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
     });
     // Seed a .agy-raw left over from a hypothetical prior run's ran-unusable
     // skip — this run's runDelegate stub never writes rawPath.
-    deps.files.set(`${OUT}.agy-raw`, "stale evidence from a previous run");
+    deps.files.set(SCRATCH.raw, "stale evidence from a previous run");
     run(BASE_ARGV, deps);
     const env = envelope(deps);
     expect(env).toMatchObject({
@@ -326,7 +337,7 @@ describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", 
       skipReason: "delegate-envelope-unparseable",
     });
     expect(env.partialArtifactPath).toBeUndefined();
-    expect(deps.files.has(`${OUT}.agy-raw`)).toBe(false);
+    expect(deps.files.has(SCRATCH.raw)).toBe(false);
   });
 });
 
@@ -429,7 +440,7 @@ describe("run — conformant output", () => {
   it("removes the .schema.json scratch file after a success exit (S5)", () => {
     const deps = makeDeps();
     expect(run(BASE_ARGV, deps)).toBe(0);
-    expect(deps.files.has(`${OUT}.schema.json`)).toBe(false);
+    expect(deps.files.has(SCRATCH.schema)).toBe(false);
   });
 
   it("removes the .schema.json scratch file after a skip exit (S5)", () => {
@@ -440,7 +451,7 @@ describe("run — conformant output", () => {
       },
     });
     expect(run(BASE_ARGV, deps)).toBe(0);
-    expect(deps.files.has(`${OUT}.schema.json`)).toBe(false);
+    expect(deps.files.has(SCRATCH.schema)).toBe(false);
   });
 
   // S5: flag presence, never exact argv array equality — every stub above
@@ -452,7 +463,7 @@ describe("run — conformant output", () => {
     expect(argv).toContain("--output-format");
     expect(argv[argv.indexOf("--output-format") + 1]).toBe("json");
     expect(argv).toContain("--json-schema");
-    expect(argv[argv.indexOf("--json-schema") + 1]).toBe(`${OUT}.schema.json`);
+    expect(argv[argv.indexOf("--json-schema") + 1]).toBe(SCRATCH.schema);
   });
 
   it("passes --timeout resolveDelegateTimeout('reviewLens') default to flow-delegate", () => {
@@ -491,9 +502,7 @@ describe("run — conformant output", () => {
   it("writes AGENT_FINDINGS_JSON_SCHEMA to the --json-schema scratch path before dispatch", () => {
     const deps = makeDeps();
     run(BASE_ARGV, deps);
-    const write = deps.calls.writes.find(
-      (w) => w.path === `${OUT}.schema.json`,
-    );
+    const write = deps.calls.writes.find((w) => w.path === SCRATCH.schema);
     expect(write).toBeDefined();
     expect(JSON.parse(write!.contents)).toEqual(AGENT_FINDINGS_JSON_SCHEMA);
   });
@@ -689,7 +698,7 @@ describe("run — malformed payloads drop the lens, never throw, leave no valid 
       ran: false,
       skipReason: "gemini-output-unparseable",
       skipClass: "ran-unusable",
-      partialArtifactPath: `${OUT}.agy-raw`,
+      partialArtifactPath: SCRATCH.raw,
     });
     // CRITICAL: no consolidator-valid agent-output-gemini.json left behind.
     expect(deps.files.has(OUT)).toBe(false);
@@ -839,7 +848,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
       ran: false,
       skipReason: "gemini-output-unreadable",
       skipClass: "ran-unusable",
-      partialArtifactPath: `${OUT}.agy-raw`,
+      partialArtifactPath: SCRATCH.raw,
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -859,7 +868,7 @@ describe("run — IO-throw catch branches each map to a graceful skip, never thr
       ran: false,
       skipReason: "gemini-finalize-failed",
       skipClass: "ran-unusable",
-      partialArtifactPath: `${OUT}.agy-raw`,
+      partialArtifactPath: SCRATCH.raw,
     });
     expect(deps.files.has(OUT)).toBe(false);
   });
@@ -883,7 +892,7 @@ describe("run — cross-run staleness: a prior --out is cleared before any skip 
       ran: false,
       skipReason: "gemini-output-unparseable",
       skipClass: "ran-unusable",
-      partialArtifactPath: `${OUT}.agy-raw`,
+      partialArtifactPath: SCRATCH.raw,
     });
     // CRITICAL: the stale run-1 file is gone — the consolidator can't consume it.
     expect(deps.files.has(OUT)).toBe(false);
@@ -894,8 +903,8 @@ describe("run — cross-run staleness: a prior --out is cleared before any skip 
     const deps = makeDeps();
     expect(run(BASE_ARGV, deps)).toBe(0);
     expect(envelope(deps)).toMatchObject({ ran: true });
-    expect(deps.files.has(`${OUT}.prompt`)).toBe(false);
-    expect(deps.files.has(`${OUT}.agy-raw`)).toBe(false);
+    expect(deps.files.has(SCRATCH.prompt)).toBe(false);
+    expect(deps.files.has(SCRATCH.raw)).toBe(false);
   });
 });
 
@@ -1233,5 +1242,112 @@ describe("run — retry timeout bound (Task 8 diff-only fallback)", () => {
     });
     run(BASE_ARGV, deps);
     expect(outPaths[0]).not.toBe(outPaths[1]);
+  });
+});
+
+describe("run — scratch files survive an agent-output cleanup", () => {
+  const realDeps = (over: Partial<Deps>): Partial<Deps> => ({
+    readConfig: () => ENABLED,
+    readFile: (p) => readFileSync(p, "utf8"),
+    writeFile: (p, c) => writeFileSync(p, c),
+    removeFile: (p) => void rmSync(p, { force: true }),
+    mkdirp: (d) => void mkdirSync(d, { recursive: true }),
+    fileExists: (p) => existsSync(p),
+    ...over,
+  });
+
+  it("keeps the schema and prompt files when a name-glob agent-output cleanup runs mid-dispatch", () => {
+    const wt = mkdtempSync(path.join(tmpdir(), "gemini-lens-"));
+    try {
+      const tmp = path.join(wt, ".flow-tmp");
+      mkdirSync(tmp, { recursive: true });
+      const diff = path.join(tmp, "diff.txt");
+      writeFileSync(diff, "diff --git a/src/foo.ts b/src/foo.ts");
+      const out = path.join(tmp, "agent-output-gemini.json");
+      const out2: string[] = [];
+      const seen: { schema?: string; prompt?: string } = {};
+      const deps = realDeps({
+        writeOut: (l) => out2.push(l),
+        runDelegate: (argv) => {
+          for (const name of readdirSync(tmp)) {
+            if (name.startsWith("agent-output-")) {
+              rmSync(path.join(tmp, name), { recursive: true, force: true });
+            }
+          }
+          seen.schema = argv[argv.indexOf("--json-schema") + 1];
+          seen.prompt = argv[argv.indexOf("--prompt-file") + 1];
+          expect(existsSync(seen.schema!)).toBe(true);
+          expect(existsSync(seen.prompt!)).toBe(true);
+          expect(path.dirname(seen.schema!)).not.toBe(tmp);
+          expect(path.dirname(seen.prompt!)).not.toBe(tmp);
+          const raw = argv[argv.indexOf("--out") + 1]!;
+          writeFileSync(
+            raw,
+            JSON.stringify({
+              findings: [],
+              rejected_alternatives: [],
+              anti_patterns_found: [],
+            }),
+          );
+          return { ran: true, artifactPath: raw };
+        },
+      });
+      expect(
+        run(["--worktree", wt, "--diff-file", diff, "--out", out], deps),
+      ).toBe(0);
+      expect(JSON.parse(out2[0]!)).toMatchObject({ ran: true });
+      expect(existsSync(out)).toBe(true);
+      expect(seen.schema).toBe(helperScratchPaths(out, "gemini-lens").schema);
+    } finally {
+      rmSync(wt, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("run — environment skips from the delegate", () => {
+  it("keeps agy-schema-rejected as an environment skip, forwards stderrTail, and never retries diff-only despite deniedActions", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        return {
+          ran: false,
+          skipReason: "agy-schema-rejected",
+          exitCode: 1,
+          stderrTail:
+            "Error: invalid --json-schema: failed to read schema file ...",
+          deniedActions: ["x"],
+        };
+      },
+    });
+    run(BASE_ARGV, deps);
+    const env = envelope(deps);
+    expect(env).toMatchObject({
+      ran: false,
+      skipReason: "agy-schema-rejected",
+      skipClass: "environment",
+      stderrTail:
+        "Error: invalid --json-schema: failed to read schema file ...",
+    });
+    expect(env.partialArtifactPath).toBeUndefined();
+    expect(deps.calls.delegate).toHaveLength(1);
+  });
+
+  it("classifies a delegate-usage-error envelope as environment", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        return {
+          ran: false,
+          skipReason: "delegate-usage-error",
+          exitCode: 2,
+          stderrTail: "flow-delegate: --prompt-file not found",
+        };
+      },
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toMatchObject({
+      skipReason: "delegate-usage-error",
+      skipClass: "environment",
+    });
   });
 });

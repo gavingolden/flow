@@ -343,6 +343,44 @@ describe("classifyAgyOutcome", () => {
     ).toBe("agy-timeout");
   });
 
+  const SCHEMA_REJECTIONS = [
+    'Error: invalid --json-schema: failed to read schema file "/x/schema.json": open /x/schema.json: no such file or directory',
+    "Error: invalid --json-schema: schema is not valid JSON: unexpected end of JSON input",
+  ];
+
+  it.each(SCHEMA_REJECTIONS)(
+    "classifies agy's flag rejection on stderr as agy-schema-rejected: %s",
+    (msg) => {
+      expect(
+        classifyAgyOutcome({ exitCode: 1, stderr: msg, outcome: {} }),
+      ).toBe("agy-schema-rejected");
+    },
+  );
+
+  it.each(SCHEMA_REJECTIONS)(
+    "classifies agy's flag rejection in the json envelope error as agy-schema-rejected: %s",
+    (msg) => {
+      expect(
+        classifyAgyOutcome({
+          exitCode: 1,
+          stderr: "",
+          outcome: { status: "ERROR", error: msg },
+        }),
+      ).toBe("agy-schema-rejected");
+    },
+  );
+
+  it("keeps a timeout ahead of a schema rejection in the same text", () => {
+    expect(
+      classifyAgyOutcome({
+        exitCode: 1,
+        stderr:
+          "Error: timeout waiting for response (invalid --json-schema: x)",
+        outcome: {},
+      }),
+    ).toBe("agy-timeout");
+  });
+
   it("classifies CANCELED (exit 0) as agy-canceled", () => {
     expect(
       classifyAgyOutcome({
@@ -617,6 +655,47 @@ describe("run", () => {
       skipReason: "agy-not-found",
     });
     expect(deps.calls.agy).toHaveLength(0);
+  });
+
+  describe("--json-schema pre-check", () => {
+    const schemaArgs = ["--prompt", "hi", "--json-schema", "/s/schema.json"];
+
+    it.each([
+      ["a missing file", { fileExists: () => false }, "not found"],
+      [
+        "an unreadable file",
+        {
+          readFile: (): string => {
+            throw new Error("EACCES");
+          },
+        },
+        "cannot read",
+      ],
+      [
+        "malformed JSON",
+        { readFile: (): string => "{not json" },
+        "not valid JSON",
+      ],
+    ] as const)(
+      "skips with agy-schema-rejected (exit 0) without spawning agy for %s",
+      (_name, overrides, cause) => {
+        const deps = makeDeps(overrides);
+        expect(run(schemaArgs, deps)).toBe(0);
+        expect(envelope(deps)).toMatchObject({
+          ran: false,
+          skipReason: "agy-schema-rejected",
+        });
+        expect(envelope(deps).stderrTail).toContain("/s/schema.json");
+        expect(envelope(deps).stderrTail).toContain(cause);
+        expect(deps.calls.agy).toHaveLength(0);
+      },
+    );
+
+    it("still reaches agy when the schema file is valid JSON", () => {
+      const deps = makeDeps({ readFile: () => '{"type":"object"}' });
+      expect(run(schemaArgs, deps)).toBe(0);
+      expect(deps.calls.agy).toHaveLength(1);
+    });
   });
 
   it("pins runAgy's cwd to a scratch dir when --skip-permissions is passed with no --add-dir", () => {

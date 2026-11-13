@@ -39,6 +39,11 @@ export const ENVIRONMENT_SKIP_REASONS: ReadonlySet<string> = new Set([
   "agy-not-authenticated",
   // agy rejects the model name before any model call, so no quota is spent.
   "agy-model-unavailable",
+  // flow-delegate's pre-check or agy's own flag rejection fires before any
+  // model call, so no quota is spent.
+  "agy-schema-rejected",
+  // flow-delegate's exit-2 usage paths all precede the agy spawn.
+  "delegate-usage-error",
   "gemini-lens-disabled",
   "gemini-intent-guess-disabled",
   "plan-review-disabled",
