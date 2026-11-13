@@ -347,6 +347,8 @@ function plainSkipReason(outcome: EntryOutcome): string {
       return "it failed to start";
     case "agy-schema-rejected":
       return "its answer-format file was missing or malformed";
+    case "delegate-usage-error":
+      return "the delegate rejected its inputs";
     default:
       return outcome.skipReason ?? "it never started";
   }
@@ -354,7 +356,8 @@ function plainSkipReason(outcome: EntryOutcome): string {
 // NOTE: the `default` arm above is a last-resort fallback, not the intended
 // path — every skipReason flow-delegate can emit (see its module header:
 // "agy-not-found"|"agy-not-authenticated"|"agy-timeout"|"agy-canceled"|
-// "agy-error"|"agy-empty-artifact"|"agy-model-unavailable"|"agy-schema-rejected"|"spawn-failed", plus this file's own
+// "agy-error"|"agy-empty-artifact"|"agy-model-unavailable"|"agy-schema-rejected"|"spawn-failed", plus the
+// fan-out-side "delegate-usage-error", plus this file's own
 // "entry-missing"/"budget-exhausted") has an explicit case above so no raw
 // kebab-case token reaches the user-read findings block. Anything that still
 // lands in `default` is a genuinely new/unmapped reason.
