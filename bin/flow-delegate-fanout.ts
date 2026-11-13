@@ -572,8 +572,13 @@ function defaultRunDelegate(
     const env = parseDelegateRun(stdout, exitCode, stderr);
     // A child that produced no parsable envelope is treated as a graceful
     // skip rather than a hard failure, consistent with flow-delegate's
-    // never-throw contract.
-    if (Object.keys(env).length === 0) {
+    // never-throw contract. It stays `agy-error` (not parseDelegateRun's
+    // `delegate-envelope-unparseable`) so plan-review / blind-survey keep
+    // their Claude-fallback eligibility; only an exit-2 usage error is named.
+    if (
+      Object.keys(env).length === 0 ||
+      env.skipReason === "delegate-envelope-unparseable"
+    ) {
       return { ran: false, task: entry.task, skipReason: "agy-error" };
     }
     return env as DelegateEnvelope;
