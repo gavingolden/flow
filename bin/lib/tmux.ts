@@ -21,7 +21,6 @@ import {
   type PipelineState,
 } from "./state";
 import { sleepSync } from "./sleep";
-import { deliverSeed } from "./seed-delivery";
 
 export const FLOW_SESSION = "flow";
 /**
@@ -243,10 +242,11 @@ export function createWindow(
 }
 
 /**
- * Ready + consumption poll budgets. The seed is delivered by send-keys only
- * after the pane is confirmed READY — a STRING-FREE check: the pane is alive and
- * `capture-pane` is non-empty (claude has drawn *something*), with no TUI
- * substring match. Readiness IS the launch-time liveness verification (it still
+ * Ready + consumption poll budgets. The seed rides on the launch line (the last
+ * argv element), so there is no typed delivery; the pane is still confirmed
+ * READY first — a STRING-FREE check: the pane is alive and `capture-pane` is
+ * non-empty (claude has drawn *something*), with no TUI substring match.
+ * Readiness IS the launch-time liveness verification (it still
  * catches a claude that died on launch), so its budget is WIDE (~30s) to ride
  * out a slow cold-start under concurrent load without failing the launch.
  *
@@ -524,18 +524,6 @@ export type CreateWindowVerifiedDeps = {
    */
   onProgress?: (elapsedMs: number) => void;
   /**
-   * send-keys seam. Defaults to the real sendKeysBySlug. `literal` selects
-   * `-l --` literal text vs a key name (e.g. "Enter"). Tests inject a spy to
-   * assert delivery happens only after ready and that text + Enter are separate
-   * calls.
-   */
-  sendKeys?: (
-    slug: string,
-    keysOrText: string,
-    literal: boolean,
-    session?: string,
-  ) => { ok: boolean; stderr: string };
-  /**
    * Recorded-mismatch predicate, checked once after the consume poll. Defaults
    * to `() => false` so every existing caller/spec is unaffected. The caller
    * (`feature.ts` / `epic.ts`) injects a check against the on-disk
@@ -571,21 +559,26 @@ export type RespawnWindowVerifiedDeps = {
   consumeAttempts?: number;
   /** Progress seam — same contract as `CreateWindowVerifiedDeps.onProgress`. */
   onProgress?: (elapsedMs: number) => void;
-  /** send-keys seam — same contract as `CreateWindowVerifiedDeps.sendKeys`. */
-  sendKeys?: (
-    slug: string,
-    keysOrText: string,
-    literal: boolean,
-    session?: string,
-  ) => { ok: boolean; stderr: string };
   /** Recorded-mismatch predicate — same contract as `CreateWindowVerifiedDeps.seedCorrupted`. */
   seedCorrupted?: () => boolean;
 };
 
 /**
+ * Append the seed to the launch argv (skipped when the caller already did). The
+ * seed MUST stay the LAST argv element, after any single-value flag (claude's
+ * `--add-dir` is variadic and would swallow it), and its own element of a
+ * multi-element argv (a one-element command goes through `$SHELL -c`). Claude
+ * Code auto-submits a launch-line prompt under tmux and holds it behind the
+ * trust question; the seed shares tmux's ~16KB command-length limit.
+ */
+function withLaunchSeed(command: string[], seed: string): string[] {
+  return command.at(-1) === seed ? command : [...command, seed];
+}
+
+/**
  * Creates the window via `createWindow`, waits for `claude`'s pane to render,
- * then OWNS seed delivery: it sends `seed` via send-keys (literal text + a
- * separate Enter) and gates success on confirmed *consumption* — the injected
+ * then gates success on confirmed *consumption* of the seed, which rides on the
+ * launch line (see `withLaunchSeed`) — the injected
  * `consumed` predicate flipping true (the supervisor advanced the state-file
  * phase past `starting`). tmux's `new-window` exit code only proves the shell
  * forked, and a bare liveness probe passes a `claude` idle at an empty input box
@@ -610,14 +603,13 @@ export function createWindowVerified(
   const kill = deps.kill ?? killWindow;
   const sleep = deps.sleep ?? sleepSync;
   const readPane = deps.readPane ?? capturePaneBySlug;
-  const sendKeys = deps.sendKeys ?? sendKeysBySlug;
   const consumed = deps.consumed ?? (() => false);
   const onProgress = deps.onProgress;
   const readyAttempts = deps.readyAttempts ?? READY_POLL_ATTEMPTS;
   const consumeAttempts = deps.consumeAttempts ?? CONSUME_POLL_ATTEMPTS;
   const seedCorrupted = deps.seedCorrupted ?? (() => false);
 
-  const created = create(slug, cwd, command, session);
+  const created = create(slug, cwd, withLaunchSeed(command, seed), session);
   if (!created.ok) return { status: "failed", stderr: created.stderr };
 
   // Phase 1 — readiness IS the launch-time liveness check: wait (on the wide
@@ -641,27 +633,7 @@ export function createWindowVerified(
     };
   }
 
-  // Phase 2 — deliver the seed via the shared chunked leading-line handshake
-  // (checks every literal send, verifies the leading line echoed, chunks below
-  // tmux's send-keys byte cap). The `if (!consumed())` guard is vestigial (the
-  // positional auto-run path is gone): it only skips a redundant delivery when
-  // the seed-ingested marker / resume baseline is already satisfied at
-  // ready-time. The SEPARATE Enter is sent ONLY when delivery verified — a
-  // failed/exhausted send must never submit a corrupt box; it falls through to
-  // the non-destructive Phase-3 timeout.
-  let deliverStderr = "";
-  if (!consumed()) {
-    const result = deliverSeed(seed, {
-      capture: () => readPane(slug, session),
-      send: (keysOrText, literal) =>
-        sendKeys(slug, keysOrText, literal, session),
-      sleep,
-    });
-    deliverStderr = result.stderr;
-    if (result.delivered) sendKeys(slug, "Enter", false, session);
-  }
-
-  // Phase 3 — short, non-destructive consume probe. `started` and
+  // Phase 2 — short, non-destructive consume probe. `started` and
   // `launched-not-confirmed` are both success; only a DEAD pane (`failed`) is
   // killed (Mode 3 consume-then-die, or ready-then-died-before-consuming).
   const consumeResult = pollUntilConsumed(
@@ -687,13 +659,13 @@ export function createWindowVerified(
     kill(slug, session);
     return { status: "failed", stderr: SEED_CORRUPTED_STDERR };
   }
-  return { status: consumeResult, stderr: deliverStderr };
+  return { status: consumeResult, stderr: "" };
 }
 
 /**
- * `respawnWindow` + the same ready→send→consume flow as `createWindowVerified`:
- * it waits for claude's pane to render, OWNS seed delivery (send-keys literal
- * text + a separate Enter, guarded against a double-submit), and gates success
+ * `respawnWindow` + the same ready→consume flow as `createWindowVerified`:
+ * the resume seed rides on the launch line, it waits for claude's pane to
+ * render, and gates success
  * on confirmed *consumption* (the injected `consumed` predicate flipping true),
  * not mere liveness. `respawn-window`'s exit code only proves tmux relaunched
  * the pane, and a `claude` idle at an empty input box (Mode 1) passes a liveness
@@ -715,14 +687,13 @@ export function respawnWindowVerified(
   const isAlive = deps.isAlive ?? isPaneAlive;
   const sleep = deps.sleep ?? sleepSync;
   const readPane = deps.readPane ?? capturePaneBySlug;
-  const sendKeys = deps.sendKeys ?? sendKeysBySlug;
   const consumed = deps.consumed ?? (() => false);
   const onProgress = deps.onProgress;
   const readyAttempts = deps.readyAttempts ?? READY_POLL_ATTEMPTS;
   const consumeAttempts = deps.consumeAttempts ?? CONSUME_POLL_ATTEMPTS;
   const seedCorrupted = deps.seedCorrupted ?? (() => false);
 
-  const respawned = respawn(slug, cwd, command, session);
+  const respawned = respawn(slug, cwd, withLaunchSeed(command, seed), session);
   if (!respawned.ok) return { status: "failed", stderr: respawned.stderr };
 
   // Phase 1 — wait for the relaunched claude to come up AND render its pane
@@ -743,25 +714,7 @@ export function respawnWindowVerified(
     };
   }
 
-  // Phase 2 — deliver the resume seed via the shared chunked leading-line
-  // handshake. The `if (!consumed())` guard is vestigial (positional auto-run
-  // path gone): it only skips a redundant delivery when the resume baseline /
-  // seed-ingested marker is already satisfied at ready-time. The SEPARATE Enter
-  // is sent ONLY when delivery verified — a failed/exhausted send falls through
-  // to the non-destructive Phase-3 timeout rather than submitting a corrupt box.
-  let deliverStderr = "";
-  if (!consumed()) {
-    const result = deliverSeed(seed, {
-      capture: () => readPane(slug, session),
-      send: (keysOrText, literal) =>
-        sendKeys(slug, keysOrText, literal, session),
-      sleep,
-    });
-    deliverStderr = result.stderr;
-    if (result.delivered) sendKeys(slug, "Enter", false, session);
-  }
-
-  // Phase 3 — short, non-destructive consume probe. `started` /
+  // Phase 2 — short, non-destructive consume probe. `started` /
   // `launched-not-confirmed` are both success; `failed` (dead pane) is reported
   // but the window is STILL never killed — the resume path is non-destructive.
   const consumeResult = pollUntilConsumed(
@@ -777,11 +730,11 @@ export function respawnWindowVerified(
   if (seedCorrupted()) {
     return { status: "failed", stderr: SEED_CORRUPTED_STDERR };
   }
-  // On a dead pane surface the fixed 'failed' string; otherwise surface any
-  // delivery stderr (failed/exhausted send) so it isn't silently dropped.
+  // On a dead pane surface the fixed 'failed' string; otherwise there is no
+  // stderr (nothing is typed).
   return {
     status: consumeResult,
-    stderr: consumeFailStderr(consumeResult) || deliverStderr,
+    stderr: consumeFailStderr(consumeResult),
   };
 }
 

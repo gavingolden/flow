@@ -62,10 +62,12 @@ it:
   `flow epic create --resume`'s, and `flow epic run`'s — never carried
   free-form text (only the slug and CLI-resolved paths), but are reshaped
   to a single line too, for a uniform contract across all five. `splitSeed`'s
-  remainder is empty for every one of these five seeds, so each goes
-  through the capture-verified, `C-u`-retried leading-line handshake in
-  full — the unverified-remainder path this section used to describe no
-  longer carries any of them. `flow-session-start-hook.ts` delivers the
+  remainder is empty for every one of these five seeds. The launch paths
+  no longer type them at all (they ride the launch line); the
+  capture-verified, `C-u`-retried leading-line handshake applies only to
+  `flow-session-start-hook.ts`'s typed deliveries — the unverified-remainder
+  path this section used to describe no longer carries any of them.
+  `flow-session-start-hook.ts` delivers the
   same three reshaped resume seeds (`flowPipelineResumeSeed`,
   `epicResumeSeed`, `epicRunSeed`), so they are single-line too; only
   `terminalContinueSeed` (genuine multi-line prose, no free-form user text)
@@ -74,10 +76,12 @@ it:
   Still chunked to `REMAINDER_CHUNK_BYTES` (128 bytes) with a
   `REMAINDER_SETTLE_MS` (50 ms) sleep between consecutive chunks, rather
   than one large literal `send-keys` blast.
-- **Out-of-band integrity check.** Every tmux launch/resume path
+- **Out-of-band integrity check.** The launch paths pass the seed on the
+  launch line (typed delivery remains only for the after-`/clear` resume
+  hook). Every tmux launch/resume path
   (`bin/lib/feature.ts`, `bin/lib/epic.ts`, `bin/flow-session-start-hook.ts`)
   records the exact seed it is about to deliver as `state.seed` before
-  sending it. `bin/flow-seed-ingested-hook.ts` — a Claude Code
+  launching (or, for the hook, sending) it. `bin/flow-seed-ingested-hook.ts` — a Claude Code
   UserPromptSubmit hook — compares the submitted prompt against `state.seed`
   (whitespace-squashed containment, not equality) the instant a prompt is
   accepted, and writes ONE self-describing `state.seedIngest` record
@@ -173,10 +177,21 @@ race:
 > start, so ~14 launches, including sends at `t = 0 ms`, all arrived
 > intact.
 
-And there is no supported lever to pre-accept the workspace-trust dialog:
-`claude --help` (v2.1.216) exposes no trust pre-acceptance flag. The only
-implementable preflight would seed `~/.claude.json` — another tool's
-undocumented internal state — which is a closed alternative.
+The trust question is real for any folder outside a trusted folder, and
+there is still no supported lever to pre-accept it: `claude --help`
+(v2.1.216) exposes no trust pre-acceptance flag, and seeding
+`~/.claude.json` — another tool's undocumented internal state — stays a
+closed alternative. What changed is how a start command survives it.
+Claude Code 2.1.325 swallows typed text while the question is up, but it
+keeps a prompt passed on the launch line and auto-submits it under tmux
+once the question is answered (re-probed 2026-11-13; this reverses the
+#355 finding for that build). So flow now passes every tmux start command
+on the launch line: the seed is the last argv element, after the
+single-value `--settings`, and shares tmux's ~16KB command-length limit.
+`flow manage` names the question when it sees the menu and exits 2 instead
+of claiming the manager started. A build that only pre-fills the launch
+line without submitting would leave launches idle at the input box, which
+is why every not-confirmed message says to press Enter.
 
 ## Verdict
 

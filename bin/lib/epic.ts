@@ -86,6 +86,7 @@ import {
   resumeWorktree,
   backoffMsForAttempt,
   ensureLaunchSettings,
+  stillStartingHint,
 } from "./feature";
 import { releaseReservedWorktree, reserveWorktreeSlot } from "./worktree-slot";
 import {
@@ -871,10 +872,23 @@ PR → review checkpoint), and writes initial epic state under
   // supervisor overwrites worktree + phase + pr at each transition from here.
   // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
-  console.log(
-    dim(`flow epic create: created — attach with \`flow attach ${slug}\``),
-  );
+  if (result.status === "launched-not-confirmed") {
+    printStillStarting("flow epic create", slug, result.stderr);
+  } else {
+    console.log(
+      dim(`flow epic create: created — attach with \`flow attach ${slug}\``),
+    );
+  }
   return 0;
+}
+
+/** Launched but unconfirmed: the window is alive, so say it is still starting (never "created"/"started") and name the trust-question reason. Stderr only — stdout stays the contract token. */
+function printStillStarting(cmd: string, slug: string, stderr: string): void {
+  console.error(
+    dim(`${cmd}: launched; supervisor still starting — attach to verify`),
+  );
+  console.error(dim(stillStartingHint(slug)));
+  if (stderr) console.error(dim(`  ${stderr}`));
 }
 
 function runEpicResume(name: string, options: EpicOptions): number {
@@ -1089,9 +1103,13 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // Phase + worktree + pr stay as the crash left them. The supervisor's first
   // real transition is what updates state.json.
   console.log(`${FLOW_SESSION}:${slug}`);
-  console.log(
-    dim(`flow epic create: resumed — attach with \`flow attach ${slug}\``),
-  );
+  if (result.status === "launched-not-confirmed") {
+    printStillStarting("flow epic create --resume", slug, result.stderr);
+  } else {
+    console.log(
+      dim(`flow epic create: resumed — attach with \`flow attach ${slug}\``),
+    );
+  }
   return 0;
 }
 
@@ -1262,11 +1280,12 @@ function runEpicRun(rest: string[], options: EpicOptions): number {
 /**
  * Open the `/flow-epic-run` playbook supervisor in a per-pipeline tmux window.
  * Mirrors `runCreate`'s launch scaffolding but keeps NO per-machine phase
- * machine — with `runnerPhase` gone, the launch uses `createWindowVerified`'s
- * default fail-closed never-consumed predicate: a dead pane still retries/fails
- * loudly, a live pane returns `launched-not-confirmed` (a non-retry success).
- * Weaker than the old seed-consumption proof, but zero new machinery — the
- * playbook is human-in-the-loop (the user attaches to the window they opened).
+ * machine — with `runnerPhase` gone, the launch confirms consumption only
+ * through the seed-ingested record's `verified` outcome (the phase sits at the
+ * terminal `epic-approved`, so it cannot signal): a dead pane still
+ * retries/fails loudly, a live unconfirmed pane returns `launched-not-confirmed`
+ * (a non-retry success). The playbook is human-in-the-loop (the user attaches
+ * to the window they opened).
  */
 function spawnEpicRunSupervisor(
   slug: string,
@@ -1312,37 +1331,6 @@ function spawnEpicRunSupervisor(
   }
   const epicDir = epicDirRelative(slug);
   const seed = epicRunSeed(slug, epicDir);
-  // Record THIS run's own seed and clear any earlier hook markers, mirroring
-  // the resume paths above (Task 4b cross-path hazard fix). This window
-  // reuses the epic's existing slug/state.json (from `runCreate`), but
-  // `epicRunSeed` is a DIFFERENT prompt than whatever create/resume seed is
-  // already recorded there — without this write, flow-seed-ingested-hook
-  // would compare this window's prompt against that stale seed and record a
-  // false `corrupt` outcome.
-  {
-    const current = readState(slug, options.stateDir);
-    if (current != null) {
-      // kind stamped unconditionally — this shared state.json may still
-      // carry "epic-design" from `runCreate`/epic-resume; last-writer-wins
-      // is correct here specifically BECAUSE the `windowExists(slug)`
-      // refusal above makes epic-design and epic-run windows for the same
-      // slug mutually exclusive at any given moment, so there is never a
-      // live design supervisor whose kind this write could clobber
-      // underneath it. Only reached when a state file already exists (the
-      // null guard above) — a slug with no state file produces no `flow ls`
-      // row to label, so there is nothing to stamp.
-      writeState(
-        {
-          ...current,
-          ...(newlyReserved ? { reservedWorktree: newlyReserved } : {}),
-          seed,
-          seedIngest: undefined,
-          kind: "epic-run",
-        },
-        options.stateDir,
-      );
-    }
-  }
   // Mirror runCreate's launch: resolve the flow-scoped settings file and build
   // the verified-launch argv through the shared builder. The supervisor session
   // model is `--model > config.models.default > inherited` (parity with
@@ -1375,21 +1363,59 @@ function spawnEpicRunSupervisor(
       options.pluginRootsScan,
     );
 
-  // No run.json pre-seed and no `runnerPhase` reset — the default never-consumed
-  // predicate (`createWindowVerified` with no `consumed`) verifies pane survival
-  // only. A dead pane is `failed` (retry via launchWithRetry, then a loud
-  // error); a live pane is `launched-not-confirmed` (a non-retry success).
-  const launch = () => createWindowVerified(slug, repo, command, seed);
+  // No run.json pre-seed and no `runnerPhase` reset. Consumption is only the
+  // seed-ingested record's `verified` outcome (the phase sits at the terminal
+  // `epic-approved`, so it cannot signal). A dead pane is `failed` (retry via
+  // launchWithRetry, then a loud error); a live pane that has not confirmed is
+  // `launched-not-confirmed` (a non-retry success).
+  const launch = () => {
+    // Record THIS run's own seed and clear any earlier hook markers on EVERY
+    // attempt (mirrors runCreate / runFresh), so a retry never reads the
+    // previous attempt's `corrupt`/`verified` outcome. This window reuses the
+    // epic's existing slug/state.json, but `epicRunSeed` is a DIFFERENT prompt
+    // than the create/resume seed already recorded there — without the write,
+    // flow-seed-ingested-hook would compare against that stale seed and record
+    // a false `corrupt`. `kind` is stamped unconditionally: the
+    // `windowExists(slug)` refusal above makes epic-design and epic-run windows
+    // for one slug mutually exclusive, so no live design supervisor is
+    // clobbered. A slug with no state file has no `flow ls` row to label.
+    const current = readState(slug, options.stateDir);
+    if (current != null) {
+      writeState(
+        {
+          ...current,
+          ...(newlyReserved ? { reservedWorktree: newlyReserved } : {}),
+          seed,
+          seedIngest: undefined,
+          kind: "epic-run",
+        },
+        options.stateDir,
+      );
+    }
+    return createWindowVerified(slug, repo, command, seed, {
+      consumed: () =>
+        seedIngestConfirmsDelivery(readState(slug, options.stateDir)),
+      seedCorrupted: () =>
+        seedIngestIsCorrupt(readState(slug, options.stateDir)),
+    });
+  };
   const result = launchWithRetry(launch, options.retrySleepMs);
   if (result.status === "failed") {
     releaseReservedWorktree(newlyReserved);
-    console.error(
-      "flow epic run: claude exited immediately after launch — the tmux window did not stay up.",
-    );
-    console.error(
-      "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
-    );
-    if (result.stderr) console.error(`  ${result.stderr}`);
+    if (result.stderr === SEED_CORRUPTED_STDERR) {
+      console.error(
+        "flow epic run: the launch prompt did not arrive intact in the session — seed delivery is corrupted.",
+      );
+      console.error("  retry with `flow epic run`.");
+    } else {
+      console.error(
+        "flow epic run: claude exited immediately after launch — the tmux window did not stay up.",
+      );
+      console.error(
+        "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
+      );
+      if (result.stderr) console.error(`  ${result.stderr}`);
+    }
     return 2;
   }
 
@@ -1419,11 +1445,15 @@ function spawnEpicRunSupervisor(
 
   // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
-  console.log(
-    dim(
-      `flow epic run: supervisor started — attach with \`flow attach ${slug}\``,
-    ),
-  );
+  if (result.status === "launched-not-confirmed") {
+    printStillStarting("flow epic run", slug, result.stderr);
+  } else {
+    console.log(
+      dim(
+        `flow epic run: supervisor started — attach with \`flow attach ${slug}\``,
+      ),
+    );
+  }
   return 0;
 }
 
@@ -2502,8 +2532,8 @@ Options:
  * chrome-devtools MCP workspace-root pre-authorization) plus the trailing
  * `--settings <flow-scoped file>`, which registers the UserPromptSubmit
  * seed-ingested hook and is ADDITIVE (the user's global settings still apply).
- * NO positional seed — the seed is delivered ONLY via send-keys by the verified
- * launcher (claude does not auto-run a positional prompt), mirroring feature.ts's
+ * The seed is not part of this argv — the verified launcher appends it as the
+ * last element (after the single-value `--settings`), mirroring feature.ts's
  * launchArgv. Leading `env FLOW_PIPELINE=1 FLOW_SLUG=<slug>` prefix — see
  * `bin/lib/feature.ts:1290-1295` for the argv-prefix rationale (`tmux
  * new-window` offers no env object): `FLOW_PIPELINE` is a supervisor-scoped
@@ -2521,9 +2551,9 @@ function launchArgv(
   model?: ModelAlias,
   pluginRootsScan: () => string[] = scanPluginRoots,
 ): string[] {
-  // NO positional seed — the seed is delivered ONLY via send-keys by the
-  // verified launcher (claude does not auto-run a positional prompt),
-  // mirroring feature.ts. `--model` precedes `--effort` (both before
+  // The seed is appended by the verified launcher as the LAST argv element
+  // (Claude Code 2.1.325 auto-submits a launch-line prompt under tmux and holds
+  // it behind the trust question), mirroring feature.ts. `--model` precedes `--effort` (both before
   // `--settings`), in a deterministic order so the argv assertions stay
   // stable. Each is omitted when unset.
   //
