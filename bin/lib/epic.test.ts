@@ -3933,6 +3933,49 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(deps.seedCorrupted!()).toBe(true);
     expect(deps.consumed!()).toBe(false);
   });
+
+  it("run: clears seedIngest before EVERY launch attempt, so a retry never reads the previous attempt's record", () => {
+    gitInit();
+    writeManifest("spawn-epic", [{ id: "a" }]);
+    freshWindowOk();
+    writeState(
+      {
+        slug: "spawn-epic",
+        phase: "epic-approved",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    const seenAtLaunch: Array<unknown> = [];
+    tmuxMock.createWindowVerified.mockReset();
+    tmuxMock.createWindowVerified.mockImplementation(() => {
+      const cur = readState("spawn-epic", stateDir)!;
+      seenAtLaunch.push(cur.seedIngest);
+      if (seenAtLaunch.length === 1) {
+        writeState(
+          {
+            ...cur,
+            seedIngest: {
+              at: "2026-01-01T00:00:00.000Z",
+              outcome: "verified",
+            },
+          },
+          stateDir,
+        );
+        return { status: "failed", stderr: "pane died" };
+      }
+      return { status: "started", stderr: "" };
+    });
+    runEpicCli(["run", "spawn-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      stateDir,
+      retrySleepMs: 0,
+    });
+    expect(seenAtLaunch.length).toBeGreaterThanOrEqual(2);
+    expect(seenAtLaunch.every((r) => r === undefined)).toBe(true);
+  });
 });
 
 describe("runEpicCli usage errors", () => {
