@@ -2599,7 +2599,7 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
       "the detector must catch the `git push` verb alternative.",
     ).toBe(true);
 
-    // Fixtures are anchored to their live source lines (readFileSync, not
+    // Fixtures are anchored to their live source lines (found by substring) (readFileSync, not
     // frozen string copies) so a rewording rots this test loudly instead of
     // leaving it silently green. The merge-resolver push line below is the
     // ONLY fixture that actually reaches the `!NEGATION.test(clause)`
@@ -2612,22 +2612,22 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
     // itself.
     const readAnchoredLine = (
       relPath: string,
-      lineNo: number,
       expectedSubstring: string,
     ): string => {
       const absPath = path.resolve(HERE, "..", relPath);
-      const line = fs.readFileSync(absPath, "utf8").split("\n")[lineNo - 1];
+      const line = fs
+        .readFileSync(absPath, "utf8")
+        .split("\n")
+        .find((l) => l.includes(expectedSubstring));
       expect(
         line,
-        `${relPath}:${lineNo} drifted — update the anchor line number/fixture ` +
-          `(expected to contain ${JSON.stringify(expectedSubstring)}, got ${JSON.stringify(line)}).`,
-      ).toContain(expectedSubstring);
-      return line;
+        `${relPath} no longer contains ${JSON.stringify(expectedSubstring)} — update the fixture.`,
+      ).toBeDefined();
+      return line as string;
     };
 
     const negatedButMatchesTokenAndVerb = readAnchoredLine(
       "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
-      473,
       "NEVER push to the base branch",
     );
     expect(
@@ -2636,29 +2636,22 @@ describe("cheap-model fan-out subagent_type wiring lint", () => {
         `must still be spared by NEGATION: ${JSON.stringify(negatedButMatchesTokenAndVerb)}`,
     ).toBe(false);
 
-    const verifiedNegativeFixtures: Array<[string, number, string]> = [
+    const verifiedNegativeFixtures: Array<[string, string]> = [
       [
         "skills/pipeline/flow-fix-applier-instructions/SKILL.md",
-        520,
         "NEVER commit to or push the base branch",
       ],
       [
         "agents/core/flow-merge-resolver.md",
-        14,
         "never `main`, `master`, or the base branch",
       ],
       [
         "skills/pipeline/flow-merge-resolver-instructions/SKILL.md",
-        475,
         "NEVER use `git push --force`",
       ],
     ];
-    for (const [
-      relPath,
-      lineNo,
-      expectedSubstring,
-    ] of verifiedNegativeFixtures) {
-      const line = readAnchoredLine(relPath, lineNo, expectedSubstring);
+    for (const [relPath, expectedSubstring] of verifiedNegativeFixtures) {
+      const line = readAnchoredLine(relPath, expectedSubstring);
       expect(
         mandatesBaseBranchWrite(line),
         `verified in-tree negative fixture must not be flagged: ${JSON.stringify(line)}`,
