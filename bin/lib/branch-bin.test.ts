@@ -68,6 +68,18 @@ describe("ensureBranchBin", () => {
     expect(fs.readdirSync(dir)).toEqual(["flow"]);
   });
 
+  it("shims the branch's flow-*-schema validators too", () => {
+    write(
+      "bin/lib/fix-applier-schema.ts",
+      'console.log("branch-validator");\n',
+    );
+    const dir = ensureBranchBin(wt)!;
+    expect(fs.readdirSync(dir)).toContain("flow-fix-applier-schema");
+    expect(sh("flow-fix-applier-schema", dir).stdout.trim()).toBe(
+      "branch-validator",
+    );
+  });
+
   it("returns null outside a flow checkout", () => {
     expect(ensureBranchBin(root)).toBeNull();
   });

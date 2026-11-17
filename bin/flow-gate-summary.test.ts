@@ -1664,6 +1664,49 @@ describe("run (end-to-end CLI)", () => {
     );
   });
 
+  it("reads --after-merge-items-file and --needs-install-file into their own rows", () => {
+    const am = path.join(tmpRoot, "am.txt");
+    const ni = path.join(tmpRoot, "ni.txt");
+    const vi_ = path.join(tmpRoot, "vi.txt");
+    fs.writeFileSync(am, "- After merge: run `flow manage` window\n");
+    fs.writeFileSync(ni, "- Check `flow-foo` works\n");
+    fs.writeFileSync(vi_, "- Check `flow-foo` works\n");
+    const original = process.stdout.write.bind(process.stdout);
+    let captured = "";
+    process.stdout.write = ((chunk: unknown) => {
+      captured += String(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const rc = run(
+        [
+          "--status",
+          "gated",
+          "--pr-url",
+          "https://example/pr/1",
+          "--lens",
+          "pm",
+          "--validation-items-file",
+          vi_,
+          "--after-merge-items-file",
+          am,
+          "--needs-install-file",
+          ni,
+          "--slug",
+          "gate-files-test-slug",
+        ],
+        { stateDir: tmpRoot },
+      );
+      expect(rc).toBe(0);
+    } finally {
+      process.stdout.write = original;
+    }
+    expect(captured).toContain(
+      "MANUAL ACTION:\n  after merge: run `flow manage`",
+    );
+    expect(captured).toContain("run `bun bin/flow-foo.ts` in the worktree");
+  });
+
   it("silently suppresses FOLLOW-UPS when deferred file is missing on disk", () => {
     const original = process.stdout.write.bind(process.stdout);
     let captured = "";
@@ -3097,12 +3140,21 @@ describe("after-merge rows", () => {
     ).toBe(true);
   });
 
-  it("gated pm lists the after merge bucket and extends NEXT ACTION", () => {
+  it("gated pm lists the after merge bucket with the GitHub-merge caveat, NEXT ACTION stays short", () => {
     const out = gated({ afterMergeItems: [AM] });
     expect(out).toContain("MANUAL ACTION:\n  after merge: run `flow manage`");
     expect(out).toContain(
-      'run flow install --upgrade, then the PR\'s "After merge:" steps',
+      "  if you merge on GitHub instead: run flow install --upgrade, then these",
     );
+    expect(out).not.toContain("after-merge checks come back");
+  });
+
+  it("gated pm names the runnable command for a needs-install flow verb", () => {
+    const out = gated({
+      needsInstallItems: ["Check `flow manage` opens"],
+      validationItems: ["Check `flow manage` opens"],
+    });
+    expect(out).toContain("run `bun bin/flow manage` in the worktree");
   });
 
   it("gated pm labels needs-install items", () => {

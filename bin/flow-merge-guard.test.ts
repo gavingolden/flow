@@ -1585,6 +1585,84 @@ describe("After merge: items (parity with flow-gate-decide)", () => {
     );
   });
 
+  it("still blocks an unsatisfied UI review when only verified After merge items remain", () => {
+    const r = evaluateMergeGuard(
+      body(VERIFIED),
+      null,
+      1,
+      NOW,
+      {
+        required: true,
+        satisfied: false,
+        reason: "UI review did not run: no UI review record for this PR",
+      },
+      names,
+    );
+    expect(r.decision).toBe("blocked");
+    expect(r.uncheckedItems[0]).toContain("UI review did not run");
+  });
+
+  it("run() merge mode passes the worktree and base to the install-names reader, lazily", () => {
+    const worktree = path.join(stateDir, "wt-am");
+    fs.mkdirSync(worktree, { recursive: true });
+    seedState("am", { pr: 5, repo: "/base/checkout", worktree });
+    const view = (b: string) => ({
+      stdout: JSON.stringify({
+        body: b,
+        state: "OPEN",
+        url: "https://x/y/pull/5",
+        baseRefName: "release",
+      }),
+      stderr: "",
+      exitCode: 0,
+    });
+    const mk = (b: string) =>
+      vi.fn((argv: string[]) =>
+        argv[1] === "view"
+          ? view(b)
+          : {
+              stdout: JSON.stringify([{ name: "verify", state: "SUCCESS" }]),
+              stderr: "",
+              exitCode: 0,
+            },
+      );
+    const seen: [string, string | undefined][] = [];
+    const installNames = (wt: string, base: string | undefined) => {
+      seen.push([wt, base]);
+      return names;
+    };
+    const runMerge = vi.fn(() => ({ exitCode: 0, stderr: "" }));
+    const cap = captureStdout();
+    const exit = run(["merge", "5", "--slug", "am"], {
+      gh: mk(body(VERIFIED)),
+      stateDir,
+      now: () => NOW,
+      resolveSlug: () => null,
+      runMerge,
+      installNames,
+      uiReview: { changedFiles: () => [], home: "/home/none" },
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    expect(seen).toEqual([[worktree, "origin/release"]]);
+    expect(runMerge).toHaveBeenCalled();
+
+    seen.length = 0;
+    seedState("am2", { pr: 5, repo: "/base/checkout", worktree });
+    const cap2 = captureStdout();
+    run(["merge", "5", "--slug", "am2"], {
+      gh: mk("## Test Steps\n\n- [x] done\n"),
+      stateDir,
+      now: () => NOW,
+      resolveSlug: () => null,
+      runMerge,
+      installNames,
+      uiReview: { changedFiles: () => [], home: "/home/none" },
+    });
+    cap2.restore();
+    expect(seen).toEqual([]);
+  });
+
   it("blocks a mixed body counting only the ordinary item", () => {
     const r = evaluateMergeGuard(
       body(VERIFIED, ORDINARY),

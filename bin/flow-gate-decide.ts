@@ -233,7 +233,26 @@ export function parseTestStepsSection(
   for (let i = 0; i < sectionLines.length; i++) {
     if (trapped.has(i)) continue;
     const m = sectionLines[i].match(/^\s*-\s+\[ \]\s+(.*\S)\s*$/);
-    if (m) uncheckedItems.push(m[1]);
+    if (!m) continue;
+    // Fold wrapped continuation lines of an `After merge: ` item, as
+    // parseTestSteps does, so the lint and the gate verify the same text.
+    // Other items keep their first line (SUBJECTIVE ones carry image lines).
+    const parts = [m[1]];
+    for (
+      let j = i + 1;
+      m[1].startsWith("After merge: ") && j < sectionLines.length;
+      j++
+    ) {
+      const next = sectionLines[j];
+      if (
+        trapped.has(j) ||
+        !/^\s+\S/.test(next) ||
+        /^\s*-\s+\[( |x|X)\]\s+/.test(next)
+      )
+        break;
+      parts.push(next.trim());
+    }
+    uncheckedItems.push(parts.join(" "));
   }
 
   if (uncheckedItems.length === 0) return { kind: "no-unchecked" };
@@ -652,12 +671,15 @@ export function run(argv: string[], deps: Deps = {}): number {
         ...deps.uiReview,
       })
     : null;
-  const installNames = worktree
-    ? (deps.installNames ?? collectInstallNamesSafe)(
-        worktree,
-        fetched.baseRefName ? `origin/${fetched.baseRefName}` : undefined,
-      )
-    : null;
+  // Only read when an unchecked item exists: the names feed nothing else and
+  // collecting them can `git fetch`.
+  const installNames =
+    worktree && parseTestStepsSection(fetched.body).kind === "has-unchecked"
+      ? (deps.installNames ?? collectInstallNamesSafe)(
+          worktree,
+          fetched.baseRefName ? `origin/${fetched.baseRefName}` : undefined,
+        )
+      : null;
   const result = decide(
     {
       installNames,

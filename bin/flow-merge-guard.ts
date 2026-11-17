@@ -202,10 +202,17 @@ export function evaluateMergeGuard(
   // gate-override token authorises the merge.
   // Same partition as flow-gate-decide: verified `After merge: ` items are
   // not counted; null/absent names fail closed (every item counts).
-  const uncheckedItems = partitionAfterMerge(
+  const counted = partitionAfterMerge(
     section.uncheckedItems,
     installNames ?? null,
   ).counted;
+  const uncheckedItems =
+    counted.length === 0 &&
+    parsed.kind === "has-unchecked" &&
+    uiReview &&
+    !uiReview.satisfied
+      ? [uiReviewItem(uiReview)]
+      : counted;
   if (uncheckedItems.length === 0) {
     return {
       decision: "clear",
@@ -723,6 +730,7 @@ function mergePr(
       state.worktree,
       fetched.baseRefName,
       deps.installNames,
+      fetched.body,
     ),
   });
   if (!pre.ok) return refuse(pre.reason, pre.uncheckedItems);
@@ -821,7 +829,10 @@ function installNamesFor(
   worktree: string | null | undefined,
   baseRefName: string | undefined,
   collect: Deps["installNames"] = collectInstallNamesSafe,
+  body = "",
 ): InstallOnlyName[] | null {
+  // Lazy: the names only matter when an unchecked item exists.
+  if (parseTestStepsSection(body).kind !== "has-unchecked") return null;
   return worktree
     ? collect(worktree, baseRefName ? `origin/${baseRefName}` : undefined)
     : null;
@@ -880,7 +891,12 @@ function checkGuard(
     pr,
     now(),
     uiReview,
-    installNamesFor(state?.worktree, fetched.baseRefName, installNamesDep),
+    installNamesFor(
+      state?.worktree,
+      fetched.baseRefName,
+      installNamesDep,
+      fetched.body,
+    ),
   );
   // Out of `gated` (the gate-override path), `merging` lands only when the
   // guard clears — a blocked override must leave the pipeline visibly gated,

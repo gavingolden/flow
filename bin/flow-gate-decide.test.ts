@@ -1103,6 +1103,65 @@ describe("run() — UI review backstop", () => {
   });
 });
 
+describe("run() — install-only names wiring", () => {
+  const AM =
+    "## Test Steps\n\n- [ ] After merge: run `flow manage` and read it.\n";
+  function runAm(body: string, worktree: boolean) {
+    seedState("im", true, 9);
+    const sp = path.join(stateDir, "im.json");
+    const st = JSON.parse(fs.readFileSync(sp, "utf8"));
+    if (worktree)
+      fs.writeFileSync(sp, JSON.stringify({ ...st, worktree: "/wt" }) + "\n");
+    const gh = vi.fn(() => ({
+      stdout: JSON.stringify({
+        body,
+        state: "OPEN",
+        url: "https://x/y/pull/9",
+        baseRefName: "release",
+      }),
+      stderr: "",
+      exitCode: 0,
+    }));
+    const seen: [string, string | undefined][] = [];
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((c) => {
+      writes.push(c.toString());
+      return true;
+    });
+    run(["9", "--slug", "im"], {
+      gh,
+      stateDir,
+      localHead: () => "head",
+      readFile: () => null,
+      uiReview: { changedFiles: () => [], home: "/home/none" },
+      installNames: (wt, base) => {
+        seen.push([wt, base]);
+        return [{ name: "manage", kind: "verb", change: "added" }];
+      },
+    });
+    spy.mockRestore();
+    return { seen, r: JSON.parse(writes.join("")) as DecisionResult };
+  }
+
+  it("passes the worktree and origin/<base> and auto-merges a verified item", () => {
+    const { seen, r } = runAm(AM, true);
+    expect(seen).toEqual([["/wt", "origin/release"]]);
+    expect(r.decision).toBe("auto-merge");
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("never reads names without a worktree, and gates", () => {
+    const { seen, r } = runAm(AM, false);
+    expect(seen).toEqual([]);
+    expect(r.decision).toBe("gated");
+  });
+
+  it("does not read names when nothing is unchecked", () => {
+    const { seen } = runAm("## Test Steps\n\n- [x] done\n", true);
+    expect(seen).toEqual([]);
+  });
+});
+
 describe("run() — uiSignoff evidence", () => {
   function runWith(body: string): Record<string, unknown> {
     seedState("so", true, 8);
@@ -1237,6 +1296,24 @@ describe("decide() — After merge: items", () => {
     const r = gate(body(VERIFIED), NAMES, { autoMerge: false });
     expect(r.decision).toBe("gated");
     expect(r.reason).toContain("opted out");
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("gates when only verified After merge items remain but items are trapped", () => {
+    const r = gate(body(VERIFIED, "<details>", "- [ ] hidden"));
+    expect(r.decision).toBe("gated");
+    expect(r.reason).toContain("trapped");
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("folds a wrapped After merge item so the install name on line 2 verifies", () => {
+    const r = gate(
+      body(
+        "- [ ] After merge: confirm the new verb works:",
+        "  run `flow manage`.",
+      ),
+    );
+    expect(r.decision).toBe("auto-merge");
     expect(r.afterMerge).toHaveLength(1);
   });
 

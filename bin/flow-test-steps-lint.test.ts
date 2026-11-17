@@ -95,7 +95,7 @@ describe("run", () => {
 
 describe("install-dependent-step cwd collection", () => {
   const body = bodyFile(
-    "## Test Steps\n\n- [ ] Run `flow manage` — claims the window.\n",
+    "## Test Steps\n\n- [ ] Check that `flow manage` claims the window.\n",
   );
   const collect = () => [
     { name: "manage", kind: "verb" as const, change: "added" as const },

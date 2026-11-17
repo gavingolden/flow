@@ -191,7 +191,10 @@ export function collectInstallNamesSafe(
       });
     }
     return collectInstallOnlyNames(repo, { base, spawn });
-  } catch {
+  } catch (e) {
+    process.stderr.write(
+      `install-only-names: could not read the branch diff (${e instanceof Error ? e.message : String(e)}); After merge: steps will count as open\n`,
+    );
     return null;
   }
 }

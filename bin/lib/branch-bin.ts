@@ -6,7 +6,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isFlowSource } from "./install-only-names";
-import { isPathBoundHelper } from "./sources";
+import { discoverValidators, isPathBoundHelper } from "./sources";
 
 const q = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
 
@@ -39,6 +39,8 @@ export function ensureBranchBin(worktree: string): string | null {
       helperShim(path.join(abs, "bin", file)),
     );
   }
+  for (const v of discoverValidators(abs))
+    shims.set(v.displayName, helperShim(v.source));
   shims.set("flow", flowShim(path.join(abs, "bin", "flow")));
 
   for (const stale of fs.readdirSync(dir)) {

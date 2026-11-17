@@ -109,6 +109,7 @@ import {
   buildManualAction,
   buildNeedsAttention,
   installStaleFrom,
+  needsInstallLabel,
   buildUntracked,
   clampTldr,
 } from "./lib/gate-summary-rows";
@@ -848,7 +849,14 @@ function renderMerged(inputs: GateSummaryInputs): string {
     );
   }
   pushCleanup(lines, inputs.cleanup, pm);
-  if (!pm) appendFollowups(lines, inputs.deferredBlock);
+  if (!pm) {
+    lines.push(
+      ...buildManualAction(inputs.afterMergeItems ?? [], undefined, {
+        installStale: installStaleFrom(inputs.deferredBlock),
+      }),
+    );
+    appendFollowups(lines, inputs.deferredBlock);
+  }
   lines.push("NEXT ACTION: none (post-merge cleanup already ran)");
   pushTldr(lines, inputs.tldr);
   lines.push("MERGED");
@@ -876,9 +884,6 @@ function pushUiReviewLine(
   if (row !== null) lines.push(`  ${oneLine(row)}`);
 }
 
-const AFTER_MERGE_NEXT =
-  '; after-merge checks come back after the post-merge install when you merge here — if you merge on GitHub, run flow install --upgrade, then the PR\'s "After merge:" steps';
-
 function renderGated(inputs: GateSummaryInputs): string {
   const mode = effectiveLinkMode(inputs);
   const lines: string[] = ["STATUS: GATED"];
@@ -903,19 +908,27 @@ function renderGated(inputs: GateSummaryInputs): string {
     );
     pushUiReviewLine(lines, inputs.signoff);
     const afterMerge = inputs.afterMergeItems ?? [];
-    lines.push(...buildManualAction(afterMerge, inputs.deferredBlock));
+    lines.push(
+      ...buildManualAction(afterMerge, inputs.deferredBlock, {
+        githubMergeNote: true,
+      }),
+    );
     lines.push(...buildUntracked(inputs.untrackedBlock));
     if (inputs.countsLine) lines.push(oneLine(inputs.countsLine));
     pushCleanup(lines, inputs.cleanup, pm);
     lines.push(
-      `NEXT ACTION: tick the items above, then: ${manualMergeCommand(inputs)}${MERGE_REPLY_ALTERNATIVE}` +
-        (afterMerge.length > 0 ? AFTER_MERGE_NEXT : ""),
+      `NEXT ACTION: tick the items above, then: ${manualMergeCommand(inputs)}${MERGE_REPLY_ALTERNATIVE}`,
     );
   } else {
     const why = oneLine(inputs.why);
     if (why) lines.push(`WHY: ${why}`);
     lines.push(
       `NEXT ACTION: tick each step once validated, then run: ${manualMergeCommand(inputs)}${MERGE_REPLY_ALTERNATIVE}`,
+    );
+    const devNeedsInstall = new Set(
+      (inputs.needsInstallItems ?? []).map((i) =>
+        i.trim().replace(/^[-*]\s+(\[[ x]\]\s+)?/, ""),
+      ),
     );
     for (const item of items) {
       const trimmed = item.trim();
@@ -924,11 +937,18 @@ function renderGated(inputs: GateSummaryInputs): string {
       // containing "- foo") or as bare text; normalise to the same
       // two-space indent + leading `- ` shape.
       const stripped = trimmed.replace(/^[-*]\s+/, "");
-      lines.push(`  - ${stripped}`);
+      lines.push(
+        `  - ${stripped}${devNeedsInstall.has(stripped) ? needsInstallLabel(stripped) : ""}`,
+      );
       const ev = evidenceForItem(inputs.signoff, stripped, mode);
       if (ev !== null) lines.push(`    ${ev}`);
     }
     pushUiReviewLine(lines, inputs.signoff);
+    lines.push(
+      ...buildManualAction(inputs.afterMergeItems ?? [], undefined, {
+        githubMergeNote: true,
+      }),
+    );
     pushCleanup(lines, inputs.cleanup, pm);
     appendFollowups(lines, inputs.deferredBlock);
   }

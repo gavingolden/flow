@@ -53,7 +53,7 @@ export function buildNeedsAttention(
   const lines = ["NEEDS ATTENTION:"];
   for (const item of items) {
     const stripped = stripBullet(item);
-    const label = install.has(stripped) ? NEEDS_INSTALL_LABEL : "";
+    const label = install.has(stripped) ? needsInstallLabel(stripped) : "";
     const suffix = prUrl ? ` → ${linkUrl(prUrl, mode)}` : "";
     lines.push(`  - ${stripped}${label}${suffix}`);
   }
@@ -62,6 +62,19 @@ export function buildNeedsAttention(
 
 const NEEDS_INSTALL_LABEL =
   " — needs this branch installed: mark it `After merge:` or run it from the branch";
+
+/** Names the runnable form (`bun bin/…` in the worktree) when the step quotes a flow verb or helper. */
+export function needsInstallLabel(item: string): string {
+  const verb = /`flow ([a-z][\w-]*)/.exec(item);
+  if (verb)
+    return ` — needs this branch installed: run \`bun bin/flow ${verb[1]}\` in the worktree, or mark the step \`After merge:\``;
+  const helper = /`(flow-[a-z][\w-]*)/.exec(item);
+  if (helper)
+    return ` — needs this branch installed: run \`bun bin/${helper[1]}.ts\` in the worktree, or mark the step \`After merge:\``;
+  return NEEDS_INSTALL_LABEL;
+}
+const GITHUB_MERGE_LINE =
+  "  if you merge on GitHub instead: run flow install --upgrade, then these";
 const STALE_INSTALL_LINE =
   "run flow install --upgrade first — the post-merge install did not refresh";
 
@@ -90,7 +103,7 @@ export function installStaleFrom(followupsBlock: string | undefined): boolean {
 export function buildManualAction(
   afterMergeItems: string[],
   followupsBlock: string | undefined,
-  opts: { installStale?: boolean } = {},
+  opts: { installStale?: boolean; githubMergeNote?: boolean } = {},
 ): string[] {
   const afterMerge = afterMergeItems
     .map((i) => stripBullet(i.trim()).replace(/^After merge: /, ""))
@@ -110,6 +123,8 @@ export function buildManualAction(
   if (opts.installStale && afterMerge.length > 0)
     lines.push(`  ${STALE_INSTALL_LINE}`);
   pushManualBucket(lines, "after merge", afterMerge);
+  if (opts.githubMergeNote && afterMerge.length > 0)
+    lines.push(GITHUB_MERGE_LINE);
   pushManualBucket(lines, "whenever", whenever);
   return lines;
 }

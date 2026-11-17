@@ -230,9 +230,9 @@ const HINTS: Record<LintCode, string> = {
   "post-merge-step":
     "Post-merge or post-deploy steps never go in Test Steps; move to the local follow-ups list.",
   "install-dependent-step":
-    "The step names something only an installed branch provides; run it from the branch with `bun bin/…`, or prefix it `After merge: `.",
+    "The step names something only an installed branch provides; run it from the branch with `bun bin/…`, or prefix it `After merge: ` (only for an added helper/verb or an added/changed skill).",
   "human-only-ticked":
-    "SUBJECTIVE and DECISION items are ticked by a human only; untick it unless the user ticked it.",
+    "SUBJECTIVE and DECISION items are ticked by a human only, and `After merge: ` items stay unticked before merge; untick it unless the user ticked it.",
   "browser-shape": `Browser items read 'Browser: on <route>, <action chain> — expect <result>'; rewrite to that shape, or ${BROWSER_FIX}`,
   "browser-over-bound": `The browser driver runs at most ${BROWSER_MAX_ACTIONS} actions per item; ${BROWSER_FIX}`,
   "browser-input-unsupported": `The browser driver cannot produce wheel, pinch or modifier-held scroll/drag input; seed the state via a fixture or URL, or write a durable Playwright/vitest test.`,
@@ -263,7 +263,10 @@ export function lintTestSteps(
   };
 
   for (const step of steps) {
-    const humanOnly = step.kind === "subjective" || step.kind === "decision";
+    const humanOnly =
+      step.kind === "subjective" ||
+      step.kind === "decision" ||
+      step.kind === "after-merge";
     if (step.kind === "command" && GENERIC_SUITE_RE.test(step.text))
       add("generic-suite", step);
     if (step.kind === "command" && PRESENCE_ONLY_RE.test(step.text))
@@ -272,10 +275,16 @@ export function lintTestSteps(
       add("subjective-mixed", step);
     if (step.kind !== "after-merge" && POST_MERGE_RE.test(step.text))
       add("post-merge-step", step);
-    const dependent =
+    const matched =
       installNames && step.kind !== "after-merge"
         ? matchInstallDependent(step.fullText, installNames)
         : null;
+    // Step 8c runs command steps from the branch's own bins, so only a skill
+    // (read from the installed copy by a session) still needs the prefix.
+    const dependent =
+      matched && step.kind === "command" && matched.kind !== "skill"
+        ? null
+        : matched;
     if (dependent)
       add("install-dependent-step", step, installDependentHint(dependent));
     if (humanOnly && step.checked) add("human-only-ticked", step);
