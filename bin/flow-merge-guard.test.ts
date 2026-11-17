@@ -1755,9 +1755,10 @@ describe("After merge: items (parity with flow-gate-decide)", () => {
     expect(runMerge).toHaveBeenCalled();
 
     seen.length = 0;
+    runMerge.mockClear();
     seedState("am2", { pr: 5, repo: "/base/checkout", worktree });
     const cap2 = captureStdout();
-    run(["merge", "5", "--slug", "am2"], {
+    const exit2 = run(["merge", "5", "--slug", "am2"], {
       gh: mk("## Test Steps\n\n- [x] done\n"),
       stateDir,
       now: () => NOW,
@@ -1768,6 +1769,8 @@ describe("After merge: items (parity with flow-gate-decide)", () => {
       uiReview: { changedFiles: () => [], home: "/home/none" },
     });
     cap2.restore();
+    expect(exit2).toBe(0);
+    expect(runMerge).toHaveBeenCalled();
     expect(seen).toEqual([]);
   });
 
