@@ -11,6 +11,7 @@ import {
   run,
   type DecisionResult,
 } from "./flow-gate-decide";
+import type { InstallOnlyName } from "./lib/install-only-names";
 
 let stateDir!: string;
 
@@ -1102,6 +1103,65 @@ describe("run() — UI review backstop", () => {
   });
 });
 
+describe("run() — install-only names wiring", () => {
+  const AM =
+    "## Test Steps\n\n- [ ] After merge: run `flow manage` and read it.\n";
+  function runAm(body: string, worktree: boolean) {
+    seedState("im", true, 9);
+    const sp = path.join(stateDir, "im.json");
+    const st = JSON.parse(fs.readFileSync(sp, "utf8"));
+    if (worktree)
+      fs.writeFileSync(sp, JSON.stringify({ ...st, worktree: "/wt" }) + "\n");
+    const gh = vi.fn(() => ({
+      stdout: JSON.stringify({
+        body,
+        state: "OPEN",
+        url: "https://x/y/pull/9",
+        baseRefName: "release",
+      }),
+      stderr: "",
+      exitCode: 0,
+    }));
+    const seen: [string, string | undefined][] = [];
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((c) => {
+      writes.push(c.toString());
+      return true;
+    });
+    run(["9", "--slug", "im"], {
+      gh,
+      stateDir,
+      localHead: () => "head",
+      readFile: () => null,
+      uiReview: { changedFiles: () => [], home: "/home/none" },
+      installNames: (wt, base) => {
+        seen.push([wt, base]);
+        return [{ name: "manage", kind: "verb", change: "added" }];
+      },
+    });
+    spy.mockRestore();
+    return { seen, r: JSON.parse(writes.join("")) as DecisionResult };
+  }
+
+  it("passes the worktree and origin/<base> and auto-merges a verified item", () => {
+    const { seen, r } = runAm(AM, true);
+    expect(seen).toEqual([["/wt", "origin/release"]]);
+    expect(r.decision).toBe("auto-merge");
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("never reads names without a worktree, and gates", () => {
+    const { seen, r } = runAm(AM, false);
+    expect(seen).toEqual([]);
+    expect(r.decision).toBe("gated");
+  });
+
+  it("does not read names when nothing is unchecked", () => {
+    const { seen } = runAm("## Test Steps\n\n- [x] done\n", true);
+    expect(seen).toEqual([]);
+  });
+});
+
 describe("run() — uiSignoff evidence", () => {
   function runWith(body: string): Record<string, unknown> {
     seedState("so", true, 8);
@@ -1171,5 +1231,99 @@ describe("run() — uiSignoff evidence", () => {
       autoMerge: true,
     });
     expect("uiSignoff" in r).toBe(false);
+  });
+});
+
+describe("decide() — After merge: items", () => {
+  const NAMES: InstallOnlyName[] = [
+    { name: "manage", kind: "verb", change: "added" },
+  ];
+  const VERIFIED = "- [ ] After merge: run `flow manage` and read the window.";
+  const UNVERIFIED = "- [ ] After merge: run `flow other` and read it.";
+  const body = (...lines: string[]) => `## Test Steps\n\n${lines.join("\n")}\n`;
+  const gate = (
+    b: string,
+    installNames: InstallOnlyName[] | null | undefined = NAMES,
+    over: Record<string, unknown> = {},
+  ) =>
+    decide({
+      body: b,
+      state: "OPEN",
+      url: "https://x/y/pull/1",
+      autoMerge: true,
+      installNames,
+      ...over,
+    });
+
+  it("auto-merges when only verified After merge items remain and lists them", () => {
+    const r = gate(body(VERIFIED));
+    expect(r.decision).toBe("auto-merge");
+    expect(r.afterMerge).toEqual([VERIFIED.slice(6)]);
+  });
+
+  it("gates a verified item alongside an ordinary unchecked one, keeping afterMerge", () => {
+    const r = gate(body(VERIFIED, "- [ ] Run `npm run x` — ok"));
+    expect(r.decision).toBe("gated");
+    expect(r.validationItems).toEqual(["Run `npm run x` — ok"]);
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("gates an unverified marker and names why", () => {
+    const r = gate(body(UNVERIFIED));
+    expect(r.decision).toBe("gated");
+    expect(r.reason).toContain("names nothing this branch adds");
+    expect(r.afterMerge).toBeUndefined();
+  });
+
+  it("counts the item when names are null or absent (fail-closed)", () => {
+    expect(gate(body(VERIFIED), null).decision).toBe("gated");
+    const r = decide({
+      body: body(VERIFIED),
+      state: "OPEN",
+      url: "https://x/y/pull/1",
+      autoMerge: true,
+    });
+    expect(r.decision).toBe("gated");
+  });
+
+  it("lists an unmarked install-dependent item in needsInstall and still gates", () => {
+    const r = gate(body("- [ ] Run `flow manage` — claims the window."));
+    expect(r.decision).toBe("gated");
+    expect(r.needsInstall).toEqual(["Run `flow manage` — claims the window."]);
+  });
+
+  it("stays gated 'opted out' with autoMerge false and only verified items", () => {
+    const r = gate(body(VERIFIED), NAMES, { autoMerge: false });
+    expect(r.decision).toBe("gated");
+    expect(r.reason).toContain("opted out");
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("gates when only verified After merge items remain but items are trapped", () => {
+    const r = gate(body(VERIFIED, "<details>", "- [ ] hidden"));
+    expect(r.decision).toBe("gated");
+    expect(r.reason).toContain("trapped");
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("folds a wrapped After merge item so the install name on line 2 verifies", () => {
+    const r = gate(
+      body(
+        "- [ ] After merge: confirm the new verb works:",
+        "  run `flow manage`.",
+      ),
+    );
+    expect(r.decision).toBe("auto-merge");
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("excludes a verified After merge item from the browser-retry others check", () => {
+    const r = gate(
+      body(VERIFIED, '- [ ] Browser: on /a, click A — expect "A"'),
+      NAMES,
+      { worktree: "/wt", headSha: "abc" },
+    );
+    expect(r.decision).toBe("browser-retry");
+    expect(r.afterMerge).toHaveLength(1);
   });
 });

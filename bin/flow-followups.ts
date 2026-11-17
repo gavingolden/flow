@@ -331,6 +331,11 @@ export function formatVerdict(verdict: Verdict, noteOnly: boolean): string {
 
   for (const entry of verdict.ran) {
     lines.push(`  RAN     ${entry.command}  (exit ${entry.exitCode})`);
+    // `flow install` exits 0 on a skipped content refresh; surface that one line.
+    const stale = `${entry.headExcerpt}\n${entry.tailExcerpt}`
+      .split("\n")
+      .find((ln) => ln.includes("NOT refreshed"));
+    if (stale) lines.push(`            ${stale.trim()}`);
   }
   for (const entry of verdict.failed) {
     lines.push(`  FAIL    ${entry.command}  (exit ${entry.exitCode})`);

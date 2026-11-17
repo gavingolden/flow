@@ -65,6 +65,11 @@ import {
 } from "./lib/md-block-structure";
 import { advancePhase } from "./lib/phase-advance";
 import {
+  collectInstallNamesSafe,
+  partitionAfterMerge,
+  type InstallOnlyName,
+} from "./lib/install-only-names";
+import {
   collectSubjectiveEvidence,
   summarizeUiReview,
   type UiSignoff,
@@ -101,6 +106,10 @@ export type DecisionResult = {
   autoRedriven?: boolean;
   reason: string;
   autoMerge: boolean;
+  /** Additive: verified `After merge: ` items excluded from the gate count. */
+  afterMerge?: string[];
+  /** Additive: unmarked steps that need this branch installed. */
+  needsInstall?: string[];
   /** Additive: the design-review backstop's verdict on an open PR. */
   uiReview?: UiReviewGate;
   /**
@@ -121,6 +130,8 @@ export type GateInputs = {
   changedFiles?: string[] | null;
   changedSinceReview?: string[] | null;
   uiCritiqueEnabled?: boolean;
+  /** Install-only names the branch adds; absent/null ⇒ fail-closed (counted). */
+  installNames?: InstallOnlyName[] | null;
 };
 
 const HEADING_RE = /^## Test Steps[ \t]*$/m;
@@ -222,7 +233,26 @@ export function parseTestStepsSection(
   for (let i = 0; i < sectionLines.length; i++) {
     if (trapped.has(i)) continue;
     const m = sectionLines[i].match(/^\s*-\s+\[ \]\s+(.*\S)\s*$/);
-    if (m) uncheckedItems.push(m[1]);
+    if (!m) continue;
+    // Fold wrapped continuation lines of an `After merge: ` item, as
+    // parseTestSteps does, so the lint and the gate verify the same text.
+    // Other items keep their first line (SUBJECTIVE ones carry image lines).
+    const parts = [m[1]];
+    for (
+      let j = i + 1;
+      m[1].startsWith("After merge: ") && j < sectionLines.length;
+      j++
+    ) {
+      const next = sectionLines[j];
+      if (
+        trapped.has(j) ||
+        !/^\s+\S/.test(next) ||
+        /^\s*-\s+\[( |x|X)\]\s+/.test(next)
+      )
+        break;
+      parts.push(next.trim());
+    }
+    uncheckedItems.push(parts.join(" "));
   }
 
   if (uncheckedItems.length === 0) return { kind: "no-unchecked" };
@@ -367,6 +397,42 @@ function decideTestSteps(
       autoMerge,
     };
   }
+  const part = partitionAfterMerge(
+    section.uncheckedItems,
+    inputs.installNames ?? null,
+  );
+  const extras: Pick<DecisionResult, "afterMerge" | "needsInstall"> = {
+    ...(part.afterMerge.length > 0 ? { afterMerge: part.afterMerge } : {}),
+    ...(part.needsInstall.length > 0
+      ? { needsInstall: part.needsInstall }
+      : {}),
+  };
+  if (part.counted.length === 0) {
+    if (trappedItems.length > 0 || !autoMerge) {
+      return {
+        decision: "gated",
+        prState: state,
+        prUrl: url,
+        validationItems: [],
+        reason:
+          (trappedItems.length > 0
+            ? "trapped test-step item(s) cannot be verified"
+            : "auto-merge opted out (--no-auto-merge)") + trappedSuffix,
+        autoMerge,
+        ...extras,
+      };
+    }
+    return {
+      decision: "auto-merge",
+      prState: state,
+      prUrl: url,
+      reason:
+        `only verified After merge: item(s) remain (${part.afterMerge.length}); auto-merge` +
+        trappedSuffix,
+      autoMerge,
+      ...extras,
+    };
+  }
   // Browser items nobody ran (plus judgment items) are a pause, not a
   // dead end. Needs a worktree to read evidence from and a local head to
   // judge its freshness; without both, today's `gated` stands.
@@ -377,9 +443,7 @@ function decideTestSteps(
       inputs.headSha,
       deps,
     );
-    const others = section.uncheckedItems.filter(
-      (t) => !t.startsWith("Browser: "),
-    );
+    const others = part.counted.filter((t) => !t.startsWith("Browser: "));
     const markerRaw = (deps.readFile ?? defaultReadFile)(
       path.join(inputs.worktree, AUTO_REDRIVE_MARKER),
     );
@@ -394,23 +458,28 @@ function decideTestSteps(
         decision: "browser-retry",
         prState: state,
         prUrl: url,
-        validationItems: section.uncheckedItems,
+        validationItems: part.counted,
         browserItems,
         autoRedriven,
         reason: `${browserItems.length} open Browser item(s) not run to a verdict (${browserItems.map((b) => b.index).join(", ")}); re-drive them before gating`,
         autoMerge,
+        ...extras,
       };
     }
   }
   // has-unchecked → gated
+  const first = part.counted[0];
   return {
     decision: "gated",
     prState: state,
     prUrl: url,
-    validationItems: section.uncheckedItems,
+    validationItems: part.counted,
     reason:
-      (section.uncheckedItems[0] ?? "test steps remaining") + trappedSuffix,
+      (part.unverifiedAfterMerge.includes(first)
+        ? `After merge: step names nothing this branch adds — run it before merge or name the new helper/verb/skill (${first})`
+        : first) + trappedSuffix,
     autoMerge,
+    ...extras,
   };
 }
 
@@ -531,6 +600,10 @@ export type Deps = {
   readFile?: (p: string) => string | null;
   localHead?: (cwd: string) => string | null;
   uiReview?: UiReviewDeps;
+  installNames?: (
+    worktree: string,
+    base: string | undefined,
+  ) => InstallOnlyName[] | null;
 };
 
 // LOCAL HEAD only, never `gh pr view` (head-sync stall: the PR object can
@@ -598,8 +671,18 @@ export function run(argv: string[], deps: Deps = {}): number {
         ...deps.uiReview,
       })
     : null;
+  // Only read when an unchecked item exists: the names feed nothing else and
+  // collecting them can `git fetch`.
+  const installNames =
+    worktree && parseTestStepsSection(fetched.body).kind === "has-unchecked"
+      ? (deps.installNames ?? collectInstallNamesSafe)(
+          worktree,
+          fetched.baseRefName ? `origin/${fetched.baseRefName}` : undefined,
+        )
+      : null;
   const result = decide(
     {
+      installNames,
       body: fetched.body,
       state: fetched.state,
       url: fetched.url,

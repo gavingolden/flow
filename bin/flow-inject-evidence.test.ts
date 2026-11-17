@@ -517,7 +517,7 @@ describe("neutralizeHeadings — gate-parser containment", () => {
 describe("human-only items and screenshots", () => {
   const base = { bodyFile: "b.md", exitCode: 0, timestamp: TS };
 
-  it.each(["SUBJECTIVE", "DECISION"])(
+  it.each(["SUBJECTIVE", "DECISION", "After merge"])(
     "human-only: a %s line stays unticked with exitCode 0",
     (label) => {
       const body = `## Test Steps\n\n- [ ] ${label}: the page looks right.\n`;

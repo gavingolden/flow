@@ -665,6 +665,14 @@ If any of these appear, the test plan probably needs tightening:
 - A change-detector or tautological check: an assertion that can only fail by reverting this exact diff, not by a regression in behavior. The canonical example is a presence-grep (`grep -q 'NewComponent' App.svelte`) on a UI wiring change — it passes whether or not the component actually renders or is reachable. Encouraged strong shapes: a Testing Library render test, a Playwright/vitest spec, or a chrome-devtools MCP snapshot check.
 - A post-merge or post-deploy step ("after merge, confirm the cron picked up the schedule"). It can never be ticked before the merge it gates, so it holds the PR with nothing to verify. Post-merge chores never go in Test Steps — register them on the local follow-ups list (`flow-followups`) instead.
 
+**Install-dependent steps (flow source).** In a flow checkout, a step that needs this branch installed is the exception to the post-merge rule. Work down this ladder:
+
+1. Step 8c already runs `flow` / `flow-*` commands from the branch (per-run shims; `flow install` is refused), so a runnable command step needs no rewrite.
+2. A manual step runs the branch copy with `bun bin/<helper>.ts …` or `bun bin/flow <verb> …`.
+3. Otherwise prefix the step `After merge: `. The gate and the merge guard skip it only when it names a helper, verb or skill this branch adds (or a skill it changes); hook-behaviour checks need that name too. A manual Test Step never asks the owner to run `flow install --source`, and never a throwaway `HOME`.
+
+An `After merge: ` step is never run, promoted or ticked before merge; it is handed back under `MANUAL ACTION: after merge:` once the post-merge install ran.
+
 ### UI wiring behavioral assertion
 
 A Test Step that verifies a UI wiring change — mounting a new component, wiring a new route, registering a new handler — solely by asserting import presence (`grep -q 'NewComponent' App.svelte`) is under-tested. The grep passes whether or not the component actually renders, mounts, or is reachable by a user. The check must reach behavior: a Testing Library `render` test asserting a visible element, a Playwright spec navigating to the route, or a chrome-devtools MCP snapshot confirming the component mounts without error.
@@ -681,19 +689,20 @@ folds it into Testability and its 11c/11d body update) and **never pauses a
 run**. When the command is not on PATH, record the named skip
 `test-steps-lint: helper not installed` and carry on.
 
-| Code                        | Phase  | Severity     | Review action                                                                                                                                 |
-| --------------------------- | ------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `generic-suite`             | both   | finding      | Testability `Fail (shallow)` — replace with the specific test file/case, or remove (CI already runs the suite)                                |
-| `presence-only`             | both   | finding      | Testability `Fail (shallow)` — replace with a behavioural assertion (see **Guard-strength check**)                                            |
-| `subjective-mixed`          | both   | `suggestion` | Reviewer's call: split per the **Split rule** when the clause really is measurable. **Never split automatically** — the match is phrase-based |
-| `post-merge-step`           | both   | finding      | Remove from Test Steps and register it on the local follow-ups list (`flow-followups`)                                                        |
-| `human-only-ticked`         | both   | finding      | Untick it, unless the user ticked it themselves in this session — agents never tick `SUBJECTIVE: ` / `DECISION: `                             |
-| `subjective-no-image`       | review | finding      | Step 8c should have captured it: re-check the capture, or add the `no screenshot: <reason>` line. An item with that line is not flagged       |
-| `subjective-missing-view`   | review | finding      | The item names a viewport or dark mode its labelled shots do not show: capture the missing view, or add a `partial: <reason>` line naming it  |
-| `ticked-no-evidence`        | review | finding      | A ticked prose or `Browser: ` item with no evidence block — re-run it for proof, or untick it                                                 |
-| `browser-shape`             | both   | finding      | A `Browser: ` item must read `on <route>, <action chain> — expect <result>` — rewrite it to that shape, or move it out of Test Steps          |
-| `browser-over-bound`        | both   | finding      | More than 8 actions: split it, seed the state via a fixture or URL, or write a durable Playwright/vitest test                                 |
-| `browser-input-unsupported` | both   | finding      | Wheel / pinch / modifier-held scroll or drag is outside the driver: seed the state via a fixture or URL, or write a durable test              |
+| Code                        | Phase  | Severity     | Review action                                                                                                                                                             |
+| --------------------------- | ------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `generic-suite`             | both   | finding      | Testability `Fail (shallow)` — replace with the specific test file/case, or remove (CI already runs the suite)                                                            |
+| `presence-only`             | both   | finding      | Testability `Fail (shallow)` — replace with a behavioural assertion (see **Guard-strength check**)                                                                        |
+| `subjective-mixed`          | both   | `suggestion` | Reviewer's call: split per the **Split rule** when the clause really is measurable. **Never split automatically** — the match is phrase-based                             |
+| `post-merge-step`           | both   | finding      | Remove from Test Steps and register it on the local follow-ups list (`flow-followups`)                                                                                    |
+| `install-dependent-step`    | both   | finding      | Apply the hint: `bun bin/<helper>.ts` / `bun bin/flow <verb>`, or prefix the step "After merge: " (not for a modified helper). Command steps are flagged only for a skill |
+| `human-only-ticked`         | both   | finding      | Untick it, unless the user ticked it themselves in this session — agents never tick `SUBJECTIVE: ` / `DECISION: `; `After merge: ` stays unticked                         |
+| `subjective-no-image`       | review | finding      | Step 8c should have captured it: re-check the capture, or add the `no screenshot: <reason>` line. An item with that line is not flagged                                   |
+| `subjective-missing-view`   | review | finding      | The item names a viewport or dark mode its labelled shots do not show: capture the missing view, or add a `partial: <reason>` line naming it                              |
+| `ticked-no-evidence`        | review | finding      | A ticked prose or `Browser: ` item with no evidence block — re-run it for proof, or untick it                                                                             |
+| `browser-shape`             | both   | finding      | A `Browser: ` item must read `on <route>, <action chain> — expect <result>` — rewrite it to that shape, or move it out of Test Steps                                      |
+| `browser-over-bound`        | both   | finding      | More than 8 actions: split it, seed the state via a fixture or URL, or write a durable Playwright/vitest test                                                             |
+| `browser-input-unsupported` | both   | finding      | Wheel / pinch / modifier-held scroll or drag is outside the driver: seed the state via a fixture or URL, or write a durable test                                          |
 
 At review, run it **after** the Step 8c checklist run (so evidence blocks and
 captures are already in the body) against `.flow-tmp/body.md`:

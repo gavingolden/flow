@@ -96,7 +96,8 @@ const HEAD_LINES = 100;
 const TAIL_LINES = 50;
 const TRIM_THRESHOLD = HEAD_LINES + TAIL_LINES;
 const MARKER_OPEN = "<!-- flow:evidence -->";
-const HUMAN_ONLY_RE = /^\s*-\s+\[[ xX]\]\s+(?:SUBJECTIVE|DECISION): /;
+const HUMAN_ONLY_RE =
+  /^\s*-\s+\[[ xX]\]\s+(?:SUBJECTIVE|DECISION|After merge): /;
 
 function parseImage(val: string): EvidenceImage | null {
   const hash = val.indexOf("#");

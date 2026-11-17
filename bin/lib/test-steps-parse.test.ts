@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseTestStepsSection } from "../flow-gate-decide";
+import type { InstallOnlyName } from "./install-only-names";
 import {
   lintTestSteps,
   parseTestSteps,
@@ -415,5 +416,88 @@ describe("reason capture and image detection", () => {
     expect(lintTestSteps([step], "review").map((f) => f.code)).not.toContain(
       "subjective-missing-view",
     );
+  });
+});
+
+describe("after-merge steps and install-dependent lint", () => {
+  const names: InstallOnlyName[] = [
+    { name: "flow-manager-wait", kind: "helper", change: "added" },
+    { name: "manage", kind: "verb", change: "added" },
+    { name: "flow-manage", kind: "skill", change: "added" },
+  ];
+  const lint = (item: string, installNames?: InstallOnlyName[]) =>
+    lintTestSteps(
+      parseTestSteps(bodyOf(item)).steps,
+      "authoring",
+      installNames,
+    );
+
+  it("classifies the `After merge: ` prefix as its own kind", () => {
+    const { steps } = parseTestSteps(
+      bodyOf("- [ ] After merge: run `flow manage` and read the window."),
+    );
+    expect(steps[0].kind).toBe("after-merge");
+  });
+
+  it("exempts the prefix from post-merge-step but still flags the comma form", () => {
+    expect(
+      lint(
+        "- [ ] After merge: confirm the cron job picked up the schedule.",
+      ).map((f) => f.code),
+    ).toEqual([]);
+    expect(
+      lint("- [ ] After merge, confirm the cron job picked up it.").map(
+        (f) => f.code,
+      ),
+    ).toEqual(["post-merge-step"]);
+  });
+
+  it.each([
+    [
+      "- [ ] Check `flow-manager-wait --x` exits 0.",
+      "bun bin/flow-manager-wait.ts",
+    ],
+    ["- [ ] Check `flow manage` claims the window.", "bun bin/flow manage"],
+    ["- [ ] Run /flow-manage in a session — it loads.", "--skills-from"],
+  ])("flags %s with its per-kind hint", (item, hint) => {
+    const [f] = lint(item, names);
+    expect(f.code).toBe("install-dependent-step");
+    expect(f.hint).toContain(hint);
+  });
+
+  it("flags a ticked step too", () => {
+    expect(
+      lint("- [x] Check `flow manage` claims the window.", names).map(
+        (f) => f.code,
+      ),
+    ).toContain("install-dependent-step");
+  });
+
+  it("does not flag a runnable command step for a verb or helper (step 8c runs it from the branch)", () => {
+    expect(
+      lint("- [ ] Run `flow manage` — claims the window.", names).map(
+        (f) => f.code,
+      ),
+    ).toEqual([]);
+    expect(
+      lint("- [ ] Run `flow-manager-wait --x` — exits 0.", names).map(
+        (f) => f.code,
+      ),
+    ).toEqual([]);
+  });
+
+  it("flags a ticked After merge: step as human-only", () => {
+    expect(
+      lint("- [x] After merge: run `flow manage`.", names).map((f) => f.code),
+    ).toEqual(["human-only-ticked"]);
+  });
+
+  it("is silent without names and never flags an after-merge step", () => {
+    const item = "- [ ] Run `flow manage` — claims the window.";
+    expect(lint(item).map((f) => f.code)).toEqual([]);
+    expect(lint(item, []).map((f) => f.code)).toEqual([]);
+    expect(
+      lint("- [ ] After merge: run `flow manage` — claims it.", names),
+    ).toEqual([]);
   });
 });

@@ -1,8 +1,8 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseArgs, run } from "./flow-test-steps-lint";
+import { parseArgs, run, type LintDeps } from "./flow-test-steps-lint";
 
 function bodyFile(body: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), "flow-test-steps-lint-"));
@@ -11,7 +11,10 @@ function bodyFile(body: string): string {
   return file;
 }
 
-function capture(argv: string[]): { code: number; out: string; err: string } {
+function capture(
+  argv: string[],
+  deps?: LintDeps,
+): { code: number; out: string; err: string } {
   let out = "";
   let err = "";
   const o = vi.spyOn(process.stdout, "write").mockImplementation((c) => {
@@ -22,7 +25,7 @@ function capture(argv: string[]): { code: number; out: string; err: string } {
     err += String(c);
     return true;
   });
-  const code = run(argv);
+  const code = run(argv, deps);
   o.mockRestore();
   e.mockRestore();
   return { code, out, err };
@@ -87,5 +90,31 @@ describe("run", () => {
       steps: [],
       findings: [],
     });
+  });
+});
+
+describe("install-dependent-step cwd collection", () => {
+  const body = bodyFile(
+    "## Test Steps\n\n- [ ] Check that `flow manage` claims the window.\n",
+  );
+  const collect = () => [
+    { name: "manage", kind: "verb" as const, change: "added" as const },
+  ];
+  const codesOf = (out: string): string[] =>
+    JSON.parse(out).findings.map((f: { code: string }) => f.code);
+
+  it("stays silent in a consumer cwd", () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), "consumer-"));
+    const r = capture(["--body-file", body], { cwd, collect });
+    expect(codesOf(r.out)).toEqual([]);
+  });
+
+  it("flags the step in a flow-source cwd", () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), "flow-src-"));
+    mkdirSync(path.join(cwd, "skills"));
+    mkdirSync(path.join(cwd, "bin", "lib"), { recursive: true });
+    writeFileSync(path.join(cwd, "bin", "lib", "modules.ts"), "");
+    const r = capture(["--body-file", body], { cwd, collect });
+    expect(codesOf(r.out)).toEqual(["install-dependent-step"]);
   });
 });

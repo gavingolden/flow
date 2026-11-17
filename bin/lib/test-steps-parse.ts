@@ -11,6 +11,10 @@ import {
   testStepsSectionBounds,
 } from "../flow-gate-decide";
 import { imageRefs } from "./image-refs";
+import {
+  matchInstallDependent,
+  type InstallOnlyName,
+} from "./install-only-names";
 import { fencedLineMask } from "./md-block-structure";
 import { missingViews, requiredViews, shotView } from "./signoff-views";
 
@@ -19,6 +23,7 @@ export type StepKind =
   | "browser"
   | "subjective"
   | "decision"
+  | "after-merge"
   | "prose";
 
 export type ParsedStep = {
@@ -48,6 +53,7 @@ export type LintCode =
   | "subjective-missing-view"
   | "ticked-no-evidence"
   | "post-merge-step"
+  | "install-dependent-step"
   | "human-only-ticked"
   | "browser-shape"
   | "browser-over-bound"
@@ -72,6 +78,7 @@ function classify(text: string): StepKind {
   if (text.startsWith("SUBJECTIVE: ")) return "subjective";
   if (text.startsWith("DECISION: ")) return "decision";
   if (text.startsWith("Browser: ")) return "browser";
+  if (text.startsWith("After merge: ")) return "after-merge";
   if (/^Run\s+`[^`]+`/.test(text) || /^`[^`]+`/.test(text)) return "command";
   return "prose";
 }
@@ -222,37 +229,64 @@ const HINTS: Record<LintCode, string> = {
     "A ticked prose or browser item carries no evidence block; attach proof or untick it.",
   "post-merge-step":
     "Post-merge or post-deploy steps never go in Test Steps; move to the local follow-ups list.",
+  "install-dependent-step":
+    "The step names something only an installed branch provides; run it from the branch with `bun bin/…`, or prefix it `After merge: ` (only for an added helper/verb or an added/changed skill).",
   "human-only-ticked":
-    "SUBJECTIVE and DECISION items are ticked by a human only; untick it unless the user ticked it.",
+    "SUBJECTIVE and DECISION items are ticked by a human only, and `After merge: ` items stay unticked before merge; untick it unless the user ticked it.",
   "browser-shape": `Browser items read 'Browser: on <route>, <action chain> — expect <result>'; rewrite to that shape, or ${BROWSER_FIX}`,
   "browser-over-bound": `The browser driver runs at most ${BROWSER_MAX_ACTIONS} actions per item; ${BROWSER_FIX}`,
   "browser-input-unsupported": `The browser driver cannot produce wheel, pinch or modifier-held scroll/drag input; seed the state via a fixture or URL, or write a durable Playwright/vitest test.`,
 };
 
+function installDependentHint(n: InstallOnlyName): string {
+  if (n.kind === "helper")
+    return `run it from the branch: \`bun bin/${n.name}.ts …\``;
+  if (n.kind === "verb")
+    return `run \`bun bin/flow ${n.name} …\` from the worktree, or, if it launches a session or needs installed hooks/skills, prefix the step \`After merge: \``;
+  return "prefix the step `After merge: ` — a session reads the installed skill (a pipeline skill can also be tried with `flow feature create --skills-from <worktree>`)";
+}
+
 export function lintTestSteps(
   steps: ParsedStep[],
   phase: "authoring" | "review",
+  installNames?: InstallOnlyName[],
 ): LintFinding[] {
   const out: LintFinding[] = [];
-  const add = (code: LintCode, step: ParsedStep): void => {
+  const add = (code: LintCode, step: ParsedStep, hint?: string): void => {
     out.push({
       code,
       severity: code === "subjective-mixed" ? "suggestion" : "finding",
       line: step.line,
       text: step.text,
-      hint: HINTS[code],
+      hint: hint ?? HINTS[code],
     });
   };
 
   for (const step of steps) {
-    const humanOnly = step.kind === "subjective" || step.kind === "decision";
+    const humanOnly =
+      step.kind === "subjective" ||
+      step.kind === "decision" ||
+      step.kind === "after-merge";
     if (step.kind === "command" && GENERIC_SUITE_RE.test(step.text))
       add("generic-suite", step);
     if (step.kind === "command" && PRESENCE_ONLY_RE.test(step.text))
       add("presence-only", step);
     if (step.kind === "subjective" && MEASURABLE_RE.test(step.text))
       add("subjective-mixed", step);
-    if (POST_MERGE_RE.test(step.text)) add("post-merge-step", step);
+    if (step.kind !== "after-merge" && POST_MERGE_RE.test(step.text))
+      add("post-merge-step", step);
+    const matched =
+      installNames && step.kind !== "after-merge"
+        ? matchInstallDependent(step.fullText, installNames)
+        : null;
+    // Step 8c runs command steps from the branch's own bins, so only a skill
+    // (read from the installed copy by a session) still needs the prefix.
+    const dependent =
+      matched && step.kind === "command" && matched.kind !== "skill"
+        ? null
+        : matched;
+    if (dependent)
+      add("install-dependent-step", step, installDependentHint(dependent));
     if (humanOnly && step.checked) add("human-only-ticked", step);
     if (step.kind === "browser") {
       if (!BROWSER_SHAPE_RE.test(step.fullText)) add("browser-shape", step);
