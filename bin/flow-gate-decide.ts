@@ -118,6 +118,8 @@ export type DecisionResult = {
    * guard calls): per-open-`SUBJECTIVE:` evidence the GATED render prints.
    */
   uiSignoff?: UiSignoff;
+  /** Set only when the gate tried to fill in the missing UI review box. */
+  uiReviewBox?: { action: "added" } | { action: "failed"; message: string };
 };
 
 export type GateInputs = {
@@ -722,8 +724,10 @@ export function run(argv: string[], deps: Deps = {}): number {
       body = added.body;
       result = decideOn(body);
       result.reason += ` (added the "UI review did not run" box to the PR's Test Steps — re-check any box you ticked in the last minute)`;
+      result.uiReviewBox = { action: "added" };
     } else if (added.kind === "error") {
-      result.reason += ` (could not add the UI review box to the PR body: ${added.message} — re-run the gate check to retry, or say merge to override)`;
+      result.reason += ` (could not add the UI review box to the PR body: ${added.message} — say merge to retry adding it, or to override without it)`;
+      result.uiReviewBox = { action: "failed", message: added.message };
     }
   }
   const uiSignoff = buildUiSignoff(body, worktree, ui?.log ?? null, result);

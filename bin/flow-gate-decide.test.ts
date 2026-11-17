@@ -1178,6 +1178,13 @@ describe("run() — not-run box", () => {
     expect(lines[0]).toMatch(/^- \[ \] DECISION:/);
     expect(result.decision).toBe("gated");
     expect(result.reason).toContain('added the "UI review did not run" box');
+    expect(result.uiReviewBox).toEqual({ action: "added" });
+    expect(result.uiReview).toMatchObject({ satisfied: true });
+    expect(result.validationItems).toEqual([
+      expect.stringContaining(
+        "DECISION: the UI review did not run (no UI review record for this PR)",
+      ),
+    ]);
   });
 
   it("auto-merges and edits nothing when the box is already ticked", () => {
@@ -1186,6 +1193,7 @@ describe("run() — not-run box", () => {
     });
     expect(edits).toEqual([]);
     expect(result.decision).toBe("auto-merge");
+    expect(result.uiReviewBox).toBeUndefined();
   });
 
   it("keeps the gate and says how to retry when the edit fails", () => {
@@ -1200,8 +1208,12 @@ describe("run() — not-run box", () => {
       "could not add the UI review box to the PR body",
     );
     expect(result.reason).toContain(
-      "re-run the gate check to retry, or say merge to override",
+      "say merge to retry adding it, or to override without it",
     );
+    expect(result.uiReviewBox).toEqual({
+      action: "failed",
+      message: "HTTP 502",
+    });
   });
 
   it("does not edit on a browser-retry verdict", () => {

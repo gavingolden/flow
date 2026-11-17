@@ -9,15 +9,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import type { DecisionResult } from "../flow-gate-decide";
-import { testStepsSectionBounds } from "../flow-gate-decide";
-import {
-  fencedLineMask,
-  findUnterminatedHtmlBlockLines,
-} from "./md-block-structure";
 import { parseLoopLog, type LoopLog } from "./ui-critique";
 import { readUiCritiqueEnabled } from "./ui-critique-config";
-import { plainReason, UI_REVIEW_NOT_RUN_MARKER } from "./ui-critique-render";
+import { plainReason } from "./ui-critique-render";
 import { branchChangedFiles, changedSinceCommit } from "./ui-review-diff";
+import { hasLiveNotRunLine } from "./ui-review-body";
 import { isRenderBearing, uiReviewRequired } from "./ui-review-scope";
 
 export type UiReviewGate = {
@@ -39,20 +35,7 @@ const UNREADABLE =
  * it. It is distinct from the residual-defects marker, so accepting defects
  * never waives a review that did not run.
  */
-export function notRunAccepted(body: string): boolean {
-  const lines = body.split("\n");
-  const bounds = testStepsSectionBounds(lines);
-  if (bounds === null) return false;
-  const fenced = fencedLineMask(lines);
-  const section = lines.slice(bounds.start + 1, bounds.end);
-  const trapped = findUnterminatedHtmlBlockLines(section.join("\n"));
-  return section.some(
-    (l, i) =>
-      !fenced[bounds.start + 1 + i] &&
-      !trapped.has(i) &&
-      l.includes(UI_REVIEW_NOT_RUN_MARKER),
-  );
-}
+export const notRunAccepted = hasLiveNotRunLine;
 
 export function checkUiReviewGate(i: {
   changedFiles: string[] | null;

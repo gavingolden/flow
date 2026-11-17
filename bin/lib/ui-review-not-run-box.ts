@@ -76,8 +76,9 @@ export function addMissingNotRunBox(i: {
   }
   const next = ensureNotRunBox(view.stdout.replace(/\n$/, ""), i.ui, i.log);
   if (next === null) return { kind: "unchanged" };
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-ui-not-run-"));
+  let dir: string | null = null;
   try {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-ui-not-run-"));
     const file = path.join(dir, "body.md");
     fs.writeFileSync(file, next);
     const edit = i.gh(["pr", "edit", String(i.pr), "--body-file", file]);
@@ -88,7 +89,9 @@ export function addMissingNotRunBox(i: {
       };
     }
     return { kind: "written", body: next };
+  } catch (e) {
+    return { kind: "error", message: (e as Error).message };
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
   }
 }

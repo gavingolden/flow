@@ -65,6 +65,39 @@ describe("ensureNotRunBox shapes", () => {
     expect(out.match(/<!-- flow:ui-review -->/g)).toHaveLength(1);
   });
 
+  it("replaces the Off stub when the log has no skip code", () => {
+    const out = ensureNotRunBox(cases[4][1], UNSAT, null)!;
+    expect(out).toContain("UI review did not run: no UI review record");
+    expect(out).not.toContain("Off: turned off");
+  });
+
+  it("keeps an existing non-stub UI review block unchanged", () => {
+    const body = `## TLDR\n\nx\n\n<!-- flow:ui-review -->\n## UI review\n\nNot run: headless-error\n\n<!-- /flow:ui-review -->\n\n## Test Steps\n\n- [x] ok\n`;
+    const out = ensureNotRunBox(body, UNSAT, null)!;
+    expect(out).toContain("Not run: headless-error");
+    expect(out).toContain(
+      "Not run: headless-error\n\n<!-- /flow:ui-review -->",
+    );
+    expect(out.match(/<!-- flow:ui-review -->/g)).toHaveLength(1);
+  });
+
+  it("does not stack a second UI review block on a CRLF body", () => {
+    const body = cases[4][1].replace(/\n/g, "\r\n");
+    const out = ensureNotRunBox(body, UNSAT, null)!;
+    expect(out.match(/<!-- flow:ui-review -->/g)).toHaveLength(1);
+  });
+
+  it("keeps a trapped <details> trapped by inserting before its opener", () => {
+    const out = ensureNotRunBox(cases[6][1], UNSAT, null)!;
+    const lines = out.split("\n");
+    const fresh = lines.findIndex(
+      (l) => l.startsWith("- [ ] DECISION:") && !l.includes("(x)"),
+    );
+    expect(fresh).toBeGreaterThan(-1);
+    expect(fresh).toBeLessThan(lines.indexOf("<details>"));
+    expect(out).not.toMatch(/<details>\n\n/);
+  });
+
   it("leaves an existing defects line byte-for-byte", () => {
     const [, body, l] = cases[3];
     const defects = body.split("\n").find((x) => x.includes("accept this UI"))!;
@@ -115,6 +148,34 @@ describe("addMissingNotRunBox", () => {
     expect(r).toMatchObject({ kind: "written", body: written });
     expect(unchecked(written)).toHaveLength(1);
     expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it("returns the view error and never edits when the re-read fails", () => {
+    const gh = vi.fn(() => ({
+      stdout: "",
+      stderr: "HTTP 401\nx",
+      exitCode: 1,
+    }));
+    expect(addMissingNotRunBox({ pr: 3, ui: UNSAT, log: null, gh })).toEqual({
+      kind: "error",
+      message: "HTTP 401",
+    });
+    expect(gh).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns an error instead of throwing when the temp dir cannot be made", () => {
+    const prev = process.env.TMPDIR;
+    process.env.TMPDIR = "/nonexistent-flow-tmp-dir";
+    const gh = vi.fn(() => ok(BODY));
+    try {
+      expect(
+        addMissingNotRunBox({ pr: 3, ui: UNSAT, log: null, gh }).kind,
+      ).toBe("error");
+    } finally {
+      if (prev === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = prev;
+    }
+    expect(gh).toHaveBeenCalledTimes(1);
   });
 
   it("returns the first stderr line when the edit fails", () => {

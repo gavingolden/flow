@@ -179,3 +179,23 @@ describe("upsertNotRunItem", () => {
     expect(out).toContain("DECISION: accept this UI");
   });
 });
+
+describe("upsertUiReview slot placement", () => {
+  const section = render(log());
+
+  it("separates the defects item from a trailing </details>", () => {
+    const body =
+      "## Test Steps\n\n- [x] ok\n\n<details>\n<summary>ev</summary>\n\n- out\n</details>";
+    const out = upsertUiReview(body, section, {
+      defects: "- [ ] DECISION: accept 1 defect",
+      notRun: null,
+    });
+    expect(out).toMatch(/<\/details>\n\n- \[ \] DECISION: accept 1 defect/);
+  });
+
+  it("ignores a decision marker quoted outside Test Steps", () => {
+    const body = `## Key decisions\n\n- uses ${UI_REVIEW_DECISION_MARKER} inline\n\n## Test Steps\n\n- [x] ok\n`;
+    const out = upsertUiReview(body, section, { defects: null, notRun: null });
+    expect(out).toContain(`- uses ${UI_REVIEW_DECISION_MARKER} inline`);
+  });
+});
