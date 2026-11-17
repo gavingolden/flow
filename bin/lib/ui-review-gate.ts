@@ -39,7 +39,7 @@ const UNREADABLE =
  * it. It is distinct from the residual-defects marker, so accepting defects
  * never waives a review that did not run.
  */
-function notRunAccepted(body: string): boolean {
+export function notRunAccepted(body: string): boolean {
   const lines = body.split("\n");
   const bounds = testStepsSectionBounds(lines);
   if (bounds === null) return false;
@@ -83,7 +83,7 @@ export function checkUiReviewGate(i: {
     if (notRunAccepted(i.body)) return ok(true);
     const why = i.log?.skip
       ? plainReason(i.log.skip)
-      : "no UI review record for this PR";
+      : plainReason("no-review-record");
     return {
       required: true,
       satisfied: false,

@@ -721,6 +721,8 @@ describe("render of a required review that did not run", () => {
     const body = h.files.get("/b.md")!;
     expect(body).toContain("> [!WARNING]");
     expect(body).toContain("- [ ] DECISION: the UI review did not run (");
+    expect(body).toContain("<!-- flow:ui-review-not-run -->");
+    expect(body).not.toContain("<!-- flow:ui-review-decision -->");
     expect(result(h)).toMatchObject({ decisionAdded: true });
   });
 });
