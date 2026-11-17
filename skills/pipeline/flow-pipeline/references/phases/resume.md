@@ -125,7 +125,9 @@ table lives in `references/failure-recovery.md` section (b).
 - **Terminal phase (`merged` / `gated` / `needs-human` / `cancelled`).**
   Render the terminal block via `flow-gate-summary --status
   <merged|gated|needs-human|cancelled> ...` and end without re-running
-  anything (`needs-human` sourced from `TERMINAL_PHASES` in
+  anything (a `merged`/`gated` re-render passes the same
+  `--after-merge-items-file` / `--needs-install-file` pair as step 9/11
+  while `.flow-tmp/gate-verdict.json` survives; `needs-human` sourced from `TERMINAL_PHASES` in
   `bin/lib/state.ts`, so a crashed escalation resolves `terminal`) —
   except a `needs-human` pipeline with a live worktree, which resolves `awaiting-human` above instead.
 - **No-in-flight-work pending phase (`triaged-no-change` /
