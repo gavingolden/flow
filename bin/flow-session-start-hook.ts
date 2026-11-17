@@ -31,8 +31,8 @@
  * PASSIVELY — it never triggers an autonomous assistant turn, so with no user
  * message after `/clear` the supervisor never entered resume mode and the
  * pane sat blank; the tmux path therefore delivers the seed as a REAL user
- * turn via `tmux send-keys` — the exact mechanism the initial launch and
- * `flow feature resume` already use (`bin/lib/tmux.ts`). PLAIN (slug resolved
+ * turn via `tmux send-keys` — now the only typed-delivery path, since the
+ * launch paths carry their seed on the launch line (`bin/lib/tmux.ts`). PLAIN (slug resolved
  * via `FLOW_SLUG` with no tmux pane): there is no send-keys surface, so the
  * hook DELIBERATELY falls back to emitting the seed as `additionalContext` —
  * passive delivery is ACCEPTED here because the user is present at a
