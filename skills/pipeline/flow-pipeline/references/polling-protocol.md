@@ -599,6 +599,13 @@ Both are read-only and idempotent. The reviews call runs every call;
 the checks call is **skipped when `CI_CONFIGURED=0`** per the override
 rule above (no workflows on disk → nothing to poll for).
 
+On an all-passed or empty check list `flow-ci-check` also reads the head
+commit's pull-request-event workflow runs (one extra `gh` call; the
+supervisor never hand-polls it): a failed run becomes a named failed entry
+carrying its `url`, a `queued` or `in_progress` run — or an unreadable runs
+list — holds CI pending, `dynamic`/`push` runs are ignored, and the newest
+run per workflow wins.
+
 ```bash
 # CI check status — terminal states are SUCCESS, FAILURE, CANCELLED,
 # TIMED_OUT, SKIPPED, STARTUP_FAILURE, STALE. Pending states are
@@ -644,6 +651,10 @@ copilot_posted  := some review where author.login matches the configured
                    review.state ∈ {APPROVED, CHANGES_REQUESTED, COMMENTED}
 pr_state        := <`OPEN`, `MERGED`, `CLOSED`>
 ```
+
+The synthetic workflow-run entries above join the check list before
+`ci_terminal` is computed, so a pending or unreadable run never fixes the
+`ciTerminalAt` anchor and a failed run routes through `ci_failed`.
 
 ## Decision matrix
 

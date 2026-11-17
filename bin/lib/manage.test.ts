@@ -3,8 +3,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  awaitManagerCheckIn,
   ensureManagerSettings,
   managerLaunchConsumed,
+  paneShowsTrustMenu,
   parseHeartbeat,
   runManageCli,
   type ManageOptions,
@@ -13,6 +15,24 @@ import { readManagerRecord, writeManagerRecord } from "./manager-record";
 import { readScope, updateScope } from "./manager-scope";
 import { writeState, type PipelineState } from "./state";
 import { SECRET_FILE_DENY_RULES } from "./secret-deny-rules";
+import { createWindowVerified } from "./tmux";
+
+vi.mock("./tmux", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./tmux")>()),
+  createWindowVerified: vi.fn(),
+}));
+
+const TRUST_MENU = `Accessing workspace:
+
+ ~/.flow/manager
+
+ Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from your team).
+
+ ❯ 1. Yes, I trust this folder
+   2. No, exit
+
+ Enter to confirm · Esc to cancel`;
+const NO_MENU_TRUST_MENU = TRUST_MENU.replace("❯ 1. Yes", "  1. Yes");
 
 let dir: string;
 let home: string;
@@ -44,10 +64,22 @@ const opts = (over: Partial<ManageOptions> = {}): ManageOptions => ({
   now: () => new Date("2026-11-12T10:00:00.000Z"),
   tmuxOnPath: () => true,
   windowExists: () => false,
+  killWindow: () => true,
   setPaneKind: () => {},
   retrySleepMs: 0,
+  isAlive: () => true,
+  readPane: () => "",
+  sleep: () => {},
+  checkInTimeoutMs: 3000,
   launch: (command, cwd) => {
     launches.push({ command, cwd });
+    const rec = readManagerRecord(home);
+    if (rec) {
+      writeManagerRecord(
+        { ...rec, lastSeenAt: "2026-11-12T10:00:05.000Z" },
+        home,
+      );
+    }
     return { status: "started", stderr: "" };
   },
   ...over,
@@ -210,18 +242,20 @@ describe("runManageCli", () => {
     expect(out).not.toContain("flow grant pipeline:alpha");
   });
 
-  it("with the window open: --scope updates, --notices flips, words and bare launches point at attach", () => {
+  const openRecord = {
+    version: 1 as const,
+    window: "manager",
+    startedAt: "2026-11-12T10:00:00.000Z",
+    model: "opus" as const,
+    effort: "high" as const,
+    heartbeatSec: 900,
+    stopWhenIdle: false,
+    notices: false,
+  };
+
+  it("with the window open and checked in: --scope updates, --notices flips, words and bare launches point at attach", () => {
     writeManagerRecord(
-      {
-        version: 1,
-        window: "manager",
-        startedAt: "x",
-        model: "opus",
-        effort: "high",
-        heartbeatSec: 900,
-        stopWhenIdle: false,
-        notices: false,
-      },
+      { ...openRecord, lastSeenAt: "2026-11-12T10:00:05.000Z" },
       home,
     );
     const open = opts({ windowExists: () => true });
@@ -238,6 +272,24 @@ describe("runManageCli", () => {
     expect(errs.join("\n")).toContain("flow attach manager");
     expect(launches).toEqual([]);
   });
+
+  it.each([
+    ["bare", []],
+    ["words", ["add repo b"]],
+    ["--scope", ["--scope", "repo:a"]],
+  ])(
+    "with a never-started window open, a %s re-run says it has not started yet",
+    (_n, args) => {
+      writeManagerRecord(openRecord, home);
+      expect(runManageCli(args, opts({ windowExists: () => true }))).toBe(2);
+      const err = errs.join("\n");
+      expect(err).toContain("has not started yet");
+      expect(err).not.toContain("already running");
+      expect(err).not.toContain("say it in the manager window");
+      expect(logs).not.toContain("scope updated");
+      expect(readScope(home)).toBeNull();
+    },
+  );
 
   it("--stop removes the record and closes the window", () => {
     writeManagerRecord(
@@ -264,6 +316,83 @@ describe("runManageCli", () => {
     expect(runManageCli(["x"], opts({ launch }))).toBe(2);
     expect(launch).toHaveBeenCalledTimes(3);
     expect(readManagerRecord(home)).toBeNull();
+  });
+
+  it("checks in: prints manager started and exits 0 once the manager stamps lastSeenAt", () => {
+    expect(runManageCli(["x"], opts())).toBe(0);
+    expect(logs.join("\n")).toContain("manager started");
+  });
+
+  it("trust question: exits 2 naming the question, keeps the window and record, never says started", () => {
+    const launch = () => ({
+      status: "launched-not-confirmed" as const,
+      stderr: "",
+    });
+    const code = runManageCli(
+      ["x"],
+      opts({ launch, readPane: () => TRUST_MENU }),
+    );
+    expect(code).toBe(2);
+    expect(logs.join("\n")).not.toContain("manager started");
+    expect(errs.join("\n")).toContain("Yes, I trust this folder");
+    expect(errs.join("\n")).toContain("flow attach manager");
+    expect(readManagerRecord(home)).not.toBeNull();
+  });
+
+  it("never checks in: exits 2 after the timeout, keeps the window and record", () => {
+    const kill = vi.fn(() => true);
+    const launch = () => ({
+      status: "launched-not-confirmed" as const,
+      stderr: "",
+    });
+    expect(runManageCli(["x"], opts({ launch, killWindow: kill }))).toBe(2);
+    expect(errs.join("\n")).toContain("may still be starting");
+    expect(logs.join("\n")).not.toContain("manager started");
+    expect(kill).not.toHaveBeenCalled();
+    expect(readManagerRecord(home)).not.toBeNull();
+  });
+
+  it("dies: exits 2 and deletes the record when claude exits before checking in", () => {
+    const launch = () => ({
+      status: "launched-not-confirmed" as const,
+      stderr: "",
+    });
+    expect(runManageCli(["x"], opts({ launch, isAlive: () => false }))).toBe(2);
+    expect(errs.join("\n")).toContain(
+      "claude exited before the manager checked in",
+    );
+    expect(readManagerRecord(home)).toBeNull();
+  });
+
+  it("dies: kills the dead manager window so a remain-on-exit pane cannot wedge later runs", () => {
+    const kill = vi.fn(() => true);
+    const launch = () => ({
+      status: "launched-not-confirmed" as const,
+      stderr: "",
+    });
+    expect(
+      runManageCli(
+        ["x"],
+        opts({ launch, isAlive: () => false, killWindow: kill }),
+      ),
+    ).toBe(2);
+    expect(kill).toHaveBeenCalledWith("manager");
+  });
+
+  it("launch line: the default launch hands /flow-manage to the shared launcher as the seed and waits for the check-in once", () => {
+    const create = vi.mocked(createWindowVerified);
+    create.mockReturnValue({ status: "launched-not-confirmed", stderr: "" });
+    const o = opts();
+    delete o.launch;
+    expect(runManageCli(["x"], o)).toBe(2);
+    const [slug, cwd, command, seed, deps] = create.mock.calls[0];
+    expect(slug).toBe("manager");
+    expect(cwd).toBe(home);
+    expect(command[command.indexOf("--settings") + 1]).toBe(
+      path.join(dir, "settings.json"),
+    );
+    expect(seed).toBe("/flow-manage");
+    expect(deps?.consumeAttempts).toBe(1);
   });
 
   it("rejects a bad heartbeat, a bad scope and two positionals", () => {
@@ -297,5 +426,51 @@ describe("managerLaunchConsumed", () => {
       home,
     );
     expect(managerLaunchConsumed(home, base.startedAt)).toBe(true);
+  });
+});
+
+describe("paneShowsTrustMenu (detector)", () => {
+  it("is true for the trust menu capture", () => {
+    expect(paneShowsTrustMenu(TRUST_MENU)).toBe(true);
+    expect(paneShowsTrustMenu(NO_MENU_TRUST_MENU)).toBe(true);
+  });
+  it("is false for an idle prompt and for a pane echoing the start command without menu lines", () => {
+    expect(paneShowsTrustMenu("❯ ")).toBe(false);
+    expect(
+      paneShowsTrustMenu(
+        "env FLOW_MANAGER=1 claude --add-dir x /flow-manage  # trust folder project",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("awaitManagerCheckIn", () => {
+  const base = { sleep: () => {}, timeoutMs: 2000 };
+  it("checks consumed before liveness and the trust menu", () => {
+    expect(
+      awaitManagerCheckIn({
+        ...base,
+        consumed: () => true,
+        isAlive: () => false,
+        readPane: () => TRUST_MENU,
+      }),
+    ).toBe("checked-in");
+  });
+  it("reports dead before trust-prompt, and timeout otherwise", () => {
+    const common = { ...base, consumed: () => false };
+    expect(
+      awaitManagerCheckIn({
+        ...common,
+        isAlive: () => false,
+        readPane: () => TRUST_MENU,
+      }),
+    ).toBe("dead");
+    expect(
+      awaitManagerCheckIn({
+        ...common,
+        isAlive: () => true,
+        readPane: () => "",
+      }),
+    ).toBe("timeout");
   });
 });

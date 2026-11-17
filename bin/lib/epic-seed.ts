@@ -10,9 +10,9 @@
  * `sanitizeSeedLine` — deliberately NOT `./state`, whose transitive graph
  * this module exists to avoid.
  *
- * The seed text is defined ONCE in these helpers and delivered ONLY via
- * send-keys by the verified launcher (no positional argv copy), so there is
- * no second definition to drift from. The literal EPIC_DIR is embedded (R1)
+ * The seed text is defined ONCE in these helpers and carried on the launch
+ * line (the verified launcher appends it as the last argv element), so there
+ * is no second definition to drift from. The literal EPIC_DIR is embedded (R1)
  * so the /flow-epic-create supervisor + the MODE: epic designer consume it
  * directly rather than re-deriving the path via a bin/lib import they can't
  * reach in a consumer worktree. Every seed built here is a SINGLE

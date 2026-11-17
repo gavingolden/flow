@@ -529,7 +529,9 @@ Scope (like 'flow grant'; there is no "all"):
 A launch with words or --scope replaces the saved scope; a bare 'flow manage'
 reuses it and prints it first. With the window already open: --scope updates
 the scope, --notices/--no-notices updates the notice setting, anything else
-points you at 'flow attach manager'.
+points you at 'flow attach manager'. flow manage waits up to 90s for the
+manager to check in before it says 'manager started'; if the open window never
+checked in, any re-run exits 2 with a 'has not started yet' message.
 
 Options:
   --scope <scope>     cover this scope (repeatable)

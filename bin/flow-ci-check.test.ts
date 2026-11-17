@@ -9,7 +9,7 @@ import {
   type CheckResult,
   type RunResult,
 } from "./flow-ci-check";
-import type { Check, Review } from "./lib/ci-decision";
+import type { Check, Review, WorkflowRun } from "./lib/ci-decision";
 import type { GhRunner } from "./lib/ci-observe";
 import { readState, writeState, type CiWaitRecord } from "./lib/state";
 import { registrySelfCheck } from "./lib/ci-observe";
@@ -261,6 +261,7 @@ function baseDeps(
     readMergeState: () => CLEAN_MERGE,
     readCopilotLogin: () => "copilot-pull-request-reviewer",
     readHistoricalBotReview: () => false,
+    readWorkflowRuns: () => [],
     ...overrides,
   };
 }
@@ -270,6 +271,32 @@ function baseDeps(
 // ---------------------------------------------------------------------------
 
 describe(parseArgs, () => {
+  it("accepts --rerun with a run id or the trailing digits of a run URL", () => {
+    expect(parseArgs(["100", "--rerun", "4242"])).toEqual({
+      pr: 100,
+      rerun: 4242,
+    });
+    expect(
+      parseArgs(["100", "--rerun", "https://github.com/o/r/actions/runs/777"]),
+    ).toEqual({ pr: 100, rerun: 777 });
+  });
+  it("accepts only a bare id or the number after /actions/runs/", () => {
+    expect(
+      parseArgs([
+        "100",
+        "--rerun",
+        "https://github.com/o/r/actions/runs/777/job/5",
+      ]),
+    ).toEqual({ pr: 100, rerun: 777 });
+    expect(
+      parseArgs(["100", "--rerun", "https://github.com/o/r/pull/12"]),
+    ).toHaveProperty("error");
+    expect(parseArgs(["100", "--rerun", "12abc"])).toHaveProperty("error");
+  });
+  it("errors on a non-numeric --rerun value", () => {
+    expect(parseArgs(["100", "--rerun", "latest"])).toHaveProperty("error");
+    expect(parseArgs(["100", "--rerun"])).toHaveProperty("error");
+  });
   it("errors when no PR is provided", () => {
     expect(parseArgs([])).toEqual({ error: "PR number is required" });
   });
@@ -4016,5 +4043,294 @@ describe("run() — phase advance", () => {
     // job is only to prove the pr-blocked early-return never reaches
     // implementing.
     expect(readState(slug, dir)?.phase).toBe("ci-wait-pending");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Workflow-run cross-check (flow#1052)
+// ---------------------------------------------------------------------------
+
+describe("run() — workflow-run cross-check", () => {
+  const wfRun = (over: Partial<WorkflowRun>): WorkflowRun => ({
+    databaseId: 1,
+    workflowId: 10,
+    name: "Build",
+    event: "pull_request",
+    status: "completed",
+    conclusion: "success",
+    url: "https://github.com/o/r/actions/runs/1",
+    ...over,
+  });
+
+  const openPrGh = (checks: Check[]) =>
+    makeGhSequence([
+      { matches: isPrView, response: prViewResponse("OPEN") },
+      { matches: isPrChecks, response: prChecksResponse(checks) },
+    ]);
+
+  const noCopilot = { isCopilotModuleActive: () => false };
+
+  it("econ-data #1189: green checks + failed Build and Database Types runs decide ci-failed with urls", async () => {
+    const gh = openPrGh([
+      { name: "backend", state: "SUCCESS" },
+      { name: "offline-e2e", state: "SUCCESS" },
+    ]);
+    const readWorkflowRuns = vi.fn(() => [
+      wfRun({
+        databaseId: 42673994473,
+        workflowId: 1,
+        name: "Build",
+        conclusion: "failure",
+        url: "https://github.com/o/r/actions/runs/42673994473",
+      }),
+      wfRun({
+        databaseId: 42673994441,
+        workflowId: 2,
+        name: "Check Generated Database Types",
+        conclusion: "failure",
+        url: "https://github.com/o/r/actions/runs/42673994441",
+      }),
+      wfRun({
+        databaseId: 42673994956,
+        workflowId: 3,
+        name: "Dependabot auto-merge",
+        event: "pull_request_target",
+        conclusion: "skipped",
+      }),
+    ]);
+    const cap = captureStreams();
+    const exit = await run(
+      ["100"],
+      baseDeps(gh, 0, { ...noCopilot, readWorkflowRuns }),
+    );
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("ci-failed");
+    expect(result.ciFailedChecks).toEqual([
+      {
+        name: "Build (workflow run failure)",
+        state: "FAILURE",
+        url: "https://github.com/o/r/actions/runs/42673994473",
+      },
+      {
+        name: "Check Generated Database Types (workflow run failure)",
+        state: "FAILURE",
+        url: "https://github.com/o/r/actions/runs/42673994441",
+      },
+    ]);
+    expect(readWorkflowRuns).toHaveBeenCalledWith(STABLE_HEAD_SHA);
+    expect(cap.stderr.join("")).toContain("workflow-run cross-check added");
+  });
+
+  it("decides ci-failed on empty checks plus a startup_failure run", async () => {
+    const gh = openPrGh([]);
+    const cap = captureStreams();
+    await run(
+      ["100"],
+      baseDeps(gh, 0, {
+        ...noCopilot,
+        readWorkflowRuns: () => [wfRun({ conclusion: "startup_failure" })],
+      }),
+    );
+    cap.restore();
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("ci-failed");
+    expect(result.ciFailedChecks?.[0].state).toBe("STARTUP_FAILURE");
+  });
+
+  it("waits and leaves ciTerminalAt null while a run is in_progress", async () => {
+    const dir = makeStateDir();
+    const slug = "flow-ci-check-wfrun-pending";
+    seedState(dir, slug);
+    process.env.FLOW_SLUG = slug;
+    const gh = openPrGh(ALL_PASSED);
+    const cap = captureStreams();
+    await run(
+      ["100", "--state-dir", dir],
+      baseDeps(gh, 0, {
+        ...noCopilot,
+        readWorkflowRuns: () => [
+          wfRun({ status: "in_progress", conclusion: "" }),
+        ],
+      }),
+    );
+    cap.restore();
+    const result = JSON.parse(cap.stdout.join("")) as CheckResult;
+    expect(result.status).toBe("waiting");
+    expect(readAnchors(dir, slug)?.ciTerminalAt).toBeNull();
+  });
+
+  it("waits when the runs read is unreadable (null), never reading as green", async () => {
+    const gh = openPrGh(ALL_PASSED);
+    const cap = captureStreams();
+    await run(
+      ["100"],
+      baseDeps(gh, 0, { ...noCopilot, readWorkflowRuns: () => null }),
+    );
+    cap.restore();
+    const result = JSON.parse(cap.stdout.join("")) as CheckResult;
+    expect(result.status).toBe("waiting");
+    expect(cap.stderr.join("")).toContain("workflow-run read failed");
+  });
+
+  it("fails closed when headRefOid is empty on an open PR: waits, never proceeds", async () => {
+    const readWorkflowRuns = vi.fn(() => []);
+    const gh = makeGhSequence([
+      { matches: isPrView, response: prViewResponse("OPEN", [], "") },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    await run(["100"], baseDeps(gh, 0, { ...noCopilot, readWorkflowRuns }));
+    cap.restore();
+    const result = JSON.parse(cap.stdout.join("")) as CheckResult;
+    expect(result.status).toBe("waiting");
+    expect(readWorkflowRuns).not.toHaveBeenCalled();
+  });
+
+  it("never reads runs while checks are pending or already failed", async () => {
+    for (const checks of [
+      [{ name: "a", state: "IN_PROGRESS" }],
+      [{ name: "a", state: "FAILURE" }],
+    ]) {
+      const readWorkflowRuns = vi.fn(() => []);
+      const cap = captureStreams();
+      await run(
+        ["100"],
+        baseDeps(openPrGh(checks), 0, { ...noCopilot, readWorkflowRuns }),
+      );
+      cap.restore();
+      expect(readWorkflowRuns).not.toHaveBeenCalled();
+    }
+  });
+
+  it("reads runs exactly once on an all-passed list", async () => {
+    const readWorkflowRuns = vi.fn(() => []);
+    const cap = captureStreams();
+    await run(
+      ["100"],
+      baseDeps(openPrGh(ALL_PASSED), 0, { ...noCopilot, readWorkflowRuns }),
+    );
+    cap.restore();
+    expect(readWorkflowRuns).toHaveBeenCalledTimes(1);
+  });
+
+  describe("--rerun", () => {
+    const oldStart = "2026-04-01T00:00:00.000Z";
+    const seedRerun = (slug: string, extra: Partial<CiWaitRecord> = {}) => {
+      const dir = makeStateDir();
+      seedState(dir, slug);
+      process.env.FLOW_SLUG = slug;
+      writeState(
+        {
+          ...readState(slug, dir)!,
+          ciWait: {
+            pr: 100,
+            headSha: STABLE_HEAD_SHA,
+            startedAt: oldStart,
+            ciTerminalAt: oldStart,
+            lastObservedAt: oldStart,
+            checks: 5,
+            copilotRetriggered: false,
+            ...extra,
+          },
+        },
+        dir,
+      );
+      return dir;
+    };
+    const nowMs = Date.parse("2026-04-01T00:30:00.000Z");
+    const rerunArgs = (dir: string, out?: string) => [
+      "100",
+      "--state-dir",
+      dir,
+      ...(out ? ["--out", out] : []),
+      "--rerun",
+      "https://github.com/o/r/actions/runs/4242",
+    ];
+
+    it("re-runs, resets anchors, records the SHA, removes the stale verdict, and emits waiting without polling", async () => {
+      const dir = seedRerun("flow-ci-check-rerun");
+      const out = path.join(dir, "verdict.json");
+      fs.writeFileSync(out, '{"status":"decided"}\n');
+      const gh = makeGhSequence([
+        { matches: isPrView, response: prViewResponse("OPEN") },
+        {
+          matches: (argv) => argv.join(" ") === "run rerun 4242",
+          response: { stdout: "", stderr: "", exitCode: 0 },
+        },
+      ]);
+      const cap = captureStreams();
+      const exit = await run(rerunArgs(dir, out), baseDeps(gh, nowMs));
+      cap.restore();
+      expect(exit).toBe(0);
+      const result = JSON.parse(cap.stdout.join("")) as CheckResult;
+      expect(result).toMatchObject({
+        status: "waiting",
+        rerun: { runId: 4242, ok: true },
+      });
+      expect(result).not.toHaveProperty("copilotConfigured");
+      expect(gh.calls).toHaveLength(2);
+      expect(fs.existsSync(out)).toBe(false);
+      const rec = readAnchors(dir, "flow-ci-check-rerun")!;
+      expect(rec.startedAt).toBe(new Date(nowMs).toISOString());
+      expect(rec.ciTerminalAt).toBeNull();
+      expect(rec.rerunHeadSha).toBe(STABLE_HEAD_SHA);
+    });
+
+    it("reports a failed gh run rerun in the waiting envelope", async () => {
+      const dir = seedRerun("flow-ci-check-rerun-fail");
+      const gh = makeGhSequence([
+        { matches: isPrView, response: prViewResponse("OPEN") },
+        {
+          matches: (argv) => argv[0] === "run" && argv[1] === "rerun",
+          response: { stdout: "", stderr: "cannot rerun", exitCode: 1 },
+        },
+      ]);
+      const cap = captureStreams();
+      await run(rerunArgs(dir), baseDeps(gh, nowMs));
+      cap.restore();
+      const result = JSON.parse(cap.stdout.join("")) as CheckResult & {
+        rerun: { ok: boolean; error: string };
+      };
+      expect(result.status).toBe("waiting");
+      expect(result.rerun.ok).toBe(false);
+      expect(result.rerun.error).toContain("cannot rerun");
+    });
+
+    it("refuses a second re-run for the same head SHA and polls normally", async () => {
+      const dir = seedRerun("flow-ci-check-rerun-twice", {
+        rerunHeadSha: STABLE_HEAD_SHA,
+      });
+      const gh = makeGhSequence([
+        { matches: isPrView, response: prViewResponse("OPEN") },
+        { matches: isPrView, response: prViewResponse("OPEN") },
+        { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      ]);
+      const cap = captureStreams();
+      await run(
+        rerunArgs(dir),
+        baseDeps(gh, nowMs, {
+          isCopilotModuleActive: () => false,
+          readWorkflowRuns: () => [],
+        }),
+      );
+      cap.restore();
+      expect(gh.calls.some((c) => c[0] === "run")).toBe(false);
+      expect(cap.stderr.join("")).toContain("refused");
+      expect(readAnchors(dir, "flow-ci-check-rerun-twice")!.startedAt).toBe(
+        oldStart,
+      );
+    });
+  });
+
+  it("--rerun with a non-numeric value is a usage error (exit 2)", async () => {
+    const cap = captureStreams();
+    const exit = await run(
+      ["100", "--rerun", "latest"],
+      baseDeps(makeGhSequence([]), 0),
+    );
+    cap.restore();
+    expect(exit).toBe(2);
   });
 });
