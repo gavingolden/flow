@@ -1717,6 +1717,7 @@ describe("After merge: items (parity with flow-gate-decide)", () => {
         state: "OPEN",
         url: "https://x/y/pull/5",
         baseRefName: "release",
+        headRefOid: "headsha1",
       }),
       stderr: "",
       exitCode: 0,
@@ -1745,6 +1746,7 @@ describe("After merge: items (parity with flow-gate-decide)", () => {
       resolveSlug: () => null,
       runMerge,
       installNames,
+      readWorkflowRuns: () => [],
       uiReview: { changedFiles: () => [], home: "/home/none" },
     });
     cap.restore();
@@ -1762,6 +1764,7 @@ describe("After merge: items (parity with flow-gate-decide)", () => {
       resolveSlug: () => null,
       runMerge,
       installNames,
+      readWorkflowRuns: () => [],
       uiReview: { changedFiles: () => [], home: "/home/none" },
     });
     cap2.restore();
