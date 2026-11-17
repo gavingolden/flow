@@ -74,10 +74,12 @@ describe("ensureNotRunBox shapes", () => {
   it("keeps an existing non-stub UI review block unchanged", () => {
     const body = `## TLDR\n\nx\n\n<!-- flow:ui-review -->\n## UI review\n\nNot run: headless-error\n\n<!-- /flow:ui-review -->\n\n## Test Steps\n\n- [x] ok\n`;
     const out = ensureNotRunBox(body, UNSAT, null)!;
-    expect(out).toContain("Not run: headless-error");
-    expect(out).toContain(
-      "Not run: headless-error\n\n<!-- /flow:ui-review -->",
-    );
+    const sectionOf = (b: string) =>
+      b.slice(
+        b.indexOf("<!-- flow:ui-review -->"),
+        b.indexOf("<!-- /flow:ui-review -->"),
+      );
+    expect(sectionOf(out)).toBe(sectionOf(body));
     expect(out.match(/<!-- flow:ui-review -->/g)).toHaveLength(1);
   });
 
