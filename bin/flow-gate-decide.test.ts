@@ -11,6 +11,7 @@ import {
   run,
   type DecisionResult,
 } from "./flow-gate-decide";
+import type { InstallOnlyName } from "./lib/install-only-names";
 
 let stateDir!: string;
 
@@ -1171,5 +1172,81 @@ describe("run() — uiSignoff evidence", () => {
       autoMerge: true,
     });
     expect("uiSignoff" in r).toBe(false);
+  });
+});
+
+describe("decide() — After merge: items", () => {
+  const NAMES: InstallOnlyName[] = [
+    { name: "manage", kind: "verb", change: "added" },
+  ];
+  const VERIFIED = "- [ ] After merge: run `flow manage` and read the window.";
+  const UNVERIFIED = "- [ ] After merge: run `flow other` and read it.";
+  const body = (...lines: string[]) => `## Test Steps\n\n${lines.join("\n")}\n`;
+  const gate = (
+    b: string,
+    installNames: InstallOnlyName[] | null | undefined = NAMES,
+    over: Record<string, unknown> = {},
+  ) =>
+    decide({
+      body: b,
+      state: "OPEN",
+      url: "https://x/y/pull/1",
+      autoMerge: true,
+      installNames,
+      ...over,
+    });
+
+  it("auto-merges when only verified After merge items remain and lists them", () => {
+    const r = gate(body(VERIFIED));
+    expect(r.decision).toBe("auto-merge");
+    expect(r.afterMerge).toEqual([VERIFIED.slice(6)]);
+  });
+
+  it("gates a verified item alongside an ordinary unchecked one, keeping afterMerge", () => {
+    const r = gate(body(VERIFIED, "- [ ] Run `npm run x` — ok"));
+    expect(r.decision).toBe("gated");
+    expect(r.validationItems).toEqual(["Run `npm run x` — ok"]);
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("gates an unverified marker and names why", () => {
+    const r = gate(body(UNVERIFIED));
+    expect(r.decision).toBe("gated");
+    expect(r.reason).toContain("names nothing this branch adds");
+    expect(r.afterMerge).toBeUndefined();
+  });
+
+  it("counts the item when names are null or absent (fail-closed)", () => {
+    expect(gate(body(VERIFIED), null).decision).toBe("gated");
+    const r = decide({
+      body: body(VERIFIED),
+      state: "OPEN",
+      url: "https://x/y/pull/1",
+      autoMerge: true,
+    });
+    expect(r.decision).toBe("gated");
+  });
+
+  it("lists an unmarked install-dependent item in needsInstall and still gates", () => {
+    const r = gate(body("- [ ] Run `flow manage` — claims the window."));
+    expect(r.decision).toBe("gated");
+    expect(r.needsInstall).toEqual(["Run `flow manage` — claims the window."]);
+  });
+
+  it("stays gated 'opted out' with autoMerge false and only verified items", () => {
+    const r = gate(body(VERIFIED), NAMES, { autoMerge: false });
+    expect(r.decision).toBe("gated");
+    expect(r.reason).toContain("opted out");
+    expect(r.afterMerge).toHaveLength(1);
+  });
+
+  it("excludes a verified After merge item from the browser-retry others check", () => {
+    const r = gate(
+      body(VERIFIED, '- [ ] Browser: on /a, click A — expect "A"'),
+      NAMES,
+      { worktree: "/wt", headSha: "abc" },
+    );
+    expect(r.decision).toBe("browser-retry");
+    expect(r.afterMerge).toHaveLength(1);
   });
 });

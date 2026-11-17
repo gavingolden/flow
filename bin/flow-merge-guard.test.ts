@@ -15,6 +15,7 @@ import {
   type GuardResult,
   type MergeOutcome,
 } from "./flow-merge-guard";
+import type { InstallOnlyName } from "./lib/install-only-names";
 import { FLOW_MERGE_ALLOW_RULE } from "./lib/merge-allow-rule";
 import { advancePhase } from "./lib/phase-advance";
 import type { PipelineState } from "./lib/state";
@@ -1551,5 +1552,71 @@ describe("UI review backstop", () => {
     expect((JSON.parse(cap.writes.join("")) as GuardResult).decision).toBe(
       "blocked",
     );
+  });
+});
+
+describe("After merge: items (parity with flow-gate-decide)", () => {
+  const names: InstallOnlyName[] = [
+    { name: "manage", kind: "verb", change: "added" },
+  ];
+  const VERIFIED = "- [ ] After merge: run `flow manage` and read the window.";
+  const ORDINARY = "- [ ] Run `npm run verify` — green";
+  const body = (...lines: string[]) => `## Test Steps\n\n${lines.join("\n")}\n`;
+
+  it("clears a body whose only unchecked item is a verified After merge item", () => {
+    const r = evaluateMergeGuard(
+      body(VERIFIED),
+      null,
+      1,
+      NOW,
+      undefined,
+      names,
+    );
+    expect(r).toMatchObject({ decision: "clear", uncheckedItems: [] });
+  });
+
+  it("blocks the same body when names are null or absent", () => {
+    expect(
+      evaluateMergeGuard(body(VERIFIED), null, 1, NOW, undefined, null)
+        .decision,
+    ).toBe("blocked");
+    expect(evaluateMergeGuard(body(VERIFIED), null, 1, NOW).decision).toBe(
+      "blocked",
+    );
+  });
+
+  it("blocks a mixed body counting only the ordinary item", () => {
+    const r = evaluateMergeGuard(
+      body(VERIFIED, ORDINARY),
+      null,
+      1,
+      NOW,
+      undefined,
+      names,
+    );
+    expect(r.decision).toBe("blocked");
+    expect(r.uncheckedItems).toEqual(["Run `npm run verify` — green"]);
+  });
+
+  it("merge-mode preconditions thread the names through", () => {
+    const state = {
+      slug: "s",
+      phase: "gating",
+      repo: "/r",
+      updatedAt: "x",
+      pr: 5,
+    } as PipelineState;
+    const input = {
+      body: body(VERIFIED),
+      prState: "OPEN",
+      state,
+      pr: 5,
+      checks: { kind: "all-passed" } as const,
+      nowMs: NOW,
+    };
+    expect(
+      evaluateMergePreconditions({ ...input, installNames: names }).ok,
+    ).toBe(true);
+    expect(evaluateMergePreconditions(input).ok).toBe(false);
   });
 });
