@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { parseTestSteps } from "./test-steps-parse";
 import {
   emptyLoopLog,
   type CritiqueFinding,
@@ -9,11 +8,12 @@ import {
 import {
   renderUiReview,
   residualDecisionItem,
+  notRunDecisionItem,
+  plainReason,
   UI_REVIEW_CLOSE,
-  UI_REVIEW_DECISION_MARKER,
+  UI_REVIEW_NOT_RUN_MARKER,
   UI_REVIEW_OPEN,
-  uiReviewDecisionItem,
-  upsertUiReview,
+  uiReviewDecisionItems,
 } from "./ui-critique-render";
 import type { SectionShot } from "./ui-driver-schema";
 
@@ -161,102 +161,6 @@ describe("residualDecisionItem", () => {
   });
 });
 
-describe("upsertUiReview", () => {
-  const section = renderUiReview({
-    before: [],
-    after: null,
-    log: log({ outcome: "clean" }),
-    demotion: null,
-  });
-  const body = [
-    "## TLDR",
-    "",
-    "text",
-    "",
-    "## Test Steps",
-    "",
-    "- [ ] SUBJECTIVE: the page feels calm",
-    "- [x] `npm test` — pass",
-    "",
-    "## Notes",
-    "",
-    "tail",
-  ].join("\n");
-  const decision =
-    "- [ ] DECISION: accept this UI with 1 unresolved defect(s) listed under UI review (top: a), or redirect to fix them";
-
-  it("inserts the block before ## Test Steps and leaves every other line alone", () => {
-    const out = upsertUiReview(body, section, null);
-    expect(out.indexOf(UI_REVIEW_OPEN)).toBeLessThan(
-      out.indexOf("## Test Steps"),
-    );
-    expect(out.replace(section + "\n\n", "")).toBe(body);
-  });
-
-  it("replaces the block on a re-run instead of stacking", () => {
-    const once = upsertUiReview(body, section, null);
-    const second = renderUiReview({
-      before: [],
-      after: null,
-      log: log({ outcome: "list-only" }),
-      demotion: null,
-    });
-    const twice = upsertUiReview(once, second, null);
-    expect(twice.match(new RegExp(UI_REVIEW_OPEN, "g"))).toHaveLength(1);
-    expect(twice).toContain("Findings are listed only");
-    expect(twice).not.toContain("Clean: the critique");
-  });
-
-  it("adds the DECISION line (marker after the text) as a human-only step, and removes it again", () => {
-    const withDecision = upsertUiReview(body, section, decision);
-    const steps = parseTestSteps(withDecision).steps;
-    expect(steps.map((s) => s.kind)).toEqual([
-      "subjective",
-      "command",
-      "decision",
-    ]);
-    expect(withDecision).toContain(` ${UI_REVIEW_DECISION_MARKER}`);
-    expect(withDecision).toMatch(
-      new RegExp(`^- \\[ \\] DECISION: .*${UI_REVIEW_DECISION_MARKER}$`, "m"),
-    );
-    const replaced = upsertUiReview(
-      withDecision,
-      section,
-      decision.replace("1 unresolved", "2 unresolved"),
-    );
-    expect(
-      replaced.match(new RegExp(UI_REVIEW_DECISION_MARKER, "g")),
-    ).toHaveLength(1);
-    expect(replaced).toContain("2 unresolved");
-    const removed = upsertUiReview(replaced, section, null);
-    expect(removed).not.toContain("DECISION:");
-    expect(parseTestSteps(removed).steps.map((s) => s.kind)).toEqual([
-      "subjective",
-      "command",
-    ]);
-  });
-
-  it("never touches a fenced look-alike marker", () => {
-    const fenced = [
-      "## Test Steps",
-      "",
-      "```",
-      UI_REVIEW_OPEN,
-      "```",
-      "",
-      "- [ ] SUBJECTIVE: x",
-    ].join("\n");
-    const out = upsertUiReview(fenced, section, null);
-    expect(out.indexOf("```")).toBeGreaterThan(out.indexOf("## UI review"));
-  });
-
-  it("appends at the end when there is no Test Steps section", () => {
-    const out = upsertUiReview("## TLDR\n\nx", section, decision);
-    expect(out).toContain(UI_REVIEW_OPEN);
-    expect(out).not.toContain("DECISION:");
-  });
-});
-
 describe("a required review that did not run", () => {
   const skipped = (over: Partial<LoopLog> = {}) =>
     log({
@@ -277,24 +181,22 @@ describe("a required review that did not run", () => {
   });
 
   it("adds one unchecked DECISION item naming that reason", () => {
-    const item = uiReviewDecisionItem(skipped());
+    const item = uiReviewDecisionItems(skipped()).notRun;
     expect(item).toBe(
       "- [ ] DECISION: the UI review did not run (the browser drive captured no section screenshots) — merge without a design review of the changed screens, or redirect to fix the cause <!-- flow:ui-review-not-run -->",
     );
   });
 
-  it("the item is one Test Steps line and the upsert is idempotent", () => {
-    const body = "## Summary\n\n## Test Steps\n\n- [ ] `npm test` — pass\n";
-    const l = skipped();
-    const section = render(l);
-    const once = upsertUiReview(body, section, uiReviewDecisionItem(l));
-    expect(once.match(/DECISION: the UI review did not run/g)).toHaveLength(1);
-    expect(once).toContain(UI_REVIEW_DECISION_MARKER);
-    expect(parseTestSteps(once).steps.filter((x) => !x.checked)).toHaveLength(
-      2,
+  it("builds the same line from notRunDecisionItem with the not-run marker only", () => {
+    const line = notRunDecisionItem("the reviewer call failed");
+    expect(line).toContain(UI_REVIEW_NOT_RUN_MARKER);
+    expect(line).not.toContain("flow:ui-review-decision");
+  });
+
+  it("maps the no-review-record reason to the exact gate text", () => {
+    expect(plainReason("no-review-record")).toBe(
+      "no UI review record for this PR",
     );
-    const twice = upsertUiReview(once, section, uiReviewDecisionItem(l));
-    expect(twice).toBe(once);
   });
 
   it.each([
@@ -312,12 +214,14 @@ describe("a required review that did not run", () => {
   ])("maps %s to a plain reason", (code, fragment) => {
     const l = skipped({ skip: code });
     expect(render(l)).toContain(fragment);
-    expect(uiReviewDecisionItem(l)).toContain(fragment);
+    expect(uiReviewDecisionItems(l).notRun).toContain(fragment);
   });
 
-  it("a residual-defect item keeps precedence over the not-run item", () => {
+  it("a skipped review with persistent defects yields both items", () => {
     const l = skipped({ persistent: ["[xs] anchor: #x lands under chrome"] });
-    expect(uiReviewDecisionItem(l)).toContain("unresolved defect(s)");
+    const items = uiReviewDecisionItems(l);
+    expect(items.defects).toContain("unresolved defect(s)");
+    expect(items.notRun).toContain("the UI review did not run");
   });
 
   it("a skip when the diff did not require a review stays a quiet note with no item", () => {
@@ -325,15 +229,17 @@ describe("a required review that did not run", () => {
     expect(render(l)).toContain(
       "Not run: the browser tools were not available",
     );
-    expect(uiReviewDecisionItem(l)).toBeNull();
-    expect(uiReviewDecisionItem(log({ skip: "mcp-not-available" }))).toBeNull();
+    expect(uiReviewDecisionItems(l)).toEqual({ defects: null, notRun: null });
+    expect(
+      uiReviewDecisionItems(log({ skip: "mcp-not-available" })).notRun,
+    ).toBeNull();
   });
 
   it("reads Off, with no item, when the owner turned the reviewer off", () => {
     const l = skipped({ skip: "disabled-by-config" });
     expect(render(l)).toContain("Off: turned off in flow config.");
     expect(render(l)).not.toContain("[!WARNING]");
-    expect(uiReviewDecisionItem(l)).toBeNull();
+    expect(uiReviewDecisionItems(l)).toEqual({ defects: null, notRun: null });
   });
 });
 
@@ -355,17 +261,18 @@ describe("introduced and pre-existing findings", () => {
     expect(out).toContain("**Pre-existing (not gated):**");
     expect(out).toContain("- Footer @ phone — old crowding (defect)");
     expect(out).not.toContain("Unresolved defect");
-    expect(uiReviewDecisionItem(l)).toBeNull();
+    expect(uiReviewDecisionItems(l).defects).toBeNull();
   });
 
   it("an introduced defect still gates and a state-mismatch gates even when flagged pre-existing", () => {
     expect(
-      uiReviewDecisionItem(log({ residual: [finding(), preExisting] })),
+      uiReviewDecisionItems(log({ residual: [finding(), preExisting] }))
+        .defects,
     ).toContain("1 unresolved defect(s)");
     const mismatch = finding({ introduced: false, rule: "state-mismatch" });
-    expect(uiReviewDecisionItem(log({ residual: [mismatch] }))).toContain(
-      "1 unresolved defect(s)",
-    );
+    expect(
+      uiReviewDecisionItems(log({ residual: [mismatch] })).defects,
+    ).toContain("1 unresolved defect(s)");
   });
 });
 
@@ -434,7 +341,7 @@ describe("sign-off screenshots (advisory)", () => {
     expect(out).toContain("**Sign-off screenshots (advisory):**");
     expect(out.indexOf("new clip")).toBeLessThan(out.indexOf("old"));
     expect(out).toContain("(defect, pre-existing)");
-    expect(uiReviewDecisionItem(l)).toBeNull();
+    expect(uiReviewDecisionItems(l).defects).toBeNull();
   });
 
   it("omits the list when the advisory review found nothing", () => {

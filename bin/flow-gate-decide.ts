@@ -64,6 +64,7 @@ import {
   findUnterminatedHtmlBlockLines,
 } from "./lib/md-block-structure";
 import { advancePhase } from "./lib/phase-advance";
+import { addMissingNotRunBox } from "./lib/ui-review-not-run-box";
 import {
   collectInstallNamesSafe,
   partitionAfterMerge,
@@ -117,6 +118,8 @@ export type DecisionResult = {
    * guard calls): per-open-`SUBJECTIVE:` evidence the GATED render prints.
    */
   uiSignoff?: UiSignoff;
+  /** Set only when the gate tried to fill in the missing UI review box. */
+  uiReviewBox?: { action: "added" } | { action: "failed"; message: string };
 };
 
 export type GateInputs = {
@@ -489,7 +492,7 @@ type GhResult = { stdout: string; stderr: string; exitCode: number };
 export type GhRunner = (argv: string[]) => GhResult;
 
 const defaultGh: GhRunner = (argv) => {
-  const r = spawnSync("gh", argv, { encoding: "utf8" });
+  const r = spawnSync("gh", argv, { encoding: "utf8", timeout: 60_000 });
   return {
     stdout: r.stdout ?? "",
     stderr: r.stderr ?? "",
@@ -671,40 +674,63 @@ export function run(argv: string[], deps: Deps = {}): number {
         ...deps.uiReview,
       })
     : null;
-  // Only read when an unchecked item exists: the names feed nothing else and
-  // collecting them can `git fetch`.
-  const installNames =
-    worktree && parseTestStepsSection(fetched.body).kind === "has-unchecked"
-      ? (deps.installNames ?? collectInstallNamesSafe)(
-          worktree,
-          fetched.baseRefName ? `origin/${fetched.baseRefName}` : undefined,
-        )
-      : null;
-  const result = decide(
-    {
-      installNames,
-      body: fetched.body,
-      state: fetched.state,
-      url: fetched.url,
-      autoMerge,
-      worktree,
-      headSha,
-      ...(ui
-        ? {
-            changedFiles: ui.changedFiles,
-            changedSinceReview: ui.changedSinceReview,
-            uiCritiqueEnabled: ui.enabled,
-          }
-        : {}),
-    },
-    { readFile: deps.readFile },
-  );
-  const uiSignoff = buildUiSignoff(
-    fetched.body,
-    worktree,
-    ui?.log ?? null,
-    result,
-  );
+  let body = fetched.body;
+  // Names are only read when an unchecked item exists: they feed nothing else
+  // and collecting them can `git fetch`.
+  const decideOn = (b: string): DecisionResult => {
+    const installNames =
+      worktree && parseTestStepsSection(b).kind === "has-unchecked"
+        ? (deps.installNames ?? collectInstallNamesSafe)(
+            worktree,
+            fetched.baseRefName ? `origin/${fetched.baseRefName}` : undefined,
+          )
+        : null;
+    return decide(
+      {
+        installNames,
+        body: b,
+        state: fetched.state,
+        url: fetched.url,
+        autoMerge,
+        worktree,
+        headSha,
+        ...(ui
+          ? {
+              changedFiles: ui.changedFiles,
+              changedSinceReview: ui.changedSinceReview,
+              uiCritiqueEnabled: ui.enabled,
+            }
+          : {}),
+      },
+      { readFile: deps.readFile },
+    );
+  };
+  let result = decideOn(body);
+  const gate = result.uiReview;
+  if (
+    result.decision === "gated" &&
+    gate &&
+    !gate.satisfied &&
+    !gate.stale &&
+    state?.pr === parsed.pr
+  ) {
+    const added = addMissingNotRunBox({
+      pr: parsed.pr,
+      ui: gate,
+      log: ui?.log ?? null,
+      gh,
+    });
+    if (added.kind === "written") {
+      body = added.body;
+      result = decideOn(body);
+      result.reason += ` (added the "UI review did not run" box to the PR's Test Steps — re-check any box you ticked in the last minute)`;
+      result.uiReviewBox = { action: "added" };
+    } else if (added.kind === "error") {
+      result.reason += ` (could not add the UI review box to the PR body: ${added.message} — say merge to retry adding it, or to override without it)`;
+      result.uiReviewBox = { action: "failed", message: added.message };
+    }
+  }
+  const uiSignoff = buildUiSignoff(body, worktree, ui?.log ?? null, result);
   process.stdout.write(
     JSON.stringify(uiSignoff ? { ...result, uiSignoff } : result) + "\n",
   );
