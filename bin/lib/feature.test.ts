@@ -5147,16 +5147,13 @@ describe("private skill copy (flow-self and --skills-from launches)", () => {
 
   beforeEach(() => {
     scratch = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-overlay-"));
-    vi.stubEnv("HOME", scratch);
-    fs.mkdirSync(path.join(scratch, ".flow"));
-    overlaysDir = path.join(scratch, ".flow", "overlays");
+    overlaysDir = path.join(scratch, "overlays");
     settingsPath = path.join(scratch, "launch-settings.json");
     sharedRoot = path.join(scratch, "shared", "flow-module-core");
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
     fs.rmSync(scratch, { recursive: true, force: true });
   });
 
@@ -5254,7 +5251,7 @@ describe("private skill copy (flow-self and --skills-from launches)", () => {
       baseOptions({ flowCanonicalRoot: fs.realpathSync(repoDir) }),
     );
     expect(code).toBe(0);
-    expect(errors.join("\n")).toContain("cd ~/.flow/overlays && claude");
+    expect(errors.join("\n")).toContain(`cd ${parentLabel()} && claude`);
   });
 
   it("a consumer repo without the flag keeps the shared roots and builds no copy", () => {

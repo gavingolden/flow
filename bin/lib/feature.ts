@@ -1427,6 +1427,7 @@ function runFresh(
       slug,
       capturePaneBySlug(slug),
       pipelineAddDirs(worktree, overlay?.addDir),
+      overlay?.addDir,
     )) {
       console.error(dim(line));
     }
@@ -1790,6 +1791,7 @@ function runResume(
       slug,
       capturePaneBySlug(slug),
       pipelineAddDirs(worktree, overlay?.addDir),
+      overlay?.addDir,
     )) {
       console.error(dim(line));
     }
@@ -2326,12 +2328,14 @@ export function stillStartingHint(
   slug: string,
   pane?: string,
   addedFolders: readonly string[] = [],
+  overlayDir?: string,
 ): string[] {
   const dialog = detectTrustDialog(pane ?? "", addedFolders);
   const claudeHome = flowClaudeHome();
   const steps = trustDialogSteps(slug, dialog, {
     addedFolders,
     perPipelineFolders: addedFolders.filter((f) => f !== claudeHome),
+    flowOwnedParents: overlayDir ? [path.dirname(overlayDir)] : [],
   });
   return [
     "  if Claude Code is asking a trust question, do this:",

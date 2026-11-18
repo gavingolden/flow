@@ -140,6 +140,7 @@ describe("trustDialogSteps", () => {
     const steps = trustDialogSteps("my-slug", dialog(OVERLAY), {
       addedFolders: [OVERLAY],
       perPipelineFolders: [OVERLAY],
+      flowOwnedParents: [`${HOME}/.flow/overlays`],
       home: HOME,
     });
 
@@ -182,6 +183,7 @@ describe("trustDialogSteps", () => {
     const steps = trustDialogSteps("x", dialog(null), {
       addedFolders: [CLAUDE_HOME, OVERLAY],
       perPipelineFolders: [OVERLAY],
+      flowOwnedParents: [`${HOME}/.flow/overlays`],
       home: HOME,
     });
 

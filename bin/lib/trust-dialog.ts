@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { currentHome, flowOverlaysDir } from "./paths";
+import { currentHome } from "./paths";
 import { WORKTREE_CONTAINER_NAME } from "./worktree-slot";
 
 export type TrustDialog =
@@ -59,12 +59,16 @@ export function detectTrustDialog(
 // Per-pipeline folders are new every launch, so their stable parent covers
 // every future one, but only when that parent is flow-owned: a legacy
 // sibling-layout worktree's parent is the user's whole code folder.
-function trustRoot(folder: string, perPipeline: readonly string[]): string {
+function trustRoot(
+  folder: string,
+  perPipeline: readonly string[],
+  ownedParents: readonly string[],
+): string {
   if (!perPipeline.includes(folder)) return folder;
   const parent = path.dirname(folder);
   const flowOwned =
     path.basename(parent) === WORKTREE_CONTAINER_NAME ||
-    parent === flowOverlaysDir();
+    ownedParents.includes(parent);
   return flowOwned ? parent : folder;
 }
 
@@ -75,6 +79,8 @@ export function trustDialogSteps(
   opts: {
     addedFolders?: readonly string[];
     perPipelineFolders?: readonly string[];
+    /** Flow-owned folders whose children are per-pipeline, e.g. the overlays dir the launch used. */
+    flowOwnedParents?: readonly string[];
     home?: string;
   } = {},
 ): string[] {
@@ -91,9 +97,12 @@ export function trustDialogSteps(
     ];
   }
   const perPipeline = opts.perPipelineFolders ?? [];
-  const roots = [...new Set(added.map((f) => trustRoot(f, perPipeline)))];
+  const owned = opts.flowOwnedParents ?? [];
+  const roots = [
+    ...new Set(added.map((f) => trustRoot(f, perPipeline, owned))),
+  ];
   const root = dialog?.folder
-    ? trustRoot(dialog.folder, perPipeline)
+    ? trustRoot(dialog.folder, perPipeline, owned)
     : roots.length === 1
       ? roots[0]
       : null;
