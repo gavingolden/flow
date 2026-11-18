@@ -7,11 +7,13 @@ import { run } from "./flow-wait";
 import {
   EXIT_CODES,
   owningClaude,
+  ownerGone,
   parseWaitArgs,
   runWait,
   WAIT_MAX_SEC_CAP,
   type GenericWaitDeps,
 } from "./lib/wait-loop";
+import { readPpid } from "./lib/parent-watch";
 import type { OrphanProc } from "./lib/worktree-orphans";
 
 function fakeDeps(over: Partial<GenericWaitDeps> = {}) {
@@ -187,6 +189,42 @@ describe("owningClaude", () => {
 
   it("should return null when no ancestor is claude", () => {
     expect(owningClaude(30, [p(30, 1, "bun x")])).toBeNull();
+  });
+});
+
+describe("ownerGone", () => {
+  const owner = { pid: 10, startEpoch: 500 };
+  const deps = (over: Partial<Parameters<typeof ownerGone>[1]> = {}) => ({
+    alive: () => true,
+    startEpochOf: () => 500,
+    parentPid: () => 777,
+    ...over,
+  });
+
+  it("should be gone when the owner died or its pid was recycled", () => {
+    expect(ownerGone(owner, deps({ alive: () => false }))).toBe(true);
+    expect(ownerGone(owner, deps({ startEpochOf: () => 900 }))).toBe(true);
+  });
+
+  it("should treat an unreadable start time as unknown, not changed", () => {
+    expect(ownerGone(owner, deps({ startEpochOf: () => null }))).toBe(false);
+    expect(ownerGone({ pid: 10, startEpoch: null }, deps())).toBe(false);
+  });
+
+  it("should fall back to the live parent pid when no claude is found", () => {
+    expect(ownerGone(null, deps({ parentPid: () => 1 }))).toBe(true);
+    expect(ownerGone(null, deps({ parentPid: () => 777 }))).toBe(false);
+    expect(ownerGone(null, deps({ parentPid: () => null }))).toBe(false);
+  });
+});
+
+describe("readPpid", () => {
+  it("should read this process's parent from the process table", () => {
+    expect(readPpid(process.pid)).toBe(process.ppid);
+  });
+
+  it("should return null for a pid that does not exist", () => {
+    expect(readPpid(2 ** 22 + 12345)).toBeNull();
   });
 });
 

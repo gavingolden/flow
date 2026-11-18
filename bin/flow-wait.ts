@@ -18,19 +18,20 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import { pidStartEpoch } from "./lib/liveness";
+import { pidExists, readPpid } from "./lib/parent-watch";
 import { GRACE_MS } from "./lib/reap";
 import { readState, statePath } from "./lib/state";
 import { windowIdExists } from "./lib/tmux";
 import {
   EXIT_CODES,
   owningClaude,
+  ownerGone,
   parseWaitArgs,
   runWait,
   WAIT_USAGE,
   type GenericWaitDeps,
 } from "./lib/wait-loop";
 import { listOrphanProcs } from "./lib/worktree-orphans-ps";
-import { isAlive } from "./lib/worktree-orphans-run";
 
 const HELP = `${WAIT_USAGE}
 
@@ -95,11 +96,11 @@ function defaultDeps(): GenericWaitDeps {
     windowGone: (id) => !windowIdExists(id),
     runCondition: runConditionOnce,
     parentGone: () =>
-      owner
-        ? !isAlive(owner.pid) ||
-          (owner.startEpoch !== null &&
-            pidStartEpoch(owner.pid) !== owner.startEpoch)
-        : process.ppid === 1,
+      ownerGone(owner, {
+        alive: pidExists,
+        startEpochOf: pidStartEpoch,
+        parentPid: () => readPpid(process.pid),
+      }),
   };
 }
 

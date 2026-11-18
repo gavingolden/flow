@@ -464,6 +464,24 @@ describe("flow-manager-wait manager-gone", () => {
     expect(result(h).outcome).toBe("manager-gone");
   });
 
+  it("keeps waiting through a single failed tmux probe", async () => {
+    let calls = 0;
+    const h = harness();
+    h.deps.windowGone = () => ++calls === 2;
+    await run(["--max-sec", "20"], h.deps);
+    expect(result(h).outcome).toBe("timeout");
+  });
+
+  it("keeps waiting when one ps start-time read fails", async () => {
+    let calls = 0;
+    const h = harness();
+    h.deps.procs = procs;
+    h.deps.alive = () => true;
+    h.deps.startEpochOf = () => (++calls === 3 ? null : 500);
+    await run(["--max-sec", "20"], h.deps);
+    expect(result(h).outcome).toBe("timeout");
+  });
+
   it("exits manager-gone when the owning claude dies while the pane survives", async () => {
     let claudeAlive = true;
     const h = harness((n) => {
@@ -491,7 +509,7 @@ describe("flow-manager-wait manager-gone", () => {
   it("with no claude ancestor, exits manager-gone once reparented to pid 1", async () => {
     const h = harness();
     h.deps.procs = () => [];
-    h.deps.ppid = 1;
+    h.deps.ppid = () => 1;
     await run([], h.deps);
     expect(result(h).outcome).toBe("manager-gone");
   });
@@ -499,7 +517,7 @@ describe("flow-manager-wait manager-gone", () => {
   it("with no claude ancestor and a live parent, keeps waiting", async () => {
     const h = harness();
     h.deps.procs = () => [];
-    h.deps.ppid = 777;
+    h.deps.ppid = () => 777;
     await run(["--max-sec", "20"], h.deps);
     expect(result(h).outcome).toBe("timeout");
   });

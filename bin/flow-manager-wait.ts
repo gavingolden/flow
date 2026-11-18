@@ -72,10 +72,10 @@ import {
 import { recordEvent, type TelemetryEventName } from "./lib/telemetry";
 import { pidStartEpoch } from "./lib/liveness";
 import { tmuxAvailable, windowExists } from "./lib/tmux";
-import { owningClaude } from "./lib/wait-loop";
+import { pidExists, readPpid } from "./lib/parent-watch";
+import { ownerGone, owningClaude } from "./lib/wait-loop";
 import type { OrphanProc } from "./lib/worktree-orphans";
 import { listOrphanProcs } from "./lib/worktree-orphans-ps";
-import { isAlive } from "./lib/worktree-orphans-run";
 
 const HELP =
   "usage: flow-manager-wait [--ensure] [--interval <s=5>] [--settle <s=10>] [--heartbeat <s>] [--stop-when-idle] [--max-sec <s=0>]";
@@ -130,8 +130,8 @@ export type WaitDeps = {
   home?: string;
   stateDir?: string;
   pid?: number;
-  /** The waiter's parent pid; 1 means it was reparented (default `process.ppid`). */
-  ppid?: number;
+  /** The waiter's current parent pid; 1 means it was reparented (default: read from the process table). */
+  ppid?: () => number | null;
   kill?: (pid: number, signal: 0) => void;
   exec?: ExecFn;
   notify?: (args: string[]) => void;
@@ -262,18 +262,25 @@ export async function run(
       ? owningClaude(pid, table, deps.startEpochOf ?? pidStartEpoch)
       : null;
   })();
-  const alive = deps.alive ?? isAlive;
+  const alive = deps.alive ?? pidExists;
   const startEpochOf = deps.startEpochOf ?? pidStartEpoch;
+  // One failed `tmux list-windows` reads as "window gone", so only a window
+  // missing on two consecutive ticks ends the waiter.
+  let windowMisses = 0;
   const managerGone = (): boolean => {
     const rec = readManagerRecord(home);
     if (rec === null) return true;
-    if ((deps.windowGone ?? defaultWindowGone)(rec.window)) return true;
-    if (owner === null) return (deps.ppid ?? process.ppid) === 1;
-    return (
-      !alive(owner.pid) ||
-      (owner.startEpoch !== null &&
-        startEpochOf(owner.pid) !== owner.startEpoch)
-    );
+    if ((deps.windowGone ?? defaultWindowGone)(rec.window)) {
+      windowMisses += 1;
+      if (windowMisses >= 2) return true;
+    } else {
+      windowMisses = 0;
+    }
+    return ownerGone(owner, {
+      alive,
+      startEpochOf,
+      parentPid: deps.ppid ?? (() => readPpid(pid)),
+    });
   };
 
   let signaled = false;
@@ -301,6 +308,10 @@ export async function run(
       const mine = readWaiter(home);
       if (mine && mine.startedAt !== startedAt) {
         emit("superseded");
+        return 0;
+      }
+      if (managerGone()) {
+        emit("manager-gone");
         return 0;
       }
       stamp(now.toISOString());
@@ -434,10 +445,6 @@ export async function run(
           settleMs: ms - firstEventMs,
         });
         emit("wake", all);
-        return 0;
-      }
-      if (managerGone()) {
-        emit("manager-gone");
         return 0;
       }
       if (args.maxSec > 0 && ms - startMs >= args.maxSec * 1000) {

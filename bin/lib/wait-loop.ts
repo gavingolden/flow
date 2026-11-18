@@ -150,6 +150,27 @@ export function owningClaude(
   return null;
 }
 
+/**
+ * True when the process that owns a wait is gone: the recorded `claude` died
+ * or was replaced by a recycled pid, or (with no `claude` ancestor) the
+ * waiter was re-parented to PID 1. An unreadable start time is unknown, not
+ * changed, so a single failed `ps` never ends a wait.
+ */
+export function ownerGone(
+  owner: { pid: number; startEpoch: number | null } | null,
+  deps: {
+    alive: (pid: number) => boolean;
+    startEpochOf: (pid: number) => number | null;
+    parentPid: () => number | null;
+  },
+): boolean {
+  if (owner === null) return deps.parentPid() === 1;
+  if (!deps.alive(owner.pid)) return true;
+  if (owner.startEpoch === null) return false;
+  const now = deps.startEpochOf(owner.pid);
+  return now !== null && now !== owner.startEpoch;
+}
+
 export async function runWait(
   args: GenericWaitArgs,
   deps: GenericWaitDeps,

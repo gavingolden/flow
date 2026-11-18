@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { pidStartEpoch } from "./liveness";
 
 export const PARENT_WATCH_INTERVAL_MS = 1000;
@@ -13,6 +14,20 @@ export function pidExists(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * The live parent pid of `pid` from the process table, or null when `ps`
+ * fails. `process.ppid` cannot be re-read for this: Bun caches it, so after
+ * re-parenting it keeps returning the dead parent's pid while `ps` reports 1.
+ */
+export function readPpid(pid: number): number | null {
+  const r = spawnSync("ps", ["-o", "ppid=", "-p", String(pid)], {
+    encoding: "utf8",
+  });
+  if (r.status !== 0) return null;
+  const n = Number(r.stdout.trim());
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 export type ParentWatchOpts = {
