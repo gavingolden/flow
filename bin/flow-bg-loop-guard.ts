@@ -2,7 +2,8 @@
 /**
  * Claude Code PreToolUse hook (matcher `Bash`) that DENIES a command which
  * backgrounds an endless loop, backgrounds a job and then cleans up with
- * `$(jobs -p)`, or polls/watches with no deadline (`poll-loop.ts`). In the
+ * `$(jobs -p)`, polls/watches with no deadline (`poll-loop.ts`), or can
+ * hang on stdin (`stdin-hang.ts`). In the
  * Bash tool's non-interactive zsh, `$(jobs -p)` runs in a subshell with an
  * empty job table, so `kill $(jobs -p)` kills nothing and the backgrounded
  * loops are orphaned and burn CPU for hours.
@@ -17,6 +18,7 @@
 
 import { unboundedPollLoop, unboundedWatch } from "./lib/poll-loop";
 import { views } from "./lib/shell-scan";
+import { stdinHang } from "./lib/stdin-hang";
 
 const STDIN_TIMEOUT_MS = 250;
 
@@ -30,6 +32,9 @@ const JOBS_REASON =
 
 const POLL_REASON =
   "This command polls or watches with no deadline: it can run forever, and a Bash `timeout` does not stop it (a foreground call past its timeout is moved to the background, not killed). Wait with `flow-wait --max-sec <s> --state <slug> --phase <p>` (or `flow-wait --max-sec <s> -- <condition>`), `flow-ci-wait` for CI, or give the loop its own deadline: `end=$((SECONDS+600)); until <cond>; do [ $SECONDS -lt $end ] || exit 3; sleep 5; done`. A literal deadline above 28800 s is refused like an over-cap `flow-wait`.";
+
+const STDIN_REASON =
+  "This command can wait on stdin forever: a reader (grep, cat, head, …) takes its only file arguments from $(…), which may expand to nothing, and because the command contains a `<` Claude Code does not give it /dev/null as stdin (a foreground call that times out keeps waiting in the background). Add /dev/null as an extra file argument (`grep -n x $(…) /dev/null`) or put `</dev/null` on that command. Commands in background shells must never read stdin.";
 
 /** Indexes of `&` that start a background job (not `&&`, `2>&1`, `&>`, `|&`). */
 function backgroundOps(code: string): number[] {
@@ -159,6 +164,12 @@ export function decide(input: unknown): Decision | null {
       return {
         permissionDecision: "deny",
         permissionDecisionReason: POLL_REASON,
+      };
+    }
+    if (stdinHang(command)) {
+      return {
+        permissionDecision: "deny",
+        permissionDecisionReason: STDIN_REASON,
       };
     }
     return null;

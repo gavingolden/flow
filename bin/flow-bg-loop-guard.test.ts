@@ -80,6 +80,34 @@ describe("decide — deadline-less polls and watches", () => {
   });
 });
 
+describe("decide — stdin hangs", () => {
+  const HANG = `grep -rln '"<masked>"\\|<masked>' --include=*.js . 2>/dev/null; grep -n "maskCapturedNetworkRequestFn" $(grep -rl 'url_changed' --include=*.js .) | head -5`;
+
+  it.each([
+    ["the verbatim hang command", HANG],
+    [
+      "a wc < file then a substitution-fed grep",
+      "wc -l < a.txt; grep -n x $(grep -rl y .) | head -5",
+    ],
+  ])("should deny %s, foreground or background", (_n, command) => {
+    for (const c of [command, `${command} &`]) {
+      const d = decide(bash(c));
+      expect(d?.permissionDecision).toBe("deny");
+      expect(d?.permissionDecisionReason).toContain("/dev/null");
+      expect(d?.permissionDecisionReason).toContain("must never read stdin");
+    }
+  });
+
+  it.each([
+    "wc -l < a.txt; grep -n x $(grep -rl y .) /dev/null | head -5",
+    "wc -l < a.txt; grep -n x $(grep -rl y .) </dev/null | head -5",
+    "grep -n x $(git ls-files) | head",
+    'cat "$(readlink -f f)"',
+  ])("should allow %s", (command) => {
+    expect(decide(bash(command))).toBeNull();
+  });
+});
+
 describe("decide — allowed", () => {
   it.each([
     ["bare jobs -p", "jobs -p"],
