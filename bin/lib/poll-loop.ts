@@ -193,13 +193,19 @@ const WRAPPED_SCRIPT =
   /(?:^|[\s;&|(])(?:\S*\/)?(?:sh|bash|zsh)\s+(?:-[a-zA-Z]+\s+)*-[a-zA-Z]*c\s+'([^']*)'/g;
 
 export function unboundedPollLoop(command: string, depth = 0): boolean {
-  const { code } = views(command);
+  const inert = inertHeredocs(command);
+  let { code } = views(command);
+  for (const [a, b] of inert) {
+    code =
+      code.slice(0, a) +
+      code.slice(a, b).replace(/[^\n]/g, " ") +
+      code.slice(b);
+  }
   const loops = findLoops(code);
   const original = command;
   const literalDeadline = [...code.matchAll(/\bSECONDS\s*\+\s*(\d+)/g)].some(
     (m) => Number(m[1]) > WAIT_MAX_SEC_CAP,
   );
-  const inert = inertHeredocs(original);
   for (const l of loops) {
     if (inert.some(([a, b]) => l.start >= a && l.start < b)) continue;
     if (!sleeps(code.slice(l.start, l.end), original.slice(l.start, l.end)))

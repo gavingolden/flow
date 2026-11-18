@@ -183,9 +183,9 @@ describe("unboundedWatch", () => {
 });
 
 describe("atStatementStart cost", () => {
-  it("should scan a large heredoc of loop-like lines quickly", () => {
+  it("should scan a 100 KB heredoc of loop-like lines in under 250 ms", () => {
     const lines: string[] = [];
-    for (let i = 0; lines.join("\n").length < 30 * 1024; i++) {
+    for (let i = 0; lines.join("\n").length < 100 * 1024; i++) {
       lines.push(
         i % 3 === 0
           ? "for (const x of xs) { while (y) { do_thing(x); } }"
@@ -194,6 +194,6 @@ describe("atStatementStart cost", () => {
     }
     const t = performance.now();
     unboundedPollLoop(`cat > f.ts <<'EOF'\n${lines.join("\n")}\nEOF`);
-    expect(performance.now() - t).toBeLessThan(2000);
+    expect(performance.now() - t).toBeLessThan(250);
   });
 });
