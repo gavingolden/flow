@@ -3,7 +3,7 @@
  * coder retry edit-set, lens retry routing, copy-path mapping and idempotent
  * DECISION items for lenses that stayed skipped.
  */
-import { testStepsSectionBounds } from "../flow-gate-decide";
+import { testStepsSectionBounds } from "./test-steps-section";
 
 export type EditEntry = {
   file: string;

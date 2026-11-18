@@ -28,15 +28,6 @@ const COMPLETED: readonly string[] = ["clean", "kept", "reverted", "list-only"];
 const UNREADABLE =
   "the design-review check was skipped because the branch diff could not be read, so this PR may merge without a design review";
 
-/**
- * The not-run marker is an HTML comment, which the Test Steps parse strips,
- * so it is found in the RAW lines of the section — skipping fenced output and
- * a span GitHub renders as raw HTML, where a reviewer could not have ticked
- * it. It is distinct from the residual-defects marker, so accepting defects
- * never waives a review that did not run.
- */
-export const notRunAccepted = hasLiveNotRunLine;
-
 export function checkUiReviewGate(i: {
   changedFiles: string[] | null;
   /** `git diff --name-only <log.headSha>...HEAD`; null when unreadable. */
@@ -63,7 +54,7 @@ export function checkUiReviewGate(i: {
 
   const completed = i.log?.outcome != null && COMPLETED.includes(i.log.outcome);
   if (!completed) {
-    if (notRunAccepted(i.body)) return ok(true);
+    if (hasLiveNotRunLine(i.body)) return ok(true);
     const why = i.log?.skip
       ? plainReason(i.log.skip)
       : plainReason("no-review-record");

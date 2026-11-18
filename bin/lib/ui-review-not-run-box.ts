@@ -8,15 +8,20 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { testStepsSectionBounds, type GhRunner } from "../flow-gate-decide";
+import type { GhRunner } from "../flow-gate-decide";
 import { emptyLoopLog, type LoopLog } from "./ui-critique";
 import {
   notRunDecisionItem,
   plainReason,
   renderUiReview,
 } from "./ui-critique-render";
-import { insertSectionIfAbsent, upsertNotRunItem } from "./ui-review-body";
-import { notRunAccepted, type UiReviewGate } from "./ui-review-gate";
+import { testStepsSectionBounds } from "./test-steps-section";
+import {
+  hasLiveNotRunLine,
+  insertSectionIfAbsent,
+  upsertNotRunItem,
+} from "./ui-review-body";
+import type { UiReviewGate } from "./ui-review-gate";
 
 export function ensureNotRunBox(
   body: string,
@@ -25,7 +30,7 @@ export function ensureNotRunBox(
 ): string | null {
   if (ui.satisfied || ui.stale || !ui.required) return null;
   if (testStepsSectionBounds(body.split("\n")) === null) return null;
-  if (notRunAccepted(body)) return null;
+  if (hasLiveNotRunLine(body)) return null;
   const code = log?.skip || "no-review-record";
   const section = renderUiReview({
     before: [],
@@ -42,7 +47,7 @@ export function ensureNotRunBox(
     upsertNotRunItem(body, notRunDecisionItem(plainReason(code))),
     section,
   );
-  return notRunAccepted(next) ? next : null;
+  return hasLiveNotRunLine(next) ? next : null;
 }
 
 export type AddBoxResult =

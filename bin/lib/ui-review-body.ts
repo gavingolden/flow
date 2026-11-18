@@ -4,11 +4,11 @@
  * other Test Step. The two items are independent slots: ticking one never
  * waives the other.
  */
-import { testStepsSectionBounds } from "../flow-gate-decide";
 import {
   fencedLineMask,
   findUnterminatedHtmlBlockLines,
 } from "./md-block-structure";
+import { testStepsSectionBounds } from "./test-steps-section";
 import {
   UI_REVIEW_CLOSE,
   UI_REVIEW_DECISION_MARKER,
@@ -85,6 +85,13 @@ export function findLiveTestStepLine(
 const findNotRunLine = (lines: string[]): number =>
   findLiveTestStepLine(lines, (l) => l.includes(UI_REVIEW_NOT_RUN_MARKER));
 
+/**
+ * The not-run marker is an HTML comment, which the Test Steps parse strips,
+ * so it is found in the RAW lines of the section — skipping fenced output and
+ * a span GitHub renders as raw HTML, where a reviewer could not have ticked
+ * it. It is distinct from the residual-defects marker, so accepting defects
+ * never waives a review that did not run.
+ */
 export const hasLiveNotRunLine = (body: string): boolean =>
   findNotRunLine(body.split("\n")) >= 0;
 
