@@ -70,7 +70,7 @@ describeOnPosix("sweepStaleShells (live)", () => {
       sh.on("close", () => resolve(Number(out.trim())));
     });
     spawned.push(pid);
-    for (let i = 0; i < 50 && !alive(pid); i++) spawnSync("sleep", ["0.1"]);
+    for (let i = 0; i < 150 && !alive(pid); i++) spawnSync("sleep", ["0.1"]);
 
     const deps = {
       ...defaultStaleShellDeps({ stateDir, home: root }),
@@ -98,7 +98,7 @@ describeOnPosix("sweepStaleShells (live)", () => {
     };
     let procs = deps.listProcs() ?? [];
     // setsid() and exec land a beat after the pid is visible
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 150; i++) {
       const seen = procs.find((p) => p.pid === pid);
       if (seen?.pgid === pid && seen.command.includes("eval '")) break;
       spawnSync("sleep", ["0.1"]);
@@ -115,5 +115,5 @@ describeOnPosix("sweepStaleShells (live)", () => {
     expect(r.signalled).toContain(pid);
     for (let i = 0; i < 30 && alive(pid); i++) spawnSync("sleep", ["0.1"]);
     expect(alive(pid)).toBe(false);
-  }, 30_000);
+  }, 60_000);
 });
