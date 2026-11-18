@@ -334,6 +334,17 @@ describe("module-load lint: static import graph", () => {
   );
   const { graph, unresolved } = buildGraph(sources);
 
+  it("should scan the modules behind the ui-critique crash", () => {
+    expect(files).toEqual(
+      expect.arrayContaining([
+        "bin/flow-gate-decide.ts",
+        "bin/lib/ui-review-gate.ts",
+        "bin/lib/test-steps-section.ts",
+      ]),
+    );
+    expect(loadTargets()).toContain("bin/flow-ui-critique.ts");
+  });
+
   it("should resolve every relative import inside the scanned set", () => {
     expect(unresolved).toEqual([]);
   });
@@ -350,7 +361,10 @@ describe("module-load lint: static import graph", () => {
 function entryPoints(): string[] {
   return collectFiles().filter(
     (f) =>
-      f === "bin/flow" || (f.startsWith("bin/") && !f.slice(4).includes("/")),
+      f === "bin/flow" ||
+      (f.startsWith("bin/") &&
+        (!f.slice(4).includes("/") ||
+          fs.readFileSync(path.join(ROOT, f), "utf8").startsWith("#!"))),
   );
 }
 
@@ -377,14 +391,7 @@ if (process.env.CI) {
 }
 
 function loadTargets(): string[] {
-  return collectFiles().filter(
-    (f) =>
-      f === "bin/flow" ||
-      (f.startsWith("bin/") &&
-        fs
-          .readFileSync(path.join(ROOT, f), "utf8")
-          .includes("import.meta.main")),
-  );
+  return entryPoints();
 }
 
 function loadOne(rel: string): Promise<string | null> {
@@ -398,6 +405,9 @@ function loadOne(rel: string): Promise<string | null> {
       { env, stdio: ["ignore", "ignore", "pipe"], cwd: ROOT },
     );
     let stderr = "";
+    child.on("error", (err) => {
+      resolve(`${rel}: spawn failed: ${err.message}`);
+    });
     child.stderr.on("data", (d) => {
       stderr += String(d);
     });
