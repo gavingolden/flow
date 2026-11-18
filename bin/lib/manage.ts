@@ -15,7 +15,10 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveManagerModelEffort } from "./epic-manager-model";
 import { dimStderr } from "./color";
-import { launchSettingsPermissions } from "./feature";
+import {
+  launchSettingsPermissions,
+  resolveBgLoopGuardCommand,
+} from "./feature";
 import { argsContainHelp, printVerbHelp } from "./help";
 import { resolveLauncherBackend } from "./launcher-config";
 import { readManagerConfig, validHeartbeatSec } from "./manager-config";
@@ -155,8 +158,8 @@ const RULING_WRITER_DENY = /flow-manager-ctl/;
  * Writes the manager's own `claude --settings` file (never the shared pipeline
  * launch settings): the pipeline permissions with the secret-file and grant
  * denies kept, the ruling-writer deny dropped, the owner-words ledger denied to
- * every tool, and three hooks — the SendMessage scope guard, the typed-prompt
- * ledger and the "re-arm the waiter" Stop guard. Returns the path.
+ * every tool, and its hooks — the SendMessage scope guard, the Bash loop guard, the
+ * typed-prompt ledger and the "re-arm the waiter" Stop guard. Returns the path.
  */
 export function ensureManagerSettings(
   settingsPath: string = managerFile("launch-settings.json"),
@@ -173,6 +176,12 @@ export function ensureManagerSettings(
         {
           matcher: "SendMessage",
           hooks: [hook("flow-manager-send-guard")],
+        },
+        // The same guard `ensureLaunchSettings` (feature.ts) gives pipeline and
+        // epic sessions: refuses deadline-less polls and stdin hangs.
+        {
+          matcher: "Bash",
+          hooks: [{ type: "command", command: resolveBgLoopGuardCommand() }],
         },
       ],
       Stop: [{ hooks: [hook("flow-manager-stop-guard")] }],

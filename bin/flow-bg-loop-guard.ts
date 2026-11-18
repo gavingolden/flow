@@ -1,10 +1,12 @@
 #!/usr/bin/env bun
 /**
  * Claude Code PreToolUse hook (matcher `Bash`) that DENIES a command which
- * backgrounds an endless loop, or backgrounds a job and then cleans up with
- * `$(jobs -p)`. In the Bash tool's non-interactive zsh, `$(jobs -p)` runs in
- * a subshell with an empty job table, so `kill $(jobs -p)` kills nothing and
- * the backgrounded loops are orphaned and burn CPU for hours.
+ * backgrounds an endless loop, backgrounds a job and then cleans up with
+ * `$(jobs -p)`, polls/watches with no deadline (`poll-loop.ts`), or can
+ * hang on stdin (`stdin-hang.ts`). In the
+ * Bash tool's non-interactive zsh, `$(jobs -p)` runs in a subshell with an
+ * empty job table, so `kill $(jobs -p)` kills nothing and the backgrounded
+ * loops are orphaned and burn CPU for hours.
  *
  * Deny-only and fail-open: it never emits allow/ask, and any error, malformed
  * payload, non-Bash tool, or missing command exits 0 with no output.
@@ -14,6 +16,10 @@
  * single-`&` distinction needed here).
  */
 
+import { unboundedPollLoop, unboundedWatch } from "./lib/poll-loop";
+import { views } from "./lib/shell-scan";
+import { stdinHang } from "./lib/stdin-hang";
+
 const STDIN_TIMEOUT_MS = 250;
 
 export type Decision = {
@@ -21,52 +27,14 @@ export type Decision = {
   permissionDecisionReason: string;
 };
 
-const REASON =
-  "This command backgrounds an endless loop, or backgrounds a job and cleans up with $(jobs -p). In the Bash tool's non-interactive zsh, $(jobs -p) is empty (command substitution runs in a subshell with no job table), so `kill $(jobs -p)` kills nothing and the loops outlive the command, pinning CPU after the work moves on. Use instead: `flow-stress --cpu <n> --max-sec <s> -- <cmd>` for CPU contention; the Bash tool's run_in_background for pollers; `flow-spawn --detach` for servers; and `kill %1` or `p=$!; kill $p` to stop a job you started.";
+const JOBS_REASON =
+  "This command backgrounds an endless loop, or backgrounds a job and cleans up with $(jobs -p). In the Bash tool's non-interactive zsh, $(jobs -p) is empty (command substitution runs in a subshell with no job table), so `kill $(jobs -p)` kills nothing and the loops outlive the command, pinning CPU after the work moves on. Use instead: `flow-stress --cpu <n> --max-sec <s> -- <cmd>` for CPU contention; `flow-spawn --detach` for servers; and `kill %1` or `p=$!; kill $p` to stop a job you started.";
 
-type Views = { code: string; sub: string };
+const POLL_REASON =
+  "This command polls or watches with no deadline: it can run forever, and the Bash tool's `timeout` parameter does not stop it (a foreground call past its timeout is moved to the background, not killed). Wait with `flow-wait --max-sec <s> --state <slug> --phase <p>` (or `flow-wait --max-sec <s> -- <condition>`), `flow-ci-wait` for CI, or wrap it in `timeout <s> <cmd>` (at most 28800 s), or give the loop its own deadline: `end=$((SECONDS+600)); until <cond>; do [ $SECONDS -lt $end ] || exit 3; sleep 5; done`. A literal deadline above 28800 s is refused like an over-cap `flow-wait`.";
 
-/**
- * `code`: every quoted span blanked, so quoted text never matches. `sub`:
- * only single-quoted spans blanked (double quotes still run `$(…)`).
- * Both keep the original length.
- */
-function views(command: string): Views {
-  let code = "";
-  let sub = "";
-  let quote: string | null = null;
-  for (let i = 0; i < command.length; i++) {
-    const c = command[i]!;
-    if (quote === "'") {
-      if (c === "'") quote = null;
-      code += " ";
-      sub += " ";
-    } else if (quote === '"') {
-      if (c === "\\") {
-        code += "  ";
-        sub += c + (command[i + 1] ?? "");
-        i++;
-        continue;
-      }
-      if (c === '"') quote = null;
-      code += " ";
-      sub += c;
-    } else if (c === "\\") {
-      const next = command[i + 1] ?? "";
-      code += c + next;
-      sub += c + next;
-      i++;
-    } else if (c === "'" || c === '"') {
-      quote = c;
-      code += " ";
-      sub += c === '"' ? c : " ";
-    } else {
-      code += c;
-      sub += c;
-    }
-  }
-  return { code, sub };
-}
+const STDIN_REASON =
+  "This command can wait on stdin forever: a reader (grep, cat, head, …) takes its only file arguments from $(…), which may expand to nothing, and because the command contains a `<` Claude Code does not give it /dev/null as stdin (a foreground call that times out keeps waiting in the background). Add /dev/null as an extra file argument (`grep -n x $(…) /dev/null`) or put `</dev/null` on that command. Commands in background shells must never read stdin.";
 
 /** Indexes of `&` that start a background job (not `&&`, `2>&1`, `&>`, `|&`). */
 function backgroundOps(code: string): number[] {
@@ -183,12 +151,28 @@ export function decide(input: unknown): Decision | null {
     if (ti === null || typeof ti !== "object") return null;
     const command = (ti as { command?: unknown }).command;
     if (typeof command !== "string" || command === "") return null;
-    const deny =
+    if (
       backgroundsEndlessLoop(command) ||
-      (usesJobsPSubstitution(command) && backgroundsJob(command));
-    return deny
-      ? { permissionDecision: "deny", permissionDecisionReason: REASON }
-      : null;
+      (usesJobsPSubstitution(command) && backgroundsJob(command))
+    ) {
+      return {
+        permissionDecision: "deny",
+        permissionDecisionReason: JOBS_REASON,
+      };
+    }
+    if (unboundedPollLoop(command) || unboundedWatch(command)) {
+      return {
+        permissionDecision: "deny",
+        permissionDecisionReason: POLL_REASON,
+      };
+    }
+    if (stdinHang(command)) {
+      return {
+        permissionDecision: "deny",
+        permissionDecisionReason: STDIN_REASON,
+      };
+    }
+    return null;
   } catch {
     return null;
   }

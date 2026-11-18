@@ -43,8 +43,68 @@ describe("decide — denied", () => {
     const d = decide(bash(command));
     expect(d?.permissionDecision).toBe("deny");
     expect(d?.permissionDecisionReason).toContain("flow-stress");
-    expect(d?.permissionDecisionReason).toContain("run_in_background");
+    expect(d?.permissionDecisionReason).not.toContain("run_in_background");
     expect(d?.permissionDecisionReason).toContain("flow-spawn --detach");
+  });
+
+  it("should keep the endless-loop reason first when a backgrounded loop also polls", () => {
+    const d = decide(bash("until false; do sleep 1; done &"));
+    expect(d?.permissionDecisionReason).toContain("flow-stress");
+    expect(d?.permissionDecisionReason).not.toContain("flow-wait");
+  });
+});
+
+describe("decide — deadline-less polls and watches", () => {
+  it.each([
+    [
+      "the incident poll",
+      `until [ "$(jq -r .phase ~/.flow/state/s.json)" = merged ]; do sleep 20; done`,
+    ],
+    [
+      "a condition-only numeric compare",
+      'while [ "$(pgrep -c node)" -gt 0 ]; do sleep 5; done',
+    ],
+    ["gh pr checks --watch", "gh pr checks 412 --watch"],
+    ["a wrapped poll", "bash -c 'until test -f x; do sleep 20; done'"],
+    ["an over-cap timeout", "timeout 999999 gh pr checks 412 --watch"],
+    ["a backgrounded poll", "until test -f x; do sleep 20; done &"],
+  ])("should deny %s with the poll reason", (_n, command) => {
+    const d = decide(bash(command));
+    expect(d?.permissionDecision).toBe("deny");
+    expect(d?.permissionDecisionReason).toContain(
+      "flow-wait --max-sec <s> --state <slug> --phase <p>",
+    );
+    expect(d?.permissionDecisionReason).toContain("end=$((SECONDS+600))");
+    expect(d?.permissionDecisionReason).toContain("timeout");
+    expect(d?.permissionDecisionReason).not.toContain("run_in_background");
+  });
+});
+
+describe("decide — stdin hangs", () => {
+  const HANG = `grep -rln '"<masked>"\\|<masked>' --include=*.js . 2>/dev/null; grep -n "maskCapturedNetworkRequestFn" $(grep -rl 'url_changed' --include=*.js .) | head -5`;
+
+  it.each([
+    ["the verbatim hang command", HANG],
+    [
+      "a wc < file then a substitution-fed grep",
+      "wc -l < a.txt; grep -n x $(grep -rl y .) | head -5",
+    ],
+  ])("should deny %s, foreground or background", (_n, command) => {
+    for (const c of [command, `${command} &`]) {
+      const d = decide(bash(c));
+      expect(d?.permissionDecision).toBe("deny");
+      expect(d?.permissionDecisionReason).toContain("/dev/null");
+      expect(d?.permissionDecisionReason).toContain("must never read stdin");
+    }
+  });
+
+  it.each([
+    "wc -l < a.txt; grep -n x $(grep -rl y .) /dev/null | head -5",
+    "wc -l < a.txt; grep -n x $(grep -rl y .) </dev/null | head -5",
+    "grep -n x $(git ls-files) | head",
+    'cat "$(readlink -f f)"',
+  ])("should allow %s", (command) => {
+    expect(decide(bash(command))).toBeNull();
   });
 });
 
@@ -53,7 +113,23 @@ describe("decide — allowed", () => {
     ["bare jobs -p", "jobs -p"],
     ["kill %1", "sleep 1 & kill %1"],
     ["p=$! cleanup", "sleep 1 & p=$!; kill $p"],
-    ["a foreground endless loop", "while true; do sleep 1; done"],
+    [
+      "a foreground while read with sleep",
+      "git branch | while read -r b; do echo $b; sleep 1; done",
+    ],
+    [
+      "timeout wrapping gh pr checks --watch",
+      "timeout 600 gh pr checks 412 --watch",
+    ],
+    [
+      "a condition-counter loop",
+      "n=0; until [ $n -ge 5 ]; do n=$((n+1)); sleep 2; done",
+    ],
+    [
+      "the SECONDS deadline loop",
+      "end=$((SECONDS+600)); until test -f x; do [ $SECONDS -lt $end ] || exit 3; sleep 5; done",
+    ],
+    ["flow-wait", "flow-wait --max-sec 600 --state foo --phase merged"],
     ["a bounded while read loop", "while read l; do echo $l; done < f"],
     ["a backgrounded while read loop", "while read l; do :; done < f &"],
     ["an && chain", "make && make test"],

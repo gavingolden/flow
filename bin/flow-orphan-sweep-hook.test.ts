@@ -95,7 +95,7 @@ describe("runHook", () => {
       "flow stopped 2 leftover processes",
     );
     expect(parsed.hookSpecificOutput.additionalContext).toContain(
-      "run_in_background",
+      "flow-wait --max-sec",
     );
     expect(calls.record).toHaveBeenCalledWith("demo", 2);
   });

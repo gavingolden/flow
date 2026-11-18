@@ -213,6 +213,46 @@ export function windowExists(slug: string, session = FLOW_SESSION): boolean {
   return findWindowBySlug(listWindows(session), slug) !== undefined;
 }
 
+/** True when the tmux binary can be run at all (a version probe, no server needed). */
+export function tmuxAvailable(): boolean {
+  return tmux(["-V"]).exitCode === 0;
+}
+
+/**
+ * Whether a tmux window id (`@7`) exists on any session. Answers `true` when
+ * tmux cannot be queried at all (not installed), so a caller waiting on the
+ * window degrades to "keep waiting" rather than concluding it is gone.
+ */
+export function windowIdExists(id: string): boolean {
+  const r = tmux(["list-windows", "-a", "-F", "#{window_id}"]);
+  if (r.exitCode === 127) return true;
+  if (r.exitCode !== 0) return false;
+  return r.stdout.split("\n").some((line) => line.trim() === id);
+}
+
+/** Pure parser for `#{pane_pid} #{window_id} #{window_name}` rows. */
+export function parsePaneWindows(
+  stdout: string,
+): Map<number, { id: string; name: string }> {
+  const out = new Map<number, { id: string; name: string }>();
+  for (const line of stdout.split("\n")) {
+    const m = /^(\d+) (@\d+) (.*)$/.exec(line.trim());
+    if (m) out.set(Number(m[1]), { id: m[2], name: m[3] });
+  }
+  return out;
+}
+
+/** Every pane's shell pid mapped to its window; empty when tmux is absent. */
+export function paneWindowsByPid(): Map<number, { id: string; name: string }> {
+  const r = tmux([
+    "list-panes",
+    "-a",
+    "-F",
+    "#{pane_pid} #{window_id} #{window_name}",
+  ]);
+  return r.exitCode === 0 ? parsePaneWindows(r.stdout) : new Map();
+}
+
 /**
  * Creates the named window inside the flow session, creating the session if
  * needed. The window starts with the given command running in its first pane,

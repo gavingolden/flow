@@ -19,7 +19,8 @@
  * and never becomes the long waiter itself. Events are written to `wake.json`
  * the moment they are found and stay there until `flow-manager-ctl ack`, so a
  * crash or `/clear` mid-wake loses nothing; a re-armed waiter re-emits them.
- * Exit 0 always, 2 on bad arguments.
+ * Exit 0 always, 2 on bad arguments. It exits with outcome `manager-gone` when
+ * the manager record, its tmux window or its owning `claude` is gone.
  */
 
 import { createHash } from "node:crypto";
@@ -69,6 +70,12 @@ import {
   type PipelineState,
 } from "./lib/state";
 import { recordEvent, type TelemetryEventName } from "./lib/telemetry";
+import { pidStartEpoch } from "./lib/liveness";
+import { tmuxAvailable, windowExists } from "./lib/tmux";
+import { pidExists, readPpid } from "./lib/parent-watch";
+import { ownerGone, owningClaude } from "./lib/wait-loop";
+import type { OrphanProc } from "./lib/worktree-orphans";
+import { listOrphanProcs } from "./lib/worktree-orphans-ps";
 
 const HELP =
   "usage: flow-manager-wait [--ensure] [--interval <s=5>] [--settle <s=10>] [--heartbeat <s>] [--stop-when-idle] [--max-sec <s=0>]";
@@ -123,12 +130,26 @@ export type WaitDeps = {
   home?: string;
   stateDir?: string;
   pid?: number;
+  /** The waiter's current parent pid; 1 means it was reparented (default: read from the process table). */
+  ppid?: () => number | null;
   kill?: (pid: number, signal: 0) => void;
   exec?: ExecFn;
   notify?: (args: string[]) => void;
   out?: (line: string) => void;
   record?: (event: TelemetryEventName, attrs: Record<string, unknown>) => void;
+  /** Process table for finding the owning `claude` (undefined when unreadable). */
+  procs?: () => OrphanProc[] | undefined;
+  startEpochOf?: (pid: number) => number | null;
+  alive?: (pid: number) => boolean;
+  /** True only when the manager's tmux window is known to be gone. */
+  windowGone?: (name: string) => boolean;
 };
+
+// The manager is tmux-only by hard gate (`flow manage` refuses without tmux),
+// so its window vanishing means the manager is gone. When tmux itself cannot
+// be run, absence is unknowable and the waiter keeps waiting.
+const defaultWindowGone = (name: string): boolean =>
+  tmuxAvailable() && !windowExists(name);
 
 /** One stable proposal id per stale pipeline, in the generator's `p-<6 hex>` shape, so re-adding replaces it. */
 function staleProposalId(slug: string): string {
@@ -231,6 +252,37 @@ export async function run(
     );
   stamp(startedAt);
 
+  // The manager's `claude` can crash while its pane survives; `ppid === 1`
+  // never fires then because the `zsh` wrapper stays the waiter's parent, so
+  // watch the recorded `claude` itself. With no `claude` ancestor found, fall
+  // back to the reparent-to-PID-1 signal.
+  const owner = (() => {
+    const table = (deps.procs ?? listOrphanProcs)();
+    return table
+      ? owningClaude(pid, table, deps.startEpochOf ?? pidStartEpoch)
+      : null;
+  })();
+  const alive = deps.alive ?? pidExists;
+  const startEpochOf = deps.startEpochOf ?? pidStartEpoch;
+  // One failed `tmux list-windows` reads as "window gone", so only a window
+  // missing on two consecutive ticks ends the waiter.
+  let windowMisses = 0;
+  const managerGone = (): boolean => {
+    const rec = readManagerRecord(home);
+    if (rec === null) return true;
+    if ((deps.windowGone ?? defaultWindowGone)(rec.window)) {
+      windowMisses += 1;
+      if (windowMisses >= 2) return true;
+    } else {
+      windowMisses = 0;
+    }
+    return ownerGone(owner, {
+      alive,
+      startEpochOf,
+      parentPid: deps.ppid ?? (() => readPpid(pid)),
+    });
+  };
+
   let signaled = false;
   const onSignal = (): void => {
     signaled = true;
@@ -256,6 +308,10 @@ export async function run(
       const mine = readWaiter(home);
       if (mine && mine.startedAt !== startedAt) {
         emit("superseded");
+        return 0;
+      }
+      if (managerGone()) {
+        emit("manager-gone");
         return 0;
       }
       stamp(now.toISOString());

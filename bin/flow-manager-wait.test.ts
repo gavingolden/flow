@@ -3,9 +3,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { run, parseArgs, type WaitDeps } from "./flow-manager-wait";
+import { readManagerConfig } from "./lib/manager-config";
 import { appendManagerLog } from "./lib/manager-log";
 import { readProposals } from "./lib/manager-proposals";
-import { writeManagerRecord } from "./lib/manager-record";
+import { writeManagerRecord, type ManagerRecord } from "./lib/manager-record";
 import { updateScope } from "./lib/manager-scope";
 import { ackWake, readWaiter, writeWaiter } from "./lib/manager-waiter";
 import { writeState, type PipelineState } from "./lib/state";
@@ -19,6 +20,7 @@ beforeEach(() => {
   home = path.join(dir, "manager");
   stateDir = path.join(dir, "state");
   fs.mkdirSync(stateDir, { recursive: true });
+  writeManagerRecord(liveRecord(), home);
   updateScope(
     () => ({
       version: 1,
@@ -30,6 +32,18 @@ beforeEach(() => {
   );
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+const liveRecord = (over: Partial<ManagerRecord> = {}): ManagerRecord => ({
+  version: 1,
+  window: "manager",
+  startedAt: new Date(T0 - 3_600_000).toISOString(),
+  model: "opus",
+  effort: "high",
+  heartbeatSec: readManagerConfig().heartbeatSec,
+  stopWhenIdle: false,
+  notices: false,
+  ...over,
+});
 
 const put = (slug: string, phase: string, repo = "/r/flow", at = T0) =>
   writeState(
@@ -74,6 +88,8 @@ function harness(onSleep: (n: number) => void = () => {}, start = T0): Harness {
       notify: (a) => h.notified.push(a),
       exec: async () => ({ exitCode: 0, stdout: "{}", stderr: "" }),
       record: (e, a) => h.recorded.push([e, a]),
+      procs: () => undefined,
+      windowGone: () => false,
     },
   };
   return h;
@@ -407,5 +423,111 @@ describe("flow-manager-wait", () => {
     await run(["--settle", "0"], h.deps);
     const kinds = result(h).events.map((e: { kind: string }) => e.kind);
     expect(kinds).toContain("idle");
+  });
+});
+
+describe("flow-manager-wait manager-gone", () => {
+  const procs = (): import("./lib/worktree-orphans").OrphanProc[] => {
+    const p = (pid: number, ppid: number, command: string) => ({
+      pid,
+      ppid,
+      pgid: pid,
+      uid: 1,
+      tty: null,
+      ageSec: 1,
+      cpuSec: 0,
+      command,
+      cwd: null,
+    });
+    return [
+      p(10, 1, "claude --x"),
+      p(20, 10, "/bin/zsh -c eval"),
+      p(4242, 20, "bun flow-manager-wait"),
+    ];
+  };
+
+  it("exits manager-gone when the manager record is removed", async () => {
+    const h = harness((n) => {
+      if (n === 1) fs.rmSync(path.join(home, "manager.json"));
+    });
+    expect(await run([], h.deps)).toBe(0);
+    expect(result(h).outcome).toBe("manager-gone");
+  });
+
+  it("exits manager-gone when the manager's tmux window is gone", async () => {
+    let gone = false;
+    const h = harness((n) => {
+      if (n === 1) gone = true;
+    });
+    h.deps.windowGone = () => gone;
+    await run([], h.deps);
+    expect(result(h).outcome).toBe("manager-gone");
+  });
+
+  it("keeps waiting through a single failed tmux probe", async () => {
+    let calls = 0;
+    const h = harness();
+    h.deps.windowGone = () => ++calls === 2;
+    await run(["--max-sec", "20"], h.deps);
+    expect(result(h).outcome).toBe("timeout");
+  });
+
+  it("keeps waiting when one ps start-time read fails", async () => {
+    let calls = 0;
+    const h = harness();
+    h.deps.procs = procs;
+    h.deps.alive = () => true;
+    h.deps.startEpochOf = () => (++calls === 3 ? null : 500);
+    await run(["--max-sec", "20"], h.deps);
+    expect(result(h).outcome).toBe("timeout");
+  });
+
+  it("exits manager-gone when the owning claude dies while the pane survives", async () => {
+    let claudeAlive = true;
+    const h = harness((n) => {
+      if (n === 1) claudeAlive = false;
+    });
+    h.deps.procs = procs;
+    h.deps.startEpochOf = () => 500;
+    h.deps.alive = () => claudeAlive;
+    await run([], h.deps);
+    expect(result(h).outcome).toBe("manager-gone");
+  });
+
+  it("exits manager-gone when the owning claude's pid was recycled", async () => {
+    let epoch = 500;
+    const h = harness((n) => {
+      if (n === 1) epoch = 900;
+    });
+    h.deps.procs = procs;
+    h.deps.startEpochOf = () => epoch;
+    h.deps.alive = () => true;
+    await run([], h.deps);
+    expect(result(h).outcome).toBe("manager-gone");
+  });
+
+  it("with no claude ancestor, exits manager-gone once reparented to pid 1", async () => {
+    const h = harness();
+    h.deps.procs = () => [];
+    h.deps.ppid = () => 1;
+    await run([], h.deps);
+    expect(result(h).outcome).toBe("manager-gone");
+  });
+
+  it("with no claude ancestor and a live parent, keeps waiting", async () => {
+    const h = harness();
+    h.deps.procs = () => [];
+    h.deps.ppid = () => 777;
+    await run(["--max-sec", "20"], h.deps);
+    expect(result(h).outcome).toBe("timeout");
+  });
+
+  it("keeps waiting while the record, window and claude are all live", async () => {
+    const h = harness();
+    h.deps.procs = procs;
+    h.deps.startEpochOf = () => 500;
+    h.deps.alive = () => true;
+    await run(["--max-sec", "20"], h.deps);
+    expect(result(h).outcome).toBe("timeout");
   });
 });

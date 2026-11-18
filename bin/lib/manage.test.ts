@@ -110,6 +110,10 @@ describe("ensureManagerSettings", () => {
     const file = ensureManagerSettings(path.join(dir, "ms.json"));
     const s = JSON.parse(fs.readFileSync(file, "utf8"));
     expect(s.hooks.PreToolUse[0].matcher).toBe("SendMessage");
+    const bash = s.hooks.PreToolUse.find(
+      (h: { matcher: string }) => h.matcher === "Bash",
+    );
+    expect(bash.hooks[0].command).toContain("flow-bg-loop-guard");
     expect(s.hooks.UserPromptSubmit[0].hooks[0].command).toContain(
       "flow-manager-owner-words",
     );

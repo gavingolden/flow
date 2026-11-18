@@ -225,15 +225,22 @@ flow's launch-settings file, so it never reaches a consumer repo's
 `.claude/settings.json` or the user's global `~/.claude/settings.json`, and
 `flow-claude-headless` sessions do not carry it.
 
-Two sibling hooks register the same way (flow's launch-settings file only,
-never a consumer repo's settings): `bin/flow-bg-loop-guard.ts`, a
-PreToolUse deny-only, fail-open guard that refuses a Bash command which
-backgrounds an endless loop, or backgrounds a job and then cleans up with `$(jobs -p)` (empty in the
-Bash tool's zsh, so the cleanup kills nothing); and
-`bin/flow-orphan-sweep-hook.ts`, a fail-open PostToolUse hook that, at most
-once a minute per pipeline, stops CPU-busy leftover processes whose working
-directory is inside the pipeline's worktree and tells the agent how many.
-`flow-stress --cpu <n> --max-sec <s> -- <cmd>` is the supported way to add
+Two sibling hooks are flow's own and never land in a consumer repo's
+settings: `bin/flow-bg-loop-guard.ts`, a PreToolUse deny-only, fail-open
+guard that refuses a Bash command which backgrounds an endless loop,
+backgrounds a job and then cleans up with `$(jobs -p)` (empty in the Bash
+tool's zsh, so the cleanup kills nothing), polls or watches with no deadline
+(a sleeping `while`/`until` loop with no bound, `gh pr checks --watch`,
+`tail -f` outside a `timeout`), or can wait on stdin forever (a reader whose
+only file arguments are `$(…)` substitutions, in a command that holds a `<`).
+It registers in flow's launch-settings file (pipeline and epic sessions), in
+the manager's settings file, and in flow's own committed
+`.claude/settings.json`, which only guards a plain `claude` session in the
+flow checkout. And `bin/flow-orphan-sweep-hook.ts`, a fail-open PostToolUse
+hook that, at most once a minute per pipeline, stops CPU-busy leftover
+processes whose working directory is inside the pipeline's worktree and tells
+the agent how many. `flow-wait --max-sec <s> …` is the bounded way to wait,
+and `flow-stress --cpu <n> --max-sec <s> -- <cmd>` is the supported way to add
 CPU contention to a test.
 
 ## Design foundation

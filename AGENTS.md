@@ -33,7 +33,7 @@ when you Read/Edit a matching file (Bash touches don't load them).
 
 ## Code conventions
 
-- **Runtime:** Bun for everything under `bin/`. `package.json`'s `engines.node >= 22.12` keeps `npm install`/`npm run test` (vitest) working; no shipped code is Node-specific.
+- **Runtime:** Bun for everything under `bin/`; `engines.node >= 22.12` only keeps `npm install`/vitest working.
 - **Style:** small, single-purpose modules. Target < 200 lines/file.
 - **Comments:** default to none. Add one only when the *why* is non-obvious. Don't restate what the code does.
 - **Errors:** validate at boundaries (CLI args, subprocess output, parsed YAML). Trust internal callers.
@@ -61,8 +61,7 @@ are at [references/output-style.md](references/output-style.md).
 - **Emit instructions as scannable numbered steps.** Two or more discrete actions render as `1.`/`2.` imperative steps, sub-bullets for detail, actor named when interleaved; a single action stays inline.
 - **Route every emitted path/PR/issue URL through `bin/lib/link.ts` or a raw-target-labelled markdown link.** Never a bare target at a new site.
 
-See the reference for the remaining response-hygiene conventions (no
-preambles, no emoji unless invited, etc.).
+See the reference for the rest (no preambles, no emoji unless invited, etc.).
 
 ## Supervisor and sub-skills: in-process only
 
@@ -78,9 +77,8 @@ a fixed-model, fixed-effort leaf review or judgment call via
 
 ## Compact Instructions
 
-Claude Code reads this section to decide what survives a compaction
-(flow's `CLAUDE.md` is `@AGENTS.md`). Lose an anchor below and the
-supervisor cannot tell what it has already done.
+Claude Code reads this section to decide what survives a compaction.
+Lose an anchor below and the supervisor cannot tell what it has done.
 
 - **KEEP**: phase, PR number, worktree path, current step, any
   `NEEDS HUMAN:`, `state.interview` while an interview phase is live, the
@@ -134,6 +132,8 @@ No build step — flow ships `bin/flow` via Bun.
   (2) `flow-browser-teardown --reap --record` as the guaranteed
   registry-driven backstop, never `|| true`-swallowed; (3) `flow reap` as
   the crash-path net (incl. worktree leftovers), never primary. See `skills/pipeline/flow-pipeline/references/phases/resource-cleanup.md`.
+- Don't start a poll without a deadline (wait with `flow-wait` or
+  `flow-ci-wait`) or let a command read stdin (add `/dev/null` beside `$(…)` file args).
 - Don't auto-commit/push outside explicit instruction on `main`; on a
   feature/PR branch, invoking a code-editing skill IS the instruction to
   commit that branch's edits. Named exemptions are enumerated in

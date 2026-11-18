@@ -204,6 +204,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-skill-overlay",
       "flow-stress",
       "flow-bg-loop-guard",
+      "flow-wait",
       "flow-orphan-sweep-hook",
     ],
     validators: [
