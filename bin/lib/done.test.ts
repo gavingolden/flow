@@ -1490,10 +1490,7 @@ describe("stale-shell sweep", () => {
     refs: [{ kind: "state-file" as const, path: "/s/foo.json" }],
     preview: "until grep merged; do sleep 20; done",
   });
-  const result = (
-    act: boolean,
-    pids: number[],
-  ): StaleShellSweepResult => ({
+  const result = (act: boolean, pids: number[]): StaleShellSweepResult => ({
     ran: true,
     act,
     found: pids.map(shell),
@@ -1532,12 +1529,16 @@ describe("stale-shell sweep", () => {
   });
 
   it("should fold the count into the existing confirm prompt", () => {
-    stateMock.readState.mockReturnValue(state({ slug: "foo", phase: "merged" }));
+    stateMock.readState.mockReturnValue(
+      state({ slug: "foo", phase: "merged" }),
+    );
     readSyncMock.mockImplementation((_fd, buf) => {
       Buffer.from("n\n").copy(buf);
       return 2;
     });
-    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const out = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
     const seam = vi.fn((_t: unknown, act: boolean) => result(act, [200]));
 
     runDone("foo", { staleShellSweep: seam });
@@ -1564,14 +1565,18 @@ describe("stale-shell sweep", () => {
   });
 
   it("should print nothing about shells when none were found", () => {
-    stateMock.readState.mockReturnValue(state({ slug: "foo", phase: "merged" }));
+    stateMock.readState.mockReturnValue(
+      state({ slug: "foo", phase: "merged" }),
+    );
     const quiet = vi.fn((_t: unknown, act: boolean) => result(act, []));
     runDone("foo", { yes: true, staleShellSweep: quiet });
     expect(logs.some((l) => l.includes("background shell"))).toBe(false);
   });
 
   it("should swallow a sweep error with a one-line note and still close", () => {
-    stateMock.readState.mockReturnValue(state({ slug: "foo", phase: "merged" }));
+    stateMock.readState.mockReturnValue(
+      state({ slug: "foo", phase: "merged" }),
+    );
     const seam = vi.fn(() => {
       throw new Error("boom");
     });
@@ -1579,7 +1584,9 @@ describe("stale-shell sweep", () => {
     const code = runDone("foo", { yes: true, staleShellSweep: seam });
 
     expect(code).toBe(0);
-    expect(logs.some((l) => l.includes("background-shell sweep skipped: boom"))).toBe(true);
+    expect(
+      logs.some((l) => l.includes("background-shell sweep skipped: boom")),
+    ).toBe(true);
     expect(logs.some((l) => l.includes("closed:"))).toBe(true);
   });
 
